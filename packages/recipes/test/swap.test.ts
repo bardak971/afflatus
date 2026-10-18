@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { describeRecipe, dryContext, parseInput, type MediaFacts } from "@afflatus/core";
-import { h3Swap, swapCaption } from "../src/h3/swap";
+import { h3Swap, SWAP_CAPTION, swapCaption, swapPrompt, swapPromptLacks } from "../src/h3/swap";
 import { H3_FPS } from "../src/h3/family";
 import { recipeById } from "../src/index";
 
@@ -65,6 +65,39 @@ describe("MiniMax H3 · Swap character", () => {
     const ref = of(graph, "MiniMaxH3ReferenceToVideo")[0]!;
     // the closing full stop the user typed is not doubled
     expect(ref.inputs.prompt).toBe("Swap the man in the grey t-shirt in <Video 1> with the character in <Picture 1>.");
+  });
+
+  it("sends the prompt as written when it names the references, starting from the caption (the owner, 2026-10-18)", () => {
+    expect(parseInput(h3Swap, { source: { asset: "v1" }, references: [] }).who).toBe(SWAP_CAPTION);
+    const own = "Swap the rapper in <Video 1> with the character in <Picture 1>. He keeps his sunglasses.";
+    const { graph, built } = build({ who: own });
+    expect(of(graph, "MiniMaxH3ReferenceToVideo")[0]!.inputs.prompt).toBe(own);
+    expect(built.warnings ?? []).not.toContainEqual(expect.stringContaining("The prompt has no"));
+    // a few words without a reference (a clip made before) are still the person in the caption
+    expect(swapPrompt("the man", 1)).toBe("Swap the man in <Video 1> with the character in <Picture 1>.");
+  });
+
+  it("tags the tracking and the mask as processing, not as steps of the sampling bar", () => {
+    const { built, graph } = build();
+    const id = (type: string) => Object.entries(graph).find(([, n]) => n.class_type === type)![0];
+    expect(built.phases[id("SAM3_VideoTrack")]).toBe("processing");
+    expect(built.phases[id("AfflatusSwapMask")]).toBe("processing");
+    expect(built.phases[id("SamplerCustomAdvanced")]).toBe("sampling");
+  });
+
+  it("still runs a prompt that leaves out the source or the picture, and says so on the job", () => {
+    expect(swapPromptLacks("Swap the man in <Video 1> with a tall woman.", 1)).toEqual(["<Picture 1>"]);
+    expect(swapPromptLacks("Swap him with the character in <Picture 1>.", 1)).toEqual(["<Video 1>"]);
+    // no picture given: none is asked for; plain words are the caption's, which has both
+    expect(swapPromptLacks("Swap the man in <Video 1>.", 0)).toEqual([]);
+    expect(swapPromptLacks("the man", 1)).toEqual([]);
+    const { built } = build({ who: "Swap the man in <Video 1> with a tall woman." });
+    expect(built.warnings).toContainEqual(expect.stringContaining("The prompt has no <Picture 1>"));
+  });
+
+  it("describes the person for the fused turbo, which took a cartoon on a TV for him with the caption alone", () => {
+    const turbo = h3Swap.presets!.find((p) => new RegExp(p.match, "i").test("minimax_h3_fused_refdelta_r1024_turbo8.safetensors"))!;
+    expect(String(turbo.values.who)).toMatch(/^Swap the person in <Video 1> with the character in <Picture 1>\. .*Do not add any people or objects that are not in <Video 1>\.$/);
   });
 
   it("gives the source's part as the reference video, at its own shape", () => {

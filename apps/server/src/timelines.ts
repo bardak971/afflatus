@@ -18,7 +18,7 @@ import { TimelineHistory } from "./timelineHistory";
 import { TimelineRange } from "./timelineRange";
 import { takeView, TimelineViews } from "./timelineViews";
 import { ownInputIds, recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
-import { clipsOfSource, patchedSource, planWindows, sourceOfRow, windowRunUp, type SourcePatch } from "./timelineSource";
+import { clipsOfSource, patchedSource, planWindows, sourceOfRow, windowRunUp, type SourcePatch, type SourcePlan } from "./timelineSource";
 import { TimelineTakes } from "./timelineTakes";
 import { unusedSize, unusedTakes } from "./timelineUnused";
 import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, setTrims, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, mirroredPins, mirrorJson, mirrorOfRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow, transitionJson, transitionOfRow } from "./timelineModel";
@@ -125,6 +125,12 @@ export interface ClipPatch {
   music?: ClipMusic | null;
   /** Its pinned pictures flipped left to right at render time (Mirror), by input id: true flips one, false turns it back. The others stay as they are. */
   pinMirror?: Record<string, boolean>;
+  /**
+   * Of a clip made from the source, how its settings go with the other clips' (sameForm). Left out, what changes in its
+   * `inputs` is every clip's; "apart": this clip's own, the others keep theirs; "inLine": its own settings back to the
+   * others'; "toAll": its own settings given to every clip.
+   */
+  share?: "apart" | "inLine" | "toAll";
 }
 export interface TimelinePatch {
   name?: string;
@@ -512,6 +518,8 @@ export class Timelines {
         await this.renumber(id, (await this.placed(id, tx)).map((p) => p.clip.id), tx);
       }
       if (patch.source?.inputs) await this.sameForm(id, null, patch.source.inputs, tx);
+      // the person a swap replaces picked again once its clips are made: the first window takes the click, as Make gave it
+      if (patch.source && "pick" in patch.source && source) await this.pickOnFirst(id, sourceOfRow(source)!, tx);
       // what it made follows it to its new folder
       if (moved) await timelineMediaFollows(tx, id);
     });
@@ -519,39 +527,117 @@ export class Timelines {
   }
 
   /**
-   * The Picture and the prompt of a source's windows are one: changed on one of the clips made from the source (or given with
-   * the source's form, `inputs` of the source's own), they are set on the source and on every clip made from it, as the source
-   * panel shows them, the form every window shares. The seed and each window's part of the driving video stay its own. A clip
-   * of another video, or of another model, is left alone. Its takes stay; its next take is made with them.
+   * A source's windows are made with one form (the owner, 2026-10-18: one form, the clip's, no source form of its own). A
+   * change on one of the clips made from the source, or given with the source's form (`inputs` of the source's own), is
+   * set on the source and on every clip made from it: all of the form but each window's part of the driving video, the
+   * clip it carries on from and its seed. A clip set apart on a setting keeps its own (`share`, SourcePlan.apart). A
+   * Picture taken away is not taken from the others. A clip of another video, or of another model, is left alone. Its
+   * takes stay; its next take is made with the new form.
    */
-  private async sameForm(timelineId: string, from: Pick<ClipRow, "id" | "recipe_id" | "inputs"> | null, inputs: Record<string, unknown>, tx: Db) {
+  private async sameForm(timelineId: string, from: Pick<ClipRow, "id" | "recipe_id" | "inputs"> | null, inputs: Record<string, unknown>, tx: Db, share?: ClipPatch["share"]) {
     const t = await tx.selectFrom("timelines").select(["source"]).where("id", "=", timelineId).executeTakeFirst();
     const plan = sourceOfRow(t?.source);
     if (!plan?.recipe) return;
     const recipe = this.registry.recipe(plan.recipe);
-    const spec = recipe?.inputs.find((i) => i.type === "image" && i.role === "source");
     const driving = recipe?.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window);
-    if (!recipe || !spec || !driving) return;
+    if (!recipe || !driving || driving.type !== "clip" || !driving.window) return;
     const bound = (inp: Record<string, unknown>) => (inp[driving.id] as { asset?: string } | undefined)?.asset === plan.asset;
     if (from && (from.recipe_id !== recipe.id || !bound(inputs))) return;
-    // the prompts written for what is seen (a model's negative prompt is a setting of its own, kept per clip as the others)
-    const prompts = recipe.inputs.filter((i) => i.type === "prompt" && !i.perModel).map((i) => i.id);
+    const pictures = new Set(recipe.inputs.filter((i) => i.type === "image").map((i) => i.id));
+    const ids = recipe.inputs.filter((i) => i.type !== "clip" && i.id !== "seed" && i.id !== driving.window!.start && i.id !== driving.window!.seconds).map((i) => i.id);
+    const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
     const was = from ? (JSON.parse(from.inputs) as Record<string, unknown>) : {};
-    // only a Picture set (not one taken away) and a prompt as a text, and on a clip only what changed there
-    const shared = Object.fromEntries([spec.id, ...prompts].filter((id) => typeof inputs[id] === "string" && (!from || was[id] !== inputs[id])).map((id) => [id, inputs[id]]));
-    const ids = Object.keys(shared);
-    if (!ids.length) return;
-    const clips = await tx.selectFrom("clips").select(["id", "inputs"]).where("timeline_id", "=", timelineId).where("recipe_id", "=", recipe.id).execute();
-    for (const c of clips) {
+    const clips = (await tx.selectFrom("clips").select(["id", "inputs"]).where("timeline_id", "=", timelineId).where("recipe_id", "=", recipe.id).execute())
+      .map((c) => ({ id: c.id, inputs: JSON.parse(c.inputs) as Record<string, unknown> }))
+      .filter((c) => bound(c.inputs));
+    // what each clip keeps its own, the ones gone forgotten
+    const apart: Record<string, string[]> = Object.fromEntries(Object.entries(plan.apart ?? {}).filter(([id]) => clips.some((c) => c.id === id)));
+    const mine = from ? apart[from.id] ?? [] : [];
+    const changed = from ? ids.filter((k) => !same(was[k], inputs[k])) : ids.filter((k) => k in inputs);
+    // the values every clip in line takes (undefined: back to the model's own), and whether they go over what others keep
+    let spread: Record<string, unknown> = {};
+    let over = false;
+    if (from && share === "apart") apart[from.id] = [...new Set([...mine, ...changed])];
+    else if (from && share === "inLine") {
+      // its own settings as the others have them: a clip in line on each, else the source's form
+      const line = Object.fromEntries(mine.map((k) => {
+        const other = clips.find((c) => c.id !== from.id && !(apart[c.id] ?? []).includes(k));
+        return [k, other ? other.inputs[k] : plan.inputs[k]];
+      }));
+      const next = { ...inputs };
+      for (const [k, v] of Object.entries(line)) if (v === undefined) delete next[k]; else next[k] = v;
+      await tx.updateTable("clips").set({ inputs: JSON.stringify(next), updated_at: now() }).where("id", "=", from.id).execute();
+      delete apart[from.id];
+    } else if (from && share === "toAll") {
+      spread = Object.fromEntries([...new Set([...mine, ...changed])].map((k) => [k, inputs[k]]));
+      over = true;
+      delete apart[from.id];
+    } else {
+      // a Picture taken away is this clip's: the others keep theirs
+      spread = Object.fromEntries(changed.filter((k) => !(pictures.has(k) && typeof inputs[k] !== "string")).map((k) => [k, inputs[k]]));
+      if (from) apart[from.id] = mine.filter((k) => !(k in spread));
+    }
+    const keys = Object.keys(spread);
+    for (const c of keys.length ? clips : []) {
       if (from && c.id === from.id) continue;
-      const own = JSON.parse(c.inputs) as Record<string, unknown>;
-      if (!bound(own) || ids.every((id) => own[id] === shared[id])) continue;
-      await tx.updateTable("clips").set({ inputs: JSON.stringify({ ...own, ...shared }), updated_at: now() }).where("id", "=", c.id).execute();
+      const own = apart[c.id] ?? [];
+      const taken = over ? keys : keys.filter((k) => !own.includes(k));
+      if (over) apart[c.id] = own.filter((k) => !keys.includes(k));
+      if (taken.every((k) => same(c.inputs[k], spread[k]))) continue;
+      const next = { ...c.inputs };
+      for (const k of taken) if (spread[k] === undefined) delete next[k]; else next[k] = spread[k];
+      await tx.updateTable("clips").set({ inputs: JSON.stringify(next), updated_at: now() }).where("id", "=", c.id).execute();
     }
-    if (from && ids.some((id) => plan.inputs[id] !== shared[id])) {
-      await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, inputs: { ...plan.inputs, ...shared } }) }).where("id", "=", timelineId).execute();
+    // the source's form follows (what the next Make takes), and what each clip keeps
+    const form = { ...plan.inputs };
+    if (from) for (const k of keys) if (spread[k] === undefined) delete form[k]; else form[k] = spread[k];
+    const kept = Object.fromEntries(Object.entries(apart).filter(([, v]) => v.length));
+    const { apart: _before, ...rest } = plan;
+    const next = { ...rest, inputs: form, ...(Object.keys(kept).length ? { apart: kept } : {}) };
+    if (!same(next, plan)) await tx.updateTable("timelines").set({ source: JSON.stringify(next) }).where("id", "=", timelineId).execute();
+    for (const k of keys) if (pictures.has(k) && typeof spread[k] === "string") await this.keep(spread[k] as string, tx);
+  }
+
+  /**
+   * What cutting the source again keeps and drops: its clips at the start that are rendered or in the queue kept, the rest
+   * dropped; where the new clips go (in place of the first dropped), where in the source they start (where the last kept
+   * one's window ends; none kept, at the stretch's start) and the form they share (the source's first clip's).
+   */
+  private async cutAgain(all: Placed[], plan: SourcePlan, driving: Extract<InputSpec, { type: "clip" }>) {
+    const ofSource = clipsOfSource(plan, all.map((p) => p.clip), (r) => this.registry.recipe(r));
+    const mine = all.filter((p) => ofSource.includes(p.clip.id));
+    if (!mine.length) throw httpError("The source has no clips to cut again: make them first.");
+    const busy = new Set((await this.db.selectFrom("jobs").select("clip_id").where("clip_id", "in", mine.map((p) => p.clip.id)).where("status", "in", ["queued", "running"]).execute()).map((j) => j.clip_id));
+    const kept: Placed[] = [];
+    const drop: string[] = [];
+    for (const p of mine) {
+      if (p.clip.take_id || busy.has(p.clip.id)) {
+        if (drop.length) throw httpError(`Clip ${all.indexOf(p) + 1} is rendered after clips of the source that are not: remove it, or its take, to cut the source again.`);
+        kept.push(p);
+      } else drop.push(p.clip.id);
     }
-    if (typeof shared[spec.id] === "string") await this.keep(shared[spec.id] as string, tx);
+    if (!drop.length) throw httpError("Every clip of the source is rendered or in the queue: nothing is left to cut again.");
+    const last = kept.at(-1);
+    const fps = this.registry.recipe(mine[0]!.clip.recipe_id ?? "")?.traits?.fps ?? 24;
+    const w = driving.window!;
+    const lastInputs = last ? (JSON.parse(last.clip.inputs) as Record<string, unknown>) : null;
+    // a part holds its frames and half a frame more (sourceWindows): it ends its whole frames after its start
+    const after = lastInputs ? Math.round((Number(lastInputs[w.start]) + Math.floor(Number(lastInputs[w.seconds]) * fps + 1e-6) / fps) * 1000) : undefined;
+    return { kept: kept.length, drop, after, index: all.findIndex((p) => p.clip.id === drop[0]), form: JSON.parse(mine[0]!.clip.inputs) as Record<string, unknown> };
+  }
+
+  /** The click on the source's first frame (or none) given to the first clip made from it, the one whose window starts there. */
+  private async pickOnFirst(timelineId: string, plan: SourcePlan, tx: Db) {
+    const placed = await this.placed(timelineId, tx);
+    const made = clipsOfSource(plan, placed.map((p) => p.clip), (r) => this.registry.recipe(r));
+    const first = placed.find((p) => made.includes(p.clip.id))?.clip;
+    const recipe = first?.recipe_id ? this.registry.recipe(first.recipe_id) : undefined;
+    const driving = recipe?.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window);
+    if (!first || !driving || driving.type !== "clip" || !driving.pick) return;
+    const inputs = JSON.parse(first.inputs) as Record<string, unknown>;
+    const { pick: _was, ...value } = (inputs[driving.id] ?? {}) as { asset?: string; pick?: unknown };
+    const next = { ...inputs, [driving.id]: { ...value, ...(plan.pick ? { pick: plan.pick } : {}) } };
+    if (JSON.stringify(next) !== JSON.stringify(inputs)) await tx.updateTable("clips").set({ inputs: JSON.stringify(next), updated_at: now() }).where("id", "=", first.id).execute();
   }
 
   /**
@@ -590,8 +676,12 @@ export class Timelines {
    * driving video and carries on from the one before (a window after a scene cut opens a new shot: a cut), with the same
    * picture and prompt in every one, and the seed typed on the source form if one was. In place of the clip the stretch was taken from, else after the last clip. One
    * step for Undo. Nothing is rendered here: the editor sends the new clips to render, as from its Render button.
+   *
+   * `again`: the source cut again into the clips it made (its window or its scene cuts changed). The clips at its start that
+   * are rendered, or in the queue, are kept; the others are made anew from where the last kept one ends, carrying on from
+   * it, with the form the source's clips share (the first one's). A rendered clip after one that is not stops it.
    */
-  async makeFromSource(timelineId: string): Promise<string[]> {
+  async makeFromSource(timelineId: string, opts: { again?: boolean } = {}): Promise<string[]> {
     // the source's scene cuts read before the timeline is held (the first time, ffmpeg reads every frame of it): inside, they are read back
     const asked = sourceOfRow((await this.row(timelineId)).source);
     if (asked?.snap) await this.media.scenes(asked.asset).catch(() => {});
@@ -606,12 +696,14 @@ export class Timelines {
       if (!video) throw notFound("the source video");
       const driving = recipe.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window);
       if (!driving || driving.type !== "clip" || !driving.window) throw httpError(`${recipe.title} takes no driving video.`);
-      const windows = await planWindows(plan, recipe, video, (id) => this.media.scenes(id));
-      if (!windows.length) throw httpError("The stretch is too short for one clip: make it longer.");
       const all = await this.placed(timelineId);
+      // cut again: the source's clips rendered (or in the queue) at its start kept, the rest made anew after them
+      const again = opts.again ? await this.cutAgain(all, plan, driving) : null;
+      const windows = await planWindows(plan, recipe, video, (id) => this.media.scenes(id), again?.after);
+      if (!windows.length) throw httpError(again?.after !== undefined ? "Nothing of the stretch is left after the rendered clips." : "The stretch is too short for one clip: make it longer.");
       // in place of the clip the stretch was taken from (still the same video), else after the last clip
-      const replaced = plan.clip ? all.findIndex((p) => p.clip.id === plan.clip && p.active?.asset.id === plan.asset) : -1;
-      const index = replaced >= 0 ? replaced : all.length;
+      const replaced = again ? -1 : plan.clip ? all.findIndex((p) => p.clip.id === plan.clip && p.active?.asset.id === plan.asset) : -1;
+      const index = again ? again.index : replaced >= 0 ? replaced : all.length;
       const startsAt = all.slice(0, index).reduce((sum, p) => sum + plannedLengthOf(p, p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined), 0);
       // a seed only when one was typed on the source form: else each render draws its own, as for a new clip (the shared
       // Picture keeps the person the same from window to window, not a seed). One drawn here would be a typed seed to the
@@ -620,12 +712,13 @@ export class Timelines {
       // the form every window is made with: the settings of the last clip of that model, then the source's own form; the
       // clips a timeline fills in itself and the driving video's part are each window's
       const own = ownInputIds(recipe);
-      const form = Object.fromEntries(Object.entries({ ...settingsOf(recipe, all, index), ...plan.inputs }).filter(([k]) => own.has(k) && k !== driving.id && k !== driving.window!.start && k !== driving.window!.seconds));
+      const form = Object.fromEntries(Object.entries(again?.form ?? { ...settingsOf(recipe, all, index), ...plan.inputs }).filter(([k]) => own.has(k) && k !== driving.id && k !== driving.window!.start && k !== driving.window!.seconds && !(again && k === "seed")));
       const pictureSpec = recipe.inputs.find((i) => i.type === "image" && i.role === "source");
       const picture = pictureSpec && typeof form[pictureSpec.id] === "string" ? (form[pictureSpec.id] as string) : null;
-      await this.remember(timelineId, `the ${windows.length} clips made from the source`);
+      await this.remember(timelineId, again ? "the source cut again" : `the ${windows.length} clips made from the source`);
       return this.db.transaction().execute(async (tx) => {
-        const order: Array<{ clip: { id: string } }> = all.map((p) => ({ clip: { id: p.clip.id } }));
+        const order: Array<{ clip: { id: string } }> = all.filter((p) => !again?.drop.includes(p.clip.id)).map((p) => ({ clip: { id: p.clip.id } }));
+        if (again?.drop.length) await tx.deleteFrom("clips").where("id", "in", again.drop).execute();
         if (replaced >= 0) {
           await tx.deleteFrom("clips").where("id", "=", plan.clip!).execute();
           order.splice(replaced, 1);
@@ -635,14 +728,17 @@ export class Timelines {
           const clip: NewClip = {
             kind: "video", recipeId: recipe.id, joined: w.opens ? "cut" : "continue", still: null, take: null, asset: undefined, look: null,
             // the first window replaces the person clicked on its first frame, the ones after follow it (h3.swap's pick)
-            inputs: { ...form, [driving.id]: { asset: plan.asset, ...(k === 0 && plan.pick && driving.pick ? { pick: plan.pick } : {}) }, [driving.window!.start]: w.start, [driving.window!.seconds]: w.seconds, ...(seed !== null ? { seed } : {}) },
+            inputs: { ...form, [driving.id]: { asset: plan.asset, ...(k === 0 && !again?.kept && plan.pick && driving.pick ? { pick: plan.pick } : {}) }, [driving.window!.start]: w.start, [driving.window!.seconds]: w.seconds, ...(seed !== null ? { seed } : {}) },
           };
           const id = await this.planner.insertClip(timelineId, order, index + k, clip, tx);
           order.splice(index + k, 0, { clip: { id } });
           made.push(id);
         }
-        // the source's start sits where its stretch now plays from; the clip it was taken from is gone
-        await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, atMs: startsAt - plan.fromMs, clip: null }), updated_at: now() }).where("id", "=", timelineId).execute();
+        // the source's start sits where its stretch now plays from; the clip it was taken from is gone. Cut again, it stays where
+        // it was, and the clips it no longer has keep nothing apart
+        const apart = plan.apart ? Object.fromEntries(Object.entries(plan.apart).filter(([id]) => !again?.drop.includes(id))) : undefined;
+        const placedPlan = again ? { ...plan, ...(apart ? { apart } : {}) } : { ...plan, atMs: startsAt - plan.fromMs, clip: null };
+        await tx.updateTable("timelines").set({ source: JSON.stringify(placedPlan), updated_at: now() }).where("id", "=", timelineId).execute();
         if (picture) await this.keep(picture, tx);
         return made;
       });
@@ -775,7 +871,7 @@ export class Timelines {
     const clip = await this.clipRow(id);
     const all = await this.placed(clip.timeline_id);
     const checked = await this.checkClipPatch(clip, patch, all);
-    if (keys.length === 1 && keys[0] === "inputs") await this.rememberWriting(clip, all);
+    if (keys.every((k) => k === "inputs" || k === "share") && patch.inputs !== undefined && !patch.share) await this.rememberWriting(clip, all);
     else if (keys.length) await this.remember(clip.timeline_id, labelOf(patch));
 
     const { animate, trims, order, mirror } = checked;
@@ -821,8 +917,8 @@ export class Timelines {
       if (trims) await setTrims(tx, trims.take, { trim_start_ms: trims.start, trim_end_ms: trims.end });
       if (order) await this.renumber(clip.timeline_id, order, tx);
       if (patch.soundAsset) await this.keep(patch.soundAsset, tx);
-      // a window of the source's: its Picture changed is the source's and every window's (the same person in every one)
-      if (patch.inputs !== undefined) await this.sameForm(clip.timeline_id, clip, patch.inputs, tx);
+      // a window of the source's: what changed in its form is every window's, unless kept to it (share)
+      if (patch.inputs !== undefined || patch.share) await this.sameForm(clip.timeline_id, clip, inputs ?? (JSON.parse(clip.inputs) as Record<string, unknown>), tx, patch.share);
       if (cutNext) {
         const moved = windowRunUp(modelOf(cutNext), JSON.parse(cutNext.clip.inputs) as Record<string, unknown>, "cut");
         await tx.updateTable("clips").set({ joined: "cut", ...(moved ? { inputs: JSON.stringify(moved) } : {}), updated_at: now() }).where("id", "=", cutNext.clip.id).execute();
@@ -1081,5 +1177,8 @@ function labelOf(patch: ClipPatch): string {
     : patch.fitNext !== undefined ? "the end on the next clip"
     : patch.pinMirror !== undefined ? (Object.values(patch.pinMirror).some(Boolean) ? "the frame mirrored" : "the mirror turned off")
     : patch.look !== undefined ? "the change of characters"
+    : patch.share === "apart" ? "the change to this clip only"
+    : patch.share === "inLine" ? "the clip brought in line"
+    : patch.share === "toAll" ? "the clip's settings given to all"
     : "the change of model";
 }

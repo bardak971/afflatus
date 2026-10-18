@@ -1333,6 +1333,7 @@ export class Queue {
       running.startedAt = resume.startedAt;
       running.movedAt = Date.now();
       running.seed = resume.seed;
+      if (resume.timing) running.cold = resume.timing.cold;
       if (abort.signal.aborted) {
         // stopped by hand: ComfyUI drops it too; shutting down leaves it there for the next start (SHUTDOWN)
         if (abort.signal.reason !== SHUTDOWN) await comfy.client.interrupt(resume.promptId).catch(() => {});

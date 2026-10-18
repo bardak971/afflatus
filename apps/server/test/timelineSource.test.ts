@@ -99,6 +99,98 @@ describe("a timeline's source lane", () => {
     expect(v.clips[1].inputs.sourceSeconds).toBeCloseTo(141.5 / 24, 3);
   });
 
+  describe("a swap's clips share one form, the clip's (the owner, 2026-10-18)", () => {
+    async function swapClips() {
+      const tl = await call("POST", "/api/timelines", { name: "zz-test swap form" });
+      const meme = await asset("video");
+      const photo = await asset("image");
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id } });
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, recipe: "h3.swap", inputs: { who: "the man", references: [{ asset: photo.id, role: "person" }] } } });
+      await call("POST", `/api/timelines/${tl.id}/source/make`);
+      const clips = (await view(tl.id)).clips as Array<{ id: string; inputs: Record<string, unknown> }>;
+      const edit = (c: { id: string; inputs: Record<string, unknown> }, over: Record<string, unknown>, share?: string) =>
+        call("PATCH", `/api/clips/${c.id}`, { inputs: { ...c.inputs, ...over }, ...(share ? { share } : {}) });
+      return { tl, clips, edit, now: async () => (await view(tl.id)) as { clips: Array<{ id: string; inputs: Record<string, unknown> }>; source: { inputs: Record<string, unknown>; apart?: Record<string, string[]> } } };
+    }
+
+    it("a change on one clip is every clip's and the source's, but each window's part, run-up and seed", async () => {
+      const { clips, edit, now } = await swapClips();
+      await edit(clips[2]!, { who: "Swap the man in pink in <Video 1> with the character in <Picture 1>.", steps: 12, seed: 7, sourceStart: 99 });
+      const v = await now();
+      for (const c of v.clips) expect(c.inputs).toMatchObject({ who: "Swap the man in pink in <Video 1> with the character in <Picture 1>.", steps: 12 });
+      expect(v.source.inputs).toMatchObject({ steps: 12 });
+      // the seed and the part of the source stay the clip's own
+      expect(v.clips.filter((c) => c.inputs.seed === 7).map((c) => c.id)).toEqual([clips[2]!.id]);
+      expect(v.clips[0]!.inputs.sourceStart).toBe(3);
+    });
+
+    it("a change kept to one clip sets it apart on that setting, and changes for all leave it alone there", async () => {
+      const { clips, edit, now } = await swapClips();
+      await edit(clips[2]!, { swapStrength: 1.2 }, "apart");
+      let v = await now();
+      expect(v.source.apart).toEqual({ [clips[2]!.id]: ["swapStrength"] });
+      expect(v.clips.map((c) => c.inputs.swapStrength ?? 1)).toEqual([1, 1, 1.2, 1, 1]);
+      // changed for all from another clip: every clip but the one set apart on it
+      await edit(v.clips[0]!, { swapStrength: 0.9, steps: 10 });
+      v = await now();
+      expect(v.clips.map((c) => c.inputs.swapStrength)).toEqual([0.9, 0.9, 1.2, 0.9, 0.9]);
+      expect(v.clips.every((c) => c.inputs.steps === 10)).toBe(true);
+      // brought in line: the others' value, nothing kept apart
+      await call("PATCH", `/api/clips/${clips[2]!.id}`, { share: "inLine" });
+      v = await now();
+      expect(v.clips[2]!.inputs.swapStrength).toBe(0.9);
+      expect(v.source.apart).toBeUndefined();
+    });
+
+    it("is cut again when its window changes: the clips not rendered made anew with the form they share", async () => {
+      const { tl, clips, edit, now } = await swapClips();
+      await edit(clips[0]!, { who: "Swap the man in pink in <Video 1> with the character in <Picture 1>.", steps: 12 });
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { windowMs: 3800, pick: { x: 0.4, y: 0.5 } } });
+      const again = await call("POST", `/api/timelines/${tl.id}/source/make`, { again: true });
+      const v = await now();
+      expect(v.clips.map((c) => c.id)).toEqual(again.clips);
+      expect(again.clips.length).toBeGreaterThan(clips.length);
+      for (const c of v.clips) expect(c.inputs).toMatchObject({ who: "Swap the man in pink in <Video 1> with the character in <Picture 1>.", steps: 12 });
+      expect(v.clips[0]!.inputs.source).toEqual(expect.objectContaining({ pick: { x: 0.4, y: 0.5 } }));
+      expect(v.clips[0]!.inputs.sourceStart).toBe(3);
+      expect((v as { undo?: string }).undo).toMatch(/cut again/);
+    });
+
+    it("cut again, keeps its rendered clips at the start and carries on from the last of them", async () => {
+      const { tl, clips, now: read } = await swapClips();
+      const video = await asset("video");
+      await t.db.insertInto("takes").values({
+        id: newId(), clip_id: clips[0]!.id, asset_id: video.id, head_ms: 0, tail_ms: 0, trim_start_ms: 0, trim_end_ms: 0, prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, finished_from: null, created_at: now(),
+      } as never).execute();
+      const take = await t.db.selectFrom("takes").select("id").where("clip_id", "=", clips[0]!.id).executeTakeFirstOrThrow();
+      await t.db.updateTable("clips").set({ take_id: take.id }).where("id", "=", clips[0]!.id).execute();
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { windowMs: 3800 } });
+      const again = await call("POST", `/api/timelines/${tl.id}/source/make`, { again: true });
+      const v = await read();
+      expect(v.clips[0]!.id).toBe(clips[0]!.id);
+      expect(v.clips.slice(1).map((c) => c.id)).toEqual(again.clips);
+      // the first new window starts 22 frames (its run-up) before where the kept one ends, carrying on from it
+      const kept = clips[0]!.inputs as { sourceStart: number; sourceSeconds: number };
+      const ends = kept.sourceStart + Math.floor(kept.sourceSeconds * 24 + 1e-6) / 24;
+      expect(v.clips[1]!.inputs.sourceStart as number).toBeCloseTo(ends - 22 / 24, 3);
+      expect((v.clips[1] as unknown as { joined: string }).joined).toBe("continue");
+      // nothing left to cut once every clip is rendered
+      for (const c of v.clips.slice(1)) await t.db.updateTable("clips").set({ take_id: take.id }).where("id", "=", c.id).execute();
+      await expect(call("POST", `/api/timelines/${tl.id}/source/make`, { again: true })).rejects.toThrow(/nothing is left to cut again/);
+    });
+
+    it("a clip's own settings given to all: every clip takes them, and none is set apart on them", async () => {
+      const { clips, edit, now } = await swapClips();
+      await edit(clips[1]!, { swapStrength: 1.3 }, "apart");
+      await edit(clips[3]!, { swapStrength: 0.7 }, "apart");
+      await call("PATCH", `/api/clips/${clips[1]!.id}`, { share: "toAll" });
+      const v = await now();
+      expect(v.clips.map((c) => c.inputs.swapStrength)).toEqual([1.3, 1.3, 1.3, 1.3, 1.3]);
+      expect(v.source.apart).toBeUndefined();
+      expect(v.source.inputs.swapStrength).toBe(1.3);
+    });
+  });
+
   it("gives a swap's first window the person clicked on the stretch's first frame; a new start or video forgets the click", async () => {
     const tl = await call("POST", "/api/timelines", { name: "zz-test swap pick" });
     const meme = await asset("video");
@@ -114,6 +206,12 @@ describe("a timeline's source lane", () => {
     expect(clips[0].inputs.source).toEqual({ asset: meme.id, pick: { x: 0.4, y: 0.45 } });
     // the windows after follow the person the first replaced
     for (const c of clips.slice(1)) expect(c.inputs.source).toEqual({ asset: meme.id });
+    // picked again once made (from a clip's Source chapter): the first window takes the new click, cleared it takes none
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { pick: { x: 0.6, y: 0.5 } } });
+    expect((await view(tl.id)).clips[0].inputs.source).toEqual({ asset: meme.id, pick: { x: 0.6, y: 0.5 } });
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { pick: null } });
+    expect((await view(tl.id)).clips[0].inputs.source).toEqual({ asset: meme.id });
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { pick: { x: 0.4, y: 0.45 } } });
     // another first frame: someone else's to pick
     v = await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 4000 } });
     expect(v.source.pick).toBeUndefined();

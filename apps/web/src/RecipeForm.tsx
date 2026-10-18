@@ -32,6 +32,9 @@ export { mainTextOf } from "./form";
  * through `made`, `look` and `helpers`. Which input goes where is `layoutOf` (form.ts); what each part
  * says folded is `summariesOf`.
  */
+/** A chapter a screen puts before the form's own (a timeline clip's Source, its Takes). */
+export type LeadPart = { id: string; title: string; summary: ReactNode; node: ReactNode; help?: string };
+
 export function Form({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, keepEmpty, promptInView }: {
   recipe: RecipeInfo;
   status: RecipeStatus | undefined;
@@ -50,8 +53,8 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   lookSummary?: string;
   /** What sits above the prompt: the designer, the snippets. */
   helpers?: ReactNode;
-  /** A chapter of the screen's own before every other (a timeline clip's Takes): first in the strip too. */
-  lead?: { id: string; title: string; summary: ReactNode; node: ReactNode; help?: string };
+  /** Chapters of the screen's own before every other (a timeline clip's Source and Takes): first in the strip too, in this order. */
+  lead?: LeadPart | ReadonlyArray<LeadPart | undefined>;
   /** What the screen adds to the Inputs chapter's frames (a timeline clip's pinned frames), with its words for the summary. */
   frameExtra?: { node: ReactNode; summary: string };
   /** Show the recipe's chapters that hold nothing yet (the import screen's preview, while sections are arranged). */
@@ -172,8 +175,9 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   const promptHit = Boolean(mainText) && (!q || hit(mainText as InputSpec) || texts.length > 0 || helpersHit);
   const found = Number(helpersHit) + Number(madeHit) + Number(lookHit) + knobs.length + loras.length + texts.length + (mainText && hit(mainText) ? 1 : 0) + frames.length + refs.length + sampling.length + upscaling.length + out.length + encoding.length + rare.length + hidden.length;
 
+  const leads = (Array.isArray(lead) ? lead : [lead]).filter((l): l is LeadPart => Boolean(l));
   const parts = [
-    ...(lead && !q ? [{ id: lead.id, label: lead.title }] : []),
+    ...(!q ? leads.map((l) => ({ id: l.id, label: l.title })) : []),
     ...((made && (!q || madeHit)) || knobs.length || loras.length ? [{ id: "model", label: "Model" }] : []),
     ...(promptHit && !promptMoved ? [{ id: "prompt", label: "Prompt" }] : []),
     ...(hasFrames || hasRefs ? [{ id: "inputs", label: "Inputs" }] : []),
@@ -205,7 +209,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
     <FormSearching.Provider value={Boolean(q)}>
       <Strip parts={parts} open={(id) => id !== "prompt" && setPart(id, true, true)} query={query} setQuery={setQuery} found={found} />
       {q && found === 0 && <div className="px-1 text-sm text-ink-2">No setting of this form matches “{q}”.</div>}
-      {lead && !q && <Part id={lead.id} title={lead.title} help={lead.help} summary={lead.summary} startOpen>{lead.node}</Part>}
+      {!q && leads.map((l) => <Part key={l.id} id={l.id} title={l.title} help={l.help} summary={l.summary} startOpen>{l.node}</Part>)}
       {((made && (!q || madeHit)) || knobs.length > 0 || loras.length > 0) && (
         <Part id="model" title="Model" summary={said.modelSaid || recipe.title} needs={Boolean(q)}>
           {(!q || madeHit) && made}

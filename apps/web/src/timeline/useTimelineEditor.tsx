@@ -106,7 +106,7 @@ export function useTimelineEditor(id: string) {
   const place = useMemo(() => (t ? sourcePlace(t, slots, videoRecipes) : null), [t, slots, videoRecipes]);
   const total = slots.length ? slots.at(-1)!.startMs + slots.at(-1)!.lengthMs : 0;
 
-  const { dropEdits, saveFailed, save, turn, inputsOf, editInputs, savedElsewhere, typeSource, sourceTyped, shown, formOf, ready } = useClipEdits({ timeline: t, clips, recipes, setup, settings, comfyOnline });
+  const { dropEdits, saveFailed, save, turn, inputsOf, editInputs, savedElsewhere, typeSource, sourceTyped, shown, formOf, ready, keptToClip, keepToClip } = useClipEdits({ timeline: t, clips, recipes, setup, settings, comfyOnline });
   /** What a clip says happens, in a few words, for the designer: its main text, or what it is. */
   const sayOf = (c: Clip) => {
     if (c.kind === "still") return `(a picture held on screen for ${(c.lengthMs / 1000).toFixed(1)} s${c.still?.name ? `: ${c.still.name}` : ""})`;
@@ -125,7 +125,7 @@ export function useTimelineEditor(id: string) {
     timeline: t, clipsNow, recipes: recipes.data?.recipes ?? [], edits: { save, turn, ready, inputsOf, editInputs, dropEdits, savedElsewhere, sourceTyped }, firstRecipe,
     on: { note: setNote, select, unpick: () => setPicked(new Set()), writing: setWriting, open: setOpened },
   });
-  const { after, render, patch, fix, edit, makeSource: makeSourceMut, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
+  const { after, render, patch, fix, edit, makeSource: makeSourceMut, cutSource: cutSourceMut, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
   const pickedNow = useRef(picked);
   pickedNow.current = picked;
   /** The source taken away with the clips it made, rendered or not (one step for Undo), its panel closed. */
@@ -151,24 +151,36 @@ export function useTimelineEditor(id: string) {
   // an error goes after a while, not while the pointer is on it (the note's own timer is useHeaderNote's)
   const errorShown = useErrorShown(error, held);
 
-  // the clips made from the source are sent to render once the timeline read again has them (their forms are read then)
-  const [toRender, setToRender] = useState<string[] | null>(null);
+  // the clips made from the source are sent to render once the timeline read again has them (their forms are read then);
+  // made from a source with no form of its own (a swap's: its clips' form is the one), the first is opened instead, to set
+  // the form every clip shares before anything renders (the owner, 2026-10-18)
+  const [toRender, setToRender] = useState<{ ids: string[]; render: boolean } | null>(null);
   useEffect(() => {
     if (!toRender) return;
-    const made = clips.filter((c) => toRender.includes(c.id));
-    if (made.length < toRender.length) return;
+    const made = clips.filter((c) => toRender.ids.includes(c.id));
+    if (made.length < toRender.ids.length) return;
     setToRender(null);
     setSourceOpen(false);
+    if (!toRender.render) return void (made[0] && select(made[0].id));
     // only what can be rendered now: a model whose files or nodes are missing is said, the clips wait with their Render
     const why = made.map((c) => ready(c).why).find(Boolean);
     const now = made.filter((c) => ready(c).input);
     if (now.length) render.mutate({ clips: now });
     if (why) setNote(`${plural(made.length, "clip")} made from the source, not rendered: ${why}`);
-  }, [clips, toRender, render, ready, setNote, setSourceOpen]);
+  }, [clips, toRender, render, ready, setNote, setSourceOpen, select]);
   /** The source's stretch made into clips, sent to render in order (each waits for the one it carries on from). */
   const makeSource = {
     pending: makeSourceMut.isPending || Boolean(toRender),
-    run: () => makeSourceMut.mutate(undefined, { onSuccess: (r) => setToRender(r.clips) }),
+    run: (andRender = true) => makeSourceMut.mutate(undefined, { onSuccess: (r) => setToRender({ ids: r.clips, render: andRender }) }),
+  };
+  /**
+   * The source's window or scene cuts changed (a swap clip's Source chapter): the change saved, then the source cut again,
+   * its rendered clips at the start kept and the first new one opened. Nothing renders.
+   */
+  const cutSource = {
+    pending: edit.isPending || cutSourceMut.isPending,
+    run: (change: { windowMs?: number; snap?: boolean }) =>
+      edit.mutate({ source: change }, { onSuccess: () => cutSourceMut.mutate(undefined, { onSuccess: (r) => setToRender({ ids: r.clips, render: false }) }) }),
   };
 
   // a window of the source (Motion transfer) is made from its driving video: a clip added by hand, or extending one, takes
@@ -266,10 +278,10 @@ export function useTimelineEditor(id: string) {
 
   return {
     id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, current,
-    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, removeSource, makeSource, splitSource, place, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
+    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, removeSource, makeSource, cutSource, splitSource, place, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
-    liveShown, saveFailed, save, typeSource, sourceTyped, inputsOf, editInputs, formOf, ready, sayOf, say, m, range, setRange, loopRange, snapQuiet,
+    liveShown, saveFailed, save, typeSource, sourceTyped, inputsOf, editInputs, formOf, ready, keptToClip, keepToClip, sayOf, say, m, range, setRange, loopRange, snapQuiet,
     toggleSnapQuiet, emptyRange, toggle, toggleLoop, rangeAct, rangeItems, clipMenu, soundMenu, pinMenu, musicMenu, rangeMenu, onClip,
     newClip, move, missing, renderable, takes, takesOn, allMs, allOn, allBlocked, checks, volume, muted, onVolume, onMute, cursor, setCursor, onTime,
     trackKeys, jump, splitAt, stepTake, continueFrom, continueHere, misfits, finishedSize, fixFirst, exportNow, clipHead,

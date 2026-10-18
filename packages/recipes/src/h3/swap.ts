@@ -8,8 +8,8 @@ import { partBounds } from "../motion/driving";
 /**
  * MiniMax H3 · Swap character: a person in a video replaced by someone of the cast, the rest of the video kept. The
  * source video's part is H3's reference video (<Video 1>), the cast's pictures its reference pictures, and the model
- * carries akatz-ai's Character-Swap LoRA (trained on the reference model) with its own short caption as the whole prompt:
- * a long "preserve everything" prompt broke 2 of 3 swaps, the caption made 3 of 3 (report §5, S1, 2026-10-12). The
+ * carries akatz-ai's Character-Swap LoRA (trained on the reference model). The prompt starts as the LoRA's own short
+ * caption: a long "preserve everything" prompt broke 2 of 3 swaps, the caption made 3 of 3 (report §5, S1, 2026-10-12). The
  * file's sound is the source's own. One swap holds a window of up to 141 frames (5.9 s at 24): the LoRA's author found
  * 4-5 s windows the safest. A longer video goes on a timeline's source lane, window by window, each window's swap pinned
  * on the last 5 frames of the window before (its own last frames and their sound, a guide at frame 0): the joins came out
@@ -25,6 +25,8 @@ import { partBounds } from "../motion/driving";
 export interface H3Swap extends H3Video {
   /** The reference model the swap runs on, when not the swapUnet slot's: a fine-tune of it, or a distilled one (few steps). */
   swapModel?: string;
+  /** The Character-Swap LoRA, when not the swapLora slot's: its V1.5, or another of its versions. */
+  swapLora?: string;
   source?: ClipValue;
   sourceStart: number;
   sourceSeconds: number;
@@ -64,6 +66,11 @@ const NOT_TAKEN = new Set([
   "colourMatch", "colourStrength",
 ]);
 
+/** The swap LoRA's trained caption, the prompt a swap starts from. */
+export const SWAP_CAPTION = "Swap the person in <Video 1> with the character in <Picture 1>.";
+/** The fused turbo's: the caption, then the person kept as the source has them and nothing added (her workflow's sentence). */
+const SWAP_TURBO_PROMPT = `${SWAP_CAPTION} Keep the motion, the gestures and the lip movements of <Video 1>. Do not add any people or objects that are not in <Video 1>.`;
+
 const swapInputs: InputSpec[] = [
   {
     // MiniMax's reference model and what is made from it: a fine-tune, or a distilled merge such as the fused reference turbo
@@ -73,10 +80,20 @@ const swapInputs: InputSpec[] = [
     note: "MiniMax's reference model (ref2va), the one the swap LoRA was trained on, a model made from it, or a hybrid fine-tune (DaSiWa's: not tried with the swap LoRA yet). A distilled one (its name says turbo or a step count) takes no turbo LoRA: turn Turbo on for its few steps",
   },
   {
-    id: "who", type: "prompt", weights: false, label: "Who to replace", style: "sentences", noCast: true,
-    placeholder: "the man in the grey t-shirt",
+    // shown, not only a file of Settings › Models (the owner, 2026-10-18: nothing hidden): its author's V1 (pro4500), the one
+    // the swaps were tested with, or the V1.5 its card now recommends for new swaps
+    id: "swapLora", type: "model", label: "Swap LoRA", folder: "loras", slot: "swapLora", match: ["character.?swap"],
+    note: "akatz-ai's Character-Swap LoRA, put first among the LoRAs. Its card recommends V1.5 for new swaps; the swaps here were tested with V1 (pro4500)",
+  },
+  { id: "swapStrength", type: "number", label: "Swap LoRA strength", min: 0, max: 2, step: 0.05, default: 1, note: "its author's 1.0; 2 gave artifacts" },
+  {
+    // The whole prompt, shown as it is sent (the owner, 2026-10-18: nothing hidden). It starts as the swap LoRA's caption; a
+    // longer one broke 2 swaps of 3 on ref2va (2026-10-12), and the fused turbo needs the person described (§9.10), so it
+    // is the user's. Words with no <Video 1> or <Picture 1> in them (a clip made before) are the person in the caption.
     // SAM's own words missed the man in a crowd ("man in black t-shirt"); the most prominent person tracked found him (§9.9)
-    note: "a few words that say who is replaced, for the swap LoRA's own short caption (the whole prompt: a longer one broke the swap). They do not choose the person: on a timeline's source, the one clicked on the stage is; otherwise the one with the largest face (SAM 3.1 tracks them, the rest of the video is kept)",
+    id: "who", type: "prompt", weights: false, label: "Prompt", style: "sentences", noCast: true,
+    default: SWAP_CAPTION, placeholder: SWAP_CAPTION,
+    note: "the whole prompt. The swap LoRA was trained on its first sentence: keep it first and change only who it names. A distilled model (the fused turbo) wants the person described after it. The words do not choose who is replaced: the click on the stage does, else the largest face",
   },
   {
     id: "source", type: "clip", role: "source", label: "Source video", frames: [SWAP_FRAMES], fps: H3_FPS, whole: true, pick: true,
@@ -109,7 +126,6 @@ const swapInputs: InputSpec[] = [
     id: "swapSize", type: "choice", label: "Size", options: [...SWAP_SIZES], default: "576p",
     note: "the height it renders at, in the source's shape: 576p by default (a small phone clip swapped better made larger), or the source's own size",
   },
-  { id: "swapStrength", type: "number", label: "Swap LoRA strength", min: 0, max: 2, step: 0.05, default: 1, advanced: true, note: "its author's 1.0" },
   { id: "keepSound", type: "toggle", label: "Keep the source's sound", default: true, advanced: true, note: "the file carries the source video's own sound; off, the sound H3 makes" },
   {
     // H3 moves the mouth to the sound it makes with the frames; without the source's, it drew lips to a sound then thrown
@@ -140,8 +156,17 @@ function shortOf(choice: string, size?: { width: number; height: number }): numb
   return size ? Math.max(384, Math.min(1088, Math.min(size.width, size.height))) : 576;
 }
 
-/** The person picked out in the LoRA's trained caption: the user's few words, without a closing full stop. */
-const whoOf = (input: H3Swap) => input.who.trim().replace(/[.!\s]+$/, "") || "the person";
+/** The prompt sent: as written when it names H3's references, else the caption with its words as the person (a clip made before). */
+export function swapPrompt(text: string, pictures: number): string {
+  const t = text.trim();
+  return /<(Video|Picture) \d+>/i.test(t) ? t : swapCaption(t.replace(/[.!\s]+$/, "") || "the person", pictures);
+}
+
+/** What a prompt that names references lacks: the source video, or the cast's picture when there is one. */
+export function swapPromptLacks(text: string, pictures: number): string[] {
+  if (!/<(Video|Picture) \d+>/i.test(text)) return [];
+  return [...(/<Video 1>/i.test(text) ? [] : ["<Video 1>"]), ...(pictures > 0 && !/<Picture 1>/i.test(text) ? ["<Picture 1>"] : [])];
+}
 
 /** "<Picture 1>", "<Picture 1> and <Picture 2>", "<Picture 1>, <Picture 2> and <Picture 3>". */
 const picturesSaid = (n: number) => {
@@ -151,6 +176,7 @@ const picturesSaid = (n: number) => {
 
 /** The caption it was trained on: "Swap the man in the purple shirt in <Video 1> with the character in <Picture 1>." */
 export const swapCaption = (who: string, pictures: number) => `Swap ${who} in <Video 1> with the character in ${picturesSaid(pictures)}.`;
+
 
 /**
  * The swap as an H3 clip: MiniMax's reference model as it is (`unet`), the source's part as its one reference video, the
@@ -184,7 +210,8 @@ function asClip(input: H3Swap, swapLora: string, frames: number, carried: number
  * ref2va's speed, §9.10), then H3's own (DaSiWa's distilled files: Turbo, 8 steps without a LoRA).
  */
 const SWAP_PRESETS = [
-  { match: "refdelta", values: { fast: true, turboSteps: 4, sampler: "er_sde", scheduler: "beta", shiftVideo: 12, shiftAudio: 3 }, note: "a fused reference turbo: Turbo, 4 steps, er_sde / beta, as its swap workflow runs it" },
+  // the person described, nothing added: with the caption alone it took a cartoon on a TV for the person for 3 s (§9.10)
+  { match: "refdelta", values: { fast: true, turboSteps: 4, sampler: "er_sde", scheduler: "beta", shiftVideo: 12, shiftAudio: 3, who: SWAP_TURBO_PROMPT }, note: "a fused reference turbo: Turbo, 4 steps, er_sde / beta and the person described, as its swap workflow runs it" },
   ...(h3Video.presets ?? []),
 ];
 
@@ -222,6 +249,10 @@ function masked(file: string, sam: string, before?: { file: string; frames: numb
   return {
     extra: {
       latent: (g, at) => {
+        // asked for inside the sampling phase: the tracking and the mask are processing, not steps of the bar (SAM's 107
+        // tracked frames counted as sampling steps, the bar at 4 of 4 while H3 was at 2: the owner, 2026-10-18)
+        const sampling = g.at;
+        g.phase("processing");
         part = g.out("ImageScale", {
           image: g.out("ImageFromBatch", { image: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file }) }), 0], batch_index: 0, length: at.frames }),
           upscale_method: "lanczos", width: at.width, height: at.height, crop: "disabled",
@@ -235,7 +266,9 @@ function masked(file: string, sam: string, before?: { file: string; frames: numb
         // pixels (the owner's Bulin 47 take, 2026-10-17, §9.11); the node pack keeps it over the frames around each, from 0.24.0
         masks = g.add("AfflatusSwapMask", { track_data: track, frames: at.frames, width: at.width, height: at.height, grow: 100, paste_grow: 30, paste_blur: 5, images: part, ...(handed ? { previous: handed } : {}), ...(click && !handed ? { pick_x: click.x, pick_y: click.y } : {}) });
         const video = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: part, vae: at.vae }), mask: [masks, 0] });
-        return g.out("LTXVConcatAVLatent", { video_latent: video, audio_latent: [g.add("LTXVSeparateAVLatent", { av_latent: at.latent }), 1] });
+        const joined = g.out("LTXVConcatAVLatent", { video_latent: video, audio_latent: [g.add("LTXVSeparateAVLatent", { av_latent: at.latent }), 1] });
+        g.phase(sampling);
+        return joined;
       },
       frames: (g, images) => {
         if (!part || !masks) return images;
@@ -283,7 +316,7 @@ export const h3Swap = defineRecipe<H3Swap>({
 
   build(input, ctx) {
     if (!input.source || !ctx.uploads.source) throw new Error("A swap needs its source video.");
-    const swapLora = ctx.slots.swapLora;
+    const swapLora = input.swapLora ?? ctx.slots.swapLora;
     if (!swapLora) throw new Error("The swap needs the Character-Swap LoRA: h3_character_swap_pro4500_1000.safetensors in ComfyUI's models/loras folder (Settings › Models has it).");
     const unet = input.swapModel ?? ctx.slots.swapUnet;
     if (!unet) throw new Error("The swap needs MiniMax H3's reference model, the one its LoRA was trained on: minimax_h3_ref2va_*.safetensors in ComfyUI's models/diffusion_models folder (Settings › Models has it).");
@@ -302,7 +335,7 @@ export const h3Swap = defineRecipe<H3Swap>({
     const sourceSound = (g: GraphBuilder, frames: number) =>
       (heard ??= g.out("TrimAudioDuration", { audio: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.source }) }), 1], start_index: 0, duration: frames / H3_FPS }));
     const built = buildH3(asClip(input, swapLora, frames, carried, unet, size), asRef, {
-      prompt: (pictures) => swapCaption(whoOf(input), pictures),
+      prompt: (pictures) => swapPrompt(input.who, pictures),
       // the file's sound: the source's own over the window
       ...(keep ? { sound: (g, _decoded, at) => sourceSound(g, at.frames) } : {}),
       // and, asked for, the same sound anchored from the window's first frame, as Lip sync anchors its recording
@@ -318,7 +351,10 @@ export const h3Swap = defineRecipe<H3Swap>({
     const veda = input.veda && !ctx.has("VedaSparseAttention")
       ? ["Veda was on, but this ComfyUI has no veda-sparse-attention node pack (ComfyUI-Manager installs it): made with the full attention."]
       : input.veda && !ctx.slots.veda ? ["Veda was on, but its reference-model predictor is not in ComfyUI's models/veda folder (Settings › Models has it): made with the full attention."] : [];
-    const warned = veda.length ? { ...built, warnings: [...(built.warnings ?? []), ...veda] } : built;
+    // a prompt that names neither the source nor the cast's picture still runs: H3 may then leave them out, and the job says so
+    const lacks = swapPromptLacks(input.who, input.references.length).map((tag) => `The prompt has no ${tag}: H3 may not use ${tag === "<Video 1>" ? "the source video" : "the cast's picture"}.`);
+    const notes = [...veda, ...lacks];
+    const warned = notes.length ? { ...built, warnings: [...(built.warnings ?? []), ...notes] } : built;
     const said = mask?.node();
     if (said) return { ...warned, outputs: [...warned.outputs, { node: said, kind: "image", role: "note" }] };
     const why = sam ? "this ComfyUI's Afflatus node pack has no Swap Mask yet (0.22.0 on; ComfyUI loads a newer pack when it restarts)" : "SAM 3.1 is not on this ComfyUI (Settings › Models has it)";

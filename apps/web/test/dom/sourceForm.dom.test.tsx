@@ -8,11 +8,12 @@ import { useTimelineMutations } from "../../src/timeline/useTimelineMutations";
 import { fakeApi } from "./fakeApi";
 import { draw } from "./render";
 
-/** A model that makes a long video window by window (Motion transfer), with a prompt. */
+/** A model that makes a long video window by window (Motion transfer), with a Picture and a prompt: one whose source has a form of its own (a swap's has none). */
 const model = {
   id: "zz-test.windows", family: "zz-test", title: "zz-test windows", output: "video", summary: "",
   traits: { fps: 16, frameGrid: 4, windows: { most: 81, least: 33, carried: 5 } },
   inputs: [
+    { id: "picture", type: "image", role: "source", label: "Picture" },
     { id: "prompt", type: "prompt", label: "Prompt" },
     { id: "video", type: "clip", role: "source", label: "Driving video", window: { start: "start", seconds: "seconds" } },
     { id: "start", type: "number", label: "Start", default: 0 },
@@ -22,7 +23,7 @@ const model = {
 
 const timeline = {
   id: "zz-test-timeline", name: "zz-test timeline", clips: [], look: null, mood: null, folderId: null,
-  source: { asset: "zz-test-video", video: { id: "zz-test-video", name: "zz-test.mp4" }, atMs: 0, fromMs: 0, toMs: 10_000, recipe: model.id, windowMs: 5000, inputs: { prompt: "as saved" }, snap: false, clip: null },
+  source: { asset: "zz-test-video", video: { id: "zz-test-video", name: "zz-test.mp4" }, atMs: 0, fromMs: 0, toMs: 10_000, recipe: model.id, windowMs: 5000, inputs: { picture: "zz-test-picture", prompt: "as saved" }, snap: false, clip: null },
 } as unknown as Timeline;
 
 const none = { data: undefined, isSuccess: false } as never;
@@ -44,7 +45,7 @@ function rig() {
     close = () => setOpen(false);
     return open ? (
       <SourcePanel
-        timeline={timeline} place={null} recipes={[model]} clock={{} as never}
+        timeline={timeline} place={null} recipes={[model]} clock={{ get: () => 0, set: () => {}, subscribe: () => () => {} }}
         onEdit={() => {}} onType={(inputs) => edits.typeSource(timeline.id, inputs)} typed={() => edits.sourceTyped(timeline.id)}
         onLook={() => {}} onMake={() => {}} making={false} made={{ left: 0, queued: 0 }} onRender={() => {}} rendering={false} onClose={close}
         picking={false} onPicking={() => {}}
@@ -74,7 +75,7 @@ describe("the source lane's form, drawn", () => {
     const { close } = rig();
     fireEvent.change(prompt(), { target: { value: "typed just now" } });
     close();
-    await waitFor(() => expect(came).toEqual([`PATCH /timelines/zz-test-timeline ${JSON.stringify({ source: { inputs: { prompt: "typed just now" } } })}`]));
+    await waitFor(() => expect(came).toEqual([`PATCH /timelines/zz-test-timeline ${JSON.stringify({ source: { inputs: { picture: "zz-test-picture", prompt: "typed just now" } } })}`]));
   });
 
   it("saves what was typed before its clips are made, which the server makes from the form it has", async () => {
@@ -83,7 +84,7 @@ describe("the source lane's form, drawn", () => {
     fireEvent.change(prompt(), { target: { value: "typed just now" } });
     m().makeSource.mutate();
     await waitFor(() => expect(m().makeSource.isSuccess).toBe(true));
-    expect(came).toEqual([`PATCH /timelines/zz-test-timeline ${JSON.stringify({ source: { inputs: { prompt: "typed just now" } } })}`, "POST /timelines/zz-test-timeline/source/make"]);
+    expect(came).toEqual([`PATCH /timelines/zz-test-timeline ${JSON.stringify({ source: { inputs: { picture: "zz-test-picture", prompt: "typed just now" } } })}`, "POST /timelines/zz-test-timeline/source/make"]);
   });
 
   it("makes nothing while what was typed could not be saved", async () => {
@@ -96,5 +97,28 @@ describe("the source lane's form, drawn", () => {
     // the editor left: what was typed is still kept, and sent again
     unmount();
     await waitFor(() => expect(came.filter((x) => x.startsWith("PATCH"))).toHaveLength(2));
+  });
+});
+
+describe("a swap's source, drawn (the owner, 2026-10-18: no source form, the clips' form is the one)", () => {
+  /** A model with no Picture of its own, as the swap: its source shows the model, its stretch and Make only. */
+  const swapLike = { ...model, id: "zz-test.swap", inputs: model.inputs.filter((i) => i.id !== "picture") } as RecipeInfo;
+  const swapTimeline = { ...timeline, source: { ...timeline.source!, recipe: swapLike.id, inputs: {} } } as Timeline;
+
+  it("has no form of its own, and its Make opens the first clip instead of rendering", () => {
+    const made: Array<boolean | undefined> = [];
+    draw(
+      <SourcePanel
+        timeline={swapTimeline} place={{ atMs: 0, lengthMs: 10_000, made: false, windows: [{ fromMs: 0, toMs: 5000 }, { fromMs: 4700, toMs: 10_000 }] as never, replaces: null }} recipes={[swapLike]}
+        clock={{ get: () => 0, set: () => {}, subscribe: () => () => {} }}
+        onEdit={() => {}} onType={() => {}} typed={() => undefined}
+        onLook={() => {}} onMake={(andRender) => made.push(andRender)} making={false} made={{ left: 0, queued: 0 }} onRender={() => {}} rendering={false} onClose={() => {}}
+        picking={false} onPicking={() => {}}
+      />,
+    );
+    expect(screen.queryAllByRole("textbox")).toEqual([]);
+    expect(screen.getByText(/settings are in the clips' form once they are made/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Make 2 clips" }));
+    expect(made).toEqual([false]);
   });
 });

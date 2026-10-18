@@ -258,11 +258,20 @@ function behind<F extends { phase: string }>(f: F, lane: Pick<LaneView, "outside
   return f.phase === "waiting" && lane?.outside?.running ? ({ ...f, phase: "behind" } as F) : f;
 }
 
+/**
+ * Before its first sampling step, a job whose models were already in memory loads none (the owner, 2026-10-18: "Loading" was
+ * said through a swap's tracking and reference encoding, every model held): its phase is "preparing", not "loading", and
+ * "processing" once its steps are done.
+ */
+export const warmPhase = <F extends { phase: string; step?: number }>(f: F, running: QueueCore["running"]): F =>
+  // after its steps (a node after the sampler the monitor takes for one not started yet: "Loading model 4/4"), it processes
+  f.phase === "loading" && running?.cold === false ? { ...f, phase: f.step ? "processing" : "preparing" } : f;
+
 /** The running job's progress, its preview and what it showed on the way: from the monitor, by its prompt; `idle` names its phase while it has none. */
 function figures(monitor: Comfy["monitor"] | null, running: QueueCore["running"], promptId: string | undefined, idle: "exporting" | "cutting" | "waiting") {
   // no monitor (a job this process does not follow yet) or no prompt: nothing to read but its phase
   const m = promptId && monitor ? { monitor, promptId } : null;
-  return {
+  return warmPhase({
     // a tool on ComfyUI (a finish, a slow motion): which step runs, not a step count (its one-step passes would read 99 % at once)
     // its ETA what its own record expected of it (finishForecast for a finish), less the time it has run
     ...(m && idle === "cutting" ? { ...m.monitor.progress(m.promptId), progress: 0, eta: toolEta(running), step: 0, steps: 0 } : m ? m.monitor.progress(m.promptId) : { progress: 0, eta: 0, phase: idle, step: 0, steps: 0 }),
@@ -270,7 +279,7 @@ function figures(monitor: Comfy["monitor"] | null, running: QueueCore["running"]
     previewMime: m ? m.monitor.preview(m.promptId).mime ?? null : null,
     // what the workflow showed on the way (its Preview nodes), oldest first; the title comes from the graph it was built with
     stages: (m ? m.monitor.stages(m.promptId) : []).map((st, n) => ({ n, node: st.node, title: running?.titles?.[st.node] ?? null, count: st.files.length })),
-  };
+  }, running);
 }
 
 /** A tool's seconds left on ComfyUI, from what its record expected of it; 0 (no ETA shown) when nothing was expected or it ran past it. */

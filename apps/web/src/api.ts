@@ -543,7 +543,8 @@ export const api = {
   moveDraft: (id: string, project: string | null) => call<Draft>("PUT", `/drafts/${id}`, { project }),
   editTimeline: (id: string, patch: TimelinePatch) => call<Timeline>("PATCH", `/timelines/${id}`, patch),
   /** The source lane's stretch made into clips, one a window: their ids (nothing is rendered yet). */
-  makeFromSource: (id: string) => call<{ clips: string[] }>("POST", `/timelines/${id}/source/make`),
+  /** The source made into clips; `again`: cut again, its rendered clips at the start kept. */
+  makeFromSource: (id: string, again?: boolean) => call<{ clips: string[] }>("POST", `/timelines/${id}/source/make`, again ? { again } : undefined),
   /** The source split at a moment of it (its own time): the part before, a clip playing it as it is. */
   splitSource: (id: string, atMs: number) => call<{ clip: string }>("POST", `/timelines/${id}/source/split`, { atMs: Math.round(atMs) }),
   undoTimeline: (id: string) => call<{ undone: string }>("POST", `/timelines/${id}/undo`),

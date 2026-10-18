@@ -32,18 +32,24 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
   // closes by a request that outlives the page (autosave.ts, as drafts are). A save that fails keeps the form pending,
   // says so in the header, is sent again by the next save or by Retry, and the browser asks before the tab closes
   const [edits, setEdits] = useState<Record<string, Record<string, unknown>>>({});
+  // the clips of a source whose changes are kept to them ("This clip"), read as each save goes: a clip left out shares
+  // what changes in it with the source's other clips (the server's sameForm)
+  const [own, setOwn] = useState<ReadonlySet<string>>(() => new Set());
+  const ownRef = useRef(own);
+  ownRef.current = own;
+  const shareOf = (key: string) => (ownRef.current.has(key) ? { share: "apart" as const } : {});
   const client = useQueryClient();
   const autosave = useKeyedAutosave<Record<string, unknown>>({
     save: async (key, inputs) => {
       const source = sourceOf(key);
-      if (!source) return void (await api.editClip(key, { inputs }));
+      if (!source) return void (await api.editClip(key, { inputs, ...shareOf(key) }));
       await api.editTimeline(source, { source: { inputs } });
       // read again for its Undo; the source panel keeps what is typed over what is read until it is saved
       void client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
     },
     keepalive: (key, inputs) => {
       const source = sourceOf(key);
-      void raw("PATCH", source ? `/timelines/${source}` : `/clips/${key}`, source ? { source: { inputs } } : { inputs }, { keepalive: true }).catch(() => {});
+      void raw("PATCH", source ? `/timelines/${source}` : `/clips/${key}`, source ? { source: { inputs } } : { inputs, ...shareOf(key) }, { keepalive: true }).catch(() => {});
     },
     goesWhole: (_, inputs) => JSON.stringify({ inputs }).length <= KEEPALIVE_MAX,
     gone: clipGone,
@@ -82,6 +88,15 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
   const typeSource = useCallback((timelineId: string, inputs: Record<string, unknown>) => queue(sourceKey(timelineId), inputs), [queue]);
   /** The source lane's form as typed and not saved yet (on its way, or failed), or undefined when the server has it. */
   const sourceTyped = useCallback((timelineId: string) => unsaved.get(sourceKey(timelineId)), [unsaved]);
+  /** Whether a clip's changes are kept to it ("This clip") or go to every clip of its source; what is typed is saved first, under the choice it was typed with. */
+  const keptToClip = useCallback((clipId: string) => own.has(clipId), [own]);
+  const keepToClip = useCallback((clipId: string, on: boolean) => {
+    void flush(clipId).finally(() => setOwn((x) => {
+      const next = new Set(x);
+      if (on) next.add(clipId); else next.delete(clipId);
+      return next;
+    }));
+  }, [flush]);
   /** Every edit dropped: what the server has now is what counts (after an undo or a redo, which saved first). */
   const dropEdits = () => setEdits({});
   /** The timeline as it is on screen: with what was typed and is not saved yet. */
@@ -130,7 +145,7 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
     [recipes.data, setup.data, setup.isSuccess, comfyOnline, inputsOf, settings.data, clips],
   );
 
-  return { edits, dropEdits, saveFailed, save, turn, inputsOf, editInputs, savedElsewhere, typeSource, sourceTyped, shown, formOf, ready };
+  return { edits, dropEdits, saveFailed, save, turn, inputsOf, editInputs, savedElsewhere, typeSource, sourceTyped, shown, formOf, ready, keptToClip, keepToClip };
 }
 
 /** A clip's save answered 404: the clip was removed (here, by Undo, in another tab), and its form has nowhere to go. */

@@ -27,6 +27,11 @@ export interface SourcePlan {
    * The first window takes it; the windows after it follow the person it replaced. Gone when the stretch's start moves.
    */
   pick?: { x: number; y: number } | null;
+  /**
+   * The clips set apart from the others, by id: the settings each keeps its own (`apart` in a clip's PATCH). A change made
+   * on any other clip of the source reaches every clip but on these settings (the owner, 2026-10-18: one form, the clip's).
+   */
+  apart?: Record<string, string[]>;
 }
 
 /** What a timeline's PATCH takes of it: a new source (its video), or changes to the one there; null takes it away. */
@@ -59,6 +64,7 @@ export function sourceOfRow(raw: string | null | undefined): SourcePlan | null {
       asset: x.asset, atMs: Number(x.atMs) || 0, fromMs: Number(x.fromMs) || 0, toMs: Number(x.toMs) || 0, recipe: x.recipe ?? null,
       windowMs: Number(x.windowMs) || 5000, inputs: { ...older, ...(x.inputs && typeof x.inputs === "object" ? x.inputs : {}) }, snap: Boolean(x.snap), clip: x.clip ?? null,
       ...(x.pick && typeof x.pick.x === "number" && typeof x.pick.y === "number" ? { pick: { x: x.pick.x, y: x.pick.y } } : {}),
+      ...(x.apart && typeof x.apart === "object" ? { apart: Object.fromEntries(Object.entries(x.apart).filter(([, v]) => Array.isArray(v) && v.length).map(([k, v]) => [k, v.filter((i): i is string => typeof i === "string")])) } : {}),
     };
   } catch {
     return null;
@@ -153,9 +159,10 @@ const round4 = (s: number) => Math.round(s * 10_000) / 10_000;
  * The windows a source's stretch is made in, with the scene cuts asked for: the source's as kept beside it
  * (TimelineMedia.scenes, read with ffmpeg once), not read again on every Make.
  */
-export async function planWindows(plan: SourcePlan, recipe: Recipe<any>, video: AssetRow, scenes: (assetId: string) => Promise<{ cuts: number[] }>): Promise<SourceWindow[]> {
+export async function planWindows(plan: SourcePlan, recipe: Recipe<any>, video: AssetRow, scenes: (assetId: string) => Promise<{ cuts: number[] }>, after?: number): Promise<SourceWindow[]> {
   const shape = windowsOf(recipe);
   if (!shape) throw httpError(`${recipe.title} does not make a long video window by window.`);
   const cutsMs = plan.snap ? (await scenes(video.id)).cuts : [];
-  return sourceWindows({ fromMs: plan.fromMs, toMs: plan.toMs, windowMs: plan.windowMs, shape, cutsMs });
+  // cut again after the clips kept: from where the last of them ends, carrying on from it
+  return sourceWindows({ fromMs: after ?? plan.fromMs, toMs: plan.toMs, windowMs: plan.windowMs, shape, cutsMs, ...(after !== undefined ? { continues: true } : {}) });
 }

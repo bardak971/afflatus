@@ -15,6 +15,9 @@ import { pinMenuItems, placeItems, type ClipMenuActions } from "./menus";
 import type { ContextMenu } from "../ContextMenu";
 import type { LoadedEditor } from "./useTimelineEditor";
 import { plural } from "../format";
+import { windowBounds } from "@afflatus/core";
+import { madeFromSource, windowed } from "./track/SourceLane";
+import type { ClipSource } from "./inspector/clipSource";
 import { failedBanner } from "../sayFailed";
 
 // What each part of the timeline editor is drawn with, from what the editor holds (useTimelineEditor): the wiring
@@ -138,11 +141,26 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     onJoin: (clip, joined) => patch.mutate({ clip: clip.id, patch: { joined } }),
     onOpenJoin: (clip) => e.openJoin(clip.id),
     onSource: (asset) => {
-      edit.mutate({ source: { asset } });
-      e.openSource();
+      // a swap has no source form (the owner, 2026-10-18): dropped, the video is made into its clips at once, nothing
+      // rendered, the first opened, its form every clip's. Without the swap, the source panel as before (SCAIL's, to be
+      // redone with the timeline)
+      const swap = e.videoRecipes.find((r) => r.id === "h3.swap" && windowed(r));
+      if (!swap) {
+        edit.mutate({ source: { asset } });
+        return e.openSource();
+      }
+      edit.mutate({ source: { asset, recipe: swap.id } }, { onSuccess: () => e.makeSource.run(false) });
     },
     sourceSelected: e.sourceOpen,
-    onSelectSource: e.openSource,
+    // the source plays on the stage, as ever; once made, the column shows no form of its own but the clip made from it
+    // where the playhead stands (else its first), its form every clip's (the owner, 2026-10-18)
+    onSelectSource: () => {
+      const made = e.place?.made ? madeFromSource(e.t, e.videoRecipes) : [];
+      e.openSource();
+      if (!made.length) return;
+      const at = e.cursor ?? e.clock.get();
+      e.setSelected((made.find((c) => at >= c.atMs && at < c.atMs + c.lengthMs) ?? made[0]!).id);
+    },
     onOpenSource: e.setOpened,
     onRemoveSource: e.removeSource,
     onStretchSource: (fromMs, toMs) => edit.mutate({ source: { fromMs, toMs } }),
@@ -213,9 +231,42 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
   };
 }
 
+/** A clip made from the timeline's source, as its panel takes it: its Source chapter and where a change goes. */
+function clipSourceOf(e: LoadedEditor, current: Clip): ClipSource | undefined {
+  const source = e.t.source;
+  const made = source ? madeFromSource(e.t, e.videoRecipes) : [];
+  if (!source || !made.some((c) => c.id === current.id)) return undefined;
+  const w = windowed(e.videoRecipes.find((r) => r.id === current.recipe));
+  const driving = w ? e.videoRecipes.find((r) => r.id === current.recipe)?.inputs.find((i) => i.id === w.driving) : undefined;
+  const patchClip = (share: "inLine" | "toAll") => void e.save(current.id).then(() => e.patch.mutate({ clip: current.id, patch: { share } }));
+  return {
+    source,
+    count: made.length,
+    first: made[0]?.id === current.id,
+    apart: source.apart?.[current.id] ?? [],
+    takesPick: driving?.type === "clip" && Boolean(driving.pick),
+    // the window lengths the model takes, on the slider's steps (as the source panel had them)
+    windows: (() => {
+      const b = w ? windowBounds(w.shape) : { leastMs: 1000, mostMs: 5000 };
+      const leastMs = Math.max(1000, Math.ceil(b.leastMs / 100) * 100);
+      return { leastMs, mostMs: Math.max(leastMs, Math.floor(b.mostMs / 100) * 100) };
+    })(),
+    onCut: e.cutSource.run,
+    cutting: e.cutSource.pending,
+    picking: e.whoPicking,
+    onPicking: e.setWhoPicking,
+    onClearPick: () => e.edit.mutate({ source: { pick: null } }),
+    kept: e.keptToClip(current.id),
+    onKept: (on) => e.keepToClip(current.id, on),
+    onInLine: () => patchClip("inLine"),
+    onToAll: () => patchClip("toAll"),
+  };
+}
+
 export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<typeof Inspector> {
   const { t, clips, recipes, render, patch, designed, writeBetween } = e;
   return {
+    fromSource: clipSourceOf(e, current),
     onSelectClip: e.select,
     timeline: t,
     clip: current,

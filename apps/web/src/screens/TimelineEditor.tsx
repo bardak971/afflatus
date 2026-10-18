@@ -63,7 +63,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         <MediaOverlay timeline={shown} placeItems={placeItemsOf(e)} />
 
         <main className="flex min-w-0 grow flex-col">
-            {e.sourceOpen && t.source && e.place ? (
+            {/* the source on the stage: its lane opened, or the person a swap replaces being picked (from a clip's Source chapter too) */}
+            {(e.sourceOpen || e.whoPicking) && t.source && e.place ? (
               <SourceStage
                 ref={e.player}
                 video={t.source.video}
@@ -108,7 +109,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             label={musicOpen && t.music ? "Music" : current ? `${current.kind === "still" ? "Still" : "Clip"} ${clips.indexOf(current) + 1}` : "Overview"}
             {...e.checks}
           />
-        ) : e.sourceOpen ? (
+        ) : e.sourceOpen && !(e.place?.made && current) ? (
           <SourcePanel
             timeline={t}
             place={e.place}

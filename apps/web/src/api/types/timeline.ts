@@ -146,9 +146,11 @@ export interface TimelineSource {
   clip: string | null;
   /** Who a swap replaces: the point clicked on the stretch's first frame, as shares of its width and height; gone when the start moves. */
   pick?: { x: number; y: number } | null;
+  /** The clips set apart from the others, by id: the settings each keeps its own. */
+  apart?: Record<string, string[]>;
 }
 /** A change to the source lane: a new video, or its settings. */
-export type SourcePatch = Partial<Omit<TimelineSource, "video">>;
+export type SourcePatch = Partial<Omit<TimelineSource, "video" | "apart">>;
 /** How a clip regenerated in a range meets its neighbours: with their video as context (the motion carries across), on a frame, or nothing there. */
 export interface RangeContext {
   start: "clip" | "frame" | "none";
@@ -200,6 +202,8 @@ export interface ClipPatch {
   music?: ClipMusic | null;
   /** Mirror on a pinned picture, by input id: true flips it at render time, false turns it back. */
   pinMirror?: Record<string, boolean>;
+  /** Of a clip made from the source: "apart" keeps this change to it, "inLine" brings its own settings back to the others', "toAll" gives them to every clip. */
+  share?: "apart" | "inLine" | "toAll";
 }
 export interface TimelinePatch {
   name?: string;

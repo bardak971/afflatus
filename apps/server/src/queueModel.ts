@@ -67,6 +67,8 @@ export interface Running {
   loadAt?: number;
   /** The seed the graph was built with, once it is sent: said on the running card. */
   seed?: number;
+  /** Whether its models had to be loaded (none were in memory): until its first step, "loading" or only "preparing". */
+  cold?: boolean;
 }
 
 /** What is stored once ComfyUI accepted the graph: enough to wait for it again after a restart. */

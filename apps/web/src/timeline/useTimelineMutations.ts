@@ -105,6 +105,8 @@ export function useTimelineMutations(id: string, o: {
     },
     onSuccess: after,
   });
+  /** The source cut again into its clips (its window or its scene cuts changed): those rendered at its start are kept. */
+  const cutSource = useMutation({ mutationFn: () => api.makeFromSource(id, true), onSuccess: after });
   /** The source split at a moment of it: the part before plays as it is, a clip of its own. */
   const splitSource = useMutation({ mutationFn: (atMs: number) => api.splitSource(id, atMs), onSuccess: after });
   const add = useMutation({
@@ -222,6 +224,6 @@ export function useTimelineMutations(id: string, o: {
   });
   // the latest that failed, not the first of the list: an old error does not hide a new one
   // (with when it was asked, `errorAt`, for the editor to weigh it against its own range actions')
-  const { error, at: errorAt } = latestFailure([plan, loop, render, fix, patch, edit, makeSource, splitSource, add, remove, removeMany, removeTake, stop, undo, redo, exportIt, frame, split, duplicate]);
-  return { after, render, patch, fix, edit, makeSource, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error, errorAt };
+  const { error, at: errorAt } = latestFailure([plan, loop, render, fix, patch, edit, makeSource, cutSource, splitSource, add, remove, removeMany, removeTake, stop, undo, redo, exportIt, frame, split, duplicate]);
+  return { after, render, patch, fix, edit, makeSource, cutSource, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error, errorAt };
 }

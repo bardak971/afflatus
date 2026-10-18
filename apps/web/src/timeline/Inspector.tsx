@@ -18,6 +18,7 @@ import { useRunningOf } from "./useRunning";
 import { SHOWS } from "./attention";
 import { Estimate } from "./estimate";
 import { ClipForm } from "./inspector/form";
+import { ShareFoot, sourceLead, type ClipSource } from "./inspector/clipSource";
 import { ClipHead } from "./inspector/head";
 import { LookTable } from "./inspector/look";
 import { Slide } from "./inspector/parts";
@@ -28,7 +29,7 @@ import { queryKeys } from "../queryKeys";
 /** Where how many takes a render makes is remembered, per browser. */
 const TAKES_KEY = "afflatus.timeline.takes";
 
-export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, takesOn, busy, error, onInputs, onRecipe, onPatch, onRender, onMenu, onRemoveTake, onStop, onPreview, onDesigner, designer, writing, writeError, onWriteBetween, onClose, onSelectClip, onOpen }: {
+export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, takesOn, busy, error, onInputs, onRecipe, onPatch, onRender, onMenu, onRemoveTake, onStop, onPreview, onDesigner, designer, writing, writeError, onWriteBetween, onClose, onSelectClip, onOpen, fromSource }: {
   timeline: Timeline;
   clip: Clip;
   index: number;
@@ -73,6 +74,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   onClose?(): void;
   /** Open another clip in the panel (the one before or after, the one it extends); left out, those are not offered. */
   onSelectClip?(id: string): void;
+  /** A clip made from the timeline's source: its Source chapter, and whether a change goes to every clip of the source. */
+  fromSource?: ClipSource;
 }) {
   const panelWidth = useColumnWidth();
   const all = useRecipes();
@@ -116,11 +119,16 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   const ends = pins.end && typeof stored[pins.end] === "string" ? (stored[pins.end] as string) : null;
   const through = pins.mid && typeof stored[pins.mid] === "string" ? (stored[pins.mid] as string) : null;
   const midSpec = recipe?.inputs.find((i) => i.id === pins.midAt);
-  // what the timeline fills in itself is not asked for in the form: the clips it joins onto, and its pinned pictures (shown above it)
+  // what the timeline fills in itself is not asked for in the form: the clips it joins onto, and its pinned pictures (shown above
+  // it); and of a clip made from the source, its part of it (the cut sets it: moved by hand, the windows no longer join)
+  const sourcePart = useMemo(() => {
+    const d = fromSource ? recipe?.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window) : undefined;
+    return d?.type === "clip" && d.window ? [d.window.start, d.window.seconds] : [];
+  }, [recipe, Boolean(fromSource)]); // eslint-disable-line react-hooks/exhaustive-deps -- only whether it is one of the source's
   const form = useMemo(
-    () => (recipe ? { ...recipe, inputs: recipe.inputs.filter((i) => i.type !== "clip" && !(i.type === "image" && (i.role === "start" || i.role === "end" || i.role === "mid")) && i.id !== pins.midAt) } : undefined),
+    () => (recipe ? { ...recipe, inputs: recipe.inputs.filter((i) => i.type !== "clip" && !(i.type === "image" && (i.role === "start" || i.role === "end" || i.role === "mid")) && i.id !== pins.midAt && !sourcePart.includes(i.id)) } : undefined),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- pins come from the recipe
-    [recipe],
+    [recipe, sourcePart],
   );
   const canFit = Boolean(recipe?.traits?.endAnchor && after?.take && after.joined === "continue");
   const take = clip.take;
@@ -219,7 +227,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
         {!still && (
           <ClipForm
             timeline={timeline} clip={clip} index={index} recipes={recipes} recipe={recipe} form={form} status={status} stored={stored} whole={whole}
-            before={before} after={after} take={take} opens={opens} ends={ends} carries={carries} lead={takesLead} frameExtra={framesExtra}
+            before={before} after={after} take={take} opens={opens} ends={ends} carries={carries} lead={[fromSource && recipe ? sourceLead(fromSource, { inputs: stored }, recipe) : undefined, takesLead]} frameExtra={framesExtra}
             writing={writing} writeError={writeError} onRecipe={onRecipe} onInputs={onInputs} onPatch={onPatch} onDesigner={onDesigner} onWriteBetween={onWriteBetween}
           />
         )}
@@ -248,6 +256,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
       {recipe && !still && (
         <div className="flex shrink-0 flex-col gap-2.5 border-t border-line px-3.5 py-3">
           {error && <ErrorNote>{error}</ErrorNote>}
+          {fromSource && fromSource.count > 1 && <ShareFoot s={fromSource} recipe={recipe} />}
           {why && <div className="text-xs text-warn-ink">{why} {why.includes("ComfyUI") || why.includes("model") ? <Link href={why.includes("ComfyUI") ? "/settings" : "/settings/models"} className="font-semibold underline">Open Settings</Link> : null}</div>}
           {/* a pinned last frame wins over the landing (the server skips it): shown off, the stored choice kept for when the pin goes */}
           {canFit && (

@@ -95,6 +95,8 @@ export const clipPatch = z.strictObject({
   look: lookSchema.nullable().optional(),
   chat: z.array(z.unknown()).max(200).optional(),
   designer: z.strictObject({ llm: z.string().max(40).optional(), instruction: z.string().max(40).optional() }).nullable().optional(),
+  /** Of a clip made from the source: how its settings go with the other clips' (see ClipPatch.share). */
+  share: z.enum(["apart", "inLine", "toAll"]).optional(),
   /** What it asks of the music under it; null = as the rest of the video. */
   music: z
     .strictObject({
@@ -191,7 +193,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   app.get<{ Params: { id: string } }>("/api/timelines/:id/duck", async (req) => ({ curve: await t.duck(req.params.id) }));
   app.patch<{ Params: { id: string } }>("/api/timelines/:id", async (req) => t.edit(req.params.id, timelinePatch.parse(req.body)));
   /** Its source lane's stretch made into clips, window by window (timelineSource.ts): the new clips' ids, to be rendered by the editor. */
-  app.post<{ Params: { id: string } }>("/api/timelines/:id/source/make", async (req) => ({ clips: await t.makeFromSource(req.params.id) }));
+  // `again`: the source cut again into the clips it made, those rendered kept (Timelines.makeFromSource)
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/source/make", async (req) => ({ clips: await t.makeFromSource(req.params.id, z.strictObject({ again: z.boolean().optional() }).parse(req.body ?? {})) }));
   /** The source split at a moment of it: the part before, from its stretch's start, a clip playing it as it is. */
   app.post<{ Params: { id: string } }>("/api/timelines/:id/source/split", async (req) => ({ clip: await t.splitSource(req.params.id, z.strictObject({ atMs: z.number().min(0) }).parse(req.body).atMs) }));
   app.delete<{ Params: { id: string } }>("/api/timelines/:id", async (req) => {

@@ -52,9 +52,10 @@ export function windowBounds(shape: WindowShape): { leastMs: number; mostMs: num
  * `cutsMs` (the source's scene cuts), a window ends at a cut that falls inside it, more than two seconds in, and the next
  * one opens a new shot. The source runs to its end: a last stretch shorter than half the window before it is taken by that window
  * when one job holds both, else the two share what is left evenly (the meme's 26.6 s in 5 s windows ended on a 2.1 s clip).
- * A last stretch shorter than a job's fewest frames is still left out.
+ * A last stretch shorter than a job's fewest frames is still left out. `continues`: `fromMs` is where a window already made
+ * ends, and the first window carries on from it as the ones after do (the source cut again after its rendered clips).
  */
-export function sourceWindows(o: { fromMs: number; toMs: number; windowMs: number; shape: WindowShape; cutsMs?: number[] }): SourceWindow[] {
+export function sourceWindows(o: { fromMs: number; toMs: number; windowMs: number; shape: WindowShape; cutsMs?: number[]; continues?: boolean }): SourceWindow[] {
   const { fps, most, least, carried } = o.shape;
   const grid = o.shape.grid ?? WAN_GRID;
   /** The most frames the model takes of `n`. */
@@ -64,7 +65,7 @@ export function sourceWindows(o: { fromMs: number; toMs: number; windowMs: numbe
   const windowMs = Math.max(o.windowMs, windowBounds(o.shape).leastMs);
   const out: SourceWindow[] = [];
   let covered = o.fromMs;
-  let opens: boolean = true;
+  let opens: boolean = !o.continues;
   for (let guard = 0; guard < 500; guard++) {
     const carry: number = opens ? 0 : carried;
     const startMs = covered - carry * frameMs;

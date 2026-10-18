@@ -117,7 +117,8 @@ const PHASES: Record<string, string> = {
   waiting: "Queued on ComfyUI",
   // sent, and waiting there behind work queued in that ComfyUI from elsewhere (its own page, another tool)
   behind: "Queued on ComfyUI · waiting behind work outside Afflatus",
-  loading: "Loading model", sampling: "Sampling", upscaling: "Upscale",
+  // before the first step with every model already in memory (tracking, encoding the references): nothing is loaded
+  loading: "Loading model", preparing: "Preparing", sampling: "Sampling", upscaling: "Upscale",
   refining: "Refine pass", restoring: "SeedVR2 restore", detailing: "Detailer", processing: "Processing", decoding: "VAE decode", interpolating: "Frame interpolation", encoding: "Encoding",
   exporting: "Exporting", cutting: "Cutting",
 };

@@ -19,6 +19,7 @@ const files: Record<string, string[]> = {
     "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
     "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
   ],
+  loras: ["h3_character_swap_pro4500_1000.safetensors", "h3_character_swap_v1.5.safetensors", "minimax_h3_hyperflow_EMA600_pruned_r128_fro0995_turbo_lora.safetensors", "someone_style.safetensors"],
 };
 const client = {
   baseUrl: "http://comfy.test",
@@ -36,5 +37,14 @@ describe("a Model field's files", () => {
     // the swap starts on its reference model and offers the hybrid turbo fine-tune that is H3's video model
     expect(options("h3.swap", "swapModel")[0]).toBe("minimax_h3_ref2va_pruned_int8_convrot.safetensors");
     expect(options("h3.swap", "swapModel")).toContain("DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors");
+  });
+
+  it("shows the swap's LoRA as a field of its own, the slot's file first, its other versions beside it (the owner, 2026-10-18)", async () => {
+    const s = await scan(client, families, [recipeById("h3.swap")!], {});
+    const options = s.recipes.find((r) => r.id === "h3.swap")!.options.swapLora ?? [];
+    expect(options[0]).toBe("h3_character_swap_pro4500_1000.safetensors");
+    expect(options).toContain("h3_character_swap_v1.5.safetensors");
+    // the swap's versions first; another LoRA stays a choice after them, as a model's fine-tune can be named anything
+    expect(options.indexOf("h3_character_swap_v1.5.safetensors")).toBeLessThan(options.indexOf("someone_style.safetensors"));
   });
 });

@@ -53,7 +53,8 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
   /** Its form as typed and not saved yet, if so: what the panel opens on, over what the server had. */
   typed(): Record<string, unknown> | undefined;
   onLook(look: Look): void;
-  onMake(): void;
+  /** The clips made: sent to render at once, or (`andRender` false) the first opened, its form every clip's. */
+  onMake(andRender?: boolean): void;
   making: boolean;
   /** Once made: how many of its clips have nothing to play and wait for no render, and how many are in the queue. */
   made: { left: number; queued: number };
@@ -117,14 +118,60 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
   const mostMs = Math.max(leastMs, Math.floor(bounds.mostMs / 100) * 100);
   const windowMs = source ? Math.min(Math.max(source.windowMs, leastMs), mostMs) : mostMs;
   const main = form ? mainTextOf(form) : undefined;
-  const written = main ? String(inputs[main.id] ?? "") : "";
+  const written = main ? String(inputs[main.id] ?? (main.type === "prompt" ? main.default ?? "" : "")) : "";
+  // a model with no Picture of its own (a swap) has no source form: its clips' form is the one, every clip sharing what
+  // changes in it (the owner, 2026-10-18). Here only what is the source's: the model, the stretch and who is replaced
+  const formless = Boolean(recipe && !pictureSpec);
   // a model whose driving video takes a click on its first frame (a swap): who is replaced, picked on the stage
   const drivingSpec = recipe?.inputs.find((i) => i.id === w?.driving);
   const takesPick = drivingSpec?.type === "clip" && Boolean(drivingSpec.pick);
   // what Make waits for: the person a swap replaces, the Picture of a model that takes one (Motion transfer), the words a model
   // needs (a swap's who to replace)
   const waitsFor = takesPick && !source?.pick && !place?.made ? "Pick who is replaced first: click him or her on the stage."
-    : pictureSpec && !picture ? `Choose the ${pictureSpec.label.toLowerCase()} first.` : main && main.type === "prompt" && !main.optional && !written.trim() ? `Write ${main.label.toLowerCase()} first.` : null;
+    : pictureSpec && !picture ? `Choose the ${pictureSpec.label.toLowerCase()} first.` : !formless && main && main.type === "prompt" && !main.optional && !written.trim() ? `Write ${main.label.toLowerCase()} first.` : null;
+
+  const sourceChapter = source ? {
+    id: "source",
+    title: "Source",
+    help: "The stretch of the video made into clips, one a window, each carrying on from the one before. Drag the source on its lane to choose where Motion transfer starts, its right end where it stops; or split it at the playhead (right-click the lane).",
+    summary: `${mmss(source.fromMs, { decimals: 1 })}–${mmss(source.toMs, { decimals: 1 })} · ${windowsSaid(windows, windowMs)}`,
+    node: (
+      <div className="flex flex-col gap-3">
+        {takesPick && (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold">Who is replaced</span>
+            {picking ? (
+              <Button tone="plain" className="h-11 justify-start gap-2 border-accent! px-3" onClick={() => onPicking(false)}>
+                <Crosshair size={16} className="text-accent" aria-hidden />
+                <span className="grow text-left"><span className="font-semibold">Picking</span><span className="text-ink-2"> · click the person on the stage</span></span>
+                <kbd className="font-mono text-[11px] text-ink-3">Esc</kbd>
+              </Button>
+            ) : source.pick ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="grow text-xs text-ink-2">
+                  Picked on the first frame ({mmss(source.fromMs, { decimals: 1 })}), marked on the stage; the clips after it follow the same person
+                </span>
+                <Button size="sm" onClick={() => onPicking(true)}>Pick again</Button>
+                <Button size="sm" tone="quiet" onClick={() => onEdit({ pick: null })}>Clear</Button>
+              </div>
+            ) : (
+              <Button className="h-11 justify-start gap-2 px-3" onClick={() => onPicking(true)}>
+                <Crosshair size={16} aria-hidden />
+                Pick on the stage
+              </Button>
+            )}
+          </div>
+        )}
+        <Slide label="Window" value={windowMs} min={leastMs} max={mostMs} step={100} show={(ms) => `${(ms / 1000).toFixed(1)} s`} onCommit={(windowMs) => onEdit({ windowMs })} />
+        <Toggle on={source.snap} onChange={(snap) => onEdit({ snap })} label="Cut at scene changes" note={source.snap ? "a window ends at a cut in the source; the next one opens a new shot" : "windows of the same length, end to end"} />
+        <span className="text-xs text-ink-2">
+          {place?.made
+            ? "Made: the clips above carry its parts (outlined on the lane)."
+            : `${windows.map((x, k) => `${k + 1}: ${mmss(x.fromMs, { decimals: 1 })}–${mmss(x.toMs, { decimals: 1 })}`).join(" · ")}. Each carries on from the one before (its last frames), with this form and one seed; ${place?.replaces ? "they take the place of the clip the stretch was taken from" : "they go after the last clip"}, dashed on the track.`}
+        </span>
+      </div>
+    ),
+  } : { id: "source", title: "Source", summary: "", node: null };
 
   return (
     <aside data-designer-stays style={{ width: panelWidth }} className="relative flex shrink-0 flex-col border-l border-line bg-panel">
@@ -166,6 +213,15 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
             <div className="text-xs font-semibold">Model</div>
             {models.length ? <Select label="Model" value="" onChange={(id) => onEdit({ recipe: id })} placeholder="Choose the model the clips are made with" options={models.map((r) => ({ value: r.id, label: name(r) }))} /> : <span className="text-xs text-warn-ink">No model that makes a long video window by window is on: turn on SCAIL-2 in Settings › Models.</span>}
           </div>
+        ) : formless ? (
+          <div className="flex flex-col gap-3.5">
+            <div className="flex flex-col gap-1.5">
+              <div className="text-xs font-semibold">Model</div>
+              <Select label="Model" value={recipe.id} onChange={(id) => onEdit({ recipe: id })} options={models.map((r) => ({ value: r.id, label: name(r), detail: r.summary }))} />
+            </div>
+            {sourceChapter.node}
+            <span className="text-xs text-ink-2">The prompt, the picture of who goes in and the settings are in the clips' form once they are made: a change there goes to every clip.</span>
+          </div>
         ) : (
           <CardPrompt.Provider value>
             <Form
@@ -177,48 +233,7 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
               onClear={(ids) => setInputs((x) => Object.fromEntries(Object.entries(x).filter(([k]) => !ids.includes(k))))}
               made={<Select label="Model" value={recipe.id} onChange={(id) => onEdit({ recipe: id })} options={models.map((r) => ({ value: r.id, label: name(r), detail: r.summary }))} />}
               madeSummary={name(recipe)}
-              lead={{
-                id: "source",
-                title: "Source",
-                help: "The stretch of the video made into clips, one a window, each carrying on from the one before. Drag the source on its lane to choose where Motion transfer starts, its right end where it stops; or split it at the playhead (right-click the lane).",
-                summary: `${mmss(source.fromMs, { decimals: 1 })}–${mmss(source.toMs, { decimals: 1 })} · ${windowsSaid(windows, windowMs)}`,
-                node: (
-                  <div className="flex flex-col gap-3">
-                    {takesPick && (
-                      <div className="flex flex-col gap-1.5">
-                        <span className="text-xs font-semibold">Who is replaced</span>
-                        {picking ? (
-                          <Button tone="plain" className="h-11 justify-start gap-2 border-accent! px-3" onClick={() => onPicking(false)}>
-                            <Crosshair size={16} className="text-accent" aria-hidden />
-                            <span className="grow text-left"><span className="font-semibold">Picking</span><span className="text-ink-2"> · click the person on the stage</span></span>
-                            <kbd className="font-mono text-[11px] text-ink-3">Esc</kbd>
-                          </Button>
-                        ) : source.pick ? (
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="grow text-xs text-ink-2">
-                              Picked on the first frame ({mmss(source.fromMs, { decimals: 1 })}), marked on the stage; the clips after it follow the same person
-                            </span>
-                            <Button size="sm" onClick={() => onPicking(true)}>Pick again</Button>
-                            <Button size="sm" tone="quiet" onClick={() => onEdit({ pick: null })}>Clear</Button>
-                          </div>
-                        ) : (
-                          <Button className="h-11 justify-start gap-2 px-3" onClick={() => onPicking(true)}>
-                            <Crosshair size={16} aria-hidden />
-                            Pick on the stage
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                    <Slide label="Window" value={windowMs} min={leastMs} max={mostMs} step={100} show={(ms) => `${(ms / 1000).toFixed(1)} s`} onCommit={(windowMs) => onEdit({ windowMs })} />
-                    <Toggle on={source.snap} onChange={(snap) => onEdit({ snap })} label="Cut at scene changes" note={source.snap ? "a window ends at a cut in the source; the next one opens a new shot" : "windows of the same length, end to end"} />
-                    <span className="text-xs text-ink-2">
-                      {place?.made
-                        ? "Made: the clips above carry its parts (outlined on the lane)."
-                        : `${windows.map((x, k) => `${k + 1}: ${mmss(x.fromMs, { decimals: 1 })}–${mmss(x.toMs, { decimals: 1 })}`).join(" · ")}. Each carries on from the one before (its last frames), with this form and one seed; ${place?.replaces ? "they take the place of the clip the stretch was taken from" : "they go after the last clip"}, dashed on the track.`}
-                    </span>
-                  </div>
-                ),
-              }}
+              lead={sourceChapter}
               frameExtra={pictureSpec ? { summary: "", node: <PictureFromFrame timeline={timeline} place={place} clock={clock} current={picture ?? null} onPick={(id) => setInputs((x) => ({ ...x, [pictureSpec.id]: id }))} /> } : undefined}
               helpers={
                 <WritingHelp
@@ -255,7 +270,7 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
               {made.left > 0 && <RenderOn pickKey={timelineKey(timeline.id)} msOn={() => null} />}
             </span>
           ) : (
-            <Button tone="primary" className="h-11 text-sm" disabled={making || !recipe || Boolean(waitsFor) || !windows.length} onClick={onMake}>
+            <Button tone="primary" className="h-11 text-sm" disabled={making || !recipe || Boolean(waitsFor) || !windows.length} onClick={() => onMake(!formless)}>
               {making ? "Making…" : `Make ${plural(windows.length, "clip")}`}
             </Button>
           )}
