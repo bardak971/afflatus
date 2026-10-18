@@ -22,6 +22,9 @@ describe("ComfyClient, read-only calls", () => {
 
   it("reads the status", async () => {
     expect(await client.status()).toEqual({ version: "0.0.0-fake", device: "fake gpu", vramTotal: 12 * 2 ** 30, vramFree: 8 * 2 ** 30 });
+    // the RAM when ComfyUI says it (0.41: a container's own limit and what is left of it)
+    fake.ram = { total: 50 * 2 ** 30, free: 20 * 2 ** 30 };
+    expect(await client.status()).toMatchObject({ ramTotal: 50 * 2 ** 30, ramFree: 20 * 2 ** 30 });
   });
 
   it("reads the node catalog and the model folders", async () => {

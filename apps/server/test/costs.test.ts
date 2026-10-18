@@ -191,7 +191,7 @@ let n = 0;
 const render = (machine: string, end: number, ms: number, over: Record<string, unknown> = {}) => ({
   id: `r${n++}`, owner_id: "local", recipe_id: "scail.motion", family: "scail", model: "scail", model_file: "scail.safetensors", time_key: "", kind: "video" as const, width: 832, height: 480, duration_ms: 5000,
   steps: 6, status: "done" as const, whole: 1, cold: 0, waited_ms: 0, total_ms: ms, load_ms: 0, sample_ms: ms, refine_ms: 0, finish_ms: 0, step_ms: null, expected_ms: null, vram_peak: null, heat_peak: null,
-  asset_id: null, created_at: iso(end), work: null, machine_id: machine, gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, ...over,
+  asset_id: null, created_at: iso(end), work: null, machine_id: machine, gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, ram_peak: null, ram_total: null, ...over,
 });
 const jobRow = (id: string, over: Record<string, unknown>) => ({ id, owner_id: "local", recipe_id: "scail.motion", label: "x", inputs: "{}", status: "done", priority: 0, created_at: iso(T0), updated_at: iso(T0), ...over });
 

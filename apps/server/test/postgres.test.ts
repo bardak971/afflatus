@@ -107,7 +107,7 @@ describe.skipIf(!url)("on Postgres", () => {
           id: `r${n}`, owner_id: OWNER, recipe_id: "sdxl.text-to-picture", family: "sdxl", model: "illustrious", model_file: "illustrious", time_key: "steps=28",
           kind: "image", width: 832, height: 1216, duration_ms: null, steps: 28, status: "done", whole: 1, cold: n % 2, waited_ms: 0,
           total_ms: 20_000 + n * 100, load_ms: 1_000, sample_ms: 16_000 + n * 100, refine_ms: 0, finish_ms: 3_000, step_ms: 570, expected_ms: 20_000,
-          vram_peak: 70, heat_peak: 68, asset_id: null, work: 832 * 1216, machine_id: null, gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, created_at: new Date(NOW - ago).toISOString(),
+          vram_peak: 70, heat_peak: 68, asset_id: null, work: 832 * 1216, machine_id: null, gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, ram_peak: null, ram_total: null, created_at: new Date(NOW - ago).toISOString(),
         });
         await db.insertInto("render_stats").values([0, 1, 2, 3, 4, 5].map((n) => render(n, n * DAY + 3_600_000))).execute();
         const all = async () => JSON.stringify(await summary(db, services.registry, "all", 90, NOW));

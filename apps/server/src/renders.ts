@@ -23,6 +23,8 @@ import { cellOf, DAY, dayOf, digestDays, median, merge, WHOLE_DAY, type Cell, ty
 
 /** A render's milliseconds per node class as kept (render_stats.node_ms): null when none were heard. */
 const nodeMs = (measured: Measured | null): string | null => (measured?.nodes && Object.keys(measured.nodes).length ? JSON.stringify(measured.nodes) : null);
+/** Bytes as GB to a tenth, as render_stats keeps the RAM; null when not read. */
+const gbOf = (bytes: number | null | undefined): number | null => (bytes ? Math.round((bytes / 1024 ** 3) * 10) / 10 : null);
 
 /**
  * One row for a render that ran on ComfyUI, finished or not: where its time went (loading, sampling, the
@@ -59,6 +61,7 @@ export async function record(
       step_ms: measured?.stepMs ?? null, expected_ms: resume.timing?.expectedMs ?? null, work: resume.timing?.work ?? null,
       vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made?.id ?? null, machine_id: where.machine, gpu: where.gpu, node_ms: nodeMs(measured), created_at: at,
       energy_wh: where.energy ? Math.round(where.energy.wh * 1000) / 1000 : null, power_avg_w: where.energy ? Math.round(where.energy.avgW * 10) / 10 : null,
+      ram_peak: gbOf(measured?.ramPeak), ram_total: gbOf(measured?.ramTotal),
     })
     .onConflict((oc) => oc.column("id").doNothing())
     .execute();
@@ -103,6 +106,7 @@ export async function recordTool(
       total_ms: Math.round(totalMs), load_ms: load, sample_ms: 0, refine_ms: refine, finish_ms: finish, step_ms: null, expected_ms: expectedMs, work,
       vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made.assetId, machine_id: machine, node_ms: nodeMs(measured), created_at: at,
       energy_wh: energy ? Math.round(energy.wh * 1000) / 1000 : null, power_avg_w: energy ? Math.round(energy.avgW * 10) / 10 : null,
+      ram_peak: gbOf(measured?.ramPeak), ram_total: gbOf(measured?.ramTotal),
     })
     .onConflict((oc) => oc.column("id").doNothing())
     .execute();

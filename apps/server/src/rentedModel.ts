@@ -45,9 +45,9 @@ export interface RentedView {
    * Why Afflatus stopped or terminated it last, when it did: "boot" when its ComfyUI never answered; "gpu" when the pod said its
    * GPU does not work; "watchdog" when its watchdog stopped it while Afflatus was away, and Afflatus terminated what was left;
    * "cut" when a fill of its volume was cut short (its files stuck, or past its time); "start" when its boot log said its start
-   * stopped on an error (the Afflatus image, deployed from here).
+   * stopped on an error (the Afflatus image, deployed from here); "crash" when its ComfyUI died on it (Seen.comfyDied).
    */
-  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | "filled" | "cut" | "start" | null;
+  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | "filled" | "cut" | "start" | "crash" | null;
   /** Deployed and on its first start (its image pulled, ComfyUI starting): a normal step, said as one, not as an error. */
   booting: boolean;
   /** While it boots: where it is (podBoot.ts bootOf), from RunPod's data and its boot log. */
@@ -105,6 +105,13 @@ export interface Seen {
   gpuFailed: string | null;
   /** Its boot log said its start stopped on an error, at that step: what its card says once it is terminated for it. */
   startFailed: string | null;
+  /**
+   * Its ComfyUI died after its start: as the pod reported it (broken.py's "comfy_died": died.py's line and numbers), or as the
+   * queue found it (a ComfyUI started again without the render it ran: an older image, which says nothing of why; `report`
+   * null). Kept past the pod's end, for its card. `told`: acted on (the render failed, the pod terminated or the death said);
+   * `render`: a render of Afflatus's was failed by it.
+   */
+  comfyDied: { said: string; report: Record<string, unknown> | null; from: "pod" | "queue"; told: boolean; render: boolean } | null;
   /** How many reads in a row found no such pod on RunPod. */
   missing: number;
   /** Read at least once: what a later read finds is a change only when it differs. */
@@ -134,7 +141,7 @@ export interface Seen {
 const fresh = (): Seen => ({
   pod: null, rate: null, watchdog: "unknown", answers: null, busyAt: null, busyKept: null, busyRestored: false, stoppedBy: null, stopAfter: false, cappedAt: null,
   stopping: false, stopAction: null, lockTried: false, seenRunningAt: null, sessionFrom: null, epoch: 0, error: null, bootNote: null, secretDropped: false, upAt: null, answered: false, answeredAt: null,
-  read: false, gpuFailed: null, startFailed: null, missing: 0, stoppingSince: null, aliveAt: null, startingSince: null,
+  read: false, gpuFailed: null, startFailed: null, comfyDied: null, missing: 0, stoppingSince: null, aliveAt: null, startingSince: null,
   handed: false, fillFrom: null, fillProgress: null, fillMovedAt: null, cutWhy: null, pulledKept: false, packsKept: null, containerAt: null,
 });
 
@@ -188,7 +195,7 @@ export class RentedCore {
 
   constructor(
     protected readonly db: Db,
-    protected readonly queue: { wants(machine: string): Promise<boolean>; runningOn(machine: string): boolean; busyOn(machine: string): boolean; busyOutside(machine: string): Promise<boolean>; waitingBehindOutside(machine: string): boolean; fetching(machine: string): boolean; quietFor(machine: string, now?: number): { ms: number; gpuIdle: boolean }; endStuck(machine: string, why: string): Promise<boolean>; answering(machine: string): void },
+    protected readonly queue: { wants(machine: string): Promise<boolean>; runningOn(machine: string): boolean; busyOn(machine: string): boolean; busyOutside(machine: string): Promise<boolean>; waitingBehindOutside(machine: string): boolean; fetching(machine: string): boolean; quietFor(machine: string, now?: number): { ms: number; gpuIdle: boolean }; endStuck(machine: string, why: string): Promise<boolean>; machineDied(machine: string, why: string, trace: string | null): boolean; answering(machine: string): void },
     protected readonly events: EventEmitter,
     protected readonly comfyOf: (machine: string) => Promise<Comfy | null>,
   ) {}

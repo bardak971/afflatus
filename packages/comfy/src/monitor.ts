@@ -38,6 +38,9 @@ export interface Measured {
   /** The highest share of the GPU's memory in use, in percent, and the hottest it got; null when nothing reports them. */
   vramPeak: number | null;
   heatPeak: number | null;
+  /** The most RAM in use, in bytes, and the RAM there was; null when ComfyUI was not read for it (Monitor.peaks). */
+  ramPeak?: number | null;
+  ramTotal?: number | null;
   /**
    * Milliseconds per node class (ComfyUI's class_type), from each node's "executing" to the next one's: what "loading"
    * holds told apart (the model's loader, a SAM3 tracking, a text encode). Missing when the classes are not known (a
@@ -92,6 +95,9 @@ interface Tracked extends Tracking {
   firstPass: { node: string; phase: string; firstAt: number; firstValue: number; lastAt: number; lastValue: number } | null;
   vramPeak: number | null;
   heatPeak: number | null;
+  /** The most RAM it used and the RAM there was then, in bytes (ComfyUI's own count: a container's limit on a pod). */
+  ramPeak: number | null;
+  ramTotal: number | null;
   /** The node executing now and since when, and the time of each node that ran, by node id. */
   nodeAt: { node: string; at: number } | null;
   nodeMs: Record<string, number>;
@@ -230,7 +236,7 @@ export class Monitor {
     this.tracked.set(t.promptId, {
       ...t, totalSteps, done: 0, node: null, value: 0, max: 0, phase: "waiting",
       executing: null, samplingAt: null, stepsAtStart: 0, resumed: Math.min(totalSteps, Math.max(0, Math.floor(t.stepsDone ?? 0))), preview: { seq: 0 }, stages: [],
-      clock: { phase: "waiting", at: this.now() }, spent: {}, firstPass: null, vramPeak: null, heatPeak: null, nodeAt: null, nodeMs: {},
+      clock: { phase: "waiting", at: this.now() }, spent: {}, firstPass: null, vramPeak: null, heatPeak: null, ramPeak: null, ramTotal: null, nodeAt: null, nodeMs: {},
     });
     if (t.clientId && t.clientId !== this.client.clientId) this.listenAs(t.clientId, t.promptId);
   }
@@ -343,7 +349,7 @@ export class Monitor {
         if (type) nodes[type] = Math.round((nodes[type] ?? 0) + ms);
       }
     }
-    return { phases, stepMs, vramPeak: r.vramPeak, heatPeak: r.heatPeak, ...(nodes ? { nodes } : {}) };
+    return { phases, stepMs, vramPeak: r.vramPeak, heatPeak: r.heatPeak, ramPeak: r.ramPeak, ramTotal: r.ramTotal, ...(nodes ? { nodes } : {}) };
   }
 
   /** The node that was executing has finished: its time is counted. */
@@ -520,12 +526,19 @@ export class Monitor {
     this.onChange(r.promptId);
   }
 
-  /** The highest the GPU's memory and heat got while a prompt was running. */
+  /**
+   * The highest the GPU's memory and heat, and the RAM, got while a prompt was running. The RAM only from ComfyUI's own count:
+   * the monitor extensions read the host's, which inside a pod's container is not the limit it is killed at.
+   */
   peaks(load: SystemLoad): void {
     const r = this.current;
+    if (!r) return;
     const gpu = load.gpus[0];
-    if (!r || !gpu) return;
-    if (gpu.vramTotal > 0) r.vramPeak = Math.max(r.vramPeak ?? 0, gpu.vramPercent);
-    if (gpu.temperature !== undefined) r.heatPeak = Math.max(r.heatPeak ?? 0, gpu.temperature);
+    if (gpu && gpu.vramTotal > 0) r.vramPeak = Math.max(r.vramPeak ?? 0, gpu.vramPercent);
+    if (gpu?.temperature !== undefined) r.heatPeak = Math.max(r.heatPeak ?? 0, gpu.temperature);
+    if (load.source === "comfyui" && load.ram && load.ram.used >= (r.ramPeak ?? 0)) {
+      r.ramPeak = load.ram.used;
+      r.ramTotal = load.ram.total;
+    }
   }
 }

@@ -42,7 +42,7 @@ const rendered = async () => {
     id: `r${i}`, owner_id: "local", recipe_id: RECIPE, family: "sdxl", model: "illustrious", model_file: modelOf(t.services.registry.recipe(RECIPE)!.inputs, INPUT)!, time_key: "steps=28",
     kind: "image", width: 832, height: 1216, duration_ms: null, steps: 28, status: "done", whole: 1, cold: cold ? 1 : 0, waited_ms: 0,
     total_ms: (cold ? 30_000 : 1_000) + 19_000, load_ms: cold ? 30_000 : 1_000, sample_ms: 14_000, refine_ms: 0, finish_ms: 5_000, step_ms: 500, expected_ms: null,
-    vram_peak: null, heat_peak: null, asset_id: null, work: 832 * 1216, machine_id: "m1", gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, created_at: at,
+    vram_peak: null, heat_peak: null, asset_id: null, work: 832 * 1216, machine_id: "m1", gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, ram_peak: null, ram_total: null, created_at: at,
   });
   await t.db.insertInto("render_stats").values([row(0, false), row(1, false), row(2, false), row(3, false), row(4, true), row(5, true)]).execute();
 };
@@ -100,7 +100,7 @@ describe("a form placed from its recipe's usual times (its model never rendered)
       id: `o${i}`, owner_id: "local", recipe_id: RECIPE, family: "sdxl", model: "other", model_file: "other.safetensors", time_key: "steps=28",
       kind: "image", width: 832, height: 1216, duration_ms: null, steps: 28, status: "done", whole: 1, cold: i === 0 ? 1 : 0, waited_ms: 0,
       total_ms: (i === 0 ? 30_000 : 1_000) + 19_000, load_ms: i === 0 ? 30_000 : 1_000, sample_ms: 14_000, refine_ms: 0, finish_ms: 5_000, step_ms: 500, expected_ms: null,
-      vram_peak: null, heat_peak: null, asset_id: null, work: 832 * 1216, machine_id: "m1", gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, created_at: at,
+      vram_peak: null, heat_peak: null, asset_id: null, work: 832 * 1216, machine_id: "m1", gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, ram_peak: null, ram_total: null, created_at: at,
     }))).execute();
     holds("m1", CHECKPOINT);
     holds("m3", "other.safetensors");
@@ -159,7 +159,7 @@ describe("what a batch or a timeline's finish takes in all", () => {
     await t.db.insertInto("render_stats").values([0, 1, 2].map((i): RenderRow => ({
       id: `f${i}`, owner_id: "local", recipe_id: "tool.finish.seedvr", family: "tools", model: "SeedVR2", model_file: "", time_key: "", kind: "video", width: 1280, height: 720,
       duration_ms: 2_000, steps: 0, status: "done", whole: 1, cold: 0, waited_ms: 0, total_ms: 60_000, load_ms: 0, sample_ms: 0, refine_ms: 60_000, finish_ms: 0, step_ms: null,
-      expected_ms: null, vram_peak: null, heat_peak: null, asset_id: null, work, machine_id: "m1", gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, created_at: now(),
+      expected_ms: null, vram_peak: null, heat_peak: null, asset_id: null, work, machine_id: "m1", gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, ram_peak: null, ram_total: null, created_at: now(),
     }))).execute();
     const finish = { recipe: CUT_JOB, input: { asset: video.id, startMs: 0, endMs: 2_000, action: "finish", route: "seedvr", by: 2 } };
     expect((await t.services.queue.total([finish, finish])).ms).toBe(60_000);
@@ -174,7 +174,7 @@ describe("a tool's pace", () => {
     const run = (id: string, machine: string, total: number, expected: number | null): RenderRow => ({
       id, owner_id: "local", recipe_id: "tool.finish.seedvr", family: "tools", model: "SeedVR2", model_file: "", time_key: "", kind: "video", width: 1280, height: 720,
       duration_ms: 2_000, steps: 0, status: "done", whole: 1, cold: 0, waited_ms: 0, total_ms: total, load_ms: 0, sample_ms: 0, refine_ms: total, finish_ms: 0, step_ms: null,
-      expected_ms: expected, vram_peak: null, heat_peak: null, asset_id: null, work: 1_000, machine_id: machine, gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, created_at: at,
+      expected_ms: expected, vram_peak: null, heat_peak: null, asset_id: null, work: 1_000, machine_id: machine, gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, ram_peak: null, ram_total: null, created_at: at,
     });
     // this computer at 60 s; the pod at 150 s, each expected at this computer's 60 s; one run here that spilled
     await t.db.insertInto("render_stats").values([run("a", "m1", 60_000, 60_000), run("b", "m1", 60_000, 60_000), run("c", "m1", 61_000, 60_000), run("s", "m1", 200_000, 60_000),

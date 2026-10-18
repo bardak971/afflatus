@@ -191,6 +191,8 @@ export function rentedSaid(r: RentedState, now = Date.now()): string {
     // its time and its cost from the one `now`, so that the two never disagree in one line (each screen passes the shared clock, useSecond)
     return `${bootSaid(r.boot, now)}${r.status === "RUNNING" && r.since ? ` · ${usd(rentedSpent(r, now), true)}` : ""}`;
   }
+  // terminated because its ComfyUI died: why, as its card says it (the pod's own words), not "not on RunPod"
+  if (r.stoppedBy === "crash" && r.status !== "RUNNING") return r.error?.replace(/^Terminated: /, "").split(/\. /)[0] ?? "ComfyUI died";
   switch (r.status) {
     case "RUNNING": {
       // billed from its start, whether its ComfyUI answers yet or not; a deployed pod's first start is a step of its own

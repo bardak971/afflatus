@@ -76,7 +76,7 @@ describe("the CSV writer", () => {
 const session = (over: Partial<SessionView>): SessionView => ({
   id: "s", machine: "rp-a", gpu: "A40", rate: 0.6, from: 0, to: HOUR, open: false, usd: 0.6,
   parts: { render: 30 * MIN, boot: 4 * MIN, fetch: 6 * MIN, outside: 5 * MIN, idle: 12 * MIN, failed: 3 * MIN },
-  boot: { pull: MIN, packs: MIN, comfy: 2 * MIN, startFailed: 0, boot: 0 }, startFailed: null, packs: [], estimated: [], why: "", idleMinutes: 10,
+  boot: { pull: MIN, packs: MIN, comfy: 2 * MIN, startFailed: 0, boot: 0 }, startFailed: null, crash: null, packs: [], estimated: [], why: "", idleMinutes: 10,
   fetched: { files: 1, bytes: 26e9 }, renders: [], ...over,
 });
 
@@ -140,7 +140,7 @@ describe("the CSV routes", () => {
   const render = (end: number, over: Record<string, unknown> = {}) => ({
     id: `r${n++}`, owner_id: "local", recipe_id: "sdxl.text-to-picture", family: "sdxl", model: "illustrious", model_file: "SDXL/illustrious.safetensors", time_key: "", kind: "image" as const,
     width: 832, height: 1216, duration_ms: null, steps: 28, status: "done" as const, whole: 1, cold: 1, waited_ms: 1_500, total_ms: 20_040, load_ms: 4_000, sample_ms: 14_000, refine_ms: 0, finish_ms: 2_040,
-    step_ms: 512, expected_ms: 19_000, vram_peak: 71, heat_peak: 66, asset_id: null, work: null, machine_id: "m1", gpu: "NVIDIA GeForce RTX 4090", node_ms: null, energy_wh: 1.5, power_avg_w: 270,
+    step_ms: 512, expected_ms: 19_000, vram_peak: 71, heat_peak: 66, asset_id: null, work: null, machine_id: "m1", gpu: "NVIDIA GeForce RTX 4090", node_ms: null, energy_wh: 1.5, power_avg_w: 270, ram_peak: null, ram_total: null,
     created_at: iso(end), ...over,
   });
 

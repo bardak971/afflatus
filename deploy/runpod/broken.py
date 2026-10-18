@@ -1,9 +1,11 @@
 """The Afflatus pod's answer when it cannot start ComfyUI (start.sh runs it in place of ComfyUI).
 
-Two cases. Its GPU does not work on this host (a host's driver or GPU in a bad state: "CUDA unknown error"), so ComfyUI
+Three cases. Its GPU does not work on this host (a host's driver or GPU in a bad state: "CUDA unknown error"), so ComfyUI
 would crash at every start: `broken.py <file of torch's error>`. Or a step of the start failed (a volume full, a write
 refused): `broken.py --start "<step>" <exit code>`; exiting would have RunPod start the container again, fail at the same
-step and bill on with no watchdog, since the node pack's runs only inside ComfyUI.
+step and bill on with no watchdog, since the node pack's runs only inside ComfyUI. Or ComfyUI ran and died
+(`broken.py --died <report.json>`, died.py's report): "comfy_died", served with its numbers, and Afflatus fails the
+render it was doing, says why and terminates the pod.
 
 Either way the pod would bill for nothing. This answers on ComfyUI's port instead: GET /afflatus/pod says what failed
 ("gpu_failed", which Afflatus terminates at once and says why; "start_failed", whose step the boot log says too, read by
@@ -46,13 +48,38 @@ def said(path: str) -> str:
     return (lines[-1] if lines else "the GPU check failed")[:300]
 
 
+# what a report may hold: died.py writes only these, and only these are served, whatever the file holds
+CAUSES = ("oom", "killed", "signal", "exit")
+NUMBERS = ("signal", "exit", "oom_kills", "ram_peak", "ram_limit", "vram_used", "vram_total", "ran_s")
+
+
+def died_report(path):
+    """(error, report) from died.py's report: its line and its numbers, nothing else of the file."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            got = json.load(f)
+    except (OSError, ValueError):
+        got = None
+    if not isinstance(got, dict) or got.get("cause") not in CAUSES:
+        return "ComfyUI ended, and why could not be read", {"cause": None}
+    report = {"cause": got["cause"]}
+    for key in NUMBERS:
+        value = got.get(key)
+        report[key] = value if isinstance(value, int) and not isinstance(value, bool) else None
+    said = got.get("said")
+    return (said if isinstance(said, str) and said else "ComfyUI ended")[:300], report
+
+
 def what_failed(argv):
-    """(kind, error) from the command line: a start's step and exit code after --start, else the GPU check's error file."""
+    """(kind, error, report) from the command line: a start's step and exit code after --start, died.py's report after
+    --died, else the GPU check's error file."""
+    if len(argv) > 2 and argv[1] == "--died":
+        return ("comfy_died",) + died_report(argv[2])
     if len(argv) > 1 and argv[1] == "--start":
         step = (argv[2] if len(argv) > 2 else "").strip() or "the start"
         code = argv[3] if len(argv) > 3 else "?"
-        return "start_failed", f"the start failed at {step} (exit {code})"[:300]
-    return "gpu_failed", said(argv[1]) if len(argv) > 1 else "the GPU check failed"
+        return "start_failed", f"the start failed at {step} (exit {code})"[:300], None
+    return "gpu_failed", said(argv[1]) if len(argv) > 1 else "the GPU check failed", None
 
 
 def handler(body: bytes):
@@ -72,11 +99,17 @@ def handler(body: bytes):
 
 
 def main(argv, port=8188):
-    kind, error = what_failed(argv)
-    body = json.dumps({"afflatus_pod": kind, "error": error}).encode()
-    # the GPU's failure is said here; a start's was said by start.sh already, as the boot log's "failed:" line
+    kind, error, report = what_failed(argv)
+    answer = {"afflatus_pod": kind, "error": error}
+    if report is not None:
+        answer["report"] = report
+    body = json.dumps(answer).encode()
+    # the GPU's failure is said here; a start's was said by start.sh already, as the boot log's "failed:" line, and
+    # ComfyUI's death by died.py
     if kind == "gpu_failed":
         print(f"[afflatus-pod] failed: the GPU does not work on this host: {error}", flush=True)
+    elif kind == "comfy_died":
+        print("[afflatus-pod] the pod waits here, its watchdog armed", flush=True)
     else:
         print(f"[afflatus-pod] {error}: the pod waits here, its watchdog armed", flush=True)
     watch()

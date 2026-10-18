@@ -247,7 +247,7 @@ function SessionRow({ s, longest, split }: { s: PodSession; longest: number; spl
       <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="grid grid-cols-[minmax(0,230px)_minmax(0,1fr)_64px] items-center gap-3.5 rounded-lg px-1.5 py-1 text-left hover:bg-hover">
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-[13px] font-semibold">{s.gpu ?? "GPU"} <span className="font-normal text-ink-3">· ${s.rate.toFixed(2)}/h</span></span>
-          <span className="truncate text-[11.5px] text-ink-3">{dayMonth(s.from)} {hourMinute(s.from)} · {s.open ? "running now" : s.startFailed ? "its start failed" : s.why}</span>
+          <span className="truncate text-[11.5px] text-ink-3">{dayMonth(s.from)} {hourMinute(s.from)} · {s.open ? "running now" : s.crash ? "ComfyUI died" : s.startFailed ? "its start failed" : s.why}</span>
         </span>
         <span className="flex h-[18px] gap-0.5">
           {bits.map((b) => <span key={b.key} data-tip={b.tip} className="min-w-[3px] rounded" style={{ width: `${b.share * 100}%`, background: b.color }} />)}
@@ -257,6 +257,7 @@ function SessionRow({ s, longest, split }: { s: PodSession; longest: number; spl
       {open && (
         <div className="mb-1 ml-1.5 flex flex-col gap-0.5 border-l border-line py-1 pl-3 text-xs">
           {s.estimated.length > 0 && <span className="text-ink-3">Estimated: {s.estimated.join("; ")}.</span>}
+          {s.crash && <span className="text-warn-ink">{s.crash}.</span>}
           {boot && <span className={cx(s.startFailed ? "text-warn-ink" : "text-ink-3")}>{boot}</span>}
           {s.parts.outside > 0 && <span className="text-ink-3" data-tip={OUTSIDE_WHY}>Outside Afflatus: {long(s.parts.outside)}, {usd((s.parts.outside / 3_600_000) * s.rate, true)}</span>}
           {s.renders.length ? s.renders.map((r) => (

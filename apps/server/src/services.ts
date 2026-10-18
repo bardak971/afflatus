@@ -147,6 +147,8 @@ export async function createServices(
   // a render's end, a pod stopped, a cap: told where the user asked (notify.ts), never in the way of what it is about
   const notify = new Notify({ db, storage, registry, events: queue.events, stillFor: () => queue.stillFor(), batchCost: (from, to, notBefore) => rented.batchCost(from, to, notBefore) });
   queue.tell = rented.tell = (kind, notice) => notify.say(kind, notice);
+  // a pod's ComfyUI found started again without its render (an older image's death): the pod is terminated as a crash
+  queue.podCrashed = (id, why) => rented.podCrashed(id, why);
   notify.watch();
   // the reset codes and the sign-ins go to the data folder's log file as well as the console (none in the tests)
   const access = new Access(db, notify, { logFile: dirs.dataDir ? join(dirs.dataDir, "logs", "afflatus.log") : undefined });

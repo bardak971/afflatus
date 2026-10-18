@@ -132,6 +132,12 @@ describe("Monitor", () => {
       }
       gpu(93, 74);
       gpu(88, 70);
+      // the RAM from ComfyUI's own count only (a pod's container limit); a monitor extension's is the host's, left out
+      const GB = 1024 ** 3;
+      fake.send("dasiwa.system_monitor", { ram: { used: 400 * GB, total: 500 * GB }, gpus: [] });
+      await until(() => timed.system?.ram?.used === 400 * GB);
+      timed.peaks(systemLoadFromStatus({ version: "x", device: "GPU", vramTotal: 0, vramFree: 0, ramTotal: 50 * GB, ramFree: 20 * GB }));
+      timed.peaks(systemLoadFromStatus({ version: "x", device: "GPU", vramTotal: 0, vramFree: 0, ramTotal: 50 * GB, ramFree: 35 * GB }));
       fake.send("executing", { prompt_id: "p1", node: "9" });
       await until(() => timed.progress("p1").phase === "decoding");
       clock.now += 50;
@@ -142,6 +148,7 @@ describe("Monitor", () => {
       expect(m.phases).toEqual({ waiting: 0, loading: 160, sampling: 120, decoding: 50 });
       expect(m.vramPeak).toBe(93);
       expect(m.heatPeak).toBe(74);
+      expect([m.ramPeak, m.ramTotal]).toEqual([30 * GB, 50 * GB]);
       timed.untrack("p1");
       expect(timed.measured("p1")).toBeNull();
     } finally {

@@ -48,6 +48,8 @@ export interface PodSession {
   /** Its Booting by part (ms), adding up to it; the step its start failed at; its node packs' installs, as its boot log said them. */
   boot: BootMs;
   startFailed: string | null;
+  /** Its ComfyUI died on it: why, as the pod said it (out of system memory, with its peak). */
+  crash: string | null;
   packs: Array<{ pack: string; ms: number }>;
   /** What was worked out rather than kept (an older session's boot, its files). */
   estimated: string[];

@@ -28,6 +28,10 @@ const DEPLOY_SLOW_MS = 12 * 60_000;
 /** After this long running without an answer, its card says so (it is billed meanwhile). */
 const BOOT_SLOW_MS = 2 * 60_000;
 
+/** What its card says of a pod whose ComfyUI died: why, as the pod or the queue said it, and where its last lines are. */
+const diedSaid = (s: Seen): string =>
+  `${s.stoppedBy === "crash" ? "Terminated: " : ""}${s.comfyDied!.said}.${s.comfyDied!.render ? " Its render failed, not run again." : ""}${s.comfyDied!.from === "pod" ? " ComfyUI's last lines are in its log (Queue › Log)." : ""}`;
+
 export class Rented extends RentedDeploy {
   /**
    * Whether a machine can take work: a rented one only while its pod runs and is not being stopped, never one filling its
@@ -96,7 +100,7 @@ export class Rented extends RentedDeploy {
       booting,
       boot,
       // a start that stopped on an error says so as its pod says it, before the boot limit's words
-      error: s?.error ?? this.error ?? s?.bootNote ?? (s?.stoppedBy === "gpu" ? s.gpuFailed : null) ?? (s?.stoppedBy === "start" ? s.startFailed : null) ?? (boot?.failed && boot.step ? `Start failed: ${stepSaid(boot.step)}. Terminated now, nothing billed after; its last lines are in its log (Queue › Log).` : null) ?? this.unanswered(machine, s ?? null, status, bootLimit(machine)),
+      error: s?.error ?? this.error ?? s?.bootNote ?? (s?.stoppedBy === "gpu" ? s.gpuFailed : null) ?? (s?.stoppedBy === "start" ? s.startFailed : null) ?? (s?.comfyDied && (s.stoppedBy === "crash" || s.answers === false) ? diedSaid(s) : null) ?? (boot?.failed && boot.step ? `Start failed: ${stepSaid(boot.step)}. Terminated now, nothing billed after; its last lines are in its log (Queue › Log).` : null) ?? this.unanswered(machine, s ?? null, status, bootLimit(machine)),
     };
   }
 

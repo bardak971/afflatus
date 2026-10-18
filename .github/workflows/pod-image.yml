@@ -23,7 +23,7 @@ env:
 
 jobs:
   # what the image ships, tested first: the node pack (its lock, watchdog and frame arithmetic) and the pod's own scripts
-  # (the boot log, broken.py, Manager's registry list, start.sh's failure path). Every pod deployed from a broken image
+  # (the boot log, broken.py, died.py, Manager's registry list, start.sh's failure path and its run of ComfyUI). Every pod deployed from a broken image
   # bills its boot for nothing
   test:
     runs-on: ubuntu-latest

@@ -46,6 +46,16 @@ export class Stuck {
   constructor(readonly message: string) {}
 }
 
+/**
+ * The reason a render fails with when the ComfyUI it ran on died under it: a pod's report of it (rentedFollow), or a pod's
+ * ComfyUI found started again without it. Never queued again on its own, as a machine merely gone is: a render that killed
+ * ComfyUI would likely kill the next one's too, billed each time. `trace`: the pod's report and ComfyUI's last lines, kept
+ * with the job.
+ */
+export class Died {
+  constructor(readonly message: string, readonly trace: string | null = null) {}
+}
+
 /** The job under way: its abort switch, the prompt ComfyUI knows it by once it has one, and whether it holds the GPU. */
 export interface Running {
   id: string;

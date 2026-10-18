@@ -79,6 +79,13 @@ export interface FakeComfy {
   /** The Afflatus pod image on a host whose GPU does not work (deploy/runpod/broken.py): GET /afflatus/pod says this error, all else 503. */
   podBroken: string | null;
   /**
+   * The Afflatus pod image whose ComfyUI died after its start (deploy/runpod/died.py, broken.py --died): GET /afflatus/pod says
+   * "comfy_died" with this line and report, all else 503, as a pod with nothing on ComfyUI's port but broken.py.
+   */
+  podDied: { error: string; report: Record<string, unknown> | null } | null;
+  /** The RAM its /system_stats says, in bytes (ComfyUI 0.41: a container's limit and what is left); null: not said, as before. */
+  ram: { total: number; free: number } | null;
+  /**
    * The Afflatus pod image's boot log (deploy/runpod/bootlog.py), served here at ComfyUI's address (the demo's and the tests'
    * proxy has one address per pod): GET /afflatus/boot with this token as a Bearer, whether ComfyUI is up or not; null: no
    * boot log (RunPod's image, an older Afflatus image, or no container yet).
@@ -163,7 +170,7 @@ const body = async (req: IncomingMessage) => {
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: FakeState = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], packUploaded: [], removed: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, bootLog: null, alive: [],
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], packUploaded: [], removed: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, podDied: null, ram: null, bootLog: null, alive: [],
     folderPaths: init.folderPaths ?? null, hideFolderPaths: init.hideFolderPaths ?? false,
     catalog: init.catalog ?? {},
     models: init.models ?? {},
@@ -204,6 +211,10 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
     // a stopped pod's ComfyUI: the provider's proxy answers for it, and says it is not there
     if (fake.down) return r.plain(502, "Bad Gateway: the pod is not running", "text/plain");
     if (fake.podBroken !== null) return url.pathname === "/afflatus/pod" ? r.json(200, { afflatus_pod: "gpu_failed", error: fake.podBroken }) : r.json(503, { afflatus_pod: "gpu_failed", error: fake.podBroken });
+    if (fake.podDied !== null) {
+      const said = { afflatus_pod: "comfy_died", error: fake.podDied.error, ...(fake.podDied.report ? { report: fake.podDied.report } : {}) };
+      return r.json(url.pathname === "/afflatus/pod" ? 200 : 503, said);
+    }
     if (url.pathname === "/upload/image" && fake.uploadDelayMs) await new Promise((resolve) => setTimeout(resolve, fake.uploadDelayMs));
     for (const part of parts) if (await part(r)) return;
     r.json(404, { error: `fake ComfyUI has no ${method} ${url.pathname}` });

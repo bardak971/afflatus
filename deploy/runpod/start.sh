@@ -10,7 +10,7 @@
 set -e
 
 # the start's output through the stamper into the log, and on to the container's own output as before (RunPod's log). A
-# fifo: sh has no other way to send its own output through a pipe and still exec ComfyUI at the end
+# fifo: sh has no other way to send its own output through a pipe, ComfyUI's after it
 LOG=/tmp/afflatus-boot.log
 FIFO=/tmp/afflatus-boot.fifo
 [ -p "$FIFO" ] || { rm -f "$FIFO"; mkfifo "$FIFO"; }
@@ -152,5 +152,43 @@ done
 # the boot log: its custom nodes' loading shows there, and why it stopped when it does
 step "starting ComfyUI"
 trap - EXIT
+# --- the run (deploy/runpod/tests/test_start.py runs this part on its own)
+# ComfyUI as this script's child, not in its place: were it the container's main process, its death (the out-of-memory
+# killer, a crash in a library) would end the container, RunPod would start a fresh one that knows nothing of the render
+# ("history 404"), and its log would be gone. So the script waits for it, and passes RunPod's stop on to it. When it ends
+# without being asked to, died.py writes why (its signal, the out-of-memory killer's count, the memory's peak) and
+# broken.py serves that as "comfy_died": Afflatus fails the render, says why and terminates the pod. Never started again
+# here: a render that killed ComfyUI once would likely kill it again, billed
+COMFY_STATE=/tmp/afflatus-comfy.json
+DIED=/tmp/afflatus-died.json
+python -u "$POD/died.py" start "$COMFY_STATE" || echo "[afflatus-pod] died.py did not run: a crash will say less"
 # shellcheck disable=SC2086
-exec python /comfyui/main.py --listen 0.0.0.0 --port 8188 --enable-manager --disable-auto-launch --base-directory "$BASE" ${COMFYUI_ARGS:-}
+python /comfyui/main.py --listen 0.0.0.0 --port 8188 --enable-manager --disable-auto-launch --base-directory "$BASE" ${COMFYUI_ARGS:-} &
+COMFY=$!
+echo "$COMFY" > /tmp/afflatus-comfy.pid
+STOPPING=
+WOKEN=
+stop() {
+  STOPPING=1
+  WOKEN=1
+  kill -TERM "$COMFY" 2>/dev/null || true
+}
+trap stop TERM INT
+# a trap ends `wait` early with ComfyUI still running: wait again, until what `wait` returns is ComfyUI's own end
+set +e
+while :; do
+  WOKEN=
+  wait "$COMFY"
+  code=$?
+  [ -n "$WOKEN" ] || break
+done
+set -e
+trap - TERM INT
+if [ -n "$STOPPING" ]; then
+  exit 0
+fi
+echo "[afflatus-pod] ComfyUI ended (status $code)"
+python -u "$POD/died.py" end "$code" "$COMFY_STATE" "$DIED" || echo "[afflatus-pod] died.py could not write its report"
+python -u "$POD/broken.py" --died "$DIED" || echo "[afflatus-pod] broken.py did not run: no watchdog"
+sleep 1200
+# --- end of the run

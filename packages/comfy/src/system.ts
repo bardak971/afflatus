@@ -87,11 +87,13 @@ export function systemLoadFrom(type: string | undefined, data: unknown): SystemL
   return null;
 }
 
-/** The fallback when no extension reports: what ComfyUI's own status says, GPU memory only. */
+/** The fallback when no extension reports: what ComfyUI's own status says, its memory (the GPU's, and the RAM when it says it). */
 export function systemLoadFromStatus(s: ComfyStatus): SystemLoad {
   const used = Math.max(0, s.vramTotal - s.vramFree);
+  const ramUsed = s.ramTotal && s.ramFree !== undefined ? Math.max(0, s.ramTotal - s.ramFree) : undefined;
   return {
     at: Date.now(), source: "comfyui", disks: [],
     gpus: s.vramTotal ? [{ name: s.device, vramUsed: used, vramTotal: s.vramTotal, vramPercent: pct(used, s.vramTotal) }] : [],
+    ...(ramUsed !== undefined ? { ram: { used: ramUsed, total: s.ramTotal!, percent: pct(ramUsed, s.ramTotal) } } : {}),
   };
 }
