@@ -74,6 +74,12 @@ export interface SessionFacts {
   fetchesGuessed: boolean;
   /** The usual boot of the pods here (ms), for a session with nothing else to tell its boot's end by. */
   usualBootMs: number | null;
+  /**
+   * Its ComfyUI never answered: a session Afflatus followed to its end (it ended it: end_why, 0079) ended without a first
+   * answer and without any work (a pod stuck pulling its image, terminated before it came up). All of it was its boot, not
+   * the usual boot and then idle. One ended otherwise may have answered while Afflatus was away: the usual boot then.
+   */
+  neverUp?: boolean;
   /** Its boot's parts, where kept. */
   boot?: BootFacts;
   /** When its ComfyUI ran work from outside Afflatus (pod_outside, 0077); none before. */
@@ -112,6 +118,8 @@ export function splitSession(f: SessionFacts): { spans: Span[]; estimated: strin
     // its ComfyUI answered by its first render or file at the latest
     bootEnd = firstWork;
     estimated.push("its boot, up to its first work");
+  } else if (f.neverUp) {
+    bootEnd = f.to;
   } else if (f.usualBootMs !== null) {
     bootEnd = f.from + f.usualBootMs;
     estimated.push("its boot, from the usual boot here");
@@ -605,6 +613,8 @@ function sessionOf<R extends { machine_id: string | null; created_at: string; to
   const upAt = r.up_at ? Date.parse(r.up_at) : boot ? Date.parse(boot.at) : null;
   const split = splitSession({
     from, to, upAt, usualBootMs: around.usualBootMs,
+    // ended by Afflatus, which followed it to its end, and never answered: it never came up
+    neverUp: Boolean(r.ended_at && r.end_why) && upAt === null && !mine.length && !kept.length,
     renders: mine.map((x) => ({ from: x.from, to: x.to, ok: x.row.status === "done" })),
     fetches: [...kept.map((x) => ({ from: Date.parse(x.started_at), to: Date.parse(x.ended_at) })), ...guessed.map((m) => ({ from: Date.parse(m.at) - Number(m.ms), to: Date.parse(m.at) }))],
     fetchesGuessed: old,

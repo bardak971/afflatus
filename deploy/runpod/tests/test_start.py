@@ -118,6 +118,8 @@ class Run(unittest.TestCase):
         self.assertIn("[afflatus-pod] ComfyUI ended (status 137)", out)
         self.assertEqual(said[0], f"python -u /opt/afflatus-pod/died.py start {d}/afflatus-comfy.json")
         self.assertTrue(said[1].startswith("python /comfyui/main.py --listen 0.0.0.0 --port 8188"))
+        # pinned memory off: the weights it pins filled a pod's RAM and got ComfyUI killed (start.sh)
+        self.assertIn("--disable-pinned-memory", said[1])
         # never started again: the report, broken.py, and the wait should broken.py not run
         self.assertEqual(said[2:], [
             f"python -u /opt/afflatus-pod/died.py end 137 {d}/afflatus-comfy.json {d}/afflatus-died.json",
