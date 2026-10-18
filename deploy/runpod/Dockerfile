@@ -49,8 +49,8 @@ RUN pip install --index-url "https://download.pytorch.org/whl/${TORCH_CUDA}" "to
 # The node packs the built-in forms use most, built in at the commits Afflatus is tested against (packs.ts names their
 # nodes): DaSiWa's (H3's step cache, the RTX upscale route), VideoHelperSuite, KJNodes and the MMH3 upscale. Their Python
 # packages are installed here, held to the image's torch; DaSiWa's own list is not, as it asks for llama-cpp-python (a
-# compile) and nvidia-vfx for its LLM and RTX nodes, which import them only when used: what it imports at load,
-# ComfyUI brings. start.sh puts them in ComfyUI's custom_nodes, over an older copy a volume holds.
+# compile) for its LLM nodes, which import it only when used: what it imports at load, ComfyUI brings. Its RTX node's
+# nvidia-vfx comes in a layer of its own, below. start.sh puts them in ComfyUI's custom_nodes, over an older copy a volume holds.
 ARG DASIWA_COMMIT=18ed2d23c36363ead84f35c06bfcc0a5f8b710b2
 ARG VHS_COMMIT=4d907bee61e92c2e65af3bd6383a4e4d356126d1
 ARG KJNODES_COMMIT=d3cfe21625e5170126ce06fbfcfe1d88108688c3
@@ -62,6 +62,12 @@ RUN set -e; mkdir -p /opt/packs; cd /opt/packs; \
     pin ComfyUI-KJNodes https://github.com/kijai/ComfyUI-KJNodes "${KJNODES_COMMIT}"; \
     pin Comfyui-MMH3-UltimateUpscale https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale "${MMH3_COMMIT}"; \
     pip install -c /constraints.txt -r ComfyUI-VideoHelperSuite/requirements.txt -r ComfyUI-KJNodes/requirements.txt psutil av nvidia-ml-py
+
+# NVIDIA's Video Effects runtime (the nvvfx module), which DaSiWa's RTX Upscaler & Refiner imports when it runs: without it
+# every finish on the RTX VSR route failed on a pod with "NVIDIA RTX VFX (nvvfx) module not found" (2026-10-18). PyPI has a
+# stub only; the wheel is NVIDIA's own (pypi.nvidia.com), its libraries inside (VSR, NPP: 443 MB), needing no other
+# package, taken by its exact address and checked against its hash
+RUN pip install --no-deps "nvidia-vfx @ https://pypi.nvidia.com/nvidia-vfx/nvidia_vfx-0.2.0.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl#sha256=0252866a7b798a6f92c8543443d88f716e8c5bbc6a7ddd77a2754728dada9fa8"
 
 # InsightFace and ONNX Runtime for the node pack's Face Match (how much a face in a render is the person it is of: the
 # pictures a Motion transfer is made from, a clip's face along its run), on the CPU. InsightFace's own package is built

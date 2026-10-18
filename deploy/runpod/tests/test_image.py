@@ -31,6 +31,14 @@ def let_in():
     return [line[1:].strip() for line in read("Dockerfile.dockerignore").splitlines() if line.startswith("!")]
 
 
+class RtxVsr(unittest.TestCase):
+    def test_the_rtx_route_has_nvidias_runtime_pinned_by_its_hash(self):
+        # DaSiWa's RTX node imports nvvfx when it runs: the image without it failed every RTX VSR finish on a pod
+        found = re.search(r'pip install --no-deps "nvidia-vfx @ (https://pypi\.nvidia\.com/\S+\.whl)#sha256=([0-9a-f]{64})"', read("Dockerfile"))
+        self.assertIsNotNone(found, "the Dockerfile installs nvidia-vfx from NVIDIA's index, pinned by its sha256")
+        self.assertIn("cp312", found.group(1), "the wheel is for the image's Python 3.12")
+
+
 class Context(unittest.TestCase):
     def test_every_file_the_image_copies_is_in_its_build_context(self):
         allowed = let_in()
