@@ -22,9 +22,11 @@ type AssetRow = Tables["assets"];
 /** The RIFE model this ComfyUI offers for frame interpolation, when it has one. */
 export function rifeModelIn(catalog: Record<string, unknown>): string | null {
   const node = catalog["FrameInterpolationModelLoader"] as { input?: { required?: Record<string, unknown> } } | undefined;
-  const files = choicesOf(node?.input?.required?.model_name) ?? [];
-  return files.find((f) => /rife/i.test(f)) ?? files[0] ?? null;
+  return pickRife(choicesOf(node?.input?.required?.model_name) ?? []);
 }
+
+/** The RIFE model among a machine's frame interpolation files: what a finish runs, and what a pod is said to have of it. */
+export const pickRife = (files: readonly string[]): string | null => files.find((f) => /rife/i.test(f)) ?? files[0] ?? null;
 
 /** A tool run as the record keeps it: what it is, what it makes (pixels × frames) and what its own record expected of it. */
 /** `comfy`: the machine it ran on, once it is sent there, for what its GPU drew (power.ts). */
@@ -186,7 +188,12 @@ function rawFactsOf(core: Pick<QueueCore, "storage">, video: Pick<AssetRow, "raw
   if (!video.raw_key) return Promise.resolve(null);
   let got = rawFactsKept.get(video.raw_key);
   if (!got) {
-    got = core.storage.get(video.raw_key).then((raw) => readVideo(raw, extOf(video.mime))).then((v) => v.facts, () => null);
+    // a read that failed is not kept: once, it left an interpolated take's finish without RIFE on a pod for good
+    const key = video.raw_key;
+    got = core.storage.get(key).then((raw) => readVideo(raw, extOf(video.mime))).then((v) => v.facts, () => {
+      rawFactsKept.delete(key);
+      return null;
+    });
     rawFactsKept.set(video.raw_key, got);
     if (rawFactsKept.size > 256) rawFactsKept.delete(rawFactsKept.keys().next().value!);
   }

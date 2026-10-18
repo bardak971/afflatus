@@ -11,6 +11,7 @@ import { loadedOn } from "../src/jobFiles";
 import { toolLackOn } from "../src/machineScans";
 import { RIFE_GET } from "@afflatus/recipes";
 import { CUT_JOB } from "../src/timelineModel";
+import { toolNeeds } from "../src/queueTools";
 import type { QueueCore } from "../src/queueModel";
 import { CHECKPOINT, makeApp, referenceCatalog, type TestApp } from "./helpers";
 
@@ -89,6 +90,18 @@ describe("the files a pod is sent for a finish", () => {
     expect(await listed({ asset, action: "slow", engine: "rife", factor: 2 })).toEqual([RIFE_GET.file]);
     expect(await listed({ asset, action: "slow", engine: "ffmpeg", factor: 2 })).toEqual([]);
     expect(await listed({ asset, action: "copy" })).toEqual([]);
+  });
+});
+
+describe("an interpolated take's raw frames", () => {
+  it("are read again after a read that failed: a failure is not kept", async () => {
+    const asset = await take(false);
+    // its raw file named, but not there yet: read as not interpolated
+    await t.db.updateTable("assets").set({ raw_key: `raw/${asset}` } as never).where("id", "=", asset).execute();
+    const row = { recipe_id: CUT_JOB, inputs: JSON.stringify({ asset, action: "finish", route: "rtx", startMs: 0, endMs: 1000 }) };
+    expect((await toolNeeds(t.services as never, row))?.rife).toBe(false);
+    await t.services.storage.put(`raw/${asset}`, clip(12));
+    expect((await toolNeeds(t.services as never, row))?.rife).toBe(true);
   });
 });
 

@@ -44,8 +44,10 @@ export interface PodFetch {
   untilThere(machine: string, files: Lack["files"], packs?: string[]): Promise<number>;
   /** Have them sent for a job: one that will run there ("need"), or one that went elsewhere this time ("ahead": files only, never packs, which restart its ComfyUI). */
   want(machine: string, files: Lack["files"], tier: "need" | "ahead", job: string, packs?: string[]): void;
-  /** Drop what was sent there for jobs none of which may run there any more (podFiles.ts dropUnsought). */
+  /** Drop what was sent there for jobs none of which may run there any more (podFiles.ts dropUnsought): files and node packs. */
   drop(machine: string, mayRun: (job: string) => boolean): void;
+  /** Whether that machine holds or is getting files the plan sent it for this job (an "ahead" copy stays where it began). */
+  holdsFor(machine: string, job: string): boolean;
   /** A job's files on that machine: all there, still coming, one failed (null: it asked for none). */
   jobState(machine: string, job: string): "ready" | "waiting" | "failed" | null;
   /** The machine's node packs wait for its ComfyUI to restart, or it restarts now: no job starts there meanwhile. */
@@ -55,7 +57,7 @@ export interface PodFetch {
 }
 
 /** A rented pod's files as the queue reads them, from podFiles.ts. */
-export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "short" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding" | "moving" | "dropUnsought">): PodFetch {
+export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "short" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding" | "moving" | "dropUnsought" | "holdsFor">): PodFetch {
   return {
     short: (machine, list) => files.short(machine, list),
     failed: (machine, list, packs = []) => list.map((f) => files.failed(machine, f.folder, f.file)).find((why) => why !== null) ?? files.failedPacks(machine, packs),
@@ -65,6 +67,7 @@ export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "sho
       if (tier === "need" && packs?.length) files.wantPacks(machine, packs, job);
     },
     drop: (machine, mayRun) => files.dropUnsought(machine, mayRun),
+    holdsFor: (machine, job) => files.holdsFor(machine, job),
     jobState: (machine, job) => files.jobState(machine, job)?.state ?? null,
     holding: (machine) => files.holding(machine),
     moving: (machine) => files.moving(machine),
@@ -269,11 +272,13 @@ export class Planner {
    * Sent ahead to every pod that could take it, a job pulled its 40 GB onto pods busy with other work, each (2026-10-18).
    * A job pinned to a machine has none ahead elsewhere (ableOf), and a pod paused on its own while others go (Use only this
    * PC) gets files ahead only for a job pinned to it: what waits goes to the others. With every machine paused (Pause all)
-   * an idle pod gets them, as the whole line waits for Resume. Then what a pod was sent for jobs none of which may run there
-   * any more (`active`: the queued and running jobs) is dropped.
+   * an idle pod gets them, as the whole line waits for Resume. An "ahead" copy stays on the pod it began on, busy since or
+   * not: picked afresh at every pass, one job's files went to one pod, then to another. What comes back: for each job
+   * looked at, the pods its files may be on now (dropUnsought drops them from the others).
    */
-  sendFiles(rows: JobRow[], able: ReadonlyMap<string, Able>, where: ReadonlyMap<string, { lane: string }>, active: ReadonlyArray<Pick<JobRow, "id" | "pin_machine">>): void {
-    if (!this.d.podFetch) return;
+  sendFiles(rows: JobRow[], able: ReadonlyMap<string, Able>, where: ReadonlyMap<string, { lane: string }>): Map<string, Set<string>> {
+    const sent = new Map<string, Set<string>>();
+    if (!this.d.podFetch) return sent;
     const all = this.d.allPaused();
     const planned = new Set([...where.values()].map((w) => w.lane));
     const idle = (id: string) => {
@@ -281,18 +286,47 @@ export class Planner {
       return Boolean(l) && !l!.running && !l!.starting && !outsideBusy(l!) && !planned.has(id);
     };
     for (const r of rows) {
+      const lanes = new Set<string>();
+      sent.set(r.id, lanes);
       const fetch = able.get(r.id)?.fetch ?? {};
       const on = where.get(r.id)?.lane;
       const need = on ? fetch[on] : undefined;
       if (on && need) this.d.podFetch.want(on, need.files, "need", r.id, need.packs);
-      // planned on a pod (lacking files or not): nothing ahead elsewhere
-      if (on && this.d.lane(on)?.machine?.rented) continue;
-      const ahead = Object.keys(fetch).find((lane) => lane !== on && idle(lane) && (all || !this.d.lane(lane)?.paused || r.pin_machine === lane));
-      if (ahead) this.d.podFetch.want(ahead, fetch[ahead]!.files, "ahead", r.id);
+      // planned on a pod (lacking files or not): its files are there, nowhere else
+      if (on && this.d.lane(on)?.machine?.rented) {
+        lanes.add(on);
+        continue;
+      }
+      const may = Object.keys(fetch).filter((lane) => lane !== on && (all || !this.d.lane(lane)?.paused || r.pin_machine === lane));
+      // a job pinned to a pod has its files there, busy or not (they were dropped from the very pod it waits for)
+      const pinned = r.pin_machine && may.includes(r.pin_machine) ? r.pin_machine : undefined;
+      const ahead = pinned ?? may.find((lane) => this.d.podFetch!.holdsFor(lane, r.id)) ?? may.find(idle);
+      if (ahead) {
+        this.d.podFetch.want(ahead, fetch[ahead]!.files, "ahead", r.id);
+        lanes.add(ahead);
+      }
     }
+    return sent;
+  }
+
+  /**
+   * What the plan sent rented pods and no job may use there any more is dropped, at every pass (with nothing waiting too: a
+   * job cancelled last kept its 40 GB coming): a job that is gone (`active`: the queued and running ones), pinned to another
+   * machine, or whose files now belong on other pods (`sent`, this pass's sendFiles). A job not looked at this pass (running,
+   * or waiting for another) keeps what it was sent.
+   */
+  dropUnsought(active: ReadonlyArray<Pick<JobRow, "id" | "pin_machine">>, sent: ReadonlyMap<string, ReadonlySet<string>>): void {
+    if (!this.d.podFetch) return;
     const jobs = new Map(active.map((r) => [r.id, r.pin_machine]));
     for (const lane of this.d.machineLanes()) {
-      if (lane.machine?.rented) this.d.podFetch.drop(lane.id, (job) => jobs.has(job) && (!jobs.get(job) || jobs.get(job) === lane.id));
+      if (!lane.machine?.rented) continue;
+      this.d.podFetch.drop(lane.id, (job) => {
+        if (!jobs.has(job)) return false;
+        const pin = jobs.get(job);
+        if (pin && pin !== lane.id) return false;
+        const on = sent.get(job);
+        return !on || on.has(lane.id);
+      });
     }
   }
 

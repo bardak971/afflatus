@@ -692,3 +692,13 @@ describe("files the queue's plan sent a pod", () => {
     expect(files.view("pod").map((f) => f.file).sort()).toEqual(["both.safetensors", "ticked.safetensors"]);
   });
 });
+
+describe("node packs asked for a job that may no longer run on the pod", () => {
+  it("are dropped before they install, so the pod's ComfyUI is not restarted for them", () => {
+    files.wantPacks("pod", ["comfyui-videohelpersuite"], "j1");
+    files.wantPacks("pod", ["ComfyUI-DaSiWa-Nodes"], "j2");
+    files.dropUnsought("pod", (job) => job === "j2");
+    expect(files.packsView("pod").map((p) => p.name)).toEqual(["ComfyUI-DaSiWa-Nodes"]);
+    expect(files.holdsFor("pod", "j2")).toBe(false);
+  });
+});
