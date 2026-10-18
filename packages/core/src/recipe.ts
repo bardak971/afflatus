@@ -167,6 +167,11 @@ export interface Recipe<In = Record<string, unknown>> {
   inputs: InputSpec[];
   /** Chapters of the form the recipe arranges itself (an imported workflow's sections), in order; the inputs name theirs with `chapter`. */
   chapters?: Chapter[];
+  /**
+   * How this form's prompt is written, for the designer's language model, over its family's guide: a form whose prompt
+   * follows rules of its own (a swap: the Character-Swap LoRA's sentence, the person named by what is visible).
+   */
+  guide?: string;
   traits?: VideoTraits;
   /**
    * Files this recipe names itself (an imported workflow's models): each must be among the choices

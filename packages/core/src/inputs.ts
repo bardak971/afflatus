@@ -40,6 +40,8 @@ interface PromptInput extends Base {
   type: "prompt";
   /** How this family reads text: comma-separated tags, or plain sentences. */
   style: "tags" | "sentences";
+  /** A few words on one line, not a text (a swap's Track: what SAM 3 looks for). */
+  line?: boolean;
   placeholder?: string;
   default?: string;
   optional?: boolean;

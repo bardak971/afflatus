@@ -115,7 +115,8 @@ export function PromptField({ spec, id, value, values, onChange, bare }: { spec:
   // `;name` puts a snippet of the Prompt kit in (Settings › Command bar)
   const snippetKeys = useSnippetKeys({ value, onChange });
   // the keys it takes, in its ? rather than over the text on every hover
-  const keys = `${weighs ? `Ctrl + ↑ or ↓: the weight of ${spec.style === "tags" ? "the tag the cursor is in, or of " : ""}what is selected. ` : ""}{a|b|c}: one is picked for each result.`;
+  // a few words on one line (a swap's Track) take no weights and no choices: neither is said
+  const keys = spec.line ? "" : `${weighs ? `Ctrl + ↑ or ↓: the weight of ${spec.style === "tags" ? "the tag the cursor is in, or of " : ""}what is selected. ` : ""}{a|b|c}: one is picked for each result.`;
   return (
     <div className="flex flex-col gap-1.5">
       {/* bare: the head over it already names it (the Create panel's Prompt row) */}
@@ -123,13 +124,15 @@ export function PromptField({ spec, id, value, values, onChange, bare }: { spec:
       <div data-snippet-box className="relative flex flex-col">
       <AutoText
         id={id}
-        rows={spec.optional && !spec.example ? 2 : 4}
+        rows={spec.line ? 1 : spec.optional && !spec.example ? 2 : 4}
         value={value}
         placeholder={spec.placeholder}
         onChange={(e) => onChange(e.target.value)}
         onSelect={snippetKeys.onSelect}
         onKeyDown={(e) => {
           if (snippetKeys.onKeyDown(e)) return;
+          // a few words on one line: Enter makes no second line
+          if (spec.line && e.key === "Enter") return void e.preventDefault();
           if (!weighs || !(e.ctrlKey || e.metaKey) || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
           const el = e.currentTarget;
           const next = nudgeWeight(el.value, el.selectionStart, el.selectionEnd, e.key === "ArrowUp" ? 0.1 : -0.1, spec.style === "tags");
@@ -144,7 +147,7 @@ export function PromptField({ spec, id, value, values, onChange, bare }: { spec:
       {snippetKeys.list}
       {/* the main prompt in its card, whose head has no ?: the keys it takes in a corner of its own, out of the way of
           the text (the other texts' rows have a ? of their own) */}
-      {bare && !spec.optional && <Help title={spec.label} text={keys} className="absolute right-2 bottom-2 opacity-60 hover:opacity-100" />}
+      {bare && !spec.optional && keys && <Help title={spec.label} text={keys} className="absolute right-2 bottom-2 opacity-60 hover:opacity-100" />}
       </div>
       {checked && <TagCheck text={value} ignore={ignore} onChange={onChange} />}
     </div>

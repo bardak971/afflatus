@@ -85,6 +85,19 @@ const NOT_TAKEN = new Set([
   "colourMatch", "colourStrength",
 ]);
 
+/**
+ * How the designer writes a swap's prompt: what worked on the LoRA's card, its users' reports and the owner's takes
+ * (2026-10-18). It cannot see the video or the picture: it takes them from the user's words.
+ */
+const SWAP_GUIDE = `A SWAP PROMPT is for akatz-ai's Character-Swap LoRA on MiniMax H3's reference model. It is not a scene: the video and the picture give the place, the light, the camera and the motion.
+- Start with the LoRA's sentence, the person to replace named by what is visible in <Video 1>: "Replace the young woman with long brown hair in the blue and black jersey in <Video 1> with the man in <Picture 1>." Hair, clothes and place in the frame are what pick them out.
+- Say man, woman, boy or girl. Never "character" (it turns the result into a cartoon), never "the person" alone (it often swaps nothing).
+- Then a few short sentences: what of <Picture 1> is kept (the face and hair; the clothes of <Video 1> unless the user wants the picture's); "Match the woman's position, scale, pose and movement in <Video 1>."; "Preserve the scene and the other people."; "Do not add any people or objects that are not in <Video 1>."
+- No strong expression words (they stopped the swap), no camera, light, style or quality words.
+- Keep <Video 1> and <Picture 1> exactly as written, with their angle brackets.
+- You cannot see the video or the picture: take what they show from the user's words, never invent a look. When you do not know who is replaced or who goes in, ask ONE question.
+- The Track box is what SAM 3 looks for in the video: one to three words, the kind of person replaced (woman, man, girl, dancer, man in black), never a sentence.`;
+
 /** The swap LoRA's trained caption, the prompt a swap starts from. */
 export const SWAP_CAPTION = "Swap the person in <Video 1> with the character in <Picture 1>.";
 /** The fused turbo's: the caption, then the person kept as the source has them and nothing added (her workflow's sentence). */
@@ -110,7 +123,8 @@ const swapInputs: InputSpec[] = [
     // longer one broke 2 swaps of 3 on ref2va (2026-10-12), and the fused turbo needs the person described (§9.10), so it
     // is the user's. Words with no <Video 1> or <Picture 1> in them (a clip made before) are the person in the caption.
     // SAM's own words missed the man in a crowd ("man in black t-shirt"); the most prominent person tracked found him (§9.9)
-    id: "who", type: "prompt", weights: false, label: "Prompt", style: "sentences", noCast: true,
+    // the designer writes it, by the swap's own guide: from what the user says of the video and the picture (owner, 2026-10-18)
+    id: "who", type: "prompt", weights: false, label: "Prompt", style: "sentences", noCast: true, designed: true,
     default: SWAP_CAPTION, placeholder: SWAP_CAPTION,
     note: "the whole prompt. The swap LoRA was trained on its first sentence: keep it first and change only who it names. A distilled model (the fused turbo) wants the person described after it. The words do not choose who is replaced: the click on the stage does, else the largest face",
   },
@@ -161,7 +175,7 @@ const swapInputs: InputSpec[] = [
   },
   {
     // "person" on every frame kept him where a mask of him from frame 1 lost his head mid-clip (§9.11)
-    id: "track", type: "prompt", weights: false, style: "sentences", noCast: true, label: "Track", default: "person", chapter: "mask", showWhen: "maskOn",
+    id: "track", type: "prompt", weights: false, style: "sentences", noCast: true, line: true, label: "Track", default: "person", chapter: "mask", showWhen: "maskOn",
     note: "what SAM 3 looks for (its text prompt): person by default; man, woman or dancer when it misses the one to replace or catches someone else",
   },
   { id: "grow", type: "number", label: "Grow", min: 0, max: 400, step: 4, default: 100, unit: " px", chapter: "mask", showWhen: "maskOn", note: "Swap Mask's grow: how far past the person H3 may redraw. Wider for a new person of another build, fast limbs or long hair" },
@@ -351,6 +365,7 @@ export const h3Swap = defineRecipe<H3Swap>({
   // before (its last 5 frames pinned at the start), otherwise no join with the clips around it
   traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED } },
   inputs: swapInputs,
+  guide: SWAP_GUIDE,
   // who is replaced and how, apart from the source (the owner, 2026-10-18): the click and Show the mask are the screen's, the
   // rest the nodes' own inputs
   chapters: [{ id: "mask", label: "Mask", help: "Who is replaced and what of the frame H3 redraws: SAM 3 tracks the person clicked on the stage, the Swap Mask grows the zone H3 redraws and the band the render is pasted back over. Show the mask draws them over the source before you render." }],

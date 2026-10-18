@@ -39,7 +39,8 @@ export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mo
   const boxes = boxesOf(recipe);
   const main = boxes.find((b) => !b.optional) ?? boxes[0];
   const video = recipe.output === "video";
-  const guide = family?.guide ?? GENERIC[main?.style === "tags" ? "tags" : "sentences"];
+  // the form's own rules over its family's (a swap's prompt is the Character-Swap LoRA's sentence, not a scene)
+  const guide = recipe.guide ?? family?.guide ?? GENERIC[main?.style === "tags" ? "tags" : "sentences"];
   const now = boxes.map((b) => `${b.id}: ${ctx.values[b.id]?.trim() || "(empty)"}`).join("\n");
   const parts = boxes.map((b) => `- ${b.id}: "${b.label}"${b.optional ? " (may stay empty)" : ""}, written as ${b.style === "tags" ? "tags" : "sentences"}${b.note ? ` — ${b.note}` : ""}`).join("\n");
   // the LoRAs that will be on it, named as madeFrom names them: a LoRA the source was made with may be on it again
