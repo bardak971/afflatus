@@ -107,6 +107,20 @@ describe("MiniMax H3 · Swap character", () => {
     expect(of(plain, "BasicScheduler")[0]!.inputs.denoise).toBe(1);
   });
 
+  it("pastes the render back by the mask, by difference, or not at all", () => {
+    expect(of(build().graph, "ImageCompositeMasked")).toHaveLength(1);
+    const diff = build({ paste: "Difference", pasteThreshold: 0.1, pasteBlur: 6 }).graph;
+    expect(of(diff, "ImageCompositeMasked")).toEqual([]);
+    expect(of(diff, "AfflatusSwapPaste")[0]!.inputs).toMatchObject({ threshold: 0.1, blur: 6 });
+    const off = build({ paste: "Off" }).graph;
+    expect(of(off, "ImageCompositeMasked")).toEqual([]);
+    expect(of(off, "AfflatusSwapPaste")).toEqual([]);
+    // a pack without the node yet: pasted by the mask, and said
+    const old = build({ paste: "Difference" }, part(), { has: (cls) => cls !== "AfflatusSwapPaste" });
+    expect(of(old.graph, "ImageCompositeMasked")).toHaveLength(1);
+    expect(old.built.warnings).toContainEqual(expect.stringContaining("node pack 0.28.0"));
+  });
+
   it("with the Mask off, redraws the whole frame: no SAM, and nothing said of a missing mask", () => {
     const { built, graph } = build({ maskOn: false });
     expect(of(graph, "SAM3_VideoTrack")).toEqual([]);

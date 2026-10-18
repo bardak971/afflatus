@@ -374,3 +374,88 @@ class AfflatusSwapMaskPreview(io.ComfyNode):
         a = torch.from_numpy(alpha)[..., None].to(images.device, images.dtype)
         colour = torch.tensor(PREVIEW_COLOUR, device=images.device, dtype=images.dtype)
         return io.NodeOutput(images[..., :3] * (1 - a) + colour * a)
+
+
+def zone_cells(noise: np.ndarray, frames: int, height: int, width: int, scale: int) -> np.ndarray:
+    """[frames, height/scale, width/scale] bool: the latent cells H3 redraws (the noise mask, each latent frame over the
+    frames it holds), on a grid `scale` times coarser than the frame."""
+    n_lat, h, w = noise.shape
+    per = np.zeros((frames, h, w), bool)
+    for k, (a, b) in enumerate(latent_spans(n_lat)):
+        per[a:min(b, frames)] = noise[k] > 0.5
+    step = CELL // scale
+    cells = np.repeat(np.repeat(per, step, axis=1), step, axis=2)
+    out = np.zeros((frames, height // scale, width // scale), bool)
+    out[:, : cells.shape[1], : cells.shape[2]] = cells[:, : out.shape[1], : out.shape[2]]
+    return out
+
+
+def difference_alpha(render, source, noise: np.ndarray, paste, threshold: float = 0.06, grow: int = 8, sigma: float = 4.0, reach: int = 1, scale: int = PASTE_SCALE):
+    """
+    [frames, H, W] torch float, where the render is kept over the source: inside the zone H3 redrew, where it differs
+    clearly from the source (a new person's limb over the wall), plus the person's own paste-back mask; elsewhere the
+    source's own pixels, so the wall H3 redrew close to the source's does not show as a wavering band around the person
+    (the owner's Timeline 19, 2026-10-18). The difference is read as a local mean (the VAE's grain is not a change),
+    held over `reach` frames either side, grown about `grow` px and blurred, all on a grid `scale` times coarser.
+    """
+    import torch
+    import torch.nn.functional as F
+
+    frames, H, W = render.shape[0], render.shape[1], render.shape[2]
+    s = scale if scale > 1 and H % scale == 0 and W % scale == 0 and CELL % scale == 0 else 1
+    d = (render[..., :3].float() - source[:frames, ..., :3].float()).abs().amax(-1)[:, None].cpu()
+    if s > 1:
+        d = F.avg_pool2d(d, s)
+    d = F.avg_pool2d(d, 3, 1, 1)
+    keep = (d > threshold).float()
+    zone = torch.from_numpy(zone_cells(noise, frames, H, W, s)).float()[:, None]
+    person = paste[:frames].float().cpu()[:, None]
+    if s > 1:
+        person = F.max_pool2d(person, s)
+    keep = torch.maximum(keep * zone, person)
+    if reach > 0:
+        keep = F.max_pool3d(keep.permute(1, 0, 2, 3)[None], (2 * reach + 1, 1, 1), 1, (reach, 0, 0))[0].permute(1, 0, 2, 3)
+    for _ in range(int(round(grow / s))):
+        keep = F.max_pool2d(keep, 3, 1, 1)
+    sig = sigma / s
+    if sig > 0:
+        r = int(math.ceil(3 * sig))
+        x = torch.arange(-r, r + 1, dtype=torch.float32)
+        k = torch.exp(-(x**2) / (2 * sig * sig))
+        k = k / k.sum()
+        keep = F.conv2d(F.pad(keep, (r, r, 0, 0), mode="replicate"), k[None, None, None, :])
+        keep = F.conv2d(F.pad(keep, (0, 0, r, r), mode="replicate"), k[None, None, :, None])
+    if s > 1:
+        keep = F.interpolate(keep, size=(H, W), mode="bilinear", align_corners=False)
+    return keep[:, 0].clamp(0, 1)
+
+
+class AfflatusSwapPaste(io.ComfyNode):
+    """The swap's render put back over its source by difference: see difference_alpha."""
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusSwapPaste",
+            display_name="Afflatus: Swap Paste by Difference (H3)",
+            category="Afflatus",
+            description="The swap's render kept over the source where it clearly differs from it inside the zone H3 redrew, and over the person; elsewhere the source's own pixels.",
+            inputs=[
+                io.Image.Input("render", tooltip="The swap's decoded frames."),
+                io.Image.Input("source", tooltip="The source's frames at the swap's size."),
+                io.Mask.Input("noise_mask", tooltip="Swap Mask's noise mask: the zone H3 redrew."),
+                io.Mask.Input("paste_mask", tooltip="Swap Mask's paste-back mask: the person, always kept."),
+                io.Float.Input("threshold", default=0.06, min=0.0, max=1.0, step=0.01, tooltip="How much a pixel has to differ from the source (a local mean, 0-1) to be the render's."),
+                io.Int.Input("grow", default=8, min=0, max=128, tooltip="Pixels the kept part reaches past what differs."),
+                io.Float.Input("blur", default=4.0, min=0.0, max=64.0, tooltip="The edge's blur, in pixels."),
+                io.Int.Input("reach", default=1, min=0, max=12, tooltip="Frames either side whose kept part is kept too: the edge does not flicker."),
+            ],
+            outputs=[io.Image.Output(display_name="images")],
+        )
+
+    @classmethod
+    def execute(cls, render, source, noise_mask, paste_mask, threshold: float = 0.06, grow: int = 8, blur: float = 4.0, reach: int = 1) -> io.NodeOutput:
+        a = difference_alpha(render, source, noise_mask.detach().cpu().float().numpy(), paste_mask, threshold, grow, blur, reach)
+        a = a[..., None].to(render.device, render.dtype)
+        src = source[: render.shape[0], ..., :3].to(render.device, render.dtype)
+        return io.NodeOutput(src * (1 - a) + render[..., :3] * a)

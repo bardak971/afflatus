@@ -193,3 +193,23 @@ def test_the_preview_tints_what_is_made_again_strongly_and_the_pasted_band_light
     assert a.shape == (5, 64, 64)
     assert a[0, 20, 20] == 0 and a[2, 20, 20] == 0.5
     assert a[2, 45, 45] == 0.25 and a[0, 5, 5] == 0
+
+
+def test_the_difference_paste_keeps_what_h3_drew_anew_and_gives_back_the_wall_it_only_redrew():
+    """Inside the zone H3 redrew: the wall it redrew a little differently is the source's again, an arm drawn over the wall
+    and the person are the render's (the owner's Timeline 19 aura, 2026-10-18)."""
+    torch = pytest.importorskip("torch.nn") and __import__("torch")
+    frames, H, W = 5, 128, 64
+    gen = np.random.default_rng(0)
+    source = torch.from_numpy(0.5 + 0.02 * gen.standard_normal((frames, H, W, 3)).astype(np.float32))
+    # H3's wall: the source a little off everywhere (its grain, a touch of brightness)
+    render = source + torch.from_numpy(0.025 + 0.01 * gen.standard_normal((frames, H, W, 3)).astype(np.float32))
+    render[:, 30:50, 44:60] = 0.95  # an arm drawn past the person, over the wall
+    noise = np.ones((swap_mask.latent_frames(frames), H // 16, W // 16), np.float32)  # the whole frame in the zone
+    paste = torch.zeros(frames, H, W)
+    paste[:, 60:120, 10:40] = 1  # the person
+    a = swap_mask.difference_alpha(render, source, noise, paste, threshold=0.06, grow=4, sigma=1.0, reach=1).numpy()
+    assert a.shape == (frames, H, W)
+    assert a[2, 40, 52] > 0.95  # the arm
+    assert a[2, 90, 25] > 0.95  # the person
+    assert a[2, 10, 10] < 0.05 and a[2, 120, 60] < 0.05  # the wall: the source's again
