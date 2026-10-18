@@ -11,7 +11,7 @@ const slots = { unet: "u.safetensors", clip: "c.safetensors", videoVae: "v.safet
 const part = (over: Partial<MediaFacts> = {}): MediaFacts => ({ width: 864, height: 480, frames: 141, fps: H3_FPS, hasSound: true, ...over });
 
 const build = (over: Record<string, unknown> = {}, source: MediaFacts = part(), ctx: { slots?: Record<string, string>; has?: (cls: string) => boolean } = {}) => {
-  const input = parseInput(h3Swap, { who: "the man in the grey t-shirt.", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, ...over });
+  const input = parseInput(h3Swap, { who: "the man in the grey t-shirt.", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, maskOn: true, ...over });
   const built = h3Swap.build(input, dryContext({ slots: ctx.slots ?? slots, uploads: { source: "src.mp4", "references.0": "r1.png", "references.1": "r2.png" }, media: { source }, ...(ctx.has ? { has: ctx.has } : {}) }));
   return { built, graph: built.graph as Graph };
 };
@@ -23,7 +23,7 @@ describe("MiniMax H3 · Swap character", () => {
   });
 
   it("carries on from the window before on a source lane in its latent, as H3's own clips: its last 22 frames the run-up, the join decoded as one piece with it", () => {
-    const input = parseInput(h3Swap, { who: "the man", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: false });
+    const input = parseInput(h3Swap, { who: "the man", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: false, maskOn: true });
     const built = h3Swap.build(input, dryContext({
       slots, uploads: { source: "src.mp4", previous: "w.mp4", "previous.latent": "w.safetensors", "references.0": "r1.png" },
       media: { source: part({ frames: 141 }), previous: { width: 1024, height: 576, frames: 22, fps: H3_FPS, hasSound: true, latentFrames: 141 } },
@@ -44,7 +44,7 @@ describe("MiniMax H3 · Swap character", () => {
   });
 
   it("carries on by the window before's frames when its latent was not kept: pinned at the start with their sound", () => {
-    const input = parseInput(h3Swap, { who: "the man", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: false });
+    const input = parseInput(h3Swap, { who: "the man", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: false, maskOn: true });
     const built = h3Swap.build(input, dryContext({
       slots, uploads: { source: "src.mp4", previous: "w.mp4", "references.0": "r1.png" },
       media: { source: part({ frames: 124 }), previous: { width: 864, height: 480, frames: 22, fps: H3_FPS, hasSound: true } },
@@ -133,6 +133,11 @@ describe("MiniMax H3 · Swap character", () => {
     // the matched frames are what goes back over the source
     const composite = of(soft, "ImageCompositeMasked")[0]!;
     expect(Object.entries(soft).find(([, n]) => n === match)![0]).toBe((composite.inputs.source as [string, number])[0]);
+  });
+
+  it("starts with the Mask off: the whole frame redrawn, no SAM (the owner, 2026-10-18)", () => {
+    const input = parseInput(h3Swap, { who: "the man.", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }] });
+    expect(input.maskOn).toBe(false);
   });
 
   it("with the Mask off, redraws the whole frame: no SAM, and nothing said of a missing mask", () => {
@@ -249,7 +254,7 @@ describe("MiniMax H3 · Swap character", () => {
     expect(of(graph, "AfflatusSwapMask")[0]!.inputs).toMatchObject({ pick_x: 0.38, pick_y: 0.46 });
     expect(of(build().graph, "AfflatusSwapMask")[0]!.inputs.pick_x).toBeUndefined();
     // a window carrying on follows the person the window before replaced, whatever was clicked
-    const input = parseInput(h3Swap, { who: "the man", source: { asset: "v1", at: 5, pick: { x: 0.38, y: 0.46 } }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: false });
+    const input = parseInput(h3Swap, { who: "the man", source: { asset: "v1", at: 5, pick: { x: 0.38, y: 0.46 } }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: false, maskOn: true });
     const carried = h3Swap.build(input, dryContext({
       slots, uploads: { source: "src.mp4", previous: "w.mp4", "references.0": "r1.png" },
       media: { source: part({ frames: 124 }), previous: { width: 864, height: 480, frames: 22, fps: H3_FPS, hasSound: true } },
@@ -409,7 +414,7 @@ describe("MiniMax H3 · Swap character", () => {
     });
 
     it("follows the person the window before replaced: its handed-over frames go to the Swap Mask, at the clip's size", () => {
-      const input = parseInput(h3Swap, { who: "the man", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: false });
+      const input = parseInput(h3Swap, { who: "the man", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: false, maskOn: true });
       const built = h3Swap.build(input, dryContext({
         slots, uploads: { source: "src.mp4", previous: "w.mp4", "references.0": "r1.png" },
         media: { source: part({ frames: 124 }), previous: { width: 1024, height: 576, frames: 5, fps: H3_FPS, hasSound: true } },

@@ -228,7 +228,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
           <ClipForm
             timeline={timeline} clip={clip} index={index} recipes={recipes} recipe={recipe} form={form} status={status} stored={stored} whole={whole}
             before={before} after={after} take={take} opens={opens} ends={ends} carries={carries} lead={[fromSource && recipe ? sourceLead(fromSource, { inputs: stored }, recipe) : undefined, takesLead]} frameExtra={framesExtra}
-            chapterExtra={fromSource ? { mask: <MaskChapter s={fromSource} maskOn={stored.maskOn !== false} /> } : undefined}
+            chapterExtra={fromSource ? { mask: <MaskChapter s={fromSource} maskOn={stored.maskOn === true} /> } : undefined}
             writing={writing} writeError={writeError} onRecipe={onRecipe} onInputs={onInputs} onPatch={onPatch} onDesigner={onDesigner} onWriteBetween={onWriteBetween}
           />
         )}

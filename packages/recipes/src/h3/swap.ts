@@ -181,7 +181,9 @@ const swapInputs: InputSpec[] = [
   // ---- the Mask card: who is replaced is clicked on the stage (the source's pick); these are the nodes' own inputs, at the
   // values the swaps were tested with
   {
-    id: "maskOn", type: "toggle", label: "Mask", default: true, chapter: "mask",
+    // off by default (the owner, 2026-10-18): without it a selfie-like clip swapped whole from frame 0 with no edge, where
+    // every masked take showed the redrawn zone around the person
+    id: "maskOn", type: "toggle", label: "Mask", default: false, chapter: "mask",
     note: "SAM 3 tracks the person and H3 redraws only them, the rest of the source kept as it is. Off: the whole frame is redrawn, nothing of the person's new shape is cut, the room may drift",
   },
   {
@@ -503,13 +505,13 @@ export const h3Swap = defineRecipe<H3Swap>({
     const part = { width: 864, height: 480, frames: 141, fps: H3_FPS, hasSound: true };
     return [
       {
-        name: "a person of the cast swapped in, the source's sound kept",
+        name: "a person of the cast swapped in, the whole frame redrawn (the Mask off, as the form starts), the source's sound kept",
         input: { who: "the man in the grey t-shirt", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false },
         slots: all, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: part },
       },
       {
-        name: "a window of a long source, carrying on from the window before",
-        input: { who: "the man", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: false },
+        name: "a window of a long source, masked, carrying on from the window before",
+        input: { who: "the man", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: false, maskOn: true },
         slots: all, uploads: { source: "v.mp4", previous: "w.mp4", "references.0": "r1.png" }, media: { source: { ...part, frames: 124 }, previous: { width: 864, height: 480, frames: 5, fps: H3_FPS, hasSound: true } },
       },
       {
@@ -524,7 +526,7 @@ export const h3Swap = defineRecipe<H3Swap>({
       },
       {
         name: "the person to replace clicked on the source's first frame",
-        input: { who: "the man", source: { asset: "v1", pick: { x: 0.38, y: 0.46 } }, references: [{ asset: "r1", role: "person" }], fast: false },
+        input: { who: "the man", source: { asset: "v1", pick: { x: 0.38, y: 0.46 } }, references: [{ asset: "r1", role: "person" }], fast: false, maskOn: true },
         slots: all, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: part },
       },
       {
@@ -534,22 +536,22 @@ export const h3Swap = defineRecipe<H3Swap>({
       },
       {
         name: "pasted back by difference: the wall H3 only redrew is the source's again",
-        input: { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, paste: "Difference" },
+        input: { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, maskOn: true, paste: "Difference" },
         slots: all, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: part },
       },
       {
         name: "a soft zone (Differential Diffusion) and the colours matched before the paste-back",
-        input: { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, softZone: 48, matchColour: true, paste: "Difference" },
+        input: { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, maskOn: true, softZone: 48, matchColour: true, paste: "Difference" },
         slots: all, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: part },
       },
       {
         name: "Show the mask: the window's tracking and masks drawn over its frames, H3 not run",
-        input: { who: "the man", source: { asset: "v1", pick: { x: 0.4, y: 0.5 } }, references: [{ asset: "r1", role: "person" }], fast: false, maskPreview: true },
+        input: { who: "the man", source: { asset: "v1", pick: { x: 0.4, y: 0.5 } }, references: [{ asset: "r1", role: "person" }], fast: false, maskOn: true, maskPreview: true },
         slots: all, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: part },
       },
       {
         name: "an older node pack, with no Swap Mask: swapped unmasked",
-        input: { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false },
+        input: { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, maskOn: true },
         slots: all, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: part }, has: (cls) => cls !== "AfflatusSwapMask",
       },
     ];
