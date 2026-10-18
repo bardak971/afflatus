@@ -266,7 +266,7 @@ export class Hunt {
       const recipe = this.s.registry.recipe(r.recipe_id);
       if (!recipe) return { files: [], ms: null };
       const slots = this.s.registry.family(recipe.family)?.slots ?? [];
-      const used = filesUsed(recipe, readJson<Record<string, unknown>>(r.inputs, {}), scan, slots);
+      const used = filesUsed(recipe, readJson<Record<string, unknown>>(r.inputs, {}), scan, slots, await this.s.queue.loadedOnNew(r));
       const files = await Promise.all(used.map(async (f) => ({ file: f.file, size: (await this.s.podFiles.about(f).catch(() => null))?.size ?? null })));
       const f = await this.s.queue.forecastMs(r).catch(() => null);
       if (!f) return { files, ms: null };

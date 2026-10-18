@@ -26,6 +26,7 @@ import * as tools from "./queueTools";
 import * as view from "./queueView";
 import { Forecasts } from "./queueForecast";
 import { Planner, type Able, type PodFetch } from "./queuePlan";
+import { loadedOn, type Loaded } from "./jobFiles";
 import { Outside, outsideBusy } from "./queueOutside";
 
 // what the routes and the services name from here: the options, and the RIFE model lookup the timelines routes share with the slow-motion tool
@@ -170,6 +171,7 @@ export class Queue {
       expectedAll: (recipe, input, cold, job) => this.forecasts.expectedAll(recipe, input, cold, job),
       fitsBalance: (ms) => this.fitsBalance(ms),
       balanceNeed: (machine, recipeId, renderMs, fetchMs) => this.balanceNeed(machine, recipeId, renderMs, fetchMs),
+      loaded: (r, lane, scan) => loadedOn(this.core, r, { id: lane.id, comfy: lane.comfy!, scan }),
     });
     this.outside = new Outside({
       db, events: this.events,
@@ -1635,6 +1637,8 @@ export class Queue {
 
   /** The graph a form (or a past render) gives, built without uploading anything; null when the form is not complete enough to build. */
   builtOf(recipeId: string, rawInput: unknown, opts: Parameters<typeof submitting.builtOf>[3] = {}): Promise<BuiltGraph | null> { return submitting.builtOf(this.core, recipeId, rawInput, opts); }
+  /** What a waiting job's graph loads on a pod that has nothing yet (the Deploy dialog, the hunt): jobFiles.ts loadedOn. */
+  loadedOnNew(row: Parameters<typeof loadedOn>[1]): Promise<Loaded | null> { return loadedOn(this.core, row, null); }
   /** Whether the base models a form would use are the ones the first ComfyUI was last asked to load; null when it cannot be told. */
   isLoaded(recipeId: string, rawInput: unknown): Promise<boolean | null> { return submitting.isLoaded(this.core, recipeId, rawInput); }
   /** The machine whose ComfyUI holds the base models a form would use (the first such); null when none does, or it cannot be told. */

@@ -1,4 +1,4 @@
-import { checkGraph, choicesOf, dryContext, folderOfFileInput, parseInput, sameBase, sameFile, type Family, type ModelInfo, type NodeCatalog, type Recipe } from "@afflatus/core";
+import { checkGraph, choicesOf, dryContext, slotsRead, folderOfFileInput, parseInput, sameBase, sameFile, type Family, type ModelInfo, type NodeCatalog, type Recipe } from "@afflatus/core";
 import { catalogKey, ComfyLocked, type ComfyClient, type ComfyStatus } from "./client";
 
 /**
@@ -273,7 +273,11 @@ export async function scan(
   const recipeStatus = await Promise.all(
     recipes.map(async (r): Promise<RecipeStatus> => {
       const slots = familyStatus.find((f) => f.id === r.family)?.slots ?? [];
-      const missingSlots = slots.filter((s) => (!s.optional || r.needs?.includes(s.id)) && !s.file).map((s) => s.id);
+      // a slot none of its variants reads is not missing for it, whatever the family needs (a swap runs its own model, never
+      // the family's video model; SDXL's checkpoint is picked per render)
+      const required = slots.filter((s) => !s.optional || r.needs?.includes(s.id));
+      const read = slotsRead(r, required.map((s) => s.id));
+      const missingSlots = required.filter((s) => read.has(s.id) && !s.file).map((s) => s.id);
       const { options, emptyInputs } = await recipeChoices(r, families, slots, files, catalog, infoOf);
       // a recipe that cannot even say what it needs (a saved workflow gone wrong) is not ready, and says why; the others are still scanned
       const { missingNodes, limitedBy, missingFiles, missing, problems } = readiness.get(r)!;

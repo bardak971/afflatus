@@ -1,6 +1,7 @@
 import { defineRecipe, gridAtOrBefore, upstream, type BuildContext, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type StartRule, type Variant } from "@afflatus/core";
 import { H3_FPS, H3_GRID, H3_HYBRIDS, SWAP_MODELS } from "./family";
 import { modelOf, namedFor } from "./model";
+import { latentUpscaleNeeds } from "./latent-upscale";
 import { h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video, type H3Extra } from "./video";
 import { saveVideo } from "../shared/out";
@@ -412,11 +413,15 @@ export const h3Swap = defineRecipe<H3Swap>({
   chapters: [{ id: "mask", label: "Mask", help: "Who is replaced and what of the frame H3 redraws: SAM 3 tracks the person clicked on the stage, the Swap Mask grows the zone H3 redraws and the band the render is pasted back over. Show the mask draws them over the source before you render." }],
   presets: SWAP_PRESETS,
   starts: SWAP_STARTS,
-  needs: ["swapLora", "swapUnet", "swapSam"],
-  // as every other file and node: Veda's predictor when it is on, and a turbo LoRA when Turbo is on a model that is not
+  needs: ["swapLora", "swapUnet"],
+  // as every other file and node: SAM 3 with the Mask on (off, nothing tracks the person), Veda's predictor when it is on, and a turbo LoRA when Turbo is on a model that is not
   // distilled (the reference one asked for, either taken)
   needsWith: (input, slots = {}) => [
+    ...(input.maskOn || input.maskPreview ? ["swapSam"] : []),
     ...(input.veda ? ["veda"] : []),
+    // H3's latent upscaler for a finish that enlarges with it: the swap is built as a clip (buildH3), and a pod finishing
+    // Timeline 19's swaps without it fell back to a plain resize, blurred (2026-10-18)
+    ...latentUpscaleNeeds(input),
     ...(input.fast && !modelOf({ ...input, model: input.swapModel ?? slots.swapUnet, turboIn: "From the name" }, slots).turbo && !slots.refTurbo && !slots.turbo ? ["refTurbo"] : []),
   ],
   // Show the mask runs the tracking and the masks alone (MASK_NODES, the preview node and the video out are optional)
