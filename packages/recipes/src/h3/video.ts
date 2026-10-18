@@ -160,6 +160,8 @@ export interface H3Extra {
   veda?: string;
   /** Veda's key tiles kept of each query tile, of the generated and of the reference tokens (its default 32 / 32). */
   vedaSparsity?: { generated: number; reference: number };
+  /** The model patched by Differential Diffusion: a soft noise mask is a denoise strength per cell (a swap's Soft zone). */
+  differential?: boolean;
   /** The sampler's denoise, below 1 to keep more of what the latent starts from (a swap: the source's shapes). */
   denoise?: number;
   /** The turbo LoRA Turbo adds, when the recipe knows which suits its model (a swap's reference model: the reference one). */
@@ -180,7 +182,7 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   const g = new GraphBuilder();
   const audioVae = g.out("VAELoader", { vae_name: slots.audioVae });
   const vae = g.out("VAELoader", { vae_name: slots.videoVae });
-  const { model, turbo, steps, lora, unet } = loadH3Model(g, ctx, input, picked, how, audioVae, extra.veda, extra.turbo, extra.vedaSparsity);
+  const { model, turbo, steps, lora, unet } = loadH3Model(g, ctx, input, picked, how, audioVae, extra.veda, extra.turbo, extra.vedaSparsity, extra.differential);
   const { positive, latent, previous, plain } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae }, extra.prompt);
 
   // a finish by the latent re-sample starts from the draft's own sampled latent (uploaded as "self.latent"): rendered again, even

@@ -75,7 +75,7 @@ export type H3Uses = ReturnType<typeof uses>;
  * the attention and precision patches, the turbo LoRA and the user's LoRAs, the sigma shift, and the
  * live preview. With it, what the chain is (turbo or not, with which LoRA) and how many steps it takes.
  */
-export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, picked: H3Model, how: H3Uses, audioVae: Ref, veda?: string, turboPick?: string, vedaSparsity?: { generated: number; reference: number }): { model: Ref; turbo: boolean; steps: number; lora: string | undefined; distilled: boolean; unet: string | undefined } {
+export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, picked: H3Model, how: H3Uses, audioVae: Ref, veda?: string, turboPick?: string, vedaSparsity?: { generated: number; reference: number }, differential?: boolean): { model: Ref; turbo: boolean; steps: number; lora: string | undefined; distilled: boolean; unet: string | undefined } {
   const { slots } = ctx;
   // references: a hybrid model follows them itself, any other hands those clips to MiniMax's reference model
   const own = !how.reference || picked.hybrid;
@@ -106,6 +106,8 @@ export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, 
   if (veda && ctx.has("VedaSparseAttention")) {
     model = g.out("VedaSparseAttention", { model, predictor: veda, generated_sparsity: String(vedaSparsity?.generated ?? 32), reference_sparsity: String(vedaSparsity?.reference ?? 32), full_attention_layers: "", full_attention_steps: "", verbose: false });
   }
+  // a soft noise mask read as a denoise strength per cell (a swap's Soft zone): its outer band redrawn less and less
+  if (differential) model = g.out("DifferentialDiffusion", { model, strength: 1 });
   // the live preview, with the sound so far, sent to whoever queued the prompt: what ComfyUI itself shows
   model = livePreview(g, ctx, model, input.livePreview, audioVae);
   // a turbo model with Fast off takes the steps typed (4 to 8 are what it is made for)

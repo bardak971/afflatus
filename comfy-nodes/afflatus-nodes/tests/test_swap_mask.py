@@ -220,3 +220,34 @@ def test_the_difference_paste_keeps_what_h3_drew_anew_and_gives_back_the_wall_it
     assert b[2, 90, 44] > 0.95 and b[2, 90, 60] < 0.05
     assert a[2, 90, 25] > 0.95  # the person
     assert a[2, 10, 10] < 0.05 and a[2, 120, 60] < 0.05  # the wall: the source's again
+
+
+def test_a_soft_zone_fades_its_outer_band_within_grow():
+    """Soft: the core whole, the outer band fading cell by cell to nearly 0, the zone no wider than grow (2026-10-18)."""
+    person = box(9, 256, 256, 112, 144, 112, 144)
+    hard = swap_mask.noise_mask(person, 9, 256, 256, 64)
+    soft = swap_mask.noise_mask(person, 9, 256, 256, 64, soft=32)
+    assert soft.shape == hard.shape
+    assert ((soft > 0) == (hard > 0)).all()  # as wide as before
+    row = soft[1, 8, :]  # through the person, latent frame 1
+    assert row[8] == 1.0  # the person's cells
+    edge = [v for v in row if 0 < v < 1]
+    assert edge and min(edge) < 0.5 and max(edge) > 0.5  # a fade, not a step
+    assert set(np.unique(hard).tolist()) <= {0.0, 1.0}
+
+
+def test_the_colour_match_moves_the_wall_to_the_source_and_leaves_the_person_their_own():
+    """Measured on the wall around the person only: the render's brighter wall comes back to the source's, and the new
+    person is shifted by the same small amount, not pulled towards the old person's colours."""
+    torch = pytest.importorskip("torch.nn") and __import__("torch")
+    frames, H, W = 3, 128, 64
+    source = torch.full((frames, H, W, 3), 0.5)
+    source[:, 60:120, 10:40] = 0.1  # the old person: dark
+    render = torch.full((frames, H, W, 3), 0.56)  # H3's wall, a little brighter
+    render[:, 60:120, 10:40] = 0.9  # the new person: light
+    noise = np.ones((swap_mask.latent_frames(frames), H // 16, W // 16), np.float32)
+    paste = torch.zeros(frames, H, W)
+    paste[:, 60:120, 10:40] = 1
+    out = swap_mask.ring_match(render, source, noise, paste)
+    assert abs(float(out[1, 10, 10, 0]) - 0.5) < 0.02  # the wall: the source's
+    assert float(out[1, 90, 25, 0]) > 0.8  # the person: still light

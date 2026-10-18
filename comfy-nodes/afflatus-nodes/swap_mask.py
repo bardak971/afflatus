@@ -209,8 +209,11 @@ def fit_frames(mask: np.ndarray, frames: int) -> np.ndarray:
     return np.concatenate([mask, np.repeat(mask[-1:], frames - mask.shape[0], axis=0)])
 
 
-def noise_mask(person: np.ndarray | None, frames: int, width: int, height: int, grow: int) -> np.ndarray:
-    """[T_lat, height/16, width/16] float32, 1 = redrawn: from the person's [N, height, width] bool track (None: all of it)."""
+def noise_mask(person: np.ndarray | None, frames: int, width: int, height: int, grow: int, soft: int = 0) -> np.ndarray:
+    """[T_lat, height/16, width/16] float32, 1 = redrawn: from the person's [N, height, width] bool track (None: all of it).
+    `soft` px: the zone's outer band, that wide within `grow`, fades from 1 to nearly 0 cell by cell, for a sampler patched
+    by Differential Diffusion to redraw it less and less (the wall H3 hands back near the edge is then close to the
+    source's: the owner's "aura", 2026-10-18). 0: whole cells only, as before."""
     n_lat = latent_frames(frames)
     h, w = height // CELL, width // CELL
     if person is None:
@@ -218,11 +221,17 @@ def noise_mask(person: np.ndarray | None, frames: int, width: int, height: int, 
     px = fit_frames(person, frames)[:, : h * CELL, : w * CELL]
     # a cell is the person's when any of its pixels is: then grown on the cell grid, holes filled, any over each latent frame
     cells = px.reshape(frames, h, CELL, w, CELL).any(axis=(2, 4))
-    cells = fill_holes(dilate_cells(cells, int(math.ceil(grow / CELL))))
-    lat = np.stack([cells[a:b].any(axis=0) for a, b in latent_spans(n_lat)])
+    total = int(math.ceil(grow / CELL))
+    band = min(total, int(math.ceil(soft / CELL))) if soft > 0 else 0
+    # each step of the band grown from the person with the same disk as the whole zone: as wide as the hard zone
+    values = fill_holes(dilate_cells(cells, total - band)).astype(np.float32)
+    for k in range(1, band + 1):
+        layer = fill_holes(dilate_cells(cells, total - band + k))
+        values = np.maximum(values, np.where(layer, 1.0 - k / (band + 1), 0.0).astype(np.float32))
+    lat = np.stack([values[a:b].max(axis=0) for a, b in latent_spans(n_lat)])
     near = lat.copy()
-    near[1:] |= lat[:-1]
-    near[:-1] |= lat[1:]
+    near[1:] = np.maximum(near[1:], lat[:-1])
+    near[:-1] = np.maximum(near[:-1], lat[1:])
     return near.astype(np.float32)
 
 
@@ -293,6 +302,7 @@ class AfflatusSwapMask(io.ComfyNode):
                 io.Int.Input("height", default=1024, min=32, max=16384, step=32),
                 # 100: the tested mask's reach (grow 50, blockify 32, then 36 on the latent), 98 % of its tokens on the meme (§9.9)
                 io.Int.Input("grow", default=100, min=0, max=1024, tooltip="Pixels the redrawn region reaches past the person, in whole 16 px cells."),
+                io.Int.Input("soft", default=0, min=0, max=512, optional=True, tooltip="Pixels of the zone's outer band, within grow, that fade from redrawn to kept (for a model patched by Differential Diffusion). 0: whole cells."),
                 io.Int.Input("paste_grow", default=10, min=0, max=256, tooltip="Pixels the kept render reaches past the person."),
                 io.Float.Input("paste_blur", default=5.0, min=0.0, max=64.0, tooltip="The paste-back edge's blur, in pixels."),
                 io.Int.Input("paste_reach", default=PASTE_REACH, min=0, max=24, optional=True, tooltip="The person of this many frames either side of each is kept too: a limb SAM loses for a moment is not pasted over."),
@@ -307,7 +317,7 @@ class AfflatusSwapMask(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, track_data, frames: int = 141, width: int = 576, height: int = 1024, grow: int = 100, paste_grow: int = 10, paste_blur: float = 5.0, images=None, previous=None, pick_x: float = -1.0, pick_y: float = -1.0, paste_reach: int = PASTE_REACH) -> io.NodeOutput:
+    def execute(cls, track_data, frames: int = 141, width: int = 576, height: int = 1024, grow: int = 100, paste_grow: int = 10, paste_blur: float = 5.0, images=None, previous=None, pick_x: float = -1.0, pick_y: float = -1.0, paste_reach: int = PASTE_REACH, soft: int = 0) -> io.NodeOutput:
         import torch
 
         tracks = person_tracks(track_data, width, height)
@@ -324,7 +334,7 @@ class AfflatusSwapMask(io.ComfyNode):
             note.append("No one was found where the person to replace was clicked: the one with the largest face was taken, which may be someone else.")
         elif changed is not None and how != "followed":
             note.append("The person the window before replaced was not found in this one: the one with the largest face was taken, which may be someone else.")
-        noise = torch.from_numpy(noise_mask(person, frames, width, height, grow))
+        noise = torch.from_numpy(noise_mask(person, frames, width, height, grow, soft))
         return io.NodeOutput(noise, paste_mask(person, frames, width, height, paste_grow, paste_blur, reach=paste_reach), ui={"afflatus_note": note})
 
 
@@ -382,7 +392,7 @@ def zone_cells(noise: np.ndarray, frames: int, height: int, width: int, scale: i
     n_lat, h, w = noise.shape
     per = np.zeros((frames, h, w), bool)
     for k, (a, b) in enumerate(latent_spans(n_lat)):
-        per[a:min(b, frames)] = noise[k] > 0.5
+        per[a:min(b, frames)] = noise[k] > 0
     step = CELL // scale
     cells = np.repeat(np.repeat(per, step, axis=1), step, axis=2)
     out = np.zeros((frames, height // scale, width // scale), bool)
@@ -476,3 +486,63 @@ class AfflatusSwapPaste(io.ComfyNode):
         a = a[..., None].to(render.device, render.dtype)
         src = source[: render.shape[0], ..., :3].to(render.device, render.dtype)
         return io.NodeOutput(src * (1 - a) + render[..., :3] * a)
+
+
+def ring_match(render, source, noise: np.ndarray, paste, strength: float = 1.0, smooth: int = 2):
+    """
+    The render's colours moved to the source's, as measured on the wall around the person only (the zone H3 redrew, less
+    the person): per frame and channel, its mean and spread there made the source's, the same shift on the whole frame,
+    averaged over `smooth` frames either side so it does not flicker. A whole-frame match would pull the new person's
+    colours towards the old person's (a white shirt towards a dark jersey).
+    """
+    import torch
+
+    frames, H, W = render.shape[0], render.shape[1], render.shape[2]
+    zone = torch.from_numpy(zone_cells(noise, frames, H, W, 1)).to(render.device)
+    ring = zone & (paste[:frames].to(render.device) < 0.5)
+    r = render[..., :3].float()
+    src = source[:frames, ..., :3].float().to(render.device)
+    out = r.clone()
+    stats = []
+    for f in range(frames):
+        m = ring[f]
+        if int(m.sum()) < 64:
+            stats.append(None)
+            continue
+        a, b = r[f][m], src[f][m]
+        stats.append((a.mean(0), a.std(0) + 1e-4, b.mean(0), b.std(0) + 1e-4))
+    have = [i for i, x in enumerate(stats) if x is not None]
+    if not have:
+        return render
+    for f in range(frames):
+        near = [stats[i] for i in have if abs(i - f) <= smooth] or [stats[min(have, key=lambda i: abs(i - f))]]
+        ma, sa, mb, sb = (torch.stack([n[j] for n in near]).mean(0) for j in range(4))
+        matched = (r[f] - ma) / sa * sb + mb
+        out[f] = r[f] + strength * (matched - r[f])
+    return out.clamp(0, 1).to(render.dtype)
+
+
+class AfflatusSwapMatch(io.ComfyNode):
+    """The swap's render matched in colour to its source on the wall around the person, before it is pasted back."""
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusSwapMatch",
+            display_name="Afflatus: Swap Colour Match (H3)",
+            category="Afflatus",
+            description="The render's colours moved to the source's, measured on the wall around the person only (the zone H3 redrew, less the person), so the paste-back edge does not show a shift.",
+            inputs=[
+                io.Image.Input("render", tooltip="The swap's decoded frames."),
+                io.Image.Input("source", tooltip="The source's frames at the swap's size."),
+                io.Mask.Input("noise_mask", tooltip="Swap Mask's noise mask: the zone H3 redrew."),
+                io.Mask.Input("paste_mask", tooltip="Swap Mask's paste-back mask: the person, left out of the measure."),
+                io.Float.Input("strength", default=1.0, min=0.0, max=1.0, step=0.05),
+                io.Int.Input("smooth", default=2, min=0, max=12, tooltip="Frames either side the measure is averaged over."),
+            ],
+            outputs=[io.Image.Output(display_name="images")],
+        )
+
+    @classmethod
+    def execute(cls, render, source, noise_mask, paste_mask, strength: float = 1.0, smooth: int = 2) -> io.NodeOutput:
+        return io.NodeOutput(ring_match(render, source, noise_mask.detach().cpu().float().numpy(), paste_mask, strength, smooth))
