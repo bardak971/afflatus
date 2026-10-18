@@ -86,6 +86,14 @@ describe("lackOn", () => {
     expect(filesUsed(sdxl, { checkpoint: "illustrious.safetensors" }, empty, [slot, other]).map((f) => f.file)).toEqual(["illustrious.safetensors", "sd_xl_base_1.0.safetensors", "ref.safetensors"]);
   });
 
+  it("names a family file by its download when its graph could not be built, as a pod's own check does (one VAE fetched twice, 2026-10-18)", () => {
+    const vae = { id: "vae", label: "VAE", folder: "vae", optional: false, get: { file: "vae_int8.safetensors", url: "https://huggingface.co/x/vae_int8.safetensors" } };
+    const here = { ...scan([]), families: [{ id: "h3", slots: [{ ...vae, file: "vae_fp16.safetensors", choices: [], auto: null, chosen: false, hint: "" }] }] } as Scan;
+    expect(filesUsed({ family: "h3", inputs: [] } as never, {}, here, [vae])).toEqual([{ file: "vae_int8.safetensors", folder: "vae", url: vae.get.url }]);
+    // a slot with no download known is this PC's file, sent from here
+    expect(filesUsed({ family: "h3", inputs: [] } as never, {}, here, [{ ...vae, get: undefined }])).toEqual([{ file: "vae_fp16.safetensors", folder: "vae" }]);
+  });
+
   it("names the node packs a machine lacks when it knows every one: a pod can be sent them too", () => {
     const status = (over: Partial<RecipeStatus>) => scan([{ ...recipe("h3-i2v", false, { unet: ["h3.safetensors"] }), missingSlots: [], ...over }]);
     const lack = (s: Scan) => lackOn(h3, { unet: "h3.safetensors" }, s, { families: {} }, machine("b"), familyOf);

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, mainModel, missingNodesSaid, modelFileName, modelName, modelOf, onGrid, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
+import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, onGrid, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
 import { ComfyCancelled, ComfyError, ComfyUnreachable } from "@afflatus/comfy";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
@@ -109,7 +109,12 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const chosen = settled(recipe, input, catalog);
   const missing = recipe.nodes(input).filter((n: string) => !(n in catalog));
   if (missing.length) throw new Error(missingNodesSaid(missing));
-  const slotFiles = await timedPart("scan", () => slots(core, comfy, recipe));
+  const { files: slotFiles, gaps } = await timedPart("scan", () => slots(core, comfy, recipe));
+  // a family file not here is refused only when this job's graph reads it, seen before anything goes up when it can be
+  if (Object.keys(gaps).length) {
+    const dry = await builtOf(core, recipe.id, plan ? plan.input : raw, { finishedFrom: row.finished_from, canvas: plan?.canvas, slots: slotFiles, catalog, comfy }).catch(() => null);
+    if (dry) refuseGap(dry.graph, gaps);
+  }
 
   // pictures, videos and sounds the recipe takes are uploaded to ComfyUI's temp folder under fresh names. They go up at
   // once: the time any of them is on its way is /metrics' "uploads"
@@ -193,6 +198,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const loaders = bare ? warmGraph({ ...whole, passes: [] }) : null;
   if (bare && !loaders) throw new Error("this loads no model: there is nothing to preload");
   const built: BuiltGraph = loaders ? { ...whole, graph: loaders.graph, phases: loaders.phases, passes: [], outputs: [] } : whole;
+  refuseGap(built.graph, gaps);
   if (!loaders && whole.warnings?.length) warnings.push(...whole.warnings);
   // a model kept in another sub-folder than the one the graph names is used from where it is
   relocateFiles(built.graph, catalog);
@@ -589,9 +595,14 @@ async function promptOf(comfy: Comfy, built: BuiltGraph, warm: boolean, cut: Ret
   return { graph: built.graph, resume: { promptId, totalSteps: built.totalSteps, phases: built.phases, passes: built.passes, clientId: comfy.client.clientId } };
 }
 
-/** The files a family's recipes need, as this ComfyUI has them. */
-async function slots(core: QueueCore, comfy: Comfy, recipe: Recipe<any>): Promise<Record<string, string>> {
+/**
+ * The files a family's recipes need, as this ComfyUI has them. A required one it does not have is named by
+ * missingSlotFile, with what is said of it in `gaps`: the job is refused only if its graph reads it (refuseGap). A swap
+ * never reads the family's video model, and was refused on a machine without it.
+ */
+async function slots(core: QueueCore, comfy: Comfy, recipe: Recipe<any>): Promise<{ files: Record<string, string>; gaps: Record<string, string> }> {
   const slots: Record<string, string> = {};
+  const gaps: Record<string, string> = {};
   const scan = await comfy.scan();
   // not reached: no file can be told missing, and the job waits for ComfyUI as a lost one does (a swap's retry once said its
   // LoRA was missing while ComfyUI had stopped answering on 127.0.0.1, 2026-10-13)
@@ -599,9 +610,18 @@ async function slots(core: QueueCore, comfy: Comfy, recipe: Recipe<any>): Promis
   const scanned = scan.families.find((f) => f.id === recipe.family);
   for (const s of scanned?.slots ?? []) {
     if (s.file) slots[s.id] = s.file;
-    else if (!s.optional) throw new Error(`a model file ${core.registry.family(recipe.family)?.name ?? recipe.family} needs was not found. ${s.hint}`);
+    else if (!s.optional) {
+      slots[s.id] = missingSlotFile(s.id);
+      gaps[s.id] = `a model file ${core.registry.family(recipe.family)?.name ?? recipe.family} needs was not found. ${s.hint}`;
+    }
   }
-  return slots;
+  return { files: slots, gaps };
+}
+
+/** Refuses a graph that reads a family file this ComfyUI does not have (slots), in the words said of that file. */
+function refuseGap(graph: BuiltGraph["graph"], gaps: Readonly<Record<string, string>>): void {
+  const slot = missingSlotIn(graph);
+  if (slot) throw new Error(gaps[slot] ?? `a model file was not found (${slot})`);
 }
 
 /**
@@ -636,12 +656,12 @@ function holding(core: QueueCore, base: string[]): boolean {
  * the job finishes a draft, and a recipe that re-samples the draft's own latent is built from it; `canvas`: a
  * timeline's frame. Null when the form is not complete enough to build.
  */
-export async function builtOf(core: QueueCore, recipeId: string, rawInput: unknown, opts: { seed?: number; names?: Record<string, string>; finishedFrom?: string | null; canvas?: { width: number; height: number } } = {}): Promise<BuiltGraph | null> {
+export async function builtOf(core: QueueCore, recipeId: string, rawInput: unknown, opts: BuildOn & { seed?: number; names?: Record<string, string>; finishedFrom?: string | null; canvas?: { width: number; height: number } } = {}): Promise<BuiltGraph | null> {
   const recipe = core.registry.recipe(recipeId);
   if (!recipe) return null;
   const input = parseInput(recipe, withTexts(recipe, rawInput)) as Record<string, unknown>;
-  const comfy = await core.comfy();
-  const catalog = await comfy.catalog();
+  const comfy = opts.comfy ?? (await core.comfy());
+  const catalog = opts.catalog ?? (await comfy.catalog());
   const uploads: Record<string, string> = {};
   const media: Record<string, MediaFacts> = {};
   const standIn = (key: string, asset: string, facts: MediaFacts | null) => {
@@ -661,9 +681,21 @@ export async function builtOf(core: QueueCore, recipeId: string, rawInput: unkno
   }
   // a finish that re-samples the draft's own latent is built on it, as submit builds it: else it is built as the draft and its finish both
   if (opts.finishedFrom && recipe.finishing?.(input)?.latent === "own") uploads["self.latent"] = "stand-in";
-  const built = recipe.build(settled(recipe, input, catalog), { seed: opts.seed ?? 1, slots: await slots(core, comfy, recipe), uploads, media, canvas: opts.canvas, has: (cls: string) => cls in catalog });
-  relocateFiles(built.graph, catalog);
+  const built = recipe.build(settled(recipe, input, catalog), { seed: opts.seed ?? 1, slots: opts.slots ?? (await slots(core, comfy, recipe)).files, uploads, media, canvas: opts.canvas, has: (cls: string) => cls in catalog });
+  if (opts.relocate !== false) relocateFiles(built.graph, catalog);
   return sizedFrom(built, media);
+}
+
+/**
+ * Where builtOf builds a form, when not as the first machine has it: `comfy` and its node list `catalog` (a rented pod's),
+ * `slots` the family's files as they will be there (podSlotFiles), and `relocate: false` for a machine that has no file yet
+ * (a pod about to be deployed: a file kept in a sub-folder here is fetched under its own name).
+ */
+export interface BuildOn {
+  comfy?: Comfy;
+  catalog?: Awaited<ReturnType<Comfy["catalog"]>>;
+  slots?: Record<string, string>;
+  relocate?: boolean;
 }
 
 /** A library picture's size, as uploadImage sends it; null when it is not known (the stand-in's square is used). */

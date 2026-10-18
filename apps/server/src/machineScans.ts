@@ -1,5 +1,6 @@
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
-import { folderOfFileInput, isShown, packOfNode, type LoraValue, type Recipe } from "@afflatus/core";
+import { folderOfFileInput, isShown, missingSlotFile, packOfNode, type GraphFile, type LoraValue, type Recipe } from "@afflatus/core";
+import type { Loaded } from "./jobFiles";
 import type { Machine, Settings } from "./settings";
 
 /**
@@ -82,18 +83,32 @@ function pickedFor(recipe: Pick<Recipe<any>, "inputs" | "needs">, input: Record<
 const slotFilesOf = (slots: Array<{ id: string; file?: string | null }>): Record<string, string> =>
   Object.fromEntries(slots.flatMap((x) => (x.file ? [[x.id, x.file]] : [])));
 
+/** A file a job loads, with where it can be had when that is known: its family's download, its imported workflow's address. */
+function withUrl(recipe: Pick<Recipe<any>, "files">, slots: ReadonlyArray<{ id: string; get?: { file: string; url: string } }>, f: Pick<GraphFile, "file" | "folder" | "slot">): { file: string; folder: string; url?: string } {
+  const get = slots.find((s) => s.id === f.slot)?.get;
+  const url = get && get.file === f.file ? get.url : recipe.files?.find((x) => x.file === f.file && x.url)?.url;
+  return { file: f.file, folder: f.folder, ...(url ? { url } : {}) };
+}
+
 /**
- * Every model file a job uses, as a machine that has none of them would need them (a pod just deployed): the files its
- * inputs name and its family's files its recipe needs, as `scan` (this computer's) finds them, else the family's usual one.
+ * Every model file a job uses, as a machine that has none of them would need them (a pod just deployed). `loaded`: what
+ * its graph loads (jobFiles.ts loadedOn), exact for every form. Without it (its graph could not be built), the files its
+ * inputs name and its family's files its recipe needs, each slot under one name: the family's download, else `scan`'s
+ * (this computer's) file. The pod's own check names a missing slot by its download too: naming this PC's file here had
+ * one VAE fetched under two names (2026-10-18).
  */
-export function filesUsed(recipe: Pick<Recipe<any>, "family" | "inputs" | "needs" | "needsWith">, input: Record<string, unknown>, scan: Scan | null, slots: Array<{ id: string; folder: string; optional?: boolean; get?: { file: string; url: string } }>): Array<{ file: string; folder: string; url?: string }> {
+export function filesUsed(
+  recipe: Pick<Recipe<any>, "family" | "inputs" | "needs" | "needsWith"> & Partial<Pick<Recipe<any>, "files">>, input: Record<string, unknown>, scan: Scan | null,
+  slots: Array<{ id: string; folder: string; optional?: boolean; get?: { file: string; url: string } }>, loaded?: Pick<Loaded, "files"> | null,
+): Array<{ file: string; folder: string; url?: string }> {
+  if (loaded) return loaded.files.map((f) => withUrl(recipe, slots, f));
   const out: Array<{ file: string; folder: string; url?: string }> = filesAsked(recipe, input).map(({ file, folder }) => ({ file, folder }));
   const found = scan?.families.find((f) => f.id === recipe.family)?.slots ?? [];
   const asks = recipe.needsWith?.(input, slotFilesOf(found)) ?? [];
   for (const slot of slots) {
     // a slot the job's own pick fills is that file, asked above
     if ((slot.optional && !recipe.needs?.includes(slot.id) && !asks.includes(slot.id)) || pickedFor(recipe, input, slot, slots)) continue;
-    const file = found.find((x) => x.id === slot.id)?.file ?? slot.get?.file;
+    const file = slot.get?.file ?? found.find((x) => x.id === slot.id)?.file;
     if (file) out.push({ file, folder: slot.folder, ...(slot.get && slot.get.file === file ? { url: slot.get.url } : {}) });
   }
   return out.filter((f, i) => out.findIndex((g) => g.file === f.file && g.folder === f.folder) === i);
@@ -126,13 +141,19 @@ export interface Lack {
  * What keeps a job off a machine, from that machine's scan, or null when it can run there: its recipe ready there, its
  * family on there, and the model files and LoRAs it asks for in that machine's lists (an input the scan does not list is
  * not held against it). A recipe not ready for another reason (a custom node missing) lacks no file but is kept off all the same.
+ * `loaded`: what the job's graph loads there and that machine lacks of it (jobFiles.ts loadedOn): the files are those, and
+ * a family file the graph does not read keeps nothing off. Without it (the graph could not be built), the family's slots say.
  */
-export function lackOn(recipe: Pick<Recipe<any>, "id" | "family" | "inputs" | "needs" | "needsWith">, input: Record<string, unknown>, scan: Scan, settings: Pick<Settings, "families">, machine: Pick<Machine, "families">, recipeFamily: (id: string) => string | undefined): Lack | null {
+export function lackOn(
+  recipe: Pick<Recipe<any>, "id" | "family" | "inputs" | "needs" | "needsWith"> & Partial<Pick<Recipe<any>, "files">>, input: Record<string, unknown>, scan: Scan,
+  settings: Pick<Settings, "families">, machine: Pick<Machine, "families">, recipeFamily: (id: string) => string | undefined, loaded?: Loaded | null,
+): Lack | null {
   const status = scan.recipes.find((r) => r.id === recipe.id);
   const on = familyOn(settings, machine, recipe.family, foundIn(scan, recipe.family, recipeFamily));
   // "off" is said only of a family switched off by hand (there, or on every machine): one off because its files are not
   // there is said by the files it lacks
   const off = !on && (machine.families[recipe.family] ?? settings.families[recipe.family]) === false;
+  if (loaded) return lackOfGraph(recipe, input, scan, status, on, off, loaded);
   const wanted = filesAsked(recipe, input);
   const asked = wanted.filter(({ input: id, file }) => status?.options[id] && !status.options[id]!.includes(file));
   const slots = scan.families.find((f) => f.id === recipe.family)?.slots ?? [];
@@ -163,6 +184,33 @@ export function lackOn(recipe: Pick<Recipe<any>, "id" | "family" | "inputs" | "n
     && status!.emptyInputs.every((id) => filled.has(id)) && status!.missingSlots.every(slotFilled) && lacking.every((x) => x.get);
   const why = sendable || off ? null : lacking.find((x) => !x.get) ? `its ${lacking.find((x) => !x.get)!.label ?? "family"} file is not there, and no download is known for it` : unsendable(status, knownPacks, filled, slotFilled);
   return { off, files: unique, sendable, ...(knownPacks?.length ? { packs: knownPacks } : {}), ...(why ? { why } : {}) };
+}
+
+/**
+ * lackOn from what the job's graph loads: the files a machine lacks are the graph's own, under the names its build there
+ * gives them (podSlotFiles: the machine's file, else the family's download, else this PC's, sent from here). A family file
+ * the graph reads and nobody has (missingSlotFile) cannot be sent.
+ */
+function lackOfGraph(
+  recipe: Pick<Recipe<any>, "family" | "inputs"> & Partial<Pick<Recipe<any>, "files">>, input: Record<string, unknown>, scan: Scan,
+  status: RecipeStatus | undefined, on: boolean, off: boolean, loaded: Loaded,
+): Lack | null {
+  const slots = scan.families.find((f) => f.id === recipe.family)?.slots ?? [];
+  const filled = new Set(filesAsked(recipe, input).map((w) => w.input));
+  const gap = loaded.absent.find((f) => f.slot && f.file === missingSlotFile(f.slot));
+  const files = loaded.absent.filter((f) => !(f.slot && f.file === missingSlotFile(f.slot))).map((f) => withUrl(recipe, slots, f));
+  const packs = [...new Set((status?.missingNodes ?? []).map((n) => packOfNode(n)))];
+  const knownPacks = packs.every((p) => p && !p.own) ? packs.map((p) => p!.name) : null;
+  // an input with nothing to pick there is filled by a file it asks for, which is then among the graph's files
+  const picks = Boolean(status) && status!.emptyInputs.every((id) => filled.has(id));
+  // a file of its own (an imported workflow's) in a folder Afflatus does not know is not among the graph's: still held against it
+  const unplaced = status?.missing.some((m) => !m.folder) ?? false;
+  // a family on by its files there is on for a job that finds every file it loads there, whichever of its recipes is ready
+  if (status && (on || !off) && !gap && !unplaced && !files.length && picks && !status.missingNodes.length && !status.problems.length) return null;
+  const sendable = Boolean(status) && !off && !gap && !unplaced && (files.length > 0 || Boolean(knownPacks?.length)) && knownPacks !== null && !status!.problems.length && picks;
+  const label = gap ? slots.find((x) => x.id === gap.slot)?.label : undefined;
+  const why = sendable || off ? null : gap ? `its ${label ?? "family"} file is not there, and no download is known for it` : unsendable(status, knownPacks, filled, () => true);
+  return { off, files, sendable, ...(knownPacks?.length ? { packs: knownPacks } : {}), ...(why ? { why } : {}) };
 }
 
 /**

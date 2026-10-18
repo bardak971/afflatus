@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeRecipe, dryContext, parseInput, type MediaFacts } from "@afflatus/core";
+import { describeRecipe, dryContext, parseInput, slotsRead, type MediaFacts } from "@afflatus/core";
 import { h3Swap, SWAP_CAPTION, swapCaption, swapPrompt, swapPromptLacks } from "../src/h3/swap";
 import { H3_FPS } from "../src/h3/family";
 import { recipeById } from "../src/index";
@@ -438,8 +438,17 @@ describe("MiniMax H3 · Swap character", () => {
       expect(of(build().graph, "ColorTransfer")).toEqual([]);
     });
 
-    it("asks SAM 3.1 of a machine, as the LoRA and the reference model", () => {
-      expect(h3Swap.needs).toEqual(["swapLora", "swapUnet", "swapSam"]);
+    it("asks SAM 3.1 of a machine only with the Mask on, the LoRA and its model always, the family's own models never", () => {
+      expect(h3Swap.needs).toEqual(["swapLora", "swapUnet"]);
+      // the family's video and reference models: no form of it reads them, so no machine is asked for them
+      const read = slotsRead(h3Swap, ["unet", "refUnet", "swapLora", "clip", "videoVae"]);
+      expect(read.has("unet")).toBe(false);
+      expect(read.has("refUnet")).toBe(false);
+      expect([...read].sort()).toEqual(["clip", "swapLora", "videoVae"]);
+      const asks = (over: Record<string, unknown>) => h3Swap.needsWith!(parseInput(h3Swap, { who: "the man", source: { asset: "v1" }, references: [], fast: false, ...over }), {});
+      expect(asks({})).not.toContain("swapSam");
+      expect(asks({ maskOn: true })).toContain("swapSam");
+      expect(asks({ maskOn: true, maskPreview: true })).toContain("swapSam");
     });
   });
 });

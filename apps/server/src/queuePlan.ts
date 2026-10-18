@@ -1,6 +1,8 @@
 import { modelName, modelOf, type Recipe } from "@afflatus/core";
 import type { Db } from "./db";
 import { paceOf } from "./forecast";
+import type { Scan } from "@afflatus/comfy";
+import type { Loaded } from "./jobFiles";
 import { lackOn, type Lack } from "./machineScans";
 import type { PodFiles } from "./podFiles";
 import { needsComfy } from "./queueOffline";
@@ -82,6 +84,8 @@ interface PlanDeps {
   expectedAll(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean, job: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit"> | null): Promise<Expected>;
   fitsBalance(ms: number | null): { ok: boolean; leftMs: number | null };
   balanceNeed(machine: string, recipeId: string, renderMs: number, fetchMs: number): Promise<number>;
+  /** What a job's graph loads on a machine, and what that machine lacks of it (jobFiles.ts loadedOn); null: not built. */
+  loaded(r: JobRow, lane: Lane, scan: Scan): Promise<Loaded | null>;
 }
 
 export class Planner {
@@ -160,7 +164,10 @@ export class Planner {
           return;
         }
         // a lone rented pod is asked too: what it lacks may be sent to it
-        const lack = (lanes.length > 1 || lane.machine!.rented) && scan?.comfy.online ? lackOn(recipe, input, scan, settings, machines.get(lane.id) ?? lane.machine!, familyOf) : null;
+        // what the job's graph loads there, not every file of its family (a swap's pod was sent the family's video model)
+        const asked = (lanes.length > 1 || lane.machine!.rented) && scan?.comfy.online;
+        const loaded = asked ? await this.d.loaded(r, lane, scan) : null;
+        const lack = asked ? lackOn(recipe, input, scan, settings, machines.get(lane.id) ?? lane.machine!, familyOf, loaded) : null;
         // a pod that lacks only files it can be sent: it can run the job once they came, their time to come part of what the
         // balance must last
         const fits = Boolean(lack?.sendable && lane.machine!.rented && this.d.podFetch && !this.d.podFetch.failed(lane.id, lack.files, lack.packs));

@@ -64,7 +64,8 @@ export async function deployModels(s: Services, o: { cloud: string; set: string 
     const recipe = s.registry.recipe(r.recipe_id);
     if (!recipe) continue;
     const slots = s.registry.family(recipe.family)?.slots ?? [];
-    for (const f of filesUsed(recipe, readJson<Record<string, unknown>>(r.inputs, {}), scan, slots)) {
+    // what its graph loads, built as a pod with none of its files would build it; the family's slots when it cannot be built
+    for (const f of filesUsed(recipe, readJson<Record<string, unknown>>(r.inputs, {}), scan, slots, await s.queue.loadedOnNew(r))) {
       const key = `${f.folder}|${f.file.toLowerCase()}`;
       const had = counted.get(key);
       if (had) {

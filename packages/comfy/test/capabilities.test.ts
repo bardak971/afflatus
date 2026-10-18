@@ -26,10 +26,10 @@ const recipe = defineRecipe<ToyInput>({
     { id: "sharp", type: "toggle", label: "Sharper", default: false },
   ],
   nodes: (i) => ["Loader", "Sampler", ...(i.sharp ? ["Sharpen"] : [])],
-  build(i) {
+  build(i, ctx) {
     const g = new GraphBuilder();
     // "auto" is the form's own word: the node is given one of its choices
-    const out = g.add("Sampler", { model: g.out("Loader", { file: i.model }), method: i.sampler === "auto" ? "euler" : i.sampler });
+    const out = g.add("Sampler", { model: g.out("Loader", { file: i.model, ...(ctx.slots.vae ? { vae: ctx.slots.vae } : {}) }), method: i.sampler === "auto" ? "euler" : i.sampler });
     return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: 1, loads: [] };
   },
   variants: [
@@ -39,7 +39,7 @@ const recipe = defineRecipe<ToyInput>({
 });
 
 const catalog: NodeCatalog = {
-  Loader: { input: { required: { file: [["m.safetensors"]] } }, output: ["MODEL"] },
+  Loader: { input: { required: { file: [["m.safetensors"]] }, optional: { vae: [["toy_vae.safetensors"]] } }, output: ["MODEL"] },
   Sampler: { input: { required: { model: ["MODEL", {}], method: [["euler", "heun"]] } }, output: ["IMAGE"] },
   Sharpen: { input: { required: {} }, output: ["IMAGE"] },
 };
@@ -98,6 +98,14 @@ describe("scan", () => {
     const { Sampler: _gone, ...without } = catalog;
     const s = await run({ catalog: without, models: { vae: [], loras: [], checkpoints: [] } });
     expect(s.recipes[0]).toMatchObject({ ready: false, missingNodes: ["Sampler"], missingSlots: ["vae"], emptyInputs: ["model"] });
+  });
+
+  it("does not count a family file as missing for a recipe none of whose forms reads it (a swap without the family's video model)", async () => {
+    const own = { ...recipe, id: "toy.own", build: (i: ToyInput, ctx: Parameters<typeof recipe.build>[1]) => recipe.build(i, { ...ctx, slots: {} }) };
+    fake = await startFakeComfy({ catalog, models: { vae: [], loras: [], checkpoints: ["m.safetensors"] } });
+    const s = await scan(new ComfyClient(fake.url), [family], [recipe, own]);
+    expect(s.recipes.find((r) => r.id === "toy.make")).toMatchObject({ ready: false, missingSlots: ["vae"] });
+    expect(s.recipes.find((r) => r.id === "toy.own")).toMatchObject({ ready: true, missingSlots: [] });
   });
 
   it("is not ready when ComfyUI would refuse its graph: a choice the node does not offer", async () => {
@@ -187,16 +195,17 @@ describe("scan, what is kept between scans", () => {
     const r = counted();
     const [a, b] = await Promise.all([machine(catalog), machine(catalog)]);
     const [sa, sb] = await Promise.all([scan(a, [family], [r]), scan(b, [family], [r])]);
-    expect(r.built).toBe(1);
+    // its plain form for the node list, and once each of its two variants for the slots it reads (kept per recipe)
+    expect(r.built).toBe(3);
     expect(sa.recipes[0]!.ready).toBe(true);
     expect(sb.recipes[0]).toEqual(sa.recipes[0]);
     // the same machine asked again: nothing built
     await scan(a, [family], [r]);
-    expect(r.built).toBe(1);
+    expect(r.built).toBe(3);
     // a machine without the sampler's "heun": another list, worked out on its own
     const other = await machine({ ...catalog, Sampler: { input: { required: { model: ["MODEL", {}], method: [["euler"]] } }, output: ["IMAGE"] } });
     await scan(other, [family], [r]);
-    expect(r.built).toBe(2);
+    expect(r.built).toBe(4);
   });
 
   it("takes the node list it is given instead of fetching it", async () => {

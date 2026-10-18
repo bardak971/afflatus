@@ -26,3 +26,4 @@ export * from "./volumePrice";
 export * from "./gpuRank";
 export * from "./versions";
 export * from "./podSteps";
+export * from "./graphFiles";

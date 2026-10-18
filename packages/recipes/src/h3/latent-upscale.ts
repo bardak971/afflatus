@@ -25,6 +25,21 @@ export function latentUpscaleRounds(input: Pick<H3Video, "upscaleBy" | "upscaleT
 }
 
 /**
+ * H3's latent upscaler when the form enlarges with it (Recipe.needsWith): a pod is sent it for that job only, never for a
+ * plain one. Optional and asked by nobody, it was never fetched: Timeline 19's finishes on a pod fell back to a plain
+ * resize, and came out blurred over the whole clip (2026-10-18).
+ */
+export const latentUpscaleNeeds = (input: Pick<H3Video, "upscale" | "upscaleWith">): string[] => (input.upscale === UPSCALE.latent && input.upscaleWith !== "Plain resize" ? ["latentUpscaler"] : []);
+
+/** What a render enlarged by a plain resize where H3's latent upscaler was asked for says on its job; null otherwise. */
+export function plainResizeSaid(input: Pick<H3Video, "upscale" | "upscaleWith">, ctx: BuildContext): string | null {
+  if (!latentUpscaleNeeds(input).length || (ctx.slots.latentUpscaler && ctx.has("MMH3LatentUpscaleWithModelParams"))) return null;
+  return ctx.slots.latentUpscaler
+    ? "Enlarged by a plain resize: this ComfyUI's Afflatus node pack has no latent upscaler node."
+    : "Enlarged by a plain resize: H3's latent upscaler is not on this ComfyUI (Settings › Models has it).";
+}
+
+/**
  * The upscale pass: the finished latent enlarged, then re-sampled lightly, one stretch of frames and one
  * tile at a time (the node offloads the model between the two, so both fit where one does). The sound
  * is carried through untouched. The same model, sampler and conditioning as the clip. Without the latent

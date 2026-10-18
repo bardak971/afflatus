@@ -9,14 +9,15 @@ import { conditionFor } from "./condition";
 import { finish, H3_SAVE_LATENT } from "./finish";
 import { h3Inputs, type H3Video } from "./inputs";
 import { frameFor, H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_LANDING, H3_SEAM, H3_TRIM, resolveJoin } from "./join";
-import { H3_LATENT_ENLARGE_NODES, H3_LATENT_UPSCALE_NODES, latentUpscalePass, latentUpscaleRounds } from "./latent-upscale";
+import { H3_LATENT_ENLARGE_NODES, H3_LATENT_UPSCALE_NODES, latentUpscaleNeeds, latentUpscalePass, latentUpscaleRounds, plainResizeSaid } from "./latent-upscale";
 import { AUTO_SAMPLER, H3_STARTS, loadH3Model, modelOf, namedFor, turboNeeds, uses } from "./model";
 
 // the recipe's parts live beside it (inputs, join, condition, latent-upscale, finish); its input type is still had from here
 export type { H3Video } from "./inputs";
 
 export const h3Video = defineRecipe<H3Video>({
-  needsWith: turboNeeds,
+  // Turbo's LoRA, and H3's latent upscaler for an upscale with it
+  needsWith: (input, slots) => [...turboNeeds(input, slots), ...latentUpscaleNeeds(input)],
   id: "h3.video",
   family: "h3",
   version: 2,
@@ -234,6 +235,7 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   // the re-sample counts as a pass of its own: its steps again for every piece, after the clip's sampling. A finish is
   // the re-sample alone, and names no pass: what loads its models ahead is its loaders, not a step of the re-sample
   const resampled = fine ? input.upscaleSteps * latentUpscaleRounds(input, { width, height }, join.frames) : 0;
+  const plainResize = fine ? plainResizeSaid(input, ctx) : null;
   return {
     graph: g.graph,
     phases: g.phases,
@@ -244,6 +246,7 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
     // a continuation window counts its frames as an extension and an overlap, and a finish loads its latent from a file:
     // neither says the clip's frames in an input the forecast reads, so they are said here (the shared ones included)
     frames: join.frames,
+    ...(plainResize ? { warnings: [plainResize] } : {}),
     ...(head || tail ? { overlap: { headMs: ms(head), tailMs: ms(tail), ...(latentJoin ? { latent: true } : {}), ...(seam ? { seam: true } : {}) } } : {}),
   };
 }
