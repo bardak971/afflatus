@@ -193,6 +193,8 @@ export const queryKeys = {
       ["joins", clip.id, clip.takes.map((t) => `${t.id}:${t.startMs}:${t.endMs}`).join(","), before?.take?.id ?? before?.still?.id ?? "-", after?.take?.id ?? after?.still?.id ?? "-"] as const,
     ofTake: (clip: string, take: string, startMs: number, endMs: number) => ["joins", clip, take, startMs, endMs] as const,
   },
+  /** A swap clip's Show the mask, by its job: asked until its video is made. */
+  maskPreview: (job: string) => ["mask-preview", job] as const,
   /** Each clip's colour nudge toward the clip before: asked again when what plays changes. */
   match: (timeline: string | undefined, clips: Pick<Clip, "take" | "still">[]) =>
     ["match", timeline, clips.map((c) => `${c.take?.id ?? c.still?.id ?? "-"}:${c.take?.startMs ?? 0}:${c.take?.endMs ?? 0}`).join(",")] as const,

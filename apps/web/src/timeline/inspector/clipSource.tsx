@@ -1,4 +1,4 @@
-import { Crosshair } from "lucide-react";
+import { Crosshair, Eye } from "lucide-react";
 import { Slide } from "./parts";
 import type { RecipeInfo, Timeline } from "../../api";
 import { clock as mmss, plural } from "../../format";
@@ -27,6 +27,14 @@ export type ClipSource = {
   windows: { leastMs: number; mostMs: number };
   onCut(change: { windowMs?: number; snap?: boolean }): void;
   cutting: boolean;
+  /**
+   * Show the mask (the owner's mock, 2026-10-18): asked for this clip's window, where it stands, and whether its video is
+   * drawn over the source on the stage. Only the first window: the click decides the person there; the windows after
+   * follow the one before's rendered frames, which a preview does not have.
+   */
+  mask: { status: "none" | "waiting" | "ready" | "failed"; error?: string | null; shown: boolean };
+  onShowMask(): void;
+  onMaskShown(on: boolean): void;
   /** Its changes are kept to it ("This clip"). */
   kept: boolean;
   onKept(on: boolean): void;
@@ -80,9 +88,33 @@ export function sourceLead(s: ClipSource, clip: { inputs: Record<string, unknown
             )}
           </div>
         )}
+        {s.takesPick && s.first && <MaskLine s={s} />}
       </div>
     ),
   };
+}
+
+/** Show the mask: asked, followed, then drawn over the source on the stage (in the accent colour) or not. */
+function MaskLine({ s }: { s: ClipSource }) {
+  const m = s.mask;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-xs font-semibold">Mask</span>
+      {m.status === "waiting" ? (
+        <span className="text-xs text-ink-2">Tracking the person and making the mask… a short job in the queue, SAM 3 only.</span>
+      ) : m.status === "ready" ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Toggle on={m.shown} onChange={s.onMaskShown} label="On the stage" note="what H3 makes again in the accent colour, the band pasted back lighter, over this window" />
+          <Button size="sm" tone="quiet" onClick={s.onShowMask}>Make it again</Button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" onClick={s.onShowMask} disabled={!s.source.pick}><Eye size={14} aria-hidden /> Show the mask</Button>
+          <span className="text-xs text-ink-2">{m.status === "failed" ? `It failed: ${m.error ?? "see the Queue"}` : s.source.pick ? "what SAM 3 follows and what H3 makes again, before you render" : "pick who is replaced first"}</span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**

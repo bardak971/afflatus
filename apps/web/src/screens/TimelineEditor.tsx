@@ -1,4 +1,5 @@
 import { Link } from "wouter";
+import { fileUrl } from "../api";
 import { clock as mmss } from "../format";
 import { Picker } from "../PictureField";
 import { Inspector } from "../timeline/Inspector";
@@ -52,6 +53,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   // the clips made from the source: its panel renders those with nothing to play once they are made
   const fromSource = new Set(madeFromSource(t, e.videoRecipes).map((c) => c.id));
   const sourceLeft = e.missing.filter((c) => fromSource.has(c.id));
+  // the selected clip's Show the mask, drawn over its window of the source while it is on
+  const maskVideo = current && e.masks[current.id]?.shown ? e.maskOfCurrent.data?.video : null;
+  const maskOverlay = current && maskVideo ? { src: fileUrl(maskVideo.id), startMs: Number(current.inputs.sourceStart ?? 0) * 1000, lengthMs: maskVideo.durationMs ?? Number(current.inputs.sourceSeconds ?? 0) * 1000 } : null;
   return (
     <div className="flex min-w-0 grow flex-col">
       <TimelineHeader {...headerProps(e)} />
@@ -64,7 +68,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
 
         <main className="flex min-w-0 grow flex-col">
             {/* the source on the stage: its lane opened, or the person a swap replaces being picked (from a clip's Source chapter too) */}
-            {(e.sourceOpen || e.whoPicking) && t.source && e.place ? (
+            {(e.sourceOpen || e.whoPicking || Boolean(maskOverlay)) && t.source && e.place ? (
               <SourceStage
                 ref={e.player}
                 video={t.source.video}
@@ -89,6 +93,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                   e.setWhoPicking(false);
                 }}
                 onPickEnd={() => e.setWhoPicking(false)}
+                overlay={maskOverlay}
               />
             ) : (
               <Player ref={e.player} {...playerProps(e)} />

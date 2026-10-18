@@ -181,3 +181,15 @@ def test_the_faces_are_only_looked_for_when_neither_a_click_nor_the_window_befor
     assert swap_mask.pick([a, b], faces, None, (15.0, 30.0)) == (a, "clicked") and not asked
     person, how = swap_mask.pick([a, b], faces, None)
     assert (person is b, how, len(asked)) == (True, "face", 1)
+
+
+def test_the_preview_tints_what_is_made_again_strongly_and_the_pasted_band_lightly():
+    """Show the mask: 0.5 over the cells H3 redraws (each latent frame over its frames), 0.25 over the paste-back band only."""
+    noise = np.zeros((2, 4, 4), np.float32)
+    noise[1, 1, 1] = 1  # latent frame 1 holds frames 1-4
+    paste = np.zeros((5, 64, 64), np.float32)
+    paste[:, 40:50, 40:50] = 1
+    a = swap_mask.preview_alpha(noise, paste, 5)
+    assert a.shape == (5, 64, 64)
+    assert a[0, 20, 20] == 0 and a[2, 20, 20] == 0.5
+    assert a[2, 45, 45] == 0.25 and a[0, 5, 5] == 0

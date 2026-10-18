@@ -13,6 +13,7 @@ import { layout, moveAfter, otherShape, ZOOM } from "./model";
 import { sourcePlace } from "./track/SourceLane";
 import type { PlayerHandle } from "./Player";
 import { useClipEdits } from "./useClipEdits";
+import { useMaskPreview, type ClipMask } from "./maskPreview";
 import { useClipSteps } from "./useClipSteps";
 import { useEditorMenus } from "./useEditorMenus";
 import { useBarRequests } from "./useBarRequests";
@@ -64,6 +65,8 @@ export function useTimelineEditor(id: string) {
   const player = useRef<PlayerHandle>(null);
   /** The moment of the source a drag on its lane stands on: the stage shows it meanwhile. */
   const [sourcePeek, setSourcePeek] = useState<number | null>(null);
+  /** Each swap clip's Show the mask, by clip: its job, and whether it is drawn over the source on the stage. */
+  const [masks, setMasks] = useState<Record<string, ClipMask>>({});
   /** The stage waits for a click on the person a swap replaces, on the stretch's first frame (the source panel's Pick). */
   const [whoPicking, setWhoPicking] = useState(false);
   // the source panel closed: nothing left to pick for
@@ -90,6 +93,8 @@ export function useTimelineEditor(id: string) {
   );
   const comfyOnline = setup.data?.comfy.online ?? false;
   const current = clips.find((c) => c.id === selected) ?? null;
+  // the selected clip's Show the mask, followed until its video is made (the stage draws it over the source)
+  const maskOfCurrent = useMaskPreview(current?.id, current ? masks[current.id]?.job : undefined);
   // a take shown over the player while hovered goes away as soon as it is no longer one to look at: removed, or the one that
   // plays now (its thumbnail left from under the mouse, which then never said it left), another clip selected, or Play
   const previewing = preview?.id;
@@ -278,7 +283,7 @@ export function useTimelineEditor(id: string) {
 
   return {
     id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, current,
-    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, removeSource, makeSource, cutSource, splitSource, place, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
+    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, removeSource, makeSource, cutSource, splitSource, masks, setMasks, maskOfCurrent, place, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, typeSource, sourceTyped, inputsOf, editInputs, formOf, ready, keptToClip, keepToClip, sayOf, say, m, range, setRange, loopRange, snapQuiet,

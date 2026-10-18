@@ -10,7 +10,8 @@ function foot(over: Partial<ClipSource> = {}) {
   const asked: string[] = [];
   const s: ClipSource = {
     source: { pick: null } as never, count: 7, first: false, apart: [], takesPick: true, picking: false,
-    onPicking: () => {}, onClearPick: () => {}, kept: false,
+    onPicking: () => {}, onClearPick: () => {}, kept: false, windows: { leastMs: 3800, mostMs: 4900 }, onCut: () => {}, cutting: false,
+    mask: { status: "none", shown: false }, onShowMask: () => {}, onMaskShown: () => {},
     onKept: (on) => asked.push(on ? "this clip" : "all"), onInLine: () => asked.push("in line"), onToAll: () => asked.push("to all"),
     ...over,
   };

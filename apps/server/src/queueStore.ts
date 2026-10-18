@@ -106,7 +106,8 @@ export async function store(
     // the last video's measure is the generation's, as it always was
     let measure: { asset: string; work: () => Promise<Measure | null> } | null = null;
     // made from a box's working picture (Make the picture's frame): a working picture too, out of the library until picked
-    const scratch = await fromScratch(db, recipe, input);
+    // and a swap's Show the mask: a look at its masks, not a result to keep (gone after a day, as a working picture)
+    const scratch = input.maskPreview === true || (await fromScratch(db, recipe, input));
     for (const { file, kind } of files) {
       const one = await fileOne(core, comfy, recipe, input, resume, { file, kind }, sides, written);
       if (one.measure) measure = { asset: one.row.id, work: one.measure };

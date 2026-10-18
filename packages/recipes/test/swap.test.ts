@@ -77,6 +77,21 @@ describe("MiniMax H3 · Swap character", () => {
     expect(swapPrompt("the man", 1)).toBe("Swap the man in <Video 1> with the character in <Picture 1>.");
   });
 
+  it("shows the mask alone: the tracking, the masks drawn over the frames and a video of them, no H3 model loaded", () => {
+    const { built, graph } = build({ maskPreview: true, source: { asset: "v1", pick: { x: 0.4, y: 0.5 } } });
+    const types = new Set(Object.values(graph).map((n) => n.class_type));
+    expect(types.has("SAM3_VideoTrack") && types.has("AfflatusSwapMask") && types.has("AfflatusSwapMaskPreview")).toBe(true);
+    for (const gone of ["UNETLoader", "SamplerCustomAdvanced", "CLIPLoader", "VAELoader", "LoraLoaderModelOnly"]) expect(types.has(gone), gone).toBe(false);
+    expect(built.outputs).toEqual([{ node: expect.any(String), kind: "video", role: "result" }]);
+    // SAM 3 alone, a light job: the queue clears nothing for it and keeps H3 noted as loaded
+    expect(built.loads).toEqual(["checkpoints/sam3.1.safetensors"]);
+    expect(built.light).toBe(true);
+    // the click picks the person, as in the render
+    expect(of(graph, "AfflatusSwapMask")[0]!.inputs).toMatchObject({ pick_x: 0.4, pick_y: 0.5 });
+    // a ComfyUI whose pack has no preview node yet: said, not sent
+    expect(() => build({ maskPreview: true }, part(), { has: (cls) => cls !== "AfflatusSwapMaskPreview" })).toThrow(/node pack 0.26.0/);
+  });
+
   it("tags the tracking and the mask as processing, not as steps of the sampling bar", () => {
     const { built, graph } = build();
     const id = (type: string) => Object.entries(graph).find(([, n]) => n.class_type === type)![0];

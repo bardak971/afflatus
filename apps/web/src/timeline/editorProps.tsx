@@ -252,6 +252,29 @@ function clipSourceOf(e: LoadedEditor, current: Clip): ClipSource | undefined {
       return { leastMs, mostMs: Math.max(leastMs, Math.floor(b.mostMs / 100) * 100) };
     })(),
     onCut: e.cutSource.run,
+    mask: (() => {
+      const asked = e.masks[current.id];
+      const d = asked ? e.maskOfCurrent.data : undefined;
+      const status: "none" | "waiting" | "ready" | "failed" = !asked ? "none" : !d || d.status === "queued" || d.status === "running" ? "waiting" : d.status === "done" && d.video ? "ready" : "failed";
+      return { status, error: d?.error ?? null, shown: Boolean(asked?.shown) };
+    })(),
+    onShowMask: () => {
+      // the form as a render sends it, saved first; the stage turns to the source, the clip's panel kept beside it
+      const input = e.ready(current).input;
+      if (!input) return;
+      void e.save(current.id).then(() => api.maskPreview(current.id, input)).then((r) => {
+        e.setMasks((m) => ({ ...m, [current.id]: { job: r.job, shown: true } }));
+        e.openSource();
+        e.setSelected(current.id);
+      });
+    },
+    onMaskShown: (on) => {
+      e.setMasks((m) => (m[current.id] ? { ...m, [current.id]: { ...m[current.id]!, shown: on } } : m));
+      if (on) {
+        e.openSource();
+        e.setSelected(current.id);
+      }
+    },
     cutting: e.cutSource.pending,
     picking: e.whoPicking,
     onPicking: e.setWhoPicking,

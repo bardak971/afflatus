@@ -206,7 +206,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   // Another main model is coming: ComfyUI's memory is cleared for it (see coldOf). A graph with no base model of
   // its own (an upscale, a background removal) changes nothing: what is loaded stays, and stays noted.
   const base = baseModels(built);
-  const cold = coldOf(core.lastLoads, built);
+  const cold = built.light ? false : coldOf(core.lastLoads, built);
   // a continuation sends its prompt once the take it joins onto has its figures (queueStore.measuredFirst): its own files
   // went up meanwhile
   await measuredFirst(joinedOnto(recipe, input));
@@ -250,7 +250,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
     return comfy.client.submit(prompt.graph, asked);
   });
   // noted once ComfyUI took it: a prompt it refused loads nothing, and the next job must not think otherwise
-  if (base.length) await core.loaded(base.join("|"), mainModel(built));
+  if (base.length && !built.light) await core.loaded(base.join("|"), mainModel(built));
   return resume;
 }
 

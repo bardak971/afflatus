@@ -544,6 +544,10 @@ export const api = {
   editTimeline: (id: string, patch: TimelinePatch) => call<Timeline>("PATCH", `/timelines/${id}`, patch),
   /** The source lane's stretch made into clips, one a window: their ids (nothing is rendered yet). */
   /** The source made into clips; `again`: cut again, its rendered clips at the start kept. */
+  /** A swap clip's Show the mask: its window's masks drawn over its frames, a short job (SAM 3 alone). */
+  maskPreview: (clipId: string, input: Record<string, unknown>) => call<{ job: string }>("POST", `/clips/${clipId}/mask-preview`, { input }),
+  /** Where a Show the mask stands, and once done its video. */
+  maskPreviewOf: (clipId: string, job: string) => call<{ status: string; error: string | null; video: Asset | null }>("GET", `/clips/${clipId}/mask-preview/${job}`),
   makeFromSource: (id: string, again?: boolean) => call<{ clips: string[] }>("POST", `/timelines/${id}/source/make`, again ? { again } : undefined),
   /** The source split at a moment of it (its own time): the part before, a clip playing it as it is. */
   splitSource: (id: string, atMs: number) => call<{ clip: string }>("POST", `/timelines/${id}/source/split`, { atMs: Math.round(atMs) }),

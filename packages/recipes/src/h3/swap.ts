@@ -1,8 +1,9 @@
-import { defineRecipe, gridAtOrBefore, type BuildContext, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type StartRule, type Variant } from "@afflatus/core";
+import { defineRecipe, gridAtOrBefore, upstream, type BuildContext, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type StartRule, type Variant } from "@afflatus/core";
 import { H3_FPS, H3_GRID, H3_HYBRIDS, SWAP_MODELS } from "./family";
 import { modelOf, namedFor } from "./model";
 import { h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video, type H3Extra } from "./video";
+import { saveVideo } from "../shared/out";
 import { partBounds } from "../motion/driving";
 
 /**
@@ -36,6 +37,8 @@ export interface H3Swap extends H3Video {
   soundGuide: boolean;
   swapSize: string;
   veda: boolean;
+  /** Show the mask: the window's masks alone, drawn over its frames, H3 not run (set by the app, not the form). */
+  maskPreview: boolean;
 }
 
 /** The sizes a swap renders at: the source's own (its short side), or a set height. */
@@ -134,6 +137,8 @@ const swapInputs: InputSpec[] = [
     id: "soundGuide", type: "toggle", label: "Lips follow the source's sound", default: true, advanced: true, showWhen: "keepSound",
     note: "the source's own sound given to H3 as a guide, as Lip sync gives its recording, so that the mouth is drawn to the words heard",
   },
+  // Show the mask (the owner's mock, 2026-10-18): the same build, kept to the tracking, the masks and their picture
+  { id: "maskPreview", type: "toggle", label: "Mask preview", default: false, internal: true },
   {
     // the tested character-swap workflow runs it at 32 / 32; its makers trained it at 768p on 8-step turbo, other sizes and steps work
     id: "veda", type: "toggle", label: "Veda sparse attention", default: false, advanced: true, section: "speed",
@@ -242,10 +247,11 @@ const MASK_NODES = ["CheckpointLoaderSimple", "CLIPTextEncode", "SAM3_VideoTrack
  * window takes the user's click on its first frame (`click`, shares of the frame) instead: the person under it. `node` is the
  * Swap Mask's id once the graph has it: its notes (no one found, the person before lost) are said on the job.
  */
-function masked(file: string, sam: string, before?: { file: string; frames: number }, click?: { x: number; y: number }): { extra: Pick<H3Extra, "latent" | "frames">; node: () => string | null } {
+function masked(file: string, sam: string, before?: { file: string; frames: number }, click?: { x: number; y: number }, preview?: (g: GraphBuilder, images: Ref) => string): { extra: Pick<H3Extra, "latent" | "frames">; node: () => string | null; preview: () => string | null } {
   let part: Ref | null = null;
   let masks: string | null = null;
   let handed: Ref | null = null;
+  let shown: string | null = null;
   return {
     extra: {
       latent: (g, at) => {
@@ -265,6 +271,8 @@ function masked(file: string, sam: string, before?: { file: string; frames: numb
         // the render kept 30 px past the person (was 10): his edges and a hand SAM lost no longer stop at the source's
         // pixels (the owner's Bulin 47 take, 2026-10-17, §9.11); the node pack keeps it over the frames around each, from 0.24.0
         masks = g.add("AfflatusSwapMask", { track_data: track, frames: at.frames, width: at.width, height: at.height, grow: 100, paste_grow: 30, paste_blur: 5, images: part, ...(handed ? { previous: handed } : {}), ...(click && !handed ? { pick_x: click.x, pick_y: click.y } : {}) });
+        // Show the mask: the masks drawn over the frames they were made from, saved as a short video of their own
+        if (preview) shown = preview(g, g.out("AfflatusSwapMaskPreview", { images: part, noise_mask: [masks, 0], paste_mask: [masks, 1] }));
         const video = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: part, vae: at.vae }), mask: [masks, 0] });
         const joined = g.out("LTXVConcatAVLatent", { video_latent: video, audio_latent: [g.add("LTXVSeparateAVLatent", { av_latent: at.latent }), 1] });
         g.phase(sampling);
@@ -284,6 +292,7 @@ function masked(file: string, sam: string, before?: { file: string; frames: numb
       },
     },
     node: () => masks,
+    preview: () => shown,
   };
 }
 
@@ -307,11 +316,12 @@ export const h3Swap = defineRecipe<H3Swap>({
     ...(input.veda ? ["veda"] : []),
     ...(input.fast && !modelOf({ ...input, model: input.swapModel ?? slots.swapUnet, turboIn: "From the name" }, slots).turbo && !slots.refTurbo && !slots.turbo ? ["refTurbo"] : []),
   ],
-  nodes: (input) => [...new Set([...h3Video.nodes(asClip(input, "swap.safetensors", SWAP_FRAMES, 0, "minimax_h3_ref2va.safetensors")), "LoraLoaderModelOnly", ...(input.keepSound ? ["TrimAudioDuration"] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : [])])],
+  // Show the mask runs the tracking and the masks alone (MASK_NODES, the preview node and the video out are optional)
+  nodes: (input) => input.maskPreview ? ["LoadVideo", "GetVideoComponents"] : [...new Set([...h3Video.nodes(asClip(input, "swap.safetensors", SWAP_FRAMES, 0, "minimax_h3_ref2va.safetensors")), "LoraLoaderModelOnly", ...(input.keepSound ? ["TrimAudioDuration"] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : [])])],
   // the mask's nodes are not asked of a machine: one without them (an older node pack) swaps unmasked, and the job says so
   // Veda's node only serves its toggle, and without its pack the swap runs the full attention and says so on the job: an
   // optional node, so that it never stops a render and Settings › Models offers its pack among the optional ones
-  optionalNodes: [...(h3Video.optionalNodes ?? []), ...MASK_NODES, "VedaSparseAttention"],
+  optionalNodes: [...(h3Video.optionalNodes ?? []), ...MASK_NODES, "VedaSparseAttention", "AfflatusSwapMaskPreview"],
   finishing: (input) => h3Video.finishing!(asClip(input, "swap.safetensors", SWAP_FRAMES, 0, "minimax_h3_ref2va.safetensors")),
 
   build(input, ctx) {
@@ -329,7 +339,11 @@ export const h3Swap = defineRecipe<H3Swap>({
     const asRef = { ...ctx, has: (cls: string) => cls !== "ModelPatchTorchSettings" && ctx.has(cls), uploads: { ...ctx.uploads, "refVideos.0": ctx.uploads.source }, media: { ...ctx.media, "refVideos.0": { ...(source ?? { width: 0, height: 0 }), hasSound: Boolean(source?.hasSound) && !keep } } };
     const size = source?.width && source.height ? { width: source.width, height: source.height } : undefined;
     const sam = ctx.slots.swapSam;
-    const mask = sam && MASK_NODES.every((n) => ctx.has(n)) ? masked(ctx.uploads.source, sam, carried && ctx.uploads.previous ? { file: ctx.uploads.previous, frames: carried } : undefined, input.source.pick) : null;
+    const preview = input.maskPreview ? (g: GraphBuilder, images: Ref) => saveVideo(g, ctx, { images, fps: H3_FPS, crf: 23 }) : undefined;
+    if (preview && (!sam || !MASK_NODES.every((n) => ctx.has(n)) || !ctx.has("AfflatusSwapMaskPreview"))) {
+      throw new Error(sam ? "Show the mask needs the Afflatus node pack 0.26.0 or newer: restart ComfyUI to load it." : "Show the mask needs SAM 3.1 (Settings › Models has it).");
+    }
+    const mask = sam && MASK_NODES.every((n) => ctx.has(n)) ? masked(ctx.uploads.source, sam, carried && ctx.uploads.previous ? { file: ctx.uploads.previous, frames: carried } : undefined, input.source.pick, preview) : null;
     // the source's own sound over the window, cut to the clip's length: one loader for the file's sound and the guide
     let heard: Ref | null = null;
     const sourceSound = (g: GraphBuilder, frames: number) =>
@@ -355,6 +369,16 @@ export const h3Swap = defineRecipe<H3Swap>({
     const lacks = swapPromptLacks(input.who, input.references.length).map((tag) => `The prompt has no ${tag}: H3 may not use ${tag === "<Video 1>" ? "the source video" : "the cast's picture"}.`);
     const notes = [...veda, ...lacks];
     const warned = notes.length ? { ...built, warnings: [...(built.warnings ?? []), ...notes] } : built;
+    // Show the mask: only what the tracking, the masks and their picture need, the H3 model never loaded
+    const shown = mask?.preview();
+    if (shown) {
+      const keep = upstream(built.graph, [shown]);
+      const graph = Object.fromEntries(Object.entries(built.graph).filter(([id]) => keep.has(id)));
+      return {
+        ...built, graph, phases: Object.fromEntries(Object.entries(built.phases).filter(([id]) => keep.has(id))),
+        outputs: [{ node: shown, kind: "video", role: "result" }], loads: [`checkpoints/${sam}`], light: true, warnings: [], passes: [],
+      };
+    }
     const said = mask?.node();
     if (said) return { ...warned, outputs: [...warned.outputs, { node: said, kind: "image", role: "note" }] };
     const why = sam ? "this ComfyUI's Afflatus node pack has no Swap Mask yet (0.22.0 on; ComfyUI loads a newer pack when it restarts)" : "SAM 3.1 is not on this ComfyUI (Settings › Models has it)";
@@ -398,6 +422,11 @@ export const h3Swap = defineRecipe<H3Swap>({
         name: "Veda's sparse attention on the model, its predictor in models/veda",
         input: { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, veda: true },
         slots: { ...all, veda: "minimax_h3_r2va_veda_preview_fp8.safetensors" }, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: part },
+      },
+      {
+        name: "Show the mask: the window's tracking and masks drawn over its frames, H3 not run",
+        input: { who: "the man", source: { asset: "v1", pick: { x: 0.4, y: 0.5 } }, references: [{ asset: "r1", role: "person" }], fast: false, maskPreview: true },
+        slots: all, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: part },
       },
       {
         name: "an older node pack, with no Swap Mask: swapped unmasked",

@@ -205,6 +205,34 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   app.post<{ Params: { id: string } }>("/api/timelines/:id/undo", async (req) => ({ undone: await t.history.undo(req.params.id) }));
   app.post<{ Params: { id: string } }>("/api/timelines/:id/redo", async (req) => ({ redone: await t.history.redo(req.params.id) }));
   /** A copy of the clip right after it. */
+  /**
+   * A swap clip's Show the mask (the owner's mock, 2026-10-18): its window's tracking and masks alone, drawn over its frames,
+   * as a short video kept out of the library (a scratch file, gone after a day). No take is made: the job is the clip's
+   * timeline's, not the clip's. `input` is its form as a render would send it.
+   */
+  app.post<{ Params: { id: string } }>("/api/clips/:id/mask-preview", async (req) => {
+    const { input } = z.strictObject({ input: z.record(z.string(), z.unknown()) }).parse(req.body);
+    const row = await s.db.selectFrom("clips").select(["timeline_id", "recipe_id"]).where("id", "=", req.params.id).executeTakeFirst();
+    if (!row) throw httpError("this clip was not found", 404);
+    const recipe = row.recipe_id ? s.registry.recipe(row.recipe_id) : undefined;
+    if (!recipe?.inputs.some((i) => i.id === "maskPreview")) throw httpError("Only a swap's clip has a mask to show.");
+    const view = await s.timelines.view(row.timeline_id);
+    const own = ownInputIds(recipe);
+    const typed = Object.fromEntries(Object.entries(input).filter(([k]) => own.has(k)));
+    const job = await s.queue.enqueue(recipe.id, { ...typed, maskPreview: true }, {
+      label: `${view.name} · mask of clip ${view.clips.findIndex((c) => c.id === req.params.id) + 1}`,
+      folder: (await folderOfTimeline(s.db, { folder_id: view.folderId, project_id: view.projectId })) ?? undefined,
+    });
+    return { job };
+  });
+  /** Where a Show the mask stands, and once done its video. */
+  app.get<{ Params: { id: string; job: string } }>("/api/clips/:id/mask-preview/:job", async (req) => {
+    const job = await s.db.selectFrom("jobs").select(["status", "error", "generation_id"]).where("id", "=", req.params.job).executeTakeFirst();
+    if (!job) throw httpError("this mask was not found", 404);
+    const asset = job.generation_id ? await s.db.selectFrom("assets").selectAll().where("generation_id", "=", job.generation_id).where("kind", "=", "video").executeTakeFirst() : undefined;
+    return { status: job.status, error: job.error, video: asset ? assetView(asset) : null };
+  });
+
   app.post<{ Params: { id: string } }>("/api/clips/:id/duplicate", async (req) => {
     const clip = await t.range.duplicateClip(req.params.id);
     s.queue.events.emit("timeline");

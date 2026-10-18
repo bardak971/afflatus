@@ -17,6 +17,8 @@ interface Base {
   /** One short line under or beside the control. */
   note?: string;
   showWhen?: ShowWhen;
+  /** Set by the app itself, never shown in a form (a swap asked for its mask alone, Show the mask). */
+  internal?: boolean;
   /** Folded into "All settings" rather than shown up front. */
   advanced?: boolean;
   /**
@@ -429,6 +431,7 @@ export function chosenDefaults(specs: readonly InputSpec[], values: Record<strin
  * ("Edges") must not bring them on screen without one.
  */
 export function isShown(spec: InputSpec, values: Record<string, unknown>, specs?: readonly InputSpec[], seen: ReadonlySet<string> = new Set()): boolean {
+  if (spec.internal) return false;
   const w = spec.showWhen;
   if (!w) return true;
   // a list that is empty is "off", like a switch

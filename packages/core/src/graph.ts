@@ -63,6 +63,11 @@ export interface BuiltGraph {
   /** The models this graph loads. The queue frees ComfyUI's memory when the next job's list differs. */
   loads: string[];
   /**
+   * Loads too little to clear ComfyUI's memory for (a swap's Show the mask: SAM 3 alone), and leaves what is held as it
+   * was noted: run between two swaps, it would otherwise unload H3 before it and again before the next one.
+   */
+  light?: boolean;
+  /**
    * How many frames the graph samples, said by the recipe when its nodes do not say it plainly (a continuation window
    * counted in its own terms, a latent loaded from a file): what a render's work is measured in for the forecast.
    */

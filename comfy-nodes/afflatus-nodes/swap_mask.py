@@ -325,3 +325,51 @@ class AfflatusSwapMask(io.ComfyNode):
             note.append("The person the window before replaced was not found in this one: the one with the largest face was taken, which may be someone else.")
         noise = torch.from_numpy(noise_mask(person, frames, width, height, grow))
         return io.NodeOutput(noise, paste_mask(person, frames, width, height, paste_grow, paste_blur), ui={"afflatus_note": note})
+
+
+# The theme's accent (the owner, 2026-10-18: the mask in the accent colour, not green), as RGB 0-1
+PREVIEW_COLOUR = (0.949, 0.573, 0.431)
+
+
+def preview_alpha(noise: np.ndarray, paste: np.ndarray, frames: int) -> np.ndarray:
+    """[frames, H, W] float32, how strongly each pixel is tinted: 0.5 where H3 makes it again (the noise mask's cells, each
+    latent frame over the frames it holds), 0.25 where the render is only pasted back (the paste mask's band), else 0."""
+    n_lat, h, w = noise.shape
+    H, W = paste.shape[1], paste.shape[2]
+    per_frame = np.zeros((frames, h, w), np.float32)
+    for k, (a, b) in enumerate(latent_spans(n_lat)):
+        per_frame[a:min(b, frames)] = noise[k]
+    cells = np.repeat(np.repeat(per_frame, CELL, axis=1), CELL, axis=2)[:, :H, :W]
+    full = np.zeros((frames, H, W), np.float32)
+    full[:, : cells.shape[1], : cells.shape[2]] = cells
+    return np.maximum(0.5 * full, 0.25 * np.clip(paste[:frames], 0, 1)).astype(np.float32)
+
+
+class AfflatusSwapMaskPreview(io.ComfyNode):
+    """The swap's masks drawn over the frames they were made from, for the timeline's Show the mask: what H3 makes again
+    in the accent colour, the band the render is pasted back over lighter, the rest as the source has it."""
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusSwapMaskPreview",
+            display_name="Afflatus: Swap Mask Preview (H3)",
+            category="Afflatus",
+            description="The Swap Mask's two masks drawn over the source frames: the cells H3 redraws in the accent colour, the paste-back band lighter.",
+            inputs=[
+                io.Image.Input("images", tooltip="The frames the masks were made from, at the swap's size."),
+                io.Mask.Input("noise_mask", tooltip="Swap Mask's noise mask (H3's latent grid)."),
+                io.Mask.Input("paste_mask", tooltip="Swap Mask's paste-back mask (pixels)."),
+            ],
+            outputs=[io.Image.Output(display_name="images")],
+        )
+
+    @classmethod
+    def execute(cls, images, noise_mask, paste_mask) -> io.NodeOutput:
+        import torch
+
+        frames = images.shape[0]
+        alpha = preview_alpha(noise_mask.detach().cpu().float().numpy(), paste_mask.detach().cpu().float().numpy(), frames)
+        a = torch.from_numpy(alpha)[..., None].to(images.device, images.dtype)
+        colour = torch.tensor(PREVIEW_COLOUR, device=images.device, dtype=images.dtype)
+        return io.NodeOutput(images[..., :3] * (1 - a) + colour * a)

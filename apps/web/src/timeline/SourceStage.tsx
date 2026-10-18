@@ -32,7 +32,12 @@ export const SourceStage = forwardRef<PlayerHandle, {
   picking?: boolean;
   onPick?(point: { x: number; y: number }): void;
   onPickEnd?(): void;
-}>(function SourceStage({ video, atMs, fromMs, toMs, frame, playing, onPlaying, onTime, startAt, master = 1, peekMs = null, pick = null, picking = false, onPick, onPickEnd }, ref) {
+  /**
+   * A video drawn over a part of the source, in step with it (a swap's Show the mask: the window's masks over its frames):
+   * from `startMs` of the source, `lengthMs` long. Muted: the sound stays the source's.
+   */
+  overlay?: { src: string; startMs: number; lengthMs: number } | null;
+}>(function SourceStage({ video, atMs, fromMs, toMs, frame, playing, onPlaying, onTime, startAt, master = 1, peekMs = null, pick = null, picking = false, onPick, onPickEnd, overlay = null }, ref) {
   const el = useRef<HTMLVideoElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const [local, setLocal] = useState(Math.max(0, startAt - atMs));
@@ -110,6 +115,23 @@ export const SourceStage = forwardRef<PlayerHandle, {
     return () => window.removeEventListener("keydown", esc, true);
   }, [picking, fromMs]); // eslint-disable-line react-hooks/exhaustive-deps -- once as picking starts, again if the stretch's start moves
 
+  // the overlay follows the source: played with it (put back when it drifts a few frames), or still on the same moment
+  const ov = useRef<HTMLVideoElement>(null);
+  const overlaid = Boolean(overlay && local >= overlay.startMs && local < overlay.startMs + overlay.lengthMs);
+  useEffect(() => {
+    const o = ov.current;
+    if (!o || !overlay) return;
+    const t = (local - overlay.startMs) / 1000;
+    if (!overlaid) return void o.pause();
+    if (playing) {
+      if (o.paused) void o.play().catch(() => {});
+      if (Math.abs(o.currentTime - t) > 0.12) o.currentTime = t;
+    } else {
+      o.pause();
+      if (Math.abs(o.currentTime - t) > 0.02) o.currentTime = t;
+    }
+  }, [local, playing, overlaid, overlay?.src]); // eslint-disable-line react-hooks/exhaustive-deps -- the overlay's own times are read from it
+
   const [room, setRoom] = useState({ w: 0, h: 0 });
   useLayoutEffect(() => {
     const b = box.current;
@@ -152,6 +174,19 @@ export const SourceStage = forwardRef<PlayerHandle, {
           onClick={() => onPlaying(!playing)}
           className="absolute inset-0 h-full w-full object-contain"
         />
+        {overlay && (
+          <video
+            key={overlay.src}
+            ref={ov}
+            src={overlay.src}
+            muted
+            preload="auto"
+            playsInline
+            aria-label="The mask over the source"
+            onClick={() => onPlaying(!playing)}
+            className={overlaid ? "absolute inset-0 h-full w-full object-contain" : "hidden"}
+          />
+        )}
         {pick && onFirst && !picking && (
           <span
             className="pointer-events-none absolute flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5"
