@@ -153,3 +153,31 @@ def test_a_click_picks_the_person_under_it_over_the_largest_face():
     late = np.zeros((6, 64, 64), bool)
     late[3:, 10:50, 5:25] = True
     assert swap_mask.clicked([b, late], (15.0, 30.0)) == 1
+
+
+def test_the_paste_back_made_on_a_coarser_grid_is_the_full_size_one_but_for_its_edge():
+    """Grown and blurred at a quarter of the size, then enlarged: the same mask but for a few pixels of its blurred edge."""
+    pytest.importorskip("torch.nn")
+    person = box(5, 128, 64, 40, 100, 20, 44)
+    coarse = swap_mask.paste_mask(person, 5, 64, 128, 12, 2.0).numpy()
+    full = swap_mask.paste_mask(person, 5, 64, 128, 12, 2.0, scale=1).numpy()
+    assert coarse.shape == full.shape == (5, 128, 64)
+    assert coarse[2, 70, 32] > 0.99 and coarse[2, 5, 5] == 0
+    assert np.abs(coarse - full).mean() < 0.03
+    # a frame size the scale does not divide is made at full size
+    odd = swap_mask.paste_mask(box(5, 130, 66, 40, 100, 20, 44), 5, 66, 130, 12, 2.0).numpy()
+    assert odd.shape == (5, 130, 66)
+
+
+def test_the_faces_are_only_looked_for_when_neither_a_click_nor_the_window_before_decides():
+    a = box(6, 64, 64, 10, 50, 5, 25)
+    b = box(6, 64, 64, 10, 50, 35, 60)
+    asked = []
+
+    def faces():
+        asked.append(1)
+        return {0: [(36.0, 10.0, 58.0, 30.0)]}
+
+    assert swap_mask.pick([a, b], faces, None, (15.0, 30.0)) == (a, "clicked") and not asked
+    person, how = swap_mask.pick([a, b], faces, None)
+    assert (person is b, how, len(asked)) == (True, "face", 1)

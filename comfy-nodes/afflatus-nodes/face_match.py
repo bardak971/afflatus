@@ -60,6 +60,20 @@ def _bgr(image, index: int):
     return rgb[:, :, ::-1].copy()
 
 
+def face_boxes(images, every: int = 1, det: int = PHOTO_DET, frames=None) -> dict[int, list[tuple[float, float, float, float]]]:
+    """The faces of a ComfyUI image batch ([N, H, W, 3]), boxes only (detection, no recognition), on the CPU: of every
+    `every`th frame, or of the `frames` named; empty without InsightFace. The swap's mask picks its person with them,
+    and a face pass would follow the face with them."""
+    if not available():
+        return {}
+    det_model = _face_app().det_model
+    found = {}
+    for i in frames if frames is not None else range(0, images.shape[0], every):
+        boxes, _ = det_model.detect(_bgr(images, i), input_size=(det, det), max_num=0, metric="max")
+        found[i] = [tuple(float(v) for v in b[:4]) for b in boxes if b[4] >= 0.5 and b[2] - b[0] >= 24]
+    return found
+
+
 def _faces(bgr, det: int = PHOTO_DET, most: int = 0) -> list:
     """The faces of a picture, each a unit embedding with its width in pixels: found at `det`, the `most` largest (0: all)."""
     import numpy as np

@@ -150,8 +150,10 @@ def clicked(tracks: list[np.ndarray], point: tuple[float, float]) -> int | None:
     return best
 
 
-def pick(tracks: list[np.ndarray], faces: dict | None, changed: np.ndarray | None, point: tuple[float, float] | None = None) -> tuple[np.ndarray | None, str]:
-    """Who is replaced, and how they were found: "clicked", "followed", "face", "area" or "none" (see the module's note)."""
+def pick(tracks: list[np.ndarray], faces, changed: np.ndarray | None, point: tuple[float, float] | None = None) -> tuple[np.ndarray | None, str]:
+    """Who is replaced, and how they were found: "clicked", "followed", "face", "area" or "none" (see the module's note).
+    `faces`: the boxes, or a function that finds them, called only when neither a click nor the window before decided
+    (on the CPU, the faces of a window took 16 s of the node's time)."""
     if point is not None:
         i = clicked(tracks, point)
         if i is not None:
@@ -160,6 +162,8 @@ def pick(tracks: list[np.ndarray], faces: dict | None, changed: np.ndarray | Non
         i = followed(tracks, changed)
         if i is not None:
             return tracks[i], "followed"
+    if callable(faces):
+        faces = faces()
     if faces:
         i = by_faces(tracks, faces)
         if i is not None:
@@ -173,18 +177,10 @@ FACE_EVERY = 3
 
 
 def face_boxes(images, every: int = FACE_EVERY) -> dict[int, list[tuple[float, float, float, float]]]:
-    """The faces of every `every`th frame ([N, H, W, 3] ComfyUI image), boxes only (detection, no recognition), on the CPU;
-    empty without InsightFace."""
+    """The faces of every `every`th frame ([N, H, W, 3] ComfyUI image), boxes only, on the CPU; empty without InsightFace."""
     from . import face_match
 
-    if not face_match.available():
-        return {}
-    det = face_match._face_app().det_model
-    found = {}
-    for i in range(0, images.shape[0], every):
-        boxes, _ = det.detect(face_match._bgr(images, i), input_size=(face_match.PHOTO_DET, face_match.PHOTO_DET), max_num=0, metric="max")
-        found[i] = [tuple(float(v) for v in b[:4]) for b in boxes if b[4] >= 0.5 and b[2] - b[0] >= 24]
-    return found
+    return face_match.face_boxes(images, every)
 
 
 def changed_from(previous, images, threshold: float = 0.1) -> np.ndarray:
@@ -200,6 +196,10 @@ def changed_from(previous, images, threshold: float = 0.1) -> np.ndarray:
 
 # frames either side of each whose person the paste-back keeps too
 PASTE_REACH = 3
+# The paste-back mask is grown and blurred at this fraction of the frame's size, then enlarged: its edge is blurred anyway,
+# and at full size its 30 grow passes over a window's 141 frames took most of the node's two minutes on the CPU
+# (render stats of 2026-10-17: 2 min of a 6 min 50 s swap clip).
+PASTE_SCALE = 4
 
 
 def fit_frames(mask: np.ndarray, frames: int) -> np.ndarray:
@@ -226,18 +226,24 @@ def noise_mask(person: np.ndarray | None, frames: int, width: int, height: int, 
     return near.astype(np.float32)
 
 
-def paste_mask(person, frames: int, width: int, height: int, grow: int, sigma: float, reach: int = PASTE_REACH):
+def paste_mask(person, frames: int, width: int, height: int, grow: int, sigma: float, reach: int = PASTE_REACH, scale: int = PASTE_SCALE):
     """
     [frames, height, width] torch float: the person over the `reach` frames either side of each (an arm SAM loses for a few
     frames of a fast gesture stays the render's, not the source's pasted back over it: the owner's Bulin 47 take,
-    2026-10-17), grown about `grow` px (3 x 3 steps, square and cross in turn) and blurred.
+    2026-10-17), grown about `grow` px (3 x 3 steps, square and cross in turn) and blurred: all of it on a grid `scale`
+    times coarser (a cell is the person's when any of its pixels is), then enlarged to the frame smoothly.
     """
     import torch
     import torch.nn.functional as F
 
     if person is None:
         return torch.ones(frames, height, width)
-    m = torch.from_numpy(fit_frames(person, frames)).float()[:, None]
+    px = fit_frames(person, frames)
+    s = scale if scale > 1 and height % scale == 0 and width % scale == 0 and px.shape[1] >= height and px.shape[2] >= width else 1
+    if s > 1:
+        px = px[:, :height, :width].reshape(frames, height // s, s, width // s, s).any(axis=(2, 4))
+        grow, sigma = int(round(grow / s)), sigma / s
+    m = torch.from_numpy(np.ascontiguousarray(px)).float()[:, None]
     if reach > 0:
         m = F.max_pool3d(m.permute(1, 0, 2, 3)[None], (2 * reach + 1, 1, 1), 1, (reach, 0, 0))[0].permute(1, 0, 2, 3)
     cross = torch.tensor([[0.0, 1.0, 0.0], [1.0, 1.0, 1.0], [0.0, 1.0, 0.0]])[None, None]
@@ -250,6 +256,8 @@ def paste_mask(person, frames: int, width: int, height: int, grow: int, sigma: f
         k = k / k.sum()
         m = F.conv2d(F.pad(m, (r, r, 0, 0), mode="replicate"), k[None, None, None, :])
         m = F.conv2d(F.pad(m, (0, 0, r, r), mode="replicate"), k[None, None, :, None])
+    if s > 1:
+        m = F.interpolate(m, size=(height, width), mode="bilinear", align_corners=False)
     return m[:, 0].clamp(0, 1)
 
 
@@ -303,7 +311,8 @@ class AfflatusSwapMask(io.ComfyNode):
 
         tracks = person_tracks(track_data, width, height)
         changed = changed_from(previous, images) if previous is not None and images is not None else None
-        faces = face_boxes(images) if images is not None and tracks else None
+        # found only when needed: a click or the window before decides most windows
+        faces = (lambda: face_boxes(images)) if images is not None and tracks else None
         point = (pick_x * width, pick_y * height) if pick_x is not None and pick_y is not None and pick_x >= 0 and pick_y >= 0 else None
         person, how = pick(tracks, faces, changed, point)
         print(f"[afflatus] Swap Mask: {len(tracks)} people tracked, the one replaced found by {how}")
