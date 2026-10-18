@@ -674,3 +674,21 @@ describe("a pod missing from one RunPod read", () => {
     expect(stopped).toEqual(["d1"]);
   });
 });
+
+describe("files the queue's plan sent a pod", () => {
+  it("are dropped once none of their jobs may run there; what the user asked for stays", () => {
+    const at = (file: string) => ({ file, folder: "loras", url: `${siteUrl}/files/${file}` });
+    files.want("pod", [at("planned.safetensors")], { tier: "ahead", sentFor: "j1" });
+    files.want("pod", [at("shared.safetensors")], { tier: "ahead", sentFor: "j1" });
+    files.want("pod", [at("shared.safetensors")], { tier: "need", job: "j2", sentFor: "j2" });
+    files.want("pod", [at("ticked.safetensors")], { tier: "ahead" });
+    // j1 pinned elsewhere, or gone: its own file goes, the one j2 still needs stays, the user's stays
+    files.dropUnsought("pod", (job) => job === "j2");
+    expect(files.view("pod").map((f) => f.file).sort()).toEqual(["shared.safetensors", "ticked.safetensors"]);
+    // a file the user asked for too is never dropped, whoever else it was sent for
+    files.want("pod", [at("both.safetensors")], { tier: "ahead", sentFor: "j3" });
+    files.want("pod", [at("both.safetensors")], { tier: "ahead" });
+    files.dropUnsought("pod", () => false);
+    expect(files.view("pod").map((f) => f.file).sort()).toEqual(["both.safetensors", "ticked.safetensors"]);
+  });
+});

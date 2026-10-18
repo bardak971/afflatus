@@ -42,8 +42,10 @@ export interface PodFetch {
   short(machine: string, files: Lack["files"]): Promise<string | null>;
   /** How long until these files (and node packs) are on that machine (ms): what is left of each, at the slow end of the speeds measured. */
   untilThere(machine: string, files: Lack["files"], packs?: string[]): Promise<number>;
-  /** Have them sent: for a job that will run there ("need"), or for one that went elsewhere this time ("ahead": files only, never packs, which restart its ComfyUI). */
-  want(machine: string, files: Lack["files"], tier: "need" | "ahead", job?: string, packs?: string[]): void;
+  /** Have them sent for a job: one that will run there ("need"), or one that went elsewhere this time ("ahead": files only, never packs, which restart its ComfyUI). */
+  want(machine: string, files: Lack["files"], tier: "need" | "ahead", job: string, packs?: string[]): void;
+  /** Drop what was sent there for jobs none of which may run there any more (podFiles.ts dropUnsought). */
+  drop(machine: string, mayRun: (job: string) => boolean): void;
   /** A job's files on that machine: all there, still coming, one failed (null: it asked for none). */
   jobState(machine: string, job: string): "ready" | "waiting" | "failed" | null;
   /** The machine's node packs wait for its ComfyUI to restart, or it restarts now: no job starts there meanwhile. */
@@ -53,15 +55,16 @@ export interface PodFetch {
 }
 
 /** A rented pod's files as the queue reads them, from podFiles.ts. */
-export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "short" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding" | "moving">): PodFetch {
+export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "short" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding" | "moving" | "dropUnsought">): PodFetch {
   return {
     short: (machine, list) => files.short(machine, list),
     failed: (machine, list, packs = []) => list.map((f) => files.failed(machine, f.folder, f.file)).find((why) => why !== null) ?? files.failedPacks(machine, packs),
     untilThere: (machine, list, packs) => files.untilThere(machine, list, packs),
     want: (machine, list, tier, job, packs) => {
-      files.want(machine, list, { tier, ...(job ? { job } : {}) });
-      if (tier === "need" && job && packs?.length) files.wantPacks(machine, packs, job);
+      files.want(machine, list, { tier, ...(tier === "need" ? { job } : {}), sentFor: job });
+      if (tier === "need" && packs?.length) files.wantPacks(machine, packs, job);
     },
+    drop: (machine, mayRun) => files.dropUnsought(machine, mayRun),
     jobState: (machine, job) => files.jobState(machine, job)?.state ?? null,
     holding: (machine) => files.holding(machine),
     moving: (machine) => files.moving(machine),
@@ -261,21 +264,35 @@ export class Planner {
 
   /**
    * The files the plan needs on rented pods, asked for: a job planned onto a pod lacking only files has them sent there
-   * first ("need"); one planned elsewhere has its files sent to the pods that lack them, for later ("ahead"). Nothing is
-   * fetched that no waiting job asks for. A job pinned to a machine has none ahead elsewhere (ableOf), and a pod paused on
-   * its own while others go (Use only this PC) gets files ahead only for a job pinned to it: what waits goes to the
-   * others. With every machine paused (Pause all) each pod gets them, as the whole line waits for Resume.
+   * first ("need"). One that runs on no pod (planned on this PC, or not placed while all is paused) has its files sent ahead,
+   * for later, to one idle pod: nothing running or starting there, nothing planned on it, no work from outside Afflatus.
+   * Sent ahead to every pod that could take it, a job pulled its 40 GB onto pods busy with other work, each (2026-10-18).
+   * A job pinned to a machine has none ahead elsewhere (ableOf), and a pod paused on its own while others go (Use only this
+   * PC) gets files ahead only for a job pinned to it: what waits goes to the others. With every machine paused (Pause all)
+   * an idle pod gets them, as the whole line waits for Resume. Then what a pod was sent for jobs none of which may run there
+   * any more (`active`: the queued and running jobs) is dropped.
    */
-  sendFiles(rows: JobRow[], able: ReadonlyMap<string, Able>, where: ReadonlyMap<string, { lane: string }>): void {
+  sendFiles(rows: JobRow[], able: ReadonlyMap<string, Able>, where: ReadonlyMap<string, { lane: string }>, active: ReadonlyArray<Pick<JobRow, "id" | "pin_machine">>): void {
     if (!this.d.podFetch) return;
     const all = this.d.allPaused();
+    const planned = new Set([...where.values()].map((w) => w.lane));
+    const idle = (id: string) => {
+      const l = this.d.lane(id);
+      return Boolean(l) && !l!.running && !l!.starting && !outsideBusy(l!) && !planned.has(id);
+    };
     for (const r of rows) {
       const fetch = able.get(r.id)?.fetch ?? {};
       const on = where.get(r.id)?.lane;
-      for (const [lane, f] of Object.entries(fetch)) {
-        if (lane !== on && !all && this.d.lane(lane)?.paused && r.pin_machine !== lane) continue;
-        this.d.podFetch.want(lane, f.files, lane === on ? "need" : "ahead", lane === on ? r.id : undefined, f.packs);
-      }
+      const need = on ? fetch[on] : undefined;
+      if (on && need) this.d.podFetch.want(on, need.files, "need", r.id, need.packs);
+      // planned on a pod (lacking files or not): nothing ahead elsewhere
+      if (on && this.d.lane(on)?.machine?.rented) continue;
+      const ahead = Object.keys(fetch).find((lane) => lane !== on && idle(lane) && (all || !this.d.lane(lane)?.paused || r.pin_machine === lane));
+      if (ahead) this.d.podFetch.want(ahead, fetch[ahead]!.files, "ahead", r.id);
+    }
+    const jobs = new Map(active.map((r) => [r.id, r.pin_machine]));
+    for (const lane of this.d.machineLanes()) {
+      if (lane.machine?.rented) this.d.podFetch.drop(lane.id, (job) => jobs.has(job) && (!jobs.get(job) || jobs.get(job) === lane.id));
     }
   }
 
