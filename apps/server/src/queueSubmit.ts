@@ -681,7 +681,11 @@ export async function builtOf(core: QueueCore, recipeId: string, rawInput: unkno
   }
   // a finish that re-samples the draft's own latent is built on it, as submit builds it: else it is built as the draft and its finish both
   if (opts.finishedFrom && recipe.finishing?.(input)?.latent === "own") uploads["self.latent"] = "stand-in";
-  const built = recipe.build(settled(recipe, input, catalog), { seed: opts.seed ?? 1, slots: opts.slots ?? (await slots(core, comfy, recipe)).files, uploads, media, canvas: opts.canvas, has: (cls: string) => cls in catalog });
+  const own = opts.slots ? null : await slots(core, comfy, recipe);
+  const built = recipe.build(settled(recipe, input, catalog), { seed: opts.seed ?? 1, slots: opts.slots ?? own!.files, uploads, media, canvas: opts.canvas, has: (cls: string) => cls in catalog });
+  // with this ComfyUI's own files (a forecast, Open in ComfyUI), a graph reading one it does not have is refused as before:
+  // it named afflatus-missing-slot.… in ComfyUI's editor, and a forecast was keyed on it
+  if (own) refuseGap(built.graph, own.gaps);
   if (opts.relocate !== false) relocateFiles(built.graph, catalog);
   return sizedFrom(built, media);
 }

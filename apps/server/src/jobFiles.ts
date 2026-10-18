@@ -4,7 +4,7 @@ import type { Comfy } from "./comfy";
 import { readJson, type JobRow, type QueueCore } from "./queueModel";
 import { builtOf, withTexts } from "./queueSubmit";
 import { RIFE_GET } from "@afflatus/recipes";
-import { toolNeeds } from "./queueTools";
+import { pickRife, toolNeeds } from "./queueTools";
 import { CUT_JOB } from "./timelineModel";
 
 /**
@@ -136,9 +136,15 @@ export async function loadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe
  * this PC's is sent). Null for a cut that loads nothing.
  */
 async function toolLoadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id" | "inputs">, on: { id: string; comfy: Comfy; scan: Scan } | null): Promise<Loaded | null> {
+  // kept as a render's is (the planner asks at every pass, of every machine); a finish whose take is not there yet is asked
+  // again (the queue screen reads the finishes waiting for their clip too)
+  const catalog = on ? await on.comfy.catalog().catch(() => null) : null;
+  const key = ["tool", row.id, row.inputs, on?.id ?? "", on?.scan.at ?? "", catalog ? (catalogKey(catalog) ?? "") : ""].join("|");
+  if (kept.has(key)) return kept.get(key)!;
   const needs = await toolNeeds(core, row).catch(() => null);
   if (!needs) return null;
   const mine = await core.comfy();
+  const mineScan = await mine.scan().catch(() => null);
   const listedOn = (folder: string) => (on ? listingOf(on, folder) : Promise.resolve(null));
   const files: GraphFile[] = [];
   const add = (file: string, folder: string, classType: string, input: string, slot?: string) => files.push({ file, folder, node: "", classType, input, ...(slot ? { slot } : {}) });
@@ -151,23 +157,29 @@ async function toolLoadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id
   if (needs.upscaleModel !== null) {
     // none picked: whichever the machine has, else the first of this PC's, sent from here
     const there = await listedOn("upscale_models");
-    const file = needs.upscaleModel || (there?.length ? null : (await mine.client.models("upscale_models").catch(() => [] as string[]))[0] ?? missingSlotFile("upscaleModel"));
+    const here = mineScan ? await listingOf({ id: "", comfy: mine, scan: mineScan }, "upscale_models") : null;
+    const file = needs.upscaleModel || (there?.length ? null : here?.[0] ?? missingSlotFile("upscaleModel"));
     if (file) add(file, "upscale_models", "UpscaleModelLoader", "model_name", needs.upscaleModel ? undefined : "upscaleModel");
   }
   if (needs.rife) {
     // a RIFE model as rifeModelIn picks one: the machine's own, else the one RIFE is had as (RIFE_GET), as a slot is named
     // (podSlotFiles); this PC's only when the download is not wanted: a machine that has nothing yet gets the download
-    const rifeIn = (files: string[] | null) => (files ? (files.find((f) => /rife/i.test(f)) ?? files[0] ?? null) : null);
-    add(rifeIn(await listedOn("frame_interpolation")) ?? RIFE_GET.file, "frame_interpolation", "FrameInterpolationModelLoader", "model_name", "rife");
+    const there = await listedOn("frame_interpolation");
+    add((there ? pickRife(there) : null) ?? RIFE_GET.file, "frame_interpolation", "FrameInterpolationModelLoader", "model_name", "rife");
   }
-  if (!on) return { files, absent: files };
-  const catalog = await on.comfy.catalog().catch(() => ({}) as NodeCatalog);
+  if (!on) {
+    keep(key, { files, absent: files });
+    return { files, absent: files };
+  }
+  const nodes = catalog ?? ({} as NodeCatalog);
   const absent: GraphFile[] = [];
-  for (const f of files) if (isMissingSlotFile(f.file) || !offeredOn(catalog, f, null, await listingOf(on, f.folder))) absent.push(f);
+  for (const f of files) if (isMissingSlotFile(f.file) || !offeredOn(nodes, f, null, await listingOf(on, f.folder))) absent.push(f);
   // its nodes as the machine's node list has them: one of `anyNode` missing all is asked as the last of them (DaSiWa's
   // pack for RTX VSR, which Afflatus can install, where NVIDIA's own cannot be)
-  const missingNodes = [...needs.nodes.filter((n) => !(n in catalog)), ...(needs.anyNode?.length && !needs.anyNode.some((n) => n in catalog) ? [needs.anyNode.at(-1)!] : [])];
-  return { files, absent, ...(missingNodes.length ? { missingNodes } : {}) };
+  const missingNodes = [...needs.nodes.filter((n) => !(n in nodes)), ...(needs.anyNode?.length && !needs.anyNode.some((n) => n in nodes) ? [needs.anyNode.at(-1)!] : [])];
+  const loaded = { files, absent, ...(missingNodes.length ? { missingNodes } : {}) };
+  keep(key, loaded);
+  return loaded;
 }
 
 function keep(key: string, value: Loaded | null) {

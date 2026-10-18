@@ -449,8 +449,8 @@ export class PodFiles {
    * could stop them (2026-10-18). What the user asked for, and what is there already, stays.
    */
   dropUnsought(machine: string, mayRun: (job: string) => boolean): void {
-    const pod = this.pods.get(machine);
-    if (!pod) return;
+    // a pod asked for node packs alone has no files: its packs are looked at all the same
+    const pod = this.pods.get(machine) ?? new Map<string, Entry>();
     let changed = false;
     for (const [key, e] of pod) {
       if (e.byUser || !e.sentFor?.length || (e.state !== "next" && e.state !== "fetching") || e.sentFor.some(mayRun)) continue;
@@ -459,10 +459,17 @@ export class PodFiles {
       pod.delete(key);
       changed = true;
     }
+    // the node packs asked for those jobs alone, not installing yet: no install, no restart of its ComfyUI for them
+    if (this.packs.drop(machine, mayRun)) changed = true;
     if (changed) {
       this.d.changed?.();
       void this.tick();
     }
+  }
+
+  /** Whether the pod holds or is getting files the plan sent it for this job. */
+  holdsFor(machine: string, job: string): boolean {
+    return [...(this.pods.get(machine)?.values() ?? [])].some((e) => e.sentFor?.includes(job) && e.state !== "failed");
   }
 
   /** A job's files on that pod: all there ("ready"), one that cannot be had ("failed", with why), or still coming; null when it asked for none. */

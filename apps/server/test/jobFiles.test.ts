@@ -157,6 +157,12 @@ describe("lackOn from what the job's graph loads", () => {
     expect(lackOn(recipe, {}, pod(), { families: {} }, machine, () => "h3", rife)).toBeNull();
   });
 
+  it("does not keep a latent-upscale job off a machine of the user's own for want of H3's latent upscaler (it resizes plainly, and says so)", () => {
+    const up = { files: [], absent: [file(download("latentUpscaler"), "latentUpscaler")] };
+    expect(lackOn(recipe, {}, pod(), { families: {} }, machine, () => "h3", up)).toBeNull();
+    expect(lackOn(recipe, {}, pod(), { families: {} }, { ...machine, rented: { provider: "runpod" } as never }, () => "h3", up)).toMatchObject({ sendable: true });
+  });
+
   it("cannot send a family file the graph reads and nobody has", () => {
     const lack = lackOn(recipe, {}, pod(), { families: {} }, machine, () => "h3", { files: [], absent: [file(missingSlotFile("unet"), "unet")] });
     expect(lack).toMatchObject({ sendable: false, files: [], why: "its Video model file is not there, and no download is known for it" });
@@ -203,6 +209,14 @@ describe("a family file a machine does not have", () => {
     const plain = (await t.services.queue.builtOf("h3.video", { description: "a red ball rolls", seconds: 5 }, { slots }))!;
     expect(missingSlotIn(swap.graph)).toBeNull();
     expect(missingSlotIn(plain.graph)).toBe("unet");
+  });
+
+  it("is refused, in its words, by a graph built with this ComfyUI's own files (a forecast, Open in ComfyUI): never named by its placeholder", async () => {
+    await t.close();
+    await fake.close();
+    fake = await startFakeComfy({ catalog: referenceCatalog(), models: { ...HERE, diffusion_models: [FUSED] } });
+    t = await makeApp({ comfyUrl: fake.url });
+    await expect(t.services.queue.builtOf("h3.video", { description: "a red ball rolls", seconds: 5 })).rejects.toThrow(`needs was not found. ${slot("unet").hint}`);
   });
 
   it("refuses a job whose graph reads it, in its words, before anything is sent", async () => {

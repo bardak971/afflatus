@@ -882,13 +882,14 @@ export class Queue {
         const gpuRows = startable.filter(needsComfy);
         const open = lanes.filter((l) => !l.paused && l.machine);
         let where = new Map<string, { lane: string; startsInMs: number }>();
+        let sent = new Map<string, Set<string>>();
         if (!this.paused && gpuRows.length) {
           // each free machine is asked whether it answers (a busy one does); the plan is made with those that may take work
           // and one that answers, whether its ComfyUI has work of someone else's (its own page, another tool): it takes nothing then
           for (const l of open) if (free(l) && (await answers(l))) await this.outside.freshOutside(l);
           const able = await this.planner.ableOf(gpuRows);
           where = plan(await this.planner.schedulable(open), await this.planner.planned(gpuRows, able));
-          this.planner.sendFiles(gpuRows, able, where, active);
+          sent = this.planner.sendFiles(gpuRows, able, where);
           for (const lane of open) {
             if (!free(lane) || lane.reachable === false || outsideBusy(lane)) continue;
             // on a pod getting files, the first job planned there whose own files are all there
@@ -906,8 +907,10 @@ export class Queue {
         } else if (gpuRows.length) {
           // Pause all: nothing starts, but a pod (one deployed meanwhile) is sent the waiting jobs' files ahead, so that it
           // is ready on Resume. Its idle time is held while they move (podFiles.ts moving), and runs again once they are in
-          this.planner.sendFiles(gpuRows, await this.planner.ableOf(gpuRows), where, active);
+          sent = this.planner.sendFiles(gpuRows, await this.planner.ableOf(gpuRows), where);
         }
+        // what rented pods were sent for jobs that may no longer run there goes, at every pass (nothing waiting too)
+        this.planner.dropUnsought(active, sent);
         // the machines that answered this pass, or that run a job now, say whether any ComfyUI is there. A paused machine is
         // asked nothing for the plan: before every ComfyUI is called away (whileOffline gives the jobs up after a while),
         // one paused that answers says it is there, its jobs waiting for its Resume, not for a ComfyUI to come back

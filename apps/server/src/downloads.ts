@@ -382,12 +382,13 @@ export class Downloads {
     return true;
   }
 
-  private managerSeen: { url: string; at: number; value: { found: boolean; version?: string } } | null = null;
+  /** The Manager answers by ComfyUI: a pod's Models tab and the first ComfyUI's banner, read in turn, each asked again (up to 5 s) with one kept. */
+  private readonly managerSeen = new Map<string, { at: number; value: { found: boolean; version?: string } }>();
 
   /** Whether this ComfyUI has ComfyUI-Manager, and which. Asked at most every half minute: the list of downloads is read often. */
   async manager(comfy: Comfy): Promise<{ found: boolean; version?: string }> {
-    const seen = this.managerSeen;
-    if (seen && seen.url === comfy.client.baseUrl && Date.now() - seen.at < 30_000) return seen.value;
+    const seen = this.managerSeen.get(comfy.client.baseUrl);
+    if (seen && Date.now() - seen.at < 30_000) return seen.value;
     let value: { found: boolean; version?: string };
     try {
       const res = await comfy.client.raw("/v2/manager/version", { signal: AbortSignal.timeout(5000) });
@@ -395,7 +396,8 @@ export class Downloads {
     } catch {
       value = { found: false };
     }
-    this.managerSeen = { url: comfy.client.baseUrl, at: Date.now(), value };
+    this.managerSeen.set(comfy.client.baseUrl, { at: Date.now(), value });
+    if (this.managerSeen.size > 32) this.managerSeen.delete(this.managerSeen.keys().next().value!);
     return value;
   }
 

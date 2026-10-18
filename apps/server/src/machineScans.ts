@@ -233,7 +233,7 @@ function lackOfGraph(
   // a file of its own (an imported workflow's) in a folder Afflatus does not know is not among the graph's: still held against it
   const unplaced = status?.missing.some((m) => !m.folder) ?? false;
   // a family on by its files there is on for a job that finds every file it loads there, whichever of its recipes is ready
-  if (status && (on || !off) && !gap && !unplaced && !files.length && picks && !status.missingNodes.length && !status.problems.length) return null;
+  if (status && !off && !gap && !unplaced && !files.length && picks && !status.missingNodes.length && !status.problems.length) return null;
   const sendable = Boolean(status) && !off && !gap && !unplaced && (files.length > 0 || Boolean(knownPacks?.length)) && knownPacks !== null && !status!.problems.length && picks;
   const label = gap ? slots.find((x) => x.id === gap.slot)?.label : undefined;
   const why = sendable || off ? null : gap ? `its ${label ?? "family"} file is not there, and no download is known for it` : unsendable(status, knownPacks, filled, () => true);

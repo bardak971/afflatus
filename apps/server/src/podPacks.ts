@@ -76,6 +76,22 @@ export class PodPacks {
     return changed;
   }
 
+  /**
+   * Packs asked for jobs none of which may run on the pod any more, not being installed yet (or installed and waiting for the
+   * restart): dropped, so that its ComfyUI is not restarted for them. One Manager is installing is left to finish.
+   */
+  drop(machine: string, mayRun: (job: string) => boolean): boolean {
+    const pod = this.pods.get(machine);
+    if (!pod) return false;
+    let changed = false;
+    for (const [name, e] of pod) {
+      if (!e.jobs.length || e.jobs.some(mayRun) || (e.state !== "next" && e.state !== "installed")) continue;
+      pod.delete(name);
+      changed = true;
+    }
+    return changed;
+  }
+
   /** Why these packs cannot come to that pod (Manager refused one); null when they can. */
   failed(machine: string, names: string[]): string | null {
     const e = names.map((n) => this.pods.get(machine)?.get(n)).find((x) => x?.state === "failed");
