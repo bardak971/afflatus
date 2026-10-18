@@ -888,7 +888,7 @@ export class Queue {
           for (const l of open) if (free(l) && (await answers(l))) await this.outside.freshOutside(l);
           const able = await this.planner.ableOf(gpuRows);
           where = plan(await this.planner.schedulable(open), await this.planner.planned(gpuRows, able));
-          this.planner.sendFiles(gpuRows, able, where);
+          this.planner.sendFiles(gpuRows, able, where, active);
           for (const lane of open) {
             if (!free(lane) || lane.reachable === false || outsideBusy(lane)) continue;
             // on a pod getting files, the first job planned there whose own files are all there
@@ -906,7 +906,7 @@ export class Queue {
         } else if (gpuRows.length) {
           // Pause all: nothing starts, but a pod (one deployed meanwhile) is sent the waiting jobs' files ahead, so that it
           // is ready on Resume. Its idle time is held while they move (podFiles.ts moving), and runs again once they are in
-          this.planner.sendFiles(gpuRows, await this.planner.ableOf(gpuRows), where);
+          this.planner.sendFiles(gpuRows, await this.planner.ableOf(gpuRows), where, active);
         }
         // the machines that answered this pass, or that run a job now, say whether any ComfyUI is there. A paused machine is
         // asked nothing for the plan: before every ComfyUI is called away (whileOffline gives the jobs up after a while),

@@ -77,6 +77,10 @@ interface Entry extends PodFileView {
   usedAt?: number;
   /** Put back in line once already because the disk was full (diskFull): a second time, it fails. */
   roomTried?: boolean;
+  /** Asked for by the user (the deploy's files, a model set): never dropped for want of a job (dropUnsought). */
+  byUser?: boolean;
+  /** The waiting jobs the queue's plan sent it for (need or ahead): once none of them may run here, it is dropped. */
+  sentFor?: string[];
 }
 
 /** A pod's disk as its node pack said it (0.19.0 on): the bytes free and in all, and when it was read. */
@@ -403,8 +407,11 @@ export class PodFiles {
     return this.packs.view(machine);
   }
 
-  /** Files for a pod: "need" (a job waits for them, `job` when given) comes before "ahead"; a file ahead asked as needed moves up. */
-  want(machine: string, files: PodFileWant[], o: { tier: "need" | "ahead"; job?: string }): void {
+  /**
+   * Files for a pod: "need" (a job waits for them, `job` when given) comes before "ahead"; a file ahead asked as needed moves
+   * up. `sentFor`: the queue's plan sent it for that job (dropUnsought); left out, the user asked for it.
+   */
+  want(machine: string, files: PodFileWant[], o: { tier: "need" | "ahead"; job?: string; sentFor?: string }): void {
     let pod = this.pods.get(machine);
     if (!pod) this.pods.set(machine, (pod = new Map()));
     let changed = false;
@@ -422,11 +429,35 @@ export class PodFiles {
         e.needAt = ++this.seq;
         changed = true;
       }
+      if (!o.sentFor) e.byUser = true;
+      else if (!e.sentFor?.includes(o.sentFor)) (e.sentFor ??= []).push(o.sentFor);
       if (o.job && !e.jobs.includes(o.job)) {
         e.jobs.push(o.job);
         changed = true;
       }
       if (o.job) e.usedAt = Date.now();
+    }
+    if (changed) {
+      this.d.changed?.();
+      void this.tick();
+    }
+  }
+
+  /**
+   * Files the queue's plan sent a pod for jobs none of which may run there any more (done, cancelled, pinned elsewhere):
+   * stopped while they come, and forgotten. Two pods pulled 40 GB for jobs pinned to a third one in the meantime, and nothing
+   * could stop them (2026-10-18). What the user asked for, and what is there already, stays.
+   */
+  dropUnsought(machine: string, mayRun: (job: string) => boolean): void {
+    const pod = this.pods.get(machine);
+    if (!pod) return;
+    let changed = false;
+    for (const [key, e] of pod) {
+      if (e.byUser || !e.sentFor?.length || (e.state !== "next" && e.state !== "fetching") || e.sentFor.some(mayRun)) continue;
+      if (e.downloadId && e.state === "fetching") this.d.downloads.stop(e.downloadId);
+      e.upload?.abort();
+      pod.delete(key);
+      changed = true;
     }
     if (changed) {
       this.d.changed?.();
