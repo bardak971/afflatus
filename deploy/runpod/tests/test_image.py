@@ -3,6 +3,7 @@ Dockerfile.dockerignore, which shuts out all else. A script added to the image b
 on GitHub, after its tag is pushed (pod-v0.1.18: died.py); here it fails before.
 """
 
+import json
 import os
 import re
 import unittest
@@ -16,13 +17,22 @@ def read(name):
         return f.read()
 
 
-def copied():
-    """The repository paths the Dockerfile's COPY lines take (not those from another stage, --from=)."""
+def copied(text=None):
+    """The repository paths the Dockerfile's COPY lines take: every source of each (not those from another stage, --from=),
+    lines continued with a backslash read as one, the JSON form as well as the plain one."""
+    text = read("Dockerfile") if text is None else text
     out = []
-    for line in read("Dockerfile").splitlines():
-        found = re.match(r"^COPY\s+(?!--from)(?:--\S+\s+)*(\S+)\s+\S+\s*$", line.strip())
-        if found:
-            out.append(found.group(1))
+    for line in re.sub(r"\\\n", " ", text).splitlines():
+        found = re.match(r"^\s*COPY\s+(.*)$", line, re.I)
+        if not found:
+            continue
+        rest = found.group(1).strip()
+        flags = re.findall(r"--\S+", rest)
+        if any(f.startswith("--from") for f in flags):
+            continue
+        rest = re.sub(r"--\S+\s*", "", rest).strip()
+        parts = json.loads(rest) if rest.startswith("[") else rest.split()
+        out.extend(parts[:-1])
     return out
 
 
@@ -48,6 +58,15 @@ class Context(unittest.TestCase):
     def test_it_reads_the_copies(self):
         self.assertIn("deploy/runpod/died.py", copied())
         self.assertIn("comfy-nodes/afflatus-nodes", copied())
+
+    def test_it_reads_every_form_of_copy(self):
+        text = (
+            "COPY a.py b.py /opt/x/\n"
+            "COPY --chown=1000 c.sh \\\n    d.sh /opt/y/\n"
+            'COPY ["e.json", "/opt/z/"]\n'
+            "COPY --from=build /wheels /wheels\n"
+        )
+        self.assertEqual(copied(text), ["a.py", "b.py", "c.sh", "d.sh", "e.json"])
 
 
 if __name__ == "__main__":

@@ -78,16 +78,23 @@ class FailurePath(unittest.TestCase):
 
 
 # a stand-in python: records its call, and as ComfyUI does what COMFY_DOES says
-PYTHON = '#!/bin/sh\necho "python $*" >> "$CALLS"\ncase "$1" in /comfyui/main.py) echo "cli-session=${__COMFY_CLI_SESSION__:-}" >> "$CALLS"; eval "$COMFY_DOES";; esac\n'
+PYTHON = (
+    '#!/bin/sh\necho "python $*" >> "$CALLS"\n'
+    'case "$1" in /comfyui/main.py) echo "cli-session=${__COMFY_CLI_SESSION__:-}" >> "$CALLS"; eval "$COMFY_DOES";; esac\n'
+    # broken.py serving until the pod ends; died.py's start taking a while (a stop can land meanwhile)
+    'case "$*" in *broken.py*) [ -z "$BROKEN_BLOCKS" ] || exec "$REAL_SLEEP" 30;; *"died.py start"*) [ -z "$START_BLOCKS" ] || "$REAL_SLEEP" 2;; esac\n'
+)
 # a ComfyUI that runs until it is stopped, and says it was
 RUNS_UNTIL_STOPPED = 'trap \'echo comfy-stopped >> "$CALLS"; exit 0\' TERM; while :; do "$REAL_SLEEP" 0.1; done'
+# one that takes a while to stop (it saves, it unloads): the script must wait for it, not end at the first TERM
+STOPS_SLOWLY = 'trap \'"$REAL_SLEEP" 1.5; echo comfy-stopped >> "$CALLS"; exit 0\' TERM; while :; do "$REAL_SLEEP" 0.1; done'
 
 
 @unittest.skipIf(SH is None or sys.platform == "win32", "no POSIX sh with POSIX signals")
 class Run(unittest.TestCase):
     """The run: ComfyUI started as start.sh's child, waited for, its end handed over or its stop passed on."""
 
-    def start(self, comfy_does, d):
+    def start(self, comfy_does, d, **extra):
         calls = os.path.join(d, "calls.txt")
         bin_dir = os.path.join(d, "bin")
         os.makedirs(bin_dir)
@@ -101,7 +108,7 @@ class Run(unittest.TestCase):
             # its files in this test's folder, not /tmp
             f.write("set -e\nPOD=/opt/afflatus-pod\nBASE=/b\n" + part("run").replace("/tmp/", d + "/") + "\n")
         # set as comfy-cli sets it: ComfyUI-Manager's restart would then exit instead of restarting in place (start.sh unsets it)
-        env = {**os.environ, "CALLS": calls, "COMFY_DOES": comfy_does, "REAL_SLEEP": shutil.which("sleep") or "/bin/sleep", "__COMFY_CLI_SESSION__": "1",
+        env = {**os.environ, "CALLS": calls, "COMFY_DOES": comfy_does, "REAL_SLEEP": shutil.which("sleep") or "/bin/sleep", "__COMFY_CLI_SESSION__": "1", **extra,
                "PATH": bin_dir + os.pathsep + os.environ.get("PATH", "")}
         return subprocess.Popen([SH, script], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True), calls
 
@@ -153,6 +160,58 @@ class Run(unittest.TestCase):
         self.assertIn("comfy-stopped", said)
         self.assertNotIn("ComfyUI ended", out)
         self.assertFalse(any("died.py end" in line or "broken.py" in line for line in said))
+
+    def wait_for(self, path, line=None):
+        for _ in range(200):
+            if os.path.exists(path) and os.path.getsize(path) > 0 and (line is None or any(line in x for x in self.said(path))):
+                return
+            time.sleep(0.05)
+        raise AssertionError(f"never came: {line or path}")
+
+    def test_a_comfyui_slow_to_stop_is_waited_for(self):
+        # the trap ends `wait` at once: without waiting again, the script would end while ComfyUI still saves
+        with tempfile.TemporaryDirectory() as d:
+            proc, calls = self.start(STOPS_SLOWLY, d)
+            self.wait_for(os.path.join(d, "afflatus-comfy.pid"))
+            time.sleep(0.5)
+            sent = time.monotonic()
+            proc.send_signal(signal.SIGTERM)
+            # the script's own end, not its output's: a ComfyUI it left behind would keep that open as long
+            proc.wait(timeout=60)
+            took = time.monotonic() - sent
+            proc.communicate(timeout=60)
+            said = self.said(calls)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("comfy-stopped", said)
+        self.assertGreaterEqual(took, 1.2)
+
+    def test_a_stop_after_a_death_ends_the_script_at_once(self):
+        # broken.py serving; RunPod's stop must not be lost on PID 1 until its SIGKILL
+        with tempfile.TemporaryDirectory() as d:
+            proc, calls = self.start("exit 3", d, BROKEN_BLOCKS="1")
+            self.wait_for(calls, "broken.py --died")
+            time.sleep(0.3)
+            sent = time.monotonic()
+            proc.send_signal(signal.SIGTERM)
+            proc.wait(timeout=60)
+            took = time.monotonic() - sent
+            proc.communicate(timeout=60)
+        self.assertEqual(proc.returncode, 0)
+        self.assertLess(took, 5)
+
+    def test_a_stop_before_comfyui_starts_ends_cleanly_and_starts_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            proc, calls = self.start(RUNS_UNTIL_STOPPED, d, START_BLOCKS="1")
+            self.wait_for(calls, "died.py start")
+            proc.send_signal(signal.SIGTERM)
+            out, _ = proc.communicate(timeout=60)
+            said = self.said(calls)
+            # never started: its PID is written once it is (a ComfyUI started then stopped may die before it says a word)
+            started = os.path.exists(os.path.join(d, "afflatus-comfy.pid"))
+        self.assertEqual(proc.returncode, 0)
+        self.assertFalse(started)
+        self.assertFalse(any("/comfyui/main.py" in line for line in said))
+        self.assertNotIn("ComfyUI ended", out)
 
 
 if __name__ == "__main__":
