@@ -1,8 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeComfy, startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
+import { newId, now, OWNER } from "../src/db";
 import { readSettings, writeSettings } from "../src/settings";
 import { CHECKPOINT, complete, get, job, makeApp, makeFake, post, referenceCatalog, until, type TestApp } from "./helpers";
 
@@ -65,6 +67,25 @@ async function deployed(more: Record<string, unknown> = {}): Promise<string> {
 const row = (id: string) => t.db.selectFrom("jobs").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
 const enqueue = async (over: Record<string, unknown> = {}) => (await post(t.app, "/api/jobs", job(over))).json().ids[0] as string;
 const homeId = async () => (await readSettings(t.db)).machines[0]!.id;
+
+/** A take at 24 fps whose render's own frames are kept beside it at 12 fps: an interpolated one, whose finish runs RIFE again. */
+async function interpolatedTake(): Promise<string> {
+  const id = newId();
+  const at = now();
+  const made = (fps: number) => {
+    const file = join(comfyDir, `zz-test-${fps}.mp4`);
+    const r = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", `testsrc2=size=128x96:rate=${fps}:duration=1`, "-c:v", "libx264", "-pix_fmt", "yuv420p", file]);
+    if (r.status !== 0) throw new Error(String(r.stderr));
+    return readFileSync(file);
+  };
+  await t.services.storage.put(`assets/${id}`, made(24));
+  await t.services.storage.put(`raw/${id}`, made(12));
+  await t.db.insertInto("assets").values({
+    id, owner_id: OWNER, kind: "video", origin: "generated", name: "zz-test take", file_key: `assets/${id}`, raw_key: `raw/${id}`, thumb_key: null, mime: "video/mp4", bytes: 4,
+    width: 128, height: 96, duration_ms: 1000, fps: 24, has_sound: 0, folder_id: null, generation_id: null, kept_at: at, deleted_at: null, created_at: at,
+  } as never).execute();
+  return id;
+}
 
 describe("a job whose model file a pod lacks", () => {
   it("goes to the pod when that is where it ends soonest: its file is sent first, then it runs there", async () => {
@@ -194,6 +215,26 @@ describe("a pod's files planned from the waiting jobs", () => {
     await until(() => t.services.podFiles.view(id).length === 2, 15_000);
     expect(t.services.podFiles.view(id)).toEqual(expect.arrayContaining([
       expect.objectContaining({ file: CHECKPOINT, folder: "checkpoints", tier: "need", jobs: [a] }),
+      expect.objectContaining({ file: "zz-test-upscaler.pth", folder: "upscale_models", tier: "need", jobs: [a] }),
+    ]));
+  });
+
+  it("include RIFE for the finish of an interpolated take, sent from this computer, and the finish waits on the pod for it", async () => {
+    // a finish is no recipe: a pod got none of its files, and Timeline 19's finish failed there for want of RIFE (2026-10-18)
+    mkdirSync(join(comfyDir, "models", "frame_interpolation"), { recursive: true });
+    writeFileSync(join(comfyDir, "models", "frame_interpolation", "rife49.pth"), Buffer.alloc(50_000, 7));
+    home.models.frame_interpolation = ["rife49.pth"];
+    mkdirSync(join(comfyDir, "models", "upscale_models"), { recursive: true });
+    writeFileSync(join(comfyDir, "models", "upscale_models", "zz-test-upscaler.pth"), Buffer.alloc(50_000, 7));
+    home.models.upscale_models = ["zz-test-upscaler.pth"];
+    await post(t.app, `/api/setup/rescan?machine=${await homeId()}`, {});
+    const id = await deployed();
+    await post(t.app, "/api/queue/pause", { machine: await homeId() });
+    const asset = await interpolatedTake();
+    const a = await t.services.queue.enqueueCut({ asset, action: "finish", route: "model", upscaleModel: "zz-test-upscaler.pth", by: 2, startMs: 0, endMs: 1000 }, "zz-test finish");
+    await until(() => t.services.podFiles.view(id).length === 2, 15_000);
+    expect(t.services.podFiles.view(id)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ file: "rife49.pth", folder: "frame_interpolation", tier: "need", jobs: [a] }),
       expect.objectContaining({ file: "zz-test-upscaler.pth", folder: "upscale_models", tier: "need", jobs: [a] }),
     ]));
   });

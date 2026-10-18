@@ -1,8 +1,10 @@
 import { catalogKey, type Scan } from "@afflatus/comfy";
-import { choicesOf, graphFiles, missingSlotFile, parseInput, sameFile, type Family, type GraphFile, type NodeCatalog, type Recipe } from "@afflatus/core";
+import { choicesOf, graphFiles, isMissingSlotFile, missingSlotFile, parseInput, sameFile, TOOLS_FAMILY, type Family, type GraphFile, type NodeCatalog, type Recipe } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 import { readJson, type JobRow, type QueueCore } from "./queueModel";
 import { builtOf, withTexts } from "./queueSubmit";
+import { rifeModelIn, toolNeeds } from "./queueTools";
+import { CUT_JOB } from "./timelineModel";
 
 /**
  * What a rented pod is sent for a waiting job is what that job's graph loads: not every file its family has, not two names
@@ -17,6 +19,8 @@ type ModelSlot = Pick<Family["slots"][number], "id" | "folder" | "optional" | "g
 export interface Loaded {
   files: GraphFile[];
   absent: GraphFile[];
+  /** A finish's or a RIFE slow-motion's node types the machine lacks (a render's are in its scan: RecipeStatus.missingNodes). */
+  missingNodes?: string[];
 }
 
 /**
@@ -88,6 +92,7 @@ const KEPT = 512;
  * so that such jobs can be found and fixed.
  */
 export async function loadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id" | "inputs" | "finished_from" | "clip_id" | "clip_fit" | "clip_mirror">, on: { id: string; comfy: Comfy; scan: Scan } | null): Promise<Loaded | null> {
+  if (row.recipe_id === CUT_JOB) return toolLoadedOn(core, row, on);
   const recipe = core.registry.recipe(row.recipe_id);
   const family = recipe ? core.registry.family(recipe.family) : undefined;
   if (!recipe || !family) return null;
@@ -120,6 +125,49 @@ export async function loadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe
     if (key) keep(key, null);
     return null;
   }
+}
+
+/**
+ * The files a finish or a RIFE slow-motion loads on a machine (toolNeeds): SeedVR2's two files for its SeedVR2 route, the
+ * upscale model picked for the model route, a RIFE model for a slow-motion or the finish of an interpolated take. A pod
+ * was never sent them (finishes are not recipes), and Timeline 19's finish failed there for want of RIFE (2026-10-18).
+ * Each named as podSlotFiles names a slot: the machine's own, else the download, else this PC's (RIFE has no download:
+ * this PC's is sent). Null for a cut that loads nothing.
+ */
+async function toolLoadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id" | "inputs">, on: { id: string; comfy: Comfy; scan: Scan } | null): Promise<Loaded | null> {
+  const needs = await toolNeeds(core, row).catch(() => null);
+  if (!needs) return null;
+  const mine = await core.comfy();
+  const listedOn = (folder: string) => (on ? listingOf(on, folder) : Promise.resolve(null));
+  const files: GraphFile[] = [];
+  const add = (file: string, folder: string, classType: string, input: string, slot?: string) => files.push({ file, folder, node: "", classType, input, ...(slot ? { slot } : {}) });
+  if (needs.seedvr) {
+    const toolsIn = (s: Scan | null) => s?.families.find((f) => f.id === TOOLS_FAMILY)?.slots ?? null;
+    const slots = (core.registry.family(TOOLS_FAMILY)?.slots ?? []).filter((x) => x.id === "seedvr" || x.id === "seedvrVae");
+    const named = podSlotFiles({ needs: ["seedvr", "seedvrVae"] }, {}, slots, on ? (toolsIn(on.scan) ?? []) : null, toolsIn(await mine.scan().catch(() => null)));
+    for (const x of slots) add(named[x.id]!, x.folder, x.id === "seedvr" ? "UNETLoader" : "VAELoader", x.id === "seedvr" ? "unet_name" : "vae_name", x.id);
+  }
+  if (needs.upscaleModel !== null) {
+    // none picked: whichever the machine has, else the first of this PC's, sent from here
+    const there = await listedOn("upscale_models");
+    const file = needs.upscaleModel || (there?.length ? null : (await mine.client.models("upscale_models").catch(() => [] as string[]))[0] ?? missingSlotFile("upscaleModel"));
+    if (file) add(file, "upscale_models", "UpscaleModelLoader", "model_name", needs.upscaleModel ? undefined : "upscaleModel");
+  }
+  if (needs.rife) {
+    // a RIFE model as rifeModelIn picks one, from the machine's folder, else from this PC's (sent from here)
+    const rifeIn = (files: string[] | null) => (files ? (files.find((f) => /rife/i.test(f)) ?? files[0] ?? null) : null);
+    const own = rifeIn(await listedOn("frame_interpolation"));
+    const here = own ? null : rifeIn(await mine.client.models("frame_interpolation").catch(() => null)) ?? rifeModelIn(await mine.catalog().catch(() => ({})));
+    add(own ?? here ?? missingSlotFile("rife"), "frame_interpolation", "FrameInterpolationModelLoader", "model_name", "rife");
+  }
+  if (!on) return { files, absent: files };
+  const catalog = await on.comfy.catalog().catch(() => ({}) as NodeCatalog);
+  const absent: GraphFile[] = [];
+  for (const f of files) if (isMissingSlotFile(f.file) || !offeredOn(catalog, f, null, await listingOf(on, f.folder))) absent.push(f);
+  // its nodes as the machine's node list has them: one of `anyNode` missing all is asked as the last of them (DaSiWa's
+  // pack for RTX VSR, which Afflatus can install, where NVIDIA's own cannot be)
+  const missingNodes = [...needs.nodes.filter((n) => !(n in catalog)), ...(needs.anyNode?.length && !needs.anyNode.some((n) => n in catalog) ? [needs.anyNode.at(-1)!] : [])];
+  return { files, absent, ...(missingNodes.length ? { missingNodes } : {}) };
 }
 
 function keep(key: string, value: Loaded | null) {

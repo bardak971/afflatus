@@ -20,7 +20,7 @@ export const UPSCALE = {
 /** The nodes that drive RTX VSR: NVIDIA's own pack, or the RTX Upscaler & Refiner pack. Either does. */
 const RTX_NVIDIA = "RTXVideoSuperResolution";
 const RTX_NODE = "DaSiWa_RTX_UpscalerRefiner";
-const RTX_NODES = [RTX_NVIDIA, RTX_NODE];
+export const RTX_NODES = [RTX_NVIDIA, RTX_NODE];
 /** The routes that enlarge the decoded frames, after which the RCAS sharpen can run. */
 const PIXEL_ROUTES: string[] = [UPSCALE.model, UPSCALE.rtx, UPSCALE.seedvr];
 /** KJNodes' sharpen, whose RCAS method is the one offered. */
@@ -123,7 +123,7 @@ export function sharpened(g: GraphBuilder, ctx: BuildContext, images: Ref, input
 }
 
 /** The nodes a pixel route needs, for a recipe's node list. RTX: either driver does, so neither is required here (see `UPSCALE_OPTIONAL`). */
-export function upscaleNodes(input: UpscaleValues): string[] {
+export function upscaleNodes(input: Pick<UpscaleValues, "upscale">): string[] {
   if (input.upscale === UPSCALE.model) return ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale"];
   if (input.upscale === UPSCALE.seedvr) return SEEDVR_NODES;
   return [];

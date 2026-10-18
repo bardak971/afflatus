@@ -53,6 +53,9 @@ export function graphFiles(graph: Graph, slots: Readonly<Record<string, string>>
 export const missingSlotFile = (slot: string) => `${MISSING}${slot}.safetensors`;
 const MISSING = "afflatus-missing-slot.";
 
+/** Whether a file name is missingSlotFile's: a file nobody has, that cannot be sent. */
+export const isMissingSlotFile = (file: string) => file.startsWith(MISSING);
+
 /** The slot a graph reads that had no file (missingSlotFile), or null. */
 export function missingSlotIn(graph: Graph): string | null {
   for (const n of Object.values(graph)) {

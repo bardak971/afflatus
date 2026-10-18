@@ -1,9 +1,9 @@
-import { modelName, modelOf, type Recipe } from "@afflatus/core";
+import { modelName, modelOf, TOOLS_FAMILY, type Recipe } from "@afflatus/core";
 import type { Db } from "./db";
 import { paceOf } from "./forecast";
 import type { Scan } from "@afflatus/comfy";
 import type { Loaded } from "./jobFiles";
-import { lackOn, type Lack } from "./machineScans";
+import { lackOn, toolLackOn, type Lack } from "./machineScans";
 import type { PodFiles } from "./podFiles";
 import { needsComfy } from "./queueOffline";
 import type { Expected } from "./queueForecast";
@@ -143,7 +143,10 @@ export class Planner {
     const familyOf = (id: string) => this.d.registry.recipe(id)?.family;
     for (const r of rows) {
       const recipe = r.recipe_id === CUT_JOB || r.recipe_id === EXPORT_JOB ? undefined : this.d.registry.recipe(r.recipe_id);
-      if (!recipe) continue;
+      // a finish or a RIFE slow-motion: no recipe, but model files all the same (RIFE, SeedVR2's, an upscale model), sent to a
+      // pod as a render's are (a finish failed on a pod for want of RIFE, 2026-10-18)
+      const tool = r.recipe_id === CUT_JOB && tools.usesGpu(r);
+      if (!recipe && !tool) continue;
       const input = readJson<Record<string, unknown>>(r.inputs, {});
       const can = new Set<string>();
       const lacks: Record<string, Lack> = {};
@@ -167,7 +170,7 @@ export class Planner {
         // what the job's graph loads there, not every file of its family (a swap's pod was sent the family's video model)
         const asked = (lanes.length > 1 || lane.machine!.rented) && scan?.comfy.online;
         const loaded = asked ? await this.d.loaded(r, lane, scan) : null;
-        const lack = asked ? lackOn(recipe, input, scan, settings, machines.get(lane.id) ?? lane.machine!, familyOf, loaded) : null;
+        const lack = !asked ? null : recipe ? lackOn(recipe, input, scan, settings, machines.get(lane.id) ?? lane.machine!, familyOf, loaded) : loaded ? toolLackOn(loaded, this.d.registry.family(TOOLS_FAMILY)?.slots ?? []) : null;
         // a pod that lacks only files it can be sent: it can run the job once they came, their time to come part of what the
         // balance must last
         const fits = Boolean(lack?.sendable && lane.machine!.rented && this.d.podFetch && !this.d.podFetch.failed(lane.id, lack.files, lack.packs));
@@ -187,7 +190,7 @@ export class Planner {
       }));
       // a timeline clip of a model that joins in a kept latent (H3): on a machine that has the join's nodes (the Afflatus node
       // pack), while any has them. Sent elsewhere, the clip saves no latent and the clip after it joins on frames with no word
-      const latentNodes = r.clip_id ? recipe.traits?.latentNodes : undefined;
+      const latentNodes = r.clip_id ? recipe?.traits?.latentNodes : undefined;
       if (latentNodes?.length && can.size > 1) {
         const packed = new Set<string>();
         for (const id of can) {
