@@ -66,3 +66,4 @@ export { introduce, kleinSize } from "./klein/common";
 export { padsFor } from "./klein/recipes";
 export type { H3Video } from "./h3/video";
 export type { SdxlTextToPicture } from "./sdxl/text-to-picture";
+export { RIFE_GET } from "./shared/finish";

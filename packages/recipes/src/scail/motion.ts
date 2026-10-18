@@ -3,6 +3,7 @@ import { defineRecipe, GraphBuilder, type Ref, type Variant } from "@afflatus/co
 import { SCAIL_CARRIED, SCAIL_CHUNK, SCAIL_FPS } from "./family";
 import { applyLoras, livePreview, loraLoads } from "../shared/model";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
+import { rifeNeeds, rifeSkippedSaid } from "../shared/finish";
 import {
   chunkLengths, drivingFrames, previousFrames, previousInput, matchedToDriving, motionBatchNodes, MOTION_GRID, MOTION_NODES, MOTION_OPTIONAL, motionOutInputs, motionCanvas, motionFrames, motionInputs,
   motionSaved, type MotionShape, type MotionValues,
@@ -70,6 +71,8 @@ export const scailMotion = defineRecipe<ScailMotion>({
     ...motionOutInputs(SCAIL_FPS),
   ],
   needs: ["dpo", "turbo", "clipVision", "sam"],
+  // RIFE with "RIFE ×2" on
+  needsWith: (input) => rifeNeeds(input.smooth),
   nodes: (input) => [
     ...MOTION_NODES, "UNETLoader", "LoraLoaderModelOnly", "CLIPLoader", "VAELoader", "CLIPTextEncode", "CLIPVisionLoader", "CLIPVisionEncode",
     "CheckpointLoaderSimple", "SAM3_VideoTrack", "SCAIL2ColoredMask", "WanSCAILToVideo", "ModelSamplingSD3", "KSamplerSelect", "BasicScheduler", "SamplerCustom", "VAEDecode",
@@ -154,7 +157,9 @@ export const scailMotion = defineRecipe<ScailMotion>({
 
     const images = matchedToDriving(g, ctx, made!, pose, input, frame);
     const saved = motionSaved(g, ctx, images, input, { frame, fps: SCAIL_FPS, frames: total, parts, carried: SCAIL_CARRIED, made: made! });
+    const unsmoothed = rifeSkippedSaid(input.smooth, ctx);
     return {
+      ...(unsmoothed ? { warnings: [unsmoothed] } : {}),
       graph: g.graph,
       phases: g.phases,
       outputs: [

@@ -53,6 +53,13 @@ export function graphFiles(graph: Graph, slots: Readonly<Record<string, string>>
 export const missingSlotFile = (slot: string) => `${MISSING}${slot}.safetensors`;
 const MISSING = "afflatus-missing-slot.";
 
+/**
+ * Slots whose file makes a render better, not different (RIFE: twice the frames). A rented pod is sent it for a job that
+ * asks for it; a machine of the user's own without it still takes the job, renders without it, and the job says so: kept
+ * off every such machine, an H3 clip with "RIFE ×2" on (the default) would wait for ever where no machine had RIFE.
+ */
+export const SOFT_SLOTS: ReadonlySet<string> = new Set(["rife"]);
+
 /** Whether a file name is missingSlotFile's: a file nobody has, that cannot be sent. */
 export const isMissingSlotFile = (file: string) => file.startsWith(MISSING);
 

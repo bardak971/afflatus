@@ -1,6 +1,7 @@
 import { frameOf, type Family, type PromptLine, LIST_LINE, wordCount } from "@afflatus/core";
 import { defineFamily } from "@afflatus/core";
 import { SEEDVR_SLOTS } from "../video/upscale";
+import { RIFE_GET } from "../shared/finish";
 
 /**
  * How LTX reads a prompt, 2.3 and 2.5 alike: the Designer's guide for a version of the model, with any rule that version
@@ -40,6 +41,7 @@ export const LTX_SHARED_SLOTS: Family["slots"] = [
   {
     id: "rife", label: "Frame interpolation model (RIFE)", folder: "frame_interpolation", detect: ["rife"], optional: true,
     hint: "Without it (and without the temporal upscaler), no frame interpolation: clips stay at the model's frame rate. Put a RIFE model in ComfyUI's models/frame_interpolation folder.",
+    get: RIFE_GET,
   },
   ...SEEDVR_SLOTS,
 ];

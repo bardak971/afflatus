@@ -4,7 +4,7 @@ import { H3_FPS, H3_GRID } from "./family";
 import { UPSCALE, UPSCALE_OPTIONAL, upscaleNodes } from "../video/upscale";
 import { unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
-import { COLOUR_MATCH_NODES } from "../shared/finish";
+import { COLOUR_MATCH_NODES, rifeNeeds, rifeSkippedSaid } from "../shared/finish";
 import { conditionFor } from "./condition";
 import { finish, H3_SAVE_LATENT } from "./finish";
 import { h3Inputs, type H3Video } from "./inputs";
@@ -17,7 +17,8 @@ export type { H3Video } from "./inputs";
 
 export const h3Video = defineRecipe<H3Video>({
   // Turbo's LoRA, and H3's latent upscaler for an upscale with it
-  needsWith: (input, slots) => [...turboNeeds(input, slots), ...latentUpscaleNeeds(input)],
+  // Turbo's LoRA, H3's latent upscaler for an upscale with it, RIFE with "RIFE ×2" on
+  needsWith: (input, slots) => [...turboNeeds(input, slots), ...latentUpscaleNeeds(input), ...rifeNeeds(input.smooth)],
   id: "h3.video",
   family: "h3",
   version: 2,
@@ -235,7 +236,7 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   // the re-sample counts as a pass of its own: its steps again for every piece, after the clip's sampling. A finish is
   // the re-sample alone, and names no pass: what loads its models ahead is its loaders, not a step of the re-sample
   const resampled = fine ? input.upscaleSteps * latentUpscaleRounds(input, { width, height }, join.frames) : 0;
-  const plainResize = fine ? plainResizeSaid(input, ctx) : null;
+  const said = [fine ? plainResizeSaid(input, ctx) : null, rifeSkippedSaid(input.smooth, ctx)].filter((x): x is string => Boolean(x));
   return {
     graph: g.graph,
     phases: g.phases,
@@ -246,7 +247,7 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
     // a continuation window counts its frames as an extension and an overlap, and a finish loads its latent from a file:
     // neither says the clip's frames in an input the forecast reads, so they are said here (the shared ones included)
     frames: join.frames,
-    ...(plainResize ? { warnings: [plainResize] } : {}),
+    ...(said.length ? { warnings: said } : {}),
     ...(head || tail ? { overlap: { headMs: ms(head), tailMs: ms(tail), ...(latentJoin ? { latent: true } : {}), ...(seam ? { seam: true } : {}) } } : {}),
   };
 }

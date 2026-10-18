@@ -4,6 +4,7 @@ import { h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video } from "./video";
 import { H3_STARTS, turboNeeds } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
+import { rifeNeeds } from "../shared/finish";
 
 /**
  * MiniMax H3 · Lip sync: a new shot made around a recording. The recording is laid on the clip's sound where the clip's
@@ -70,7 +71,7 @@ const lipSyncInputs: InputSpec[] = h3Inputs.flatMap((spec): InputSpec[] => {
 
 export const h3LipSync = defineRecipe<H3LipSync>({
   // Turbo's LoRA, and H3's latent upscaler for an upscale with it (built by buildH3, as a clip is)
-  needsWith: (input, slots) => [...turboNeeds(input, slots), ...latentUpscaleNeeds(input)],
+  needsWith: (input, slots) => [...turboNeeds(input, slots), ...latentUpscaleNeeds(input), ...rifeNeeds(input.smooth)],
   id: "h3.lipsync",
   family: "h3",
   version: 1,
