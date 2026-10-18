@@ -70,7 +70,8 @@ export function Dot({ m }: { m: MachineState }) {
   // RunPod saying it runs while its image is pulled). It was a pulsing warning dot, which read as an error in a theme
   // whose warning is red: the warning is for a start that failed, as for a machine away
   if (m.rented && (m.rented.status !== "RUNNING" || m.rented.booting)) {
-    if (m.rented.boot?.failed) return <span aria-hidden data-state="failed" className="size-[7px] shrink-0 rounded-full bg-warn" />;
+    // a start that failed, or a ComfyUI that died on it (terminated as a crash): the warning, not the stopped ring
+    if (m.rented.boot?.failed || m.rented.stoppedBy === "crash") return <span aria-hidden data-state="failed" className="size-[7px] shrink-0 rounded-full bg-warn" />;
     const starting = m.rented.status === "STARTING" || m.rented.status === "PROVISIONING" || m.rented.booting;
     return starting
       ? <span aria-hidden data-state="starting" className={cx("size-[7px] shrink-0 rounded-full", STARTING_DOT)} />

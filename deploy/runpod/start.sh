@@ -162,8 +162,12 @@ trap - EXIT
 COMFY_STATE=/tmp/afflatus-comfy.json
 DIED=/tmp/afflatus-died.json
 python -u "$POD/died.py" start "$COMFY_STATE" || echo "[afflatus-pod] died.py did not run: a crash will say less"
+# --disable-pinned-memory: ComfyUI keeps the models' weights in pinned RAM to feed the GPU (31 GB of an A40 pod's 46.6),
+# which the kernel cannot take back; the frames of a long decode on top went past the container's limit and it was
+# killed. Measured on an A40 (2026-10-18, a masked swap of 226 frames): killed at 46.6 GB without it; with it, three
+# renders back to back peaked at 15-20 GB, at the same 92 s a step. COMFYUI_ARGS comes after: the pod's own say
 # shellcheck disable=SC2086
-python /comfyui/main.py --listen 0.0.0.0 --port 8188 --enable-manager --disable-auto-launch --base-directory "$BASE" ${COMFYUI_ARGS:-} &
+python /comfyui/main.py --listen 0.0.0.0 --port 8188 --enable-manager --disable-auto-launch --disable-pinned-memory --base-directory "$BASE" ${COMFYUI_ARGS:-} &
 COMFY=$!
 echo "$COMFY" > /tmp/afflatus-comfy.pid
 STOPPING=

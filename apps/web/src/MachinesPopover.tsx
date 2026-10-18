@@ -76,6 +76,8 @@ export function MachinesPopover({ anchor, machines, metered, now, canDeploy, onP
                   <span className="text-[11.5px] text-ink-3">
                     {m.rented && (m.rented.booting || m.rented.status === "PROVISIONING" || m.rented.status === "STARTING")
                       ? "ComfyUI not up yet"
+                      // its ComfyUI died and the pod was terminated for it: gone, nothing billed, not a machine merely away
+                      : m.rented?.stoppedBy === "crash" ? "crashed · terminated, not billed"
                       : m.online === false ? (m.locked ? "locked against Afflatus's token" : "not answering") : "no figures yet"}
                   </span>
                 )}

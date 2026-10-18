@@ -58,6 +58,12 @@ describe("a session's time", () => {
     expect(spans.map((s) => [s.part, (s.to - s.from) / MIN])).toEqual([["boot", 4], ["idle", 1], ["fetch", 5], ["render", 50]]);
   });
 
+  it("a session whose ComfyUI never answered (stuck pulling its image, terminated): all of it is its boot, not the usual boot then idle", () => {
+    const stuck = splitSession({ ...facts, upAt: null, usualBootMs: 3 * MIN, neverUp: true });
+    expect(stuck.spans).toEqual([{ from: 0, to: 60 * MIN, part: "boot" }]);
+    expect(stuck.estimated).toEqual([]);
+  });
+
   it("an older session without its first answer kept: its boot ends at its first work, or the usual boot, and says it is estimated", () => {
     const first = splitSession({ ...facts, upAt: null, renders: [{ from: 6 * MIN, to: 9 * MIN, ok: true }] });
     expect(first.spans[0]).toEqual({ from: 0, to: 6 * MIN, part: "boot" });
@@ -440,6 +446,16 @@ describe("the costs of a window", () => {
     // its boot from the usual boot here (that measure's 4 min), not ended at the measure's time (8 min in)
     expect(s5.estimated).toContain("its boot, from the usual boot here");
     expect(s5.parts.boot).toBe(4 * MIN);
+  });
+
+  it("a session Afflatus ended before its ComfyUI ever answered is its boot all through (a pod stuck pulling its image)", async () => {
+    // 17 min pulling, terminated by the user: was counted as the usual boot (4 min) then 13 min idle
+    await db.insertInto("rent_sessions").values({ id: "s6", machine_id: "rp-f", pod: "f", rate: 0.26, started_at: iso(T0 - 30 * MIN), ended_at: iso(T0 - 13 * MIN), seen_at: null, gpu: null, up_at: null, idle_minutes: 2, end_why: "you" }).execute();
+    await db.insertInto("pod_measures").values({ id: "m2", kind: "boot", cloud: "SECURE", bytes: 0, ms: 4 * MIN, at: iso(T0 - 60 * MIN) }).execute();
+    const s6 = (await view()).sessions.find((s) => s.id === "s6")!;
+    expect(s6.parts.boot).toBe(17 * MIN);
+    expect(s6.parts.idle).toBe(0);
+    expect(s6.estimated).toEqual([]);
   });
 });
 
