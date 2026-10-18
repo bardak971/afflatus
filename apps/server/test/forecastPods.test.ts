@@ -22,7 +22,7 @@ const row = (machine: string, gpu: string | null, stepMs: number, over: Partial<
   id: `r${n++}`, owner_id: "local", recipe_id: "wan.i2v", family: "wan", model: "Wan", model_file: "wan22", time_key: "steps=8",
   kind: "video", width: 832, height: 480, duration_ms: 5000, steps: 8, status: "done", whole: 1, cold: 0, waited_ms: 0,
   total_ms: 8 * stepMs + 30_000, load_ms: 10_000, sample_ms: 8 * stepMs, refine_ms: 0, finish_ms: 0, step_ms: stepMs, expected_ms: null,
-  vram_peak: null, heat_peak: null, asset_id: null, work: W, machine_id: machine, gpu, node_ms: null, energy_wh: null, power_avg_w: null, created_at: at(n), ...over,
+  vram_peak: null, heat_peak: null, asset_id: null, work: W, machine_id: machine, gpu, node_ms: null, energy_wh: null, power_avg_w: null, ram_peak: null, ram_total: null, created_at: at(n), ...over,
 });
 /** An SDXL picture: 28 steps of `stepMs`. */
 const picture = (machine: string, gpu: string | null, stepMs: number, over: Partial<RenderRow> = {}) =>

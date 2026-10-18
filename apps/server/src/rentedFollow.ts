@@ -69,9 +69,14 @@ const FILL_CUT: Partial<Record<NonNullable<RentedView["stoppedBy"]>, string>> = 
   boot: "its ComfyUI did not come up",
   gpu: "its GPU did not work on that host",
   start: "its start stopped on an error",
+  crash: "its ComfyUI died",
   watchdog: "its pod was found stopped",
   you: "its pod was terminated by you",
 };
+
+/** How many of ComfyUI's last lines a render its death failed keeps (its pod serves 300), and how much of that report at most. */
+const CRASH_LINES = 200;
+const CRASH_TRACE = 64_000;
 
 /** A pod still running this long after Afflatus asked RunPod to stop it is asked again (and a stop that keeps nothing, terminated). */
 const STOP_AGAIN_MS = 2 * 60_000;
@@ -347,7 +352,7 @@ export class RentedFollow extends RentedBilling {
     if (gone) await this.dropSecret(m, s, key);
     // a deployed pod that came up once (its ComfyUI answered) and is gone: nothing is left of it, its machine goes too. Never
     // for one that did not come up (its card says why)
-    if (gone && m.rented!.deployed && s.stoppedBy !== "gpu" && s.stoppedBy !== "boot") {
+    if (gone && m.rented!.deployed && s.stoppedBy !== "gpu" && s.stoppedBy !== "boot" && s.stoppedBy !== "crash") {
       await this.forget(m, s);
       console.log(`[rented] ${m.name || m.id}: gone from RunPod, taken out of Afflatus`);
       return true;
@@ -456,6 +461,13 @@ export class RentedFollow extends RentedBilling {
     if (s.gpuFailed && !this.queue.runningOn(m.id)) {
       await this.noteFailed(m, "checking the GPU");
       await this.act(m, "terminate", "gpu");
+      return true;
+    }
+    // its ComfyUI died (its report, or the queue finding it started again without its render): the render failed at once with
+    // why and never run again, and the pod terminated at once as a crash, not left billed to its idle time. Work from outside
+    // Afflatus on it too: there is no render to fail, the pod goes all the same
+    if (s.comfyDied && !s.comfyDied.told && !s.stopping) {
+      await this.crashed(m, s, pod);
       return true;
     }
     if (answers && !s.answered) {
@@ -666,6 +678,41 @@ export class RentedFollow extends RentedBilling {
       .catch(() => {});
   }
 
+  /**
+   * A pod whose ComfyUI died: its render failed with why (the pod's line and the step; its report and ComfyUI's last lines from
+   * the boot log kept with the job), the death kept on its run (Costs), and the pod terminated as a crash when it was deployed
+   * from here. One added by hand is the user's: said, never terminated.
+   */
+  private async crashed(m: Machine, s: Seen, pod: Pod | null): Promise<void> {
+    const died = s.comfyDied!;
+    died.told = true;
+    const log = died.from === "pod" ? await this.readBoot(m, pod, 0).catch(() => null) : null;
+    // ComfyUI's colours (its log's escape codes) left out: the job's trace is read as plain text
+    const tail = log?.lines.slice(-CRASH_LINES).map((l) => `${l.t} ${l.m.replace(/\x1b\[[0-9;]*m/g, "")}`).join("\n") ?? "";
+    const trace = [died.report ? `The pod's report: ${JSON.stringify(died.report)}` : null, tail ? `ComfyUI's last lines:\n${tail}` : null].filter(Boolean).join("\n\n");
+    // one the queue found has failed its render already (and that ComfyUI answers: nothing to hold for it)
+    if (died.from === "pod") died.render = this.queue.machineDied(m.id, died.said, trace ? trace.slice(-CRASH_TRACE) : null);
+    await this.db.updateTable("rent_sessions").set({ crash: JSON.stringify({ said: died.said, report: died.report }) }).where("machine_id", "=", m.id).where("ended_at", "is", null).execute().catch(() => {});
+    console.warn(`[rented] ${m.name || m.id}: ${died.said}${died.render ? " (its render failed)" : ""}`);
+    if (m.rented!.deployed) {
+      await this.act(m, "terminate", "crash");
+      return;
+    }
+    this.events.emit("queue");
+    this.tell?.("comfyGone", { title: `${machineSaid(m)}: ComfyUI died`, body: `${died.said}.${died.render ? " Its render failed, not run again." : ""} A pod added by hand is not terminated by Afflatus: it is still billed.`, key: `${m.id}:crash` });
+  }
+
+  /**
+   * The queue found a pod's ComfyUI started again without the render it ran (queue.ts lostOnPod): its death, though its image
+   * said nothing of it. Acted on at the next read, as a death the pod reports is.
+   */
+  podCrashed(machine: string, why: string): void {
+    const s = this.seenOf(machine);
+    if (s.comfyDied && !s.comfyDied.told) return;
+    s.comfyDied = { said: why, report: null, from: "queue", told: false, render: true };
+    this.kick(0);
+  }
+
   /** The step its start failed at, kept on its open session: the Costs tab's "failed starts". The first said stays. */
   private async noteFailed(m: Machine, step: string): Promise<void> {
     await this.db.updateTable("rent_sessions").set({ start_failed: step.slice(0, 200) }).where("machine_id", "=", m.id).where("ended_at", "is", null).where("start_failed", "is", null).execute().catch(() => {});
@@ -764,14 +811,22 @@ export class RentedFollow extends RentedBilling {
     // files its jobs wait for asked for. Nothing else tells it when no page is open, and the pod would idle toward its stop
     if (up && s.answers !== true) this.queue.answering(m.id);
     s.answers = up;
+    // up again after a death its pod reported and that was acted on: a new run of its container (a pod added by hand, started again)
+    if (up && s.comfyDied?.from === "pod" && s.comfyDied.told) s.comfyDied = null;
     // its ComfyUI not answering: the pack's watchdog in it is not known to be there either. The Afflatus image on a host whose
     // GPU does not work answers on ComfyUI's port in its place, and says so (deploy/runpod/broken.py)
     if (!up) {
       s.watchdog = "unknown";
-      if (m.rented!.deployed) {
+      // and the Afflatus image whose ComfyUI died after its start says that, with its numbers (died.py): asked of a pod deployed
+      // from here, or of one whose ComfyUI answered before (it may run the image, added by hand)
+      if ((m.rented!.deployed || s.answered) && !s.comfyDied) {
         const said = await comfy.client.raw("/afflatus/pod", { signal: AbortSignal.timeout(5_000) })
-          .then(async (r) => (r.ok ? ((await r.json()) as { afflatus_pod?: string; error?: string }) : null), () => null);
-        if (said?.afflatus_pod === "gpu_failed") s.gpuFailed = `Terminated: its GPU did not work on that host (${String(said.error ?? "CUDA error").slice(0, 200)}). Nothing billed after; deploy again, RunPod picks another host.`;
+          .then(async (r) => (r.ok ? ((await r.json()) as { afflatus_pod?: string; error?: string; report?: unknown }) : null), () => null);
+        if (m.rented!.deployed && said?.afflatus_pod === "gpu_failed") s.gpuFailed = `Terminated: its GPU did not work on that host (${String(said.error ?? "CUDA error").slice(0, 200)}). Nothing billed after; deploy again, RunPod picks another host.`;
+        if (said?.afflatus_pod === "comfy_died") {
+          const report = said.report && typeof said.report === "object" && !Array.isArray(said.report) ? (said.report as Record<string, unknown>) : null;
+          s.comfyDied = { said: String(said.error || "ComfyUI died").slice(0, 300), report, from: "pod", told: false, render: false };
+        }
       }
       return false;
     }
@@ -888,6 +943,7 @@ export class RentedFollow extends RentedBilling {
       boot: `its ComfyUI never answered in ${bootLimit(m) / 60_000} min`,
       gpu: "its GPU did not work on that host",
       start: `its start failed: ${stepSaid(this.boots.get(m.id)?.failed ?? "see its log")}`,
+      crash: `${s.comfyDied?.said ?? "its ComfyUI died"}${s.comfyDied?.render ? "; its render failed, not run again" : ""}`,
       watchdog: "its watchdog had stopped it while Afflatus was away, and it kept nothing",
       filled: "its volume is filled",
       cut: `its fill was cut short: ${s.cutWhy ?? "it stopped moving"}`,
@@ -924,6 +980,7 @@ export class RentedFollow extends RentedBilling {
       s.stopping = false;
       s.stoppingSince = null;
       s.stopAction = null;
+      s.comfyDied = null;
       // its boot log is this start's from now: the last one's lines are not where this one is
       this.boots.forget(m.id);
     }
@@ -931,8 +988,9 @@ export class RentedFollow extends RentedBilling {
       if (s.stopping && why !== "you") return;
       s.stopping = true;
       s.stopAction = action;
-      // a job the queue started on it a moment ago: idle and cap stops wait for it (the user's own Stop does not)
-      if (why !== "you" && why !== "cap" && this.queue.runningOn(m.id)) {
+      // a job the queue started on it a moment ago: idle and cap stops wait for it (the user's own Stop does not, nor a crash:
+      // its render is being failed, and its ComfyUI is dead)
+      if (why !== "you" && why !== "cap" && why !== "crash" && this.queue.runningOn(m.id)) {
         s.stopping = false;
         return;
       }
@@ -962,6 +1020,8 @@ export class RentedFollow extends RentedBilling {
     if (action === "terminate" && (why === "boot" || why === "gpu" || why === "start")) await this.undeploy(m);
     s.stoppedBy = action === "start" ? null : why;
     s.error = null;
+    // why its run ended, on its session before it is closed (Costs, past a restart of Afflatus)
+    if (action !== "start" && why) await this.db.updateTable("rent_sessions").set({ end_why: why }).where("machine_id", "=", m.id).where("ended_at", "is", null).execute().catch(() => {});
     // the user's own stop, kept with the machine (read again after a restart of Afflatus); any start ends it
     const userStopped = action === "stop" && why === "you";
     if (action !== "terminate" && Boolean(m.rented!.userStopped) !== userStopped) {
@@ -983,6 +1043,7 @@ export class RentedFollow extends RentedBilling {
     if (why === "filled") console.log(`[rented] ${m.name || m.id}: its volume filled, terminated`);
     if (why === "watchdog") console.log(`[rented] ${m.name || m.id}: found stopped by its watchdog, terminated (it kept nothing)`);
     if (why === "start") console.log(`[rented] ${m.name || m.id}: terminated (its start stopped: ${this.boots.get(m.id)?.failed ?? "an error"})`);
+    if (why === "crash") console.log(`[rented] ${m.name || m.id}: terminated (${s.comfyDied?.said ?? "its ComfyUI died"})`);
     if (why === "idle" || why === "cap" || why === "boot" || why === "gpu") console.log(`[rented] ${m.name || m.id}: ${action === "terminate" ? "terminated" : "stopped"} (${why === "idle" ? `idle ${m.rented!.idleMinutes} min` : why === "boot" ? `its ComfyUI never answered in ${bootLimit(m) / 60_000} min` : why === "gpu" ? "its GPU did not work on that host" : "a spending cap"})`);
     this.events.emit("queue");
     // read again soon, then at the fast pace while it moves

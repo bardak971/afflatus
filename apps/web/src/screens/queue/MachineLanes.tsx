@@ -36,7 +36,7 @@ function Dot({ state }: { state: State }) {
 }
 
 /** Its state as a pill (its word: machineState), in the colours the app gives them. */
-function StatePill({ state, word }: { state: State; word: MachineWord }) {
+function StatePill({ state, word }: { state: State; word: MachineWord | "crashed" }) {
   return (
     <span data-tip={state === "outside" ? OUTSIDE_TIP : undefined} className={cx(
       "self-start rounded-full px-2 py-px text-[11.5px] font-semibold whitespace-nowrap",
@@ -209,7 +209,9 @@ function MachineRow({ m, onStop, onPin }: { m: MachineState; onStop(id: string):
   const load = useSystem((s) => s.loads[m.id]);
   const drop = useDrop(m, onPin);
   const word = machineState(m);
-  const state = lookOf(word, Boolean(m.rented?.boot?.failed));
+  // a pod whose ComfyUI died, terminated for it: said as a crash, in the colours of a machine gone wrong, not as stopped
+  const crashed = word === "stopped" && m.rented?.stoppedBy === "crash";
+  const state = crashed ? "offline" : lookOf(word, Boolean(m.rented?.boot?.failed));
   const name = machineLabel(m);
   const files = gettingFiles(m);
   const thumb = useRef<HTMLButtonElement>(null);
@@ -235,7 +237,7 @@ function MachineRow({ m, onStop, onPin }: { m: MachineState; onStop(id: string):
       <Thumb run={m.running} state={state} anchor={thumb} onLarge={() => setLarge(!large)} />
       <span className="flex min-w-0 flex-col gap-1">
         <span className="max-w-[11rem] truncate text-[14px] font-semibold" data-tip={m.rented ? `${name} · rented on RunPod` : name}>{name}</span>
-        <StatePill state={state} word={word} />
+        <StatePill state={state} word={crashed ? "crashed" : word} />
       </span>
       {m.running ? <JobCell run={m.running} figures={figures} /> : files && state === "getting" ? (
         <span className="flex min-w-0 flex-col gap-1">

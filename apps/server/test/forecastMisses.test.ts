@@ -17,7 +17,7 @@ const row = (over: Partial<RenderRow>): RenderRow => ({
   id: `r${n}`, owner_id: "local", recipe_id: "sdxl.text-to-picture", family: "sdxl", model: "M", model_file: "m", time_key: "k",
   kind: "image", width: 1024, height: 1024, duration_ms: null, steps: 20, status: "done", whole: 1, cold: 0, waited_ms: 0,
   total_ms: 0, load_ms: 500, sample_ms: 0, refine_ms: 0, finish_ms: 1000, step_ms: null, expected_ms: null,
-  vram_peak: null, heat_peak: null, asset_id: null, work: 1024 * 1024, machine_id: "m1", gpu: null, node_ms: null, energy_wh: null, power_avg_w: null,
+  vram_peak: null, heat_peak: null, asset_id: null, work: 1024 * 1024, machine_id: "m1", gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, ram_peak: null, ram_total: null,
   created_at: new Date(Date.UTC(2026, 9, 1) + n++ * 1000).toISOString(), ...over,
 });
 /** A picture: `steps` at `stepMs` each, 1 s of finishing after them, its load before. */

@@ -42,7 +42,7 @@ describe("the Costs tab", () => {
     const s: PodSession = {
       id: "s", machine: "rp", gpu: "A40", rate: 0.6, from: 0, to: 30 * MIN, open: false, usd: 0.3, why: "", idleMinutes: 10,
       parts: { boot: 4 * MIN, fetch: 6 * MIN, render: 10 * MIN, failed: 0, outside: 0, idle: 10 * MIN }, estimated: ["its boot, up to its first work"],
-      boot: { pull: 0, packs: 0, comfy: 0, startFailed: 0, boot: 4 * MIN }, startFailed: null, packs: [],
+      boot: { pull: 0, packs: 0, comfy: 0, startFailed: 0, boot: 4 * MIN }, startFailed: null, crash: null, packs: [],
       fetched: { files: 2, bytes: 26 * 2 ** 30 }, renders: [{ id: "r", at: 20 * MIN, ms: 10 * MIN, status: "done", model: "SCAIL", usd: 0.1, item: null }],
     };
     const bits = sessionBits(s, 60 * MIN);
@@ -62,7 +62,7 @@ describe("the Costs tab", () => {
     const s: PodSession = {
       id: "s", machine: "rp", gpu: "RTX 3070", rate: 0.14, from: 0, to: 10 * MIN, open: false, usd: 0.14 / 6, why: "no render, work outside Afflatus", idleMinutes: 10,
       parts: { boot: 2 * MIN, fetch: 0, render: 0, failed: 0, outside: 4 * MIN, idle: 4 * MIN }, estimated: [],
-      boot: { pull: 0, packs: 0, comfy: 0, startFailed: 0, boot: 2 * MIN }, startFailed: null, packs: [],
+      boot: { pull: 0, packs: 0, comfy: 0, startFailed: 0, boot: 2 * MIN }, startFailed: null, crash: null, packs: [],
       fetched: { files: 0, bytes: 0 }, renders: [],
     };
     const bits = sessionBits(s, 10 * MIN);
@@ -87,7 +87,7 @@ describe("the Costs tab", () => {
     const s: PodSession = {
       id: "s", machine: "rp", gpu: "A40", rate: 0.6, from: 0, to: 20 * MIN, open: false, usd: 0.2, why: "", idleMinutes: 10,
       parts: { boot: 10 * MIN, fetch: 0, render: 10 * MIN, failed: 0, outside: 0, idle: 0 }, estimated: [],
-      boot: { pull: 6 * MIN, packs: 2 * MIN, comfy: 2 * MIN, startFailed: 0, boot: 0 }, startFailed: null, packs: [{ pack: "ComfyUI-KJNodes", ms: 90_000 }],
+      boot: { pull: 6 * MIN, packs: 2 * MIN, comfy: 2 * MIN, startFailed: 0, boot: 0 }, startFailed: null, crash: null, packs: [{ pack: "ComfyUI-KJNodes", ms: 90_000 }],
       fetched: { files: 0, bytes: 0 }, renders: [{ id: "r", at: 20 * MIN, ms: 10 * MIN, status: "done", model: "SCAIL", usd: 0.1, item: null }],
     };
     const bits = sessionBits(s, 20 * MIN);

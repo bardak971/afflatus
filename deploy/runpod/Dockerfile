@@ -86,6 +86,7 @@ COPY comfy-nodes/afflatus-nodes /opt/afflatus-nodes
 COPY deploy/runpod/start.sh /start.sh
 COPY deploy/runpod/broken.py /opt/afflatus-pod/broken.py
 COPY deploy/runpod/bootlog.py /opt/afflatus-pod/bootlog.py
+COPY deploy/runpod/died.py /opt/afflatus-pod/died.py
 # a checkout on Windows may hand the script over with CRLF: sh would not read its first line
 RUN sed -i 's/\r$//' /start.sh && chmod +x /start.sh && rm -rf /opt/afflatus-nodes/tests
 

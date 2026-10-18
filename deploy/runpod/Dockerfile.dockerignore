@@ -4,6 +4,7 @@
 !deploy/runpod/start.sh
 !deploy/runpod/broken.py
 !deploy/runpod/bootlog.py
+!deploy/runpod/died.py
 !deploy/runpod/registry_cache.py
 comfy-nodes/afflatus-nodes/tests
 **/__pycache__

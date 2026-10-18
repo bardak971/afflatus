@@ -15,7 +15,8 @@ export function fakeRoutes(fake: FakeState, hooks: { queued(promptId: string, cl
   return ({ method, path, url, headers, raw, json, plain }) => {
     if (method === "GET") {
       if (path === "/system_stats") {
-        return json(200, { system: { comfyui_version: "0.0.0-fake" }, devices: [{ name: "fake gpu", vram_total: 12 * 2 ** 30, vram_free: 8 * 2 ** 30 }] });
+        const ram = fake.ram ? { ram_total: fake.ram.total, ram_free: fake.ram.free } : {};
+        return json(200, { system: { comfyui_version: "0.0.0-fake", ...ram }, devices: [{ name: "fake gpu", vram_total: 12 * 2 ** 30, vram_free: 8 * 2 ** 30 }] });
       }
       if (path === "/object_info") return json(200, fake.catalog);
       // one node type, as ComfyUI answers it: that type alone, or nothing when it does not have it

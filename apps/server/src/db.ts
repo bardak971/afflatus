@@ -153,6 +153,9 @@ export interface Tables {
     /** What its GPU drew while it rendered (Wh) and its mean power (W), from the node pack's power reading on this PC's machines; null where none was read. */
     energy_wh: number | null;
     power_avg_w: number | null;
+    /** The most RAM it used and the RAM there was (GB, ComfyUI's count: a pod's container limit), 0079; null where not read. */
+    ram_peak: number | null;
+    ram_total: number | null;
     created_at: string;
   };
   /** The renders of one model on one day (UTC), folded: what the charts are drawn from once the rows are gone. Recipe "*" is the day as a whole. */
@@ -374,6 +377,12 @@ export interface Tables {
     pulled_at: string | null; packs_from: string | null; packs_to: string | null; boot_packs: string | null; start_failed: string | null;
     /** The network volume it ran on, by id (0078); null: none, or a session from before. */
     volume?: string | null;
+    /**
+     * Why its run ended, as Afflatus ended it (rentedModel's stoppedBy: "idle", "cap", "you", "crash"…), and its ComfyUI's
+     * death as the pod reported it (JSON: { said, report }), 0079. Null: still running, ended by RunPod, or from before.
+     */
+    end_why?: string | null;
+    crash?: string | null;
   };
   /** Each model file a pod got (podFiles.ts): from when its bytes started to when it was whole, the Costs tab's "Fetching files". Bytes as a number (bigint on Postgres). */
   pod_fetches: { id: string; machine_id: string; file: string; folder: string; via: string; bytes: number | string; started_at: string; ended_at: string };

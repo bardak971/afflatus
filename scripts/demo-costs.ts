@@ -55,7 +55,7 @@ export async function seedCosts(db: Db, now = Date.now()): Promise<void> {
         rows.push({
           id: `demo-pod-${n++}`, owner_id: "local", recipe_id: recipe, family: recipe.split(".")[0]!, model: recipe, model_file: recipe, time_key: "", kind: bad ? null : recipe.endsWith("video") ? "video" : "image",
           width: null, height: null, duration_ms: null, steps: 8, status: bad ? "failed" : "done", whole: 1, cold: k === 0 ? 1 : 0, waited_ms: 0, total_ms: ms, load_ms: 0, sample_ms: ms, refine_ms: 0, finish_ms: 0,
-          step_ms: null, expected_ms: null, vram_peak: null, heat_peak: null, asset_id: null, machine_id: machine, gpu: p.gpu, node_ms: null, energy_wh: null, power_avg_w: null, work: null, created_at: new Date(t).toISOString(),
+          step_ms: null, expected_ms: null, vram_peak: null, heat_peak: null, asset_id: null, machine_id: machine, gpu: p.gpu, node_ms: null, energy_wh: null, power_avg_w: null, ram_peak: null, ram_total: null, work: null, created_at: new Date(t).toISOString(),
         });
         t += 20_000;
       }

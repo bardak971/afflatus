@@ -1,5 +1,6 @@
-"""start.sh's failure path, run on its own with a stand-in python and sleep: a start that fails hands over to broken.py
-(which arms the watchdog) instead of exiting into RunPod's restart loop, billed with no watchdog.
+"""start.sh's failure path and its run of ComfyUI, each run on its own with a stand-in python and sleep: a start that fails
+hands over to broken.py (which arms the watchdog) instead of exiting into RunPod's restart loop, billed with no watchdog;
+a ComfyUI that dies hands over to died.py and broken.py the same way; one that RunPod stops is stopped cleanly.
 
 The part of start.sh between its "--- the failure path" marks is run under `set -e` as start.sh runs it, then a step that
 fails. Needs a POSIX sh (skipped without one).
@@ -8,8 +9,11 @@ fails. Needs a POSIX sh (skipped without one).
 import os
 import re
 import shutil
+import signal
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -17,13 +21,17 @@ START = os.path.join(os.path.dirname(HERE), "start.sh")
 SH = shutil.which("sh")
 
 
-def failure_path():
+def part(name):
     with open(START, encoding="utf-8", newline="") as f:
         text = f.read()
-    found = re.search(r"^# --- the failure path.*?^# --- end of the failure path$", text, re.M | re.S)
+    found = re.search(rf"^# --- the {name}.*?^# --- end of the {name}$", text, re.M | re.S)
     if not found:
-        raise AssertionError("start.sh has no failure path between its marks")
+        raise AssertionError(f"start.sh has no {name} between its marks")
     return found.group(0)
+
+
+def failure_path():
+    return part("failure path")
 
 
 @unittest.skipIf(SH is None, "no POSIX sh")
@@ -67,6 +75,80 @@ class FailurePath(unittest.TestCase):
         done, said = self.run_start('step "setting up ComfyUI-Manager"\ntrue')
         self.assertEqual(done.returncode, 0)
         self.assertEqual(said, [])
+
+
+# a stand-in python: records its call, and as ComfyUI does what COMFY_DOES says
+PYTHON = '#!/bin/sh\necho "python $*" >> "$CALLS"\ncase "$1" in /comfyui/main.py) eval "$COMFY_DOES";; esac\n'
+# a ComfyUI that runs until it is stopped, and says it was
+RUNS_UNTIL_STOPPED = 'trap \'echo comfy-stopped >> "$CALLS"; exit 0\' TERM; while :; do "$REAL_SLEEP" 0.1; done'
+
+
+@unittest.skipIf(SH is None or sys.platform == "win32", "no POSIX sh with POSIX signals")
+class Run(unittest.TestCase):
+    """The run: ComfyUI started as start.sh's child, waited for, its end handed over or its stop passed on."""
+
+    def start(self, comfy_does, d):
+        calls = os.path.join(d, "calls.txt")
+        bin_dir = os.path.join(d, "bin")
+        os.makedirs(bin_dir)
+        for name, text in (("python", PYTHON), ("sleep", '#!/bin/sh\necho "sleep $*" >> "$CALLS"\n')):
+            path = os.path.join(bin_dir, name)
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
+                f.write(text)
+            os.chmod(path, 0o755)
+        script = os.path.join(d, "start.sh")
+        with open(script, "w", encoding="utf-8", newline="\n") as f:
+            # its files in this test's folder, not /tmp
+            f.write("set -e\nPOD=/opt/afflatus-pod\nBASE=/b\n" + part("run").replace("/tmp/", d + "/") + "\n")
+        env = {**os.environ, "CALLS": calls, "COMFY_DOES": comfy_does, "REAL_SLEEP": shutil.which("sleep") or "/bin/sleep",
+               "PATH": bin_dir + os.pathsep + os.environ.get("PATH", "")}
+        return subprocess.Popen([SH, script], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True), calls
+
+    def said(self, calls):
+        if not os.path.exists(calls):
+            return []
+        with open(calls, encoding="utf-8") as f:
+            return f.read().splitlines()
+
+    def test_comfyui_that_dies_hands_over_to_died_py_and_broken_py(self):
+        with tempfile.TemporaryDirectory() as d:
+            proc, calls = self.start("kill -9 $$", d)
+            out, _ = proc.communicate(timeout=60)
+            said = self.said(calls)
+        self.assertIn("[afflatus-pod] ComfyUI ended (status 137)", out)
+        self.assertEqual(said[0], f"python -u /opt/afflatus-pod/died.py start {d}/afflatus-comfy.json")
+        self.assertTrue(said[1].startswith("python /comfyui/main.py --listen 0.0.0.0 --port 8188"))
+        # never started again: the report, broken.py, and the wait should broken.py not run
+        self.assertEqual(said[2:], [
+            f"python -u /opt/afflatus-pod/died.py end 137 {d}/afflatus-comfy.json {d}/afflatus-died.json",
+            f"python -u /opt/afflatus-pod/broken.py --died {d}/afflatus-died.json",
+            "sleep 1200",
+        ])
+
+    def test_comfyui_that_exits_on_an_error_is_said_with_its_code(self):
+        with tempfile.TemporaryDirectory() as d:
+            proc, calls = self.start("exit 3", d)
+            out, _ = proc.communicate(timeout=60)
+            said = self.said(calls)
+        self.assertIn("[afflatus-pod] ComfyUI ended (status 3)", out)
+        self.assertIn(f"python -u /opt/afflatus-pod/died.py end 3 {d}/afflatus-comfy.json {d}/afflatus-died.json", said)
+
+    def test_a_stop_from_runpod_is_passed_on_and_ends_cleanly(self):
+        with tempfile.TemporaryDirectory() as d:
+            proc, calls = self.start(RUNS_UNTIL_STOPPED, d)
+            pid = os.path.join(d, "afflatus-comfy.pid")
+            for _ in range(200):
+                if os.path.exists(pid) and os.path.getsize(pid) > 0:
+                    break
+                time.sleep(0.05)
+            time.sleep(0.5)
+            proc.send_signal(signal.SIGTERM)
+            out, _ = proc.communicate(timeout=60)
+            said = self.said(calls)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("comfy-stopped", said)
+        self.assertNotIn("ComfyUI ended", out)
+        self.assertFalse(any("died.py end" in line or "broken.py" in line for line in said))
 
 
 if __name__ == "__main__":

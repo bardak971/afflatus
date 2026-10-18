@@ -24,16 +24,34 @@ WATCHDOG = os.path.join(ROOT, "comfy-nodes", "afflatus-nodes", "watchdog.py")
 
 class WhatFailed(unittest.TestCase):
     def test_a_start_that_failed_at_a_step(self):
-        self.assertEqual(broken.what_failed(["broken.py", "--start", "putting in the node packs", "1"]), ("start_failed", "the start failed at putting in the node packs (exit 1)"))
-        self.assertEqual(broken.what_failed(["broken.py", "--start"]), ("start_failed", "the start failed at the start (exit ?)"))
+        self.assertEqual(broken.what_failed(["broken.py", "--start", "putting in the node packs", "1"]), ("start_failed", "the start failed at putting in the node packs (exit 1)", None))
+        self.assertEqual(broken.what_failed(["broken.py", "--start"]), ("start_failed", "the start failed at the start (exit ?)", None))
 
     def test_the_gpu_check_its_error_file(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "gpu.txt")
             with open(path, "w", encoding="utf-8") as f:
                 f.write("Traceback\n  ...\nRuntimeError: CUDA error: unknown error\n\n")
-            self.assertEqual(broken.what_failed(["broken.py", path]), ("gpu_failed", "RuntimeError: CUDA error: unknown error"))
-        self.assertEqual(broken.what_failed(["broken.py"]), ("gpu_failed", "the GPU check failed"))
+            self.assertEqual(broken.what_failed(["broken.py", path]), ("gpu_failed", "RuntimeError: CUDA error: unknown error", None))
+        self.assertEqual(broken.what_failed(["broken.py"]), ("gpu_failed", "the GPU check failed", None))
+
+    def test_comfyui_that_died_its_report_and_nothing_else_of_the_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "died.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"cause": "oom", "signal": 9, "exit": None, "oom_kills": 1, "ram_peak": 53_000_000_000, "ram_limit": 53_687_091_200,
+                           "vram_used": 30, "vram_total": 48, "ran_s": 2100, "said": "ComfyUI was killed: out of system memory",
+                           "token": "secret", "ran_s_extra": "x"}, f)
+            kind, error, report = broken.what_failed(["broken.py", "--died", path])
+        self.assertEqual((kind, error), ("comfy_died", "ComfyUI was killed: out of system memory"))
+        self.assertEqual(report["cause"], "oom")
+        self.assertEqual((report["signal"], report["ram_peak"], report["ran_s"]), (9, 53_000_000_000, 2100))
+        self.assertNotIn("token", report)
+        self.assertNotIn("ran_s_extra", report)
+
+    def test_comfyui_that_died_without_a_report(self):
+        kind, error, report = broken.what_failed(["broken.py", "--died", os.path.join(HERE, "no-such-report.json")])
+        self.assertEqual((kind, error, report), ("comfy_died", "ComfyUI ended, and why could not be read", {"cause": None}))
 
 
 class Answers(unittest.TestCase):

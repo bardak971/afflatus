@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { ComfyAway, ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, waitForOutputs, type Measured } from "@afflatus/comfy";
+import { ComfyAway, ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, systemLoadFromStatus, waitForOutputs, type Measured } from "@afflatus/comfy";
 import { expandWildcards, modelFileName, modelOf, parseInput, removedSaid, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import type { Comfy, MachineComfy } from "./comfy";
 import { newId, now, OWNER, type Db } from "./db";
@@ -17,7 +17,7 @@ import { FIRST_MACHINE, readSettings, type Machine } from "./settings";
 import type { Storage } from "./storage";
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
-import { CAP_REACHED, DEFAULT_QUEUE_OPTIONS, GPU_AT_WORK, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type Lane, type QueueOptions, type Resume, type Running } from "./queueModel";
+import { CAP_REACHED, DEFAULT_QUEUE_OPTIONS, Died, GPU_AT_WORK, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type Lane, type QueueOptions, type Resume, type Running } from "./queueModel";
 import * as bulk from "./queueBulk";
 import { needsComfy, Offline } from "./queueOffline";
 import * as submitting from "./queueSubmit";
@@ -49,6 +49,8 @@ const LOADS_KEY = "queue.loads";
 const keyOf = (key: string, machine: string) => (machine === FIRST_MACHINE ? key : `${key}.${machine}`);
 /** At most how often a running render's step count is saved on its job, when the options do not say. */
 const STEPS_SAVE_MS = 5_000;
+/** How often a render's machine is read for its RAM (its peak, render_stats.ram_peak): a small read of ComfyUI's own. */
+const RAM_EVERY_MS = 10_000;
 /** How recent a read of the GPU's load must be for a silent render's GPU to be known idle: system feeds report every few seconds. */
 const LOAD_FRESH_MS = 2 * 60_000;
 /**
@@ -110,6 +112,13 @@ export class Queue {
   onOutside: ((machine: string, outside: { running: number; pending: number } | null) => void) | null = null;
   /** The machines a ComfyUI gone mid-render was said of, until they answer again: said once, however it is found out. */
   private goneSaid = new Set<string>();
+  /**
+   * Told when a rented pod's ComfyUI is found started again without the render it ran (an older pod image, whose ComfyUI was
+   * the container itself: its death restarted it, and said nothing): rentedFollow terminates the pod as a crash, with why.
+   */
+  podCrashed: ((machine: string, why: string) => void) | null = null;
+  /** The machines whose ComfyUI died (machineDied), until they answer again: their render's end is that death, whatever its wait saw. */
+  private readonly died = new Map<string, Died>();
 
   constructor(
     private readonly db: Db,
@@ -1078,6 +1087,36 @@ export class Queue {
     this.tell("comfyGone", { title: `${name} is offline`, body: `It stopped answering while it rendered${label ? ` ${label}` : ""}. The render is queued again while attempts remain.`, key: lane.id });
   }
 
+  /**
+   * A machine's ComfyUI died (its pod said so: rentedFollow): the render it ran fails now, with why and the step it was at,
+   * and is not queued again (Died). Kept for the machine until it answers again: the render's own wait, which sees only a
+   * ComfyUI gone, would otherwise queue it again elsewhere. Whether a render was running there.
+   */
+  machineDied(machine: string, why: string, trace: string | null): boolean {
+    const lane = this.lanes.get(machine);
+    const run = lane?.running;
+    const at = run?.promptId && lane?.comfy ? lane.comfy.monitor.progress(run.promptId) : null;
+    const step = at && at.step > 0 && at.steps > 0 ? ` at step ${at.step}/${at.steps}` : "";
+    const where = lane?.machine ? machineSaid(lane.machine) : machine;
+    const died = new Died(`${why}${step}, on ${where}. Not run again on its own: it would likely kill ComfyUI again.`, trace);
+    this.died.set(machine, died);
+    if (!run || run.abort.signal.aborted) return Boolean(run);
+    run.abort.abort(died);
+    return true;
+  }
+
+  /**
+   * A render lost on a rented pod whose ComfyUI answers without it: started again under it, the death of the one that ran it
+   * (an older pod image said nothing of why). A Died, said on the job, and told so that the pod is terminated; null for any
+   * other loss (this PC's ComfyUI started again by hand, a machine merely gone), which goes again as before.
+   */
+  private lostOnPod(lane: Lane, err: Error): Died | null {
+    if (!(err instanceof ComfyLost) || !lane.machine?.rented) return null;
+    const why = "ComfyUI started again on the pod during the render, without it: it likely crashed (this pod's image does not say why; a newer Afflatus pod image does)";
+    this.podCrashed?.(lane.id, why);
+    return new Died(`${why}, on ${machineSaid(lane.machine)}. Not run again on its own: it would likely kill ComfyUI again.`);
+  }
+
   /** Fail the render a machine runs as stuck, with what to say, and drop it in its ComfyUI. Whether there was one. */
   async endStuck(machine: string, why: string): Promise<boolean> {
     const lane = this.lanes.get(machine);
@@ -1139,6 +1178,7 @@ export class Queue {
    * and the pod idled toward its stop with the job waiting. Said once per change, by the caller.
    */
   answering(machine: string): void {
+    this.died.delete(machine);
     const lane = this.lanes.get(machine);
     if (!lane) return;
     this.back(lane);
@@ -1220,6 +1260,8 @@ export class Queue {
       if (this.stopped) await this.db.updateTable("jobs").set({ status: "queued", updated_at: now() }).where("id", "=", row.id).execute();
       // stuck on a rented GPU (a finish or a RIFE pass that hangs): a failure, said as such, not a stop by the user
       else if (run.abort.signal.reason instanceof Stuck) await this.failure(row, run.promptId, new Error(run.abort.signal.reason.message));
+      // its ComfyUI died under it: failed with why, never queued again (Died)
+      else if (run.abort.signal.reason instanceof Died) await this.failure(row, run.promptId, new Error(run.abort.signal.reason.message), run.abort.signal.reason.trace);
       else if (run.abort.signal.aborted) await this.finish(row.id, "cancelled", { error: "stopped by you" });
       else if (!(await this.toolLost(lane, row, err as Error))) await this.failure(row, run.promptId, err as Error);
     } finally {
@@ -1362,10 +1404,15 @@ export class Queue {
       // steps ComfyUI reported before this was listening (the prompt is followed from before it is sent, and the writes
       // since then let its first progress in) are saved now, not at the next step
       saving.check();
+      // the RAM, which no progress says: ComfyUI's own count (/system_stats, a container's limit on a pod) read every few
+      // seconds for the render's peak (render_stats.ram_peak), where a render that dies of memory is learned from
+      const ram = setInterval(() => void comfy.client.status().then((st) => comfy.monitor.peaks(systemLoadFromStatus(st)), () => {}), RAM_EVERY_MS);
+      ram.unref?.();
       let outputs;
       try {
         outputs = await waitForOutputs(comfy.client, resume.promptId, { ...this.opts.wait, signal: abort.signal, ended: comfy.monitor.ended(resume.promptId) });
       } finally {
+        clearInterval(ram);
         measured = comfy.monitor.measured(resume.promptId);
         comfy.monitor.untrack(resume.promptId);
         // a save under way lands before the job is closed or queued again, never over what that writes
@@ -1452,8 +1499,15 @@ export class Queue {
     const { resume, measured, made, whole } = at;
     // what never reached ComfyUI took no GPU time: only a render that was under way is put on record
     const onRecord = resume && !made && !row.warm;
+    // its ComfyUI died under it (its pod said so, or it answers again without it): whatever the wait saw of that, a failure
+    // said with why, never queued again, as a machine merely gone is
+    const reason = at.aborted ? lane.running?.abort.signal.reason : null;
+    const died = this.stopped ? null : reason instanceof Died ? reason : this.died.get(lane.id) ?? this.lostOnPod(lane, err);
     if (this.stopped) {
       // shutting down: leave the row as it is, the next start picks it up
+    } else if (died) {
+      if (onRecord) await this.note(lane, row, recipe, resume, measured, "failed", whole, Date.now() - resume.startedAt);
+      await this.failure(row, resume?.promptId ?? at.held?.promptId, new Error(died.message), died.trace);
     } else if (at.aborted && lane.running?.abort.signal.reason instanceof Stuck) {
       // stuck on a rented GPU: a failure, said as such, not a stop by the user
       if (onRecord) await this.note(lane, row, recipe, resume, measured, "failed", whole, Date.now() - resume.startedAt);
@@ -1557,11 +1611,11 @@ export class Queue {
    * the log with what finds it again (the job, its prompt, its recipe). An error that is none of ComfyUI's is a fault here:
    * its stack goes to the log too, which is where it is read.
    */
-  private async failure(row: JobRow, promptId: string | undefined, err: Error): Promise<void> {
+  private async failure(row: JobRow, promptId: string | undefined, err: Error, trace: string | null = null): Promise<void> {
     const comfys = err instanceof ComfyFailed || err instanceof ComfyError || err instanceof ComfyUnreachable || err instanceof ComfyLost || err instanceof ComfyCancelled;
     console.error(`[queue] job ${row.id} failed (prompt ${promptId ?? "not sent"}, ${row.recipe_id}): ${err.message}`);
     if (!comfys && err.stack) console.error(err.stack);
-    await this.finish(row.id, "failed", { error: err.message.slice(0, 600), trace: err instanceof ComfyFailed ? err.failure?.traceback || null : null });
+    await this.finish(row.id, "failed", { error: err.message.slice(0, 600), trace: trace ?? (err instanceof ComfyFailed ? err.failure?.traceback || null : null) });
   }
 
   /** Put a render on the record of render times (renders.ts), under the machine it ran on. Never in the way of the render itself: a failure here is only said. */

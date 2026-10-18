@@ -263,6 +263,17 @@ export interface CostAdvice {
   save: number | null;
 }
 
+/** The line a pod's ComfyUI death was kept with on its run (rentedFollow.crashed: JSON { said, report }); null when none. */
+function crashSaid(kept: string | null | undefined): string | null {
+  if (!kept) return null;
+  try {
+    const said = (JSON.parse(kept) as { said?: unknown }).said;
+    return typeof said === "string" && said ? said : "ComfyUI died";
+  } catch {
+    return "ComfyUI died";
+  }
+}
+
 export interface SessionView {
   id: string;
   machine: string;
@@ -277,6 +288,8 @@ export interface SessionView {
   /** Its Booting by part (ms), adding up to it; and what its boot log said: the step its start failed at, its packs' installs. */
   boot: BootMs;
   startFailed: string | null;
+  /** Its ComfyUI died on it: why, as the pod said it (rent_sessions.crash), e.g. out of system memory with its peak. */
+  crash: string | null;
   packs: Array<{ pack: string; ms: number }>;
   estimated: string[];
   why: string;
@@ -459,7 +472,7 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
     for (const x of mine) renderRate.set(x.row.id, r.rate);
     const its = mine.map((x) => ({ id: x.row.id, at: x.to, ms: x.row.total_ms, status: x.row.status, model: nameOf(d.registry, x.row.recipe_id), usd: usdOf(x.row.total_ms, r.rate), item: refs.get(x.row.id)?.item ?? null }));
     sessions.push({
-      id: r.id, machine: r.machine_id, gpu, rate: r.rate, from, to, open: !r.ended_at, usd: usdOf(to - from, r.rate), parts, boot, startFailed: r.start_failed, packs, estimated: split.estimated, why: whyOf(its, parts.outside), idleMinutes: idle,
+      id: r.id, machine: r.machine_id, gpu, rate: r.rate, from, to, open: !r.ended_at, usd: usdOf(to - from, r.rate), parts, boot, startFailed: r.start_failed, crash: crashSaid(r.crash), packs, estimated: split.estimated, why: whyOf(its, parts.outside), idleMinutes: idle,
       fetched: { files: kept.length + guessed.length, bytes: [...kept.map((f) => Number(f.bytes)), ...guessed.map((m) => Number(m.bytes))].reduce((n, b) => n + b, 0) },
       renders: its.sort((a, b) => a.at - b.at),
     });

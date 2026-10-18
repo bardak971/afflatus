@@ -116,7 +116,32 @@ for (const f of [fake, ...others]) f.watts = 265;
 // pod takes 8 s to come up; a deployed one 8 s, then 20 s pulling its image (no uptime yet), then 20 s of its boot log
 // (start.sh's steps, ComfyUI's start) before its ComfyUI answers
 const RUNPOD_KEY = "demo-runpod-key";
-const pod = async () => Object.assign(await pretendComfy(), { packVersion: PACK });
+const podComfys: Array<Awaited<ReturnType<typeof pretendComfy>>> = [];
+const pod = async () => {
+  const c = Object.assign(await pretendComfy(), { packVersion: PACK });
+  podComfys.push(c);
+  return c;
+};
+// DEMO_POD_DIES=<seconds>: a pod's ComfyUI dies that long into a render, out of system memory, as the Afflatus image says
+// it (deploy/runpod/died.py, broken.py "comfy_died"): the render fails with why, the pod is terminated as a crash. Each pod once
+const diesAfter = Number(process.env.DEMO_POD_DIES) * 1000;
+if (diesAfter > 0) {
+  const busySince = new Map<object, number>();
+  setInterval(() => {
+    for (const c of podComfys) {
+      if (c.podDied || !c.running.length) continue;
+      const since = busySince.get(c) ?? Date.now();
+      busySince.set(c, since);
+      if (Date.now() - since < diesAfter) continue;
+      const GiB = 2 ** 30;
+      c.podDied = {
+        error: "ComfyUI was killed: out of system memory (peak 49.8 of 50.0 GB)",
+        report: { cause: "oom", signal: 9, exit: null, oom_kills: 1, ram_peak: Math.round(49.8 * GiB), ram_limit: 50 * GiB, vram_used: 30 * GiB, vram_total: 48 * GiB, ran_s: Math.round(diesAfter / 1000) },
+      };
+      c.bootLog?.lines.push({ t: new Date().toISOString(), m: "[afflatus-pod] ComfyUI ended (status 137)" }, { t: new Date().toISOString(), m: "[afflatus-pod] ComfyUI was killed: out of system memory (peak 49.8 of 50.0 GB)" });
+    }
+  }, 1000).unref();
+}
 const pretendRunpod = process.env.DEMO_RUNPOD === "1" ? await startFakeRunpod({
   key: RUNPOD_KEY, bootMs: 8000, pullMs: 20_000, startMs: 20_000,
   // Deploy a GPU: a new pod is a new pretend ComfyUI with the node pack, up as said above; two network volumes, the
