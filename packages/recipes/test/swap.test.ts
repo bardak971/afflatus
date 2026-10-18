@@ -118,7 +118,7 @@ describe("MiniMax H3 · Swap character", () => {
     // a pack without the node yet: pasted by the mask, and said
     const old = build({ paste: "Difference" }, part(), { has: (cls) => cls !== "AfflatusSwapPaste" });
     expect(of(old.graph, "ImageCompositeMasked")).toHaveLength(1);
-    expect(old.built.warnings).toContainEqual(expect.stringContaining("node pack 0.28.0"));
+    expect(old.built.warnings).toContainEqual(expect.stringContaining("node pack 0.29.0"));
   });
 
   it("with the Mask off, redraws the whole frame: no SAM, and nothing said of a missing mask", () => {

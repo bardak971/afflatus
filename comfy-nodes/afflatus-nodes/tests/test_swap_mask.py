@@ -204,12 +204,19 @@ def test_the_difference_paste_keeps_what_h3_drew_anew_and_gives_back_the_wall_it
     source = torch.from_numpy(0.5 + 0.02 * gen.standard_normal((frames, H, W, 3)).astype(np.float32))
     # H3's wall: the source a little off everywhere (its grain, a touch of brightness)
     render = source + torch.from_numpy(0.025 + 0.01 * gen.standard_normal((frames, H, W, 3)).astype(np.float32))
-    render[:, 30:50, 44:60] = 0.95  # an arm drawn past the person, over the wall
+    render[:, 56:62, 30:52] = 0.95  # an arm drawn past the person, over the wall, from the shoulder out
+    render[:, 5:20, 45:60] = 0.2  # someone H3 invented at the table, apart from the person
     noise = np.ones((swap_mask.latent_frames(frames), H // 16, W // 16), np.float32)  # the whole frame in the zone
     paste = torch.zeros(frames, H, W)
     paste[:, 60:120, 10:40] = 1  # the person
     a = swap_mask.difference_alpha(render, source, noise, paste, threshold=0.06, grow=4, sigma=1.0, reach=1).numpy()
     assert a.shape == (frames, H, W)
-    assert a[2, 40, 52] > 0.95  # the arm
+    assert a[2, 58, 48] > 0.95  # the arm, joined to the person
+    assert a[2, 12, 52] < 0.05  # the invented one: the source's table again
+    # someone invented right beside the person, joined to them: kept only within the spread
+    near = render.clone()
+    near[:, 60:120, 40:64] = 0.2
+    b = swap_mask.difference_alpha(near, source, noise, paste, threshold=0.06, grow=0, sigma=0.0, reach=0, spread=8).numpy()
+    assert b[2, 90, 44] > 0.95 and b[2, 90, 60] < 0.05
     assert a[2, 90, 25] > 0.95  # the person
     assert a[2, 10, 10] < 0.05 and a[2, 120, 60] < 0.05  # the wall: the source's again

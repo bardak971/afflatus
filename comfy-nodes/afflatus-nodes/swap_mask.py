@@ -390,12 +390,13 @@ def zone_cells(noise: np.ndarray, frames: int, height: int, width: int, scale: i
     return out
 
 
-def difference_alpha(render, source, noise: np.ndarray, paste, threshold: float = 0.06, grow: int = 8, sigma: float = 4.0, reach: int = 1, scale: int = PASTE_SCALE):
+def difference_alpha(render, source, noise: np.ndarray, paste, threshold: float = 0.06, grow: int = 8, sigma: float = 4.0, reach: int = 1, scale: int = PASTE_SCALE, spread: int = 40):
     """
     [frames, H, W] torch float, where the render is kept over the source: inside the zone H3 redrew, where it differs
     clearly from the source (a new person's limb over the wall), plus the person's own paste-back mask; elsewhere the
     source's own pixels, so the wall H3 redrew close to the source's does not show as a wavering band around the person
-    (the owner's Timeline 19, 2026-10-18). The difference is read as a local mean (the VAE's grain is not a change),
+    (the owner's Timeline 19, 2026-10-18); only what is joined to the person, never someone H3 invented elsewhere in the
+    zone. The difference is read as a local mean (the VAE's grain is not a change),
     held over `reach` frames either side, grown about `grow` px and blurred, all on a grid `scale` times coarser.
     """
     import torch
@@ -413,6 +414,21 @@ def difference_alpha(render, source, noise: np.ndarray, paste, threshold: float 
     if s > 1:
         person = F.max_pool2d(person, s)
     keep = torch.maximum(keep * zone, person)
+    # only what is joined to the person: a new limb or a longer garment is, people H3 invented elsewhere in the zone are
+    # not (the owner's Timeline 19 take, Grow 160: two women at the table, 2026-10-18). Grown from the person through
+    # what differs, until it no longer grows
+    # and no further from the person than `spread` px: someone invented right behind an arm is not joined through it
+    near = person.clone()
+    for _ in range(int(round(spread / s))):
+        near = F.max_pool2d(near, 3, 1, 1)
+    keep = keep * near
+    joined = person.clone()
+    for _ in range(4 * max(H, W) // s):
+        grown = F.max_pool2d(joined, 3, 1, 1) * keep
+        if torch.equal(grown, joined):
+            break
+        joined = grown
+    keep = joined
     if reach > 0:
         keep = F.max_pool3d(keep.permute(1, 0, 2, 3)[None], (2 * reach + 1, 1, 1), 1, (reach, 0, 0))[0].permute(1, 0, 2, 3)
     for _ in range(int(round(grow / s))):
@@ -449,13 +465,14 @@ class AfflatusSwapPaste(io.ComfyNode):
                 io.Int.Input("grow", default=8, min=0, max=128, tooltip="Pixels the kept part reaches past what differs."),
                 io.Float.Input("blur", default=4.0, min=0.0, max=64.0, tooltip="The edge's blur, in pixels."),
                 io.Int.Input("reach", default=1, min=0, max=12, tooltip="Frames either side whose kept part is kept too: the edge does not flicker."),
+                io.Int.Input("spread", default=40, min=0, max=400, optional=True, tooltip="How far from the person, in pixels, what differs is kept: no further, someone H3 invented nearby is not."),
             ],
             outputs=[io.Image.Output(display_name="images")],
         )
 
     @classmethod
-    def execute(cls, render, source, noise_mask, paste_mask, threshold: float = 0.06, grow: int = 8, blur: float = 4.0, reach: int = 1) -> io.NodeOutput:
-        a = difference_alpha(render, source, noise_mask.detach().cpu().float().numpy(), paste_mask, threshold, grow, blur, reach)
+    def execute(cls, render, source, noise_mask, paste_mask, threshold: float = 0.06, grow: int = 8, blur: float = 4.0, reach: int = 1, spread: int = 40) -> io.NodeOutput:
+        a = difference_alpha(render, source, noise_mask.detach().cpu().float().numpy(), paste_mask, threshold, grow, blur, reach, spread=spread)
         a = a[..., None].to(render.device, render.dtype)
         src = source[: render.shape[0], ..., :3].to(render.device, render.dtype)
         return io.NodeOutput(src * (1 - a) + render[..., :3] * a)

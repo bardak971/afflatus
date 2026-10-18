@@ -50,6 +50,7 @@ export interface H3Swap extends H3Video {
   /** How the render goes back over the source: by the person's mask, by difference (AfflatusSwapPaste), or not at all. */
   paste: string;
   pasteThreshold: number;
+  pasteSpread: number;
   detectionThreshold: number;
   maxObjects: number;
   detectInterval: number;
@@ -189,6 +190,8 @@ const swapInputs: InputSpec[] = [
     note: "how the render goes back over the source. Mask: the source's pixels past the person and Paste grow. Difference: the render kept where it clearly differs from the source inside the zone H3 redrew (a new limb), the source's own pixels where H3 only redrew the wall, so no wavering band shows around the person. Off: the render in the whole zone",
   },
   { id: "pasteThreshold", type: "number", label: "Difference threshold", min: 0.01, max: 0.3, step: 0.01, default: 0.06, chapter: "mask", showWhen: { input: "paste", in: ["Difference"] }, note: "AfflatusSwapPaste's threshold: how much the render has to differ from the source to be kept. Higher gives back more of the wall, lower keeps more of what H3 drew" },
+  // people H3 invents near the person (the table behind him, Grow 160: the owner, 2026-10-18) are not kept past it
+  { id: "pasteSpread", type: "number", label: "Difference spread", min: 0, max: 200, step: 4, default: 40, unit: " px", chapter: "mask", showWhen: { input: "paste", in: ["Difference"] }, note: "AfflatusSwapPaste's spread: how far from the person what differs is kept. Wider keeps a limb that moves far, narrower drops someone H3 invented nearby" },
   { id: "pasteGrow", type: "number", label: "Paste grow", min: 0, max: 200, step: 2, default: 30, unit: " px", chapter: "mask", showWhen: "maskOn", note: "Swap Mask's paste_grow: how far past the person the render is kept; past it the source's own pixels come back" },
   { id: "pasteBlur", type: "number", label: "Paste blur", min: 0, max: 32, step: 0.5, default: 5, unit: " px", chapter: "mask", showWhen: "maskOn", note: "Swap Mask's paste_blur: the paste-back edge's blur" },
   // ±3: an arm SAM lost for a frame of a fast gesture stays the render's (the owner's Bulin 47 take, §9.11)
@@ -312,7 +315,7 @@ const MASK_NODES = ["CheckpointLoaderSimple", "CLIPTextEncode", "SAM3_VideoTrack
  * Swap Mask's id once the graph has it: its notes (no one found, the person before lost) are said on the job.
  */
 /** The Mask card's settings, as the nodes take them. */
-type MaskSettings = Pick<H3Swap, "track" | "grow" | "pasteGrow" | "pasteBlur" | "pasteReach" | "detectionThreshold" | "maxObjects" | "detectInterval" | "matchStrength" | "paste" | "pasteThreshold">;
+type MaskSettings = Pick<H3Swap, "track" | "grow" | "pasteGrow" | "pasteBlur" | "pasteReach" | "detectionThreshold" | "maxObjects" | "detectInterval" | "matchStrength" | "paste" | "pasteThreshold" | "pasteSpread">;
 
 function masked(file: string, sam: string, m: MaskSettings, differs: boolean, before?: { file: string; frames: number }, click?: { x: number; y: number }, preview?: (g: GraphBuilder, images: Ref) => string): { extra: Pick<H3Extra, "latent" | "frames">; node: () => string | null; preview: () => string | null } {
   let part: Ref | null = null;
@@ -358,7 +361,7 @@ function masked(file: string, sam: string, m: MaskSettings, differs: boolean, be
           : images;
         if (m.paste === "Off") return matched;
         if (m.paste === "Difference" && differs) {
-          return g.out("AfflatusSwapPaste", { render: matched, source: part, noise_mask: [masks, 0], paste_mask: [masks, 1], threshold: m.pasteThreshold, grow: 8, blur: m.pasteBlur, reach: 1 });
+          return g.out("AfflatusSwapPaste", { render: matched, source: part, noise_mask: [masks, 0], paste_mask: [masks, 1], threshold: m.pasteThreshold, grow: 8, blur: m.pasteBlur, reach: 1, ...(m.pasteSpread !== 40 ? { spread: m.pasteSpread } : {}) });
         }
         return g.out("ImageCompositeMasked", { destination: part, source: matched, x: 0, y: 0, resize_source: false, mask: [masks, 1] });
       },
@@ -448,7 +451,7 @@ export const h3Swap = defineRecipe<H3Swap>({
     // a prompt that names neither the source nor the cast's picture still runs: H3 may then leave them out, and the job says so
     const lacks = swapPromptLacks(input.who, input.references.length).map((tag) => `The prompt has no ${tag}: H3 may not use ${tag === "<Video 1>" ? "the source video" : "the cast's picture"}.`);
     // Difference asked for and the pack not yet loaded: pasted by the mask, and said
-    const pasted = input.maskOn && input.paste === "Difference" && !ctx.has("AfflatusSwapPaste") ? ["Paste by Difference needs the Afflatus node pack 0.28.0 (restart ComfyUI to load it): pasted by the mask."] : [];
+    const pasted = input.maskOn && input.paste === "Difference" && !ctx.has("AfflatusSwapPaste") ? ["Paste by Difference needs the Afflatus node pack 0.29.0 (restart ComfyUI to load it): pasted by the mask."] : [];
     const notes = [...veda, ...lacks, ...pasted];
     const warned = notes.length ? { ...built, warnings: [...(built.warnings ?? []), ...notes] } : built;
     // Show the mask: only what the tracking, the masks and their picture need, the H3 model never loaded
