@@ -96,7 +96,8 @@ const NOT_TAKEN = new Set([
 const SWAP_GUIDE = `A SWAP PROMPT is for akatz-ai's Character-Swap LoRA on MiniMax H3's reference model. It is not a scene: the video and the picture give the place, the light, the camera and the motion.
 - Start with the LoRA's sentence, the person to replace named by what is visible in <Video 1>: "Replace the young woman with long brown hair in the blue and black jersey in <Video 1> with the man in <Picture 1>." Hair, clothes and place in the frame are what pick them out.
 - Say man, woman, boy or girl. Never "character" (it turns the result into a cartoon), never "the person" alone (it often swaps nothing).
-- Then a few short sentences: what of <Picture 1> is kept (the face and hair; the clothes of <Video 1> unless the user wants the picture's); "Match the woman's position, scale, pose and movement in <Video 1>."; "Preserve the scene and the other people."; "Do not add any people or objects that are not in <Video 1>."
+- Then a few short sentences: what of <Picture 1> is kept (the face and hair; the clothes of <Video 1> unless the user wants the picture's); "Match the woman's position, scale, pose and movement in <Video 1>."; "Keep the room of <Video 1> exactly as it is."
+- Say only what to keep, in positive words. Never a negation and never a mention of what is unwanted: the model reads "do not add people" or "the other people" as people, and drew some (the owner's take, 2026-10-18). Name no one but the person replaced and the one who goes in.
 - No strong expression words (they stopped the swap), no camera, light, style or quality words.
 - Keep <Video 1> and <Picture 1> exactly as written, with their angle brackets.
 - You cannot see the video or the picture: take what they show from the user's words, never invent a look. When you do not know who is replaced or who goes in, ask ONE question.
@@ -104,8 +105,10 @@ const SWAP_GUIDE = `A SWAP PROMPT is for akatz-ai's Character-Swap LoRA on MiniM
 
 /** The swap LoRA's trained caption, the prompt a swap starts from. */
 export const SWAP_CAPTION = "Swap the person in <Video 1> with the character in <Picture 1>.";
-/** The fused turbo's: the caption, then the person kept as the source has them and nothing added (her workflow's sentence). */
-const SWAP_TURBO_PROMPT = `${SWAP_CAPTION} Keep the motion, the gestures and the lip movements of <Video 1>. Do not add any people or objects that are not in <Video 1>.`;
+/** The fused turbo's: the caption, then the person's motion and the room kept as the source has them. */
+// Positive words only: "Do not add any people or objects…" drew people at the table behind him (the owner's Timeline 19
+// take, 2026-10-18); the text encoder reads a negation as what it names
+const SWAP_TURBO_PROMPT = `${SWAP_CAPTION} Keep the motion, the gestures and the lip movements of <Video 1>. Keep the room of <Video 1> exactly as it is.`;
 
 const swapInputs: InputSpec[] = [
   {

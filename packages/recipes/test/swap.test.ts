@@ -155,7 +155,9 @@ describe("MiniMax H3 · Swap character", () => {
 
   it("describes the person for the fused turbo, which took a cartoon on a TV for him with the caption alone", () => {
     const turbo = h3Swap.presets!.find((p) => new RegExp(p.match, "i").test("minimax_h3_fused_refdelta_r1024_turbo8.safetensors"))!;
-    expect(String(turbo.values.who)).toMatch(/^Swap the person in <Video 1> with the character in <Picture 1>\. .*Do not add any people or objects that are not in <Video 1>\.$/);
+    expect(String(turbo.values.who)).toMatch(/^Swap the person in <Video 1> with the character in <Picture 1>\. .*Keep the room of <Video 1> exactly as it is\.$/);
+    // positive words only: a negation drew what it names (people at the table, 2026-10-18)
+    expect(String(turbo.values.who)).not.toMatch(/(not|no|never|people)/i);
   });
 
   it("gives the source's part as the reference video, at its own shape", () => {

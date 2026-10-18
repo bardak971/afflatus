@@ -11,6 +11,9 @@ describe("the designer's guide", () => {
     const said = systemPrompt(swap, h3, "chat", { values: {} });
     expect(said).toContain("A SWAP PROMPT is for akatz-ai's Character-Swap LoRA");
     expect(said).toContain('Never "character"');
+    // positive words only: the guide asks for no negation, and itself proposes none of the old ones
+    expect(said).toContain("Never a negation");
+    expect(said).not.toContain('"Do not add any people');
     // the swap's two boxes are the designer's to write, Track among them, its note said
     expect(said).toMatch(/- who: "Prompt"/);
     expect(said).toMatch(/- track: "Track".*what SAM 3 looks for/);
