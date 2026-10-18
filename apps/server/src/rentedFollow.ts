@@ -687,7 +687,8 @@ export class RentedFollow extends RentedBilling {
     const died = s.comfyDied!;
     died.told = true;
     const log = died.from === "pod" ? await this.readBoot(m, pod, 0).catch(() => null) : null;
-    const tail = log?.lines.slice(-CRASH_LINES).map((l) => `${l.t} ${l.m}`).join("\n") ?? "";
+    // ComfyUI's colours (its log's escape codes) left out: the job's trace is read as plain text
+    const tail = log?.lines.slice(-CRASH_LINES).map((l) => `${l.t} ${l.m.replace(/\x1b\[[0-9;]*m/g, "")}`).join("\n") ?? "";
     const trace = [died.report ? `The pod's report: ${JSON.stringify(died.report)}` : null, tail ? `ComfyUI's last lines:\n${tail}` : null].filter(Boolean).join("\n\n");
     // one the queue found has failed its render already (and that ComfyUI answers: nothing to hold for it)
     if (died.from === "pod") died.render = this.queue.machineDied(m.id, died.said, trace ? trace.slice(-CRASH_TRACE) : null);

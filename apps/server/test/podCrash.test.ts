@@ -67,7 +67,7 @@ async function renderingOnAPod(): Promise<{ id: string; pod: FakeRunpod["pods"][
 describe("a pod's ComfyUI that dies during a render", () => {
   it("fails the render at once with why, never runs it again, and terminates the pod as a crash", async () => {
     const { id, pod, jobId } = await renderingOnAPod();
-    pod.comfy.bootLog?.lines.push({ t: new Date().toISOString(), m: "Sampling 12/20" }, { t: new Date().toISOString(), m: "[afflatus-pod] ComfyUI ended (status 137)" });
+    pod.comfy.bootLog?.lines.push({ t: new Date().toISOString(), m: "\x1b[32m[INFO]\x1b[0m got prompt" }, { t: new Date().toISOString(), m: "[afflatus-pod] ComfyUI ended (status 137)" });
     // the pod's ComfyUI killed: broken.py answers on its port with died.py's report
     pod.comfy.podDied = OOM;
     await t.services.rented.poll();
@@ -77,6 +77,9 @@ describe("a pod's ComfyUI that dies during a render", () => {
     expect(failed.error).toMatch(/Not run again on its own/);
     // its report and ComfyUI's last lines kept with the job
     expect(failed.error_trace).toMatch(/The pod's report: \{"cause":"oom"/);
+    // as plain text: ComfyUI's colour codes left out
+    expect(failed.error_trace).toContain("[INFO] got prompt");
+    expect(failed.error_trace).not.toContain("\x1b[");
     expect(failed.error_trace).toMatch(/ComfyUI's last lines:[\s\S]*ComfyUI ended \(status 137\)/);
     // not queued again: it stays failed, and nothing else runs it
     await new Promise((r) => setTimeout(r, 300));
