@@ -21,7 +21,7 @@ type FormProps = ComponentProps<typeof Form>;
  * A clip's model and its form, in the Inspector: only the choice of a model while nothing renders it; a clip that joins its
  * neighbours and is not rendered yet gets the Join view first (what happens between the two), the whole form folded under it.
  */
-export function ClipForm({ timeline, clip, index, recipes, recipe, form, status, stored, whole, before, after, take, opens, ends, carries, lead, frameExtra, writing, writeError, onRecipe, onInputs, onPatch, onDesigner, onWriteBetween }: {
+export function ClipForm({ timeline, clip, index, recipes, recipe, form, status, stored, whole, before, after, take, opens, ends, carries, lead, frameExtra, chapterExtra, writing, writeError, onRecipe, onInputs, onPatch, onDesigner, onWriteBetween }: {
   timeline: Timeline;
   clip: Clip;
   index: number;
@@ -42,6 +42,7 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
   carries: boolean;
   lead: FormProps["lead"];
   frameExtra: FormProps["frameExtra"];
+  chapterExtra?: FormProps["chapterExtra"];
   writing?: boolean;
   writeError?: string | null;
   onRecipe(id: string): void;
@@ -121,6 +122,7 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
         lookSummary={lookWords(clip.look ?? timeline.look, entities.data?.items ?? []) + (clip.look === null && timeline.look ? " (from the timeline)" : "")}
         lead={lead}
         frameExtra={frameExtra}
+        chapterExtra={chapterExtra}
         helpers={
           <WritingHelp
             recipe={form}

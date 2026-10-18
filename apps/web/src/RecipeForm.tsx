@@ -35,7 +35,7 @@ export { mainTextOf } from "./form";
 /** A chapter a screen puts before the form's own (a timeline clip's Source, its Takes). */
 export type LeadPart = { id: string; title: string; summary: ReactNode; node: ReactNode; help?: string };
 
-export function Form({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, keepEmpty, promptInView }: {
+export function Form({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, chapterExtra, keepEmpty, promptInView }: {
   recipe: RecipeInfo;
   status: RecipeStatus | undefined;
   /** What the draft holds for this recipe: only what was touched. */
@@ -55,6 +55,8 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   helpers?: ReactNode;
   /** Chapters of the screen's own before every other (a timeline clip's Source and Takes): first in the strip too, in this order. */
   lead?: LeadPart | ReadonlyArray<LeadPart | undefined>;
+  /** What the screen puts at the top of one of the recipe's own chapters, by its id (a swap clip's Mask: who is replaced, Show the mask). */
+  chapterExtra?: Record<string, ReactNode>;
   /** What the screen adds to the Inputs chapter's frames (a timeline clip's pinned frames), with its words for the summary. */
   frameExtra?: { node: ReactNode; summary: string };
   /** Show the recipe's chapters that hold nothing yet (the import screen's preview, while sections are arranged). */
@@ -231,6 +233,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
         const switches = items.filter((i) => i.type === "toggle").map((i) => `${i.label} ${values[i.id] ? "on" : "off"}`);
         return (
           <Part key={ch.id} id={ch.id} title={ch.label} help={ch.help} needs={Boolean(q)} summary={<>{!ch.items.length ? "empty: drag settings into it" : switches.length ? switches.join(" · ") : plural(items.length, "setting")}{changedMark(items)}</>}>
+            {!q && chapterExtra?.[ch.id]}
             {items.map(setting)}
             {!ch.items.length && <span className="text-xs text-ink-2">Nothing in this section yet. Drag settings into it under Sections; an empty section is left out of the form.</span>}
           </Part>

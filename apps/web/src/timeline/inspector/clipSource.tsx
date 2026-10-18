@@ -52,7 +52,7 @@ export function sourceLead(s: ClipSource, clip: { inputs: Record<string, unknown
   return {
     id: "source",
     title: "Source",
-    help: "The video this clip is a part of, shared by every clip the source made. Who is replaced is clicked once, on the stretch's first frame; every window follows that person.",
+    help: "The video this clip is a part of, shared by every clip the source made, and how it is cut into windows. Changed, the source is cut again after its rendered clips.",
     summary: `${s.source.video.name} · ${stretch}`,
     node: (
       <div className="flex flex-col gap-3">
@@ -65,33 +65,43 @@ export function sourceLead(s: ClipSource, clip: { inputs: Record<string, unknown
         <Slide label="Window" value={Math.min(Math.max(s.source.windowMs, s.windows.leastMs), s.windows.mostMs)} min={s.windows.leastMs} max={s.windows.mostMs} step={100} show={(ms) => `${(ms / 1000).toFixed(1)} s`} onCommit={(windowMs) => s.onCut({ windowMs })} />
         <Toggle on={s.source.snap} disabled={s.cutting} onChange={(snap) => s.onCut({ snap })} label="Cut at scene changes" note={s.source.snap ? "a window ends at a cut in the source; the next one opens a new shot" : "windows of the same length, end to end"} />
         <span className="text-xs text-ink-2">{s.cutting ? "Cutting the source again…" : "Changed, the source is cut again: its rendered clips at the start stay, the others are made anew after them."}</span>
-        {s.takesPick && (
-          <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-semibold">Who is replaced</span>
-            {s.picking ? (
-              <Button tone="plain" className="h-11 justify-start gap-2 border-accent! px-3" onClick={() => s.onPicking(false)}>
-                <Crosshair size={16} className="text-accent" aria-hidden />
-                <span className="grow text-left"><span className="font-semibold">Picking</span><span className="text-ink-2"> · click the person on the stage</span></span>
-                <kbd className="font-mono text-[11px] text-ink-3">Esc</kbd>
-              </Button>
-            ) : s.source.pick ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="grow text-xs text-ink-2">Clicked on {mmss(s.source.fromMs, { decimals: 1 })}; every window follows that person</span>
-                <Button size="sm" onClick={() => s.onPicking(true)}>Pick again</Button>
-                <Button size="sm" tone="quiet" onClick={s.onClearPick}>Clear</Button>
-              </div>
-            ) : (
-              <Button className="h-11 justify-start gap-2 px-3" onClick={() => s.onPicking(true)}>
-                <Crosshair size={16} aria-hidden />
-                Pick on the stage
-              </Button>
-            )}
-          </div>
-        )}
-        {s.takesPick && s.first && <MaskLine s={s} />}
       </div>
     ),
   };
+}
+
+/**
+ * What the screen puts at the top of the swap's Mask card (the owner, 2026-10-18: Source and Mask as two cards): who is
+ * replaced, clicked on the stage, and Show the mask. Nothing of it with the Mask off: SAM tracks no one then.
+ */
+export function MaskChapter({ s, maskOn }: { s: ClipSource; maskOn: boolean }) {
+  if (!s.takesPick || !maskOn) return null;
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1.5">
+        <span className="text-xs font-semibold">Who is replaced</span>
+        {s.picking ? (
+          <Button tone="plain" className="h-11 justify-start gap-2 border-accent! px-3" onClick={() => s.onPicking(false)}>
+            <Crosshair size={16} className="text-accent" aria-hidden />
+            <span className="grow text-left"><span className="font-semibold">Picking</span><span className="text-ink-2"> · click the person on the stage</span></span>
+            <kbd className="font-mono text-[11px] text-ink-3">Esc</kbd>
+          </Button>
+        ) : s.source.pick ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="grow text-xs text-ink-2">Clicked on {mmss(s.source.fromMs, { decimals: 1 })}; every window follows that person</span>
+            <Button size="sm" onClick={() => s.onPicking(true)}>Pick again</Button>
+            <Button size="sm" tone="quiet" onClick={s.onClearPick}>Clear</Button>
+          </div>
+        ) : (
+          <Button className="h-11 justify-start gap-2 px-3" onClick={() => s.onPicking(true)}>
+            <Crosshair size={16} aria-hidden />
+            Pick on the stage
+          </Button>
+        )}
+      </div>
+      {s.first && <MaskLine s={s} />}
+    </div>
+  );
 }
 
 /** Show the mask: asked, followed, then drawn over the source on the stage (in the accent colour) or not. */

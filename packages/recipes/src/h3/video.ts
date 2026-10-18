@@ -158,6 +158,10 @@ export interface H3Extra {
   frames?(g: GraphBuilder, images: Ref): Ref;
   /** Veda's predictor, when the clip is made with its sparse attention (a swap's option; H3's own forms do not offer it yet). */
   veda?: string;
+  /** Veda's key tiles kept of each query tile, of the generated and of the reference tokens (its default 32 / 32). */
+  vedaSparsity?: { generated: number; reference: number };
+  /** The sampler's denoise, below 1 to keep more of what the latent starts from (a swap: the source's shapes). */
+  denoise?: number;
   /** The turbo LoRA Turbo adds, when the recipe knows which suits its model (a swap's reference model: the reference one). */
   turbo?: string;
 }
@@ -176,7 +180,7 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   const g = new GraphBuilder();
   const audioVae = g.out("VAELoader", { vae_name: slots.audioVae });
   const vae = g.out("VAELoader", { vae_name: slots.videoVae });
-  const { model, turbo, steps, lora, unet } = loadH3Model(g, ctx, input, picked, how, audioVae, extra.veda, extra.turbo);
+  const { model, turbo, steps, lora, unet } = loadH3Model(g, ctx, input, picked, how, audioVae, extra.veda, extra.turbo, extra.vedaSparsity);
   const { positive, latent, previous, plain } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae }, extra.prompt);
 
   // a finish by the latent re-sample starts from the draft's own sampled latent (uploaded as "self.latent"): rendered again, even
@@ -191,7 +195,7 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
         noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
         guider: g.out("BasicGuider", { model, conditioning: guided }),
         sampler: g.out("KSamplerSelect", { sampler_name: input.sampler !== AUTO_SAMPLER ? input.sampler : turbo ? "euler" : "res_multistep" }),
-        sigmas: g.out("BasicScheduler", { model, scheduler: input.scheduler, steps, denoise: 1 }),
+        sigmas: g.out("BasicScheduler", { model, scheduler: input.scheduler, steps, denoise: extra.denoise ?? 1 }),
         latent_image: extra.latent ? extra.latent(g, { latent, vae, width, height, frames: join.frames }) : latent,
       });
   // continued in the latent: decoded as one piece with the clip before (its own last tokens, then the new ones), so that

@@ -295,6 +295,7 @@ class AfflatusSwapMask(io.ComfyNode):
                 io.Int.Input("grow", default=100, min=0, max=1024, tooltip="Pixels the redrawn region reaches past the person, in whole 16 px cells."),
                 io.Int.Input("paste_grow", default=10, min=0, max=256, tooltip="Pixels the kept render reaches past the person."),
                 io.Float.Input("paste_blur", default=5.0, min=0.0, max=64.0, tooltip="The paste-back edge's blur, in pixels."),
+                io.Int.Input("paste_reach", default=PASTE_REACH, min=0, max=24, optional=True, tooltip="The person of this many frames either side of each is kept too: a limb SAM loses for a moment is not pasted over."),
                 io.Image.Input("images", optional=True, tooltip="The frames SAM tracked: their faces pick the person."),
                 io.Image.Input("previous", optional=True, tooltip="The window before's last frames, handed over at this window's start: the person it replaced is followed."),
                 # the user's click on the window's first frame, as shares of its width and height; below 0: none
@@ -306,7 +307,7 @@ class AfflatusSwapMask(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, track_data, frames: int = 141, width: int = 576, height: int = 1024, grow: int = 100, paste_grow: int = 10, paste_blur: float = 5.0, images=None, previous=None, pick_x: float = -1.0, pick_y: float = -1.0) -> io.NodeOutput:
+    def execute(cls, track_data, frames: int = 141, width: int = 576, height: int = 1024, grow: int = 100, paste_grow: int = 10, paste_blur: float = 5.0, images=None, previous=None, pick_x: float = -1.0, pick_y: float = -1.0, paste_reach: int = PASTE_REACH) -> io.NodeOutput:
         import torch
 
         tracks = person_tracks(track_data, width, height)
@@ -324,7 +325,7 @@ class AfflatusSwapMask(io.ComfyNode):
         elif changed is not None and how != "followed":
             note.append("The person the window before replaced was not found in this one: the one with the largest face was taken, which may be someone else.")
         noise = torch.from_numpy(noise_mask(person, frames, width, height, grow))
-        return io.NodeOutput(noise, paste_mask(person, frames, width, height, paste_grow, paste_blur), ui={"afflatus_note": note})
+        return io.NodeOutput(noise, paste_mask(person, frames, width, height, paste_grow, paste_blur, reach=paste_reach), ui={"afflatus_note": note})
 
 
 # The theme's accent (the owner, 2026-10-18: the mask in the accent colour, not green), as RGB 0-1

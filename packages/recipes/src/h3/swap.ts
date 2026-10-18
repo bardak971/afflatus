@@ -39,6 +39,22 @@ export interface H3Swap extends H3Video {
   veda: boolean;
   /** Show the mask: the window's masks alone, drawn over its frames, H3 not run (set by the app, not the form). */
   maskPreview: boolean;
+  /** The Mask card (the owner, 2026-10-18: every setting of the nodes the user's, with good defaults). Off: no SAM, the whole frame redrawn. */
+  maskOn: boolean;
+  /** What SAM 3 is told to track (its text prompt). */
+  track: string;
+  grow: number;
+  pasteGrow: number;
+  pasteBlur: number;
+  pasteReach: number;
+  detectionThreshold: number;
+  maxObjects: number;
+  detectInterval: number;
+  /** ColorTransfer's strength, a window after the first matched to the window before. */
+  matchStrength: number;
+  denoise: number;
+  vedaGenerated: number;
+  vedaReference: number;
 }
 
 /** The sizes a swap renders at: the source's own (its short side), or a set height. */
@@ -137,6 +153,30 @@ const swapInputs: InputSpec[] = [
     id: "soundGuide", type: "toggle", label: "Lips follow the source's sound", default: true, advanced: true, showWhen: "keepSound",
     note: "the source's own sound given to H3 as a guide, as Lip sync gives its recording, so that the mouth is drawn to the words heard",
   },
+  // ---- the Mask card: who is replaced is clicked on the stage (the source's pick); these are the nodes' own inputs, at the
+  // values the swaps were tested with
+  {
+    id: "maskOn", type: "toggle", label: "Mask", default: true, chapter: "mask",
+    note: "SAM 3 tracks the person and H3 redraws only them, the rest of the source kept as it is. Off: the whole frame is redrawn, nothing of the person's new shape is cut, the room may drift",
+  },
+  {
+    // "person" on every frame kept him where a mask of him from frame 1 lost his head mid-clip (§9.11)
+    id: "track", type: "prompt", weights: false, style: "sentences", noCast: true, label: "Track", default: "person", chapter: "mask", showWhen: "maskOn",
+    note: "what SAM 3 looks for (its text prompt): person by default; man, woman or dancer when it misses the one to replace or catches someone else",
+  },
+  { id: "grow", type: "number", label: "Grow", min: 0, max: 400, step: 4, default: 100, unit: " px", chapter: "mask", showWhen: "maskOn", note: "Swap Mask's grow: how far past the person H3 may redraw. Wider for a new person of another build, fast limbs or long hair" },
+  { id: "pasteGrow", type: "number", label: "Paste grow", min: 0, max: 200, step: 2, default: 30, unit: " px", chapter: "mask", showWhen: "maskOn", note: "Swap Mask's paste_grow: how far past the person the render is kept; past it the source's own pixels come back" },
+  { id: "pasteBlur", type: "number", label: "Paste blur", min: 0, max: 32, step: 0.5, default: 5, unit: " px", chapter: "mask", showWhen: "maskOn", note: "Swap Mask's paste_blur: the paste-back edge's blur" },
+  // ±3: an arm SAM lost for a frame of a fast gesture stays the render's (the owner's Bulin 47 take, §9.11)
+  { id: "pasteReach", type: "number", label: "Paste reach", min: 0, max: 12, step: 1, default: 3, unit: " frames", chapter: "mask", showWhen: "maskOn", note: "Swap Mask's paste_reach: the person of this many frames either side is kept too, so a limb SAM loses for a moment is not pasted over" },
+  { id: "detectionThreshold", type: "number", label: "Detection threshold", min: 0.05, max: 0.95, step: 0.05, default: 0.3, chapter: "mask", showWhen: "maskOn", note: "SAM3_VideoTrack's detection_threshold: lower finds people it missed, higher drops the ones it should not track" },
+  { id: "maxObjects", type: "number", label: "Max objects", min: 1, max: 64, step: 1, default: 8, chapter: "mask", showWhen: "maskOn", note: "SAM3_VideoTrack's max_objects: in a crowd, the one to replace may be past the eighth" },
+  { id: "detectInterval", type: "number", label: "Detect interval", min: 1, max: 8, step: 1, default: 1, unit: " frames", chapter: "mask", showWhen: "maskOn", note: "SAM3_VideoTrack's detect_interval: looks for people every this many frames; above 1 faster, less sure in fast motion" },
+  // the sampler: below 1 the render keeps more of the source's shapes and motion, the swap weaker
+  { id: "denoise", type: "number", label: "Denoise", min: 0.5, max: 1, step: 0.05, default: 1, note: "BasicScheduler's denoise: below 1 the render stays closer to the source's shapes and motion (fewer limbs drawn past the mask), the swap weaker" },
+  { id: "matchStrength", type: "number", label: "Colour match strength", min: 0, max: 2, step: 0.05, default: 1, advanced: true, note: "ColorTransfer's strength, a window after the first matched to the window before; lower when its colours drift oddly" },
+  { id: "vedaGenerated", type: "number", label: "Veda generated sparsity", min: 8, max: 64, step: 8, default: 32, section: "speed", showWhen: "veda", note: "VedaSparseAttention's generated_sparsity: key tiles kept of each query tile, of the clip's own tokens; fewer is faster" },
+  { id: "vedaReference", type: "number", label: "Veda reference sparsity", min: 8, max: 64, step: 8, default: 32, section: "speed", showWhen: "veda", note: "VedaSparseAttention's reference_sparsity: the same of the reference tokens (the source video, the picture)" },
   // Show the mask (the owner's mock, 2026-10-18): the same build, kept to the tracking, the masks and their picture
   { id: "maskPreview", type: "toggle", label: "Mask preview", default: false, internal: true },
   {
@@ -247,7 +287,10 @@ const MASK_NODES = ["CheckpointLoaderSimple", "CLIPTextEncode", "SAM3_VideoTrack
  * window takes the user's click on its first frame (`click`, shares of the frame) instead: the person under it. `node` is the
  * Swap Mask's id once the graph has it: its notes (no one found, the person before lost) are said on the job.
  */
-function masked(file: string, sam: string, before?: { file: string; frames: number }, click?: { x: number; y: number }, preview?: (g: GraphBuilder, images: Ref) => string): { extra: Pick<H3Extra, "latent" | "frames">; node: () => string | null; preview: () => string | null } {
+/** The Mask card's settings, as the nodes take them. */
+type MaskSettings = Pick<H3Swap, "track" | "grow" | "pasteGrow" | "pasteBlur" | "pasteReach" | "detectionThreshold" | "maxObjects" | "detectInterval" | "matchStrength">;
+
+function masked(file: string, sam: string, m: MaskSettings, before?: { file: string; frames: number }, click?: { x: number; y: number }, preview?: (g: GraphBuilder, images: Ref) => string): { extra: Pick<H3Extra, "latent" | "frames">; node: () => string | null; preview: () => string | null } {
   let part: Ref | null = null;
   let masks: string | null = null;
   let handed: Ref | null = null;
@@ -265,12 +308,13 @@ function masked(file: string, sam: string, before?: { file: string; frames: numb
         });
         const model = g.add("CheckpointLoaderSimple", { ckpt_name: sam });
         // SAM's own words missed the man in a crowd test; "man" with 8 tracks found him, the largest (§9.9)
-        const people = g.out("CLIPTextEncode", { clip: [model, 1], text: "person" });
-        const track = g.out("SAM3_VideoTrack", { images: part, model: [model, 0], detection_threshold: 0.3, max_objects: 8, detect_interval: 1, conditioning: people });
+        const people = g.out("CLIPTextEncode", { clip: [model, 1], text: m.track.trim() || "person" });
+        const track = g.out("SAM3_VideoTrack", { images: part, model: [model, 0], detection_threshold: m.detectionThreshold, max_objects: m.maxObjects, detect_interval: m.detectInterval, conditioning: people });
         handed = before ? g.out("ImageScale", { image: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: before.file }) }), 0], upscale_method: "lanczos", width: at.width, height: at.height, crop: "disabled" }) : null;
         // the render kept 30 px past the person (was 10): his edges and a hand SAM lost no longer stop at the source's
         // pixels (the owner's Bulin 47 take, 2026-10-17, §9.11); the node pack keeps it over the frames around each, from 0.24.0
-        masks = g.add("AfflatusSwapMask", { track_data: track, frames: at.frames, width: at.width, height: at.height, grow: 100, paste_grow: 30, paste_blur: 5, images: part, ...(handed ? { previous: handed } : {}), ...(click && !handed ? { pick_x: click.x, pick_y: click.y } : {}) });
+        // paste_reach only when not the node's own 3: a pack before 0.27.0 has no such input
+        masks = g.add("AfflatusSwapMask", { track_data: track, frames: at.frames, width: at.width, height: at.height, grow: m.grow, paste_grow: m.pasteGrow, paste_blur: m.pasteBlur, ...(m.pasteReach !== 3 ? { paste_reach: m.pasteReach } : {}), images: part, ...(handed ? { previous: handed } : {}), ...(click && !handed ? { pick_x: click.x, pick_y: click.y } : {}) });
         // Show the mask: the masks drawn over the frames they were made from, saved as a short video of their own
         if (preview) shown = preview(g, g.out("AfflatusSwapMaskPreview", { images: part, noise_mask: [masks, 0], paste_mask: [masks, 1] }));
         const video = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: part, vae: at.vae }), mask: [masks, 0] });
@@ -285,7 +329,7 @@ function masked(file: string, sam: string, before?: { file: string; frames: numb
         const matched = handed && before
           ? g.out("ColorTransfer", {
             image_target: images, image_ref: g.out("ImageFromBatch", { image: handed, batch_index: -1, length: 1 }),
-            method: "reinhard_lab", source_stats: "target_frame", "source_stats.target_index": before.frames - 1, strength: 1,
+            method: "reinhard_lab", source_stats: "target_frame", "source_stats.target_index": before.frames - 1, strength: m.matchStrength,
           })
           : images;
         return g.out("ImageCompositeMasked", { destination: part, source: matched, x: 0, y: 0, resize_source: false, mask: [masks, 1] });
@@ -307,6 +351,9 @@ export const h3Swap = defineRecipe<H3Swap>({
   // before (its last 5 frames pinned at the start), otherwise no join with the clips around it
   traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED } },
   inputs: swapInputs,
+  // who is replaced and how, apart from the source (the owner, 2026-10-18): the click and Show the mask are the screen's, the
+  // rest the nodes' own inputs
+  chapters: [{ id: "mask", label: "Mask", help: "Who is replaced and what of the frame H3 redraws: SAM 3 tracks the person clicked on the stage, the Swap Mask grows the zone H3 redraws and the band the render is pasted back over. Show the mask draws them over the source before you render." }],
   presets: SWAP_PRESETS,
   starts: SWAP_STARTS,
   needs: ["swapLora", "swapUnet", "swapSam"],
@@ -340,10 +387,11 @@ export const h3Swap = defineRecipe<H3Swap>({
     const size = source?.width && source.height ? { width: source.width, height: source.height } : undefined;
     const sam = ctx.slots.swapSam;
     const preview = input.maskPreview ? (g: GraphBuilder, images: Ref) => saveVideo(g, ctx, { images, fps: H3_FPS, crf: 23 }) : undefined;
+    if (preview && !input.maskOn) throw new Error("Show the mask needs the Mask on.");
     if (preview && (!sam || !MASK_NODES.every((n) => ctx.has(n)) || !ctx.has("AfflatusSwapMaskPreview"))) {
       throw new Error(sam ? "Show the mask needs the Afflatus node pack 0.26.0 or newer: restart ComfyUI to load it." : "Show the mask needs SAM 3.1 (Settings › Models has it).");
     }
-    const mask = sam && MASK_NODES.every((n) => ctx.has(n)) ? masked(ctx.uploads.source, sam, carried && ctx.uploads.previous ? { file: ctx.uploads.previous, frames: carried } : undefined, input.source.pick, preview) : null;
+    const mask = input.maskOn && sam && MASK_NODES.every((n) => ctx.has(n)) ? masked(ctx.uploads.source, sam, input, carried && ctx.uploads.previous ? { file: ctx.uploads.previous, frames: carried } : undefined, input.source.pick, preview) : null;
     // the source's own sound over the window, cut to the clip's length: one loader for the file's sound and the guide
     let heard: Ref | null = null;
     const sourceSound = (g: GraphBuilder, frames: number) =>
@@ -357,7 +405,8 @@ export const h3Swap = defineRecipe<H3Swap>({
         guide: (g, at) => g.out("MiniMaxH3AddGuide", { positive: at.positive, latent: at.latent, vae: at.vae, audio_vae: at.audioVae, audio: sourceSound(g, at.frames), frame_idx: 0 }),
       } : {}),
       ...(mask?.extra ?? {}),
-      ...(input.veda && ctx.slots.veda ? { veda: ctx.slots.veda } : {}),
+      ...(input.veda && ctx.slots.veda ? { veda: ctx.slots.veda, vedaSparsity: { generated: input.vedaGenerated, reference: input.vedaReference } } : {}),
+      ...(input.denoise < 1 ? { denoise: input.denoise } : {}),
       // the reference model's own turbo LoRA, else the usual one (a distilled model takes neither)
       ...(ctx.slots.refTurbo ?? ctx.slots.turbo ? { turbo: ctx.slots.refTurbo ?? ctx.slots.turbo } : {}),
     });
@@ -381,6 +430,8 @@ export const h3Swap = defineRecipe<H3Swap>({
     }
     const said = mask?.node();
     if (said) return { ...warned, outputs: [...warned.outputs, { node: said, kind: "image", role: "note" }] };
+    // the Mask turned off: the whole frame redrawn, as asked
+    if (!input.maskOn) return warned;
     const why = sam ? "this ComfyUI's Afflatus node pack has no Swap Mask yet (0.22.0 on; ComfyUI loads a newer pack when it restarts)" : "SAM 3.1 is not on this ComfyUI (Settings › Models has it)";
     return { ...warned, warnings: [...(warned.warnings ?? []), `Swapped without a mask, the whole frame redrawn: ${why}.`] };
   },

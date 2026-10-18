@@ -92,6 +92,35 @@ describe("MiniMax H3 · Swap character", () => {
     expect(() => build({ maskPreview: true }, part(), { has: (cls) => cls !== "AfflatusSwapMaskPreview" })).toThrow(/node pack 0.26.0/);
   });
 
+  it("gives the Mask card's settings to the nodes' own inputs, at the tested values by default (the owner, 2026-10-18)", () => {
+    const plain = build().graph;
+    expect(of(plain, "AfflatusSwapMask")[0]!.inputs).toMatchObject({ grow: 100, paste_grow: 30, paste_blur: 5 });
+    // the node's own 3 is not sent: a pack before 0.27.0 has no paste_reach
+    expect(of(plain, "AfflatusSwapMask")[0]!.inputs.paste_reach).toBeUndefined();
+    expect(of(plain, "SAM3_VideoTrack")[0]!.inputs).toMatchObject({ detection_threshold: 0.3, max_objects: 8, detect_interval: 1 });
+    expect(of(plain, "CLIPTextEncode").map((n) => n.inputs.text)).toContain("person");
+    const set = build({ grow: 200, pasteGrow: 60, pasteBlur: 8, pasteReach: 5, track: "woman", detectionThreshold: 0.2, maxObjects: 12, detectInterval: 2, denoise: 0.85 }).graph;
+    expect(of(set, "AfflatusSwapMask")[0]!.inputs).toMatchObject({ grow: 200, paste_grow: 60, paste_blur: 8, paste_reach: 5 });
+    expect(of(set, "SAM3_VideoTrack")[0]!.inputs).toMatchObject({ detection_threshold: 0.2, max_objects: 12, detect_interval: 2 });
+    expect(of(set, "CLIPTextEncode").map((n) => n.inputs.text)).toContain("woman");
+    expect(of(set, "BasicScheduler")[0]!.inputs.denoise).toBe(0.85);
+    expect(of(plain, "BasicScheduler")[0]!.inputs.denoise).toBe(1);
+  });
+
+  it("with the Mask off, redraws the whole frame: no SAM, and nothing said of a missing mask", () => {
+    const { built, graph } = build({ maskOn: false });
+    expect(of(graph, "SAM3_VideoTrack")).toEqual([]);
+    expect(of(graph, "AfflatusSwapMask")).toEqual([]);
+    expect(built.warnings ?? []).not.toContainEqual(expect.stringContaining("without a mask"));
+    expect(() => build({ maskOn: false, maskPreview: true })).toThrow(/needs the Mask on/);
+  });
+
+  it("gives Veda its sparsity when it is on", () => {
+    const vedaSlots = { ...slots, veda: "minimax_h3_r2va_veda_preview_fp8.safetensors" };
+    const veda = of(build({ veda: true, vedaGenerated: 16, vedaReference: 48 }, part(), { slots: vedaSlots }).graph, "VedaSparseAttention")[0]!;
+    expect(veda.inputs).toMatchObject({ generated_sparsity: "16", reference_sparsity: "48" });
+  });
+
   it("tags the tracking and the mask as processing, not as steps of the sampling bar", () => {
     const { built, graph } = build();
     const id = (type: string) => Object.entries(graph).find(([, n]) => n.class_type === type)![0];
