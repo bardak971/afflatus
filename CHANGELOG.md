@@ -4,6 +4,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Changed
+- **Afflatus's pod image 0.1.27 is a thin top on a base image.** `afflatus-pod-base` holds the OS, PyTorch with CUDA, ComfyUI 0.41.2, the built-in node packs, NVIDIA's VFX runtime and InsightFace, and is built only when one of them changes. Each pod image adds the node pack, the pod's scripts and Manager's registry list on top of it: ~1.4 MB per build instead of ~4.7 GB (CUDA 13.0) and ~6 GB (12.8). A RunPod host that already ran an Afflatus pod on the same base pulls only that top. What runs on the pod is unchanged.
+
 ### Added
 - **/metrics: the rented GPUs' money.** What Queue › Costs works out, for a dashboard: spend by part (rendering, booting, fetching, idle, outside work, failed) and by GPU, pod runs ended by why (a crash among them), pods running, today and this month against the caps, RunPod's balance, spending an hour now and storage. The Grafana dashboard (deploy/grafana) has a **Rented GPUs** row for them. Only with a RunPod key, a rented machine or a pod session on record.
 

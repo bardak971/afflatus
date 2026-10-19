@@ -1,0 +1,99 @@
+# The Afflatus pod's base image (deploy/runpod/base/Dockerfile): the OS, PyTorch with CUDA, ComfyUI, the built-in node packs'
+# Python packages, NVIDIA's VFX runtime, InsightFace. The pod image proper (pod-image.yml) is a few MB on top of it, FROM
+# it by digest. On a pod-base-v* tag it is pushed to GHCR in two builds: for CUDA 13.0 (pod-base-v1 →
+# ghcr.io/<owner>/afflatus-pod-base:1) and 12.8 (…:1-cu128); from the Actions tab they are built only, as a dry run.
+# A new base is made only when that file changes (a ComfyUI or torch upgrade, a pack's commit): a few times a year.
+#
+# Each build is labelled with the sha256 of the file it was built from; pod-image.yml refuses to build the top on a base
+# whose label is not its own commit's file. After a push: point deploy/runpod/Dockerfile's two FROMs at the digests this
+# prints, then tag a pod-v*.
+#
+# The first push makes the package private on GitHub: set it public once (the package's settings, Change visibility), so
+# that anyone can build the top on it.
+#
+# Actions are pinned to commit SHAs, as in release.yml.
+name: Pod base image
+
+on:
+  push:
+    tags: ["pod-base-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/afflatus-pod-base
+  PUBLISH: ${{ github.event_name == 'push' }}
+
+jobs:
+  # the pod's own tests (the Dockerfiles among them), as in pod-image.yml: a base that fails them is not worth 13 minutes
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s deploy/runpod/tests
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { cuda: cu130, suffix: "" }
+          - { cuda: cu128, suffix: "-cu128" }
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # the job can write packages: its token is not left in the checkout
+          persist-credentials: false
+      - name: Check the version
+        id: version
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          if [ "$PUBLISH" != "true" ]; then echo "tag=dry" >> "$GITHUB_OUTPUT"; else
+            v="${REF#pod-base-v}"
+            if ! printf '%s' "$v" | grep -Eqx '[0-9]+'; then echo "A pod base tag is pod-base-v1, not $REF" >&2; exit 1; fi
+            echo "tag=$v" >> "$GITHUB_OUTPUT"
+          fi
+          # the file's own hash, with LF line ends whatever the checkout gave: what pod-image.yml compares
+          echo "sha=$(tr -d '\r' < deploy/runpod/base/Dockerfile | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      # torch's CUDA wheels and their libraries take several GB: the runner's preinstalled toolchains make the room
+      - name: Make room
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        if: env.PUBLISH == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        id: build
+        with:
+          # the base copies nothing: its folder holds its Dockerfile only
+          context: deploy/runpod/base
+          file: deploy/runpod/base/Dockerfile
+          # RunPod's GPUs are on x86 hosts
+          platforms: linux/amd64
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: ${{ env.IMAGE }}:${{ steps.version.outputs.tag }}${{ matrix.suffix }}
+          build-args: |
+            TORCH_CUDA=${{ matrix.cuda }}
+            BASE_DOCKERFILE_SHA256=${{ steps.version.outputs.sha }}
+          provenance: false
+      - name: The digest for deploy/runpod/Dockerfile
+        if: env.PUBLISH == 'true'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAG: ${{ steps.version.outputs.tag }}${{ matrix.suffix }}
+          CUDA: ${{ matrix.cuda }}
+        run: |
+          echo "::notice::$CUDA: $IMAGE:$TAG@$DIGEST"
