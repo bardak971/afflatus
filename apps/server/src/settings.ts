@@ -96,7 +96,7 @@ export const rentedSchema = z.object({
   /** Deployed only to fill its volume (Fill from a set…): it takes no render, and is terminated once its files are in. */
   fill: z.boolean().default(false),
   /**
-   * The image it was deployed with, when Afflatus deployed it ("ghcr.io/…/afflatus-pod:0.1.23"): an image that reports its
+   * The image it was deployed with, when Afflatus deployed it ("ghcr.io/…/afflatus-pod:0.1.25"): an image that reports its
    * ComfyUI's death (runpod.ts reportsDeath) is not taken for crashed when a render is merely gone from it.
    */
   image: z.string().max(300).default(""),
