@@ -95,5 +95,25 @@ class Base(unittest.TestCase):
         self.assertRegex(read(BASE), r'(?m)^ENV PIP_CONSTRAINT=/constraints\.txt$')
 
 
+class Top(unittest.TestCase):
+    def test_each_cuda_build_stands_on_a_base_pinned_by_its_digest(self):
+        # a moved tag cannot change a release; pod-image.yml checks the base by its label against base/Dockerfile
+        text = read("Dockerfile")
+        for cuda in ("cu130", "cu128"):
+            self.assertRegex(text, rf"(?m)^ARG BASE_{cuda.upper()}=ghcr\.io/\S+/afflatus-pod-base:\S+@sha256:[0-9a-f]{{64}}$")
+            self.assertRegex(text, rf"(?m)^FROM \$\{{BASE_{cuda.upper()}\}} AS base-{cuda}$")
+        self.assertRegex(text, r"(?m)^ARG TORCH_CUDA=cu130$")
+        self.assertRegex(text, r"(?m)^FROM base-\$\{TORCH_CUDA\}$")
+
+    def test_it_installs_nothing_heavy(self):
+        # torch, ComfyUI, the packs and their packages are the base's: a pod tag stays a few MB
+        text = read("Dockerfile")
+        for heavy in ("pip install", "apt-get", "git clone", "torch=="):
+            self.assertNotIn(heavy, text)
+
+    def test_its_registry_list_is_for_the_bases_comfyui(self):
+        self.assertIn('"${AFFLATUS_COMFYUI_VERSION#v}"', read("Dockerfile"))
+
+
 if __name__ == "__main__":
     unittest.main()

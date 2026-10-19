@@ -1,4 +1,6 @@
 # The Afflatus pod image (deploy/runpod): ComfyUI, its Manager and the node pack, for a GPU deployed from Afflatus.
+# It is the thin top (the node pack, the pod's scripts, Manager's registry list) on the base its Dockerfile pins by digest
+# (pod-base-image.yml): a few MB per tag, built in a couple of minutes.
 # On a pod-v* tag it is pushed to GHCR in two builds of the same PyTorch: for CUDA 13.0 (pod-v0.1.2 →
 # ghcr.io/<owner>/afflatus-pod:0.1.2) and 12.8 (…:0.1.2-cu128); from the Actions tab they are built only, as a dry run. Its own tags, apart from the app's v*: the image changes with ComfyUI and the node pack, not
 # with every release of Afflatus. The version Afflatus deploys is the one it names (apps/server/src/runpod.ts POD_IMAGE).
@@ -66,7 +68,7 @@ jobs:
           v="${REF#pod-v}"
           if ! printf '%s' "$v" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+'; then echo "A pod tag is pod-v1.2.3, not $REF" >&2; exit 1; fi
           echo "tag=$v" >> "$GITHUB_OUTPUT"
-      # torch's CUDA wheels and their libraries take several GB: the runner's preinstalled toolchains make the room
+      # the base's torch and CUDA libraries take several GB once pulled: the runner's preinstalled toolchains make the room
       - name: Make room
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -76,6 +78,22 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # the base the top is built on was built from base/Dockerfile as this commit has it, for this CUDA: a change to that
+      # file with no new base (or a digest of another build pasted in) would ship a pod that is not its code
+      - name: Check the base is this commit's
+        env:
+          CUDA: ${{ matrix.cuda }}
+        run: |
+          var="BASE_$(printf '%s' "$CUDA" | tr '[:lower:]' '[:upper:]')"
+          base=$(sed -n "s/^ARG $var=//p" deploy/runpod/Dockerfile | tr -d '\r')
+          if ! printf '%s' "$base" | grep -Eq '@sha256:[0-9a-f]{64}$'; then echo "::error::deploy/runpod/Dockerfile's $var is not pinned by digest: $base"; exit 1; fi
+          want=$(tr -d '\r' < deploy/runpod/base/Dockerfile | sha256sum | cut -d' ' -f1)
+          labels=$(docker buildx imagetools inspect "$base" --format '{{json .Image.Config.Labels}}')
+          got=$(printf '%s' "$labels" | jq -r '."afflatus.base-dockerfile-sha256" // ""')
+          cuda=$(printf '%s' "$labels" | jq -r '."afflatus.cuda" // ""')
+          echo "$base: $labels"
+          if [ "$got" != "$want" ]; then echo "::error::$base was built from another base/Dockerfile ($got, this commit's is $want): tag a pod-base-v* and pin its digests"; exit 1; fi
+          if [ "$cuda" != "$CUDA" ]; then echo "::error::$base is the $cuda build, not $CUDA"; exit 1; fi
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
