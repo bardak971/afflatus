@@ -133,6 +133,11 @@ export class Monitor {
   private current: Tracked | null = null;
   /** Called whenever a tracked prompt's progress or preview changed. */
   onChange: (promptId: string) => void = () => {};
+  /**
+   * Called with each step's animated live preview (KJNodes'), its step and the sampler's steps: H3's estimate of the finished
+   * clip at that step, which a swap's judge is measured on (the server keeps them only when asked).
+   */
+  onStepPreview: (promptId: string, at: { step: number; steps: number; sigma: number | null }, bytes: Uint8Array, mime: string) => void = () => {};
   /** The latest load snapshot a monitor extension broadcast (about one a second), if one is installed. */
   system: SystemLoad | null = null;
   onSystem: (load: SystemLoad) => void = () => {};
@@ -459,6 +464,12 @@ export class Monitor {
         bytes: new Uint8Array(Buffer.from(d.image, "base64")),
         mime: typeof d.mime === "string" && PREVIEW_MIME.test(d.mime) ? d.mime : "image/jpeg",
       };
+      try {
+        const sigma = typeof d.sigma === "number" ? d.sigma : null;
+        this.onStepPreview(r.promptId, { step: Number(d.step) || 0, steps: Number(d.total) || 0, sigma }, r.preview.bytes!, r.preview.mime!);
+      } catch {
+        // a listener's failure is never the render's
+      }
     } else if (msg.type === "execution_start") {
       r.phase = "loading";
       this.current = r;

@@ -2,6 +2,8 @@ import { lockMachine } from "./lock-api";
 import { Rented } from "./rented";
 import { Comfy, type MachineComfy } from "./comfy";
 import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import type { Db, DbKind } from "./db";
 import type { LibraryChange } from "./events";
 import { Downloads } from "./downloads";
@@ -106,6 +108,9 @@ export async function createServices(
       c = new Comfy(m.url, registry, m.token);
       c.overrides = async () => (await readSettings(db)).slotFiles;
       c.infoOf = infoOf;
+      // every step's live preview kept, only while data/keep-previews exists: what the swap judge is measured on
+      // (HANDOVER-swap-motion.md's sibling plan, 2026-10-19), never on in normal use
+      if (dirs.dataDir) c.monitor.onStepPreview = keepPreview(join(dirs.dataDir, "keep-previews"));
       pool.set(m.id, c);
     }
     // a token set, renewed or taken off goes with the next call; an open socket stays open (the lock let it in)
@@ -307,4 +312,17 @@ export async function createServices(
     await closeBefore();
   };
   return services;
+}
+
+/**
+ * Each step's live preview written to `dir/<prompt id>/step-<n>-sigma-<s>.<ext>`, while `dir` exists (made by hand for a
+ * measuring series, removed after): the swap judge's material. Best effort, never in a render's way.
+ */
+function keepPreview(dir: string) {
+  return (promptId: string, at: { step: number; steps: number; sigma: number | null }, bytes: Uint8Array, mime: string): void => {
+    if (!existsSync(dir)) return;
+    const ext = mime === "video/mp4" ? "mp4" : mime === "image/webp" ? "webp" : mime === "image/png" ? "png" : "jpg";
+    const name = `step-${String(at.step).padStart(2, "0")}-of-${at.steps}-sigma-${at.sigma === null ? "x" : at.sigma.toFixed(3)}.${ext}`;
+    void mkdir(join(dir, promptId), { recursive: true }).then(() => writeFile(join(dir, promptId, name), bytes)).catch(() => {});
+  };
 }
