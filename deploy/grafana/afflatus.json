@@ -364,13 +364,442 @@
       }
     },
     {
+      "id": 31,
+      "type": "row",
+      "title": "Rented GPUs",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 32,
+      "type": "stat",
+      "title": "RunPod balance",
+      "description": "RunPod's balance as Afflatus last read it",
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(afflatus_runpod_balance_usd)",
+          "legendFormat": "RunPod balance",
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 33,
+      "type": "stat",
+      "title": "Spending now",
+      "description": "What the account spends an hour now, as RunPod says it",
+      "gridPos": {
+        "x": 4,
+        "y": 6,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(afflatus_rented_spend_per_hour_usd)",
+          "legendFormat": "Spending now",
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 34,
+      "type": "stat",
+      "title": "Today",
+      "description": "Today's compute on rented pods: what the day cap is weighed against",
+      "gridPos": {
+        "x": 8,
+        "y": 6,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(afflatus_rented_spend_today_usd)",
+          "legendFormat": "Today",
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 35,
+      "type": "stat",
+      "title": "This month",
+      "description": "This month's whole RunPod bill: pods, stopped disks, volumes",
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(afflatus_rented_spend_month_usd)",
+          "legendFormat": "This month",
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 36,
+      "type": "stat",
+      "title": "Pods running",
+      "description": "Rented pods running now",
+      "gridPos": {
+        "x": 16,
+        "y": 6,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(afflatus_rented_pods_running)",
+          "legendFormat": "Pods running",
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 37,
+      "type": "stat",
+      "title": "Pod crashes (24h)",
+      "description": "Pods whose ComfyUI died and that Afflatus terminated, over the last day",
+      "gridPos": {
+        "x": 20,
+        "y": 6,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(afflatus_rented_pod_ends_total{reason=\"crash\"}[24h]))",
+          "legendFormat": "Pod crashes (24h)",
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 38,
+      "type": "timeseries",
+      "title": "Where the money went (per day)",
+      "description": "Rented GPUs' cost by what the pods did, as Queue › Costs splits it: rendering, booting, fetching files, idle, work from outside Afflatus, failed renders",
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "interval": "1h",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (part) (increase(afflatus_rented_spend_usd_total[1d]))",
+          "legendFormat": "{{part}}",
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 39,
+      "type": "timeseries",
+      "title": "Spend by GPU (per day)",
+      "description": "Rented GPUs' cost by RunPod's GPU",
+      "gridPos": {
+        "x": 12,
+        "y": 10,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "interval": "1h",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (gpu) (increase(afflatus_rented_gpu_spend_usd_total[1d]))",
+          "legendFormat": "{{gpu}}",
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
       "id": 8,
       "type": "row",
       "title": "Renders",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 5,
+        "y": 18,
         "w": 24,
         "h": 1
       },
@@ -382,7 +811,7 @@
       "title": "Finished per hour",
       "gridPos": {
         "x": 0,
-        "y": 6,
+        "y": 19,
         "w": 12,
         "h": 8
       },
@@ -439,7 +868,7 @@
       "title": "Render time (median / p90, 6h window)",
       "gridPos": {
         "x": 12,
-        "y": 6,
+        "y": 19,
         "w": 12,
         "h": 8
       },
@@ -507,7 +936,7 @@
       "title": "Where the GPU time went (per hour)",
       "gridPos": {
         "x": 0,
-        "y": 14,
+        "y": 27,
         "w": 12,
         "h": 8
       },
@@ -565,7 +994,7 @@
       "title": "Time loading models, share of GPU time (6h)",
       "gridPos": {
         "x": 12,
-        "y": 14,
+        "y": 27,
         "w": 12,
         "h": 8
       },
@@ -623,7 +1052,7 @@
       "title": "Queue wait, average (6h)",
       "gridPos": {
         "x": 0,
-        "y": 22,
+        "y": 35,
         "w": 12,
         "h": 8
       },
@@ -681,7 +1110,7 @@
       "title": "Model loads per hour",
       "gridPos": {
         "x": 12,
-        "y": 22,
+        "y": 35,
         "w": 12,
         "h": 8
       },
@@ -740,7 +1169,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 30,
+        "y": 43,
         "w": 24,
         "h": 1
       },
@@ -752,7 +1181,7 @@
       "title": "GPU memory",
       "gridPos": {
         "x": 0,
-        "y": 31,
+        "y": 44,
         "w": 8,
         "h": 7
       },
@@ -807,7 +1236,7 @@
       "title": "GPU temperature",
       "gridPos": {
         "x": 8,
-        "y": 31,
+        "y": 44,
         "w": 8,
         "h": 7
       },
@@ -864,7 +1293,7 @@
       "title": "GPU load",
       "gridPos": {
         "x": 16,
-        "y": 31,
+        "y": 44,
         "w": 8,
         "h": 7
       },
@@ -922,7 +1351,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 38,
+        "y": 51,
         "w": 24,
         "h": 1
       },
@@ -934,7 +1363,7 @@
       "title": "Answering",
       "gridPos": {
         "x": 0,
-        "y": 39,
+        "y": 52,
         "w": 12,
         "h": 7
       },
@@ -1006,7 +1435,7 @@
       "title": "Rendering",
       "gridPos": {
         "x": 12,
-        "y": 39,
+        "y": 52,
         "w": 12,
         "h": 7
       },
@@ -1077,7 +1506,7 @@
       "title": "Learned pace (1 = the common pace, 2 = half as fast)",
       "gridPos": {
         "x": 0,
-        "y": 46,
+        "y": 59,
         "w": 12,
         "h": 7
       },
@@ -1129,7 +1558,7 @@
       "title": "VRAM in use, by machine",
       "gridPos": {
         "x": 12,
-        "y": 46,
+        "y": 59,
         "w": 12,
         "h": 7
       },
@@ -1187,7 +1616,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 53,
+        "y": 66,
         "w": 24,
         "h": 1
       },
@@ -1199,7 +1628,7 @@
       "title": "Event-loop lag",
       "gridPos": {
         "x": 0,
-        "y": 54,
+        "y": 67,
         "w": 8,
         "h": 7
       },
@@ -1268,7 +1697,7 @@
       "title": "Memory",
       "gridPos": {
         "x": 8,
-        "y": 54,
+        "y": 67,
         "w": 8,
         "h": 7
       },
@@ -1337,7 +1766,7 @@
       "title": "CPU and garbage collection",
       "gridPos": {
         "x": 16,
-        "y": 54,
+        "y": 67,
         "w": 8,
         "h": 7
       },
@@ -1406,7 +1835,7 @@
       "title": "Before ComfyUI has the prompt (median / p90, 1h)",
       "gridPos": {
         "x": 0,
-        "y": 61,
+        "y": 74,
         "w": 8,
         "h": 7
       },
@@ -1475,7 +1904,7 @@
       "title": "Filing what a render made (median / p90, 1h)",
       "gridPos": {
         "x": 8,
-        "y": 61,
+        "y": 74,
         "w": 8,
         "h": 7
       },
@@ -1544,7 +1973,7 @@
       "title": "Where the added time goes (per hour)",
       "gridPos": {
         "x": 16,
-        "y": 61,
+        "y": 74,
         "w": 8,
         "h": 7
       },

@@ -4,6 +4,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+- **/metrics: the rented GPUs' money.** What Queue › Costs works out, for a dashboard: spend by part (rendering, booting, fetching, idle, outside work, failed) and by GPU, pod runs ended by why (a crash among them), pods running, today and this month against the caps, RunPod's balance, spending an hour now and storage. The Grafana dashboard (deploy/grafana) has a **Rented GPUs** row for them. Only with a RunPod key, a rented machine or a pod session on record.
+
 ## [0.5.2] - 2026-10-19
 
 ### Added

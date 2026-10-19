@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { allowedHosts, hostAllowed } from "./hostCheck";
+import { costMetrics } from "./costMetrics";
 import { BUCKETS } from "./renderDigests";
 import { machinePaces } from "./forecast";
 import { tallyByRecipe, type RecipeSum } from "./rendersRead";
@@ -42,6 +43,8 @@ export function registerMetrics(app: FastifyInstance, s: Services): void {
     summed = { mark, by };
     return by;
   };
+
+  const money = costMetrics(s);
 
   app.get("/metrics", async (req, reply) => {
     const own = hostAllowed(req.headers.host, hosts);
@@ -119,6 +122,9 @@ export function registerMetrics(app: FastifyInstance, s: Services): void {
       put("afflatus_render_duration_seconds_count", tag(id), v.done);
       put("afflatus_render_duration_seconds_sum", tag(id), v.doneTotal / 1000);
     }
+
+    // ---- the rented GPUs' money (costMetrics.ts): spend by part and GPU, the day, the month, the caps, the balance
+    await money(head, put);
 
     // ---- the server itself (serverMetrics.ts): Node's figures, and what Afflatus adds to each render per machine
     lines.push((await serverRegistry.metrics()).trimEnd());
