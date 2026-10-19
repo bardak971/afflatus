@@ -17,8 +17,8 @@ const build = (over: Record<string, unknown> = {}, source: MediaFacts = part(), 
 };
 
 describe("MiniMax H3 · Swap character", () => {
-  it("is offered again (the owner, 2026-10-17: to test its speed options on a source lane)", () => {
-    expect(describeRecipe(h3Swap).hidden).toBeUndefined();
+  it("is hidden in the 0.5.2 release: the screens that offer recipes leave it out, what was made with it still opens", () => {
+    expect(describeRecipe(h3Swap).hidden).toBe(true);
     expect(recipeById("h3.swap")).toBe(h3Swap);
   });
 

@@ -399,6 +399,8 @@ function masked(file: string, sam: string, m: MaskSettings, has: (cls: string) =
 export const h3Swap = defineRecipe<H3Swap>({
   id: "h3.swap",
   family: "h3",
+  // hidden in the 0.5.2 release (the owner: not finished): not offered anywhere, what was made with it still opens; main keeps it offered
+  hidden: true,
   version: 1,
   title: "Swap character",
   summary: "A person in a video replaced by someone of the cast; the scene, the motion and the sound kept.",

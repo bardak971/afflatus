@@ -14,7 +14,7 @@ interface NodePack {
 
 const NODE_PACKS: NodePack[] = [
   {
-    name: "afflatus-nodes", repo: "https://github.com/bardak971/afflatus/tree/main/comfy-nodes/afflatus-nodes", own: true,
+    name: "afflatus-nodes", repo: "https://github.com/bardak971/afflatus/tree/v0.5.2/comfy-nodes/afflatus-nodes", own: true,
     // AfflatusH3TailGuide is deprecated in the pack (0.11.2) and no form uses it: listed while the pack still registers it,
     // so that an imported graph naming it is told to install this pack, as long as the pack keeps it for those graphs
     nodes: ["AfflatusSaveH3Latent", "AfflatusLoadH3Latent", "AfflatusNormalizeH3Latent", "AfflatusTrimH3Latent", "AfflatusH3TailGuide", "AfflatusH3LatentHeadGuide", "AfflatusH3LatentLanding", "AfflatusH3SeamLatent", "MiniMaxH3GuidedContinuationWindow", "MiniMaxH3LatentTailGuide", "AfflatusFaceMatch", "AfflatusFaceAt"],
