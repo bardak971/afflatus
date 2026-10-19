@@ -5,6 +5,8 @@ import type { Comfy } from "./comfy";
 import { stepSaid, type PresetFile } from "@afflatus/core";
 import { recordMeasure } from "./podMeasures";
 import { bootPacks, type BootLog } from "./podBoot";
+import { imageLayers, type ImageLayer } from "./podImage";
+import { pullKept, pullOf } from "./podPull";
 import { SEARCHED_FOLDERS } from "./modelSets";
 import { noteFill, recordHoldings } from "./rentedVolumes";
 import { dollars, machineSaid } from "./notifyWords";
@@ -86,6 +88,10 @@ const BOOT_READ_MS = 10_000;
 const BOOT_TAIL_MS = 2 * 60_000;
 /** The log tab reads it every two seconds while it is open: read again at most this often then. */
 const BOOT_ASKED_MS = 2_000;
+/** How often a booting pod's system log is read from RunPod for its pull (podPull.ts), and kept boot logs pruned. */
+const PULL_READ_MS = 10_000;
+const PRUNE_MS = 60 * 60_000;
+const DAY_MS = 24 * 60 * 60_000;
 
 /**
  * The follow loop of rented pods (rented.ts): RunPod read every few seconds, each pod's run followed through its boot, its
@@ -94,6 +100,13 @@ const BOOT_ASKED_MS = 2_000;
  */
 export class RentedFollow extends RentedBilling {
   bootEveryMs = BOOT_READ_MS;
+  pullEveryMs = PULL_READ_MS;
+  /** An image's layers, from its registry (a test's stand-in in place of imageLayers); asked once per image and kept. */
+  imageLayersOf: (image: string) => Promise<ImageLayer[] | null> = (image) => imageLayers(image);
+  private readonly layersSeen = new Map<string, Promise<ImageLayer[] | null>>();
+  /** How many days a boot log is kept (Settings › Rented GPUs; 0: none), as last read, and when kept ones were last pruned. */
+  private bootLogDays = 0;
+  private prunedAt = 0;
 
   private timer: NodeJS.Timeout | null = null;
   private polling: Promise<void> | null = null;
@@ -214,6 +227,7 @@ export class RentedFollow extends RentedBilling {
     this.spentThisPoll = null;
     const settings = await readSettings(this.db);
     const rented = settings.machines.filter((m) => m.rented);
+    await this.pruneBootLogs(settings.bootLogDays);
     this.filling = new Set(rented.filter((m) => m.rented!.fill).map((m) => m.id));
     for (const id of this.seen.keys()) {
       if (rented.some((m) => m.id === id)) continue;
@@ -371,6 +385,8 @@ export class RentedFollow extends RentedBilling {
     // the rate of its last run here, until RunPod says one (it says 0 while the pod is stopped)
     s.rate ??= (await this.db.selectFrom("rent_sessions").select("rate").where("pod", "=", m.rented!.pod).orderBy("started_at", "desc").executeTakeFirst())?.rate || null;
     await this.session(m, pod, s);
+    // a deployed pod's first start: how far its image's pull is, from RunPod's system log, until its ComfyUI answers
+    if (m.rented!.deployedAt && pod && BILLED.has(pod.status) && !s.answered) void this.readPull(m, s, pod, key);
     // its container up (RunPod says its uptime from then): its image pulled, kept on its session for the Costs tab's split of
     // its boot. From its uptime, not from now: right after a restart of Afflatus mid-boot too
     if (pod?.status === "RUNNING" && pod.uptime !== null && !s.pulledKept) {
@@ -583,6 +599,7 @@ export class RentedFollow extends RentedBilling {
     const before = this.boots.get(m.id);
     const after = await this.boots.read(m.id, m.rented!.pod, m.token, everyMs);
     if (after) await this.notePacks(m, after);
+    if (after) await this.keepBootLog(m, this.seenOf(m.id));
     if (after && (after.step !== before?.step || after.failed !== before?.failed || after.lines.at(-1)?.t !== before?.lines.at(-1)?.t)) this.events.emit("queue");
     return after;
   }
@@ -654,6 +671,67 @@ export class RentedFollow extends RentedBilling {
    */
   private async notePulled(m: Machine, at: number): Promise<void> {
     await this.db.updateTable("rent_sessions").set({ pulled_at: new Date(Math.min(at, this.now())).toISOString() }).where("machine_id", "=", m.id).where("ended_at", "is", null).where("pulled_at", "is", null).where("up_at", "is", null).execute().catch(() => {});
+  }
+
+  /**
+   * A booting pod's pull read again from RunPod's system log, at most every pullEveryMs, until it is done (podPull.ts): its
+   * card says how far it is, what is left and how fast this host pulls; once done, its figures are kept on its open session.
+   * RunPod drops the log with the pod, so it is read while the pod boots. Never an error: a log RunPod does not give is
+   * nothing said.
+   */
+  private async readPull(m: Machine, s: Seen, pod: Pod, key: string): Promise<void> {
+    if (s.pull?.phase === "done" || this.now() - s.pullReadAt < this.pullEveryMs) return;
+    s.pullReadAt = this.now();
+    // only what came since the last line read: RunPod streams a log's backlog slowly (2,600 lines in ~8 s on a real pod,
+    // 2026-10-20), so a read takes what came within its wait, and the next goes on from there; the lines of that last
+    // second already held are not taken twice
+    const last = s.pullLines.at(-1)?.ts ?? null;
+    const got = await this.client(key).systemLog(pod.id, last).catch(() => null);
+    if (!got?.length) return;
+    let skip = last ? s.pullLines.filter((l) => l.ts === last).length : 0;
+    const added = got.filter((l) => !last || l.ts > last || (l.ts === last && skip-- <= 0));
+    if (!added.length) return;
+    s.pullLines = [...s.pullLines, ...added];
+    const lines = s.pullLines;
+    const image = m.rented!.image || pod.image;
+    let layers = image ? this.layersSeen.get(image) : undefined;
+    if (image && !layers) {
+      layers = this.imageLayersOf(image).catch(() => null);
+      this.layersSeen.set(image, layers);
+    }
+    const before = s.pull;
+    s.pull = pullOf(lines, (await layers) ?? null, this.now());
+    if (before?.phase !== s.pull.phase || before.done !== s.pull.done || before.leftMs !== s.pull.leftMs) this.events.emit("queue");
+    if (s.pull.phase === "done" && !s.pullKept) {
+      s.pullKept = true;
+      const { fresh, bytes, downloadMs, extractMs, mbps } = s.pull;
+      await this.db.updateTable("rent_sessions").set({ pull: JSON.stringify({ fresh, bytes, downloadMs, extractMs, mbps }) }).where("machine_id", "=", m.id).where("ended_at", "is", null).execute().catch(() => {});
+    }
+    await this.keepBootLog(m, s);
+  }
+
+  /**
+   * Its boot log kept on its open session while boot logs are kept (Settings › Rented GPUs): RunPod's system log of its pull
+   * (the repeats of a layer's progress thinned, pullKept) and the pod's own boot log, written again as either grows, so that
+   * a pod that never comes up keeps what it said. Dropped after the days said there (pruneBootLogs).
+   */
+  private async keepBootLog(m: Machine, s: Seen): Promise<void> {
+    if (this.bootLogDays <= 0) return;
+    const pod = this.boots.get(m.id)?.lines ?? [];
+    const said = `${s.pullLines.length}:${pod.length}:${pod.at(-1)?.t ?? ""}`;
+    if (said === s.bootLogKept || (!s.pullLines.length && !pod.length)) return;
+    s.bootLogKept = said;
+    await this.db.updateTable("rent_sessions").set({ boot_log: JSON.stringify({ system: pullKept(s.pullLines), pod }) }).where("machine_id", "=", m.id).where("ended_at", "is", null).execute().catch(() => {});
+  }
+
+  /** The kept boot logs older than the days said (all of them at 0), dropped: at most once an hour, and at once when the days change. */
+  private async pruneBootLogs(days: number): Promise<void> {
+    if (days === this.bootLogDays && this.now() - this.prunedAt < PRUNE_MS) return;
+    this.bootLogDays = days;
+    this.prunedAt = this.now();
+    let q = this.db.updateTable("rent_sessions").set({ boot_log: null }).where("boot_log", "is not", null);
+    if (days > 0) q = q.where("started_at", "<", new Date(this.now() - days * DAY_MS).toISOString());
+    await q.execute().catch(() => {});
   }
 
   /**
@@ -772,7 +850,9 @@ export class RentedFollow extends RentedBilling {
         // a run first seen before RunPod said its rate (0) takes the rate as soon as it says one: it was counted as free. One
         // opened at a lower rate takes the higher too: a run opened before its disk was counted in its rate (0.5.0), its
         // whole time billed with that disk
-        await this.db.updateTable("rent_sessions").set({ seen_at: iso, ...(pod.cost > open.rate ? { rate: pod.cost } : {}) }).where("id", "=", open.id).execute();
+        // what it runs on, as soon as RunPod says it: its host is known only once the pod is placed on one
+        const on = { ...(!open.host_cuda && pod.hostCuda ? { host_cuda: pod.hostCuda } : {}), ...(!open.data_center && pod.dataCenter ? { data_center: pod.dataCenter } : {}), ...(!open.image && pod.image ? { image: pod.image } : {}) };
+        await this.db.updateTable("rent_sessions").set({ seen_at: iso, ...(pod.cost > open.rate ? { rate: pod.cost } : {}), ...on }).where("id", "=", open.id).execute();
         s.sessionFrom = Date.parse(open.started_at);
         return;
       }
@@ -786,8 +866,11 @@ export class RentedFollow extends RentedBilling {
       const started = Number.isFinite(said) && said > lastEnd ? said : now;
       const from = !last && Number.isFinite(deployedAt) ? Math.min(started, deployedAt) : started;
       // its GPU and its idle minutes kept with it: the Costs tab says the one and weighs a shorter idle against the other
-      await this.db.insertInto("rent_sessions").values({ id: randomUUID(), machine_id: m.id, pod: pod.id, rate: pod.cost || s.rate || 0, started_at: new Date(Math.min(from, now)).toISOString(), ended_at: null, seen_at: iso, gpu: pod.gpu, up_at: null, idle_minutes: m.rented!.idleMinutes, busy_at: null, volume: pod.volumeId || m.rented!.volume || null }).execute();
+      // and what it runs on (the build its image is, its host's CUDA, its data center): kept past the pod's end
+      await this.db.insertInto("rent_sessions").values({ id: randomUUID(), machine_id: m.id, pod: pod.id, rate: pod.cost || s.rate || 0, started_at: new Date(Math.min(from, now)).toISOString(), ended_at: null, seen_at: iso, gpu: pod.gpu, up_at: null, idle_minutes: m.rented!.idleMinutes, busy_at: null, volume: pod.volumeId || m.rented!.volume || null, image: m.rented!.image || pod.image || null, host_cuda: pod.hostCuda, data_center: pod.dataCenter }).execute();
       s.sessionFrom = Math.min(from, now);
+      // a new run pulls (or finds) its image afresh
+      Object.assign(s, { pullLines: [], pullReadAt: 0, pull: null, pullKept: false, bootLogKept: null });
     } else if (open) {
       // closed now when it was seen running a moment ago. One that ended while Afflatus was away (off, asleep) is closed at
       // the latest it could have run: its watchdog stops it that long after the last "still here" (RunPod's bill, once

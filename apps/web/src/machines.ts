@@ -1,6 +1,6 @@
 import type { MachineState, PodFile, QueueStatus, RentedState } from "./api";
 import { stepSaid } from "@afflatus/core";
-import { minutesSaid, plural, usd } from "./format";
+import { gb, minutesSaid, plural, usd } from "./format";
 
 /** Several ComfyUIs (Settings › ComfyUI): how a machine is named on screen, and what the screens read of them. */
 
@@ -166,8 +166,21 @@ export function clock(ms: number): string {
  */
 export function bootSaid(b: RentedBoot, now = Date.now()): string {
   if (b.failed && b.step) return `start failed: ${stepSaid(b.step)} · terminated`;
-  const what = b.phase === "pulling" ? "pulling image" : b.phase === "starting" || !b.step ? "starting ComfyUI" : stepSaid(b.step);
+  const what = b.phase === "pulling" ? (b.pull ? pullSaid(b.pull) : "pulling image") : b.phase === "starting" || !b.step ? "starting ComfyUI" : stepSaid(b.step);
   return `${what} · ${clock(now - b.from)}`;
+}
+
+/**
+ * How far a pod's image pull is, from RunPod's system log: "pulling image 1.9/4.4 GB · 35 MB/s · ~2 min left"; before the
+ * host begins it, that it waits for one; once all is downloaded, its extraction. Figures only when they are known.
+ */
+export function pullSaid(p: NonNullable<RentedBoot["pull"]>): string {
+  const left = p.leftMs !== null ? ` · ~${Math.max(1, Math.round(p.leftMs / 60_000))} min left` : "";
+  if (p.stage === "waiting") return "waiting for its host to pull the image";
+  if (p.stage === "extracting") return `extracting image${left}`;
+  const bytes = p.bytes ? ` ${(p.done / 2 ** 30).toFixed(1)}/${gb(p.bytes)}` : "";
+  const speed = p.mbps !== null ? ` · ${p.mbps < 10 ? p.mbps.toFixed(1) : Math.round(p.mbps)} MB/s` : "";
+  return `pulling image${bytes}${speed}${left}`;
 }
 
 /**

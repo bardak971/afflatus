@@ -7,7 +7,7 @@ import { bootNote, bootSaid, clock, idleEndSaid, machinesByName, machineState, o
 /** What a rented pod's row, its Start and the pill say (machines.ts), and when the machines' own controls show. */
 
 const pod = (over: Partial<RentedState> = {}): RentedState => ({
-  provider: "runpod", pod: "p1", status: "EXITED", rate: 0.69, gpuRate: null, gpu: "NVIDIA GeForce RTX 5090", dataCenter: "EU-RO-1",
+  provider: "runpod", pod: "p1", status: "EXITED", rate: 0.69, gpuRate: null, gpu: "NVIDIA GeForce RTX 5090", dataCenter: "EU-RO-1", cuda: null, hostCuda: null,
   since: null, spent: 0, diskPerDay: 0.33, volume: false, otherPorts: [], closedPorts: [], watchdog: "unknown", answers: null, idleAt: null, capped: false, stopping: false,
   stoppedBy: null, crash: null, booting: false, error: null, files: [], packs: [], disk: null, ...over,
 });
@@ -81,6 +81,19 @@ describe("a deployed pod's first start", () => {
     // a start that stopped: where, and that it is terminated (at once, by the server)
     expect(bootSaid(boot({ phase: "step", step: "putting in the node packs (exit 1)", failed: true }), now)).toBe("start failed: linking node packs (exit 1) · terminated");
     expect(bootSaid(boot({ phase: "step", step: "the GPU does not work on this host: CUDA unknown error", failed: true }), now)).toBe("start failed: GPU fault: CUDA unknown error · terminated");
+  });
+
+  it("says how far its image's pull is, from RunPod's log: bytes, speed and time left only when known", () => {
+    const GiB = 2 ** 30;
+    const pull = (over: Partial<NonNullable<NonNullable<RentedState["boot"]>["pull"]>>) => ({ stage: "downloading" as const, done: 1.9 * GiB, bytes: 4.4 * GiB, mbps: 35.4, leftMs: 130_000, ...over });
+    expect(bootSaid(boot({ from: now - 74_000, pull: pull({}) }), now)).toBe("pulling image 1.9/4.4 GB · 35 MB/s · ~2 min left · 1m 14s");
+    // a crawl, said to the tenth; its speed not read yet; the layers' sizes not known
+    expect(bootSaid(boot({ pull: pull({ mbps: 4.96, leftMs: 12 * 60_000 }) }), now)).toBe("pulling image 1.9/4.4 GB · 5.0 MB/s · ~12 min left · 6m 00s");
+    expect(bootSaid(boot({ pull: pull({ mbps: null, leftMs: null }) }), now)).toBe("pulling image 1.9/4.4 GB · 6m 00s");
+    expect(bootSaid(boot({ pull: pull({ bytes: 0, done: 0, mbps: null, leftMs: null }) }), now)).toBe("pulling image · 6m 00s");
+    expect(bootSaid(boot({ pull: pull({ stage: "extracting", leftMs: 20_000 }) }), now)).toBe("extracting image · ~1 min left · 6m 00s");
+    // RunPod has not begun it: no host yet, or its log says nothing of it
+    expect(bootSaid(boot({ pull: pull({ stage: "waiting", done: 0, bytes: 0, mbps: null, leftMs: null }) }), now)).toBe("waiting for its host to pull the image · 6m 00s");
   });
 
   it("counts its time in minutes and seconds, never rounded to the minute", () => {

@@ -139,6 +139,13 @@ export const deploySchema = z.object({
   accept: z.array(z.string().max(120)).max(40).default([]),
   /** Deploy again: nothing was ticked, the remembered set's files come (deployModels.ts deployFiles). Not remembered. */
   again: z.boolean().default(false),
+  /**
+   * The Afflatus image's CUDA build (core CudaPick): 13.0 only by default, 12.8, or either (13.0 first). Remembered; the
+   * Hunt takes it too.
+   */
+  cuda: z.enum(["13.0", "12.8", "either"]).default("13.0"),
+  /** This deploy alone on 12.8, as the dialog asked when no CUDA 13 host was free: the remembered pick stays as it was. */
+  cudaOnce: z.boolean().default(false),
 });
 export type DeployAsk = z.infer<typeof deploySchema>;
 
@@ -275,6 +282,11 @@ export const settingsSchema = z.object({
   lastDeploy: deploySchema.nullable().default(null),
   /** A network volume no pod ran on for this many days is flagged (it bills every month all the same); 0: never. */
   volumeUnusedDays: z.number().int().min(0).max(365).default(7),
+  /**
+   * A deployed pod's boot log (RunPod's system log of its pull, and the pod's own boot log) is kept with its run for this
+   * many days, for Queue › Costs; 0: none is kept, and those kept go. Its pull's figures are kept either way.
+   */
+  bootLogDays: z.number().int().min(0).max(365).default(0),
   /**
    * The RunPod secrets of pods removed from Afflatus while they still were on RunPod: each pod reads its own at its start,
    * so it stays as long as the pod does, and is deleted once the pod is gone (rented.ts). Never given to the page.
@@ -568,6 +580,7 @@ export function publicSettings(s: Settings) {
     costs: s.costs,
     lastDeploy: s.lastDeploy,
     volumeUnusedDays: s.volumeUnusedDays,
+    bootLogDays: s.bootLogDays,
     finish: s.finish,
     slotFiles: s.slotFiles,
     acceptedPresets: s.acceptedPresets,

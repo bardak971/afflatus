@@ -43,7 +43,8 @@ LABEL org.opencontainers.image.title="afflatus-pod-base" \
 ENV PIP_NO_CACHE_DIR=1 PYTHONUNBUFFERED=1 DEBIAN_FRONTEND=noninteractive
 # what NVIDIA's own CUDA images set: the GPU and its compute libraries handed to the container by the host's runtime
 ENV NVIDIA_VISIBLE_DEVICES=all NVIDIA_DRIVER_CAPABILITIES=compute,utility
-# the top reads it for Manager's registry list (registry_cache.py), which is made at each pod tag, not here
+# the ComfyUI it carries, said to what runs on it; the top says its own for Manager's registry list (its COMFYUI_VERSION,
+# held equal to this one by test_image.py) since 0.1.27, made outside the base
 ENV AFFLATUS_COMFYUI_VERSION="${COMFYUI_VERSION}"
 
 # git for the Manager (it clones node packs), ffmpeg for the video nodes, the GL and GLib libraries OpenCV wants
@@ -55,11 +56,30 @@ RUN git clone --depth 1 --branch "${COMFYUI_VERSION}" https://github.com/comfyan
  && test "$(git -C /comfyui rev-parse HEAD)" = "${COMFYUI_COMMIT}"
 WORKDIR /comfyui
 
-# torch first, from the CUDA wheels, so that ComfyUI's requirements find it there; then ComfyUI's own and its Manager's
+# torch's CUDA libraries first, in layers of their own, at the very versions torch's wheel asks for (its metadata on
+# PyTorch's index, read here): torch, its libraries and ComfyUI's packages were one 3.7 GB layer, pulled as one stream.
+# A host pulls a few layers at once and retries a dropped one alone, and may cap each stream (2026-10-19, US-WA-1: three
+# layers at 78 MB/s together, the big one then alone at 35; EU-RO-1: one layer crawling at 5 MB/s, dropped at 1.8 GB and
+# begun again). pip -c holds each to torch's pin, so torch's install below finds them all there: the same packages at the
+# same versions as one install gives. NCCL stays although a pod has one GPU: libtorch_cuda.so links it (NEEDED
+# libnccl.so.2), and torch does not import without it (checked 2026-10-20).
+RUN python -c "import os, re, urllib.request; c, v = os.environ['TORCH_CUDA'], os.environ['TORCH_VERSION']; m = urllib.request.urlopen(f'https://download.pytorch.org/whl/{c}/torch-{v}%2B{c}-cp312-cp312-manylinux_2_28_x86_64.whl.metadata', timeout=60).read().decode(); pins = re.findall(r'^Requires-Dist: ((?:nvidia-[\w-]+|cuda-bindings|triton)==[\w.]+)', m, re.M); assert len(pins) >= 10, pins; open('/torch-cuda.txt', 'w').write('\n'.join(pins) + '\n')"
+# each layer one or a few of them, the biggest alone (cu128's cuDNN 0.7 GB, cuBLAS 0.6; cu130's 0.35 and 0.42), the small
+# ones they need first; a name that matches none fails the build (pip asks for at least one)
+RUN pip install -c /torch-cuda.txt $(grep -E '^(nvidia-cuda-|nvidia-nvjitlink|nvidia-nvtx|nvidia-cufile|nvidia-curand|cuda-bindings|triton)' /torch-cuda.txt | cut -d= -f1)
+RUN pip install -c /torch-cuda.txt $(grep -E '^nvidia-cublas' /torch-cuda.txt | cut -d= -f1)
+RUN pip install -c /torch-cuda.txt $(grep -E '^nvidia-cudnn' /torch-cuda.txt | cut -d= -f1)
+RUN pip install -c /torch-cuda.txt $(grep -E '^nvidia-cusparse' /torch-cuda.txt | cut -d= -f1)
+RUN pip install -c /torch-cuda.txt $(grep -E '^nvidia-(cufft|cusolver)' /torch-cuda.txt | cut -d= -f1)
+RUN pip install -c /torch-cuda.txt $(grep -E '^nvidia-(nccl|nvshmem)' /torch-cuda.txt | cut -d= -f1)
+
+# torch then, from the CUDA wheels, its libraries all there already (said if one is not); ComfyUI's requirements after it,
+# in a layer of their own, so that they find it there; then its Manager's
 RUN pip install --index-url "https://download.pytorch.org/whl/${TORCH_CUDA}" "torch==${TORCH_VERSION}" "torchvision==${TORCHVISION_VERSION}" "torchaudio==${TORCHAUDIO_VERSION}" \
- && pip install -r requirements.txt \
- && if [ -f manager_requirements.txt ]; then pip install -r manager_requirements.txt; else pip install comfyui_manager; fi \
+ && python -c "import subprocess; have = set(subprocess.check_output(['pip', 'freeze'], text=True).split()); lack = [p for p in open('/torch-cuda.txt').read().split() if p not in have]; assert not lack, lack" \
  && pip freeze | grep -iE '^(torch|torchvision|torchaudio)==' > /constraints.txt
+RUN pip install -c /constraints.txt -r requirements.txt \
+ && if [ -f manager_requirements.txt ]; then pip install -c /constraints.txt -r manager_requirements.txt; else pip install -c /constraints.txt comfyui_manager; fi
 
 # The node packs the built-in forms use most, built in at the commits Afflatus is tested against (packs.ts names their
 # nodes): DaSiWa's (H3's step cache, the RTX upscale route), VideoHelperSuite, KJNodes and the MMH3 upscale. Their sources

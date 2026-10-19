@@ -383,6 +383,15 @@ export interface Tables {
      */
     end_why?: string | null;
     crash?: string | null;
+    /**
+     * What it ran on (0080): the image deployed ("-cu128": the CUDA 12.8 build), its host's CUDA as RunPod said it, its data
+     * center; its pull (JSON, podPull.ts) and, while boot logs are kept, its boot's lines (JSON: { system, pod }).
+     */
+    image?: string | null;
+    host_cuda?: string | null;
+    data_center?: string | null;
+    pull?: string | null;
+    boot_log?: string | null;
   };
   /** Each model file a pod got (podFiles.ts): from when its bytes started to when it was whole, the Costs tab's "Fetching files". Bytes as a number (bigint on Postgres). */
   pod_fetches: { id: string; machine_id: string; file: string; folder: string; via: string; bytes: number | string; started_at: string; ended_at: string };

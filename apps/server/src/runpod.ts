@@ -41,6 +41,10 @@ export interface Pod {
    * say it: then it is never written, as writing it replaces the whole of it and would wipe what is there.
    */
   env: Record<string, string> | null;
+  /** The CUDA its host's driver offers ("13.2"), as RunPod says it once the pod is on a host; null before, or not said. */
+  hostCuda: string | null;
+  /** The image it runs, as RunPod says it. */
+  image: string | null;
   /** Seconds since it started, while it runs. */
   uptime: number | null;
   startedAt: string | null;
@@ -117,7 +121,7 @@ export const runningRate = (gpuCost: number, containerGb: number, diskGb: number
  * Each pinned to one version, so that a deploy runs what Afflatus was tested with.
  */
 export const POD_IMAGES = {
-  afflatus: () => envSaid.podImage()?.trim() || "ghcr.io/bardak971/afflatus-pod:0.1.27",
+  afflatus: () => envSaid.podImage()?.trim() || "ghcr.io/bardak971/afflatus-pod:0.1.28",
   runpod: () => "runpod/comfyui:1.4.0-comfyuiv0.35.0-cuda12.8",
 } as const;
 /** The first Afflatus pod image whose ComfyUI's death is always reported, as "comfy_died" (died.py, broken.py). */
@@ -228,6 +232,7 @@ type RawPod = {
   mounts?: { persistent?: { size?: number } | null; network?: Array<{ volumeId?: unknown } | null> | null } | null;
   env?: Record<string, string> | null;
   runtime?: { uptime?: number } | null; startedAt?: string | null;
+  cudaVersion?: string | null; image?: string | null;
 };
 
 const podOf = (p: RawPod): Pod => ({
@@ -245,6 +250,8 @@ const podOf = (p: RawPod): Pod => ({
   networkVolume: Boolean(p.mounts?.network?.length),
   volumeId: typeof p.mounts?.network?.[0]?.volumeId === "string" ? (p.mounts.network[0].volumeId as string) : null,
   env: p.env && typeof p.env === "object" && !Array.isArray(p.env) ? { ...p.env } : null,
+  hostCuda: typeof p.cudaVersion === "string" && p.cudaVersion ? p.cudaVersion : null,
+  image: typeof p.image === "string" && p.image ? p.image : null,
   uptime: p.runtime?.uptime ?? null,
   startedAt: podTime(p.startedAt) === null ? null : new Date(podTime(p.startedAt)!).toISOString(),
   actions: (p.actions ?? []).filter((a): a is PodAction => ["start", "stop", "restart", "terminate"].includes(a)),
@@ -284,6 +291,46 @@ export class Runpod {
       cursor = got.pagination.nextCursor;
     }
     return all;
+  }
+
+  /**
+   * A pod's system log as RunPod keeps it (its host's side: the image's pull layer by layer, the container's create and
+   * start), since `since` (RFC 3339) or its last 5000 lines: RunPod streams it (server-sent events) and holds the stream
+   * open, so what came within `waitMs` is taken. Gone once the pod is terminated (404): read while it boots. Null when
+   * RunPod did not answer, or does not have it.
+   */
+  async systemLog(id: string, since: string | null = null, waitMs = 2500): Promise<Array<{ ts: string; line: string }> | null> {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), waitMs);
+    const out: Array<{ ts: string; line: string }> = [];
+    let rest = "";
+    const take = (chunk: string) => {
+      rest += chunk;
+      const lines = rest.split("\n");
+      rest = lines.pop() ?? "";
+      for (const l of lines) {
+        if (!l.startsWith("data:")) continue;
+        const e = (() => { try { return JSON.parse(l.slice(5)) as { ts?: unknown; line?: unknown }; } catch { return null; } })();
+        if (e && typeof e.ts === "string" && typeof e.line === "string") out.push({ ts: e.ts, line: e.line });
+      }
+    };
+    try {
+      const res = await this.fetcher(`${apiBase()}/v2/pods/${encodeURIComponent(id)}/logs?source=system&${since ? `since=${encodeURIComponent(since)}` : "tail=5000"}`, { headers: { Authorization: `Bearer ${this.key}`, Accept: "text/event-stream" }, signal: ac.signal });
+      if (!res.ok || !res.body) {
+        await res.body?.cancel().catch(() => {});
+        return null;
+      }
+      const dec = new TextDecoder();
+      for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) take(dec.decode(chunk, { stream: true }));
+      take("\n");
+      return out;
+    } catch {
+      // the stream held open until the wait ended: what came is the answer; nothing came and no answer is null
+      take("\n");
+      return ac.signal.aborted ? out : null;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**

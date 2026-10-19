@@ -22,6 +22,28 @@ export function registerRented(app: FastifyInstance, s: Services): void {
   /** The user's pods, read with the key: which expose ComfyUI's port, which are added already. Read-only. */
   app.get("/api/runpod/pods", async () => ({ pods: await s.rented.pods() }));
 
+  /**
+   * A run's boot log as kept (Settings › Rented GPUs › boot logs, rentedFollow keepBootLog), as plain text: RunPod's system
+   * log of its pull, then the pod's own boot log. 404 when none is kept for it (not kept then, or dropped since).
+   */
+  app.get("/api/rented/sessions/:id/boot-log", async (req, reply) => {
+    const { id } = params.parse(req.params);
+    const row = await s.db.selectFrom("rent_sessions").select(["boot_log", "gpu", "started_at"]).where("id", "=", id).executeTakeFirst();
+    if (!row?.boot_log) throw httpError("No boot log is kept for that run.", 404);
+    const log = JSON.parse(row.boot_log) as { system?: Array<{ ts: string; line: string }>; pod?: Array<{ t: string; m: string }> };
+    const text = [
+      `${row.gpu ?? "Pod"}, deployed ${row.started_at}`,
+      "",
+      "RunPod's system log (the image's pull):",
+      ...(log.system ?? []).map((l) => `${l.ts}  ${l.line}`),
+      "",
+      "The pod's boot log:",
+      ...(log.pod ?? []).map((l) => `${l.t}  ${l.m}`),
+      "",
+    ].join("\n");
+    return reply.type("text/plain; charset=utf-8").header("Content-Disposition", `inline; filename="boot-log-${id.slice(0, 8)}.txt"`).send(text);
+  });
+
   /** The GPUs a pod can be deployed on now, on that cloud, with their price and where they are free; read-only. */
   app.get("/api/runpod/gpus", async (req) => {
     const { cloud } = z.object({ cloud: z.enum(["SECURE", "COMMUNITY"]).default("SECURE") }).parse(req.query);

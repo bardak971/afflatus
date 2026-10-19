@@ -2,6 +2,7 @@ import { httpError } from "./errors";
 import { COMFY_PORT, HOURS_A_MONTH, STOPPED_DISK_PER_GB_MONTH } from "./runpod";
 import { stepSaid, volumePerMonth } from "@afflatus/core";
 import { bootOf } from "./podBoot";
+import { buildOf } from "./podImage";
 import { dollars } from "./notifyWords";
 import { readSettings, updateSettings, type Machine } from "./settings";
 import { CAP_REACHED } from "./queueModel";
@@ -81,8 +82,15 @@ export class Rented extends RentedDeploy {
     const booting = Boolean(machine.rented.deployedAt) && (status === "RUNNING" || (TRANSITIONAL.has(status) && status !== "UNKNOWN")) && !s?.answered;
     const deployedAt = Date.parse(machine.rented.deployedAt);
     const boot = booting ? bootOf(pod, this.boots.get(machine.id), Number.isFinite(deployedAt) ? deployedAt : this.now()) : null;
+    // how far its pull is, while it pulls and its system log was read (rentedFollow readPull)
+    const pull = s?.pull;
+    if (boot?.phase === "pulling" && pull && pull.phase !== "done") boot.pull = { stage: pull.phase, done: pull.done, bytes: pull.bytes, mbps: pull.mbps, leftMs: pull.leftMs };
+    // its image in, by its log, before RunPod says its container's uptime: its container is starting
+    if (boot?.phase === "pulling" && pull?.phase === "done") boot.phase = "starting";
     return {
       provider: "runpod", pod: machine.rented.pod, status, rate, gpuRate: pod?.gpuCost || null, gpu: pod?.gpu ?? null, dataCenter: pod?.dataCenter ?? null,
+      // the build from the image it was deployed with, else as RunPod names it (a pod added by hand)
+      cuda: buildOf(machine.rented.image || pod?.image), hostCuda: pod?.hostCuda ?? null,
       since, spent: since && rate ? ((this.now() - since) / HOUR) * rate : 0,
       diskPerDay: pod ? (pod.diskGb * STOPPED_DISK_PER_GB_MONTH * 24) / HOURS_A_MONTH : 0,
       volume: Boolean(pod && (pod.networkVolume || pod.diskGb > 0)),

@@ -81,8 +81,8 @@ describe("a deploy", () => {
     const machine = s.machines.find((m) => m.id === id)!;
     expect(runpod.secrets[secret!]).toBe(machine.token);
     expect(machine).toMatchObject({ name: "A40", rented: { pod: pod.id, idleDo: "terminate", idleMinutes: 10, secret, deployed: true, makeRoom: true } });
-    expect(s.lastDeploy).toEqual({ ...ASK, set: "", files: [], leaveOut: [], accept: [], again: false, makeRoom: true });
-    expect((await get(t.app, "/api/settings")).json().lastDeploy).toEqual({ ...ASK, set: "", files: [], leaveOut: [], accept: [], again: false, makeRoom: true });
+    expect(s.lastDeploy).toEqual({ ...ASK, set: "", files: [], leaveOut: [], accept: [], again: false, makeRoom: true, cuda: "13.0", cudaOnce: false });
+    expect((await get(t.app, "/api/settings")).json().lastDeploy).toEqual({ ...ASK, set: "", files: [], leaveOut: [], accept: [], again: false, makeRoom: true, cuda: "13.0", cudaOnce: false });
     // up: its ComfyUI locked from its first second with the machine's token
     await until(() => pod.status === "RUNNING");
     expect(pod.comfy.lock).toEqual({ token: machine.token, local: false, fixed: true });
@@ -824,12 +824,27 @@ describe("a deployed pod gone from RunPod", () => {
 });
 
 describe("the image's build and the watchdog's end", () => {
-  it("CUDA 13 where the GPU's hosts offer it, 12.8 where not", async () => {
+  it("CUDA 13 by default; either: 13 where the GPU's hosts offer it, 12.8 where not; 12.8 when asked", async () => {
     await deploy();
     expect(runpod.pods[0]!.image).toBe(POD_IMAGES.afflatus());
     runpod.gpus = runpod.gpus.map((g) => (g.id === "NVIDIA L4" ? { ...g, cuda13: false } : g));
-    await deploy({ gpu: "NVIDIA L4" });
+    await deploy({ gpu: "NVIDIA L4", cuda: "either" });
     expect(runpod.pods[1]!.image).toBe(`${POD_IMAGES.afflatus()}-cu128`);
+    await deploy({ gpu: "NVIDIA A40", cuda: "12.8" });
+    expect(runpod.pods[2]!.image).toBe(`${POD_IMAGES.afflatus()}-cu128`);
+  });
+
+  it("on CUDA 13.0, a GPU with only older hosts free is refused, never deployed on 12.8 by itself; asked once, the pick remembered stays", async () => {
+    runpod.gpus = runpod.gpus.map((g) => (g.id === "NVIDIA L4" ? { ...g, cuda13: false } : g));
+    const before = creates();
+    const res = await deploy({ gpu: "NVIDIA L4" });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toMatch(/^No L4 host with CUDA 13 is free now: deploy it on CUDA 12\.8/);
+    expect(creates()).toBe(before);
+    // the dialog's "Deploy on CUDA 12.8 now": this deploy on 12.8, the next one still on 13.0
+    await deploy({ gpu: "NVIDIA L4", cuda: "12.8", cudaOnce: true });
+    expect(runpod.pods.at(-1)!.image).toBe(`${POD_IMAGES.afflatus()}-cu128`);
+    expect((await readSettings(t.db)).lastDeploy).toMatchObject({ gpu: "NVIDIA L4", cuda: "13.0", cudaOnce: false });
   });
 
   it("a pod without a volume: its watchdog terminates it; found stopped while Afflatus was away, Afflatus terminates what is left", async () => {

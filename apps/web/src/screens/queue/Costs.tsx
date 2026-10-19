@@ -238,6 +238,13 @@ function ByProject({ d }: { d: CostsView }) {
   );
 }
 
+/** A run's pull in a few words: "pulled 4.4 GB at 35 MB/s", or that its host had the image; nothing when not read. */
+function pullLine(p: PodSession["pull"]): string | null {
+  if (!p) return null;
+  if (p.fresh === false) return "image already on its host";
+  return p.bytes ? `pulled ${gb(p.bytes)}${p.mbps ? ` at ${p.mbps < 10 ? p.mbps.toFixed(1) : Math.round(p.mbps)} MB/s` : ""}` : null;
+}
+
 function SessionRow({ s, longest, split }: { s: PodSession; longest: number; split: boolean }) {
   const [open, setOpen] = useState(false);
   const bits = sessionBits(s, longest, split);
@@ -246,7 +253,7 @@ function SessionRow({ s, longest, split }: { s: PodSession; longest: number; spl
     <div className="flex flex-col">
       <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="grid grid-cols-[minmax(0,230px)_minmax(0,1fr)_64px] items-center gap-3.5 rounded-lg px-1.5 py-1 text-left hover:bg-hover">
         <span className="flex min-w-0 flex-col">
-          <span className="truncate text-[13px] font-semibold">{s.gpu ?? "GPU"} <span className="font-normal text-ink-3">· ${s.rate.toFixed(2)}/h</span></span>
+          <span className="truncate text-[13px] font-semibold">{s.gpu ?? "GPU"} <span className="font-normal text-ink-3">· ${s.rate.toFixed(2)}/h{s.cuda ? ` · CUDA ${s.cuda}` : ""}</span></span>
           <span className="truncate text-[11.5px] text-ink-3">{dayMonth(s.from)} {hourMinute(s.from)} · {s.open ? "running now" : s.crash ? "ComfyUI died" : s.startFailed ? "its start failed" : s.why}</span>
         </span>
         <span className="flex h-[18px] gap-0.5">
@@ -259,6 +266,12 @@ function SessionRow({ s, longest, split }: { s: PodSession; longest: number; spl
           {s.estimated.length > 0 && <span className="text-ink-3">Estimated: {s.estimated.join("; ")}.</span>}
           {s.crash && <span className="text-warn-ink">{s.crash}.</span>}
           {boot && <span className={cx(s.startFailed ? "text-warn-ink" : "text-ink-3")}>{boot}</span>}
+          {(s.dataCenter || s.hostCuda || s.pull || s.bootLog) && (
+            <span className="text-ink-3">
+              {[s.dataCenter, s.hostCuda && `host driver CUDA ${s.hostCuda}`, pullLine(s.pull)].filter(Boolean).join(" · ")}
+              {s.bootLog && <>{s.dataCenter || s.hostCuda || s.pull ? " · " : ""}<a href={`/api/rented/sessions/${encodeURIComponent(s.id)}/boot-log`} target="_blank" rel="noreferrer" className="font-semibold text-accent hover:underline">boot log</a></>}
+            </span>
+          )}
           {s.parts.outside > 0 && <span className="text-ink-3" data-tip={OUTSIDE_WHY}>Outside Afflatus: {long(s.parts.outside)}, {usd((s.parts.outside / 3_600_000) * s.rate, true)}</span>}
           {s.renders.length ? s.renders.map((r) => (
             // the time's column holds the longest spell() gives on one line ("59 min 59 s"): at 64px it wrapped

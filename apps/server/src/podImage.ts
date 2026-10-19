@@ -48,3 +48,48 @@ export async function imagePublic(image: string, fetcher?: typeof fetch): Promis
     return null;
   }
 }
+
+/** A layer of an image as RunPod's pull log names it (its digest's first 12 hex) and its compressed size in bytes. */
+export interface ImageLayer {
+  id: string;
+  size: number;
+}
+
+/**
+ * An image's layers for linux/amd64 (the build a pod pulls), from its registry, as imagePublic reads it: what a pull's
+ * progress is measured against (podPull.ts). Null where the registry did not say (not known, not public, not answering).
+ */
+export async function imageLayers(image: string, fetcher?: typeof fetch): Promise<ImageLayer[] | null> {
+  const parts = imageParts(image);
+  if (!parts) return null;
+  if (!fetcher && envSaid.pretendSites()) return null;
+  const get = fetcher ?? fetch;
+  try {
+    const t = await get(parts.token, { signal: AbortSignal.timeout(10_000) });
+    const token = t.ok ? ((await t.json().catch(() => null)) as { token?: string } | null)?.token : null;
+    if (!token) return null;
+    const read = async (ref: string) => {
+      const res = await get(`${parts.registry}/v2/${parts.repo}/manifests/${ref}`, { headers: { Authorization: `Bearer ${token}`, Accept: MANIFESTS }, signal: AbortSignal.timeout(10_000) });
+      return res.ok ? ((await res.json().catch(() => null)) as { manifests?: Array<{ digest?: string; platform?: { os?: string; architecture?: string } }>; layers?: Array<{ digest?: string; size?: number }> } | null) : null;
+    };
+    let m = await read(parts.tag);
+    // a multi-platform index names a manifest per platform: the one a pod runs
+    if (m?.manifests) {
+      const one = m.manifests.find((x) => x.platform?.os === "linux" && x.platform.architecture === "amd64") ?? m.manifests[0];
+      m = one?.digest ? await read(one.digest) : null;
+    }
+    if (!m?.layers) return null;
+    return m.layers.flatMap((l) => (typeof l.digest === "string" && typeof l.size === "number" ? [{ id: l.digest.replace(/^sha256:/, "").slice(0, 12), size: l.size }] : []));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The CUDA build of the Afflatus pod image an image name is ("…/afflatus-pod:0.1.27" 13.0, "…-cu128" 12.8); null for
+ * another image (RunPod's ComfyUI), or none.
+ */
+export function buildOf(image: string | null | undefined): "13.0" | "12.8" | null {
+  if (!image || !/\/afflatus-pod:/.test(image)) return null;
+  return /-cu128$/.test(image) ? "12.8" : "13.0";
+}

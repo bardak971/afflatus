@@ -256,7 +256,7 @@ export const api = {
   changeHunt: (change: Partial<HuntAsk>) => call<HuntView>("PATCH", "/hunt", change),
   cancelHunt: () => call<{ ok: true }>("DELETE", "/hunt"),
   /** The dialog's live ranking for these choices, and how many renders wait; RunPod is read again at most every 20 s. */
-  huntRank: (ask: Omit<HuntAsk, "giveUpMinutes" | "hold"> & { cloud: DeployAsk["cloud"]; volume: string }, o?: Asked) => call<{ ranking: RankedGpu[]; held: number; overhead: DeployOverhead | null }>("POST", "/hunt/rank", ask, o?.signal),
+  huntRank: (ask: Omit<HuntAsk, "giveUpMinutes" | "hold"> & { cloud: DeployAsk["cloud"]; volume: string; cuda?: DeployAsk["cuda"] }, o?: Asked) => call<{ ranking: RankedGpu[]; held: number; overhead: DeployOverhead | null }>("POST", "/hunt/rank", ask, o?.signal),
   /** The Deploy dialog's Models part: the waiting jobs' files, the picked set's, and what earlier deploys measured. */
   deployModels: (cloud: DeployAsk["cloud"], set: string, o?: Asked) => call<DeployModels>("GET", `/runpod/deploy/models?${new URLSearchParams({ cloud, set })}`, undefined, o?.signal),
   /** The Model sets (Settings › Models). */

@@ -41,6 +41,7 @@ const SERVER: Record<string, string> = {
   rentCaps: "comfy.rentcaps",
   costs: "costs.kwh",
   volumeUnusedDays: "rented.unused",
+  bootLogDays: "rented.bootlogs",
   lastDeploy: "internal: the Deploy dialog's last choices, its next defaults and what Deploy again repeats",
   finish: "internal: the Finish dialog's own choices, saved from it as the next time's defaults",
   slotFiles: "models.files",

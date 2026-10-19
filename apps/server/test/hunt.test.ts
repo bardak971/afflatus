@@ -424,6 +424,16 @@ describe("the home machines", () => {
 });
 
 describe("the dialog's live ranking", () => {
+  it("on CUDA 13.0, a GPU whose free hosts are all older is not free to the hunt; on either it is", async () => {
+    await queue();
+    runpod.gpus = runpod.gpus.map((g) => (g.id === "NVIDIA A40" ? { ...g, cuda13: false, dataCenters: [{ id: "EU-RO-1", availability: "HIGH" }] } : g));
+    const stockOf = async (cuda?: string) => ((await post(t.app, "/api/hunt/rank", { mode: "cheap", ceiling: 5, cloud: "SECURE", ...(cuda ? { cuda } : {}) })).json().ranking as Array<{ name: string; stock: string }>).find((g) => g.name === "A40")!.stock;
+    expect(await stockOf()).toBe("none free");
+    expect(await stockOf("13.0")).toBe("none free");
+    expect(await stockOf("either")).not.toBe("none free");
+    expect(await stockOf("12.8")).not.toBe("none free");
+  });
+
   it("needs no hunt, and asks RunPod at most every 20 s", async () => {
     t.services.hunt.freshMs = 20_000;
     await queue();

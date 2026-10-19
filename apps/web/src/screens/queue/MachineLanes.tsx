@@ -9,7 +9,7 @@ import { machineLabel, machineState, OUTSIDE_TIP, outsideSaid, rentedSaid, type 
 import { useQueueOps } from "../../queueOps";
 import { useSystem } from "../../store";
 import { Bar, Button, cx } from "../../ui";
-import { diskSaid, FilesLine, filesSaid, filesTip, gettingFiles, STARTING_DOT } from "../../machineBits";
+import { CudaChip, diskSaid, FilesLine, filesSaid, filesTip, gettingFiles, STARTING_DOT } from "../../machineBits";
 import { Popover } from "../../Popover";
 import { settingHref } from "../settings/settingsIndex";
 import { useModelName } from "./modelName";
@@ -237,7 +237,7 @@ function MachineRow({ m, onStop, onPin }: { m: MachineState; onStop(id: string):
       <Thumb run={m.running} state={state} anchor={thumb} onLarge={() => setLarge(!large)} />
       <span className="flex min-w-0 flex-col gap-1">
         <span className="max-w-[11rem] truncate text-[14px] font-semibold" data-tip={m.rented ? `${name} · rented on RunPod` : name}>{name}</span>
-        <StatePill state={state} word={crashed ? "crashed" : word} />
+        <span className="flex items-center gap-1.5"><StatePill state={state} word={crashed ? "crashed" : word} /><CudaChip m={m} /></span>
       </span>
       {m.running ? <JobCell run={m.running} figures={figures} /> : files && state === "getting" ? (
         <span className="flex min-w-0 flex-col gap-1">

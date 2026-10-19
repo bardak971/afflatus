@@ -6,6 +6,7 @@ import type { Registry } from "./registry";
 import type { Spending } from "./rentedBilling";
 import { nameOf, outOfMemory } from "./rendersRead";
 import type { Settings } from "./settings";
+import { buildOf } from "./podImage";
 
 /**
  * What the Queue's Costs and Render times tabs export as CSV (csv.ts writes it): every row of the window and filters the
@@ -22,8 +23,8 @@ const machineName = (settings: Settings, id: string | null): string | null => {
 };
 
 export const COSTS_HEADERS = [
-  "kind", "started_utc", "ended_utc", "machine", "gpu", "rate_usd_per_hour",
-  "boot_s", "image_pull_s", "node_packs_s", "comfyui_start_s", "failed_start_s", "failed_start_step",
+  "kind", "started_utc", "ended_utc", "machine", "gpu", "cuda", "host_cuda", "data_center", "rate_usd_per_hour",
+  "boot_s", "image_pull_s", "image_pull_mb_per_s", "node_packs_s", "comfyui_start_s", "failed_start_s", "failed_start_step",
   "fetch_s", "render_s", "failed_render_s", "outside_s", "idle_s", "renders", "files_fetched", "fetched_bytes", "idle_stop_minutes", "estimated",
   "volumes", "counted_usd", "billed_usd",
 ] as const;
@@ -42,8 +43,8 @@ export function costsCsv(view: CostsView, spending: Spending | null, settings: S
     const split = s.boot.boot === 0;
     const part = (ms: number) => (split ? seconds(ms) : null);
     rows.push([
-      "session", utc(s.from), s.open ? null : utc(s.to), machineName(settings, s.machine), s.gpu === "GPU" ? null : s.gpu, dollars4(s.rate),
-      seconds(s.parts.boot), part(s.boot.pull), part(s.boot.packs), part(s.boot.comfy), part(s.boot.startFailed), s.startFailed,
+      "session", utc(s.from), s.open ? null : utc(s.to), machineName(settings, s.machine), s.gpu === "GPU" ? null : s.gpu, s.cuda, s.hostCuda, s.dataCenter, dollars4(s.rate),
+      seconds(s.parts.boot), part(s.boot.pull), s.pull?.fresh && s.pull.mbps !== null ? Math.round(s.pull.mbps * 10) / 10 : null, part(s.boot.packs), part(s.boot.comfy), part(s.boot.startFailed), s.startFailed,
       seconds(s.parts.fetch), seconds(s.parts.render), seconds(s.parts.failed), seconds(s.parts.outside), seconds(s.parts.idle), s.renders.length, s.fetched.files, s.fetched.bytes, s.idleMinutes, s.estimated.join("; ") || null,
       null, dollars4(s.usd), null,
     ]);
@@ -53,8 +54,8 @@ export function costsCsv(view: CostsView, spending: Spending | null, settings: S
   const volumesBill = spending?.storage?.volumesMonth;
   if (volumesBill !== null && volumesBill !== undefined && view.to > monthFrom) {
     rows.push([
-      "volumes", utc(monthFrom), utc(now), null, null, null,
-      null, null, null, null, null, null,
+      "volumes", utc(monthFrom), utc(now), null, null, null, null, null, null,
+      null, null, null, null, null, null, null,
       null, null, null, null, null, null, null, null, null, null,
       spending!.storage!.volumes, null, dollars4(volumesBill),
     ]);
@@ -63,7 +64,7 @@ export function costsCsv(view: CostsView, spending: Spending | null, settings: S
 }
 
 export const RENDERS_HEADERS = [
-  "finished_utc", "status", "out_of_memory", "machine", "gpu", "recipe", "recipe_id", "model_family", "model", "model_file", "kind",
+  "finished_utc", "status", "out_of_memory", "machine", "gpu", "cuda", "recipe", "recipe_id", "model_family", "model", "model_file", "kind",
   "width", "height", "video_length_s", "steps", "cold_load", "total_s", "queue_wait_s", "load_s", "sampling_s", "refining_s", "finishing_s",
   "s_per_step", "expected_s", "vram_peak_pct", "gpu_temp_peak_c", "energy_wh", "power_avg_w", "rented_usd", "electricity_cost", "electricity_currency",
 ] as const;
@@ -89,21 +90,22 @@ export async function rendersCsv(db: Db, registry: Registry, settings: Settings,
   const rows = await q.orderBy("created_at", "asc").orderBy("id", "asc").execute();
   const oom = await outOfMemory(db, rows);
   // the pods' runs, for a render's rate: a render is a pod's only within a run of its machine (as costs.ts onPod has it)
-  const runs = rows.length ? await db.selectFrom("rent_sessions").select(["machine_id", "started_at", "ended_at", "rate"]).execute() : [];
-  const rateOf = (r: (typeof rows)[number]): number | null => {
+  const runs = rows.length ? await db.selectFrom("rent_sessions").select(["machine_id", "started_at", "ended_at", "rate", "image"]).execute() : [];
+  const runOf = (r: (typeof rows)[number]) => {
     if (!r.machine_id) return null;
     const end = Date.parse(r.created_at);
     const start = end - r.total_ms;
-    return runs.find((x) => x.machine_id === r.machine_id && Date.parse(x.started_at) < end && (x.ended_at === null || Date.parse(x.ended_at) > start))?.rate ?? null;
+    return runs.find((x) => x.machine_id === r.machine_id && Date.parse(x.started_at) < end && (x.ended_at === null || Date.parse(x.ended_at) > start)) ?? null;
   };
   const price = settings.costs.kwhPrice;
   const names = new Map<string, string>();
   const name = (recipe: string) => names.get(recipe) ?? names.set(recipe, nameOf(registry, recipe)).get(recipe)!;
   const out: CsvCell[][] = rows.map((r) => {
-    const rate = rateOf(r);
+    const run = runOf(r);
+    const rate = run?.rate ?? null;
     const local = rate === null && r.energy_wh !== null && price !== null;
     return [
-      utc(Date.parse(r.created_at)), r.status, oom.has(r.id), machineName(settings, r.machine_id), r.gpu, name(r.recipe_id), r.recipe_id, r.family || null, r.model || null,
+      utc(Date.parse(r.created_at)), r.status, oom.has(r.id), machineName(settings, r.machine_id), r.gpu, buildOf(run?.image), name(r.recipe_id), r.recipe_id, r.family || null, r.model || null,
       // its file's name alone: the folders it sits in are the user's library
       r.model_file ? r.model_file.split(/[\\/]/).pop() : null, r.kind,
       r.width, r.height, seconds(r.duration_ms), r.steps, Boolean(r.cold), seconds(r.total_ms), seconds(r.waited_ms), seconds(r.load_ms), seconds(r.sample_ms), seconds(r.refine_ms), seconds(r.finish_ms),

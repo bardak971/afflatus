@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
+import { FAKE_LAYERS, startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
 import { bootOf, BootLogs, bootPacks, bootStep, parseBootLog } from "../src/podBoot";
 import { readSettings, updateSettings } from "../src/settings";
 import { get, makeApp, makeFake, post, until, type TestApp } from "./helpers";
@@ -205,6 +205,51 @@ describe("a deployed pod's boot on its card, its row and its log tab", () => {
     const kept = await t.db.selectFrom("rent_sessions").selectAll().executeTakeFirstOrThrow();
     expect(kept).toMatchObject({ start_failed: "putting in the node packs (exit 1)", up_at: null, packs_to: null });
     expect(kept.pulled_at).not.toBeNull();
+  });
+
+  it("says its pull's progress from RunPod's log, and keeps its build, host, data center and pull with its run", async () => {
+    t.services.rented.pullEveryMs = 0;
+    t.services.rented.imageLayersOf = async () => FAKE_LAYERS;
+    runpod.pullMs = 1500;
+    const id = (await post(t.app, "/api/runpod/deploy", ASK)).json().id as string;
+    const pod = runpod.pods[0]!;
+    await until(() => pod.status === "RUNNING");
+    // mid-pull: its bytes against the image's, its stage; the deploy's build on its card, its host's CUDA as RunPod says it
+    await until(async () => ((await rowOf(id)).boot?.pull?.done ?? 0) > 0);
+    const pulling = await rowOf(id);
+    expect(pulling.boot).toMatchObject({ phase: "pulling", pull: { stage: "downloading", bytes: 144e6 } });
+    expect(pulling).toMatchObject({ cuda: "13.0", hostCuda: "13.2" });
+    await until(async () => (await rowOf(id)).booting === false);
+    const kept = await t.db.selectFrom("rent_sessions").selectAll().executeTakeFirstOrThrow();
+    expect(kept).toMatchObject({ image: expect.stringMatching(/\/afflatus-pod:[\d.]+$/), host_cuda: "13.2", data_center: expect.any(String), boot_log: null });
+    expect(JSON.parse(kept.pull!)).toMatchObject({ fresh: true, bytes: 144e6 });
+    // the Costs tab says it with its run
+    const costs = (await get(t.app, "/api/costs")).json() as { sessions: Array<{ cuda: string; hostCuda: string; pull: { fresh: boolean } | null; bootLog: boolean }> };
+    expect(costs.sessions[0]).toMatchObject({ cuda: "13.0", hostCuda: "13.2", pull: { fresh: true }, bootLog: false });
+  });
+
+  it("keeps a run's boot log only while boot logs are kept, served as text, and drops it after its days", async () => {
+    t.services.rented.pullEveryMs = 0;
+    t.services.rented.imageLayersOf = async () => FAKE_LAYERS;
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { bootLogDays: 7 } });
+    const id = (await post(t.app, "/api/runpod/deploy", ASK)).json().id as string;
+    await until(async () => (await rowOf(id)).booting === false);
+    const row = await t.db.selectFrom("rent_sessions").selectAll().executeTakeFirstOrThrow();
+    const log = JSON.parse(row.boot_log!) as { system: Array<{ line: string }>; pod: Array<{ m: string }> };
+    expect(log.system.some((l) => /^Status: Downloaded newer image/.test(l.line))).toBe(true);
+    expect(log.pod[0]!.m).toBe("[afflatus-pod] step: checking the GPU");
+    const text = await get(t.app, `/api/rented/sessions/${row.id}/boot-log`);
+    expect(text.headers["content-type"]).toMatch(/^text\/plain/);
+    expect(text.body).toMatch(/RunPod's system log[\s\S]*Pull complete[\s\S]*The pod's boot log:[\s\S]*checking the GPU/);
+    // older than its days: dropped at the next prune; while within them, kept
+    await t.db.updateTable("rent_sessions").set({ started_at: new Date(Date.now() - 8 * 86_400_000).toISOString() }).execute();
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { bootLogDays: 30 } });
+    await t.services.rented.poll();
+    expect((await t.db.selectFrom("rent_sessions").select("boot_log").executeTakeFirstOrThrow()).boot_log).not.toBeNull();
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { bootLogDays: 7 } });
+    await t.services.rented.poll();
+    expect((await t.db.selectFrom("rent_sessions").select("boot_log").executeTakeFirstOrThrow()).boot_log).toBeNull();
+    expect((await get(t.app, `/api/rented/sessions/${row.id}/boot-log`)).statusCode).toBe(404);
   });
 
   it("never terminates a pod the user added for what a boot log says: only one deployed from here", async () => {

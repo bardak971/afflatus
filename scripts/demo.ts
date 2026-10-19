@@ -11,7 +11,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { startFakeComfy, startFakeRunpod, startFakeS3 } from "@afflatus/comfy/testing";
+import { FAKE_GPUS, startFakeComfy, startFakeRunpod, startFakeS3 } from "@afflatus/comfy/testing";
 import type { Graph, NodeCatalog } from "@afflatus/core";
 import { buildApp } from "../apps/server/src/app";
 import { migrate, openSqlite, takeOver } from "../apps/server/src/db";
@@ -147,6 +147,8 @@ const pretendRunpod = process.env.DEMO_RUNPOD === "1" ? await startFakeRunpod({
   // Deploy a GPU: a new pod is a new pretend ComfyUI with the node pack, up as said above; two network volumes, the
   // 5090 mounted on the first (in use while it runs), the second never used
   spawn: pod,
+  // the L4's hosts with an older driver only: the Deploy dialog says "12.8 only" of it, and a deploy gets the 12.8 build
+  gpus: FAKE_GPUS.map((g) => (g.id === "NVIDIA L4" ? { ...g, cuda13: false } : g)),
   volumes: [{ id: "demo-volume", name: "afflatus-models", size: 100, dataCenter: "EU-RO-1" }, { id: "demo-old", name: "old-loras", size: 50, dataCenter: "US-TX-3" }],
   pods: [
     { name: "comfy-5090", rate: 0.69, gpu: "NVIDIA GeForce RTX 5090", dataCenterId: "EU-RO-1", ports: ["8188/http", "22/tcp"], diskGb: 50, volumeId: "demo-volume", comfy: await pod() },

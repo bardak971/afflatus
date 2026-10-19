@@ -5,7 +5,7 @@ import type { MachineState } from "./api";
 import { lastSaid, openDeploy, useDeployAgain } from "./deploy";
 import { gb, plural } from "./format";
 import { machineLabel } from "./machines";
-import { Bar, BootNote, busiest, diskNearlyFull, diskSaid, doing, Dot, FilesLine, gettingFiles } from "./machineBits";
+import { Bar, BootNote, busiest, CudaChip, diskNearlyFull, diskSaid, doing, Dot, FilesLine, gettingFiles } from "./machineBits";
 import { Popover } from "./Popover";
 import { useQueueOps } from "./queueOps";
 import { useSystem } from "./store";
@@ -58,7 +58,7 @@ export function MachinesPopover({ anchor, machines, metered, now, canDeploy, onP
             >
               <Dot m={m} />
               <span className="flex min-w-0 flex-col gap-1">
-                <span className="truncate"><span className="font-semibold">{machineLabel(m)}</span> <span className="text-ink-2">· {doing(m, now)}</span></span>
+                <span className="flex min-w-0 items-center gap-1.5"><span className="truncate"><span className="font-semibold">{machineLabel(m)}</span> <span className="text-ink-2">· {doing(m, now)}</span></span><CudaChip m={m} /></span>
                 {files && <FilesLine g={files} />}
                 {g ? (
                   <span className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11.5px] text-ink-2">

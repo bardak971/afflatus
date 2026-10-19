@@ -131,6 +131,18 @@ export function doing(m: MachineState, now: number): string {
 }
 
 /**
+ * A pod's CUDA build ("CUDA 13.0" / "CUDA 12.8"), beside its GPU on its card, the pill's popover and the Queue's row; its host
+ * driver's CUDA and the plain words in its tip. Nothing for a pod whose image is not Afflatus's (its build not known).
+ */
+export function CudaChip({ m, className }: { m: Pick<MachineState, "rented">; className?: string }) {
+  const build = m.rented?.cuda;
+  if (!build) return null;
+  const host = m.rented?.hostCuda;
+  const tip = `The pod image's CUDA build: ${build}. Afflatus deploys the 13.0 build where a host of that GPU with a driver for CUDA 13 is free, else the 12.8 build (the same PyTorch for an older driver).${host ? ` This host's driver: CUDA ${host}.` : ""} How fast each build renders on a GPU is learned from your renders (Queue › Render times).`;
+  return <span className={cx("shrink-0 rounded bg-raised px-1.5 py-px font-mono text-[10.5px] text-ink-2", className)} data-tip={tip}>CUDA {build}</span>;
+}
+
+/**
  * A booting pod's second line, the one the pill's popover and its card say (bootNote): what bounds its boot, its boot log's
  * link (Queue › Log), the plain words in its "?". `inside`: within a row that is a button of its own (the popover's).
  */

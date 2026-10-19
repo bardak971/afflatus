@@ -74,7 +74,7 @@ describe("the CSV writer", () => {
 // ---------------------------------------------------------------- the Costs tab's file
 
 const session = (over: Partial<SessionView>): SessionView => ({
-  id: "s", machine: "rp-a", gpu: "A40", rate: 0.6, from: 0, to: HOUR, open: false, usd: 0.6,
+  id: "s", machine: "rp-a", gpu: "A40", cuda: "12.8", hostCuda: "13.2", dataCenter: "CA-MTL-1", pull: { fresh: true, bytes: 6e9, mbps: 35.14 }, bootLog: false, rate: 0.6, from: 0, to: HOUR, open: false, usd: 0.6,
   parts: { render: 30 * MIN, boot: 4 * MIN, fetch: 6 * MIN, outside: 5 * MIN, idle: 12 * MIN, failed: 3 * MIN },
   boot: { pull: MIN, packs: MIN, comfy: 2 * MIN, startFailed: 0, boot: 0 }, startFailed: null, crash: null, packs: [], estimated: [], why: "", idleMinutes: 10,
   fetched: { files: 1, bytes: 26e9 }, renders: [], ...over,
@@ -100,8 +100,8 @@ describe("the Costs tab's file", () => {
       expect(head).toEqual([...COSTS_HEADERS]);
       const [early, late, volumes] = recordsOf(text);
       expect(early).toMatchObject({
-        kind: "session", started_utc: iso(T0), ended_utc: iso(T0 + HOUR), machine: "'=A40 pod", gpu: "A40", rate_usd_per_hour: "0.6",
-        boot_s: "240", image_pull_s: "60", node_packs_s: "60", comfyui_start_s: "120", failed_start_s: "0", fetch_s: "360", render_s: "1800", failed_render_s: "180", outside_s: "300", idle_s: "720",
+        kind: "session", started_utc: iso(T0), ended_utc: iso(T0 + HOUR), machine: "'=A40 pod", gpu: "A40", cuda: "12.8", host_cuda: "13.2", data_center: "CA-MTL-1", rate_usd_per_hour: "0.6",
+        boot_s: "240", image_pull_s: "60", image_pull_mb_per_s: "35.1", node_packs_s: "60", comfyui_start_s: "120", failed_start_s: "0", fetch_s: "360", render_s: "1800", failed_render_s: "180", outside_s: "300", idle_s: "720",
         files_fetched: "1", fetched_bytes: "26000000000", idle_stop_minutes: "10", counted_usd: "0.6", billed_usd: "",
       });
       // still running: no end; a boot from before its parts were kept: its parts empty, its whole there; a removed pod by its id
@@ -154,7 +154,7 @@ describe("the CSV routes", () => {
     rows.push(render(now - MIN, { status: "failed", model_file: "=evil.safetensors", gpu: "+gpu", machine_id: "rp-a", energy_wh: null }));
     for (let i = 0; i < rows.length; i += 100) await t.db.insertInto("render_stats").values(rows.slice(i, i + 100)).execute();
     await t.db.insertInto("jobs").values({ id: rows.at(-1)!.id, owner_id: "local", recipe_id: "sdxl.text-to-picture", label: "x", inputs: "{}", status: "failed", priority: 0, error: "CUDA out of memory", created_at: iso(now), updated_at: iso(now) } as never).execute();
-    await t.db.insertInto("rent_sessions").values({ id: "s1", machine_id: "rp-a", pod: "a", rate: 0.72, started_at: iso(now - HOUR), ended_at: null, seen_at: null, gpu: "NVIDIA A40", up_at: null, idle_minutes: 10 }).execute();
+    await t.db.insertInto("rent_sessions").values({ id: "s1", machine_id: "rp-a", pod: "a", rate: 0.72, started_at: iso(now - HOUR), ended_at: null, seen_at: null, gpu: "NVIDIA A40", up_at: null, idle_minutes: 10, image: "ghcr.io/owner/afflatus-pod:0.1.27-cu128" }).execute();
 
     const res = await get(t.app, `/api/renders.csv?from=${from}&to=${now}`);
     expect(res.statusCode).toBe(200);
@@ -167,13 +167,13 @@ describe("the CSV routes", () => {
     expect(records).toHaveLength(621);
     expect(records[0]).toEqual({
       finished_utc: iso(from + 1000), status: "done", out_of_memory: "false", machine: "'@home", gpu: "NVIDIA GeForce RTX 4090", recipe: records[0]!.recipe, recipe_id: "sdxl.text-to-picture",
-      model_family: "sdxl", model: "illustrious", model_file: "illustrious.safetensors", kind: "image", width: "832", height: "1216", video_length_s: "", steps: "28", cold_load: "true",
+      model_family: "sdxl", model: "illustrious", model_file: "illustrious.safetensors", kind: "image", width: "832", height: "1216", video_length_s: "", steps: "28", cold_load: "true", cuda: "",
       total_s: "20", queue_wait_s: "1.5", load_s: "4", sampling_s: "14", refining_s: "0", finishing_s: "2", s_per_step: "0.512", expected_s: "19", vram_peak_pct: "71", gpu_temp_peak_c: "66",
       energy_wh: "1.5", power_avg_w: "270", rented_usd: "", electricity_cost: "0.0003", electricity_currency: "€",
     });
     expect(records[0]!.recipe).not.toBe("");
     // the pod's render: its cost at its session's rate, its file's name guarded, out of memory by its job's error
-    expect(records.at(-1)).toMatchObject({ status: "failed", out_of_memory: "true", machine: "ComfyUI rp-a", gpu: "'+gpu", model_file: "'=evil.safetensors", rented_usd: String(Math.round((20_040 / HOUR) * 0.72 * 10_000) / 10_000), electricity_cost: "" });
+    expect(records.at(-1)).toMatchObject({ status: "failed", out_of_memory: "true", machine: "ComfyUI rp-a", gpu: "'+gpu", cuda: "12.8", model_file: "'=evil.safetensors", rented_usd: String(Math.round((20_040 / HOUR) * 0.72 * 10_000) / 10_000), electricity_cost: "" });
 
     // the tab's filters: one machine, the failed and cancelled
     expect(recordsOf((await get(t.app, `/api/renders.csv?from=${from}&to=${now}&machine=rp-a`)).body)).toHaveLength(1);
