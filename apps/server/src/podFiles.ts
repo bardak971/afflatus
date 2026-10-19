@@ -3,7 +3,7 @@ import { civitaiVersion } from "./civitai";
 import type { Comfy } from "./comfy";
 import { filesIn } from "@afflatus/comfy";
 import type { Db } from "./db";
-import type { Downloads } from "./downloads";
+import { PASSING, type Downloads } from "./downloads";
 import { stat } from "node:fs/promises";
 import { GUESSED, MEASURED_FROM, measuredRange, recordFetch, recordMeasure, type MeasureKind, type Range } from "./podMeasures";
 import { localCopy, measureKind, podSource, presetsOf, type PodSource, type SourceLookup } from "./podSources";
@@ -132,8 +132,6 @@ const UPLOADS_AT_ONCE = 1;
  * against the pod's own list before the file is taken for there.
  */
 const THERE = /\(409: that file is there already/;
-/** A failure that passes (ComfyUI not answering for a moment, restarting, its line full): the file is asked again later. */
-const PASSING = /not answering|cannot be reached|no longer knows the (download|upload)|did not answer|does not answer with|\((429|5\d\d)[:)]|fetch failed|ECONN|socket|timed? ?out|aborted/i;
 /** How many times a passing failure puts a file back in line before it is failed, and the first wait (doubled each time). */
 const TRIES = 4;
 const RETRY_MS = 15_000;
@@ -807,7 +805,7 @@ export class PodFiles {
       e.movedAt = e.flowingAt;
       e.movedBytes = 0;
       if (!this.current(machine, e)) return;
-      const started = await this.d.downloads.start(comfy, "", { file: e.file, folder: e.folder, title: name, source, ...(headers ? { headers } : {}), ...(total ? { total } : {}), machine, directOnly: true });
+      const started = await this.d.downloads.start(comfy, "", { file: e.file, folder: e.folder, title: name, source, ...(headers ? { headers } : {}), ...(total ? { total } : {}), machine, directOnly: true, ...((e.tries ?? 0) + 1 < TRIES ? { quietPassing: true } : {}) });
       // the pod forgotten (stopped, gone) while its download was asked for: stopped, not left running for nothing
       if (!this.current(machine, e) || e.state !== "fetching") {
         this.d.downloads.stop(started.id);

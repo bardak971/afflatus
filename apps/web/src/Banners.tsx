@@ -2,8 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, X } from "lucide-react";
-import { api, type Job } from "./api";
+import { api, type Download, type Job } from "./api";
 import { useQueue, useSettings } from "./data";
+import { plural } from "./format";
 import { useDownloads } from "./useGetFile";
 import { moves } from "./leave";
 import { Kbd } from "./Keys";
@@ -37,6 +38,29 @@ const foldText = (f: Fold) => (f.count > 1 && f.labels.size === 1 ? [...f.labels
  * exit, each in the place it had: the ones under it move up once it has faded. Nothing waits on it, the banner is out of
  * the store at once and its copy takes no click (m-out, inert).
  */
+/**
+ * A machine's failed downloads as one banner (`on`: its name as the user knows it): every failure there not read yet, the new
+ * ones and those already said, so a second failure updates the banner instead of adding one; a volume's want of room has a
+ * banner of its own. Null with none. `ids`: what dismissing it marks read.
+ */
+export function failedOnMachine(list: readonly Download[], machine: string, on: string): { banner: Omit<Banner, "onDismiss">; ids: string[] } | null {
+  const failed = list.filter((d) => d.machine === machine && d.status === "error" && !d.seen && !NO_ROOM.test(d.error ?? ""));
+  if (!failed.length) return null;
+  const names = failed.map((d) => d.file.split(/[\\/]/).pop() ?? d.file);
+  const one = failed.length === 1;
+  return {
+    banner: {
+      id: `downloads:${machine}`,
+      tone: "bad",
+      title: one ? `Download of ${names[0]} failed on ${on}` : `${plural(failed.length, "download")} failed on ${on}`,
+      text: one ? failed[0]!.error : `${names.join(", ")}: ${failed[0]!.error ?? ""}`,
+      href: `/settings?machine=${encodeURIComponent(machine)}`,
+      go: `Open ${on}`,
+    },
+    ids: failed.map((d) => d.id),
+  };
+}
+
 function useLeaving(items: Banner[]): Array<{ b: Banner; leaving: boolean }> {
   const [gone, setGone] = useState<Array<{ b: Banner; at: number }>>([]);
   const before = useRef(items);
@@ -130,6 +154,9 @@ export function Banners() {
   useEffect(() => {
     const list = downloads.data?.items;
     if (!list) return;
+    // a machine's failed downloads go in one banner of its own, said again as more fail: a pod getting its files once gave a
+    // red banner per file, six of them over the Queue
+    const failedOn = new Set<string>();
     for (const d of list) {
       // once the page is open, every change of state; at first, only what failed and was not read yet (the server lists
       // unread failures of the last day only, so it is news; a dismissed one is marked read there, so a reload does not bring it back)
@@ -140,9 +167,17 @@ export function Banners() {
       if (d.status === "done") push({ id: `download:${d.id}`, tone: "good", title: on ? `${name} on ${on}` : `${name} installed in ComfyUI`, ...(on ? { href: `/settings?machine=${encodeURIComponent(d.machine!)}`, go: `Open ${on}` } : { href: "/settings/models", go: "Open settings" }) });
       if (d.status === "error") {
         const volume = NO_ROOM.test(d.error ?? "") ? volumeOf(settingsNow.current?.machines, d.machine) : null;
+        if (!volume && d.machine) {
+          failedOn.add(d.machine);
+          continue;
+        }
         const where = volume ? { title: `${name} can't get onto ${on}`, text: `${(d.error ?? "").replace(/\.$/, "")}. Delete what you no longer use on its volume, and it is fetched again.`, href: volumeHref(volume, d.folder), go: "Open the volume" } : { title: `Download of ${name} failed`, text: d.error, href: "/settings", go: "Open settings" };
         push({ id: `download:${d.id}`, tone: "bad", ...where, onDismiss: () => void api.downloadSeen(d.id).catch(() => {}) });
       }
+    }
+    for (const machine of failedOn) {
+      const said = failedOnMachine(list, machine, machineName(queueNow.current, machine) ?? machine);
+      if (said) push({ ...said.banner, onDismiss: () => void Promise.all(said.ids.map((id) => api.downloadSeen(id).catch(() => {}))) });
     }
     seenDownloads.current = new Map(list.map((d) => [d.id, d.status]));
   }, [downloads.data, push]);

@@ -10,6 +10,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 ### Added
 - **/metrics: the rented GPUs' money.** What Queue › Costs works out, for a dashboard: spend by part (rendering, booting, fetching, idle, outside work, failed) and by GPU, pod runs ended by why (a crash among them), pods running, today and this month against the caps, RunPod's balance, spending an hour now and storage. The Grafana dashboard (deploy/grafana) has a **Rented GPUs** row for them. Only with a RunPod key, a rented machine or a pod session on record.
 
+### Fixed
+- **A pod getting its files no longer shows false failures:** its node pack takes two downloads at once, and one asked meanwhile (429) is now waited for as a download waiting its turn; a download the pack lost or refused for a moment is asked again without a word while tries are left, and only the last try says it. A machine's failed downloads are one banner, updated as more fail, instead of one per file and per try.
+
 ## [0.5.2] - 2026-10-19
 
 ### Added

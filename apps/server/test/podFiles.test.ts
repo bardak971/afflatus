@@ -712,3 +712,34 @@ describe("node packs asked for a job that may no longer run on the pod", () => {
     expect(files.holdsFor("pod", "j2")).toBe(false);
   });
 });
+
+describe("a pod's file asked again after a failure that passes", () => {
+  it("is asked quietly while tries are left (no red banner per try), and out loud on its last", async () => {
+    const asked: Array<{ quietPassing?: boolean }> = [];
+    // every try ends as a pod whose node pack has its line full would make it: a failure that passes
+    const downloads = {
+      start: async (_c: unknown, _s: string, want: { quietPassing?: boolean }) => (asked.push(want), { id: `d${asked.length}`, total: 0 }),
+      stop: () => true,
+      get: () => ({ status: "error", error: "The Afflatus node pack refused the download (429: 2 downloads are under way already)", bytes: 0, total: 0 }),
+    };
+    const pf = new PodFiles({
+      db: t.services.db, downloads: downloads as never,
+      comfyOf: async () => ({ client: { models: async () => [] } }) as never,
+      cloudOf: async () => null,
+      lookup: { db: t.services.db, presets: async () => [], families: () => [], comfyDir: async () => "" },
+      settings: async () => ({ civitaiKey: "", downloadModels: true, civitaiLookups: true }),
+      alive: () => true, gone: () => false, busy: () => false,
+    });
+    pf.retryMs = 1;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      pf.want("pod1", [{ file: "swap.safetensors", folder: "loras", url: "https://huggingface.co/a/b/resolve/main/swap.safetensors" }], { tier: "need", job: "j1" });
+      await until(async () => (await pf.tick(), pf.view("pod1")[0]?.state === "failed"), 5_000);
+      expect(asked.length).toBeGreaterThan(1);
+      expect(asked.slice(0, -1).every((w) => w.quietPassing === true)).toBe(true);
+      expect(asked.at(-1)!.quietPassing).toBeUndefined();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
