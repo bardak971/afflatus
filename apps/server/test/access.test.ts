@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createServer, get as httpGet, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -586,7 +587,8 @@ describe("reset codes", () => {
       const reset = await ask("POST", "/api/session/reset", { cookie: jar(sent), body: { code, password: "a brand new one", signOutOthers: true } });
       expect(reset.statusCode).toBe(200);
       expect((await ask("GET", "/api/settings", { cookie: jar(reset) })).statusCode).toBe(200);
-      expect(heard.at(-1)).toContain("password changed");
+      // told in the background, beside the new device's own notice (the reset signs this browser in): in either order
+      await vi.waitFor(() => expect(heard.some((h) => h.includes("password changed"))).toBe(true));
       await updateSettings(t.db, (s) => ({ access: { ...s.access, resetTelegram: false } }));
       expect((await ask("GET", "/api/session")).json().telegram).toBe(false);
     } finally {
@@ -728,7 +730,10 @@ describe("sessions", () => {
     let now = Date.now();
     const a = new Access(t.db, null, { now: () => now, log: quiet });
     const g = await a.signIn({ password: PASSWORD, remember: false, ip: LAN, ua: CHROME, device: undefined });
-    const seen = async () => (await t.db.selectFrom("sessions").select("last_seen_at").where("id", "!=", "").orderBy("created_at", "desc").executeTakeFirstOrThrow()).last_seen_at;
+    // this sign-in's own session (its id is its token's SHA-256): the newest by created_at could be setPassword's, made in the same
+    // millisecond on a fast machine, whose last seen never moves (the test failed about 1 run in 2)
+    const id = createHash("sha256").update(g.token).digest("hex");
+    const seen = async () => (await t.db.selectFrom("sessions").select("last_seen_at").where("id", "=", id).executeTakeFirstOrThrow()).last_seen_at;
     const first = await seen();
     now += 30_000;
     expect(await a.sessionOf(g.token, LAN)).not.toBeNull();
