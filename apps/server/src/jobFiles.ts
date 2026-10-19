@@ -1,4 +1,4 @@
-import { catalogKey, type Scan } from "@afflatus/comfy";
+import { catalogKey, GGUF_LISTS, type Scan } from "@afflatus/comfy";
 import { choicesOf, graphFiles, isMissingSlotFile, missingSlotFile, parseInput, sameFile, TOOLS_FAMILY, type Family, type GraphFile, type NodeCatalog, type Recipe } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 import { readJson, type JobRow, type QueueCore } from "./queueModel";
@@ -20,8 +20,18 @@ type ModelSlot = Pick<Family["slots"][number], "id" | "folder" | "optional" | "g
 export interface Loaded {
   files: GraphFile[];
   absent: GraphFile[];
-  /** A finish's or a RIFE slow-motion's node types the machine lacks (a render's are in its scan: RecipeStatus.missingNodes). */
+  /**
+   * The node types the graph uses that the machine lacks. A render's, read on a machine, are its own graph's (an option's
+   * pack too: SeedVR2's, the GGUF loader), not its plain form's (RecipeStatus.missingNodes), which said nothing of them, and
+   * the job went to a pod without the pack, refused at its submit.
+   */
   missingNodes?: string[];
+  /**
+   * Its graph cannot be built on that machine, though it can be for a pod that has nothing yet: why, in the build's words.
+   * The job is kept off that machine (fell back to the plain form's files, it went to a fresh pod, refused once its boot
+   * and fetch were paid).
+   */
+  refused?: string;
 }
 
 /**
@@ -62,12 +72,18 @@ export function offeredOn(catalog: NodeCatalog, f: GraphFile, there: readonly Sl
   return f.slot ? there?.find((x) => x.id === f.slot)?.file === f.file : true;
 }
 
-/** A machine's model folder as listed once per scan of it; null when it cannot be listed. */
+/**
+ * A machine's model folder as listed once per scan of it, its .gguf files too (GGUF_LISTS: ComfyUI leaves them out of its
+ * own list, and a GGUF job was taken for one lacking its model on the machine that had it, sent to a pod and the file
+ * uploaded there); null when it cannot be listed.
+ */
 function listingOf(on: { id: string; comfy: Comfy; scan: Scan }, folder: string): Promise<string[] | null> {
   const key = `${on.id}|${on.scan.at}|${folder}`;
   let got = listings.get(key);
   if (!got) {
-    got = on.comfy.client.models(folder).catch(() => null);
+    const gguf = GGUF_LISTS[folder];
+    // the GGUF pack's list is there only with the pack: without it, the folder's own list says it all
+    got = Promise.all([on.comfy.client.models(folder), gguf ? on.comfy.client.models(gguf).catch(() => []) : []]).then(([own, more]) => [...own, ...more], () => null);
     listings.set(key, got);
     if (listings.size > KEPT) listings.delete(listings.keys().next().value!);
   }
@@ -98,34 +114,69 @@ export async function loadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe
   const family = recipe ? core.registry.family(recipe.family) : undefined;
   if (!recipe || !family) return null;
   const raw = readJson<Record<string, unknown>>(row.inputs, {});
-  let key = "";
+  const keys: { key: string } = { key: "" };
   try {
-    const comfy = on?.comfy ?? (await core.comfy());
-    const catalog = await comfy.catalog();
-    const slotsIn = (s: Scan | null) => s?.families.find((f) => f.id === recipe.family)?.slots ?? null;
-    // this PC's files stand where no download is known: they are sent from here
-    const here = slotsIn(await (await core.comfy()).scan().catch(() => null));
-    const there = on ? (slotsIn(on.scan) ?? []) : null;
-    const input = parseInput(recipe, withTexts(recipe, raw)) as Record<string, unknown>;
-    const slots = podSlotFiles(recipe, input, family.slots, there, here);
-    // what the machine has is as its last scan read it: a file come or gone since is a new scan, and worked out anew
-    key = [row.id, row.inputs, row.finished_from ?? "", row.clip_id ?? "", on?.id ?? "", on?.scan.at ?? "", catalogKey(catalog) ?? "", JSON.stringify(slots)].join("\u0001");
-    if (kept.has(key)) return kept.get(key)!;
-    const plan = row.clip_id && core.clips ? await core.clips.plan(row.clip_id, recipe, input, Boolean(row.clip_fit), row.finished_from, true, readJson<string[]>(row.clip_mirror, [])).catch(() => null) : null;
-    const built = await builtOf(core, recipe.id, plan ? plan.input : raw, { finishedFrom: row.finished_from, canvas: plan?.canvas, slots, comfy, catalog, relocate: Boolean(on) });
-    if (!built) throw new Error("its form could not be read");
-    const folders = Object.fromEntries(family.slots.map((s) => [s.id, s.folder]));
-    const files = graphFiles(built.graph, slots, folders);
+    const got = await graphOn(core, row, recipe, family, raw, on, keys);
+    if ("kept" in got) return got.kept;
+    const { graph, files, catalog, there } = got;
     const absent: GraphFile[] = [];
     for (const f of on ? files : []) if (!offeredOn(catalog, f, there, await listingOf(on!, f.folder))) absent.push(f);
-    const loaded = { files, absent: on ? absent : files };
-    keep(key, loaded);
+    const loaded: Loaded = { files, absent: on ? absent : files, ...(on ? { missingNodes: lackedNodes(graph, catalog) } : {}) };
+    keep(keys.key, loaded);
     return loaded;
   } catch (err) {
-    if (!key || !kept.has(key)) console.warn(`[queue] job ${row.id}: its files are counted by its family's slots, its graph could not be built here (${(err as Error).message.slice(0, 160)})`);
-    if (key) keep(key, null);
+    const why = (err as Error).message;
+    // on a machine: built as for a pod that has nothing yet (this PC's node list, the downloads), the failure is the
+    // machine's own when that one builds. Its files and the node types it lacks there are then those of that graph (a
+    // GGUF model on a pod without the GGUF pack: the pack is sent), and with none lacking, the job is kept off it, with why
+    if (on && keys.key && !kept.has(keys.key)) {
+      const fresh = await graphOn(core, row, recipe, family, raw, null, { key: "" }).catch(() => null);
+      if (fresh && !("kept" in fresh)) {
+        const catalog = await on.comfy.catalog();
+        const there = on.scan.families.find((f) => f.id === recipe.family)?.slots ?? [];
+        const absent: GraphFile[] = [];
+        for (const f of fresh.files) if (!offeredOn(catalog, f, there, await listingOf(on, f.folder))) absent.push(f);
+        const missingNodes = lackedNodes(fresh.graph, catalog);
+        const loaded: Loaded = { files: fresh.files, absent, missingNodes, ...(missingNodes.length ? {} : { refused: why }) };
+        keep(keys.key, loaded);
+        return loaded;
+      }
+    }
+    if (!keys.key || !kept.has(keys.key)) console.warn(`[queue] job ${row.id}: its files are counted by its family's slots, its graph could not be built here (${why.slice(0, 160)})`);
+    if (keys.key) keep(keys.key, null);
     return null;
   }
+}
+
+/** The node types a graph uses that a node list lacks. */
+const lackedNodes = (graph: Record<string, { class_type: string }>, catalog: NodeCatalog): string[] =>
+  [...new Set(Object.values(graph).map((n) => n.class_type))].filter((n) => !(n in catalog));
+
+/**
+ * A job's graph as the queue builds it on a machine (`on`, or a pod that has nothing yet), with the files it loads; what
+ * was worked out before (`kept`) when its inputs, the machine's scan and node list are the same. `keys.key` is set as soon
+ * as it is known, for the caller to keep what it makes of it.
+ */
+async function graphOn(
+  core: QueueCore, row: Pick<JobRow, "id" | "inputs" | "finished_from" | "clip_id" | "clip_fit" | "clip_mirror">, recipe: Recipe<any>, family: Family,
+  raw: Record<string, unknown>, on: { id: string; comfy: Comfy; scan: Scan } | null, keys: { key: string },
+): Promise<{ kept: Loaded | null } | { graph: Record<string, { class_type: string }>; files: GraphFile[]; catalog: NodeCatalog; there: SlotStatus[] | null }> {
+  const comfy = on?.comfy ?? (await core.comfy());
+  const catalog = await comfy.catalog();
+  const slotsIn = (s: Scan | null) => s?.families.find((f) => f.id === recipe.family)?.slots ?? null;
+  // this PC's files stand where no download is known: they are sent from here
+  const here = slotsIn(await (await core.comfy()).scan().catch(() => null));
+  const there = on ? (slotsIn(on.scan) ?? []) : null;
+  const input = parseInput(recipe, withTexts(recipe, raw)) as Record<string, unknown>;
+  const slots = podSlotFiles(recipe, input, family.slots, there, here);
+  // what the machine has is as its last scan read it: a file come or gone since is a new scan, and worked out anew
+  keys.key = [row.id, row.inputs, row.finished_from ?? "", row.clip_id ?? "", on?.id ?? "", on?.scan.at ?? "", catalogKey(catalog) ?? "", JSON.stringify(slots)].join("\u0001");
+  if (kept.has(keys.key)) return { kept: kept.get(keys.key)! };
+  const plan = row.clip_id && core.clips ? await core.clips.plan(row.clip_id, recipe, input, Boolean(row.clip_fit), row.finished_from, true, readJson<string[]>(row.clip_mirror, [])).catch(() => null) : null;
+  const built = await builtOf(core, recipe.id, plan ? plan.input : raw, { finishedFrom: row.finished_from, canvas: plan?.canvas, slots, comfy, catalog, relocate: Boolean(on) });
+  if (!built) throw new Error("its form could not be read");
+  const folders = Object.fromEntries(family.slots.map((s) => [s.id, s.folder]));
+  return { graph: built.graph, files: graphFiles(built.graph, slots, folders), catalog, there };
 }
 
 /**

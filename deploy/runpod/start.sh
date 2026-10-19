@@ -25,23 +25,41 @@ python -u /opt/afflatus-pod/bootlog.py serve "$LOG" &
 # no watchdog, since the node pack's runs only in ComfyUI. So broken.py takes over, as when the GPU fails: it arms the
 # watchdog from the pod's environment (the pod stops by itself when Afflatus is away) and answers on ComfyUI's port; the
 # boot log, still served, says the step, and Afflatus terminates the pod at once when it reads it. Should broken.py itself
-# not run, the start waits as before, so that its log can still be read
+# not run, the start waits until the pod ends, so that its log can still be read: never an exit, which RunPod would answer
+# with a fresh start every 20 minutes, billed
+# RunPod's stop (TERM) heard all through the start: PID 1 has no default end on TERM, and a shell runs its trap only once
+# the command in front of it ends, so the long steps (each node pack's packages, up to 10 min) and broken.py run as its
+# children, waited for (`child`): the stop ends them and the start at once, instead of RunPod's grace period and SIGKILL
 POD=/opt/afflatus-pod
 STEP="the start"
+CHILD=
 step() {
   STEP="$*"
   echo "[afflatus-pod] step: $*"
 }
+child() {
+  "$@" &
+  CHILD=$!
+  wait "$CHILD" && CHILD= && return 0
+  set -- $?
+  CHILD=
+  return "$1"
+}
+hold() {
+  while :; do child sleep 1200; done
+}
 failed() {
   [ "$1" != 0 ] || return 0
   echo "[afflatus-pod] failed: $STEP (exit $1)"
-  python -u "$POD/broken.py" --start "$STEP" "$1" || echo "[afflatus-pod] broken.py did not run: no watchdog"
-  sleep 1200
+  child python -u "$POD/broken.py" --start "$STEP" "$1" || echo "[afflatus-pod] broken.py did not run: no watchdog"
+  hold
 }
+trap '[ -z "$CHILD" ] || kill "$CHILD" 2>/dev/null; exit 0' TERM INT
 trap 'failed $?' EXIT
 # --- end of the failure path
 
 step "checking the GPU"
+# --- the GPU check (deploy/runpod/tests/test_start.py runs this part on its own, after the failure path)
 
 if [ -d /workspace ] && touch /workspace/.afflatus-check 2>/dev/null; then
   rm -f /workspace/.afflatus-check
@@ -51,11 +69,14 @@ else
 fi
 # the GPU first: on a host whose driver or GPU is in a bad state ("CUDA unknown error") ComfyUI would crash at every start,
 # billed for nothing. Said on ComfyUI's port instead (broken.py), and Afflatus terminates the pod at once
-if ! python -c "import torch; torch.cuda.init(); torch.zeros(1, device='cuda')" 2>/tmp/afflatus-gpu.txt; then
+# broken.py as a child, not in this script's place: as PID 1 it would not hear RunPod's stop either
+if ! child python -c "import torch; torch.cuda.init(); torch.zeros(1, device='cuda')" 2>/tmp/afflatus-gpu.txt; then
   cat /tmp/afflatus-gpu.txt
   trap - EXIT
-  exec python "$POD/broken.py" /tmp/afflatus-gpu.txt
+  child python "$POD/broken.py" /tmp/afflatus-gpu.txt || echo "[afflatus-pod] broken.py did not run: no watchdog"
+  hold
 fi
+# --- end of the GPU check
 
 step "preparing ComfyUI's folders"
 mkdir -p "$BASE/custom_nodes" "$BASE/models" "$BASE/user" "$BASE/input" "$BASE/output"
@@ -118,7 +139,7 @@ for req in "$BASE"/custom_nodes/*/requirements.txt; do
   wanted "$req" || continue
   i=$((i + 1))
   step "installing the Python packages of $(basename "$(dirname "$req")") ($i/$n)"
-  timeout 600 pip install -q -c /constraints.txt -r "$req" || echo "[afflatus-pod] could not install $req"
+  child timeout 600 pip install -q -c /constraints.txt -r "$req" || echo "[afflatus-pod] could not install $req"
 done
 
 # ComfyUI-Manager installs the node packs a job needs only where it trusts who asks: on a ComfyUI listening on every
@@ -203,15 +224,19 @@ if [ -n "$STOPPING" ]; then
   exit 0
 fi
 echo "[afflatus-pod] ComfyUI ended (status $code)"
-python -u "$POD/died.py" end "$code" "$COMFY_STATE" "$DIED" || echo "[afflatus-pod] died.py could not write its report"
 # broken.py serves until the pod ends, as a child (and the wait after it too): RunPod's stop then ends the script at once,
-# instead of being lost on PID 1 until its SIGKILL
+# instead of being lost on PID 1 until its SIGKILL. Its trap set before the report is written: a stop then (taken by stop()
+# above) left broken.py started all the same
 WAITING=
-trap 'kill $WAITING 2>/dev/null; exit 0' TERM INT
+trap '[ -z "$WAITING" ] || kill "$WAITING" 2>/dev/null; exit 0' TERM INT
+python -u "$POD/died.py" end "$code" "$COMFY_STATE" "$DIED" || echo "[afflatus-pod] died.py could not write its report"
 python -u "$POD/broken.py" --died "$DIED" &
 WAITING=$!
 wait "$WAITING" || echo "[afflatus-pod] broken.py did not run: no watchdog"
-sleep 1200 &
-WAITING=$!
-wait "$WAITING"
+# until the pod ends: an exit would have RunPod start the container again, every 20 minutes
+while :; do
+  sleep 1200 &
+  WAITING=$!
+  wait "$WAITING"
+done
 # --- end of the run

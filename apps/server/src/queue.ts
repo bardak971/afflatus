@@ -14,6 +14,7 @@ import { machineSaid, type Say } from "./notifyWords";
 import type { PodFileView } from "./podFiles";
 import { plan, planTotal } from "./schedule";
 import { FIRST_MACHINE, readSettings, type Machine } from "./settings";
+import { reportsDeath } from "./runpod";
 import type { Storage } from "./storage";
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
@@ -118,6 +119,8 @@ export class Queue {
    * the container itself: its death restarted it, and said nothing): rentedFollow terminates the pod as a crash, with why.
    */
   podCrashed: ((machine: string, why: string) => void) | null = null;
+  /** Asked once before a render lost on a deployed pod goes again: whether its ComfyUI died there (rentedFollow diedLate). */
+  diedLate: ((machine: string) => Promise<{ said: string; report: Record<string, unknown> | null } | null>) | null = null;
   /** The render a machine's ComfyUI died under (machineDied), by machine: that render's end is that death, whatever its wait saw. */
   private readonly died = new Map<string, Died>();
 
@@ -1117,8 +1120,11 @@ export class Queue {
    * (lostOnPod). Null: any other end, which goes as before.
    */
   private diedFor(lane: Lane, row: JobRow, err: Error, reason: unknown): Died | null {
-    if (reason instanceof Died) return reason;
     const kept = this.died.get(lane.id);
+    if (reason instanceof Died) {
+      if (kept === reason) this.died.delete(lane.id);
+      return reason;
+    }
     if (kept?.job === row.id) {
       this.died.delete(lane.id);
       return kept;
@@ -1134,9 +1140,25 @@ export class Queue {
    */
   private lostOnPod(lane: Lane, err: Error): Died | null {
     if (!(err instanceof ComfyLost) || err instanceof ComfyAway || !lane.machine?.rented) return null;
+    // an image that reports its ComfyUI's death never restarts it: a render gone from one that answers was taken from it
+    // (its prompt cleared on ComfyUI's own page), and the pod was terminated for it, its disk lost
+    if (reportsDeath(lane.machine.rented.image)) return null;
     const why = "ComfyUI started again on the pod during the render, without it: it likely crashed (this pod's image does not say why; a newer Afflatus pod image does)";
     this.podCrashed?.(lane.id, why);
     return new Died(`${why}, on ${machineSaid(lane.machine)}. Not run again on its own: it would likely kill ComfyUI again.`);
+  }
+
+  /**
+   * A render lost on a deployed pod, its ComfyUI's death asked of the pod once before it goes again (rentedFollow
+   * diedLate): seen late, a death was taken for a pod merely gone, and the render went to another pod, which it could kill
+   * too. A Died, with the pod's line and report; null for any other loss, which goes again as before.
+   */
+  private async diedLateOn(lane: Lane, err: Error, aborted: boolean): Promise<Died | null> {
+    if (aborted || !lane.machine?.rented?.deployed || !this.diedLate) return null;
+    if (!(err instanceof ComfyLost || err instanceof ComfyUnreachable || err instanceof ComfyError)) return null;
+    const said = await this.diedLate(lane.id).catch(() => null);
+    if (!said) return null;
+    return new Died(`${said.said}, on ${machineSaid(lane.machine)}. Not run again on its own: it would likely kill ComfyUI again.`, said.report ? `The pod's report: ${JSON.stringify(said.report)}` : null);
   }
 
   /** Fail the render a machine runs as stuck, with what to say, and drop it in its ComfyUI. Whether there was one. */
@@ -1525,7 +1547,7 @@ export class Queue {
     const onRecord = resume && !made && !row.warm;
     // its ComfyUI died under it (its pod said so, or it answers again without it): whatever the wait saw of that, a failure
     // said with why, never queued again, as a machine merely gone is
-    const died = this.stopped ? null : this.diedFor(lane, row, err, at.aborted ? lane.running?.abort.signal.reason : null);
+    const died = this.stopped ? null : (this.diedFor(lane, row, err, at.aborted ? lane.running?.abort.signal.reason : null) ?? (await this.diedLateOn(lane, err, at.aborted)));
     if (this.stopped) {
       // shutting down: leave the row as it is, the next start picks it up
     } else if (died) {

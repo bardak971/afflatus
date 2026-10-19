@@ -1,6 +1,6 @@
 import { defineRecipe, GraphBuilder, type BuildContext, type ClipValue, type LoraValue, type MediaFacts, type Recipe, type Ref, type SizeValue, type Variant } from "@afflatus/core";
 import { LTX_CANVAS_SHORT, LTX_MAX_PIXELS, ltxCanvas, ltxFramesAt } from "./family";
-import { UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNodes } from "../video/upscale";
+import { UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNeeds, upscaleNodes } from "../video/upscale";
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
@@ -363,8 +363,13 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
   const { fps } = spec;
   return defineRecipe<LtxVideo>({
     // RIFE when the frames are interpolated with it: asked for, or Auto without LTX's temporal upscaler (or with SeedVR2,
-    // which takes RIFE after it), as the build below picks
-    needsWith: (input, slots = {}) => rifeNeeds(input.smooth && input.smoothWith !== SMOOTH_LTX && (input.smoothWith === SMOOTH_RIFE || !slots.temporal || (input.smoothWith === SMOOTH_AUTO && input.upscale === UPSCALE.seedvr))),
+    // which takes RIFE after it), as the build below picks. The temporal upscaler when it is asked for by name (Auto does
+    // without it), and SeedVR2's files for its upscale: the build refuses either missing
+    needsWith: (input, slots = {}) => [
+      ...rifeNeeds(input.smooth && input.smoothWith !== SMOOTH_LTX && (input.smoothWith === SMOOTH_RIFE || !slots.temporal || (input.smoothWith === SMOOTH_AUTO && input.upscale === UPSCALE.seedvr))),
+      ...(input.smooth && input.smoothWith === SMOOTH_LTX ? ["temporal"] : []),
+      ...upscaleNeeds(input),
+    ],
     id: spec.id,
     family: spec.family,
     version: 1,

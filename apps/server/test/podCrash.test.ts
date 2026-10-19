@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
-import { updateSettings } from "../src/settings";
+import { readSettings, updateSettings } from "../src/settings";
+import { reportsDeath } from "../src/runpod";
 import { get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /**
@@ -51,12 +52,18 @@ const OOM = {
 const rowOf = async (id: string) => (await t.services.queue.status()).machines.find((m) => m.id === id);
 const jobOf = (id: string) => t.db.selectFrom("jobs").select(["status", "error", "error_trace", "attempts"]).where("id", "=", id).executeTakeFirstOrThrow();
 type Run = { promptId?: string };
+/** The pod's image as an older Afflatus left it, or a pod deployed before Afflatus kept it. */
+const withImage = (id: string, image: string) => updateSettings(t.db, (s) => ({ machines: s.machines.map((m) => (m.id === id && m.rented ? { ...m, rented: { ...m.rented, image } } : m)) }));
 const running = (machine: string) => (t.services.queue as unknown as { lanes: Map<string, { running: Run | null }> }).lanes.get(machine)?.running ?? null;
 
-/** A pod deployed and up, the home machine paused so that a render goes to it, and that render running there. */
-async function renderingOnAPod(): Promise<{ id: string; pod: FakeRunpod["pods"][number]; jobId: string }> {
+/**
+ * A pod deployed and up, the home machine paused so that a render goes to it, and that render running there. `image`: the
+ * one it was deployed with, when not Deploy's own.
+ */
+async function renderingOnAPod(image?: string): Promise<{ id: string; pod: FakeRunpod["pods"][number]; jobId: string }> {
   const id = (await post(t.app, "/api/runpod/deploy", ASK)).json().id as string;
   const pod = runpod.pods[0]!;
+  if (image !== undefined) await withImage(id, image);
   await until(async () => (await t.services.rented.poll(), (await rowOf(id))?.rented?.booting === false && pod.status === "RUNNING"));
   await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: { machine: "m1" } });
   const jobId = (await post(t.app, "/api/jobs", job())).json().ids[0] as string;
@@ -100,6 +107,23 @@ describe("a pod's ComfyUI that dies during a render", () => {
     const costs = (await get(t.app, "/api/costs?days=1")).json() as { pods?: { sessions: Array<{ crash: string | null }> } };
     const crashes = JSON.stringify(costs).match(/"crash":"([^"]*)"/);
     expect(crashes?.[1]).toBe(OOM.error);
+    // the death kept for its render is let go with it
+    expect((t.services.queue as unknown as { died: Map<string, unknown> }).died.size).toBe(0);
+  });
+
+  it("seen late (RunPod's reads delayed past the render's wait): asked of the pod before the render goes again, failed, the pod terminated", async () => {
+    const { id, pod, jobId } = await renderingOnAPod();
+    // no read of RunPod comes meanwhile: the render's own wait finds ComfyUI gone first
+    pod.comfy.podDied = OOM;
+    await until(async () => (await jobOf(jobId)).status !== "running", 20_000);
+    const failed = await jobOf(jobId);
+    expect(failed).toMatchObject({ status: "failed" });
+    expect(failed.error).toMatch(/^ComfyUI was killed: out of system memory .*Not run again on its own/);
+    expect(failed.error_trace).toMatch(/The pod's report: \{"cause":"oom"/);
+    await t.services.rented.poll();
+    expect(pod.status).toBe("TERMINATED");
+    expect((await rowOf(id))!.rented).toMatchObject({ stoppedBy: "crash" });
+    expect(told.find((x) => x.kind === "podStopped")!.body).toMatch(/its render failed, not run again/);
   });
 
   it("terminates a pod at work outside Afflatus the same way: no render to fail", async () => {
@@ -128,8 +152,35 @@ describe("a pod's ComfyUI that dies during a render", () => {
     expect(told.filter((x) => x.kind === "comfyGone")).toHaveLength(1);
   });
 
-  it("an older image: its ComfyUI back without the render is a crash too, the render failed and the pod terminated", async () => {
+  it("deployed with Deploy's image: the image is kept, one that reports its deaths", async () => {
+    const id = (await post(t.app, "/api/runpod/deploy", ASK)).json().id as string;
+    const m = (await readSettings(t.db)).machines.find((x) => x.id === id)!;
+    expect(m.rented!.image).toMatch(/\/afflatus-pod:\d+\.\d+\.\d+$/);
+    expect(reportsDeath(m.rented!.image)).toBe(true);
+    expect(reportsDeath("ghcr.io/bardak971/afflatus-pod:0.1.19-cu128")).toBe(true);
+    expect(reportsDeath("ghcr.io/bardak971/afflatus-pod:0.1.18")).toBe(false);
+    expect(reportsDeath("ghcr.io/bardak971/afflatus-pod:0.2.0")).toBe(true);
+    expect(reportsDeath("")).toBe(false);
+    expect(reportsDeath("runpod/comfyui:1.4.0-comfyuiv0.35.0-cuda12.8")).toBe(false);
+  });
+
+  it("an image that reports its deaths: a render cleared from its ComfyUI is no crash, it goes again and the pod is kept", async () => {
     const { id, pod, jobId } = await renderingOnAPod();
+    // someone cleared the queue on the pod's own ComfyUI page: it answers, without the prompt
+    pod.comfy.running = [];
+    pod.comfy.pending = [];
+    // it goes again: sent to the pod a second time (or, taken for a crash, failed)
+    const sent = pod.comfy.prompts.size;
+    await until(async () => pod.comfy.prompts.size > sent || (await jobOf(jobId)).status === "failed", 20_000);
+    expect((await jobOf(jobId)).status).not.toBe("failed");
+    await t.services.rented.poll();
+    expect(pod.status).toBe("RUNNING");
+    expect((await rowOf(id))!.rented).toMatchObject({ stoppedBy: null, crash: null });
+    expect(told.some((x) => x.kind === "podStopped")).toBe(false);
+  });
+
+  it("an older image: its ComfyUI back without the render is a crash too, the render failed and the pod terminated", async () => {
+    const { id, pod, jobId } = await renderingOnAPod("ghcr.io/bardak971/afflatus-pod:0.1.18");
     // the container started again under the render: a fresh ComfyUI that never heard of the prompt
     pod.comfy.running = [];
     pod.comfy.pending = [];

@@ -91,6 +91,24 @@ describe("what a pod was sent, dropped once its job may no longer run there", ()
     expect(kept(["a"])).toEqual({ p1: [], p2: ["a"] });
   });
 
+  it("stays on a pod not judged this pass (its ComfyUI restarting for a node pack): nothing goes ahead to another pod meanwhile", () => {
+    const { p, sent, kept } = planner([lane("home", { rented: false }), lane("p1"), lane("p2")], { holds: { p1: ["a"] } });
+    const rows = [row("a")];
+    // p1 restarts: no fetch entry for it this pass, and p2 idle could take the job's files
+    const s = p.sendFiles(rows, new Map([["a", { ...able({ p2: ["x.safetensors"] }), unjudged: new Set(["p1"]) }]]), new Map([["a", { lane: "home" }]]));
+    p.dropUnsought(rows, s);
+    expect(sent).toEqual([]);
+    expect(kept(["a"])).toEqual({ p1: ["a"], p2: [] });
+  });
+
+  it("stays on the pod a job is pinned to, whatever this pass made of that pod", () => {
+    const { p, kept } = planner([lane("p1"), lane("p2")]);
+    const rows = [row("a", "p1")];
+    // p1 not answering this pass: the job is in no pod's fetch, and the pass sent its files nowhere
+    p.dropUnsought(rows, new Map([["a", new Set<string>()]]));
+    expect(kept(["a"])).toEqual({ p1: ["a"], p2: [] });
+  });
+
   it("stays for a job the plan did not look at this pass (running, or waiting for another job)", () => {
     const { p, kept } = planner([lane("p1")]);
     p.dropUnsought([row("a")], new Map([["other", new Set(["p1"])]]));

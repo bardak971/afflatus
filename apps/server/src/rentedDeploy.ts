@@ -218,11 +218,13 @@ export class RentedDeploy extends RentedFollow {
     // RunPod may have made the pod after all (no answer, and none listed by its name after looking again): its name is kept
     let lost = false;
     let pod: Pod | null = null;
+    let image = "";
     try {
       // one data center after the other, the freest first: RunPod takes one GPU type and one place at a time, and says only
       // in words that none was free there
       for (const build of builds) {
         for (const place of places) {
+          image = build.image;
           pod = await client.create({ ...spec, ...build, dataCenter: place }).catch(async (err: unknown) => {
             if (noCapacity(err)) return null;
             // no answer, a 5xx or an answer not read: RunPod may have made it all the same. Looked for by its name, it is
@@ -262,7 +264,7 @@ export class RentedDeploy extends RentedFollow {
         let name = offer.name.slice(0, 36);
         for (let n = 2; names.has(name); n++) name = `${offer.name.slice(0, 36)} ${n}`;
         // without a volume a stop keeps nothing and its GPU may be taken meanwhile: terminated, as for a pod added
-        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString(), cloud: ask.cloud, volume: volume?.id ?? "", fill, files: ask.files, leaveOut: ask.leaveOut, makeRoom: ask.makeRoom };
+        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString(), image, cloud: ask.cloud, volume: volume?.id ?? "", fill, files: ask.files, leaveOut: ask.leaveOut, makeRoom: ask.makeRoom };
         const machines = [...current.machines, { id, name, url: podUrl(made.id), dir: "", takes: "all" as const, families: {}, token, rented }];
         // a machine now: followed as any, its name no longer pending (in the same write, never one without the other)
         const pendingDeploys = current.pendingDeploys.filter((p) => p.name !== spec.name);

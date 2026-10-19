@@ -34,6 +34,11 @@ def failure_path():
     return part("failure path")
 
 
+# a stand-in sleep: records its call, and at its second one stops the script as RunPod would (its parent: the script, or
+# the script's own `child`). A wait that ends would have come back once only; one that loops until the pod ends, twice
+SLEEP = '#!/bin/sh\necho "sleep $*" >> "$CALLS"\n[ "$(grep -c "^sleep" "$CALLS")" -lt 2 ] || kill -TERM "$PPID"\n'
+
+
 @unittest.skipIf(SH is None, "no POSIX sh")
 class FailurePath(unittest.TestCase):
     def run_start(self, then):
@@ -42,10 +47,10 @@ class FailurePath(unittest.TestCase):
             bin_dir = os.path.join(d, "bin")
             os.makedirs(bin_dir)
             # what start.sh's failure path runs, recorded rather than run: broken.py would serve forever, sleep wait 20 min
-            for name in ("python", "sleep"):
+            for name, text in (("python", '#!/bin/sh\necho "python $*" >> "$CALLS"\n'), ("sleep", SLEEP)):
                 path = os.path.join(bin_dir, name)
                 with open(path, "w", encoding="utf-8", newline="\n") as f:
-                    f.write(f'#!/bin/sh\necho "{name} $*" >> "$CALLS"\n')
+                    f.write(text)
                 os.chmod(path, 0o755)
             script = os.path.join(d, "start.sh")
             with open(script, "w", encoding="utf-8", newline="\n") as f:
@@ -59,12 +64,12 @@ class FailurePath(unittest.TestCase):
 
     def test_a_step_that_fails_hands_over_to_broken_py(self):
         done, said = self.run_start('step "putting in the node packs"\ncp /no/such/folder /no/such/place\necho "never here"')
-        self.assertNotEqual(done.returncode, 0)
         self.assertIn("[afflatus-pod] failed: putting in the node packs (exit 1)", done.stdout)
         self.assertNotIn("never here", done.stdout)
         self.assertEqual(said[0], "python -u /opt/afflatus-pod/broken.py --start putting in the node packs 1")
-        # broken.py serves until the pod ends; should it not run, the start still waits rather than exit into a restart
-        self.assertEqual(said[1:], ["sleep 1200"])
+        # broken.py serves until the pod ends; should it not run, the start waits until the pod ends, never exits into a
+        # restart (RunPod's every 20 minutes): its stop ends it (cleanly under dash, the image's sh: StopDuringTheStart)
+        self.assertEqual(said[1:], ["sleep 1200", "sleep 1200"])
 
     def test_a_start_that_goes_on_to_comfyui_runs_nothing_of_it(self):
         done, said = self.run_start('step "starting ComfyUI"\ntrap - EXIT\necho "ComfyUI"')
@@ -82,7 +87,10 @@ PYTHON = (
     '#!/bin/sh\necho "python $*" >> "$CALLS"\n'
     'case "$1" in /comfyui/main.py) echo "cli-session=${__COMFY_CLI_SESSION__:-}" >> "$CALLS"; eval "$COMFY_DOES";; esac\n'
     # broken.py serving until the pod ends; died.py's start taking a while (a stop can land meanwhile)
-    'case "$*" in *broken.py*) [ -z "$BROKEN_BLOCKS" ] || exec "$REAL_SLEEP" 30;; *"died.py start"*) [ -z "$START_BLOCKS" ] || "$REAL_SLEEP" 2;; esac\n'
+    'case "$*" in *broken.py*) [ -z "$BROKEN_BLOCKS" ] || exec "$REAL_SLEEP" 30;; *"died.py start"*) [ -z "$START_BLOCKS" ] || "$REAL_SLEEP" 2;;'
+    ' *"died.py end"*) [ -z "$END_BLOCKS" ] || "$REAL_SLEEP" 2;; esac\n'
+    # the GPU check: a GPU that fails
+    'case "$1" in -c) [ -z "$GPU_FAILS" ] || exit 1;; esac\n'
 )
 # a ComfyUI that runs until it is stopped, and says it was
 RUNS_UNTIL_STOPPED = 'trap \'echo comfy-stopped >> "$CALLS"; exit 0\' TERM; while :; do "$REAL_SLEEP" 0.1; done'
@@ -98,7 +106,7 @@ class Run(unittest.TestCase):
         calls = os.path.join(d, "calls.txt")
         bin_dir = os.path.join(d, "bin")
         os.makedirs(bin_dir)
-        for name, text in (("python", PYTHON), ("sleep", '#!/bin/sh\necho "sleep $*" >> "$CALLS"\n')):
+        for name, text in (("python", PYTHON), ("sleep", SLEEP)):
             path = os.path.join(bin_dir, name)
             with open(path, "w", encoding="utf-8", newline="\n") as f:
                 f.write(text)
@@ -133,7 +141,8 @@ class Run(unittest.TestCase):
         self.assertEqual(said[3:], [
             f"python -u /opt/afflatus-pod/died.py end 137 {d}/afflatus-comfy.json {d}/afflatus-died.json",
             f"python -u /opt/afflatus-pod/broken.py --died {d}/afflatus-died.json",
-            "sleep 1200",
+            # until the pod ends, not 20 minutes: RunPod would start the container again, billed
+            "sleep 1200", "sleep 1200",
         ])
 
     def test_comfyui_that_exits_on_an_error_is_said_with_its_code(self):
@@ -199,6 +208,17 @@ class Run(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
         self.assertLess(took, 5)
 
+    def test_a_stop_while_the_report_is_written_starts_no_broken_py(self):
+        # the stop came during died.py's end: taken by the run's own trap, it left broken.py started all the same
+        with tempfile.TemporaryDirectory() as d:
+            proc, calls = self.start("exit 3", d, END_BLOCKS="1")
+            self.wait_for(calls, "died.py end")
+            proc.send_signal(signal.SIGTERM)
+            proc.communicate(timeout=60)
+            said = self.said(calls)
+        self.assertEqual(proc.returncode, 0)
+        self.assertFalse(any("broken.py" in line for line in said))
+
     def test_a_stop_before_comfyui_starts_ends_cleanly_and_starts_nothing(self):
         with tempfile.TemporaryDirectory() as d:
             proc, calls = self.start(RUNS_UNTIL_STOPPED, d, START_BLOCKS="1")
@@ -212,6 +232,70 @@ class Run(unittest.TestCase):
         self.assertFalse(started)
         self.assertFalse(any("/comfyui/main.py" in line for line in said))
         self.assertNotIn("ComfyUI ended", out)
+
+
+@unittest.skipIf(SH is None or sys.platform == "win32", "no POSIX sh with POSIX signals")
+class StopDuringTheStart(unittest.TestCase):
+    """RunPod's stop before ComfyUI runs: heard at once, during a long step, while broken.py serves after a failed step or a
+    failed GPU check; never waited out to RunPod's SIGKILL."""
+
+    said = Run.said
+    wait_for = Run.wait_for
+
+    def start(self, then, d, gpu=False, **extra):
+        calls = os.path.join(d, "calls.txt")
+        bin_dir = os.path.join(d, "bin")
+        os.makedirs(bin_dir)
+        for name, text in (("python", PYTHON), ("sleep", SLEEP)):
+            path = os.path.join(bin_dir, name)
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
+                f.write(text)
+            os.chmod(path, 0o755)
+        script = os.path.join(d, "start.sh")
+        with open(script, "w", encoding="utf-8", newline="\n") as f:
+            gpu_part = part("GPU check").replace("/tmp/", d + "/") + "\n" if gpu else ""
+            f.write("set -e\n" + failure_path() + "\n" + gpu_part + then + "\n")
+        env = {**os.environ, "CALLS": calls, "REAL_SLEEP": shutil.which("sleep") or "/bin/sleep", "COMFY_DOES": "", **extra,
+               "PATH": bin_dir + os.pathsep + os.environ.get("PATH", "")}
+        return subprocess.Popen([SH, script], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True), calls
+
+    def stopped(self, proc, calls, line):
+        self.wait_for(calls, line)
+        time.sleep(0.3)
+        sent = time.monotonic()
+        proc.send_signal(signal.SIGTERM)
+        proc.wait(timeout=60)
+        took = time.monotonic() - sent
+        out, _ = proc.communicate(timeout=60)
+        return took, out, self.said(calls)
+
+    def test_during_a_long_step(self):
+        # a node pack's packages, up to 10 minutes: the stop ends the step and the start at once, and nothing is handed over
+        with tempfile.TemporaryDirectory() as d:
+            proc, calls = self.start('step "installing the Python packages of x (1/1)"\necho installing >> "$CALLS"\nchild "$REAL_SLEEP" 30\necho "never here"', d)
+            took, out, said = self.stopped(proc, calls, "installing")
+        self.assertEqual(proc.returncode, 0)
+        self.assertLess(took, 5)
+        self.assertNotIn("never here", out)
+        self.assertNotIn("failed:", out)
+        self.assertFalse(any("broken.py" in line for line in said))
+
+    def test_while_broken_py_serves_after_a_failed_step(self):
+        with tempfile.TemporaryDirectory() as d:
+            proc, calls = self.start('step "putting in the node packs"\nfalse', d, BROKEN_BLOCKS="1")
+            took, _, _ = self.stopped(proc, calls, "broken.py --start")
+        self.assertEqual(proc.returncode, 0)
+        self.assertLess(took, 5)
+
+    def test_while_broken_py_serves_after_the_gpu_failed(self):
+        # broken.py was this script's replacement (exec), PID 1 then: RunPod's stop went unheard until its SIGKILL
+        with tempfile.TemporaryDirectory() as d:
+            proc, calls = self.start('echo "never here"', d, gpu=True, GPU_FAILS="1", BROKEN_BLOCKS="1")
+            took, out, said = self.stopped(proc, calls, "broken.py")
+        self.assertEqual(proc.returncode, 0)
+        self.assertLess(took, 5)
+        self.assertNotIn("never here", out)
+        self.assertIn(f"python /opt/afflatus-pod/broken.py {d}/afflatus-gpu.txt", said)
 
 
 if __name__ == "__main__":

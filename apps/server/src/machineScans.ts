@@ -226,17 +226,21 @@ function lackOfGraph(
   const filled = new Set(filesAsked(recipe, input).map((w) => w.input));
   const gap = loaded.absent.find((f) => isMissingSlotFile(f.file));
   const files = loaded.absent.filter((f) => !isMissingSlotFile(f.file)).map((f) => withUrl(recipe, slots, f));
-  const packs = [...new Set((status?.missingNodes ?? []).map((n) => packOfNode(n)))];
+  // the node types its own graph uses there (an option's pack too), else its plain form's as the scan read them
+  const missingNodes = loaded.missingNodes ?? status?.missingNodes ?? [];
+  const packs = [...new Set(missingNodes.map((n) => packOfNode(n)))];
   const knownPacks = packs.every((p) => p && !p.own) ? packs.map((p) => p!.name) : null;
+  // its graph refused there for another reason than a node or a file: kept off it, with the build's words
+  if (loaded.refused) return { off, files: [], sendable: false, why: `it cannot be built there: ${loaded.refused.slice(0, 200)}` };
   // an input with nothing to pick there is filled by a file it asks for, which is then among the graph's files
   const picks = Boolean(status) && status!.emptyInputs.every((id) => filled.has(id));
   // a file of its own (an imported workflow's) in a folder Afflatus does not know is not among the graph's: still held against it
   const unplaced = status?.missing.some((m) => !m.folder) ?? false;
   // a family on by its files there is on for a job that finds every file it loads there, whichever of its recipes is ready
-  if (status && !off && !gap && !unplaced && !files.length && picks && !status.missingNodes.length && !status.problems.length) return null;
+  if (status && !off && !gap && !unplaced && !files.length && picks && !missingNodes.length && !status.problems.length) return null;
   const sendable = Boolean(status) && !off && !gap && !unplaced && (files.length > 0 || Boolean(knownPacks?.length)) && knownPacks !== null && !status!.problems.length && picks;
   const label = gap ? slots.find((x) => x.id === gap.slot)?.label : undefined;
-  const why = sendable || off ? null : gap ? `its ${label ?? "family"} file is not there, and no download is known for it` : unsendable(status, knownPacks, filled, () => true);
+  const why = sendable || off ? null : gap ? `its ${label ?? "family"} file is not there, and no download is known for it` : unsendable(status && { ...status, missingNodes }, knownPacks, filled, () => true);
   return { off, files, sendable, ...(knownPacks?.length ? { packs: knownPacks } : {}), ...(why ? { why } : {}) };
 }
 

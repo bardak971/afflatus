@@ -140,6 +140,8 @@ export interface RentedMachine {
   volume: string;
   /** Deployed only to fill its volume: it takes no render, and is terminated once its files are in. */
   fill: boolean;
+  /** The image it was deployed with, when Afflatus deployed it ("" otherwise). */
+  image: string;
   /** RunPod's cloud it was deployed on, when Afflatus deployed it. */
   cloud?: "SECURE" | "COMMUNITY";
   /** The files its deploy asked for, until its first answer hands them to it. */

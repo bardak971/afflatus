@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { httpError } from "./errors";
 import { BOOT_PORT, RunpodError, tokenSecret, type Pod } from "./runpod";
+import type { Comfy } from "./comfy";
 import { stepSaid, type PresetFile } from "@afflatus/core";
 import { recordMeasure } from "./podMeasures";
 import { bootPacks, type BootLog } from "./podBoot";
@@ -693,7 +694,8 @@ export class RentedFollow extends RentedBilling {
       const tail = log?.lines.slice(-CRASH_LINES).map((l) => `${l.t} ${l.m.replace(/\x1b\[[0-9;]*m/g, "")}`).join("\n") ?? "";
       const trace = [died.report ? `The pod's report: ${JSON.stringify(died.report)}` : null, tail ? `ComfyUI's last lines:\n${tail}` : null].filter(Boolean).join("\n\n");
       // one the queue found has failed its render already (and that ComfyUI answers: nothing to hold for it)
-      if (died.from === "pod") died.render = this.queue.machineDied(m.id, died.said, trace ? trace.slice(-CRASH_TRACE) : null);
+      // (or one it asked of the pod itself, diedLate: its render is failed already)
+      if (died.from === "pod") died.render = this.queue.machineDied(m.id, died.said, trace ? trace.slice(-CRASH_TRACE) : null) || died.render;
       await this.db.updateTable("rent_sessions").set({ crash: JSON.stringify({ said: died.said, report: died.report }) }).where("machine_id", "=", m.id).where("ended_at", "is", null).execute().catch(() => {});
       console.warn(`[rented] ${m.name || m.id}: ${died.said}${died.render ? " (its render failed)" : ""}`);
     }
@@ -706,6 +708,41 @@ export class RentedFollow extends RentedBilling {
     died.told = true;
     this.events.emit("queue");
     this.tell?.("comfyGone", { title: `${machineSaid(m)}: ComfyUI died`, body: `${died.said}.${died.render ? " Its render failed, not run again." : ""} A pod added by hand is not terminated by Afflatus: it is still billed.`, key: `${m.id}:crash` });
+  }
+
+  /**
+   * What the Afflatus image says on ComfyUI's port in its place (deploy/runpod/broken.py): its GPU failed, or its ComfyUI
+   * died (died.py's report), kept for the next read to act on. Nothing when ComfyUI answers there itself.
+   */
+  private async podSaid(m: Machine, s: Seen, comfy: Comfy): Promise<void> {
+    const said = await comfy.client.raw("/afflatus/pod", { signal: AbortSignal.timeout(5_000) })
+      .then(async (r) => (r.ok ? ((await r.json()) as { afflatus_pod?: string; error?: string; report?: unknown }) : null), () => null);
+    if (m.rented!.deployed && said?.afflatus_pod === "gpu_failed") s.gpuFailed = `Terminated: its GPU did not work on that host (${String(said.error ?? "CUDA error").slice(0, 200)}). Nothing billed after; deploy again, RunPod picks another host.`;
+    if (said?.afflatus_pod === "comfy_died") {
+      const report = said.report && typeof said.report === "object" && !Array.isArray(said.report) ? (said.report as Record<string, unknown>) : null;
+      s.comfyDied = { said: String(said.error || "ComfyUI died").slice(0, 300), report, from: "pod", handled: false, told: false, render: false };
+    }
+  }
+
+  /**
+   * Whether a deployed pod's ComfyUI died, asked once by the queue before it runs again a render it lost there: reads that
+   * came late (RunPod's 429s, its 60 s back-off) let the render's own 90 s run out first, and it was queued again as merely
+   * gone, onto another pod, which it could kill too. Its death (the pod's line and report) then fails it, and the pod is
+   * terminated as a crash at the next read, as for one seen in time. Null: no death said.
+   */
+  async diedLate(machine: string): Promise<{ said: string; report: Record<string, unknown> | null } | null> {
+    const m = (await readSettings(this.db).catch(() => null))?.machines.find((x) => x.id === machine);
+    if (!m?.rented?.deployed) return null;
+    const s = this.seenOf(machine);
+    if (!s.comfyDied) {
+      const comfy = await this.comfyOf(machine).catch(() => null);
+      if (comfy) await this.podSaid(m, s, comfy);
+    }
+    if (!s.comfyDied || s.comfyDied.from !== "pod" || s.comfyDied.handled) return null;
+    // its render is this one, failed by the queue: the crash line says so
+    s.comfyDied.render = true;
+    this.kick(0);
+    return { said: s.comfyDied.said, report: s.comfyDied.report };
   }
 
   /**
@@ -825,15 +862,7 @@ export class RentedFollow extends RentedBilling {
       s.watchdog = "unknown";
       // and the Afflatus image whose ComfyUI died after its start says that, with its numbers (died.py): asked of a pod deployed
       // from here, or of one whose ComfyUI answered before (it may run the image, added by hand)
-      if ((m.rented!.deployed || s.answered) && !s.comfyDied) {
-        const said = await comfy.client.raw("/afflatus/pod", { signal: AbortSignal.timeout(5_000) })
-          .then(async (r) => (r.ok ? ((await r.json()) as { afflatus_pod?: string; error?: string; report?: unknown }) : null), () => null);
-        if (m.rented!.deployed && said?.afflatus_pod === "gpu_failed") s.gpuFailed = `Terminated: its GPU did not work on that host (${String(said.error ?? "CUDA error").slice(0, 200)}). Nothing billed after; deploy again, RunPod picks another host.`;
-        if (said?.afflatus_pod === "comfy_died") {
-          const report = said.report && typeof said.report === "object" && !Array.isArray(said.report) ? (said.report as Record<string, unknown>) : null;
-          s.comfyDied = { said: String(said.error || "ComfyUI died").slice(0, 300), report, from: "pod", handled: false, told: false, render: false };
-        }
-      }
+      if ((m.rented!.deployed || s.answered) && !s.comfyDied) await this.podSaid(m, s, comfy);
       return false;
     }
     const res = await comfy.client.raw("/afflatus/alive", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ minutes }), signal: AbortSignal.timeout(8000) }).catch(() => null);
