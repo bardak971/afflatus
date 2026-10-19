@@ -75,6 +75,16 @@ export interface DownloadView {
 }
 
 /** What a download onto a machine that cannot reach Afflatus (a rented pod) is refused with when its source gives no link of its own. */
+/**
+ * A failure that passes (ComfyUI not answering for a moment, restarting, its line full): asked again later by whoever asked
+ * for it. The pod's files (podFiles.ts) retry these themselves, so a download they asked for says nothing of one while they
+ * still have tries left (quietPassing).
+ */
+export const PASSING = /not answering|cannot be reached|no longer knows the (download|upload)|did not answer|does not answer with|\((429|5\d\d)[:)]|fetch failed|ECONN|socket|timed? ?out|aborted/i;
+
+/** How long a node pack whose line is full (429: its downloads at once under way) is waited for before the download is given up. */
+export const PACK_BUSY_MS = 120_000;
+
 export const NO_DIRECT = "Its source gives no download link of its own, and a rented GPU cannot reach Afflatus to be sent the file through it.";
 
 interface Download extends DownloadView {
@@ -89,6 +99,8 @@ interface Download extends DownloadView {
   dest?: string;
   /** Under way: taken from the queue of Afflatus's own downloads and the pack's. */
   begun?: boolean;
+  /** A failure that passes is kept off the page's list: the pod's files ask for the file again (quietPassing). */
+  quietPassing?: boolean;
   /** The pack's: the address Afflatus is reached at, and the download's id there. */
   self?: string;
   packId?: string;
@@ -232,6 +244,9 @@ export class Downloads {
   listedEveryMs = 3000;
   /** How often the node pack is asked how its download goes, and how long it may say nothing before the download is given up. */
   packEveryMs = 1000;
+  /** How often a pack whose line is full is asked again (PACK_BUSY_MS in all). */
+  packBusyEveryMs = 3000;
+  packBusyMs = PACK_BUSY_MS;
   /** Where a source's own signed link is asked for (signedLink): a test's stand-in. */
   signer: (source: string, headers: Record<string, string>) => Promise<string | null> = signedLink;
   packSilentMs = 120_000;
@@ -314,10 +329,12 @@ export class Downloads {
     d.finishedAt = Date.now();
     delete d.waiting;
     delete d.note;
-    if (d.machine && /\(409: that file is there already/.test(error)) {
+    // a failure that passes, on a pod whose files ask for it again: not news yet (the last try is not quiet, and says it)
+    const passing = Boolean(d.quietPassing) && PASSING.test(error);
+    if (d.machine && (/\(409: that file is there already/.test(error) || passing)) {
       d.quiet = true;
       d.seen = true;
-      console.log(`[downloads] ${d.file} (${d.folder}) is on ${d.machine} already, or coming there`);
+      console.log(passing ? `[downloads] ${d.file} (${d.folder}) on ${d.machine}: ${error}; it is asked again` : `[downloads] ${d.file} (${d.folder}) is on ${d.machine} already, or coming there`);
       return this.tell(true);
     }
     // in the server's log too: a failure is read there when nobody had a page open
@@ -432,7 +449,7 @@ export class Downloads {
    * address the pack or Manager fetches); `comfyDir` is ComfyUI's folder from the Settings, read for a ComfyUI
    * too old to say its folders.
    */
-  async start(comfy: Comfy, self: string, want: { file: string; folder: string; title: string; source: string; headers?: Record<string, string>; total?: number; comfyDir?: string; machine?: string; directOnly?: boolean }): Promise<DownloadView> {
+  async start(comfy: Comfy, self: string, want: { file: string; folder: string; title: string; source: string; headers?: Record<string, string>; total?: number; comfyDir?: string; machine?: string; directOnly?: boolean; quietPassing?: boolean }): Promise<DownloadView> {
     const name = want.file.split(/[\\/]/).pop() ?? "";
     const sub = want.file.split(/[\\/]/).slice(0, -1).filter(Boolean).join("/");
     if (!isModelFile(name) || want.file.split(/[\\/]/).some((p) => BAD_NAME.test(p))) throw httpError(`"${name}" is not a model file Afflatus can download.`);
@@ -452,6 +469,7 @@ export class Downloads {
       file: want.file, folder: want.folder, title: want.title, bytes: 0, total: want.total ?? 0, status: "starting", abort: new AbortController(), via: route.via,
       ...(want.machine ? { machine: want.machine } : {}),
       ...(want.directOnly ? { directOnly: true } : {}),
+      ...(want.quietPassing ? { quietPassing: true } : {}),
     };
     // a machine that cannot reach Afflatus takes its files from the node pack only, and from the source's own link
     if (want.directOnly && route.via !== "pack") throw httpError("A rented GPU gets its files through the Afflatus node pack (0.12.0 or later), which this one does not answer with.");
@@ -612,10 +630,22 @@ export class Downloads {
       const signed = version && !olderThan(version, PACK_SIGNED) ? await this.signer(d.source, d.headers).catch(() => null) : null;
       d.signed = Boolean(signed);
       if (!signed && d.directOnly) throw new Error(NO_DIRECT);
-      const res = await d.comfy.client.raw("/afflatus/download", {
-        method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(15_000),
-        body: JSON.stringify({ url: signed ?? this.oneTime(d.self!, d), folder: d.folder, filename: d.file.replace(/\\/g, "/"), total: d.total }),
-      });
+      const body = JSON.stringify({ url: signed ?? this.oneTime(d.self!, d), folder: d.folder, filename: d.file.replace(/\\/g, "/"), total: d.total });
+      const ask = () => d.comfy.client.raw("/afflatus/download", { method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(15_000), body });
+      let res = await ask();
+      // its line full (429: the pack takes so many at once): one just stopped there may not have heard its stop yet. Waited
+      // for, as a download waiting its turn, never a failure: a pod getting its files asked for more than its line once gave a
+      // red banner per file, though each came
+      const busySince = Date.now();
+      while (res.status === 429 && running(d) && Date.now() - busySince < this.packBusyMs) {
+        await res.body?.cancel().catch(() => {});
+        d.waiting = "the node pack's downloads at once are under way: waiting for one to end";
+        this.tell();
+        await new Promise((r) => setTimeout(r, this.packBusyEveryMs));
+        if (!running(d)) return;
+        res = await ask();
+      }
+      delete d.waiting;
       if (!res.ok) throw new Error(`The Afflatus node pack refused the download (${res.status}: ${(await res.text()).slice(0, 200)})`);
       const got = (await res.json()) as { id: string; path?: string };
       d.packId = got.id;
