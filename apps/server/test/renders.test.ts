@@ -3,7 +3,9 @@ import type { FakeComfy } from "@afflatus/comfy/testing";
 import { roughly, timeKey } from "@afflatus/core";
 import { forecast } from "../src/forecast";
 import { cellOf, digestDays, merge, type RenderRow } from "../src/renderDigests";
-import { clear, fold } from "../src/renders";
+import { clear, fold, recordTool } from "../src/renders";
+import { toolEnd } from "../src/queueTools";
+import { Died, Stuck } from "../src/queueModel";
 import { list, summary } from "../src/rendersRead";
 import { CHECKPOINT, complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
@@ -80,6 +82,32 @@ describe("a render is put on record", () => {
       await until(async () => (await t.db.selectFrom("jobs").select("status").where("id", "=", refused).executeTakeFirstOrThrow()).status === "failed");
       expect(await recordOf(refused)).toBeUndefined();
     }
+  });
+});
+
+describe("a finish or a slow motion put on record", () => {
+  const tool = (status: "done" | "failed" | "cancelled", ms: number) =>
+    recordTool(t.db, { id: "zz-test-slow", created_at: new Date().toISOString(), startedAt: Date.now() - ms }, { recipe: "tool.slow", model: "rife", timeKey: "factor=2" }, null, status, ms, { assetId: null, width: 1280, height: 720, durationMs: 20_000 }, 1, null, "pod");
+  const rowOf = () => t.db.selectFrom("render_stats").select(["status", "total_ms"]).where("id", "=", "zz-test-slow").executeTakeFirstOrThrow();
+
+  it("as the job's last attempt: one lost in a restart of its ComfyUI, then run again and done, is done; a done one stays", async () => {
+    await tool("failed", 38_000);
+    await tool("done", 70_000);
+    expect(await rowOf()).toEqual({ status: "done", total_ms: 70_000 });
+    await tool("failed", 5_000);
+    expect(await rowOf()).toEqual({ status: "done", total_ms: 70_000 });
+  });
+
+  it("failed when its ComfyUI died under it or it was stuck, cancelled only when stopped by the user", () => {
+    const ended = (reason?: unknown) => {
+      const c = new AbortController();
+      if (reason !== undefined) c.abort(reason);
+      return toolEnd(c.signal);
+    };
+    expect(ended(new Died("ComfyUI was killed"))).toBe("failed");
+    expect(ended(new Stuck("no progress"))).toBe("failed");
+    expect(ended("stopped by you")).toBe("cancelled");
+    expect(ended()).toBe("failed");
   });
 });
 

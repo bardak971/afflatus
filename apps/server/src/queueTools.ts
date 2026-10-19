@@ -12,7 +12,7 @@ import { folderForMade, timelineOfClip } from "./timelineFolder";
 import { paceOn, recordTool, toolPace, toolPaces, type ToolPaces } from "./renders";
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB } from "./timelineModel";
-import { GPU_AT_WORK, readJson, SHUTDOWN, type JobRow, type QueueCore, type Running } from "./queueModel";
+import { Died, GPU_AT_WORK, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type Running } from "./queueModel";
 import { taken } from "./queueSubmit";
 
 /** The jobs that need no model of their own: a cut (a copy, a split, a slow-motion, a finish) and an export, done by ffmpeg, with ComfyUI only for RIFE and the upscale routes. */
@@ -63,6 +63,12 @@ export async function finishForecast(
   const pace = read ? paceOn(read, on?.machine ?? null, on?.pace ?? 1) : null;
   return pace ? Math.round(pace * work) : null;
 }
+
+/**
+ * How a tool's run that did not finish is put on record: stopped by the user, cancelled; ended by its ComfyUI's death or as
+ * stuck, a failure, as a render's is (Queue › Costs said a slow motion a pod's crash ended "cancelled").
+ */
+export const toolEnd = (signal: AbortSignal): "failed" | "cancelled" => (signal.aborted && !(signal.reason instanceof Died || signal.reason instanceof Stuck) ? "cancelled" : "failed");
 
 /** Put a tool's run on the record (never lets a failure here reach the job). */
 async function noteTool(core: QueueCore, note: ToolNote, status: "done" | "failed" | "cancelled", made: { id: string; width: number | null; height: number | null; duration_ms: number | null } | null) {
@@ -130,7 +136,7 @@ async function followed(core: QueueCore, comfy: Comfy, run: Running, row: Pick<J
   } catch (err) {
     if (note) {
       note.measured = comfy.monitor.measured(promptId);
-      await noteTool(core, note, signal.aborted ? "cancelled" : "failed", null);
+      await noteTool(core, note, toolEnd(signal), null);
     }
     throw err;
   } finally {
