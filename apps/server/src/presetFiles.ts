@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { filesIn } from "@afflatus/comfy";
 import { z } from "zod";
 import { envSaid } from "./config";
 import { httpError } from "./errors";
@@ -138,7 +139,8 @@ export function registerPresetFiles(app: FastifyInstance, s: Services): void {
     const files = (folder: string) => {
       let p = lists.get(folder);
       if (!p) {
-        p = comfy.client.models(folder).catch(() => [] as string[]);
+        // .gguf files too (filesIn): a preset's GGUF was said missing on the machine that had it
+        p = filesIn(comfy.client, folder).catch(() => [] as string[]);
         lists.set(folder, p);
       }
       return p;

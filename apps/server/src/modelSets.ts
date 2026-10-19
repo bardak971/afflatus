@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { filesIn } from "@afflatus/comfy";
 import { fileKey, fuzzyFilter, presetFileSchema, type PresetFile } from "@afflatus/core";
 import { now, OWNER } from "./db";
 import { httpError, notFound } from "./errors";
@@ -165,7 +166,8 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
       const key = `${machine}|${folder}`;
       if (!listed.has(key)) {
         const m = machines.find((x) => x.machine.id === machine)!;
-        listed.set(key, m.comfy.client.models(folder).then((files) => files.map(fileName), () => null));
+        // .gguf files too (filesIn): a set's GGUF read as missing was fetched again onto the machine
+        listed.set(key, filesIn(m.comfy.client, folder).then((files) => files.map(fileName), () => null));
       }
       return listed.get(key)!;
     };
@@ -206,7 +208,7 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
     const have = new Map<string, string[]>();
     const missing: typeof files = [];
     for (const f of files) {
-      if (!have.has(f.folder)) have.set(f.folder, (await target.comfy.client.models(f.folder).catch(() => [] as string[])).map(fileName));
+      if (!have.has(f.folder)) have.set(f.folder, (await filesIn(target.comfy.client, f.folder).catch(() => [] as string[])).map(fileName));
       if (!have.get(f.folder)!.includes(fileName(f.file))) missing.push(f);
     }
     // the files fetched come under their presets' licences, whichever way they are in the set (a preset, a file of its own)

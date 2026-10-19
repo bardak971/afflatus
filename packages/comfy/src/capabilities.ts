@@ -81,6 +81,18 @@ type Files = (folder: string) => Promise<string[]>;
  * ComfyUI-GGUF pack lists them under a name of its own, the same files of the same folder.
  */
 export const GGUF_LISTS: Readonly<Record<string, string>> = { diffusion_models: "unet_gguf", text_encoders: "clip_gguf" };
+
+/**
+ * A model folder's files as a machine has them, its .gguf files too (GGUF_LISTS): what tells whether a file is there (a job's
+ * files on a machine, a pod's, a download come in, a set's files). Not a loader's choices: those are the loader's own list.
+ * The GGUF pack's list is there only with the pack, so one that does not answer adds nothing; the folder's own that does
+ * not answer throws, as models() does.
+ */
+export async function filesIn(client: Pick<ComfyClient, "models">, folder: string): Promise<string[]> {
+  const gguf = GGUF_LISTS[folder];
+  const [own, more] = await Promise.all([client.models(folder), gguf ? client.models(gguf).catch(() => [] as string[]) : []]);
+  return [...own, ...more];
+}
 type FamilyStatus = Scan["families"][number];
 
 /**
