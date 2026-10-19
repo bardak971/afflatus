@@ -23,6 +23,11 @@ interface SlotStatus {
   hint: string;
   /** Where its usual file can be had, when the family says. */
   get?: { file: string; url: string };
+  /**
+   * Only hidden recipes use it (every recipe of its `onlyFor` hidden: Swap, in a release that hides it): not shown in
+   * Settings › Models, whose fold listed the swap's files to someone who had them. Kept in the scan all the same: jobs read it.
+   */
+  onlyHidden?: true;
 }
 
 export interface RecipeStatus {
@@ -113,9 +118,10 @@ async function slotFiles(families: Family[], files: Files, overrides: SlotOverri
           const byHand = Boolean(chosen && list.includes(chosen));
           const patterns = s.detect.map((d) => new RegExp(d, "i"));
           // a file only hidden recipes use is not offered for download: what it is for cannot be opened
-          const offered = s.get && (!s.onlyFor || s.onlyFor.some((id) => shown.has(id)));
+          const onlyHidden = Boolean(s.onlyFor?.length) && !s.onlyFor!.some((id) => shown.has(id));
+          const offered = s.get && !onlyHidden;
           return {
-            id: s.id, label: s.label, folder: s.folder, optional: Boolean(s.optional), hint: s.hint, ...(offered ? { get: s.get } : {}),
+            id: s.id, label: s.label, folder: s.folder, optional: Boolean(s.optional), hint: s.hint, ...(offered ? { get: s.get } : {}), ...(onlyHidden ? { onlyHidden: true as const } : {}),
             file: byHand ? chosen! : auto, auto, chosen: byHand,
             choices: [...new Set([...list.filter((x) => patterns.some((re) => re.test(x))), ...byWeights, ...(byHand ? [chosen!] : [])])],
           };

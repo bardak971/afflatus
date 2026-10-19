@@ -71,7 +71,8 @@ export function familyFiles(slots: readonly Slot[], recipes: readonly RecipeInfo
   }
   const own = new Set(slots.map((s) => s.id));
   const optional = [
-    ...slots.filter((s) => s.optional && !needers(s).length && (s.file || s.get)),
+    // a file only hidden recipes use is left out: what it is for cannot be opened (Swap's files, in a release that hides it)
+    ...slots.filter((s) => s.optional && !s.onlyHidden && !needers(s).length && (s.file || s.get)),
     ...lent.filter((s, i) => !own.has(s.id) && lent.findIndex((x) => x.id === s.id) === i),
   ].map((s) => ofSlot(s, true));
   return { needed: [...needed, ...named.values()], optional };
