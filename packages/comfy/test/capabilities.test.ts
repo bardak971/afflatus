@@ -94,6 +94,19 @@ describe("scan", () => {
     expect(shown.families[0]!.slots.find((x) => x.id === "swap")!.get).toEqual(get);
   });
 
+  it("marks a file only hidden recipes use, kept in the scan with the file found (jobs read it); never one a shown recipe uses", async () => {
+    const withSwap = defineFamily({ ...family, slots: [...family.slots, { id: "swap", label: "Swap LoRA", folder: "loras", detect: ["toy.*swap"], hint: "for Swap", optional: true, onlyFor: ["toy.swap"] }] });
+    const swap = defineRecipe<ToyInput>({ ...recipe, id: "toy.swap", hidden: true });
+    fake = await startFakeComfy({ catalog, models: { vae: ["toy_vae.safetensors"], loras: ["toy_swap.safetensors"], checkpoints: ["m.safetensors"] } });
+    const hidden = await scan(new ComfyClient(fake.url), [withSwap], [recipe, swap]);
+    expect(hidden.families[0]!.slots.find((x) => x.id === "swap")).toMatchObject({ onlyHidden: true, file: "toy_swap.safetensors" });
+    // every other slot unmarked
+    expect(hidden.families[0]!.slots.filter((x) => x.onlyHidden).map((x) => x.id)).toEqual(["swap"]);
+    // Swap shown: nothing marked
+    const shown = await scan(new ComfyClient(fake.url), [withSwap], [recipe, { ...swap, hidden: undefined }]);
+    expect(shown.families[0]!.slots.find((x) => x.id === "swap")!.onlyHidden).toBeUndefined();
+  });
+
   it("says what is missing: a required file, a model to pick, a node", async () => {
     const { Sampler: _gone, ...without } = catalog;
     const s = await run({ catalog: without, models: { vae: [], loras: [], checkpoints: [] } });

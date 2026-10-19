@@ -59,6 +59,22 @@ describe("an opened family, each file once", () => {
   });
 });
 
+describe("a file only hidden recipes use", () => {
+  it("is left out of the optional files, though it is there (Swap's, in a release that hides it)", async () => {
+    const slots = [
+      ...BASE.map((id) => slot(id, id.toUpperCase(), { file: `${id}.safetensors` })),
+      slot("seedvr", "SeedVR2 model", { optional: true, file: "seedvr2_3b.safetensors" }),
+      slot("swapUnet", "Reference model for Swap", { optional: true, file: "ref2va.safetensors", onlyHidden: true }),
+    ];
+    serve(slots, recipes.map((r) => status(r.id, { ready: true })));
+    const { user } = draw(<FamilyBody family="flux" name="FLUX.1" recipes={recipes} />);
+    const files = within(await screen.findByRole("region", { name: "Files" }));
+    await user.click(files.getByRole("button", { name: "1 more" }));
+    expect(files.getByRole("button", { name: /File used for SeedVR2 model/ })).toBeTruthy();
+    expect(files.queryByText(/Reference model for Swap/)).toBeNull();
+  });
+});
+
 describe("a file there, its picker", () => {
   it("is a picker with one file too, its last entry Another file… opening where to get one", async () => {
     const slots = [slot("unet", "UNET", { file: "unet.safetensors", choices: ["unet.safetensors"], get: { file: "flux1-dev.safetensors", url: "https://example.test/flux1-dev.safetensors" } })];

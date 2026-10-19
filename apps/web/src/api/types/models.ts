@@ -62,7 +62,9 @@ export interface Scan {
   comfy:
     | { online: true; url: string; version: string; device: string; vramTotal: number; vramFree: number; nodes: number }
     | { online: false; url: string; error: string };
-  families: Array<{ id: string; slots: Array<{ id: string; label: string; folder: string; file: string | null; choices: string[]; auto: string | null; chosen: boolean; optional: boolean; hint: string; get?: { file: string; url: string } }> }>;
+  families: Array<{ id: string; slots: Array<{ id: string; label: string; folder: string; file: string | null; choices: string[]; auto: string | null; chosen: boolean; optional: boolean; hint: string; get?: { file: string; url: string };
+    /** Only hidden recipes use it: not shown in Settings › Models (the scan keeps it, for jobs). */
+    onlyHidden?: true }> }>;
   recipes: RecipeStatus[];
 }
 /** A model file and its Civitai version; `newer` when Civitai has a later one. */
