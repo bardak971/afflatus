@@ -4,20 +4,94 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
-### Added
-- **A network volume's Files** (Settings › Rented GPUs, beside the volume's id): what it really holds in its models folders, each folder's size against the volume's, and each file's size, the last render that used it, its Model sets and whether this PC has it; a fuzzy search across folders; files deleted for good to make room, never one a render needs now, the bill unchanged (a volume bills its size). Read through the pod running on it (node pack 0.21.0, `GET /afflatus/models/list`), with no key to set; with no pod running, through RunPod's S3 API with an optional S3 API key (its secret pasted once in Settings; the access key is the account's id, read with the API key), in the data centers RunPod says have it; else as it was last listed. ComfyUI itself and its pictures and videos are never listed nor touched.
-- **Open the volume:** a pod's download refused for want of room on its network volume (the red banner), a waiting render that cannot get its file there, and a pod's Disk row open the volume's Files on the folder of the file, the files no render used in 30 days picked. Once room is made, the file is fetched again by itself. The volume tile says its models' size, in amber past 90 %.
+## [0.5.2] - 2026-10-19
 
-### Fixed
-- **A pod whose start fails no longer bills on unseen:** a start that stopped at a step (a full volume, a write refused) exited, RunPod started it again, it failed at the same step, and so on with no watchdog, since the watchdog runs inside ComfyUI. It now stays up with its watchdog armed from the pod's settings, as a pod whose GPU fails does: Afflatus terminates it at once when it reads the failed step, and with Afflatus away the pod stops itself after the watchdog's minutes.
-- **The watchdog's stop:** a stop RunPod refuses or does not carry out was asked again every 5 minutes forever. After 3 tries the watchdog terminates the pod instead (a network volume keeps its files); it says so in the console and in `GET /afflatus/alive` (`tries`, `end`).
-- **InsightFace's face models:** a pod ended while they were being unpacked left a part of them on its volume, and every later pod on it gave no Face Match or Face At figure. They are fetched beside the models folder and moved in once whole, and a folder without both model files is fetched again.
-- **The ComfyUI lock:** a ComfyUI locked through its lock file stops, naming the file and `AFFLATUS_LOCK=off`, if the lock cannot be put in front of its server (it ran open before; a pod's environment token already stopped it). A renewed token is in force at once, also on a disk whose clock ticks coarsely (FAT, exFAT, some network shares).
+### Added
+- **A network volume's Files** (Settings › Rented GPUs, beside the volume's id): what it really holds in its models folders, each folder's size against the volume's, and each file's size, the last render that used it, its Model sets and whether this PC has it. A fuzzy search works across folders. Files can be deleted for good to make room, but never one a render needs now; the bill is unchanged (a volume bills its whole size). It is read through the pod running on the volume, else through RunPod's S3 API (an optional key), else as last listed.
+- **Open the volume:** a pod's download refused for want of room on its network volume (the red banner), a waiting render that cannot get its file there, and a pod's Disk row all open the volume's Files on the file's folder, with the files no render used in 30 days picked. Once room is made, the file is fetched again by itself. The volume tile says its models' size, in amber past 90 %.
+- **A pod's ComfyUI that dies is reported.** When ComfyUI ends on a pod (out of memory, a crash), the pod says why:
+  - the signal;
+  - whether the system killed it for memory;
+  - its memory peak against its limit;
+  - the GPU's memory.
+
+  The render fails at once, with that and its step, and ComfyUI's last lines are kept with the job. The render is not run again elsewhere (it would likely die there too). A pod Afflatus deployed is terminated at once and said as **crashed** on its card, the Queue, the machines pill and its Costs row; a pod added by hand is only said. Each render also keeps its system RAM peak beside its VRAM peak (Render times, the CSV).
+- **RIFE has a download:** a render with **RIFE ×2** on asks for the RIFE model, so a pod gets it. On a machine of your own without it, the render still runs, without interpolation, and says so.
+- **RTX VSR on rented pods:** the pod image carries NVIDIA's Video Effects runtime, so the RTX VSR upscale route runs there.
+- **Settings › Models: every file has its picker,** a family with one file too. Its last entry, **Another file…**, says where to put one, the download Afflatus knows, and a search on Hugging Face and Civitai.
+- **Settings › Models: Download all · N files** in an opened family's head starts the needed files it lacks.
 
 ### Changed
-- **Afflatus's pod image 0.1.15: ComfyUI 0.41.2** (was 0.37.0), the release Afflatus is now tested against, and what Drama-3's voice nodes (0.40) and Veda Sparse Attention (0.38) need.
-- **Afflatus's pod image 0.1.14:** the node pack 0.21.0, whose model listing lets a volume's Files read and clean a volume through the pod running on it.
-- **Afflatus's pod image 0.1.13:** the node pack 0.20.0 and the fixes above, and the boot steps' count (`pip: ComfyUI-KJNodes (3/14)`) the 0.5.0 notes describe, which 0.1.12 did not have yet. A published image is built only with Manager's registry list in it (a pod of an image without it waits on billed time before Manager can install a pack by name), and a release checks that the pod image it deploys is built from its own pod files.
+- **A rented pod gets exactly what its jobs load.** Each waiting job's graph is read for the files it loads, and each file is sent once, under one name: not every file a form offers, not what earlier takes used, not the family's files a job never reads. A finish (SeedVR2, an upscale model, H3's latent upscaler) or a RIFE slow motion gets its files and node packs too, and so does an option inside a render (SeedVR2 as a video's upscale, LTX's temporal interpolation, a node pack only an option needs). GGUF models are found where a machine has them.
+  - A job's files go to the pod it is planned on.
+  - Files go *ahead* only to one idle pod, when the job is planned on no pod.
+  - What a pod was sent is dropped (stopped if under way) once none of its jobs may run there.
+  - A job pinned to a pod keeps its files there, and so does a pod briefly not answering.
+  - The Deploy dialog and the Hunt count the same files.
+- **The Queue** scrolls as one page. Every machine is one fixed row, two to a line:
+  - its job, bar, step, time left, GPU · VRAM, Stop, Pause and menu;
+  - its preview small, and large with a click;
+  - "getting files" with how many and how far.
+
+  Notify is in the header, and the history is a window tall with its own scroll. A waiting job that waits for files says so once and points at the pod getting them. The waiting list no longer draws over the history, and a rendering machine's card is no longer cut off.
+- **Settings › Models** lists each of a family's files once: the needed ones, then the optional ones (those you have folded behind "N more"), each with the operations that cannot run without it. One line per operation then says what it waits for. Before, FLUX.1's four files were listed under each of its seven operations.
+- **Afflatus's pod image 0.1.25: ComfyUI 0.41.2** (was 0.37.0, as on PCs Afflatus is tested with), started without pinned memory. A long render on a 46 GB-RAM pod held ~44 GB from its first step and was killed; it now sits at 15–20 GB, at the same speed. RunPod's Stop is heard all through the pod's start, and a start that cannot go on no longer restarts in a loop.
+- **A source lane's clips** (motion transfer): a made clip's form has a **Source** chapter, its window of the source, and **Apply to: This clip / All N clips** (on all at first), so an edit goes to every window or only this one.
+- **The Hunt's value** ranks GPUs by a session's whole cost (the renders waiting plus the usual boot and idle), per render as the tie-break.
+- **Spending caps:** the day cap counts compute only (a stopped pod's disk left out); the month cap counts the whole bill (stopped disks and the network volumes in it). Make volume and Grow are refused at a reached month cap. Each cap's "?" says so.
+
+### Fixed
+- **Rented pods:**
+  - **A pod whose start fails no longer bills unseen.** It stays up with its watchdog armed (it used to exit and be started again by RunPod, with no watchdog), and Afflatus terminates it once it reads why.
+  - **The watchdog's stop** is no longer asked again every 5 minutes forever: after 3 refused tries it terminates the pod.
+  - **A pod only briefly unreachable** is no crash: its render waits, then goes again, and the pod is kept. A prompt cleared from the pod's own ComfyUI page is no crash either.
+  - **A crash seen late** fails its render instead of running it again on another pod.
+  - **A crash's terminate that RunPod refuses** is asked again.
+  - **While RunPod cannot be read,** the caps and the stuck-render check go on, and a pod at a cap takes no job. A pod made and lost mid-deploy (Afflatus stopped, an answer lost) is terminated at the next read.
+  - **Go back** to a version with the Rented GPUs screen refuses while a pod that version's library does not know runs, and during a hunt or a deploy.
+  - **Money notices** (cap reached, pod stopped, balance low, hunt given up) are never held back by the notices' rate limit.
+  - **InsightFace's face models** are fetched whole or not at all, so a pod ended mid-unpack no longer leaves every later pod on its volume without Face Match.
+  - **A pod's Models tab** asks that pod whether ComfyUI-Manager is there (Install was greyed as if not).
+  - **Queue › Costs:** a pod that never came up is all boot; a finish a crash ended is failed, not cancelled; a job's later attempt replaces one that did not finish.
+- **The rented-pod controls:**
+  - a pod card's Make room is saved;
+  - a gone pod's Remove works;
+  - a cap whose save failed shows the saved cap again until it saves;
+  - "1,000" is a thousand;
+  - idle 0 reads "never stops when idle";
+  - Start and Stop from the menu or Ctrl+K ask first;
+  - closing the Deploy dialog mid-deploy still says how it went.
+- **The ComfyUI lock:** a ComfyUI locked through its lock file stops, naming the file and `AFFLATUS_LOCK=off`, if the lock cannot be put in front of its server (it ran open before). A renewed token is in force at once, also on disks whose clock ticks coarsely (FAT, exFAT, some network shares).
+- **The queue:**
+  - a gateway's 502/524 or the lock's 401 on submit is "ComfyUI not answering", and the prompt is followed by its id (it could render unseen or twice);
+  - a finish waits for its machine across a restart;
+  - a prompt given up while its machine was away is dropped there;
+  - Reconnect no longer resumes every machine;
+  - a retry keeps no pin to a gone machine;
+  - paused machines are not taken offline.
+- **Export:** a chain of latent joins ("freeze") no longer puts the sound one more frame late at each join (42 ms each). A finished take's trims are written to its draft too, so a redone finish of a split clip plays its half.
+- **Timeline and viewer:**
+  - Make clips, Split source and Extract scenes say their failures;
+  - Space pressed twice before a far clip loaded leaves it still;
+  - a range played alone ends on pause;
+  - Delete held or pressed twice removes once;
+  - the viewer's error line is the item's own latest failure.
+- **Typed text that got lost:** the source lane's form, the Prompt kit's items, snippets, and a deleted draft's pending save (which made the draft again).
+- **Recipes:**
+  - two untitled Power Lora lists are kept apart;
+  - SeedVR2's frames are taken together on its 4n+1 steps, "by size" too;
+  - Klein's Upscale 2x runs its Steps;
+  - a colour match skips an unused start picture;
+  - max pixels holds for free sizes.
+- **ffmpeg runs** (range cuts, Extract sound, Remove sound) have a time limit from the video's length, and a run killed at it says it took too long. Scene detection keeps an answer only from a run that went to the end.
+- **Smaller ones:**
+  - Costs and Render times keep their figures on a failed refresh;
+  - the plain-http warning reads IPv6 addresses right;
+  - a model file replaced on the import screen is the one Open in ComfyUI shows;
+  - a session that ends lays the sign-in over the app, unsaved work kept underneath;
+  - a folder imported into the Inbox lands in its own folder;
+  - a backup zip not read for 10 minutes is given up;
+  - an Updates `last.json` cut short no longer stops Afflatus from starting.
 
 ### Removed
 - **The move of a 0.3.0 library:** a bundle started beside a 0.3.0 folder no longer offers to bring its library over. Coming from 0.3.0, move its `data` folder into the new `Afflatus` folder by hand, with both closed (docs/install-desktop.md).
@@ -258,7 +332,8 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 The first release: the Studio and its library, a form per model family, timelines, the prompt kit, imported workflows, the queue, the node pack, the Docker image, the Helm chart and the desktop bundles.
 
-[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/bardak971/afflatus/releases/tag/v0.5.2
 [0.5.1]: https://github.com/bardak971/afflatus/releases/tag/v0.5.1
 [0.5.0]: https://github.com/bardak971/afflatus/releases/tag/v0.5.0
 [0.4.0]: https://github.com/bardak971/afflatus/releases/tag/v0.4.0

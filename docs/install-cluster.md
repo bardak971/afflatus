@@ -48,7 +48,7 @@ spec:
   project: default
   sources:
     - repoURL: https://github.com/bardak971/afflatus.git
-      targetRevision: v0.5.1
+      targetRevision: v0.5.2
       path: chart
       helm:
         valueFiles:
