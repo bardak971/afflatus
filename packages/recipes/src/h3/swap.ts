@@ -185,8 +185,9 @@ const swapInputs: InputSpec[] = [
   // values the swaps were tested with
   {
     // off by default (the owner, 2026-10-18): without it a selfie-like clip swapped whole from frame 0 with no edge, where
-    // every masked take showed the redrawn zone around the person
-    id: "maskOn", type: "toggle", label: "Mask", default: false, chapter: "mask",
+    // every masked take showed the redrawn zone around the person. Experimental (the owner, 2026-10-19): parked, kept for
+    // whoever wants to take it further (HANDOVER-swap-motion.md and STATUS have what was tried and what is left)
+    id: "maskOn", type: "toggle", label: "Mask (experimental)", default: false, chapter: "mask",
     note: "SAM 3 tracks the person and H3 redraws only them, the rest of the source kept as it is. Off: the whole frame is redrawn, nothing of the person's new shape is cut, the room may drift",
   },
   {
@@ -412,7 +413,7 @@ export const h3Swap = defineRecipe<H3Swap>({
   first: ["model", "takes", "mask"],
   // who is replaced and how, apart from the source (the owner, 2026-10-18): the click and Show the mask are the screen's, the
   // rest the nodes' own inputs
-  chapters: [{ id: "mask", label: "Mask", help: "Who is replaced and what of the frame H3 redraws: SAM 3 tracks the person clicked on the stage, the Swap Mask grows the zone H3 redraws and the band the render is pasted back over. Show the mask draws them over the source before you render." }],
+  chapters: [{ id: "mask", label: "Mask", help: "Experimental: the redrawn zone can show around the person (a wavering edge, a re-drawn wall), and a clip continued from a masked one starts from its unpasted latent. Who is replaced and what of the frame H3 redraws: SAM 3 tracks the person clicked on the stage, the Swap Mask grows the zone H3 redraws and the band the render is pasted back over. Show the mask draws them over the source before you render." }],
   presets: SWAP_PRESETS,
   starts: SWAP_STARTS,
   needs: ["swapLora", "swapUnet"],
