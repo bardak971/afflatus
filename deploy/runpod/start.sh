@@ -54,6 +54,8 @@ unwatched() {
   child sleep 1200
   exit 1
 }
+# run by its trap only, which shellcheck does not follow
+# shellcheck disable=SC2317,SC2329
 failed() {
   [ "$1" != 0 ] || return 0
   echo "[afflatus-pod] failed: $STEP (exit $1)"
@@ -194,6 +196,8 @@ DIED=/tmp/afflatus-died.json
 COMFY=
 STOPPING=
 WOKEN=
+# run by its trap only, which shellcheck does not follow
+# shellcheck disable=SC2317,SC2329
 stop() {
   STOPPING=1
   WOKEN=1
