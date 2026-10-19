@@ -85,6 +85,8 @@ export async function reloaded(db: Db, modelFile: string, machine: string | null
 /**
  * One row for a tool that ran on ComfyUI (a finish, a slow motion): like a render's, so that it has its lane, its share of
  * the GPU time by phase and its pace. `work` is what it made, pixels × frames; `expectedMs` what its own record said.
+ * One row per job: an attempt that did not end done is replaced by the job's next one (a slow motion lost in a restart of
+ * its ComfyUI, run again and done, was said failed, its render's time on the pod's bill read as idle). A done one stays.
  */
 export async function recordTool(
   db: Db, row: { id: string; created_at: string; startedAt: number }, what: { recipe: string; model: string; timeKey: string },
@@ -97,18 +99,19 @@ export async function recordTool(
   const refine = of("upscaling", "refining", "restoring", "detailing", "processing");
   const finish = measured ? Math.max(0, Math.round(totalMs) - load - refine) : 0;
   const at = now();
+  const values = {
+    owner_id: OWNER, recipe_id: what.recipe, family: TOOLS_FAMILY, model: what.model, model_file: "", time_key: what.timeKey,
+    kind: "video" as const, width: made.width, height: made.height, duration_ms: made.durationMs, steps: 0, status, whole: measured ? 1 : 0, cold: 0,
+    waited_ms: Math.max(0, row.startedAt - new Date(row.created_at).getTime()),
+    total_ms: Math.round(totalMs), load_ms: load, sample_ms: 0, refine_ms: refine, finish_ms: finish, step_ms: null, expected_ms: expectedMs, work,
+    vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made.assetId, machine_id: machine, node_ms: nodeMs(measured), created_at: at,
+    energy_wh: energy ? Math.round(energy.wh * 1000) / 1000 : null, power_avg_w: energy ? Math.round(energy.avgW * 10) / 10 : null,
+    ram_peak: gbOf(measured?.ramPeak), ram_total: gbOf(measured?.ramTotal),
+  };
   await db
     .insertInto("render_stats")
-    .values({
-      id: row.id, owner_id: OWNER, recipe_id: what.recipe, family: TOOLS_FAMILY, model: what.model, model_file: "", time_key: what.timeKey,
-      kind: "video", width: made.width, height: made.height, duration_ms: made.durationMs, steps: 0, status, whole: measured ? 1 : 0, cold: 0,
-      waited_ms: Math.max(0, row.startedAt - new Date(row.created_at).getTime()),
-      total_ms: Math.round(totalMs), load_ms: load, sample_ms: 0, refine_ms: refine, finish_ms: finish, step_ms: null, expected_ms: expectedMs, work,
-      vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made.assetId, machine_id: machine, node_ms: nodeMs(measured), created_at: at,
-      energy_wh: energy ? Math.round(energy.wh * 1000) / 1000 : null, power_avg_w: energy ? Math.round(energy.avgW * 10) / 10 : null,
-      ram_peak: gbOf(measured?.ramPeak), ram_total: gbOf(measured?.ramTotal),
-    })
-    .onConflict((oc) => oc.column("id").doNothing())
+    .values({ id: row.id, ...values })
+    .onConflict((oc) => oc.column("id").doUpdateSet(values).where("render_stats.status", "!=", "done"))
     .execute();
   await digestDays(db, Date.now(), dayOf(at));
 }
