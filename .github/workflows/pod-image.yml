@@ -68,9 +68,8 @@ jobs:
           v="${REF#pod-v}"
           if ! printf '%s' "$v" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+'; then echo "A pod tag is pod-v1.2.3, not $REF" >&2; exit 1; fi
           echo "tag=$v" >> "$GITHUB_OUTPUT"
-      # the base's torch and CUDA libraries take several GB once pulled: the runner's preinstalled toolchains make the room
-      - name: Make room
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      # no room made for the base (its GBs are never pulled: the Dockerfile's last stage only copies); the build's time is
+      # Manager's registry list (~2.5 min)
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         if: env.PUBLISH == 'true'
