@@ -120,6 +120,19 @@ export const POD_IMAGES = {
   afflatus: () => envSaid.podImage()?.trim() || "ghcr.io/bardak971/afflatus-pod:0.1.22",
   runpod: () => "runpod/comfyui:1.4.0-comfyuiv0.35.0-cuda12.8",
 } as const;
+/** The first Afflatus pod image whose ComfyUI's death is always reported, as "comfy_died" (died.py, broken.py). */
+const REPORTS_DEATH_FROM = [0, 1, 19];
+/**
+ * Whether a pod's image reports its ComfyUI's death (0.1.19 and later): a render merely gone from it (its prompt cleared from
+ * ComfyUI's own page) is then no death. Not known (a pod added by hand, an image of one's own): false.
+ */
+export function reportsDeath(image: string): boolean {
+  const v = /\/afflatus-pod:(\d+)\.(\d+)\.(\d+)(?:-[\w.]+)?$/.exec(image)?.slice(1).map(Number);
+  if (!v) return false;
+  for (let i = 0; i < 3; i++) if (v[i] !== REPORTS_DEATH_FROM[i]) return v[i]! > REPORTS_DEATH_FROM[i]!;
+  return true;
+}
+
 /**
  * The Afflatus image comes in two builds of the same PyTorch (2.10): for CUDA 13.0, the default (as most ComfyUIs at home run
  * it now, and faster on recent cards), and for CUDA 12.8 ("-cu128"), for a GPU whose hosts do not offer 13. A host runs an

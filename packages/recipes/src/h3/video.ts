@@ -1,7 +1,7 @@
 import { FACE_NODE } from "../shared/face";
 import { defineRecipe, GraphBuilder, latentUpscaleSize, type BuildContext, type BuiltGraph, type Ref, type Variant } from "@afflatus/core";
 import { H3_FPS, H3_GRID } from "./family";
-import { UPSCALE, UPSCALE_OPTIONAL, upscaleNodes } from "../video/upscale";
+import { UPSCALE, UPSCALE_OPTIONAL, upscaleNeeds, upscaleNodes } from "../video/upscale";
 import { unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import { COLOUR_MATCH_NODES, rifeNeeds, rifeSkippedSaid } from "../shared/finish";
@@ -18,7 +18,7 @@ export type { H3Video } from "./inputs";
 export const h3Video = defineRecipe<H3Video>({
   // Turbo's LoRA, and H3's latent upscaler for an upscale with it
   // Turbo's LoRA, H3's latent upscaler for an upscale with it, RIFE with "RIFE ×2" on
-  needsWith: (input, slots) => [...turboNeeds(input, slots), ...latentUpscaleNeeds(input), ...rifeNeeds(input.smooth)],
+  needsWith: (input, slots) => [...turboNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth)],
   id: "h3.video",
   family: "h3",
   version: 2,

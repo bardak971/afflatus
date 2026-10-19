@@ -75,6 +75,12 @@ export type InfoLookup = (folder: string, file: string) => ModelInfo | undefined
 
 /** A folder's files, listed once whoever asks. */
 type Files = (folder: string) => Promise<string[]>;
+
+/**
+ * The model folders whose .gguf files ComfyUI does not list (its lists hold only the extensions its own loaders read): the
+ * ComfyUI-GGUF pack lists them under a name of its own, the same files of the same folder.
+ */
+export const GGUF_LISTS: Readonly<Record<string, string>> = { diffusion_models: "unet_gguf", text_encoders: "clip_gguf" };
 type FamilyStatus = Scan["families"][number];
 
 /**
@@ -123,7 +129,8 @@ async function recipeChoices(
   for (const input of r.inputs) {
     if (input.type === "model") {
       // quantized .gguf models sit in the same folders but are listed by the GGUF pack under its own name
-      const all = input.folder === "diffusion_models" ? [...(await files(input.folder)), ...(await files("unet_gguf"))] : await files(input.folder);
+      // (diffusion models only: no recipe loads a .gguf text encoder)
+      const all = input.folder === "diffusion_models" ? [...(await files(input.folder)), ...(await files(GGUF_LISTS.diffusion_models!))] : await files(input.folder);
       // what a form starts on comes first: the family's own file when the input stands for a slot
       const usual = input.slot ? slots.find((s) => s.id === input.slot)?.file : null;
       const family = families.find((x) => x.id === r.family);

@@ -29,7 +29,15 @@ const remainingOf = (run: Running | null): number | null => (run?.expectedMs && 
  * Of a waiting render, with several machines: the machines that can run it, and what keeps it off each of the others. A
  * rented pod that lacks only files it can be sent (`fetch`) is among the ones that can, with how long until they are there.
  */
-export type Able = { can: Set<string>; lacks: Record<string, Lack>; fetch: Record<string, { files: Lack["files"]; packs?: string[]; ms: number }> };
+export type Able = {
+  can: Set<string>; lacks: Record<string, Lack>; fetch: Record<string, { files: Lack["files"]; packs?: string[]; ms: number }>;
+  /**
+   * The rented pods not judged for it this pass, their ComfyUI not read (booting, restarting for node packs, one missed
+   * read): what they hold for it is kept (sendFiles, dropUnsought). Dropped for a node pack's restart, a job's 40 GB went
+   * ahead to another pod, and the first fetched it from zero once back.
+   */
+  unjudged?: Set<string>;
+};
 
 /**
  * The model files a rented pod can be sent (podFiles.ts), as the queue reads them: a job that lacks only files on a pod may
@@ -157,6 +165,7 @@ export class Planner {
       const can = new Set<string>();
       const lacks: Record<string, Lack> = {};
       const fetch: Able["fetch"] = {};
+      const unjudged = new Set<string>();
       // a job pinned to a machine (or held for the one it was lost on) runs nowhere else: no other pod is sent its files
       // (a job pinned to this PC had its 13 GB model fetched onto the pod, ahead of a render that could never come there)
       const pin = r.pin_machine ?? this.d.heldOn(r);
@@ -170,6 +179,7 @@ export class Planner {
           // nothing else would plan again while it answers, and it would idle toward its stop with its jobs waiting
           if (lane.reachable === true && !this.d.unavailable(lane.id)) this.d.retryLater();
           lacks[lane.id] = { off: false, files: [], sendable: false, why: this.d.unavailable(lane.id) === CAP_REACHED ? CAP_REACHED : "its ComfyUI is not answering yet" };
+          unjudged.add(lane.id);
           return;
         }
         // a lone rented pod is asked too: what it lacks may be sent to it
@@ -213,7 +223,7 @@ export class Planner {
           }
         }
       }
-      out.set(r.id, { can, lacks, fetch });
+      out.set(r.id, { can, lacks, fetch, ...(unjudged.size ? { unjudged } : {}) });
     }
     return out;
   }
@@ -289,6 +299,9 @@ export class Planner {
       const lanes = new Set<string>();
       sent.set(r.id, lanes);
       const fetch = able.get(r.id)?.fetch ?? {};
+      // a pod not judged this pass keeps what it holds for the job, which goes ahead nowhere else meanwhile
+      const kept = [...(able.get(r.id)?.unjudged ?? [])].filter((lane) => this.d.podFetch!.holdsFor(lane, r.id));
+      for (const lane of kept) lanes.add(lane);
       const on = where.get(r.id)?.lane;
       const need = on ? fetch[on] : undefined;
       if (on && need) this.d.podFetch.want(on, need.files, "need", r.id, need.packs);
@@ -300,6 +313,7 @@ export class Planner {
       const may = Object.keys(fetch).filter((lane) => lane !== on && (all || !this.d.lane(lane)?.paused || r.pin_machine === lane));
       // a job pinned to a pod has its files there, busy or not (they were dropped from the very pod it waits for)
       const pinned = r.pin_machine && may.includes(r.pin_machine) ? r.pin_machine : undefined;
+      if (!pinned && kept.length) continue;
       const ahead = pinned ?? may.find((lane) => this.d.podFetch!.holdsFor(lane, r.id)) ?? may.find(idle);
       if (ahead) {
         this.d.podFetch.want(ahead, fetch[ahead]!.files, "ahead", r.id);
@@ -313,7 +327,8 @@ export class Planner {
    * What the plan sent rented pods and no job may use there any more is dropped, at every pass (with nothing waiting too: a
    * job cancelled last kept its 40 GB coming): a job that is gone (`active`: the queued and running ones), pinned to another
    * machine, or whose files now belong on other pods (`sent`, this pass's sendFiles). A job not looked at this pass (running,
-   * or waiting for another) keeps what it was sent.
+   * or waiting for another) keeps what it was sent, and a job pinned to a pod keeps its files there whatever this pass made
+   * of that pod (one not answering for a pass had them stopped and fetched again from zero).
    */
   dropUnsought(active: ReadonlyArray<Pick<JobRow, "id" | "pin_machine">>, sent: ReadonlyMap<string, ReadonlySet<string>>): void {
     if (!this.d.podFetch) return;
@@ -323,7 +338,7 @@ export class Planner {
       this.d.podFetch.drop(lane.id, (job) => {
         if (!jobs.has(job)) return false;
         const pin = jobs.get(job);
-        if (pin && pin !== lane.id) return false;
+        if (pin) return pin === lane.id;
         const on = sent.get(job);
         return !on || on.has(lane.id);
       });

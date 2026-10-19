@@ -149,6 +149,8 @@ export async function createServices(
   queue.tell = rented.tell = (kind, notice) => notify.say(kind, notice);
   // a pod's ComfyUI found started again without its render (an older image's death): the pod is terminated as a crash
   queue.podCrashed = (id, why) => rented.podCrashed(id, why);
+  // a render lost on a deployed pod: its death asked of the pod before it goes again (a crash seen late was run again elsewhere)
+  queue.diedLate = (id) => rented.diedLate(id);
   notify.watch();
   // the reset codes and the sign-ins go to the data folder's log file as well as the console (none in the tests)
   const access = new Access(db, notify, { logFile: dirs.dataDir ? join(dirs.dataDir, "logs", "afflatus.log") : undefined });

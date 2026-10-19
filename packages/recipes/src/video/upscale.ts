@@ -65,6 +65,12 @@ export const SEEDVR_SLOTS = [
 ];
 export const SEEDVR_COLOURS = ["lab", "wavelet", "adain", "none"];
 
+/**
+ * SeedVR2's two files for a render that upscales with it (Recipe.needsWith): a pod is sent them for that job only. Not
+ * asked, a fresh pod was given the job with the plain form's files, and its build refused it once boot and fetch were paid.
+ */
+export const upscaleNeeds = (input: { upscale?: string }): string[] => (input.upscale === UPSCALE.seedvr ? SEEDVR_SLOTS.map((s) => s.id) : []);
+
 export interface UpscaleValues {
   upscale: string;
   upscaleBy: number;

@@ -2,6 +2,7 @@ import { defineRecipe, gridAtOrBefore, upstream, type BuildContext, type ClipVal
 import { H3_FPS, H3_GRID, H3_HYBRIDS, SWAP_MODELS } from "./family";
 import { modelOf, namedFor } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
+import { upscaleNeeds } from "../video/upscale";
 import { h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video, type H3Extra } from "./video";
 import { saveVideo } from "../shared/out";
@@ -423,6 +424,7 @@ export const h3Swap = defineRecipe<H3Swap>({
     // H3's latent upscaler for a finish that enlarges with it: the swap is built as a clip (buildH3), and a pod finishing
     // Timeline 19's swaps without it fell back to a plain resize, blurred (2026-10-18)
     ...latentUpscaleNeeds(input),
+    ...upscaleNeeds(input),
     ...rifeNeeds(input.smooth),
     ...(input.fast && !modelOf({ ...input, model: input.swapModel ?? slots.swapUnet, turboIn: "From the name" }, slots).turbo && !slots.refTurbo && !slots.turbo ? ["refTurbo"] : []),
   ],

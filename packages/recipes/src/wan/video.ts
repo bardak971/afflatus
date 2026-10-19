@@ -1,6 +1,6 @@
 import { defineRecipe, GraphBuilder, type BuildContext, type LoraValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
 import { WAN_FORM_PIXELS, WAN_FPS, wanCanvas, wanFrames } from "./family";
-import { UPSCALE_OPTIONAL, upscaleInputs, upscaleNodes } from "../video/upscale";
+import { UPSCALE_OPTIONAL, upscaleInputs, upscaleNeeds, upscaleNodes } from "../video/upscale";
 import { colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, rifeNeeds, rifeSkippedSaid, type ColourMatch } from "../shared/finish";
 import { applyLoras, livePreview, loraLoads } from "../shared/model";
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
@@ -204,7 +204,7 @@ const turboNeeds = (input: WanVideo, slots: Record<string, string> = {}): string
 export const wanVideo = defineRecipe<WanVideo>({
   id: "wan.video",
   // the lightx2v LoRAs with Turbo, RIFE with "RIFE ×2" on
-  needsWith: (input, slots) => [...turboNeeds(input, slots), ...rifeNeeds(input.smooth)],
+  needsWith: (input, slots) => [...turboNeeds(input, slots), ...upscaleNeeds(input), ...rifeNeeds(input.smooth)],
   family: "wan",
   version: 1,
   title: "Video",

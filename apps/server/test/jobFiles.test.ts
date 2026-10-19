@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
 import { dryContext, graphFiles, missingSlotFile, missingSlotIn, parseInput, type GraphFile } from "@afflatus/core";
-import { h3, h3Video } from "@afflatus/recipes";
+import { h3, h3Video, ltxVideo, wanVideo } from "@afflatus/recipes";
 import { newId, now, OWNER } from "../src/db";
-import { offeredOn, podSlotFiles } from "../src/jobFiles";
+import { loadedOn, offeredOn, podSlotFiles } from "../src/jobFiles";
+import type { QueueCore } from "../src/queueModel";
+import { Comfy } from "../src/comfy";
 import { filesUsed, lackOn } from "../src/machineScans";
 import { CHECKPOINT, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
@@ -166,6 +168,89 @@ describe("lackOn from what the job's graph loads", () => {
   it("cannot send a family file the graph reads and nobody has", () => {
     const lack = lackOn(recipe, {}, pod(), { families: {} }, machine, () => "h3", { files: [], absent: [file(missingSlotFile("unet"), "unet")] });
     expect(lack).toMatchObject({ sendable: false, files: [], why: "its Video model file is not there, and no download is known for it" });
+  });
+});
+
+describe("a GGUF model on a machine", () => {
+  it("is there when ComfyUI-GGUF lists it, ComfyUI's own list of the folder leaving .gguf files out", async () => {
+    const GGUF = "minimax_h3_fl2va-Q5_K_M.gguf";
+    // as ComfyUI lists them: no .gguf in diffusion_models, the GGUF pack's unet_gguf has it
+    fake.models.unet_gguf = [GGUF];
+    const comfy = await t.services.comfy();
+    const on = { id: "home", comfy, scan: await comfy.scan() };
+    const core = (t.services.queue as unknown as { core: QueueCore }).core;
+    const loaded = await loadedOn(core, row("h3.video", { description: "a red ball rolls", seconds: 5, model: GGUF }), on);
+    expect(loaded?.files.map((f) => f.file)).toContain(GGUF);
+    expect(loaded?.absent.map((f) => f.file)).not.toContain(GGUF);
+    // a machine without the pack, or without the file: it lacks it
+    fake.models.unet_gguf = [];
+    const again = await loadedOn(core, row("h3.video", { description: "a red ball rolls", seconds: 5, model: GGUF }), { ...on, scan: { ...on.scan, at: "later" } });
+    expect(again?.absent.map((f) => f.file)).toContain(GGUF);
+  });
+});
+
+describe("an option's files and node packs on a pod", () => {
+  const SEEDVR = "Video: SeedVR2 (restores)";
+
+  it("SeedVR2's two files and LTX's temporal upscaler are asked for by the renders that use them, never by the others", () => {
+    for (const r of [h3Video, wanVideo, ltxVideo]) {
+      expect(r.needsWith!({ upscale: SEEDVR } as never, {})).toEqual(expect.arrayContaining(["seedvr", "seedvrVae"]));
+      expect(r.needsWith!({ upscale: "Off" } as never, {})).not.toContain("seedvr");
+    }
+    expect(ltxVideo.needsWith!({ smooth: true, smoothWith: "LTX temporal (latent)" } as never, {})).toContain("temporal");
+    expect(ltxVideo.needsWith!({ smooth: true, smoothWith: "Auto" } as never, {})).not.toContain("temporal");
+    expect(ltxVideo.needsWith!({ smooth: false, smoothWith: "LTX temporal (latent)" } as never, {})).not.toContain("temporal");
+  });
+
+  it("are sent for an H3 render that upscales with SeedVR2 (a fresh pod was given it with the plain form's files, refused at its submit)", async () => {
+    const files = (await deployed(row("h3.video", { description: "a red ball rolls", seconds: 5, upscale: SEEDVR }))).map((f) => f.file);
+    expect(files).toEqual(expect.arrayContaining([download("seedvr"), download("seedvrVae")]));
+    expect((await deployed(row("h3.video", { description: "a red ball rolls", seconds: 5 }))).map((f) => f.file)).not.toContain(download("seedvr"));
+  });
+
+  /** A pod of its own beside this PC: its node list without `without`, the files this PC has. */
+  async function pod(without: string[]) {
+    const catalog = referenceCatalog() as Record<string, unknown>;
+    for (const n of without) delete catalog[n];
+    const other = await startFakeComfy({ catalog: catalog as never, models: { ...HERE, unet_gguf: [GGUF] } });
+    const comfy = new Comfy(other.url, t.services.registry);
+    return { other, on: { id: "pod", comfy, scan: await comfy.scan() } };
+  }
+  const GGUF = "minimax_h3_fl2va-Q5_K_M.gguf";
+  const core = () => (t.services.queue as unknown as { core: QueueCore }).core;
+  const podLack = (loaded: Parameters<typeof lackOn>[6], scan: Scan) =>
+    lackOn(t.services.registry.recipe("h3.video")!, {}, scan, { families: {} }, { families: {}, rented: { provider: "runpod" } as never }, () => "h3", loaded);
+
+  it("a GGUF model on a pod without the GGUF pack: its graph refused there, the pack is what it lacks, and it is sent", async () => {
+    fake.models.unet_gguf = [GGUF];
+    const { other, on } = await pod(["UnetLoaderGGUF"]);
+    try {
+      const loaded = await loadedOn(core(), row("h3.video", { description: "a red ball rolls", seconds: 5, model: GGUF }), on);
+      expect(loaded).toMatchObject({ missingNodes: ["UnetLoaderGGUF"] });
+      expect(loaded?.absent.map((f) => f.file)).not.toContain(GGUF);
+      expect(podLack(loaded, on.scan)).toMatchObject({ sendable: true, packs: ["comfyui-gguf"] });
+    } finally {
+      await other.close();
+    }
+  });
+
+  it("a node of an option the pod lacks, of no pack Afflatus knows: kept off it, with why", async () => {
+    const { other, on } = await pod(["SeedVR2Preprocess"]);
+    try {
+      const loaded = await loadedOn(core(), row("h3.video", { description: "a red ball rolls", seconds: 5, upscale: SEEDVR }), on);
+      expect(loaded?.missingNodes).toEqual(["SeedVR2Preprocess"]);
+      expect(podLack(loaded, on.scan)).toMatchObject({ sendable: false, why: expect.stringContaining("SeedVR2Preprocess") });
+      // the plain render needs nothing of it there
+      const plain = await loadedOn(core(), row("h3.video", { description: "a red ball rolls", seconds: 5 }), on);
+      expect(plain?.missingNodes).toEqual([]);
+    } finally {
+      await other.close();
+    }
+  });
+
+  it("a graph refused on a pod for another reason than a node or a file: kept off it, with the build's words", () => {
+    const scan = { at: "now", comfy: { online: true, url: "x", nodes: 1 } as Scan["comfy"], families: [{ id: "h3", slots: [] }], recipes: [{ id: "h3.video", ready: true, missingNodes: [], missingSlots: [], emptyInputs: [], missingFiles: [], missing: [], problems: [], limitedBy: [], options: {} }] } as Scan;
+    expect(podLack({ files: [], absent: [], missingNodes: [], refused: "LTX's temporal upscaler was not found" }, scan)).toEqual({ off: false, files: [], sendable: false, why: "it cannot be built there: LTX's temporal upscaler was not found" });
   });
 });
 
