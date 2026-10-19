@@ -94,4 +94,6 @@ jobs:
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
           TAG: ${{ steps.version.outputs.tag }}${{ matrix.suffix }}
-        run: echo "::notice::${{ matrix.cuda }}: $IMAGE:$TAG@$DIGEST"
+          CUDA: ${{ matrix.cuda }}
+        run: |
+          echo "::notice::$CUDA: $IMAGE:$TAG@$DIGEST"
