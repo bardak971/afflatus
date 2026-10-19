@@ -112,7 +112,19 @@ class Top(unittest.TestCase):
             self.assertNotIn(heavy, text)
 
     def test_its_registry_list_is_for_the_bases_comfyui(self):
-        self.assertIn('"${AFFLATUS_COMFYUI_VERSION#v}"', read("Dockerfile"))
+        # made outside the base (the last stage only copies): the top says the base's ComfyUI itself
+        arg = r"(?m)^ARG COMFYUI_VERSION=(v[\d.]+)$"
+        self.assertEqual(re.search(arg, read("Dockerfile")).group(1), re.search(arg, read(BASE)).group(1))
+        self.assertIn('"${COMFYUI_VERSION#v}"', read("Dockerfile"))
+
+    def test_its_last_stage_only_copies_each_layer_on_its_own(self):
+        # nothing run on the base and every copy --link: the build pushes the top without pulling the base's GBs
+        last = read("Dockerfile").split("FROM base-${TORCH_CUDA}", 1)[1]
+        steps = [line.split()[0] for line in last.splitlines() if line.strip() and not line.startswith("#")]
+        self.assertEqual(set(steps), {"COPY", "EXPOSE", "CMD"})
+        for line in last.splitlines():
+            if line.startswith("COPY"):
+                self.assertIn("--link", line)
 
 
 if __name__ == "__main__":

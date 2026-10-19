@@ -11,7 +11,8 @@
 # the rest (the OS, PyTorch with CUDA, ComfyUI at its commit, the built-in packs, nvidia-vfx, InsightFace) is the base,
 # base/Dockerfile, built a few times a year by a pod-base-v* tag. Two builds of the same torch, as before: CUDA 13.0
 # (TORCH_CUDA=cu130, the default) and 12.8 (cu128), each on its own base, pinned by digest so that a moved tag cannot
-# change a release; only the stage the build asks for is pulled. A new base: its two digests here, then a pod-v* tag.
+# change a release; only the stage the build asks for is used, and its layers are not pulled
+# (the last stage copies only). A new base: its two digests here, then a pod-v* tag.
 # pod-image.yml checks the base was built from base/Dockerfile as it stands in the tagged commit.
 #
 # The build context is the repository's root (for comfy-nodes/afflatus-nodes); Dockerfile.dockerignore beside this
@@ -20,25 +21,34 @@
 ARG BASE_CU130=ghcr.io/bardak971/afflatus-pod-base:1@sha256:b9eab8c9ffd2d1cee76e838c82de2d68792a8242f1dc539019811d0726f103c3
 ARG BASE_CU128=ghcr.io/bardak971/afflatus-pod-base:1-cu128@sha256:dd2fd71042a4e6696c811f7ba033da5f5a5003235ea58a15d41931efda26075f
 ARG TORCH_CUDA=cu130
-FROM ${BASE_CU130} AS base-cu130
-FROM ${BASE_CU128} AS base-cu128
-FROM base-${TORCH_CUDA}
+# the ComfyUI the base is built on (base/Dockerfile's COMFYUI_VERSION; test_image.py holds the two together), for Manager's
+# registry list below, made outside the base (the base's AFFLATUS_COMFYUI_VERSION says the same, but only to a stage on it)
+ARG COMFYUI_VERSION=v0.41.2
 
+# What the top makes it makes here, on the small Python image the base starts from, not on the base: the last stage then
+# only copies, each copy a layer of its own (--link), so the build pushes the top without pulling the base's GBs (6–8 min
+# a build when it ran on the base).
+FROM python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258 AS made
+ARG COMFYUI_VERSION
 # the registry's list of node packs, as Manager caches it: a pod just up installs a pack by its name at once, instead of
 # after Manager's own reading of the whole registry (minutes). start.sh puts it in Manager's cache folder. REGISTRY_REQUIRED
 # set (pod-image.yml, for an image it publishes): a registry that cannot be read fails the build rather than ship an image
 # whose every pod waits on billed time for Manager's own reading; a local build goes on without the list
 ARG REGISTRY_REQUIRED=
 COPY deploy/runpod/registry_cache.py /opt/afflatus-pod/registry_cache.py
-RUN python /opt/afflatus-pod/registry_cache.py /opt/afflatus-pod/manager-cache "${AFFLATUS_COMFYUI_VERSION#v}" ${REGISTRY_REQUIRED:+--required}
-
-COPY comfy-nodes/afflatus-nodes /opt/afflatus-nodes
-COPY deploy/runpod/start.sh /start.sh
-COPY deploy/runpod/broken.py /opt/afflatus-pod/broken.py
-COPY deploy/runpod/bootlog.py /opt/afflatus-pod/bootlog.py
-COPY deploy/runpod/died.py /opt/afflatus-pod/died.py
+RUN python /opt/afflatus-pod/registry_cache.py /opt/afflatus-pod/manager-cache "${COMFYUI_VERSION#v}" ${REGISTRY_REQUIRED:+--required}
 # a checkout on Windows may hand the script over with CRLF: sh would not read its first line
-RUN sed -i 's/\r$//' /start.sh && chmod +x /start.sh && rm -rf /opt/afflatus-nodes/tests
+COPY deploy/runpod/start.sh /start.sh
+RUN sed -i 's/\r$//' /start.sh && chmod +x /start.sh
+
+FROM ${BASE_CU130} AS base-cu130
+FROM ${BASE_CU128} AS base-cu128
+FROM base-${TORCH_CUDA}
+COPY --link --from=made /opt/afflatus-pod /opt/afflatus-pod
+COPY --link --from=made /start.sh /start.sh
+# the node pack without its tests (Dockerfile.dockerignore leaves them out of the context)
+COPY --link comfy-nodes/afflatus-nodes /opt/afflatus-nodes
+COPY --link deploy/runpod/broken.py deploy/runpod/bootlog.py deploy/runpod/died.py /opt/afflatus-pod/
 
 # 8188: ComfyUI; 8189: the boot log (bootlog.py), for the pod's token only
 EXPOSE 8188 8189
