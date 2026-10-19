@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { filesIn } from "@afflatus/comfy";
 import { isModelFile } from "@afflatus/core";
 import type { EventEmitter } from "node:events";
 import { readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -762,7 +763,8 @@ export class Downloads {
     for (let waited = 0; waited < withinMs; waited += every) {
       await new Promise((r) => setTimeout(r, every));
       if (d.status !== "saving" && d.status !== "downloading") return;
-      const files = await d.comfy.client.models(d.folder).catch(() => [] as string[]);
+      // a .gguf one is in the GGUF pack's list only (filesIn): never in ComfyUI's own, it was never said done
+      const files = await filesIn(d.comfy.client, d.folder).catch(() => [] as string[]);
       if (files.some((f) => fileName(f) === name)) {
         d.status = "done";
         d.finishedAt = Date.now();

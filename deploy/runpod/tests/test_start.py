@@ -87,7 +87,7 @@ PYTHON = (
     '#!/bin/sh\necho "python $*" >> "$CALLS"\n'
     'case "$1" in /comfyui/main.py) echo "cli-session=${__COMFY_CLI_SESSION__:-}" >> "$CALLS"; eval "$COMFY_DOES";; esac\n'
     # broken.py serving until the pod ends; died.py's start taking a while (a stop can land meanwhile)
-    'case "$*" in *broken.py*) [ -z "$BROKEN_BLOCKS" ] || exec "$REAL_SLEEP" 30;; *"died.py start"*) [ -z "$START_BLOCKS" ] || "$REAL_SLEEP" 2;;'
+    'case "$*" in *broken.py*) [ -z "$BROKEN_FAILS" ] || exit 1; [ -z "$BROKEN_BLOCKS" ] || exec "$REAL_SLEEP" 30;; *"died.py start"*) [ -z "$START_BLOCKS" ] || "$REAL_SLEEP" 2;;'
     ' *"died.py end"*) [ -z "$END_BLOCKS" ] || "$REAL_SLEEP" 2;; esac\n'
     # the GPU check: a GPU that fails
     'case "$1" in -c) [ -z "$GPU_FAILS" ] || exit 1;; esac\n'
@@ -144,6 +144,16 @@ class Run(unittest.TestCase):
             # until the pod ends, not 20 minutes: RunPod would start the container again, billed
             "sleep 1200", "sleep 1200",
         ])
+
+    def test_comfyui_that_dies_with_no_broken_py_ends_the_start_after_20_minutes(self):
+        # no broken.py, no watchdog: held for ever, the pod billed without end with Afflatus away. RunPod starts it again
+        with tempfile.TemporaryDirectory() as d:
+            proc, calls = self.start("kill -9 $$", d, BROKEN_FAILS="1")
+            out, _ = proc.communicate(timeout=60)
+            said = self.said(calls)
+        self.assertIn("broken.py did not run: no watchdog; the start ends in 20 minutes", out)
+        self.assertEqual(said[-2:], [f"python -u /opt/afflatus-pod/broken.py --died {d}/afflatus-died.json", "sleep 1200"])
+        self.assertEqual(proc.returncode, 1)
 
     def test_comfyui_that_exits_on_an_error_is_said_with_its_code(self):
         with tempfile.TemporaryDirectory() as d:
@@ -286,6 +296,24 @@ class StopDuringTheStart(unittest.TestCase):
             took, _, _ = self.stopped(proc, calls, "broken.py --start")
         self.assertEqual(proc.returncode, 0)
         self.assertLess(took, 5)
+
+    def test_a_failed_step_with_no_broken_py_ends_the_start_after_20_minutes(self):
+        with tempfile.TemporaryDirectory() as d:
+            proc, calls = self.start('step "putting in the node packs"\nfalse', d, BROKEN_FAILS="1")
+            out, _ = proc.communicate(timeout=60)
+            said = self.said(calls)
+        self.assertIn("broken.py did not run: no watchdog; the start ends in 20 minutes", out)
+        self.assertEqual(said, ["python -u /opt/afflatus-pod/broken.py --start putting in the node packs 1", "sleep 1200"])
+        self.assertEqual(proc.returncode, 1)
+
+    def test_a_failed_gpu_with_no_broken_py_ends_the_start_after_20_minutes(self):
+        with tempfile.TemporaryDirectory() as d:
+            proc, calls = self.start('echo "never here"', d, gpu=True, GPU_FAILS="1", BROKEN_FAILS="1")
+            out, _ = proc.communicate(timeout=60)
+            said = self.said(calls)
+        self.assertNotIn("never here", out)
+        self.assertEqual(said[-2:], [f"python /opt/afflatus-pod/broken.py {d}/afflatus-gpu.txt", "sleep 1200"])
+        self.assertEqual(proc.returncode, 1)
 
     def test_while_broken_py_serves_after_the_gpu_failed(self):
         # broken.py was this script's replacement (exec), PID 1 then: RunPod's stop went unheard until its SIGKILL

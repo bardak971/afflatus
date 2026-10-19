@@ -1,6 +1,7 @@
 import { fileName } from "./media";
 import { civitaiVersion } from "./civitai";
 import type { Comfy } from "./comfy";
+import { filesIn } from "@afflatus/comfy";
 import type { Db } from "./db";
 import type { Downloads } from "./downloads";
 import { stat } from "node:fs/promises";
@@ -367,10 +368,14 @@ export class PodFiles {
     return this.pods.get(machine)?.get(keyOf(e.folder, e.file)) === e;
   }
 
-  /** Whether the pod's own list of the folder has the file; null when its ComfyUI does not answer. */
+  /**
+   * Whether the pod's own list of the folder has the file, its .gguf files too (filesIn: a GGUF a volume holds was said
+   * missing, and failed or fetched again); null when its ComfyUI does not answer.
+   */
   private async onPod(machine: string, e: Entry): Promise<boolean | null> {
     const comfy = await this.d.comfyOf(machine);
-    return (await comfy?.client.models(e.folder).then((files) => files.some((f) => fileName(f) === fileName(e.file)), () => null)) ?? null;
+    if (!comfy) return null;
+    return filesIn(comfy.client, e.folder).then((files) => files.some((f) => fileName(f) === fileName(e.file)), () => null);
   }
 
   /** "There already" from the pack: the pod's own list says whether it is there (else it is still coming: asked again later). */

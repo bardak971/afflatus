@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { defineFamily, defineRecipe, GraphBuilder, type NodeCatalog } from "@afflatus/core";
-import { ComfyClient, detect, scan } from "../src";
+import { ComfyClient, detect, filesIn, scan } from "../src";
 import { startFakeComfy, type FakeComfy } from "../src/testing";
 
 const family = defineFamily({
@@ -214,5 +214,20 @@ describe("scan, what is kept between scans", () => {
     expect(s.recipes[0]!.ready).toBe(true);
     expect(fakes[0]!.calls).not.toContain("GET /object_info");
     expect(fakes[0]!.calls).toContain("GET /models/checkpoints");
+  });
+});
+
+describe("filesIn, a model folder's files as a machine has them", () => {
+  const client = (lists: Record<string, string[]>) => ({ models: async (folder: string) => { if (!lists[folder]) throw new Error("404"); return lists[folder]!; } });
+
+  it("adds the .gguf files the GGUF pack lists for that folder, which ComfyUI's own list leaves out", async () => {
+    expect(await filesIn(client({ diffusion_models: ["a.safetensors"], unet_gguf: ["b-Q4.gguf"] }), "diffusion_models")).toEqual(["a.safetensors", "b-Q4.gguf"]);
+    expect(await filesIn(client({ text_encoders: ["t.safetensors"], clip_gguf: ["t-Q8.gguf"] }), "text_encoders")).toEqual(["t.safetensors", "t-Q8.gguf"]);
+    expect(await filesIn(client({ loras: ["l.safetensors"], unet_gguf: ["b-Q4.gguf"] }), "loras")).toEqual(["l.safetensors"]);
+  });
+
+  it("is the folder's own list without the GGUF pack, and fails as the folder's own list does", async () => {
+    expect(await filesIn(client({ diffusion_models: ["a.safetensors"] }), "diffusion_models")).toEqual(["a.safetensors"]);
+    await expect(filesIn(client({ unet_gguf: ["b-Q4.gguf"] }), "diffusion_models")).rejects.toThrow("404");
   });
 });

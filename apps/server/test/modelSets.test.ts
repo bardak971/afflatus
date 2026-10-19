@@ -56,6 +56,13 @@ describe("a model set", () => {
     expect(off.json()).toMatchObject({ count: 2, bytes: UNET.size });
   });
 
+  it("finds a .gguf file where the machine has it: listed by the GGUF pack, not in ComfyUI's own list of the folder", async () => {
+    fake.models.unet_gguf = ["zz-test-model-Q5_K_M.gguf"];
+    const set = (await post(t.app, "/api/model-sets", { name: "zz-test GGUF", presets: [], files: [{ file: "zz-test-model-Q5_K_M.gguf", folder: "diffusion_models" }] })).json();
+    const files = (await get(t.app, `/api/model-sets/${set.id}/files`)).json().items as Array<{ file: string; on: Record<string, boolean> }>;
+    expect(files.map((f) => [f.file, Object.values(f.on)[0]])).toEqual([["zz-test-model-Q5_K_M.gguf", true]]);
+  });
+
   it("is listed, duplicated and deleted", async () => {
     const a = (await post(t.app, "/api/model-sets", { name: "Pictures", files: [{ file: "a.safetensors", folder: "loras", url: "https://huggingface.co/x/resolve/main/a.safetensors" }] })).json();
     const copy = (await post(t.app, `/api/model-sets/${a.id}/duplicate`, {})).json();

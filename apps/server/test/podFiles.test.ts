@@ -180,6 +180,16 @@ describe("a rented pod's model files", () => {
     expect(files.jobState("pod", "j1")).toMatchObject({ state: "failed", error: expect.stringContaining("no site is known") });
   });
 
+  it("are ready when the pod has them already, a .gguf one too (listed by the GGUF pack, not in ComfyUI's own list)", async () => {
+    // no site known and no copy here: only what the pod lists can make it ready (a volume that holds it)
+    pod.models.diffusion_models = [];
+    pod.models.unet_gguf = ["zz-test-model-Q5_K_M.gguf"];
+    files.want("pod", [{ file: "zz-test-model-Q5_K_M.gguf", folder: "diffusion_models" }], { tier: "need", job: "j1" });
+    await settle("pod", "zz-test-model-Q5_K_M.gguf");
+    expect(files.jobState("pod", "j1")).toMatchObject({ state: "ready" });
+    expect(pod.packFetched).toEqual([]);
+  });
+
   it("are asked again when the pod does not answer for a moment, not failed for good", async () => {
     files.retryMs = 10;
     pod.down = true;

@@ -1,4 +1,4 @@
-import { catalogKey, GGUF_LISTS, type Scan } from "@afflatus/comfy";
+import { catalogKey, filesIn, type Scan } from "@afflatus/comfy";
 import { choicesOf, graphFiles, isMissingSlotFile, missingSlotFile, parseInput, sameFile, TOOLS_FAMILY, type Family, type GraphFile, type NodeCatalog, type Recipe } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 import { readJson, type JobRow, type QueueCore } from "./queueModel";
@@ -81,9 +81,7 @@ function listingOf(on: { id: string; comfy: Comfy; scan: Scan }, folder: string)
   const key = `${on.id}|${on.scan.at}|${folder}`;
   let got = listings.get(key);
   if (!got) {
-    const gguf = GGUF_LISTS[folder];
-    // the GGUF pack's list is there only with the pack: without it, the folder's own list says it all
-    got = Promise.all([on.comfy.client.models(folder), gguf ? on.comfy.client.models(gguf).catch(() => []) : []]).then(([own, more]) => [...own, ...more], () => null);
+    got = filesIn(on.comfy.client, folder).catch(() => null);
     listings.set(key, got);
     if (listings.size > KEPT) listings.delete(listings.keys().next().value!);
   }
