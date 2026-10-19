@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { fileKey, firstFree, plural, rankGpus, type HuntMode, type Learned, type PresetFile, type RankedGpu, type RankRender } from "@afflatus/core";
+import { fileKey, firstFree, forCuda, plural, rankGpus, type CudaPick, type HuntMode, type Learned, type PresetFile, type RankedGpu, type RankRender } from "@afflatus/core";
 import { deployOverhead, type DeployOverhead } from "./costs";
 import { deployFiles, deployModels, waitingFiles } from "./deployModels";
 import { httpError } from "./errors";
@@ -63,6 +63,8 @@ const rankSchema = z.strictObject({
   leftOut: z.array(z.string().max(120)).max(200).default([]),
   cloud: z.enum(["SECURE", "COMMUNITY"]).default("SECURE"),
   volume: z.string().max(80).default(""),
+  /** The CUDA build the dialog picked (deploySchema cuda): a GPU with no host free for it ranks as out of stock. */
+  cuda: z.enum(["13.0", "12.8", "either"]).default("13.0"),
 });
 
 const stateSchema = z.object({
@@ -301,7 +303,9 @@ export class Hunt {
     return { gpus: await gpuPaces(this.s.db), rented: rented.map((r) => r.gpu!), oom, rendered: rendered.map((r) => ({ gpu: r.gpu!, renders: Number(r.renders) })), overheadMs: overhead ? overhead.bootMs + overhead.fetchMs + overhead.idleMs : null };
   }
 
-  private async rank(offers: GpuOffer[], rows: JobRow[], o: { mode: HuntMode; ceiling: number; leftOut: string[]; dataCenter: string | null }): Promise<{ ranking: RankedGpu[]; overhead: DeployOverhead | null }> {
+  private async rank(all: GpuOffer[], rows: JobRow[], o: { mode: HuntMode; ceiling: number; leftOut: string[]; dataCenter: string | null; cuda: CudaPick }): Promise<{ ranking: RankedGpu[]; overhead: DeployOverhead | null }> {
+    // a GPU whose free hosts are not of the CUDA build picked is not free to the hunt: it waits for one that is
+    const offers = all.map((g) => forCuda(g, o.cuda));
     // a pod pinned to a data center has a network volume there (dataCenterOf): its files are kept, not fetched at each deploy
     const overhead = await deployOverhead(this.s.db, this.now(), { volume: o.dataCenter !== null });
     const [renders, learned] = await Promise.all([this.renders(rows), this.learned(overhead)]);
@@ -481,7 +485,7 @@ export class Hunt {
       st.lastError = (err as Error).message;
       return this.save();
     }
-    const { ranking } = await this.rank(offers, rows, st);
+    const { ranking } = await this.rank(offers, rows, { ...st, cuda: st.deploy.cuda });
     if (this.state !== st) return;
     this.ranking = ranking;
     this.askedAt = this.offersSeen.get(st.cloud)?.at ?? this.now();

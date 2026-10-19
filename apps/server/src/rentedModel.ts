@@ -3,6 +3,7 @@ import type { Comfy } from "./comfy";
 import type { Db } from "./db";
 import { Runpod, type Pod, type PodStatus } from "./runpod";
 import { BootLogs, type BootView } from "./podBoot";
+import type { PullState } from "./podPull";
 import type { Say } from "./notifyWords";
 
 /** What the queue's machine rows, the pill and the cards say of a rented machine. */
@@ -20,6 +21,12 @@ export interface RentedView {
   gpuRate: number | null;
   gpu: string | null;
   dataCenter: string | null;
+  /**
+   * The CUDA build of the Afflatus image it runs ("13.0", "12.8": podImage.buildOf), and the CUDA its host's driver offers as
+   * RunPod says it ("13.2"); null for another image, or while not known.
+   */
+  cuda: "13.0" | "12.8" | null;
+  hostCuda: string | null;
   /** When the running session began (ms), and what it has cost so far. */
   since: number | null;
   spent: number;
@@ -139,6 +146,16 @@ export interface Seen {
   containerAt: number | null;
   /** What its boot log said of its node packs, as last kept on its session (JSON): written again only when it changes. */
   packsKept: string | null;
+  /**
+   * Its image's pull this run, from RunPod's system log (podPull.ts): the log's lines as last read, when, and the pull's state
+   * from them; whether its figures are kept on its session, and how much of its boot log was last kept there (while boot
+   * logs are kept). Reset when a new run's session opens, not by a read of it provisioning (when it pulls).
+   */
+  pullLines: Array<{ ts: string; line: string }>;
+  pullReadAt: number;
+  pull: PullState | null;
+  pullKept: boolean;
+  bootLogKept: string | null;
 }
 
 const fresh = (): Seen => ({
@@ -146,6 +163,7 @@ const fresh = (): Seen => ({
   stopping: false, stopAction: null, lockTried: false, seenRunningAt: null, sessionFrom: null, epoch: 0, error: null, bootNote: null, secretDropped: false, upAt: null, answered: false, answeredAt: null,
   read: false, gpuFailed: null, startFailed: null, comfyDied: null, missing: 0, stoppingSince: null, aliveAt: null, startingSince: null,
   handed: false, fillFrom: null, fillProgress: null, fillMovedAt: null, cutWhy: null, pulledKept: false, packsKept: null, containerAt: null,
+  pullLines: [], pullReadAt: 0, pull: null, pullKept: false, bootLogKept: null,
 });
 
 /**

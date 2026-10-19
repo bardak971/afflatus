@@ -38,6 +38,14 @@ export interface PodSession {
   id: string;
   machine: string;
   gpu: string | null;
+  /** The CUDA build of the image it ran, its host driver's CUDA and its data center; null on runs from before they were kept. */
+  cuda: "13.0" | "12.8" | null;
+  hostCuda: string | null;
+  dataCenter: string | null;
+  /** Its image's pull as RunPod's log told it: pulled (fresh) or found on its host, its bytes and MB/s; null when not read. */
+  pull: { fresh: boolean | null; bytes: number; mbps: number | null } | null;
+  /** Its boot log is kept (Settings › Rented GPUs): GET /api/rented/sessions/:id/boot-log gives it. */
+  bootLog: boolean;
   rate: number;
   from: number;
   to: number;

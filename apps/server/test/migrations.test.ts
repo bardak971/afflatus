@@ -244,3 +244,21 @@ describe("migration 0077, a pod's work from outside Afflatus", () => {
     await db.destroy();
   });
 });
+
+describe("migration 0080, what a pod's run ran on", () => {
+  it("leaves the runs there were unknown (null), keeps a new run's build, host, data center, pull and boot log; and is taken back", async () => {
+    const db = openSqlite(":memory:");
+    await migrate(db, "0079_pod_crash");
+    const at = new Date().toISOString();
+    await db.insertInto("rent_sessions").values({ id: "old", machine_id: "rp-a", pod: "a", rate: 0.6, started_at: at, ended_at: at, seen_at: at, gpu: "NVIDIA A40", up_at: null, idle_minutes: 3, busy_at: null, pulled_at: null, packs_from: null, packs_to: null, boot_packs: null, start_failed: null } as never).execute();
+    expect(await migrate(db)).toContain("0080_rent_build");
+    expect(await db.selectFrom("rent_sessions").select(["image", "host_cuda", "data_center", "pull", "boot_log"]).executeTakeFirstOrThrow()).toEqual({ image: null, host_cuda: null, data_center: null, pull: null, boot_log: null });
+    await db.updateTable("rent_sessions").set({ image: "ghcr.io/owner/afflatus-pod:0.1.27-cu128", host_cuda: "12.8", data_center: "EU-RO-1", pull: "{}", boot_log: "{}" }).execute();
+    expect((await db.selectFrom("rent_sessions").select("image").executeTakeFirstOrThrow()).image).toMatch(/-cu128$/);
+    await migrate(db, "0079_pod_crash");
+    const columns = (await sql<{ name: string }>`pragma table_info(rent_sessions)`.execute(db)).rows.map((c) => c.name);
+    expect(columns).not.toContain("image");
+    expect(columns).not.toContain("boot_log");
+    await db.destroy();
+  });
+});

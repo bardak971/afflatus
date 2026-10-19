@@ -176,6 +176,10 @@ export interface DeployAsk {
   accept: string[];
   /** Deploy again: nothing ticked, the remembered set's files come (false in lastDeploy). */
   again: boolean;
+  /** The Afflatus image's CUDA build: 13.0 only (the default), 12.8, or either (13.0 first). The Hunt takes it too. */
+  cuda: "13.0" | "12.8" | "either";
+  /** This deploy alone on 12.8, as the dialog asked: the remembered pick stays (false in lastDeploy). */
+  cudaOnce: boolean;
   /** Make room on its disk by deleting the models it fetched that no waiting job needs. */
   makeRoom: boolean;
 }
@@ -249,6 +253,8 @@ export interface Settings {
   lastDeploy: DeployAsk | null;
   /** A network volume no pod ran on for this many days is flagged; 0: never. */
   volumeUnusedDays: number;
+  /** A deployed pod's boot log is kept with its run for this many days (Queue › Costs); 0: none is kept. */
+  bootLogDays: number;
   /** The user's defaults for "Finish all clips" on a timeline. */
   finish: FinishSettings;
   /** A family's file chosen by hand where several fit: family id → slot id → file. */

@@ -19,6 +19,7 @@ import { AccessRow, useAccessActions } from "./AccessRow";
 import { useRentedOps } from "../../rentedOps";
 import { RentRow } from "./RentedCard";
 import { RentedHead, RentedRows } from "./RentedRows";
+import { CudaChip } from "../../machineBits";
 import { Block, Card, Row, Status } from "./Rows";
 import { COLUMNS, WIDE } from "./wide";
 import { publicPlainHttp } from "./plainHttp";
@@ -43,7 +44,7 @@ function MachineFacts({ probe, state, rented }: { probe: MachineProbe | undefine
   const gpu = probe?.device ? shortGpu(probe.device) : r?.gpu ? shortGpu(r.gpu) : undefined;
   const access = probe?.access;
   const parts: ReactNode[] = [
-    gpu && <span key="gpu"><b className="font-semibold text-ink-2">{gpu}</b>{probe?.vramTotal ? ` · ${gb(probe.vramTotal)}` : ""}</span>,
+    gpu && <span key="gpu" className="inline-flex items-center gap-1.5"><span><b className="font-semibold text-ink-2">{gpu}</b>{probe?.vramTotal ? ` · ${gb(probe.vramTotal)}` : ""}</span>{state && <CudaChip m={state} />}</span>,
     r && (r.rate || r.dataCenter) && <span key="rate" data-tip={rateParts(r) ?? undefined}>{r.rate ? <><b className="font-semibold text-ink-2">{usd(r.rate)}</b>/h</> : null}{r.rate && r.dataCenter ? " · " : ""}{r.dataCenter}</span>,
     probe?.online && probe.version && (
       <span key="versions">

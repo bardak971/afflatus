@@ -43,6 +43,7 @@ export const INDEX: SettingSpot[] = [
   { tab: "rented", label: "Next deploy", key: "rented.next", words: "rented runpod deploy again defaults next choices" },
   { tab: "rented", label: "S3 API key", key: "rented.s3", words: "rented runpod s3 key volume files viewer delete space" },
   { tab: "rented", label: "Unused volumes", key: "rented.unused", words: "rented runpod volume unused flag days storage" },
+  { tab: "rented", label: "Boot logs", key: "rented.bootlogs", words: "rented runpod pod boot log pull system keep days image" },
   { tab: "comfyui", label: "Access", key: "comfy.access", words: "lock locked token password login security botnet listen exposed unlock renew" },
   { tab: "comfyui", label: "Node pack", key: "comfy.pack", words: "custom_nodes afflatus-nodes minimax h3 latent install" },
   { tab: "comfyui", label: "Unload models after", key: "comfy.unload", words: "vram free idle minutes never" },

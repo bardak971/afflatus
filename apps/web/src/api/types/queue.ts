@@ -372,6 +372,8 @@ export interface GpuOffer {
   price: number;
   availability: Availability;
   dataCenters: Array<{ id: string; availability: Availability }>;
+  /** A host of it whose driver runs CUDA 13 has stock now: the Afflatus image's 13.0 build goes there, else its 12.8 build. */
+  cuda13: boolean;
 }
 
 /** A pod as a volume names it: its machine's name when it is one. */
@@ -531,6 +533,9 @@ export interface RentedState {
   gpuRate: number | null;
   gpu: string | null;
   dataCenter: string | null;
+  /** The CUDA build of the Afflatus image it runs ("13.0", "12.8"), and its host driver's CUDA as RunPod says it; null when not known. */
+  cuda: "13.0" | "12.8" | null;
+  hostCuda: string | null;
   /** When the running session began (ms), and what it has cost so far (USD). */
   since: number | null;
   spent: number;
@@ -562,7 +567,11 @@ export interface RentedState {
    * While it boots, where it is: its image pulled (RunPod says no uptime yet), ComfyUI starting (its container up), or the
    * step its boot log says (the Afflatus image, 0.1.12 on), `failed` when its start stopped there; `from`: its deploy (ms).
    */
-  boot?: { phase: "pulling" | "starting" | "step"; step: string | null; failed: boolean; from: number } | null;
+  boot?: {
+    phase: "pulling" | "starting" | "step"; step: string | null; failed: boolean; from: number;
+    /** While it pulls, from RunPod's system log: its stage, bytes in and to come, MB/s and time left (ms) when known. */
+    pull?: { stage: "waiting" | "downloading" | "extracting"; done: number; bytes: number; mbps: number | null; leftMs: number | null } | null;
+  } | null;
   error: string | null;
   /** The model files it is getting: what its jobs wait for, then what was asked ahead. */
   files: PodFile[];

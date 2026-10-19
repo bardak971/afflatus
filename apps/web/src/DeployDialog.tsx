@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { shortGpu } from "@afflatus/core";
+import { cudaFits, shortGpu } from "@afflatus/core";
 import { useLocation } from "wouter";
 import { Bookmark, ChevronDown, CircleAlert, Cpu, RotateCw, Search } from "lucide-react";
 import { ContextMenu, useMenu } from "./ContextMenu";
@@ -24,7 +24,7 @@ import { useBanners } from "./store";
 import { Button, Checkbox, cx, ErrorNote, fieldClass, Help, Segmented } from "./ui";
 
 /** What a first deploy opens with: Afflatus's image, Secure Cloud, no volume, terminated after 10 min idle. */
-const FIRST: Omit<DeployAsk, "gpu"> = { cloud: "SECURE", template: "afflatus", volume: "", disk: 120, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15, set: "", files: [], leaveOut: [], accept: [], again: false, makeRoom: true };
+const FIRST: Omit<DeployAsk, "gpu"> = { cloud: "SECURE", template: "afflatus", volume: "", disk: 120, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15, set: "", files: [], leaveOut: [], accept: [], again: false, makeRoom: true, cuda: "13.0", cudaOnce: false };
 const IDLE = [5, 10, 15, 30, 60, 120, 0];
 const WATCH = [5, 10, 15, 30, 60, 0];
 const DISKS = [60, 120, 200, 400];
@@ -33,6 +33,9 @@ const STOCK_SAID: Record<Availability, string> = { HIGH: "high", MEDIUM: "medium
 const FREEST: Record<Availability, number> = { HIGH: 0, MEDIUM: 1, LOW: 2, NONE: 3 };
 const WHY_STOCK = "RunPod's stock: how many of these GPUs are idle in that data center now (high, medium, low). It is not a reservation: one can be taken between this list and your Deploy. Afflatus then tries the GPU's other data centers, and says so when none is left: nothing is made, nothing billed.";
 const WHY_PLACE = "The data center the pod would run in: the one with the highest stock of that GPU. The price is the same in every region; the distance hardly shows (Afflatus sends prompts and gets renders back, models come from Hugging Face and Civitai). A network volume keeps its pods in its own data center.";
+
+const WHY_CU128 = "No host of this GPU with a driver for CUDA 13 is free now: the pod gets the Afflatus image's CUDA 12.8 build (the same PyTorch for an older driver), which renders slower. RunPod's stock moves by the minute.";
+const WHY_CUDA = "The CUDA build of the Afflatus image: the same PyTorch, for a host whose driver runs CUDA 13, or for an older driver (12.8). The same GPU can sit on either kind of host. 12.8 renders slower: on 13.0, a GPU whose free hosts are all older is not deployed but asked about, and a hunt waits for a CUDA 13 host. Either: 13.0 where it can, 12.8 where it cannot. Each pod's build is on its card and in Render times.";
 
 /** The list's price is the GPU's alone, as RunPod lists it and as the hunt's ceiling reads it: the pod's own disk is added on Deploy. */
 const WHY_PRICE = "RunPod's price of the GPU an hour. The pod's own disk adds to it while it runs ($0.10/GB a month): Deploy says the two together, its tip each part.";
@@ -111,7 +114,10 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
   }, [want.volume, want.idleDo]);
   // free where it may run: anywhere, or in the volume's data center; the cheapest first. RunPod saying it is free without
   // saying where: wherever it puts it
-  const placesOf = (g: GpuOffer) => (!g.dataCenters.length && !volume && g.availability !== "NONE" ? [{ id: "any", availability: g.availability }] : g.dataCenters.filter((d) => d.availability !== "NONE" && (!volume || d.id === volume.dataCenter)).sort((a, b) => FREEST[a.availability] - FREEST[b.availability]));
+  const stockOf = (g: GpuOffer) => (!g.dataCenters.length && !volume && g.availability !== "NONE" ? [{ id: "any", availability: g.availability }] : g.dataCenters.filter((d) => d.availability !== "NONE" && (!volume || d.id === volume.dataCenter)).sort((a, b) => FREEST[a.availability] - FREEST[b.availability]));
+  // with the Afflatus image on CUDA 13.0, a GPU whose free hosts all have an older driver is not free: asked about instead
+  const placesOf = (g: GpuOffer) => (want.template === "afflatus" && !cudaFits(g, want.cuda) ? [] : stockOf(g));
+  const only128 = (g: GpuOffer | undefined) => Boolean(g) && want.template === "afflatus" && !cudaFits(g!, want.cuda) && stockOf(g!).length > 0;
   const [sort, setSort] = useState<{ key: SortKey; up: boolean }>({ key: "price", up: true });
   const byKey: Record<SortKey, (a: GpuOffer & { places: Array<{ id: string; availability: Availability }> }, b: typeof a) => number> = {
     name: (a, b) => a.name.localeCompare(b.name),
@@ -133,6 +139,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
   const now = useNow(1000);
   const readAgo = gpus.dataUpdatedAt ? Math.max(0, Math.round((now - gpus.dataUpdatedAt) / 1000)) : null;
   const picked = free.find((g) => g.id === want.gpu) ?? null;
+  const wantedOffer = gpus.data?.gpus.find((g) => g.id === want.gpu);
   // the one picked (or deployed last time) is not free now: said, with the cheapest free one as large
   const gone = !picked && want.gpu && gpus.isSuccess ? gpus.data.gpus.find((g) => g.id === want.gpu) ?? { id: want.gpu, name: shortGpu(want.gpu), memory: 0 } : null;
   const instead = gone ? free.slice().sort((a, b) => a.price - b.price).find((g) => g.memory >= gone.memory) ?? null : null;
@@ -163,7 +170,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
     : { mode: "value", ceiling: ceilingFor(goneOffer?.price), leftOut: [], hold: "rest", giveUpMinutes: 120 };
   const huntAsk = { ...huntBase, ...huntChange };
   // the ranking for these choices, asked once they stop changing (a tick, a price typed); the last one stays shown meanwhile
-  const rankAsk = JSON.stringify({ mode: huntAsk.mode, ceiling: huntAsk.ceiling, leftOut: huntAsk.leftOut, cloud: changing ? kept?.deploy.cloud : want.cloud, volume: changing ? kept?.deploy.volume : want.volume });
+  const rankAsk = JSON.stringify({ mode: huntAsk.mode, ceiling: huntAsk.ceiling, leftOut: huntAsk.leftOut, cloud: changing ? kept?.deploy.cloud : want.cloud, volume: changing ? kept?.deploy.volume : want.volume, cuda: changing ? kept?.deploy.cuda : want.template === "afflatus" ? want.cuda : "either" });
   const rankAsked = useDebounced(rankAsk, 300, true, rankAsk);
   const rank = useQuery({
     queryKey: queryKeys.huntRank(rankAsked),
@@ -207,7 +214,8 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
   const diskNeed = Math.ceil(models.bytes / 2 ** 30 + DISK_ROOM);
   const diskFits = Boolean(want.volume) || diskNeed <= want.disk;
   const deploy = useMutation({
-    mutationFn: () => api.deployGpu({ ...want, files: models.files, leaveOut: models.leaveOut, accept: models.accept }),
+    // `o`: this deploy alone on CUDA 12.8, as asked when no CUDA 13 host is free (cudaOnce: the pick remembered stays)
+    mutationFn: (o: Partial<DeployAsk> | void) => api.deployGpu({ ...want, ...(o ?? {}), files: models.files, leaveOut: models.leaveOut, accept: models.accept }),
     onSuccess: ({ id }) => {
       for (const queryKey of DEPLOYED_READS) void client.invalidateQueries({ queryKey });
       // closed while "Deploying…" (Esc, Cancel): the pod is billed all the same, so it is said, but no one is moved to its card
@@ -263,11 +271,14 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
                 <span className="min-w-0 grow">
                   {wantedFree
                     ? `The ${wantedFree.name} is free now${volume ? ` in ${volume.dataCenter}` : ""}, at ${usd(wantedFree.price)}/h for the GPU.`
+                    : gone && only128(wantedOffer)
+                      ? `No ${gone.name} host with CUDA 13 is free ${volume ? `in ${volume.dataCenter} ` : ""}right now; one with CUDA 12.8 is (slower). Hunt for a CUDA 13 one, or deploy it on 12.8.`
                     : gone
                       ? `No ${gone.name} is free ${volume ? `in ${volume.dataCenter} ` : ""}right now. Hunt for one, or for the best GPU that comes free.`
                       : `The best GPU below is deployed the moment one comes free${volume ? ` in ${volume.dataCenter}` : ""}.`}
                   {alt && alt.id !== wantedFree?.id && ` The ${alt.name} is free now, at ${usd(alt.price)}/h for the GPU.`}
                 </span>
+                {gone && only128(wantedOffer) && <Button size="sm" disabled={imageMissing || deploy.isPending || !models.ready || !diskFits || Boolean(volume?.usedBy)} onClick={() => deploy.mutate({ cuda: "12.8", cudaOnce: true })}>Deploy on CUDA 12.8 now</Button>}
                 {alt && <Button size="sm" onClick={() => { set({ gpu: alt.id }); setHuntAsked(false); }}>Deploy it instead</Button>}
                 <Segmented<DeployAsk["cloud"]> size="sm" label="Cloud" value={want.cloud} options={[{ value: "SECURE", label: "Secure" }, { value: "COMMUNITY", label: "Community" }]} onChange={(cloud) => set({ cloud })} />
                 <Help text={WHY_CLOUD} />
@@ -316,7 +327,10 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
                 onClick={() => set({ gpu: g.id })}
                 className={cx("grid grid-cols-[minmax(0,1fr)_64px_90px_70px_76px] items-center gap-3 border-b border-line/60 px-3 py-2 text-left text-[13px] last:border-b-0", g.id === want.gpu ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : "hover:bg-hover")}
               >
-                <span className="min-w-0 truncate font-semibold">{g.name}</span>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="min-w-0 truncate font-semibold">{g.name}</span>
+                  {want.template === "afflatus" && want.cuda === "either" && !g.cuda13 && <span className="shrink-0 rounded bg-raised px-1.5 py-px font-mono text-[10.5px] font-normal text-ink-2" data-tip={WHY_CU128}>12.8 only</span>}
+                </span>
                 <span className="text-right font-mono text-xs text-ink-2">{g.memory} GB</span>
                 <span className="truncate text-xs text-ink-2">{g.places[0]!.id}</span>
                 <span className="text-xs text-ink-2">{STOCK_SAID[g.places[0]!.availability]}</span>
@@ -329,7 +343,10 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
                 <span className="border-b border-line/60 px-3 pt-3 pb-1.5 text-[11px] font-semibold text-ink-3">Not in stock now · pick one to hunt for it</span>
                 {outOfStock.map((g) => (
                   <button key={g.id} type="button" role="radio" aria-checked={false} onClick={() => set({ gpu: g.id })} className="grid grid-cols-[minmax(0,1fr)_64px_90px_70px_76px] items-center gap-3 border-b border-line/60 px-3 py-2 text-left text-[13px] text-ink-2 last:border-b-0 hover:bg-hover">
-                    <span className="min-w-0 truncate font-semibold">{g.name}</span>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="min-w-0 truncate font-semibold">{g.name}</span>
+                      {only128(g) && <span className="shrink-0 rounded bg-raised px-1.5 py-px font-mono text-[10.5px] font-normal text-ink-2" data-tip={WHY_CU128}>12.8 free</span>}
+                    </span>
                     <span className="text-right font-mono text-xs">{g.memory} GB</span>
                     <span className="text-xs">{volume ? volume.dataCenter : "anywhere"}</span>
                     <span className="text-xs">none</span>
@@ -346,6 +363,13 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
         <section className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-x-3 gap-y-3 text-[13px]">
           <span className="flex items-center gap-1.5 font-semibold text-ink-2">Image <Help text={WHY_TEMPLATE} /></span>
           <Segmented<DeployAsk["template"]> size="sm" className="w-fit" label="Image" value={want.template} options={[{ value: "afflatus", label: images.data?.afflatus === false ? "Afflatus · not published" : "Afflatus · locked" }, { value: "runpod", label: "RunPod's ComfyUI · not locked" }]} onChange={(template) => set({ template })} />
+
+          {want.template === "afflatus" && (
+            <>
+              <span className="flex items-center gap-1.5 font-semibold text-ink-2">CUDA <Help text={WHY_CUDA} /></span>
+              <Segmented<DeployAsk["cuda"]> size="sm" className="w-fit" label="CUDA build" value={want.cuda} options={[{ value: "13.0", label: "13.0" }, { value: "12.8", label: "12.8" }, { value: "either", label: "Either" }]} onChange={(cuda) => set({ cuda })} />
+            </>
+          )}
 
           <span className="flex items-center gap-1.5 font-semibold text-ink-2">Disk <Help text={WHY_DISK} /></span>
           <span className="flex flex-wrap items-center gap-2">
@@ -394,6 +418,13 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
           </>
         )}
 
+        {/* the GPU wanted has hosts free, but none with CUDA 13: asked, never deployed on 12.8 by itself */}
+        {!hunting && !changing && only128(wantedOffer) && (
+          <span className="flex flex-wrap items-center gap-2 text-xs text-warn-ink">
+            No {wantedOffer!.name} host with CUDA 13 is free now; one with CUDA 12.8 is (slower).
+            <Button size="sm" disabled={imageMissing || deploy.isPending || !models.ready || !diskFits || Boolean(volume?.usedBy)} onClick={() => deploy.mutate({ cuda: "12.8", cudaOnce: true })}>Deploy on CUDA 12.8 now</Button>
+          </span>
+        )}
         {volume?.usedBy && (
           <span className="flex items-center gap-2 text-xs text-warn-ink">
             The volume {volume.name} is in use by {volume.usedBy.name}: one pod at a time on a volume.

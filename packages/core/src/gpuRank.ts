@@ -23,6 +23,24 @@ export interface RankOffer {
   dataCenters: Array<{ id: string; availability: Availability }>;
 }
 
+/**
+ * The CUDA build a deploy or a hunt takes, as the Deploy dialog sets it: 13.0 only (a host of the GPU with a driver for
+ * CUDA 13), 12.8 (any host, the older build), or either (13.0 where such a host is free, else 12.8). The 12.8 build rendered
+ * H3 2× slower on an RTX 5090 (2026-10-20): it is never taken without the user's say.
+ */
+export type CudaPick = "13.0" | "12.8" | "either";
+
+/** Whether a GPU can be deployed now with that pick: on 13.0 only, a host of it with CUDA 13 must be free. */
+export const cudaFits = (gpu: { cuda13?: boolean }, pick: CudaPick): boolean => pick !== "13.0" || gpu.cuda13 !== false;
+
+/**
+ * An offer as the pick sees it: one with no host free for it is out of stock everywhere (ranked, listed and hunted as
+ * such), never deployed on the other build.
+ */
+export function forCuda<T extends RankOffer & { cuda13?: boolean }>(offer: T, pick: CudaPick): T {
+  return cudaFits(offer, pick) ? offer : { ...offer, availability: "NONE", dataCenters: offer.dataCenters.map((d) => ({ ...d, availability: "NONE" as const })) };
+}
+
 /** A render the hunt is for: the model files it needs (bytes, when known), and its forecast at the common pace (ms; null when not known). */
 export interface RankRender {
   files: Array<{ file: string; size: number | null }>;

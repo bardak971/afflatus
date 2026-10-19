@@ -2,6 +2,7 @@ import { modelStem, plural, rankGpus, shortGpu, volumePerMonth, type RankOffer }
 import type { Selectable } from "kysely";
 import type { Db, Tables } from "./db";
 import { dollars } from "./notifyWords";
+import { buildOf } from "./podImage";
 import { median } from "./renderDigests";
 import { nameOf, windowOf } from "./rendersRead";
 import type { Registry } from "./registry";
@@ -286,6 +287,14 @@ export interface SessionView {
   id: string;
   machine: string;
   gpu: string | null;
+  /** The CUDA build of the image it ran (podImage.buildOf), its host driver's CUDA and its data center, as kept (0080); null before. */
+  cuda: "13.0" | "12.8" | null;
+  hostCuda: string | null;
+  dataCenter: string | null;
+  /** Its image's pull as RunPod's log told it (podPull.ts): pulled or found on the host, bytes, MB/s; null when not read. */
+  pull: { fresh: boolean | null; bytes: number; mbps: number | null } | null;
+  /** Its boot log is kept (Settings › Rented GPUs › boot logs): GET /api/rented/sessions/:id/boot-log gives it. */
+  bootLog: boolean;
   rate: number;
   from: number;
   to: number;
@@ -480,7 +489,7 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
     for (const x of mine) renderRate.set(x.row.id, r.rate);
     const its = mine.map((x) => ({ id: x.row.id, at: x.to, ms: x.row.total_ms, status: x.row.status, model: nameOf(d.registry, x.row.recipe_id), usd: usdOf(x.row.total_ms, r.rate), item: refs.get(x.row.id)?.item ?? null }));
     sessions.push({
-      id: r.id, machine: r.machine_id, gpu, rate: r.rate, from, to, open: !r.ended_at, usd: usdOf(to - from, r.rate), parts, boot, startFailed: r.start_failed, crash: crashSaid(r.crash), packs, estimated: split.estimated, why: whyOf(its, parts.outside), idleMinutes: idle,
+      id: r.id, machine: r.machine_id, gpu, cuda: buildOf(r.image), hostCuda: r.host_cuda ?? null, dataCenter: r.data_center ?? null, pull: pullFigures(r.pull), bootLog: Boolean(r.boot_log), rate: r.rate, from, to, open: !r.ended_at, usd: usdOf(to - from, r.rate), parts, boot, startFailed: r.start_failed, crash: crashSaid(r.crash), packs, estimated: split.estimated, why: whyOf(its, parts.outside), idleMinutes: idle,
       fetched: { files: kept.length + guessed.length, bytes: [...kept.map((f) => Number(f.bytes)), ...guessed.map((m) => Number(m.bytes))].reduce((n, b) => n + b, 0) },
       renders: its.sort((a, b) => a.at - b.at),
     });
@@ -577,6 +586,17 @@ function packsOf(json: string | null): Array<{ pack: string; ms: number }> {
     return Array.isArray(said) ? said.filter((x): x is { pack: string; ms: number } => typeof x?.pack === "string" && typeof x?.ms === "number") : [];
   } catch {
     return [];
+  }
+}
+
+/** A session's pull as kept (0080's JSON, podPull.ts): pulled or found on its host, its bytes and speed; null when not kept. */
+function pullFigures(json: string | null | undefined): SessionView["pull"] {
+  try {
+    const said = JSON.parse(json ?? "null") as { fresh?: unknown; bytes?: unknown; mbps?: unknown } | null;
+    if (!said || typeof said !== "object") return null;
+    return { fresh: typeof said.fresh === "boolean" ? said.fresh : null, bytes: typeof said.bytes === "number" ? said.bytes : 0, mbps: typeof said.mbps === "number" ? said.mbps : null };
+  } catch {
+    return null;
   }
 }
 

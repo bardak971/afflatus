@@ -12,7 +12,7 @@ import { minutesSaid, plural, usd, when } from "../../format";
 import { Select } from "../../Select";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
-import { Button, cx, ErrorNote, fieldClass, Help } from "../../ui";
+import { Button, Checkbox, cx, ErrorNote, fieldClass, Help } from "../../ui";
 import { runwayNowSaid, runwaySaid, runwayWhy } from "../queue/costsView";
 import { Block, Card, Row } from "./Rows";
 import { tabHref } from "./settingsIndex";
@@ -26,6 +26,8 @@ import { SecretField } from "./SecretField";
 
 /** The days after which a volume no pod ran on is flagged; 0: never. */
 const UNUSED_DAYS = [3, 7, 14, 30, 0];
+/** How long a pod's boot log may be kept, once kept at all. */
+const BOOT_LOG_DAYS = [3, 7, 14, 30, 90];
 
 const WHY_RUNPOD = "A pod you made on RunPod, added as a machine: Afflatus reads its state there, starts it only when you press Start, and stops it when it sits idle, at a spending cap, or (with the Afflatus node pack on it) when this PC goes silent. The key is a RunPod API key (RunPod › Settings › API Keys); it stays in Afflatus, never shown again. The pod must expose ComfyUI's port, 8188, over HTTP.";
 
@@ -110,6 +112,7 @@ type CapKey = "day" | "month";
 
 /** What each cap weighs: the day's is compute alone, the month's everything RunPod bills (rented.ts spent says the same). */
 const CAP_DAY_WHY = "Compute only: what your pods cost today while they run, their GPU and their disk. A stopped pod's disk and the network volumes are not in it: they bill whether anything runs or not, and the month cap has them.";
+const BOOT_LOGS_WHY = "A deployed pod's boot log, kept with its run in Queue › Costs (its row's \"boot log\"): RunPod's system log of the image's pull, layer by layer, and the pod's own boot log, up to ComfyUI's first answer. RunPod drops both when the pod is terminated; kept, they tell a pull that never began (RunPod's side) from one that crawled (the host's link). Dropped after the days set. The pull's speed and size are kept with each run either way.";
 const CAP_MONTH_WHY = "Everything RunPod bills this month: the pods, the disks of stopped pods and the network volumes. At it the pods stop, and Start, Deploy, Make volume and Grow are refused.";
 
 /** A figure against its cap, in a few words: "$1.18 of $5", or the figure alone without a cap. */
@@ -176,6 +179,12 @@ function RunpodAccount() {
     },
     onError: sayFailed("The unused volumes' days were not saved"),
   });
+  const saveBootLogs = useMutation({
+    mutationFn: (bootLogDays: number) => api.saveSettings({ bootLogDays }),
+    onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved),
+    onError: sayFailed("The boot logs' setting was not saved"),
+  });
+  const bootLogDays = settings.data?.bootLogDays ?? 0;
   const s = spending.data?.spending;
   const now = s ? runwayNowSaid({ spendPerHr: s.spendPerHr, runwayNowMs: s.runwayMs, perDay: s.perDay.pods + s.perDay.storage }) : null;
   // the caps as saved (written in at once on a save), not as the spending read some seconds ago: two edits in a row each keep the other
@@ -245,6 +254,14 @@ function RunpodAccount() {
       {has && (
         <Row setting="rented.unused" label="Unused volumes" help="A network volume no pod ran on for this long is flagged here and on the tab: it bills every month all the same.">
           <span className="w-[120px]"><Select size="sm" label="Flag a volume unused after" value={String(settings.data?.volumeUnusedDays ?? 7)} onChange={(v) => !saveUnused.isPending && saveUnused.mutate(Number(v))} options={UNUSED_DAYS.map((n) => ({ value: String(n), label: n ? `after ${plural(n, "day")}` : "never" }))} /></span>
+        </Row>
+      )}
+      {has && (
+        <Row setting="rented.bootlogs" label="Boot logs" help={BOOT_LOGS_WHY}>
+          <span className="flex items-center gap-2">
+            <Checkbox checked={bootLogDays > 0} onChange={(on) => !saveBootLogs.isPending && saveBootLogs.mutate(on ? 14 : 0)}>Keep each deploy's boot log</Checkbox>
+            {bootLogDays > 0 && <span className="w-[120px]"><Select size="sm" label="Keep boot logs for" value={String(bootLogDays)} onChange={(v) => !saveBootLogs.isPending && saveBootLogs.mutate(Number(v))} options={[...new Set([...BOOT_LOG_DAYS, bootLogDays])].sort((a, b) => a - b).map((n) => ({ value: String(n), label: `for ${plural(n, "day")}` }))} /></span>}
+          </span>
         </Row>
       )}
       {(s?.lowBalance || spending.isError || Object.keys(notSaved).length > 0 || Boolean(s?.storage?.unused.length) || Boolean(s?.storage?.stoppedDisks)) && (

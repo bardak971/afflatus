@@ -10,7 +10,7 @@ import { fakeSimulate } from "./fake/simulate";
 import { fakeSockets } from "./fake/sockets";
 
 export { makePng } from "./fake/png";
-export { FAKE_GPUS, NO_CAPACITY, startFakeRunpod, type FakeGpu, type FakePod, type FakeRunpod, type FakeVolume } from "./fake/runpod";
+export { FAKE_GPUS, FAKE_LAYERS, NO_CAPACITY, startFakeRunpod, type FakeGpu, type FakePod, type FakeRunpod, type FakeVolume } from "./fake/runpod";
 export { startFakeS3, type FakeS3, type FakeS3File } from "./fake/s3";
 
 /**

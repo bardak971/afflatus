@@ -29,6 +29,11 @@ export interface BootView {
   step: string | null;
   failed: boolean;
   from: number;
+  /**
+   * While it pulls, how far, from RunPod's system log (podPull.ts): waiting for the pull to begin, downloading, extracting;
+   * bytes in and to come, its speed (MB/s) and its time left (ms) when they are known. Absent while nothing was read of it.
+   */
+  pull?: { stage: "waiting" | "downloading" | "extracting"; done: number; bytes: number; mbps: number | null; leftMs: number | null } | null;
 }
 
 const ROUTE = "/afflatus/boot";

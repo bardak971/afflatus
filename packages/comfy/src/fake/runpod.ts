@@ -28,7 +28,14 @@ export interface FakePod {
   upAt?: string | null;
   /** Its image is on its host: pulled at its first start, not again at a start after a stop. */
   pulled?: boolean;
+  /** The CUDA its host's driver offers, as RunPod says it ("13.2" when not set). */
+  hostCuda?: string;
+  /** Its system log as RunPod keeps it (GET /v2/pods/{id}/logs): its image's pull, layer by layer, as RunPod writes it. */
+  systemLog?: Array<{ ts: string; line: string }>;
 }
+
+/** The layers of the image a pretend pod pulls, as RunPod's system log names them (12 hex) and their sizes (bytes). */
+export const FAKE_LAYERS = [{ id: "a1b2c3d4e5f6", size: 103e6 }, { id: "0f1e2d3c4b5a", size: 41e6 }];
 
 /** A GPU of the pretend catalog: its prices (null: not on that cloud), and where it is free and how much. */
 export interface FakeGpu {
@@ -137,7 +144,7 @@ const uptimeOf = (p: FakePod) => (p.status === "RUNNING" && upSince(p) ? Math.ro
 const raw = (p: FakePod) => ({
   id: p.id, name: p.name, status: p.status, cost: BILLED.has(p.status) ? p.rate : 0, disk: p.containerGb ?? 0,
   actions: p.status === "RUNNING" ? ["stop", "restart", "terminate"] : p.status === "EXITED" || p.status === "ERROR" ? ["start", "terminate"] : ["stop", "terminate"],
-  gpu: { id: p.gpu, count: 1 }, dataCenterId: p.dataCenterId, ports: p.ports, cloud: "SECURE", image: p.image ?? "runpod/comfyui:latest",
+  gpu: { id: p.gpu, count: 1 }, dataCenterId: p.dataCenterId, ports: p.ports, cloud: "SECURE", image: p.image ?? "runpod/comfyui:latest", cudaVersion: p.hostCuda ?? "13.2",
   mounts: p.volumeId ? { network: [{ volumeId: p.volumeId, path: "/workspace" }] } : p.diskGb > 0 ? { persistent: { size: p.diskGb, path: "/workspace" } } : {},
   env: p.env,
   // no runtime here: RunPod's REST /v2/pods says no uptime of a booting pod (seen on a real one), only its GraphQL does
@@ -259,6 +266,40 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
     }, ms);
     timers.add(t);
   };
+  /**
+   * Its image's pull written to its system log as RunPod does over `ms`: each layer's "Pulling fs layer", a "Downloading" line
+   * every ~5 MB of it, "Download complete", then each extracted in its order, and the image's status; a host that has the
+   * image already says so and pulls nothing.
+   */
+  const pullLog = (pod: FakePod, ms: number, started: string | null) => {
+    const log = (pod.systemLog ??= []);
+    const say = (line: string) => {
+      if (pod.startedAt === started) log.push({ ts: new Date().toISOString().replace(/\.\d+Z$/, "Z"), line });
+    };
+    const image = pod.image ?? "runpod/comfyui:latest";
+    say(`create container ${image}`);
+    if (pod.pulled) {
+      for (const l of FAKE_LAYERS) say(`${l.id} Already exists`);
+      return say(`Status: Image is up to date for ${image}`);
+    }
+    say(`${image.split(":").pop()} Pulling from ${image.split("/").slice(1).join("/").split(":")[0]}`);
+    for (const l of FAKE_LAYERS) say(`${l.id} Pulling fs layer`);
+    for (const l of FAKE_LAYERS) {
+      const n = Math.max(1, Math.round(l.size / 5.15e6));
+      for (let i = 0; i < n; i++) later(Math.round((ms * 0.8 * (i + 1)) / n), () => say(`${l.id} Downloading`));
+      later(Math.round(ms * 0.8), () => {
+        say(`${l.id} Verifying Checksum`);
+        say(`${l.id} Download complete`);
+      });
+    }
+    later(Math.max(0, ms - 1), () => {
+      for (const l of FAKE_LAYERS) {
+        say(`${l.id} Extracting`);
+        say(`${l.id} Pull complete`);
+      }
+      say(`Status: Downloaded newer image for ${image}`);
+    });
+  };
   const boot = (pod: FakePod) => {
     later(fake.bootMs, () => {
       if (pod.status !== "STARTING" && pod.status !== "PROVISIONING") return;
@@ -283,6 +324,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
           return up();
         }
         pod.upAt = null;
+        pullLog(pod, fake.pullMs, started);
         return later(fake.pullMs, () => {
           if (pod.status !== "RUNNING" || pod.startedAt !== started) return;
           pod.pulled = true;
@@ -292,6 +334,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
       }
       // its image pulled first: RUNNING, no uptime, nothing behind its ports; then its container up, its start logged step by step
       pod.upAt = null;
+      pullLog(pod, fake.pullMs, started);
       later(fake.pullMs, () => {
         if (pod.status !== "RUNNING" || pod.startedAt !== started) return;
         pod.pulled = true;
@@ -452,6 +495,18 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
         delete fake.secrets[name];
         return json(204);
       }
+    }
+    // a pod's system log, as RunPod streams it (server-sent events); here all of it at once, then the stream's end
+    const logsOf = /^\/v2\/pods\/([^/]+)\/logs$/.exec(url.pathname);
+    if (req.method === "GET" && logsOf) {
+      const found = fake.pods.find((p) => p.id === decodeURIComponent(logsOf[1]!) && p.status !== "TERMINATED");
+      if (!found) return json(404, { title: "Not Found", status: 404, detail: "pod not found" });
+      res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
+      res.end((found.systemLog ?? []).map((l) => `id: ${l.ts}
+data: ${JSON.stringify({ source: "system", line: l.line, ts: l.ts })}
+
+`).join(""));
+      return;
     }
     // one pod, read on its own
     const one = /^\/v2\/pods\/([^/]+)$/.exec(url.pathname);

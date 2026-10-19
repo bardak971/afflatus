@@ -155,12 +155,13 @@ export class RentedDeploy extends RentedFollow {
 
   /**
    * A pod deployed only to fill a volume with these files (Fill from a set…): the cheapest GPU in stock there, Afflatus's
-   * image, no render given to it, terminated once its files are in. Billed from now, as any deploy, on the user's click.
+   * image (either CUDA build: it renders nothing), no render given to it, terminated once its files are in. Billed from now,
+   * as any deploy, on the user's click.
    */
   async fill(volume: string, set: string, files: PresetFile[]): Promise<{ id: string; dataCenter: string | null }> {
     const found = await this.fillGpu(volume);
     if (!found) throw httpError("No GPU is free where that volume is now: try again later.", 409);
-    return this.deploy({ gpu: found.gpu.id, cloud: "SECURE", template: "afflatus", volume, disk: 20, idleMinutes: 5, idleDo: "terminate", watchdogMinutes: 15, set, files, leaveOut: [], accept: [], again: false, makeRoom: false }, { fill: true });
+    return this.deploy({ gpu: found.gpu.id, cloud: "SECURE", template: "afflatus", volume, disk: 20, idleMinutes: 5, idleDo: "terminate", watchdogMinutes: 15, set, files, leaveOut: [], accept: [], again: false, makeRoom: false, cuda: "either", cudaOnce: false }, { fill: true });
   }
 
   private async deployNow(ask: DeployAsk, fill = false): Promise<{ id: string; dataCenter: string | null }> {
@@ -186,10 +187,13 @@ export class RentedDeploy extends RentedFollow {
     const places: Array<string | null> = listed.length || volume || offer.dataCenters.length || offer.availability === "NONE" ? listed : [null];
     const none = volume ? `No ${offer.name} free in ${volume.dataCenter}, where the volume "${volume.name}" is: pick another GPU, or deploy without the volume.` : `No ${offer.name} free any more: it was taken since the list was read. Pick another GPU.`;
     if (!places.length) throw refused(none, "noGpu");
-    // the image's build for this GPU: CUDA 13 where its hosts offer it, else 12.8 (and 12.8 again where no host of 13 is free);
-    // each asked of its registry first: one RunPod could not pull would leave a pod billed until its boot limit
+    // the image's build, as the user picked it (core CudaPick): 13.0 only on a host with CUDA 13 (none free: refused, never the
+    // 12.8 build in its place, which rendered 2× slower); 12.8; or either, 13.0 first then 12.8 where no host of 13 is free.
+    // Each asked of its registry first: one RunPod could not pull would leave a pod billed until its boot limit
+    if (ask.template === "afflatus" && ask.cuda === "13.0" && !offer.cuda13) throw refused(`No ${offer.name} host with CUDA 13 is free now: deploy it on CUDA 12.8, or hunt for a CUDA 13 one.`, "noGpu");
+    const afflatus = ask.cuda === "12.8" ? [imageFor("afflatus", false)] : ask.cuda === "13.0" ? [imageFor("afflatus", true)] : offer.cuda13 ? [imageFor("afflatus", true), imageFor("afflatus", false)] : [imageFor("afflatus", false)];
     const builds = [];
-    for (const build of ask.template === "afflatus" && offer.cuda13 ? [imageFor("afflatus", true), imageFor("afflatus", false)] : [imageFor(ask.template, false)]) {
+    for (const build of ask.template === "afflatus" ? afflatus : [imageFor(ask.template, false)]) {
       if ((await this.imageReady(build.image)) !== false) builds.push(build);
     }
     if (!builds.length) {
@@ -268,8 +272,10 @@ export class RentedDeploy extends RentedFollow {
         const machines = [...current.machines, { id, name, url: podUrl(made.id), dir: "", takes: "all" as const, families: {}, token, rented }];
         // a machine now: followed as any, its name no longer pending (in the same write, never one without the other)
         const pendingDeploys = current.pendingDeploys.filter((p) => p.name !== spec.name);
-        // the next deploy starts from the same choices; the files are this one's. A fill is not a deploy of the user's choices
-        return fill ? { machines, pendingDeploys } : { machines, pendingDeploys, lastDeploy: { ...ask, files: [], leaveOut: [], accept: [] } };
+        // the next deploy starts from the same choices; the files are this one's. A fill is not a deploy of the user's choices;
+        // a deploy on 12.8 for this once (the dialog asked) keeps the CUDA pick that was remembered
+        const cuda = ask.cudaOnce ? current.lastDeploy?.cuda ?? "13.0" : ask.cuda;
+        return fill ? { machines, pendingDeploys } : { machines, pendingDeploys, lastDeploy: { ...ask, files: [], leaveOut: [], accept: [], cuda, cudaOnce: false } };
       });
     } catch (err) {
       // not kept as a machine: nothing here would ever stop it, so it goes at once; a terminate refused keeps its name
