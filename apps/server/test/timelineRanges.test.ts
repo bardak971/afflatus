@@ -305,6 +305,14 @@ describe.skipIf(!ffmpegThere)("a clip's take, trimmed on the timeline", { timeou
     expect(input.seed).not.toBe(-1);
     // the render is not run here: taken out of the queue
     await call("POST", `/api/jobs/${lat.jobs[0]}/cancel`);
+    // Face refine from the same kept latent: the clip's own recipe, seed and form, its faces only redrawn, nothing enlarged
+    const face = await call("POST", `/api/timelines/${tl}/finish`, { route: "face", factor: 2, faceDenoise: 0.4, redo: true, clips: [a] });
+    expect(face.jobs).toHaveLength(1);
+    const faceJob = await t.db.selectFrom("jobs").selectAll().where("id", "=", face.jobs[0]).executeTakeFirstOrThrow();
+    expect(faceJob.recipe_id).toBe("h3.video");
+    expect(faceJob.finished_from).toBe(w.clips[0].takes[0].id);
+    expect(JSON.parse(faceJob.inputs)).toMatchObject({ faceRefine: true, faceRefineOnly: true, faceRefineDenoise: 0.4, upscale: "Off", seed: input.seed });
+    await call("POST", `/api/jobs/${face.jobs[0]}/cancel`);
     // rendered again it makes its draft again only from the same start: the second clip was made as a cut, so once joined
     // to the first it is skipped (it would be rendered as a continuation, a new video), with what to do instead
     await call("PATCH", `/api/clips/${b}`, { joined: "continue" });

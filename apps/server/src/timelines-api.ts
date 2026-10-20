@@ -156,8 +156,9 @@ const exportBody = z.strictObject({
 
 /** How the clips are finished: the route, how much larger, its settings; `redo` finishes again the clips finished already. */
 const finishBody = z.strictObject({
-  route: z.enum(["seedvr", "latent", "rtx", "model"]), factor: z.number().min(1).max(4), colour: z.enum(["lab", "wavelet", "adain", "none"]).optional(), upscaleModel: z.string().max(200).optional(), seedvrFrames: z.number().int().min(0).max(49).optional(),
-  sharpen: z.number().min(0).max(1).optional(), latentDenoise: z.number().min(0.05).max(0.6).optional(), latentSteps: z.number().int().min(1).max(6).optional(), redo: z.boolean().default(false), clips: z.array(z.string()).optional(),
+  route: z.enum(["seedvr", "latent", "rtx", "model", "face"]), factor: z.number().min(1).max(4), colour: z.enum(["lab", "wavelet", "adain", "none"]).optional(), upscaleModel: z.string().max(200).optional(), seedvrFrames: z.number().int().min(0).max(49).optional(),
+  sharpen: z.number().min(0).max(1).optional(), latentDenoise: z.number().min(0.05).max(0.6).optional(), latentSteps: z.number().int().min(1).max(6).optional(),
+  faceDenoise: z.number().min(0.3).max(0.6).optional(), redo: z.boolean().default(false), clips: z.array(z.string()).optional(),
 });
 
 /** How a slow-motion job makes its frames: RIFE on the GPU when this ComfyUI is up and has it, else ffmpeg on the processor. */
@@ -603,6 +604,16 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
     const draft = (take.finishedFrom ? clip.takes.find((x) => x.id === take.finishedFrom) : undefined) ?? take;
     const from = draft.id;
     const label = `${view.name} · clip ${i + 1} · finish`;
+    // Face refine: the draft's own latent decoded as it is (nothing sampled again) and its faces redrawn, the same length and
+    // frames as the draft by construction; an H3 clip only, rendered here, its latent kept
+    if (b.route === "face") {
+      const why = clip.recipe && refinesFaces(s.registry.recipe(clip.recipe)) ? await keptForFinish(s, view.clips, i, draft.asset.id) : "not an H3 clip: Face refine redraws H3's faces";
+      if (typeof why === "string") { skipped.push({ clip: i + 1, why }); continue; }
+      plan.push({ kind: "render", recipe: why.recipe, input: { ...why.inputs, seed: why.seed, upscale: "Off", faceRefine: true, faceRefineOnly: true, faceRefineDenoise: b.faceDenoise ?? 0.45 }, opts: {
+        label, clip: { id: clip.id, fit: false, mirror: why.mirror }, look: clip.look ?? view.look, folder, finishedFrom: from,
+      } });
+      continue;
+    }
     if (b.route === "latent" && resamplesLatent(clip.recipe ? s.registry.recipe(clip.recipe) : undefined)) {
       const gen = await t.generationOf(draft.asset.id);
       if (!gen) { skipped.push({ clip: i + 1, why: "not rendered here: no seed to repeat" }); continue; }
@@ -622,6 +633,22 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
       cut: { asset: a.id, startMs: 0, endMs: a.durationMs ?? 0, action: "finish", route, by: b.factor, colour: b.colour, upscaleModel: b.upscaleModel, seedvrFrames: b.seedvrFrames, sharpen: b.sharpen, hiddenMs: hiddenRunUp(draft.headMs), clip: clip.id, finishedFrom: from } });
   }
   return { plan, skipped };
+}
+
+/** A recipe whose form offers Face refine (the H3 forms): its clips can be finished that way. */
+const refinesFaces = (recipe: { inputs: Array<{ id: string }> } | undefined): boolean => Boolean(recipe?.inputs.some((input) => input.id === "faceRefineOnly"));
+
+/**
+ * The draft's generation, for a finish made from its own kept latent (Face refine), or why there is none: rendered
+ * elsewhere, a continuation no longer after the clip it carried on from, or its latent not kept.
+ */
+async function keptForFinish(s: Services, clips: Awaited<ReturnType<Timelines["view"]>>["clips"], i: number, asset: string): Promise<NonNullable<Awaited<ReturnType<Timelines["generationOf"]>>> | string> {
+  const gen = await s.timelines.generationOf(asset);
+  if (!gen) return "not rendered here: no seed to repeat";
+  const why = notRenderedAgain(clips, i, gen.inputs);
+  if (why) return why;
+  const kept = await s.db.selectFrom("assets").select("latent_key").where("id", "=", asset).executeTakeFirst();
+  return kept?.latent_key ? gen : "its latent was not kept (rendered before Afflatus kept them, or without its node pack)";
 }
 
 /**

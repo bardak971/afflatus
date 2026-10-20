@@ -125,7 +125,7 @@ function pinNeighbours(g: GraphBuilder, ctx: BuildContext, input: H3Video, join:
  * then the neighbouring clips and the keyframe pinned at their frames) and the latent to fill (the clip's
  * own, or the window that continues the clip before).
  */
-export function conditionFor(g: GraphBuilder, ctx: BuildContext, input: H3Video, how: H3Uses, join: H3Join, frame: Frame, prompt?: (pictures: number) => string, more: MorePicture[] = []): { positive: Ref; latent: Ref; previous: Ref | null; plain: Ref } {
+export function conditionFor(g: GraphBuilder, ctx: BuildContext, input: H3Video, how: H3Uses, join: H3Join, frame: Frame, prompt?: (pictures: number) => string, more: MorePicture[] = []): { positive: Ref; latent: Ref; previous: Ref | null; plain: Ref; clip: Ref } {
   const clip = g.out("CLIPLoader", { clip_name: ctx.slots.clip, type: "minimax", device: "default" });
   const continued = continuationWindow(g, ctx, join);
   const { window } = continued;
@@ -142,5 +142,5 @@ export function conditionFor(g: GraphBuilder, ctx: BuildContext, input: H3Video,
   }
   const latent: Ref = window ? [window, 0] : [start, 1];
   positive = pinNeighbours(g, ctx, input, join, frame, positive, latent, continued);
-  return { positive, latent, previous: window ? continued.prev : null, plain: plain ?? (how.reference ? positive : [start, 0]) };
+  return { positive, latent, previous: window ? continued.prev : null, plain: plain ?? (how.reference ? positive : [start, 0]), clip };
 }

@@ -1,17 +1,20 @@
 import type { ChoiceInput } from "@afflatus/core";
 import { FACE_DETECTOR_PREFER } from "../sdxl/common";
 
+/** The face detector, a slot of its own for the families that find faces with it (H3's Face refine too). */
+export const FACE_DETECTOR_SLOT = {
+  id: "faceDetector", label: "Face detector (face detailer)", folder: "ultralytics", detect: ["face_yolov8m", "face_yolo"], optional: true,
+  hint: "Optional, 52 MB: the YOLOv8 face detector the face detailer finds faces with, in ComfyUI's models/ultralytics/bbox folder (needs the Impact Subpack).",
+  get: { file: "bbox/face_yolov8m.pt", url: "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt" },
+};
+
 /**
  * The detectors the face detailer can use, as downloads in Settings → Models: Bingsu's adetailer YOLOv8 models (the ones
  * A1111's ADetailer fetches), saved under models/ultralytics/bbox, where Impact's UltralyticsDetectorProvider lists them as
  * "bbox/…". No eyes detector is offered: none on Hugging Face is in wide enough use to trust.
  */
 export const DETECTOR_SLOTS = [
-  {
-    id: "faceDetector", label: "Face detector (face detailer)", folder: "ultralytics", detect: ["face_yolov8m", "face_yolo"], optional: true,
-    hint: "Optional, 52 MB: the YOLOv8 face detector the face detailer finds faces with, in ComfyUI's models/ultralytics/bbox folder (needs the Impact Subpack).",
-    get: { file: "bbox/face_yolov8m.pt", url: "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt" },
-  },
+  FACE_DETECTOR_SLOT,
   {
     id: "handDetector", label: "Hand detector (face detailer)", folder: "ultralytics", detect: ["hand_yolo"], optional: true,
     hint: "Optional, 23 MB: a YOLOv8 hand detector, in ComfyUI's models/ultralytics/bbox folder. Picked as the face detailer's detection model, it fixes hands instead of faces.",

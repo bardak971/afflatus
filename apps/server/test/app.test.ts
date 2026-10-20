@@ -194,7 +194,7 @@ describe("settings", () => {
       llms: [{ id: "main", name: "", baseUrl: "http://llm/v1", model: "m", hasApiKey: true, vision: false, contextSize: 16384, maxOutputTokens: 3000, noThinking: false }],
       unloadAfterMinutes: 0, designerLlm: "main", designerInstructions: [], designerInstruction: "", designerGuides: {},
       tagCheck: true, families: {}, allFamilies: false, firstLaunch: "done", hasCivitaiKey: true, hasHuggingFaceToken: false, hasRunpodKey: false, runpodS3User: "", hasRunpodS3Secret: false, rentCaps: { day: 0, month: 0 }, costs: { kwhPrice: null, currency: "€" }, lastDeploy: null, volumeUnusedDays: 7, bootLogDays: 0, civitaiLookups: false, updateChecks: false, afflatusUpdateChecks: true, downloadModels: false, renderHistoryDays: 90, unkeptDays: 1, binDays: 7,
-      finish: { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.15, latentSteps: 2, seedvrFrames: 0, sharpen: 0 }, slotFiles: {}, acceptedPresets: [],
+      finish: { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.15, latentSteps: 2, faceDenoise: 0.45, seedvrFrames: 0, sharpen: 0 }, slotFiles: {}, acceptedPresets: [],
       bar: { shortcut: "Ctrl+K", snippets: false, cast: false }, pinnedProjects: [],
       notify: { hasTelegramToken: false, telegramChat: "", hasDiscordWebhook: false, picture: true, events: expect.objectContaining({ renderDone: { telegram: false, discord: false }, renderFailed: { telegram: true, discord: true } }) },
       access: { hasPassword: false, passwordSetAt: null, localNoPassword: false, stayDays: 30, resetTelegram: true, hasMetricsToken: false },

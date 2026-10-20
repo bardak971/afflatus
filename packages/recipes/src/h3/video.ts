@@ -7,6 +7,7 @@ import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import { COLOUR_MATCH_NODES, rifeNeeds, rifeSkippedSaid } from "../shared/finish";
 import { conditionFor, type MorePicture } from "./condition";
 import { finish, H3_SAVE_LATENT } from "./finish";
+import { FACE_REFINE_OPTIONAL, FACE_REFINE_SLOTS, faceRefineSkipped } from "./faceRefine";
 import { h3Inputs, type H3Video } from "./inputs";
 import { frameFor, H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_LANDING, H3_SEAM, H3_TRIM, resolveJoin } from "./join";
 import { H3_LATENT_ENLARGE_NODES, H3_LATENT_UPSCALE_NODES, latentUpscaleNeeds, latentUpscalePass, latentUpscaleRounds, plainResizeSaid } from "./latent-upscale";
@@ -63,10 +64,13 @@ export const h3Video = defineRecipe<H3Video>({
     "MiniMaxH3Cache", "ModelPatchTorchSettings", "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ",
     // one of the two enlargers is used, by whether the latent upscaler's file is there: neither can be required by nodes()
     ...H3_LATENT_ENLARGE_NODES,
+    // Face refine's: done without when they are missing, and said on the job (its pack is installed for it where the job runs)
+    ...FACE_REFINE_OPTIONAL,
   ],
 
-  // a finish by the latent re-sample samples the draft's own kept latent again (rendered again, the frames would differ)
-  finishing: (input) => (input.upscale === UPSCALE.latent ? { latent: "own" } : null),
+  // a finish by the latent re-sample samples the draft's own kept latent again (rendered again, the frames would differ); a
+  // finish by Face refine decodes it as it is and redraws its faces only
+  finishing: (input) => (input.upscale === UPSCALE.latent || input.faceRefineOnly ? { latent: "own" } : null),
 
   build: (input, ctx) => buildH3(input, ctx),
 
@@ -76,6 +80,7 @@ export const h3Video = defineRecipe<H3Video>({
     const all = { ...slots, turbo: "minimax_h3_turbo.safetensors", rife: "rife49.pth", refUnet: "minimax_h3_ref2va.safetensors", refTurbo: "minimax_h3_ref2v_turbo.safetensors" };
     const joined = { width: 576, height: 1024, frames: 22, fps: H3_FPS, hasSound: true };
     const picture = { width: 832, height: 1216 };
+    const faceSlots = FACE_REFINE_SLOTS;
     return [
       { name: "words only, plain", input: { description: "a", fast: false, smooth: false, quick: false }, slots },
       { name: "fast, smooth, quick", input: { description: "a", cache: true }, slots: all },
@@ -136,6 +141,16 @@ export const h3Video = defineRecipe<H3Video>({
       { name: "pixel upscale with the other RTX node, NVIDIA's absent", input: { description: "a", upscale: UPSCALE.rtx, upscaleBy: 2 }, slots: all, has: (n: string) => n !== "RTXVideoSuperResolution" },
       { name: "SeedVR2 upscale", input: { description: "a", upscale: UPSCALE.seedvr, upscaleBy: 2, upscaleColour: "wavelet" }, slots: { ...all, seedvr: "seedvr2_3b_int8_convrot.safetensors", seedvrVae: "seedvr2_ema_vae_fp16.safetensors" } },
       {
+        name: "Face refine, towards the cast person's picture",
+        input: { description: "a", subject: "short dark hair, round glasses", faceRefine: true, references: [{ asset: "r1", role: "person" }, { asset: "r2", role: "place" }] },
+        slots: { ...all, ...faceSlots }, uploads: { "references.0": "r1.png", "references.1": "r2.png" },
+      },
+      {
+        name: "Finish › Face refine: the take's own latent, nothing sampled, no SAM",
+        input: { description: "a", faceRefine: true, faceRefineOnly: true, references: [{ asset: "r1", role: "clothing" }] },
+        slots: { ...all, faceRefineUnet: faceSlots.faceRefineUnet, faceDetector: faceSlots.faceDetector }, uploads: { "references.0": "r1.png", "self.latent": "own.safetensors" },
+      },
+      {
         name: "a voice only, with the picture of who speaks",
         input: { description: "a", start: "p1", voice: "v1" },
         slots: all, uploads: { start: "a.png", voice: "v.wav" }, media: { start: picture },
@@ -195,11 +210,12 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   const audioVae = g.out("VAELoader", { vae_name: slots.audioVae });
   const vae = g.out("VAELoader", { vae_name: slots.videoVae });
   const { model, turbo, steps, lora, unet } = loadH3Model(g, ctx, input, picked, how, audioVae, extra.veda, extra.turbo, extra.vedaSparsity);
-  const { positive, latent, previous, plain } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae }, extra.prompt, more);
+  const { positive, latent, previous, plain, clip } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae }, extra.prompt, more);
 
   // a finish by the latent re-sample starts from the draft's own sampled latent (uploaded as "self.latent"): rendered again, even
   // with its seed, H3 does not make the same frames (measured 2026-10-08: 20 to 30 dB from the draft, the motion drifting)
-  const own = input.upscale === UPSCALE.latent ? ctx.uploads["self.latent"] : undefined;
+  // Finish › Face refine loads it the same way, and samples nothing: the take's frames as they are, only its faces redrawn
+  const own = input.upscale === UPSCALE.latent || input.faceRefineOnly ? ctx.uploads["self.latent"] : undefined;
   // a finish samples nothing: the patch (and the pose it reads) is left out of it
   const patched = extra.model && !own ? extra.model(g, model, { vae, width, height, frames: join.frames }) : null;
   const sampledWith = patched?.model ?? model;
@@ -242,20 +258,21 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   }
   const sound = extra.sound ? (decoded: Ref) => extra.sound!(g, decoded, { head: join.head, frames: join.frames }) : undefined;
   const frames = extra.frames ? (images: Ref) => extra.frames!(g, images) : undefined;
-  const made = finish(g, ctx, input, { finished, sampled, fine, vae, audioVae, width, height, sound, frames });
+  const made = finish(g, ctx, input, { finished, sampled, fine, vae, audioVae, clip, width, height, sound, frames });
 
   const { head, tail, latentJoin } = join;
   const ms = (n: number) => Math.round((n / H3_FPS) * 1000);
   // the re-sample counts as a pass of its own: its steps again for every piece, after the clip's sampling. A finish is
   // the re-sample alone, and names no pass: what loads its models ahead is its loaders, not a step of the re-sample
   const resampled = fine ? input.upscaleSteps * latentUpscaleRounds(input, { width, height }, join.frames) : 0;
-  const said = [fine ? plainResizeSaid(input, ctx) : null, rifeSkippedSaid(input.smooth, ctx)].filter((x): x is string => Boolean(x));
+  const said = [fine ? plainResizeSaid(input, ctx) : null, rifeSkippedSaid(input.smooth, ctx), faceRefineSkipped(input, ctx)].filter((x): x is string => Boolean(x));
+  const refining = made.refine ? [made.refine] : [];
   return {
     graph: g.graph,
     phases: g.phases,
     outputs: made.outputs,
-    totalSteps: own ? resampled : steps + resampled,
-    passes: own ? [] : [{ node: sampled, steps }, ...(fine ? [{ node: fine[0], steps: resampled }] : [])],
+    totalSteps: (own ? resampled : steps + resampled) + (made.refine?.steps ?? 0),
+    passes: [...(own ? [] : [{ node: sampled, steps }, ...(fine ? [{ node: fine[0], steps: resampled }] : [])]), ...refining],
     loads: [`diffusion_models/${unet}`, `text_encoders/${slots.clip}`, ...(lora ? [`loras/${lora}`] : []), ...(patched?.loads ?? []), ...made.loads],
     // a continuation window counts its frames as an extension and an overlap, and a finish loads its latent from a file:
     // neither says the clip's frames in an input the forecast reads, so they are said here (the shared ones included)

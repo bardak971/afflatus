@@ -18,9 +18,10 @@ const ROUTES: Array<{ value: FinishSettings["route"]; label: string; detail: str
   { value: "latent", label: "H3 latent re-sample", detail: "H3 clips: the draft's own latent re-sampled larger with the prompt in hand: the same motion, detail the model would have drawn, seamless joins kept. Other clips take SeedVR2" },
   { value: "rtx", label: "RTX Video Super Resolution", detail: "NVIDIA's driver: near real time, steady, modest detail. Windows and an RTX card" },
   { value: "model", label: "Pixel upscale model", detail: "an ESRGAN-type model, frame by frame: fast, sharp, may shimmer" },
+  { value: "face", label: "Face refine (H3)", detail: "H3 clips with a person's picture (the cast's, else the first reference picture): the take's own frames, its faces redrawn closer to the picture, nothing else changed. Other clips are skipped" },
 ];
 const COLOURS = ["lab", "wavelet", "adain", "none"] as const;
-const FALLBACK: FinishSettings = { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.15, latentSteps: 2, seedvrFrames: 0, sharpen: 0 };
+const FALLBACK: FinishSettings = { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.15, latentSteps: 2, faceDenoise: 0.45, seedvrFrames: 0, sharpen: 0 };
 
 /**
  * Finish all clips: every clip's selected take brought to its final quality by an upscale route, as a
@@ -57,6 +58,8 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
   const stills = clips.filter((c) => c.kind === "still").length;
   // the clips whose model re-samples its own latent (H3's, or a workflow that offers it); the others take SeedVR2 on that route
   const resampled = videos.filter((c) => resamplesLatent(recipes.data?.recipes.find((r) => r.id === c.recipe))).length;
+  // the clips whose model offers Face refine (H3's): the others are skipped on that route
+  const refined = videos.filter((c) => recipes.data?.recipes.find((r) => r.id === c.recipe)?.inputs.some((input) => input.id === "faceRefineOnly")).length;
   // what it should take, worked out by the server as the waiting list will show it job by job (finishForecast)
   const forecast = useQuery({
     queryKey: queryKeys.finishForecast.of(timeline, v, redo, todo.map((c) => c.take?.id).join()),
@@ -71,6 +74,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
         <div className="flex flex-wrap gap-1.5">
           <Chip tone="accent">{plural(todo.length, "clip")} to finish</Chip>
           {stills > 0 && <Chip>{plural(stills, "still")} left as {stills > 1 ? "they are" : "it is"}</Chip>}
+          {v.route === "face" && refined < videos.length && <Chip tone="warn" tip="Face refine redraws H3's faces: the other clips are left as they are.">{videos.length - refined} of {videos.length} not H3: skipped</Chip>}
           {v.route === "latent" && resampled < videos.length && <Chip tone="warn" tip="Only a model that offers the latent re-sample (H3) is re-sampled in the latent; the other clips take SeedVR2.">{videos.length - resampled} of {videos.length} not re-sampled: SeedVR2</Chip>}
         </div>
         {attention}
@@ -78,9 +82,14 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
           <FieldRow label="Route" note={ROUTES.find((r) => r.value === v.route)?.detail}>
             <Select label="Route" value={v.route} onChange={(route) => setV({ ...v, route: route as FinishSettings["route"] })} options={ROUTES.map((r) => ({ value: r.value, label: r.label, detail: r.detail }))} />
           </FieldRow>
-          <FieldRow label="Upscale by" note={v.route === "latent" ? "1.5 is light on video memory; 2 asks much more of H3's re-sample" : v.route === "seedvr" ? "2 is what SeedVR2 is tuned for; 1 restores without enlarging" : "2 is what the routes are tuned for"} trail>
+          {v.route !== "face" && <FieldRow label="Upscale by" note={v.route === "latent" ? "1.5 is light on video memory; 2 asks much more of H3's re-sample" : v.route === "seedvr" ? "2 is what SeedVR2 is tuned for; 1 restores without enlarging" : "2 is what the routes are tuned for"} trail>
             <NumberBox label="Upscale factor" value={v.factor} min={1} max={4} step={0.25} unit="×" onCommit={(factor) => setV({ ...v, factor })} />
-          </FieldRow>
+          </FieldRow>}
+          {v.route === "face" && (
+            <FieldRow label="Denoise" note="On the smallest faces (30 px and under); a face of 120 px and more gets a third of it. More is closer to the picture and further from the take" trail>
+              <NumberBox label="Face refine denoise" value={v.faceDenoise ?? 0.45} min={0.3} max={0.6} step={0.05} onCommit={(faceDenoise) => setV({ ...v, faceDenoise })} />
+            </FieldRow>
+          )}
           {(v.route === "seedvr" || (v.route === "latent" && resampled < videos.length)) && (
             <>
               <FieldRow label="Colour match" note="SeedVR2's restored frames matched in colour to the originals: lab is the most faithful, wavelet keeps the new fine detail, adain is a global tint">
@@ -111,7 +120,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
             </FieldRow>
           )}
           {/* every route but H3's own re-sample runs a pixel route, after which RCAS can go (the re-sample samples real detail) */}
-          {(v.route !== "latent" || resampled < videos.length) && (
+          {v.route !== "face" && (v.route !== "latent" || resampled < videos.length) && (
             <FieldRow label="Sharpen" note="RCAS (AMD FSR's contrast-adaptive sharpen) on the finished frames: crisps the edges an upscale leaves soft, without a plain sharpen's halos. 0.3 is a usual amount; 0 is off. Needs KJNodes" trail>
               <NumberBox label="Sharpen (RCAS)" value={v.sharpen ?? 0} min={0} max={1} step={0.05} onCommit={(sharpen) => setV({ ...v, sharpen })} />
             </FieldRow>

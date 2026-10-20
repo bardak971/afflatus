@@ -62,6 +62,11 @@ class Tensor:
     def new_zeros(self, shape):
         return Tensor(shape, None, None, self.dtype, self.device)
 
+    def movedim(self, source, destination):
+        shape = list(self.shape)
+        shape.insert(destination % len(shape), shape.pop(source))
+        return Tensor(shape, None, None, self.dtype, self.device)
+
 
 def _cat(tensors, dim=0):
     first = tensors[0]
@@ -154,7 +159,11 @@ class Folders:
 
 
 def _install_stubs():
-    torch = _module("torch", Tensor=Tensor, cat=_cat, float32="float32", bfloat16="bfloat16")
+    # ones_like / zeros_like: a fresh tensor of the same shape, its labels saying which it is
+    def filled(value):
+        return lambda t: Tensor(t.shape, [value] * t.shape[t.axis], t.axis, t.dtype, t.device)
+
+    torch = _module("torch", Tensor=Tensor, cat=_cat, float32="float32", bfloat16="bfloat16", ones_like=filled(1), zeros_like=filled(0))
     saved = {}
 
     def save_file(tensors, path, metadata=None):
