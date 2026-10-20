@@ -64,7 +64,7 @@ export function NoComfyCard() {
             {INSTALLS.map((i, n) => (
               <span key={i.name}>{n > 0 && " · "}<a href={i.href} target="_blank" rel="noreferrer" className="font-semibold text-ink underline underline-offset-2">{i.name}</a></span>
             ))}
-            {" "}· Afflatus puts its node pack in by itself.
+            {" "}· On this PC, Afflatus puts its node pack in by itself once it is added.
           </span>
         </Row>
       </Card>

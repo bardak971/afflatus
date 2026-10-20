@@ -162,3 +162,25 @@ describe("finding a ComfyUI without saving it", () => {
     expect((await readSettings(t.db)).machines.map((m) => m.url)).not.toContain(fake.url);
   });
 });
+
+describe("the user's ComfyUI on this machine, added by its address", () => {
+  it("has its folder found from what it says, and Afflatus's node pack written in", async () => {
+    const { mkdirSync, writeFileSync, existsSync } = await import("node:fs");
+    const dir = mkdtempSync(join(tmpdir(), "afflatus-comfy-"));
+    try {
+      mkdirSync(join(dir, "custom_nodes"));
+      mkdirSync(join(dir, "models", "checkpoints"), { recursive: true });
+      writeFileSync(join(dir, "main.py"), "");
+      fake = await startFakeComfy({ catalog: referenceCatalog(), models: {}, folderPaths: { checkpoints: [join(dir, "models", "checkpoints")], custom_nodes: [join(dir, "custom_nodes")] } });
+      t = await makeApp();
+      await writeSettings(t.db, { machines: [] });
+      // the first launch's probe says it too, for its words
+      expect((await post(t.app, "/api/setup/probe", { url: fake.url })).json().dir).toBe(dir);
+      const saved = (await t.app.inject({ method: "PUT", url: "/api/settings", payload: { comfyUrl: fake.url } })).json();
+      expect(saved.comfyDir).toBe(dir);
+      expect(existsSync(join(dir, "custom_nodes", "afflatus-nodes"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

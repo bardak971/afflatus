@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access, constants, mkdir, open, realpath, rename, rm, stat, statfs } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
-import { isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { isNetworkPath } from "./linked";
 import { modelDirs } from "./modelFiles";
 import { cannotReach, failCode, fetchFailure, fetchPublic } from "./outbound";
@@ -334,4 +334,22 @@ export async function placeIn(root: string, sub: string, name: string): Promise<
   const real = await realpath(dir);
   if (!inside(root, real)) throw new Refused("that sub-folder leads out of the models folder");
   return join(real, name);
+}
+
+/**
+ * ComfyUI's own folder (the one with main.py), as a ComfyUI on this machine says it: its custom_nodes folder's parent, on
+ * /internal/folder_paths. Null for one on another machine (its paths are its own disk's), one that does not say, or a
+ * folder that is not here: Settings › ComfyUI's folder is then set by hand. What lets Afflatus write its node pack in.
+ */
+export async function comfyFolderOf(client: Pick<ComfyClient, "raw">, comfyUrl: string): Promise<string | null> {
+  if (!onThisMachine(comfyUrl)) return null;
+  const nodes = (await comfyFolderPaths(client))?.custom_nodes?.[0];
+  if (!nodes || !isAbsolute(nodes) || isNetworkPath(nodes)) return null;
+  const dir = dirname(nodes);
+  try {
+    await stat(join(dir, "main.py"));
+    return dir;
+  } catch {
+    return null;
+  }
 }
