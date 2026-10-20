@@ -709,8 +709,9 @@ export class Timelines {
       const again = opts.again ? await this.cutAgain(all, plan, driving) : null;
       const windows = await planWindows(plan, recipe, video, (id) => this.media.scenes(id), again?.after);
       if (!windows.length) throw httpError(again?.after !== undefined ? "Nothing of the stretch is left after the rendered clips." : "The stretch is too short for one clip: make it longer.");
-      // in place of the clip the stretch was taken from (still the same video), else after the last clip
-      const replaced = again ? -1 : plan.clip ? all.findIndex((p) => p.clip.id === plan.clip && p.active?.asset.id === plan.asset) : -1;
+      // in place of the clip the stretch was taken from (still the same video), or of the empty clip it was dropped for (its
+      // model the windows'), else after the last clip
+      const replaced = again ? -1 : plan.clip ? all.findIndex((p) => p.clip.id === plan.clip && (p.active ? p.active.asset.id === plan.asset : !p.clip.take_id)) : -1;
       const index = again ? again.index : replaced >= 0 ? replaced : all.length;
       const startsAt = all.slice(0, index).reduce((sum, p) => sum + plannedLengthOf(p, p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined), 0);
       // a seed only when one was typed on the source form: else each render draws its own, as for a new clip (the shared
