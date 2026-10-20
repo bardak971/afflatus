@@ -123,9 +123,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   // it); and of a clip made from the source, its part of it (the cut sets it: moved by hand, the windows no longer join)
   const sourcePart = useMemo(() => {
     const d = fromSource ? recipe?.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window) : undefined;
-    // and the run-up, set in its Source chapter: the source's windows are cut for it, every one alike
-    const runUp = fromSource ? recipe?.traits?.windows?.runUp?.input : undefined;
-    return d?.type === "clip" && d.window ? [d.window.start, d.window.seconds, ...(runUp ? [runUp] : [])] : [];
+    return d?.type === "clip" && d.window ? [d.window.start, d.window.seconds] : [];
   }, [recipe, Boolean(fromSource)]); // eslint-disable-line react-hooks/exhaustive-deps -- only whether it is one of the source's
   const form = useMemo(
     () => (recipe ? { ...recipe, inputs: recipe.inputs.filter((i) => i.type !== "clip" && !(i.type === "image" && (i.role === "start" || i.role === "end" || i.role === "mid")) && i.id !== pins.midAt && !sourcePart.includes(i.id)) } : undefined),

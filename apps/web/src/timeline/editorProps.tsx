@@ -15,7 +15,7 @@ import { pinMenuItems, placeItems, type ClipMenuActions } from "./menus";
 import type { ContextMenu } from "../ContextMenu";
 import type { LoadedEditor } from "./useTimelineEditor";
 import { plural } from "../format";
-import { windowBounds } from "@afflatus/core";
+import { carriedOf, windowBounds } from "@afflatus/core";
 import { madeFromSource, windowed } from "./track/SourceLane";
 import type { ClipSource } from "./inspector/clipSource";
 import { failedBanner } from "../sayFailed";
@@ -313,7 +313,18 @@ export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<t
     busy: render.isPending,
     // a render that failed for this clip, not for another one
     error: render.isError && render.variables?.clips.some((c) => c.id === current.id) ? render.error.message : null,
-    onInputs: (next) => e.editInputs(current, next),
+    // the run-up of a clip the source made (Frames from the clip before, under All settings): the source's, every window
+    // carrying on from that many frames, so the source is cut again for it (its rendered clips at the start kept)
+    onInputs: (next) => {
+      const src = clipSourceOf(e, current);
+      const recipe = e.videoRecipes.find((r) => r.id === current.recipe);
+      const runUp = recipe?.traits?.windows?.runUp?.input;
+      // the count it carries on from, not the value written (the form also sends the 22 it starts on)
+      if (src && runUp && carriedOf(recipe, next) !== carriedOf(recipe, e.inputsOf(current))) {
+        return e.cutSource.run({ inputs: { ...src.source.inputs, [runUp]: next[runUp] } });
+      }
+      e.editInputs(current, next);
+    },
     // a clip the source made, given another model that makes a source window by window: the source's model, its clips not
     // rendered made anew with it (a clip of another model in the line would no longer share its form)
     onRecipe: (recipe) => (clipSourceOf(e, current) && windowed(e.videoRecipes.find((r) => r.id === recipe)) ? e.cutSource.run({ recipe }) : patch.mutate({ clip: current.id, patch: { recipe } })),
