@@ -2,7 +2,7 @@ import { defineRecipe, type BuildContext, type BuiltGraph, type GraphBuilder, ty
 import { H3_FPS } from "./family";
 import { buildH3, h3Video } from "./video";
 import { asClip, carriedOf, framesOf, h3Swap, SWAP_FRAMES, SWAP_GUIDE, SWAP_OWN, type H3Swap } from "./swap";
-import { controlled, MOTION_CHAPTER, motionControlInputs, motionNeeds, motionNodes, poseVideo, POSE_SDPOSE, type H3Motion } from "./motion";
+import { controlled, frameBefore, MOTION_CHAPTER, motionControlInputs, motionNeeds, motionNodes, poseVideo, POSE_SDPOSE, type H3Motion } from "./motion";
 
 /**
  * MiniMax H3 · Swap motion (the owner's, 2026-10-18; built 2026-10-20): Swap character's first window, then motion. A
@@ -15,14 +15,35 @@ import { controlled, MOTION_CHAPTER, motionControlInputs, motionNeeds, motionNod
 export interface H3SwapMotion extends H3Swap, H3Motion {}
 
 /**
- * The prompt a window that carries on starts on (the server puts it there at Make, for the windows after the first): the
- * swap's names <Video 1>, which such a window has not. The person and the room as they are, in positive words only.
+ * The prompt a window that carries on starts on when clip 1's names no one to take it from (motionPromptFrom): no picture
+ * tags, which H3's own layout adds (a window after the first is written as H3's clips are, not as the swap's caption).
+ * The person and the room as they are, in positive words only.
  */
-export const SWAP_MOTION_PROMPT = "The person in <Picture 1> carries on moving with the same face, hair and clothes. Keep the room and the light exactly as they are.";
+export const SWAP_MOTION_PROMPT = "The person carries on moving as in the clip before, with the same face, hair and clothes. Keep the room and the light exactly as they are.";
+
+/** The reference tags a swap's prompt names, with the word before them ("in <Picture 1>"): H3's layout says which picture is whom. */
+const TAGS = /\s*\b(?:in|from|of)?\s*<(?:Picture|Video) \d+>/gi;
+const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/**
+ * The prompt of a window that carries on, from clip 1's swap prompt: who goes in, as it names them ("... with the man with
+ * short brown hair in <Picture 1>"), carrying on as in the clip before, then its sentences that describe them (build,
+ * clothes), without those that name <Video 1> or a picture (the swap's "Keep the man's face and hair from <Picture 1>"
+ * would take the photo's hair, long, over the clip's), or the swap's own rules (Match, Preserve, Keep). Deterministic: the
+ * designer can write each clip's own.
+ */
+export function motionPromptFrom(swap: string): string {
+  const text = swap.trim();
+  const who = /\bwith\s+(.+?)\s+in\s+<Picture 1>/i.exec(text)?.[1]?.trim();
+  // the LoRA's caption names no one ("the character")
+  if (!who || /^(?:the|a)\s+(?:character|person)$/i.test(who)) return SWAP_MOTION_PROMPT;
+  const told = text.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter((s) => s && !/<(?:Video|Picture) \d+>/i.test(s) && !/^(?:match|preserve|keep|replace|swap)\b/i.test(s));
+  return [`${sentence(who)} carries on moving as in the clip before.`, ...told.map(sentence), "Keep the room and the light exactly as they are."].join(" ");
+}
 
 const SWAP_MOTION_GUIDE = `${SWAP_GUIDE}
-A WINDOW THAT CARRIES ON (clip 2 on, joined to the one before) is not a swap: H3 is moved by the pose of the source's part, from the window before's last frames, with <Picture 1>. Its prompt never names <Video 1> and never the person replaced:
-- Name the person of <Picture 1> by what is seen (man or woman, hair, build, clothes), and what they do in this part, in the present tense: "The man with short brown hair in <Picture 1>, in a white shirt and jeans, dances, turning on the spot and raising his arms."
+A WINDOW THAT CARRIES ON (clip 2 on, joined to the one before) is not a swap: H3 is moved by the pose of the source's part, from the window before's last frames, with the cast's picture and the clip before's last frame. Afflatus says which picture is whom: its prompt names no picture or video tag, and never the person replaced:
+- Name the person by how they look in the clip before (man or woman, hair, build, clothes), and what they do in this part, in the present tense: "The man with short brown hair, in a white shirt and jeans, dances, turning on the spot and raising his arms."
 - Then "Keep the room and the light exactly as they are." No camera, light, style or quality words; positive words only.
 - Each clip has its own prompt: write the one of the clip you are in.`;
 
@@ -34,8 +55,9 @@ const inputs = [...h3Swap.inputs.filter((i) => i.id !== "matchStrength"), ...mot
 
 /**
  * A window that carries on, driven by its pose: the swap's model and form, without its LoRA and its source video (no
- * <Video 1>), its whole prompt as written (else, with no cast picture, as H3's own description), the source's sound kept
- * as the swap keeps it.
+ * <Video 1>); the cast's picture and the clip before's last frame its references; its prompt H3's own layout around the
+ * clip's words (as H3 · Video with audio writes it: which picture is whom said by Afflatus, any tag typed taken out); the
+ * source's sound kept as the swap keeps it.
  */
 function motionWindow(input: H3SwapMotion, ctx: BuildContext): BuiltGraph {
   if (!input.source || !ctx.uploads.source) throw new Error("Swap motion needs its source video.");
@@ -48,13 +70,14 @@ function motionWindow(input: H3SwapMotion, ctx: BuildContext): BuiltGraph {
   const size = source?.width && source.height ? { width: source.width, height: source.height } : undefined;
   // as the swap runs: without H3's fp16 accumulation patch
   const asRef = { ...ctx, has: (cls: string) => cls !== "ModelPatchTorchSettings" && ctx.has(cls) };
-  const who = input.who.trim() || SWAP_MOTION_PROMPT;
+  const written = input.who.trim() || SWAP_MOTION_PROMPT;
+  const who = written.replace(TAGS, "").replace(/\s+([.,])/g, "$1").trim();
   let heard: Ref | null = null;
   const sourceSound = (g: GraphBuilder, n: number) =>
     (heard ??= g.out("TrimAudioDuration", { audio: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.source }) }), 1], start_index: 0, duration: n / H3_FPS }));
   const clip = { ...asClip(input, null, frames, carried, unet, size), description: who };
   const built = buildH3(clip, asRef, {
-    prompt: () => who,
+    pictures: (g) => frameBefore(g, ctx),
     ...(keep ? { sound: (g, _decoded, at) => sourceSound(g, at.frames) } : {}),
     ...(keep && input.soundGuide ? {
       guide: (g, at) => g.out("MiniMaxH3AddGuide", { positive: at.positive, latent: at.latent, vae: at.vae, audio_vae: at.audioVae, audio: sourceSound(g, at.frames), frame_idx: 0 }),
@@ -70,9 +93,9 @@ function motionWindow(input: H3SwapMotion, ctx: BuildContext): BuiltGraph {
   });
   // said on the job, the window rendered all the same
   const notes = [
-    ...(/<Video \d+>/i.test(who) ? ["This window carries on from the one before, moved by its pose: it has no <Video 1>, which its prompt names. Write its own prompt (who is in <Picture 1>, what they do)."] : []),
+    ...(/<Video \d+>|^\s*(?:replace|swap)\b/i.test(written) ? ["This window carries on from the one before, moved by its pose: its prompt is still a swap's. Write its own: who is in it, as they look in the clip before, and what they do."] : []),
     ...(input.maskOn ? ["The Mask is the first window's: this one carries on, redrawn whole and moved by its pose."] : []),
-    ...(input.references.length === 0 ? ["No picture of who goes in: the window carries on from the one before alone, and the face may drift."] : []),
+    ...(input.references.length === 0 ? ["No picture of who goes in: the window carries on from the clip before's frames alone, and the face may drift."] : []),
   ];
   return notes.length ? { ...built, warnings: [...(built.warnings ?? []), ...notes] } : built;
 }
@@ -82,8 +105,9 @@ export const h3SwapMotion = defineRecipe<H3SwapMotion>({
   id: "h3.swapMotion",
   title: "Swap motion",
   summary: "Swap character's first window, then H3 moved by the source's pose from the window before: the person replaced never comes back.",
-  // a window that carries on starts on the motion prompt (Make puts it there); each window keeps its own prompt
-  traits: { ...h3Swap.traits!, windows: { ...h3Swap.traits!.windows!, own: SWAP_OWN, carryOn: { who: SWAP_MOTION_PROMPT } } },
+  // each window keeps its own prompt; one that carries on starts on clip 1's person, carrying on (Make puts it there)
+  traits: { ...h3Swap.traits!, windows: { ...h3Swap.traits!.windows!, own: SWAP_OWN } },
+  windowCarryOn: (form) => ({ who: motionPromptFrom(String(form.who ?? "")) }),
   inputs,
   guide: SWAP_MOTION_GUIDE,
   chapters: [...(h3Swap.chapters ?? []), MOTION_CHAPTER],
@@ -96,10 +120,12 @@ export const h3SwapMotion = defineRecipe<H3SwapMotion>({
     const optional = new Set([...(h3Swap.optionalNodes ?? []), "LoraLoaderModelOnly"]);
     if (!input.previous || input.maskPreview) return h3Swap.nodes!(input).filter((n) => !optional.has(n));
     return [...new Set([
-      ...h3Video.nodes({ ...asClip(input, null, SWAP_FRAMES, 22), description: "a" }),
+      // the clip before's last frame is one more reference picture: the reference route, a cast photo or not
+      ...h3Video.nodes({ ...asClip(input, null, SWAP_FRAMES, 22), description: "a", references: [...input.references, { asset: "frame", role: "person" }] }),
       ...(input.keepSound ? ["TrimAudioDuration"] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : []),
       ...motionNodes(input),
-    ])].filter((n) => !optional.has(n));
+      // (with no cast photo, the frame is the only picture: nothing loaded from a file)
+    ])].filter((n) => !optional.has(n) && !(n === "LoadImage" && input.references.length === 0));
   },
   // core's LoRA loader: a window that carries on takes it only for a turbo LoRA (a model that is not distilled, known by the
   // file the slot gives, which nodes() does not see) or the user's LoRAs

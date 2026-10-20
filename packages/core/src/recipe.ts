@@ -98,8 +98,6 @@ export interface VideoTraits {
      * made on one clip stays there unless given to all, and the source's form gives them only to the windows it makes.
      */
     own?: string[];
-    /** What a window that carries on is made with in place of the source's form (Swap motion's prompt after its first clip). */
-    carryOn?: Record<string, unknown>;
   };
 }
 
@@ -234,6 +232,11 @@ export interface Recipe<In = Record<string, unknown>> {
    * no turbo LoRA); left out, only the form's own pick is read.
    */
   needsWith?(input: In, slots?: Record<string, string>): string[];
+  /**
+   * Of a recipe made window by window: what a window that carries on is made with in place of the source's form, from that
+   * form (Swap motion: a prompt that describes the person as clip 1's does, without the swap's <Video 1>).
+   */
+  windowCarryOn?(form: Record<string, unknown>): Record<string, unknown>;
   /** Node classes this particular input needs (checked against ComfyUI before queueing). */
   nodes(input: In): string[];
   /** Node classes build() uses only when this ComfyUI has them (ctx.has): speed-ups and finishing touches. */

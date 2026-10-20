@@ -3,13 +3,13 @@ import { H3_FPS, H3_GRID } from "./family";
 import { h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video } from "./video";
 import { H3_CONTINUATION_NODES, H3_SEAM, H3_TRIM } from "./join";
-import { H3_STARTS, turboNeeds } from "./model";
+import { H3_STARTS, modelOf, turboNeeds } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
 import { upscaleNeeds } from "../video/upscale";
 import { rifeNeeds } from "../shared/finish";
 import { partBounds } from "../motion/driving";
 import { SWAP_FRAMES, SWAP_RUN_UP } from "./swap";
-import { controlled, MOTION_CHAPTER, motionControlInputs, motionNeeds, motionNodes, poseVideo, POSE_SDPOSE, type H3Motion } from "./motion";
+import { controlled, frameBefore, MOTION_CHAPTER, motionControlInputs, motionNeeds, motionNodes, poseVideo, POSE_SDPOSE, type H3Motion } from "./motion";
 
 /**
  * MiniMax H3 · Motion transfer (the owner's, 2026-10-18; built 2026-10-20): a picture made to move like a driving video,
@@ -109,10 +109,13 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
   presets: h3Video.presets,
   needsWith: (input, slots) => [...turboNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...motionNeeds(input)],
   nodes: (input) => [...new Set([
-    ...h3Video.nodes(asClip(input, SWAP_FRAMES, input.previous ? MOTION_CARRIED : 0)), ...motionNodes(input),
+    // carrying on, the clip before's last frame is a picture of who moves: the reference route (with H3's reference model there)
+    ...h3Video.nodes({ ...asClip(input, SWAP_FRAMES, input.previous ? MOTION_CARRIED : 0), ...(input.previous ? { references: [...input.references, { asset: "frame", role: "person" }] } : {}) }), ...motionNodes(input),
     ...(input.keepSound ? ["TrimAudioDuration"] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : []),
-  ])],
-  optionalNodes: h3Video.optionalNodes,
+  // (carrying on with no cast photo, the frame is the only picture: nothing loaded from a file)
+  ])].filter((n) => !(n === "LoadImage" && input.previous && input.references.length === 0)),
+  // core's ImageFromBatch: the clip before's last frame, taken as a picture where the reference route runs (known by the slots)
+  optionalNodes: [...(h3Video.optionalNodes ?? []), "ImageFromBatch"],
   finishing: (input) => h3Video.finishing!(asClip(input, SWAP_FRAMES, 0)),
 
   build(input, ctx) {
@@ -131,7 +134,12 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
     let heard: Ref | null = null;
     const drivingSound = (g: GraphBuilder, n: number) =>
       (heard ??= g.out("TrimAudioDuration", { audio: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.driving }) }), 1], start_index: 0, duration: n / H3_FPS }));
-    const built = buildH3(asClip(input, frames, carried), asStart, {
+    const clip = asClip(input, frames, carried);
+    // a window carrying on is also given the clip before's last frame as a picture of who moves (how they look by now),
+    // when H3's reference route can run here: a reference model there, or a hybrid picked (else the frames carried alone)
+    const canRefer = input.references.length > 0 || Boolean(ctx.slots.refUnet) || modelOf(clip, ctx.slots).hybrid;
+    const built = buildH3(clip, asStart, {
+      ...(input.previous && canRefer ? { pictures: (g: GraphBuilder) => frameBefore(g, ctx) } : {}),
       ...(keep ? { sound: (g, _decoded, at) => drivingSound(g, at.frames) } : {}),
       ...(keep && input.soundGuide ? {
         guide: (g, at) => g.out("MiniMaxH3AddGuide", { positive: at.positive, latent: at.latent, vae: at.vae, audio_vae: at.audioVae, audio: drivingSound(g, at.frames), frame_idx: 0 }),
