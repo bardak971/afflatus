@@ -94,7 +94,7 @@ describe("MiniMax H3 · Swap motion", () => {
     expect(h3SwapMotion.traits!.windows!.own).toEqual(["who"]);
     const swap = "Replace the young woman dancing in <Video 1> with the man with short brown hair in <Picture 1>. Keep the man's face and hair from <Picture 1>. he has a manly build and is wearing a white shirt with jeans. Match the position, scale, pose and movement in <Video 1>. Preserve the scene. ";
     expect(h3SwapMotion.windowCarryOn!({ who: swap })).toEqual({
-      who: "The man with short brown hair carries on moving as in the clip before. He has a manly build and is wearing a white shirt with jeans. Keep the room and the light exactly as they are.",
+      who: "The man with short brown hair carries on moving as in the clip before. He has a manly build and is wearing a white shirt with jeans.",
     });
     // nobody named to take it from: the plain one, with no tags
     expect(h3SwapMotion.windowCarryOn!({ who: "Swap the person in <Video 1> with the character in <Picture 1>." })).toEqual({ who: SWAP_MOTION_PROMPT });

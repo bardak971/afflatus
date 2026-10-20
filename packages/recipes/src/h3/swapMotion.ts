@@ -19,7 +19,9 @@ export interface H3SwapMotion extends H3Swap, H3Motion {}
  * tags, which H3's own layout adds (a window after the first is written as H3's clips are, not as the swap's caption).
  * The person and the room as they are, in positive words only.
  */
-export const SWAP_MOTION_PROMPT = "The person carries on moving as in the clip before, with the same face, hair and clothes. Keep the room and the light exactly as they are.";
+// Nothing of the room: H3 follows every word, and "Keep the room and the light…" drew a lamp into it (the owner, 2026-10-20).
+// H3's layout already says the setting comes from the frames carried in
+export const SWAP_MOTION_PROMPT = "The person carries on moving as in the clip before, with the same face, hair and clothes.";
 
 /** The reference tags a swap's prompt names, with the word before them ("in <Picture 1>"): H3's layout says which picture is whom. */
 const TAGS = /\s*\b(?:in|from|of)?\s*<(?:Picture|Video) \d+>/gi;
@@ -38,13 +40,13 @@ export function motionPromptFrom(swap: string): string {
   // the LoRA's caption names no one ("the character")
   if (!who || /^(?:the|a)\s+(?:character|person)$/i.test(who)) return SWAP_MOTION_PROMPT;
   const told = text.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter((s) => s && !/<(?:Video|Picture) \d+>/i.test(s) && !/^(?:match|preserve|keep|replace|swap)\b/i.test(s));
-  return [`${sentence(who)} carries on moving as in the clip before.`, ...told.map(sentence), "Keep the room and the light exactly as they are."].join(" ");
+  return [`${sentence(who)} carries on moving as in the clip before.`, ...told.map(sentence)].join(" ");
 }
 
 const SWAP_MOTION_GUIDE = `${SWAP_GUIDE}
 A WINDOW THAT CARRIES ON (clip 2 on, joined to the one before) is not a swap: H3 is moved by the pose of the source's part, from the window before's last frames, with the cast's picture and the clip before's last frame. Afflatus says which picture is whom: its prompt names no picture or video tag, and never the person replaced:
 - Name the person by how they look in the clip before (man or woman, hair, build, clothes), and what they do in this part, in the present tense: "The man with short brown hair, in a white shirt and jeans, dances, turning on the spot and raising his arms."
-- Then "Keep the room and the light exactly as they are." No camera, light, style or quality words; positive words only.
+- Nothing of the room or the light: H3 draws what is named (a "light" became a lamp), and the setting comes from the clip before. No camera, light, style or quality words; positive words only.
 - Each clip has its own prompt: write the one of the clip you are in.`;
 
 /**
@@ -140,7 +142,7 @@ export const h3SwapMotion = defineRecipe<H3SwapMotion>({
     };
     const part = { width: 576, height: 1024, frames: 141, fps: H3_FPS, hasSound: true };
     const before = { width: 576, height: 1024, frames: 22, fps: H3_FPS, hasSound: true };
-    const who = "The man with short brown hair in <Picture 1>, in a white shirt and jeans, dances. Keep the room and the light exactly as they are.";
+    const who = "The man with short brown hair in <Picture 1>, in a white shirt and jeans, dances.";
     return [
       // every one of Swap character's, its first window being one
       ...h3Swap.variants.map((v) => ({ ...v, name: `as Swap character: ${v.name}`, slots: { ...v.slots, h3Control: all.h3Control } }) as Variant<H3SwapMotion>),
