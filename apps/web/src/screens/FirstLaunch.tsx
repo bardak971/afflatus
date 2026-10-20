@@ -63,6 +63,13 @@ function Choice({ on, onClick, children }: { on: boolean; onClick(): void; child
   );
 }
 
+/**
+ * What becomes of Afflatus's node pack: written into ComfyUI's custom_nodes by itself when ComfyUI runs on this machine
+ * (its folder found), else put in by hand from Settings › ComfyUI (a ComfyUI on another computer).
+ */
+const packSaid = (dir: string | null | undefined) =>
+  dir ? "Afflatus puts its node pack in it by itself (loaded at ComfyUI's next start)." : "On another computer: Afflatus cannot write its node pack there; Settings › ComfyUI has it to put in by hand.";
+
 /** A machine as found: its version, its GPU, its address. */
 const foundSaid = (p: ComfyProbe) => (
   <>
@@ -132,7 +139,7 @@ export function FirstLaunch() {
                 <Button tone="primary" size="sm" disabled={save.isPending} onClick={() => add(find.data!.found!.url)}>Render on it</Button>
                 <Button tone="quiet" size="sm" className="bg-transparent text-ink-2" onClick={() => setComfy("have")}>Not this one</Button>
               </div>
-              <span className="text-ink-3">{find.data.found.locked ? "It is locked by an Afflatus node pack: once added, paste its token in Settings › ComfyUI." : "Afflatus puts its node pack in it by itself."}</span>
+              <span className="text-ink-3">{find.data.found.locked ? "It is locked by an Afflatus node pack: once added, paste its token in Settings › ComfyUI." : packSaid(find.data.found.dir)}</span>
             </>
           )}
           {(comfy === "have" || comfy === "install") && (
@@ -169,7 +176,7 @@ export function FirstLaunch() {
                 ))}
               </div>
               <span className="text-ink-3">
-                Afflatus puts its node pack in by itself. Start ComfyUI, then{" "}
+                On this PC, Afflatus puts its node pack in by itself once it is added. Start ComfyUI, then{" "}
                 <button type="button" className="font-semibold text-ink underline underline-offset-2" onClick={() => { void find.refetch(); setComfy("looking"); }}>Look again</button>, or add it later in Settings › ComfyUI.
               </span>
             </>
@@ -180,6 +187,7 @@ export function FirstLaunch() {
               <button type="button" className="ml-auto font-semibold text-ink-3 underline underline-offset-2" onClick={() => setComfy("have")}>Change</button>
             </div>
           )}
+          {comfy === "added" && first && <span className="text-ink-3">{settings.data?.comfyDir ? `Its node pack is written into its custom_nodes folder (${settings.data.comfyDir}): ComfyUI loads it at its next start.` : packSaid(null)}</span>}
           {comfy === "none" && (
             <div className="flex items-center gap-2.5 text-ink">
               None: rented GPUs only

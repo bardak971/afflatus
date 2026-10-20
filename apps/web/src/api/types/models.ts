@@ -79,6 +79,8 @@ export interface ComfyProbe {
   /** It answered, but refused Afflatus: locked by a token to paste once it is added. */
   locked: boolean;
   error: string | null;
+  /** Its folder, when it runs on this machine: Afflatus writes its node pack in by itself once it is added. */
+  dir: string | null;
 }
 
 export interface Scan {

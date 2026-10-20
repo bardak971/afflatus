@@ -5,7 +5,8 @@ import { useMenu } from "./ContextMenu";
 import { lazyPart, loadModelMenu } from "./lazyParts";
 import { create } from "zustand";
 import { api, type RecipeInfo } from "./api";
-import { useQueue, useRecipes } from "./data";
+import { useQueue, useRecipes, useSetup } from "./data";
+import { lacksOnlyFiles } from "./officialFiles";
 import { cx } from "./ui";
 import { queryKeys } from "./queryKeys";
 import { useSettled } from "./hooks";
@@ -188,6 +189,8 @@ function Held({ name, sure = true }: { name: string | null; sure?: boolean }) {
 
 function OfForm({ recipe, input, look }: OpenForm) {
   const queue = useQueue();
+  const setup = useSetup();
+  const recipes = useRecipes();
   const client = useQueryClient();
   // what the form no longer has is left out (a draft outlives a workflow whose settings were changed since)
   const has = new Set(recipe.inputs.map((i) => i.id));
@@ -216,6 +219,18 @@ function OfForm({ recipe, input, look }: OpenForm) {
   // with several ComfyUIs: the one that holds it, named; none holding it is said for all of them
   const on = several.length ? machineName(queue.data, loaded.data?.on) : null;
   const held = several.length ? null : queue.data?.model ?? null;
+  // a model file the form uses that ComfyUI does not have yet (an official file picked greyed, a family file to come):
+  // there is nothing to load before its Download
+  const status = setup.data?.recipes.find((r) => r.id === recipe.id);
+  const family = recipes.data?.families.find((f) => f.id === recipe.family);
+  const absent = Boolean(status) && (lacksOnlyFiles(status, recipe, family) || recipe.inputs.some((i) => i.type === "model" && Boolean(whole[i.id]) && !(status!.options[i.id] ?? []).includes(String(whole[i.id]))));
+  if (absent && !running && !waiting) {
+    return (
+      <span className={cx(stripGhost, "min-w-0 hover:bg-transparent")} data-tip="A model file this form uses is not on ComfyUI yet: its Download is under the model field, and the render waits for it. There is nothing to load before then.">
+        <Light on={false} /> <span className="truncate">Model not here yet</span>
+      </span>
+    );
+  }
   if (on && !running && !waiting) {
     return (
       <span className={cx(stripGhost, "min-w-0 hover:bg-transparent")} data-tip={`This form's model is loaded on ${on}: the render goes there and starts sampling at once.`}>
