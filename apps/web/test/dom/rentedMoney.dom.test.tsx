@@ -27,11 +27,11 @@ const state = (id: string, name: string, over: Partial<MachineState> = {}): Mach
 } as MachineState);
 
 const machine = (id: string, name: string, over: Partial<NonNullable<Machine["rented"]>> = {}): Machine => ({
-  id, name, url: `https://${id}-8188.proxy.runpod.net`, dir: "", takes: "all", families: {}, tokenEnd: "",
+  id, name, url: `https://${id}-8188.proxy.runpod.net`, dir: "", takes: "all", packs: "ask", families: {}, tokenEnd: "",
   rented: { provider: "runpod", pod: `pod-${id}`, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15, openPorts: false, closedPorts: [], secret: "", deployed: true, deployedAt: "", userStopped: false, makeRoom: false, ...over } as NonNullable<Machine["rented"]>,
 });
 
-const home: Machine = { id: "m1", name: "", url: "http://127.0.0.1:8188", dir: "", takes: "all", families: {}, tokenEnd: "" };
+const home: Machine = { id: "m1", name: "", url: "http://127.0.0.1:8188", dir: "", takes: "all", packs: "ask", families: {}, tokenEnd: "" };
 
 function serveQueue(machines: MachineState[]) {
   fakeApi.on("GET /queue", { online: true, paused: false, running: null, waiting: [], later: [], recent: [], machines });

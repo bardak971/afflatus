@@ -1,4 +1,4 @@
-import { LATENT_RESAMPLE, roundTo, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
+import { LATENT_RESAMPLE, roundTo, wanted, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
 import { loadUnet } from "../shared/unet";
 
 /**
@@ -88,7 +88,7 @@ export function upscaleInputs(opts: { latent?: boolean } = {}): InputSpec[] {
   return [
     {
       id: "upscale", type: "choice", label: "Upscale", options: routes, default: UPSCALE.off, section: "out",
-      note: `how the clip is made larger after it is generated. Pixel: upscale model — an ESRGAN-type model from models/upscale_models, frame by frame; sharp, fast, may flicker. Pixel: RTX — NVIDIA's RTX Video Super Resolution, video-aware, fast; needs a node that drives it (NVIDIA's own ${RTX_NVIDIA}, or ${RTX_NODE}), Windows and an RTX card. Video: SeedVR2 — a one-step restoration model that sees the whole clip: no flicker, and compression and softness are repaired too; minutes per clip, needs its two files (Settings → Models).${opts.latent ? " Latent: re-sampled — the latent enlarged and sampled again lightly in tiles: real new detail, consistent with the clip; about as long again as the clip." : ""}`,
+      note: `how the clip is made larger after it is generated. Pixel: upscale model — an ESRGAN-type model from models/upscale_models, frame by frame; sharp, fast, may flicker. Pixel: RTX — NVIDIA's RTX Video Super Resolution, video-aware, fast; needs an NVIDIA RTX card and a node that drives it (NVIDIA's own ${RTX_NVIDIA}, or DaSiWa's ${RTX_NODE}, installed on first use); without them it upscales with an upscale model, else a plain resize. Video: SeedVR2 — a one-step restoration model that sees the whole clip: no flicker, and compression and softness are repaired too; minutes per clip, needs its two files (Settings → Models).${opts.latent ? " Latent: re-sampled — the latent enlarged and sampled again lightly in tiles: real new detail, consistent with the clip; about as long again as the clip." : ""}`,
     },
     {
       id: "upscaleColour", type: "choice", label: "SeedVR2 colour match", options: SEEDVR_COLOURS, default: "lab", section: "out", showWhen: { input: "upscale", in: [UPSCALE.seedvr] },
@@ -123,7 +123,7 @@ export function upscaleInputs(opts: { latent?: boolean } = {}): InputSpec[] {
  */
 export function sharpened(g: GraphBuilder, ctx: BuildContext, images: Ref, input: { upscale: string; upscaleSharpen?: number }): Ref {
   const strength = input.upscaleSharpen ?? 0;
-  if (strength <= 0 || !PIXEL_ROUTES.includes(input.upscale) || !ctx.has(SHARPEN_NODE)) return images;
+  if (strength <= 0 || !PIXEL_ROUTES.includes(input.upscale) || !wanted(ctx, { input: "upscaleSharpen", nodes: [SHARPEN_NODE], without: "RCAS sharpen" })) return images;
   // a choice that brings its own inputs, as RTX's "resize_type.scale": the strength belongs to the method picked
   return g.out(SHARPEN_NODE, { image: images, method: "rcas", "method.strength": Math.min(1, strength) });
 }
@@ -145,22 +145,29 @@ export function pixelUpscale(g: GraphBuilder, images: Ref, input: UpscaleValues,
   if (input.upscale !== UPSCALE.model && input.upscale !== UPSCALE.rtx && input.upscale !== UPSCALE.seedvr) return { images, loads: [] };
   const big = { width: roundTo(frame.width * input.upscaleBy, 8, 64), height: roundTo(frame.height * input.upscaleBy, 8, 64) };
   g.phase("upscaling");
-  if (input.upscale === UPSCALE.model) {
-    const model = g.out("UpscaleModelLoader", { model_name: input.upscaleModel });
+  // RTX VSR without a node that drives it (its pack not there, not wanted, or a card that cannot run it): the upscale model
+  // the form names when this ComfyUI has it, else its first one, else a plain resize. The job says which (ctx.wants)
+  const fallback = input.upscale === UPSCALE.rtx ? rtxFallback(ctx, input.upscaleModel) : null;
+  const driver = input.upscale === UPSCALE.rtx ? wanted(ctx, { input: "upscale", nodes: RTX_NODES, without: "RTX VSR", instead: fallback ? `upscaled with ${fallback} instead` : "a plain resize instead" }) : null;
+  if (input.upscale === UPSCALE.rtx && !driver && !fallback) {
+    return { images: g.out("ImageScale", { image: images, upscale_method: "lanczos", width: big.width, height: big.height, crop: "disabled" }), loads: [] };
+  }
+  if (input.upscale === UPSCALE.model || (input.upscale === UPSCALE.rtx && !driver)) {
+    const file = input.upscale === UPSCALE.model ? input.upscaleModel : fallback!;
+    const model = g.out("UpscaleModelLoader", { model_name: file });
     // a few frames at a time: the model's own 4× output of a whole clip is tens of GB before it is brought down to size
     const chunked = ctx.has("RebatchImages");
     const batch = chunked ? g.out("RebatchImages", { images, batch_size: 8 }) : images;
     const grown = g.out("ImageUpscaleWithModel", { upscale_model: model, image: batch });
     // upscale models enlarge by their own factor (usually 4×): the frames are then brought to the factor asked for
     const sized = g.out("ImageScale", { image: grown, upscale_method: "lanczos", width: big.width, height: big.height, crop: "disabled" });
-    return { images: chunked ? g.out("RebatchImages", { images: sized, batch_size: 4096 }) : sized, loads: [`upscale_models/${input.upscaleModel}`] };
+    return { images: chunked ? g.out("RebatchImages", { images: sized, batch_size: 4096 }) : sized, loads: [`upscale_models/${file}`] };
   }
   if (input.upscale === UPSCALE.seedvr) return seedvrUpscale(g, images, input, ctx, big);
   // NVIDIA's own node first (a choice that brings its own inputs: "resize_type.scale"), else the other pack's
-  if (ctx.has(RTX_NVIDIA)) {
+  if (driver === RTX_NVIDIA) {
     return { images: g.out(RTX_NVIDIA, { images, resize_type: "scale by multiplier", "resize_type.scale": Math.min(4, input.upscaleBy), quality: "ULTRA" }), loads: [] };
   }
-  if (!ctx.has(RTX_NODE)) throw new Error(`RTX Video Super Resolution needs a node that drives it: NVIDIA's own ${RTX_NVIDIA} (the Nvidia_RTX_Nodes_ComfyUI pack) or ${RTX_NODE} (DaSiWa's "RTX Upscaler & Refiner" pack). Install one in ComfyUI, or pick another upscale route.`);
   return {
     images: g.out(RTX_NODE, {
       images, denoise: false, denoise_quality: "Ultra", deblur: false, deblur_quality: "Ultra", upscale: "VSR", upscale_quality: "Ultra",
@@ -168,6 +175,15 @@ export function pixelUpscale(g: GraphBuilder, images: Ref, input: UpscaleValues,
     }),
     loads: [],
   };
+}
+
+/**
+ * The upscale model RTX VSR falls back on where no node drives it: the one the form names when this ComfyUI has it, else the
+ * first it has; null when it has none or cannot say (a plain resize then).
+ */
+function rtxFallback(ctx: BuildContext, named: string): string | null {
+  const there = ctx.options?.("UpscaleModelLoader", "model_name") ?? [];
+  return there.includes(named) ? named : (there[0] ?? null);
 }
 
 /**

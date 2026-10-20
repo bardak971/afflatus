@@ -182,6 +182,8 @@ export async function createServices(
   sweeper.unref();
   const swept = runSweep();
   const downloads = new Downloads(queue.events, dirs.dataDir ? join(dirs.dataDir, "downloads.json") : undefined);
+  // the node packs renders ask for are installed by each ComfyUI's Manager: one without it does without them (queuePacks.ts)
+  queue.managerOf = async (comfy) => (await downloads.manager(comfy)).found;
   const shippedPresets = new ShippedPresets(dirs.shippedPresets === undefined ? shippedPresetsDir() : dirs.shippedPresets);
   const machineOf = async (id: string) => (await machines()).find((m) => m.machine.id === id);
   let podFilesTold: NodeJS.Timeout | null = null;

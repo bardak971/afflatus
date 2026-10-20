@@ -9,7 +9,7 @@ import { Block, Card, Fact, Row, Status } from "./Rows";
 import { queryKeys } from "../../queryKeys";
 import { useQueue } from "../../data";
 import { AccessRow } from "./AccessRow";
-import { AddMachineCard, MachineCards, MachinesHead, useMachineProbes } from "./MachinesCard";
+import { AddMachineCard, MachineCards, MachinesHead, PacksRow, useMachineProbes, useSaveMachines } from "./MachinesCard";
 import { COLUMNS } from "./wide";
 
 const WHY_PACK = "It lets MiniMax H3 clips on a timeline continue from the clip before's own latent (the motion, the look and the voice carry across the join), and lets Afflatus read model files' headers through ComfyUI when it cannot read its disk.";
@@ -63,6 +63,7 @@ export function ComfyCard() {
   const machines = settings.data?.machines ?? [];
   // a lone rented pod has its own card too (Start, Stop, idle, Delete), not the one Connection card
   const several = machines.length > 1 || machines.some((m) => m.rented);
+  const saveMachines = useSaveMachines();
   // with one ComfyUI too: its Access line reads its lock from there
   const probes = useMachineProbes();
   const queue = useQueue();
@@ -151,6 +152,7 @@ export function ComfyCard() {
         </Row>
         {saveDir.isError && <Block><ErrorNote>{saveDir.error.message}</ErrorNote></Block>}
         <NodePackRow />
+        {machines[0] && <PacksRow machine={machines[0]} label="your ComfyUI" put={(change) => saveMachines.mutate(machines.map((m, i) => (i === 0 ? { ...m, ...change } : m)))} />}
         {machines[0] && <AccessRow id={machines[0].id} label="ComfyUI" probe={probes.data?.find((p) => p.id === machines[0]!.id)} url={machines[0].url} />}
       </Card>
       </div>

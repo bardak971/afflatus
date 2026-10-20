@@ -4,6 +4,7 @@ import type { Comfy } from "./comfy";
 import type { Lack } from "./machineScans";
 import type { PodDisk, PodFileView } from "./podFiles";
 import type { PodPackView } from "./podPacks";
+import type { PackWait } from "./jobPacks";
 import { finishForecast, usesGpu } from "./queueTools";
 import type { ToolPaces } from "./renders";
 import type { CutOptions } from "./timelines";
@@ -74,6 +75,8 @@ export async function status(
   planned: ReadonlyMap<string, { lane: string; startsInMs: number }> = new Map(), paces: ReadonlyMap<string, number> = new Map(),
   /** With several machines, the machines that can run each waiting render (queue.ts ableOf). */
   able: ReadonlyMap<string, { can: ReadonlySet<string>; lacks: Record<string, Lack>; fetch?: Record<string, { files: Lack["files"]; ms: number }> }> = new Map(),
+  /** Of a waiting job on a machine of the user's own: the node packs it waits for there, and where they stand (queuePacks.ts). */
+  packWait: (job: string) => PackWait | undefined = () => undefined,
 ) {
   const rows = await core.db
     .selectFrom("jobs")
@@ -131,6 +134,8 @@ export async function status(
     lacks: r.status === "queued" && onlyOn(r.id) ? able.get(r.id)?.lacks ?? null : null,
     /** Of a waiting render: the rented pods it can run on once its files are sent there, with the files and how long they take (ms). */
     fetch: r.status === "queued" && Object.keys(able.get(r.id)?.fetch ?? {}).length ? able.get(r.id)!.fetch! : null,
+    /** Of a waiting render: the node packs it waits for on a machine of the user's own, and where they stand (Install and restart, Run without). */
+    packs: r.status === "queued" ? packWait(r.id) ?? null : null,
   });
   const idle = (r: JobRow) => (r.recipe_id === EXPORT_JOB ? ("exporting" as const) : r.recipe_id === CUT_JOB ? ("cutting" as const) : ("waiting" as const));
   /** A running job with its figures, from its lane's monitor; a job a ComfyUI had when this process last stopped, not picked up again yet, has none. */

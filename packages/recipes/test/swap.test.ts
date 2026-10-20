@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeRecipe, dryContext, parseInput, slotsRead, type MediaFacts } from "@afflatus/core";
+import { describeRecipe, dryContext, parseInput, slotsRead, type MediaFacts, type Wanted } from "@afflatus/core";
 import { h3Swap, SWAP_CAPTION, swapCaption, swapPrompt, swapPromptLacks } from "../src/h3/swap";
 import { H3_FPS } from "../src/h3/family";
 import { recipeById } from "../src/index";
@@ -10,9 +10,9 @@ const of = (graph: Graph, type: string) => Object.values(graph).filter((n) => n.
 const slots = { unet: "u.safetensors", clip: "c.safetensors", videoVae: "v.safetensors", audioVae: "a.safetensors", refUnet: "hybrid_turbo.safetensors", swapLora: "swap.safetensors", swapUnet: "minimax_h3_ref2va.safetensors", swapSam: "sam3.1.safetensors", rife: "rife_v4.26.safetensors" };
 const part = (over: Partial<MediaFacts> = {}): MediaFacts => ({ width: 864, height: 480, frames: 141, fps: H3_FPS, hasSound: true, ...over });
 
-const build = (over: Record<string, unknown> = {}, source: MediaFacts = part(), ctx: { slots?: Record<string, string>; has?: (cls: string) => boolean } = {}) => {
+const build = (over: Record<string, unknown> = {}, source: MediaFacts = part(), ctx: { slots?: Record<string, string>; has?: (cls: string) => boolean; wants?: (w: Wanted) => string | null } = {}) => {
   const input = parseInput(h3Swap, { who: "the man in the grey t-shirt.", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, maskOn: true, ...over });
-  const built = h3Swap.build(input, dryContext({ slots: ctx.slots ?? slots, uploads: { source: "src.mp4", "references.0": "r1.png", "references.1": "r2.png" }, media: { source }, ...(ctx.has ? { has: ctx.has } : {}) }));
+  const built = h3Swap.build(input, dryContext({ slots: ctx.slots ?? slots, uploads: { source: "src.mp4", "references.0": "r1.png", "references.1": "r2.png" }, media: { source }, ...(ctx.has ? { has: ctx.has } : {}), ...(ctx.wants ? { wants: ctx.wants } : {}) }));
   return { built, graph: built.graph as Graph };
 };
 
@@ -282,9 +282,11 @@ describe("MiniMax H3 · Swap character", () => {
     });
 
     it("runs the full attention without its node pack or its predictor, and says so on the job", () => {
-      const noPack = build({ veda: true }, part(), { slots: vedaSlots, has: (cls) => cls !== "VedaSparseAttention" });
+      // its pack missing is told to the queue (ctx.wants), which says it on the job with why
+      const asked: Wanted[] = [];
+      const noPack = build({ veda: true }, part(), { slots: vedaSlots, has: (cls) => cls !== "VedaSparseAttention", wants: (w) => (asked.push(w), null) });
       expect(of(noPack.graph, "VedaSparseAttention")).toHaveLength(0);
-      expect(noPack.built.warnings).toContainEqual(expect.stringContaining("veda-sparse-attention node pack"));
+      expect(asked).toContainEqual(expect.objectContaining({ input: "veda", nodes: ["VedaSparseAttention"], without: "Veda" }));
       const noPredictor = build({ veda: true });
       expect(of(noPredictor.graph, "VedaSparseAttention")).toHaveLength(0);
       expect(noPredictor.built.warnings).toContainEqual(expect.stringContaining("predictor"));

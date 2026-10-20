@@ -150,7 +150,7 @@ export function registerRented(app: FastifyInstance, s: Services): void {
       const volume = found.networkVolume || found.diskGb > 0;
       const rented = { provider: "runpod" as const, pod: found.id, idleMinutes: 10, idleDo: volume ? ("stop" as const) : ("terminate" as const), watchdogMinutes: 15, openPorts: false, closedPorts: [], secret: "", deployed: false, deployedAt: "" };
       // added again: its secret is its own once more, not one to delete when it goes
-      return { machines: [...current.machines, { id, name: found.name.slice(0, 40), url: podUrl(found.id), dir: "", takes: "all", families: {}, rented }], leftSecrets: current.leftSecrets.filter((l) => l.pod !== found.id) };
+      return { machines: [...current.machines, { id, name: found.name.slice(0, 40), url: podUrl(found.id), dir: "", takes: "all", packs: "ask", families: {}, rented }], leftSecrets: current.leftSecrets.filter((l) => l.pod !== found.id) };
     });
     s.queue.events.emit("setup");
     await s.rented.poll().catch(() => {});

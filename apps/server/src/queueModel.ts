@@ -4,6 +4,7 @@ import type { BuiltGraph, Phase, Recipe } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 import type { Db, Tables } from "./db";
 import type { Rate, StatRows } from "./forecast";
+import type { PackFacts } from "./jobPacks";
 import type { Registry } from "./registry";
 import type { Machine } from "./settings";
 import type { Storage } from "./storage";
@@ -182,6 +183,8 @@ export interface QueueCore {
   loadsModel?(recipe: Recipe<any>, input: Record<string, unknown>, job?: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit"> | null): Promise<string | null>;
   /** A job that needs no model, claimed and closed by the state machine; `work` is the job itself. */
   runTool(row: JobRow, work: (run: Running) => Promise<void>): Promise<void>;
+  /** What node packs can come to this machine (jobPacks.ts): its card, its Manager, the packs that failed there. Left out: anything may. */
+  packFacts?(): Promise<PackFacts>;
 }
 
 /** A machine's lane: its ComfyUI, the job it runs, what it was last asked to load, whether it is paused by hand. */

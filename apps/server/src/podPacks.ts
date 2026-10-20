@@ -2,7 +2,7 @@ import { nodesOfPack } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 
 /**
- * The node packs a rented pod gets for its jobs, beside its model files (podFiles.ts): the packs most video forms use are in
+ * The node packs a rented pod gets for its jobs (and, through queuePacks.ts, a ComfyUI of the user's own), beside its model files (podFiles.ts): the packs most video forms use are in
  * the pod image already; another one a waiting job needs (Impact, GGUF, controlnet_aux…) is installed through the pod's
  * ComfyUI-Manager (the image sets it to install for a pod locked to Afflatus), by its name in Manager's list, then ComfyUI
  * is restarted through Manager to load it, once nothing renders there. A pack Manager does not install stays failed for
@@ -26,6 +26,8 @@ interface Entry extends PodPackView {
   notBefore?: number;
   /** When its install was asked for (ms): one Manager never says anything of is failed after INSTALL_MS. */
   askedAt?: number;
+  /** When it failed (ms): asked for again after `againMs`, when set. */
+  failedAt?: number;
 }
 
 export interface PodPacksDeps {
@@ -55,6 +57,11 @@ export class PodPacks {
   private seq = 0;
   /** How long a pack Manager cannot find yet waits before it is asked again (shorter in tests). */
   retryMs = RETRY_MS;
+  /**
+   * How long a failed pack stays failed before a job asking for it has it tried again; null: for good (a pod's jobs go
+   * elsewhere). A ComfyUI of the user's own tries again after a while: its Manager's security level may have been changed.
+   */
+  againMs: number | null = null;
 
   constructor(private readonly d: PodPacksDeps) {}
 
@@ -66,6 +73,11 @@ export class PodPacks {
       let e = pod.get(name);
       if (!e) {
         pod.set(name, (e = { name, state: "next", jobs: [] }));
+        changed = true;
+      } else if (e.state === "failed" && this.againMs !== null && Date.now() - (e.failedAt ?? 0) > this.againMs) {
+        Object.assign(e, { state: "next", tries: 0 });
+        delete e.error;
+        delete e.failedAt;
         changed = true;
       }
       if (job && !e.jobs.includes(job)) {
@@ -157,13 +169,13 @@ export class PodPacks {
         const node = nodesOfPack(e.name)[0];
         const has = !node || (await comfy.client.raw(`/object_info/${encodeURIComponent(node)}`, { signal: AbortSignal.timeout(15_000) })
           .then(async (r) => (r.ok ? Boolean(((await r.json().catch(() => ({}))) as Record<string, unknown>)[node]) : false), () => false));
-        Object.assign(e, has ? { state: "ready" } : { state: "failed", error: "ComfyUI did not load it after its restart (the pod's log says why)" });
+        Object.assign(e, has ? { state: "ready" } : { state: "failed", failedAt: Date.now(), error: "ComfyUI did not load it after its restart (its log says why)" });
       }
       return { changed: true, loaded: true };
     }
     if (Date.now() - since > RESTART_MS) {
       this.restarting.delete(machine);
-      for (const e of all) if (e.state === "installed") Object.assign(e, { state: "failed", error: "ComfyUI did not come back after its restart" });
+      for (const e of all) if (e.state === "installed") Object.assign(e, { state: "failed", failedAt: Date.now(), error: "ComfyUI did not come back after its restart" });
       return { changed: true, loaded: false };
     }
     return { changed: false, loaded: false };
@@ -180,7 +192,7 @@ export class PodPacks {
       const h = e.task ? history[e.task] : undefined;
       if (!h) {
         if (Date.now() - (e.askedAt ?? Date.now()) > INSTALL_MS) {
-          Object.assign(e, { state: "failed", error: `ComfyUI-Manager did not say it was installed in ${INSTALL_MS / 60_000} min` });
+          Object.assign(e, { state: "failed", failedAt: Date.now(), error: `ComfyUI-Manager did not say it was installed in ${INSTALL_MS / 60_000} min` });
           changed = true;
         }
         continue;
@@ -193,7 +205,7 @@ export class PodPacks {
         changed = true;
         continue;
       }
-      Object.assign(e, ok ? { state: "installed" } : { state: "failed", error: !h.result || h.result === "failed" ? "ComfyUI-Manager did not install it (its security level, or the pack's own install failed: the pod's log says)" : h.result.slice(0, 200) });
+      Object.assign(e, ok ? { state: "installed" } : { state: "failed", failedAt: Date.now(), error: !h.result || h.result === "failed" ? "ComfyUI-Manager did not install it (its security level, or the pack's own install failed: its log says)" : h.result.slice(0, 200) });
       changed = true;
     }
     return changed;
@@ -210,9 +222,9 @@ export class PodPacks {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(15_000),
         body: JSON.stringify({ ui_id: task, client_id: CLIENT, kind: "install", params: { id: e.name, version: "latest", selected_version: "latest", mode: "cache", channel: "default" } }),
       }).catch(() => null);
-      if (!res) Object.assign(e, { state: "failed", error: "the pod's ComfyUI did not answer" });
-      else if (res.status === 404) Object.assign(e, { state: "failed", error: "the pod has no ComfyUI-Manager" });
-      else if (!res.ok) Object.assign(e, { state: "failed", error: `ComfyUI-Manager refused it (${res.status})` });
+      if (!res) Object.assign(e, { state: "failed", failedAt: Date.now(), error: "its ComfyUI did not answer" });
+      else if (res.status === 404) Object.assign(e, { state: "failed", failedAt: Date.now(), error: "its ComfyUI has no ComfyUI-Manager" });
+      else if (!res.ok) Object.assign(e, { state: "failed", failedAt: Date.now(), error: `ComfyUI-Manager refused it (${res.status})` });
       else {
         Object.assign(e, { state: "installing", task, askedAt: Date.now() });
         asked.push(e);
@@ -220,7 +232,7 @@ export class PodPacks {
     }
     if (asked.length) {
       const started = await comfy.client.raw("/v2/manager/queue/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: AbortSignal.timeout(15_000) }).catch(() => null);
-      if (!started?.ok) for (const e of asked) Object.assign(e, { state: "failed", error: `ComfyUI-Manager did not start its installs (${started?.status ?? "no answer"})` });
+      if (!started?.ok) for (const e of asked) Object.assign(e, { state: "failed", failedAt: Date.now(), error: `ComfyUI-Manager did not start its installs (${started?.status ?? "no answer"})` });
     }
     return true;
   }
@@ -238,7 +250,7 @@ export class PodPacks {
     const res = await comfy.client.raw("/v2/manager/reboot", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: AbortSignal.timeout(15_000) }).catch(() => null);
     if (res && !res.ok) {
       this.restarting.delete(machine);
-      for (const e of all) if (e.state === "installed") Object.assign(e, { state: "failed", error: `ComfyUI-Manager refused to restart ComfyUI (${res.status})` });
+      for (const e of all) if (e.state === "installed") Object.assign(e, { state: "failed", failedAt: Date.now(), error: `ComfyUI-Manager refused to restart ComfyUI (${res.status})` });
     }
     return true;
   }

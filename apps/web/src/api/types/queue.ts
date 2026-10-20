@@ -48,6 +48,42 @@ export interface Job {
   lacks: Record<string, MachineLack> | null;
   /** Of a waiting render: the rented pods it can run on once its files are sent there, with them and how long they take (ms). */
   fetch: Record<string, { files: Array<{ file: string; folder: string }>; ms: number }> | null;
+  /** Of a waiting render: the node packs it waits for on a machine of the user's own, and where they stand. */
+  packs?: PackWait | null;
+}
+/** What a form says under an option whose node pack the machine it renders on lacks (server formPacks.ts). */
+export interface FormPacks {
+  /** The machine it renders on, and its rule: asks first, installs on first use, or a rented pod (installs on first use). */
+  machine: string | null;
+  rule: "ask" | "always" | "pod" | null;
+  notes: FormPackNote[];
+}
+export interface FormPackNote {
+  /** The input it is said under; null: at the top of the form. */
+  input: string | null;
+  pack: string;
+  /** Packs that stand in for each other, as said ("NVIDIA's pack or DaSiWa's"). */
+  either?: string;
+  state: "comes" | "cannot";
+  why?: string;
+  without?: string;
+  instead?: string;
+  /** The other machines that have it. */
+  has?: string[];
+}
+
+/**
+ * A waiting render's node packs on a machine of the user's own: "ask", it waits for Install and restart (or Run without);
+ * else where their install stands, ComfyUI restarting once nothing renders there.
+ */
+export interface PackWait {
+  machine: string;
+  /** Each pack, with what the render would be without it (absent: it cannot run without it). */
+  packs: Array<{ name: string; without?: string }>;
+  state: "ask" | "next" | "installing" | "installed" | "ready" | "failed" | "restarting";
+  error?: string;
+  /** Installed, its ComfyUI waiting to be free to restart: what it is busy with. */
+  waitsFor?: string;
 }
 /** What keeps a waiting render off a machine: its family switched off there, and the files it lacks there (with where to get each, when known). */
 export interface MachineLack {
@@ -82,7 +118,7 @@ export interface PodFile {
   jobs: string[];
 }
 /** A finished job as the queue's history shows it: with what it made and how. (Not how long it would take, nor how a clip joined: GET /api/jobs leaves those out.) */
-export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" | "pinned" | "startsInMs" | "runsOn" | "lacks" | "fetch"> {
+export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" | "pinned" | "startsInMs" | "runsOn" | "lacks" | "fetch" | "packs"> {
   tookMs: number | null;
   /** Of a job that failed in a ComfyUI node: the end of its Python traceback; null otherwise. */
   trace?: string | null;

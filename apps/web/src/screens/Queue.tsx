@@ -67,6 +67,7 @@ export function Queue() {
   const order = useMutation({ mutationFn: api.queueOrder, onSuccess: (q) => client.setQueryData(queryKeys.queue(), q), onError: failed("Could not reorder the queue") });
   // a waiting job dropped on a machine's lane, or "Run on" in its menu: pinned there (null: back to whichever the queue picks)
   const pin = useMutation({ mutationFn: ({ job, machine }: { job: string; machine: string | null }) => api.pinJob(job, machine), onSuccess: (q) => client.setQueryData(queryKeys.queue(), q), onError: failed("Could not move it to that machine") });
+  const packs = useMutation({ mutationFn: ({ job, what, names }: { job: string; what: "install" | "without"; names: string[] }) => api.jobPacks(job, what, names), onSuccess: (q) => client.setQueryData(queryKeys.queue(), q), onError: failed("Could not change it") });
   const [logOf, setLogOf] = useState<string>("");
   const [refused, setRefused] = useState(false);
   // a view asked for in the address (the command bar's "Queue › Render times"): opened on it, and again when it changes
@@ -147,7 +148,7 @@ export function Queue() {
               : <RunningCard running={q.running} onStop={(id) => cancel.mutate(id)} />}
           </section>
           {/* its head says what they come to: how many, how long, the model switches, and the bulk actions */}
-          {q.waiting.length > 0 && <WaitingList waiting={q.waiting} whole={q.whole} endsInMs={q.waitingEndsInMs} running={q.running} machines={several} onOrder={(ids) => order.mutate(ids)} onRemove={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} />}
+          {q.waiting.length > 0 && <WaitingList waiting={q.waiting} whole={q.whole} endsInMs={q.waitingEndsInMs} running={q.running} machines={several} onOrder={(ids) => order.mutate(ids)} onRemove={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} onPacks={(job, what, names) => packs.mutate({ job, what, names })} />}
           <History />
         </div>
       )}

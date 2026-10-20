@@ -32,7 +32,8 @@ export interface SettingSpot {
 
 export const INDEX: SettingSpot[] = [
   { tab: "comfyui", label: "ComfyUI URL", key: "comfy.url", words: "address connection test port 8188" },
-  { tab: "comfyui", label: "Add a ComfyUI", key: "comfy.machines", words: "several machines second gpu another computer rented cloud instance pause use only takes pictures videos" },
+  { tab: "comfyui", label: "Node packs renders need", key: "comfy.packs", words: "install node pack custom nodes manager ask always restart veda cache rtx gguf" },
+  { tab: "comfyui", label: "Add a ComfyUI", key: "comfy.machines", words: "several machines second gpu another computer rented cloud instance pause use only takes pictures videos node packs install ask always" },
   { tab: "comfyui", label: "Folder on this computer", key: "comfy.folder", words: "comfyui folder open in comfyui directory main.py" },
   { tab: "comfyui", label: "Or a RunPod pod", key: "comfy.runpod", words: "rented rent runpod cloud gpu pod api key 5090 4090 a100 bigger card hours" },
   { tab: "comfyui", label: "Electricity: price a kWh", key: "costs.kwh", words: "electricity power energy kwh watts price cost currency this pc renders costs" },

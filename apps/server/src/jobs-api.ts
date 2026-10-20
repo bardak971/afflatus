@@ -143,6 +143,16 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
     return paged(await s.queue.status());
   });
 
+  /**
+   * A waiting job's node packs: installed on the machine it waits on (Install and restart: ComfyUI restarts once nothing
+   * renders there), or run without (its options done without, said on the job).
+   */
+  app.post<{ Params: { id: string } }>("/api/jobs/:id/packs", async (req) => {
+    const b = z.strictObject({ do: z.enum(["install", "without"]), packs: z.array(z.string().min(1).max(120)).min(1).max(12) }).parse(req.body);
+    if (!(await s.queue.sayPacks(req.params.id, b.do, b.packs))) throw httpError("only a waiting job can be told what to do about its node packs");
+    return paged(await s.queue.status());
+  });
+
   /** Unload the models now (the GPU's memory is wanted for something else): on one machine, or on every one that is not rendering. */
   app.post("/api/comfy/free", async (req) => {
     await s.queue.freeMemory(onMachine.parse(req.body ?? {}).machine);

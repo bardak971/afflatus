@@ -125,7 +125,32 @@ export interface BuildContext {
   canvas?: { width: number; height: number };
   /** Whether this ComfyUI has a node class (for optional speed-ups that switch off when missing). */
   has(nodeClass: string): boolean;
+  /**
+   * The node an option the user turned on asks for (`wanted`), or null: the build then does without it. Unlike `has`, what
+   * an option asks for is a need, its pack installed where the job runs (jobPacks.ts): the queue looks ahead with one that
+   * says yes to everything, and records what was asked. Left out: the first of the nodes this ComfyUI has (`has`).
+   */
+  wants?(w: Wanted): string | null;
+  /** The files a node's input offers on this ComfyUI (an upscale model to fall back on); left out: not known. */
+  options?(node: string, input: string): string[] | null;
 }
+
+/**
+ * A node an option asks for, as a build says it (BuildContext.wants): the input that asks, the nodes that do (any one of
+ * them: NVIDIA's RTX node or DaSiWa's; the one whose pack is installed for it last), and in a few words what the render
+ * is without it, for its job's warning and the Queue's "Run without" ("Veda").
+ */
+export interface Wanted {
+  input: string;
+  nodes: readonly string[];
+  without: string;
+  /** What is done instead, when it is more than leaving it out ("upscaled with 4xNomosUni instead"). */
+  instead?: string;
+}
+
+/** The node an option asks for that this ComfyUI has (ctx.wants), else null. */
+export const wanted = (ctx: Pick<BuildContext, "has" | "wants">, w: Wanted): string | null =>
+  ctx.wants ? ctx.wants(w) : (w.nodes.find((n) => ctx.has(n)) ?? null);
 
 export interface Variant<In> {
   name: string;

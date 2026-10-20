@@ -460,10 +460,9 @@ export const h3Swap = defineRecipe<H3Swap>({
       // the reference model's own turbo LoRA, else the usual one (a distilled model takes neither)
       ...(ctx.slots.refTurbo ?? ctx.slots.turbo ? { turbo: ctx.slots.refTurbo ?? ctx.slots.turbo } : {}),
     });
-    // Veda asked for and not there: the clip is made with the full attention, and the job says why
-    const veda = input.veda && !ctx.has("VedaSparseAttention")
-      ? ["Veda was on, but this ComfyUI has no veda-sparse-attention node pack (ComfyUI-Manager installs it): made with the full attention."]
-      : input.veda && !ctx.slots.veda ? ["Veda was on, but its reference-model predictor is not in ComfyUI's models/veda folder (Settings › Models has it): made with the full attention."] : [];
+    // Veda asked for and its predictor not there: the clip is made with the full attention, and the job says why (its node
+    // pack missing is said by the queue, which knows why it is: ctx.wants)
+    const veda = input.veda && !ctx.slots.veda ? ["Veda was on, but its reference-model predictor is not in ComfyUI's models/veda folder (Settings › Models has it): made with the full attention."] : [];
     // a prompt that names neither the source nor the cast's picture still runs: H3 may then leave them out, and the job says so
     const lacks = swapPromptLacks(input.who, input.references.length).map((tag) => `The prompt has no ${tag}: H3 may not use ${tag === "<Video 1>" ? "the source video" : "the cast's picture"}.`);
     // Difference asked for and the pack not yet loaded: pasted by the mask, and said

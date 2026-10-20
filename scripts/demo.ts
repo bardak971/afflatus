@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FAKE_GPUS, startFakeComfy, startFakeRunpod, startFakeS3 } from "@afflatus/comfy/testing";
-import type { Graph, NodeCatalog } from "@afflatus/core";
+import { nodesOfPack, type Graph, type NodeCatalog } from "@afflatus/core";
 import { buildApp } from "../apps/server/src/app";
 import { migrate, openSqlite, takeOver } from "../apps/server/src/db";
 import { createServices } from "../apps/server/src/services";
@@ -84,8 +84,16 @@ const folderPaths = process.env.DEMO_MANAGER === "1" ? undefined : Object.fromEn
 /** The model files of a pretend ComfyUI, less those `lacks` names (a pattern on the file name). */
 const lacking = (models: Record<string, string[]>, lacks?: RegExp) => (lacks ? Object.fromEntries(Object.entries(models).map(([k, v]) => [k, v.filter((f) => !lacks.test(f))])) : models);
 
-const pretendComfy = (lacks?: RegExp) => startFakeComfy({
-  catalog,
+// DEMO_NO_PACKS=ComfyUI-DaSiWa-Nodes,veda-sparse-attention: the first pretend ComfyUI lacks those node packs (their nodes out
+// of its list); its pretend Manager installs them and its restart loads them, as a render that asks for one has done
+// (queuePacks.ts: the job waits, Install and restart, Run without)
+const noPackNodes = (process.env.DEMO_NO_PACKS ?? "").split(",").map((p) => p.trim()).filter(Boolean).flatMap(nodesOfPack);
+const withoutPacks = Object.fromEntries(Object.entries(catalog).filter(([n]) => !noPackNodes.includes(n)));
+const packsBack = Object.fromEntries(noPackNodes.flatMap((n) => (catalog[n] ? [[n, catalog[n]!]] : [])));
+
+const pretendComfy = (lacks?: RegExp, first = false) => startFakeComfy({
+  catalog: first && noPackNodes.length ? withoutPacks : catalog,
+  ...(first && noPackNodes.length ? { afterReboot: packsBack } : {}),
   // a pretend ComfyUI-Manager: "Download" in the demo fetches from the pretend site below
   manager: true,
   folderPaths,
@@ -100,7 +108,7 @@ const pretendComfy = (lacks?: RegExp) => startFakeComfy({
   }, lacks),
   simulate: { stepMs: Number(process.env.DEMO_STEP_MS) || 220, video: pretendClip },
 });
-const fake = await pretendComfy();
+const fake = await pretendComfy(undefined, true);
 // DEMO_MACHINES=2 (up to 8): as many pretend ComfyUIs, as if this computer had that many GPUs (Settings › ComfyUI, the queue's lanes)
 // each with files of its own, so that Settings › Models shows a difference: the second has none of MiniMax H3's models nor
 // the Pony checkpoint, the third none of Wan's; the others have everything

@@ -223,6 +223,8 @@ export interface Tables {
     machine_id?: string | null;
     /** The machine it was pinned to by hand; null: whichever the queue picks. */
     pin_machine?: string | null;
+    /** What its Queue row said of the node packs it lacks (JSON: { install?, without? }, pack names; jobPacks.ts); null: the machine's rule. */
+    packs?: string | null;
     created_at: string;
     started_at: string | null;
     finished_at: string | null;

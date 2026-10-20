@@ -29,6 +29,9 @@ import { Forecasts } from "./queueForecast";
 import { Planner, type Able, type PodFetch } from "./queuePlan";
 import { loadedOn, type Loaded } from "./jobFiles";
 import { Outside, outsideBusy } from "./queueOutside";
+import { OwnPacks } from "./queuePacks";
+import { cannotWhy, packsSaid } from "./jobPacks";
+import { formPacks, type FormPackNote } from "./formPacks";
 
 // what the routes and the services name from here: the options, and the RIFE model lookup the timelines routes share with the slow-motion tool
 export { DEFAULT_QUEUE_OPTIONS, type QueueOptions };
@@ -99,6 +102,8 @@ export class Queue {
   private readonly planner: Planner;
   /** Work from outside Afflatus on each machine's ComfyUI (queueOutside.ts). */
   private readonly outside: Outside;
+  /** The node packs renders ask for on the machines of the user's own: installed there, and ComfyUI restarted (queuePacks.ts). */
+  readonly ownPacks: OwnPacks;
   private retry: NodeJS.Timeout | null = null;
   private stopped = false;
   /** While an update waits for the queue (updates.ts): only these jobs may start, the rest wait for the new version. Null: any. */
@@ -174,7 +179,21 @@ export class Queue {
       expectedAll: (recipe, input, cold, job) => this.forecasts.expectedAll(recipe, input, cold, job),
       fitsBalance: (ms) => this.fitsBalance(ms),
       balanceNeed: (machine, recipeId, renderMs, fetchMs) => this.balanceNeed(machine, recipeId, renderMs, fetchMs),
-      loaded: (r, lane, scan) => loadedOn(this.core, r, { id: lane.id, comfy: lane.comfy!, scan }),
+      // a machine of the user's own builds the options whose packs cannot come there without them, as its render will
+      loaded: async (r, lane, scan) => loadedOn(this.core, r, { id: lane.id, comfy: lane.comfy!, scan }, lane.machine?.rented ? {} : { facts: await this.ownPacks.facts(lane), said: packsSaid(r) }),
+      packsCannot: async (lane, packs) => {
+        const facts = await this.ownPacks.facts(lane);
+        const p = packs.find((x) => cannotWhy(facts, x));
+        return p ? `the node pack ${p}: ${cannotWhy(facts, p)}` : null;
+      },
+    });
+    this.ownPacks = new OwnPacks({
+      lane: (id) => this.lanes.get(id),
+      manager: (comfy) => this.managerOf(comfy),
+      changed: () => {
+        this.events.emit("queue");
+        void this.pump();
+      },
     });
     this.outside = new Outside({
       db, events: this.events,
@@ -221,6 +240,7 @@ export class Queue {
       expected: (recipe, input, cold, job, machine) => this.expected(recipe, input, cold, job, machine),
       loadsModel: async (recipe, input, job) => modelOf(recipe.inputs, input) ?? (await this.forecasts.expectedAll(recipe, input, false, job ?? null)).model,
       runTool: (row, work) => this.runTool(l, row, work),
+      packFacts: () => this.ownPacks.facts(l),
     };
     if (id !== TOOLS) l.ready = this.readLane(l);
     this.lanes.set(id, l);
@@ -357,6 +377,7 @@ export class Queue {
   stop(): void {
     this.stopped = true;
     if (this.retry) clearTimeout(this.retry);
+    this.ownPacks.stop();
     for (const lane of this.lanes.values()) {
       if (lane.unloadTimer) clearTimeout(lane.unloadTimer);
       lane.running?.abort.abort(SHUTDOWN);
@@ -528,6 +549,42 @@ export class Queue {
     if (machine !== null && !(await this.machines()).some((m) => m.machine.id === machine)) throw httpError("there is no ComfyUI with that id");
     const done = await this.db.updateTable("jobs").set({ pin_machine: machine, updated_at: now() }).where("id", "=", id).where("status", "=", "queued").executeTakeFirst();
     if (Number(done.numUpdatedRows) === 0) return false;
+    this.events.emit("queue");
+    void this.pump();
+    return true;
+  }
+
+  /**
+   * What a form says under its options whose node packs the machine lacks (formPacks.ts): on `machine`, else the first;
+   * with the other machines that have them, and that machine's rule (Ask, Always; a pod always installs). Null when its
+   * ComfyUI cannot be read.
+   */
+  async formPacks(recipeId: string, input: Record<string, unknown>, machine?: string): Promise<{ machine: string; rule: "ask" | "always" | "pod"; notes: FormPackNote[] } | null> {
+    const recipe = this.registry.recipe(recipeId);
+    const lanes = await this.refresh();
+    const lane = machine ? lanes.find((l) => l.id === machine) : lanes[0];
+    if (!recipe || !lane?.comfy || !lane.machine) return null;
+    const catalog = await lane.comfy.catalog().catch(() => null);
+    if (!catalog) return null;
+    const others = (await Promise.all(lanes.filter((l) => l !== lane && l.comfy && l.reachable !== false && !this.unavailable(l.id)).map(async (l) => {
+      const theirs = await l.comfy!.catalog().catch(() => null);
+      return theirs ? [{ label: l.machine?.name || l.id, catalog: theirs }] : [];
+    }))).flat();
+    const notes = await formPacks(lane.core, recipe, input, { catalog, facts: await this.ownPacks.facts(lane) }, others);
+    return { machine: lane.id, rule: lane.machine.rented ? "pod" : lane.machine.packs, notes };
+  }
+
+  /**
+   * What a waiting job's Queue row said of the node packs it waits for (jobPacks.ts): install them (Install and restart), or
+   * run without them (Run without, only for what it can do without: an option's pack). False when it no longer waits.
+   */
+  async sayPacks(id: string, what: "install" | "without", packs: string[]): Promise<boolean> {
+    const row = await this.db.selectFrom("jobs").select(["packs", "status"]).where("id", "=", id).executeTakeFirst();
+    if (row?.status !== "queued") return false;
+    const said = packsSaid(row);
+    const other = what === "install" ? "without" : "install";
+    const next = { ...said, [what]: [...new Set([...(said[what] ?? []), ...packs])], [other]: (said[other] ?? []).filter((p) => !packs.includes(p)) };
+    await this.db.updateTable("jobs").set({ packs: JSON.stringify(next), updated_at: now() }).where("id", "=", id).where("status", "=", "queued").execute();
     this.events.emit("queue");
     void this.pump();
     return true;
@@ -775,7 +832,7 @@ export class Queue {
     const rows = await this.db.selectFrom("jobs").selectAll().where("status", "=", "queued").orderBy("priority").orderBy("created_at").execute();
     const able = await this.planner.ableOf(rows.filter(needsComfy));
     const planned = paused ? new Map<string, { lane: string; startsInMs: number; endsInMs: number }>() : await this.planner.forecastPlan(lanes, rows, able);
-    const status = await view.status(this.core, views, paused, planned, await this.forecasts.paces(), able);
+    const status = await view.status(this.core, views, paused, planned, await this.forecasts.paces(), able, (job) => this.ownPacks.waitOf(job));
     // when the waiting renders are all done, as the plan shares them between the machines (ms from now): the last end, not
     // their sum (40 jobs on 4 machines were said 5 min, and done in 75 s); null with none planned, or one whose end cannot be told
     const ends = [...planned.values()].map((p) => p.endsInMs);
@@ -898,8 +955,17 @@ export class Queue {
             // on a pod getting files, the first job planned there whose own files are all there
             // a pod whose node packs wait for its ComfyUI to restart (or that restarts now) takes nothing until it is back: the
             // job that needs them is first in its line, and a job sent meanwhile would be lost in the restart
-            if (this.podFetch?.holding(lane.id)) continue;
-            const next = gpuRows.find((r) => !taken.has(r.id) && where.get(r.id)?.lane === lane.id && this.planner.filesThere(r, lane, able));
+            if (this.podFetch?.holding(lane.id) || this.ownPacks.holding(lane.id)) continue;
+            // the first planned there whose files are there and that lacks no node pack it asks for there (a machine of the
+            // user's own: one waiting for its packs, or for the user to say Install, lets the next one go meanwhile)
+            let next: JobRow | undefined;
+            for (const r of gpuRows) {
+              if (taken.has(r.id) || where.get(r.id)?.lane !== lane.id || !this.planner.filesThere(r, lane, able)) continue;
+              if (await this.ownPacks.mayStart(lane, r)) {
+                next = r;
+                break;
+              }
+            }
             if (!next) continue;
             this.startOn(lane, next);
             taken.add(next.id);
@@ -914,6 +980,8 @@ export class Queue {
         }
         // what rented pods were sent for jobs that may no longer run there goes, at every pass (nothing waiting too)
         this.planner.dropUnsought(active, sent);
+        // the packs asked for jobs that are gone are dropped (unless being installed), and their rows forgotten
+        this.ownPacks.keepOnly(new Set(active.filter((r) => r.status === "queued").map((r) => r.id)));
         // the machines that answered this pass, or that run a job now, say whether any ComfyUI is there. A paused machine is
         // asked nothing for the plan: before every ComfyUI is called away (whileOffline gives the jobs up after a while),
         // one paused that answers says it is there, its jobs waiting for its Resume, not for a ComfyUI to come back
@@ -1004,6 +1072,9 @@ export class Queue {
 
   /** Rented pods' files: set by services.ts. */
   podFetch: PodFetch | null = null;
+
+  /** Whether a ComfyUI has ComfyUI-Manager, which installs the node packs renders ask for (downloads.ts manager; set by services.ts); null: not known. */
+  managerOf: (comfy: Comfy) => Promise<boolean | null> = async () => null;
 
   /** Files are coming to a machine now (a rented pod's, their bytes moving): its idle time is held meanwhile (rented.ts). */
   fetching(machine: string): boolean {

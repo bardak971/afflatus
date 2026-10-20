@@ -2,7 +2,7 @@ import { projectForNew, projectParam } from "./project";
 import { unlistOptions, type ListedOptions, type ModelInfo, type RankedGpu } from "@afflatus/core";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
-import type { Advice, DeployOverhead, FillPlan, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumeFilesView, VolumePlan, Job, QueueAnswer, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
+import type { Advice, DeployOverhead, FillPlan, FormPacks, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumeFilesView, VolumePlan, Job, QueueAnswer, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
@@ -224,6 +224,8 @@ export const api = {
   useOnly: (machine: string) => call<QueueAnswer>("POST", "/queue/use-only", { machine }).then(queueOf),
   /** A waiting job pinned to a machine, or back to whichever the queue picks (null). */
   pinJob: (id: string, machine: string | null) => call<QueueAnswer>("POST", `/jobs/${id}/machine`, { machine }).then(queueOf),
+  /** A waiting render's node packs: installed on its machine (Install and restart), or run without. */
+  jobPacks: (id: string, what: "install" | "without", packs: string[]) => call<QueueAnswer>("POST", `/jobs/${id}/packs`, { do: what, packs }).then(queueOf),
   /** Each ComfyUI asked now: whether it answers, its version, its GPU and the node pack it loaded. */
   machines: (o?: Asked) => call<MachineProbe[]>("GET", "/machines", undefined, o?.signal),
   /** Lock a ComfyUI to Afflatus (the node pack's lock), or change its lock: `renew` makes a new token, `local` lets calls from its own computer in. Checked before it counts. */
@@ -349,6 +351,8 @@ export const api = {
     return call<{ items: PromptHistoryItem[] }>("GET", `/prompt-history${qs ? `?${qs}` : ""}`, undefined, o?.signal);
   },
   advice: (recipe: string, input: Record<string, unknown>) => call<{ estimate: Advice | null }>("POST", "/advice", { recipe, input }),
+  /** What the form says under an option whose node pack the machine lacks. */
+  formPacks: (recipe: string, input: Record<string, unknown>) => call<FormPacks>("POST", "/form/packs", { recipe, input }),
   civitaiFind: (file: string, folder: string | null, hints: string[] = []) =>
     call<{ items: CivitaiFind[]; exact: HuggingFaceFind[]; asked: string[]; silent: string[] }>(
       "GET", `/civitai/find?${new URLSearchParams({ file, ...(folder ? { folder } : {}), ...(hints.length ? { hints: hints.join("|") } : {}) })}`,

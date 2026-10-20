@@ -1,4 +1,4 @@
-import { type BuildContext, type GraphBuilder, type Ref, type StartRule } from "@afflatus/core";
+import { wanted, type BuildContext, type GraphBuilder, type Ref, type StartRule } from "@afflatus/core";
 import { applyLoras, livePreview } from "../shared/model";
 import { loadUnet } from "../shared/unet";
 import type { H3Video } from "./inputs";
@@ -92,7 +92,7 @@ export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, 
   // 12 / 3; a reference clip on MiniMax's 4-step reference LoRA: 4 steps at 6 / 3, see H3_STARTS)
   let model = loadUnet(g, ctx, unet);
   // the step cache is for full renders: with the turbo LoRA's 8 steps there is nothing to skip, and it hurts
-  if (input.cache && !turbo && ctx.has("MiniMaxH3Cache")) {
+  if (input.cache && !turbo && wanted(ctx, { input: "cache", nodes: ["MiniMaxH3Cache"], without: "H3's Cache" })) {
     model = g.out("MiniMaxH3Cache", { model, reuse_threshold: input.cacheThreshold, start_percent: Math.min(input.cacheStart, input.cacheEnd), end_percent: input.cacheEnd, max_steps: input.cacheSteps, device: "auto", verbose: false });
   }
   if (input.quick) model = g.out("ModelAttentionBackend", { model, attention: "comfy kitchen attention" });
@@ -103,7 +103,7 @@ export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, 
   // Veda's sparse attention, last on the model before the sampler as its makers ask: after the LoRAs, and after Comfy Kitchen's
   // attention, which it runs on top of for the layers it leaves full. 32 key tiles kept of each query tile, its default and
   // the tested character-swap workflow's (a count, not a share: it holds on small first passes)
-  if (veda && ctx.has("VedaSparseAttention")) {
+  if (veda && wanted(ctx, { input: "veda", nodes: ["VedaSparseAttention"], without: "Veda", instead: "made with the full attention" })) {
     model = g.out("VedaSparseAttention", { model, predictor: veda, generated_sparsity: String(vedaSparsity?.generated ?? 32), reference_sparsity: String(vedaSparsity?.reference ?? 32), full_attention_layers: "", full_attention_steps: "", verbose: false });
   }
   // the live preview, with the sound so far, sent to whoever queued the prompt: what ComfyUI itself shows

@@ -165,6 +165,15 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
   });
 
   /**
+   * What the form says under an option whose node pack the machine it renders on lacks (formPacks.ts): installed on first
+   * use, asked first, or why it cannot be and what the render does instead.
+   */
+  app.post("/api/form/packs", async (req) => {
+    const b = z.strictObject({ recipe: z.string().min(1).max(200), input: z.record(z.string(), z.unknown()), machine: z.string().min(1).max(40).optional() }).parse(req.body);
+    return (await s.queue.formPacks(b.recipe, b.input, b.machine)) ?? { machine: null, rule: null, notes: [] };
+  });
+
+  /**
    * What a form will take, learned from this machine's own renders with the same model (see forecast.ts): a
    * line for the form's Output part, whether it is past where the card slowed down before (the part's header
    * says so then), and the figure the Generate button says. Nothing is assumed about the card; a model never rendered here says nothing.

@@ -1,8 +1,8 @@
 import { Fragment, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { ArrowDownToLine, ArrowUpToLine, Layers, Pin, Server, Trash2, X } from "lucide-react";
-import { api, type Job, type MachineLack, type MachineState, type RunningJob } from "../../api";
+import { ArrowDownToLine, ArrowUpToLine, Layers, Loader2, Pin, Server, Trash2, X } from "lucide-react";
+import { api, type Job, type MachineLack, type MachineState, type PackWait, type RunningJob } from "../../api";
 import { GetFile } from "../../GetFile";
 import { busyOutside, machineLabel, machineState, NO_ROOM, OUTSIDE_TIP, rentedUp, volumeHref, volumeOf } from "../../machines";
 import { useSettings } from "../../data";
@@ -56,7 +56,7 @@ function WaitingHead({ waiting, running, endsInMs, machines }: { waiting: Job[];
  * the rest unfold. With several ComfyUIs (`machines`), each row says the machine it will probably run on and when, or the
  * one it is pinned to; a row dropped on a machine's lane (MachineLanes.tsx), or "Run on" in its menu, pins it there.
  */
-export function WaitingList({ waiting: line, whole = line.length, endsInMs, running, machines = [], onOrder, onRemove, onPin }: {
+export function WaitingList({ waiting: line, whole = line.length, endsInMs, running, machines = [], onOrder, onRemove, onPin, onPacks }: {
   waiting: Job[];
   /** When the plan has the last of them end (QueueStatus.waitingEndsInMs). */
   endsInMs?: number | null;
@@ -64,6 +64,8 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
   whole?: number;
   running: RunningJob | null; machines?: MachineState[];
   onOrder(ids: string[]): void; onRemove(id: string): void; onPin?(job: string, machine: string | null): void;
+  /** A waiting render's node packs: installed on its machine, or run without. */
+  onPacks?(job: string, what: "install" | "without", packs: string[]): void;
 }) {
   const [dragged, setDragged] = useState<string | null>(null);
   const [over, setOver] = useState<number | null>(null);
@@ -189,6 +191,7 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
             )}
             {heldOutside(w) && <span className="min-w-0 truncate text-xs text-ink-2" data-tip={`${machineLabel(heldOutside(w)!)}: ${OUTSIDE_TIP}`}>· {machineLabel(heldOutside(w)!)} busy outside Afflatus</span>}
             {filesOf(w, i) ? <FilesChip of={filesOf(w, i)!} /> : <FetchNote w={w} machines={machines} />}
+            {w.packs && <PacksNote wait={w.packs} machine={machines.length ? machineLabel(machines.find((m) => m.id === w.packs!.machine) ?? { name: w.packs.machine, url: "" }) : null} onPacks={onPacks && ((what, packs) => onPacks(w.id, what, packs))} />}
             {machines.length > 0 && !w.pinned && w.runsOn?.length === 0 && (
               <Link href={settingHref("models.families")} className="shrink-0">
                 <Chip tone="warn" tip="No machine has its files, or its family is off on every one. Settings › Models says what each machine has; or pin it to one (Run on) to download what it lacks there.">no machine can run it</Chip>
@@ -229,6 +232,45 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
       </div>
       {menu.menu && <ContextMenu at={menu.menu.at} label={`Actions on ${menu.menu.subject.label}`} head={waitingHead(menu.menu.subject)} items={itemsOf(menu.menu.subject)} onClose={menu.close} />}
     </div>
+  );
+}
+
+/**
+ * A waiting render's node packs on a machine of the user's own: on Ask, what it waits for with Install and restart, and
+ * Run without when it can do without them (an option's pack: Veda, H3's Cache, RTX VSR); then where their install stands.
+ * `machine`: its name, with several machines.
+ */
+function PacksNote({ wait, machine, onPacks }: { wait: PackWait; machine: string | null; onPacks?: (what: "install" | "without", packs: string[]) => void }) {
+  const names = wait.packs.map((p) => p.name);
+  const said = `the node pack${names.length > 1 ? "s" : ""} ${names.join(", ")}`;
+  const on = machine ? ` on ${machine}` : "";
+  const comfy = machine ? `${machine}'s ComfyUI` : "ComfyUI";
+  // only what every one of its packs can be done without: a pack it cannot run without (GGUF, Impact) leaves Install only
+  const without = wait.packs.every((p) => p.without) ? wait.packs.map((p) => p.without).join(" and ") : null;
+  if (wait.state === "ask") {
+    return (
+      <>
+        <span className="min-w-0 truncate text-xs text-warn-ink" data-tip={`It asks for ${said}, which ${machine ?? "your ComfyUI"} lacks. Settings › Machines can have such packs installed without asking.`}>waits for {said}{on}</span>
+        {onPacks && (
+          <button type="button" className="shrink-0 text-xs font-semibold text-accent hover:underline" data-tip={`ComfyUI-Manager installs ${names.length > 1 ? "them" : "it"}; ${comfy} then restarts once nothing renders on it, from Afflatus or from outside.`} onClick={() => onPacks("install", names)}>
+            Install and restart
+          </button>
+        )}
+        {onPacks && without && (
+          <button type="button" className="shrink-0 text-xs text-ink-2 hover:text-ink hover:underline" data-tip={`This one only: it renders without ${without}, and says so on the job.`} onClick={() => onPacks("without", names)}>
+            Run without {without}
+          </button>
+        )}
+      </>
+    );
+  }
+  if (wait.state === "failed") return <Chip tone="warn" tip={wait.error ?? "ComfyUI-Manager did not install it"}>{names.join(", ")} failed to install</Chip>;
+  const words = wait.state === "restarting" ? `restarting ${comfy}…` : wait.state === "installed" ? `installed · restarts ${comfy} once it is free${wait.waitsFor ? ` (busy with ${wait.waitsFor})` : ""}` : `installing ${names.join(", ")}…`;
+  return (
+    <span className="flex min-w-0 items-center gap-1 truncate text-xs text-ink-2" data-tip={words}>
+      {wait.state !== "installed" && <Loader2 size={11} className="shrink-0 motion-safe:animate-spin" />}
+      {words}
+    </span>
   );
 }
 

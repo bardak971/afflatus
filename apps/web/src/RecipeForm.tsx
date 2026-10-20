@@ -10,6 +10,7 @@ import { ModelDefaults } from "./recipeForm/ModelDefaults";
 import { OutputPart } from "./recipeForm/OutputPart";
 import { CardPrompt, FormSearching, Part, TextFold, useFormAim, useParts } from "./recipeForm/Part";
 import { Strip } from "./recipeForm/Strip";
+import { PackNotes, usePackNotes } from "./recipeForm/packNotes";
 import { useFormSearch } from "./recipeForm/useFormSearch";
 import { scrollInside } from "./scrollInside";
 import { plural } from "./format";
@@ -73,6 +74,8 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
     [recipe, status, settings.data, stored],
   );
   const values = useMemo(() => ({ ...defaults, ...ownValues(recipe, stored) }), [recipe, defaults, stored]);
+  // the node packs the options asked for need where the form renders: said under each (packNotes.tsx)
+  const packNotes = usePackNotes(recipe, values);
   // what decides which settings show: the values, plus what the screen will fill in itself
   const seen = given ? { ...values, ...given } : values;
   // what it will take: the same query as the Generate button's (advice.ts)
@@ -150,6 +153,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
         main={mainText?.type === "prompt" ? { text: String(values[mainText.id] ?? ""), style: mainText.style, set: (text) => onChange(mainText.id, text) } : undefined}
       />
       {i.type === "model" && isMissingModel(i.id) && <Suspense fallback={null}><MissingModel folder={i.folder} file={String(values[i.id])} /></Suspense>}
+      <PackNotes of={packNotes} input={i.id} />
     </div>
   );
   /** A setting, with a mark and a way back when it differs from what the model starts with. */
@@ -217,6 +221,8 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
     <FormSearching.Provider value={Boolean(q)}>
       <Strip parts={ordered(parts, (x) => x.id)} open={(id) => id !== "prompt" && setPart(id, true, true)} query={query} setQuery={setQuery} found={found} />
       {q && found === 0 && <div className="px-1 text-sm text-ink-2">No setting of this form matches “{q}”.</div>}
+      {/* a pack no single option pulls in: said once, above the parts */}
+      <div className="flex flex-col gap-1 px-1 empty:hidden"><PackNotes of={packNotes} input={null} /></div>
       {ordered<[string, ReactNode]>([
         ...(!q ? leads.map((l): [string, ReactNode] => [l.id, <Part key={l.id} id={l.id} title={l.title} help={l.help} summary={l.summary} startOpen>{l.node}</Part>]) : []),
         ["model", ((made && (!q || madeHit)) || knobs.length > 0 || loras.length > 0) && (

@@ -25,11 +25,35 @@ const NODE_PACKS: NodePack[] = [
   { name: "comfyui_nvidia_rtx_nodes", repo: "https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI", nodes: ["RTXVideoSuperResolution"] },
   { name: "comfyui-impact-pack", repo: "https://github.com/ltdrdata/ComfyUI-Impact-Pack", nodes: ["DetailerForEach", "FaceDetailer", "BboxDetectorSEGS", "ImpactSEGSOrderedFilter"] },
   { name: "comfyui-impact-subpack", repo: "https://github.com/ltdrdata/ComfyUI-Impact-Subpack", nodes: ["UltralyticsDetectorProvider"] },
-  { name: "comfyui-kjnodes", repo: "https://github.com/kijai/ComfyUI-KJNodes", nodes: ["ModelPreviewOverrideKJ", "PathchSageAttentionKJ", "ModelPatchTorchSettings"] },
+  { name: "comfyui-kjnodes", repo: "https://github.com/kijai/ComfyUI-KJNodes", nodes: ["ModelPreviewOverrideKJ", "PathchSageAttentionKJ", "ModelPatchTorchSettings", "ImageSharpenKJ"] },
   { name: "comfyui-videohelpersuite", repo: "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite", nodes: ["VHS_VideoCombine"] },
   { name: "comfyui-gguf", repo: "https://github.com/city96/ComfyUI-GGUF", nodes: ["UnetLoaderGGUF"] },
   { name: "comfyui-detail-daemon", repo: "https://github.com/Jonseed/ComfyUI-Detail-Daemon", nodes: ["LyingSigmaSampler"] },
   { name: "comfyui_controlnet_aux", repo: "https://github.com/Fannovel16/comfyui_controlnet_aux", nodes: ["DepthAnythingV2Preprocessor", "DWPreprocessor", "AIO_Preprocessor"] },
+];
+
+/**
+ * Packs that stand in for each other for one thing: either one does it, so Settings › Models says them on one line. The
+ * queue installs the last one when a render asks for it (DaSiWa's, which also brings H3's Cache, and needs no runtime of
+ * NVIDIA's beside it).
+ */
+export const EITHER_PACKS = [
+  { what: "RTX Video Super Resolution", nodes: ["RTXVideoSuperResolution", "DaSiWa_RTX_UpscalerRefiner"], packs: ["comfyui_nvidia_rtx_nodes", "ComfyUI-DaSiWa-Nodes"], said: "NVIDIA's pack or DaSiWa's" },
+];
+
+/** Node types that run on an NVIDIA RTX card only: a machine with another card does without them, its pack never installed for them. */
+export const NVIDIA_ONLY = ["RTXVideoSuperResolution", "DaSiWa_RTX_UpscalerRefiner"];
+
+/** Whether a ComfyUI's device (its /system_stats name) is an NVIDIA card: "cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync". */
+export const isNvidia = (device: string): boolean => /nvidia|^cuda/i.test(device);
+
+/**
+ * Packs no option asks for, used whenever they are there: faster or nicer with them, never installed for a render.
+ * Settings › Models lists them as optional, with what they bring.
+ */
+export const EXTRA_PACKS = [
+  { name: "comfyui-kjnodes", uses: "fp16 accumulation, live preview while rendering, SageAttention, RCAS sharpen after an upscale" },
+  { name: "comfyui-videohelpersuite", uses: "video output (VHS Video Combine); without it, ComfyUI's own Save Video" },
 ];
 
 /** The pack a node type comes from, when it is one the built-in forms use. */

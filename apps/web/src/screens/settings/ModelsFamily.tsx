@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ChevronDown, Download as DownloadIcon } from "lucide-react";
-import { folderOfFileInput, packOfNode } from "@afflatus/core";
+import { EITHER_PACKS, EXTRA_PACKS, folderOfFileInput, nodesOfPack, packOfNode } from "@afflatus/core";
 import { api, type RecipeInfo, type RecipeStatus, type Scan } from "../../api";
 import { useSettings, useSetup } from "../../data";
 import { fileLabel, plural, problemSaid } from "../../format";
@@ -224,7 +224,7 @@ function FileLine({ row, family, name, imported }: { row: FileRow; family: strin
  * A node pack some options of the family use, missing: an optional line like the files', installed through ComfyUI-Manager
  * and ComfyUI restarted as a workflow's missing packs are (the owner: Veda's pack was nowhere to be seen before a render failed).
  */
-function PackLine({ pack, nodes, users, machine }: { pack: string; nodes: string[]; users: string[]; machine?: string }) {
+function PackLine({ pack, nodes, users, machine, extra }: { pack: string; nodes: string[]; users: string[]; machine?: string; extra?: string }) {
   const install = usePackInstall({
     missing: nodes,
     packs: Object.fromEntries(nodes.map((n) => [n, pack])),
@@ -240,13 +240,63 @@ function PackLine({ pack, nodes, users, machine }: { pack: string; nodes: string
     <div className="grid grid-cols-[14px_minmax(0,1fr)_7.5rem_minmax(0,18rem)] items-start gap-3 border-t border-line py-2 first:border-t-0">
       <span aria-label="not there, optional" className="mt-1 size-2.5 rounded-full border-[1.5px] border-dashed border-ink-3" />
       <span className="flex min-w-0 flex-col gap-0.5">
-        <span className="font-semibold">Node pack {pack}</span>
-        <span className="text-xs text-ink-2">Brings {nodes.join(", ")}, which some options of {users.join(", ")} use. Installed by ComfyUI-Manager, then ComfyUI restarts.</span>
+        <span className="font-semibold">Node pack {pack}{extra && <span className="font-normal text-ink-3"> · faster with it</span>}</span>
+        {/* one no option asks for (KJNodes, VideoHelperSuite): what it brings, used whenever it is there */}
+        <span className="text-xs text-ink-2">{extra ? `Brings ${extra}. Used whenever it is there; installed by ComfyUI-Manager, then ComfyUI restarts.` : `Brings ${nodes.join(", ")}, which some options of ${users.join(", ")} use. Installed by ComfyUI-Manager, then ComfyUI restarts.`}</span>
       </span>
       <span className="truncate pt-0.5 font-mono text-[11.5px] text-ink-3">custom_nodes</span>
       <span className="flex min-w-0 flex-col gap-1 text-xs">
         <PackStateLine s={install.stateOf(pack)} />
         <PackInstallActions install={install} named={1} missingLeft={false} />
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Packs that stand in for each other (RTX VSR: NVIDIA's or DaSiWa's), missing both: one line, "either one", with an Install
+ * for each. A render that asks for it has the last one installed (the queue's pick, core EITHER_PACKS).
+ */
+function EitherLine({ either, users, machine }: { either: (typeof EITHER_PACKS)[number]; users: string[]; machine?: string }) {
+  const [picked, setPicked] = useState<number | null>(null);
+  const readAgain = async () => {
+    const scan = await api.rescanSetup(machine);
+    if (!scan.comfy.online) throw new Error("ComfyUI is not answering yet");
+  };
+  const again = { what: "the models list", reopen: "open Settings › Models again" };
+  // one install each, the hooks always both there; the one picked is followed
+  const installs = [
+    usePackInstall({ missing: [either.nodes[0]!], packs: { [either.nodes[0]!]: either.packs[0]! }, machine, readAgain, again }),
+    usePackInstall({ missing: [either.nodes[1]!], packs: { [either.nodes[1]!]: either.packs[1]! }, machine, readAgain, again }),
+  ];
+  const owner = (i: number) => (i === 0 ? "NVIDIA's" : "DaSiWa's");
+  return (
+    <div className="grid grid-cols-[14px_minmax(0,1fr)_7.5rem_minmax(0,18rem)] items-start gap-3 border-t border-line py-2 first:border-t-0">
+      <span aria-label="not there, optional" className="mt-1 size-2.5 rounded-full border-[1.5px] border-dashed border-ink-3" />
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="font-semibold">{either.what}<span className="font-normal text-ink-3"> · either one</span></span>
+        <span className="text-xs text-ink-2">{either.said} ({either.packs.join(" or ")}): used by {users.join(", ")}. NVIDIA RTX cards only. A render that asks for it has DaSiWa's installed.</span>
+      </span>
+      <span className="truncate pt-0.5 font-mono text-[11.5px] text-ink-3">custom_nodes</span>
+      <span className="flex min-w-0 flex-col gap-1 text-xs">
+        {picked === null ? (
+          <span className="flex flex-wrap items-center gap-2">
+            {installs.map((install, i) => (
+              <Button key={either.packs[i]} size="sm" tone={i === 0 ? "primary" : undefined} disabled={install.noManager || install.start.isPending} onClick={() => {
+                setPicked(i);
+                install.start.mutate();
+              }}>
+                {i === 0 ? `Install ${owner(i)} with ComfyUI-Manager` : `or ${owner(i)}`}
+              </Button>
+            ))}
+            {installs[0]!.noManager && <span>ComfyUI-Manager was not found in your ComfyUI: turn it on first (Settings → Models → Missing models says how).</span>}
+          </span>
+        ) : (
+          <>
+            <PackStateLine s={installs[picked]!.stateOf(either.packs[picked]!)} />
+            <PackInstallActions install={installs[picked]!} named={1} missingLeft={false} />
+          </>
+        )}
       </span>
     </div>
   );
@@ -269,6 +319,21 @@ export function FamilyBody({ family, name, help, recipes, machine, imported }: {
   // the custom nodes some options need: once, with the operations they are off in
   const limited = new Map<string, string[]>();
   for (const r of recipes) for (const node of statuses.find((x) => x.id === r.id)?.limitedBy ?? []) limited.set(node, [...(limited.get(node) ?? []), r.title]);
+  // packs that stand in for each other: one line when both are missing, none when one is there (the option runs)
+  const eitherLines = EITHER_PACKS.flatMap((e) => {
+    const off = e.nodes.filter((n) => limited.has(n));
+    const users = [...new Set(off.flatMap((n) => limited.get(n)!))];
+    for (const n of e.nodes) limited.delete(n);
+    return off.length === e.nodes.length ? [<EitherLine key={`either:${e.what}`} either={e} users={users} machine={machine} />] : [];
+  });
+  // packs no option asks for (KJNodes, VideoHelperSuite): a line each, with what they bring, whatever option names a node of theirs
+  const extraLines = EXTRA_PACKS.flatMap((x) => {
+    const nodes = nodesOfPack(x.name);
+    const off = nodes.filter((n) => limited.has(n));
+    const users = [...new Set(off.flatMap((n) => limited.get(n)!))];
+    for (const n of nodes) limited.delete(n);
+    return off.length ? [<PackLine key={`extra:${x.name}`} pack={x.name} nodes={off} users={users} machine={machine} extra={x.uses} />] : [];
+  });
   // the ones of a known pack get a line of their own with the optional files, to install from there; the rest are only said
   const packsOff = new Map<string, { nodes: string[]; users: Set<string> }>();
   const loose = new Map<string, string[]>();
@@ -284,7 +349,7 @@ export function FamilyBody({ family, name, help, recipes, machine, imported }: {
     packsOff.set(pack.name, p);
   }
   const offIn = [...new Set([...loose.values()].flat())];
-  const packLines = [...packsOff].map(([pack, p]) => <PackLine key={`pack:${pack}`} pack={pack} nodes={p.nodes} users={[...p.users]} machine={machine} />);
+  const packLines = [...eitherLines, ...[...packsOff].map(([pack, p]) => <PackLine key={`pack:${pack}`} pack={pack} nodes={p.nodes} users={[...p.users]} machine={machine} />), ...extraLines];
   const line = (row: FileRow) => <FileLine key={row.key} row={row} family={family} name={name} imported={imported} />;
   return (
     <div className="flex flex-col gap-4">

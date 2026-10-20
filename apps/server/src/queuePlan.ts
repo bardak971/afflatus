@@ -5,6 +5,7 @@ import type { Scan } from "@afflatus/comfy";
 import type { Loaded } from "./jobFiles";
 import { lackOn, toolLackOn, type Lack } from "./machineScans";
 import type { PodFiles } from "./podFiles";
+import { PACKS_MS } from "./podPacks";
 import { needsComfy } from "./queueOffline";
 import type { Expected } from "./queueForecast";
 import { CAP_REACHED, readJson, type JobRow, type Lane, type Running } from "./queueModel";
@@ -100,6 +101,8 @@ interface PlanDeps {
   balanceNeed(machine: string, recipeId: string, renderMs: number, fetchMs: number): Promise<number>;
   /** What a job's graph loads on a machine, and what that machine lacks of it (jobFiles.ts loadedOn); null: not built. */
   loaded(r: JobRow, lane: Lane, scan: Scan): Promise<Loaded | null>;
+  /** Why one of these node packs cannot come to a machine of the user's own (no Manager, its install failed); null when they all can. */
+  packsCannot(lane: Lane, packs: string[]): Promise<string | null>;
 }
 
 export class Planner {
@@ -195,6 +198,19 @@ export class Planner {
         const sendable = fits && !short;
         const fetchMs = sendable ? await this.d.podFetch!.untilThere(lane.id, lack!.files, lack!.packs) : 0;
         const balance = await this.balanceLack(r, lane, fetchMs);
+        // a machine of the user's own that lacks only node packs its Manager can install: it runs the job once they are in
+        // (queuePacks.ts, its rule or its row's Install), the time they take counted as a pod's files are
+        const own = !lane.machine!.rented && lack?.sendable && !lack.files.length && lack.packs?.length ? lack : null;
+        const ownCannot = own ? await this.d.packsCannot(lane, own.packs!) : null;
+        if (own && !ownCannot) {
+          can.add(lane.id);
+          if (!pin || pin === lane.id) fetch[lane.id] = { files: [], packs: own.packs!, ms: PACKS_MS };
+          return;
+        }
+        if (own && ownCannot) {
+          lacks[lane.id] = { ...own, sendable: false, why: ownCannot };
+          return;
+        }
         if (lack && !balance && sendable) {
           can.add(lane.id);
           if (!pin || pin === lane.id) fetch[lane.id] = { files: lack.files, ...(lack.packs ? { packs: lack.packs } : {}), ms: fetchMs };
@@ -304,13 +320,14 @@ export class Planner {
       for (const lane of kept) lanes.add(lane);
       const on = where.get(r.id)?.lane;
       const need = on ? fetch[on] : undefined;
-      if (on && need) this.d.podFetch.want(on, need.files, "need", r.id, need.packs);
+      // what a machine of the user's own lacks is its packs only, which it gets itself (queuePacks.ts)
+      if (on && need && this.d.lane(on)?.machine?.rented) this.d.podFetch.want(on, need.files, "need", r.id, need.packs);
       // planned on a pod (lacking files or not): its files are there, nowhere else
       if (on && this.d.lane(on)?.machine?.rented) {
         lanes.add(on);
         continue;
       }
-      const may = Object.keys(fetch).filter((lane) => lane !== on && (all || !this.d.lane(lane)?.paused || r.pin_machine === lane));
+      const may = Object.keys(fetch).filter((lane) => lane !== on && this.d.lane(lane)?.machine?.rented && (all || !this.d.lane(lane)?.paused || r.pin_machine === lane));
       // a job pinned to a pod has its files there, busy or not (they were dropped from the very pod it waits for)
       const pinned = r.pin_machine && may.includes(r.pin_machine) ? r.pin_machine : undefined;
       if (!pinned && kept.length) continue;
@@ -347,7 +364,8 @@ export class Planner {
 
   /** Whether a job planned onto this machine has its files there: always, unless it is a pod still getting them. */
   filesThere(r: JobRow, lane: Lane, able: ReadonlyMap<string, Able>): boolean {
-    if (!able.get(r.id)?.fetch[lane.id]) return true;
+    // a machine of the user's own waits for its node packs at its start instead (queuePacks.ts mayStart)
+    if (!able.get(r.id)?.fetch[lane.id] || !lane.machine?.rented) return true;
     return this.d.podFetch?.jobState(lane.id, r.id) === "ready";
   }
 

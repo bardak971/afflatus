@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { checkGraph, choicesOf, dryContext, parseInput, pickChoice, ruledDefaults, schemaFor, type ChoiceInput, type NodeCatalog } from "@afflatus/core";
+import { checkGraph, choicesOf, dryContext, parseInput, pickChoice, ruledDefaults, schemaFor, type ChoiceInput, type NodeCatalog, type Wanted } from "@afflatus/core";
 import { seedvrChunk, families, familyById, krea2Picture, h3Canvas, h3Frames, h3Prompt, h3Video, introduce, kleinSize, padsFor, recipeById, recipes, sdxlTextToPicture, wanCanvas, wanFrames, wanVideo, ltxCanvas, ltxFrames, ltxVideo, LTX_REFINE_SIGMAS, LTX_SIGMAS, fluxEdit, fluxPicture, qwenEdit, qwenPicture, flux, qwen, wan, ltx, zimage, zimagePicture } from "../src";
 
 const catalog = JSON.parse(
@@ -1608,14 +1608,29 @@ describe("the upscale routes of the video forms", () => {
     expect(wanVideo.nodes(parseInput(wanVideo, { prompt: "a", start: "p", upscale: "Pixel: upscale model" }))).toContain("ImageUpscaleWithModel");
   });
 
-  it("RTX Video Super Resolution goes through the node that drives it, and says so when there is none", () => {
+  it("RTX Video Super Resolution goes through the node that drives it, else the upscale model, else a plain resize", () => {
     // NVIDIA's own node first (a choice that brings its own input, sent as "resize_type.scale"), else DaSiWa's
     const b = wanOf({ upscale: "Pixel: RTX Video Super Resolution", upscaleBy: 2 });
     expect(node(b, "RTXVideoSuperResolution")[0]!.inputs).toMatchObject({ resize_type: "scale by multiplier", "resize_type.scale": 2, quality: "ULTRA" });
     const d = wanOf({ upscale: "Pixel: RTX Video Super Resolution", upscaleBy: 2 }, (c) => c !== "RTXVideoSuperResolution");
     expect(node(d, "DaSiWa_RTX_UpscalerRefiner")[0]!.inputs).toMatchObject({ upscale: "VSR", upscale_quality: "Ultra", resize_type: "Scale", scale: 2, width: 960, height: 1280 });
     expect(wanVideo.optionalNodes).toEqual(expect.arrayContaining(["RTXVideoSuperResolution", "DaSiWa_RTX_UpscalerRefiner"]));
-    expect(() => wanOf({ upscale: "Pixel: RTX Video Super Resolution" }, (c) => c !== "DaSiWa_RTX_UpscalerRefiner" && c !== "RTXVideoSuperResolution")).toThrow(/RTX Video Super Resolution needs a node/);
+    // neither driver (its pack not there, not wanted, or not an NVIDIA card): the form's upscale model when this ComfyUI has
+    // it, else its first, else a plain resize; what was asked is told to the queue (ctx.wants), which says it on the job
+    const none = (c: string) => c !== "DaSiWa_RTX_UpscalerRefiner" && c !== "RTXVideoSuperResolution";
+    const rtx = { upscale: "Pixel: RTX Video Super Resolution", upscaleBy: 2, upscaleModel: "2x.pth" };
+    const asked: Wanted[] = [];
+    const build = (options: string[] | null) => wanVideo.build(parseInput(wanVideo, { prompt: "a", start: "p", ...rtx }), dryContext({
+      slots: { i2vHigh: "h.safetensors", i2vLow: "l.safetensors", clip: "c.safetensors", vae: "v.safetensors" }, uploads: { start: "a.png" }, media: { start: photo },
+      has: none, options: () => options, wants: (w) => (asked.push(w), w.nodes.find(none) ?? null),
+    }));
+    expect(node(build(["4x.pth", "2x.pth"]), "UpscaleModelLoader")[0]!.inputs.model_name).toBe("2x.pth");
+    expect(asked.find((w) => w.input === "upscale")).toMatchObject({ nodes: ["RTXVideoSuperResolution", "DaSiWa_RTX_UpscalerRefiner"], without: "RTX VSR", instead: "upscaled with 2x.pth instead" });
+    expect(node(build(["4x.pth"]), "UpscaleModelLoader")[0]!.inputs.model_name).toBe("4x.pth");
+    const plain = build(null);
+    expect(node(plain, "UpscaleModelLoader")).toHaveLength(0);
+    expect(node(plain, "ImageScale").some((n) => n.inputs.upscale_method === "lanczos" && n.inputs.width === 960)).toBe(true);
+    expect(asked.at(-1)!.instead).toBe("a plain resize instead");
   });
 
   it("an upscale before the frame interpolation keeps the interpolated frames: the file at twice the rate holds twice the frames", () => {

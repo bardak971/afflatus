@@ -209,6 +209,12 @@ export const machineSchema = z.object({
   /** What the queue gives it: everything, pictures only or videos only (a clip, a sound, a finish). */
   takes: z.enum(["all", "image", "video"]).default("all"),
   /**
+   * A node pack a render asks for that its ComfyUI lacks (jobPacks.ts): "ask", the job waits and its Queue row offers
+   * Install and restart; "always", installed through ComfyUI-Manager without asking. ComfyUI restarts only once nothing
+   * renders on it. A rented pod installs what its jobs need whatever this says (podPacks.ts).
+   */
+  packs: z.enum(["ask", "always"]).default("ask"),
+  /**
    * Model families switched on or off on this machine by hand, by family id, over the switch of every machine (`families`
    * below): off, the queue sends it nothing of that family. One not named follows that switch, then its files there.
    */
@@ -386,7 +392,7 @@ async function load(db: Db): Promise<Settings> {
  * have only `comfyUrl` and `comfyDir`, which become the first machine; otherwise the first machine says them.
  */
 function inStep(s: Settings): Settings {
-  if (!s.machines.length) return { ...s, machines: [{ id: FIRST_MACHINE, name: "", url: s.comfyUrl, dir: s.comfyDir, takes: "all", families: {}, token: "" }] };
+  if (!s.machines.length) return { ...s, machines: [{ id: FIRST_MACHINE, name: "", url: s.comfyUrl, dir: s.comfyDir, takes: "all", packs: "ask", families: {}, token: "" }] };
   const [first] = s.machines;
   return { ...s, comfyUrl: first!.url, comfyDir: first!.dir };
 }

@@ -33,6 +33,12 @@ const TAKES: Array<{ value: Machine["takes"]; label: string; tip: string }> = [
   { value: "video", label: "Videos", tip: "Only clips, sounds, finishes and slow motion" },
 ];
 
+/** What a machine of your own does with a node pack a render asks for that its ComfyUI lacks, as the card's switch says it. */
+const PACKS: Array<{ value: Machine["packs"]; label: string; tip: string }> = [
+  { value: "ask", label: "Ask", tip: "The render waits; its Queue row offers Install and restart" },
+  { value: "always", label: "Always", tip: "Installed through ComfyUI-Manager without asking" },
+];
+
 const WHY_SEVERAL = "Each ComfyUI is one machine the queue sends work to: a second GPU of this computer (a ComfyUI of its own, started with --cuda-device 1 --port 8189), another computer, a rented instance. One line of jobs; each machine runs one at a time, the one that would finish it soonest (the model already loaded there, its own learned speed). A job pinned to a machine runs there. The first one is the one the setup, the downloads and the node packs talk to.";
 
 /**
@@ -66,8 +72,20 @@ function MachineFacts({ probe, state, rented }: { probe: MachineProbe | undefine
   );
 }
 
+/**
+ * A machine of your own's rule for a node pack a render asks for that its ComfyUI lacks: on its card, and on the one
+ * ComfyUI's Connection card. `put`: the machine saved with the change.
+ */
+export function PacksRow({ machine, label, put }: { machine: Machine; label: string; put: (change: Partial<Machine>) => void }) {
+  return (
+    <Row setting="comfy.packs" label="Node packs renders need" help={`A render that asks for a node pack ${label} lacks (Veda, H3's Cache, RTX VSR, the GGUF loader). Ask: it waits, and its Queue row offers Install and restart (or Run without, for what it can do without). Always: installed through ComfyUI-Manager without asking. Either way ComfyUI restarts only once nothing renders on it, from Afflatus or from outside.`}>
+      <Segmented oneLine label={`Node packs on ${label}`} value={machine.packs} options={PACKS} onChange={(packs) => put({ packs })} />
+    </Row>
+  );
+}
+
 /** The settings saved with the machines as they are now, and what reads them asked again. */
-function useSaveMachines() {
+export function useSaveMachines() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (machines: Machine[]) => api.saveSettings({ machines }),
@@ -93,7 +111,7 @@ export function AddMachineCard() {
     // an id no machine had before: one removed keeps its pause and its learned speed under its id, and a new one taking
     // that id took them on (the time, to the millisecond, in base 36)
     const id = `m${Date.now().toString(36)}`;
-    save.mutate([...all, { id, name: "", url: url.trim(), dir: "", takes: "all", families: {}, tokenEnd: "" }], { onSuccess: () => setUrl("") });
+    save.mutate([...all, { id, name: "", url: url.trim(), dir: "", takes: "all", packs: "ask", families: {}, tokenEnd: "" }], { onSuccess: () => setUrl("") });
   };
   const exposed = url.trim() !== "" && publicPlainHttp(url.trim());
   return (
@@ -262,6 +280,8 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
       <Row label="Takes" help="What the queue gives this machine. A job pinned to it (dragged onto its lane in the Queue) runs there whatever this says.">
         <Segmented oneLine label={`What ${label} takes`} value={machine.takes} options={TAKES} onChange={(takes) => put({ takes })} />
       </Row>
+      {/* a rented pod installs what its renders need whatever this says: no switch there */}
+      {!rented && <PacksRow machine={machine} label={label} put={put} />}
       {rented && <RentedRows machine={machine} state={state} put={(r) => put({ rented: r })} ops={rentedOps} remove={() => removeRented.mutate()} />}
       <AccessRow id={machine.id} label={label} probe={probe} url={machine.url} rented={rented} compact />
       {(access.failed || removeRented.isError) && <Block>{access.failed && <ErrorNote>{access.failed.message}</ErrorNote>}{removeRented.isError && <ErrorNote>{removeRented.error.message}</ErrorNote>}</Block>}

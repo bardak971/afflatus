@@ -5,7 +5,7 @@ import { pixelUpscale, RTX_NODES, saveVideo, sharpened, UPSCALE, upscaleNodes } 
 import type { Comfy } from "./comfy";
 import { slowSoundOnto } from "./cut";
 import { finishedName, nameOf } from "./autoName";
-import { now, type Tables } from "./db";
+import { now, type Db, type Tables } from "./db";
 import { extOf } from "./media";
 import { readVideo } from "./video";
 import { folderForMade, timelineOfClip } from "./timelineFolder";
@@ -14,6 +14,7 @@ import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB } from "./timelineModel";
 import { Died, GPU_AT_WORK, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type Running } from "./queueModel";
 import { taken } from "./queueSubmit";
+import { ANY_PACKS, asBuilt, optionsIn, packsSaid, ranWithoutSaid } from "./jobPacks";
 
 /** The jobs that need no model of their own: a cut (a copy, a split, a slow-motion, a finish) and an export, done by ffmpeg, with ComfyUI only for RIFE and the upscale routes. */
 
@@ -169,6 +170,14 @@ export interface ToolNeeds {
   anyNode?: string[];
 }
 
+/** Something a tool job did less well than asked, said on the job as a render's is (queue.ts warn). */
+async function warnJob(db: Db, id: string, text: string): Promise<void> {
+  console.warn(`[queue] job ${id}: ${text}`);
+  const had = (await db.selectFrom("jobs").select("warning").where("id", "=", id).executeTakeFirst())?.warning;
+  if (had?.includes(text)) return;
+  await db.updateTable("jobs").set({ warning: had ? `${had} ${text}` : text, updated_at: now() }).where("id", "=", id).execute();
+}
+
 /** The nodes RIFE runs on, a slow-motion's and an interpolated take's finish's. */
 const RIFE_NODES = ["FrameInterpolationModelLoader", "FrameInterpolate"];
 /** What a RIFE slow-motion runs on: its video in, RIFE, its video out. */
@@ -264,7 +273,9 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
     const file = await comfy.client.upload(fromRaw ? raw! : await core.storage.get(video.file_key), extOf(video.mime));
     const g = new GraphBuilder();
     const parts = g.add("GetVideoComponents", { video: g.out("LoadVideo", { file }) });
-    const ctx: BuildContext = { seed: Math.floor(Math.random() * 2 ** 31), slots, uploads: {}, media: {}, has: (n: string) => n in catalog };
+    // RTX VSR done without where its pack is not there (not installable, or Run without): an upscale model instead, said on the job
+    const options = asBuilt(catalog, (await core.packFacts?.().catch(() => null)) ?? ANY_PACKS, packsSaid(row));
+    const ctx: BuildContext = { seed: Math.floor(Math.random() * 2 ** 31), slots, uploads: {}, media: {}, has: (n: string) => n in catalog, options: optionsIn(catalog), wants: options.wants };
     // a continuation's hidden run-up (hiddenRunUp) is not restored: its frames are enlarged plainly to the restored size and
     // put back in front, so that the file keeps every frame, its length and its joins' timing. Counted on the source's own frames
     const sourceFps = fromRaw ? rawFacts!.fps : video.fps ?? 24;
@@ -272,6 +283,7 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
     const frames: Ref = [parts, 0];
     const restore: Ref = skip ? g.out("ImageFromBatch", { image: frames, batch_index: skip, length: 4096 }) : frames;
     const done = pixelUpscale(g, restore, { upscale: route, upscaleBy: by, upscaleModel, upscaleColour: opts.colour, seedvrFrames: opts.seedvrFrames ?? 0 }, source, ctx);
+    for (const { w, why } of options.without) await warnJob(core.db, row.id, ranWithoutSaid(w, why));
     let restored: Ref = done.images;
     if (skip) {
       g.phase("upscaling");

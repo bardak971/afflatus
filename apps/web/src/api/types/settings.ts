@@ -108,6 +108,8 @@ export interface Machine {
   dir: string;
   /** What the queue gives it. */
   takes: "all" | "image" | "video";
+  /** A node pack a render asks for that its ComfyUI lacks: the job waits for a click (Ask), or it is installed (Always). Rented pods always install. */
+  packs: "ask" | "always";
   /** Families switched on or off on this machine by hand, over the switch of every machine (Settings › Models, its tab). */
   families: Record<string, boolean>;
   /** The last four characters of its token when its ComfyUI is locked (the token itself stays on the server); empty without one. */

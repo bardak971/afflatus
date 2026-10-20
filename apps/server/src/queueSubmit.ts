@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, onGrid, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
+import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, onGrid, packOfNode, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
 import { ComfyCancelled, ComfyError, ComfyUnreachable } from "@afflatus/comfy";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
@@ -13,6 +13,7 @@ import { addPart, timedPart } from "./serverMetrics";
 import { maskBox, mirrorPicture, readPicture } from "./thumbs";
 import { ffmpegPool } from "./pool";
 import { readVideo, videoFacts } from "./video";
+import { ANY_PACKS, asBuilt, cannotWhy, optionsIn, packsSaid, ranWithoutSaid } from "./jobPacks";
 import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel";
 import { draftOf, measuredFirst, renderedOf } from "./queueStore";
 
@@ -107,8 +108,14 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const plan = row.clip_id && core.clips ? await core.clips.plan(row.clip_id, recipe, raw, Boolean(row.clip_fit), row.finished_from, false, readJson<string[]>(row.clip_mirror, [])) : null;
   const input = plan ? (parseInput(recipe, plan.input) as Record<string, unknown>) : raw;
   const chosen = settled(recipe, input, catalog);
+  // what the options are given here, and why one is done without (its pack cannot come, the row said Run without)
+  const facts = (await core.packFacts?.().catch(() => null)) ?? ANY_PACKS;
   const missing = recipe.nodes(input).filter((n: string) => !(n in catalog));
-  if (missing.length) throw new Error(missingNodesSaid(missing));
+  if (missing.length) {
+    // a pack that could not come says why, beside how to install it by hand
+    const cannot = [...new Set(missing.map((n) => packOfNode(n)?.name).filter((p): p is string => Boolean(p)))].flatMap((p) => (cannotWhy(facts, p) ? [`${p}: ${cannotWhy(facts, p)}`] : []));
+    throw new Error(`${missingNodesSaid(missing)}${cannot.length ? ` Not installed by Afflatus: ${cannot.join("; ")}.` : ""}`);
+  }
   const { files: slotFiles, gaps } = await timedPart("scan", () => slots(core, comfy, recipe));
   // a family file not here is refused only when this job's graph reads it, seen before anything goes up when it can be
   if (Object.keys(gaps).length) {
@@ -194,12 +201,15 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const seed = typeof input.seed === "number" && input.seed !== RANDOM_SEED ? input.seed : randomSeed();
   // a load asked before the form has its pictures: the models are loaded, without the step that would need them
   const bare = Boolean(row.warm) && (recipe.inputs as InputSpec[]).some((s) => s.type === "image" && input[s.id] === NO_PICTURE);
-  const whole = recipe.build(chosen, { seed, slots: slotFiles, uploads, media, canvas: plan?.canvas, has: (cls) => cls in catalog });
+  const options = asBuilt(catalog, facts, packsSaid(row));
+  const whole = recipe.build(chosen, { seed, slots: slotFiles, uploads, media, canvas: plan?.canvas, has: (cls) => cls in catalog, options: optionsIn(catalog), wants: options.wants });
   const loaders = bare ? warmGraph({ ...whole, passes: [] }) : null;
   if (bare && !loaders) throw new Error("this loads no model: there is nothing to preload");
   const built: BuiltGraph = loaders ? { ...whole, graph: loaders.graph, phases: loaders.phases, passes: [], outputs: [] } : whole;
   refuseGap(built.graph, gaps);
   if (!loaders && whole.warnings?.length) warnings.push(...whole.warnings);
+  // an option done without (its node pack not there): said, with why
+  if (!loaders) warnings.push(...options.without.map(({ w, why }) => ranWithoutSaid(w, why)));
   // a model kept in another sub-folder than the one the graph names is used from where it is
   relocateFiles(built.graph, catalog);
   const imported = Boolean(recipe.imported);
@@ -682,7 +692,7 @@ export async function builtOf(core: QueueCore, recipeId: string, rawInput: unkno
   // a finish that re-samples the draft's own latent is built on it, as submit builds it: else it is built as the draft and its finish both
   if (opts.finishedFrom && recipe.finishing?.(input)?.latent === "own") uploads["self.latent"] = "stand-in";
   const own = opts.slots ? null : await slots(core, comfy, recipe);
-  const built = recipe.build(settled(recipe, input, catalog), { seed: opts.seed ?? 1, slots: opts.slots ?? own!.files, uploads, media, canvas: opts.canvas, has: (cls: string) => cls in catalog });
+  const built = recipe.build(settled(recipe, input, catalog), { seed: opts.seed ?? 1, slots: opts.slots ?? own!.files, uploads, media, canvas: opts.canvas, has: (cls: string) => cls in catalog, options: optionsIn(catalog), ...(opts.wants ? { wants: opts.wants } : {}) });
   // with this ComfyUI's own files (a forecast, Open in ComfyUI), a graph reading one it does not have is refused as before:
   // it named afflatus-missing-slot.… in ComfyUI's editor, and a forecast was keyed on it
   if (own) refuseGap(built.graph, own.gaps);
@@ -700,6 +710,8 @@ export interface BuildOn {
   catalog?: Awaited<ReturnType<Comfy["catalog"]>>;
   slots?: Record<string, string>;
   relocate?: boolean;
+  /** What the options the form turned on are given (jobPacks.ts lookAhead: the nodes they ask for, to be installed there); left out, what this ComfyUI has. */
+  wants?: BuildContext["wants"];
 }
 
 /** A library picture's size, as uploadImage sends it; null when it is not known (the stand-in's square is used). */
