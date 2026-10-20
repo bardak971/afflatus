@@ -113,7 +113,11 @@ export function registerEvents(app: FastifyInstance, s: Services, version: strin
     const all = await s.machines();
     const read = await Promise.all(all.map(async ({ machine, comfy }) => ({ id: machine.id, load: await comfy.load().catch(() => null), answered: comfy.answered })));
     const heard = read.filter((r) => r.answered !== null);
-    if (heard.length) s.queue.noteReachable(heard.some((r) => r.answered), new Map(heard.map((r) => [r.id, r.answered!])));
+    // whether a ComfyUI is away is said of those expected to answer: the user's own, and pods meant to be up. A stopped pod
+    // is off, not away; with none expected at all (rented only, no pod up; no machine yet) nothing is away
+    const expected = heard.filter((r) => !s.queue.unavailable(r.id));
+    if (expected.length) s.queue.noteReachable(expected.some((r) => r.answered), new Map(heard.map((r) => [r.id, r.answered!])));
+    else if (!all.some(({ machine }) => !machine.rented)) s.queue.noteReachable(true, new Map(heard.map((r) => [r.id, r.answered!])));
     // and whether a ComfyUI runs work from outside Afflatus (its own page): a change its socket said that was missed is caught here
     void s.queue.lookOutside().catch(() => {});
     if (!clients.size) return;

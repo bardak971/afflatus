@@ -1,9 +1,10 @@
+import { envSaid } from "./config";
 import { httpError, notFound } from "./errors";
 import type { FastifyInstance } from "fastify";
 import { said } from "./forecast";
 import { allowedHosts, hostAllowed } from "./hostCheck";
 import { z } from "zod";
-import { ComfyLocked } from "@afflatus/comfy";
+import { ComfyClient, ComfyLocked, plannedScan } from "@afflatus/comfy";
 import { describeRecipe, listOptions } from "@afflatus/core";
 import { mergeScans } from "./machineScans";
 import { accessOf } from "./lock-api";
@@ -26,7 +27,30 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
   app.post("/api/health/check", async () => health(await preflight.run()));
 
   /** Everything the composer can make things with, and the form of each. */
-  app.get("/api/recipes", async () => ({ families: s.registry.families(), recipes: s.registry.recipes().map(describeRecipe) }));
+  app.get("/api/recipes", async () => ({ families: s.registry.families(), recipes: s.registry.recipes().map(describeRecipe), sizes: await s.officialSizes.sizes() }));
+
+  /**
+   * A ComfyUI asked at an address without saving it (the first launch, Settings' Find it): whether it answers, its version
+   * and its GPU. `/find` asks the usual addresses in turn (envSaid.probeUrls) and says the first that answers.
+   */
+  const probe = async (url: string) => {
+    try {
+      const st = await new ComfyClient(url).status();
+      return { url, online: true as const, version: st.version, device: st.device, locked: false, error: null };
+    } catch (e) {
+      // locked against Afflatus: a ComfyUI is there, its token to paste once added
+      return { url, online: false as const, version: null, device: null, locked: e instanceof ComfyLocked, error: e instanceof Error ? e.message : String(e) };
+    }
+  };
+  app.post("/api/setup/probe", async (req) => probe(z.object({ url: z.string().trim().url().max(400).regex(/^https?:\/\//i, "an http(s) address") }).parse(req.body ?? {}).url.replace(/\/+$/, "")));
+  app.get("/api/setup/find", async () => {
+    const tried = (envSaid.probeUrls() ?? "http://127.0.0.1:8188,http://127.0.0.1:8000").split(",").map((u) => u.trim()).filter(Boolean);
+    for (const url of tried) {
+      const got = await probe(url);
+      if (got.online || got.locked) return { found: got, tried };
+    }
+    return { found: null, tried };
+  });
 
   app.get("/api/settings", async () => publicSettings(await readSettings(s.db)));
   app.put("/api/settings", async (req) => {
@@ -74,6 +98,9 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
       return listOptions(await one.comfy.scan(fresh));
     }
     const scans = await Promise.all(all.map(async ({ machine: m, comfy }) => ({ machine: m, scan: await comfy.scan(fresh) })));
+    // no ComfyUI of the user's own and no pod answering (a rented-only start, a new install before its first launch): what
+    // a pod would offer, so that the forms work and their jobs wait for a GPU. One of their own that is off says it is off
+    if (!scans.some((x) => x.scan.comfy.online) && !scans.some((x) => !x.machine.rented)) return listOptions(await plannedScan(s.registry.families(), s.registry.recipes()));
     return listOptions(mergeScans(scans, await readSettings(s.db), (id) => s.registry.recipe(id)?.family));
   };
   const machineQuery = z.object({ machine: z.string().max(40).optional() });
@@ -147,7 +174,7 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
     const all = await s.machines();
     // the first machine only when none was named: a machine named and gone (a pod removed in another tab) is not
     // another one to restart, least of all the first ComfyUI, rebooted unasked
-    const on = machine === undefined ? all[0]! : all.find((m) => m.machine.id === machine);
+    const on = machine === undefined ? all[0] : all.find((m) => m.machine.id === machine);
     if (!on) throw notFound("this machine");
     if ((await s.queue.status()).machines.find((m) => m.id === on.machine.id)?.running) throw httpError("A render is running: restart ComfyUI once it is done.", 409);
     const comfy = on.comfy;

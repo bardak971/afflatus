@@ -132,7 +132,10 @@ export async function status(
     runsOn: r.status === "queued" ? onlyOn(r.id) : null,
     /** Of such a render: what keeps it off each other machine (its family off there, the files it lacks there), by machine id. */
     lacks: r.status === "queued" && onlyOn(r.id) ? able.get(r.id)?.lacks ?? null : null,
-    /** Of a waiting render: the rented pods it can run on once its files are sent there, with the files and how long they take (ms). */
+    /**
+     * Of a waiting render: the rented pods it can run on once its files are sent there, with the files and how long they take
+     * (ms); and a machine of the user's own it waits on for files to be downloaded there (its row's Download, never unasked).
+     */
     fetch: r.status === "queued" && Object.keys(able.get(r.id)?.fetch ?? {}).length ? able.get(r.id)!.fetch! : null,
     /** Of a waiting render: the node packs it waits for on a machine of the user's own, and where they stand (Install and restart, Run without). */
     packs: r.status === "queued" ? packWait(r.id) ?? null : null,

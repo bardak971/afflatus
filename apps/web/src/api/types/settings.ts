@@ -237,8 +237,12 @@ export interface Settings {
   designerInstruction: string;
   /** Tags written for an anime model are compared with danbooru's list. */
   tagCheck: boolean;
-  /** Model families switched on or off by hand; one that is not named follows its files. */
+  /** Model families switched on or off by hand; one that is not named follows its files, or is on with `allFamilies`. */
   families: Record<string, boolean>;
+  /** A family not named in `families` is on whatever files are found (a new install's rule; "Turn them all on"). */
+  allFamilies: boolean;
+  /** The first launch's page: "pending" until it is done or skipped. */
+  firstLaunch: "pending" | "done";
   hasCivitaiKey: boolean;
   /** A Hugging Face token is set (gated models). */
   hasHuggingFaceToken: boolean;

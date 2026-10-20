@@ -1,6 +1,6 @@
 import { lockMachine } from "./lock-api";
 import { Rented } from "./rented";
-import { Comfy, type MachineComfy } from "./comfy";
+import { Comfy, NO_COMFY_URL, type MachineComfy } from "./comfy";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -31,6 +31,7 @@ import { Precompute, type PrecomputeOptions } from "./precompute";
 import { Notify } from "./notify";
 import { Access } from "./access";
 import { Hunt } from "./hunt";
+import { OfficialSizes } from "./officialSizes";
 
 /** Everything the routes need, built once at start (and once per test). */
 export interface Services {
@@ -67,6 +68,8 @@ export interface Services {
   shippedPresets: ShippedPresets;
   /** Newer versions of the model files on Civitai. */
   updates: Updates;
+  /** How large the families' official files are, by address (officialSizes.ts). */
+  officialSizes: OfficialSizes;
   /** Every model file of this computer hashed once, and which site has it (modelHashes.ts). */
   hashes: ModelHashes;
   /** The first sweep done, which runs in the background from the start (the tests wait for it, so that it does not sweep what they set up). */
@@ -128,10 +131,15 @@ export async function createServices(
     }
     return s.machines.map((machine) => ({ machine, comfy: clientOf(machine) }));
   };
-  const comfy = async () => (await machines())[0]!.comfy;
+  // with no machine at all (a new install before its first launch, a rented-only one with no pod), what asks "the first
+  // ComfyUI" (a node list, a model folder) is given one at an address nothing listens on: it is told ComfyUI does not
+  // answer, as with one that is off, and never reaches a ComfyUI the user did not add (one on 8188 they chose not to use)
+  let nowhere: Comfy | null = null;
+  const firstOf = (all: MachineComfy[]) => all[0]?.comfy ?? (nowhere ??= new Comfy(NO_COMFY_URL, registry));
+  const comfy = async () => firstOf(await machines());
   const comfyOf = async (id: string | null | undefined) => {
     const all = await machines();
-    return (all.find((x) => x.machine.id === id) ?? all[0]!).comfy;
+    return all.find((x) => x.machine.id === id)?.comfy ?? firstOf(all);
   };
   const queue = new Queue(db, storage, machines, registry, queueOptions);
   queue.events.on("models", () => {
@@ -258,6 +266,7 @@ export async function createServices(
   const services: Services = {
     db, dbKind, storage, linked, registry, comfy, machines, comfyOf, queue, timelines, rented, notify, access, podFiles, podOutside, downloads,
     shippedPresets,
+    officialSizes: new OfficialSizes(db, () => registry.families()),
     updates: null as unknown as Updates,
     hashes: null as unknown as ModelHashes,
     hunt: null as unknown as Hunt,

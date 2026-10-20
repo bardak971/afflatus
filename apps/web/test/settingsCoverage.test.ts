@@ -33,6 +33,8 @@ const SERVER: Record<string, string> = {
   designerInstruction: "internal: the system prompt picked in the designer's panel, remembered for the next conversation",
   tagCheck: "server.tagCheck",
   families: "models.families",
+  allFamilies: "models.families",
+  firstLaunch: "internal: the first launch's page, shown once and then done or skipped (Settings › ComfyUI brings it back)",
   hasCivitaiKey: "models.civitaiKey",
   hasHuggingFaceToken: "models.huggingFaceToken",
   hasRunpodKey: "comfy.runpod",

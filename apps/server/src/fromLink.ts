@@ -126,7 +126,7 @@ async function fromHuggingFace(at: URL): Promise<LinkFound> {
 }
 
 /** How large a file is, asked without fetching it. 0 when the site does not say. */
-async function sizeOf(url: string): Promise<number> {
+export async function sizeOf(url: string): Promise<number> {
   // where a pretend Civitai stands in (the tests, the demo), no other site is asked either
   if (pretendSites()) return 0;
   try {

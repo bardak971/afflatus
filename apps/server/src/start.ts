@@ -9,7 +9,7 @@ import { envSaid, type Config } from "./config";
 import { migrate, openDb, type DbKind } from "./db";
 import type { QueueOptions } from "./queue";
 import { createServices, type Services } from "./services";
-import { readSettings } from "./settings";
+import { readSettings, seedNewInstall } from "./settings";
 import { resetAccess } from "./access";
 import { installNodePack } from "./nodePack";
 import { LocalStorage } from "./storage";
@@ -155,6 +155,8 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<St
       throw new NewerLibraryError(config.dataDir, newer[1]!, kind === "sqlite" ? await copyBeforeNewer(config.dataDir) : null);
     });
     if (applied.length) log.log(`[db] migrated: ${applied.join(", ")}`);
+    // a database made just now is a new install: it starts with no ComfyUI expected and the first launch to show
+    if (applied.includes("0001_settings")) await seedNewInstall(db);
     // the way back in for an owner who lost the password and every way to a code: said loudly, never quietly
     if (envSaid.resetPassword()) {
       log.warn("[access] AFFLATUS_RESET_PASSWORD=1: removing the password and every session. Take the setting out once in.");

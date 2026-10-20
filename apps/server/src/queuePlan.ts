@@ -6,6 +6,8 @@ import type { Loaded } from "./jobFiles";
 import { lackOn, toolLackOn, type Lack } from "./machineScans";
 import type { PodFiles } from "./podFiles";
 import { PACKS_MS } from "./podPacks";
+
+
 import { needsComfy } from "./queueOffline";
 import type { Expected } from "./queueForecast";
 import { CAP_REACHED, readJson, type JobRow, type Lane, type Running } from "./queueModel";
@@ -143,15 +145,18 @@ export class Planner {
   }
 
   /**
-   * With several machines, the machines that can run each waiting render: its recipe ready there, its family on there, the
-   * files it asks for listed there (machineScans.ts lackOn), and what keeps it off each of the others. A machine known to be
-   * away, or whose scan cannot be read, is not held against a job. Nothing with one machine: it takes everything, as it always did.
+   * The machines that can run each waiting render: its recipe ready there, its family on there, the files it asks for listed
+   * there (machineScans.ts lackOn), and what keeps it off each of the others. A machine known to be away, or whose scan cannot
+   * be read, is not held against a job. A machine of the user's own that lacks only files with a download address (a family's
+   * official file, picked greyed in a form) can run it once they are in: it waits there, Download on its Queue row. A lone
+   * machine of the user's own takes everything else, as it always did.
    */
   async ableOf(rows: JobRow[]): Promise<Map<string, Able>> {
     const out = new Map<string, Able>();
     const lanes = this.d.machineLanes().filter((l) => l.machine && l.comfy);
-    // one machine takes everything, unless it is a rented pod whose balance a job would outlast
-    if ((lanes.length < 2 && !lanes.some((l) => l.machine!.rented)) || !rows.length) return out;
+    if (!rows.length) return out;
+    // a lone machine of the user's own is judged only for the files it may be given (downloaded on its row's say-so)
+    const alone = lanes.length < 2 && !lanes.some((l) => l.machine!.rented);
     const settings = await readSettings(this.d.db).catch(() => null);
     if (!settings) return out;
     const machines = new Map(settings.machines.map((m) => [m.id, m]));
@@ -169,6 +174,8 @@ export class Planner {
       const lacks: Record<string, Lack> = {};
       const fetch: Able["fetch"] = {};
       const unjudged = new Set<string>();
+      /** The machines of the user's own where it would wait for files to be downloaded (its row's Download). */
+      const waitsHere = new Map<string, Lack>();
       // a job pinned to a machine (or held for the one it was lost on) runs nowhere else: no other pod is sent its files
       // (a job pinned to this PC had its 13 GB model fetched onto the pod, ahead of a render that could never come there)
       const pin = r.pin_machine ?? this.d.heldOn(r);
@@ -187,9 +194,9 @@ export class Planner {
         }
         // a lone rented pod is asked too: what it lacks may be sent to it
         // what the job's graph loads there, not every file of its family (a swap's pod was sent the family's video model)
-        const asked = (lanes.length > 1 || lane.machine!.rented) && scan?.comfy.online;
-        const loaded = asked ? await this.d.loaded(r, lane, scan) : null;
-        const lack = !asked ? null : recipe ? lackOn(recipe, input, scan, settings, machines.get(lane.id) ?? lane.machine!, familyOf, loaded) : loaded ? toolLackOn(loaded, this.d.registry.family(TOOLS_FAMILY)?.slots ?? []) : null;
+        const asked = scan?.comfy.online ? scan : null;
+        const loaded = asked ? await this.d.loaded(r, lane, asked) : null;
+        const lack = !asked ? null : recipe ? lackOn(recipe, input, asked, settings, machines.get(lane.id) ?? lane.machine!, familyOf, loaded) : loaded ? toolLackOn(loaded, this.d.registry.family(TOOLS_FAMILY)?.slots ?? []) : null;
         // a pod that lacks only files it can be sent: it can run the job once they came, their time to come part of what the
         // balance must last
         const fits = Boolean(lack?.sendable && lane.machine!.rented && this.d.podFetch && !this.d.podFetch.failed(lane.id, lack.files, lack.packs));
@@ -211,6 +218,18 @@ export class Planner {
           lacks[lane.id] = { ...own, sendable: false, why: ownCannot };
           return;
         }
+        // a machine of the user's own that lacks only files it can download: it runs the job once they are in, the job held
+        // there meanwhile (filesThere), never downloading by itself
+        const download = !lane.machine!.rented && lack?.sendable && !lack.off && !lack.packs?.length && lack.files.length && lack.files.every((f) => f.url) ? lack : null;
+        if (download) {
+          waitsHere.set(lane.id, download);
+          return;
+        }
+        // alone, anything else it lacks is ComfyUI's to say, as it always was: it takes the job
+        if (alone) {
+          can.add(lane.id);
+          return;
+        }
         if (lack && !balance && sendable) {
           can.add(lane.id);
           if (!pin || pin === lane.id) fetch[lane.id] = { files: lack.files, ...(lack.packs ? { packs: lack.packs } : {}), ms: fetchMs };
@@ -220,6 +239,16 @@ export class Planner {
         if (lack || balance) lacks[lane.id] = { ...(lack ?? { off: false, files: [], sendable: false }), ...(balance ? { balance } : {}), ...(failed ? { failed } : {}) };
         else can.add(lane.id);
       }));
+      // one that would wait for a download goes to a machine that can run it now, when there is one (the files no time to
+      // count: they come when the user says); else it waits there, on its machine, for its Download
+      for (const [id, lack] of waitsHere) {
+        if (can.size) {
+          lacks[id] = lack;
+          continue;
+        }
+        can.add(id);
+        if (!pin || pin === id) fetch[id] = { files: lack.files, ms: 0 };
+      }
       // a timeline clip of a model that joins in a kept latent (H3): on a machine that has the join's nodes (the Afflatus node
       // pack), while any has them. Sent elsewhere, the clip saves no latent and the clip after it joins on frames with no word
       const latentNodes = r.clip_id ? recipe?.traits?.latentNodes : undefined;
@@ -362,10 +391,15 @@ export class Planner {
     }
   }
 
-  /** Whether a job planned onto this machine has its files there: always, unless it is a pod still getting them. */
+  /**
+   * Whether a job planned onto this machine has its files there: always, unless it is a pod still getting them, or a machine
+   * of the user's own waiting for files to be downloaded (the next pass, its folders read again, finds them in).
+   */
   filesThere(r: JobRow, lane: Lane, able: ReadonlyMap<string, Able>): boolean {
+    const fetch = able.get(r.id)?.fetch[lane.id];
+    if (!fetch) return true;
     // a machine of the user's own waits for its node packs at its start instead (queuePacks.ts mayStart)
-    if (!able.get(r.id)?.fetch[lane.id] || !lane.machine?.rented) return true;
+    if (!lane.machine?.rented) return !fetch.files.length;
     return this.d.podFetch?.jobState(lane.id, r.id) === "ready";
   }
 
