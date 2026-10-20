@@ -84,7 +84,7 @@ from .continuation_nodes import (  # noqa: E402
 )
 from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, AfflatusH3SeamLatent, AfflatusH3TailGuide, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent  # noqa: E402
 from .face_match import AfflatusFaceAt, AfflatusFaceMatch, available as face_available  # noqa: E402
-from .swap_mask import AfflatusSwapMask, AfflatusSwapMaskPreview, AfflatusSwapMatch, AfflatusSwapPaste  # noqa: E402
+from .swap_mask import AfflatusSwapMask, AfflatusSwapMaskPreview, AfflatusSwapPaste  # noqa: E402
 
 
 def _version() -> str:
@@ -118,7 +118,6 @@ class AfflatusExtension(ComfyExtension):
             AfflatusSwapMask,
             AfflatusSwapMaskPreview,
             AfflatusSwapPaste,
-            AfflatusSwapMatch,
             # a face's likeness to some photos, for the pictures a Motion transfer is made from: only with insightface installed
             *([AfflatusFaceMatch, AfflatusFaceAt] if face_available() else []),
         ]

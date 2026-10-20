@@ -54,10 +54,6 @@ export interface H3Swap extends H3Video {
   paste: string;
   pasteThreshold: number;
   pasteSpread: number;
-  /** The zone's outer band fading (px within Grow), the model patched by Differential Diffusion; 0 off. */
-  softZone: number;
-  /** The render matched in colour to the source on the wall around the person before the paste-back. */
-  matchColour: boolean;
   detectionThreshold: number;
   maxObjects: number;
   detectInterval: number;
@@ -103,7 +99,8 @@ const NOT_TAKEN = new Set([
 const SWAP_GUIDE = `A SWAP PROMPT is for akatz-ai's Character-Swap LoRA on MiniMax H3's reference model. It is not a scene: the video and the picture give the place, the light, the camera and the motion.
 - Start with the LoRA's sentence, the person to replace named by what is visible in <Video 1>: "Replace the young woman with long brown hair in the blue and black jersey in <Video 1> with the man in <Picture 1>." Hair, clothes and place in the frame are what pick them out.
 - Say man, woman, boy or girl. Never "character" (it turns the result into a cartoon), never "the person" alone (it often swaps nothing).
-- Then a few short sentences: what of <Picture 1> is kept (the face and hair; the clothes of <Video 1> unless the user wants the picture's); "Match the woman's position, scale, pose and movement in <Video 1>."; "Keep the room of <Video 1> exactly as it is."
+- Then a few short sentences: what of <Picture 1> is kept (the face and hair; the clothes of <Video 1> unless the user wants the picture's); "Match the position, scale, pose and movement in <Video 1>."; "Keep the room of <Video 1> exactly as it is."
+- Name the person replaced once, in the first sentence: a later mention ("the woman's position") names them to the model again, as a negation names what it denies.
 - Say only what to keep, in positive words. Never a negation and never a mention of what is unwanted: the model reads "do not add people" or "the other people" as people, and drew some (the owner's take, 2026-10-18). Name no one but the person replaced and the one who goes in.
 - No strong expression words (they stopped the swap), no camera, light, style or quality words.
 - Keep <Video 1> and <Picture 1> exactly as written, with their angle brackets.
@@ -205,15 +202,6 @@ const swapInputs: InputSpec[] = [
   { id: "pasteThreshold", type: "number", label: "Difference threshold", min: 0.01, max: 0.3, step: 0.01, default: 0.06, chapter: "mask", showWhen: { input: "paste", in: ["Difference"] }, note: "AfflatusSwapPaste's threshold: how much the render has to differ from the source to be kept. Higher gives back more of the wall, lower keeps more of what H3 drew" },
   // people H3 invents near the person (the table behind him, Grow 160: the owner, 2026-10-18) are not kept past it
   { id: "pasteSpread", type: "number", label: "Difference spread", min: 0, max: 200, step: 4, default: 40, unit: " px", chapter: "mask", showWhen: { input: "paste", in: ["Difference"] }, note: "AfflatusSwapPaste's spread: how far from the person what differs is kept. Wider keeps a limb that moves far, narrower drops someone H3 invented nearby" },
-  // the two the web found for a redrawn edge that shows (the owner, 2026-10-18), off until a take says they help
-  {
-    id: "softZone", type: "number", label: "Soft zone", min: 0, max: 160, step: 16, default: 0, unit: " px", chapter: "mask", showWhen: "maskOn",
-    note: "the zone's outer band, this wide within Grow, redrawn less and less towards its edge (ComfyUI's Differential Diffusion on the model): the wall H3 hands back there is close to the source's, so the edge shows less. 0: off",
-  },
-  {
-    id: "matchColour", type: "toggle", label: "Colour match", default: false, chapter: "mask", showWhen: "maskOn",
-    note: "the render's colours moved to the source's before the paste-back, measured on the wall around the person only (AfflatusSwapMatch), so a brightness or colour shift does not show at the edge",
-  },
   { id: "pasteGrow", type: "number", label: "Paste grow", min: 0, max: 200, step: 2, default: 30, unit: " px", chapter: "mask", showWhen: "maskOn", note: "Swap Mask's paste_grow: how far past the person the render is kept; past it the source's own pixels come back" },
   { id: "pasteBlur", type: "number", label: "Paste blur", min: 0, max: 32, step: 0.5, default: 5, unit: " px", chapter: "mask", showWhen: "maskOn", note: "Swap Mask's paste_blur: the paste-back edge's blur" },
   // ±3: an arm SAM lost for a frame of a fast gesture stays the render's (the owner's Bulin 47 take, §9.11)
@@ -337,7 +325,7 @@ const MASK_NODES = ["CheckpointLoaderSimple", "CLIPTextEncode", "SAM3_VideoTrack
  * Swap Mask's id once the graph has it: its notes (no one found, the person before lost) are said on the job.
  */
 /** The Mask card's settings, as the nodes take them. */
-type MaskSettings = Pick<H3Swap, "track" | "grow" | "pasteGrow" | "pasteBlur" | "pasteReach" | "detectionThreshold" | "maxObjects" | "detectInterval" | "matchStrength" | "paste" | "pasteThreshold" | "pasteSpread" | "softZone" | "matchColour">;
+type MaskSettings = Pick<H3Swap, "track" | "grow" | "pasteGrow" | "pasteBlur" | "pasteReach" | "detectionThreshold" | "maxObjects" | "detectInterval" | "matchStrength" | "paste" | "pasteThreshold" | "pasteSpread">;
 
 function masked(file: string, sam: string, m: MaskSettings, has: (cls: string) => boolean, before?: { file: string; frames: number }, click?: { x: number; y: number }, preview?: (g: GraphBuilder, images: Ref) => string): { extra: Pick<H3Extra, "latent" | "frames">; node: () => string | null; preview: () => string | null } {
   let part: Ref | null = null;
@@ -363,7 +351,7 @@ function masked(file: string, sam: string, m: MaskSettings, has: (cls: string) =
         // the render kept 30 px past the person (was 10): his edges and a hand SAM lost no longer stop at the source's
         // pixels (the owner's Bulin 47 take, 2026-10-17, §9.11); the node pack keeps it over the frames around each, from 0.24.0
         // paste_reach only when not the node's own 3: a pack before 0.27.0 has no such input
-        masks = g.add("AfflatusSwapMask", { track_data: track, frames: at.frames, width: at.width, height: at.height, grow: m.grow, paste_grow: m.pasteGrow, paste_blur: m.pasteBlur, ...(m.pasteReach !== 3 ? { paste_reach: m.pasteReach } : {}), ...(m.softZone > 0 ? { soft: m.softZone } : {}), images: part, ...(handed ? { previous: handed } : {}), ...(click && !handed ? { pick_x: click.x, pick_y: click.y } : {}) });
+        masks = g.add("AfflatusSwapMask", { track_data: track, frames: at.frames, width: at.width, height: at.height, grow: m.grow, paste_grow: m.pasteGrow, paste_blur: m.pasteBlur, ...(m.pasteReach !== 3 ? { paste_reach: m.pasteReach } : {}), images: part, ...(handed ? { previous: handed } : {}), ...(click && !handed ? { pick_x: click.x, pick_y: click.y } : {}) });
         // Show the mask: the masks drawn over the frames they were made from, saved as a short video of their own
         if (preview) shown = preview(g, g.out("AfflatusSwapMaskPreview", { images: part, noise_mask: [masks, 0], paste_mask: [masks, 1] }));
         const video = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: part, vae: at.vae }), mask: [masks, 0] });
@@ -381,15 +369,11 @@ function masked(file: string, sam: string, m: MaskSettings, has: (cls: string) =
             method: "reinhard_lab", source_stats: "target_frame", "source_stats.target_index": before.frames - 1, strength: m.matchStrength,
           })
           : images;
-        // its colours made the source's on the wall around the person, before it goes back over the source
-        const toned = m.matchColour && has("AfflatusSwapMatch")
-          ? g.out("AfflatusSwapMatch", { render: matched, source: part, noise_mask: [masks, 0], paste_mask: [masks, 1], strength: 1, smooth: 2 })
-          : matched;
-        if (m.paste === "Off") return toned;
+        if (m.paste === "Off") return matched;
         if (m.paste === "Difference" && has("AfflatusSwapPaste")) {
-          return g.out("AfflatusSwapPaste", { render: toned, source: part, noise_mask: [masks, 0], paste_mask: [masks, 1], threshold: m.pasteThreshold, grow: 8, blur: m.pasteBlur, reach: 1, ...(m.pasteSpread !== 40 ? { spread: m.pasteSpread } : {}) });
+          return g.out("AfflatusSwapPaste", { render: matched, source: part, noise_mask: [masks, 0], paste_mask: [masks, 1], threshold: m.pasteThreshold, grow: 8, blur: m.pasteBlur, reach: 1, ...(m.pasteSpread !== 40 ? { spread: m.pasteSpread } : {}) });
         }
-        return g.out("ImageCompositeMasked", { destination: part, source: toned, x: 0, y: 0, resize_source: false, mask: [masks, 1] });
+        return g.out("ImageCompositeMasked", { destination: part, source: matched, x: 0, y: 0, resize_source: false, mask: [masks, 1] });
       },
     },
     node: () => masks,
@@ -434,7 +418,7 @@ export const h3Swap = defineRecipe<H3Swap>({
   // the mask's nodes are not asked of a machine: one without them (an older node pack) swaps unmasked, and the job says so
   // Veda's node only serves its toggle, and without its pack the swap runs the full attention and says so on the job: an
   // optional node, so that it never stops a render and Settings › Models offers its pack among the optional ones
-  optionalNodes: [...(h3Video.optionalNodes ?? []), ...MASK_NODES, "VedaSparseAttention", "AfflatusSwapMaskPreview", "AfflatusSwapPaste", "AfflatusSwapMatch", "DifferentialDiffusion"],
+  optionalNodes: [...(h3Video.optionalNodes ?? []), ...MASK_NODES, "VedaSparseAttention", "AfflatusSwapMaskPreview", "AfflatusSwapPaste"],
   finishing: (input) => h3Video.finishing!(asClip(input, "swap.safetensors", SWAP_FRAMES, 0, "minimax_h3_ref2va.safetensors")),
 
   build(input, ctx) {
@@ -473,7 +457,6 @@ export const h3Swap = defineRecipe<H3Swap>({
       ...(mask?.extra ?? {}),
       ...(input.veda && ctx.slots.veda ? { veda: ctx.slots.veda, vedaSparsity: { generated: input.vedaGenerated, reference: input.vedaReference } } : {}),
       ...(input.denoise < 1 ? { denoise: input.denoise } : {}),
-      ...(mask && input.softZone > 0 && ctx.has("DifferentialDiffusion") ? { differential: true } : {}),
       // the reference model's own turbo LoRA, else the usual one (a distilled model takes neither)
       ...(ctx.slots.refTurbo ?? ctx.slots.turbo ? { turbo: ctx.slots.refTurbo ?? ctx.slots.turbo } : {}),
     });
@@ -485,8 +468,7 @@ export const h3Swap = defineRecipe<H3Swap>({
     const lacks = swapPromptLacks(input.who, input.references.length).map((tag) => `The prompt has no ${tag}: H3 may not use ${tag === "<Video 1>" ? "the source video" : "the cast's picture"}.`);
     // Difference asked for and the pack not yet loaded: pasted by the mask, and said
     const pasted = input.maskOn && input.paste === "Difference" && !ctx.has("AfflatusSwapPaste") ? ["Paste by Difference needs the Afflatus node pack 0.29.0 (restart ComfyUI to load it): pasted by the mask."] : [];
-    const toned = input.maskOn && input.matchColour && !ctx.has("AfflatusSwapMatch") ? ["Colour match needs the Afflatus node pack 0.30.0 (restart ComfyUI to load it): pasted without it."] : [];
-    const notes = [...veda, ...lacks, ...pasted, ...toned];
+    const notes = [...veda, ...lacks, ...pasted];
     const warned = notes.length ? { ...built, warnings: [...(built.warnings ?? []), ...notes] } : built;
     // Show the mask: only what the tracking, the masks and their picture need, the H3 model never loaded
     const shown = mask?.preview();
@@ -547,11 +529,6 @@ export const h3Swap = defineRecipe<H3Swap>({
       {
         name: "pasted back by difference: the wall H3 only redrew is the source's again",
         input: { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, maskOn: true, paste: "Difference" },
-        slots: all, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: part },
-      },
-      {
-        name: "a soft zone (Differential Diffusion) and the colours matched before the paste-back",
-        input: { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, maskOn: true, softZone: 48, matchColour: true, paste: "Difference" },
         slots: all, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: part },
       },
       {

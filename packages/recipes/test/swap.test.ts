@@ -121,20 +121,6 @@ describe("MiniMax H3 · Swap character", () => {
     expect(old.built.warnings).toContainEqual(expect.stringContaining("node pack 0.29.0"));
   });
 
-  it("softens the zone's edge with Differential Diffusion, and matches the colours before pasting, only when asked", () => {
-    const plain = build().graph;
-    expect(of(plain, "DifferentialDiffusion")).toEqual([]);
-    expect(of(plain, "AfflatusSwapMatch")).toEqual([]);
-    expect(of(plain, "AfflatusSwapMask")[0]!.inputs.soft).toBeUndefined();
-    const soft = build({ softZone: 48, matchColour: true }).graph;
-    expect(of(soft, "AfflatusSwapMask")[0]!.inputs.soft).toBe(48);
-    expect(of(soft, "DifferentialDiffusion")).toHaveLength(1);
-    const match = of(soft, "AfflatusSwapMatch")[0]!;
-    // the matched frames are what goes back over the source
-    const composite = of(soft, "ImageCompositeMasked")[0]!;
-    expect(Object.entries(soft).find(([, n]) => n === match)![0]).toBe((composite.inputs.source as [string, number])[0]);
-  });
-
   it("starts with the Mask off: the whole frame redrawn, no SAM (the owner, 2026-10-18)", () => {
     const input = parseInput(h3Swap, { who: "the man.", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }] });
     expect(input.maskOn).toBe(false);
