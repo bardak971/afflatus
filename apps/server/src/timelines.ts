@@ -642,6 +642,10 @@ export class Timelines {
         kept.push(p);
       } else drop.push(p.clip.id);
     }
+    // an empty clip the source is cut again for (given the source's model after its clips: the owner removed clip 3, added a
+    // clip and picked Swap motion, 2026-10-20): the next window goes in its place, from where the kept ones end
+    const empty = plan.clip ? all.find((p) => p.clip.id === plan.clip && !ofSource.includes(p.clip.id) && !p.clip.take_id && !p.active) : undefined;
+    if (empty) drop.push(empty.clip.id);
     if (!drop.length) throw httpError("Every clip of the source is rendered or in the queue: nothing is left to cut again.");
     const last = kept.at(-1);
     const fps = this.registry.recipe(mine[0]!.clip.recipe_id ?? "")?.traits?.fps ?? 24;
@@ -766,7 +770,7 @@ export class Timelines {
         // the source's start sits where its stretch now plays from; the clip it was taken from is gone. Cut again, it stays where
         // it was, and the clips it no longer has keep nothing apart
         const apart = plan.apart ? Object.fromEntries(Object.entries(plan.apart).filter(([id]) => !again?.drop.includes(id))) : undefined;
-        const placedPlan = again ? { ...plan, ...(apart ? { apart } : {}) } : { ...plan, atMs: startsAt - plan.fromMs, clip: null };
+        const placedPlan = again ? { ...plan, clip: null, ...(apart ? { apart } : {}) } : { ...plan, atMs: startsAt - plan.fromMs, clip: null };
         await tx.updateTable("timelines").set({ source: JSON.stringify(placedPlan), updated_at: now() }).where("id", "=", timelineId).execute();
         if (picture) await this.keep(picture, tx);
         return made;

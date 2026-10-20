@@ -327,7 +327,14 @@ export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<t
     },
     // a clip the source made, given another model that makes a source window by window: the source's model, its clips not
     // rendered made anew with it (a clip of another model in the line would no longer share its form)
-    onRecipe: (recipe) => (clipSourceOf(e, current) && windowed(e.videoRecipes.find((r) => r.id === recipe)) ? e.cutSource.run({ recipe }) : patch.mutate({ clip: current.id, patch: { recipe } })),
+    // An empty clip given one, on a timeline whose source is made: the source's next window, in that clip's place (cut again
+    // from where its rendered clips end)
+    onRecipe: (recipe) => {
+      const made = windowed(e.videoRecipes.find((r) => r.id === recipe));
+      if (made && clipSourceOf(e, current)) return e.cutSource.run({ recipe });
+      if (made && e.place?.made && !current.take && !current.job) return e.cutSource.run({ recipe, clip: current.id });
+      patch.mutate({ clip: current.id, patch: { recipe } });
+    },
     onPatch: (p) => patch.mutate({ clip: current.id, patch: p }),
     onRender: (count) => render.mutate({ clips: [current], takes: count }),
     onMenu: (ev) => e.clipMenu.open(ev, current),
