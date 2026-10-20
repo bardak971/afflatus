@@ -320,8 +320,9 @@ function schemaOf(spec: InputSpec): z.ZodType {
       return spec.optional ? s.default(spec.default ?? "") : spec.default !== undefined ? s.default(spec.default) : s.min(1);
     }
     case "model":
-      // with a slot behind it, leaving it out means the slot's file
-      return spec.slot ? z.string().min(1).optional() : spec.default ? z.string().min(1).default(spec.default) : z.string().min(1);
+      // with a slot behind it, leaving it out means the slot's file; so does an empty pick (the form's, its folder holding
+      // nothing yet): a Swap motion's first window was refused for the ControlNet only its later windows take
+      return spec.slot ? z.preprocess((v) => (v === "" ? undefined : v), z.string().min(1).optional()) : spec.default ? z.string().min(1).default(spec.default) : z.string().min(1);
     case "loras":
       return z
         .array(z.object({ file: z.string().min(1), weight: z.number().min(-4).max(4) }))

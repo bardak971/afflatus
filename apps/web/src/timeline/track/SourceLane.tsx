@@ -1,22 +1,26 @@
 import { useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Eye, Film, SlidersHorizontal, Split, Trash2 } from "lucide-react";
-import { sourceWindows, type ClipValue, type SourceWindow } from "@afflatus/core";
+import { sourceWindows, windowShapeOf, type ClipValue, type SourceWindow } from "@afflatus/core";
 import { ContextMenu, useMenu } from "../../ContextMenu";
 import { STRIP_FRAMES, stripUrl, type Asset, type Clip, type RecipeInfo, type Timeline } from "../../api";
 import { cx } from "../../ui";
 import { fileVersion, PAD, type Slot } from "../model";
 import { ROW, SOURCE } from "./rows";
 
-/** A recipe that makes a long source window by window, and the inputs a clip of it keeps its part of the source in. */
-export function windowed(recipe: RecipeInfo | undefined) {
-  const w = recipe?.traits?.windows;
+/**
+ * A recipe that makes a long source window by window, and the inputs a clip of it keeps its part of the source in. Its
+ * shape with `inputs` (the source's form): the run-up as set there, as the server cuts it (windowShapeOf).
+ */
+export function windowed(recipe: RecipeInfo | undefined, inputs?: Record<string, unknown>) {
+  const shape = windowShapeOf(recipe, inputs);
   const driving = recipe?.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window);
-  return recipe && w && driving?.type === "clip" && driving.window ? { shape: { fps: recipe.traits!.fps, grid: recipe.traits!.frameGrid, ...w }, driving: driving.id, start: driving.window.start, seconds: driving.window.seconds } : null;
+  const runUp = recipe?.traits?.windows?.runUp;
+  return recipe && shape && driving?.type === "clip" && driving.window ? { shape, driving: driving.id, start: driving.window.start, seconds: driving.window.seconds, ...(runUp ? { runUp } : {}) } : null;
 }
 
 /** The windows a source's stretch would be made in now (before Make: the clips to come, drawn on the track; scene cuts are read by the server). */
 export function plannedWindows(source: NonNullable<Timeline["source"]>, recipe: RecipeInfo | undefined) {
-  const w = windowed(recipe);
+  const w = windowed(recipe, source.inputs);
   return w ? sourceWindows({ fromMs: source.fromMs, toMs: source.toMs, windowMs: source.windowMs, shape: w.shape }) : [];
 }
 

@@ -8,6 +8,7 @@ import { buildH3, h3Video, type H3Extra } from "./video";
 import { saveVideo } from "../shared/out";
 import { rifeNeeds } from "../shared/finish";
 import { partBounds } from "../motion/driving";
+import { H3_LANDINGS } from "./join";
 
 /**
  * MiniMax H3 · Swap character: a person in a video replaced by someone of the cast, the rest of the video kept. The
@@ -72,10 +73,15 @@ export const SWAP_FRAMES = 141;
 /** The shortest: 90 frames, 3.75 s. H3 was trained on clips of 124 frames and more; the LoRA's author found 4-5 s safest. */
 const SWAP_LEAST = 90;
 /**
- * Frames of the window before a window carries on from: its last 22, H3's own run-up for a clip continued in its latent
- * (the window before's exact tokens, decoded as one piece with it), dropped from what it shows.
+ * Frames of the window before a window carries on from: its last 22 unless the form says 5 or 39 ("Frames from the clip
+ * before", as H3's own clips: the owner, 2026-10-20), H3's run-up for a clip continued in its latent (the window before's
+ * exact tokens, decoded as one piece with it), dropped from what it shows.
  */
 const SWAP_CARRIED = 22;
+/** The run-ups a window takes, and the input that sets it: H3's own (the server cuts the source's windows for it). */
+export const SWAP_RUN_UP = { input: "context", counts: H3_LANDINGS.map(Number) };
+/** What each window of a source keeps its own: its prompt (the owner, 2026-10-20: clip 6 can show something else than clip 2). */
+export const SWAP_OWN = ["who"];
 /** What the Source: length field takes, in seconds. */
 const SWAP_PART = (({ least, most }) => ({ min: least, max: most }))(partBounds({ fps: H3_FPS, most: SWAP_FRAMES, least: SWAP_LEAST }));
 
@@ -86,7 +92,8 @@ const NOT_TAKEN = new Set([
   "model", "hybrid", "turboIn",
   // the size is the swap's own choice (swapSize): the source's, or a height a small phone clip is enlarged to
   "short",
-  "description", "soundscape", "music", "start", "end", "mid", "midAt", "handover", "context", "joinFrom", "next", "landing",
+  // the frozen tail is never skipped on a source's windows: the window after would no longer start where its part does
+  "description", "soundscape", "music", "start", "end", "mid", "midAt", "handover", "next", "landing",
   "refVideos", "voice", "voiceStart", "voiceSeconds", "voiceEven", "subject", "seconds", "shape",
   // H3's colour match pulls towards a start picture, which a swap has not
   "colourMatch", "colourStrength",
@@ -96,7 +103,7 @@ const NOT_TAKEN = new Set([
  * How the designer writes a swap's prompt: what worked on the LoRA's card, its users' reports and the owner's takes
  * (2026-10-18). It cannot see the video or the picture: it takes them from the user's words.
  */
-const SWAP_GUIDE = `A SWAP PROMPT is for akatz-ai's Character-Swap LoRA on MiniMax H3's reference model. It is not a scene: the video and the picture give the place, the light, the camera and the motion.
+export const SWAP_GUIDE = `A SWAP PROMPT is for akatz-ai's Character-Swap LoRA on MiniMax H3's reference model. It is not a scene: the video and the picture give the place, the light, the camera and the motion.
 - Start with the LoRA's sentence, the person to replace named by what is visible in <Video 1>: "Replace the young woman with long brown hair in the blue and black jersey in <Video 1> with the man in <Picture 1>." Hair, clothes and place in the frame are what pick them out.
 - Say man, woman, boy or girl. Never "character" (it turns the result into a cartoon), never "the person" alone (it often swaps nothing).
 - Then a few short sentences: what of <Picture 1> is kept (the face and hair; the clothes of <Video 1> unless the user wants the picture's); "Match the position, scale, pose and movement in <Video 1>."; "Keep the room of <Video 1> exactly as it is."
@@ -114,7 +121,7 @@ export const SWAP_CAPTION = "Swap the person in <Video 1> with the character in 
 // take, 2026-10-18); the text encoder reads a negation as what it names
 const SWAP_TURBO_PROMPT = `${SWAP_CAPTION} Keep the motion, the gestures and the lip movements of <Video 1>. Keep the room of <Video 1> exactly as it is.`;
 
-const swapInputs: InputSpec[] = [
+export const swapInputs: InputSpec[] = [
   {
     // MiniMax's reference model and what is made from it: a fine-tune, or a distilled merge such as the fused reference turbo
     // (4 steps er_sde / beta in her workflow, 3.5 times quicker than ref2va's 20 steps, a little less like the person: §9.10).
@@ -155,9 +162,9 @@ const swapInputs: InputSpec[] = [
     if (spec.id === "shiftVideo" && spec.type === "number") return [{ ...spec, default: 12, note: "12, the model's own, as the swaps were tested. Higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail)" }];
     if (spec.id === "shiftAudio" && spec.type === "number") return [{ ...spec, default: 3, note: "3, the model's own, as the swaps were tested" }];
     if (spec.id === "fast" && spec.type === "toggle") return [{ ...spec, note: "8 steps with the turbo LoRA: not tested with the swap LoRA, whose author ran full steps" }];
-    // the window before, on a timeline's source lane: continued in its latent, its last 22 frames the run-up
+    // the window before, on a timeline's source lane: continued in its latent, its last frames (Frames from the clip before) the run-up
     if (spec.id === "previous" && spec.type === "clip") {
-      return [{ ...spec, frames: [SWAP_CARRIED], advanced: true, note: "on a timeline's source lane, the window before: its last frames and their sound start this one, so that the person does not jump at the join" }];
+      return [{ ...spec, advanced: true, note: "on a timeline's source lane, the window before: its last frames and their sound start this one, so that the person does not jump at the join" }];
     }
     if (spec.id === "references" && spec.type === "references") {
       // one: the LoRA was trained on one <Picture 1>, and with three of the cast's photos H3 took one's room for the scene (2026-10-13)
@@ -224,15 +231,15 @@ const swapInputs: InputSpec[] = [
 ];
 
 /** The frames of the window: the part handed over (or asked for), floored to H3's 17k + 5, 90 to 141 (the carried frames among them). */
-function framesOf(input: H3Swap, ctx: Pick<BuildContext, "media">): number {
+export function framesOf(input: H3Swap, ctx: Pick<BuildContext, "media">): number {
   const have = ctx.media.source?.frames ?? Math.round(input.sourceSeconds * H3_FPS);
   return Math.max(SWAP_LEAST, gridAtOrBefore(Math.min(SWAP_FRAMES, have), H3_GRID));
 }
-/** The frames of the window before pinned at the start, when there is one: as handed over (5), none without. */
-const carriedOf = (input: H3Swap, ctx: Pick<BuildContext, "media">) => (input.previous ? ctx.media.previous?.frames ?? SWAP_CARRIED : 0);
+/** The frames of the window before pinned at the start, when there is one: as handed over (Frames from the clip before), none without. */
+export const carriedOf = (input: H3Swap, ctx: Pick<BuildContext, "media">) => (input.previous ? ctx.media.previous?.frames ?? SWAP_CARRIED : 0);
 
 /** The short side a swap renders at: the source's own (within H3's 384 to 1088), or the height asked for. */
-function shortOf(choice: string, size?: { width: number; height: number }): number {
+export function shortOf(choice: string, size?: { width: number; height: number }): number {
   const asked = Number.parseInt(choice, 10);
   if (Number.isFinite(asked)) return asked;
   return size ? Math.max(384, Math.min(1088, Math.min(size.width, size.height))) : 576;
@@ -266,7 +273,7 @@ export const swapCaption = (who: string, pictures: number) => `Swap ${who} in <V
  * by default, see swapSize): with the hybrid Turbo fine-tune at 1024 × 576 the room was redrawn 3 times of 3, with ref2va
  * at the source's 864 × 480 it was kept as it was (2026-10-13).
  */
-function asClip(input: H3Swap, swapLora: string, frames: number, carried: number, unet?: string, size?: { width: number; height: number }): H3Video {
+export function asClip(input: H3Swap, swapLora: string | null, frames: number, carried: number, unet?: string, size?: { width: number; height: number }): H3Video {
   return {
     ...input,
     // "hybrid" so that the clip takes this file whatever its references; a distilled one is known by its name
@@ -277,9 +284,11 @@ function asClip(input: H3Swap, swapLora: string, frames: number, carried: number
     // the window before continued in its latent, as H3's own clips, decoded as one piece with it: carried on by its frames,
     // each window drew the person in its own way and the join showed (softer, darker; the meme, 2026-10-17). Its frames
     // when its latent was not kept or this ComfyUI lacks the continuation nodes
-    colourMatch: false, handover: false, context: String(SWAP_CARRIED), joinFrom: "Latent", landing: "22", voiceStart: 0, voiceSeconds: 15, voiceEven: false,
-    refVideos: input.source ? [{ asset: input.source.asset, role: "person" }] : [],
-    loras: [{ file: swapLora, weight: input.swapStrength }, ...input.loras],
+    // The run-up as the form says (22 unless set), from the latent unless asked for its frames
+    colourMatch: false, handover: false, context: input.context || String(SWAP_CARRIED), joinFrom: input.joinFrom || "Latent", landing: "22", voiceStart: 0, voiceSeconds: 15, voiceEven: false,
+    // no swap LoRA (a window of Swap motion, driven by its pose): no source video either, the person replaced never in the input
+    refVideos: input.source && swapLora ? [{ asset: input.source.asset, role: "person" }] : [],
+    loras: swapLora ? [{ file: swapLora, weight: input.swapStrength }, ...input.loras] : input.loras,
     // the clip's own part: the window less the frames it shares with the window before (buildH3 adds them back)
     seconds: (frames - carried) / H3_FPS,
     shape: size ?? { width: 1024, height: 576 },
@@ -291,7 +300,7 @@ function asClip(input: H3Swap, swapLora: string, frames: number, carried: number
  * its character-swap workflow runs it (4 steps, er_sde / beta, the model's own shifts 12 / 3: it swapped at 3.5 times
  * ref2va's speed, §9.10), then H3's own (DaSiWa's distilled files: Turbo, 8 steps without a LoRA).
  */
-const SWAP_PRESETS = [
+export const SWAP_PRESETS = [
   // the person described, nothing added: with the caption alone it took a cartoon on a TV for the person for 3 s (§9.10)
   { match: "refdelta", values: { fast: true, turboSteps: 4, sampler: "er_sde", scheduler: "beta", shiftVideo: 12, shiftAudio: 3, who: SWAP_TURBO_PROMPT }, note: "a fused reference turbo: Turbo, 4 steps, er_sde / beta and the person described, as its swap workflow runs it" },
   ...(h3Video.presets ?? []),
@@ -301,7 +310,7 @@ const SWAP_PRESETS = [
  * MiniMax's reference model with Turbo on takes MiniMax's 4-step reference turbo LoRA when it is there (the one made for
  * it, not the frames model's 8-step one): Turbo starts on its 4 steps at 6 / 3. A distilled model takes no LoRA.
  */
-const SWAP_STARTS: StartRule[] = [{
+export const SWAP_STARTS: StartRule[] = [{
   when: {
     all: [
       { input: "fast", is: true },
@@ -313,7 +322,7 @@ const SWAP_STARTS: StartRule[] = [{
 }];
 
 /** What the masked swap adds to H3's graph: core's SAM 3 track, noise mask and AV latent nodes, the node pack's Swap Mask. */
-const MASK_NODES = ["CheckpointLoaderSimple", "CLIPTextEncode", "SAM3_VideoTrack", "AfflatusSwapMask", "ImageFromBatch", "ImageScale", "VAEEncode", "SetLatentNoiseMask", "LTXVSeparateAVLatent", "LTXVConcatAVLatent", "ImageCompositeMasked", "ColorTransfer"];
+export const MASK_NODES = ["CheckpointLoaderSimple", "CLIPTextEncode", "SAM3_VideoTrack", "AfflatusSwapMask", "ImageFromBatch", "ImageScale", "VAEEncode", "SetLatentNoiseMask", "LTXVSeparateAVLatent", "LTXVConcatAVLatent", "ImageCompositeMasked", "ColorTransfer"];
 
 /**
  * The masked swap (see the note at the top): the part's frames at the clip's size are tracked by SAM 3.1 ("person", as
@@ -390,7 +399,7 @@ export const h3Swap = defineRecipe<H3Swap>({
   output: "video",
   // a video of its own, made from another: on a timeline's source lane, a window of a long source carrying on from the window
   // before (its last 5 frames pinned at the start), otherwise no join with the clips around it
-  traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED } },
+  traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED, runUp: SWAP_RUN_UP, own: SWAP_OWN } },
   inputs: swapInputs,
   guide: SWAP_GUIDE,
   // a character swap's form: the model, its takes, who is replaced and how, then the rest as any form (the owner, 2026-10-18)

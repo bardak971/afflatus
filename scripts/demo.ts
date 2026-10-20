@@ -97,6 +97,8 @@ const pretendComfy = (lacks?: RegExp) => startFakeComfy({
     text_encoders: ["qwen3vl_32b_minimax_h3_demo.safetensors", "qwen_3_4b_demo.safetensors", "umt5_xxl_demo.safetensors"],
     vae: ["minimax_h3_video_vae_demo.safetensors", "minimax_h3_audio_vae_demo.safetensors", "flux2-vae-demo.safetensors", "wan_2.1_vae_demo.safetensors"],
     frame_interpolation: ["rife_demo.pth"],
+    // H3's Fun ControlNet: Swap motion's and Motion transfer's windows moved by their pose
+    model_patches: ["minimax_h3_fun_controlnet_union_2.0_demo.safetensors"],
   }, lacks),
   simulate: { stepMs: Number(process.env.DEMO_STEP_MS) || 220, video: pretendClip },
 });

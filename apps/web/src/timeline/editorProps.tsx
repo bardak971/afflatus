@@ -236,7 +236,7 @@ function clipSourceOf(e: LoadedEditor, current: Clip): ClipSource | undefined {
   const source = e.t.source;
   const made = source ? madeFromSource(e.t, e.videoRecipes) : [];
   if (!source || !made.some((c) => c.id === current.id)) return undefined;
-  const w = windowed(e.videoRecipes.find((r) => r.id === current.recipe));
+  const w = windowed(e.videoRecipes.find((r) => r.id === current.recipe), source?.inputs);
   const driving = w ? e.videoRecipes.find((r) => r.id === current.recipe)?.inputs.find((i) => i.id === w.driving) : undefined;
   const patchClip = (share: "inLine" | "toAll") => void e.save(current.id).then(() => e.patch.mutate({ clip: current.id, patch: { share } }));
   return {

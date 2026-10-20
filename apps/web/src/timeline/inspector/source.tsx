@@ -19,6 +19,7 @@ import { useClock, type Clock } from "../clock";
 import { ColumnEdge, FoldButton, useColumnWidth } from "../column";
 import { windowed, type SourcePlace } from "../track/SourceLane";
 import { CloseButton, Slide } from "./parts";
+import { RunUp } from "./clipSource";
 
 const Designer = lazy(() => import("../../Designer").then((m) => ({ default: m.Designer })));
 
@@ -80,7 +81,8 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
   const w = windowed(recipe);
   // the form without what the source gives each window (its driving video and its part) and what a timeline fills in
   const form = useMemo(
-    () => (recipe && w ? { ...recipe, inputs: recipe.inputs.filter((i) => i.type !== "clip" && i.id !== w.start && i.id !== w.seconds) } : undefined),
+    // (the run-up is the source's, set beside the window: the windows are cut for it)
+    () => (recipe && w ? { ...recipe, inputs: recipe.inputs.filter((i) => i.type !== "clip" && i.id !== w.start && i.id !== w.seconds && i.id !== w.runUp?.input) } : undefined),
     [recipe, w?.start, w?.seconds], // eslint-disable-line react-hooks/exhaustive-deps -- w follows the recipe
   );
   // what is typed, shown at once and handed to the editor, which saves it once it stops changing (one step for Undo, not
@@ -113,7 +115,8 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
   const picture = pictureSpec ? (inputs[pictureSpec.id] as string | undefined) : undefined;
   const windows = place?.windows ?? [];
   // the window lengths the model takes, on the slider's steps (windowBounds: a window asked for outside them is made as the nearest)
-  const bounds = w ? windowBounds(w.shape) : { leastMs: 1000, mostMs: 5000 };
+  // with the run-up as set on the form: it is what a window takes past its carried frames
+  const bounds = w ? windowBounds(windowed(recipe, inputs)!.shape) : { leastMs: 1000, mostMs: 5000 };
   const leastMs = Math.max(1000, Math.ceil(bounds.leastMs / 100) * 100);
   const mostMs = Math.max(leastMs, Math.floor(bounds.mostMs / 100) * 100);
   const windowMs = source ? Math.min(Math.max(source.windowMs, leastMs), mostMs) : mostMs;
@@ -164,6 +167,7 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
         )}
         <Slide label="Window" value={windowMs} min={leastMs} max={mostMs} step={100} show={(ms) => `${(ms / 1000).toFixed(1)} s`} onCommit={(windowMs) => onEdit({ windowMs })} />
         <Toggle on={source.snap} onChange={(snap) => onEdit({ snap })} label="Cut at scene changes" note={source.snap ? "a window ends at a cut in the source; the next one opens a new shot" : "windows of the same length, end to end"} />
+        {recipe && <RunUp recipe={recipe} inputs={inputs} onChange={(next) => setInputs(() => next)} />}
         <span className="text-xs text-ink-2">
           {place?.made
             ? "Made: the clips above carry its parts (outlined on the lane)."
@@ -220,7 +224,7 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
               <Select label="Model" value={recipe.id} onChange={(id) => onEdit({ recipe: id })} options={models.map((r) => ({ value: r.id, label: name(r), detail: r.summary }))} />
             </div>
             {sourceChapter.node}
-            <span className="text-xs text-ink-2">The prompt, the picture of who goes in and the settings are in the clips' form once they are made: a change there goes to every clip.</span>
+            <span className="text-xs text-ink-2">The prompt, the picture of who goes in and the settings are in the clips' form once they are made: a change there goes to every clip, but the prompt, which each clip keeps its own.</span>
           </div>
         ) : (
           <CardPrompt.Provider value>

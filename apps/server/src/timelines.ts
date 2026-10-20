@@ -554,10 +554,17 @@ export class Timelines {
     const apart: Record<string, string[]> = Object.fromEntries(Object.entries(plan.apart ?? {}).filter(([id]) => clips.some((c) => c.id === id)));
     const mine = from ? apart[from.id] ?? [] : [];
     const changed = from ? ids.filter((k) => !same(was[k], inputs[k])) : ids.filter((k) => k in inputs);
+    // what each window keeps its own (its prompt) goes to the others only when given to all; the run-up is the cut's, the
+    // same in every window whatever is set apart (a window carrying on from another count would no longer meet its part)
+    const ownIds = new Set(recipe.traits?.windows?.own ?? []);
+    const runUp = recipe.traits?.windows?.runUp?.input;
     // the values every clip in line takes (undefined: back to the model's own), and whether they go over what others keep
     let spread: Record<string, unknown> = {};
     let over = false;
-    if (from && share === "apart") apart[from.id] = [...new Set([...mine, ...changed])];
+    if (from && share === "apart") {
+      apart[from.id] = [...new Set([...mine, ...changed])].filter((k) => k !== runUp && !ownIds.has(k));
+      if (runUp && changed.includes(runUp)) spread = { [runUp]: inputs[runUp] };
+    }
     else if (from && share === "inLine") {
       // its own settings as the others have them: a clip in line on each, else the source's form
       const line = Object.fromEntries(mine.map((k) => {
@@ -569,12 +576,13 @@ export class Timelines {
       await tx.updateTable("clips").set({ inputs: JSON.stringify(next), updated_at: now() }).where("id", "=", from.id).execute();
       delete apart[from.id];
     } else if (from && share === "toAll") {
-      spread = Object.fromEntries([...new Set([...mine, ...changed])].map((k) => [k, inputs[k]]));
+      // given to all: what it keeps apart, what changed, and what each window keeps its own (its prompt) as this one has it
+      spread = Object.fromEntries([...new Set([...mine, ...changed, ...ids.filter((k) => ownIds.has(k) && k in inputs)])].map((k) => [k, inputs[k]]));
       over = true;
       delete apart[from.id];
     } else {
       // a Picture taken away is this clip's: the others keep theirs
-      spread = Object.fromEntries(changed.filter((k) => !(pictures.has(k) && typeof inputs[k] !== "string")).map((k) => [k, inputs[k]]));
+      spread = Object.fromEntries(changed.filter((k) => !ownIds.has(k) && !(pictures.has(k) && typeof inputs[k] !== "string")).map((k) => [k, inputs[k]]));
       if (from) apart[from.id] = mine.filter((k) => !(k in spread));
     }
     const keys = Object.keys(spread);
@@ -728,7 +736,9 @@ export class Timelines {
           const clip: NewClip = {
             kind: "video", recipeId: recipe.id, joined: w.opens ? "cut" : "continue", still: null, take: null, asset: undefined, look: null,
             // the first window replaces the person clicked on its first frame, the ones after follow it (h3.swap's pick)
-            inputs: { ...form, [driving.id]: { asset: plan.asset, ...(k === 0 && !again?.kept && plan.pick && driving.pick ? { pick: plan.pick } : {}) }, [driving.window!.start]: w.start, [driving.window!.seconds]: w.seconds, ...(seed !== null ? { seed } : {}) },
+            // a window that carries on starts on what the model gives those (Swap motion: its motion prompt, the swap's naming
+            // <Video 1>, which a window driven by the pose has not)
+            inputs: { ...form, ...(w.opens ? {} : recipe.traits?.windows?.carryOn ?? {}), [driving.id]: { asset: plan.asset, ...(k === 0 && !again?.kept && plan.pick && driving.pick ? { pick: plan.pick } : {}) }, [driving.window!.start]: w.start, [driving.window!.seconds]: w.seconds, ...(seed !== null ? { seed } : {}) },
           };
           const id = await this.planner.insertClip(timelineId, order, index + k, clip, tx);
           order.splice(index + k, 0, { clip: { id } });
