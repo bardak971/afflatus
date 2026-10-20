@@ -13,6 +13,12 @@ const POWER_EVERY_MS = 1_800;
 const POWER_ABSENT_MS = 10 * 60_000;
 
 /**
+ * Where "the first ComfyUI" is asked while there is no machine at all (services.ts): port 9 is the discard port, closed on
+ * any ordinary computer, so every call is refused at once and nothing that listens is ever reached.
+ */
+export const NO_COMFY_URL = "http://127.0.0.1:9";
+
+/**
  * The one ComfyUI Afflatus talks to: its client, its websocket monitor, and what was last learned
  * about it. Rebuilt when the address in the settings changes.
  */

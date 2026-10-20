@@ -56,8 +56,11 @@ export interface RecipeStatus {
 
 export interface Scan {
   at: string;
-  /** Offline: `locked` when it answered, but Afflatus's node pack refused the token (a token to paste, not a ComfyUI to start). */
-  comfy: ({ online: true } & ComfyStatus & { url: string; nodes: number }) | { online: false; url: string; error: string; locked?: boolean };
+  /**
+   * Offline: `locked` when it answered, but Afflatus's node pack refused the token (a token to paste, not a ComfyUI to start);
+   * `planned` when no ComfyUI is there to answer and none of the user's own is expected (plannedScan): what a pod would offer.
+   */
+  comfy: ({ online: true } & ComfyStatus & { url: string; nodes: number }) | { online: false; url: string; error: string; locked?: boolean; planned?: true };
   families: Array<{ id: string; slots: SlotStatus[] }>;
   recipes: RecipeStatus[];
 }
@@ -320,4 +323,38 @@ export async function scan(
     families: familyStatus,
     recipes: recipeStatus,
   };
+}
+
+/**
+ * What a pod from Afflatus's image would offer, for an install with no ComfyUI of its own and no pod up (a rented-only
+ * start): every recipe whose files have official downloads ready, each model input offering its family's official files (the pod fetches the one picked before
+ * the job), and each choice read from a node list its default alone (the node list comes with the first pod). Nothing is
+ * listed that only hidden recipes use. The forms work, and the job waits for a GPU.
+ */
+export async function plannedScan(families: Family[], recipes: Recipe<any>[], at = new Date().toISOString()): Promise<Scan> {
+  const shown = new Set(recipes.filter((r) => !r.hidden).map((r) => r.id));
+  const official = new Map<string, string[]>();
+  for (const f of families) for (const s of f.slots) {
+    if (!s.get || (s.onlyFor?.length && !s.onlyFor.some((id) => shown.has(id)))) continue;
+    official.set(s.folder, [...new Set([...(official.get(s.folder) ?? []), s.get.file])]);
+  }
+  const files: Files = async (folder) => official.get(folder) ?? [];
+  const familyStatus = await slotFiles(families, files, {}, () => undefined, shown);
+  const recipeStatus = await Promise.all(recipes.map(async (r): Promise<RecipeStatus> => {
+    const slots = familyStatus.find((f) => f.id === r.family)?.slots ?? [];
+    // a file the family has no official download for (a ControlNet, say) cannot come with a pod: said missing, as a scan would
+    const required = slots.filter((s) => !s.optional || r.needs?.includes(s.id));
+    const read = slotsRead(r, required.map((s) => s.id));
+    const missingSlots = required.filter((s) => read.has(s.id) && !s.file).map((s) => s.id);
+    const { options, emptyInputs } = await recipeChoices(r, families, slots, files, {}, () => undefined);
+    for (const input of r.inputs) {
+      if (input.type !== "choice" || Array.isArray(input.options) || options[input.id]?.length) continue;
+      options[input.id] = [...new Set([...(input.extra ?? []), ...(typeof input.default === "string" ? [input.default] : [])])];
+    }
+    return {
+      id: r.id, missingNodes: [], missingSlots, emptyInputs, missingFiles: [], missing: [], problems: [], limitedBy: [], options,
+      slots: Object.fromEntries(slots.filter((s) => s.file).map((s) => [s.id, s.file!])), ready: !missingSlots.length && !emptyInputs.length,
+    };
+  }));
+  return { at, comfy: { online: false, url: "", error: "no ComfyUI yet", planned: true }, families: familyStatus, recipes: recipeStatus };
 }

@@ -38,7 +38,10 @@ function selfUrl(req: FastifyRequest): string {
 
 /** The ComfyUI a download goes to, with its folder on this computer (empty when it has none here): the one asked for, or the first. */
 export async function downloadTarget(s: Services, settings: Settings, id: string | undefined): Promise<{ comfy: Comfy; dir: string; machine?: string }> {
-  if (!id) return { comfy: await s.comfy(), dir: settings.comfyDir };
+  if (!id) {
+    if (!settings.machines.length) throw bad("There is no ComfyUI to download into: add yours in Settings › ComfyUI.", 409);
+    return { comfy: await s.comfy(), dir: settings.comfyDir };
+  }
   const found = (await s.machines()).find((m) => m.machine.id === id);
   if (!found) throw bad("there is no ComfyUI with that id", 404);
   return { comfy: found.comfy, dir: found.machine.dir, machine: id };
@@ -46,9 +49,12 @@ export async function downloadTarget(s: Services, settings: Settings, id: string
 
 export async function beginDownload(s: Services, req: FastifyRequest, b: DownloadBody): Promise<DownloadView> {
   const settings = await readSettings(s.db);
-  if (!settings.downloadModels) throw bad("Downloading into ComfyUI is turned off. Turn it on in Settings.");
+  // a family's official file, its Download pressed (a form, a Queue row, Settings › Models): the press is the consent, and the
+  // address is the family's own, not a lookup. Anything else needs downloads and lookups turned on
+  const official = Boolean(b.url) && s.registry.families().some((f) => f.slots.some((x) => x.get?.url === b.url && x.get?.file === b.file && x.folder === b.folder));
+  if (!official && !settings.downloadModels) throw bad("Downloading into ComfyUI is turned off. Turn it on in Settings.");
   // "Lookups off" means Afflatus never contacts Civitai or Hugging Face, which is where model files come from
-  if (!settings.civitaiLookups) throw bad("Looking up models online is turned off. Turn on “Search Hugging Face and Civitai” in Settings › Models to fetch model files.");
+  if (!official && !settings.civitaiLookups) throw bad("Looking up models online is turned off. Turn on “Search Hugging Face and Civitai” in Settings › Models to fetch model files.");
   if (!b.civitai === !b.url) throw bad("a source is needed: a Civitai version or a URL");
   const { comfy, dir, machine } = await downloadTarget(s, settings, b.machine);
   const self = selfUrl(req);

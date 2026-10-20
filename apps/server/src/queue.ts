@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { ComfyAway, ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, systemLoadFromStatus, waitForOutputs, type Measured } from "@afflatus/comfy";
 import { expandWildcards, modelFileName, modelOf, parseInput, removedSaid, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
-import type { Comfy, MachineComfy } from "./comfy";
+import { Comfy, NO_COMFY_URL, type MachineComfy } from "./comfy";
 import { newId, now, OWNER, type Db } from "./db";
 import { addedBy } from "./events";
 import { httpError } from "./errors";
@@ -307,8 +307,10 @@ export class Queue {
     return lane.comfy ?? this.comfyOfFirst();
   }
 
+  /** With no machine at all, one at an address nothing listens on: what asks it is told ComfyUI does not answer (services.ts). */
+  private nowhere: Comfy | null = null;
   private async comfyOfFirst(): Promise<Comfy> {
-    return (await this.machines())[0]!.comfy;
+    return (await this.machines())[0]?.comfy ?? (this.nowhere ??= new Comfy(NO_COMFY_URL, this.registry));
   }
 
   // ---------------------------------------------------------------- start / stop
@@ -923,8 +925,9 @@ export class Queue {
         // a job a ComfyUI already has goes first, paused or not: it is rendering anyway, on the machine it was sent to
         for (const r of active) {
           if (r.status !== "running" || taken.has(r.id) || !needsComfy(r)) continue;
-          const lane = lanes.find((l) => l.id === (r.machine_id ?? this.firstId)) ?? lanes[0]!;
-          if (!free(lane)) continue;
+          const lane = lanes.find((l) => l.id === (r.machine_id ?? this.firstId)) ?? lanes[0];
+          // its machine taken out, and none left: it waits for one, as a queued job does
+          if (!lane || !free(lane)) continue;
           if (!(await answers(lane, Boolean(r.resume)))) {
             // its machine away since this process started: past the wait a render gets (offlineMs), it is lost as one
             // followed all along would be, and queued again, instead of holding its next clip, the exports after it and an update

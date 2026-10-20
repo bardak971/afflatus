@@ -148,9 +148,9 @@ describe("lackOn from what the job's graph loads", () => {
     expect(lackOn(recipe, {}, pod(), { families: {} }, machine, () => "h3", { files: [file(FUSED, "swapUnet")], absent: [] })).toBeNull();
   });
 
-  it("sends the graph's files the machine lacks, with the family's download address", () => {
+  it("sends the graph's files the machine lacks, with the family's download address (a family file the graph names by its usual name too)", () => {
     const lack = lackOn(recipe, {}, pod(), { families: {} }, machine, () => "h3", { files: [], absent: [file(download("videoVae"), "videoVae"), file(SWAP_LORA)] });
-    expect(lack).toEqual({ off: false, sendable: true, files: [{ file: download("videoVae"), folder: "vae", url: slot("videoVae").get!.url }, { file: SWAP_LORA, folder: "loras" }] });
+    expect(lack).toEqual({ off: false, sendable: true, files: [{ file: download("videoVae"), folder: "vae", url: slot("videoVae").get!.url }, { file: SWAP_LORA, folder: "loras", url: expect.stringContaining(SWAP_LORA) }] });
   });
 
   it("sends RIFE to a rented pod, and does not keep a job off a machine of the user's own for want of it", () => {
@@ -304,16 +304,18 @@ describe("a family file a machine does not have", () => {
     await expect(t.services.queue.builtOf("h3.video", { description: "a red ball rolls", seconds: 5 })).rejects.toThrow(`needs was not found. ${slot("unet").hint}`);
   });
 
-  it("refuses a job whose graph reads it, in its words, before anything is sent", async () => {
+  it("holds a job whose graph reads it on the user's own ComfyUI, the file to download named, before anything is sent", async () => {
     await t.close();
     await fake.close();
     fake = await startFakeComfy({ catalog: referenceCatalog(), models: { ...HERE, diffusion_models: [FUSED] } });
     t = await makeApp({ comfyUrl: fake.url });
     await t.services.queue.start();
     const id = (await post(t.app, "/api/jobs", { recipe: "h3.video", input: { description: "a red ball rolls", seconds: 5 } })).json().ids[0] as string;
-    await until(async () => (await t.db.selectFrom("jobs").select("status").where("id", "=", id).executeTakeFirstOrThrow()).status === "failed");
-    const { error } = await t.db.selectFrom("jobs").select("error").where("id", "=", id).executeTakeFirstOrThrow();
-    expect(error).toContain(`needs was not found. ${slot("unet").hint}`);
+    // it waits there for its Download (where you render, card #20), where it used to fail: the family's video model has one
+    const waiting = async () => (await t.app.inject({ method: "GET", url: "/api/queue" })).json().waiting.find((w: { id: string }) => w.id === id);
+    await until(async () => Boolean((await waiting())?.fetch?.m1));
+    expect((await waiting()).fetch.m1.files).toContainEqual(expect.objectContaining({ file: slot("unet").get!.file, folder: "diffusion_models", url: slot("unet").get!.url }));
+    expect((await t.db.selectFrom("jobs").select("status").where("id", "=", id).executeTakeFirstOrThrow()).status).toBe("queued");
     expect([...fake.prompts.keys()]).toEqual([]);
   });
 });

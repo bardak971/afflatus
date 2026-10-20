@@ -7,8 +7,9 @@ import type { Machine, Settings } from "./settings";
  * Whether a family is on for one machine: switched there by hand, else by the switch of every machine, else by its files
  * there (`found`: one of its recipes is ready on it). The same rule as the page's (web machines.ts familyOnFor).
  */
-export function familyOn(settings: Pick<Settings, "families">, machine: Pick<Machine, "families">, family: string, found: boolean): boolean {
-  return machine.families[family] ?? settings.families[family] ?? found;
+export function familyOn(settings: Pick<Settings, "families"> & { allFamilies?: boolean }, machine: Pick<Machine, "families">, family: string, found: boolean): boolean {
+  // `allFamilies` (a new install's): a family not switched by hand is on whatever is there, its files fetched or downloaded
+  return machine.families[family] ?? settings.families[family] ?? (Boolean(settings.allFamilies) || found);
 }
 
 /** Whether a family has a recipe ready in a machine's scan. */
@@ -28,7 +29,7 @@ function union(lists: Array<Record<string, string[]>>): Record<string, string[]>
  * first machine where it is on lacks. A family's files are those of the first machine that has them all. ComfyUI's state is
  * the first machine's that answers. One machine: its own scan, unchanged.
  */
-export function mergeScans(scans: Array<{ machine: Machine; scan: Scan }>, settings: Pick<Settings, "families">, recipeFamily: (id: string) => string | undefined): Scan {
+export function mergeScans(scans: Array<{ machine: Machine; scan: Scan }>, settings: Pick<Settings, "families"> & { allFamilies?: boolean }, recipeFamily: (id: string) => string | undefined): Scan {
   const online = scans.filter((x) => x.scan.comfy.online);
   if (scans.length === 1 || online.length === 0) return scans[0]!.scan;
   if (online.length === 1) return online[0]!.scan;
@@ -85,7 +86,9 @@ const slotFilesOf = (slots: Array<{ id: string; file?: string | null }>): Record
 
 /** A file a job loads, with where it can be had when that is known: its family's download, its imported workflow's address. */
 function withUrl(recipe: Pick<Recipe<any>, "files">, slots: ReadonlyArray<{ id: string; get?: { file: string; url: string } }>, f: Pick<GraphFile, "file" | "folder" | "slot">): { file: string; folder: string; url?: string } {
-  const get = slots.find((s) => s.id === f.slot)?.get;
+  // a family's official file picked in a form (SDXL's base checkpoint, which no slot loads: it is picked per render) is had
+  // from the family's download all the same
+  const get = slots.find((s) => s.id === f.slot)?.get ?? slots.find((s) => s.get?.file === f.file)?.get;
   const url = get && get.file === f.file ? get.url : recipe.files?.find((x) => x.file === f.file && x.url)?.url;
   return { file: f.file, folder: f.folder, ...(url ? { url } : {}) };
 }
@@ -147,7 +150,7 @@ export interface Lack {
  */
 export function lackOn(
   recipe: Pick<Recipe<any>, "id" | "family" | "inputs" | "needs" | "needsWith"> & Partial<Pick<Recipe<any>, "files">>, input: Record<string, unknown>, scan: Scan,
-  settings: Pick<Settings, "families">, machine: Pick<Machine, "families"> & Partial<Pick<Machine, "rented">>, recipeFamily: (id: string) => string | undefined, loaded?: Loaded | null,
+  settings: Pick<Settings, "families"> & { allFamilies?: boolean }, machine: Pick<Machine, "families"> & Partial<Pick<Machine, "rented">>, recipeFamily: (id: string) => string | undefined, loaded?: Loaded | null,
 ): Lack | null {
   // a machine of the user's own renders without a file that only makes the render better (SOFT_SLOTS): it cannot be sent it
   const soft = (slot: string | undefined) => !machine.rented && slot !== undefined && SOFT_SLOTS.has(slot);
@@ -169,7 +172,7 @@ export function lackOn(
   const files = [
     ...slots.filter((x) => status?.missingSlots.includes(x.id) && x.get && !pickedFor(recipe, input, x, slots)).map((x) => ({ file: x.get!.file, folder: x.folder, url: x.get!.url })),
     ...(status?.missing ?? []).flatMap((m) => (m.folder ? [{ file: m.file, folder: m.folder, ...(m.url ? { url: m.url } : {}) }] : [])),
-    ...asked.map(({ file, folder }) => ({ file, folder })),
+    ...asked.map(({ file, folder }) => withUrl(recipe, slots, { file, folder })),
     ...lacking.flatMap((x) => (x.get ? [{ file: x.get.file, folder: x.folder, url: x.get.url }] : [])),
   ];
   const unique = files.filter((f, i) => files.findIndex((g) => g.file === f.file && g.folder === f.folder) === i);

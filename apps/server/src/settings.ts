@@ -266,6 +266,18 @@ export const settingsSchema = z.object({
    * lists to choose from: what was made with it, and drafts that use it, stay as they are.
    */
   families: z.record(z.string().max(120), z.boolean()).default({}),
+  /**
+   * A family not named in `families` is on whatever files are found: the switch says "I want it", and its files are listed
+   * greyed until they are there (fetched by a pod, downloaded into a ComfyUI of the user's own). New installs start with
+   * it (seedNewInstall); an existing one keeps the rule it had, its families following their files, until Settings › Models'
+   * "Turn them all on" sets it.
+   */
+  allFamilies: z.boolean().default(false),
+  /**
+   * The first launch's page (where you render): "pending" on a new install until it is done or skipped, then "done" for good.
+   * An install from before it existed reads "done": it already says where it renders.
+   */
+  firstLaunch: z.enum(["pending", "done"]).default("done"),
   civitaiKey: z.string().default(""),
   /** A Hugging Face access token: gated models (Flux dev…) need one whose account accepted their terms. A secret, never given to the page. */
   huggingFaceToken: z.string().default(""),
@@ -378,23 +390,42 @@ async function load(db: Db): Promise<Settings> {
   // before there was a list, there was one model under "llm": it is the first of the list
   const { llm: one, ...rest } = raw;
   if (rest.llms === undefined && one && typeof one === "object" && (one as { baseUrl?: string }).baseUrl) rest.llms = [{ id: "main", ...one }];
+  // a list of machines never written is an install from before there could be several (or none): its ComfyUI is the first
+  // machine. One written, even empty (a new install's, seedNewInstall; every machine removed), is the list as it is
+  const listed = Array.isArray(rest.machines);
   const parsed = settingsSchema.safeParse(rest);
-  if (parsed.success) return inStep(parsed.data);
+  if (parsed.success) return inStep(parsed.data, listed);
   // a stored value the schema no longer takes (an address without its scheme, say) falls back to its default rather than locking every setting
   const broken = new Set(parsed.error.issues.map((i) => String(i.path[0] ?? "")));
   console.warn(`[settings] stored values that are no longer valid were set aside: ${[...broken].join(", ")}`);
   for (const key of broken) delete rest[key];
-  return inStep(settingsSchema.parse(rest));
+  return inStep(settingsSchema.parse(rest), listed && !broken.has("machines"));
 }
+
+/** The machine a ComfyUI address becomes when it is the first one (from `comfyUrl`, or the first launch's). */
+export const firstMachine = (url: string, dir = ""): Machine => ({ id: FIRST_MACHINE, name: "", url, dir, takes: "all", packs: "ask", families: {}, token: "" });
 
 /**
  * The machines and the first one's address and folder said the same way: settings from before there could be several
- * have only `comfyUrl` and `comfyDir`, which become the first machine; otherwise the first machine says them.
+ * have only `comfyUrl` and `comfyDir`, which become the first machine; otherwise the first machine says them. A list
+ * written empty stays empty: no ComfyUI is expected, and nothing says one is offline.
  */
-function inStep(s: Settings): Settings {
-  if (!s.machines.length) return { ...s, machines: [{ id: FIRST_MACHINE, name: "", url: s.comfyUrl, dir: s.comfyDir, takes: "all", packs: "ask", families: {}, token: "" }] };
+function inStep(s: Settings, listed = true): Settings {
+  if (!s.machines.length) return listed ? s : { ...s, machines: [firstMachine(s.comfyUrl, s.comfyDir)] };
   const [first] = s.machines;
   return { ...s, comfyUrl: first!.url, comfyDir: first!.dir };
+}
+
+/** The machines of the user's own (a ComfyUI on this PC or the LAN), the rented pods left out. */
+export const ownMachines = (s: Pick<Settings, "machines">): Machine[] => s.machines.filter((m) => !m.rented);
+
+/**
+ * What a new install starts with (start.ts, on a database just made): no machine (the first launch adds them), every
+ * family on, the first launch to show, and caps on rented GPUs said up front. Written whole, so that the empty list of
+ * machines is the list (inStep), not "none written yet".
+ */
+export async function seedNewInstall(db: Db): Promise<void> {
+  await written(db, { machines: [], allFamilies: true, firstLaunch: "pending", rentCaps: { day: 5, month: 25 } });
 }
 
 const KEYS = [...Object.keys(settingsSchema.shape), "llm"];
@@ -478,7 +509,6 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
   if (Array.isArray(sent.machines)) {
     // a machine's token is not sent back by the page, which never has it: it stays, as long as the machine keeps its address
     const list = (sent.machines as Array<{ id?: unknown; url?: unknown; dir?: unknown; token?: unknown }>).map((m) => (m && typeof m === "object" && m.token === undefined ? { ...m, token: keptToken(current.machines.find((c) => c.id === m.id), m.url) } : m));
-    if (!list.length) throw httpError("at least one ComfyUI is needed");
     if (fromPage) {
       const own = (m: { id?: unknown; rented?: unknown }) => {
         const was = current.machines.find((c) => c.id === m.id);
@@ -495,13 +525,21 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
       list.splice(0, list.length, ...list.map(own), ...kept);
     }
     sent.machines = list;
-    const first = list[0]!;
-    sent.comfyUrl = first.url;
-    sent.comfyDir = first.dir ?? "";
+    // none left (every machine removed, or a rented-only start): `comfyUrl` keeps the last address, for the next one added
+    const first = list[0];
+    if (first) {
+      sent.comfyUrl = first.url;
+      sent.comfyDir = first.dir ?? "";
+    }
   } else if ("comfyUrl" in sent || "comfyDir" in sent) {
-    const [first, ...others] = current.machines;
-    const url = "comfyUrl" in sent ? sent.comfyUrl : first!.url;
-    sent.machines = [{ ...first!, ...("comfyUrl" in sent ? { url: sent.comfyUrl } : {}), ...("comfyDir" in sent ? { dir: sent.comfyDir } : {}), token: keptToken(first, url) }, ...others];
+    // the address alone, with no ComfyUI of the user's own yet (a rented-only start, the first launch's "I have one"): it is
+    // the first machine, put before the pods. Otherwise it is the first machine's new address
+    const [head, ...rest] = current.machines;
+    const own = head && !head.rented;
+    const first = own ? head : firstMachine(String(sent.comfyUrl ?? current.comfyUrl), String(sent.comfyDir ?? ""));
+    const others = own ? rest : current.machines;
+    const url = "comfyUrl" in sent ? sent.comfyUrl : first.url;
+    sent.machines = [{ ...first, ...("comfyUrl" in sent ? { url: sent.comfyUrl } : {}), ...("comfyDir" in sent ? { dir: sent.comfyDir } : {}), token: own ? keptToken(first, url) : "" }, ...others];
     sent.comfyUrl ??= current.comfyUrl;
     sent.comfyDir ??= current.comfyDir;
   }
@@ -577,6 +615,8 @@ export function publicSettings(s: Settings) {
     designerGuides: s.designerGuides,
     tagCheck: s.tagCheck,
     families: s.families,
+    allFamilies: s.allFamilies,
+    firstLaunch: s.firstLaunch,
     hasCivitaiKey: Boolean(s.civitaiKey),
     hasHuggingFaceToken: Boolean(s.huggingFaceToken),
     hasRunpodKey: Boolean(s.runpodKey),

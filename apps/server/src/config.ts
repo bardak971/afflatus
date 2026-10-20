@@ -41,6 +41,11 @@ export const envSaid = {
   publicUrl: () => process.env.PUBLIC_URL,
   /** The addresses of the reverse proxies on other machines whose X-Forwarded-Proto is believed (access-api.ts overHttps), comma-separated. */
   trustProxy: () => process.env.TRUST_PROXY,
+  /**
+   * The addresses the first launch looks for a ComfyUI at, comma-separated (setup-api.ts /api/setup/find): ComfyUI's own
+   * 8188 (portable, manual) and ComfyUI Desktop's 8000 unless set. A test of a PC without ComfyUI points it elsewhere.
+   */
+  probeUrls: () => process.env.AFFLATUS_PROBE_URLS,
   /** Civitai's address, for a stand-in site (the tests, the demo). */
   civitaiUrl: () => process.env.CIVITAI_URL,
   /** Hugging Face's address, for a stand-in site. */

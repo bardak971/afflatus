@@ -281,11 +281,13 @@ describe.skipIf(!ffmpegThere)("a clip's take, trimmed on the timeline", { timeou
     // the redo is the finished version of the draft, not of the finished take
     expect(w.clips[0].takes).toHaveLength(3);
     expect(w.clips[0].takes[2].finishedFrom).toBe(w.clips[0].takes[0].id);
-    // SeedVR2 without its files: the job says what is missing
+    // SeedVR2 without its files: the job waits on this ComfyUI for their Download (where you render, card #20), never fetched unasked
     const sv = await call("POST", `/api/timelines/${tl}/finish`, { route: "seedvr", factor: 2, redo: true, clips: [a] });
     expect(sv.jobs).toHaveLength(1);
-    await until(async () => (await t.db.selectFrom("jobs").select("status").where("id", "=", sv.jobs[0]).executeTakeFirstOrThrow()).status === "failed");
-    expect((await t.db.selectFrom("jobs").select("error").where("id", "=", sv.jobs[0]).executeTakeFirstOrThrow()).error).toMatch(/SeedVR2 needs its two files/);
+    const svWait = async () => (await get(t.app, "/api/queue")).json().waiting.find((w: { id: string }) => w.id === sv.jobs[0]);
+    await until(async () => Boolean((await svWait())?.fetch?.m1));
+    expect((await svWait()).fetch.m1.files.map((f: { url?: string }) => Boolean(f.url))).toEqual([true, true]);
+    await t.services.queue.cancel(sv.jobs[0]);
     // H3's latent route re-samples the draft's own kept latent: without one, the clip is skipped with what to do instead
     const none = await call("POST", `/api/timelines/${tl}/finish`, { route: "latent", factor: 2, redo: true, clips: [a] });
     expect(none.jobs).toEqual([]);
