@@ -26,12 +26,14 @@ export interface LlmInfo {
   noThinking: boolean;
 }
 export interface FinishSettings {
-  route: "seedvr" | "latent" | "rtx" | "model";
+  route: "seedvr" | "latent" | "rtx" | "model" | "face";
   factor: number;
   colour: "lab" | "wavelet" | "adain" | "none";
   upscaleModel: string;
   latentDenoise: number;
   latentSteps: number;
+  /** Face refine's denoise on the smallest faces. */
+  faceDenoise?: number;
   seedvrFrames?: number;
   /** RCAS after a pixel route, 0 to 1; 0 = off. */
   sharpen?: number;

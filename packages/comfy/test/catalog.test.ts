@@ -48,4 +48,22 @@ describe("stripFileLists", () => {
     expect(leftoverNames(catalog, ["styles\\my_private_lora.safetensors", "another-one_v2.safetensors"])).toEqual([]);
     expect(leftoverNames({ X: { input: { required: { note: ["STRING", { default: "made with My_Private_Lora" }] } }, output: [] } }, ["my_private_lora.safetensors"])).toEqual(["my_private_lora"]);
   });
+
+  it("drops a tooltip that names a file, and keeps the others", () => {
+    const catalog: NodeCatalog = {
+      Track: {
+        input: {
+          optional: {
+            fallback: [["none", "segm\\person_yolov8m-seg.pt"], { default: "none", tooltip: "A body model such as segm\\person_yolov8m-seg.pt finds the head." }],
+            window: ["INT", { default: 21, tooltip: "Frames of smoothing." }],
+          },
+        },
+        output: [],
+      },
+    };
+    stripFileLists(catalog);
+    expect(JSON.stringify(catalog)).not.toMatch(/person_yolov8m/);
+    expect(catalog.Track!.input.optional!.window).toEqual(["INT", { default: 21, tooltip: "Frames of smoothing." }]);
+    expect(leftoverNames(catalog, ["segm\\person_yolov8m-seg.pt"])).toEqual([]);
+  });
 });

@@ -2,6 +2,7 @@ import { frameOf, gridNearest, LATENT_GRID, type FrameGrid, type PromptLine, QUO
 import { defineFamily } from "@afflatus/core";
 import { SEEDVR_SLOTS } from "../video/upscale";
 import { RIFE_GET } from "../shared/finish";
+import { FACE_DETECTOR_SLOT } from "../shared/detector";
 
 /** Where ComfyUI's own templates fetch MiniMax H3's files from. */
 const HF = "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main";
@@ -114,6 +115,23 @@ export const h3 = defineFamily({
       id: "rife", label: "Frame interpolation model (RIFE)", folder: "frame_interpolation", detect: ["rife"], optional: true,
       hint: "Without it, no frame interpolation: clips stay at 24 fps. Put a RIFE model in ComfyUI's models/frame_interpolation folder.",
       get: RIFE_GET,
+    },
+    // Face refine (faceRefine.ts): the model the faces are redrawn with, what finds them, and what outlines them for the paste
+    {
+      id: "faceRefineUnet", label: "Fused reference turbo (Face refine)", folder: "diffusion_models", detect: ["minimax.?h3.*fused.*refdelta.*turbo", "minimax.?h3.*refdelta.*turbo"], optional: true,
+      hint: "For Face refine: the fused MiniMax H3 reference turbo (a reference model with its turbo merged in, 4 steps), in ComfyUI's models/diffusion_models folder.",
+      get: { file: "minimax_h3_fused_refdelta_r1024_turbo8_mystic07_int8_convrot.safetensors", url: "https://huggingface.co/MATLOWAI/minimax-h3-fused-turbo-int8-convrot/resolve/main/diffusion_models/minimax_h3_fused_refdelta_r1024_turbo8_mystic07_int8_convrot.safetensors" },
+    },
+    { ...FACE_DETECTOR_SLOT, label: "Face detector (Face refine)", hint: "For Face refine, 52 MB: the YOLOv8 face detector that finds the face in each frame, in ComfyUI's models/ultralytics/bbox folder." },
+    {
+      id: "faceSeg", label: "Person detector (Face refine)", folder: "ultralytics", detect: ["person_yolov8m-seg", "person_yolo.*seg"], optional: true,
+      hint: "Optional, for Face refine, 55 MB: where no face is found (turned away, small), the person's head is found from their outline. In ComfyUI's models/ultralytics/segm folder.",
+      get: { file: "segm/person_yolov8m-seg.pt", url: "https://huggingface.co/Bingsu/adetailer/resolve/main/person_yolov8m-seg.pt" },
+    },
+    {
+      id: "faceSam", label: "SAM ViT-B (Face refine)", folder: "sams", detect: ["sam_vit_b"], optional: true,
+      hint: "Optional, for Face refine, 375 MB: the redrawn face is pasted over the face's own outline rather than its box. In ComfyUI's models/sams folder (needs the Impact Pack).",
+      get: { file: "sam_vit_b_01ec64.pth", url: "https://huggingface.co/ybelkada/segment-anything/resolve/main/checkpoints/sam_vit_b_01ec64.pth" },
     },
     ...SEEDVR_SLOTS,
   ],

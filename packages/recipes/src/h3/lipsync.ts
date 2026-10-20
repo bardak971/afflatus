@@ -6,6 +6,7 @@ import { H3_STARTS, turboNeeds } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
 import { upscaleNeeds } from "../video/upscale";
 import { rifeNeeds } from "../shared/finish";
+import { FACE_REFINE_SLOTS } from "./faceRefine";
 
 /**
  * MiniMax H3 · Lip sync: a new shot made around a recording. The recording is laid on the clip's sound where the clip's
@@ -128,6 +129,11 @@ export const h3LipSync = defineRecipe<H3LipSync>({
         name: "a recording and the picture of who speaks",
         input: { description: "a café terrace", start: "p1", recording: "a1" },
         slots: all, uploads: { start: "a.png", recording: "rec.wav" }, media: { start: { width: 832, height: 1216 }, recording: { width: 0, height: 0, seconds: 5.9 } },
+      },
+      {
+        name: "Face refine of the cast person (a Finish of it loads its own latent)",
+        input: { description: "a", references: [{ asset: "r1", role: "person" }], recording: "a1", faceRefine: true },
+        slots: { ...all, ...FACE_REFINE_SLOTS }, uploads: { recording: "rec.wav", "references.0": "r1.png", "self.latent": "own.safetensors" }, media: { recording: { width: 0, height: 0, seconds: 5.9 } },
       },
       {
         name: "the cast, carrying on from a clip, the words a moment in",

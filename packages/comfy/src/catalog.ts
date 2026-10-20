@@ -3,6 +3,9 @@ import { endsIn, MODEL_EXT, MODEL_EXTS, modelStem, type NodeCatalog } from "@aff
 /** A name with something before the dot: "model.safetensors", "sub\\pic.png". A bare ".png" is an extension, not a file. */
 const FILE = new RegExp(String.raw`[^\\/.]` + endsIn([...MODEL_EXTS, "engine", "png", "jpe?g", "webp", "gif", "bmp", "tiff?", "mp4", "webm", "mov", "mkv", "avi", "wav", "mp3", "flac", "ogg", "m4a", "opus", "txt", "json", "ya?ml", "csv", "patch", "latent", "glb", "obj", "ply", "ttf", "otf", "woff2?"]).source, "i");
 
+/** A model file named inside a text ("a model such as person_yolov8m-seg.pt finds…"), not only at its end. */
+const NAMES_A_MODEL = new RegExp(String.raw`[^\s\\/.]\.(` + MODEL_EXTS.join("|") + String.raw`)\b`, "i");
+
 const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string");
 const isFileList = (v: unknown): v is string[] => isStrings(v) && v.some((x) => FILE.test(x));
 /** A file's name as some nodes list it: without its folder and without its extension, in lower case. */
@@ -50,6 +53,9 @@ export function stripFileLists(catalog: NodeCatalog): number {
       for (const [key, v] of Object.entries(obj)) {
         // the default of a list of files is one of the files
         if (key === "default" && typeof v === "string" && (FILE.test(v) || models.has(stemOf(v)))) delete obj[key];
+        // a tooltip that names a model file (a node pack's example: "a person model such as person_yolov8m-seg.pt") names
+        // one on this disk when it is there; the checker never reads tooltips
+        else if (key === "tooltip" && typeof v === "string" && NAMES_A_MODEL.test(v)) delete obj[key];
         else dropDefaults(v);
       }
     }

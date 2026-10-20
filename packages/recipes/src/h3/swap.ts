@@ -9,6 +9,7 @@ import { saveVideo } from "../shared/out";
 import { rifeNeeds } from "../shared/finish";
 import { partBounds } from "../motion/driving";
 import { H3_LANDINGS } from "./join";
+import { FACE_REFINE_SLOTS } from "./faceRefine";
 
 /**
  * MiniMax H3 · Swap character: a person in a video replaced by someone of the cast, the rest of the video kept. The
@@ -508,6 +509,11 @@ export const h3Swap = defineRecipe<H3Swap>({
         name: "a person of the cast swapped in, the whole frame redrawn (the Mask off, as the form starts), the source's sound kept",
         input: { who: "the man in the grey t-shirt", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false },
         slots: all, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: part },
+      },
+      {
+        name: "Face refine of the person swapped in (a Finish of it loads its own latent)",
+        input: { who: "the man in the grey t-shirt", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], faceRefine: true },
+        slots: { ...all, ...FACE_REFINE_SLOTS }, uploads: { source: "v.mp4", "references.0": "r1.png", "self.latent": "own.safetensors" }, media: { source: part },
       },
       {
         name: "a window of a long source, masked, carrying on from the window before",

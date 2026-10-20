@@ -4,6 +4,7 @@ import { UPSCALE, upscaleInputs } from "../video/upscale";
 import { COLOUR_MATCH_INPUTS, type ColourMatch } from "../shared/finish";
 import { H3_REFERENCES, H3_REFERENCE_VIDEOS } from "./condition";
 import { H3_JOIN_FRAMES, H3_LANDINGS } from "./join";
+import { FACE_REFINE_INPUTS } from "./faceRefine";
 
 export interface H3Video extends ColourMatch {
   model?: string;
@@ -62,6 +63,11 @@ export interface H3Video extends ColourMatch {
   cacheSteps: number;
   crf: number;
   livePreview: boolean;
+  faceRefine: boolean;
+  faceRefineDenoise: number;
+  faceRefineSteps: number;
+  /** A finish of a kept take that only refines its faces (Finish › Face refine): its own latent, nothing sampled. */
+  faceRefineOnly: boolean;
   loras: LoraValue[];
   seed: number;
 }
@@ -146,6 +152,7 @@ export const h3Inputs: InputSpec[] = [
   },
   ...upscaleInputs({ latent: true }),
   ...COLOUR_MATCH_INPUTS,
+  ...FACE_REFINE_INPUTS,
   {
     id: "upscaleDenoise", type: "number", label: "Upscale denoise", min: 0.05, max: 0.6, step: 0.01, default: 0.15, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
     note: "denoising strength of the re-sampling, on the model's shift: at shift 11, 0.15 starts near sigma 0.66, 0.3 near 0.82. More draws more detail but shifts colour and light and lets each tile decide on its own. A plain resize of the latent (no H3 latent upscaler file) needs 0.3 or more, else it stays soft",

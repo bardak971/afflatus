@@ -10,6 +10,7 @@ import { rifeNeeds } from "../shared/finish";
 import { partBounds } from "../motion/driving";
 import { SWAP_FRAMES, SWAP_RUN_UP } from "./swap";
 import { controlled, frameBefore, MOTION_CHAPTER, motionControlInputs, motionNeeds, motionNodes, poseVideo, POSE_SDPOSE, type H3Motion } from "./motion";
+import { FACE_REFINE_SLOTS } from "./faceRefine";
 
 /**
  * MiniMax H3 · Motion transfer (the owner's, 2026-10-18; built 2026-10-20): a picture made to move like a driving video,
@@ -173,6 +174,11 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
         name: "the cast's picture as a reference, the pose from SDPose, full steps",
         input: { picture: "p1", driving: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], poseFrom: POSE_SDPOSE, fast: false, poseHands: false },
         slots: all, uploads: { picture: "p.png", driving: "v.mp4", "references.0": "r1.png" }, media: { picture, driving: part },
+      },
+      {
+        name: "Face refine of the cast person (a Finish of it loads its own latent)",
+        input: { picture: "p1", driving: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], faceRefine: true },
+        slots: { ...all, ...FACE_REFINE_SLOTS }, uploads: { picture: "p.png", driving: "v.mp4", "references.0": "r1.png", "self.latent": "own.safetensors" }, media: { picture, driving: part },
       },
       {
         // one file that is all three: no reference model, no turbo LoRA
