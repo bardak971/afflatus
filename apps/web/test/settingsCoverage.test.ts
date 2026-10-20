@@ -71,6 +71,7 @@ const BROWSER: Record<string, string> = {
   "afflatus.bar.learn": "bar.learn",
   "afflatus.bar.preview": "bar.preview",
   "afflatus.bar.rank": "bar.forget",
+  "afflatus.allFamiliesHint": "internal: Settings › Models' hint to turn every family on, closed for good",
   "afflatus.theme.paint": "internal: the theme's colours, painted before the app loads",
   "afflatus.attention-kept": "internal: Needs attention items kept by hand, per timeline",
   "afflatus.cut.crf": "internal: Trim's last quality, remembered where it is set",

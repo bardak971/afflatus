@@ -111,9 +111,9 @@ export function RentRow() {
 type CapKey = "day" | "month";
 
 /** What each cap weighs: the day's is compute alone, the month's everything RunPod bills (rented.ts spent says the same). */
-const CAP_DAY_WHY = "Compute only: what your pods cost today while they run, their GPU and their disk. A stopped pod's disk and the network volumes are not in it: they bill whether anything runs or not, and the month cap has them.";
+export const CAP_DAY_WHY = "Compute only: what your pods cost today while they run, their GPU and their disk. A stopped pod's disk and the network volumes are not in it: they bill whether anything runs or not, and the month cap has them.";
 const BOOT_LOGS_WHY = "A deployed pod's boot log, kept with its run in Queue › Costs (its row's \"boot log\"): RunPod's system log of the image's pull, layer by layer, and the pod's own boot log, up to ComfyUI's first answer. RunPod drops both when the pod is terminated; kept, they tell a pull that never began (RunPod's side) from one that crawled (the host's link). Dropped after the days set. The pull's speed and size are kept with each run either way.";
-const CAP_MONTH_WHY = "Everything RunPod bills this month: the pods, the disks of stopped pods and the network volumes. At it the pods stop, and Start, Deploy, Make volume and Grow are refused.";
+export const CAP_MONTH_WHY = "Everything RunPod bills this month: the pods, the disks of stopped pods and the network volumes. At it the pods stop, and Start, Deploy, Make volume and Grow are refused.";
 
 /** A figure against its cap, in a few words: "$1.18 of $5", or the figure alone without a cap. */
 const against = (value: number, cap: number) => `${usd(value, true)}${cap > 0 ? ` of ${usd(cap)}` : ""}`;
@@ -123,7 +123,7 @@ const against = (value: number, cap: number) => `${usd(value, true)}${cap > 0 ? 
  * save of it failed, so that it shows the cap as saved again rather than the amount typed, which is not in force. Its "?"
  * says what it weighs: the two caps do not weigh the same bill.
  */
-function CapBox({ label, value, help, onSave }: { label: string; value: number; help: string; onSave(v: number): void }) {
+export function CapBox({ label, value, help, onSave }: { label: string; value: number; help: string; onSave(v: number): void }) {
   const [text, setText] = useState(value ? String(value) : "");
   useEffect(() => setText(value ? String(value) : ""), [value]);
   const commit = () => {

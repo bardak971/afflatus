@@ -348,6 +348,12 @@ export async function plannedScan(families: Family[], recipes: Recipe<any>[], at
     const missingSlots = required.filter((s) => read.has(s.id) && !s.file).map((s) => s.id);
     const { options, emptyInputs } = await recipeChoices(r, families, slots, files, {}, () => undefined);
     for (const input of r.inputs) {
+      // a model input offers its own family's files: the folder holds every family's (SDXL's checkpoints listed SAM 3's)
+      if (input.type === "model") {
+        const own = new Set((families.find((f) => f.id === r.family)?.slots ?? []).filter((s) => s.get && s.folder === input.folder && (!input.slot || s.id === input.slot)).map((s) => s.get!.file));
+        options[input.id] = (options[input.id] ?? []).filter((f) => own.has(f));
+        continue;
+      }
       if (input.type !== "choice" || Array.isArray(input.options) || options[input.id]?.length) continue;
       options[input.id] = [...new Set([...(input.extra ?? []), ...(typeof input.default === "string" ? [input.default] : [])])];
     }

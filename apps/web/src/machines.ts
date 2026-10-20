@@ -85,6 +85,13 @@ export function machineLabel(m: { name: string; url: string }): string {
   }
 }
 
+/**
+ * No machine can take work: none of the user's own is listed, and no pod answers (a rented-only start before its first pod,
+ * every pod stopped). Nothing is offline then: the jobs wait for a GPU, and Deploy is at hand.
+ */
+export const noGpuYet = (listed: ReadonlyArray<{ rented?: unknown }> | undefined, q: Pick<QueueStatus, "machines"> | undefined): boolean =>
+  Boolean(listed) && !listed!.some((m) => !m.rented) && !(q?.machines ?? []).some((m) => m.online === true);
+
 /** The machines of the queue, when there are several; empty with one (the screens then stay as they were). */
 export const severalMachines = (q: QueueStatus | undefined): MachineState[] => (q?.machines && (q.machines.length > 1 || q.machines.some((m) => m.rented)) ? q.machines : []);
 
@@ -136,11 +143,12 @@ export function machineUnloadBlock(m: { online: boolean | null; running: unknown
 }
 
 /**
- * Whether a family is on for one machine: switched there by hand, else by the switch of every machine, else by its files
- * there. The server's rule (machineScans.ts familyOn): what the queue sends a machine is what this says.
+ * Whether a family is on for one machine: switched there by hand, else by the switch of every machine, else on with
+ * `all` (a new install's rule: the switch says "I want it"), else by its files there. The server's rule (machineScans.ts
+ * familyOn): what the queue sends a machine is what this says.
  */
-export function familyOnFor(own: Readonly<Record<string, boolean>>, said: Readonly<Record<string, boolean>>, family: string, found: boolean): boolean {
-  return own[family] ?? said[family] ?? found;
+export function familyOnFor(own: Readonly<Record<string, boolean>>, said: Readonly<Record<string, boolean>>, family: string, found: boolean, all = false): boolean {
+  return own[family] ?? said[family] ?? (all || found);
 }
 
 /** Where a deployed pod's first start is (the server's podBoot.ts bootOf). */

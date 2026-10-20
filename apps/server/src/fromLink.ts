@@ -131,6 +131,8 @@ export async function sizeOf(url: string): Promise<number> {
   if (pretendSites()) return 0;
   try {
     const res = await fetchPublic(url, { method: "HEAD", headers: { "User-Agent": "afflatus" }, signal: AbortSignal.timeout(15_000) });
+    // a refusal says the length of its own few words (a gated repository's 401 said 126 bytes for a 22 GB model)
+    if (!res.ok) return 0;
     return Number(res.headers.get("x-linked-size") ?? res.headers.get("content-length") ?? 0) || 0;
   } catch {
     return 0;

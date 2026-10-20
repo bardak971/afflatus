@@ -4,7 +4,7 @@ import { Link } from "wouter";
 import { ArrowDownToLine, ArrowUpToLine, Layers, Loader2, Pin, Server, Trash2, X } from "lucide-react";
 import { api, type Job, type MachineLack, type MachineState, type PackWait, type RunningJob } from "../../api";
 import { GetFile } from "../../GetFile";
-import { busyOutside, machineLabel, machineState, NO_ROOM, OUTSIDE_TIP, rentedUp, volumeHref, volumeOf } from "../../machines";
+import { busyOutside, machineLabel, machineState, NO_ROOM, noGpuYet, OUTSIDE_TIP, rentedUp, volumeHref, volumeOf } from "../../machines";
 import { useSettings } from "../../data";
 import { JOB_DRAG } from "./MachineLanes";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
@@ -69,6 +69,9 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
 }) {
   const [dragged, setDragged] = useState<string | null>(null);
   const [over, setOver] = useState<number | null>(null);
+  const ownWait = useOwnWait();
+  // no ComfyUI of the user's own and no pod up: each render says it waits for a GPU
+  const noGpu = noGpuYet(useSettings().data?.machines, { machines });
   const [all, setAll] = useState(false);
   // shown whole, the jobs past the queue answer's first ones are read whole too (what keeps one off a machine, the files
   // it waits for), a page of them, again when the line changes
@@ -191,6 +194,8 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
             )}
             {heldOutside(w) && <span className="min-w-0 truncate text-xs text-ink-2" data-tip={`${machineLabel(heldOutside(w)!)}: ${OUTSIDE_TIP}`}>· {machineLabel(heldOutside(w)!)} busy outside Afflatus</span>}
             {filesOf(w, i) ? <FilesChip of={filesOf(w, i)!} /> : <FetchNote w={w} machines={machines} />}
+            {noGpu && w.kind !== "export" && w.kind !== "cut" && <span className="shrink-0 text-xs text-warn-ink" data-tip="No ComfyUI of your own is added and no rented GPU is up: it starts once one is (Deploy a GPU, above).">waits for a GPU</span>}
+            {ownWait(w) && <span className="shrink-0 text-xs text-warn-ink">waits for {plural(ownWait(w)!.files.length, "file")} on {ownWait(w)!.name}</span>}
             {w.packs && <PacksNote wait={w.packs} machine={machines.length ? machineLabel(machines.find((m) => m.id === w.packs!.machine) ?? { name: w.packs.machine, url: "" }) : null} onPacks={onPacks && ((what, packs) => onPacks(w.id, what, packs))} />}
             {machines.length > 0 && !w.pinned && w.runsOn?.length === 0 && (
               <Link href={settingHref("models.families")} className="shrink-0">
@@ -222,6 +227,7 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
               <X size={14} />
             </button>
           </div>
+          <OwnDownloads w={w} />
           {w.pinned && w.lacks?.[w.pinned] && !filesOf(w, i) && <PinnedLacks machine={machineLabel(machines.find((m) => m.id === w.pinned) ?? { name: w.pinned, url: "" })} id={w.pinned} lack={w.lacks[w.pinned]!} />}
         </Fragment>
       ))}
@@ -278,6 +284,43 @@ function PacksNote({ wait, machine, onPacks }: { wait: PackWait; machine: string
  * A waiting render and a rented pod's files: planned onto a pod still getting them, which comes first and how far it is;
  * planned elsewhere though a pod could take it once sent its files, that it is sooner where it goes (the files sent ahead).
  */
+/**
+ * A job waiting on a ComfyUI of the user's own for files to be downloaded there (where you render, card #20): each file
+ * with its Download, never fetched unasked. It starts once they are in; the next job goes meanwhile.
+ */
+function OwnDownloads({ w }: { w: Job }) {
+  const wait = useOwnWait()(w);
+  if (!wait) return null;
+  return (
+    <DownloadTo.Provider value={wait.id}>
+      <div className="mb-1 ml-[44px] flex flex-col gap-1.5 rounded-[10px] border border-line bg-raised px-3 py-2 text-xs text-ink-2">
+        <span>Waits for {plural(wait.files.length, "file")} on {wait.name}, then runs there{wait.others ? " (or run it on a pod from its menu)" : ""}:</span>
+        {wait.files.map((f) => (
+          <div key={`${f.folder}/${f.file}`}>
+            <span className="font-semibold text-ink">{f.file}</span> <span className="text-ink-3">· {f.folder}</span>
+            <GetFile file={f.file} folder={f.folder} url={f.url} />
+          </div>
+        ))}
+      </div>
+    </DownloadTo.Provider>
+  );
+}
+
+/** Of a waiting job: the machine of the user's own it waits on for files to be downloaded, with them (its `fetch` there). */
+function useOwnWait() {
+  const settings = useSettings();
+  const listed = settings.data?.machines ?? [];
+  return (w: Job) => {
+    if (!w.fetch) return null;
+    for (const [id, f] of Object.entries(w.fetch)) {
+      const m = listed.find((x) => x.id === id);
+      if (!m || m.rented || !f.files.length) continue;
+      return { id, name: listed.length > 1 ? machineLabel(m) : "your ComfyUI", files: f.files, others: listed.some((x) => x.rented) };
+    }
+    return null;
+  };
+}
+
 function FetchNote({ w, machines }: { w: Job; machines: MachineState[] }) {
   if (!w.fetch || !w.machine) return null;
   const pod = machines.find((m) => m.id === w.machine)?.rented;

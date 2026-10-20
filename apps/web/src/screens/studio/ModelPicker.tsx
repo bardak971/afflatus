@@ -1,8 +1,8 @@
 import { useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Workflow } from "lucide-react";
 import type { Draft, RecipeInfo } from "../../api";
-import { useFamilies, useRecipes, useSetup } from "../../data";
-import { notReady, plural } from "../../format";
+import { useFamilies, useOfficialSizes, useRecipes, useSetup } from "../../data";
+import { formsCanQueue, notReady, plural, size, waitsForGpu } from "../../format";
 import { carryAcross, carryOver, modelGroups } from "../../picker";
 import { Select } from "../../Select";
 import { modelHelp } from "../../modelHelp";
@@ -26,8 +26,9 @@ export function useModelPick({ recipe, draft, onPick }: {
   const recipes = useRecipes();
   const setup = useSetup();
   const families = useFamilies();
+  const sizes = useOfficialSizes();
   const all = recipes.data?.recipes ?? NO_RECIPES;
-  const comfyOnline = setup.data?.comfy.online ?? false;
+  const comfyOnline = formsCanQueue(setup.data?.comfy);
   // pictures or videos: the models of the other kind are out of the way; the last one used of each kind is remembered
   const kinds = [...new Set(all.map((r) => r.output))];
   const [lastOf, setLastOf] = useState<Record<string, string>>({});
@@ -36,7 +37,19 @@ export function useModelPick({ recipe, draft, onPick }: {
     [all, recipe?.output, recipe?.id, recipes.data?.families, families],
   );
   const group = groups.find((g) => g.recipes.some((r) => r.id === recipe?.id));
-  const why = (r: RecipeInfo) => (setup.isSuccess ? notReady(setup.data.recipes.find((x) => x.id === r.id), comfyOnline) : null);
+  // a family file with an official download keeps nothing from being picked: the job waits for it where it runs
+  const familyOf = (id: string) => recipes.data?.families.find((f) => f.id === id);
+  const downloadable = (family: string) => (slot: string) => Boolean(familyOf(family)?.slots?.find((s) => s.id === slot)?.get);
+  const statusOf = (r: RecipeInfo) => setup.data?.recipes.find((x) => x.id === r.id);
+  const why = (r: RecipeInfo) => (setup.isSuccess ? notReady(statusOf(r), comfyOnline, undefined, downloadable(r.family)) : null);
+  /** A model whose files are not here (their official downloads): "not here", with what they weigh when known. */
+  const notHere = (g: ModelGroup): string | null => {
+    const r = g.recipes.find((x) => statusOf(x)?.missingSlots.length);
+    if (!r || waitsForGpu(setup.data?.comfy)) return null;
+    const slots = familyOf(r.family)?.slots ?? [];
+    const bytes = statusOf(r)!.missingSlots.reduce((n, id) => n + (sizes.data?.[slots.find((s) => s.id === id)?.get?.url ?? ""] ?? 0), 0);
+    return `not here${bytes ? ` · ${size(bytes)}` : ""}`;
+  };
   /** The operation last used with each model: going back to a model goes back to it. */
   const [lastIn, setLastIn] = useState<Record<string, string>>({});
   const pick = (id: string) => {
@@ -61,7 +74,7 @@ export function useModelPick({ recipe, draft, onPick }: {
     pick((back ?? to.recipes.find((r) => !why(r)) ?? to.recipes[0]!).id);
   };
   const pickKind = (k: string) => pick(lastOf[k] ?? all.find((r) => r.output === k)!.id);
-  return { all, kinds, groups, group, why, pick, pickModel, pickKind };
+  return { all, kinds, groups, group, why, notHere, pick, pickModel, pickKind };
 }
 
 /** The radio buttons of a model's operations: one stop for Tab, the arrow keys go from one to the next (and pick it). */
@@ -126,7 +139,7 @@ export function ModelPicker({ pick, recipe, presets }: { pick: ReturnType<typeof
             onChange={pick.pickModel}
             options={groups.map((g) => ({
               value: g.key, label: g.name, group: g.builtIn ? "Models" : "Your workflows",
-              note: g.recipes.some((r) => !why(r)) ? `${plural(g.recipes.length, "operation")}` : "not ready",
+              note: g.recipes.some((r) => !why(r)) ? (pick.notHere(g) ?? `${plural(g.recipes.length, "operation")}`) : "not ready",
               detail: g.builtIn ? g.summary : g.recipes.map((r) => r.title).join(" · "), search: g.recipes.map((r) => r.title).join(" "),
               // what each model is for, to compare before picking
               tip: modelHelp(g), tipHead: g.name,

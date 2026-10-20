@@ -18,10 +18,10 @@ const TABS_UP_TO = 4;
 type Cell = { kind: "away" } | { kind: "off"; found: boolean } | { kind: "on"; good: number; of: number };
 
 /** A family on a machine, from its scan and its switches (familyOnFor): off (with its files there or not), away (no scan), or how many of its operations are ready. */
-function cellOf(scan: Scan | undefined, machine: Machine, said: Record<string, boolean>, family: string, recipes: string[]): Cell {
+function cellOf(scan: Scan | undefined, machine: Machine, said: Record<string, boolean>, family: string, recipes: string[], all = false): Cell {
   if (!scan?.comfy.online) return { kind: "away" };
   const good = recipes.filter((id) => scan.recipes.find((r) => r.id === id)?.ready).length;
-  return familyOnFor(machine.families ?? {}, said, family, good > 0) ? { kind: "on", good, of: recipes.length } : { kind: "off", found: good > 0 };
+  return familyOnFor(machine.families ?? {}, said, family, good > 0, all) ? { kind: "on", good, of: recipes.length } : { kind: "off", found: good > 0 };
 }
 
 /**
@@ -56,7 +56,7 @@ export function ModelsByMachine({ left, right }: {
   const recipesOf = (family: string) => (recipes.data?.recipes ?? []).filter((r) => r.family === family).map((r) => r.id);
   // a machine's tab says how many families that are on there miss something
   const missing = (i: number) => families.filter((f) => {
-    const c = cellOf(scans[i]?.data, machines[i]!, said, f.id, recipesOf(f.id));
+    const c = cellOf(scans[i]?.data, machines[i]!, said, f.id, recipesOf(f.id), settings.data?.allFamilies);
     return c.kind === "on" && c.good < c.of;
   }).length;
   const picked = machines.find((m) => m.id === tab);
@@ -125,7 +125,7 @@ function AllGrid({ machines, scans, onOpen }: { machines: Machine[]; scans: Arra
           {machines.map((m) => <span key={m.id} data-tip={machineLabel(m)} className="line-clamp-2 min-w-0 self-end py-1.5 text-center text-xs leading-tight break-words text-ink-3">{machineLabel(m)}</span>)}
           <span />
           {families.map((f) => {
-            const cells = machines.map((m, i) => cellOf(scans[i], m, said, f.id, recipesOf(f.id)));
+            const cells = machines.map((m, i) => cellOf(scans[i], m, said, f.id, recipesOf(f.id), settings.data?.allFamilies));
             const on = cells.some((c) => c.kind === "on");
             return (
               <Fragment key={f.id}>

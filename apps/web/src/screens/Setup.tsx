@@ -45,9 +45,19 @@ function useTabMarks(): Partial<Record<Tab, ReactNode>> {
   const lowBalance = spent?.lowBalance ?? false;
   const unusedVolumes = spent?.storage?.unused.length ?? 0;
   // operations of the families that are on that cannot run: a family turned off is a choice, not a problem
-  const notReady = setup.data ? (recipes.data?.recipes ?? []).filter((r) => families.offers(r) && !setup.data!.recipes.find((x) => x.id === r.id)?.ready).length : 0;
+  // one that lacks only files with an official download is not counted: they come (Download, or a pod fetches them)
+  const downloadable = (family: string, slot: string) => Boolean(recipes.data?.families.find((f) => f.id === family)?.slots?.find((x) => x.id === slot)?.get);
+  const broken = (r: { id: string; family: string }) => {
+    const st = setup.data!.recipes.find((x) => x.id === r.id);
+    if (st?.ready) return false;
+    const onlyFiles = st && st.missingSlots.length > 0 && !st.missingNodes.length && !st.emptyInputs.length && !st.missingFiles.length && !st.problems?.length && st.missingSlots.every((id) => downloadable(r.family, id));
+    return !onlyFiles;
+  };
+  const notReady = setup.data ? (recipes.data?.recipes ?? []).filter((r) => families.offers(r) && broken(r)).length : 0;
+  // no ComfyUI of the user's own expected (rented only, or none yet): no dot, nothing is offline
+  const planned = Boolean(comfy && !comfy.online && comfy.planned);
   return {
-    comfyui: comfy && <span aria-label={comfy.online ? "connected" : "not answering"} className={cx("h-[7px] w-[7px] rounded-full", comfy.online ? "bg-good" : "bg-warn")} />,
+    comfyui: comfy && !planned && <span aria-label={comfy.online ? "connected" : "not answering"} className={cx("h-[7px] w-[7px] rounded-full", comfy.online ? "bg-good" : "bg-warn")} />,
     rented: lowBalance ? <span className="rounded-md bg-warn-wash px-1.5 font-mono text-[10.5px] text-warn-ink">balance low</span>
       : unusedVolumes > 0 ? <span className="rounded-md bg-warn-wash px-1.5 font-mono text-[10.5px] text-warn-ink">{plural(unusedVolumes, "volume")} unused</span>
       : podRunning && <span aria-label="a pod running" className="h-[7px] w-[7px] rounded-full bg-good" />,

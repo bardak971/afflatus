@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearch } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type MachineState, type QueueStatus } from "../api";
-import { useQueue } from "../data";
+import { useQueue, useSettings } from "../data";
 import { NOTIFY_HELP, NOTIFY_REFUSED, NotifyToggle } from "../NotifyToggle";
 import { useQueueOps } from "../queueOps";
 import { unloadBlock } from "../queueRules";
@@ -13,7 +13,8 @@ import { RenderTimes } from "./queue/Times";
 import { Costs } from "./queue/Costs";
 import { ComfyLog } from "./queue/Log";
 import { MachineLanes } from "./queue/MachineLanes";
-import { machineLabel, machineUnloadBlock, onlineSaid, severalMachines } from "../machines";
+import { machineLabel, machineUnloadBlock, noGpuYet, onlineSaid, severalMachines } from "../machines";
+import { NoMachine } from "./queue/NoMachine";
 import { RunningCard } from "./queue/RunningCard";
 import { WaitingList } from "./queue/WaitingList";
 import { queryKeys } from "../queryKeys";
@@ -30,7 +31,8 @@ function QueueControls({ q, free, pause, resume }: { q: QueueStatus | undefined;
   const why = several.length ? (idle.length ? null : "every machine is at work or away") : unloadBlock(q);
   return (
     <>
-      {q?.online && (
+      {/* no machine at all (rented only, none up): nothing to unload */}
+      {q?.online && (q.machines?.length ?? 0) > 0 && (
         <Button
           className="h-10 px-4"
           disabled={free.isPending || Boolean(why)}
@@ -84,6 +86,8 @@ export function Queue() {
   }, [asked]);
   const q = queue.data;
   const several = severalMachines(q);
+  // no ComfyUI of the user's own and no pod up: nothing is offline, the jobs wait for a GPU (NoMachine)
+  const noGpu = noGpuYet(useSettings().data?.machines, q);
   // "Models unloaded" holds until a model is loaded again
   const loaded = q?.model;
   const resetFree = free.reset;
@@ -105,8 +109,8 @@ export function Queue() {
         <div className="flex min-w-0 grow items-center gap-3 text-xs text-ink-2 lg:basis-0">
           <span className="flex shrink-0 items-center gap-1.5">
             {/* not read yet, or could not be: nothing is said about ComfyUI */}
-            <span className={cx("h-2 w-2 rounded-full", !q ? "bg-ink-3" : q.online ? "bg-good" : "bg-warn")} />
-            {!q ? "…" : several.length ? onlineSaid(several) : q.online ? "ComfyUI online" : "ComfyUI offline · queued jobs wait"}
+            <span className={cx("h-2 w-2 rounded-full", !q || noGpu ? "bg-ink-3" : q.online ? "bg-good" : "bg-warn")} />
+            {!q ? "…" : noGpu ? "No machine yet" : several.length ? onlineSaid(several) : q.online ? "ComfyUI online" : "ComfyUI offline · queued jobs wait"}
           </span>
           {q?.model && !several.length && <span className="truncate font-mono">{q.model} loaded</span>}
         </div>
@@ -143,9 +147,10 @@ export function Queue() {
           )}
           <section aria-label="Machines" className="flex flex-col gap-1.5">
             <SectionTitle>{(q.machines?.length ?? 0) > 1 ? `Machines · ${q.machines!.length}` : "Machine"}</SectionTitle>
+            {noGpu && <NoMachine waiting={q.waiting.length} />}
             {q.machines?.length
               ? <MachineLanes q={q} onStop={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} />
-              : <RunningCard running={q.running} onStop={(id) => cancel.mutate(id)} />}
+              : !noGpu && <RunningCard running={q.running} onStop={(id) => cancel.mutate(id)} />}
           </section>
           {/* its head says what they come to: how many, how long, the model switches, and the bulk actions */}
           {q.waiting.length > 0 && <WaitingList waiting={q.waiting} whole={q.whole} endsInMs={q.waitingEndsInMs} running={q.running} machines={several} onOrder={(ids) => order.mutate(ids)} onRemove={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} onPacks={(job, what, names) => packs.mutate({ job, what, names })} />}

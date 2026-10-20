@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, X } from "lucide-react";
 import { api, type Machine } from "../../api";
-import { useFamilies, useRecipes, useSettings, useSetup } from "../../data";
-import { plural } from "../../format";
+import { useFamilies, useOfficialSizes, useRecipes, useSettings, useSetup } from "../../data";
+import { plural, size, waitsForGpu } from "../../format";
 import { machineLabel } from "../../machines";
 import { DownloadTo } from "../../useGetFile";
 import { Chip, cx, ErrorNote, Help, Toggle } from "../../ui";
@@ -19,6 +19,36 @@ import { queryKeys } from "../../queryKeys";
 function readySaid(families: number, ready: number, operations: number): string {
   const on = `${families} on`;
   return ready === operations ? `${on} · all ready` : `${on} · ${ready} of ${operations} operations ready`;
+}
+
+/** Where the existing install's hint was closed: never shown again in this browser. */
+const HINT_CLOSED = "afflatus.allFamiliesHint";
+
+/**
+ * An existing install's one line (where you render, card #20): its families still follow their files, those without them
+ * off. "Turn them all on" sets the new rule (allFamilies: the switch says "I want it", the files listed greyed and coming
+ * when a job needs them), switches set off by hand turned on too. Closed, it is not shown again.
+ */
+function AllOnHint({ off }: { off: number }) {
+  const client = useQueryClient();
+  const [closed, setClosed] = useState(() => localStorage.getItem(HINT_CLOSED) === "1");
+  const settings = useSettings();
+  const turn = useMutation({
+    mutationFn: () => api.saveSettings({ allFamilies: true, families: Object.fromEntries(Object.entries(settings.data?.families ?? {}).filter(([, on]) => on)) }),
+    onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved),
+  });
+  if (closed) return null;
+  const close = () => {
+    localStorage.setItem(HINT_CLOSED, "1");
+    setClosed(true);
+  };
+  return (
+    <Block className="flex-row items-center gap-3 text-ink-2">
+      <span className="grow">{plural(off, "family is", "families are")} off. On, a family's forms list its files greyed, and they come when a job needs them.</span>
+      <button type="button" disabled={turn.isPending} onClick={() => turn.mutate()} className="h-8 shrink-0 rounded-lg border border-line-strong px-3 text-xs font-semibold text-ink hover:bg-hover disabled:opacity-45">Turn them all on</button>
+      <button type="button" aria-label="Close this hint" onClick={close} className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-ink-3 hover:bg-hover hover:text-ink"><X size={14} /></button>
+    </Block>
+  );
 }
 
 /** What a family that is off says of its files: a fact, not a warning (a family left off is not a problem). */
@@ -39,6 +69,7 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
   const settings = useSettings();
   const setup = useSetup(machine?.id);
   const families = useFamilies(machine?.id);
+  const sizes = useOfficialSizes();
   const [opened, setOpened] = useState<Record<string, boolean>>({});
   const [offOpen, setOffOpen] = useState(false);
   const client = useQueryClient();
@@ -61,6 +92,13 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
   const off = shown.filter((f) => !families.isOn(f.id));
   const listed = recipes.data.recipes.filter((r) => families.offers(r));
   const ready = listed.filter((r) => readyOf(r.id)).length;
+  // with rented GPUs only (no ComfyUI of the user's own answering): the files come with the pod, nothing to download here
+  const pod = waitsForGpu(setup.data?.comfy);
+  const sizeOf = (url: string | undefined) => (url ? sizes.data?.[url] ?? 0 : 0);
+  /** A family's needed files not here that have an official download: said as files to come, not as a warning. */
+  const toCome = (id: string) => (setup.data?.families.find((x) => x.id === id)?.slots ?? []).filter((x) => !x.optional && !x.file && x.get);
+  /** What a family's official files weigh, as a pod fetches them. */
+  const podBytes = (id: string) => (recipes.data.families.find((x) => x.id === id)?.slots ?? []).filter((x) => !x.optional && x.get).reduce((n, x) => n + sizeOf(x.get!.url), 0);
 
   const row = (f: (typeof shown)[number]) => {
     const mine = recipes.data.recipes.filter((r) => r.family === f.id && !r.hidden);
@@ -72,6 +110,10 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
     const all = good === mine.length;
     // files the family does not need, but some option of it would use: said as what they are
     const extras = (setup.data?.families.find((x) => x.id === f.id)?.slots ?? []).filter((x) => x.optional && !x.file && x.get).length;
+    // what it lacks is only files with an official download: they come (Download all), the family is not broken
+    const coming = !all ? toCome(f.id) : [];
+    const onlyFiles = coming.length > 0 && mine.every((r) => readyOf(r.id) || (setup.data?.recipes.find((x) => x.id === r.id)?.missingSlots ?? []).every((id) => coming.some((c) => c.id === id)));
+    const comingBytes = coming.reduce((n, x) => n + sizeOf(x.get!.url), 0);
     // a family that is on with something missing starts open; the rest start folded
     const open = opened[f.id] ?? (isOn && setup.data ? !all : false);
     return (
@@ -85,8 +127,16 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
             <span className="grow" />
             {setup.data && (isOn ? (
               <span className="flex shrink-0 items-baseline gap-2 text-xs">
-                {all && extras > 0 && <span className="text-ink-3">{plural(extras, "optional file")} to add</span>}
-                <span className={cx("font-semibold", all ? "text-good" : "text-warn-ink")}>{all ? "ready" : `${good} of ${mine.length} ready`}</span>
+                {pod ? (
+                  <span className="text-ink-2">fetched by the pod{podBytes(f.id) ? ` · ${size(podBytes(f.id))}` : ""}</span>
+                ) : onlyFiles ? (
+                  <span className="text-ink-2">{plural(coming.length, "file")} not here{comingBytes ? ` · ${size(comingBytes)}` : ""}</span>
+                ) : (
+                  <>
+                    {all && extras > 0 && <span className="text-ink-3">{plural(extras, "optional file")} to add</span>}
+                    <span className={cx("font-semibold", all ? "text-good" : "text-warn-ink")}>{all ? "ready" : `${good} of ${mine.length} ready`}</span>
+                  </>
+                )}
               </span>
             ) : (
               <span className="shrink-0 text-xs text-ink-3" data-tip={found ? undefined : `Its model files are not in ${where ?? "ComfyUI"}. Open it for what it needs and where to get each file; it turns on by itself once they are there, unless switched off by hand.`}>
@@ -96,7 +146,7 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
           </button>
           {/* the needed files it lacks, every one in a click: each then has its bar on its line below. Of a family left off
               (a choice, not a problem), only once opened: ten orange buttons down the folded list read as ten warnings */}
-          {setup.data && !all && (isOn || open) && <DownloadAll family={f.id} recipes={mine} machine={machine?.id} />}
+          {setup.data && !all && !pod && (isOn || open) && <DownloadAll family={f.id} recipes={mine} machine={machine?.id} />}
           {f.id in said && (
             <Chip
               tone="link"
@@ -128,8 +178,9 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
             <Help title="Models" text={machine ? `One row per model family, as ${where} has it. The switch: off, the queue sends ${where} nothing of that family; set here it wins over the switch of every machine (All). Open a family for its operations, the files they need, and a download to ${where}.` : "One row per model family. The switch: off, it is left out of the model lists (Studio, a clip's model on a timeline, the tools under a picture); what you made with it stays. Left alone a family follows its model files; set by hand it stays as set. Open a family for its operations, the files they need and where to get them. Only the families that are on warn of what is missing."} />
           </span>
         }
-        status={setup.isLoading ? <span className="text-xs text-ink-3">Asking ComfyUI…</span> : setup.data && listed.length ? <span className={cx("font-mono text-xs", ready === listed.length ? "text-good" : "text-warn-ink")}>{readySaid(on.length, ready, listed.length)}</span> : null}
+        status={setup.isLoading ? <span className="text-xs text-ink-3">Asking ComfyUI…</span> : pod ? <span className="font-mono text-xs text-ink-2">{on.length} on · files fetched by the pod</span> : setup.data && listed.length ? <span className={cx("font-mono text-xs", ready === listed.length ? "text-good" : "text-warn-ink")}>{readySaid(on.length, ready, listed.length)}</span> : null}
       >
+        {!machine && !settings.data.allFamilies && off.length > 0 && <AllOnHint off={off.length} />}
         {setup.isError && <Block><ErrorNote>{setup.error.message}</ErrorNote></Block>}
         {setup.data && !setup.data.comfy.online && where && <Block className="text-ink-2">{where} does not answer: what it has is not known now.</Block>}
         {setup.data && !on.length && (

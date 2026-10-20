@@ -40,6 +40,19 @@ export interface FamilyInfo {
   imported?: true;
   /** Patterns that tell which LoRAs were made for this family. */
   loraMatch?: string[];
+  /** Its files (the server's ModelSlot): where each goes and, for the official ones, where it is had (`get`). */
+  slots?: FamilySlot[];
+}
+
+/** One of a family's files, as the recipes describe it: its folder, and its official download when there is one. */
+export interface FamilySlot {
+  id: string;
+  label?: string;
+  folder: string;
+  optional?: boolean;
+  get?: { file: string; url: string };
+  /** The recipes that alone use it: while every one of them is hidden, it is not offered. */
+  onlyFor?: string[];
 }
 export interface RecipeStatus {
   id: string;
@@ -57,11 +70,23 @@ export interface RecipeStatus {
   /** The files its family's slots use here (slot id → file), for the settings that start by them. */
   slots?: Record<string, string>;
 }
+/** A ComfyUI asked at an address without saving it (the server's /api/setup/probe). */
+export interface ComfyProbe {
+  url: string;
+  online: boolean;
+  version: string | null;
+  device: string | null;
+  /** It answered, but refused Afflatus: locked by a token to paste once it is added. */
+  locked: boolean;
+  error: string | null;
+}
+
 export interface Scan {
   at: string;
   comfy:
     | { online: true; url: string; version: string; device: string; vramTotal: number; vramFree: number; nodes: number }
-    | { online: false; url: string; error: string };
+    // `planned`: no ComfyUI answers and none of the user's own is expected: what a pod would offer (the server's plannedScan)
+    | { online: false; url: string; error: string; locked?: boolean; planned?: true };
   families: Array<{ id: string; slots: Array<{ id: string; label: string; folder: string; file: string | null; choices: string[]; auto: string | null; chosen: boolean; optional: boolean; hint: string; get?: { file: string; url: string };
     /** Only hidden recipes use it: not shown in Settings › Models (the scan keeps it, for jobs). */
     onlyHidden?: true }> }>;

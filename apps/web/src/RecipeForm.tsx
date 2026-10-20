@@ -84,7 +84,9 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   const picker = recipe.inputs.find((i) => i.type === "model");
   const inUse = (picker ? String(values[picker.id] ?? "") : recipe.models?.[0]) || undefined;
   /** The form names a model file this ComfyUI does not list (a preset made elsewhere, a file removed). */
-  const isMissingModel = (id: string) => typeof values[id] === "string" && values[id] !== "" && Array.isArray(status?.options[id]) && !status!.options[id]!.includes(String(values[id]));
+  // a family's official file picked greyed says itself under its field (ModelField: Download, or fetched by the pod)
+  const official = (file: string) => Boolean(family?.slots?.some((x) => x.get?.file === file));
+  const isMissingModel = (id: string) => typeof values[id] === "string" && values[id] !== "" && Array.isArray(status?.options[id]) && !status!.options[id]!.includes(String(values[id])) && !official(String(values[id]));
   const setPart = useParts((st) => st.set);
 
   // ---- the search: typed, only the settings whose name (or explanation) matches stay on the form

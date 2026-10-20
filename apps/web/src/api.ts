@@ -11,7 +11,7 @@ import { signedOut } from "./access/signedOut";
 import type { GoBackCheck, UpdatesView } from "./api/types/updates";
 import type { CostsView } from "./api/types/costs";
 import type { CommandEntry, CommandEstimate, CommandIndex, PromptHistoryItem } from "./api/types/bar";
-import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, HuggingFaceFind, CivitaiFind, DeployModels, ModelSet, SetFile, SetSearch, BrowseBases, BrowseCard, BrowseFile, BrowsePage, HashStatus } from "./api/types/models";
+import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ComfyProbe, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, HuggingFaceFind, CivitaiFind, DeployModels, ModelSet, SetFile, SetSearch, BrowseBases, BrowseCard, BrowseFile, BrowsePage, HashStatus } from "./api/types/models";
 
 /** Shapes of the server's answers. Kept next to the calls so a change on one side is noticed on the other. */
 export * from "./api/types/queue";
@@ -163,10 +163,16 @@ function assetParams(opts: AssetFilter): URLSearchParams {
 
 export const api = {
   recipes: (o?: Asked) => call<{ families: FamilyInfo[]; recipes: RecipeInfo[] }>("GET", "/recipes", undefined, o?.signal),
+  /** How large the families' official files are, by address (bytes): the ones the server knows yet. */
+  officialSizes: (o?: Asked) => call<Record<string, number>>("GET", "/official-sizes", undefined, o?.signal),
   /** What ComfyUI can do; each recipe's options come as places in a list of lists (core's listOptions), put back here. */
   /** `machine`: that ComfyUI's alone; without, what every machine together can do (the same with one). */
   setup: (o?: Asked, machine?: string) => call<ListedOptions<RecipeStatus> & Omit<Scan, "recipes">>("GET", `/setup${machineParam(machine)}`, undefined, o?.signal).then((sent): Scan => unlistOptions(sent)),
   /** ComfyUI asked again, now: its address, its files, its nodes. A POST, since it does work on the server. */
+  /** A ComfyUI asked at an address without saving it: whether it answers, its version and its GPU (the first launch, Find it). */
+  probeComfy: (url: string) => call<ComfyProbe>("POST", "/setup/probe", { url }),
+  /** The usual addresses asked in turn (127.0.0.1:8188, then ComfyUI Desktop's :8000): the first that answers, or null. */
+  findComfy: () => call<{ found: ComfyProbe | null; tried: string[] }>("GET", "/setup/find"),
   rescanSetup: (machine?: string) => call<ListedOptions<RecipeStatus> & Omit<Scan, "recipes">>("POST", `/setup/rescan${machineParam(machine)}`).then((sent): Scan => unlistOptions(sent)),
   health: (o?: Asked) => call<Health>("GET", "/health", undefined, o?.signal),
   /** The tools Afflatus needs looked for again, now. */

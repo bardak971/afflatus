@@ -19,6 +19,8 @@ export interface Option {
   group?: string;
   /** Shown greyed and never picked, its note saying why (a network volume another pod runs on). */
   disabled?: boolean;
+  /** Shown greyed and picked all the same: something not here yet that comes when it is used (a family's official file). */
+  muted?: boolean;
   /** What shows on hover over the row, with its own head: more than its detail line holds. */
   tip?: string;
   tipHead?: string;
@@ -187,7 +189,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
         )}
       >
         {icon}
-        <span className={cx("min-w-0 grow truncate", !dashed && selected && "font-semibold", !selected && !dashed && "text-ink-3")}>{selected?.label ?? placeholder}</span>
+        <span className={cx("min-w-0 grow truncate", !dashed && selected && "font-semibold", ((!selected && !dashed) || selected?.muted) && "text-ink-3")}>{selected?.label ?? placeholder}</span>
         {!dashed && <ChevronDown size={15} className={cx("shrink-0 transition-transform motion-reduce:transition-none", open ? "rotate-180 text-accent" : "text-ink-2")} />}
       </button>
 
@@ -258,7 +260,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
               >
                 <span className="flex h-4 w-4 shrink-0 items-center justify-center text-accent">{o.value === value && <Check size={14} strokeWidth={3} />}</span>
                 <span className="flex min-w-0 grow flex-col">
-                  <span className={cx("break-words", o.marked && "font-medium")}>{o.label}</span>
+                  <span className={cx("break-words", o.marked && "font-medium", o.muted && "text-ink-3")}>{o.label}</span>
                   {/* two lines at most: a LoRA's trigger words can run to a hundred tags, which made each row a page; all of it
                       in the tip, and the search still reads all of it */}
                   {o.detail && <span data-tip={o.detail.length > 90 ? o.detail : undefined} className="line-clamp-2 break-words text-xs text-ink-3">{o.detail}</span>}

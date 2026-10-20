@@ -4,8 +4,8 @@ import { Link } from "wouter";
 import { ChevronDown, Download as DownloadIcon } from "lucide-react";
 import { EITHER_PACKS, EXTRA_PACKS, folderOfFileInput, nodesOfPack, packOfNode } from "@afflatus/core";
 import { api, type RecipeInfo, type RecipeStatus, type Scan } from "../../api";
-import { useSettings, useSetup } from "../../data";
-import { fileLabel, plural, problemSaid } from "../../format";
+import { useOfficialSizes, useSettings, useSetup } from "../../data";
+import { fileLabel, plural, problemSaid, size } from "../../format";
 import { GetFile } from "../../GetFile";
 import { useDownloads } from "../../useGetFile";
 import { Select } from "../../Select";
@@ -175,14 +175,18 @@ function FileLine({ row, family, name, imported }: { row: FileRow; family: strin
   const find = encodeURIComponent(row.label);
   // another file for it: the one Afflatus knows to download when it is not the one there, else a search by its name
   const known = row.slot?.get && row.slot.get.file !== row.file ? row.slot.get : null;
+  // a missing file with an official download is one to come (Download, or a pod fetches it), said in grey: not a fault
+  const coming = !row.file && !row.optional && Boolean(row.get);
+  const bytes = useOfficialSizes().data?.[row.get?.url ?? ""];
   return (
     <div className="grid grid-cols-[14px_minmax(0,1fr)_7.5rem_minmax(0,18rem)] items-start gap-3 border-t border-line py-2 first:border-t-0">
       {row.file
         ? <span aria-label="there" className="mt-1 size-2.5 rounded-full bg-good" />
-        : <span aria-label={row.optional ? "not there, optional" : "missing"} className={cx("mt-1 size-2.5 rounded-full border-[1.5px]", row.optional ? "border-dashed border-ink-3" : "border-warn-ink")} />}
+        : <span aria-label={row.optional ? "not there, optional" : coming ? "not here" : "missing"} className={cx("mt-1 size-2.5 rounded-full border-[1.5px]", row.optional ? "border-dashed border-ink-3" : coming ? "border-ink-3" : "border-warn-ink")} />}
       <span className="flex min-w-0 flex-col gap-0.5">
         <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-          <span className={cx("font-semibold", !row.file && !row.optional && "text-warn-ink")}>{row.label}</span>
+          <span className={cx("font-semibold", coming ? "text-ink-2" : !row.file && !row.optional && "text-warn-ink")}>{row.label}</span>
+          {coming && <span className="text-xs text-ink-3">not here{bytes ? ` · ${size(bytes)}` : ""}</span>}
           {!row.optional && !row.every && row.users.length > 0 && <span className="rounded-md bg-accent-wash px-1.5 text-[11px] font-semibold text-accent" data-tip={`Only ${row.users.join(", ")} cannot run without it`}>{row.users.join(", ")} only</span>}
         </span>
         {/* where to put a missing one, what an optional one brings */}
@@ -362,7 +366,9 @@ export function FamilyBody({ family, name, help, recipes, machine, imported }: {
               <span className="flex items-center gap-2 pb-1">
                 <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Files · {needed.length} needed</span>
                 {/* what misses is said; nothing of them all being there (the owner: that all is fine is too much) */}
-                {!allThere && <span className="text-xs text-warn-ink">{plural(needed.filter((r) => !r.file).length, "missing", "missing")}</span>}
+                {!allThere && (needed.every((r) => r.file || r.get)
+                  ? <span className="text-xs text-ink-3">{needed.filter((r) => !r.file).length} not here</span>
+                  : <span className="text-xs text-warn-ink">{plural(needed.filter((r) => !r.file).length, "missing", "missing")}</span>)}
                 <Help title="Files" text="Each file the family needs, once, whatever needs it: an operation that lacks one says so in its line below. Where more than one file fits, its picker says which is used: left to itself, the first its patterns name." />
               </span>
               {/* always in sight once the family is opened: what it runs with, and their pickers, are what one opens it for (the owner; they were folded) */}
