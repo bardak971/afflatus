@@ -166,6 +166,11 @@ export interface H3Extra {
   denoise?: number;
   /** The turbo LoRA Turbo adds, when the recipe knows which suits its model (a swap's reference model: the reference one). */
   turbo?: string;
+  /**
+   * The model the clip is sampled with, patched (a motion's Fun ControlNet, held to the pose of its window), and the files the
+   * patch loads. The latent re-sample of a finish keeps the model as loaded: it follows the prompt alone.
+   */
+  model?(g: GraphBuilder, model: Ref, at: { vae: Ref; width: number; height: number; frames: number }): { model: Ref; loads: string[] };
 }
 
 /** The H3 clip's graph, shared by the recipes made on it. */
@@ -188,6 +193,9 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   // a finish by the latent re-sample starts from the draft's own sampled latent (uploaded as "self.latent"): rendered again, even
   // with its seed, H3 does not make the same frames (measured 2026-10-08: 20 to 30 dB from the draft, the motion drifting)
   const own = input.upscale === UPSCALE.latent ? ctx.uploads["self.latent"] : undefined;
+  // a finish samples nothing: the patch (and the pose it reads) is left out of it
+  const patched = extra.model && !own ? extra.model(g, model, { vae, width, height, frames: join.frames }) : null;
+  const sampledWith = patched?.model ?? model;
   // what a recipe made on this one adds to the guides (a recording laid on the sound): the sampled clip follows it, the re-sample does not
   const guided = extra.guide ? extra.guide(g, { positive, latent, vae, audioVae, head: join.head, frames: join.frames }) : positive;
   g.phase(own ? "loading" : "sampling");
@@ -195,9 +203,9 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
     ? g.add("AfflatusLoadH3Latent", { latent: own })
     : g.add("SamplerCustomAdvanced", {
         noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
-        guider: g.out("BasicGuider", { model, conditioning: guided }),
+        guider: g.out("BasicGuider", { model: sampledWith, conditioning: guided }),
         sampler: g.out("KSamplerSelect", { sampler_name: input.sampler !== AUTO_SAMPLER ? input.sampler : turbo ? "euler" : "res_multistep" }),
-        sigmas: g.out("BasicScheduler", { model, scheduler: input.scheduler, steps, denoise: extra.denoise ?? 1 }),
+        sigmas: g.out("BasicScheduler", { model: sampledWith, scheduler: input.scheduler, steps, denoise: extra.denoise ?? 1 }),
         latent_image: extra.latent ? extra.latent(g, { latent, vae, width, height, frames: join.frames }) : latent,
       });
   // continued in the latent: decoded as one piece with the clip before (its own last tokens, then the new ones), so that
@@ -241,7 +249,7 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
     outputs: made.outputs,
     totalSteps: own ? resampled : steps + resampled,
     passes: own ? [] : [{ node: sampled, steps }, ...(fine ? [{ node: fine[0], steps: resampled }] : [])],
-    loads: [`diffusion_models/${unet}`, `text_encoders/${slots.clip}`, ...(lora ? [`loras/${lora}`] : []), ...made.loads],
+    loads: [`diffusion_models/${unet}`, `text_encoders/${slots.clip}`, ...(lora ? [`loras/${lora}`] : []), ...(patched?.loads ?? []), ...made.loads],
     // a continuation window counts its frames as an extension and an overlap, and a finish loads its latent from a file:
     // neither says the clip's frames in an input the forecast reads, so they are said here (the shared ones included)
     frames: join.frames,

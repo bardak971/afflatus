@@ -113,12 +113,16 @@ describe("a timeline's source lane", () => {
       return { tl, clips, edit, now: async () => (await view(tl.id)) as { clips: Array<{ id: string; inputs: Record<string, unknown> }>; source: { inputs: Record<string, unknown>; apart?: Record<string, string[]> } } };
     }
 
-    it("a change on one clip is every clip's and the source's, but each window's part, run-up and seed", async () => {
+    it("a change on one clip is every clip's and the source's, but each window's part, run-up, seed and prompt", async () => {
       const { clips, edit, now } = await swapClips();
       await edit(clips[2]!, { who: "Swap the man in pink in <Video 1> with the character in <Picture 1>.", steps: 12, seed: 7, sourceStart: 99 });
       const v = await now();
-      for (const c of v.clips) expect(c.inputs).toMatchObject({ who: "Swap the man in pink in <Video 1> with the character in <Picture 1>.", steps: 12 });
+      for (const c of v.clips) expect(c.inputs).toMatchObject({ steps: 12 });
       expect(v.source.inputs).toMatchObject({ steps: 12 });
+      // the prompt is each clip's own (the owner, 2026-10-20: clip 6 can show something else than clip 2), and sets none apart
+      expect(v.clips.map((c) => c.inputs.who)).toEqual(clips.map((c, k) => (k === 2 ? "Swap the man in pink in <Video 1> with the character in <Picture 1>." : c.inputs.who)));
+      expect(v.source.inputs.who).toBe("the man");
+      expect(v.source.apart).toBeUndefined();
       // the seed and the part of the source stay the clip's own
       expect(v.clips.filter((c) => c.inputs.seed === 7).map((c) => c.id)).toEqual([clips[2]!.id]);
       expect(v.clips[0]!.inputs.sourceStart).toBe(3);
@@ -179,6 +183,37 @@ describe("a timeline's source lane", () => {
       await expect(call("POST", `/api/timelines/${tl.id}/source/make`, { again: true })).rejects.toThrow(/nothing is left to cut again/);
     });
 
+    it("a clip's prompt given to all: every clip and the source take it", async () => {
+      const { clips, edit, now } = await swapClips();
+      await edit(clips[1]!, { who: "Swap the man in pink in <Video 1> with the character in <Picture 1>." });
+      await call("PATCH", `/api/clips/${clips[1]!.id}`, { share: "toAll" });
+      const v = await now();
+      expect(v.clips.every((c) => c.inputs.who === "Swap the man in pink in <Video 1> with the character in <Picture 1>.")).toBe(true);
+      expect(v.source.inputs.who).toBe("Swap the man in pink in <Video 1> with the character in <Picture 1>.");
+    });
+
+    it("is cut again for the run-up set: every window carries on from that many frames, and none keeps another", async () => {
+      const { tl, clips, edit, now } = await swapClips();
+      const v0 = await now();
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { inputs: { ...v0.source.inputs, context: "39" } } });
+      const again = await call("POST", `/api/timelines/${tl.id}/source/make`, { again: true });
+      let v = await now();
+      expect(v.clips.map((c) => c.id)).toEqual(again.clips);
+      expect(v.clips.every((c) => c.inputs.context === "39")).toBe(true);
+      // each window that carries on starts 39 frames before where the one before ends
+      for (let k = 1; k < v.clips.length; k++) {
+        const p = v.clips[k - 1]!.inputs as { sourceStart: number; sourceSeconds: number };
+        const ends = p.sourceStart + Math.floor(p.sourceSeconds * 24 + 1e-6) / 24;
+        expect(v.clips[k]!.inputs.sourceStart as number).toBeCloseTo(ends - 39 / 24, 3);
+      }
+      // kept to one clip, the run-up still goes to all: a window carrying on from another count would not meet its part
+      await edit(v.clips[1]!, { context: "5" }, "apart");
+      v = await now();
+      expect(v.clips.every((c) => c.inputs.context === "5")).toBe(true);
+      expect(v.source.apart).toBeUndefined();
+      expect(clips.length).toBeGreaterThan(1);
+    });
+
     it("a clip's own settings given to all: every clip takes them, and none is set apart on them", async () => {
       const { clips, edit, now } = await swapClips();
       await edit(clips[1]!, { swapStrength: 1.3 }, "apart");
@@ -189,6 +224,25 @@ describe("a timeline's source lane", () => {
       expect(v.source.apart).toBeUndefined();
       expect(v.source.inputs.swapStrength).toBe(1.3);
     });
+  });
+
+  it("makes Swap motion's windows: the first a swap with the source's prompt, those that carry on on the motion prompt", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test swap motion source" });
+    const meme = await asset("video");
+    const photo = await asset("image");
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id } });
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, recipe: "h3.swapMotion", inputs: { who: "Replace the woman in <Video 1> with the man in <Picture 1>.", references: [{ asset: photo.id, role: "person" }] } } });
+    const made = await call("POST", `/api/timelines/${tl.id}/source/make`);
+    expect(made.clips).toHaveLength(5);
+    const v = await view(tl.id);
+    expect(v.clips[0].inputs.who).toBe("Replace the woman in <Video 1> with the man in <Picture 1>.");
+    for (const c of v.clips.slice(1)) {
+      expect(c.joined).toBe("continue");
+      expect(c.inputs.who).not.toMatch(/<Video 1>/);
+      expect(c.inputs.who).toMatch(/<Picture 1>/);
+    }
+    // the cast's picture is every window's
+    for (const c of v.clips) expect(c.inputs.references).toEqual([{ asset: photo.id, role: "person" }]);
   });
 
   it("gives a swap's first window the person clicked on the stretch's first frame; a new start or video forgets the click", async () => {

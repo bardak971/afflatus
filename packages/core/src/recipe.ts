@@ -84,7 +84,23 @@ export interface VideoTraits {
    * A recipe that makes a long source window by window (Motion transfer on a timeline's source lane): the most and fewest
    * frames a job takes, and the frames of the clip before a window carries on from (sourceWindows.ts).
    */
-  windows?: { most: number; least: number; carried: number };
+  windows?: {
+    most: number;
+    least: number;
+    carried: number;
+    /**
+     * The input that sets the frames carried (H3's "Frames from the clip before"), and the counts it takes: a source's
+     * windows are cut for the count its form has (windowShapeOf), `carried` when it has none.
+     */
+    runUp?: { input: string; counts: number[] };
+    /**
+     * The inputs each window keeps its own (its prompt: clip 6 of a source can show something else than clip 2): a change
+     * made on one clip stays there unless given to all, and the source's form gives them only to the windows it makes.
+     */
+    own?: string[];
+    /** What a window that carries on is made with in place of the source's form (Swap motion's prompt after its first clip). */
+    carryOn?: Record<string, unknown>;
+  };
 }
 
 /** What is known about a picture or a clip that was handed to a recipe. */

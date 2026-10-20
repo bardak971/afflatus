@@ -102,3 +102,26 @@ export function sourceWindows(o: { fromMs: number; toMs: number; windowMs: numbe
 }
 
 const round = (s: number) => Math.round(s * 10_000) / 10_000;
+
+/** What windowShapeOf reads of a recipe: its speed, its grid and how it takes a long source. */
+interface WindowedTraits {
+  traits?: null | { fps: number; frameGrid?: FrameGrid; windows?: { most: number; least: number; carried: number; runUp?: { input: string; counts: number[] } } };
+}
+
+/** The frames a window carries on from with this form: the count its run-up input has, when it is one the recipe takes, else the recipe's own. */
+export function carriedOf(recipe: WindowedTraits | undefined, inputs?: Record<string, unknown>): number {
+  const w = recipe?.traits?.windows;
+  if (!w) return 0;
+  const asked = w.runUp && inputs ? Number(inputs[w.runUp.input]) : NaN;
+  return w.runUp && w.runUp.counts.includes(asked) ? asked : w.carried;
+}
+
+/**
+ * How a recipe takes a long source with this form (its run-up as set, H3's 5, 22 or 39 frames), or null for one not made
+ * window by window. The server's cut and the lane's marks both read it, so that the clips made are the ones drawn.
+ */
+export function windowShapeOf(recipe: WindowedTraits | undefined, inputs?: Record<string, unknown>): WindowShape | null {
+  const t = recipe?.traits;
+  const w = t?.windows;
+  return t && w ? { fps: t.fps, grid: t.frameGrid, most: w.most, least: w.least, carried: carriedOf(recipe, inputs) } : null;
+}
