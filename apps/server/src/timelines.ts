@@ -596,6 +596,24 @@ export class Timelines {
       for (const k of taken) if (spread[k] === undefined) delete next[k]; else next[k] = spread[k];
       await tx.updateTable("clips").set({ inputs: JSON.stringify(next), updated_at: now() }).where("id", "=", c.id).execute();
     }
+    // the first window's prompt written (Swap motion's: Make came before it, on an empty form): the windows that carry on
+    // and still hold what was made for its old prompt take what its new one makes (windowCarryOn); one written by hand stays
+    if (from && recipe.windowCarryOn) {
+      const before = recipe.windowCarryOn(was);
+      const after = recipe.windowCarryOn(inputs);
+      const follow = Object.keys(after).filter((k) => !same(before[k], after[k]));
+      const opens = follow.length ? (await tx.selectFrom("clips").select("joined").where("id", "=", from.id).executeTakeFirst())?.joined === "cut" : false;
+      if (opens) {
+        const rows = await tx.selectFrom("clips").select(["id", "inputs", "joined"]).where("timeline_id", "=", timelineId).where("recipe_id", "=", recipe.id).execute();
+        for (const r of rows) {
+          if (r.id === from.id || r.joined !== "continue") continue;
+          const held = JSON.parse(r.inputs) as Record<string, unknown>;
+          if (!bound(held)) continue;
+          const keep = follow.filter((k) => same(held[k], before[k]));
+          if (keep.length) await tx.updateTable("clips").set({ inputs: JSON.stringify({ ...held, ...Object.fromEntries(keep.map((k) => [k, after[k]])) }), updated_at: now() }).where("id", "=", r.id).execute();
+        }
+      }
+    }
     // the source's form follows (what the next Make takes), and what each clip keeps
     const form = { ...plan.inputs };
     if (from) for (const k of keys) if (spread[k] === undefined) delete form[k]; else form[k] = spread[k];

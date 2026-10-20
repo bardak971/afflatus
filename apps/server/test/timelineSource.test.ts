@@ -245,6 +245,26 @@ describe("a timeline's source lane", () => {
     for (const c of v.clips) expect(c.inputs.references).toEqual([{ asset: photo.id, role: "person" }]);
   });
 
+  it("gives Swap motion's later windows clip 1's person once clip 1's prompt is written after Make, but not one written by hand", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test swap motion follow" });
+    const meme = await asset("video");
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id, recipe: "h3.swapMotion" } });
+    await call("POST", `/api/timelines/${tl.id}/source/make`);
+    let v = await view(tl.id);
+    const plain = v.clips[1].inputs.who as string;
+    expect(v.clips.length).toBeGreaterThan(2);
+    // clip 3 written by hand
+    await call("PATCH", `/api/clips/${v.clips[2].id}`, { inputs: { ...v.clips[2].inputs, who: "The man dances on." } });
+    v = await view(tl.id);
+    await call("PATCH", `/api/clips/${v.clips[0].id}`, { inputs: { ...v.clips[0].inputs, who: "Replace the woman in <Video 1> with the man with short brown hair in <Picture 1>. He is wearing a white shirt." } });
+    v = await view(tl.id);
+    const made = "The man with short brown hair carries on moving as in the clip before. He is wearing a white shirt. Keep the room and the light exactly as they are.";
+    expect(v.clips[1].inputs.who).toBe(made);
+    expect(v.clips[2].inputs.who).toBe("The man dances on.");
+    for (const c of v.clips.slice(3)) expect(c.inputs.who).toBe(made);
+    expect(plain).not.toBe(made);
+  });
+
   it("dropped for an empty clip of Swap motion, makes its windows in that clip's place", async () => {
     const tl = await call("POST", "/api/timelines", { name: "zz-test swap motion drop" });
     const meme = await asset("video");
