@@ -1,4 +1,4 @@
-import { gridAtOrBefore, sourceWindows, type Recipe, type SourceWindow } from "@afflatus/core";
+import { gridAtOrBefore, sourceWindows, windowShapeOf, type Recipe, type SourceWindow } from "@afflatus/core";
 import { z } from "zod";
 import { httpError } from "./errors";
 import type { AssetRow } from "./timelineModel";
@@ -113,10 +113,9 @@ export function clipsOfSource(plan: Pick<SourcePlan, "asset">, clips: Array<{ id
   });
 }
 
-/** A recipe that takes a source window by window, with how it takes it. */
-export function windowsOf(recipe: Recipe<any> | undefined) {
-  const w = recipe?.traits?.windows;
-  return recipe && w ? { fps: recipe.traits!.fps, grid: recipe.traits!.frameGrid, ...w } : null;
+/** A recipe that takes a source window by window, with how it takes it with this form (its run-up as set: windowShapeOf). */
+export function windowsOf(recipe: Recipe<any> | undefined, inputs?: Record<string, unknown>) {
+  return windowShapeOf(recipe, inputs);
 }
 
 /**
@@ -135,7 +134,7 @@ export function windowsOf(recipe: Recipe<any> | undefined) {
  * off its start instead, starting that step past the carried frames, still ending where the window ends.
  */
 export function windowRunUp(recipe: Recipe<any> | undefined, inputs: Record<string, unknown>, joined: "cut" | "continue"): Record<string, unknown> | null {
-  const shape = windowsOf(recipe);
+  const shape = windowsOf(recipe, inputs);
   const grid = recipe?.traits?.frameGrid;
   const driving = recipe?.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window);
   if (!shape || !shape.carried || !grid || !driving || driving.type !== "clip" || !driving.window) return null;
@@ -160,7 +159,7 @@ const round4 = (s: number) => Math.round(s * 10_000) / 10_000;
  * (TimelineMedia.scenes, read with ffmpeg once), not read again on every Make.
  */
 export async function planWindows(plan: SourcePlan, recipe: Recipe<any>, video: AssetRow, scenes: (assetId: string) => Promise<{ cuts: number[] }>, after?: number): Promise<SourceWindow[]> {
-  const shape = windowsOf(recipe);
+  const shape = windowsOf(recipe, plan.inputs);
   if (!shape) throw httpError(`${recipe.title} does not make a long video window by window.`);
   const cutsMs = plan.snap ? (await scenes(video.id)).cuts : [];
   // cut again after the clips kept: from where the last of them ends, carrying on from it

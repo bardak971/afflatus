@@ -179,12 +179,12 @@ export function useTimelineEditor(id: string) {
     run: (andRender = true) => makeSourceMut.mutate(undefined, { onSuccess: (r) => setToRender({ ids: r.clips, render: andRender }) }),
   };
   /**
-   * The source's window or scene cuts changed (a swap clip's Source chapter): the change saved, then the source cut again,
+   * The source's window, scene cuts or run-up changed (a swap clip's Source chapter): the change saved, then the source cut again,
    * its rendered clips at the start kept and the first new one opened. Nothing renders.
    */
   const cutSource = {
     pending: edit.isPending || cutSourceMut.isPending,
-    run: (change: { windowMs?: number; snap?: boolean }) =>
+    run: (change: { windowMs?: number; snap?: boolean; inputs?: Record<string, unknown>; recipe?: string }) =>
       edit.mutate({ source: change }, { onSuccess: () => cutSourceMut.mutate(undefined, { onSuccess: (r) => setToRender({ ids: r.clips, render: false }) }) }),
   };
 

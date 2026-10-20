@@ -4,6 +4,8 @@ import type { RecipeInfo, Timeline } from "../../api";
 import { clock as mmss, plural } from "../../format";
 import type { LeadPart } from "../../RecipeForm";
 import { Button, Segmented, Toggle } from "../../ui";
+import { Label } from "../../fields/Label";
+import { carriedOf } from "@afflatus/core";
 
 /**
  * A clip made from the timeline's source, as its panel shows it (the owner, 2026-10-18: no source form, the clip's form is
@@ -25,7 +27,7 @@ export type ClipSource = {
   onClearPick(): void;
   /** The window lengths the model takes, and the change of one or of the scene cuts: the source cut again (its rendered clips kept). */
   windows: { leastMs: number; mostMs: number };
-  onCut(change: { windowMs?: number; snap?: boolean }): void;
+  onCut(change: { windowMs?: number; snap?: boolean; inputs?: Record<string, unknown> }): void;
   cutting: boolean;
   /**
    * Show the mask (the owner's mock, 2026-10-18): asked for this clip's window, where it stands, and whether its video is
@@ -64,10 +66,28 @@ export function sourceLead(s: ClipSource, clip: { inputs: Record<string, unknown
         </div>
         <Slide label="Window" value={Math.min(Math.max(s.source.windowMs, s.windows.leastMs), s.windows.mostMs)} min={s.windows.leastMs} max={s.windows.mostMs} step={100} show={(ms) => `${(ms / 1000).toFixed(1)} s`} onCommit={(windowMs) => s.onCut({ windowMs })} />
         <Toggle on={s.source.snap} disabled={s.cutting} onChange={(snap) => s.onCut({ snap })} label="Cut at scene changes" note={s.source.snap ? "a window ends at a cut in the source; the next one opens a new shot" : "windows of the same length, end to end"} />
+        <RunUp recipe={recipe} inputs={s.source.inputs} onChange={(inputs) => s.onCut({ inputs })} />
         <span className="text-xs text-ink-2">{s.cutting ? "Cutting the source again…" : "Changed, the source is cut again: its rendered clips at the start stay, the others are made anew after them."}</span>
       </div>
     ),
   };
+}
+
+/**
+ * How many frames of the window before each window carries on from (H3's "Frames from the clip before"): the source's, the
+ * same in every window, as its windows are cut for it; changed, the source is cut again. Nothing for a model with a fixed count.
+ */
+export function RunUp({ recipe, inputs, onChange }: { recipe: RecipeInfo; inputs: Record<string, unknown>; onChange(inputs: Record<string, unknown>): void }) {
+  const runUp = recipe.traits?.windows?.runUp;
+  if (!runUp) return null;
+  const now = String(carriedOf(recipe, inputs));
+  const said = (n: number) => (n === 5 ? `Tight · ${n}` : n === 22 ? `Normal · ${n}` : n === 39 ? `Long · ${n}` : String(n));
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label note="the run-up: the window before's last frames each window starts from, dropped from what it shows. 5 is a position, 22 brings its motion and voice too, 39 a long run-in. When the joins jump, try another count">Frames from the clip before</Label>
+      <Segmented label="Frames from the clip before" value={now} onChange={(v) => onChange({ ...inputs, [runUp.input]: v })} options={runUp.counts.map((n) => ({ value: String(n), label: said(n) }))} />
+    </div>
+  );
 }
 
 /**
