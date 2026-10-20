@@ -5,7 +5,7 @@ import { UPSCALE, UPSCALE_OPTIONAL, upscaleNeeds, upscaleNodes } from "../video/
 import { unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import { COLOUR_MATCH_NODES, rifeNeeds, rifeSkippedSaid } from "../shared/finish";
-import { conditionFor } from "./condition";
+import { conditionFor, type MorePicture } from "./condition";
 import { finish, H3_SAVE_LATENT } from "./finish";
 import { h3Inputs, type H3Video } from "./inputs";
 import { frameFor, H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_LANDING, H3_SEAM, H3_TRIM, resolveJoin } from "./join";
@@ -171,12 +171,20 @@ export interface H3Extra {
    * patch loads. The latent re-sample of a finish keeps the model as loaded: it follows the prompt alone.
    */
   model?(g: GraphBuilder, model: Ref, at: { vae: Ref; width: number; height: number; frames: number }): { model: Ref; loads: string[] };
+  /**
+   * Reference pictures made in the graph, given after the form's (a motion window: the clip before's last frame, how the
+   * person looks on this timeline, its clothes and hair, which a cast photo alone does not say). With any, the clip is made
+   * by the reference route, as with a reference picture of the form.
+   */
+  pictures?(g: GraphBuilder): MorePicture[];
 }
 
 /** The H3 clip's graph, shared by the recipes made on it. */
 export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}): BuiltGraph {
   const { slots, media } = ctx;
-  const how = uses(input);
+  const g = new GraphBuilder();
+  const more = extra.pictures ? extra.pictures(g) : [];
+  const how = more.length ? { ...uses(input), reference: true } : uses(input);
   const picked = modelOf(input, slots);
   if (how.reference && !picked.hybrid && !slots.refUnet) {
     throw new Error("Reference pictures and voices need MiniMax H3's reference model (put minimax_h3_ref2va_*.safetensors in ComfyUI's models/diffusion_models folder) or a hybrid model picked under Model.");
@@ -184,11 +192,10 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   const join = resolveJoin(input, ctx);
   const { width, height } = frameFor(input, ctx, how, join.latentJoin);
 
-  const g = new GraphBuilder();
   const audioVae = g.out("VAELoader", { vae_name: slots.audioVae });
   const vae = g.out("VAELoader", { vae_name: slots.videoVae });
   const { model, turbo, steps, lora, unet } = loadH3Model(g, ctx, input, picked, how, audioVae, extra.veda, extra.turbo, extra.vedaSparsity);
-  const { positive, latent, previous, plain } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae }, extra.prompt);
+  const { positive, latent, previous, plain } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae }, extra.prompt, more);
 
   // a finish by the latent re-sample starts from the draft's own sampled latent (uploaded as "self.latent"): rendered again, even
   // with its seed, H3 does not make the same frames (measured 2026-10-08: 20 to 30 dB from the draft, the motion drifting)

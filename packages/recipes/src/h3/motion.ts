@@ -1,4 +1,5 @@
 import type { BuildContext, GraphBuilder, InputSpec, Ref } from "@afflatus/core";
+import type { MorePicture } from "./condition";
 
 /**
  * MiniMax H3 moved by a pose video: the driving video's people drawn as skeletons, frame by frame, and given to H3 by
@@ -106,6 +107,19 @@ export function poseVideo(g: GraphBuilder, ctx: BuildContext, input: H3Motion, f
   }
   g.phase(was);
   return pose;
+}
+
+/**
+ * The clip before's last frame as handed over, as one more reference picture of the person: how they look on this
+ * timeline (clothes, hair, glasses), held along the whole window. With the cast photo alone, a motion window took the
+ * photo's navy shirt and grew its hair long past the carried frames' first second (the owner's Timeline 20, clip 3,
+ * 2026-10-20): the carried tail holds only the start, and the photo is not dressed as the clip is. SCAIL-2 is given the
+ * look on every frame by its picture; this is H3's nearest. None without a clip before.
+ */
+export function frameBefore(g: GraphBuilder, ctx: BuildContext): MorePicture[] {
+  if (!ctx.uploads.previous) return [];
+  const frames: Ref = [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.previous }) }), 0];
+  return [{ image: g.out("ImageFromBatch", { image: frames, batch_index: -1, length: 1 }), role: "person" }];
 }
 
 /** The model held to `pose` by the Fun ControlNet: the patch loaded and applied, between the strength's start and end. */

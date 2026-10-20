@@ -238,8 +238,8 @@ describe("a timeline's source lane", () => {
     expect(v.clips[0].inputs.who).toBe("Replace the woman in <Video 1> with the man in <Picture 1>.");
     for (const c of v.clips.slice(1)) {
       expect(c.joined).toBe("continue");
-      expect(c.inputs.who).not.toMatch(/<Video 1>/);
-      expect(c.inputs.who).toMatch(/<Picture 1>/);
+      // clip 1's person carrying on, in H3's own words: Afflatus adds which picture is whom
+      expect(c.inputs.who).toBe("The man carries on moving as in the clip before. Keep the room and the light exactly as they are.");
     }
     // the cast's picture is every window's
     for (const c of v.clips) expect(c.inputs.references).toEqual([{ asset: photo.id, role: "person" }]);

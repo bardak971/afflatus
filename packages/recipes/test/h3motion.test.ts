@@ -60,7 +60,7 @@ describe("MiniMax H3 · Swap motion", () => {
     expect(of(graph, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name)).not.toContain(slots.swapLora);
     const ref = of(graph, "MiniMaxH3ReferenceToVideo")[0]!;
     expect(Object.keys(ref.inputs).filter((k) => /video/i.test(k) && ref.inputs[k] !== undefined && Array.isArray(ref.inputs[k]))).toEqual([]);
-    expect(String(ref.inputs.prompt)).toContain("The man in <Picture 1> dances.");
+    expect(String(ref.inputs.prompt)).toContain("The man dances.");
     // carried on from the window before's latent, its 22 frames the run-up
     expect(of(graph, "MiniMaxH3GuidedContinuationWindow")[0]!.inputs).toMatchObject({ overlap_frames: 22, extension_frames: 141 - 22 });
     expect(built.loads).toContain(`model_patches/${slots.h3Control}`);
@@ -81,7 +81,7 @@ describe("MiniMax H3 · Swap motion", () => {
 
   it("says on the job a prompt that still names <Video 1>, and that the Mask is the first window's", () => {
     const { built } = carryOn({ who: "Replace the woman in <Video 1> with the man in <Picture 1>.", maskOn: true });
-    expect(built.warnings?.join(" ")).toMatch(/no <Video 1>/);
+    expect(built.warnings?.join(" ")).toMatch(/still a swap's/);
     expect(built.warnings?.join(" ")).toMatch(/Mask is the first window's/);
   });
 
@@ -90,11 +90,29 @@ describe("MiniMax H3 · Swap motion", () => {
     expect(of(graph, "MiniMaxH3GuidedContinuationWindow")[0]!.inputs).toMatchObject({ overlap_frames: 39, extension_frames: 141 - 39 });
   });
 
-  it("starts a window that carries on on its motion prompt (Make puts it there), each window keeping its own", () => {
-    const w = h3SwapMotion.traits!.windows!;
-    expect(w.carryOn).toEqual({ who: SWAP_MOTION_PROMPT });
-    expect(w.own).toEqual(["who"]);
-    expect(SWAP_MOTION_PROMPT).not.toMatch(/<Video/);
+  it("starts a window that carries on on clip 1's person, carrying on (Make puts it there), each window keeping its own", () => {
+    expect(h3SwapMotion.traits!.windows!.own).toEqual(["who"]);
+    const swap = "Replace the young woman dancing in <Video 1> with the man with short brown hair in <Picture 1>. Keep the man's face and hair from <Picture 1>. he has a manly build and is wearing a white shirt with jeans. Match the position, scale, pose and movement in <Video 1>. Preserve the scene. ";
+    expect(h3SwapMotion.windowCarryOn!({ who: swap })).toEqual({
+      who: "The man with short brown hair carries on moving as in the clip before. He has a manly build and is wearing a white shirt with jeans. Keep the room and the light exactly as they are.",
+    });
+    // nobody named to take it from: the plain one, with no tags
+    expect(h3SwapMotion.windowCarryOn!({ who: "Swap the person in <Video 1> with the character in <Picture 1>." })).toEqual({ who: SWAP_MOTION_PROMPT });
+    expect(SWAP_MOTION_PROMPT).not.toMatch(/<(Video|Picture)/);
+  });
+
+  it("gives a window that carries on the clip before's last frame as a second picture of the person, its prompt H3's own layout without typed tags", () => {
+    const { graph } = carryOn({ who: "The man with short brown hair in <Picture 1> dances." });
+    const ref = of(graph, "MiniMaxH3ReferenceToVideo")[0]!;
+    expect(node(graph, ref.inputs["ref_images.ref_image_0"]).class_type).toBe("LoadImage");
+    const frame = node(graph, ref.inputs["ref_images.ref_image_1"]);
+    expect(frame.class_type).toBe("ImageFromBatch");
+    expect(frame.inputs.batch_index).toBe(-1);
+    expect(of(graph, "LoadVideo").map((n) => n.inputs.file)).toContain("w.mp4");
+    const prompt = String(ref.inputs.prompt);
+    expect(prompt).toContain("<Subject 1> is the character in <Picture 1> and <Picture 2>");
+    expect(prompt).toContain("The man with short brown hair dances.");
+    expect(prompt).not.toMatch(/hair in <Picture 1> dances/);
   });
 
   it("needs the ControlNet, and SDPose's two models only when it draws the pose", () => {
@@ -138,9 +156,11 @@ describe("MiniMax H3 · Motion transfer", () => {
     expect(of(graph, "LoadVideo").map((n) => n.inputs.file)).toContain("d.mp4");
   });
 
-  it("carries a window on from the one before, without the picture as its first frame", () => {
+  it("carries a window on from the one before, without the picture as its first frame, the clip before's last frame a picture of who moves", () => {
     const { graph } = build({ previous: { asset: "w1" } }, { previous: before() });
     expect(of(graph, "LoadImage").map((n) => n.inputs.image)).not.toContain("p.png");
+    const ref = of(graph, "MiniMaxH3ReferenceToVideo")[0]!;
+    expect(node(graph, ref.inputs["ref_images.ref_image_0"]).class_type).toBe("ImageFromBatch");
     expect(of(graph, "MiniMaxH3GuidedContinuationWindow")[0]!.inputs).toMatchObject({ overlap_frames: 22, extension_frames: 141 - 22 });
     expect(of(graph, "MiniMaxH3FunControlNetApply")).toHaveLength(1);
   });

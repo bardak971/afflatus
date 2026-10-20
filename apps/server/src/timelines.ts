@@ -739,7 +739,7 @@ export class Timelines {
             // the first window replaces the person clicked on its first frame, the ones after follow it (h3.swap's pick)
             // a window that carries on starts on what the model gives those (Swap motion: its motion prompt, the swap's naming
             // <Video 1>, which a window driven by the pose has not)
-            inputs: { ...form, ...(w.opens ? {} : recipe.traits?.windows?.carryOn ?? {}), [driving.id]: { asset: plan.asset, ...(k === 0 && !again?.kept && plan.pick && driving.pick ? { pick: plan.pick } : {}) }, [driving.window!.start]: w.start, [driving.window!.seconds]: w.seconds, ...(seed !== null ? { seed } : {}) },
+            inputs: { ...form, ...(w.opens ? {} : recipe.windowCarryOn?.(form) ?? {}), [driving.id]: { asset: plan.asset, ...(k === 0 && !again?.kept && plan.pick && driving.pick ? { pick: plan.pick } : {}) }, [driving.window!.start]: w.start, [driving.window!.seconds]: w.seconds, ...(seed !== null ? { seed } : {}) },
           };
           const id = await this.planner.insertClip(timelineId, order, index + k, clip, tx);
           order.splice(index + k, 0, { clip: { id } });
