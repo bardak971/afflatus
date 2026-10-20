@@ -112,7 +112,7 @@ export function Queue() {
             <span className={cx("h-2 w-2 rounded-full", !q || noGpu ? "bg-ink-3" : q.online ? "bg-good" : "bg-warn")} />
             {!q ? "…" : noGpu ? "No machine yet" : several.length ? onlineSaid(several) : q.online ? "ComfyUI online" : "ComfyUI offline · queued jobs wait"}
           </span>
-          {q?.model && !several.length && <span className="truncate font-mono">{q.model} loaded</span>}
+          {q?.model && !several.length && !noGpu && <span className="truncate font-mono">{q.model} loaded</span>}
         </div>
         {/* in the header, by the queue's other switches: a column of its own, the page's height, held one switch */}
         {tab === "queue" && (

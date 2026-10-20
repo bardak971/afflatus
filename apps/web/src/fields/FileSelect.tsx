@@ -6,6 +6,7 @@ import { fileLabel, size, waitsForGpu } from "../format";
 import { GetFile } from "../GetFile";
 import { Select, type Option } from "../Select";
 import { Label } from "./Label";
+import { officialFiles, type Official } from "../officialFiles";
 
 /**
  * A file as a choice: its name to read, beside it the model it is for and the folder it is in. It is
@@ -23,12 +24,6 @@ export const FOLDER_OF: Record<string, string> = {
   ckpt_name: "checkpoints", unet_name: "diffusion_models", vae_name: "vae", clip_name: "text_encoders", lora_name: "loras", control_net_name: "controlnet",
 };
 
-/** A family's official file, with its size when the server knows it. */
-export interface Official {
-  file: string;
-  url: string;
-  bytes: number | null;
-}
 
 /** A dropdown of model files, searched by what the files say about themselves when their folder is known. */
 export function FileSelect({ id, label, value, files, folder, placeholder, match, family, absent, absentGroup, onChange }: {
@@ -78,18 +73,6 @@ export function FileSelect({ id, label, value, files, folder, placeholder, match
   return <Select id={id} label={label} value={value} onChange={onChange} options={options} placeholder={placeholder} searchHint={info && options.length > 1 ? `Search ${options.length} by name or model` : undefined} />;
 }
 
-/** The folders whose files come with their model: never offered on their own (a VAE, a text encoder). */
-const COME_WITH_MODEL = new Set(["vae", "text_encoders", "clip", "clip_vision"]);
-
-/**
- * A family's official files for a model input, with their size when known: its slot's download when it stands for a slot,
- * else the family's downloads of that folder that no recipe alone uses. None for the files that come with their model.
- */
-export function officialFiles(family: FamilyInfo | undefined, folder: string, slot: string | undefined, sizes: Record<string, number> | undefined): Official[] {
-  if (!family?.slots || COME_WITH_MODEL.has(folder)) return [];
-  const slots = slot ? family.slots.filter((s) => s.id === slot) : family.slots.filter((s) => s.folder === folder && !s.onlyFor?.length);
-  return slots.flatMap((s) => (s.get && s.folder === folder ? [{ file: s.get.file, url: s.get.url, bytes: sizes?.[s.get.url] ?? null }] : []));
-}
 
 /**
  * Where a form's jobs run, for what its model fields say of a file that is not here: "here", a ComfyUI of the user's own

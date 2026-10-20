@@ -14,6 +14,7 @@ import { PackNotes, usePackNotes } from "./recipeForm/packNotes";
 import { useFormSearch } from "./recipeForm/useFormSearch";
 import { scrollInside } from "./scrollInside";
 import { plural } from "./format";
+import { withOfficial } from "./officialFiles";
 
 // what is said under a model ComfyUI does not have (with where a preset gets it): fetched the first time one is missing, not
 // with the form on every first paint
@@ -70,8 +71,9 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   const family = useRecipes().data?.families.find((f) => f.id === recipe.family);
   const settings = useModelSettings();
   const { defaults, file, hasSaved } = useMemo(
-    () => formDefaults(recipe, status, settings.data?.items ?? [], stored),
-    [recipe, status, settings.data, stored],
+    // a model input with nothing to pick on this ComfyUI starts on its family's official file, which the job waits for
+    () => formDefaults(recipe, withOfficial(status, recipe.inputs, family), settings.data?.items ?? [], stored),
+    [recipe, status, settings.data, stored, family],
   );
   const values = useMemo(() => ({ ...defaults, ...ownValues(recipe, stored) }), [recipe, defaults, stored]);
   // the node packs the options asked for need where the form renders: said under each (packNotes.tsx)

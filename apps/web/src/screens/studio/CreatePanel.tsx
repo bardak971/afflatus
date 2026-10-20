@@ -20,6 +20,7 @@ import { useFormTarget } from "../../formTarget";
 import { DraftHeader } from "./DraftHeader";
 import { GenerateBar } from "./GenerateBar";
 import { useWaitsOn } from "../../fields/FileSelect";
+import { lacksOnlyFiles, withOfficial } from "../../officialFiles";
 import { inputMissing } from "./missing";
 import { ModelPicker, useModelPick } from "./ModelPicker";
 import { PresetMenu, presetRefusal } from "./PresetMenu";
@@ -68,14 +69,13 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
   const status = setup.data?.recipes.find((r) => r.id === recipe?.id);
   // a family file with an official download does not stop the form: the job waits for it where it runs
   const family = recipes.data?.families.find((f) => f.id === recipe?.family);
-  const downloadable = (slot: string) => Boolean(family?.slots?.find((s) => s.id === slot)?.get);
-  const blocked = setup.isSuccess && recipe ? notReady(status, comfyOnline, undefined, downloadable) : null;
+  const blocked = setup.isSuccess && recipe && !(comfyOnline && lacksOnlyFiles(status, recipe, family)) ? notReady(status, comfyOnline) : null;
   // what Generate says the job will wait for: a GPU (no ComfyUI of the user's own), or a file still to download here
   const waitsOn = useWaitsOn(recipe, status, family);
 
   // the form as it stands, worked out once per change rather than at every draw (the prompt is typed into it)
   const settings = useModelSettings();
-  const defaults = useMemo(() => (recipe ? formDefaults(recipe, status, settings.data?.items ?? [], formValues).defaults : {}), [recipe, status, settings.data, formValues]);
+  const defaults = useMemo(() => (recipe ? formDefaults(recipe, withOfficial(status, recipe.inputs, family), settings.data?.items ?? [], formValues).defaults : {}), [recipe, status, settings.data, formValues, family]);
   const whole = useMemo(() => (recipe && draft ? { ...defaults, ...ownValues(recipe, formValues) } : {}), [recipe, draft, defaults, formValues]);
   // a required input still empty (an img2img with no picture, an Inpaint with no mask) waits like a model that is not
   // ready: Ctrl+Enter and the command bar too

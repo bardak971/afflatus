@@ -101,14 +101,14 @@ export function needsSaid(s: RecipeStatus, rows: readonly FileRow[], extra: numb
 /** Which of the family's missing needed files can be downloaded now, and starting them all: "Download all" in its head. */
 export function useDownloadAll(family: string, recipes: readonly RecipeInfo[], machine?: string) {
   const setup = useSetup(machine);
-  const settings = useSettings();
   const downloads = useDownloads(machine);
   const client = useQueryClient();
   const failed = useSayFailed({ id: "models", href: "/settings/models", go: "Open Models" });
   const slots = setup.data?.families.find((f) => f.id === family)?.slots ?? [];
   const { needed } = familyFiles(slots, recipes, setup.data?.recipes ?? []);
   const coming = (r: FileRow) => (downloads.data?.items ?? []).some((d) => d.file === r.get?.file && d.folder === r.folder && (!machine || d.machine === machine) && d.status !== "error" && d.status !== "stopped");
-  const can = Boolean(settings.data?.downloadModels) && downloads.data?.via !== "none";
+  // only the families' official files (their `get`): downloaded on this press whatever the download settings (fetchFile.ts)
+  const can = Boolean(downloads.data) && downloads.data?.via !== "none";
   const files = can ? needed.filter((r) => !r.file && r.get?.url && r.folder && !coming(r)) : [];
   const start = useMutation({
     mutationFn: () => Promise.all(files.map((r) => api.startDownload({ file: r.get!.file, folder: r.folder!, url: r.get!.url!, ...(machine ? { machine } : {}) }))),

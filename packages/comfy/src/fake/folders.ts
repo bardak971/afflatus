@@ -32,7 +32,18 @@ function filesUnder(dir: string): string[] {
   return out;
 }
 
-type Job = { id: string; state: "downloading" | "done" | "error" | "stopped"; bytes: number; total: number; error?: string; path: string; stop: AbortController; url: string; expired: boolean };
+type Job = { id: string; state: "downloading" | "done" | "error" | "stopped"; bytes: number; total: number; error?: string; path: string; stop: AbortController; url: string; expired: boolean; folder: string; filename: string };
+
+/** The loader node and input that pick a model folder's file: a file come into the folder is among its choices, as ComfyUI's node list has it. */
+const LOADERS: Record<string, [string, string]> = { checkpoints: ["CheckpointLoaderSimple", "ckpt_name"], diffusion_models: ["UNETLoader", "unet_name"], loras: ["LoraLoader", "lora_name"], vae: ["VAELoader", "vae_name"], text_encoders: ["CLIPLoader", "clip_name"] };
+
+/** A file the pack brought, offered by its folder's loader from now on (ComfyUI lists its folders afresh on /object_info). */
+function offered(fake: FakeState, folder: string, file: string): void {
+  const loader = LOADERS[folder];
+  const spec = loader && (fake.catalog[loader[0]]?.input.required?.[loader[1]] as unknown[] | undefined);
+  const list = Array.isArray(spec?.[0]) ? (spec![0] as string[]) : (spec?.[1] as { options?: string[] } | undefined)?.options;
+  if (list && !list.includes(file)) list.push(file);
+}
 type Upload = { id: string; state: "uploading" | "done" | "error" | "stopped"; bytes: number; total: number; error?: string; path: string };
 
 /**
@@ -81,6 +92,7 @@ export function fakeFolders(fake: FakeState): (r: FakeRequest) => boolean {
         }
         if (job.total && have < job.total) throw new Error("cut");
         renameSync(part, job.path);
+        offered(fake, job.folder, job.filename);
         job.state = "done";
         return;
       } catch (err) {
@@ -177,7 +189,7 @@ export function fakeFolders(fake: FakeState): (r: FakeRequest) => boolean {
       if (fake.diskFree !== undefined && body.total && fake.diskFree < body.total) return plain(507, `the disk has ${fake.diskFree} bytes free, the file is ${body.total}`);
       const target = resolve(root, body.filename);
       mkdirSync(dirname(target), { recursive: true });
-      const job: Job = { id: randomUUID(), state: "downloading", bytes: 0, total: 0, path: target, stop: new AbortController(), url: body.url, expired: false };
+      const job: Job = { id: randomUUID(), state: "downloading", bytes: 0, total: 0, path: target, stop: new AbortController(), url: body.url, expired: false, folder: body.folder ?? "", filename: body.filename };
       jobs.set(job.id, job);
       void run(job);
       return json(200, { id: job.id, path: target });

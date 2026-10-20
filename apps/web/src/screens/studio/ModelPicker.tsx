@@ -3,6 +3,7 @@ import { Workflow } from "lucide-react";
 import type { Draft, RecipeInfo } from "../../api";
 import { useFamilies, useOfficialSizes, useRecipes, useSetup } from "../../data";
 import { formsCanQueue, notReady, plural, size, waitsForGpu } from "../../format";
+import { lacksOnlyFiles, officialFiles } from "../../officialFiles";
 import { carryAcross, carryOver, modelGroups } from "../../picker";
 import { Select } from "../../Select";
 import { modelHelp } from "../../modelHelp";
@@ -39,15 +40,20 @@ export function useModelPick({ recipe, draft, onPick }: {
   const group = groups.find((g) => g.recipes.some((r) => r.id === recipe?.id));
   // a family file with an official download keeps nothing from being picked: the job waits for it where it runs
   const familyOf = (id: string) => recipes.data?.families.find((f) => f.id === id);
-  const downloadable = (family: string) => (slot: string) => Boolean(familyOf(family)?.slots?.find((s) => s.id === slot)?.get);
   const statusOf = (r: RecipeInfo) => setup.data?.recipes.find((x) => x.id === r.id);
-  const why = (r: RecipeInfo) => (setup.isSuccess ? notReady(statusOf(r), comfyOnline, undefined, downloadable(r.family)) : null);
+  const why = (r: RecipeInfo) => (setup.isSuccess && !(comfyOnline && lacksOnlyFiles(statusOf(r), r, familyOf(r.family))) ? notReady(statusOf(r), comfyOnline) : null);
   /** A model whose files are not here (their official downloads): "not here", with what they weigh when known. */
   const notHere = (g: ModelGroup): string | null => {
-    const r = g.recipes.find((x) => statusOf(x)?.missingSlots.length);
+    const r = g.recipes.find((x) => lacksOnlyFiles(statusOf(x), x, familyOf(x.family)));
     if (!r || waitsForGpu(setup.data?.comfy)) return null;
-    const slots = familyOf(r.family)?.slots ?? [];
-    const bytes = statusOf(r)!.missingSlots.reduce((n, id) => n + (sizes.data?.[slots.find((s) => s.id === id)?.get?.url ?? ""] ?? 0), 0);
+    const family = familyOf(r.family);
+    const st = statusOf(r)!;
+    // its family files not found, and the official file of each model input with nothing to pick
+    const urls = new Set([
+      ...st.missingSlots.map((id) => family?.slots?.find((s) => s.id === id)?.get?.url),
+      ...st.emptyInputs.flatMap((id) => { const i = r.inputs.find((x) => x.id === id); return i?.type === "model" ? officialFiles(family, i.folder, i.slot).slice(0, 1).map((o) => o.url) : []; }),
+    ].filter((u): u is string => Boolean(u)));
+    const bytes = [...urls].reduce((n, u) => n + (sizes.data?.[u] ?? 0), 0);
     return `not here${bytes ? ` · ${size(bytes)}` : ""}`;
   };
   /** The operation last used with each model: going back to a model goes back to it. */

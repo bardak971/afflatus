@@ -102,7 +102,8 @@ export function StatusBar() {
         {!queue.isPending && (
           <span className="m-fade inline-flex min-w-0 items-center gap-2.5 overflow-hidden max-md:hidden">
             <StripPlace />
-            <StripModel />
+            {/* no machine up: no model is loaded anywhere, whatever the last one held */}
+            {!noGpu && <StripModel />}
           </span>
         )}
         {several.length > 0 && (

@@ -462,7 +462,9 @@ export class Downloads {
     if (busy) return this.view(busy);
 
     const headers = want.headers ?? {};
-    const root = await modelRoot(await comfyFolderPaths(comfy.client), want.folder, comfy.client.baseUrl, want.comfyDir ?? "");
+    // a rented GPU is sent its files by its node pack alone (directOnly), whatever folders it says: a pod answering on this
+    // machine (the demo's pretend ones, a proxy) took the "Afflatus writes it here" route, which it then refused
+    const root = want.directOnly ? null : await modelRoot(await comfyFolderPaths(comfy.client), want.folder, comfy.client.baseUrl, want.comfyDir ?? "");
     const route = chooseRoute({ root, pack: !root && (await this.packCan(comfy)), source: want.source, headers, total: want.total ?? 0 });
     const d: Download = {
       id: randomUUID(), token: randomBytes(24).toString("hex"), comfy, source: want.source, headers,

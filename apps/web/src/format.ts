@@ -241,14 +241,11 @@ export const waitsForGpu = (comfy: Scan["comfy"] | undefined): boolean => Boolea
  * Why a recipe cannot run on this ComfyUI, in one sentence. With its family's slots, a missing model file is named, as a
  * workflow's missing file is; without them it is only said that one is missing.
  */
-export function notReady(status: RecipeStatus | undefined, comfyOnline: boolean, slots?: SlotSaid[], downloadable?: (slot: string) => boolean): string | null {
+export function notReady(status: RecipeStatus | undefined, comfyOnline: boolean, slots?: SlotSaid[]): string | null {
   if (!comfyOnline) return "ComfyUI is not answering.";
   if (!status || status.ready) return null;
   if (status.missingNodes.length) return missingNodesSaid(status.missingNodes);
-  // files with an official download: the job waits for them where it runs (their Download on this PC, fetched by a pod)
-  const waits = Boolean(downloadable) && status.missingSlots.length > 0 && status.missingSlots.every(downloadable!);
-  if (waits && !status.emptyInputs.length && !status.missingFiles.length && !status.problems?.length) return null;
-  if (status.missingSlots.length && !waits) return slots ? `ComfyUI does not have ${slotsSaid(status.missingSlots, slots).join(", ")}.` : "A model file it needs was not found.";
+  if (status.missingSlots.length) return slots ? `ComfyUI does not have ${slotsSaid(status.missingSlots, slots).join(", ")}.` : "A model file it needs was not found.";
   if (status.emptyInputs.length) return "There is no model to pick on your ComfyUI.";
   if (status.missingFiles.length) return `ComfyUI does not have ${status.missingFiles.join(", ")}.`;
   if (status.problems?.length) return problemSaid(status.problems[0]!);
