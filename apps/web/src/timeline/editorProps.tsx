@@ -141,15 +141,25 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     onJoin: (clip, joined) => patch.mutate({ clip: clip.id, patch: { joined } }),
     onOpenJoin: (clip) => e.openJoin(clip.id),
     onSource: (asset) => {
-      // a swap has no source form (the owner, 2026-10-18): dropped, the video is made into its clips at once, nothing
-      // rendered, the first opened, its form every clip's. Without the swap, the source panel as before (SCAIL's, to be
-      // redone with the timeline)
-      const swap = e.videoRecipes.find((r) => r.id === "h3.swap" && windowed(r));
-      if (!swap) {
+      // the model the windows are made with: that of an empty clip given one that makes a source window by window (the one
+      // selected, else the first; the owner picked Swap motion on a new clip, then dropped the source, and got Swap
+      // character's windows after it, 2026-10-20), its windows then in its place; else the source's model before; else the swap
+      const of = (id: string | null | undefined) => e.videoRecipes.find((r) => r.id === id && windowed(r));
+      const empty = (c: Clip) => !c.take && !c.job && Boolean(of(c.recipe));
+      const chosen = (e.current && empty(e.current) ? e.current : undefined) ?? e.t.clips.find(empty);
+      const model = of(chosen?.recipe) ?? of(e.t.source?.recipe) ?? of("h3.swap");
+      if (!model) {
         edit.mutate({ source: { asset } });
         return e.openSource();
       }
-      edit.mutate({ source: { asset, recipe: swap.id } }, { onSuccess: () => e.makeSource.run(false) });
+      const source = { asset, recipe: model.id, ...(chosen ? { clip: chosen.id } : {}) };
+      // a model with a Picture of its own (Motion transfer) waits for it in the source panel; a swap has no source form (the
+      // owner, 2026-10-18): dropped, the video is made into its clips at once, nothing rendered, the first opened
+      if (model.inputs.some((i) => i.type === "image" && i.role === "source")) {
+        edit.mutate({ source });
+        return e.openSource();
+      }
+      edit.mutate({ source }, { onSuccess: () => e.makeSource.run(false) });
     },
     sourceSelected: e.sourceOpen,
     // the source plays on the stage, as ever; once made, the column shows no form of its own but the clip made from it
@@ -304,7 +314,9 @@ export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<t
     // a render that failed for this clip, not for another one
     error: render.isError && render.variables?.clips.some((c) => c.id === current.id) ? render.error.message : null,
     onInputs: (next) => e.editInputs(current, next),
-    onRecipe: (recipe) => patch.mutate({ clip: current.id, patch: { recipe } }),
+    // a clip the source made, given another model that makes a source window by window: the source's model, its clips not
+    // rendered made anew with it (a clip of another model in the line would no longer share its form)
+    onRecipe: (recipe) => (clipSourceOf(e, current) && windowed(e.videoRecipes.find((r) => r.id === recipe)) ? e.cutSource.run({ recipe }) : patch.mutate({ clip: current.id, patch: { recipe } })),
     onPatch: (p) => patch.mutate({ clip: current.id, patch: p }),
     onRender: (count) => render.mutate({ clips: [current], takes: count }),
     onMenu: (ev) => e.clipMenu.open(ev, current),

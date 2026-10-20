@@ -245,6 +245,36 @@ describe("a timeline's source lane", () => {
     for (const c of v.clips) expect(c.inputs.references).toEqual([{ asset: photo.id, role: "person" }]);
   });
 
+  it("dropped for an empty clip of Swap motion, makes its windows in that clip's place", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test swap motion drop" });
+    const meme = await asset("video");
+    const empty = await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "h3.swapMotion" });
+    const emptyId = (empty.id ?? empty.clip?.id ?? (await view(tl.id)).clips[0].id) as string;
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id, recipe: "h3.swapMotion", clip: emptyId } });
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, inputs: { who: "Replace the woman in <Video 1> with the man in <Picture 1>." } } });
+    await call("POST", `/api/timelines/${tl.id}/source/make`);
+    const v = await view(tl.id);
+    expect(v.clips.map((c: { id: string }) => c.id)).not.toContain(emptyId);
+    expect(v.clips.length).toBeGreaterThan(1);
+    expect(v.clips.every((c: { recipe: string }) => c.recipe === "h3.swapMotion")).toBe(true);
+  });
+
+  it("is made again with another model when the source's model changes after Make: its clips not rendered made anew", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test swap to swap motion" });
+    const meme = await asset("video");
+    const photo = await asset("image");
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id } });
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, recipe: "h3.swap", inputs: { who: "Replace the woman in <Video 1> with the man in <Picture 1>.", references: [{ asset: photo.id, role: "person" }] } } });
+    await call("POST", `/api/timelines/${tl.id}/source/make`);
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { recipe: "h3.swapMotion" } });
+    await call("POST", `/api/timelines/${tl.id}/source/make`, { again: true });
+    const v = await view(tl.id);
+    expect(v.clips.every((c: { recipe: string }) => c.recipe === "h3.swapMotion")).toBe(true);
+    expect(v.clips[0].inputs.who).toBe("Replace the woman in <Video 1> with the man in <Picture 1>.");
+    for (const c of v.clips.slice(1)) expect(c.inputs.who).not.toMatch(/<Video 1>/);
+    for (const c of v.clips) expect(c.inputs.references).toEqual([{ asset: photo.id, role: "person" }]);
+  });
+
   it("gives a swap's first window the person clicked on the stretch's first frame; a new start or video forgets the click", async () => {
     const tl = await call("POST", "/api/timelines", { name: "zz-test swap pick" });
     const meme = await asset("video");

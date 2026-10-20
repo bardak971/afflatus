@@ -184,7 +184,7 @@ export function useTimelineEditor(id: string) {
    */
   const cutSource = {
     pending: edit.isPending || cutSourceMut.isPending,
-    run: (change: { windowMs?: number; snap?: boolean; inputs?: Record<string, unknown> }) =>
+    run: (change: { windowMs?: number; snap?: boolean; inputs?: Record<string, unknown>; recipe?: string }) =>
       edit.mutate({ source: change }, { onSuccess: () => cutSourceMut.mutate(undefined, { onSuccess: (r) => setToRender({ ids: r.clips, render: false }) }) }),
   };
 
