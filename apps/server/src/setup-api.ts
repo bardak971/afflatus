@@ -27,7 +27,9 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
   app.post("/api/health/check", async () => health(await preflight.run()));
 
   /** Everything the composer can make things with, and the form of each. */
-  app.get("/api/recipes", async () => ({ families: s.registry.families(), recipes: s.registry.recipes().map(describeRecipe), sizes: await s.officialSizes.sizes() }));
+  app.get("/api/recipes", async () => ({ families: s.registry.families(), recipes: s.registry.recipes().map(describeRecipe) }));
+  /** How large the families' official files are, by address: those known now, the others asked in the background (officialSizes.ts). */
+  app.get("/api/official-sizes", async () => s.officialSizes.sizes());
 
   /**
    * A ComfyUI asked at an address without saving it (the first launch, Settings' Find it): whether it answers, its version

@@ -31,7 +31,8 @@ describe("an opened family, each file once", () => {
     const files = within(await screen.findByRole("region", { name: "Files" }));
     for (const label of ["UNET", "CLIP", "T5", "VAE", "Kontext model"]) expect(files.getAllByText(label)).toHaveLength(1);
     expect(files.getByText("Edit only")).toBeTruthy();
-    expect(files.getByText("5 missing")).toBeTruthy();
+    // each has an official download: files to come, said in grey, not "missing" (where you render, card #20)
+    expect(files.getByText("5 not here")).toBeTruthy();
     const ops = within(screen.getByRole("region", { name: "Operations" }));
     expect(ops.getAllByText("needs the 4 files above")).toHaveLength(2);
     expect(ops.getByText("needs the 4 files above + Kontext model ↑")).toBeTruthy();

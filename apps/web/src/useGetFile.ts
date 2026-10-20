@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
-import { useSettings } from "./data";
+import { useRecipes, useSettings } from "./data";
 import { siteName } from "./format";
 import { queryKeys } from "./queryKeys";
 
@@ -52,7 +52,11 @@ export function useGetFile({ file, folder, url, civitai, pick, hints, auto, sour
   const downloads = useDownloads(machine);
   const client = useQueryClient();
   const lookups = Boolean(settings.data?.civitaiLookups);
-  const fetching = Boolean(settings.data?.downloadModels) && Boolean(folder);
+  // a family's own file at its own address is downloaded on a press whatever the settings (the press is the consent, and
+  // no lookup is made): what a greyed file in a form, a waiting job and Settings › Models offer
+  const recipes = useRecipes();
+  const official = Boolean(url) && (recipes.data?.families ?? []).some((f) => f.slots?.some((s) => s.get?.url === url && s.get?.file === file && s.folder === folder));
+  const fetching = (Boolean(settings.data?.downloadModels) || official) && Boolean(folder);
   const find = useMutation({ mutationFn: () => api.civitaiFind(file, folder, hints) });
   const start = useMutation({
     mutationFn: (from: From) => api.startDownload({ file, folder: folder!, ...from, ...("civitai" in from && pick ? { pick } : {}), ...(machine ? { machine } : {}) }),

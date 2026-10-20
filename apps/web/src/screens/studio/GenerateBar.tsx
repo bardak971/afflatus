@@ -15,13 +15,15 @@ import { inputMissing } from "./missing";
 import type { useGenerate } from "./useGenerate";
 
 /** The foot of the Create panel: what stops the form, where its results go, the batch count, and Generate with what it will take. */
-export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCount }: {
+export function GenerateBar({ recipe, draft, whole, folder, blocked, waits, send, onCount }: {
   recipe: RecipeInfo | undefined;
   draft: Draft | null;
   /** The whole form as it stands. */
   whole: Record<string, unknown>;
   folder: { name: string; path: string | null } | null;
   blocked: string | null;
+  /** What the job will wait for, said on the button in place of its time: "waits for a GPU", "waits for the download". */
+  waits?: string | null;
   send: ReturnType<typeof useGenerate>;
   onCount(count: number): void;
 }) {
@@ -68,7 +70,7 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCou
             ) : (
               <span className="flex min-w-0">
                 <span className="truncate">{picked ? `Generate on ${shortName(picked)}` : `Generate ${plural(count, noun)}`}</span>
-                {about && <span className="min-w-0 shrink-[100] truncate">&nbsp;· {about}</span>}
+                {(waits ?? about) && <span className="min-w-0 shrink-[100] truncate">&nbsp;· {waits ?? about}</span>}
               </span>
             )}
             <Keys keys="Ctrl+Enter" size="sm" className="@max-[30rem]:hidden" />

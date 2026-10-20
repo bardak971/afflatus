@@ -14,6 +14,12 @@ import { queryKeys } from "./queryKeys";
  */
 
 export const useRecipes = () => useQuery({ queryKey: queryKeys.recipes(), queryFn: api.recipes, staleTime: Infinity });
+/**
+ * How large the families' official files are (address → bytes): what a greyed file says beside it. The server asks them
+ * in the background at first: read again every 20 s until some came, then kept.
+ */
+export const useOfficialSizes = () =>
+  useQuery({ queryKey: ["official-sizes"], queryFn: ({ signal }) => api.officialSizes({ signal }), staleTime: Infinity, refetchInterval: (q) => (q.state.data && Object.keys(q.state.data).length ? false : 20_000) });
 /** A model family's name by its id: the id itself while the recipes load, or for a family no longer installed. */
 export function useFamilyName(): (id: string) => string {
   const families = useRecipes().data?.families;
@@ -81,6 +87,7 @@ export function useFamilies(machine?: string) {
   const settings = useSettings();
   return useMemo(() => {
     const said = settings.data?.families ?? {};
+    const all = settings.data?.allFamilies ?? false;
     const machines = settings.data?.machines ?? [];
     /** The families switched by hand on the machine asked about. */
     const own = (machine ? machines.find((m) => m.id === machine)?.families : undefined) ?? {};
@@ -89,8 +96,8 @@ export function useFamilies(machine?: string) {
     const found = (family: string) => !status || (recipes.data?.recipes ?? []).some((r) => r.family === family && status.find((s) => s.id === r.id)?.ready);
     const isOn = (family: string) =>
       machine || machines.length < 2
-        ? familyOnFor(own, said, family, found(family))
-        : machines.some((m) => familyOnFor(m.families ?? {}, said, family, found(family)));
+        ? familyOnFor(own, said, family, found(family), all)
+        : machines.some((m) => familyOnFor(m.families ?? {}, said, family, found(family), all));
     /** Whether a recipe is offered where one is chosen: its family on, and the recipe not hidden for now (core's Recipe.hidden). */
     const offers = (r: { family: string; hidden?: true }) => !r.hidden && isOn(r.family);
     return { isOn, offers, found, said, own };

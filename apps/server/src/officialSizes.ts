@@ -5,6 +5,9 @@ import { sizeOf } from "./fromLink";
 /** Where the sizes are kept: a key of the settings table the schema ignores (as the queue's own notes are). */
 const KEY = "officialSizes";
 
+/** Below this, what was said is not a model file's size (an error page's): it is asked again. */
+const LEAST = 1 << 20;
+
 /** How many sizes are asked at once: a few dozen links, asked once each, without a burst at every start. */
 const AT_ONCE = 4;
 
@@ -36,8 +39,9 @@ export class OfficialSizes {
     } catch {
       // a value that is not JSON is asked again
     }
-    this.known = parsed;
-    return parsed;
+    // one kept from before a refusal was told apart (a gated repository's few bytes) is asked again
+    this.known = Object.fromEntries(Object.entries(parsed).filter(([, bytes]) => bytes >= LEAST));
+    return this.known;
   }
 
   private async askMissing(): Promise<void> {
@@ -48,7 +52,7 @@ export class OfficialSizes {
     for (let i = 0; i < urls.length; i += AT_ONCE) {
       const sizes = await Promise.all(urls.slice(i, i + AT_ONCE).map(async (u) => [u, await sizeOf(u)] as const));
       for (const [u, bytes] of sizes) {
-        if (bytes <= 0) continue;
+        if (bytes < LEAST) continue;
         known[u] = bytes;
         found = true;
       }

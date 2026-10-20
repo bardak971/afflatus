@@ -92,6 +92,8 @@ describe("with no machine at all", () => {
     const lists = setup.lists as string[][];
     const checkpoints = lists[sdxl.options.checkpoint];
     expect(checkpoints).toContain(SDXL_BASE);
+    // only SDXL's own: the folder's other families' files (SCAIL-2's SAM 3, LTX's checkpoint) are not SDXL checkpoints
+    expect(checkpoints!.every((f) => f === SDXL_BASE)).toBe(true);
     const queue = (await t.app.inject({ method: "GET", url: "/api/queue" })).json();
     expect(queue.online).toBe(true);
   });

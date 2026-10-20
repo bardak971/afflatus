@@ -2,8 +2,7 @@ import { useId } from "react";
 import { pickChoice, RANDOM_SEED, partFit, type PartFit, type ClipValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import type { FamilyInfo } from "./api";
 import { useCastPictures, useCastVoice } from "./castPictures";
-import { FileSelect, FOLDER_OF } from "./fields/FileSelect";
-import { Label } from "./fields/Label";
+import { FileSelect, FOLDER_OF, ModelField } from "./fields/FileSelect";
 import { Loras, type MainText } from "./fields/Loras";
 import { PromptField } from "./fields/PromptField";
 import { SeedField } from "./fields/SeedField";
@@ -83,12 +82,7 @@ export function Field({ spec, value, values, specs, options, family, model, onCh
       return <PromptField spec={spec} id={id} value={String(value ?? "")} values={values} onChange={onChange} bare={bare} />;
 
     case "model":
-      return (
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor={id} note={spec.note} aside={options?.length ? `${options.length} on your ComfyUI` : undefined}>{spec.label}</Label>
-          <FileSelect id={id} label={spec.label} value={String(value ?? "")} onChange={onChange} files={options ?? []} folder={spec.folder} match={spec.match} family={family?.name} placeholder={options?.length ? "Choose a model" : `Nothing found in models/${spec.folder}`} />
-        </div>
-      );
+      return <ModelField id={id} spec={spec} value={String(value ?? "")} options={options} family={family} onChange={onChange} />;
 
     case "loras":
       return <Loras spec={spec} value={(value as LoraValue[] | undefined) ?? []} options={options ?? []} family={family} model={model} onChange={onChange} main={main} />;

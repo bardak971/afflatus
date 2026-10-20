@@ -11,6 +11,7 @@ import { useQueue } from "../../data";
 import { AccessRow } from "./AccessRow";
 import { AddMachineCard, MachineCards, MachinesHead, PacksRow, useMachineProbes, useSaveMachines } from "./MachinesCard";
 import { COLUMNS } from "./wide";
+import { FirstLaunchCard, NoComfyCard } from "./NoComfyCard";
 
 const WHY_PACK = "It lets MiniMax H3 clips on a timeline continue from the clip before's own latent (the motion, the look and the voice carry across the join), and lets Afflatus read model files' headers through ComfyUI when it cannot read its disk.";
 
@@ -113,6 +114,18 @@ export function ComfyCard() {
       {unload.isError && <Block><ErrorNote>{unload.error.message}</ErrorNote></Block>}
     </Card>
   );
+  // no ComfyUI of the user's own (a rented-only start, none added yet): its question, the pods below, nothing offline
+  if (!machines.some((m) => !m.rented)) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className={COLUMNS}>
+          <div className="flex min-w-0 flex-col gap-4"><NoComfyCard /></div>
+          <div className="flex min-w-0 flex-col gap-4"><FirstLaunchCard /></div>
+        </div>
+        {machines.length > 0 && <MachineCards machines={machines} probes={probes.data} states={queue.data?.machines} />}
+      </div>
+    );
+  }
   if (several) {
     return (
       <div className="flex flex-col gap-4">
@@ -120,6 +133,7 @@ export function ComfyCard() {
         <div className={COLUMNS}>
           <AddMachineCard />
           {vram}
+          <FirstLaunchCard />
         </div>
         <MachineCards machines={machines} probes={probes.data} states={queue.data?.machines} />
       </div>
@@ -159,6 +173,7 @@ export function ComfyCard() {
       <div className="flex min-w-0 flex-col gap-4">
         <AddMachineCard />
         {vram}
+        <FirstLaunchCard />
       </div>
     </div>
   );

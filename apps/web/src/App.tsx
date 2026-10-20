@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import { Link, Redirect, Route, Switch, useLocation } from "wouter";
 import { Banners } from "./Banners";
@@ -31,12 +31,14 @@ const WorkflowEdit = lazyPart(loadWorkflows, (m) => m.WorkflowEdit);
 const WorkflowImport = lazyPart(loadWorkflows, (m) => m.WorkflowImport);
 // the list of keys too: it is fetched with the page, but not in its first chunk
 const KeysHelp = lazy(() => import("./KeysHelp").then((m) => ({ default: m.KeysHelp })));
+const FirstLaunch = lazy(() => import("./screens/FirstLaunch").then((m) => ({ default: m.FirstLaunch })));
 import { NavRail } from "./NavRail";
 import { EditorSkeleton } from "./timeline/EditorSkeleton";
 import { WorkflowEditorSkeleton } from "./screens/workflowEditor/EditorSkeleton";
 import { useTheme } from "./theme/store";
 import { useKeepForSync } from "./keepFor";
 import { queryKeys } from "./queryKeys";
+import { useSettings } from "./data";
 
 /** A tool Afflatus needs is missing on the computer it runs on: said once per browser session, with the way to Settings → About. */
 function useMissingTools() {
@@ -57,6 +59,30 @@ function useMissingTools() {
   }, [health.data, push]);
 }
 
+/** The Studio's own addresses: where the first launch's page stands in for it. */
+const studioPath = (path: string) => path === "/" || path === "/create";
+
+/**
+ * A new install's first launch (FirstLaunch.tsx): its page in the Studio's place until it is done or skipped, the rail kept.
+ * Leaving it by the rail counts as Skip: it is never shown again unasked (Settings › ComfyUI brings it back).
+ */
+function useFirstLaunch(path: string): { shows: boolean } {
+  const settings = useSettings();
+  const client = useQueryClient();
+  const pending = settings.data?.firstLaunch === "pending";
+  const shows = pending && studioPath(path);
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    if (shows) setSeen(true);
+  }, [shows]);
+  const end = () => void api.saveSettings({ firstLaunch: "done" }).then((saved) => client.setQueryData(queryKeys.settings(), saved), () => {});
+  useEffect(() => {
+    if (seen && pending && !studioPath(path)) end();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, as the page is left
+  }, [seen, pending, path]);
+  return { shows };
+}
+
 export function App() {
   useLiveEvents();
   useSearchKey();
@@ -65,6 +91,7 @@ export function App() {
   const [path] = useLocation();
   useMissingTools();
   useEffect(prefetchWhenIdle, []);
+  const first = useFirstLaunch(path);
   return (
     <div className="flex h-full flex-col">
       <div className="flex min-h-0 grow">
@@ -75,9 +102,9 @@ export function App() {
             the Studio's own addresses, with its form open or its timelines shown: the same screen; a timeline's editor is not) */}
         <ErrorBoundary key={path === "/create" || path === "/timelines" ? "" : path.split("/")[1]}>
         <Switch>
-          <Route path="/"><Studio key="studio" /></Route>
+          <Route path="/">{first.shows ? <FirstLaunch /> : <Studio key="studio" />}</Route>
           {/* the Studio with its form open: the same screen (the same key, so opening the form keeps what is on it), the address following the form */}
-          <Route path="/create"><Studio key="studio" open /></Route>
+          <Route path="/create">{first.shows ? <FirstLaunch /> : <Studio key="studio" open />}</Route>
           <Route path="/kit" component={People} />
           {/* the screen's old address still leads to it */}
           <Route path="/people"><Redirect to="/kit" /></Route>

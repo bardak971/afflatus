@@ -3,7 +3,7 @@ import { useLocation, useSearch } from "wouter";
 import type { Asset, Clip, DesignerSession, RecipeInfo, Take, Timeline } from "../api";
 import { useFamilies, useModelSettings, useRecipes, useSetup, useTimeline } from "../data";
 import type { DesignerTurn } from "../designer/types";
-import { notReady, plural } from "../format";
+import { formsCanQueue, notReady, plural } from "../format";
 import { useBanners, useEditorColumn } from "../store";
 import { useQueueOf } from "../screens/studio/queueOf";
 import { useNewClock } from "./clock";
@@ -91,7 +91,8 @@ export function useTimelineEditor(id: string) {
     () => (recipes.data?.recipes ?? []).filter((r) => r.output === "video" && (families.offers(r) || r.id === sourceRecipe || clips.some((c) => c.recipe === r.id))),
     [recipes.data, families, clips, sourceRecipe],
   );
-  const comfyOnline = setup.data?.comfy.online ?? false;
+  // no ComfyUI of the user's own and none answering: a clip still queues, waiting for a GPU
+  const comfyOnline = formsCanQueue(setup.data?.comfy);
   const current = clips.find((c) => c.id === selected) ?? null;
   // the selected clip's Show the mask, followed until its video is made (the stage draws it over the source)
   const maskOfCurrent = useMaskPreview(current?.id, current ? masks[current.id]?.job : undefined);

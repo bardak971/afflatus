@@ -9,7 +9,7 @@ import { useDraft } from "../../draft";
 import { Form, mainTextOf } from "../../RecipeForm";
 import { formDefaults, matchFiles, ownValues } from "../../form";
 import { takePreset } from "../../handoff";
-import { notReady } from "../../format";
+import { formsCanQueue, notReady } from "../../format";
 import { LookBar, lookWords } from "../../LookBar";
 import { CastPictures } from "../../castPictures";
 import { CardPrompt, PartHead } from "../../recipeForm/Part";
@@ -19,6 +19,7 @@ import { ErrorNote, ScrollColumn, PanelEdge } from "../../ui";
 import { useFormTarget } from "../../formTarget";
 import { DraftHeader } from "./DraftHeader";
 import { GenerateBar } from "./GenerateBar";
+import { useWaitsOn } from "../../fields/FileSelect";
 import { inputMissing } from "./missing";
 import { ModelPicker, useModelPick } from "./ModelPicker";
 import { PresetMenu, presetRefusal } from "./PresetMenu";
@@ -62,9 +63,15 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
   }, [recipe, draft?.id, formValues, draft?.look, folder?.id]);
   useEffect(() => () => publish(null), [publish]);
 
-  const comfyOnline = setup.data?.comfy.online ?? false;
+  // no ComfyUI of the user's own and none answering: the forms still queue, their jobs waiting for a GPU
+  const comfyOnline = formsCanQueue(setup.data?.comfy);
   const status = setup.data?.recipes.find((r) => r.id === recipe?.id);
-  const blocked = setup.isSuccess && recipe ? notReady(status, comfyOnline) : null;
+  // a family file with an official download does not stop the form: the job waits for it where it runs
+  const family = recipes.data?.families.find((f) => f.id === recipe?.family);
+  const downloadable = (slot: string) => Boolean(family?.slots?.find((s) => s.id === slot)?.get);
+  const blocked = setup.isSuccess && recipe ? notReady(status, comfyOnline, undefined, downloadable) : null;
+  // what Generate says the job will wait for: a GPU (no ComfyUI of the user's own), or a file still to download here
+  const waitsOn = useWaitsOn(recipe, status, family);
 
   // the form as it stands, worked out once per change rather than at every draw (the prompt is typed into it)
   const settings = useModelSettings();
@@ -175,7 +182,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
         )}
       </ScrollColumn>
 
-      <GenerateBar recipe={recipe} draft={draft} whole={whole} folder={folder ? { name: folder.name, path: folder.path } : null} blocked={blocked} send={send} onCount={d.setCount} />
+      <GenerateBar recipe={recipe} draft={draft} whole={whole} folder={folder ? { name: folder.name, path: folder.path } : null} blocked={blocked} waits={waitsOn(whole)} send={send} onCount={d.setCount} />
 
       {designing && recipe && draft && (
         <Suspense fallback={null}>

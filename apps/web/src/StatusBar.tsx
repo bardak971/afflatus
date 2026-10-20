@@ -13,7 +13,8 @@ import { elapsed, gb, phaseLabel, timeLeft, when } from "./format";
 import { StripModel, StripPlace, stripGhost } from "./ModelLoad";
 import { LoadPanelHost } from "./loadPanelHost";
 import { MachinesPill, OPEN_MACHINES } from "./MachinesPill";
-import { busyOutside, machineLabel, machineName, OUTSIDE_TIP, outsideSaid, severalMachines } from "./machines";
+import { busyOutside, machineLabel, machineName, noGpuYet, OUTSIDE_TIP, outsideSaid, severalMachines } from "./machines";
+import { openDeploy } from "./deploy";
 import { lazyPart, loadExpiringPanel, loadHuntStrip } from "./lazyParts";
 import { useProject } from "./project";
 import { useQueueOps } from "./queueOps";
@@ -61,7 +62,10 @@ export function StatusBar() {
   const fetching = (useDownloads().data?.items ?? []).filter((d) => d.status === "starting" || d.status === "downloading" || d.status === "saving");
   const waiting = q?.waiting.length ?? 0;
   const liveDown = useLive((s) => s.down);
-  const barKey = useSettings().data?.bar?.shortcut ?? BAR_DEFAULT;
+  const settings = useSettings().data;
+  const barKey = settings?.bar?.shortcut ?? BAR_DEFAULT;
+  // no ComfyUI of the user's own and no pod up: nothing is offline, the jobs wait for a GPU
+  const noGpu = noGpuYet(settings?.machines, q);
   // a GPU hunt that holds the renders takes the left slot while nothing renders; otherwise it is a chip after it
   const hunt = q?.hunt && q.hunt.status !== "up" ? q.hunt : null;
   const huntSlot = Boolean(hunt && hunt.hold === "rest" && !run);
@@ -69,14 +73,14 @@ export function StatusBar() {
     <>
       <LoadPanelHost />
       <footer className="flex h-10 shrink-0 items-center gap-2.5 overflow-hidden border-t border-line bg-panel px-3 text-xs">
-        {huntSlot && hunt ? <Suspense fallback={null}><HuntStrip hunt={hunt} slot /></Suspense> : run ? <Running run={run} /> : q?.online === false ? <Offline q={q} /> : q?.paused ? <Paused waiting={waiting} /> : <Idle last={lastMade(q)} machines={q?.machines ?? []} />}
+        {huntSlot && hunt ? <Suspense fallback={null}><HuntStrip hunt={hunt} slot /></Suspense> : run ? <Running run={run} /> : q?.online === false ? <Offline q={q} /> : q?.paused ? <Paused waiting={waiting} /> : noGpu ? <NoGpu waiting={waiting} hasKey={Boolean(settings?.hasRunpodKey)} /> : <Idle last={lastMade(q)} machines={q?.machines ?? []} />}
         {several.filter((m) => m.running).length > 1 && (
           <button type="button" className="inline-flex h-6 shrink-0 items-center rounded-full border border-line px-2 text-xs hover:bg-hover" data-tip="Renders running on the other ComfyUIs: click for each machine" onClick={() => window.dispatchEvent(new Event(OPEN_MACHINES))}>
             +{several.filter((m) => m.running).length - 1}
           </button>
         )}
         {/* paused by the hunt that holds the renders: its own chip says so, and a Resume asks first (queueOps.ts) */}
-        {run && q?.paused ? !(hunt?.hold === "rest") && <Paused waiting={waiting} /> : waiting > 0 && (run || q?.online !== false) && !q?.paused && (
+        {run && q?.paused ? !(hunt?.hold === "rest") && <Paused waiting={waiting} /> : waiting > 0 && (run || q?.online !== false) && !q?.paused && !noGpu && (
           <Link href="/queue" className={cx(stripGhost, "shrink-0")} data-tip="Jobs waiting their turn: open the Queue to reorder or cancel them">+{waiting} queued</Link>
         )}
         {hunt && !huntSlot && <Suspense fallback={null}><HuntStrip hunt={hunt} slot={false} /></Suspense>}
@@ -244,6 +248,25 @@ function Paused({ waiting }: { waiting: number }) {
  * library). A ComfyUI running work queued from outside Afflatus (its own page) is not idle: that is said instead, with the
  * work (one ComfyUI) or the machines (several).
  */
+/**
+ * No machine can take work (noGpuYet): what waits, and Deploy a GPU at hand. Without a RunPod key, the Queue, where the key
+ * is asked beside the waiting job; a ComfyUI of the user's own is added in Settings › ComfyUI.
+ */
+function NoGpu({ waiting, hasKey }: { waiting: number; hasKey: boolean }) {
+  return (
+    <span className="inline-flex h-7 min-w-0 items-center gap-1.5 pl-0.5 text-ink-2" data-tip="No ComfyUI of your own is added and no rented GPU is up: jobs wait here until one is. Your ComfyUI goes in Settings › ComfyUI.">
+      <span className={cx(dot, "bg-ink-3")} />
+      <span className="shrink-0">{waiting ? `${waiting} waiting for a GPU` : "Idle"}</span>
+      {!waiting && <span className="truncate text-ink-3">· no GPU yet · jobs wait for one</span>}
+      {hasKey ? (
+        <button type="button" className="ml-1 shrink-0 font-semibold text-accent hover:underline" onClick={() => openDeploy()}>Deploy a GPU…</button>
+      ) : (
+        <Link href="/queue" className="ml-1 shrink-0 font-semibold text-accent hover:underline">Deploy a GPU…</Link>
+      )}
+    </span>
+  );
+}
+
 function Idle({ last, machines }: { last: Job | null; machines: MachineState[] }) {
   const outside = machines.filter((m) => !m.running && !m.paused && m.online !== false && busyOutside(m));
   const [, go] = useLocation();
