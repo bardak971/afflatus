@@ -135,8 +135,9 @@ describe("fetching a missing model file into ComfyUI", () => {
     expect(asked).toEqual([]);
     expect(fake.calls.filter((c) => c.includes("manager"))).toEqual([]);
     // off, nothing downloads; whether ComfyUI-Manager is there is still said (node packs are installed with it): a pod's
-    // Models tab greyed its Install button, its Manager running (2026-10-18)
-    expect(await list()).toMatchObject({ on: false, items: [], manager: { found: true, version: "V4.2.1" }, via: "none" });
+    // Models tab greyed its Install button, its Manager running (2026-10-18). Who would download is said too: a family's
+    // official file is downloaded on a press with downloads off (where you render, card #20)
+    expect(await list()).toMatchObject({ on: false, items: [], manager: { found: true, version: "V4.2.1" }, via: "manager" });
   });
 
   it("from Civitai: Manager is handed a one-time address, the bytes are counted, and the file ends up in its folder", async () => {

@@ -96,6 +96,10 @@ describe("with no machine at all", () => {
     expect(checkpoints!.every((f) => f === SDXL_BASE)).toBe(true);
     const queue = (await t.app.inject({ method: "GET", url: "/api/queue" })).json();
     expect(queue.online).toBe(true);
+    // nothing to download into, said without an error
+    const downloads = await t.app.inject({ method: "GET", url: "/api/downloads" });
+    expect(downloads.statusCode).toBe(200);
+    expect(downloads.json()).toMatchObject({ via: "none", items: [] });
   });
 
   it("a job waits for a machine, never failing for want of one", async () => {

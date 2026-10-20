@@ -3,7 +3,8 @@ import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useParams, useSearch } from "wouter";
 import { Search, X } from "lucide-react";
 import { fuzzyScore } from "@afflatus/core";
-import { api } from "../api";
+import { api, type RecipeInfo } from "../api";
+import { lacksOnlyFiles } from "../officialFiles";
 import { useFamilies, useQueue, useRecipes, useSettings, useSetup, useStorage } from "../data";
 import { plural, size } from "../format";
 import { scrollInside } from "../scrollInside";
@@ -46,12 +47,9 @@ function useTabMarks(): Partial<Record<Tab, ReactNode>> {
   const unusedVolumes = spent?.storage?.unused.length ?? 0;
   // operations of the families that are on that cannot run: a family turned off is a choice, not a problem
   // one that lacks only files with an official download is not counted: they come (Download, or a pod fetches them)
-  const downloadable = (family: string, slot: string) => Boolean(recipes.data?.families.find((f) => f.id === family)?.slots?.find((x) => x.id === slot)?.get);
-  const broken = (r: { id: string; family: string }) => {
+  const broken = (r: RecipeInfo) => {
     const st = setup.data!.recipes.find((x) => x.id === r.id);
-    if (st?.ready) return false;
-    const onlyFiles = st && st.missingSlots.length > 0 && !st.missingNodes.length && !st.emptyInputs.length && !st.missingFiles.length && !st.problems?.length && st.missingSlots.every((id) => downloadable(r.family, id));
-    return !onlyFiles;
+    return !st?.ready && !lacksOnlyFiles(st, r, recipes.data?.families.find((f) => f.id === r.family));
   };
   const notReady = setup.data ? (recipes.data?.recipes ?? []).filter((r) => families.offers(r) && broken(r)).length : 0;
   // no ComfyUI of the user's own expected (rented only, or none yet): no dot, nothing is offline

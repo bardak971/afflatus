@@ -4,6 +4,7 @@ import { ChevronDown, X } from "lucide-react";
 import { api, type Machine } from "../../api";
 import { useFamilies, useOfficialSizes, useRecipes, useSettings, useSetup } from "../../data";
 import { plural, size, waitsForGpu } from "../../format";
+import { lacksOnlyFiles, officialFiles } from "../../officialFiles";
 import { machineLabel } from "../../machines";
 import { DownloadTo } from "../../useGetFile";
 import { Chip, cx, ErrorNote, Help, Toggle } from "../../ui";
@@ -111,9 +112,19 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
     // files the family does not need, but some option of it would use: said as what they are
     const extras = (setup.data?.families.find((x) => x.id === f.id)?.slots ?? []).filter((x) => x.optional && !x.file && x.get).length;
     // what it lacks is only files with an official download: they come (Download all), the family is not broken
-    const coming = !all ? toCome(f.id) : [];
-    const onlyFiles = coming.length > 0 && mine.every((r) => readyOf(r.id) || (setup.data?.recipes.find((x) => x.id === r.id)?.missingSlots ?? []).every((id) => coming.some((c) => c.id === id)));
-    const comingBytes = coming.reduce((n, x) => n + sizeOf(x.get!.url), 0);
+    const info = recipes.data.families.find((x) => x.id === f.id);
+    const statusOf = (id: string) => setup.data?.recipes.find((x) => x.id === id);
+    // its operations that lack only files with an official download (they come), and those that lack more (a node pack)
+    const waiting = all ? [] : mine.filter((r) => !readyOf(r.id) && lacksOnlyFiles(statusOf(r.id), r, info));
+    const stuck = all ? 0 : mine.filter((r) => !readyOf(r.id) && !waiting.includes(r)).length;
+    const onlyFiles = waiting.length > 0;
+    // the files to come: the family's not found, and the official file of each model input with nothing to pick
+    const comingUrls = new Set([
+      ...toCome(f.id).map((x) => x.get!.url),
+      ...mine.flatMap((r) => (statusOf(r.id)?.emptyInputs ?? []).flatMap((id) => { const i = r.inputs.find((x) => x.id === id); return i?.type === "model" ? officialFiles(info, i.folder, i.slot).slice(0, 1).map((o) => o.url) : []; })),
+    ]);
+    const coming = onlyFiles ? [...comingUrls] : [];
+    const comingBytes = coming.reduce((n, u) => n + sizeOf(u), 0);
     // a family that is on with something missing starts open; the rest start folded
     const open = opened[f.id] ?? (isOn && setup.data ? !all : false);
     return (
@@ -130,7 +141,10 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
                 {pod ? (
                   <span className="text-ink-2">fetched by the pod{podBytes(f.id) ? ` · ${size(podBytes(f.id))}` : ""}</span>
                 ) : onlyFiles ? (
-                  <span className="text-ink-2">{plural(coming.length, "file")} not here{comingBytes ? ` · ${size(comingBytes)}` : ""}</span>
+                  <>
+                    <span className="text-ink-2">{plural(coming.length, "file")} not here{comingBytes ? ` · ${size(comingBytes)}` : ""}</span>
+                    {stuck > 0 && <span className="font-semibold text-warn-ink" data-tip="These operations lack more than files (a node pack, a file of their own): open the family for what each needs">{stuck} not ready</span>}
+                  </>
                 ) : (
                   <>
                     {all && extras > 0 && <span className="text-ink-3">{plural(extras, "optional file")} to add</span>}
