@@ -239,7 +239,7 @@ describe("a timeline's source lane", () => {
     for (const c of v.clips.slice(1)) {
       expect(c.joined).toBe("continue");
       // clip 1's person carrying on, in H3's own words: Afflatus adds which picture is whom
-      expect(c.inputs.who).toBe("The man carries on moving as in the clip before. Keep the room and the light exactly as they are.");
+      expect(c.inputs.who).toBe("The man carries on moving as in the clip before.");
     }
     // the cast's picture is every window's
     for (const c of v.clips) expect(c.inputs.references).toEqual([{ asset: photo.id, role: "person" }]);
@@ -258,7 +258,7 @@ describe("a timeline's source lane", () => {
     v = await view(tl.id);
     await call("PATCH", `/api/clips/${v.clips[0].id}`, { inputs: { ...v.clips[0].inputs, who: "Replace the woman in <Video 1> with the man with short brown hair in <Picture 1>. He is wearing a white shirt." } });
     v = await view(tl.id);
-    const made = "The man with short brown hair carries on moving as in the clip before. He is wearing a white shirt. Keep the room and the light exactly as they are.";
+    const made = "The man with short brown hair carries on moving as in the clip before. He is wearing a white shirt.";
     expect(v.clips[1].inputs.who).toBe(made);
     expect(v.clips[2].inputs.who).toBe("The man dances on.");
     for (const c of v.clips.slice(3)) expect(c.inputs.who).toBe(made);
