@@ -214,6 +214,34 @@ describe("a timeline's source lane", () => {
       expect(clips.length).toBeGreaterThan(1);
     });
 
+    it("cut again for an empty clip after its rendered clips (the last one removed), makes the next window in that clip's place", async () => {
+      const { tl, clips, now: read } = await swapClips();
+      const video = await asset("video");
+      // every window rendered but the last, which is removed; an empty clip added after them
+      const rendered = clips.slice(0, -1);
+      for (const c of rendered) {
+        const take = newId();
+        await t.db.insertInto("takes").values({
+          id: take, clip_id: c.id, asset_id: video.id, head_ms: 0, tail_ms: 0, trim_start_ms: 0, trim_end_ms: 0, prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, finished_from: null, created_at: now(),
+        } as never).execute();
+        await t.db.updateTable("clips").set({ take_id: take }).where("id", "=", c.id).execute();
+      }
+      await call("DELETE", `/api/clips/${clips.at(-1)!.id}`);
+      const added = await call("POST", `/api/timelines/${tl.id}/clips`, {});
+      const emptyId = (added.id ?? (await read()).clips.at(-1)!.id) as string;
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { recipe: "h3.swap", clip: emptyId } });
+      const again = await call("POST", `/api/timelines/${tl.id}/source/make`, { again: true });
+      const v = await read();
+      expect(v.clips.map((c) => c.id)).not.toContain(emptyId);
+      expect(v.clips.slice(0, rendered.length).map((c) => c.id)).toEqual(rendered.map((c) => c.id));
+      expect(v.clips.slice(rendered.length).map((c) => c.id)).toEqual(again.clips);
+      // it carries on from the last rendered window, its run-up before where that one ends
+      const last = rendered.at(-1)!.inputs as { sourceStart: number; sourceSeconds: number };
+      const ends = last.sourceStart + Math.floor(last.sourceSeconds * 24 + 1e-6) / 24;
+      expect(v.clips[rendered.length]!.inputs.sourceStart as number).toBeCloseTo(ends - 22 / 24, 3);
+      expect((v.clips[rendered.length] as unknown as { joined: string }).joined).toBe("continue");
+    });
+
     it("a clip's own settings given to all: every clip takes them, and none is set apart on them", async () => {
       const { clips, edit, now } = await swapClips();
       await edit(clips[1]!, { swapStrength: 1.3 }, "apart");
