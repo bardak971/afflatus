@@ -3,7 +3,7 @@ import { H3_FPS, H3_GRID } from "./family";
 import { h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video } from "./video";
 import { H3_CONTINUATION_NODES, H3_SEAM, H3_TRIM } from "./join";
-import { H3_STARTS, modelOf, turboNeeds } from "./model";
+import { H3_STARTS, modelOf, turboNeeds, vedaNeeds } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
 import { upscaleNeeds } from "../video/upscale";
 import { rifeNeeds } from "../shared/finish";
@@ -42,12 +42,12 @@ const NOT_TAKEN = new Set([
 
 const inputs: InputSpec[] = [
   {
-    id: "driving", type: "clip", role: "source", label: "Driving video", frames: [SWAP_FRAMES], fps: H3_FPS, whole: true,
+    id: "driving", type: "clip", role: "source", label: "Source video", frames: [SWAP_FRAMES], fps: H3_FPS, whole: true,
     window: { start: "drivingStart", seconds: "drivingSeconds", fits: { frames: SWAP_FRAMES, fps: H3_FPS, pad: 0, min: MOTION_LEAST / H3_FPS, grid: H3_GRID } },
     note: "how it moves: the body, the hands, the face, drawn as skeletons. One job takes 5.8 s of it; a longer video goes on a timeline's source lane, window by window",
   },
-  { id: "drivingStart", type: "number", label: "Driving video: start", min: 0, max: 3600, step: 0.1, default: 0, unit: " s", showWhen: "driving" },
-  { id: "drivingSeconds", type: "number", label: "Driving video: length", min: MOTION_PART.least, max: MOTION_PART.most, step: 0.01, default: 5.175, unit: " s", showWhen: "driving" },
+  { id: "drivingStart", type: "number", label: "Source: start", min: 0, max: 3600, step: 0.1, default: 0, unit: " s", showWhen: "driving" },
+  { id: "drivingSeconds", type: "number", label: "Source: length", min: MOTION_PART.least, max: MOTION_PART.most, step: 0.01, default: 5.175, unit: " s", showWhen: "driving" },
   {
     id: "picture", type: "image", role: "source", label: "Picture",
     note: "what moves, its first frame: its room, its light and its people are kept, only the motion comes from the video. In the driving video's shape: the video is cut to the picture's from the centre",
@@ -60,9 +60,9 @@ const inputs: InputSpec[] = [
   },
   // H3's colour match pulls towards the first frame: here the picture
   ...h3Inputs.filter((spec) => !NOT_TAKEN.has(spec.id)).map((spec) => (spec.showWhen === "start" ? { ...spec, showWhen: "picture" } : spec)),
-  { id: "keepSound", type: "toggle", label: "Keep the driving video's sound", default: true, advanced: true, note: "the file carries the driving video's own sound over its part; off, the sound H3 makes" },
+  { id: "keepSound", type: "toggle", label: "Keep the source's sound", default: true, advanced: true, note: "the file carries the driving video's own sound over its part; off, the sound H3 makes" },
   {
-    id: "soundGuide", type: "toggle", label: "Lips follow the driving video's sound", default: true, advanced: true, showWhen: "keepSound",
+    id: "soundGuide", type: "toggle", label: "Lips follow the source's sound", default: true, advanced: true, showWhen: "keepSound",
     note: "the driving video's sound given to H3 as a guide, as Lip sync gives its recording, so that the mouth is drawn to the words heard",
   },
   ...motionControlInputs,
@@ -108,7 +108,7 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
   chapters: [MOTION_CHAPTER],
   starts: H3_STARTS,
   presets: h3Video.presets,
-  needsWith: (input, slots) => [...turboNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...motionNeeds(input)],
+  needsWith: (input, slots) => [...turboNeeds(input, slots), ...vedaNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...motionNeeds(input)],
   nodes: (input) => [...new Set([
     // carrying on, the clip before's last frame is a picture of who moves: the reference route (with H3's reference model there)
     ...h3Video.nodes({ ...asClip(input, SWAP_FRAMES, input.previous ? MOTION_CARRIED : 0), ...(input.previous ? { references: [...input.references, { asset: "frame", role: "person" }] } : {}) }), ...motionNodes(input),
@@ -169,6 +169,11 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
         name: "a picture moved by the driving video's pose (DWPose), its sound kept",
         input: { picture: "p1", driving: { asset: "v1" }, description: "A man dances in a living room." },
         slots: all, uploads: { picture: "p.png", driving: "v.mp4" }, media: { picture, driving: part },
+      },
+      {
+        name: "Veda's sparse attention on a moved picture",
+        input: { picture: "p1", driving: { asset: "v1" }, description: "A man dances in a living room.", veda: true, vedaGenerated: 24, vedaReference: 40 },
+        slots: { ...all, ...{ veda: "minimax_h3_r2va_veda_preview_fp8.safetensors", vedaT2va: "minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors" } }, uploads: { picture: "p.png", driving: "v.mp4" }, media: { picture, driving: part },
       },
       {
         name: "the cast's picture as a reference, the pose from SDPose, full steps",

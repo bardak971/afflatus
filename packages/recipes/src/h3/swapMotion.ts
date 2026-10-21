@@ -90,7 +90,7 @@ function motionWindow(input: H3SwapMotion, ctx: BuildContext): BuiltGraph {
       const sd = input.poseFrom === POSE_SDPOSE ? [`checkpoints/${ctx.slots.sdpose}`, `diffusion_models/${ctx.slots.rtdetr}`] : [];
       return { model: made.model, loads: [`model_patches/${made.file}`, ...sd] };
     },
-    ...(input.veda && ctx.slots.veda ? { veda: ctx.slots.veda, vedaSparsity: { generated: input.vedaGenerated, reference: input.vedaReference } } : {}),
+    vedaFor: "reference",
     ...(ctx.slots.refTurbo ?? ctx.slots.turbo ? { turbo: ctx.slots.refTurbo ?? ctx.slots.turbo } : {}),
   });
   // said on the job, the window rendered all the same

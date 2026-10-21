@@ -11,7 +11,7 @@ import { FACE_REFINE_OPTIONAL, FACE_REFINE_SLOTS, faceRefineSkipped } from "./fa
 import { h3Inputs, type H3Video } from "./inputs";
 import { frameFor, H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_LANDING, H3_SEAM, H3_TRIM, resolveJoin } from "./join";
 import { H3_LATENT_ENLARGE_NODES, H3_LATENT_UPSCALE_NODES, latentUpscaleNeeds, latentUpscalePass, latentUpscaleRounds, plainResizeSaid } from "./latent-upscale";
-import { AUTO_SAMPLER, H3_STARTS, loadH3Model, modelOf, namedFor, turboNeeds, uses } from "./model";
+import { AUTO_SAMPLER, H3_STARTS, loadH3Model, modelOf, namedFor, turboNeeds, uses, vedaNeeds } from "./model";
 
 // the recipe's parts live beside it (inputs, join, condition, latent-upscale, finish); its input type is still had from here
 export type { H3Video } from "./inputs";
@@ -19,7 +19,7 @@ export type { H3Video } from "./inputs";
 export const h3Video = defineRecipe<H3Video>({
   // Turbo's LoRA, and H3's latent upscaler for an upscale with it
   // Turbo's LoRA, H3's latent upscaler for an upscale with it, RIFE with "RIFE ×2" on
-  needsWith: (input, slots) => [...turboNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth)],
+  needsWith: (input, slots) => [...turboNeeds(input, slots), ...vedaNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth)],
   id: "h3.video",
   family: "h3",
   version: 2,
@@ -61,7 +61,7 @@ export const h3Video = defineRecipe<H3Video>({
     ];
   },
   optionalNodes: [FACE_NODE, ...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, ...COLOUR_MATCH_NODES, ...H3_CONTINUATION_NODES, H3_SEAM, H3_HEAD_GUIDE, H3_LANDING, H3_TRIM, ...H3_SAVE_LATENT,
-    "MiniMaxH3Cache", "ModelPatchTorchSettings", "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ",
+    "MiniMaxH3Cache", "VedaSparseAttention", "ModelPatchTorchSettings", "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ",
     // one of the two enlargers is used, by whether the latent upscaler's file is there: neither can be required by nodes()
     ...H3_LATENT_ENLARGE_NODES,
     // Face refine's: done without when they are missing, and said on the job (its pack is installed for it where the job runs)
@@ -85,6 +85,8 @@ export const h3Video = defineRecipe<H3Video>({
       { name: "words only, plain", input: { description: "a", fast: false, smooth: false, quick: false }, slots },
       { name: "fast, smooth, quick", input: { description: "a", cache: true }, slots: all },
       { name: "full steps with the step cache", input: { description: "a", fast: false, cache: true }, slots: all },
+      // Veda on, its two predictors there: the text-and-frames one taken (no references), sparsity 24 / 40
+      { name: "Veda's sparse attention, its text-and-frames predictor", input: { description: "a", veda: true, vedaGenerated: 24, vedaReference: 40 }, slots: { ...all, ...{ veda: "minimax_h3_r2va_veda_preview_fp8.safetensors", vedaT2va: "minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors" } } },
       {
         name: "opens on a picture and ends on another, a LoRA",
         input: { description: "a", start: "p1", end: "p2", loras: [{ file: "l.safetensors", weight: 0.8 }, { file: "off.safetensors", weight: 0 }], fast: false },
@@ -173,10 +175,8 @@ export interface H3Extra {
   latent?(g: GraphBuilder, at: { latent: Ref; vae: Ref; width: number; height: number; frames: number }): Ref;
   /** The decoded frames as the clip keeps them (a swap's: the source's own pixels pasted back outside the person). */
   frames?(g: GraphBuilder, images: Ref): Ref;
-  /** Veda's predictor, when the clip is made with its sparse attention (a swap's option; H3's own forms do not offer it yet). */
-  veda?: string;
-  /** Veda's key tiles kept of each query tile, of the generated and of the reference tokens (its default 32 / 32). */
-  vedaSparsity?: { generated: number; reference: number };
+  /** Veda's predictor for MiniMax's reference model, whatever the clip's file (a swap's: it runs the reference model as its own). */
+  vedaFor?: "reference";
   /** The sampler's denoise, below 1 to keep more of what the latent starts from (a swap: the source's shapes). */
   denoise?: number;
   /** The turbo LoRA Turbo adds, when the recipe knows which suits its model (a swap's reference model: the reference one). */
@@ -209,7 +209,7 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
 
   const audioVae = g.out("VAELoader", { vae_name: slots.audioVae });
   const vae = g.out("VAELoader", { vae_name: slots.videoVae });
-  const { model, turbo, steps, lora, unet } = loadH3Model(g, ctx, input, picked, how, audioVae, extra.veda, extra.turbo, extra.vedaSparsity);
+  const { model, turbo, steps, lora, unet, vedaMissing } = loadH3Model(g, ctx, input, picked, how, audioVae, extra.vedaFor, extra.turbo);
   const { positive, latent, previous, plain, clip } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae }, extra.prompt, more);
 
   // a finish by the latent re-sample starts from the draft's own sampled latent (uploaded as "self.latent"): rendered again, even
@@ -265,7 +265,10 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   // the re-sample counts as a pass of its own: its steps again for every piece, after the clip's sampling. A finish is
   // the re-sample alone, and names no pass: what loads its models ahead is its loaders, not a step of the re-sample
   const resampled = fine ? input.upscaleSteps * latentUpscaleRounds(input, { width, height }, join.frames) : 0;
-  const said = [fine ? plainResizeSaid(input, ctx) : null, rifeSkippedSaid(input.smooth, ctx), faceRefineSkipped(input, ctx)].filter((x): x is string => Boolean(x));
+  // Veda asked for and its predictor not there: made with the full attention, and said (its node pack missing is said by the
+  // queue, which knows why it is: ctx.wants)
+  const vedaSaid = vedaMissing ? `Veda was on, but its predictor for ${vedaMissing === "reference" ? "the reference model" : "text and frames (T2VA)"} is not in ComfyUI's models/veda folder (Settings › Models has it): made with the full attention.` : null;
+  const said = [fine ? plainResizeSaid(input, ctx) : null, rifeSkippedSaid(input.smooth, ctx), faceRefineSkipped(input, ctx), vedaSaid].filter((x): x is string => Boolean(x));
   const refining = made.refine ? [made.refine] : [];
   return {
     graph: g.graph,
