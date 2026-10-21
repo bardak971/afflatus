@@ -5,7 +5,7 @@ import { said } from "./forecast";
 import { allowedHosts, hostAllowed } from "./hostCheck";
 import { z } from "zod";
 import { ComfyClient, ComfyLocked, plannedScan } from "@afflatus/comfy";
-import { describeRecipe, listOptions } from "@afflatus/core";
+import { describeRecipe, listOptions, parseInput } from "@afflatus/core";
 import { mergeScans } from "./machineScans";
 import { comfyFolderOf } from "./modelDownload";
 import { accessOf } from "./lock-api";
@@ -216,6 +216,25 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
   app.post("/api/form/packs", async (req) => {
     const b = z.strictObject({ recipe: z.string().min(1).max(200), input: z.record(z.string(), z.unknown()), machine: z.string().min(1).max(40).optional() }).parse(req.body);
     return (await s.queue.formPacks(b.recipe, b.input, b.machine)) ?? { machine: null, rule: null, notes: [] };
+  });
+
+  /**
+   * The prompt as sent of a form written from parts (card #34): what goes while its prompt is left empty, for the form to
+   * show there. Written by the recipe's own rules (Recipe.promptFromParts), as the render will.
+   */
+  app.post("/api/form/prompt", async (req) => {
+    const b = z.strictObject({ recipe: z.string().min(1).max(200), input: z.record(z.string(), z.unknown()) }).parse(req.body);
+    const recipe = s.registry.recipe(b.recipe);
+    if (!recipe?.partsInto || !recipe.promptFromParts) return { into: null, text: "" };
+    const input = (() => {
+      try {
+        return parseInput(recipe, b.input);
+      } catch {
+        // a form not whole yet (no source picked) still has its parts: read as they are (the rules take a part left out as empty)
+        return b.input;
+      }
+    })();
+    return { into: recipe.partsInto, text: recipe.promptFromParts(input) };
   });
 
   /**

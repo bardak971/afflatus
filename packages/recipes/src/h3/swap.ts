@@ -37,6 +37,10 @@ export interface H3Swap extends H3Video {
   sourceStart: number;
   sourceSeconds: number;
   who: string;
+  /** The prompt's parts (card #34): who the source shows (by look), how the one who goes in looks, what happens in this window. */
+  inSource: string;
+  look: string;
+  happens: string;
   swapStrength: number;
   keepSound: boolean;
   soundGuide: boolean;
@@ -82,7 +86,7 @@ const SWAP_CARRIED = 22;
 /** The run-ups a window takes, and the input that sets it: H3's own (the server cuts the source's windows for it). */
 export const SWAP_RUN_UP = { input: "context", counts: H3_LANDINGS.map(Number) };
 /** What each window of a source keeps its own: its prompt (the owner, 2026-10-20: clip 6 can show something else than clip 2). */
-export const SWAP_OWN = ["who"];
+export const SWAP_OWN = ["who", "happens"];
 /** What the Source: length field takes, in seconds. */
 const SWAP_PART = (({ least, most }) => ({ min: least, max: most }))(partBounds({ fps: H3_FPS, most: SWAP_FRAMES, least: SWAP_LEAST }));
 
@@ -137,15 +141,20 @@ export const swapInputs: InputSpec[] = [
     note: "akatz-ai's Character-Swap LoRA, put first among the LoRAs: V1.5 by default, as its card recommends for new swaps; V1 (pro4500) is its first version",
   },
   { id: "swapStrength", type: "number", label: "Swap LoRA strength", min: 0, max: 2, step: 0.05, default: 1, note: "its author's 1.0; 2 gave artifacts" },
+  // the prompt's parts (card #34, the owner's mock of 2026-10-20): each a few words, the prompt written from them by rules
+  // (swapFromParts); names mean nothing to H3, so the person in the source is said by how they look
+  { id: "inSource", type: "prompt", weights: false, label: "In the source", style: "sentences", line: true, optional: true, noCast: true, designed: true, placeholder: "the man in the grey hoodie", note: "who the source shows and is replaced, by how they look (a name means nothing to H3)" },
+  { id: "look", type: "prompt", weights: false, label: "How they look", style: "sentences", line: true, optional: true, noCast: true, designed: true, placeholder: "a black leather jacket over a white t-shirt", note: "the one who goes in: what of them the picture does not say, or says otherwise (clothes, hair). Shared by a source's windows" },
+  { id: "happens", type: "prompt", weights: false, label: "What happens", style: "sentences", optional: true, noCast: true, designed: true, placeholder: "He dances and steps toward the camera.", note: "in this clip, in the present tense. Each window of a source keeps its own" },
   {
     // The whole prompt, shown as it is sent (the owner, 2026-10-18: nothing hidden). It starts as the swap LoRA's caption; a
     // longer one broke 2 swaps of 3 on ref2va (2026-10-12), and the fused turbo needs the person described (§9.10), so it
     // is the user's. Words with no <Video 1> or <Picture 1> in them (a clip made before) are the person in the caption.
     // SAM's own words missed the man in a crowd ("man in black t-shirt"); the most prominent person tracked found him (§9.9)
     // the designer writes it, by the swap's own guide: from what the user says of the video and the picture (owner, 2026-10-18)
-    id: "who", type: "prompt", weights: false, label: "Prompt", style: "sentences", noCast: true, designed: true,
-    default: SWAP_CAPTION, placeholder: SWAP_CAPTION,
-    note: "the whole prompt. The swap LoRA was trained on its first sentence: keep it first and change only who it names. A distilled model (the fused turbo) wants the person described after it. The words do not choose who is replaced: the click on the stage does, else the largest face",
+    id: "who", type: "prompt", weights: false, label: "Prompt as sent", style: "sentences", noCast: true, designed: true, optional: true,
+    default: "", placeholder: SWAP_CAPTION,
+    note: "the whole prompt, as it is sent. Left empty, it is written from the parts above (the swap LoRA's caption first, as it was trained); typed, it is yours and the parts wait. The words do not choose who is replaced: the click on the stage does, else the largest face",
   },
   {
     id: "source", type: "clip", role: "source", label: "Source video", frames: [SWAP_FRAMES], fps: H3_FPS, whole: true, pick: true,
@@ -240,6 +249,36 @@ export function shortOf(choice: string, size?: { width: number; height: number }
 }
 
 /** The prompt sent: as written when it names H3's references, else the caption with its words as the person (a clip made before). */
+/** A part as a sentence: its first letter up, a full stop at its end. */
+const asSentence = (s: string) => {
+  const t = s.trim().replace(/\s+/g, " ");
+  return t ? `${t.charAt(0).toUpperCase()}${t.slice(1)}${/[.!?]$/.test(t) ? "" : "."}` : "";
+};
+/** A part as words inside a sentence: no full stop at its end. */
+const asWords = (s: string) => s.trim().replace(/\s+/g, " ").replace(/[.!\s]+$/, "");
+
+/** A prompt the form starts on rather than one the user wrote: the caption, the fused turbo's preset. Read as empty. */
+const STARTED_ON = new Set([SWAP_CAPTION, SWAP_TURBO_PROMPT]);
+/** The prompt as sent was typed (edited by hand): it is sent as it is, the parts waiting. */
+export const typedPrompt = (who: string) => Boolean(who.trim()) && !STARTED_ON.has(who.trim());
+
+/**
+ * The swap's prompt written from its parts (card #34), by rules: the LoRA's caption first with the person the source shows
+ * ("Swap the man in the grey hoodie in <Video 1> with the character in <Picture 1>."), how the one who goes in looks, what
+ * happens; the fused reference turbo's own sentences last, as its preset had them. Positive words only (H3 draws what a
+ * negation names). With every part empty it is the caption alone, as before.
+ */
+export function swapFromParts(input: Pick<H3Swap, "inSource" | "look" | "happens" | "swapModel">, pictures: number): string {
+  const who = asWords(input.inSource ?? "") || "the person";
+  const look = asWords(input.look ?? "");
+  const said = [swapCaption(who, pictures), look ? `The character in <Picture 1>: ${look}.` : "", asSentence(input.happens ?? "")];
+  if (/refdelta/i.test(input.swapModel ?? "")) said.push("Keep the motion, the gestures and the lip movements of <Video 1>. Keep the room of <Video 1> exactly as it is.");
+  return said.filter(Boolean).join(" ");
+}
+
+/** What is sent: the prompt typed, else the one written from the parts. */
+export const swapSent = (input: H3Swap, pictures: number) => (typedPrompt(input.who) ? input.who : swapFromParts(input, pictures));
+
 export function swapPrompt(text: string, pictures: number): string {
   const t = text.trim();
   return /<(Video|Picture) \d+>/i.test(t) ? t : swapCaption(t.replace(/[.!\s]+$/, "") || "the person", pictures);
@@ -393,6 +432,9 @@ export const h3Swap = defineRecipe<H3Swap>({
   output: "video",
   // a video of its own, made from another: on a timeline's source lane, a window of a long source carrying on from the window
   // before (its last 5 frames pinned at the start), otherwise no join with the clips around it
+  // the prompt as sent written from the parts while it is left empty (card #34)
+  partsInto: "who",
+  promptFromParts: (input) => swapFromParts(input, Math.max(1, input.references?.length ?? 0)),
   traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED, runUp: SWAP_RUN_UP, own: SWAP_OWN } },
   inputs: swapInputs,
   guide: SWAP_GUIDE,
@@ -450,7 +492,7 @@ export const h3Swap = defineRecipe<H3Swap>({
     const sourceSound = (g: GraphBuilder, frames: number) =>
       (heard ??= g.out("TrimAudioDuration", { audio: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.source }) }), 1], start_index: 0, duration: frames / H3_FPS }));
     const built = buildH3(asClip(input, swapLora, frames, carried, unet, size), asRef, {
-      prompt: (pictures) => swapPrompt(input.who, pictures),
+      prompt: (pictures) => swapPrompt(swapSent(input, pictures), pictures),
       // the file's sound: the source's own over the window
       ...(keep ? { sound: (g, _decoded, at) => sourceSound(g, at.frames) } : {}),
       // and, asked for, the same sound anchored from the window's first frame, as Lip sync anchors its recording
@@ -464,7 +506,7 @@ export const h3Swap = defineRecipe<H3Swap>({
       ...(ctx.slots.refTurbo ?? ctx.slots.turbo ? { turbo: ctx.slots.refTurbo ?? ctx.slots.turbo } : {}),
     });
     // a prompt that names neither the source nor the cast's picture still runs: H3 may then leave them out, and the job says so
-    const lacks = swapPromptLacks(input.who, input.references.length).map((tag) => `The prompt has no ${tag}: H3 may not use ${tag === "<Video 1>" ? "the source video" : "the cast's picture"}.`);
+    const lacks = swapPromptLacks(swapSent(input, Math.max(1, input.references.length)), input.references.length).map((tag) => `The prompt has no ${tag}: H3 may not use ${tag === "<Video 1>" ? "the source video" : "the cast's picture"}.`);
     // Difference asked for and the pack not yet loaded: pasted by the mask, and said
     const pasted = input.maskOn && input.paste === "Difference" && !ctx.has("AfflatusSwapPaste") ? ["Paste by Difference needs the Afflatus node pack 0.29.0 (restart ComfyUI to load it): pasted by the mask."] : [];
     const notes = [...lacks, ...pasted];

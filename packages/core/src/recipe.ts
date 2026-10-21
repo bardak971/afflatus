@@ -237,6 +237,12 @@ export interface Recipe<In = Record<string, unknown>> {
    * form (Swap motion: a prompt that describes the person as clip 1's does, without the swap's <Video 1>).
    */
   windowCarryOn?(form: Record<string, unknown>): Record<string, unknown>;
+  /**
+   * A form whose prompt is written from parts (card #34): the input that is the prompt as sent (`into`), and the text the
+   * parts give it, sent while that input is left empty. The form shows it there, greyed, as what goes.
+   */
+  partsInto?: string;
+  promptFromParts?(input: In): string;
   /** Node classes this particular input needs (checked against ComfyUI before queueing). */
   nodes(input: In): string[];
   /** Node classes build() uses only when this ComfyUI has them (ctx.has): speed-ups and finishing touches. */
@@ -295,6 +301,7 @@ export function describeRecipe(r: Recipe<any>) {
   return {
     id: r.id, family: r.family, ...(r.imported ? { imported: true as const } : {}), ...(r.hidden ? { hidden: true as const } : {}), version: r.version, title: r.title, summary: r.summary, output: r.output,
     inputs: r.inputs, traits: r.traits ?? null, presets: r.presets ?? [], starts: r.starts ?? [],
+    ...(r.partsInto ? { partsInto: r.partsInto } : {}),
     ...(r.chapters?.length ? { chapters: r.chapters } : {}),
     ...(r.first?.length ? { first: r.first } : {}),
     // the family's optional files it cannot run without (Edit's Kontext model): Settings › Models says which operations use each file

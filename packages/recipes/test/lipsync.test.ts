@@ -22,7 +22,7 @@ describe("MiniMax H3 · Lip sync", () => {
     expect(ids).not.toContain("seconds");
     expect(ids.indexOf("recording")).toBe(ids.indexOf("description") + 1);
     expect(h3LipSync.inputs.find((i) => i.id === "recording")).toMatchObject({ type: "audio", window: { start: "recordingStart", seconds: "recordingSeconds", even: "evenLoudness" } });
-    expect(h3LipSync.inputs.find((i) => i.id === "description")?.label).toBe("Scene");
+    expect(h3LipSync.inputs.find((i) => i.id === "description")?.label).toBe("What happens");
   });
 
   it("takes no voice sample: the recording is the voice, and the cast's sample is not added", () => {

@@ -91,13 +91,15 @@ describe("MiniMax H3 · Swap motion", () => {
   });
 
   it("starts a window that carries on on clip 1's person, carrying on (Make puts it there), each window keeping its own", () => {
-    expect(h3SwapMotion.traits!.windows!.own).toEqual(["who"]);
+    expect(h3SwapMotion.traits!.windows!.own).toEqual(["who", "happens"]);
     const swap = "Replace the young woman dancing in <Video 1> with the man with short brown hair in <Picture 1>. Keep the man's face and hair from <Picture 1>. he has a manly build and is wearing a white shirt with jeans. Match the position, scale, pose and movement in <Video 1>. Preserve the scene. ";
     expect(h3SwapMotion.windowCarryOn!({ who: swap })).toEqual({
       who: "The man with short brown hair carries on moving as in the clip before. He has a manly build and is wearing a white shirt with jeans.",
     });
-    // nobody named to take it from: the plain one, with no tags
-    expect(h3SwapMotion.windowCarryOn!({ who: "Swap the person in <Video 1> with the character in <Picture 1>." })).toEqual({ who: SWAP_MOTION_PROMPT });
+    // nobody named to take it from (the caption the form starts on): nothing carried, the window writes its own from the
+    // parts, the plain one with none (card #34)
+    expect(h3SwapMotion.windowCarryOn!({ who: "Swap the person in <Video 1> with the character in <Picture 1>." })).toEqual({});
+    expect(h3SwapMotion.promptFromParts!({ previous: { asset: "w1" }, look: "", happens: "" } as never)).toBe(SWAP_MOTION_PROMPT);
     expect(SWAP_MOTION_PROMPT).not.toMatch(/<(Video|Picture)/);
   });
 
@@ -169,7 +171,7 @@ describe("MiniMax H3 · Motion transfer", () => {
     const picture = h3MotionTransfer.inputs.find((i) => i.id === "picture");
     expect(picture).toMatchObject({ type: "image", role: "source" });
     expect(picture && "optional" in picture ? picture.optional : undefined).toBeFalsy();
-    expect(h3MotionTransfer.traits!.windows!.own).toEqual(["description"]);
+    expect(h3MotionTransfer.traits!.windows!.own).toEqual(["description", "happens"]);
   });
 });
 

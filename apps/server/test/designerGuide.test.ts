@@ -15,7 +15,7 @@ describe("the designer's guide", () => {
     expect(said).toContain("Never a negation");
     expect(said).not.toContain('"Do not add any people');
     // the swap's two boxes are the designer's to write, Track among them, its note said
-    expect(said).toMatch(/- who: "Prompt"/);
+    expect(said).toMatch(/- who: "Prompt as sent"/);
     expect(said).toMatch(/- track: "Track".*what SAM 3 looks for/);
     // H3's own scene guide is not what it is handed
     if (h3?.guide) expect(said).not.toContain(h3.guide.slice(0, 60));

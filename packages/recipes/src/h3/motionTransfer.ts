@@ -20,6 +20,9 @@ import { FACE_REFINE_SLOTS } from "./faceRefine";
  * be added as references (H3's reference model, or a hybrid), the face then held to them along the windows.
  */
 export interface H3MotionTransfer extends H3Video, H3Motion {
+  /** The prompt's parts (card #34): how the person of the picture looks, what happens in this part. */
+  look: string;
+  happens: string;
   picture?: string;
   driving?: ClipValue;
   drivingStart: number;
@@ -52,9 +55,12 @@ const inputs: InputSpec[] = [
     id: "picture", type: "image", role: "source", label: "Picture",
     note: "what moves, its first frame: its room, its light and its people are kept, only the motion comes from the video. In the driving video's shape: the video is cut to the picture's from the centre",
   },
+  // the prompt's parts (card #34): the prompt as sent written from them while it is left empty (motionFromParts)
+  { id: "look", type: "prompt", weights: false, label: "How they look", style: "sentences", line: true, optional: true, noCast: true, designed: true, placeholder: "short brown hair, a white shirt and jeans", note: "the person of the picture, in a few words: what H3 keeps of them. Shared by a source's windows" },
+  { id: "happens", type: "prompt", weights: false, label: "What happens", style: "sentences", optional: true, noCast: true, designed: true, placeholder: "He dances in the living room, turning on the spot and raising his arms.", note: "in this part, in the present tense. Each window of a source keeps its own" },
   {
     // each window keeps its own (traits.windows.own): clip 6 of a source can show something else than clip 2
-    id: "description", type: "prompt", weights: false, label: "Prompt", style: "sentences", optional: true, designed: true, noCast: true,
+    id: "description", type: "prompt", weights: false, label: "Prompt as sent", style: "sentences", optional: true, designed: true, noCast: true,
     placeholder: "The man with short brown hair, in a white shirt and jeans, dances in the living room, turning on the spot and raising his arms.",
     note: "who is in the picture and what they do in this part, in the present tense: optional, it helps H3 keep what is there. Each clip of a source keeps its own",
   },
@@ -78,9 +84,22 @@ function framesOf(input: H3MotionTransfer, ctx: Pick<BuildContext, "media">): nu
  * The window as an H3 clip: opening on the picture (none once it carries on from the window before, whose last frames
  * start it), its own part the window less the frames carried, the cast's pictures as references.
  */
+/**
+ * Motion transfer's prompt written from its parts (card #34): how the person looks, then what happens. Empty when both are:
+ * the prompt is optional, H3 then follows the picture alone.
+ */
+export function motionTransferFromParts(input: Pick<H3MotionTransfer, "look" | "happens">): string {
+  const look = (input.look ?? "").trim().replace(/\s+/g, " ").replace(/[.!\s]+$/, "");
+  const happens = (input.happens ?? "").trim().replace(/\s+/g, " ");
+  const said = [look ? `The person: ${look}.` : "", happens ? `${happens.charAt(0).toUpperCase()}${happens.slice(1)}${/[.!?]$/.test(happens) ? "" : "."}` : ""];
+  return said.filter(Boolean).join(" ");
+}
+
 function asClip(input: H3MotionTransfer, frames: number, carried: number): H3Video {
   return {
     ...input,
+    // typed, the prompt is the user's; else written from the parts
+    description: input.description.trim() || motionTransferFromParts(input),
     start: input.previous ? undefined : input.picture,
     end: undefined, mid: undefined, next: undefined, voice: undefined, midAt: 0,
     soundscape: "", music: "", refVideos: [], handover: false, landing: "22",
@@ -92,6 +111,9 @@ function asClip(input: H3MotionTransfer, frames: number, carried: number): H3Vid
 
 export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
   id: "h3.motion",
+  // the prompt as sent written from the parts while it is left empty (card #34)
+  partsInto: "description",
+  promptFromParts: (input) => motionTransferFromParts(input),
   family: "h3",
   version: 1,
   title: "Motion transfer",
@@ -102,7 +124,7 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
   traits: {
     startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID,
     latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM],
-    windows: { most: SWAP_FRAMES, least: MOTION_LEAST, carried: MOTION_CARRIED, runUp: SWAP_RUN_UP, own: ["description"] },
+    windows: { most: SWAP_FRAMES, least: MOTION_LEAST, carried: MOTION_CARRIED, runUp: SWAP_RUN_UP, own: ["description", "happens"] },
   },
   inputs,
   chapters: [MOTION_CHAPTER],

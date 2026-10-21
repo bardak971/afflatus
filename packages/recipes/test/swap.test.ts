@@ -40,7 +40,7 @@ describe("MiniMax H3 · Swap character", () => {
     const sampler = of(graph, "SamplerCustomAdvanced")[0]!;
     expect(graph[(sampler.inputs.latent_image as [string, number])[0]]!.class_type).toBe("LTXVConcatAVLatent");
     expect(built.overlap).toMatchObject({ headMs: 917, latent: true, seam: true });
-    expect(h3Swap.traits?.windows).toMatchObject({ most: 141, least: 90, carried: 22, runUp: { input: "context", counts: [5, 22, 39] }, own: ["who"] });
+    expect(h3Swap.traits?.windows).toMatchObject({ most: 141, least: 90, carried: 22, runUp: { input: "context", counts: [5, 22, 39] }, own: ["who", "happens"] });
   });
 
   it("carries on by the window before's frames when its latent was not kept: pinned at the start with their sound", () => {
@@ -68,7 +68,9 @@ describe("MiniMax H3 · Swap character", () => {
   });
 
   it("sends the prompt as written when it names the references, starting from the caption (the owner, 2026-10-18)", () => {
-    expect(parseInput(h3Swap, { source: { asset: "v1" }, references: [] }).who).toBe(SWAP_CAPTION);
+    // the prompt as sent starts empty, the caption written from the parts (none yet): what goes is the caption, as before
+    expect(parseInput(h3Swap, { source: { asset: "v1" }, references: [] }).who).toBe("");
+    expect(of(build({ who: "" }).graph, "MiniMaxH3ReferenceToVideo")[0]!.inputs.prompt).toBe(SWAP_CAPTION);
     const own = "Swap the rapper in <Video 1> with the character in <Picture 1>. He keeps his sunglasses.";
     const { graph, built } = build({ who: own });
     expect(of(graph, "MiniMaxH3ReferenceToVideo")[0]!.inputs.prompt).toBe(own);
