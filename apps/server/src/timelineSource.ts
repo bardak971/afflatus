@@ -37,6 +37,11 @@ export interface SourcePlan {
    * and its takes' rows, in order, so that the stretch made long again brings them back as they were, takes and all.
    */
   parked?: Array<{ clip: Record<string, unknown>; takes: Array<Record<string, unknown>> }>;
+  /**
+   * The empty window a shorter stretch shortened to its end, and its length before (seconds): the stretch made long again
+   * gives it that length back before the windows set aside return, so that no part of the video is left between them.
+   */
+  shortened?: { clip: string; seconds: number };
 }
 
 /** What a timeline's PATCH takes of it: a new source (its video), or changes to the one there; null takes it away. */
@@ -71,6 +76,7 @@ export function sourceOfRow(raw: string | null | undefined): SourcePlan | null {
       ...(x.pick && typeof x.pick.x === "number" && typeof x.pick.y === "number" ? { pick: { x: x.pick.x, y: x.pick.y } } : {}),
       ...(x.apart && typeof x.apart === "object" ? { apart: Object.fromEntries(Object.entries(x.apart).filter(([, v]) => Array.isArray(v) && v.length).map(([k, v]) => [k, v.filter((i): i is string => typeof i === "string")])) } : {}),
       ...(Array.isArray(x.parked) && x.parked.length ? { parked: x.parked.filter((p) => p && typeof p.clip === "object" && Array.isArray(p.takes)) } : {}),
+      ...(x.shortened && typeof x.shortened.clip === "string" && Number(x.shortened.seconds) > 0 ? { shortened: { clip: x.shortened.clip, seconds: Number(x.shortened.seconds) } } : {}),
     };
   } catch {
     return null;

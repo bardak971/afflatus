@@ -700,11 +700,14 @@ export class Timelines {
       await this.remember(timelineId, grow ? "the source made longer" : "the source made shorter");
       return this.db.transaction().execute(async (tx) => {
         let parked = [...(plan.parked ?? [])];
+        let shortened = plan.shortened;
         let order = all.map((p) => p.clip.id);
         if (!grow) {
           const away: Placed[] = [];
           // where the last window kept ends: the end never comes back before it (a window's run-up starts inside the one before)
           let keptEnd = 0;
+          // the window shortened by this trim, if any: recorded once those set aside have their length back
+          let fresh: typeof shortened;
           for (const p of mine) {
             const { from, start, end, inputs } = part(p);
             if (start >= toMs) away.push(p);
@@ -714,17 +717,37 @@ export class Timelines {
                 if (toMs - start >= (end - start) / 2) { toMs = Math.round(end); keptEnd = end; }
                 else { away.push(p); toMs = Math.round(Math.max(start, keptEnd)); }
               } else if ((toMs - from) / 1000 >= leastS) {
+                // its length before is kept (the first, when it is shortened again), for the stretch made long again; an end
+                // that falls on its end within a rounding shortens nothing
+                if (shortened?.clip !== p.clip.id && Number(inputs[w.seconds]) - (toMs - from) / 1000 > 0.05) fresh = { clip: p.clip.id, seconds: Number(inputs[w.seconds]) };
                 await tx.updateTable("clips").set({ inputs: JSON.stringify({ ...inputs, [w.seconds]: Math.round(toMs - from) / 1000 }), updated_at: now() }).where("id", "=", p.clip.id).execute();
                 keptEnd = toMs;
               } else { away.push(p); toMs = Math.round(Math.max(start, keptEnd)); }
             } else keptEnd = end;
           }
-          // set aside whole, in order, before those set aside already (they lie further on)
-          parked = [...(await parkClips(tx, away.map((p) => p.clip.id))), ...parked];
+          // set aside whole, in order, before those set aside already (they lie further on); a window shortened before is
+          // set aside at its length before, as it lay among them
+          const rows = await parkClips(tx, away.map((p) => p.clip.id));
+          for (const row of rows) {
+            if (!shortened || row.clip.id !== shortened.clip) continue;
+            row.clip = { ...row.clip, inputs: JSON.stringify({ ...(JSON.parse(String(row.clip.inputs)) as Record<string, unknown>), [w.seconds]: shortened.seconds }) };
+            shortened = undefined;
+          }
+          if (fresh) shortened = fresh;
+          parked = [...rows, ...parked];
           order = order.filter((id) => !away.some((p) => p.clip.id === id));
         } else {
-          // back as they were, in order, while the stretch holds them whole
+          // the empty window shortened to the old end first given its length back, while the stretch holds it: the windows
+          // set aside start where it ended then (else the video between them would be in no window)
           const last = mine.at(-1);
+          if (shortened && last && last.clip.id === shortened.clip && !last.clip.take_id) {
+            const { from, inputs } = part(last);
+            if (from + shortened.seconds * 1000 <= toMs + 50) {
+              await tx.updateTable("clips").set({ inputs: JSON.stringify({ ...inputs, [w.seconds]: shortened.seconds }), updated_at: now() }).where("id", "=", last.clip.id).execute();
+              shortened = undefined;
+            }
+          }
+          // back as they were, in order, while the stretch holds them whole
           let at = last ? order.indexOf(last.clip.id) + 1 : order.length;
           const back: typeof parked = [];
           for (const row of parked) {
@@ -738,7 +761,7 @@ export class Timelines {
           parked = parked.slice(back.length);
         }
         await this.renumber(timelineId, order, tx);
-        await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, toMs, parked }), updated_at: now() }).where("id", "=", timelineId).execute();
+        await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, toMs, parked, shortened }), updated_at: now() }).where("id", "=", timelineId).execute();
         return parked.length;
       });
     });
@@ -906,7 +929,7 @@ export class Timelines {
       const read = sourceOfRow(t.source);
       if (!read) throw httpError("Drop a video on the Source lane first.");
       // `stretch`: the source's start moved after Make (trimSource): every window made anew over the new stretch, nothing set aside
-      const plan: SourcePlan = opts.stretch ? { ...read, fromMs: opts.stretch.fromMs, toMs: opts.stretch.toMs, parked: [] } : read;
+      const plan: SourcePlan = opts.stretch ? { ...read, fromMs: opts.stretch.fromMs, toMs: opts.stretch.toMs, parked: [], shortened: undefined } : read;
       // `recipe`: the model it is made anew with, written with the clips (one step for Undo)
       const recipeId = opts.recipe ?? plan.recipe;
       const recipe = recipeId ? this.registry.recipe(recipeId) : undefined;
