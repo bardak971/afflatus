@@ -70,14 +70,39 @@ def ref_index(i, frames, ref_frames):
     return min(ref_frames - 1, round(i * (ref_frames - 1) / (frames - 1)))
 
 
+# A step in a frame's mean Lab colour from the frame before this large is a jump, not a drift (a frame to the next moves by
+# a level or two in a calm shot): the clip's figures are averaged on each side of it, never across
+JUMP = 6.0
+
+
+def stretches(means, jump=JUMP):
+    """The clip's frames as runs between its jumps: (first, past-the-last) pairs."""
+    cuts = [i for i in range(1, len(means)) if np.abs(np.asarray(means[i]) - np.asarray(means[i - 1])).max() > jump]
+    edges = [0, *cuts, len(means)]
+    return [(edges[k], edges[k + 1]) for k in range(len(edges) - 1)]
+
+
+def smoothed_within(values, radius, runs):
+    """`smoothed` on each run of rows on its own."""
+    v = np.asarray(values, dtype=np.float64)
+    out = np.empty_like(v)
+    for a, b in runs:
+        out[a:b] = smoothed(v[a:b], radius)
+    return out
+
+
 def follow_params(target_stats, ref_stats, radius, scale_most=2.0):
     """
     Per frame of the clip, the scale and offset (Lab) that bring its averaged colours to the reference's averaged ones at the
-    same moment. `target_stats` and `ref_stats`: lists of (mean, std), one per frame of each.
+    same moment. `target_stats` and `ref_stats`: lists of (mean, std), one per frame of each. The clip's own figures are
+    averaged within its runs between jumps: averaged across one, a first frame that already looked like its picture took the
+    transform of the brighter frames after it (Timeline 7: an H3 take that left its start picture at its second frame, its
+    first then darker and bluer than the picture, 39 for 55).
     """
     n, m = len(target_stats), len(ref_stats)
-    t_mean = smoothed([s[0] for s in target_stats], radius)
-    t_std = smoothed([s[1] for s in target_stats], radius)
+    runs = stretches([s[0] for s in target_stats])
+    t_mean = smoothed_within([s[0] for s in target_stats], radius, runs)
+    t_std = smoothed_within([s[1] for s in target_stats], radius, runs)
     r_rows = [ref_stats[ref_index(i, n, m)] for i in range(n)]
     r_mean = smoothed([s[0] for s in r_rows], radius)
     r_std = smoothed([s[1] for s in r_rows], radius)

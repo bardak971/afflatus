@@ -71,3 +71,19 @@ def test_two_clips_of_one_reference_meet_on_its_colours():
     assert step < 2.0
     # as made, they stepped by far more
     assert np.abs(lab_mean(clip([(0.6, 0.42, 0.35)], seed=5))[0] - lab_mean(clip([(0.4, 0.45, 0.5)], seed=6))[0]).max() > 10
+
+
+def test_a_jump_inside_the_clip_is_not_averaged_across():
+    from afflatus_nodes.colour_follow import stretches
+
+    # an opening frame that is its picture, then the model's own frames far brighter (Timeline 7): two runs
+    picture = clip([(0.30, 0.25, 0.35)], seed=7)
+    target = clip([(0.30, 0.25, 0.35)] + [(0.60, 0.52, 0.48)] * 23, seed=8)
+    assert stretches([frame_stats(f, 1)[0] for f in target]) == [(0, 1), (1, 24)]
+    out = lab_mean(followed(target, picture, radius=8))
+    want = lab_mean(picture)[0]
+    # the opening stays the picture's, the rest is brought to it too
+    assert np.abs(out[0] - want).max() < 1.0
+    assert np.abs(out[4:] - want).max() < 1.0
+    # a calm clip is one run
+    assert stretches([frame_stats(f, 1)[0] for f in clip([(0.5, 0.45, 0.4 + 0.002 * i) for i in range(20)])]) == [(0, 20)]
