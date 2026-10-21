@@ -130,11 +130,13 @@ export class RentedDeploy extends RentedFollow {
    * only ComfyUI's port open; added as a machine at once, and the choices kept for the next deploy. Refused at a spending
    * cap. Billed from now: on the user's click, or by the GPU hunt the user started (hunt.ts), never otherwise.
    */
-  async deploy(ask: DeployAsk, o: { fill?: boolean } = {}): Promise<{ id: string; dataCenter: string | null }> {
+  async deploy(ask: DeployAsk | (() => Promise<DeployAsk>), o: { fill?: boolean } = {}): Promise<{ id: string; dataCenter: string | null }> {
     if (this.deploying) throw refused("A deploy is under way: wait for it to end.", "busy");
     this.deploying = true;
     try {
-      return await this.deployNow(ask, o.fill ?? false);
+      // an ask still to be worked out (its files and their licences, deployFiles) is worked out under the lock: a deploy
+      // under way from the click on, so that a GPU hunt started or deploying meanwhile cannot make a second pod for it
+      return await this.deployNow(typeof ask === "function" ? await ask() : ask, o.fill ?? false);
     } finally {
       this.deploying = false;
     }

@@ -170,7 +170,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
     : { mode: "value", ceiling: ceilingFor(goneOffer?.price), leftOut: [], hold: "rest", giveUpMinutes: 120 };
   const huntAsk = { ...huntBase, ...huntChange };
   // the ranking for these choices, asked once they stop changing (a tick, a price typed); the last one stays shown meanwhile
-  const rankAsk = JSON.stringify({ mode: huntAsk.mode, ceiling: huntAsk.ceiling, leftOut: huntAsk.leftOut, cloud: changing ? kept?.deploy.cloud : want.cloud, volume: changing ? kept?.deploy.volume : want.volume, cuda: changing ? kept?.deploy.cuda : want.template === "afflatus" ? want.cuda : "either" });
+  const rankAsk = JSON.stringify({ mode: huntAsk.mode, ceiling: huntAsk.ceiling, leftOut: huntAsk.leftOut, cloud: changing ? kept?.deploy.cloud : want.cloud, volume: changing ? kept?.deploy.volume : want.volume, cuda: (changing ? kept?.deploy.template : want.template) === "runpod" ? "either" : changing ? kept?.deploy.cuda : want.cuda });
   const rankAsked = useDebounced(rankAsk, 300, true, rankAsk);
   const rank = useQuery({
     queryKey: queryKeys.huntRank(rankAsked),

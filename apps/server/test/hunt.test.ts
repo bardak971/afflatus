@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeRunpod, type FakeComfy, type FakeGpu, type FakeRunpod } from "@afflatus/comfy/testing";
-import { readSettings } from "../src/settings";
+import { deploySchema, readSettings } from "../src/settings";
 import { CHECKPOINT, costToday, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /**
@@ -95,6 +95,22 @@ describe("starting a hunt", () => {
     const status = (await get(t.app, "/api/queue")).json();
     expect(status.hunt).toMatchObject({ status: "hunting", hold: "rest", held: 2, firstPick: { name: "A40", price: 0.44 }, machine: null });
     expect(creates()).toBe(0);
+  });
+
+  it("is refused while a deploy of the user's works out its files: a deploy under way from its click on", async () => {
+    await queue();
+    let go!: () => void;
+    const held = new Promise<void>((r) => (go = r));
+    const user = t.services.rented.deploy(async () => {
+      await held;
+      throw new Error("zz-test: not deployed");
+    });
+    const refused = await start();
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toMatch(/deploy is under way/);
+    go();
+    await expect(user).rejects.toThrow(/zz-test/);
+    expect((await start()).statusCode).toBe(200);
   });
 
   it("is refused at a spending cap, and on a volume another pod uses", async () => {
@@ -272,11 +288,94 @@ describe("the hunt", () => {
     free("NVIDIA GeForce RTX 4090");
     expect((await post(t.app, "/api/runpod/deploy", { ...DEPLOY, gpu: "NVIDIA GeForce RTX 4090", volume: "vol-ro", idleDo: "stop" })).statusCode).toBe(200);
     free("NVIDIA A40");
+    // its pod coming up for the renders: the hunt deploys nothing meanwhile, not even tried
+    await t.services.hunt.tick();
+    expect(creates()).toBe(1);
+    expect((await hunt()).hunt).toMatchObject({ status: "hunting", fails: 0, lastError: null });
+    // up: tried, and refused for its volume
+    const mine = (await readSettings(t.db)).machines.find((m) => m.rented)!;
+    await until(async () => {
+      await t.services.rented.poll();
+      return !t.services.rented.firstStarting((await readSettings(t.db)).machines.find((m) => m.id === mine.id) ?? mine);
+    });
     await t.services.hunt.tick();
     expect(creates()).toBe(1);
     const h = await hunt();
     expect(h.hunt).toMatchObject({ status: "hunting", fails: 0 });
     expect(h.hunt!.lastError).toMatch(/in use by RTX 4090/);
+  });
+
+  it("deploys nothing while a deploy of the user's is under way, nor while a pod the user deployed is coming up", async () => {
+    await queue();
+    await start();
+    free("NVIDIA A40");
+    free("NVIDIA GeForce RTX 4090");
+    // the user's deploy, still working out its files when the round comes: under way from its click on
+    let go!: () => void;
+    const held = new Promise<void>((r) => (go = r));
+    const user = t.services.rented.deploy(async () => {
+      await held;
+      return deploySchema.parse({ ...DEPLOY, gpu: "NVIDIA GeForce RTX 4090" });
+    });
+    await t.services.hunt.tick();
+    expect(creates()).toBe(0);
+    expect((await hunt()).hunt).toMatchObject({ status: "hunting", fails: 0 });
+    go();
+    await user;
+    expect(creates()).toBe(1);
+    // its pod not up yet: the next rounds wait for it
+    await t.services.hunt.tick();
+    await t.services.hunt.tick();
+    expect(creates()).toBe(1);
+    expect((await hunt()).hunt).toMatchObject({ status: "hunting" });
+  });
+
+  it("is not deployed against while its own deploy is under way: the user's is refused", async () => {
+    await queue();
+    await start();
+    free("NVIDIA A40");
+    // the round's deploy held at its late files, after its pick
+    let go!: () => void;
+    const held = new Promise<void>((r) => (go = r));
+    const late = vi.spyOn(t.services.hunt as unknown as { lateFiles: () => Promise<unknown[]> }, "lateFiles").mockImplementation(async () => {
+      await held;
+      return [];
+    });
+    const round = t.services.hunt.tick();
+    await until(async () => late.mock.calls.length > 0);
+    const user = await post(t.app, "/api/runpod/deploy", { ...DEPLOY, gpu: "NVIDIA A40" });
+    expect(user.statusCode).toBe(409);
+    go();
+    await round;
+    expect(creates()).toBe(1);
+    expect((await hunt()).hunt).toMatchObject({ status: "up" });
+  });
+
+  it("on CUDA 13.0 passes over a GPU RunPod refused for want of a free host, to the next one free", async () => {
+    await queue();
+    await start();
+    free("NVIDIA A40");
+    free("NVIDIA GeForce RTX 4090");
+    // listed free on CUDA 13 (said GPU-wide), but no host of it can be had where the pod would go
+    runpod.noCapacity.add("NVIDIA A40");
+    await t.services.hunt.tick();
+    expect(runpod.pods).toHaveLength(0);
+    await t.services.hunt.tick();
+    expect(runpod.pods).toHaveLength(1);
+    expect(runpod.pods[0]).toMatchObject({ gpu: "NVIDIA GeForce RTX 4090" });
+    expect((await hunt()).hunt).toMatchObject({ status: "up" });
+  });
+
+  it("with RunPod's own image, is not held by the CUDA pick that image does not take", async () => {
+    await queue();
+    runpod.gpus = runpod.gpus.map((g) => (g.id === "NVIDIA A40" ? { ...g, cuda13: false, dataCenters: [{ id: "EU-RO-1", availability: "HIGH" }] } : g));
+    await start({ deploy: { ...DEPLOY, template: "runpod", cuda: "13.0" } });
+    await t.services.hunt.tick();
+    expect(runpod.pods).toHaveLength(1);
+    expect(runpod.pods[0]).toMatchObject({ gpu: "NVIDIA A40" });
+    // the dialog's ranking for it alike
+    const ranked = (await post(t.app, "/api/hunt/rank", { mode: "cheap", ceiling: 5, cloud: "SECURE", cuda: "13.0", template: "runpod" })).json().ranking as Array<{ name: string; stock: string }>;
+    expect(ranked.find((g) => g.name === "A40")!.stock).not.toBe("none free");
   });
 
   it("carries on after a restart, its paused machine kept as its own", async () => {
