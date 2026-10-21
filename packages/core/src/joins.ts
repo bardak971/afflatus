@@ -45,11 +45,14 @@ export const FRAME_SLACK_MS = 40;
  * How a take fades in over the clip before as it plays, in the export and the player alike: landed on (that clip's
  * guided tail shows the same moments) both moving, up to 170 ms; a continuation of a video clip, the clip before held
  * on its last frame, 170 ms. None for a cut, a seamless join (a plain cut is the whole chain decoded at once), or a
- * continuation with less than 80 ms of shared frames left (`sharedMs`: its head less what was trimmed off its start).
+ * continuation with less than 80 ms of shared frames left (`sharedMs`: its head less what was trimmed off its start). A window
+ * whose head is the clip before's own last moments made again (`moving`, a SCAIL-2 window) fades over them both moving, as
+ * a landing does: each window redraws the picture's fine detail, which a cut showed as a pop when little moved.
  */
-export function joinFade(x: { landedMs?: number; joined: boolean; seamless: boolean; sharedMs: number }): { ms: number; mode: "hold" | "overlap" } | null {
+export function joinFade(x: { landedMs?: number; joined: boolean; seamless: boolean; sharedMs: number; moving?: boolean }): { ms: number; mode: "hold" | "overlap" } | null {
   if (x.landedMs !== undefined) return x.landedMs >= MIN_FADE_MS ? { ms: Math.min(JOIN_FADE_MS, x.landedMs), mode: "overlap" } : null;
   if (!x.joined || x.seamless || x.sharedMs < MIN_FADE_MS) return null;
+  if (x.moving) return { ms: Math.min(JOIN_FADE_MS, x.sharedMs), mode: "overlap" };
   return { ms: JOIN_FADE_MS, mode: "hold" };
 }
 

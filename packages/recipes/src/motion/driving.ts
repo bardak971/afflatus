@@ -120,7 +120,7 @@ export function previousFrames(g: GraphBuilder, ctx: BuildContext): Ref | null {
 
 /** The node classes the shared part needs, and those it uses only when there. */
 export const MOTION_NODES = ["LoadImage", "LoadVideo", "GetVideoComponents", "ImageScale"];
-export const MOTION_OPTIONAL = ["ColorTransfer", "ImageBlur", "ImageAddNoise", "TrimAudioDuration", "FrameInterpolationModelLoader", "FrameInterpolate", "GetImageSize"];
+export const MOTION_OPTIONAL = ["ColorTransfer", "ImageBlur", "ImageAddNoise", "TrimAudioDuration", "FrameInterpolationModelLoader", "FrameInterpolate", "ImageBlend"];
 /** The batch nodes RIFE's lead frame takes (motionSaved), and the match to the clip before's look (matchedToDriving). */
 export const motionBatchNodes = (input: Pick<MotionValues, "smooth" | "previous" | "matchDriving">) =>
   input.previous && (input.smooth || input.matchDriving) ? ["ImageBatch", "ImageFromBatch"] : [];
@@ -173,8 +173,9 @@ const grained = (g: GraphBuilder, ctx: BuildContext, images: Ref) => (ctx.has("I
  * as it is filed (motionSaved). On the meme test the render was darker and cleaner than the phone video it copied, which read
  * as a render (YAVG 50 against 69).
  */
-export function matchedToDriving(g: GraphBuilder, ctx: BuildContext, images: Ref, driving: Ref, input: MotionValues, frame: { width: number; height: number }): Ref {
+export function matchedToDriving(g: GraphBuilder, ctx: BuildContext, images: Ref, driving: Ref, input: MotionValues, frame: { width: number; height: number }, ease?: { head: number; frames: number }): Ref {
   if (!input.matchDriving) return images;
+  const made = images;
   const look = ctx.uploads.previous ? ctx.uploads["previous.look"] : undefined;
   if (ctx.has("ColorTransfer") && look) {
     // carrying on, it takes the transform the clip before was filed with, not one of its own: pooled over each window's own
@@ -188,6 +189,9 @@ export function matchedToDriving(g: GraphBuilder, ctx: BuildContext, images: Ref
       method: "reinhard_lab", source_stats: "target_frame", "source_stats.target_index": 0, strength: 1,
     });
     images = g.out("ImageFromBatch", { image: matched, batch_index: 1, length: 4096 });
+    // then eased to the driving video's own colours over its first second: held to the clip before throughout, a window kept a
+    // look the clip before had drifted to (Timeline 8's clip 2: 4 to 5 levels redder than its driving video for all of it)
+    if (ease && ctx.has("ImageBlend")) images = eased(g, images, g.out("ColorTransfer", { image_target: made, image_ref: driving, method: "reinhard_lab", source_stats: "uniform", strength: 1 }), ease);
   } else if (ctx.has("ColorTransfer")) {
     images = g.out("ColorTransfer", { image_target: images, image_ref: driving, method: "reinhard_lab", source_stats: "uniform", strength: 1 });
   }
@@ -202,41 +206,61 @@ export function matchedToDriving(g: GraphBuilder, ctx: BuildContext, images: Ref
   return images;
 }
 
+/** How many of the model's frames a window that carries on takes to go from the clip before's colours to its driving video's: a second. */
+const EASE_FRAMES = 16;
+
+/**
+ * `from` (matched to the clip before) giving way to `to` (matched to the driving video) over the first EASE_FRAMES of the clip's
+ * own frames, in steps of a couple of frames; its head (`own.head` frames in front) stays `from`.
+ */
+function eased(g: GraphBuilder, from: Ref, to: Ref, own: { head: number; frames: number }): Ref {
+  const span = Math.min(EASE_FRAMES, own.frames);
+  const steps = Math.min(8, span);
+  const part = (image: Ref, at: number, length: number) => g.out("ImageFromBatch", { image, batch_index: at, length });
+  const pieces: Ref[] = own.head ? [part(from, 0, own.head)] : [];
+  for (let k = 0; k < steps; k++) {
+    const at = own.head + Math.floor((k * span) / steps);
+    const length = own.head + Math.floor(((k + 1) * span) / steps) - at;
+    pieces.push(g.out("ImageBlend", { image1: part(from, at, length), image2: part(to, at, length), blend_factor: Math.round(((k + 0.5) / steps) * 100) / 100, blend_mode: "normal" }));
+  }
+  if (own.frames > span) pieces.push(part(to, own.head + span, 4096));
+  return pieces.reduce((all, piece) => g.out("ImageBatch", { image1: all, image2: piece }));
+}
+
 /**
  * The driving video's own sound over the clip's frames, when kept and it has some: carrying on from a clip before, its first
  * `carried` frames are that clip's and are dropped, and the sound starts after them, so that windows of one source play its
- * sound end to end. `lead`: it starts that many of the model's frames earlier, with the picture, as long (motionSaved's lead frame).
+ * sound end to end. `head`: that many of them are kept in front of its own (a window's head, faded over at the join), and the
+ * sound starts with them.
  */
-export function motionSound(g: GraphBuilder, ctx: BuildContext, input: Pick<MotionValues, "keepSound">, at: { fps: number; frames: number; parts: string; carried?: number; lead?: number }): Ref | undefined {
-  const skip = ctx.uploads.previous ? at.carried ?? 0 : 0;
-  const lead = ctx.uploads.previous ? at.lead ?? 0 : 0;
+export function motionSound(g: GraphBuilder, ctx: BuildContext, input: Pick<MotionValues, "keepSound">, at: { fps: number; frames: number; parts: string; carried?: number; head?: number }): Ref | undefined {
+  const skip = ctx.uploads.previous ? Math.max(0, (at.carried ?? 0) - (at.head ?? 0)) : 0;
   return input.keepSound && Boolean(ctx.media.driving?.hasSound) && ctx.has("TrimAudioDuration")
-    ? g.out("TrimAudioDuration", { audio: [at.parts, 1], start_index: (skip - lead) / at.fps, duration: (at.frames - skip) / at.fps })
+    ? g.out("TrimAudioDuration", { audio: [at.parts, 1], start_index: skip / at.fps, duration: (at.frames - skip) / at.fps })
     : undefined;
 }
 
 /**
  * The clip saved: RIFE ×2 when asked, with the driving video's own sound over its part when kept and it has some (`sound`:
- * that sound, when the recipe took it already, for its Face refine; not taken when the clip leads, its sound then starting earlier).
+ * that sound, when the recipe took it already, for its Face refine; not taken with a head, the sound then starting with it).
+ * `head`: `images` start with that many frames of the clip before's last moments made again (a window that carries on): kept
+ * in the file, hidden, the join fading over them with both clips moving; `headMs` says where its own frames begin.
  */
-export function motionSaved(g: GraphBuilder, ctx: BuildContext, images: Ref, input: MotionValues, at: { frame: { width: number; height: number }; fps: number; frames: number; parts: string; carried?: number; made?: Ref; sound?: Ref }) {
-  // RIFE's n frames make 2n − 1, half a model frame short of the part. A window that carries on opens on the frame between the
-  // clip before's last as filed and its own first (put before them for RIFE: the lead), its sound from that moment: the clip
-  // before stops on its last frame and this one starts half a frame early, so that a join neither holds a frame nor skips one.
-  // The last frame was held instead until 2026-10-21: at every join the picture stopped for 1/32 s, then jumped two frames'
-  // worth (Timeline 26: steps of 0.5 then 10.2 against 3)
-  const look = ctx.uploads.previous ? ctx.uploads["previous.look"] : undefined;
-  const leading = Boolean(look) && rifeRuns(input.smooth, ctx) && ctx.has("GetImageSize") && ctx.has("ImageScale") && ctx.has("ImageBatch") && ctx.has("ImageFromBatch");
-  const size = leading ? g.add("GetImageSize", { image: images }) : null;
-  const leadFrom: Ref | undefined = size ? g.out("ImageScale", { image: g.out("LoadImage", { image: look! }), upscale_method: "lanczos", width: [size, 0], height: [size, 1], crop: "center" }) : undefined;
-  const sound = leading ? motionSound(g, ctx, input, { ...at, lead: 0.5 }) : at.sound ?? motionSound(g, ctx, input, at);
+export function motionSaved(g: GraphBuilder, ctx: BuildContext, images: Ref, input: MotionValues, at: { frame: { width: number; height: number }; fps: number; frames: number; parts: string; carried?: number; head?: number; made?: Ref; sound?: Ref }) {
+  // RIFE's n frames make 2n − 1 (the last frame was held to 2n until 2026-10-21: at every join the picture stopped for 1/32 s,
+  // then jumped two frames' worth). A window that carries on keeps its head: its own first frame comes after the frame RIFE makes
+  // from the head's last (the clip before's last moment) to it, which then shows where the clip before stops
+  const head = ctx.uploads.previous ? at.head ?? 0 : 0;
+  const smooth = rifeRuns(input.smooth, ctx);
+  const sound = head ? motionSound(g, ctx, input, { ...at, head }) : at.sound ?? motionSound(g, ctx, input, at);
   // its grain on the frames as filed
   const done = finishFrames(g, ctx, images, { upscale: UPSCALE.off, upscaleBy: 1, upscaleModel: "", crf: input.crf }, {
-    frame: at.frame, rife: input.smooth, fps: at.fps, ...(leadFrom ? { leadFrom } : {}), ...(input.matchDriving ? { last: (x: Ref) => grained(g, ctx, x) } : {}), ...(sound ? { audio: sound } : {}),
+    frame: at.frame, rife: input.smooth, fps: at.fps, ...(input.matchDriving ? { last: (x: Ref) => grained(g, ctx, x) } : {}), ...(sound ? { audio: sound } : {}),
   });
+  const headMs = head ? Math.round(((smooth ? head - 0.5 : head) * 1000) / at.fps) : 0;
   // the model's own frames, kept beside the clip: the window after carries on from them, not from the finished ones (matched to
   // the driving video, softened, grained, interpolated and compressed: each join started softer than the clip before ended, the
   // loss stacking window after window, seen on the meme 2026-10-14). As H3 keeps its own (h3/finish.ts), nearly lossless
   const raw = at.made ? saveVideo(g, ctx, { images: at.made, fps: at.fps, crf: 10 }) : null;
-  return { ...done, raw };
+  return { ...done, raw, headMs };
 }

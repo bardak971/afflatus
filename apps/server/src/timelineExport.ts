@@ -107,7 +107,8 @@ export class TimelineExport {
     // a clip rendered as the continuation of the one before (it replayed the frames they share) starts its own part exactly
     // where that one stops: the model restarts beside the pinned frames, and the first generated frames may step away from
     // them. The fade softens that step, the same as the player's (joinFade): a take landed on (the clip before's guided tail
-    // shows the same moments) fades over those moments with both moving; any other continuation of a video fades in over the
+    // shows the same moments) fades over those moments with both moving, and so does a window whose head is the clip before's own
+    // last moments made again (a SCAIL-2 window, its join kind "window"); any other continuation of a video fades in over the
     // clip before held on its last frame; a seamless join (decoded as one piece with the clip before) is a plain cut
     const fade = afterVideo && from === 0 ? joinFade(x, p.clip.joined === "continue") : null;
     const landed = fade?.mode === "overlap";
@@ -115,7 +116,7 @@ export class TimelineExport {
     // sound straight on ("hybrid": takes made before 2026-10-08 joined in the latent too; none are made now)
     const dissolve = !landed && (x.take.join_kind === "latent" || x.take.join_kind === "hybrid");
     const blend = blendJoins && fade && before
-      ? Math.min(landed ? fade.ms : dissolve ? DISSOLVE_MS : BLEND_MS, to - FRAME_SLACK_MS, ...(landed ? [x.landed!, before.endMs - before.startMs - FRAME_SLACK_MS] : []))
+      ? Math.min(landed ? fade.ms : dissolve ? DISSOLVE_MS : BLEND_MS, to - FRAME_SLACK_MS, ...(landed ? [x.landed ?? fade.ms, before.endMs - before.startMs - FRAME_SLACK_MS] : []))
       : 0;
     // dissolved in over the clip before held on its last frame: the hold starts where that clip's file really ends. A
     // render interpolated ×2 is up to a model frame shorter than its length on the grid, and the fade began that much

@@ -18,7 +18,7 @@ const CUT_EARLY_MS = 24;
  */
 export function fadeIn(c: Clip | undefined, from: Clip | undefined): { ms: number; mode: "hold" | "overlap" } | null {
   if (!c?.take || !from) return null;
-  const f = joinFade({ landedMs: c.take.landedMs, joined: c.joined === "continue" && Boolean(from.take), seamless: Boolean(c.take.seamless), sharedMs: c.take.headMs - c.take.trimStartMs });
+  const f = joinFade({ landedMs: c.take.landedMs, joined: c.joined === "continue" && Boolean(from.take), seamless: Boolean(c.take.seamless), sharedMs: c.take.headMs - c.take.trimStartMs, moving: c.take.joinKind === "window" });
   if (!f) return null;
   const ms = Math.min(f.ms, c.lengthMs - FRAME_SLACK_MS, ...(f.mode === "overlap" ? [from.lengthMs - FRAME_SLACK_MS] : []));
   return ms >= MIN_FADE_MS ? { ms, mode: f.mode } : null;

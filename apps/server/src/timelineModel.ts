@@ -166,7 +166,7 @@ export const landingOnGrid = (t: { take: TakeRow; asset: AssetRow }, landFrames:
 };
 /** How a take fades in over the clip before as it plays, in the export and the player alike (see joinFade in @afflatus/core). */
 export const joinFade = (x: Taken, joined: boolean) =>
-  fadeOf({ landedMs: x.landed, joined, seamless: seamless(x), sharedMs: x.take.head_ms - x.take.trim_start_ms });
+  fadeOf({ landedMs: x.landed, joined, seamless: seamless(x), sharedMs: x.take.head_ms - x.take.trim_start_ms, moving: x.take.join_kind === "window" });
 /** The part of a take that is seen: `plays`, moved by the take-over points, its own at the start and the clip after's at the end. */
 export const visible = (t: Taken) => {
   const p = plays(t);

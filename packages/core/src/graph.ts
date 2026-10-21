@@ -85,6 +85,11 @@ export interface BuiltGraph {
     frames?: boolean;
     /** With `latent`: decoded as one piece with the clip before (its own last tokens before the new ones): the join is a plain cut. */
     seam?: boolean;
+    /**
+     * Not in the latent: its head is the clip before's own last moments, made again moving (a SCAIL-2 window's carried frames,
+     * kept): the join fades over them with both clips moving.
+     */
+    moving?: boolean;
   };
   /** What went less well than asked, known when the graph is built (a node this ComfyUI lacks, done without): said on the job. */
   warnings?: string[];
@@ -96,10 +101,10 @@ export interface BuiltGraph {
  * "hybrid" its re-encoded frames for the picture (takes made before 2026-10-08: it softened a full-step chain
  * ~35 % a clip), "pixels" pinned frames and re-encoded sound (ComfyUI alone); null when it starts on its own.
  */
-export type JoinKind = "seamless" | "latent" | "hybrid" | "pixels";
+export type JoinKind = "seamless" | "latent" | "hybrid" | "pixels" | "window";
 export function joinKindOf(overlap: BuiltGraph["overlap"] | undefined): JoinKind | null {
   if (!overlap || overlap.headMs <= 0) return null;
-  return overlap.latent ? (overlap.frames ? "hybrid" : overlap.seam ? "seamless" : "latent") : "pixels";
+  return overlap.latent ? (overlap.frames ? "hybrid" : overlap.seam ? "seamless" : "latent") : overlap.moving ? "window" : "pixels";
 }
 
 /** Nodes are numbered in insertion order and tagged with the phase that was current when they were added. */
