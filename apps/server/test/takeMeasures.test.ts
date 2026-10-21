@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { filmStrip } from "../src/cut";
 import { lookOf, measureOf, meansAlong, takeMeasures } from "../src/measure";
-import { joinJump, LEAST_MOTION, runUpBreak } from "../src/joinScore";
+import { joinJump, lastFrameAt, LEAST_MOTION, runUpBreak } from "../src/joinScore";
 import { measureLanded } from "../src/precompute";
 import { keptKey, keptMotion } from "../src/timelineMedia";
 import { FFMPEG_TIMEOUT, ffmpegMade, ffmpegThere } from "./clipKit";
@@ -111,6 +111,21 @@ describe.skipIf(!ffmpegThere)("a take measured once", { timeout: FFMPEG_TIMEOUT 
     expect(await joinJump(a, b)).toBe(Math.round(Math.min(20, diff(last!, grayBySeek(silent, 0)!) / typical) * 10) / 10);
     expect(await joinJump(a, b, { ms: 170, mode: "hold" })).toBeGreaterThan(0);
     expect(await joinJump(a, { ...b, atMs: 9000 })).toBeNull();
+  });
+});
+
+describe.skipIf(!ffmpegThere)("a join read on the clip before's last frame", { timeout: FFMPEG_TIMEOUT }, () => {
+  it("reads it there at 24, 32 and 48 a second: a ramp carried on across the join steps as it does on either side", async () => {
+    for (const fps of [24, 32, 48]) {
+      // the picture brightens 3 levels a frame, the clip after carrying on from where the clip before stopped
+      const ramp = (from: number) => ffmpegMade(["-f", "lavfi", "-i", `color=c=gray:size=192x108:rate=${fps}:duration=2`, "-vf", `format=yuv420p,geq=lum='${from}+3*N':cb=128:cr=128`, "-frames:v", "40", "-c:v", "libx264", "-crf", "0", "-pix_fmt", "yuv420p"]);
+      const [a, b] = [await ramp(20), await ramp(20 + 3 * 40)];
+      const end = Math.round((40 * 1000) / fps);
+      const at = (ms: number) => joinJump({ source: a, ext: "mp4", atMs: ms }, { source: b, ext: "mp4", atMs: 0, fps });
+      expect(await at(lastFrameAt(end, fps)), `${fps} a second`).toBeLessThanOrEqual(1.2);
+      // 20 ms before the end fell past the last frame at 32 and 48 a second: read 100 ms earlier, it jumped several frames' worth
+      if (fps === 32) expect(await at(end - 20)).toBeGreaterThan(2);
+    }
   });
 });
 

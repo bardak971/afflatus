@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { frameName, nameOf } from "./autoName";
 import { CutError, filmStrip, frameAt, pausesOf, peekAt } from "./cut";
 import { colourNudge, MATCH, type FrameMeans, type Means, measureOf, meansAlong, meansWithin, MOTION_RATE, scenesOf } from "./measure";
-import { joinJump, LEAST_MOTION } from "./joinScore";
+import { joinJump, lastFrameAt, LEAST_MOTION } from "./joinScore";
 import { newId, now } from "./db";
 import type { LibraryChange } from "./events";
 import { notFound } from "./errors";
@@ -288,7 +288,7 @@ export class TimelineMedia {
       if (p.clip.kind === "still") return p.still ? { asset: p.still, atMs: 0, key: `still:${p.still.id}` } : null;
       if (!p.active) return null;
       const { start, end } = visible(p.active);
-      return { asset: p.active.asset, atMs: side === "end" ? Math.max(start, end - 20) : start, key: `${p.active.take.id}:${side === "end" ? end : start}`, fade: side === "start" ? joinFade(p.active, p.clip.joined === "continue" && me.clip.kind === "video") : null };
+      return { asset: p.active.asset, atMs: side === "end" ? Math.max(start, lastFrameAt(end, p.active.asset.fps)) : start, key: `${p.active.take.id}:${side === "end" ? end : start}`, fade: side === "start" ? joinFade(p.active, p.clip.joined === "continue" && me.clip.kind === "video") : null };
     };
     if (!edge(all[i - 1], "end") && !edge(all[i + 1], "start")) return me.takes.map((t) => ({ take: t.take.id, in: null, out: null }));
     const sources = new Map<string, Promise<string | Uint8Array>>();
@@ -306,8 +306,9 @@ export class TimelineMedia {
       const next = edge(as[i + 1], "start");
       const { start, end } = visible(t);
       // the files' sizes too: a score kept on the disk outlives the process, and a linked file written again is another video;
-      // and the floor it was weighed against (LEAST_MOTION): a score from another floor is measured again
-      const key = `least${LEAST_MOTION}:${t.take.id}:${start}:${end}:${prev?.key ?? "-"}:${next?.key ?? "-"}:${t.asset.bytes}:${prev?.asset.bytes ?? "-"}:${next?.asset.bytes ?? "-"}`;
+      // and the floor it was weighed against (LEAST_MOTION) and where the clip before was read (lastFrameAt): a score made
+      // otherwise is measured again
+      const key = `least${LEAST_MOTION}:last1.5:${t.take.id}:${start}:${end}:${prev?.key ?? "-"}:${next?.key ?? "-"}:${t.asset.bytes}:${prev?.asset.bytes ?? "-"}:${next?.asset.bytes ?? "-"}`;
       let score = this.joinScores.get(key) ?? (await this.keptJoin(t.asset, key));
       if (score) this.joinScores.set(key, score);
       else {
@@ -315,7 +316,7 @@ export class TimelineMedia {
         score = {
           // as the join plays: with the fade the export and the player put there
           in: prev ? await joinJump({ source: await load(prev.asset), ext: extOf(prev.asset.mime), atMs: prev.atMs }, { source: await load(t.asset), ext: extOf(t.asset.mime), atMs: start, fps }, joinFade(t, me.clip.joined === "continue" && as[i - 1]?.clip.kind === "video")) : null,
-          out: next ? await joinJump({ source: await load(t.asset), ext: extOf(t.asset.mime), atMs: Math.max(start, end - 20) }, { source: await load(next.asset), ext: extOf(next.asset.mime), atMs: next.atMs, fps: next.asset.fps ?? fps }, next.fade) : null,
+          out: next ? await joinJump({ source: await load(t.asset), ext: extOf(t.asset.mime), atMs: Math.max(start, lastFrameAt(end, t.asset.fps)) }, { source: await load(next.asset), ext: extOf(next.asset.mime), atMs: next.atMs, fps: next.asset.fps ?? fps }, next.fade) : null,
         };
         this.joinScores.set(key, score);
         await this.keepJoin(t.asset, key, score);

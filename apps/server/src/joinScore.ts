@@ -14,6 +14,14 @@ import { ffRun, fpsMode, inTemp, type Media, onDisk } from "./cut";
  */
 export const LEAST_MOTION = 1.5;
 
+/**
+ * Where a clip's last frame is read, for a join after it: a frame and a half before its end. A frame is read at the first
+ * timestamp at or after the moment asked, and 20 ms before the end fell past the last frame of a file at 32 or 48 frames a
+ * second: the read fell back 100 ms, and the jump was measured from a frame two or three before the cut (a SCAIL-2 join
+ * moving as its clips do read ×3.2, one of Timeline 24 ×5 for ×2.7; 2026-10-21).
+ */
+export const lastFrameAt = (endMs: number, fps: number | null | undefined) => endMs - 1500 / Math.max(1, fps ?? 24);
+
 /** The side of a grey frame as the joins compare them: 96 × 54. */
 const GRAY = 96 * 54;
 
