@@ -78,6 +78,10 @@ describe("the timeline editor's keys: playing and moving about", () => {
     expect(a.sourceMarkNow.current).toHaveBeenNthCalledWith(1, "in");
     expect(a.sourceMarkNow.current).toHaveBeenNthCalledWith(2, "out");
     expect(range()).toBeNull();
+    // held down, each marks once: a repeat would send the source's trim again before the last one is back
+    playbackKey(key("i", { repeat: true }), place(), a);
+    playbackKey(key("o", { repeat: true }), place(), a);
+    expect(a.sourceMarkNow.current).toHaveBeenCalledTimes(2);
   });
 
   it("loops only with a range, and leaves I, O and L to a field", () => {

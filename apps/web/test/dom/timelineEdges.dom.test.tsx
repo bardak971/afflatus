@@ -8,6 +8,7 @@ import { MusicLane } from "../../src/timeline/track/MusicLane";
 import { SourceLane } from "../../src/timeline/track/SourceLane";
 import { TrackRuler } from "../../src/timeline/track/TrackRuler";
 import { useClipEdits } from "../../src/timeline/useClipEdits";
+import { useOneTrim } from "../../src/timeline/useOneTrim";
 import { usePlayhead } from "../../src/timeline/usePlayhead";
 import { useRange } from "../../src/timeline/useRange";
 import { useTimelineMutations } from "../../src/timeline/useTimelineMutations";
@@ -38,14 +39,15 @@ const refused = (error: string, status = 409) => jsonAnswer({ error }, status);
 
 /** The editor's clip forms and mutations, the latest of each read through `now()`, the first render's through `first`. */
 function rig() {
-  const seen: Array<{ edits: ReturnType<typeof useClipEdits>; m: ReturnType<typeof useTimelineMutations> }> = [];
+  const seen: Array<{ edits: ReturnType<typeof useClipEdits>; m: ReturnType<typeof useTimelineMutations>; trim: ReturnType<typeof useOneTrim> }> = [];
   function Editor() {
+    const trim = useOneTrim();
     const edits = useClipEdits({ timeline, clips: timeline.clips, recipes: none, setup: none, settings: none, comfyOnline: true });
     const m = useTimelineMutations(timeline.id, {
       timeline, clipsNow: { current: timeline.clips }, recipes: [model], firstRecipe: () => undefined, edits,
       on: { note: () => {}, select: () => {}, unpick: () => {}, writing: () => {}, open: () => {} },
     });
-    seen.push({ edits, m });
+    seen.push({ edits, m, trim });
     return null;
   }
   draw(<Editor />);
@@ -78,6 +80,34 @@ describe("the timeline editor's mutations, drawn", () => {
     // and sent so: the form's save carries it (and nothing is left to send once the test is over)
     await act(() => now().edits.save());
     expect(fakeApi.calls("PATCH", "/clips/zz-test-clip").at(-1)?.body).toEqual({ inputs: { prompt: "typed meanwhile", first: "zz-test-frame", last: "zz-test-frame" } });
+  });
+
+  it("sends one source trim at a time: another one before the first is read back is dropped (W-2)", async () => {
+    const answer = later<unknown>();
+    fakeApi.on("POST /timelines/:id/source/trim", () => answer.promise);
+    const { now } = rig();
+    const made: string[][] = [];
+    // two releases heard in the same render (a handle's and its lane's), then a typed Out while the first is out
+    act(() => {
+      expect(now().trim.run(now().m.trimSource.mutate, { fromMs: 2000, toMs: 6000 }, (c) => made.push(c))).toBe(true);
+      expect(now().trim.run(now().m.trimSource.mutate, { fromMs: 2000, toMs: 6000 }, (c) => made.push(c))).toBe(false);
+    });
+    expect(now().trim.run(now().m.trimSource.mutate, { fromMs: 2000, toMs: 5000 }, (c) => made.push(c))).toBe(false);
+    await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-timeline/source/trim")).toHaveLength(1));
+    answer.answer({ clips: ["zz-test-window"], toMs: 6000 });
+    await waitFor(() => expect(made).toEqual([["zz-test-window"]]));
+    // read back: the next one goes
+    fakeApi.on("POST /timelines/:id/source/trim", { clips: [], toMs: 5000 });
+    act(() => void now().trim.run(now().m.trimSource.mutate, { fromMs: 2000, toMs: 5000 }, (c) => made.push(c)));
+    await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-timeline/source/trim")).toHaveLength(2));
+  });
+
+  it("takes a trim again once one has failed (W-2)", async () => {
+    fakeApi.on("POST /timelines/:id/source/trim", () => refused("zz-test: a window is rendering"));
+    const { now } = rig();
+    act(() => void now().trim.run(now().m.trimSource.mutate, { fromMs: 2000, toMs: 6000 }, () => {}));
+    await waitFor(() => expect(now().m.trimSource.isError).toBe(true));
+    expect(now().trim.busy).toBe(false);
   });
 
   it("pins a file onto a clip over the form as it stands when the upload lands, not as it was at the drop (W-4)", async () => {
@@ -191,5 +221,30 @@ describe("drags on the track, drawn", () => {
     fireEvent.pointerCancel(lane, { pointerId: 1 });
     expect(onPeek).toHaveBeenLastCalledWith(null);
     expect(onStretch).not.toHaveBeenCalled();
+  });
+
+  it("trims once on one release of either of its ends, made or not (W-1)", () => {
+    capture();
+    for (const made of [false, true]) {
+      const onStretch = vi.fn();
+      const { unmount } = draw(
+        <SourceLane timeline={timeline} place={{ atMs: 5000, lengthMs: 20_000, made, windows: [], replaces: null }} recipes={[model]} pps={50} width={2000} selected={false} over={false}
+          onDragOver={() => {}} onSelect={() => {}} onStretch={onStretch} onPeek={() => {}} />,
+      );
+      // 50 px a second: the end dragged 50 px to the right stops a second later, the start 50 px to the left starts a second earlier
+      const end = screen.getByRole("separator", { name: "Drag: where Motion transfer stops in the source" });
+      fireEvent.pointerDown(end, { button: 0, clientX: 600, pointerId: 1 });
+      fireEvent.pointerMove(end, { clientX: 650, pointerId: 1 });
+      fireEvent.pointerUp(end, { clientX: 650, pointerId: 1 });
+      expect(onStretch).toHaveBeenCalledOnce();
+      expect(onStretch).toHaveBeenLastCalledWith(2000, 9000);
+      const start = screen.getByRole("separator", { name: "Drag: where the source's stretch starts" });
+      fireEvent.pointerDown(start, { button: 0, clientX: 300, pointerId: 2 });
+      fireEvent.pointerMove(start, { clientX: 250, pointerId: 2 });
+      fireEvent.pointerUp(start, { clientX: 250, pointerId: 2 });
+      expect(onStretch).toHaveBeenCalledTimes(2);
+      expect(onStretch).toHaveBeenLastCalledWith(1000, 8000);
+      unmount();
+    }
   });
 });

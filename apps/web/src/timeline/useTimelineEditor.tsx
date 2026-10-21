@@ -15,6 +15,7 @@ import { sameWindowGrid } from "@afflatus/core";
 import type { PlayerHandle } from "./Player";
 import { useClipEdits } from "./useClipEdits";
 import { useMaskPreview, type ClipMask } from "./maskPreview";
+import { useOneTrim } from "./useOneTrim";
 import { useClipSteps } from "./useClipSteps";
 import { useEditorMenus } from "./useEditorMenus";
 import { useBarRequests } from "./useBarRequests";
@@ -186,8 +187,10 @@ export function useTimelineEditor(id: string) {
    */
   const cutSource = {
     pending: edit.isPending || cutSourceMut.isPending,
+    // what was typed over the windows and the source's form saved first: the windows not rendered are made anew from what
+    // the server has, and a save still waiting would go to a window no longer there
     run: (change: { windowMs?: number; snap?: boolean; inputs?: Record<string, unknown>; recipe?: string; clip?: string }) =>
-      edit.mutate({ source: change }, { onSuccess: () => cutSourceMut.mutate(undefined, { onSuccess: (r) => setToRender({ ids: r.clips, render: false }) }) }),
+      void save().then(() => edit.mutate({ source: change }, { onSuccess: () => cutSourceMut.mutate(undefined, { onSuccess: (r) => setToRender({ ids: r.clips, render: false }) }) })),
   };
 
   /**
@@ -217,19 +220,23 @@ export function useTimelineEditor(id: string) {
    * window opened so the question is in view.
    */
   const [stretchAsk, setStretchAsk] = useState<{ fromMs: number; toMs: number; rendered: number; windows: number } | null>(null);
+  // one trim at a time (useOneTrim): a second one sent before the first one's change is back is dropped
+  const oneTrim = useOneTrim();
+  const trimmed = (clips: string[]) => void (clips.length && setToRender({ ids: clips, render: false }));
   const stretch = {
     pending: trimSourceMut.isPending,
     ask: stretchAsk,
     run: (fromMs: number, toMs: number, sure = false) => {
       const made = t ? madeFromSource(t, videoRecipes) : [];
       if (!t?.source || !made.length) return edit.mutate({ source: { fromMs, toMs } });
+      if (oneTrim.busy) return;
       const rendered = made.filter((c) => c.take).length;
       if (!sure && rendered > 0 && Math.round(fromMs) !== t.source.fromMs) {
         setStretchAsk({ fromMs, toMs, rendered, windows: made.length });
         return select(made[0]!.id);
       }
       setStretchAsk(null);
-      trimSourceMut.mutate({ fromMs, toMs }, { onSuccess: (r) => void (r.clips.length && setToRender({ ids: r.clips, render: false })) });
+      oneTrim.run(trimSourceMut.mutate, { fromMs, toMs }, trimmed);
     },
     keep: () => setStretchAsk(null),
   };
@@ -243,6 +250,7 @@ export function useTimelineEditor(id: string) {
     pending: trimRecordingMut.isPending,
     ask: recordingAsk,
     run: (asset: string, mine: Clip[], fromMs: number, toMs: number, sure = false) => {
+      if (oneTrim.busy) return;
       const startMs = Math.round(Number(mine[0]?.inputs.recordingStart ?? 0) * 1000);
       const rendered = mine.filter((c) => c.take).length;
       // asked in the first clip's Recording chapter, opened so the question is in view (its band dragged on the Audio row)
@@ -251,7 +259,7 @@ export function useTimelineEditor(id: string) {
         return select(mine[0]!.id);
       }
       setRecordingAsk(null);
-      trimRecordingMut.mutate({ asset, fromMs, toMs }, { onSuccess: (r) => void (r.clips.length && setToRender({ ids: r.clips, render: false })) });
+      oneTrim.run(trimRecordingMut.mutate, { asset, fromMs, toMs }, trimmed);
     },
     keep: () => setRecordingAsk(null),
   };
