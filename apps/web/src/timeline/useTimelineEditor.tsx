@@ -132,7 +132,7 @@ export function useTimelineEditor(id: string) {
     timeline: t, clipsNow, recipes: recipes.data?.recipes ?? [], edits: { save, turn, ready, inputsOf, editInputs, dropEdits, savedElsewhere, sourceTyped }, firstRecipe,
     on: { note: setNote, select, unpick: () => setPicked(new Set()), writing: setWriting, open: setOpened },
   });
-  const { after, render, patch, fix, edit, makeSource: makeSourceMut, cutSource: cutSourceMut, sourceForm: sourceFormMut, recording: recordingMut, trimSource: trimSourceMut, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
+  const { after, render, patch, fix, edit, makeSource: makeSourceMut, cutSource: cutSourceMut, sourceForm: sourceFormMut, recording: recordingMut, trimSource: trimSourceMut, trimRecording: trimRecordingMut, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
   const pickedNow = useRef(picked);
   pickedNow.current = picked;
   /** The source taken away with the clips it made, rendered or not (one step for Undo), its panel closed. */
@@ -232,6 +232,24 @@ export function useTimelineEditor(id: string) {
       trimSourceMut.mutate({ fromMs, toMs }, { onSuccess: (r) => void (r.clips.length && setToRender({ ids: r.clips, render: false })) });
     },
     keep: () => setStretchAsk(null),
+  };
+
+  /**
+   * A recording's Lip sync clips trimmed (their Recording chapter's In / Out): the end at once, its start moved asked first
+   * when that leaves rendered takes behind (`recordingAsk`: Change or Keep).
+   */
+  const [recordingAsk, setRecordingAsk] = useState<{ asset: string; fromMs: number; toMs: number; rendered: number; clips: number } | null>(null);
+  const recordingTrim = {
+    pending: trimRecordingMut.isPending,
+    ask: recordingAsk,
+    run: (asset: string, mine: Clip[], fromMs: number, toMs: number, sure = false) => {
+      const startMs = Math.round(Number(mine[0]?.inputs.recordingStart ?? 0) * 1000);
+      const rendered = mine.filter((c) => c.take).length;
+      if (!sure && rendered > 0 && Math.abs(fromMs - startMs) > 20) return setRecordingAsk({ asset, fromMs, toMs, rendered, clips: mine.length });
+      setRecordingAsk(null);
+      trimRecordingMut.mutate({ asset, fromMs, toMs }, { onSuccess: (r) => void (r.clips.length && setToRender({ ids: r.clips, render: false })) });
+    },
+    keep: () => setRecordingAsk(null),
   };
 
   /** A voice recording made into Lip sync clips, the first one opened (nothing renders: its scene is to be written first). */
@@ -335,7 +353,7 @@ export function useTimelineEditor(id: string) {
 
   return {
     id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, current,
-    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, removeSource, makeSource, cutSource, sourceForm, recording, stretch, splitSource, masks, setMasks, maskOfCurrent, place, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
+    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, removeSource, makeSource, cutSource, sourceForm, recording, stretch, recordingTrim, splitSource, masks, setMasks, maskOfCurrent, place, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, typeSource, sourceTyped, inputsOf, editInputs, formOf, ready, keptToClip, keepToClip, sayOf, say, m, range, setRange, loopRange, snapQuiet,

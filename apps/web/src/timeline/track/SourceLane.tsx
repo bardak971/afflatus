@@ -85,8 +85,11 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
   onSplit?: (() => void) | null;
 }) {
   const menu = useMenu<true>();
-  /** A drag under way: the whole video slid, or its right end; where it started and what it shows meanwhile. */
-  const [held, setHeld] = useState<{ kind: "slide" | "end"; x: number; from: number; to: number; fromMs: number; toMs: number; moved: boolean } | null>(null);
+  /**
+   * A drag under way: its body slipped (the same length, another part of the video, which slides under it), its left end
+   * (where it starts) or its right end (where it stops); where it started and what it shows meanwhile.
+   */
+  const [held, setHeld] = useState<{ kind: "slip" | "start" | "end"; x: number; from: number; to: number; fromMs: number; toMs: number; moved: boolean } | null>(null);
   const source = timeline.source;
   const x = (ms: number) => PAD + (ms / 1000) * pps;
   if (!source || !place) {
@@ -108,8 +111,9 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
   const length = place.lengthMs;
   const fromMs = held?.fromMs ?? source.fromMs;
   const toMs = held?.toMs ?? source.toMs;
-  // the video slides under the stretch's place: its start sits where the stretch starts, less the stretch's start in it
-  const atMs = place.made ? place.atMs : place.atMs + source.fromMs - fromMs;
+  // slipped, the video slides under the stretch's place (its start sits where the stretch starts, less the stretch's start in
+  // it); its ends dragged, the video stays where it is
+  const atMs = held?.kind === "slip" ? place.atMs + source.fromMs - fromMs : place.atMs;
   const left = x(atMs);
   const w = (length / 1000) * pps;
   const cells = Math.max(1, Math.round(w / 40));
@@ -120,7 +124,7 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
   // its start makes them anew: asked first when that leaves rendered takes behind)
   const editable = Boolean(onStretch);
 
-  const down = (kind: "slide" | "end") => (e: ReactPointerEvent<HTMLElement>) => {
+  const down = (kind: "slip" | "start" | "end") => (e: ReactPointerEvent<HTMLElement>) => {
     if (e.button !== 0) return;
     e.stopPropagation();
     if (!editable) return;
@@ -136,10 +140,15 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
     const dx = e.clientX - held.x;
     if (!held.moved && Math.abs(dx) < 4) return;
     const dms = Math.round(((dx / pps) * 1000) / 100) * 100;
-    if (held.kind === "slide") {
-      // the video slides under the place where the clips go, as the music's song does: left, Motion transfer starts later
-      // in it (where it stops stays)
-      const from = Math.max(0, Math.min(held.to - 1000, held.from - dms));
+    if (held.kind === "slip") {
+      // the video slides under the place where the clips go, as the music's song does: left, the same length of it taken
+      // later on (the rethink's slip)
+      const span = held.to - held.from;
+      const from = Math.max(0, Math.min(length - span, held.from - dms));
+      setHeld({ ...held, moved: true, fromMs: from, toMs: from + span });
+      onPeek?.(from);
+    } else if (held.kind === "start") {
+      const from = Math.max(0, Math.min(held.to - 1000, held.from + dms));
       setHeld({ ...held, moved: true, fromMs: from });
       onPeek?.(from);
     } else {
@@ -185,7 +194,7 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
             onRemove();
           }
         }}
-        onPointerDown={editable ? down("slide") : undefined}
+        onPointerDown={editable ? down("slip") : undefined}
         onPointerMove={move}
         onPointerUp={up}
         onPointerCancel={cancel}
@@ -194,7 +203,7 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
         onContextMenu={(e) => menu.open(e, true)}
         aria-label={`Source: ${video.name}`}
         aria-pressed={selected}
-        data-hint={editable ? "click: the source in the stage · drag: where Motion transfer starts in it · its right end: where it stops · right-click: split" : "click: the source in the stage, its settings · right-click: its menu"}
+        data-hint={editable ? "click: the source in the stage · drag: slip (the same length, another part of it) · its ends: where it starts and stops · right-click: split" : "click: the source in the stage, its settings · right-click: its menu"}
         style={{ left: box, width: Math.max(8, w - cut), top: SOURCE.top, height: SOURCE.height }}
         className={cx("absolute overflow-hidden rounded", editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer", over && "outline outline-2 outline-accent")}
       >
@@ -213,8 +222,22 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
           <span key={b.id} className="pointer-events-none absolute inset-y-1 rounded-sm border border-accent/70" style={{ left: inLane(b.from), width: Math.max(4, ((b.to - b.from) / 1000) * pps) }} />
         ))}
         <span className="pointer-events-none absolute top-0.5 rounded bg-ground/85 px-1 text-[10px] font-semibold whitespace-nowrap" style={{ left: Math.max(2, inLane(fromMs) + 3) }}>
-          {held ? `${((held.kind === "slide" ? fromMs : toMs) / 1000).toFixed(1)} s${held.kind === "end" ? ": stops here" : ": starts here"}` : `${video.name} · from ${(fromMs / 1000).toFixed(1)} s`}
+          {held ? (held.kind === "slip" ? `${(fromMs / 1000).toFixed(1)}–${(toMs / 1000).toFixed(1)} s` : `${((held.kind === "start" ? fromMs : toMs) / 1000).toFixed(1)} s${held.kind === "end" ? ": stops here" : ": starts here"}`) : `${video.name} · from ${(fromMs / 1000).toFixed(1)} s`}
         </span>
+        {/* its left end: where it starts in the video */}
+        {editable && (
+          <span
+            role="separator"
+            aria-label="Drag: where the source's stretch starts"
+            data-hint={`drag: where it starts (${(fromMs / 1000).toFixed(1)} s of the source)`}
+            onPointerDown={down("start")}
+            onPointerMove={move}
+            onPointerUp={up}
+            onPointerCancel={cancel}
+            className="absolute inset-y-0 z-10 w-2 cursor-ew-resize rounded-l bg-accent"
+            style={{ left: Math.max(0, inLane(fromMs)) }}
+          />
+        )}
         {/* its right end: where Motion transfer stops */}
         {editable && (
           <span

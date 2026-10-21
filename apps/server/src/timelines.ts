@@ -978,37 +978,38 @@ export class Timelines {
    * the empty clip it was dropped on, else after the last clip. The model is the one whose form takes a recording laid on a
    * clip's sound part by part (H3 · Lip sync), with the settings of the last clip of it. One step for Undo; nothing renders.
    */
-  async makeFromRecording(timelineId: string, o: { asset: string; clip?: string; seconds?: number }): Promise<string[]> {
-    const recipe = this.registry.recipes().find((r) => r.output === "video" && r.inputs.some((i) => i.type === "audio" && i.role === "sound" && i.window));
-    const spec = recipe?.inputs.find((i) => i.type === "audio" && i.role === "sound" && i.window);
-    if (!recipe || !spec || spec.type !== "audio" || !spec.window) throw httpError("No model on this Afflatus makes a clip around a recording (MiniMax H3 · Lip sync).");
+  async makeFromRecording(timelineId: string, o: { asset: string; clip?: string; seconds?: number; fromS?: number; toS?: number; replace?: string[]; after?: string; label?: string }): Promise<string[]> {
+    const { recipe, spec } = this.recordingModel();
     const sound = await this.assetRow(o.asset);
     if (!sound || (sound.kind !== "audio" && sound.kind !== "video") || !sound.duration_ms) throw httpError("A recording has to be a sound (or a video's sound) of the library.");
     const { pauses } = await this.media.pauses(sound.id);
     const fits = spec.window.fits;
     const leastS = fits?.min ?? 1;
     const mostS = fits ? fits.frames / fits.fps - (fits.pad ?? 0) : 15;
-    const parts = recordingParts({ fromS: 0, toS: sound.duration_ms / 1000, wantS: o.seconds ?? 5, leastS, mostS, pauses });
+    // `fromS` to `toS`: the stretch of the recording its clips are made of (a recording trimmed: trimRecording), all of it by default
+    const parts = recordingParts({ fromS: o.fromS ?? 0, toS: o.toS ?? sound.duration_ms / 1000, wantS: o.seconds ?? 5, leastS, mostS, pauses });
     if (!parts.length) throw httpError("The recording is too short for a clip.");
     const ids = await this.history.oneAtATime(timelineId, async () => {
       await this.row(timelineId);
       const all = await this.placed(timelineId);
-      // the empty clip it was dropped on: the clips go in its place, with what was written in it (its scene)
-      const replaced = o.clip ? all.findIndex((p) => p.clip.id === o.clip && !p.clip.take_id && p.clip.kind === "video") : -1;
-      const index = replaced >= 0 ? replaced : all.length;
+      // the empty clip it was dropped on: the clips go in its place, with what was written in it (its scene). `replace`: the
+      // clips of the recording made anew in their place (its start moved); `after`: added after that clip (its end out)
+      const gone = o.replace ?? (o.clip && all.some((p) => p.clip.id === o.clip && !p.clip.take_id && p.clip.kind === "video") ? [o.clip] : []);
+      const replaced = gone.length ? all.findIndex((p) => gone.includes(p.clip.id)) : -1;
+      const index = replaced >= 0 ? replaced : o.after ? all.findIndex((p) => p.clip.id === o.after) + 1 : all.length;
       const own = ownInputIds(recipe);
-      const kept = replaced >= 0 && all[replaced]!.clip.recipe_id === recipe.id ? (JSON.parse(all[replaced]!.clip.inputs) as Record<string, unknown>) : {};
+      const model = replaced >= 0 ? all[replaced] : o.after ? all.find((p) => p.clip.id === o.after) : undefined;
+      const kept = model && model.clip.recipe_id === recipe.id ? (JSON.parse(model.clip.inputs) as Record<string, unknown>) : {};
       const form = Object.fromEntries(Object.entries({ ...settingsOf(recipe, all, index), ...kept }).filter(([k]) => own.has(k) && k !== spec.id && k !== spec.window!.start && k !== spec.window!.seconds && k !== "seed"));
-      const before = index > 0 ? all[index - 1] : undefined;
+      // the clips it replaces taken out, the new ones go where the first of them was: the clip before is the one just ahead
+      const left = all.filter((p) => !gone.includes(p.clip.id));
+      const before = index > 0 ? left[index - 1] : undefined;
       // the first carries on from the clip before when it can (H3 to Lip sync: in the latent), else it starts on its own
       const opens = !before || before.clip.kind !== "video" || !before.clip.recipe_id || joinWay(this.registry.recipe(before.clip.recipe_id), recipe) === "cut";
-      await this.remember(timelineId, `the ${plural(parts.length, "Lip sync clip")} made from the recording`);
+      await this.remember(timelineId, o.label ?? `the ${plural(parts.length, "Lip sync clip")} made from the recording`);
       return this.db.transaction().execute(async (tx) => {
-        const order: Array<{ clip: { id: string } }> = all.map((p) => ({ clip: { id: p.clip.id } }));
-        if (replaced >= 0) {
-          await tx.deleteFrom("clips").where("id", "=", o.clip!).execute();
-          order.splice(replaced, 1);
-        }
+        const order: Array<{ clip: { id: string } }> = left.map((p) => ({ clip: { id: p.clip.id } }));
+        if (gone.length) await tx.deleteFrom("clips").where("id", "in", gone).execute();
         const made: string[] = [];
         for (const [k, part] of parts.entries()) {
           const clip: NewClip = {
@@ -1025,6 +1026,80 @@ export class Timelines {
     });
     await this.touch(timelineId);
     return ids;
+  }
+
+  /** The model whose form takes a recording laid on a clip's sound part by part (H3 · Lip sync), and that input. */
+  private recordingModel() {
+    const recipe = this.registry.recipes().find((r) => r.output === "video" && r.inputs.some((i) => i.type === "audio" && i.role === "sound" && i.window));
+    const spec = recipe?.inputs.find((i) => i.type === "audio" && i.role === "sound" && i.window);
+    if (!recipe || !spec || spec.type !== "audio" || !spec.window) throw httpError("No model on this Afflatus makes a clip around a recording (MiniMax H3 · Lip sync).");
+    return { recipe, spec: spec as typeof spec & { window: NonNullable<typeof spec.window> } };
+  }
+
+  /**
+   * A recording's Lip sync clips trimmed (the rethink's trim, for recordings): the stretch of it they are made of, its In
+   * and Out in ms of the recording.
+   * - Its end in: the clips past it go (Undo brings them back); an empty clip it falls in is shortened to it, or goes when
+   *   what is left is under the fewest seconds a clip takes; a rendered clip is never shortened (a take keeps its length):
+   *   the end snaps to its nearer end, never back before the clip kept before it.
+   * - Its end out: new clips, cut at its pauses, after the last one.
+   * - Its start moved: its clips made anew over the new stretch (the editor asks first when that leaves rendered takes).
+   * Returns the clips added, and where the end came to rest.
+   */
+  async trimRecording(timelineId: string, to: { asset: string; fromMs: number; toMs: number }): Promise<{ clips: string[]; toMs: number }> {
+    const { recipe, spec } = this.recordingModel();
+    const w = spec.window;
+    const sound = await this.assetRow(to.asset);
+    const length = sound?.duration_ms ?? 0;
+    if (!sound || !length) throw httpError("A recording has to be a sound of the library.");
+    const all = await this.placed(timelineId);
+    const mine = all.filter((p) => p.clip.recipe_id === recipe.id && (JSON.parse(p.clip.inputs) as Record<string, unknown>)[spec.id] === to.asset);
+    if (!mine.length) throw httpError("No clip of this timeline is made of that recording.");
+    const part = (p: Placed) => {
+      const inputs = JSON.parse(p.clip.inputs) as Record<string, unknown>;
+      const start = Number(inputs[w.start]) * 1000;
+      return { start, end: start + Number(inputs[w.seconds]) * 1000, inputs };
+    };
+    const curFrom = Math.round(part(mine[0]!).start);
+    const curTo = Math.round(part(mine.at(-1)!).end);
+    const fromMs = Math.max(0, Math.min(length - 1000, Math.round(to.fromMs)));
+    let toMs = Math.max(fromMs + 1000, Math.min(length, Math.round(to.toMs)));
+    if (Math.abs(fromMs - curFrom) > 20) {
+      const clips = await this.makeFromRecording(timelineId, { asset: to.asset, fromS: fromMs / 1000, toS: toMs / 1000, replace: mine.map((p) => p.clip.id), label: "the recording's start moved" });
+      return { clips, toMs };
+    }
+    if (Math.abs(toMs - curTo) <= 20) return { clips: [], toMs: curTo };
+    if (toMs > curTo) {
+      const clips = await this.makeFromRecording(timelineId, { asset: to.asset, fromS: curTo / 1000, toS: toMs / 1000, after: mine.at(-1)!.clip.id, label: "the recording made longer" });
+      return { clips, toMs };
+    }
+    const leastS = w.fits?.min ?? 1;
+    await this.history.oneAtATime(timelineId, async () => {
+      await this.remember(timelineId, "the recording made shorter");
+      await this.db.transaction().execute(async (tx) => {
+        const away: string[] = [];
+        let keptEnd = 0;
+        for (const p of mine) {
+          const { start, end, inputs } = part(p);
+          if (start >= toMs) away.push(p.clip.id);
+          else if (end > toMs) {
+            if (p.clip.take_id) {
+              if (toMs - start >= (end - start) / 2) { toMs = Math.round(end); keptEnd = end; }
+              else { away.push(p.clip.id); toMs = Math.round(Math.max(start, keptEnd)); }
+            } else if ((toMs - start) / 1000 >= leastS) {
+              await tx.updateTable("clips").set({ inputs: JSON.stringify({ ...inputs, [w.seconds]: Math.round(toMs - start) / 1000 }), updated_at: now() }).where("id", "=", p.clip.id).execute();
+              keptEnd = toMs;
+            } else { away.push(p.clip.id); toMs = Math.round(Math.max(start, keptEnd)); }
+          } else keptEnd = end;
+        }
+        if (away.length) {
+          await tx.deleteFrom("clips").where("id", "in", away).execute();
+          await this.renumber(timelineId, all.map((p) => p.clip.id).filter((id) => !away.includes(id)), tx);
+        }
+      });
+    });
+    await this.touch(timelineId);
+    return { clips: [], toMs };
   }
 
   /** The timeline goes, with what Undo and Redo remembered of it; the videos of its takes stay in the library. */

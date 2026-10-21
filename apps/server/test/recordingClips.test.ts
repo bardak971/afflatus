@@ -90,4 +90,42 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     expect(v.clips[1].joined).toBe("continue");
     for (const c of v.clips.slice(1)) expect(c.inputs.description).toBe("A woman talks to the camera in a kitchen.");
   });
+
+  it("trimmed: its end in drops the clips past it, a rendered one kept whole; out again adds clips at its pauses; its start moved makes them anew", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test recording trim" });
+    const sound = await recording();
+    const { clips } = await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
+    expect(clips).toHaveLength(3);
+    const parts = (v: { clips: Array<{ inputs: Record<string, number> }> }) => v.clips.map((c) => [c.inputs.recordingStart, c.inputs.recordingSeconds]);
+    // the end in to 9 s: the third clip goes, the second (empty) shortened to it, 4.3 s (a clip takes 4 at least: at 8 s
+    // it would have gone too, the end back where the first ends)
+    let r = await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 0, toMs: 9000 });
+    expect(r.toMs).toBe(9000);
+    let v = await view(tl.id);
+    expect(v.clips).toHaveLength(2);
+    expect(parts(v)[1]![0]! + parts(v)[1]![1]!).toBeCloseTo(9, 2);
+    // out again to the end: a clip added after, from where the second ends
+    r = await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 0, toMs: 15000 });
+    v = await view(tl.id);
+    expect(v.clips).toHaveLength(3);
+    expect(parts(v)[2]![0]).toBeCloseTo(9, 2);
+    expect(v.clips[2].joined).toBe("continue");
+    // a rendered second clip: the end a little into it snaps back to where the first ends
+    const take = newId();
+    const video = newId();
+    await t.db.insertInto("assets").values(newAssetRow({ id: video, kind: "video", origin: "uploaded", name: "t.mp4", file_key: `assets/zz/${video}`, thumb_key: null, mime: "video/mp4", bytes: 1, width: 480, height: 854, duration_ms: 5000, fps: 24, has_sound: 1, folder_id: null, generation_id: null, kept_at: now() })).execute();
+    await t.db.insertInto("takes").values({ id: take, clip_id: v.clips[1].id, asset_id: video, head_ms: 0, tail_ms: 0, trim_start_ms: 0, trim_end_ms: 0, prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, finished_from: null, created_at: now() }).execute();
+    await t.db.updateTable("clips").set({ take_id: take }).where("id", "=", v.clips[1].id).execute();
+    const firstEnd = Math.round((parts(v)[0]![0]! + parts(v)[0]![1]!) * 1000);
+    r = await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 0, toMs: firstEnd + 500 });
+    expect(r.toMs).toBe(firstEnd);
+    expect((await view(tl.id)).clips).toHaveLength(1);
+    await call("POST", `/api/timelines/${tl.id}/undo`);
+    expect((await view(tl.id)).clips[1].take?.id).toBe(take);
+    // its start moved: every clip made anew from there
+    await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 2000, toMs: 15000 });
+    v = await view(tl.id);
+    expect(parts(v)[0]![0]).toBeCloseTo(2, 2);
+    expect(v.clips.every((c: { take: unknown }) => !c.take)).toBe(true);
+  });
 });

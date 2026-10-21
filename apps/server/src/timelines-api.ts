@@ -198,6 +198,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   app.post<{ Params: { id: string } }>("/api/timelines/:id/source/make", async (req) => ({ clips: await t.makeFromSource(req.params.id, z.strictObject({ again: z.boolean().optional() }).parse(req.body ?? {})) }));
   // the source's stretch trimmed after Make: its end in or out (windows set aside and brought back), its start moved (made anew)
   app.post<{ Params: { id: string } }>("/api/timelines/:id/source/trim", async (req) => t.trimSource(req.params.id, z.strictObject({ fromMs: z.number().min(0), toMs: z.number().min(0) }).parse(req.body)));
+  // a recording's Lip sync clips trimmed: its end in (clips go) or out (clips added at its pauses), its start moved (made anew)
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/recording/trim", async (req) => t.trimRecording(req.params.id, z.strictObject({ asset: z.string().min(1), fromMs: z.number().min(0), toMs: z.number().min(0) }).parse(req.body)));
   // a voice recording made into Lip sync clips cut at its pauses, in place of an empty clip or at the end (Timelines.makeFromRecording)
   app.post<{ Params: { id: string } }>("/api/timelines/:id/recording", async (req) => ({ clips: await t.makeFromRecording(req.params.id, z.strictObject({ asset: z.string().min(1), clip: z.string().optional(), seconds: z.number().min(1).max(60).optional() }).parse(req.body)) }));
   // the source given another windowed form: in place on the same grid (its windows and takes kept), else made anew (Timelines.sourceForm)
