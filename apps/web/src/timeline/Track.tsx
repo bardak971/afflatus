@@ -166,7 +166,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   // what the clips do when pressed: read when it happens, so that a clip draws again only when what it shows changes
   const acts = useRef<TrackClipActs>(null!);
   acts.current = {
-    xOf, slots, totalMs, pps, range, leaveTip, restPin, overClip, overJoin, startPull, movePull, endPull, onSelect, onPick, onRange, onSeek, onMenu, onSoundMenu, onPinMenu, onStop, onJoin, onOpenJoin, onTransition,
+    xOf, slots, totalMs, pps, range, leaveTip, restPin, overClip, overJoin, startPull, movePull, endPull, onSelect, onPick, onRange, onSeek, onMenu, onSoundMenu, onPinMenu, onStop, onJoin, onOpenJoin, onTransition, onNewClip,
     render: (c) => renderOf?.(c)?.run(),
   };
 

@@ -8,6 +8,7 @@ import { useQueueOf } from "../../screens/studio/queueOf";
 import { useRunningOf } from "../useRunning";
 import { modelsDiffer, TRANSITION_MS, TRANSITIONS, transitionSpan, type Transition } from "@afflatus/core";
 import { canExtend, DRAG_CLIP, fileVersion, PAD, pinInputs, pinMirrors, playAt, titleOf, type PinWhere, type Slot, type TimeRange } from "../model";
+import { change, DRIFT } from "../lookDrift";
 import { SWATCH } from "../transitionLook";
 import { flipped, MirrorMark } from "../MirrorMark";
 import { HINTS, type PinPlace } from "./peek";
@@ -51,6 +52,8 @@ export interface TrackClipActs {
   onJoin?(clip: Clip, joined: "continue" | "cut"): void;
   /** The join before a clip, opened in the column (a click on its dot or its transition). */
   onOpenJoin?(clip: Clip): void;
+  /** A new clip put in after `after` (the + on a join, the mock's insert): its model then chosen in the column. */
+  onNewClip?(after: string): void;
   /** A cut's transition set (its length dragged by an edge). */
   onTransition?(clip: string, transition: Transition | null): void;
   /** Render a clip that has nothing to play yet. */
@@ -116,6 +119,12 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
     for (let k = 0; k < count; k++) cells.push(Math.min(STRIP_FRAMES - 1, Math.max(0, Math.floor(((from + ((k + 0.5) / count) * s.lengthMs) / video.durationMs) * STRIP_FRAMES))));
   }
   const pinned = over?.kind === "pin" && over.clip === c.id ? over.where : null;
+  // the face of the take that plays, slid from the clip before's past what the drift table warns of (Face Match's figure
+  // against the person's picture): a small dot on the clip, its figures in the hover card (card #18). Nothing while it holds
+  const face = c.take?.measure?.face;
+  const before = prev?.take?.measure?.face;
+  const slid = change(face, before, 0.05);
+  const drifts = slid !== null && slid < DRIFT.face;
   const through = pins.mid && pins.midAt && typeof c.inputs[pins.mid] === "string" ? { asset: c.inputs[pins.mid] as string, part: Math.max(0.15, Math.min(0.85, (Number(c.inputs[pins.midAt] ?? 2.5) * 1000) / Math.max(1, s.lengthMs))) } : null;
   // which of its pinned pictures are mirrored at render time: shown flipped, a ↔ on their corner
   const mirrored = new Set(pinMirrors(c, recipe, c.inputs, carries).filter((m) => m.on).map((m) => m.where));
@@ -255,6 +264,13 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
                 {c.kind === "video" && !recipe && c.take && s.width > 96 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] whitespace-nowrap text-ink-2">Imported</span>}
                 {c.takes.length > 1 && s.width > 110 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] whitespace-nowrap text-ink-2">take {c.takes.findIndex((x) => x.id === c.take?.id) + 1} of {c.takes.length}</span>}
               </span>
+              {drifts && (
+                <span
+                  aria-label={`The face drifts: ${face!.toFixed(2)} against ${before!.toFixed(2)} in clip ${s.index}`}
+                  data-tip={`The face drifts from clip ${s.index}'s: ${face!.toFixed(2)} against ${before!.toFixed(2)} (Face Match, against the person's picture). Another take may hold it`}
+                  className="absolute top-1.5 right-1.5 z-[3] h-2.5 w-2.5 rounded-full bg-warn ring-2 ring-ground/70"
+                />
+              )}
             </>
           )}
         </span>
@@ -339,7 +355,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
               aria-label={c.join === "stale" ? `The join before clip ${s.index + 1} no longer holds` : carries ? `The join before clip ${s.index + 1}: it extends clip ${s.index}${differ ? ", across two models" : ""}` : `The join before clip ${s.index + 1}: a cut${t ? `, ${words}` : ""}`}
               style={{ left: s.left - 11, top: ROW.top + ROW.height / 2 - 11 }}
               className={cx(
-                "absolute z-10 flex h-[22px] w-[22px] items-center justify-center rounded-full border",
+                "peer absolute z-10 flex h-[22px] w-[22px] items-center justify-center rounded-full border",
                 (toggles || opens) && "hover:scale-110 hover:border-accent",
                 dropping && "scale-125 border-accent ring-2 ring-accent/40",
                 c.join === "stale" ? "border-warn bg-warn text-warn-on" : carries ? (c.join === "fresh" ? "border-accent bg-accent-wash text-accent" : "border-dashed border-accent bg-panel text-accent") : "border-line-strong bg-raised text-ink-3",
@@ -348,6 +364,20 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
               {c.join === "stale" ? <TriangleAlert size={11} /> : carries ? <Link2 size={11} /> : <Scissors size={10} />}
               {differ && c.join !== "stale" && <span aria-hidden className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border border-panel bg-warn" />}
             </button>
+            {/* a clip put in here: shown while the pointer is on the join (or on it), the model chosen in the column after,
+                each said beside it as seamless or a cut (the rethink's insert, page 2 of its mock) */}
+            {acts.current.onNewClip && (
+              <button
+                type="button"
+                aria-label={`Put a new clip between clip ${s.index} and clip ${s.index + 1}`}
+                data-hint={`A new clip between clip ${s.index} and clip ${s.index + 1}: its model is chosen in the column`}
+                onClick={() => a().onNewClip?.(prev.id)}
+                style={{ left: s.left - 9, top: ROW.top + 2 }}
+                className="absolute z-10 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-accent text-[13px] leading-none font-bold text-ground opacity-0 transition-opacity peer-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100"
+              >
+                +
+              </button>
+            )}
           </>
         );
       })()}
