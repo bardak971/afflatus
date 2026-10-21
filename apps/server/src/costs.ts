@@ -436,15 +436,32 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
 
   // a render is a pod's only within a run of its machine (rent_sessions): an id that was a home machine's before it was a
   // pod's (the first machines were m1, m2 whatever they were) keeps its home renders at home
-  const runs = rented.size ? await db.selectFrom("rent_sessions").select(["machine_id", "started_at", "ended_at"]).where("machine_id", "in", [...rented]).execute() : [];
+  // each machine's runs read once, by machine: /metrics works this out every minute over the whole record, and each render
+  // compared every run's dates again (renders × sessions)
+  const runsOf = new Map<string, Array<{ from: number; to: number }>>();
+  if (rented.size) {
+    for (const x of await db.selectFrom("rent_sessions").select(["machine_id", "started_at", "ended_at"]).where("machine_id", "in", [...rented]).execute()) {
+      const run = { from: Date.parse(x.started_at), to: x.ended_at === null ? Infinity : Date.parse(x.ended_at) };
+      const list = runsOf.get(x.machine_id);
+      if (list) list.push(run);
+      else runsOf.set(x.machine_id, [run]);
+    }
+  }
   const onPod = (r: { machine_id: string | null; created_at: string; total_ms: number }) => {
-    if (!r.machine_id || !rented.has(r.machine_id)) return false;
+    const runs = r.machine_id ? runsOf.get(r.machine_id) : undefined;
+    if (!runs) return false;
     const end = Date.parse(r.created_at);
     const start = end - r.total_ms;
-    return runs.some((x) => x.machine_id === r.machine_id && Date.parse(x.started_at) < end && (x.ended_at === null || Date.parse(x.ended_at) > start));
+    return runs.some((x) => x.from < end && x.to > start);
   };
   // the jobs of the renders on pods: where each belongs (its timeline or draft, their project)
   const podRenders = renders.filter(onPod);
+  const podRendersOf = new Map<string, typeof podRenders>();
+  for (const r of podRenders) {
+    const list = podRendersOf.get(r.machine_id!);
+    if (list) list.push(r);
+    else podRendersOf.set(r.machine_id!, [r]);
+  }
   const refs = await itemsOf(db, podRenders.map((r) => r.id));
 
   const sessions: SessionView[] = [];
@@ -462,7 +479,7 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
   for (const r of rows) {
     const from = Date.parse(r.started_at);
     const to = r.ended_at ? Date.parse(r.ended_at) : now;
-    const { mine, kept, guessed, split } = sessionOf(r, { renders: podRenders, fetches, measures, usualBootMs, outside }, now);
+    const { mine, kept, guessed, split } = sessionOf(r, { renders: podRendersOf.get(r.machine_id) ?? [], fetches, measures, usualBootMs, outside }, now);
     if (split.estimated.length) estimatedAny = true;
     const parts = partsOf(split.spans);
     const boot = bootPartsOf(split.spans);

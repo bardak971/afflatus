@@ -32,19 +32,21 @@ describe("/metrics, the rented GPUs' money", () => {
     expect(body).toMatch(/afflatus_queue_jobs/);
   });
 
-  it("spend by part and by GPU as counters, the pods' ends by why, the pods running, the caps", async () => {
+  it("spend by part and by GPU as gauges (split again at each read, a part goes down), the pods' ends by why, the pods running, the caps", async () => {
     const now = Date.now();
     // an hour on an A40 that ended in a crash, half an hour on a 4090 still running
     await t.db.insertInto("rent_sessions").values({ id: "s1", machine_id: "rp-a", pod: "a", rate: 0.6, started_at: iso(now - 180 * MIN), ended_at: iso(now - 120 * MIN), seen_at: iso(now - 120 * MIN), gpu: "NVIDIA A40", up_at: iso(now - 176 * MIN), idle_minutes: 10, busy_at: null, pulled_at: null, packs_from: null, packs_to: null, boot_packs: null, start_failed: null, end_why: "crash" }).execute();
     await t.db.insertInto("rent_sessions").values({ id: "s2", machine_id: "rp-b", pod: "b", rate: 0.9, started_at: iso(now - 30 * MIN), ended_at: null, seen_at: null, gpu: "NVIDIA GeForce RTX 4090", up_at: iso(now - 27 * MIN), idle_minutes: 10, busy_at: null, pulled_at: null, packs_from: null, packs_to: null, boot_packs: null, start_failed: null }).execute();
     const body = (await get(t.app, "/metrics")).body;
 
-    expect(body).toMatch(/# TYPE afflatus_rented_spend_usd_total counter/);
-    const parts = ["render", "boot", "fetch", "outside", "idle", "failed"].map((part) => value(body, `afflatus_rented_spend_usd_total{part="${part}"}`));
+    expect(body).toMatch(/# TYPE afflatus_rented_spend_usd gauge/);
+    expect(body).toMatch(/# TYPE afflatus_rented_gpu_spend_usd gauge/);
+    expect(body).toMatch(/# TYPE afflatus_rented_pod_ends_total counter/);
+    const parts = ["render", "boot", "fetch", "outside", "idle", "failed"].map((part) => value(body, `afflatus_rented_spend_usd{part="${part}"}`));
     expect(parts.every((p) => p !== undefined && p >= 0)).toBe(true);
     // the parts add up to what the GPUs cost: an hour at $0.60 and about half an hour at $0.90, by the GPU's name as Costs says it
-    const a40 = value(body, 'afflatus_rented_gpu_spend_usd_total{gpu="A40"}')!;
-    const rtx = value(body, 'afflatus_rented_gpu_spend_usd_total{gpu="RTX 4090"}')!;
+    const a40 = value(body, 'afflatus_rented_gpu_spend_usd{gpu="A40"}')!;
+    const rtx = value(body, 'afflatus_rented_gpu_spend_usd{gpu="RTX 4090"}')!;
     expect(a40).toBeCloseTo(0.6, 2);
     expect(rtx).toBeGreaterThan(0.44);
     expect(parts.reduce<number>((n, p) => n + (p ?? 0), 0)).toBeCloseTo(a40 + rtx, 1);
