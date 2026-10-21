@@ -559,6 +559,8 @@ export const api = {
   /** Where a Show the mask stands, and once done its video. */
   maskPreviewOf: (clipId: string, job: string) => call<{ status: string; error: string | null; video: Asset | null }>("GET", `/clips/${clipId}/mask-preview/${job}`),
   makeFromSource: (id: string, again?: boolean) => call<{ clips: string[] }>("POST", `/timelines/${id}/source/make`, again ? { again } : undefined),
+  /** The source given another windowed form: in place on the same grid (`switched`), else every window made anew (their ids). */
+  sourceForm: (id: string, recipe: string) => call<{ switched: boolean; clips: string[] }>("POST", `/timelines/${id}/source/form`, { recipe }),
   /** The source split at a moment of it (its own time): the part before, a clip playing it as it is. */
   splitSource: (id: string, atMs: number) => call<{ clip: string }>("POST", `/timelines/${id}/source/split`, { atMs: Math.round(atMs) }),
   undoTimeline: (id: string) => call<{ undone: string }>("POST", `/timelines/${id}/undo`),

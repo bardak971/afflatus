@@ -165,3 +165,19 @@ export async function planWindows(plan: SourcePlan, recipe: Recipe<any>, video: 
   // cut again after the clips kept: from where the last of them ends, carrying on from it
   return sourceWindows({ fromMs: after ?? plan.fromMs, toMs: plan.toMs, windowMs: plan.windowMs, shape, cutsMs, ...(after !== undefined ? { continues: true } : {}) });
 }
+
+/**
+ * A window clip's form taken from one windowed form to another of the same grid: its part of the source moved to the new
+ * form's own inputs (Motion transfer's driving video and its part, the swap's source video), the rest kept as it is (the
+ * inputs both forms share keep their values; what only the old one had stays stored, unread, and comes back with it).
+ */
+export function windowFormFor(from: Recipe<any>, to: Recipe<any>, inputs: Record<string, unknown>): Record<string, unknown> {
+  const window = (r: Recipe<any>) => {
+    const d = r.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window);
+    return d?.type === "clip" && d.window ? { driving: d.id, start: d.window.start, seconds: d.window.seconds } : null;
+  };
+  const [a, b] = [window(from), window(to)];
+  if (!a || !b) return inputs;
+  const { [a.driving]: driving, [a.start]: start, [a.seconds]: seconds, ...rest } = inputs;
+  return { ...rest, [b.driving]: driving, [b.start]: start, [b.seconds]: seconds };
+}

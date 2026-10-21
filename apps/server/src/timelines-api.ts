@@ -196,6 +196,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   /** Its source lane's stretch made into clips, window by window (timelineSource.ts): the new clips' ids, to be rendered by the editor. */
   // `again`: the source cut again into the clips it made, those rendered kept (Timelines.makeFromSource)
   app.post<{ Params: { id: string } }>("/api/timelines/:id/source/make", async (req) => ({ clips: await t.makeFromSource(req.params.id, z.strictObject({ again: z.boolean().optional() }).parse(req.body ?? {})) }));
+  // the source given another windowed form: in place on the same grid (its windows and takes kept), else made anew (Timelines.sourceForm)
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/source/form", async (req) => t.sourceForm(req.params.id, z.strictObject({ recipe: z.string().min(1) }).parse(req.body).recipe));
   /** The source split at a moment of it: the part before, from its stretch's start, a clip playing it as it is. */
   app.post<{ Params: { id: string } }>("/api/timelines/:id/source/split", async (req) => ({ clip: await t.splitSource(req.params.id, z.strictObject({ atMs: z.number().min(0) }).parse(req.body).atMs) }));
   app.delete<{ Params: { id: string } }>("/api/timelines/:id", async (req) => {

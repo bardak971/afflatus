@@ -35,6 +35,13 @@ export type ClipSource = {
   mask: { status: "none" | "waiting" | "ready" | "failed"; error?: string | null; shown: boolean };
   onShowMask(): void;
   onMaskShown(on: boolean): void;
+  /** Every window the source made, in order: its clip, its part, how it opens, its run-up, whether its prompt is its own, rendered. */
+  list: Array<{ id: string; number: number; startMs: number; seconds: number; opens: boolean; carried: number; own: boolean; rendered: boolean }>;
+  onSelectWindow(id: string): void;
+  /** Frames from the clip before, for every window (H3's 5 / 22 / 39): changed, the source is cut again. Null: the model has one count. */
+  runUp: { counts: number[]; value: number; on(n: number): void } | null;
+  /** Another form asked for on another grid, rendered windows in the way: said here, Change or Keep. */
+  formAsk: { title: string; rendered: number; windows: number; change(): void; keep(): void } | null;
   /** Its changes are kept to it ("This clip"). */
   kept: boolean;
   onKept(on: boolean): void;
@@ -62,12 +69,61 @@ export function sourceLead(s: ClipSource, clip: { inputs: Record<string, unknown
             {stretch} made into {plural(s.count, "clip")} · this one {mmss(start, { decimals: 1 })}–{mmss(start + seconds, { decimals: 1 })}
           </span>
         </div>
+        {s.formAsk && (
+          <div role="alert" className="flex flex-col gap-2 rounded-lg border border-warn/50 bg-warn-wash/40 p-2.5">
+            <span className="text-xs">
+              <span className="font-semibold">{s.formAsk.title} cuts the source on another grid:</span>{" "}
+              <span className="text-ink-2">its {plural(s.formAsk.windows, "window")} are cut again; {plural(s.formAsk.rendered, "rendered take")} go to the library (Undo brings them back).</span>
+            </span>
+            <span className="flex gap-1.5">
+              <Button size="sm" tone="primary" onClick={s.formAsk.change}>Change</Button>
+              <Button size="sm" onClick={s.formAsk.keep}>Keep it</Button>
+            </span>
+          </div>
+        )}
         <Slide label="Window" value={Math.min(Math.max(s.source.windowMs, s.windows.leastMs), s.windows.mostMs)} min={s.windows.leastMs} max={s.windows.mostMs} step={100} show={(ms) => `${(ms / 1000).toFixed(1)} s`} onCommit={(windowMs) => s.onCut({ windowMs })} />
         <Toggle on={s.source.snap} disabled={s.cutting} onChange={(snap) => s.onCut({ snap })} label="Cut at scene changes" note={s.source.snap ? "a window ends at a cut in the source; the next one opens a new shot" : "windows of the same length, end to end"} />
+        {s.runUp && (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-semibold">Frames from the clip before</span>
+            <Segmented<string>
+              label="Frames from the clip before"
+              size="sm"
+              oneLine
+              value={String(s.runUp.value)}
+              onChange={(v) => s.runUp!.on(Number(v))}
+              options={s.runUp.counts.map((n, k) => ({ value: String(n), label: s.runUp!.counts.length === 3 ? `${["Tight", "Normal", "Long"][k]} ${n}` : String(n) }))}
+            />
+          </div>
+        )}
         <span className="text-xs text-ink-2">{s.cutting ? "Cutting the source again…" : "Changed, the source is cut again: its rendered clips at the start stay, the others are made anew after them."}</span>
+        <WindowList s={s} />
       </div>
     ),
   };
+}
+
+/**
+ * Every window the source made, as the mock's "each window's own": its clip, its part of the source, whether it opens on the
+ * source (a cut) or carries on, its run-up, and whether its prompt is its own or window 1's. A click selects its clip.
+ */
+function WindowList({ s }: { s: ClipSource }) {
+  if (s.list.length < 2) return null;
+  return (
+    <div className="flex flex-col">
+      <span className="pb-1 text-xs font-semibold">Each window</span>
+      {s.list.map((x, k) => (
+        <button key={x.id} type="button" onClick={() => s.onSelectWindow(x.id)} className="grid grid-cols-[2.5rem_1fr_auto] items-baseline gap-x-2 border-t border-line py-1.5 text-left text-xs hover:bg-hover">
+          <span className="font-semibold">{x.number}</span>
+          <span className="truncate">
+            <span className="font-mono">{mmss(x.startMs, { decimals: 1 })}–{mmss(x.startMs + x.seconds * 1000, { decimals: 1 })}</span>
+            <span className="text-ink-2"> · {x.opens ? "opens on the source" : `carries on · ${x.carried}`}{k > 0 ? ` · ${x.own ? "its own prompt" : "window 1's prompt"}` : ""}</span>
+          </span>
+          <span className={x.rendered ? "text-good" : "text-ink-3"}>{x.rendered ? "rendered" : "empty"}</span>
+        </button>
+      ))}
+    </div>
+  );
 }
 
 /**

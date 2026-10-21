@@ -249,8 +249,30 @@ function clipSourceOf(e: LoadedEditor, current: Clip): ClipSource | undefined {
   const w = windowed(e.videoRecipes.find((r) => r.id === current.recipe), source?.inputs);
   const driving = w ? e.videoRecipes.find((r) => r.id === current.recipe)?.inputs.find((i) => i.id === w.driving) : undefined;
   const patchClip = (share: "inLine" | "toAll") => void e.save(current.id).then(() => e.patch.mutate({ clip: current.id, patch: { share } }));
+  const recipe = e.videoRecipes.find((r) => r.id === current.recipe);
+  const runUp = recipe?.traits?.windows?.runUp;
+  const own = recipe?.traits?.windows?.own ?? [];
+  const ownOf = (c: Clip) => JSON.stringify(own.map((k) => e.inputsOf(c)[k] ?? null));
+  const ask = e.sourceForm.ask;
   return {
     source,
+    // every window the source made, in order, as the Source chapter lists them (the mock's "each window's own")
+    list: made.map((c) => {
+      const inputs = e.inputsOf(c);
+      return {
+        id: c.id,
+        number: e.clips.indexOf(c) + 1,
+        startMs: w ? Number(inputs[w.start] ?? 0) * 1000 : 0,
+        seconds: w ? Number(inputs[w.seconds] ?? 0) : 0,
+        opens: c.joined === "cut",
+        carried: recipe ? carriedOf(recipe, inputs) : 0,
+        own: c !== made[0] && ownOf(c) !== ownOf(made[0]!),
+        rendered: Boolean(c.take),
+      };
+    }),
+    onSelectWindow: e.select,
+    runUp: runUp ? { counts: runUp.counts, value: recipe ? carriedOf(recipe, e.inputsOf(current)) : runUp.counts[0]!, on: (n: number) => e.cutSource.run({ inputs: { ...source.inputs, [runUp.input]: String(n) } }) } : null,
+    formAsk: ask ? { title: e.videoRecipes.find((r) => r.id === ask.recipe)?.title ?? ask.recipe, rendered: ask.rendered, windows: ask.windows, change: () => e.sourceForm.run(ask.recipe, true), keep: e.sourceForm.keep } : null,
     count: made.length,
     first: made[0]?.id === current.id,
     apart: source.apart?.[current.id] ?? [],
@@ -331,7 +353,8 @@ export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<t
     // from where its rendered clips end)
     onRecipe: (recipe) => {
       const made = windowed(e.videoRecipes.find((r) => r.id === recipe));
-      if (made && clipSourceOf(e, current)) return e.cutSource.run({ recipe });
+      // the source's form, every window with it: on the same grid in place, its takes kept; else made anew, asked first (sourceForm)
+      if (made && clipSourceOf(e, current)) return e.sourceForm.run(recipe);
       if (made && e.place?.made && !current.take && !current.job) return e.cutSource.run({ recipe, clip: current.id });
       patch.mutate({ clip: current.id, patch: { recipe } });
     },

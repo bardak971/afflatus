@@ -1,7 +1,7 @@
 import { chatJson } from "./llm";
 import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
-import { joinWay, musicPlan, plural, typedSeed, type ClipMusic, type InputSpec, type Transition } from "@afflatus/core";
+import { joinWay, musicPlan, plural, sameWindowGrid, typedSeed, type ClipMusic, type InputSpec, type Transition } from "@afflatus/core";
 import { newId, now, OWNER, type Db } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError, notFound } from "./errors";
@@ -18,7 +18,7 @@ import { TimelineHistory } from "./timelineHistory";
 import { TimelineRange } from "./timelineRange";
 import { takeView, TimelineViews } from "./timelineViews";
 import { ownInputIds, recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
-import { clipsOfSource, patchedSource, planWindows, sourceOfRow, windowRunUp, type SourcePatch, type SourcePlan } from "./timelineSource";
+import { clipsOfSource, patchedSource, planWindows, sourceOfRow, windowFormFor, windowRunUp, type SourcePatch, type SourcePlan } from "./timelineSource";
 import { TimelineTakes } from "./timelineTakes";
 import { unusedSize, unusedTakes } from "./timelineUnused";
 import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, setTrims, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, mirroredPins, mirrorJson, mirrorOfRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow, transitionJson, transitionOfRow } from "./timelineModel";
@@ -376,7 +376,7 @@ export class Timelines {
       // the same frames, so that clips still compare like for like whether they play their finished take or not
       const from = takes.find((y) => y.take.id === x.take.finished_from);
       const source = from?.asset.generation_id ? rendered.get(from.asset.generation_id) : undefined;
-      return source?.measure ? { genMs: own?.genMs ?? null, measure: source.measure } : own;
+      return source?.measure ? { genMs: own?.genMs ?? null, measure: source.measure, recipe: own?.recipe ?? source.recipe } : own;
     };
     const viewOf = (takes: Taken[]) => (x: Taken) => takeView(x, renderOf(x, takes));
     let at = 0;
@@ -629,6 +629,64 @@ export class Timelines {
    * dropped; where the new clips go (in place of the first dropped), where in the source they start (where the last kept
    * one's window ends; none kept, at the stretch's start) and the form they share (the source's first clip's).
    */
+  /** What `anew` drops: every clip the source made, from the first one's place; none of them in the queue. */
+  private async allAnew(all: Placed[], plan: SourcePlan) {
+    const ofSource = clipsOfSource(plan, all.map((p) => p.clip), (r) => this.registry.recipe(r));
+    if (!ofSource.length) throw httpError("The source has no clips to make anew: make them first.");
+    const busy = await this.db.selectFrom("jobs").select("clip_id").where("clip_id", "in", ofSource).where("status", "in", ["queued", "running"]).executeTakeFirst();
+    if (busy) throw httpError("A clip of the source is rendering or in the queue: let it end, or stop it, to change the source's model.", 409);
+    return { kept: 0, drop: ofSource, after: undefined, index: all.findIndex((p) => p.clip.id === ofSource[0]), form: undefined };
+  }
+
+  /**
+   * The source given another form that makes it window by window (from its Model list, or a window clip's). Between forms
+   * of one grid (H3's Swap character, Swap motion, Motion transfer), in place: its windows keep their parts, their own
+   * settings and their takes, and each one's next take is made with the new form; a window that carries on with the
+   * carried-on settings of the old form (Swap motion's motion prompt) takes the new form's, or window 1's when it has none.
+   * Across grids (SCAIL-2 and H3), every window made anew, rendered or not (makeFromSource `anew`): the editor says so
+   * before it asks. Nothing made yet: only the source's model. One step to undo either way.
+   */
+  async sourceForm(timelineId: string, recipeId: string): Promise<{ switched: boolean; clips: string[] }> {
+    const next = this.registry.recipe(recipeId);
+    if (!next?.traits?.windows) throw httpError(`${next?.title ?? recipeId} does not make a long video window by window.`);
+    const t = await this.row(timelineId);
+    const plan = sourceOfRow(t.source);
+    if (!plan) throw httpError("Drop a video on the Source lane first.");
+    const old = plan.recipe ? this.registry.recipe(plan.recipe) : undefined;
+    const all = await this.placed(timelineId);
+    const ofSource = clipsOfSource(plan, all.map((p) => p.clip), (r) => this.registry.recipe(r));
+    if (!ofSource.length || !old || !sameWindowGrid(old, next)) {
+      if (!ofSource.length) {
+        await this.edit(timelineId, { source: { recipe: next.id } });
+        return { switched: false, clips: [] };
+      }
+      return { switched: false, clips: await this.makeFromSource(timelineId, { anew: true, recipe: next.id }) };
+    }
+    await this.history.oneAtATime(timelineId, async () => {
+      await this.remember(timelineId, `the source made with ${next.title}`);
+      const mine = all.filter((p) => ofSource.includes(p.clip.id));
+      const own = [...new Set([...(old.traits?.windows?.own ?? []), ...(next.traits?.windows?.own ?? [])])];
+      const pick = (form: Record<string, unknown>) => Object.fromEntries(own.map((k) => [k, form[k]]));
+      const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+      const first = windowFormFor(old, next, JSON.parse(mine[0]!.clip.inputs) as Record<string, unknown>);
+      const firstOld = JSON.parse(mine[0]!.clip.inputs) as Record<string, unknown>;
+      await this.db.transaction().execute(async (tx) => {
+        for (const p of mine) {
+          let inputs = windowFormFor(old, next, JSON.parse(p.clip.inputs) as Record<string, unknown>);
+          if (p.clip.joined === "continue" && p !== mine[0]) {
+            // what it carried on with, as the old form gave it, or window 1's own: the new form's carried-on settings
+            const carried = old.windowCarryOn ? { ...pick(firstOld), ...old.windowCarryOn(firstOld) } : pick(firstOld);
+            if (same(pick(inputs), pick(carried))) inputs = { ...inputs, ...pick(first), ...(next.windowCarryOn?.(first) ?? {}) };
+          }
+          await tx.updateTable("clips").set({ recipe_id: next.id, inputs: JSON.stringify(inputs), updated_at: now() }).where("id", "=", p.clip.id).execute();
+        }
+        await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, recipe: next.id }), updated_at: now() }).where("id", "=", timelineId).execute();
+      });
+    });
+    await this.touch(timelineId);
+    return { switched: true, clips: [] };
+  }
+
   private async cutAgain(all: Placed[], plan: SourcePlan, driving: Extract<InputSpec, { type: "clip" }>) {
     const ofSource = clipsOfSource(plan, all.map((p) => p.clip), (r) => this.registry.recipe(r));
     const mine = all.filter((p) => ofSource.includes(p.clip.id));
@@ -710,8 +768,11 @@ export class Timelines {
    * `again`: the source cut again into the clips it made (its window or its scene cuts changed). The clips at its start that
    * are rendered, or in the queue, are kept; the others are made anew from where the last kept one ends, carrying on from
    * it, with the form the source's clips share (the first one's). A rendered clip after one that is not stops it.
+   *
+   * `anew`: every clip the source made, rendered or not, made anew in their place (its form changed to one that cuts it on
+   * another grid: sourceForm). Their takes' videos stay in the library; Undo brings the clips back with them.
    */
-  async makeFromSource(timelineId: string, opts: { again?: boolean } = {}): Promise<string[]> {
+  async makeFromSource(timelineId: string, opts: { again?: boolean; anew?: boolean; recipe?: string } = {}): Promise<string[]> {
     // the source's scene cuts read before the timeline is held (the first time, ffmpeg reads every frame of it): inside, they are read back
     const asked = sourceOfRow((await this.row(timelineId)).source);
     if (asked?.snap) await this.media.scenes(asked.asset).catch(() => {});
@@ -719,7 +780,9 @@ export class Timelines {
       const t = await this.row(timelineId);
       const plan = sourceOfRow(t.source);
       if (!plan) throw httpError("Drop a video on the Source lane first.");
-      const recipe = plan.recipe ? this.registry.recipe(plan.recipe) : undefined;
+      // `recipe`: the model it is made anew with, written with the clips (one step for Undo)
+      const recipeId = opts.recipe ?? plan.recipe;
+      const recipe = recipeId ? this.registry.recipe(recipeId) : undefined;
       if (!recipe) throw httpError("Choose the model the clips are made with.");
       if (!recipe.traits?.windows) throw httpError(`${recipe.title} does not make a long video window by window.`);
       const video = await this.assetRow(plan.asset);
@@ -728,7 +791,7 @@ export class Timelines {
       if (!driving || driving.type !== "clip" || !driving.window) throw httpError(`${recipe.title} takes no driving video.`);
       const all = await this.placed(timelineId);
       // cut again: the source's clips rendered (or in the queue) at its start kept, the rest made anew after them
-      const again = opts.again ? await this.cutAgain(all, plan, driving) : null;
+      const again = opts.anew ? await this.allAnew(all, plan) : opts.again ? await this.cutAgain(all, plan, driving) : null;
       const windows = await planWindows(plan, recipe, video, (id) => this.media.scenes(id), again?.after);
       if (!windows.length) throw httpError(again?.after !== undefined ? "Nothing of the stretch is left after the rendered clips." : "The stretch is too short for one clip: make it longer.");
       // in place of the clip the stretch was taken from (still the same video), or of the empty clip it was dropped for (its
@@ -746,7 +809,7 @@ export class Timelines {
       const form = Object.fromEntries(Object.entries(again?.form ?? { ...settingsOf(recipe, all, index), ...plan.inputs }).filter(([k]) => own.has(k) && k !== driving.id && k !== driving.window!.start && k !== driving.window!.seconds && !(again && k === "seed")));
       const pictureSpec = recipe.inputs.find((i) => i.type === "image" && i.role === "source");
       const picture = pictureSpec && typeof form[pictureSpec.id] === "string" ? (form[pictureSpec.id] as string) : null;
-      await this.remember(timelineId, again ? "the source cut again" : `the ${windows.length} clips made from the source`);
+      await this.remember(timelineId, opts.anew ? `the source made anew with ${recipe.title}` : again ? "the source cut again" : `the ${windows.length} clips made from the source`);
       return this.db.transaction().execute(async (tx) => {
         const order: Array<{ clip: { id: string } }> = all.filter((p) => !again?.drop.includes(p.clip.id)).map((p) => ({ clip: { id: p.clip.id } }));
         if (again?.drop.length) await tx.deleteFrom("clips").where("id", "in", again.drop).execute();
@@ -770,7 +833,7 @@ export class Timelines {
         // the source's start sits where its stretch now plays from; the clip it was taken from is gone. Cut again, it stays where
         // it was, and the clips it no longer has keep nothing apart
         const apart = plan.apart ? Object.fromEntries(Object.entries(plan.apart).filter(([id]) => !again?.drop.includes(id))) : undefined;
-        const placedPlan = again ? { ...plan, clip: null, ...(apart ? { apart } : {}) } : { ...plan, atMs: startsAt - plan.fromMs, clip: null };
+        const placedPlan = { ...(again ? { ...plan, clip: null, ...(apart ? { apart } : {}) } : { ...plan, atMs: startsAt - plan.fromMs, clip: null }), recipe: recipe.id };
         await tx.updateTable("timelines").set({ source: JSON.stringify(placedPlan), updated_at: now() }).where("id", "=", timelineId).execute();
         if (picture) await this.keep(picture, tx);
         return made;

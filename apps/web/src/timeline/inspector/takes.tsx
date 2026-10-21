@@ -12,6 +12,7 @@ import { PIN_WORDS, pinInputs, takeTrouble, type PinMirror, type PinWhere, type 
 import { pinMenuItems } from "../menus";
 import { flipped, MirrorMark } from "../MirrorMark";
 import { SHOWS } from "../attention";
+import { useRecipes } from "../../data";
 
 /** A place a picture can be dropped on to become a pinned frame: one from the library, or a file from the computer, which goes into the library first. */
 function PinDrop({ className, onPick, onMenu, children }: { className?: string; onPick(id: string): void; onMenu?(e: React.MouseEvent): void; children: ReactNode }) {
@@ -47,6 +48,10 @@ export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, on
 }) {
   // past ×3 the join shows, as Needs attention counts it
   const bad = (v: number) => v > SHOWS;
+  // takes made with more than one form (a source's form changed in place, its takes kept): each says its own
+  const recipes = useRecipes();
+  const forms = new Set(clip.takes.map((t) => t.recipe).filter(Boolean));
+  const formOf = (t: Take) => (forms.size > 1 && t.recipe ? recipes.data?.recipes.find((r) => r.id === t.recipe)?.title ?? null : null);
   return (
     <div className="-mx-1.5 flex flex-col gap-0.5">
       {clip.takes.map((t, i) => {
@@ -87,6 +92,7 @@ export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, on
                   {trouble && <TakeChip tone="warn" tip={trouble}>broken</TakeChip>}
                   {t.finishedFrom && !trouble && <TakeChip tone="good" tip={`The finished version of take ${Math.max(1, clip.takes.findIndex((x) => x.id === t.finishedFrom) + 1)}: the same clip, brought to its final quality (${t.asset.width} × ${t.asset.height})`}>finished</TakeChip>}
                   {smoothest === t.id && clip.takes.length > 1 && <TakeChip tone="neutral" tip="The smoothest joins of the takes">smoothest</TakeChip>}
+                  {formOf(t) && <TakeChip tone="neutral" tip="The form it was rendered with: this clip's takes come from more than one">{formOf(t)}</TakeChip>}
                 </span>
                 {j && (j.in !== null || j.out !== null) && (
                   <span className="font-mono text-[11px] text-ink-3" data-tip={`How much the picture jumps at each join, against the clip's own motion: ×1 moves like the clip, past ×${SHOWS} the join shows.`}>

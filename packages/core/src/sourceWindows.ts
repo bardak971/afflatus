@@ -7,6 +7,7 @@
  */
 
 import { gridAtLeast, gridAtOrBefore, type FrameGrid } from "./frameGrid";
+import type { VideoTraits } from "./recipe";
 
 /** How a recipe takes a long source, in its own frames (VideoTraits.windows, at VideoTraits.fps). */
 export interface WindowShape {
@@ -124,4 +125,16 @@ export function windowShapeOf(recipe: WindowedTraits | undefined, inputs?: Recor
   const t = recipe?.traits;
   const w = t?.windows;
   return t && w ? { fps: t.fps, grid: t.frameGrid, most: w.most, least: w.least, carried: carriedOf(recipe, inputs) } : null;
+}
+
+/**
+ * Whether two forms that make a source window by window cut it the same way: the same frame rate, frame grid and window
+ * shape (H3's Swap character, Swap motion and Motion transfer between them). Between two such forms a source changes form
+ * in place, its windows and their takes kept; across grids (SCAIL-2 and H3) its windows are made anew.
+ */
+export function sameWindowGrid(a: { traits?: VideoTraits | null } | undefined, b: { traits?: VideoTraits | null } | undefined): boolean {
+  const [x, y] = [a?.traits, b?.traits];
+  if (!x?.windows || !y?.windows) return false;
+  const same = (p: unknown, q: unknown) => JSON.stringify(p) === JSON.stringify(q);
+  return x.fps === y.fps && same(x.frameGrid, y.frameGrid) && x.windows.most === y.windows.most && x.windows.least === y.windows.least && x.windows.carried === y.windows.carried;
 }

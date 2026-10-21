@@ -323,6 +323,83 @@ describe("a timeline's source lane", () => {
     for (const c of v.clips) expect(c.inputs.references).toEqual([{ asset: photo.id, role: "person" }]);
   });
 
+  describe("given another form after Make (Timelines.sourceForm)", () => {
+    const WHO = "Replace the woman in <Video 1> with the man in <Picture 1>.";
+    const madeWith = async (recipe: string) => {
+      const tl = await call("POST", "/api/timelines", { name: `zz-test source form ${recipe}` });
+      const meme = await asset("video");
+      const photo = await asset("image");
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id } });
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, toMs: 18000, recipe, inputs: { who: WHO, prompt: "A man dances.", picture: photo.id, references: [{ asset: photo.id, role: "person" }] } } });
+      await call("POST", `/api/timelines/${tl.id}/source/make`);
+      return { tl, meme, photo, v: await view(tl.id) };
+    };
+    const takeFor = async (clipId: string, videoId: string) => {
+      const take = newId();
+      await t.db.insertInto("takes").values({
+        id: take, clip_id: clipId, asset_id: videoId, head_ms: 0, tail_ms: 0, trim_start_ms: 0, trim_end_ms: 0, prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, finished_from: null, created_at: now(),
+      }).execute();
+      await t.db.updateTable("clips").set({ take_id: take }).where("id", "=", clipId).execute();
+      return take;
+    };
+
+    it("between H3 forms (one grid): in place, its windows, their parts and their takes kept", async () => {
+      const { tl, meme, v } = await madeWith("h3.swap");
+      const before = v.clips.map((c: { id: string; inputs: Record<string, unknown> }) => ({ id: c.id, start: c.inputs.sourceStart, seconds: c.inputs.sourceSeconds }));
+      const take = await takeFor(v.clips[0].id, (await asset("video")).id);
+      const r = await call("POST", `/api/timelines/${tl.id}/source/form`, { recipe: "h3.motion" });
+      expect(r).toEqual({ switched: true, clips: [] });
+      const after = await view(tl.id);
+      expect(after.source.recipe).toBe("h3.motion");
+      expect(after.clips.map((c: { id: string }) => c.id)).toEqual(before.map((b: { id: string }) => b.id));
+      expect(after.clips.every((c: { recipe: string }) => c.recipe === "h3.motion")).toBe(true);
+      // each window's part, moved to Motion transfer's own inputs: the driving video, its start and length
+      after.clips.forEach((c: { inputs: Record<string, unknown> }, k: number) => {
+        expect(c.inputs.driving).toMatchObject({ asset: meme.id });
+        expect([c.inputs.drivingStart, c.inputs.drivingSeconds]).toEqual([before[k]!.start, before[k]!.seconds]);
+      });
+      expect(after.clips[0].take?.id).toBe(take);
+      // one step: Undo brings the swap back
+      await call("POST", `/api/timelines/${tl.id}/undo`);
+      expect((await view(tl.id)).clips.every((c: { recipe: string }) => c.recipe === "h3.swap")).toBe(true);
+    });
+
+    it("swap to Swap motion in place: the windows that carry on take the motion prompt, window 1 keeps the swap's", async () => {
+      const { tl } = await madeWith("h3.swap");
+      await call("POST", `/api/timelines/${tl.id}/source/form`, { recipe: "h3.swapMotion" });
+      const v = await view(tl.id);
+      expect(v.clips[0].inputs.who).toBe(WHO);
+      for (const c of v.clips.slice(1)) if (c.joined === "continue") expect(c.inputs.who).not.toMatch(/<Video 1>/);
+      // and back: the windows that carry on take window 1's swap prompt again
+      await call("POST", `/api/timelines/${tl.id}/source/form`, { recipe: "h3.swap" });
+      for (const c of (await view(tl.id)).clips) expect(c.inputs.who).toBe(WHO);
+    });
+
+    it("across grids (H3 to SCAIL-2): every window made anew, the rendered ones too, their videos left in the library", async () => {
+      const { tl, v } = await madeWith("h3.swap");
+      const video = await asset("video");
+      await takeFor(v.clips[0].id, video.id);
+      const r = await call("POST", `/api/timelines/${tl.id}/source/form`, { recipe: "scail.motion" });
+      expect(r.switched).toBe(false);
+      const after = await view(tl.id);
+      expect(after.source.recipe).toBe("scail.motion");
+      expect(after.clips.every((c: { recipe: string; take: unknown }) => c.recipe === "scail.motion" && !c.take)).toBe(true);
+      expect(after.clips.map((c: { id: string }) => c.id)).toEqual(r.clips);
+      expect(await t.db.selectFrom("assets").select("id").where("id", "=", video.id).where("deleted_at", "is", null).executeTakeFirst()).toBeTruthy();
+      // one step: Undo brings the swap's clips back, the take among them
+      await call("POST", `/api/timelines/${tl.id}/undo`);
+      const back = await view(tl.id);
+      expect(back.source.recipe).toBe("h3.swap");
+      expect(back.clips[0].take?.asset.id).toBe(video.id);
+    });
+
+    it("is refused while a clip of the source renders", async () => {
+      const { tl, v } = await madeWith("h3.swap");
+      await t.db.insertInto("jobs").values({ id: newId(), owner_id: "local", recipe_id: "h3.swap", label: "x", inputs: "{}", status: "queued", priority: 0, clip_id: v.clips[1].id, created_at: now(), updated_at: now() } as never).execute();
+      await expect(call("POST", `/api/timelines/${tl.id}/source/form`, { recipe: "scail.motion" })).rejects.toMatchObject({ statusCode: 409 });
+    });
+  });
+
   it("gives a swap's first window the person clicked on the stretch's first frame; a new start or video forgets the click", async () => {
     const tl = await call("POST", "/api/timelines", { name: "zz-test swap pick" });
     const meme = await asset("video");

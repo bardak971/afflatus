@@ -10,7 +10,8 @@ import { useNewClock } from "./clock";
 import { rememberAspect } from "./EditorSkeleton";
 import type { ExportAsk } from "./ExportDialog";
 import { layout, moveAfter, otherShape, ZOOM } from "./model";
-import { sourcePlace } from "./track/SourceLane";
+import { madeFromSource, sourcePlace } from "./track/SourceLane";
+import { sameWindowGrid } from "@afflatus/core";
 import type { PlayerHandle } from "./Player";
 import { useClipEdits } from "./useClipEdits";
 import { useMaskPreview, type ClipMask } from "./maskPreview";
@@ -131,7 +132,7 @@ export function useTimelineEditor(id: string) {
     timeline: t, clipsNow, recipes: recipes.data?.recipes ?? [], edits: { save, turn, ready, inputsOf, editInputs, dropEdits, savedElsewhere, sourceTyped }, firstRecipe,
     on: { note: setNote, select, unpick: () => setPicked(new Set()), writing: setWriting, open: setOpened },
   });
-  const { after, render, patch, fix, edit, makeSource: makeSourceMut, cutSource: cutSourceMut, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
+  const { after, render, patch, fix, edit, makeSource: makeSourceMut, cutSource: cutSourceMut, sourceForm: sourceFormMut, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
   const pickedNow = useRef(picked);
   pickedNow.current = picked;
   /** The source taken away with the clips it made, rendered or not (one step for Undo), its panel closed. */
@@ -187,6 +188,26 @@ export function useTimelineEditor(id: string) {
     pending: edit.isPending || cutSourceMut.isPending,
     run: (change: { windowMs?: number; snap?: boolean; inputs?: Record<string, unknown>; recipe?: string; clip?: string }) =>
       edit.mutate({ source: change }, { onSuccess: () => cutSourceMut.mutate(undefined, { onSuccess: (r) => setToRender({ ids: r.clips, render: false }) }) }),
+  };
+
+  /**
+   * The source given another windowed form (a window clip's Model, or the source's). On the same grid (H3's three) at once,
+   * its windows and takes kept; on another grid, said first in the Source chapter when that leaves rendered takes behind
+   * (`formAsk`: Change or Keep), its windows made anew and the first opened. Nothing renders.
+   */
+  const [formAsk, setFormAsk] = useState<{ recipe: string; rendered: number; windows: number } | null>(null);
+  const sourceForm = {
+    pending: sourceFormMut.isPending,
+    ask: formAsk,
+    run: (recipeId: string, sure = false) => {
+      const of = (id: string | null | undefined) => videoRecipes.find((r) => r.id === id);
+      const made = t ? madeFromSource(t, videoRecipes) : [];
+      const rendered = made.filter((c) => c.take).length;
+      if (!sure && rendered > 0 && !sameWindowGrid(of(t?.source?.recipe), of(recipeId))) return setFormAsk({ recipe: recipeId, rendered, windows: made.length });
+      setFormAsk(null);
+      sourceFormMut.mutate(recipeId, { onSuccess: (r) => void (r.clips.length && setToRender({ ids: r.clips, render: false })) });
+    },
+    keep: () => setFormAsk(null),
   };
 
   // a window of the source (Motion transfer) is made from its driving video: a clip added by hand, or extending one, takes
@@ -284,7 +305,7 @@ export function useTimelineEditor(id: string) {
 
   return {
     id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, current,
-    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, removeSource, makeSource, cutSource, splitSource, masks, setMasks, maskOfCurrent, place, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
+    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, removeSource, makeSource, cutSource, sourceForm, splitSource, masks, setMasks, maskOfCurrent, place, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, typeSource, sourceTyped, inputsOf, editInputs, formOf, ready, keptToClip, keepToClip, sayOf, say, m, range, setRange, loopRange, snapQuiet,
