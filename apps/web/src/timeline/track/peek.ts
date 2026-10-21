@@ -175,6 +175,9 @@ export function clipFacts(clip: Clip, index: number, clips: Clip[], jump: number
       // a join made in the latent: how wide its run-up came out against the latent it was guided by (1.00 = the same)
       if (take.measure?.drift) facts.chips.push({ text: `run-up ×${take.measure.drift.width.toFixed(2)}`, tone: "neutral" });
     }
+    // how much the face is its person's along the take (ArcFace against the cast's photo or its first reference picture, a
+    // Motion transfer's Picture): the figure itself, beside the table's change against the clip before (card #18)
+    if (take.measure?.face != null) facts.chips.push({ text: `face ${take.measure.face.toFixed(2)}`, tone: "neutral" });
     const n = clip.takes.findIndex((t) => t.id === take.id) + 1;
     if (clip.takes.length > 1) facts.chips.push({ text: `take ${n} of ${clip.takes.length}`, tone: "neutral" });
     if (take.finishedFrom) {

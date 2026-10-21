@@ -48,6 +48,10 @@ export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, on
 }) {
   // past ×3 the join shows, as Needs attention counts it
   const bad = (v: number) => v > SHOWS;
+  // how much each take's face is its person's (Face Match, measured after the render): the closest marked when two or more
+  // were measured, to pick from, never rendered again by itself (the owner: no automatic retries; card #18)
+  const faced = clip.takes.filter((t) => t.measure?.face != null);
+  const closest = faced.length > 1 ? faced.reduce((best, t) => (t.measure!.face! > best.measure!.face! ? t : best)).id : null;
   // takes made with more than one form (a source's form changed in place, its takes kept): each says its own
   const recipes = useRecipes();
   const forms = new Set(clip.takes.map((t) => t.recipe).filter(Boolean));
@@ -92,8 +96,14 @@ export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, on
                   {trouble && <TakeChip tone="warn" tip={trouble}>broken</TakeChip>}
                   {t.finishedFrom && !trouble && <TakeChip tone="good" tip={`The finished version of take ${Math.max(1, clip.takes.findIndex((x) => x.id === t.finishedFrom) + 1)}: the same clip, brought to its final quality (${t.asset.width} × ${t.asset.height})`}>finished</TakeChip>}
                   {smoothest === t.id && clip.takes.length > 1 && <TakeChip tone="neutral" tip="The smoothest joins of the takes">smoothest</TakeChip>}
+                  {closest === t.id && <TakeChip tone="neutral" tip="The face closest to its person's picture, of the takes measured">closest face</TakeChip>}
                   {formOf(t) && <TakeChip tone="neutral" tip="The form it was rendered with: this clip's takes come from more than one">{formOf(t)}</TakeChip>}
                 </span>
+                {t.measure?.face != null && (
+                  <span className="font-mono text-[11px] text-ink-3" data-tip={`How much the face along the take is its person's: ArcFace against the cast's photo, else the first reference picture (a Motion transfer's Picture), the median of a few frames${t.measure.faceLow != null ? `; the lowest ${t.measure.faceLow.toFixed(2)}` : ""}. Small or turned faces read lower: compare takes of one clip.`}>
+                    face {t.measure.face.toFixed(2)}
+                  </span>
+                )}
                 {j && (j.in !== null || j.out !== null) && (
                   <span className="font-mono text-[11px] text-ink-3" data-tip={`How much the picture jumps at each join, against the clip's own motion: ×1 moves like the clip, past ×${SHOWS} the join shows.`}>
                     join{j.in !== null && <> in <span className={bad(j.in) ? "text-warn-ink" : "text-good"}>×{j.in}</span></>}{j.in !== null && j.out !== null && " ·"}{j.out !== null && <> out <span className={bad(j.out) ? "text-warn-ink" : "text-good"}>×{j.out}</span></>}

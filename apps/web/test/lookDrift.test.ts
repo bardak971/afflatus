@@ -118,6 +118,12 @@ describe("the clip's figures on the hover card", () => {
     expect(f.lines).toEqual([]);
   });
 
+  it("says the face figure of the take that plays, beside its join (card #18)", () => {
+    const t = takeOf("t", { measure: measure(100, 12, { face: 0.712 }) });
+    const f = clipFacts(video({ id: "a", take: t, takes: [t] }), 0, [video({ id: "a", take: t, takes: [t] })], null);
+    expect(f.chips).toEqual([{ text: "face 0.71", tone: "neutral" }]);
+  });
+
   it("gives a cut no figures, and keeps what needs attention", () => {
     const t = takeOf("t", { measure: measure(100, 12) });
     const a = video({ id: "a", take: t, takes: [t] });
