@@ -18,14 +18,14 @@ export const BITS = 12;
 export const ffmpegThere = spawnSync("ffmpeg", ["-version"]).status === 0;
 
 /** ffmpeg's arguments for synth(), but the output file. */
-function synthArgs(clip: number, frames: number, fps: number, size: { w: number; h: number }): string[] {
+function synthArgs(clip: number, frames: number, fps: number, size: { w: number; h: number }, sound?: string): string[] {
   const bit = (v: string) => `255*mod(floor(${v}/pow(2,floor(X*${W}/W/16))),2)`;
   const lum = `if(lt(Y*${H}/H,32),${bit("N")},if(lt(Y*${H}/H,64),${bit(String(clip))},128))`;
   const seconds = frames / fps;
   return [
     "-y", "-loglevel", "error",
     "-f", "lavfi", "-i", `color=c=gray:s=${size.w}x${size.h}:r=${fps}:d=${seconds + 1}`,
-    "-f", "lavfi", "-i", `aevalsrc='if(lt(mod(t*${fps},10),0.5),0.8*sin(2*PI*1000*t),0)':s=48000:d=${seconds}`,
+    "-f", "lavfi", "-i", `aevalsrc='${sound ?? `if(lt(mod(t*${fps},10),0.5),0.8*sin(2*PI*1000*t),0)`}':s=48000:d=${seconds}`,
     "-filter_complex", `[0:v]format=yuv420p,geq=lum='${lum}':cb=128:cr=128[v]`,
     "-map", "[v]", "-map", "1:a", "-frames:v", String(frames), "-c:v", "libx264", "-crf", "8", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
   ];
@@ -42,12 +42,12 @@ export function synth(clip: number, frames: number, fps: number, size = { w: W, 
   return bytes;
 }
 
-/** synth() without blocking: several made side by side. */
-export async function synthMade(clip: number, frames: number, fps: number, size = { w: W, h: H }): Promise<Uint8Array> {
+/** synth() without blocking: several made side by side. `sound`: its sound as an aevalsrc expression of t (else the clicks). */
+export async function synthMade(clip: number, frames: number, fps: number, size = { w: W, h: H }, sound?: string): Promise<Uint8Array> {
   const dir = await mkdtemp(join(tmpdir(), "afflatus-frames-"));
   try {
     const file = join(dir, "c.mp4");
-    await run("ffmpeg", [...synthArgs(clip, frames, fps, size), file]);
+    await run("ffmpeg", [...synthArgs(clip, frames, fps, size, sound), file]);
     return new Uint8Array(await readFile(file));
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -86,6 +86,26 @@ export function clicks(bytes: Uint8Array, fps: number): number[] {
     loud.push(Math.sqrt(s / per) > 0.1);
   }
   return loud.flatMap((on, i) => (on && !loud[i - 1] ? [i] : []));
+}
+
+/** The longest silence in a video's sound between two moments (ms), in whole ms: a run of milliseconds near zero. */
+export function silentMs(bytes: Uint8Array, fromMs: number, toMs: number): number {
+  const dir = mkdtempSync(join(tmpdir(), "afflatus-silence-"));
+  const file = join(dir, "v.mp4");
+  writeFileSync(file, bytes);
+  const out = spawnSync("ffmpeg", ["-loglevel", "error", "-i", file, "-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", "-"], { maxBuffer: 1 << 28 });
+  rmSync(dir, { recursive: true, force: true });
+  const raw = out.stdout as Buffer;
+  const pcm = new Float32Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length));
+  let run = 0;
+  let most = 0;
+  for (let ms = Math.max(0, Math.floor(fromMs)); ms < toMs && (ms + 1) * 48 <= pcm.length; ms++) {
+    let s = 0;
+    for (let k = ms * 48; k < (ms + 1) * 48; k++) s += pcm[k]! * pcm[k]!;
+    run = Math.sqrt(s / 48) < 0.01 ? run + 1 : 0;
+    most = Math.max(most, run);
+  }
+  return most;
 }
 
 /** The frames a list of [clip, first, last] runs should export as, in order. */

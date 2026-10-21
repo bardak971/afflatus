@@ -366,8 +366,13 @@ class AfflatusH3SeamLatent(io.ComfyNode):
         # both counts are 5k + 2: the clip before's last overlap_t tokens start on a chunk boundary
         lead = prev_video[:, :, prev_t - overlap_t:].to(device=win_video.device, dtype=win_video.dtype)
         video = torch.cat([lead, win_video[:, :, overlap_t:]], dim=2)
+        # the sound: as many of the clip before's last tokens as the window's overlap holds, and the window's own after
+        # those. The window counted its overlap on the clip before's clock (MiniMaxH3GuidedContinuationWindow): after a
+        # 107-frame clip that is 36 tokens, where the overlap on its own clock (audio_t(22)) is 37. Skipping 37 lost a
+        # token of the new sound at the join: a 25 ms jump there, and the file's sound a token short of its picture
+        # (measured on Timeline 24's kept latents, 2026-10-21)
         lead_audio = prev_audio[..., audio_t_at_frame_boundary(prev_frames - overlap_frames):].to(device=win_audio.device, dtype=win_audio.dtype)
-        audio = torch.cat([lead_audio, win_audio[..., audio_t_at_frame_boundary(overlap_frames):]], dim=-1)
+        audio = torch.cat([lead_audio, win_audio[..., int(lead_audio.shape[-1]):]], dim=-1)
         return io.NodeOutput({"samples": NestedTensor((video.contiguous(), audio.contiguous()))})
 
 

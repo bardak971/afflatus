@@ -56,6 +56,20 @@ def test_seam_puts_the_clip_befores_own_last_tokens_where_the_window_overlapped(
     assert video.device == sound.device == "cuda:0"
 
 
+@pytest.mark.parametrize("before_frames", [107, 141, 73, 124])
+def test_seam_takes_as_many_sound_tokens_as_it_skips(before_frames):
+    # the window as MiniMaxH3GuidedContinuationWindow makes it: its overlap's sound counted on the clip before's clock
+    overlap = audio_t_at_frame_boundary(before_frames) - audio_t_at_frame_boundary(before_frames - 22)
+    new = audio_t_at_frame_boundary(before_frames + 119) - audio_t_at_frame_boundary(before_frames)
+    window = av(141, "window", audio=overlap + new)
+    _, sound = streams(AfflatusH3SeamLatent.execute(av(before_frames, "before"), window, 22))
+    # as long as the window's, the clip before's last tokens and then the window's own from the first one after its overlap:
+    # after a 107-frame clip the overlap is 36 tokens, and skipping audio_t(22) = 37 lost the window's first own token
+    assert sound.shape[-1] == overlap + new
+    assert sound.labels[overlap - 1] == ("before", "a", audio_t_at_frame_boundary(before_frames) - 1)
+    assert sound.labels[overlap] == ("window", "a", overlap)
+
+
 def test_seam_refuses_a_window_with_nothing_after_its_overlap():
     with pytest.raises(ValueError, match="no new frames"):
         AfflatusH3SeamLatent.execute(av(73, "before"), av(22, "window"), 22)

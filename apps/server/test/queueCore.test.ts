@@ -7,6 +7,7 @@ import type { QueueCore, Resume } from "../src/queueModel";
 import { store } from "../src/queueStore";
 import { awaitPrompt } from "../src/queueTools";
 import { CHECKPOINT, complete, FAST, get, job, makeApp, makeFake, png, post, until, type TestApp } from "./helpers";
+import { ffmpegThere, synth } from "./framesKit";
 
 let fake: FakeComfy;
 let t: TestApp;
@@ -137,6 +138,22 @@ describe("a render one of whose sources was erased while it rendered", () => {
     const generation = (await store(core, comfy, recipe, INPUT, resume, outputs as never, { id: "job", draft_id: null, folder_id: null, look: null })).id;
     expect(await t.db.selectFrom("assets").select("id").where("generation_id", "=", generation).execute()).toHaveLength(1);
     expect(await t.db.selectFrom("generation_inputs").selectAll().where("generation_id", "=", generation).execute()).toEqual([]);
+  });
+});
+
+describe.skipIf(!ffmpegThere)("a clip continued in the latent", () => {
+  it("is filed as ComfyUI made it: its sound is not cut where its run-up ends", async () => {
+    const core = (t.services.queue as unknown as { core: QueueCore }).core;
+    const comfy = await t.services.comfy();
+    const recipe = t.services.registry.recipe("h3.video")!;
+    // 36 ms were once cut out of the sound after the run-up: the sound then ran ahead of its picture and ended in silence
+    const made = synth(2, 96, 48);
+    fake.files["made.mp4"] = made;
+    const resume = { promptId: "p", seed: 1, outputs: [{ node: "9", role: "result", kind: "video" }], totalSteps: 1, phases: {}, loads: [], startedAt: Date.now(), overlap: { headMs: 917, tailMs: 0, latent: true, seam: true } } as unknown as Resume;
+    const outputs = { "9": { gifs: [{ filename: "made.mp4", subfolder: "", type: "temp" }] } };
+    const generation = (await store(core, comfy, recipe, { description: "a kite" }, resume, outputs as never, { id: "job", draft_id: null, folder_id: null, look: null })).id;
+    const asset = await t.db.selectFrom("assets").select("file_key").where("generation_id", "=", generation).executeTakeFirstOrThrow();
+    expect(Buffer.from(await t.services.storage.get(asset.file_key)).equals(Buffer.from(made))).toBe(true);
   });
 });
 

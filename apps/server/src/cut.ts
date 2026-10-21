@@ -367,29 +367,6 @@ export async function rangeKeep(
 
 export const sec = (ms: number) => (ms / 1000).toFixed(3);
 
-/**
- * The seam of a clip continued in the latent: the model's first free audio token after the guided overlap
- * comes out near-silent, a hole of about 30 ms right at the hand-over (measured at −70 dB against −45 dB
- * around it, in the raw decode too). The hole is cut out of the sound track with a short crossfade and the
- * track padded at its end: the sound then runs 36 ms ahead of the picture from the hand-over on, under what
- * anyone notices. The picture is untouched (stream copy).
- */
-const JOIN_AUDIO_HOLE = { beforeMs: 8, afterMs: 28, fadeMs: 6 };
-export async function repairJoinAudio(source: Media, ext: string, headMs: number): Promise<Uint8Array> {
-  return inTemp(async (dir) => {
-    const input = await onDisk(dir, `in.${ext}`, source);
-    const output = join(dir, "out.mp4");
-    const a = Math.max(0, headMs - JOIN_AUDIO_HOLE.beforeMs) / 1000;
-    const b = (headMs + JOIN_AUDIO_HOLE.afterMs) / 1000;
-    await must(tools.ffmpeg, [
-      "-loglevel", "error", "-y", "-i", input,
-      "-filter_complex", `[0:a]atrim=end=${a.toFixed(3)},asetpts=PTS-STARTPTS[a1];[0:a]atrim=start=${b.toFixed(3)},asetpts=PTS-STARTPTS[a2];[a1][a2]acrossfade=d=${(JOIN_AUDIO_HOLE.fadeMs / 1000).toFixed(3)}:c1=tri:c2=tri,apad[a]`,
-      "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", output,
-    ], { timeout: 10 * 60_000 });
-    return new Uint8Array(await readFile(output));
-  });
-}
-
 /** The sound slowed by `factor` with its pitch kept: atempo takes 0.5 at a time. */
 const slowTempo = (factor: number) => Array.from({ length: Math.round(Math.log2(factor)) }, () => "atempo=0.5").join(",");
 

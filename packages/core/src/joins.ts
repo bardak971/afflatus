@@ -54,6 +54,25 @@ export function joinFade(x: { landedMs?: number; joined: boolean; seamless: bool
 }
 
 /**
+ * How long before a seamless join the sound hands over to the clip after, in the export and the player alike: its head
+ * holds the same moments (the same latent decoded, its sound at the same time, measured r 0.95 to 0.99 on the owner's
+ * chains, 2026-10-21), while the clip before's own sound ends early: 20 to 116 ms of silence at the end of every take
+ * that carries on, measured on all of them, heard as a gap at every join. A seam's sound thus never plays a take's last
+ * moments.
+ */
+export const SOUND_HANDOVER_MS = 120;
+
+/**
+ * How many ms before the join the sound hands over to the clip after (SOUND_HANDOVER_MS), or 0: only at a seamless join, both
+ * clips heard by their own sound, with as much of the clip after's head before where it plays (`shownFromMs`, its visible start
+ * in its video) and of the clip before to play (`beforeMs`).
+ */
+export function soundHandover(x: { seamless: boolean; bothOwnSound: boolean; shownFromMs: number; beforeMs: number }): number {
+  if (!x.seamless || !x.bothOwnSound) return 0;
+  return x.shownFromMs >= SOUND_HANDOVER_MS && x.beforeMs > 2 * SOUND_HANDOVER_MS ? SOUND_HANDOVER_MS : 0;
+}
+
+/**
  * The frames a second of the latents the app keeps (H3's, on LATENT_GRID): frame N of a kept latent is at N / LATENT_FPS
  * seconds. A clip without a kept latent is on its own model's rate (traits.fps), never on this one.
  */
