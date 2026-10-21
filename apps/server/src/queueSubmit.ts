@@ -446,10 +446,28 @@ async function uploadJoinClip(up: Up, spec: InputSpec, value: ClipValue): Promis
   // the frames, the last frame as it was finished and the latent go up at once
   const [frames] = await Promise.all([
     upload(cut.bytes, "mp4"),
-    spec.look && spec.role === "previous" ? uploadLook(up, spec, asset, rawRead?.facts ? null : bytes, at) : null,
+    spec.role === "previous" && (spec.look === true || (spec.look === "matched" && (await colourMatchedChain(db, asset.id)))) ? uploadLook(up, spec, asset, rawRead?.facts ? null : bytes, at) : null,
     finishLatent(up, spec, asset, shown, { at, counts, durationMs: facts.durationMs ?? 0 }),
   ]);
   sent.uploads[spec.id] = frames;
+}
+
+/**
+ * Whether a video's chain was colour-matched to its first frame: its render asked for it, or it carried on from one whose chain
+ * was (walked back through the renders' previous clips, a chain's length at most). Its clip after then carries the match on.
+ */
+export async function colourMatchedChain(db: Db, assetId: string): Promise<boolean> {
+  let id: string | undefined = assetId;
+  for (let hop = 0; id && hop < 64; hop++) {
+    const row = await db.selectFrom("assets").leftJoin("generations", "generations.id", "assets.generation_id").select(["generations.inputs as inputs", "assets.source_id as source"]).where("assets.id", "=", id).executeTakeFirst();
+    if (!row) return false;
+    // a finish stands for its draft
+    if (!row.inputs) { id = row.source ?? undefined; continue; }
+    const inputs = readJson<{ colourMatch?: boolean; previous?: { asset?: string } }>(row.inputs, {});
+    if (inputs.colourMatch === true) return true;
+    id = inputs.previous?.asset;
+  }
+  return false;
 }
 
 /**

@@ -258,7 +258,7 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   }
   const sound = extra.sound ? (decoded: Ref) => extra.sound!(g, decoded, { head: join.head, frames: join.frames }) : undefined;
   const frames = extra.frames ? (images: Ref) => extra.frames!(g, images) : undefined;
-  const made = finish(g, ctx, input, { finished, sampled, fine, vae, audioVae, clip, width, height, sound, frames });
+  const made = finish(g, ctx, input, { finished, sampled, fine, vae, audioVae, clip, width, height, head: join.head, sound, frames });
 
   const { head, tail, latentJoin } = join;
   const ms = (n: number) => Math.round((n / H3_FPS) * 1000);

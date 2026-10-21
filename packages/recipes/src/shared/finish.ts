@@ -55,6 +55,19 @@ export function colourMatched(g: GraphBuilder, ctx: BuildContext, images: Ref, i
 }
 
 /**
+ * A clip that carries on from one whose chain was colour-matched to its first frame (Colour match to the first frame on the
+ * chain's first clip): its frames given the transform that brings its own frame of the clip before's last moment (`at`, a frame
+ * of its run-up) to that frame as it was filed (`previous.look`), one transform for them all. The match is made on the frames
+ * as filed, while the latent the clip after carries on from is the model's: the clip after came out in the model's own
+ * colours, a step at a seamless join (Timeline 7: 17 against 1.2, brightness 61.9 to 66.6 and U 3.8 to 0.1, 2026-10-21).
+ */
+export function colourCarried(g: GraphBuilder, ctx: BuildContext, images: Ref, at: number): Ref {
+  const look = ctx.uploads.previous ? ctx.uploads["previous.look"] : undefined;
+  if (!look || at < 0 || !ctx.has("ColorTransfer")) return images;
+  return g.out("ColorTransfer", { image_target: images, image_ref: g.out("LoadImage", { image: look }), method: "reinhard_lab", source_stats: "target_frame", "source_stats.target_index": at, strength: 1 });
+}
+
+/**
  * From a video family's decoded frames to its saved clip, the same in each: SeedVR2 and an upscale model go
  * before the frame interpolation (their cost grows with the frame count, and an upscale model would enlarge
  * RIFE's made-up frames too), RIFE ×2 when it is asked for and there, the other pixel routes after it, on the

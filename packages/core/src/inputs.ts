@@ -211,8 +211,9 @@ interface ClipInput extends Base {
   /**
    * "previous": its last frame as it was filed (finished: matched, softened, grained) goes up too, as "<id>.look". The frames
    * handed over are the model's own when they were kept, which do not show how the clip looked (Motion transfer's colour match).
+   * "matched": only when that clip's chain was colour-matched to its first frame (H3: the match carried on, see colourCarried).
    */
-  look?: boolean;
+  look?: boolean | "matched";
   /** "source": a person in it can be clicked on its first frame (a swap's who is replaced), kept as the value's `pick`. */
   pick?: boolean;
 }
