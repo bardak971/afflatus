@@ -20,7 +20,7 @@ function place(o: Partial<KeyPlace> & { inside?: string } = {}): KeyPlace {
 }
 
 /** The editor's actions, each a spy, around a timeline 10 s long with the playhead at 2 s. */
-function editor(o: Partial<{ range: TimeRange | null; selected: string | null; removing: boolean; canUndo: boolean; picked: boolean; at: number; where: () => unknown }> = {}) {
+function editor(o: Partial<{ range: TimeRange | null; selected: string | null; removing: boolean; canUndo: boolean; picked: boolean; at: number; where: () => unknown; source: boolean }> = {}) {
   let range = o.range ?? null;
   const seek = vi.fn();
   const a = {
@@ -37,6 +37,7 @@ function editor(o: Partial<{ range: TimeRange | null; selected: string | null; r
     musicOpenNow: { current: false }, closeMusicNow: { current: vi.fn() }, removeOpenNow: { current: vi.fn(() => false) },
     renderNow: { current: vi.fn() }, jumpNow: { current: vi.fn() }, splitNow: { current: vi.fn() }, takeNow: { current: vi.fn() },
     trackKeys: { current: { zoom: vi.fn(), fit: vi.fn() } },
+    sourceMarkNow: { current: o.source ? vi.fn(() => true) : undefined },
     setSelected: vi.fn(), setPicked: vi.fn(),
   };
   return { a: a as unknown as KeyActions & typeof a, seek, range: () => range };
@@ -68,6 +69,15 @@ describe("the timeline editor's keys: playing and moving about", () => {
     const fresh = editor({ at: 3000 });
     playbackKey(key("o"), place(), fresh.a);
     expect(fresh.range()).toEqual({ inMs: 0, outMs: 3000 });
+  });
+
+  it("with the source on the stage, gives I and O to the source's In and Out, the range left as it was", () => {
+    const { a, range } = editor({ source: true });
+    expect(playbackKey(key("i"), place(), a)).toBe(true);
+    expect(playbackKey(key("o"), place(), a)).toBe(true);
+    expect(a.sourceMarkNow.current).toHaveBeenNthCalledWith(1, "in");
+    expect(a.sourceMarkNow.current).toHaveBeenNthCalledWith(2, "out");
+    expect(range()).toBeNull();
   });
 
   it("loops only with a range, and leaves I, O and L to a field", () => {

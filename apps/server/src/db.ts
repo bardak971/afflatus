@@ -261,6 +261,8 @@ export interface Tables {
     mood: string | null;
     /** Its source lane: a long video made into clips window by window (JSON, timelineSource.ts SourcePlan); null = none. */
     source?: string | null;
+    /** The clips of its voice recordings set aside by a trim, by recording (JSON, Timelines.trimRecording); null = none. */
+    recordings?: string | null;
     created_at: string;
     updated_at: string;
   };

@@ -54,6 +54,8 @@ export interface KeyActions {
   splitNow: RefObject<(only?: string | null) => void>;
   takeNow: RefObject<(by: -1 | 1) => void>;
   trackKeys: RefObject<TrackKeys | null>;
+  /** I and O with the source on the stage: its In or Out at the playhead, not the range's; true when it took the key. */
+  sourceMarkNow: RefObject<((which: "in" | "out") => boolean) | undefined>;
   setSelected: Dispatch<SetStateAction<string | null>>;
   setPicked: Dispatch<SetStateAction<Set<string>>>;
 }
@@ -112,6 +114,7 @@ export function playbackKey(e: KeyboardEvent, { el, typing, open, held, plain }:
       if (a.rangeRef.current) a.player.current?.seek(a.rangeRef.current.inMs);
       return true;
     }
+    if (a.sourceMarkNow.current?.("in")) return true;
     const at = a.clock.get();
     a.setRange((r) => (r ? { inMs: at, outMs: Math.max(at, r.outMs) } : { inMs: at, outMs: a.totalRef.current }));
     return true;
@@ -122,6 +125,7 @@ export function playbackKey(e: KeyboardEvent, { el, typing, open, held, plain }:
       if (a.rangeRef.current) a.player.current?.seek(a.rangeRef.current.outMs);
       return true;
     }
+    if (a.sourceMarkNow.current?.("out")) return true;
     const at = a.clock.get();
     a.setRange((r) => (r ? { inMs: Math.min(at, r.inMs), outMs: at } : { inMs: 0, outMs: at }));
     return true;

@@ -14,7 +14,7 @@ import type { TrackKeys } from "./Track";
  * fills the refs it returns for the keys whose actions it holds (render, jump, split, take, the track's zoom). What each
  * key does is editorKeys.ts's, by concern.
  */
-export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canRedo, remove, removing = false, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameMs, selected, setSelected, setPicked, musicOpen, closeMusic, removeOpen }: {
+export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canRedo, remove, removing = false, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameMs, selected, setSelected, setPicked, musicOpen, closeMusic, removeOpen, sourceMark }: {
   clock: Clock;
   player: RefObject<PlayerHandle | null>;
   /** Play or pause (the range when there is one). */
@@ -47,6 +47,8 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
   closeMusic?(): void;
   /** Delete with no clip picked or selected: what is open in the column goes (the source); true when something did. */
   removeOpen?(): boolean;
+  /** I and O with the source on the stage: its In or Out at the playhead; true when it took the key. */
+  sourceMark?(which: "in" | "out"): boolean;
 }) {
   // what changes at every render, read by the listener through refs
   const frameRef = useRef(frameMs);
@@ -59,6 +61,8 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
   closeMusicNow.current = closeMusic;
   const removeOpenNow = useRef(removeOpen);
   removeOpenNow.current = removeOpen;
+  const sourceMarkNow = useRef(sourceMark);
+  sourceMarkNow.current = sourceMark;
   // set by the press that removes, at once; let go once the removal is back (or another clip is selected: a removal
   // whose pending state never showed does not leave Delete dead)
   const removingNow = useRef(false);
@@ -79,7 +83,7 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
   useEffect(() => {
     const acts: KeyActions = {
       clock, player, toggle, undo, canUndo, redo, canRedo, remove, removing: removingNow, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow,
-      frameRef, selectedNow, musicOpenNow, closeMusicNow, removeOpenNow, renderNow, jumpNow, splitNow, takeNow, trackKeys, setSelected, setPicked,
+      frameRef, selectedNow, musicOpenNow, closeMusicNow, removeOpenNow, sourceMarkNow, renderNow, jumpNow, splitNow, takeNow, trackKeys, setSelected, setPicked,
     };
     const onKey = (e: KeyboardEvent) => {
       const place = keyPlace(e);
