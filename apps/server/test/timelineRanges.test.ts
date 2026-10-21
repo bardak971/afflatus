@@ -305,6 +305,13 @@ describe.skipIf(!ffmpegThere)("a clip's take, trimmed on the timeline", { timeou
     expect(input.seed).not.toBe(-1);
     // the render is not run here: taken out of the queue
     await call("POST", `/api/jobs/${lat.jobs[0]}/cancel`);
+    // the latent route with Face refine (the rethink's Finish, step 10): the faces redrawn in the same job, after the re-sample
+    const latFace = await call("POST", `/api/timelines/${tl}/finish`, { route: "latent", factor: 2, face: true, faceDenoise: 0.4, redo: true, clips: [a] });
+    expect(latFace.jobs).toHaveLength(1);
+    const latFaceJob = await t.db.selectFrom("jobs").selectAll().where("id", "=", latFace.jobs[0]).executeTakeFirstOrThrow();
+    expect(JSON.parse(latFaceJob.inputs)).toMatchObject({ upscale: "Latent: re-sampled", faceRefine: true, faceRefineDenoise: 0.4 });
+    expect(JSON.parse(latFaceJob.inputs).faceRefineOnly).toBeFalsy();
+    await call("POST", `/api/jobs/${latFace.jobs[0]}/cancel`);
     // Face refine from the same kept latent: the clip's own recipe, seed and form, its faces only redrawn, nothing enlarged
     const face = await call("POST", `/api/timelines/${tl}/finish`, { route: "face", factor: 2, faceDenoise: 0.4, redo: true, clips: [a] });
     expect(face.jobs).toHaveLength(1);

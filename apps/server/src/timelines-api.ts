@@ -158,7 +158,7 @@ const exportBody = z.strictObject({
 const finishBody = z.strictObject({
   route: z.enum(["seedvr", "latent", "rtx", "model", "face"]), factor: z.number().min(1).max(4), colour: z.enum(["lab", "wavelet", "adain", "none"]).optional(), upscaleModel: z.string().max(200).optional(), seedvrFrames: z.number().int().min(0).max(49).optional(),
   sharpen: z.number().min(0).max(1).optional(), latentDenoise: z.number().min(0.05).max(0.6).optional(), latentSteps: z.number().int().min(1).max(6).optional(),
-  faceDenoise: z.number().min(0.3).max(0.6).optional(), redo: z.boolean().default(false), clips: z.array(z.string()).optional(),
+  faceDenoise: z.number().min(0.3).max(0.6).optional(), face: z.boolean().optional(), redo: z.boolean().default(false), clips: z.array(z.string()).optional(),
 });
 
 /** How a slow-motion job makes its frames: RIFE on the GPU when this ComfyUI is up and has it, else ffmpeg on the processor. */
@@ -625,7 +625,9 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
       if (why) { skipped.push({ clip: i + 1, why }); continue; }
       const kept = await s.db.selectFrom("assets").select("latent_key").where("id", "=", draft.asset.id).executeTakeFirst();
       if (!kept?.latent_key) { skipped.push({ clip: i + 1, why: "its latent was not kept (rendered before Afflatus kept them, or without its node pack): finish it with SeedVR2, RTX or a model" }); continue; }
-      plan.push({ kind: "render", recipe: gen.recipe, input: { ...gen.inputs, seed: gen.seed, upscale: "Latent: re-sampled", upscaleBy: b.factor, upscaleDenoise: b.latentDenoise ?? 0.15, upscaleSteps: b.latentSteps ?? 2 }, opts: {
+      // with Face refine asked for, on a model that offers it: its faces redrawn in the same job, after the re-sample
+      const refine = b.face && refinesFaces(s.registry.recipe(gen.recipe)) ? { faceRefine: true, faceRefineDenoise: b.faceDenoise ?? 0.45 } : {};
+      plan.push({ kind: "render", recipe: gen.recipe, input: { ...gen.inputs, seed: gen.seed, upscale: "Latent: re-sampled", upscaleBy: b.factor, upscaleDenoise: b.latentDenoise ?? 0.15, upscaleSteps: b.latentSteps ?? 2, ...refine }, opts: {
         // the pictures its draft flipped are flipped again: the finish re-samples the draft, made from them as they were sent
         label, clip: { id: clip.id, fit: false, mirror: gen.mirror }, look: clip.look ?? view.look, folder, finishedFrom: from,
       } });
@@ -640,7 +642,8 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
 }
 
 /** A recipe whose form offers Face refine (the H3 forms): its clips can be finished that way. */
-const refinesFaces = (recipe: { inputs: Array<{ id: string }> } | undefined): boolean => Boolean(recipe?.inputs.some((input) => input.id === "faceRefineOnly"));
+/** A model whose takes can have their faces redrawn from a finish: it says so in its traits (H3's five forms). */
+const refinesFaces = (recipe: { traits?: { faceRefine?: string } | null } | undefined): boolean => Boolean(recipe?.traits?.faceRefine);
 
 /**
  * The draft's generation, for a finish made from its own kept latent (Face refine), or why there is none: rendered

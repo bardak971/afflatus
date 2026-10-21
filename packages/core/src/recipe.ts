@@ -84,6 +84,11 @@ export interface VideoTraits {
    * A recipe that makes a long source window by window (Motion transfer on a timeline's source lane): the most and fewest
    * frames a job takes, and the frames of the clip before a window carries on from (sourceWindows.ts).
    */
+  /**
+   * Its takes can have their faces redrawn after the render (H3's Face refine): from a finish of the whole video, alone or
+   * with the latent re-sample. The input that turns it on.
+   */
+  faceRefine?: string;
   windows?: {
     most: number;
     least: number;

@@ -41,6 +41,8 @@ const finishSchema = z.object({
   latentSteps: z.number().int().min(1).max(6).default(2),
   /** Face refine's denoise on the smallest faces. */
   faceDenoise: z.number().min(0.3).max(0.6).default(0.45),
+  /** Face refine with the latent re-sample, in the same job, on the clips whose model offers it (the rethink's Finish, step 10). */
+  face: z.boolean().default(false),
   /** SeedVR2: frames restored together, 0 = by the frame's size. */
   seedvrFrames: z.number().int().min(0).max(49).default(0),
   /** RCAS after a pixel route (SeedVR2, RTX, a model), 0 to 1; 0 = off. */

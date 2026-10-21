@@ -57,3 +57,11 @@ describe("how a clip meets the one before it, by default (the join rule)", () =>
     expect(joinWay(r("h3.video"), { family: "h3", traits: { continues: false } })).toBe("cut");
   });
 });
+
+describe("recipes whose takes a finish can Face refine", () => {
+  it("every H3 form says so in its traits, naming an input it has; no other recipe", () => {
+    const refining = recipes.filter((r: Recipe<any>) => r.traits?.faceRefine);
+    expect(refining.map((r) => r.id).sort()).toEqual(["h3.lipsync", "h3.motion", "h3.swap", "h3.swapMotion", "h3.video"]);
+    for (const r of refining) expect(r.inputs.some((i) => i.id === r.traits!.faceRefine), r.id).toBe(true);
+  });
+});

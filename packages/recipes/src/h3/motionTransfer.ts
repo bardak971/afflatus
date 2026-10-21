@@ -123,7 +123,7 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
   // last frames, in its latent), each window with its own prompt
   traits: {
     startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID,
-    latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM],
+    latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], faceRefine: "faceRefine",
     windows: { most: SWAP_FRAMES, least: MOTION_LEAST, carried: MOTION_CARRIED, runUp: SWAP_RUN_UP, own: ["description", "happens"] },
   },
   inputs,
