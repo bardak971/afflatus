@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { dryContext, parseInput, sourceWindows, type MediaFacts } from "@afflatus/core";
-import { scailMotion } from "../src/scail/motion";
+import { scailMotion, scailMotion24 } from "../src/scail/motion";
 import { chunkLengths } from "../src/motion/driving";
-import { SCAIL_FPS } from "../src/scail/family";
+import { SCAIL_FPS, SCAIL_H3_GRID } from "../src/scail/family";
 
 type Node = { class_type: string; inputs: Record<string, unknown> };
 type Graph = Record<string, Node>;
@@ -138,6 +138,38 @@ describe("SCAIL-2 carrying on from the clip before", () => {
   });
   it("says it makes a long source window by window, carrying on from the clip before", () => {
     expect(scailMotion.traits).toMatchObject({ continues: "clip", windows: { most: 321, carried: 5 } });
+  });
+});
+
+describe("SCAIL-2 at 24 fps on H3's grid (card #36, hidden while it is tested)", () => {
+  const at24 = (seconds: number) => {
+    const input = parseInput(scailMotion24, { picture: "p1", driving: { asset: "v1" }, drivingSeconds: seconds });
+    const media = { picture: { width: 768, height: 1360 }, driving: { width: 480, height: 854, frames: Math.round(seconds * 24), fps: 24, hasSound: true } };
+    return scailMotion24.build(input, dryContext({ slots, uploads: { picture: "p.png", driving: "d.mp4" }, media }));
+  };
+  const lengthOf = (graph: Graph) => of(graph, "WanSCAILToVideo").map((n) => Number(n.inputs.length));
+  it("makes only counts on both Wan's grid and H3's: 73, 141, 209, 277 frames", () => {
+    for (const n of [73, 141, 209, 277]) expect([(n - 1) % 4, (n - 5) % 17]).toEqual([0, 0]);
+    expect(lengthOf(at24(3.2).graph as Graph)).toEqual([73]);
+    // 5.9 s, H3's longest clip: 141 frames, as an 81-frame chunk and one of 65 (60 new)
+    expect(lengthOf(at24(5.9).graph as Graph)).toEqual([81, 65]);
+    // its longest, 11.5 s: 277 frames in 81-frame chunks
+    expect(at24(11.55).frames).toBe(81);
+    expect(lengthOf(at24(11.55).graph as Graph).reduce((a, b) => a + b - 5, 5)).toBe(277);
+    // the form starts on 141 frames (5.9 s), not on 5 s, which would make 73
+    expect(scailMotion24.inputs.find((i) => i.id === "drivingSeconds")).toMatchObject({ default: 141 / 24 });
+  });
+  it("is a 24 fps recipe to the timeline, its driving video and clip before cut at 24, and not offered", () => {
+    expect(scailMotion24.traits).toMatchObject({ fps: 24, frameGrid: SCAIL_H3_GRID, windows: { most: 277, least: 73, carried: 5 } });
+    const clips = scailMotion24.inputs.filter((i) => i.type === "clip");
+    expect(clips.map((i) => (i.type === "clip" ? i.fps : 0))).toEqual([24, 24]);
+    expect(scailMotion24.hidden).toBe(true);
+    // RIFE is not on by default at 24 (it is at 16)
+    expect(scailMotion24.inputs.find((i) => i.id === "smooth")).toMatchObject({ default: false });
+  });
+  it("leaves the 16 fps recipe as it was", () => {
+    expect(scailMotion.traits).toMatchObject({ fps: 16, frameGrid: { step: 4, offset: 1 }, windows: { most: 321, least: 9 } });
+    expect(scailMotion.hidden).toBeUndefined();
   });
 });
 
