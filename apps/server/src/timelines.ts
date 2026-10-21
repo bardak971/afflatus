@@ -386,9 +386,11 @@ export class Timelines {
     const renderOf = (x: Taken, takes: Taken[]) => {
       const own = x.asset.generation_id ? rendered.get(x.asset.generation_id) : undefined;
       if (own?.measure || !x.take.finished_from) return own;
-      // a finished take (an upscale, made by a cut) is not measured: it has the figures of the take it was finished from,
-      // the same frames, so that clips still compare like for like whether they play their finished take or not
-      const from = takes.find((y) => y.take.id === x.take.finished_from);
+      // a finished take (an upscale, made by a cut) is not measured: it has the figures of the video it was cut from, the
+      // same frames (a Face refine's, when the upscale came after one: its faces), else of the take it was finished from, so
+      // that clips still compare like for like whether they play their finished take or not
+      const cutFrom = x.asset.source_id ? takes.find((y) => y.asset.id === x.asset.source_id && y.asset.generation_id && rendered.get(y.asset.generation_id)?.measure) : undefined;
+      const from = cutFrom ?? takes.find((y) => y.take.id === x.take.finished_from);
       const source = from?.asset.generation_id ? rendered.get(from.asset.generation_id) : undefined;
       return source?.measure ? { genMs: own?.genMs ?? null, measure: source.measure, recipe: own?.recipe ?? source.recipe, facePass: own?.facePass ?? false } : own;
     };
