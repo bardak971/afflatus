@@ -18,7 +18,7 @@ const ROUTES: Array<{ value: FinishSettings["route"]; label: string; detail: str
   { value: "latent", label: "H3 latent re-sample", detail: "H3 clips: the draft's own latent re-sampled larger with the prompt in hand: the same motion, detail the model would have drawn, seamless joins kept. Other clips take SeedVR2" },
   { value: "rtx", label: "RTX Video Super Resolution", detail: "NVIDIA's driver: near real time, steady, modest detail. Windows and an RTX card" },
   { value: "model", label: "Pixel upscale model", detail: "an ESRGAN-type model, frame by frame: fast, sharp, may shimmer" },
-  { value: "face", label: "Face refine (H3)", detail: "H3 clips with a person's picture (the cast's, else the first reference picture): the take's own frames, its faces redrawn closer to the picture, nothing else changed. Other clips are skipped" },
+  { value: "face", label: "Face refine (H3)", detail: "H3 clips with a person's picture (the cast's, else the first reference picture): the take's own frames, its faces redrawn closer to the picture, nothing else changed. Best on slow-moving shots. Other clips are skipped" },
 ];
 const COLOURS = ["lab", "wavelet", "adain", "none"] as const;
 const FALLBACK: FinishSettings = { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.15, latentSteps: 2, faceDenoise: 0.45, seedvrFrames: 0, sharpen: 0 };

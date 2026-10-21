@@ -22,7 +22,7 @@ export const AUDIO_LOCK = "AfflatusH3AudioLock";
 export const FACE_REFINE_INPUTS: InputSpec[] = [
   {
     id: "faceRefine", type: "toggle", label: "Face refine", default: false, section: "out",
-    note: "after the render, the face is cropped, redrawn at a low denoise against the person's picture (the cast's, else the first reference picture) and pasted back. The pose, light and expression stay the render's. It follows the source a little less after it, and arms over the head can be redrawn into the hair",
+    note: "after the render, the face is cropped, redrawn at a low denoise against the person's picture (the cast's, else the first reference picture) and pasted back. The pose, light and expression stay the render's. Best on slow-moving shots: when the person moves a lot, the face follows the source's expression less, and arms over the head can be redrawn into the hair",
   },
   {
     id: "faceRefineDenoise", type: "number", label: "Face refine denoise", min: 0.3, max: 0.6, step: 0.05, default: 0.45, showWhen: "faceRefine", advanced: true, section: "out",
