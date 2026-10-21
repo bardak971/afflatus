@@ -16,7 +16,7 @@ import type { ContextMenu } from "../ContextMenu";
 import type { LoadedEditor } from "./useTimelineEditor";
 import { plural } from "../format";
 import { carriedOf, windowBounds } from "@afflatus/core";
-import { madeFromSource, windowed } from "./track/SourceLane";
+import { madeFromSource, sourceDropClip, windowed } from "./track/SourceLane";
 import type { ClipSource } from "./inspector/clipSource";
 import type { ClipRecording } from "./inspector/clipRecording";
 import { clipsOfRecording } from "./track/RecordingBand";
@@ -150,8 +150,7 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
       // selected, else the first; the owner picked Swap motion on a new clip, then dropped the source, and got Swap
       // character's windows after it, 2026-10-20), its windows then in its place; else the source's model before; else the swap
       const of = (id: string | null | undefined) => e.videoRecipes.find((r) => r.id === id && windowed(r));
-      const empty = (c: Clip) => !c.take && !c.job && Boolean(of(c.recipe));
-      const chosen = (e.current && empty(e.current) ? e.current : undefined) ?? e.t.clips.find(empty);
+      const chosen = sourceDropClip(e.t, e.videoRecipes, e.current);
       const model = of(chosen?.recipe) ?? of(e.t.source?.recipe) ?? of("h3.swap");
       if (!model) {
         edit.mutate({ source: { asset } });

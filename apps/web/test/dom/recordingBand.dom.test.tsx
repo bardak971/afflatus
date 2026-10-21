@@ -18,8 +18,7 @@ const timeline = { id: "zz-test-tl", clips, recordings: [{ asset: sound, parked:
 
 function band() {
   const asked: string[] = [];
-  draw(<RecordingBands timeline={timeline} slots={layout(clips, 40, [model])} recipes={[model]} pps={40} onTrim={(a, f, t) => asked.push(`${a} ${f}–${t}`)} onSelect={(c) => asked.push(`open ${c}`)} />);
-  return asked;
+  return { asked, ...draw(<RecordingBands timeline={timeline} slots={layout(clips, 40, [model])} recipes={[model]} pps={40} onTrim={(a, f, t) => asked.push(`${a} ${f}–${t}`)} onSelect={(c) => asked.push(`open ${c}`)} />) };
 }
 
 describe("a recording on the Audio row", () => {
@@ -29,7 +28,7 @@ describe("a recording on the Audio row", () => {
   });
 
   it("opens its first clip on a click, and slips when its body is dragged", () => {
-    const asked = band();
+    const { asked } = band();
     const body = screen.getByRole("button", { name: /Recording zz-test talk\.wav/ });
     fireEvent.pointerDown(body, { button: 0, clientX: 100 });
     fireEvent.pointerUp(body, { clientX: 100 });
@@ -39,5 +38,25 @@ describe("a recording on the Audio row", () => {
     fireEvent.pointerMove(body, { clientX: 60 });
     fireEvent.pointerUp(body, { clientX: 60 });
     expect(asked.at(-1)).toBe("zz-test-talk 3000–13200");
+  });
+
+  it("moves its start by its left edge and its end by its right one, one trim a release", () => {
+    const { asked, container } = band();
+    const start = container.querySelector<HTMLElement>('[data-tip^="Drag: where the recording starts"]')!;
+    const end = container.querySelector<HTMLElement>('[data-tip^="Drag: where the recording ends"]')!;
+    // 40 px a second: the left edge dragged 40 px to the right starts it a second later, its end where it was
+    fireEvent.pointerDown(start, { button: 0, clientX: 100 });
+    fireEvent.pointerMove(start, { clientX: 140 });
+    fireEvent.pointerUp(start, { clientX: 140 });
+    expect(asked).toEqual(["zz-test-talk 3000–12200"]);
+    // the right edge dragged 40 px to the left ends it a second sooner, its start where it was
+    fireEvent.pointerDown(end, { button: 0, clientX: 500 });
+    fireEvent.pointerMove(end, { clientX: 460 });
+    fireEvent.pointerUp(end, { clientX: 460 });
+    expect(asked).toEqual(["zz-test-talk 3000–12200", "zz-test-talk 2000–11200"]);
+    // a press on an edge without a move trims nothing: it opens the first clip, as a click on the band does
+    fireEvent.pointerDown(end, { button: 0, clientX: 500 });
+    fireEvent.pointerUp(end, { clientX: 500 });
+    expect(asked.slice(2)).toEqual(["open c1"]);
   });
 });
