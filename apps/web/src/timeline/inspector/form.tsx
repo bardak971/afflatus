@@ -1,6 +1,6 @@
 import type { ComponentProps } from "react";
 import { ChevronDown, Wand2 } from "lucide-react";
-import { removedSaid, secondsInput } from "@afflatus/core";
+import { joinWay, removedSaid, secondsInput } from "@afflatus/core";
 import { thumbUrl, type Clip, type RecipeInfo, type Take, type Timeline } from "../../api";
 import { useEntities, useRecipes } from "../../data";
 import { WritingHelp } from "../../WritingHelp";
@@ -54,13 +54,23 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
   const all = useRecipes();
   const entities = useEntities();
   const edit = useInputEdits(stored, onInputs);
+  // how each model would meet the clip before, said beside it before it is picked (the join rule, joinWay): a still or no clip
+  // before says nothing. The forms made window by window come last, under where they are made from
+  const prior = index > 0 && before?.kind === "video" && before.recipe ? all.data?.recipes.find((r) => r.id === before.recipe) : undefined;
+  const WAY = { seamless: "seamless", frames: "carries on", cut: "a cut" } as const;
+  const ordered = [...recipes.filter((r) => !r.traits?.windows), ...recipes.filter((r) => r.traits?.windows)];
   const picker = (
     <Select
       label="Model"
       value={recipe?.id ?? ""}
       onChange={onRecipe}
       placeholder={recipes.length ? "Choose a model for this clip" : "No video model yet: import a workflow"}
-      options={recipes.map((r) => ({ value: r.id, label: recipeLabel(all.data?.families.find((f) => f.id === r.family)?.name, r.title), detail: r.summary }))}
+      options={ordered.map((r) => ({
+        value: r.id,
+        label: recipeLabel(all.data?.families.find((f) => f.id === r.family)?.name, r.title),
+        detail: r.summary,
+        ...(r.traits?.windows ? { group: "From a source", note: "a window of the source" } : prior ? { note: `${WAY[joinWay(prior, r)]} after clip ${index}` } : {}),
+      }))}
     />
   );
   // nothing renders it yet: only the choice of what does
