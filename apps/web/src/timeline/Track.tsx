@@ -33,7 +33,7 @@ const PIN_AFTER_MS = 250;
  * and the music under all of it. Things are dragged onto it (useTrackDrop); a clip's edges shorten it (useStretch); the
  * range is drawn and snapped on it (useRangeDrag); it zooms and fits (useTrackZoom).
  */
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, onSource, sourceSelected, onSelectSource, onOpenSource, onRemoveSource, onStretchSource, onSplitSource, onPeekSource, sourcePlace, sourceMode, sourceLabel, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, onSource, onRecording, sourceSelected, onSelectSource, onOpenSource, onRemoveSource, onStretchSource, onSplitSource, onPeekSource, sourcePlace, sourceMode, sourceLabel, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -89,6 +89,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onTransition?(clip: string, transition: Transition | null): void;
   /** A video dropped on the source lane, and the lane opened in the column (and whether it is). */
   onSource?(asset: string): void;
+  /** A voice recording made into Lip sync clips (dropped past the clips, or on an empty one). */
+  onRecording?(asset: string, clip?: string): void;
   sourceSelected?: boolean;
   onSelectSource?(): void;
   /** The source's video in the viewer; the source taken away. */
@@ -154,7 +156,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const fitMs = Math.max(totalMs, toComeMs, sourcePlace ? sourcePlace.atMs + sourcePlace.lengthMs : 0);
   const xOf = (clientX: number) => clientX - (inner.current?.getBoundingClientRect().left ?? 0);
 
-  const { over, dragging, draggedOf, hover, overClip, overJoin, drop, hint, legend, lineAt, leave } = useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic, onTransition: onTransition ? (clip, kind) => onTransition(clip, newTransition(kind)) : undefined, onSource });
+  const { over, dragging, draggedOf, hover, overClip, overJoin, drop, hint, legend, lineAt, leave } = useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic, onTransition: onTransition ? (clip, kind) => onTransition(clip, newTransition(kind)) : undefined, onSource, onRecording });
 
   // ---- the range: In and Out, swept on the ruler with Shift, or dragged by their brackets; they snap to cuts, to the playhead and to quiet moments
   const { playEnd, measureOf, motion, snapRange, band, rangeMenuAt } = useRangeDrag({ slots, clips, timeline, pps, clock, snapQuiet, range, xOf, onRangeMenu });
@@ -180,7 +182,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
         <div
           ref={scroller}
           className="relative min-w-0 grow overflow-x-auto overflow-y-hidden"
-          onDragOver={(e) => hover(e, draggedOf(e) === "sound" || draggedOf(e) === "transition" ? null : { kind: "insert", index: clips.length })}
+          onDragOver={(e) => hover(e, draggedOf(e) === "sound" ? (onRecording ? { kind: "recording" } : null) : draggedOf(e) === "transition" ? null : { kind: "insert", index: clips.length })}
           onDragLeave={(e) => {
             if (!e.currentTarget.contains(e.relatedTarget as Node | null)) leave();
           }}

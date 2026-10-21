@@ -1,7 +1,7 @@
 import { chatJson } from "./llm";
 import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
-import { joinWay, musicPlan, plural, sameWindowGrid, typedSeed, type ClipMusic, type InputSpec, type Transition } from "@afflatus/core";
+import { joinWay, musicPlan, plural, recordingParts, sameWindowGrid, typedSeed, type ClipMusic, type InputSpec, type Transition } from "@afflatus/core";
 import { newId, now, OWNER, type Db } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError, notFound } from "./errors";
@@ -836,6 +836,61 @@ export class Timelines {
         const placedPlan = { ...(again ? { ...plan, clip: null, ...(apart ? { apart } : {}) } : { ...plan, atMs: startsAt - plan.fromMs, clip: null }), recipe: recipe.id };
         await tx.updateTable("timelines").set({ source: JSON.stringify(placedPlan), updated_at: now() }).where("id", "=", timelineId).execute();
         if (picture) await this.keep(picture, tx);
+        return made;
+      });
+    });
+    await this.touch(timelineId);
+    return ids;
+  }
+
+  /**
+   * A voice recording dropped on the track made into Lip sync clips: cut at its pauses (recordingParts) into parts of about
+   * `seconds` (5 by default) within what one clip takes, one clip a part, each carrying on from the one before. In place of
+   * the empty clip it was dropped on, else after the last clip. The model is the one whose form takes a recording laid on a
+   * clip's sound part by part (H3 · Lip sync), with the settings of the last clip of it. One step for Undo; nothing renders.
+   */
+  async makeFromRecording(timelineId: string, o: { asset: string; clip?: string; seconds?: number }): Promise<string[]> {
+    const recipe = this.registry.recipes().find((r) => r.output === "video" && r.inputs.some((i) => i.type === "audio" && i.role === "sound" && i.window));
+    const spec = recipe?.inputs.find((i) => i.type === "audio" && i.role === "sound" && i.window);
+    if (!recipe || !spec || spec.type !== "audio" || !spec.window) throw httpError("No model on this Afflatus makes a clip around a recording (MiniMax H3 · Lip sync).");
+    const sound = await this.assetRow(o.asset);
+    if (!sound || (sound.kind !== "audio" && sound.kind !== "video") || !sound.duration_ms) throw httpError("A recording has to be a sound (or a video's sound) of the library.");
+    const { pauses } = await this.media.pauses(sound.id);
+    const fits = spec.window.fits;
+    const leastS = fits?.min ?? 1;
+    const mostS = fits ? fits.frames / fits.fps - (fits.pad ?? 0) : 15;
+    const parts = recordingParts({ fromS: 0, toS: sound.duration_ms / 1000, wantS: o.seconds ?? 5, leastS, mostS, pauses });
+    if (!parts.length) throw httpError("The recording is too short for a clip.");
+    const ids = await this.history.oneAtATime(timelineId, async () => {
+      await this.row(timelineId);
+      const all = await this.placed(timelineId);
+      // the empty clip it was dropped on: the clips go in its place, with what was written in it (its scene)
+      const replaced = o.clip ? all.findIndex((p) => p.clip.id === o.clip && !p.clip.take_id && p.clip.kind === "video") : -1;
+      const index = replaced >= 0 ? replaced : all.length;
+      const own = ownInputIds(recipe);
+      const kept = replaced >= 0 && all[replaced]!.clip.recipe_id === recipe.id ? (JSON.parse(all[replaced]!.clip.inputs) as Record<string, unknown>) : {};
+      const form = Object.fromEntries(Object.entries({ ...settingsOf(recipe, all, index), ...kept }).filter(([k]) => own.has(k) && k !== spec.id && k !== spec.window!.start && k !== spec.window!.seconds && k !== "seed"));
+      const before = index > 0 ? all[index - 1] : undefined;
+      // the first carries on from the clip before when it can (H3 to Lip sync: in the latent), else it starts on its own
+      const opens = !before || before.clip.kind !== "video" || !before.clip.recipe_id || joinWay(this.registry.recipe(before.clip.recipe_id), recipe) === "cut";
+      await this.remember(timelineId, `the ${plural(parts.length, "Lip sync clip")} made from the recording`);
+      return this.db.transaction().execute(async (tx) => {
+        const order: Array<{ clip: { id: string } }> = all.map((p) => ({ clip: { id: p.clip.id } }));
+        if (replaced >= 0) {
+          await tx.deleteFrom("clips").where("id", "=", o.clip!).execute();
+          order.splice(replaced, 1);
+        }
+        const made: string[] = [];
+        for (const [k, part] of parts.entries()) {
+          const clip: NewClip = {
+            kind: "video", recipeId: recipe.id, joined: k === 0 && opens ? "cut" : "continue", still: null, take: null, asset: undefined, look: null,
+            inputs: { ...form, [spec.id]: sound.id, [spec.window!.start]: part.start, [spec.window!.seconds]: part.seconds },
+          };
+          const id = await this.planner.insertClip(timelineId, order, index + k, clip, tx);
+          order.splice(index + k, 0, { clip: { id } });
+          made.push(id);
+        }
+        await this.keep(sound.id, tx);
         return made;
       });
     });

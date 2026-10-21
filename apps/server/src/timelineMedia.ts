@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { frameName, nameOf } from "./autoName";
-import { CutError, filmStrip, frameAt, peekAt } from "./cut";
+import { CutError, filmStrip, frameAt, pausesOf, peekAt } from "./cut";
 import { colourNudge, MATCH, type FrameMeans, type Means, measureOf, meansAlong, meansWithin, MOTION_RATE, scenesOf } from "./measure";
 import { joinJump } from "./joinScore";
 import { newId, now } from "./db";
@@ -174,6 +174,20 @@ export class TimelineMedia {
     const kept = have ? readKept<{ cuts: number[] }>(have) : null;
     if (kept && Array.isArray(kept.cuts)) return kept;
     const made = { cuts: await scenesOf(await this.source(asset), extOf(asset.mime)) };
+    await storage.put(key, new TextEncoder().encode(JSON.stringify(made)));
+    return made;
+  }
+
+  /** The pauses of a sound (or a video's sound), read once and kept beside it, as its scene cuts are: where a recording is cut into Lip sync clips. */
+  async pauses(assetId: string): Promise<{ pauses: Array<{ start: number; end: number }> }> {
+    const { storage } = this.core;
+    const asset = await this.core.assetRow(assetId);
+    if (!asset || (asset.kind !== "audio" && asset.kind !== "video")) throw notFound("this recording");
+    const key = `pauses/${asset.id.slice(0, 2)}/${asset.id}.json`;
+    const have = await storage.get(key).catch(() => null);
+    const kept = have ? readKept<{ pauses: Array<{ start: number; end: number }> }>(have) : null;
+    if (kept && Array.isArray(kept.pauses)) return kept;
+    const made = { pauses: await pausesOf(await this.source(asset), extOf(asset.mime)) };
     await storage.put(key, new TextEncoder().encode(JSON.stringify(made)));
     return made;
   }
