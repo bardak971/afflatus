@@ -16,6 +16,7 @@ const windowed = recipes.flatMap((r: Recipe<any>) => {
 /** What else each form needs to parse: a picture, the person to replace, the cast's photo. */
 const BASE: Record<string, Record<string, unknown>> = {
   "scail.motion": { picture: "p1" },
+  "scail.motion24": { picture: "p1" },
   "h3.swap": { who: "the man", references: [{ asset: "r1", role: "person" }] },
   "h3.swapMotion": { who: "the man", references: [{ asset: "r1", role: "person" }] },
   "h3.motion": { picture: "p1" },

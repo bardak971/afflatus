@@ -20,7 +20,7 @@ import { sdxlFixFace, sdxlOutpaint, sdxlPaintOver, sdxlRedraw, sdxlSharper } fro
 import { qwen, qwenEdit, qwenFixFace, qwenOutpaint, qwenPaintOver, qwenPicture, qwenRedraw, qwenSharper } from "./qwen";
 import { qwen21, qwen21Edit, qwen21MotionPicture, qwen21Picture } from "./qwen21";
 import { scail } from "./scail/family";
-import { scailMotion } from "./scail/motion";
+import { scailMotion, scailMotion24 } from "./scail/motion";
 import { removeBackground, seedvrPicture, tools } from "./tools";
 import { wan } from "./wan/family";
 import { wanVideo } from "./wan/video";
@@ -44,6 +44,7 @@ export const recipes: Recipe<any>[] = [
   h3MotionTransfer,
   wanVideo,
   scailMotion,
+  scailMotion24,
   ltxVideo,
   ltx25Video,
   removeBackground, seedvrPicture,
@@ -55,7 +56,7 @@ export const recipeById = (id: string) => recipes.find((r) => r.id === id);
 export { h3, h3Video, klein, krea2, krea2Picture, sdxl, sdxlTextToPicture, tools, wan, wanVideo };
 export { wanCanvas, wanFrames, WAN_FPS } from "./wan/family";
 export { ltx, ltxVideo, ltx25, ltx25Video };
-export { scail, scailMotion };
+export { scail, scailMotion, scailMotion24 };
 export { flux, fluxEdit, fluxPicture, qwen, qwenEdit, qwenPicture, qwen21, qwen21Edit, qwen21Picture, zimage, zimagePicture };
 export { ltxCanvas, ltxFrames, ltxFramesAt, LTX_FPS } from "./ltx/family";
 export { LTX25_FPS } from "./ltx25/family";

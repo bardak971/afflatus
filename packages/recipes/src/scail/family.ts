@@ -1,4 +1,4 @@
-import { defineFamily, wordCount, type Family } from "@afflatus/core";
+import { defineFamily, wordCount, type Family, type FrameGrid } from "@afflatus/core";
 import { wan } from "../wan/family";
 
 const HF = "https://huggingface.co/Comfy-Org/SCAIL-2/resolve/main";
@@ -75,3 +75,8 @@ export const SCAIL_FPS = 16;
 /** One chunk as SCAIL-2 was trained: 81 frames, each after the first anchored on the last 5 of the one before (a 76-frame step). */
 export const SCAIL_CHUNK = 81;
 export const SCAIL_CARRIED = 5;
+/**
+ * The frame counts on both Wan's grid (4k + 1, every SCAIL-2 job) and H3's (17k + 5): 5, 73, 141, 209, 277…, every 68 frames
+ * (2.83 s at 24 fps). SCAIL-2 at 24 fps makes these, so that a clip of it is as long as an H3 clip can be.
+ */
+export const SCAIL_H3_GRID: FrameGrid = { step: 68, offset: 5 };

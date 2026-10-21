@@ -33,6 +33,10 @@ export interface MotionShape {
   fps: number;
   most: number;
   least: number;
+  /** The frame counts a job makes (MOTION_GRID when left out); SCAIL-2 at 24 fps: the counts on both its grid and H3's. */
+  grid?: FrameGrid;
+  /** The part's length a form starts on (5 s when left out): on a sparse grid, a length it makes whole (5 s at 24 fps on H3's grid makes 3). */
+  seconds?: number;
 }
 
 /**
@@ -57,11 +61,11 @@ export function motionInputs(shape: MotionShape, placeholder = "A man in a black
     // the driving video first: it says where the clip starts, and which of its frames a picture is made from
     {
       id: "driving", type: "clip", role: "source", label: "Driving video", frames: [shape.most], fps: shape.fps, whole: true,
-      window: { start: "drivingStart", seconds: "drivingSeconds", fits: { frames: shape.most, fps: shape.fps, pad: 0, min: shape.least / shape.fps, grid: MOTION_GRID } },
+      window: { start: "drivingStart", seconds: "drivingSeconds", fits: { frames: shape.most, fps: shape.fps, pad: 0, min: shape.least / shape.fps, grid: shape.grid ?? MOTION_GRID } },
       note: `how it moves: the body, the hands, the face. One job takes ${said} s of it; a longer video goes on a timeline, part by part`,
     },
     { id: "drivingStart", type: "number", label: "Driving video: start", min: 0, max: 3600, step: 0.1, default: 0, unit: " s", showWhen: "driving" },
-    { id: "drivingSeconds", type: "number", label: "Driving video: length", min: least, max: most, step: 0.01, default: Math.min(5, said), unit: " s", showWhen: "driving" },
+    { id: "drivingSeconds", type: "number", label: "Driving video: length", min: least, max: most, step: 0.01, default: Math.min(shape.seconds ?? 5, said), unit: " s", showWhen: "driving" },
     {
       id: "picture", type: "image", role: "source", label: "Picture",
       note: "what moves. Its room, its light and its people are kept: only the motion comes from the video. Front-facing works best, in the driving video's own shape: the video is cut to the picture's shape from the centre, and a video of another shape loses its edges",
@@ -132,7 +136,7 @@ export function motionCanvas(input: MotionValues, ctx: BuildContext, grid: numbe
 /** How many frames the job makes: the part handed over (or asked for), floored to the model's grid, within its limits. */
 export function motionFrames(input: MotionValues, ctx: Pick<BuildContext, "media">, shape: MotionShape): number {
   const have = ctx.media.driving?.frames ?? Math.round(input.drivingSeconds * shape.fps);
-  return Math.max(shape.least, gridAtOrBefore(Math.min(shape.most, have), MOTION_GRID));
+  return Math.max(shape.least, gridAtOrBefore(Math.min(shape.most, have), shape.grid ?? MOTION_GRID));
 }
 
 /**
