@@ -28,6 +28,8 @@ export interface Take {
   renderMs: number | null;
   /** How its own part looks, measured on its frames when it was rendered here; null otherwise. */
   measure: Measure | null;
+  /** The recipe it was rendered with, when it was rendered here; null otherwise. */
+  recipe: string | null;
 }
 /** How a take's own part looks, measured on its real frames when it was rendered (the server's lookOf). Older takes carry the first two only. */
 export interface Measure {
