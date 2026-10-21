@@ -222,8 +222,8 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
 export const scailMotion = scailAt({ id: "scail.motion", title: "Motion transfer", fps: SCAIL_FPS, grid: MOTION_GRID, most: 321, least: 9 });
 
 /**
- * The same at 24 fps on H3's grid, not offered (hidden) while the test renders say whether SCAIL-2, made for 16, holds its
- * motion and faces at 24: 73 to 277 frames (3 to 11.5 s) a job, 141 (5.9 s, H3's longest) to start on, its 81-frame chunks
- * then 3.4 s each.
+ * The same at 24 fps on H3's grid, offered beside it, not in its place (the owner, 2026-10-21: the test held, but one of
+ * its renders came out oddly, so 16 stays the default): 73 to 277 frames (3 to 11.5 s) a job, 141 (5.9 s, H3's longest) to
+ * start on, its 81-frame chunks then 3.4 s each.
  */
-export const scailMotion24 = scailAt({ id: "scail.motion24", title: "Motion transfer (24 fps)", fps: 24, grid: SCAIL_H3_GRID, most: 277, least: 73, seconds: 141 / 24, hidden: true });
+export const scailMotion24 = scailAt({ id: "scail.motion24", title: "Motion transfer (24 fps)", fps: 24, grid: SCAIL_H3_GRID, most: 277, least: 73, seconds: 141 / 24 });
