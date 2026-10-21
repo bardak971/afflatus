@@ -3,6 +3,9 @@ import { lookOf } from "../src/measure";
 import { runUpBreak } from "../src/joinScore";
 import { FFMPEG_TIMEOUT, ffmpegMade, ffmpegThere } from "./clipKit";
 
+/** Past this a join shows (the web's SHOWS, attention.ts). */
+const SHOWS_AT = 3;
+
 /** A test clip of a second (two with a hard cut at one second: the picture inverts there), crisp or blurred and darkened, with a 330 Hz tone or silent, made with ffmpeg. Skipped where ffmpeg is not installed. */
 const makeClip = (opts: { soft?: boolean; tone?: boolean; cut?: boolean }) =>
   ffmpegMade([
@@ -51,5 +54,12 @@ describe.skipIf(!ffmpegThere)("the look of a clip", { timeout: FFMPEG_TIMEOUT },
     expect(await runUpBreak(cut!, "mp4", 1000)).toBeGreaterThan(3);
     expect(await runUpBreak(crisp!, "mp4", 500)).toBeLessThan(2.5);
     expect(await runUpBreak(crisp!, "mp4", 5000)).toBeNull();
+  });
+
+  it("weighs a jump in a still shot against at least LEAST_MOTION: a step of 2 grey levels does not show, one of 12 does", async () => {
+    // a locked-off shot whose picture steps by `by` levels at one second (Timeline 7: 1.6 at its cut, flagged ×4 against 0.6)
+    const still = (by: number) => ffmpegMade(["-f", "lavfi", "-i", "color=c=gray:size=320x192:rate=24:duration=2", "-vf", `format=yuv420p,geq=lum='112+${by}*gte(T,1)':cb=128:cr=128`, "-c:v", "libx264", "-crf", "0", "-pix_fmt", "yuv420p"]);
+    expect(await runUpBreak(await still(2), "mp4", 1000)).toBeLessThanOrEqual(SHOWS_AT);
+    expect(await runUpBreak(await still(12), "mp4", 1000)).toBeGreaterThan(SHOWS_AT);
   });
 });

@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { filmStrip } from "../src/cut";
 import { lookOf, measureOf, meansAlong, takeMeasures } from "../src/measure";
-import { joinJump, runUpBreak } from "../src/joinScore";
+import { joinJump, LEAST_MOTION, runUpBreak } from "../src/joinScore";
 import { measureLanded } from "../src/precompute";
 import { keptKey, keptMotion } from "../src/timelineMedia";
 import { FFMPEG_TIMEOUT, ffmpegMade, ffmpegThere } from "./clipKit";
@@ -99,7 +99,7 @@ describe.skipIf(!ffmpegThere)("a take measured once", { timeout: FFMPEG_TIMEOUT 
       const step = 1000 / 24;
       const at = (k: number) => grayBySeek(file, head + k * step - 5);
       const own = [0, 1, 2].map((k) => diff(at(k)!, at(k + 1)!));
-      const typical = Math.max(0.6, own.reduce((s, v) => s + v, 0) / own.length);
+      const typical = Math.max(LEAST_MOTION, own.reduce((s, v) => s + v, 0) / own.length);
       expect(await runUpBreak(file, "mp4", head)).toBe(Math.round(Math.min(20, diff(at(-1)!, at(0)!) / typical) * 10) / 10);
     }
     // a cut join and a held one, the last frame past the end of the clip before read a little earlier
@@ -107,7 +107,7 @@ describe.skipIf(!ffmpegThere)("a take measured once", { timeout: FFMPEG_TIMEOUT 
     const b = { source: silent, ext: "mp4", atMs: 0, fps: 30 };
     const last = grayBySeek(file, 3000) ?? grayBySeek(file, 2900) ?? grayBySeek(file, 2750);
     const own = [0, 1, 2].map((k) => diff(grayBySeek(silent, (k * 1000) / 30)!, grayBySeek(silent, ((k + 1) * 1000) / 30)!));
-    const typical = Math.max(0.6, own.reduce((s, v) => s + v, 0) / own.length);
+    const typical = Math.max(LEAST_MOTION, own.reduce((s, v) => s + v, 0) / own.length);
     expect(await joinJump(a, b)).toBe(Math.round(Math.min(20, diff(last!, grayBySeek(silent, 0)!) / typical) * 10) / 10);
     expect(await joinJump(a, b, { ms: 170, mode: "hold" })).toBeGreaterThan(0);
     expect(await joinJump(a, { ...b, atMs: 9000 })).toBeNull();

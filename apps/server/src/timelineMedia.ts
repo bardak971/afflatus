@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { frameName, nameOf } from "./autoName";
 import { CutError, filmStrip, frameAt, pausesOf, peekAt } from "./cut";
 import { colourNudge, MATCH, type FrameMeans, type Means, measureOf, meansAlong, meansWithin, MOTION_RATE, scenesOf } from "./measure";
-import { joinJump } from "./joinScore";
+import { joinJump, LEAST_MOTION } from "./joinScore";
 import { newId, now } from "./db";
 import type { LibraryChange } from "./events";
 import { notFound } from "./errors";
@@ -305,8 +305,9 @@ export class TimelineMedia {
       const prev = edge(as[i - 1], "end");
       const next = edge(as[i + 1], "start");
       const { start, end } = visible(t);
-      // the files' sizes too: a score kept on the disk outlives the process, and a linked file written again is another video
-      const key = `${t.take.id}:${start}:${end}:${prev?.key ?? "-"}:${next?.key ?? "-"}:${t.asset.bytes}:${prev?.asset.bytes ?? "-"}:${next?.asset.bytes ?? "-"}`;
+      // the files' sizes too: a score kept on the disk outlives the process, and a linked file written again is another video;
+      // and the floor it was weighed against (LEAST_MOTION): a score from another floor is measured again
+      const key = `least${LEAST_MOTION}:${t.take.id}:${start}:${end}:${prev?.key ?? "-"}:${next?.key ?? "-"}:${t.asset.bytes}:${prev?.asset.bytes ?? "-"}:${next?.asset.bytes ?? "-"}`;
       let score = this.joinScores.get(key) ?? (await this.keptJoin(t.asset, key));
       if (score) this.joinScores.set(key, score);
       else {

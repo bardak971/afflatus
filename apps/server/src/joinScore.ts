@@ -7,6 +7,13 @@ import { ffRun, fpsMode, inTemp, type Media, onDisk } from "./cut";
  * plays, cut or faded (joinJump), and where a continuation's run-up ends and its own frames begin (runUpBreak).
  */
 
+/**
+ * The least motion a jump is weighed against, in grey levels a pixel on the 96 × 54 frames: a near-still shot divided a
+ * jump by almost nothing. At 0.6, Timeline 7's locked-off join (a step of 1.6 at the cut, half of it the two files' own
+ * decoding of the same moment, invisible) read ×4 and was flagged; the joins that show step 7 to 43 (2026-10-21).
+ */
+export const LEAST_MOTION = 1.5;
+
 /** The side of a grey frame as the joins compare them: 96 × 54. */
 const GRAY = 96 * 54;
 
@@ -91,7 +98,7 @@ export async function joinJump(
       const y = ofB(b.atMs + (k + 1) * step);
       if (x && y) own.push(meanDiff(x, y));
     }
-    const typical = Math.max(0.6, own.length ? own.reduce((s, v) => s + v, 0) / own.length : 0.6);
+    const typical = Math.max(LEAST_MOTION, own.length ? own.reduce((s, v) => s + v, 0) / own.length : LEAST_MOTION);
     if (!faded) return Math.round(Math.min(20, meanDiff(last, first) / typical) * 10) / 10;
     // the fade, a model frame at a time: each frame a mix of the two sides, the second weighing more and more
     const mix = (x: Uint8Array, y: Uint8Array, w: number) => { const out = new Uint8Array(x.length); for (let i = 0; i < x.length; i++) out[i] = Math.round((1 - w) * x[i]! + w * y[i]!); return out; };
@@ -115,7 +122,7 @@ export async function joinJump(
     let worst = 0;
     for (let k = 1; k < seq.length; k++) worst = Math.max(worst, meanDiff(seq[k - 1]!, seq[k]!));
     // read 24 a second: against the clip's own step at that rate
-    return Math.round(Math.min(20, worst / Math.max(0.6, typical * (model / step))) * 10) / 10;
+    return Math.round(Math.min(20, worst / Math.max(LEAST_MOTION, typical * (model / step))) * 10) / 10;
   });
 }
 
@@ -143,7 +150,7 @@ export async function runUpBreak(bytes: Media, ext: string, headMs: number): Pro
       const y = at(k + 1);
       if (x && y) own.push(meanDiff(x, y));
     }
-    const typical = Math.max(0.6, own.length ? own.reduce((s, v) => s + v, 0) / own.length : 0.6);
+    const typical = Math.max(LEAST_MOTION, own.length ? own.reduce((s, v) => s + v, 0) / own.length : LEAST_MOTION);
     return Math.round(Math.min(20, meanDiff(before, first) / typical) * 10) / 10;
   });
 }
