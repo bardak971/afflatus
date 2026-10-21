@@ -4,7 +4,7 @@ import { modelOf, namedFor } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
 import { upscaleNeeds } from "../video/upscale";
 import { h3Inputs, type H3Video } from "./inputs";
-import { buildH3, h3Video, type H3Extra } from "./video";
+import { buildH3, h3Video, SHOT_WORDS, type H3Extra } from "./video";
 import { saveVideo } from "../shared/out";
 import { rifeNeeds } from "../shared/finish";
 import { partBounds } from "../motion/driving";
@@ -109,6 +109,8 @@ const NOT_TAKEN = new Set([
  * (2026-10-18). It cannot see the video or the picture: it takes them from the user's words.
  */
 export const SWAP_GUIDE = `A SWAP PROMPT is for akatz-ai's Character-Swap LoRA on MiniMax H3's reference model. It is not a scene: the video and the picture give the place, the light, the camera and the motion.
+- THE PARTS come first: write "In the source" (who the source shows and is replaced, by how they look: "the young woman in the blue and black jersey"), "How they look" (the one who goes in: what of them the picture does not say, clothes, hair) and "What happens" (in this clip, present tense, a short sentence). Leave "Prompt as sent" empty: Afflatus writes it from the parts, the LoRA's sentence first. Write "Prompt as sent" only when the user asks for a whole prompt of their own; then the rules below are its rules.
+- A Prompt kit person may be named "@Name" in a part: keep it as written, Afflatus casts them and says how they look.
 - Start with the LoRA's sentence, the person to replace named by what is visible in <Video 1>: "Replace the young woman with long brown hair in the blue and black jersey in <Video 1> with the man in <Picture 1>." Hair, clothes and place in the frame are what pick them out.
 - Say man, woman, boy or girl. Never "character" (it turns the result into a cartoon), never "the person" alone (it often swaps nothing).
 - Then a few short sentences: what of <Picture 1> is kept (the face and hair; the clothes of <Video 1> unless the user wants the picture's); "Match the position, scale, pose and movement in <Video 1>."; "Keep the room of <Video 1> exactly as it is."
@@ -268,10 +270,10 @@ export const typedPrompt = (who: string) => Boolean(who.trim()) && !STARTED_ON.h
  * happens; the fused reference turbo's own sentences last, as its preset had them. Positive words only (H3 draws what a
  * negation names). With every part empty it is the caption alone, as before.
  */
-export function swapFromParts(input: Pick<H3Swap, "inSource" | "look" | "happens" | "swapModel">, pictures: number): string {
+export function swapFromParts(input: Pick<H3Swap, "inSource" | "look" | "happens" | "swapModel" | "shot">, pictures: number): string {
   const who = asWords(input.inSource ?? "") || "the person";
   const look = asWords(input.look ?? "");
-  const said = [swapCaption(who, pictures), look ? `The character in <Picture 1>: ${look}.` : "", asSentence(input.happens ?? "")];
+  const said = [swapCaption(who, pictures), SHOT_WORDS[input.shot ?? ""] ?? "", look ? `The character in <Picture 1>: ${look}.` : "", asSentence(input.happens ?? "")];
   if (/refdelta/i.test(input.swapModel ?? "")) said.push("Keep the motion, the gestures and the lip movements of <Video 1>. Keep the room of <Video 1> exactly as it is.");
   return said.filter(Boolean).join(" ");
 }
@@ -569,7 +571,7 @@ export const h3Swap = defineRecipe<H3Swap>({
       },
       {
         name: "Veda's sparse attention on the model, its predictor in models/veda",
-        input: { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, veda: true },
+        input: { who: "", inSource: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, veda: true, shot: "Medium" },
         slots: { ...all, veda: "minimax_h3_r2va_veda_preview_fp8.safetensors" }, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: part },
       },
       {
