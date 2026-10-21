@@ -37,6 +37,11 @@ export interface ExportPart {
   noMatch?: boolean;
   /** Decoded as one piece with the part before: not matched, given the part before's own nudge (no step where there is none). */
   sameLook?: boolean;
+  /**
+   * The part before's last this many ms are heard from this part's head (the same moments, decoded with it): the sound hands
+   * over before the silence a take that carries on ends on (core soundHandover). Both parts' own sound.
+   */
+  headSoundMs?: number;
   /** Its video's frame means as kept beside it (TimelineMedia.means): the colour match reads them rather than measure the file again. */
   means?: FrameMeans | null;
   /**
@@ -378,7 +383,16 @@ async function partChains(parts: ExportPart[], files: string[], which: number[],
     );
     const loud = `volume=${Math.max(0, p.volume).toFixed(2)}`;
     if (p.sound === "own" && p.kind === "video" && p.hasSound) {
-      chains.push(`[${main}:a]atrim=start=${sec(p.startMs + early)}:end=${sec(p.endMs)},asetpts=PTS-STARTPTS,${STEREO},${loud},apad,atrim=duration=${heard}${fades}[a${i}]`);
+      // a seamless join's sound hands over early (headSoundMs): this part's last moments are heard from the part after's head,
+      // in this part's own run of the concat (each run's sound is laid from where its picture starts)
+      const hand = next?.kind === "video" && next.headSoundMs ? next.headSoundMs : 0;
+      if (hand > 0) {
+        const head = (await inputs.add(`head${i + 1}.${next!.ext}`, files[i + 1]!)).index;
+        const own = sec(heardMs - hand);
+        chains.push(`[${main}:a]atrim=start=${sec(p.startMs + early)}:end=${sec(p.endMs - hand)},asetpts=PTS-STARTPTS,${STEREO},${loud},apad,atrim=duration=${own}[ao${i}]`);
+        chains.push(`[${head}:a]atrim=start=${sec(next!.startMs - hand)}:end=${sec(next!.startMs)},asetpts=PTS-STARTPTS,${STEREO},volume=${Math.max(0, next!.volume).toFixed(2)},apad,atrim=duration=${sec(hand)}[ah${i}]`);
+        chains.push(`[ao${i}][ah${i}]concat=n=2:v=0:a=1,apad,atrim=duration=${heard}${fades}[a${i}]`);
+      } else chains.push(`[${main}:a]atrim=start=${sec(p.startMs + early)}:end=${sec(p.endMs)},asetpts=PTS-STARTPTS,${STEREO},${loud},apad,atrim=duration=${heard}${fades}[a${i}]`);
     } else if (p.sound === "file" && p.soundFile) {
       const sound = (await inputs.add(`sound${i}.${p.soundFile.ext}`, p.soundFile.source)).index;
       chains.push(`[${sound}:a]${STEREO},${loud},apad,atrim=duration=${heard},asetpts=PTS-STARTPTS${fades}[a${i}]`);

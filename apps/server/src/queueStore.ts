@@ -2,7 +2,7 @@ import type { OutputFile, waitForOutputs } from "@afflatus/comfy";
 import type { ClipValue, InputSpec, Recipe, ReferenceValue } from "@afflatus/core";
 import { draftNames, labelNames, passName, promptOf } from "./autoName";
 import type { Comfy } from "./comfy";
-import { frameAt, repairJoinAudio } from "./cut";
+import { frameAt } from "./cut";
 import { type Measure } from "./measure";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { latentDriftOf } from "./latentStats";
@@ -279,17 +279,14 @@ async function fileOne(
     side.latent ? comfy.client.view(side.latent) : null,
     side.fine ? comfy.client.view(side.fine) : null,
   ]);
-  let bytes = main;
+  const bytes = main;
   const mime = mimeOfFile(file.filename);
   const ext = extOf(mime);
   const headMs = resume.overlap?.headMs ?? 0;
-  // a clip continued in the latent: the sound's hole at the hand-over is closed (see repairJoinAudio)
-  if (kind === "video" && resume.overlap?.latent && headMs > 0) {
-    bytes = await repairJoinAudio(bytes, ext, headMs).catch((err: Error) => {
-      console.warn(`[queue] the join's sound was not repaired: ${err.message}`);
-      return bytes;
-    });
-  }
+  // kept as ComfyUI made it. A clip continued in the latent once had 36 ms cut out of its sound where its run-up ends (a
+  // near-silent token measured 2026-10-04, before the seam decode): the sound then ran 36 ms ahead of its picture past the
+  // join and ended in silence, heard at every join, with no hole left to close (measured 2026-10-21 on Timeline 24 and a
+  // zz-test Swap motion: ComfyUI's file in step with its source, the stored take 42 ms off)
   const id = newId();
   const key = `assets/${id.slice(0, 2)}/${id}.${ext}`;
   const rawKey = rawBytes && side.raw ? `assets/${id.slice(0, 2)}/${id}.raw.${extOf(mimeOfFile(side.raw.filename))}` : null;

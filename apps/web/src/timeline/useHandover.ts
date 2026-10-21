@@ -1,9 +1,13 @@
 import { useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
-import { FRAME_SLACK_MS, joinFade, MIN_FADE_MS, TRANSITIONS, transitionSpan } from "@afflatus/core";
+import { FRAME_SLACK_MS, joinFade, MIN_FADE_MS, soundHandover, TRANSITIONS, transitionSpan } from "@afflatus/core";
 import type { Clip } from "../api";
 
-/** How long before a clip ends the clip after starts running hidden, so that it takes over with frames ready and in step. */
-const PREROLL_MS = 800;
+/**
+ * How long before a clip ends the clip after starts running hidden, so that it takes over with frames ready and in step. Over
+ * 800 ms the two decodes at once dropped every other frame of the clip seen in its last 0.6 s (12 to 18 frames before each
+ * hand-over, check:player); 300 ms drops 2, and still leaves the sound's hand-over (SOUND_HANDOVER_MS) a clip already running.
+ */
+const PREROLL_MS = 300;
 /** How early the cut to the clip after is made: a video frame at 48 a second plus the animation frame the check may be late by. */
 const CUT_EARLY_MS = 24;
 
@@ -23,6 +27,20 @@ export function fadeIn(c: Clip | undefined, from: Clip | undefined): { ms: numbe
 export const blendOf = (c: Clip | undefined, from: Clip | undefined) => (fadeIn(c, from)?.mode === "overlap" ? fadeIn(c, from)!.ms : 0);
 /** Dissolved in over the clip before held on its last frame: a continuation (DISSOLVE_MS: longer doubled a moving subject). */
 export const dissolveOf = (c: Clip | undefined, from: Clip | undefined) => (fadeIn(c, from)?.mode === "hold" ? fadeIn(c, from)!.ms : 0);
+
+/**
+ * How many ms before a seamless join into `c` its sound takes over from `from`'s, as the export hands it (core soundHandover):
+ * `c` runs hidden over its head meanwhile (PREROLL_MS), the same moments as `from`'s last ones, whose own sound ends silent.
+ */
+export function soundHandoverOf(c: Clip | undefined, from: Clip | undefined): number {
+  if (!c?.take || !from?.take || c.joined !== "continue" || c.transition) return 0;
+  return soundHandover({
+    seamless: Boolean(c.take.seamless),
+    bothOwnSound: c.sound === "own" && from.sound === "own" && Boolean(c.take.asset.hasSound) && Boolean(from.take.asset.hasSound),
+    shownFromMs: c.take.startMs,
+    beforeMs: from.lengthMs,
+  });
+}
 
 /**
  * The cut's transition into `c` from `from`, as the export plays it (core transitionSpan): its length, and whether the two
@@ -144,15 +162,23 @@ export function useHandover(h: Handover) {
         crossOn.current = true;
         cross(c, after, crossing.ms, crossing.ms / 2 - remaining);
       }
+      const nextEl = after?.take ? els.current.get(after.take.id) : undefined;
+      // a seamless join's sound: the clip after, running hidden over its head (the same moments), is heard over this clip's last
+      // moments, which its own sound leaves silent (soundHandoverOf, as the export hands it)
+      const handSound = soundHandoverOf(after, c);
+      const handed = handSound > 0 && Boolean(nextEl) && fadeOn.current && !nextEl!.paused && remaining <= handSound;
+      if (handed && after) {
+        const want = Math.max(0, Math.min(1, (after.volume / 100) * masterRef.current));
+        if (Math.abs(nextEl!.volume - want) > 0.005) nextEl!.volume = want;
+      }
       // the sound faded out and in over the halves, when the transition asks (its own sound, as the export fades it)
       if (el && !el.muted) {
         const into = crossingOf(c, seq[at - 1]);
         const base = Math.max(0, Math.min(1, (c.volume / 100) * masterRef.current));
         const gain = Math.min(crossing?.fadeSound ? Math.max(0, remaining) / (crossing.ms / 2) : 1, into?.fadeSound ? Math.max(0, local) / (into.ms / 2) : 1, 1);
-        const want = base * gain;
+        const want = handed ? 0 : base * gain;
         if (Math.abs(el.volume - want) > 0.005) el.volume = want;
       }
-      const nextEl = after?.take ? els.current.get(after.take.id) : undefined;
       const expected = after ? startOf(after) - remaining : 0;
       const lag = startLag.current;
       /**

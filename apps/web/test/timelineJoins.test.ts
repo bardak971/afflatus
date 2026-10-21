@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Asset, Clip, Take } from "../src/api";
 import { fileVersion, moveAfter, playSignature, roomOf } from "../src/timeline/model";
-import { blendOf, crossingOf, dissolveOf, fadeIn } from "../src/timeline/useHandover";
+import { SOUND_HANDOVER_MS } from "@afflatus/core";
+import { blendOf, crossingOf, dissolveOf, fadeIn, soundHandoverOf } from "../src/timeline/useHandover";
 
 /** A clip with only what these sums read. */
 const clip = (over: Partial<Clip> & { id: string }): Clip =>
@@ -23,6 +24,24 @@ describe("the fade the player shows at a join, the export's", () => {
     expect(fadeIn(clip({ id: "b", joined: "cut", take: take() }), before)).toBeNull();
     expect(fadeIn(clip({ id: "b", take: take() }), clip({ id: "s", kind: "still" }))).toBeNull();
     expect(fadeIn(clip({ id: "b", take: take({ headMs: 60 }) }), before)).toBeNull();
+  });
+});
+
+describe("the sound at a seamless join, as the export hands it over", () => {
+  const sounding = (over: Partial<Take> = {}) => take({ asset: { id: "v", durationMs: 3000, hasSound: true } as Asset, ...over });
+  const before = clip({ id: "a", take: sounding({ headMs: 0, startMs: 0 }) });
+  it("goes to the clip after's head 120 ms before the join, the clip before's own sound ending silent there", () => {
+    expect(soundHandoverOf(clip({ id: "b", take: sounding({ seamless: true, startMs: 896 }) }), before)).toBe(SOUND_HANDOVER_MS);
+  });
+  it("stays with each clip at any other join, or when either is not heard by its own sound", () => {
+    expect(soundHandoverOf(clip({ id: "b", take: sounding({ startMs: 896 }) }), before)).toBe(0);
+    expect(soundHandoverOf(clip({ id: "b", joined: "cut", take: sounding({ seamless: true, startMs: 896 }) }), before)).toBe(0);
+    expect(soundHandoverOf(clip({ id: "b", sound: "muted", take: sounding({ seamless: true, startMs: 896 }) }), before)).toBe(0);
+    expect(soundHandoverOf(clip({ id: "b", take: sounding({ seamless: true, startMs: 896 }) }), clip({ id: "a", sound: "file", take: sounding() }))).toBe(0);
+    expect(soundHandoverOf(clip({ id: "b", take: take({ seamless: true, startMs: 896 }) }), before)).toBe(0);
+    // too little of its head before where it plays, or of the clip before to play
+    expect(soundHandoverOf(clip({ id: "b", take: sounding({ seamless: true, startMs: 100 }) }), before)).toBe(0);
+    expect(soundHandoverOf(clip({ id: "b", take: sounding({ seamless: true, startMs: 896 }) }), clip({ id: "a", lengthMs: 200, take: sounding() }))).toBe(0);
   });
 });
 

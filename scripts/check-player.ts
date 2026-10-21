@@ -28,11 +28,13 @@ const FILE = 2 * N - 1;
 const RUN_UP_LAST = 43;
 /**
  * Frames the player may drop before it counts as a fault: headless Chrome decodes in software, and a CI runner is slow, so a
- * few percent are the machine. Drops gathered in the last second before a hand-over are said (the next clip pre-rolls under
- * the one seen, two decodes at once: measured 2026-10-08, frames 215–245 of a 247-frame clip), not failed.
+ * few percent are the machine. Drops gathered around a hand-over are counted apart (HANDOVER_DROPS): the next clip pre-rolls
+ * under the one seen, two decodes at once (measured 2026-10-08, frames 215–245 of a 247-frame clip with an 800 ms pre-roll).
  */
 const DROPS_ALLOWED = 0.1;
 const LAST_SECOND = FILE - 48;
+/** Frames a hand-over may drop, in the clip before's last second and over the change: more is the pre-roll stalling it. */
+const HANDOVER_DROPS = 5;
 
 const dir = mkdtempSync(join(tmpdir(), "afflatus-player-"));
 const db = openSqlite(":memory:");
@@ -151,8 +153,20 @@ try {
   }
   console.log(`player check: ${seen.length} frames seen of ${expected}, ${drops} dropped${problems.length ? "" : ", every hand-over clean"}`);
   if (gaps.length) console.log(`  dropped (clip:frame): ${gaps.join(" ")}`);
-  const late = gaps.filter((g) => Number(g.split(":")[1]!.split("–")[0]) >= LAST_SECOND && Number(g.split(":")[0]) < 3).length;
-  if (late && late >= gaps.length / 2) console.log(`  ! ${late} of ${gaps.length} drops fall in the last second before a hand-over: the next clip pre-rolling under the one seen`);
+  // the frames dropped around the two hand-overs: in the last second of a clip before one, and over the change itself. The
+  // next clip pre-rolling under the one seen (two decodes at once) dropped 12 to 18 of them with an 800 ms pre-roll, every
+  // other frame over its last 0.6 s, seen as a stutter before each join; 2 with 300 ms (2026-10-21)
+  let late = 0;
+  for (let i = 1; i < seen.length; i++) {
+    const a = seen[i - 1]!;
+    const b = seen[i]!;
+    if (b.clip === a.clip && a.clip < 3 && b.index >= LAST_SECOND) late += b.index - Math.max(a.index, LAST_SECOND - 1) - 1;
+    else if (b.clip === a.clip + 1) late += Math.max(0, FILE - 1 - a.index) + Math.max(0, b.index - RUN_UP_LAST);
+  }
+  if (late > 2 * HANDOVER_DROPS) {
+    if (process.env.CI) console.log(`::warning::player check: ${late} frames dropped around the hand-overs (a slow runner, not failed in CI)`);
+    else problems.push(`${late} frames dropped around the two hand-overs (at most ${HANDOVER_DROPS} each): the next clip's pre-roll stalls the one seen`);
+  } else if (late) console.log(`  ${late} of the drops around the two hand-overs (at most ${HANDOVER_DROPS} each)`);
 
   // ---- Space twice before a far clip's video has loaded: it stays still. In a fresh page, clip 3's file held back four
   // seconds; [ ] go to clip 2 (clip 3's video put on the page under it, waiting for its file), then to clip 3

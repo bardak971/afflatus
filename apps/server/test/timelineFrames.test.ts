@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { newId, now } from "../src/db";
 import { FFMPEG_TIMEOUT } from "./clipKit";
-import { clicks, ffmpegThere, firstMiss, H, readFrames, runs, synth, synthMade, W } from "./framesKit";
+import { clicks, ffmpegThere, firstMiss, H, readFrames, runs, silentMs, synth, synthMade, W } from "./framesKit";
 import { get, makeApp, until, type TestApp } from "./helpers";
 
 /**
@@ -83,11 +83,27 @@ describe.skipIf(!ffmpegThere)("the timeline, frame by frame", { timeout: FFMPEG_
     const want = runs([1, 0, FILE - 1], [2, 43, FILE - 1], [3, 43, FILE - 1]);
     const got = readFrames(out);
     expect(firstMiss(got, want)).toBeNull();
-    // the clicks fall on the frames whose own index is a tenth: the sound is cut with its picture
-    const tenths = want.flatMap((f, i) => (f.index % 10 === 0 ? [i] : []));
+    // the clicks fall on the frames whose own index is a tenth: the sound is cut with its picture. Each join's last 120 ms are
+    // heard from the clip after's head (SOUND_HANDOVER_MS): its frame 40, three before its first seen one, clicks there too
+    // (a real seamless take's head holds the clip before's own moments; these synthetic ones do not)
+    const joins = want.flatMap((f, i) => (i > 0 && f.clip !== want[i - 1]!.clip ? [i] : []));
+    const tenths = [...want.flatMap((f, i) => (f.index % 10 === 0 ? [i] : [])), ...joins.map((j) => j - 3)].sort((a, b) => a - b);
     const heard = clicks(out, 48);
     for (const at of tenths) expect(heard.some((h) => Math.abs(h - at) <= 1), `a click near frame ${at}`).toBe(true);
     expect(heard.length).toBe(tenths.length);
+  });
+
+  it("hands a seamless join's sound over before the clip before's last moments, which H3 leaves silent", async () => {
+    // one tone along the whole chain: each take's own part of it, its last 60 ms silent as every H3 take that carries on ends
+    // (20 to 116 ms measured), and its head (the 917 ms run-up) the clip before's last moments, the same tone at the same time
+    const ends = (k: number) => k * (5146 - 896) / 1000;
+    const tone = (k: number, last: boolean) => `if(${last ? "1" : "lt(t,5.086)"},0.5*sin(2*PI*440*(t+${ends(k)})),0)`;
+    const sounding = await Promise.all([1, 2, 3].map((c, k) => synthMade(c, FILE, 48, undefined, tone(k, k === 2))));
+    const { id } = await chain(sounding, N);
+    const out = await exportOf(id);
+    expect(firstMiss(readFrames(out), runs([1, 0, FILE - 1], [2, 43, FILE - 1], [3, 43, FILE - 1]))).toBeNull();
+    // no silence at either join: at most a few ms quieter than the tone around them
+    for (const join of [5146, 5146 + 4958]) expect(silentMs(out, join - 200, join + 100), `silence at the join at ${join} ms`).toBeLessThanOrEqual(3);
   });
 
   it("plays a finished take as its draft: the same frames, larger, its join still seamless", async () => {
