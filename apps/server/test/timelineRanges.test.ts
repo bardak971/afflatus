@@ -316,11 +316,16 @@ describe.skipIf(!ffmpegThere)("a clip's take, trimmed on the timeline", { timeou
     expect(JSON.parse(latFaceJob.inputs)).toMatchObject({ upscale: "Latent: re-sampled", faceRefine: true, faceRefineDenoise: 0.4 });
     expect(JSON.parse(latFaceJob.inputs).faceRefineOnly).toBeFalsy();
     await call("POST", `/api/jobs/${latFace.jobs[0]}/cancel`);
-    // Face refine first, then SeedVR2 on what it makes: two jobs, the second queued behind the first and reading its video
+    // Face refine first, then SeedVR2 on what it makes: two jobs, the second queued behind the first and reading its video.
+    // A draft whose form says RIFE ×2 and whose file is at 24 fps (drafted before its RIFE was wired): rendered again without
+    // it, the finish keeps the draft's frames
+    await t.db.updateTable("assets").set({ fps: 24 }).where("id", "=", w.clips[0].takes[0].asset.id).execute();
+    const drafted = await t.db.selectFrom("generations").select(["id", "inputs"]).where("id", "=", (await t.db.selectFrom("assets").select("generation_id").where("id", "=", w.clips[0].takes[0].asset.id).executeTakeFirstOrThrow()).generation_id!).executeTakeFirstOrThrow();
+    await t.db.updateTable("generations").set({ inputs: JSON.stringify({ ...JSON.parse(drafted.inputs), smooth: true }) }).where("id", "=", drafted.id).execute();
     const chained = await call("POST", `/api/timelines/${tl}/finish`, { route: "seedvr", factor: 2, face: true, faceDenoise: 0.4, redo: true, clips: [a] });
     expect(chained.jobs).toHaveLength(2);
     const [faceFirst, after] = await Promise.all(chained.jobs.map((id: string) => t.db.selectFrom("jobs").selectAll().where("id", "=", id).executeTakeFirstOrThrow()));
-    expect(JSON.parse(faceFirst!.inputs)).toMatchObject({ faceRefine: true, faceRefineOnly: true, faceRefineDenoise: 0.4 });
+    expect(JSON.parse(faceFirst!.inputs)).toMatchObject({ faceRefine: true, faceRefineOnly: true, faceRefineDenoise: 0.4, smooth: false });
     expect(after!.depends_on).toBe(faceFirst!.id);
     expect(JSON.parse(after!.inputs)).toMatchObject({ action: "finish", route: "seedvr", fromJob: faceFirst!.id, faceFirst: 0.4 });
     // cancelled, the Face refine takes the finish queued behind it along

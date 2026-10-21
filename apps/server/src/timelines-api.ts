@@ -652,7 +652,7 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
     if (b.route === "face") {
       const why = clip.recipe && refinesFaces(s.registry.recipe(clip.recipe)) ? await keptForFinish(s, view.clips, i, draft.asset.id) : "a model that offers no Face refine: H3's and SCAIL-2 at 24 fps do";
       if (typeof why === "string") { skipped.push({ clip: i + 1, why }); continue; }
-      plan.push({ kind: "render", recipe: why.recipe, input: { ...why.inputs, seed: why.seed, upscale: "Off", faceRefine: true, faceRefineOnly: true, faceRefineDenoise: b.faceDenoise ?? 0.45 }, opts: {
+      plan.push({ kind: "render", recipe: why.recipe, input: { ...asDrafted(why.inputs, draft.asset), seed: why.seed, upscale: "Off", faceRefine: true, faceRefineOnly: true, faceRefineDenoise: b.faceDenoise ?? 0.45 }, opts: {
         label, clip: { id: clip.id, fit: false, mirror: why.mirror }, look: clip.look ?? view.look, folder, finishedFrom: from,
       } });
       continue;
@@ -666,7 +666,7 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
       if (!kept?.latent_key) { skipped.push({ clip: i + 1, why: "its latent was not kept (rendered before Afflatus kept them, or without its node pack): finish it with SeedVR2, RTX or a model" }); continue; }
       // with Face refine asked for, on a model that offers it: its faces redrawn in the same job, after the re-sample
       const refine = b.face && refinesFaces(s.registry.recipe(gen.recipe)) ? { faceRefine: true, faceRefineDenoise: b.faceDenoise ?? 0.45 } : {};
-      plan.push({ kind: "render", recipe: gen.recipe, input: { ...gen.inputs, seed: gen.seed, upscale: "Latent: re-sampled", upscaleBy: b.factor, upscaleDenoise: b.latentDenoise ?? 0.15, upscaleSteps: b.latentSteps ?? 2, ...refine }, opts: {
+      plan.push({ kind: "render", recipe: gen.recipe, input: { ...asDrafted(gen.inputs, draft.asset), seed: gen.seed, upscale: "Latent: re-sampled", upscaleBy: b.factor, upscaleDenoise: b.latentDenoise ?? 0.15, upscaleSteps: b.latentSteps ?? 2, ...refine }, opts: {
         // the pictures its draft flipped are flipped again: the finish re-samples the draft, made from them as they were sent
         label, clip: { id: clip.id, fit: false, mirror: gen.mirror }, look: clip.look ?? view.look, folder, finishedFrom: from,
       } });
@@ -680,7 +680,7 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
     if (b.face && clip.recipe && refinesFaces(s.registry.recipe(clip.recipe))) {
       const kept = await keptForFinish(s, view.clips, i, draft.asset.id);
       if (typeof kept !== "string") {
-        plan.push({ kind: "render", recipe: kept.recipe, input: { ...kept.inputs, seed: kept.seed, upscale: "Off", faceRefine: true, faceRefineOnly: true, faceRefineDenoise: b.faceDenoise ?? 0.45 }, opts: {
+        plan.push({ kind: "render", recipe: kept.recipe, input: { ...asDrafted(kept.inputs, draft.asset), seed: kept.seed, upscale: "Off", faceRefine: true, faceRefineOnly: true, faceRefineDenoise: b.faceDenoise ?? 0.45 }, opts: {
           label: `${label} · Face refine`, clip: { id: clip.id, fit: false, mirror: kept.mirror }, look: clip.look ?? view.look, folder, finishedFrom: from,
         }, then: { cut: { ...cut, faceFirst: b.faceDenoise ?? 0.45 }, label } });
         continue;
@@ -690,6 +690,15 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
     plan.push({ kind: "cut", label, video: { width: a.width ?? null, height: a.height ?? null, durationMs: a.durationMs ?? null, fps: a.fps ?? null }, cut });
   }
   return { plan, skipped };
+}
+
+/**
+ * A draft's form as a finish renders it again: with RIFE as its video has it, not as its form says (a swap drafted before
+ * its RIFE ×2 was wired has "on" in its form and 24 fps in its file; rendered again with it, the finish came out at 48 fps,
+ * twice its frames, 2026-10-22). A finished take keeps its draft's frames.
+ */
+function asDrafted(inputs: Record<string, unknown>, draft: { fps: number | null }): Record<string, unknown> {
+  return "smooth" in inputs && draft.fps ? { ...inputs, smooth: draft.fps > 30 } : inputs;
 }
 
 /** A recipe whose form offers Face refine (the H3 forms): its clips can be finished that way. */
