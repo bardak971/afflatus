@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chunkAtOrAfter, chunkStartAtOrAfter, FRAME_SLACK_MS, gridAtLeast, gridAtOrBefore, gridIndex, gridNearest, isChunkStart, JOIN_FADE_MS, joinFade, LATENT_GRID, latentFrameAtOrBefore, MIN_FADE_MS, onGrid } from "../src";
+import { chunkAtOrAfter, chunkStartAtOrAfter, FRAME_SLACK_MS, gridAtLeast, gridAtOrBefore, gridIndex, gridNearest, isChunkStart, JOIN_FADE_MS, joinFade, joinKindOf, LATENT_GRID, latentFrameAtOrBefore, MIN_FADE_MS, onGrid } from "../src";
 
 /** The sums each place wrote by hand before frameGrid.ts, kept here to hold the grid to them. */
 const before = {
@@ -50,5 +50,12 @@ describe("a join's fade", () => {
     expect(joinFade({ landedMs: 120, joined: false, seamless: false, sharedMs: 0 })).toEqual({ ms: 120, mode: "overlap" });
     expect(joinFade({ landedMs: 400, joined: false, seamless: false, sharedMs: 0 })).toEqual({ ms: JOIN_FADE_MS, mode: "overlap" });
     expect([JOIN_FADE_MS, MIN_FADE_MS, FRAME_SLACK_MS]).toEqual([170, 80, 40]);
+  });
+  it("fades a window whose head is the clip before's own moments made again over them, both moving", () => {
+    expect(joinFade({ joined: true, seamless: false, sharedMs: 281, moving: true })).toEqual({ ms: JOIN_FADE_MS, mode: "overlap" });
+    expect(joinFade({ joined: true, seamless: false, sharedMs: 120, moving: true })).toEqual({ ms: 120, mode: "overlap" });
+    expect(joinFade({ joined: false, seamless: false, sharedMs: 281, moving: true })).toBeNull();
+    expect(joinKindOf({ headMs: 281, tailMs: 0, moving: true })).toBe("window");
+    expect(joinKindOf({ headMs: 281, tailMs: 0 })).toBe("pixels");
   });
 });

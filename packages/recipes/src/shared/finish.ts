@@ -66,11 +66,6 @@ export function finishFrames(
   g: GraphBuilder, ctx: BuildContext, images: Ref, input: UpscaleValues & { crf: number },
   opts: {
     frame: { width: number; height: number }; rife: boolean; fps: number; audio?: Ref; doubled?: boolean;
-    /**
-     * The clip before's last frame as it was filed, put before the frames for RIFE and dropped after it: the frame RIFE makes
-     * between the two then opens the clip, half a model frame early (Motion transfer's windows that carry on). Of the frames' size.
-     */
-    leadFrom?: Ref;
     /** What is done to the final frames before they are saved (Motion transfer's grain). */
     last?: (images: Ref) => Ref;
   },
@@ -82,9 +77,7 @@ export function finishFrames(
   const smooth = rifeRuns(opts.rife, ctx);
   if (smooth) {
     g.phase("interpolating");
-    const led = opts.leadFrom ? g.out("ImageBatch", { image1: opts.leadFrom, image2: images }) : images;
-    images = g.out("FrameInterpolate", { interp_model: g.out("FrameInterpolationModelLoader", { model_name: slots.rife }), images: led, multiplier: 2 });
-    if (opts.leadFrom) images = g.out("ImageFromBatch", { image: images, batch_index: 1, length: 4096 });
+    images = g.out("FrameInterpolate", { interp_model: g.out("FrameInterpolationModelLoader", { model_name: slots.rife }), images, multiplier: 2 });
   }
   const late = pixel ?? pixelUpscale(g, images, input, opts.frame, ctx);
   // the route ran before the interpolation already: its frames were interpolated above (taken again here, the interpolation was

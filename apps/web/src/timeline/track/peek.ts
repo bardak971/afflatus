@@ -155,6 +155,7 @@ function joinWords(clip: Clip, take: Take, index: number): string {
   if (take.joinKind === "latent") return "latent join";
   if (take.joinKind === "hybrid") return "frames + latent join";
   if (take.joinKind === "pixels") return "pixel join";
+  if (take.joinKind === "window") return "window join, crossfaded";
   return clip.joined === "continue" ? `extends clip ${index}` : "cut";
 }
 

@@ -174,8 +174,9 @@ const JOIN_TIP = {
   latent: "This clip continues the clip before's exact latent (decoded on its own: the join is faded).",
   hybrid: "This clip continues the clip before in the latent: its sound and run-up from its own latent, its picture guide from its re-encoded last frames (so a chain stays anchored to real pixels).",
   pixels: "This clip starts beside pinned frames of the clip before (that model has no latent to continue from, or Frames was asked for).",
+  window: "This window makes the clip before's last moments again before its own, both moving: the join crossfades over them.",
 } as const;
-const JOIN_WORD = { seamless: "seamless", latent: "latent", hybrid: "frames + latent", pixels: "pixel" } as const;
+const JOIN_WORD = { seamless: "seamless", latent: "latent", hybrid: "frames + latent", pixels: "pixel", window: "window" } as const;
 
 /** A clip render's label ("Big Air · clip 2 · finish"): what it is ("Clip 2 · finish") and the timeline it is of. Any other job: its label whole. */
 export function splitLabel(job: Pick<Job, "label" | "clipId">): { what: string; of: string | null } {

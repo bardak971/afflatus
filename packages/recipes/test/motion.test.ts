@@ -113,12 +113,12 @@ describe("SCAIL-2 carrying on from the clip before", () => {
     expect(of(graph, "WanSCAILToVideo")[0]!.inputs.previous_frames).toBeDefined();
     expect(of(graph, "ImageFromBatch").some((n) => n.inputs.batch_index === 5)).toBe(true);
   });
-  it("keeps the sound of the frames it makes, from after the 5 carried over: windows of one source play its sound end to end", () => {
+  it("keeps the sound of the frames it makes, the 5 carried over (its head) with them: windows of one source play its sound end to end", () => {
     const input = parseInput(scailMotion, { picture: "p1", driving: { asset: "v1" }, previous: { asset: "v0" } });
     const graph = scailMotion.build(input, dryContext({ slots, uploads: { picture: "p.png", driving: "d.mp4", previous: "prev.mp4" }, media: { picture: { width: 768, height: 1360 }, driving: part(81 / SCAIL_FPS) } })).graph as Graph;
     const trim = of(graph, "TrimAudioDuration")[0]!;
-    expect(trim.inputs.start_index).toBeCloseTo(5 / SCAIL_FPS);
-    expect(trim.inputs.duration).toBeCloseTo(76 / SCAIL_FPS);
+    expect(trim.inputs.start_index).toBeCloseTo(0);
+    expect(trim.inputs.duration).toBeCloseTo(81 / SCAIL_FPS);
   });
   it("keeps the model's own frames beside the clip, for the window after to carry on from (not the finished ones)", () => {
     const sc = scailMotion.build(parseInput(scailMotion, { picture: "p1", driving: { asset: "v1" } }), dryContext({ slots, uploads: { picture: "p.png", driving: "d.mp4" }, media: { picture: { width: 768, height: 1360 }, driving: part(81 / SCAIL_FPS) } }));
@@ -224,6 +224,8 @@ const framesOf = (graph: Graph, ref: unknown, decoded: number): number => {
     }
     case "ColorTransfer":
       return framesOf(graph, i.image_target, decoded);
+    case "ImageBlend":
+      return framesOf(graph, i.image1, decoded);
     default:
       return framesOf(graph, i.image ?? i.images, decoded);
   }
@@ -259,7 +261,7 @@ describe("a Motion transfer window as filed", () => {
     }
   });
 
-  it("with RIFE ×2: 2n − 1 frames at twice the rate, a window that carries on opening on the frame between the clip before's last and its own first, its sound from there", () => {
+  it("with RIFE ×2: 2n − 1 frames at twice the rate, a window that carries on keeping its head (the clip before's last moments made again), its sound with it", () => {
     for (const { recipe, slots: s, fps, shape } of SHAPES) {
       for (const previous of [false, true]) {
         const built = made(recipe, s, fps, { drivingSeconds: 81.5 / fps, smooth: true, ...(previous ? { previous: { asset: "v0" } } : {}) }, previous ? { previous: "prev.mp4", "previous.look": "prev.png" } : {});
@@ -267,18 +269,15 @@ describe("a Motion transfer window as filed", () => {
         const saver = graph[built.outputs[0]!.node]!;
         const carried = previous ? shape.carried : 0;
         const filed = framesOf(graph, saver.inputs.images, 81);
-        const own = 81 - carried;
-        // its last frame no longer held (a stop of 1/32 s at every join, then a jump): 2n − 1, and one more before them when it
-        // carries on, RIFE's frame from the clip before's last as filed (dropped after RIFE) to its own first
-        expect(filed).toBe(previous ? 2 * own : 2 * own - 1);
+        // its last frame no longer held (a stop of 1/32 s at every join, then a jump): 2n − 1 of all it made, its head included
+        expect(filed).toBe(2 * 81 - 1);
         expect(saver.inputs.frame_rate).toBe(2 * fps);
         const trim = of(graph, "TrimAudioDuration")[0]!.inputs;
-        // its sound as long as its own part, from half a model frame before it when it carries on: the clock stays the source's
-        expect(trim.duration as number).toBeCloseTo(own / fps, 6);
-        expect(trim.start_index as number).toBeCloseTo(previous ? (carried - 0.5) / fps : 0, 6);
-        if (previous) {
-          expect(of(graph, "FrameInterpolate").map((n) => at(graph, n.inputs.images).class_type)).toEqual(["ImageBatch"]);
-        }
+        // its sound from its first frame, the head's: the clock stays the source's
+        expect(trim.duration as number).toBeCloseTo(81 / fps, 6);
+        expect(trim.start_index as number).toBeCloseTo(0, 6);
+        // the head hidden on a timeline up to the frame RIFE made between its last and the clip's own first, and faded over
+        expect(built.overlap).toEqual(previous ? { headMs: Math.round(((carried - 0.5) * 1000) / fps), tailMs: 0, moving: true } : undefined);
         // the model's own frames beside it, as made, at the model's speed: not matched, not grained
         const raw = graph[built.outputs[1]!.node]!;
         expect(framesOf(graph, raw.inputs.images, 81)).toBe(81 - carried);
@@ -351,7 +350,8 @@ describe("a Motion transfer window matched to the driving video", () => {
 
   it("carrying on, takes the transform the clip before was filed with: read from its own first frame to that clip's last as filed", () => {
     const graph = scail({ previous: "prev.mp4", "previous.look": "prev.png" });
-    expect(toDriving(graph)).toHaveLength(0);
+    // the driving video's own transform too, which it eases to (below)
+    expect(toDriving(graph)).toHaveLength(1);
     const look = of(graph, "ColorTransfer").find((n) => n.inputs.source_stats === "target_frame")!;
     expect(look.inputs).toMatchObject({ method: "reinhard_lab", "source_stats.target_index": 0, strength: 1 });
     expect(at(graph, look.inputs.image_ref).inputs.image).toBe("prev.png");
@@ -363,6 +363,9 @@ describe("a Motion transfer window matched to the driving video", () => {
     // and dropped after: the clip keeps its own frames
     const after = of(graph, "ImageFromBatch").find((n) => at(graph, n.inputs.image) === look)!;
     expect(after.inputs).toMatchObject({ batch_index: 1, length: 4096 });
+    // then eased to the driving video's colours over its first second, two frames a step (Timeline 8's clip 2 kept the clip
+    // before's drifted look for all of its 5 s)
+    expect(of(graph, "ImageBlend").map((n) => n.inputs.blend_factor)).toEqual([0.06, 0.19, 0.31, 0.44, 0.56, 0.69, 0.81, 0.94]);
   });
 
   it("carrying on without the clip before's last frame as filed (not read), takes the driving video's colours as before", () => {

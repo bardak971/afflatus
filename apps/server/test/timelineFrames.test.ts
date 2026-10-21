@@ -106,6 +106,28 @@ describe.skipIf(!ffmpegThere)("the timeline, frame by frame", { timeout: FFMPEG_
     for (const join of [5146, 5146 + 4958]) expect(silentMs(out, join - 200, join + 100), `silence at the join at ${join} ms`).toBeLessThanOrEqual(3);
   });
 
+  it("crossfades a SCAIL-2 window over its head (the clip before's own last moments made again), both moving, the clock unmoved", async () => {
+    // two windows at 32 a second: the second's first 9 frames (281 ms) are its head, hidden; the join fades over its last 170 ms
+    const a = await upload(synth(4, 153, 32), "w1.mp4");
+    const b = await upload(synth(5, 161, 32), "w2.mp4");
+    const tl = await call("POST", "/api/timelines", { name: "windows" });
+    for (const v of [a, b]) await call("POST", `/api/timelines/${tl.id}/clips`, { asset: v.id });
+    const clips = (await view(tl.id)).clips as Array<{ id: string; take: { id: string } }>;
+    await call("PATCH", `/api/clips/${clips[1]!.id}`, { joined: "continue" });
+    await t.db.updateTable("takes").set({ head_ms: 281, join_kind: "window", prev_take_id: clips[0]!.take.id, prev_at_ms: a.durationMs }).where("id", "=", clips[1]!.take.id).execute();
+    const v = await view(tl.id);
+    expect(v.clips[1].take.joinKind).toBe("window");
+    const out = await exportOf(tl.id);
+    const got = readFrames(out);
+    // as long as the two play: the first whole, the second from its head's end; the fade inside, not added
+    expect(Math.abs(got.length - Math.round(((a.durationMs + b.durationMs - 281) * 32) / 1000))).toBeLessThanOrEqual(1);
+    // the first plays to within the fade of its end, the second from its head's end on; over the fade (its last ~5 frames) the
+    // two are mixed: their barcodes read as neither clip
+    expect(got.slice(0, 140).every((f) => f.clip === 4)).toBe(true);
+    expect(got.slice(148, 153).filter((f) => f.clip !== 4).length).toBeGreaterThanOrEqual(2);
+    expect(got.slice(-100).every((f) => f.clip === 5)).toBe(true);
+  });
+
   it("plays a finished take as its draft: the same frames, larger, its join still seamless", async () => {
     const { id, clips } = await chain(three, N);
     // clip 2 finished (twice the size, the same frames): a take marked as the finished version of its draft

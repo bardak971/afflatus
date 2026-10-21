@@ -98,7 +98,7 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
     nodes: (input) => [
       ...MOTION_NODES, "UNETLoader", "LoraLoaderModelOnly", "CLIPLoader", "VAELoader", "CLIPTextEncode", "CLIPVisionLoader", "CLIPVisionEncode",
       "CheckpointLoaderSimple", "SAM3_VideoTrack", "SCAIL2ColoredMask", "WanSCAILToVideo", "ModelSamplingSD3", "KSamplerSelect", "BasicScheduler", "SamplerCustom", "VAEDecode",
-      ...(motionFrames(input, { media: {} }, shape) > SCAIL_CHUNK ? ["ImageFromBatch", "ImageBatch"] : input.previous ? ["ImageFromBatch"] : []), ...motionBatchNodes(input),
+      ...(motionFrames(input, { media: {} }, shape) > SCAIL_CHUNK ? ["ImageFromBatch", "ImageBatch"] : input.previous ? ["ImageFromBatch", "ImageBatch"] : []), ...motionBatchNodes(input),
       // Face refine: H3's nodes, and a window carrying on (its frames off H3's grid by the ones it dropped) made up to it and cut back
       ...(o.faceRefine && input.faceRefine ? [...FACE_REFINE_H3, ...(input.previous ? ["ImageFromBatch", "ImageBatch", "RepeatImageBatch"] : [])] : []),
     ],
@@ -148,6 +148,9 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
       // the clip before, when there is one, anchors the first chunk as a chunk before it would: its frames dropped, its colours held
       let previous: Ref | null = previousFrames(g, ctx);
       let offset: Ref | number = 0;
+      // a window that carries on: the clip before's last moments as this one made them again (its first chunk's carried frames),
+      // kept in front of its own, hidden: the join fades over them with both clips moving (motionSaved's head)
+      let head: Ref | null = null;
       const passes: Array<{ node: string; steps: number; frames: number }> = [];
       lengths.forEach((length, i) => {
         g.phase("sampling");
@@ -167,10 +170,10 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
         const held = Boolean(previous) && ctx.has("ColorTransfer");
         if (previous) {
           // its first frames are the ones carried over: dropped, and its colours held to where the chunk before ended
-          fresh = g.out("ImageFromBatch", { image: decoded, batch_index: SCAIL_CARRIED, length: 4096 });
-          if (held) {
-            fresh = g.out("ColorTransfer", { image_target: fresh, image_ref: g.out("ImageFromBatch", { image: previous, batch_index: -1, length: 1 }), method: "reinhard_lab", source_stats: "per_frame", strength: 1 });
-          }
+          const last = held ? g.out("ImageFromBatch", { image: previous, batch_index: -1, length: 1 }) : null;
+          const hold = (x: Ref) => (last ? g.out("ColorTransfer", { image_target: x, image_ref: last, method: "reinhard_lab", source_stats: "per_frame", strength: 1 }) : x);
+          fresh = hold(g.out("ImageFromBatch", { image: decoded, batch_index: SCAIL_CARRIED, length: 4096 }));
+          if (i === 0 && ctx.uploads.previous) head = hold(g.out("ImageFromBatch", { image: decoded, batch_index: 0, length: SCAIL_CARRIED }));
         }
         made = made ? g.out("ImageBatch", { image1: made, image2: fresh }) : fresh;
         // the chunk after anchors on this one as it is kept: its colours held, once they were (as the template's Extend hands on
@@ -188,8 +191,10 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
       // the sound its pass holds, on its own frames (the file's, motionSaved's, may start half a frame earlier)
       const sound = refineValues.faceRefine ? motionSound(g, ctx, input, { fps, frames: total, parts, carried: SCAIL_CARRIED }) : undefined;
       const faces = faceRefined(g, ctx, refineValues, made!, { audio: sound, picture: ctx.uploads.picture, frames: total - (ctx.uploads.previous ? SCAIL_CARRIED : 0) });
-      const images = matchedToDriving(g, ctx, faces.images, pose, input, frame);
-      const saved = motionSaved(g, ctx, images, input, { frame, fps, frames: total, parts, carried: SCAIL_CARRIED, made: faces.images, ...(sound ? { sound } : {}) });
+      const own = total - (ctx.uploads.previous ? SCAIL_CARRIED : 0);
+      const withHead = head ? g.out("ImageBatch", { image1: head, image2: faces.images }) : faces.images;
+      const images = matchedToDriving(g, ctx, withHead, pose, input, frame, head ? { head: SCAIL_CARRIED, frames: own } : undefined);
+      const saved = motionSaved(g, ctx, images, input, { frame, fps, frames: total, parts, carried: SCAIL_CARRIED, ...(head ? { head: SCAIL_CARRIED } : {}), made: faces.images, ...(sound ? { sound } : {}) });
       const said = [rifeSkippedSaid(input.smooth, ctx), faceRefineSkipped(refineValues, ctx, { picture: ctx.uploads.picture, own: true })].filter((x): x is string => Boolean(x));
       if (faces.pass) passes.push({ ...faces.pass, frames: total });
       return {
@@ -208,6 +213,8 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
         // times their work (forecasts of 375 and 533 min for 4 min); the whole part, with the chunks' steps, was 4 times over
         frames: Math.max(...lengths),
         passes,
+        // its head, hidden on a timeline: the join fades over it with both clips moving
+        ...(saved.headMs ? { overlap: { headMs: saved.headMs, tailMs: 0, moving: true } } : {}),
         loads: [
           ...saved.loads, `diffusion_models/${slots.unet}`, `text_encoders/${slots.clip}`, `vae/${slots.vae}`, `clip_vision/${slots.clipVision}`, `checkpoints/${slots.sam}`,
           ...(slots.dpo ? [`loras/${slots.dpo}`] : []), ...(slots.turbo ? [`loras/${slots.turbo}`] : []), ...loraLoads(input.loras), ...faces.loads,
