@@ -32,12 +32,14 @@ describe("which input goes in which part of a form", () => {
     expect(ids(l.sampling)).toEqual(["steps"]);
     expect(ids(l.encoding)).toEqual(["crf"]);
     expect(ids(l.rare)).toEqual(["tileSize"]);
-    expect(ids(l.upscaling)).toEqual(["hires"]);
+    // a picture's hires fix sits in Sampling, after the sampler rows
+    expect(ids(l.afterSampling)).toEqual(["hires"]);
+    expect(ids(l.upscaling)).toEqual([]);
     expect(l.hidden).toEqual([]);
   });
   it("keeps, while searching, only what matches, and names what another setting hides", () => {
     const l = layoutOf(picture, { hires: false }, "scale");
-    expect(l.upscaling.map((i) => i.id)).toEqual([]);
+    expect(l.afterSampling.map((i) => i.id)).toEqual([]);
     expect(l.hidden.map((i) => i.id)).toEqual(["hiresScale"]);
     expect(matchesQuery(picture.inputs.find((i) => i.id === "steps")!, "stps")).toBe(true);
     expect(matchesQuery(picture.inputs.find((i) => i.id === "steps")!, "til")).toBe(false);
@@ -50,6 +52,43 @@ describe("which input goes in which part of a form", () => {
     expect(said.missing).toBe(true);
     expect(said.outSaid).toBe("seed: random");
     expect(said.samplingSaid).toBe("20 steps");
+  });
+});
+
+describe("a picture's hires fix and its texts", () => {
+  const sdxl = recipe([
+    { id: "prompt", type: "prompt", label: "Prompt", style: "tags" },
+    { id: "quality", type: "prompt", label: "Quality tags", style: "tags", optional: true, default: "", advanced: true },
+    { id: "steps", type: "number", label: "Steps", min: 1, max: 60, step: 1, default: 28, advanced: true },
+    { id: "cfg", type: "number", label: "CFG scale", min: 1, max: 20, step: 0.5, default: 5, advanced: true },
+    { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSampler", input: "sampler_name" }, default: "euler_ancestral", advanced: true },
+    { id: "hires", type: "toggle", label: "Hires fix", default: false, advanced: true },
+    { id: "hiresScale", type: "number", label: "Upscale by", min: 1.1, max: 4, step: 0.05, default: 1.5, unit: "×", showWhen: "hires", advanced: true },
+    { id: "hiresDenoise", type: "number", label: "Denoising strength", min: 0.05, max: 0.9, step: 0.05, default: 0.45, showWhen: "hires", advanced: true },
+    { id: "crf", type: "number", label: "CRF", min: 0, max: 51, step: 1, default: 19, advanced: true },
+    { id: "seed", type: "seed", label: "Seed" },
+  ]);
+  const ids = (list: InputSpec[]) => list.map((i) => i.id);
+  it("puts the quality tags under the prompt, not with the encoding", () => {
+    const l = layoutOf(sdxl, {}, "");
+    expect(ids(l.texts)).toEqual(["quality"]);
+    expect(ids(l.encoding)).toEqual(["crf"]);
+  });
+  it("draws the hires fix in Sampling after the sampler rows, and says it on Sampling's folded line when on", () => {
+    const values = { steps: 34, cfg: 5, sampler: "euler_ancestral", hires: true, hiresScale: 1.5, hiresDenoise: 0.45 };
+    const l = layoutOf(sdxl, values, "");
+    expect(ids(l.sampling)).toEqual(["steps", "cfg", "sampler"]);
+    expect(ids(l.afterSampling)).toEqual(["hires", "hiresScale", "hiresDenoise"]);
+    expect(l.upscaling).toEqual([]);
+    expect(summariesOf(sdxl, l, values, {}).samplingSaid).toBe("34 steps · CFG 5 · euler_ancestral · hires 1.5×");
+    const off = { ...values, hires: false };
+    expect(summariesOf(sdxl, layoutOf(sdxl, off, ""), off, {}).samplingSaid).toBe("34 steps · CFG 5 · euler_ancestral");
+  });
+  it("keeps a video's pass after sampling in Output", () => {
+    const clip = { ...sdxl, output: "video" as const };
+    const l = layoutOf(clip, { hires: true }, "");
+    expect(ids(l.afterSampling)).toEqual([]);
+    expect(ids(l.upscaling)).toEqual(["hires", "hiresScale", "hiresDenoise"]);
   });
 });
 

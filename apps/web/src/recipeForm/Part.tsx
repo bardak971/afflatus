@@ -101,15 +101,22 @@ function FoldBody({ open, now, className, children }: { open: boolean; /** Opene
   );
 }
 
-/** The name of a part: small, bold, upper case, quiet. */
-export const PartHead = ({ children }: { children: ReactNode }) => (
-  <span className="truncate text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{children}</span>
-);
+/**
+ * The form's headings come in two levels, told apart by size, case and weight together: a part's name (the section:
+ * small, upper case, spaced, quiet) and a group inside a part (sentence case, a step larger, semibold). Plain classes
+ * for now; the kit's SectionTitle takes their place when it is adopted.
+ */
+export const PART_HEAD = "truncate text-[11.5px] font-semibold tracking-[0.06em] text-ink-3 uppercase";
+const GROUP_HEAD = "shrink-0 whitespace-nowrap text-[12.5px] font-semibold text-ink-2";
+
+/** The name of a part: the section level. */
+export const PartHead = ({ children }: { children: ReactNode }) => <span className={PART_HEAD}>{children}</span>;
 
 /**
  * One part of a form, as a card. Folded, it is its name over one bold line that says what it holds, so it
- * need not be opened to be checked; open, one line under its head and its settings under that. A part that
- * needs something from the user (a picture that is not chosen yet) is open whatever was remembered.
+ * need not be opened to be checked; open, its name and its settings under it: the line would only repeat what
+ * the settings show. A part that needs something from the user (a picture that is not chosen yet) is open
+ * whatever was remembered.
  */
 export function Part({ id, title, help, summary, warn, needs, head, children, startOpen }: {
   id: string;
@@ -143,7 +150,7 @@ export function Part({ id, title, help, summary, warn, needs, head, children, st
             <button type="button" aria-expanded={open} aria-label={`${title}: ${open ? "fold" : "unfold"}`} className="min-w-0 text-left"><PartHead>{title}</PartHead></button>
             {help && <span onClick={(e) => e.stopPropagation()}><Help text={help} title={title} /></span>}
           </span>
-          <span className="truncate font-semibold">{summary}</span>
+          {!open && <span className="truncate font-semibold">{summary}</span>}
           {warn && <span className="truncate text-xs text-warn-ink">{warn}</span>}
         </span>
         <ChevronDown size={15} className={cx("shrink-0 text-ink-2", chevronMotion(open, searching), open && "rotate-180")} />
@@ -184,10 +191,10 @@ export function TextFold({ spec, value, children }: { spec: Extract<InputSpec, {
   );
 }
 
-/** A heading inside a part, with what the settings under it are about. */
-export const Heading = ({ title, note }: { title: string; note: string }) => (
-  <div className="flex items-baseline gap-2 border-b border-line pb-1">
-    <span className="shrink-0 whitespace-nowrap text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">{title}</span>
-    <span className="truncate text-xs text-ink-3">{note}</span>
+/** A group inside a part (the group level), with what the settings under it are about when its name does not say it. */
+export const Heading = ({ title, note }: { title: string; note?: string }) => (
+  <div className="mt-1 flex items-baseline gap-2 border-b border-line pb-1">
+    <span className={GROUP_HEAD}>{title}</span>
+    {note && <span className="truncate text-xs text-ink-3">{note}</span>}
   </div>
 );

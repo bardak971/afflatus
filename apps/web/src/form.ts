@@ -219,9 +219,10 @@ export function layoutOf(recipe: RecipeInfo, seen: Record<string, unknown>, q: s
   const mainText = mainTextOf(recipe);
   const hit = (i: InputSpec) => matchesQuery(i, q);
   const sought = <T extends InputSpec>(list: T[]): T[] => (q ? list.filter(hit) : list);
-  // the negative prompt sits under the prompt in every form that has one, wherever its recipe filed it
-  // (a form with no prompt of its own keeps it with its other settings)
-  const underPrompt = (i: InputSpec) => i.type === "prompt" && i.id === "negative" && Boolean(mainText);
+  // every other text sits under the prompt in a form that has one, wherever its recipe filed it: the negative prompt, a
+  // checkpoint's quality tags (put in front of the prompt, and filed as encoding by their name before, under a picture's
+  // "Encode" heading), an instruction (a form with no prompt of its own keeps them with its other settings)
+  const underPrompt = (i: InputSpec) => i.type === "prompt" && i.id !== mainText?.id && Boolean(mainText);
   const length = secondsInput(recipe.inputs);
   // a recipe can file a size or a seed under Advanced on purpose (an imported workflow leaves the shelves to its importer)
   const isOut = (i: InputSpec) => i.section !== "rare" && (i.section === "out" || i.type === "size" || i.type === "seed" || (i.type === "number" && (i.id === length?.id || i.unit?.trim() === "p")));
@@ -236,8 +237,15 @@ export function layoutOf(recipe: RecipeInfo, seen: Record<string, unknown>, q: s
   const pictures = rest.filter(builtOn);
   // an advanced setting filed under Output (a pass's denoise, a colour match) goes to the Output chapter's upscale
   // group by groupOf; only the shapes, the seed and the length stay out of the groups, on the Output shelf
-  const tuning = sought(rest.filter((i) => i.advanced && !underPrompt(i) && !isMedia(i) && (!isOut(i) || i.section === "out")));
+  const tunable = rest.filter((i) => i.advanced && !underPrompt(i) && !isMedia(i) && (!isOut(i) || i.section === "out"));
+  const tuning = sought(tunable);
   const rare = tuning.filter((i) => groupOf(i) === "rare");
+  // A picture's upscale pass is a second sampling pass (A1111's hires fix): it shows in Sampling, after the sampler, where
+  // it is looked for. A video's stays in Output (the pass after the clip, the colour match, Face refine), and so does a
+  // picture's when the form has no sampling of its own (an upscale tool's colour). Decided on the whole form, not on
+  // what the search leaves, so that a setting found does not change part as the search is typed.
+  const passInSampling = recipe.output === "image" && tunable.some((i) => groupOf(i) === "speed");
+  const pass = tuning.filter((i) => groupOf(i) === "upscale");
   return {
     chapters,
     // the recipe may say where Advanced and the prompt go among its chapters; without a word, Advanced is last and the prompt first
@@ -258,7 +266,9 @@ export function layoutOf(recipe: RecipeInfo, seen: Record<string, unknown>, q: s
     knobs: sought(front.filter((i) => i.type === "model" || ((i.type === "number" || i.type === "toggle" || i.type === "choice") && !isOut(i) && !withMedia(i)))),
     // the settings, by what they are about
     sampling: tuning.filter((i) => groupOf(i) === "speed"),
-    upscaling: tuning.filter((i) => groupOf(i) === "upscale"),
+    /** A picture's upscale pass (hires fix), drawn in Sampling after the sampler rows. */
+    afterSampling: passInSampling ? pass : [],
+    upscaling: passInSampling ? [] : pass,
     encoding: tuning.filter((i) => groupOf(i) === "file"),
     rare,
     // the settings another setting hides (the upscale factor while the upscale is off): found too, with what shows them
@@ -274,7 +284,7 @@ const holds = (x: unknown) => (Array.isArray(x) ? x.length > 0 : Boolean(x));
  * out, how it samples. `madeSummary`, `lookSummary` and `frameSummary` are what the screen adds itself.
  */
 export function summariesOf(recipe: RecipeInfo, layout: FormLayout, values: Record<string, unknown>, extra: { madeSummary?: string; lookSummary?: string; frameSummary?: string }) {
-  const { knobs, loras, frames, pictures, refs, out, sampling } = layout;
+  const { knobs, loras, frames, pictures, refs, out, sampling, afterSampling } = layout;
   const said = (i: InputSpec): string => {
     const v = values[i.id];
     if (i.type === "model") return fileLabel(String(v ?? ""));
@@ -327,13 +337,18 @@ export function summariesOf(recipe: RecipeInfo, layout: FormLayout, values: Reco
     return "";
   }).filter(Boolean).join(" · ");
   const key = (id: string) => sampling.find((i) => i.id === id);
+  // a picture's upscale pass, when it is on: "hires 1.5×", as A1111 says it
+  const passOn = afterSampling.find((i) => i.type === "toggle" && Boolean(values[i.id]));
+  const passBy = passOn && afterSampling.find((i) => i.type === "number" && i.unit?.trim() === "×" && i.showWhen === passOn.id);
+  const passSaid = passOn ? [/^hires/i.test(passOn.id) ? "hires" : passOn.label.toLowerCase(), passBy ? `${values[passBy.id]}×` : ""].filter(Boolean).join(" ") : "";
   const samplingSaid = [
     key("steps") ? `${values.steps} steps` : key("turboSteps") && values.fast ? `${values.turboSteps} steps` : "",
     key("fast") && values.fast ? "Turbo" : "",
     key("cfg") ? `CFG ${values.cfg}` : "",
     // a sampler left to the recipe says so: "Auto" alone would say nothing
     key("sampler") ? (values.sampler === "Auto" ? "sampler: auto" : fileLabel(String(values.sampler ?? ""))) : "",
-  ].filter(Boolean).join(" · ") || plural(sampling.length, "setting");
+    passSaid,
+  ].filter(Boolean).join(" · ") || plural(sampling.length + afterSampling.length, "setting");
   return {
     modelSaid: [extra.madeSummary, ...knobs.map(said), loraCount ? plural(loraCount, "LoRA") : ""].filter(Boolean).join(" · "),
     framesChosen,
