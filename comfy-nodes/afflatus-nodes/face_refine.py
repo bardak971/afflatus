@@ -37,10 +37,15 @@ class AfflatusH3AudioLock(io.ComfyNode):
         rate = int(audio["sample_rate"])
         wanted = int(getattr(audio_vae, "audio_sample_rate", 32000))
         if rate != wanted:
-            # torchaudio only when the rates differ: the clip's own decoded sound is at the VAE's rate already
-            import torchaudio
+            # only when the rates differ: the clip's own decoded sound is at the VAE's rate already. ComfyUI's own resample
+            # first, since ComfyUI no longer requires torchaudio (2026-09-21); torchaudio for a ComfyUI from before it
+            try:
+                from comfy.audio import resample
+            except ImportError:
+                import torchaudio
 
-            waveform = torchaudio.functional.resample(waveform, rate, wanted)
+                resample = torchaudio.functional.resample
+            waveform = resample(waveform, rate, wanted)
         sound = audio_vae.encode(waveform.movedim(1, -1))
         # as long as the latent's own audio stream: the sound may end a token early or late against the frames
         want, have = int(template.shape[-1]), int(sound.shape[-1])

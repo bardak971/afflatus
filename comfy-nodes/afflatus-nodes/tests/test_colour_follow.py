@@ -87,3 +87,77 @@ def test_a_jump_inside_the_clip_is_not_averaged_across():
     assert np.abs(out[4:] - want).max() < 1.0
     # a calm clip is one run
     assert stretches([frame_stats(f, 1)[0] for f in clip([(0.5, 0.45, 0.4 + 0.002 * i) for i in range(20)])]) == [(0, 20)]
+
+
+def test_a_cut_in_the_reference_is_a_hard_change_whether_or_not_the_clip_cuts_with_it():
+    # a driving video with a hard cut at frame 20, bright to dark and blue (Motion transfer on an edited video)
+    ref = clip([(0.80, 0.80, 0.80)] * 20 + [(0.20, 0.20, 0.30)] * 20, seed=9)
+    want = lab_mean(ref)
+    # the clip cuts with it (a little warmer than it throughout), or keeps its own light across it
+    shared = clip([(0.84, 0.80, 0.76)] * 20 + [(0.21, 0.20, 0.28)] * 20, seed=10)
+    steady = clip([(0.60, 0.55, 0.50)] * 40, seed=11)
+    for target in (shared, steady):
+        out = lab_mean(followed(target, ref))
+        # right up to the cut and right after it, each frame on its own shot's colours: no second-long fade between the two
+        assert np.abs(out - want).max() < 1.0
+
+
+# The node's own path, in torch float32, against the numpy float64 figures above. The tests' torch is a stand-in, so this runs
+# in a fresh interpreter, and only where a real torch is installed (ComfyUI's own venv).
+_TORCH_CHECK = r"""
+import importlib.util, sys, types
+import numpy as np
+import torch
+
+io = types.SimpleNamespace(ComfyNode=object, Schema=object, NodeOutput=lambda x: x)
+sys.modules["comfy_api"] = types.ModuleType("comfy_api")
+sys.modules["comfy_api.latest"] = types.SimpleNamespace(io=io)
+spec = importlib.util.spec_from_file_location("colour_follow", sys.argv[1])
+cf = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cf)
+# small chunks, so that the frames are converted over several of them
+cf._CHUNK_PIXELS = 3 * 40 * 48
+
+rng = np.random.default_rng(0)
+images = rng.random((7, 40, 48, 3)) * np.linspace(0.3, 1.0, 7)[:, None, None, None]
+reference = rng.random((5, 24, 32, 3)) * 0.8
+# figures read off the frames: the same to a hundredth of a level
+for frames in (images, reference):
+    got = cf.torch_stats(torch, torch.from_numpy(frames.astype(np.float32)))
+    want = [cf.frame_stats(f) for f in frames]
+    for (gm, gs), (wm, ws) in zip(got, want):
+        assert np.abs(gm - wm).max() < 0.01 and np.abs(gs - ws).max() < 0.01, (gm, wm, gs, ws)
+scale, offset = cf.follow_params([cf.frame_stats(f) for f in images], [cf.frame_stats(f) for f in reference], 2)
+out = cf.AfflatusColorFollow.execute(torch.from_numpy(images.astype(np.float32)), torch.from_numpy(reference.astype(np.float32)), 2, 0.8)
+assert out.dtype == torch.float32 and tuple(out.shape) == images.shape
+want = np.stack([cf.apply_follow(images[i], scale[i], offset[i], 0.8) for i in range(len(images))])
+assert np.abs(out.numpy() - want).max() < 2e-4, np.abs(out.numpy() - want).max()
+print("same")
+"""
+
+
+def test_the_nodes_torch_conversion_gives_the_numpy_figures():
+    import os
+    import subprocess
+    import sys
+
+    import pytest
+
+    if subprocess.run([sys.executable, "-I", "-c", "import torch"], capture_output=True).returncode != 0:
+        pytest.skip("no torch here: ComfyUI's own venv runs this")
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(os.path.dirname(here), "colour_follow.py")
+    run = subprocess.run([sys.executable, "-I", "-c", _TORCH_CHECK, path], capture_output=True, text=True, timeout=120)
+    assert run.returncode == 0 and "same" in run.stdout, run.stderr[-2000:]
+
+
+def test_a_flash_in_the_reference_is_not_a_cut_and_a_cut_is():
+    from afflatus_nodes.colour_follow import HOLD, stretches
+
+    # a frame of a flash, then the shot as it was: averaged over like a flicker, not followed into the clip
+    flash = clip([(0.4, 0.4, 0.4)] * 10 + [(0.9, 0.9, 0.9)] + [(0.4, 0.4, 0.4)] * 10, seed=12)
+    assert stretches([frame_stats(f, 1)[0] for f in flash], hold=HOLD) == [(0, 21)]
+    cut = clip([(0.4, 0.4, 0.4)] * 10 + [(0.9, 0.9, 0.9)] * 3, seed=13)
+    assert stretches([frame_stats(f, 1)[0] for f in cut], hold=HOLD) == [(0, 10), (10, 13)]
+    # the clip's own side splits at any step, as it did
+    assert stretches([frame_stats(f, 1)[0] for f in flash]) == [(0, 10), (10, 11), (11, 21)]
