@@ -86,7 +86,7 @@ export const h3Video = defineRecipe<H3Video>({
       { name: "fast, smooth, quick", input: { description: "a", cache: true }, slots: all },
       { name: "full steps with the step cache", input: { description: "a", fast: false, cache: true }, slots: all },
       // Veda on, its two predictors there: the text-and-frames one taken (no references), sparsity 24 / 40
-      { name: "Veda's sparse attention, its text-and-frames predictor", input: { description: "a", veda: true, vedaGenerated: 24, vedaReference: 40 }, slots: { ...all, ...{ veda: "minimax_h3_r2va_veda_preview_fp8.safetensors", vedaT2va: "minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors" } } },
+      { name: "Veda's sparse attention, its text-and-frames predictor", input: { description: "a", veda: true, vedaGenerated: 24, vedaReference: 40, shot: "Medium" }, slots: { ...all, ...{ veda: "minimax_h3_r2va_veda_preview_fp8.safetensors", vedaT2va: "minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors" } } },
       {
         name: "opens on a picture and ends on another, a LoRA",
         input: { description: "a", start: "p1", end: "p2", loras: [{ file: "l.safetensors", weight: 0.8 }, { file: "off.safetensors", weight: 0 }], fast: false },
@@ -194,8 +194,18 @@ export interface H3Extra {
   pictures?(g: GraphBuilder): MorePicture[];
 }
 
+/** The words a shot opens the prompt with (card #27); none for Any. */
+export const SHOT_WORDS: Record<string, string> = { Wide: "Wide shot.", Medium: "Medium shot.", "Close-up": "Close-up." };
+/** The form with its shot's words before what happens, unless they are there already. */
+export function withShot<T extends { shot?: string; description: string }>(input: T): T {
+  const words = SHOT_WORDS[input.shot ?? ""];
+  return words && !input.description.trim().startsWith(words) ? { ...input, description: `${words} ${input.description}`.trim() } : input;
+}
+
 /** The H3 clip's graph, shared by the recipes made on it. */
-export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}): BuiltGraph {
+export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}): BuiltGraph {
+  // the shot's words open what happens (card #27), every H3 form alike; a recipe that writes its own prompt says it there
+  const input = withShot(asked);
   const { slots, media } = ctx;
   const g = new GraphBuilder();
   const more = extra.pictures ? extra.pictures(g) : [];

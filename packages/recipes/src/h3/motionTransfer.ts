@@ -194,7 +194,7 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
       },
       {
         name: "Veda's sparse attention on a moved picture",
-        input: { picture: "p1", driving: { asset: "v1" }, description: "A man dances in a living room.", veda: true, vedaGenerated: 24, vedaReference: 40 },
+        input: { picture: "p1", driving: { asset: "v1" }, description: "A man dances in a living room.", veda: true, vedaGenerated: 24, vedaReference: 40, shot: "Wide" },
         slots: { ...all, ...{ veda: "minimax_h3_r2va_veda_preview_fp8.safetensors", vedaT2va: "minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors" } }, uploads: { picture: "p.png", driving: "v.mp4" }, media: { picture, driving: part },
       },
       {

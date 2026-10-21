@@ -6,6 +6,7 @@ import { allowedHosts, hostAllowed } from "./hostCheck";
 import { z } from "zod";
 import { ComfyClient, ComfyLocked, plannedScan } from "@afflatus/comfy";
 import { describeRecipe, listOptions, parseInput } from "@afflatus/core";
+import { withMentions } from "./entities";
 import { mergeScans } from "./machineScans";
 import { comfyFolderOf } from "./modelDownload";
 import { accessOf } from "./lock-api";
@@ -234,7 +235,9 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
         return b.input;
       }
     })();
-    return { into: recipe.partsInto, text: recipe.promptFromParts(input) };
+    // a Prompt kit person named "@Nicolas" in a part: said in the prompt as the render will say them
+    const said = (await withMentions(s.db, recipe, input as Record<string, unknown>, null)).input;
+    return { into: recipe.partsInto, text: recipe.promptFromParts(said) };
   });
 
   /**

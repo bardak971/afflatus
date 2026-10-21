@@ -28,6 +28,34 @@ export const lookSchema = z.strictObject({
 export type Look = z.infer<typeof lookSchema>;
 export const emptyLook = (look: Look | null | undefined) => !look || (!look.cast.length && !look.style && !look.snippets?.length);
 
+/** A name as "@name" finds it: case, spaces and signs left out ("@nicolas", "@Nicolas_D" for "Nicolas D"). */
+const nameKey = (s: string) => s.toLowerCase().replace(/[^\p{L}\d]+/gu, "");
+
+/**
+ * "@Nicolas" in a form's texts (a prompt part, What happens): the Prompt kit person of that name cast for this render, as
+ * if picked in the cast (their pictures, LoRA and voice come with them), and in the text the words that say how they look,
+ * since a name means nothing to the model (the owner, 2026-10-20; H3 drew whoever it pleased for a bare name). A name that
+ * is no one's stays as it was typed.
+ */
+export async function withMentions(db: Db, recipe: Recipe<any>, raw: Record<string, unknown>, look: Look | null | undefined): Promise<{ input: Record<string, unknown>; look: Look | null | undefined }> {
+  const texts = (recipe.inputs as InputSpec[]).filter((i) => i.type === "prompt" && typeof raw[i.id] === "string" && (raw[i.id] as string).includes("@"));
+  if (!texts.length) return { input: raw, look };
+  const people = await db.selectFrom("entities").selectAll().where("kind", "=", "person").execute();
+  const byName = new Map(people.map((p) => [nameKey(p.name), p]));
+  const cast = [...(look?.cast ?? [])];
+  const input = { ...raw };
+  for (const spec of texts) {
+    input[spec.id] = String(raw[spec.id]).replace(/@([\p{L}\d_-]+)/gu, (all, name: string) => {
+      const row = byName.get(nameKey(name));
+      if (!row) return all;
+      if (!cast.some((c) => c.id === row.id)) cast.push({ id: row.id });
+      const said = (defs.person.parse(JSON.parse(row.def)) as PersonDef).sentence.trim().replace(/[.\s]+$/, "");
+      return said ? `the person (${said})` : "the person";
+    });
+  }
+  return { input, look: cast.length === (look?.cast.length ?? 0) ? look : { cast, style: look?.style ?? null, snippets: look?.snippets ?? [] } };
+}
+
 const lora = z.strictObject({ file: z.string().min(1), weight: z.number().min(-4).max(4) });
 const outfit = z.strictObject({
   id: z.string().min(1),
@@ -163,7 +191,9 @@ export function withMood(recipe: Recipe<any>, input: Record<string, unknown>, mo
  * whichever the recipe's prompt is written in), their LoRAs for this model, their pictures as
  * references and a voice, for the recipes that take those.
  */
-export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, unknown>, look: Look | null | undefined): Promise<Composed> {
+export async function compose(db: Db, recipe: Recipe<any>, asked: Record<string, unknown>, askedLook: Look | null | undefined): Promise<Composed> {
+  // a Prompt kit person named "@Nicolas" in a text: cast for this render, and said by how they look (withMentions)
+  const { input: raw, look } = await withMentions(db, recipe, asked, askedLook);
   const input = { ...raw };
   const added: Composed["added"] = { words: [], loras: [], references: 0, refs: [], voice: null, voiceAsset: null, skipped: [] };
   if (emptyLook(look)) return { input, added };

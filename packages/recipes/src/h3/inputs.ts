@@ -46,6 +46,8 @@ export interface H3Video extends ColourMatch {
   smooth: boolean;
   quick: boolean;
   cache: boolean;
+  /** How wide the shot is (card #27): its words open the prompt, the same on every H3 form. "Any": the model's own. */
+  shot?: string;
   /** Veda's sparse attention, and its key tiles kept of each query tile (generated, reference tokens). */
   veda?: boolean;
   vedaGenerated?: number;
@@ -203,6 +205,11 @@ export const h3Inputs: InputSpec[] = [
   { id: "smooth", type: "toggle", label: "RIFE ×2", note: "frame interpolation: frames interpolated with RIFE, from 24 to 48 a second", default: true, advanced: true },
   { id: "sharpRefs", type: "toggle", label: "Full-res references", note: "holds a face better, several times slower", default: false, advanced: true },
   { id: "cache", type: "toggle", label: "Step cache", note: "faster, softer: steps that barely change are skipped (MiniMaxH3Cache, from the ComfyUI-DaSiWa-Nodes pack; without it nothing changes). Only without Turbo", default: false, showWhen: { input: "fast", in: [false] }, advanced: true },
+  {
+    // the shot as a word of the prompt (card #27), deterministic: the same words on every H3 form, in the prompt as sent
+    id: "shot", type: "choice", label: "Shot", options: ["Any", "Wide", "Medium", "Close-up"], default: "Any",
+    note: "how wide the shot is: its words open the prompt (\"Medium shot.\"), or follow a swap's first sentence. Any: as the model and the pictures make it. A prompt typed by hand in Prompt as sent is sent as it is",
+  },
   {
     // every H3 form alike (the owner, 2026-10-20): the swap's toggle, on every form. The tested character-swap workflow runs it
     // at 32 / 32; its makers trained the predictors at 768p on 8-step turbo, other sizes and steps work

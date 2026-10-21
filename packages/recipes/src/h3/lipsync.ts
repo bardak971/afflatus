@@ -132,7 +132,7 @@ export const h3LipSync = defineRecipe<H3LipSync>({
       },
       {
         name: "Veda's sparse attention on a recording",
-        input: { description: "a café terrace", start: "p1", recording: "a1", veda: true, vedaGenerated: 24, vedaReference: 40 },
+        input: { description: "a café terrace", start: "p1", recording: "a1", veda: true, vedaGenerated: 24, vedaReference: 40, shot: "Close-up" },
         slots: { ...all, ...{ veda: "minimax_h3_r2va_veda_preview_fp8.safetensors", vedaT2va: "minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors" } }, uploads: { start: "a.png", recording: "rec.wav" }, media: { start: { width: 832, height: 1216 }, recording: { width: 0, height: 0, seconds: 5.9 } },
       },
       {
