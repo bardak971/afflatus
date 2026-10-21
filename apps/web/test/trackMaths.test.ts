@@ -19,6 +19,13 @@ const all = { start: "first", end: "last", mid: "key", midAt: "keyAt" };
 const none = { start: undefined, end: undefined, mid: undefined, midAt: undefined };
 
 describe("what a drop on a clip does", () => {
+  it("takes a sound on a rendered clip for its audio, and on a clip not rendered yet for a recording to make Lip sync clips from", () => {
+    expect(clipTarget("sound", slot(clips[1]!, 1), 0.5, 250, clips, none)).toEqual({ kind: "sound", clip: "b" });
+    expect(clipTarget("sound", slot(clips[1]!, 1, true), 0.5, 250, clips, none)).toEqual({ kind: "recording", clip: "b" });
+    // a still keeps taking it as its sound
+    const still = clip("s", { kind: "still" } as Partial<Clip>);
+    expect(clipTarget("sound", slot(still, 1, true), 0.5, 250, [still], none)).toEqual({ kind: "sound", clip: "s" });
+  });
   it("pins a picture as the first frame on the left half, the last on the right, a keyframe in the middle third", () => {
     const s = slot(clips[1]!, 1);
     expect(clipTarget("picture", s, 0.25, 250, clips, all)).toEqual({ kind: "pin", clip: "b", where: "start" });
@@ -54,12 +61,6 @@ describe("what a drop on a clip does", () => {
     expect(clipTarget("transition", slot(clips[1]!, 1), 0.7, 250, clips, all)).toEqual({ kind: "join", clip: "c" });
     expect(clipTarget("transition", slot(clips[0]!, 0), 0.3, 250, clips, all)).toBeNull();
     expect(clipTarget("transition", slot(clips[2]!, 2), 0.7, 250, clips, all)).toBeNull();
-  });
-
-  it("gives a sound to a clip that plays, or to a still, not to a clip not rendered yet", () => {
-    expect(clipTarget("sound", slot(clips[1]!, 1), 0.5, 250, clips, all)).toEqual({ kind: "sound", clip: "b" });
-    expect(clipTarget("sound", slot(clip("p", { take: null }), 1, true), 0.5, 250, clips, all)).toBeNull();
-    expect(clipTarget("sound", slot(clip("s", { kind: "still" }), 1, true), 0.5, 250, clips, all)).toEqual({ kind: "sound", clip: "s" });
   });
 });
 

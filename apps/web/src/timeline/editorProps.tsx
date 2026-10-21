@@ -140,6 +140,7 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     onMove: (clip, afterId) => patch.mutate({ clip, patch: { after: afterId } }),
     onJoin: (clip, joined) => patch.mutate({ clip: clip.id, patch: { joined } }),
     onOpenJoin: (clip) => e.openJoin(clip.id),
+    onRecording: (asset, clip) => e.recording.run(asset, clip),
     onSource: (asset) => {
       // the model the windows are made with: that of an empty clip given one that makes a source window by window (the one
       // selected, else the first; the owner picked Swap motion on a new clip, then dropped the source, and got Swap

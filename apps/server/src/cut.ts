@@ -528,6 +528,23 @@ export async function soundPart(source: Media, ext: string, opts: { start: numbe
   });
 }
 
+/**
+ * The pauses of a whole sound (a voice recording to cut into Lip sync clips), in seconds: quiet for at least 0.2 s, quiet
+ * being 30 dB under its loudest, as quietAfter reads it, so a recording made quietly has pauses too.
+ */
+export async function pausesOf(source: Media, ext: string): Promise<Array<{ start: number; end: number }>> {
+  return inTemp(async (dir) => {
+    const input = await onDisk(dir, `in.${ext}`, source);
+    const loud = Number(/max_volume:\s*(-?[\d.]+) dB/.exec(await reportOf(["-i", input, "-vn", "-af", "volumedetect"]))?.[1] ?? NaN);
+    if (!Number.isFinite(loud)) return [];
+    const said = await reportOf(["-i", input, "-vn", "-af", `silencedetect=noise=${(loud - 30).toFixed(1)}dB:d=0.2`]);
+    const starts = [...said.matchAll(/silence_start:\s*(-?[\d.]+)/g)].map((m) => Math.max(0, Number(m[1])));
+    const ends = [...said.matchAll(/silence_end:\s*(-?[\d.]+)/g)].map((m) => Number(m[1]));
+    // a pause still open at the end of the sound has no end said: it runs to the end, which is no place to cut
+    return starts.flatMap((start, k) => (ends[k] !== undefined ? [{ start, end: ends[k]! }] : []));
+  });
+}
+
 /** What ffmpeg writes about a sound as it reads it (its own report, on stderr): volumedetect's and silencedetect's figures. */
 async function reportOf(args: string[]): Promise<string> {
   return (await ffRun(tools.ffmpeg, ["-hide_banner", "-nostats", ...args, "-f", "null", "-"], { timeout: 60_000 })).stderr;

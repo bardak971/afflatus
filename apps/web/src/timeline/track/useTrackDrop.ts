@@ -22,7 +22,9 @@ export type Over =
   /** A transition onto the join before this clip. */
   | { kind: "join"; clip: string }
   /** A video onto the source lane. */
-  | { kind: "source" };
+  | { kind: "source" }
+  /** A voice recording past the clips, or onto an empty clip: made into Lip sync clips cut at its pauses (in that clip's place). */
+  | { kind: "recording"; clip?: string };
 
 /**
  * A file from the computer while it hovers: its type is known before the drop (not its name), so a sound lights the clips'
@@ -44,7 +46,9 @@ export type Dragged = "clip" | "picture" | "video" | "sound" | "transition";
  * nothing happens there.
  */
 export function clipTarget(d: Dragged, s: Slot, fx: number, width: number, clips: Clip[], pins: ReturnType<typeof pinInputs>): Over | null {
-  if (d === "sound") return s.planned && s.clip.kind !== "still" ? null : { kind: "sound", clip: s.clip.id };
+  // a sound on a clip not rendered yet is a recording to make it Lip sync from (the mock, 2026-10-20); on a rendered clip,
+  // or a still, its audio
+  if (d === "sound") return s.planned && s.clip.kind !== "still" ? { kind: "recording", clip: s.clip.id } : { kind: "sound", clip: s.clip.id };
   // a transition goes on the nearer join: before this clip, or before the next one
   if (d === "transition") {
     const at = fx < 0.5 ? s.index : s.index + 1;
@@ -65,7 +69,7 @@ export function clipTarget(d: Dragged, s: Slot, fx: number, width: number, clips
 }
 
 /** What is being dragged over the track, and what dropping it here would do. */
-export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic, onTransition, onSource }: {
+export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic, onTransition, onSource, onRecording }: {
   clips: Clip[];
   slots: Slot[];
   /** Where the last clip ends, in pixels. */
@@ -80,6 +84,8 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
   onTransition?(clip: string, kind: TransitionKind): void;
   /** A video dropped on the source lane. */
   onSource?(asset: string): void;
+  /** A voice recording made into Lip sync clips, in place of the empty clip it was dropped on, else at the end. */
+  onRecording?(asset: string, clip?: string): void;
 }) {
 
   const [over, setOver] = useState<Over | null>(null);
@@ -136,7 +142,8 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
         else if (target.kind === "sound" && made.kind === "audio") onClipSound(target.clip, made.id);
         else if (target.kind === "music" && made.kind === "audio") onMusic(made.id);
         else if (target.kind === "source" && made.kind === "video") onSource?.(made.id);
-        else if (made.kind !== "audio" && target.kind !== "music" && target.kind !== "source") {
+        else if (target.kind === "recording" && made.kind === "audio") onRecording?.(made.id, target.clip);
+        else if (made.kind !== "audio" && target.kind !== "music" && target.kind !== "source" && target.kind !== "recording") {
           // a picture or video that landed on a clip without a pin to take it: it goes in after that clip
           const index = target.kind === "insert" ? target.index : clips.findIndex((c) => c.id === target.clip) + 1;
           onInsert(made.id, index === 0 ? null : clips[index - 1]!.id);
@@ -153,6 +160,7 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
     else if (target.kind === "sound" && asset) onClipSound(target.clip, asset);
     else if (target.kind === "music" && asset) onMusic(asset);
     else if (target.kind === "source" && asset) onSource?.(asset);
+    else if (target.kind === "recording" && asset) onRecording?.(asset, target.clip);
   };
   const n = (id: string) => clips.findIndex((c) => c.id === id) + 1;
   const hint = !dragging
@@ -160,7 +168,7 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
       ? LEGEND.map((l) => `${l.keys.replace("+", " + ")} ${l.words}`).join(" · ")
       : "Your clips will line up here, left to right, in the order they play."
     : !over
-      ? dragging === "sound" ? "Drop it on a clip to replace its audio, or on the music track." : dragging === "transition" ? "Drop it on a join between two clips." : "Drop it on the timeline."
+      ? dragging === "sound" ? "Drop it past the clips (or on a clip not rendered yet) for Lip sync clips, on a clip to replace its audio, or on the music track." : dragging === "transition" ? "Drop it on a join between two clips." : "Drop it on the timeline."
       : over.kind === "insert"
         ? `Drop to ${dragging === "clip" ? "move it" : dragging === "picture" ? "add this image as a still" : "insert it"} ${over.index === 0 ? "at the start" : over.index >= clips.length ? "at the end" : `between clip ${over.index} and clip ${over.index + 1}`}.`
         : over.kind === "pin"
@@ -169,6 +177,8 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
             ? `Drop to replace the audio of clip ${n(over.clip)}.`
             : over.kind === "source"
             ? "Drop to make it the source: made into clips window by window (Motion transfer)."
+            : over.kind === "recording"
+            ? `Drop for Lip sync clips cut at its pauses${over.clip ? `, in place of clip ${n(over.clip)}` : ", after the last clip"}.`
             : over.kind === "join"
             ? `Drop to put it on the cut between clip ${n(over.clip) - 1} and clip ${n(over.clip)}${clips[n(over.clip) - 1]?.joined === "continue" ? " (it becomes a cut)" : ""}.`
             : "Drop to play it under the whole video.";
