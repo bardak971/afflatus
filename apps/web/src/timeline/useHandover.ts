@@ -227,12 +227,12 @@ export function useHandover(h: Handover) {
           started.current = { at: t, checked: false };
           if (after) arm(nextEl, startOf(after));
         } else if (!holdFirst && !nextEl.paused && !started.current.checked && t - started.current.at > 200 && expected >= 0) {
-          // once, out of sight, when it has settled: how far off it runs teaches the next join, and a stray start is set right
-          // with one seek here (never near the take-over, never by its speed)
+          // once, out of sight, when it has settled: how far off it runs teaches the next join. It is not set right here
+          // with a seek: started PREROLL_MS before the take-over and settled 200 ms later, it is 100 ms at most from being
+          // shown, and a seek that close stalls its picture at the take-over (never by its speed either)
           started.current.checked = true;
           const off = expected - nextEl.currentTime * 1000;
           startLag.current = Math.max(0, Math.min(200, lag + off * 0.7 + 4));
-          if (Math.abs(off) > 20 && remaining > 300) nextEl.currentTime = (expected + startLag.current) / 1000;
         }
       }
       // over its last frames, a clip that fades in over this one shows, over the moments they share

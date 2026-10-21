@@ -47,7 +47,9 @@ export type Dragged = "clip" | "picture" | "video" | "sound" | "transition";
  */
 export function clipTarget(d: Dragged, s: Slot, fx: number, width: number, clips: Clip[], pins: ReturnType<typeof pinInputs>): Over | null {
   // a sound on a clip not rendered yet is a recording to make it Lip sync from (the mock, 2026-10-20); on a rendered clip,
-  // or a still, its audio
+  // or a still, its audio. Nothing on one queued or rendering: made into Lip sync clips in its place, it would be removed
+  // while its render runs on (paid for on a rented machine), its video then in no clip
+  if (d === "sound" && s.planned && s.clip.job) return null;
   if (d === "sound") return s.planned && s.clip.kind !== "still" ? { kind: "recording", clip: s.clip.id } : { kind: "sound", clip: s.clip.id };
   // a transition goes on the nearer join: before this clip, or before the next one
   if (d === "transition") {

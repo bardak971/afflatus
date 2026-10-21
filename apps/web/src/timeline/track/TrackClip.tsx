@@ -65,11 +65,23 @@ export interface TrackClipActs {
  * or its state, its edges to trim it by, the join before it, and its sound under it. Memoised: it draws again
  * only when what it shows changes (its render's progress is read by its own small parts).
  */
+/** A clip's edges are drawn to trim it by: it is selected, rendered and not in the queue. */
+export const trimmable = (s: Slot | undefined, selected: string | null) => Boolean(s && s.clip.id === selected && !s.planned && !s.clip.job);
+
+/**
+ * The "+" on the join before `s` is left out: the selected clip's edge to trim it by is drawn under it (the start of `s`, a
+ * video, or the end of the clip before). Drawn over the edge's top, it took the press there and put a clip in instead.
+ */
+export const joinCovered = (slots: Slot[], s: Slot, selected: string | null) =>
+  (trimmable(s, selected) && s.clip.kind === "video") || trimmable(slots[s.index - 1], selected);
+
 /** How long a clip's film strip waits for its motion before it is asked for all the same. */
 const STRIP_WAIT_MS = 8000;
 
-export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, misfit, on, picked, rendering, stretch, over, pinOn, ownSound, fileSound, renderMs, acts }: {
+export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, misfit, on, edged, picked, rendering, stretch, over, pinOn, ownSound, fileSound, renderMs, acts }: {
   s: Slot;
+  /** A trim edge is drawn on the join before it (joinCovered): no "+" there. */
+  edged: boolean;
   /** The clip before it on the track, and its model. */
   prev: Clip | undefined;
   prevRecipe: RecipeInfo | undefined;
@@ -366,7 +378,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
             </button>
             {/* a clip put in here: shown while the pointer is on the join (or on it), the model chosen in the column after,
                 each said beside it as seamless or a cut (the rethink's insert, page 2 of its mock) */}
-            {acts.current.onNewClip && (
+            {acts.current.onNewClip && !edged && (
               <button
                 type="button"
                 aria-label={`Put a new clip between clip ${s.index} and clip ${s.index + 1}`}
