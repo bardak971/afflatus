@@ -59,3 +59,30 @@ def test_the_waveform_goes_to_the_vae_channels_last():
     vae = AudioVae(178)
     AfflatusH3AudioLock.execute(av(107, "clip"), vae, sound())
     assert vae.given.shape == (1, 32000 * 4, 2)
+
+
+def test_a_sound_at_another_rate_is_resampled_by_comfyuis_own_resample(monkeypatch):
+    # ComfyUI dropped torchaudio (2026-09-21) for comfy.audio.resample: the lock takes that one, torchaudio is never imported
+    import sys
+    import types
+
+    calls = []
+    monkeypatch.setitem(sys.modules, "comfy.audio", types.ModuleType("comfy.audio"))
+    sys.modules["comfy.audio"].resample = lambda w, a, b: calls.append((a, b)) or Tensor((1, 2, b * 4))
+    monkeypatch.setitem(sys.modules, "torchaudio", None)
+    vae = AudioVae(178)
+    AfflatusH3AudioLock.execute(av(107, "clip"), vae, sound(48000))
+    assert calls == [(48000, 32000)]
+    assert vae.given.shape == (1, 32000 * 4, 2)
+
+
+def test_an_older_comfyui_without_its_own_resample_falls_back_on_torchaudio(monkeypatch):
+    import sys
+    import types
+
+    calls = []
+    monkeypatch.setitem(sys.modules, "comfy.audio", None)
+    functional = types.SimpleNamespace(resample=lambda w, a, b: calls.append((a, b)) or Tensor((1, 2, b * 4)))
+    monkeypatch.setitem(sys.modules, "torchaudio", types.SimpleNamespace(functional=functional))
+    AfflatusH3AudioLock.execute(av(107, "clip"), AudioVae(178), sound(44100))
+    assert calls == [(44100, 32000)]
