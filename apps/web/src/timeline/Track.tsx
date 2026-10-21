@@ -14,6 +14,7 @@ import type { PinPlace } from "./track/peek";
 import { PinPeek, type PinOver } from "./track/PinPeek";
 import { Playhead } from "./track/Playhead";
 import { MusicLane } from "./track/MusicLane";
+import { RecordingBands } from "./track/RecordingBand";
 import { HEIGHT, MUSIC, ROW, SOUND, SOURCE } from "./track/rows";
 import { SourceLane, ToCome, type SourcePlace } from "./track/SourceLane";
 import { TrackClip, type TrackClipActs } from "./track/TrackClip";
@@ -33,7 +34,7 @@ const PIN_AFTER_MS = 250;
  * and the music under all of it. Things are dragged onto it (useTrackDrop); a clip's edges shorten it (useStretch); the
  * range is drawn and snapped on it (useRangeDrag); it zooms and fits (useTrackZoom).
  */
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, onSource, onRecording, sourceSelected, onSelectSource, onOpenSource, onRemoveSource, onStretchSource, onSplitSource, onPeekSource, sourcePlace, sourceMode, sourceLabel, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, onSource, onRecording, onRecordingTrim, sourceSelected, onSelectSource, onOpenSource, onRemoveSource, onStretchSource, onSplitSource, onPeekSource, sourcePlace, sourceMode, sourceLabel, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -91,6 +92,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onSource?(asset: string): void;
   /** A voice recording made into Lip sync clips (dropped past the clips, or on an empty one). */
   onRecording?(asset: string, clip?: string): void;
+  /** A recording's band on the Audio row dragged: its In and Out, in ms of the recording. */
+  onRecordingTrim?(asset: string, fromMs: number, toMs: number): void;
   sourceSelected?: boolean;
   onSelectSource?(): void;
   /** The source's video in the viewer; the source taken away. */
@@ -240,6 +243,14 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
               <Plus size={15} />
               <span className="text-xs font-semibold">New clip</span>
             </button>
+
+            {/* the voice recordings, each a band under the Lip sync clips made of it; none: where one goes */}
+            <RecordingBands timeline={timeline} slots={slots} recipes={recipes} pps={pps} onTrim={onRecordingTrim} onSelect={onSelect} />
+            {onRecording && !timeline.recordings?.length && (
+              <span aria-hidden style={{ left: clips.length ? end + PAD : PAD + 1, top: SOUND.top, height: SOUND.height }} className="pointer-events-none absolute flex items-center gap-1 rounded border border-dashed border-line-strong px-2 text-[11px] whitespace-nowrap text-ink-3">
+                Drop a voice recording here: Lip sync, clip by clip
+              </span>
+            )}
 
             {/* the source: a long video under the clips, made into clips window by window */}
             {onSource && (

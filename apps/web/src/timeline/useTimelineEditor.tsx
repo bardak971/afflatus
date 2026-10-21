@@ -245,7 +245,11 @@ export function useTimelineEditor(id: string) {
     run: (asset: string, mine: Clip[], fromMs: number, toMs: number, sure = false) => {
       const startMs = Math.round(Number(mine[0]?.inputs.recordingStart ?? 0) * 1000);
       const rendered = mine.filter((c) => c.take).length;
-      if (!sure && rendered > 0 && Math.abs(fromMs - startMs) > 20) return setRecordingAsk({ asset, fromMs, toMs, rendered, clips: mine.length });
+      // asked in the first clip's Recording chapter, opened so the question is in view (its band dragged on the Audio row)
+      if (!sure && rendered > 0 && Math.abs(fromMs - startMs) > 20) {
+        setRecordingAsk({ asset, fromMs, toMs, rendered, clips: mine.length });
+        return select(mine[0]!.id);
+      }
       setRecordingAsk(null);
       trimRecordingMut.mutate({ asset, fromMs, toMs }, { onSuccess: (r) => void (r.clips.length && setToRender({ ids: r.clips, render: false })) });
     },
@@ -283,6 +287,19 @@ export function useTimelineEditor(id: string) {
   const { selectedNow, renderNow, jumpNow, splitNow, takeNow, trackKeys } = useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, removing: remove.isPending || removeMany.isPending, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameMs, selected: current?.id ?? null, setSelected, setPicked, musicOpen: musicOpen || sourceOpen, closeMusic: () => { setMusicOpen(false); setSourceOpen(false); }, removeOpen: () => {
     if (!sourceOpen || !t?.source) return false;
     removeSource();
+    return true;
+  }, sourceMark: (which) => {
+    // the source on the stage (it plays in the track's own time): I and O set its stretch's In and Out at the playhead,
+    // as dragging its lane's ends does (after Make, a trim: its start moved is asked first when it leaves rendered takes)
+    if (!sourceOpen || !t?.source || !place) return false;
+    const at = Math.round((cursor ?? clock.get()) - place.atMs);
+    const fromMs = which === "in" ? Math.max(0, at) : t.source.fromMs;
+    const toMs = which === "out" ? Math.min(place.lengthMs, at) : t.source.toMs;
+    if (toMs - fromMs < 1000) {
+      setNote(which === "in" ? "In has to be a second or more before the source's Out." : "Out has to be a second or more after the source's In.");
+      return true;
+    }
+    stretch.run(fromMs, toMs);
     return true;
   } });
   // what the command bar asked of this timeline: done here, as the buttons and the keys do it

@@ -80,6 +80,7 @@ import m0078 from "./0078-session-volume";
 import m0079 from "./0079-pod-crash";
 import m0080 from "./0080-rent-build";
 import m0081 from "./0081-job-packs";
+import m0082 from "./0082-timeline-recordings";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -168,4 +169,5 @@ export const migrations: Record<string, Migration> = {
   "0079_pod_crash": m0079,
   "0080_rent_build": m0080,
   "0081_job_packs": m0081,
+  "0082_timeline_recordings": m0082,
 };

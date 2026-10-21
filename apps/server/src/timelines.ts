@@ -429,7 +429,8 @@ export class Timelines {
       at += length;
       return view;
     });
-    return { ...(await this.views.headOf(t)), durationMs: at, clips };
+    // its voice recordings, each under its Lip sync clips on the Audio row, with what a trim set aside of it
+    return { ...(await this.views.headOf(t)), durationMs: at, clips, recordings: await this.recordingsView(t, all) };
   }
 
   // ---------------------------------------------------------------- editing
@@ -719,14 +720,7 @@ export class Timelines {
             } else keptEnd = end;
           }
           // set aside whole, in order, before those set aside already (they lie further on)
-          const rows = [];
-          for (const p of away) {
-            const clip = await tx.selectFrom("clips").selectAll().where("id", "=", p.clip.id).executeTakeFirstOrThrow();
-            const takes = await tx.selectFrom("takes").selectAll().where("clip_id", "=", p.clip.id).execute();
-            rows.push({ clip: clip as unknown as Record<string, unknown>, takes: takes as unknown as Array<Record<string, unknown>> });
-          }
-          if (away.length) await tx.deleteFrom("clips").where("id", "in", away.map((p) => p.clip.id)).execute();
-          parked = [...rows, ...parked];
+          parked = [...(await parkClips(tx, away.map((p) => p.clip.id))), ...parked];
           order = order.filter((id) => !away.some((p) => p.clip.id === id));
         } else {
           // back as they were, in order, while the stretch holds them whole
@@ -737,10 +731,7 @@ export class Timelines {
             const inputs = JSON.parse(String(row.clip.inputs)) as Record<string, unknown>;
             const end = (Number(inputs[w.start]) + Number(inputs[w.seconds])) * 1000;
             if (end > toMs + 50) break;
-            const { take_id: takeId, ...clip } = row.clip;
-            await tx.insertInto("clips").values({ ...clip, take_id: null } as never).execute();
-            for (const take of row.takes) await tx.insertInto("takes").values(take as never).execute();
-            if (takeId) await tx.updateTable("clips").set({ take_id: String(takeId) }).where("id", "=", String(row.clip.id)).execute();
+            await unparkClip(tx, row);
             order.splice(at++, 0, String(row.clip.id));
             back.push(row);
           }
@@ -1028,11 +1019,31 @@ export class Timelines {
           made.push(id);
         }
         await this.keep(sound.id, tx);
+        // made anew over a moved start: what a trim had set aside of it no longer fits its clips
+        if (o.replace?.length) await setParkedRecording(tx, timelineId, sound.id, []);
         return made;
       });
     });
     await this.touch(timelineId);
     return ids;
+  }
+
+  /** A timeline's recordings and what of each a trim set aside, as the editor draws them on the Audio row. */
+  private async recordingsView(t: TimelineRow, all: Placed[]) {
+    let spec: { id: string } | undefined;
+    let recipe: string | undefined;
+    try {
+      const m = this.recordingModel();
+      spec = m.spec;
+      recipe = m.recipe.id;
+    } catch {
+      return [];
+    }
+    const parked = parkedRecordings(t);
+    const used = all.filter((p) => p.clip.recipe_id === recipe).map((p) => (JSON.parse(p.clip.inputs) as Record<string, unknown>)[spec!.id]);
+    const ids = [...new Set([...used, ...Object.keys(parked)].filter((x): x is string => typeof x === "string" && Boolean(x)))];
+    const rows = ids.length ? await this.db.selectFrom("assets").selectAll().where("id", "in", ids).execute() : [];
+    return rows.filter((a) => used.includes(a.id)).map((a) => ({ asset: assetView(a), parked: parked[a.id]?.length ?? 0 }));
   }
 
   /** The model whose form takes a recording laid on a clip's sound part by part (H3 · Lip sync), and that input. */
@@ -1076,8 +1087,54 @@ export class Timelines {
       return { clips, toMs };
     }
     if (Math.abs(toMs - curTo) <= 20) return { clips: [], toMs: curTo };
+    const startOf = (row: ParkedClip) => Number((JSON.parse(String(row.clip.inputs)) as Record<string, unknown>)[w.start]) * 1000;
+    const endOf = (row: ParkedClip) => {
+      const inputs = JSON.parse(String(row.clip.inputs)) as Record<string, unknown>;
+      return (Number(inputs[w.start]) + Number(inputs[w.seconds])) * 1000;
+    };
     if (toMs > curTo) {
-      const clips = await this.makeFromRecording(timelineId, { asset: to.asset, fromS: curTo / 1000, toS: toMs / 1000, after: mine.at(-1)!.clip.id, label: "the recording made longer" });
+      // the clips set aside come back as they were while the stretch holds them, an empty last clip first lengthened to
+      // where the first of them starts (its end had been brought in to the trim); then new clips at its pauses past them
+      const mostS = w.fits ? w.fits.frames / w.fits.fps - (w.fits.pad ?? 0) : 15;
+      const parked = parkedRecordings(await this.row(timelineId))[to.asset] ?? [];
+      const last = mine.at(-1)!;
+      const lastPart = part(last);
+      const first = parked[0];
+      const reach = first && !last.clip.take_id && startOf(first) > curTo + 50 && endOf(first) <= toMs + 50 && (startOf(first) - lastPart.start) / 1000 <= mostS;
+      const comes = first && (reach || Math.abs(startOf(first) - curTo) <= 50) && endOf(first) <= toMs + 50;
+      let end = curTo;
+      let after = last.clip.id;
+      if (comes) {
+        await this.history.oneAtATime(timelineId, async () => {
+          await this.remember(timelineId, "the recording made longer");
+          await this.db.transaction().execute(async (tx) => {
+            const order = all.map((p) => p.clip.id);
+            if (reach) {
+              end = Math.round(startOf(first));
+              await tx.updateTable("clips").set({ inputs: JSON.stringify({ ...lastPart.inputs, [w.seconds]: Math.round(end - lastPart.start) / 1000 }), updated_at: now() }).where("id", "=", last.clip.id).execute();
+            }
+            let at = order.indexOf(last.clip.id) + 1;
+            let n = 0;
+            for (const row of parked) {
+              if (Math.abs(startOf(row) - end) > 50 || endOf(row) > toMs + 50) break;
+              await unparkClip(tx, row);
+              order.splice(at++, 0, String(row.clip.id));
+              after = String(row.clip.id);
+              end = Math.round(endOf(row));
+              n++;
+            }
+            // what new clips will cover past those brought back: the rest set aside there no longer fits
+            const rest = parked.slice(n).filter((row) => toMs <= end + 50 || startOf(row) >= toMs - 50);
+            await this.renumber(timelineId, order, tx);
+            await setParkedRecording(tx, timelineId, to.asset, rest);
+          });
+        });
+        await this.touch(timelineId);
+      }
+      if (toMs <= end + 50) return { clips: [], toMs: end };
+      const clips = await this.makeFromRecording(timelineId, { asset: to.asset, fromS: end / 1000, toS: toMs / 1000, after, label: "the recording made longer" });
+      // new clips over where some set aside lay: those go
+      if (!comes && parked.some((row) => startOf(row) < toMs - 50)) await setParkedRecording(this.db, timelineId, to.asset, parked.filter((row) => startOf(row) >= toMs - 50));
       return { clips, toMs };
     }
     const leastS = w.fits?.min ?? 1;
@@ -1100,7 +1157,10 @@ export class Timelines {
           } else keptEnd = end;
         }
         if (away.length) {
-          await tx.deleteFrom("clips").where("id", "in", away).execute();
+          // set aside whole, in order, before those set aside already (they lie further on): the end out brings them back
+          const rows = await parkClips(tx, away);
+          const before = parkedRecordings(await tx.selectFrom("timelines").selectAll().where("id", "=", timelineId).executeTakeFirstOrThrow())[to.asset] ?? [];
+          await setParkedRecording(tx, timelineId, to.asset, [...rows, ...before]);
           await this.renumber(timelineId, all.map((p) => p.clip.id).filter((id) => !away.includes(id)), tx);
         }
       });
@@ -1544,4 +1604,47 @@ function labelOf(patch: ClipPatch): string {
     : patch.share === "inLine" ? "the clip brought in line"
     : patch.share === "toAll" ? "the clip's settings given to all"
     : "the change of model";
+}
+
+/** A clip set aside whole by a trim (a source's windows, a recording's clips): its row and its takes' rows, as they were. */
+type ParkedClip = { clip: Record<string, unknown>; takes: Array<Record<string, unknown>> };
+type Tx = Parameters<Parameters<ReturnType<Db["transaction"]>["execute"]>[0]>[0];
+
+/** These clips set aside, in their order, and taken off the timeline (their takes go with them, kept in what is returned). */
+async function parkClips(tx: Tx, ids: string[]): Promise<ParkedClip[]> {
+  const rows: ParkedClip[] = [];
+  for (const id of ids) {
+    const clip = await tx.selectFrom("clips").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
+    const takes = await tx.selectFrom("takes").selectAll().where("clip_id", "=", id).execute();
+    rows.push({ clip: clip as unknown as Record<string, unknown>, takes: takes as unknown as Array<Record<string, unknown>> });
+  }
+  if (ids.length) await tx.deleteFrom("clips").where("id", "in", ids).execute();
+  return rows;
+}
+
+/** A clip set aside back as it was, with its takes and the one that played (its place in the order is the caller's). */
+async function unparkClip(tx: Tx, row: ParkedClip) {
+  const { take_id: takeId, ...clip } = row.clip;
+  await tx.insertInto("clips").values({ ...clip, take_id: null } as never).execute();
+  for (const take of row.takes) await tx.insertInto("takes").values(take as never).execute();
+  if (takeId) await tx.updateTable("clips").set({ take_id: String(takeId) }).where("id", "=", String(row.clip.id)).execute();
+}
+
+/** What a trim set aside of each of a timeline's recordings, by recording asset. */
+function parkedRecordings(t: TimelineRow): Record<string, ParkedClip[]> {
+  try {
+    const read = JSON.parse(t.recordings ?? "{}") as Record<string, unknown>;
+    return Object.fromEntries(Object.entries(read).filter(([, v]) => Array.isArray(v)).map(([k, v]) => [k, (v as ParkedClip[]).filter((p) => p && typeof p.clip === "object" && Array.isArray(p.takes))]));
+  } catch {
+    return {};
+  }
+}
+
+/** What is set aside of one recording, written back (none: its entry goes). */
+async function setParkedRecording(db: Db | Tx, timelineId: string, asset: string, rows: ParkedClip[]) {
+  const t = await db.selectFrom("timelines").selectAll().where("id", "=", timelineId).executeTakeFirstOrThrow();
+  const map = parkedRecordings(t);
+  if (rows.length) map[asset] = rows;
+  else delete map[asset];
+  await db.updateTable("timelines").set({ recordings: Object.keys(map).length ? JSON.stringify(map) : null }).where("id", "=", timelineId).execute();
 }

@@ -130,6 +130,8 @@ export interface Timeline {
   exportFailed: string | null;
   /** Its source lane: a long video made into clips window by window; null = none. */
   source: TimelineSource | null;
+  /** Its voice recordings, each made into Lip sync clips (drawn under them on the Audio row), and how many of its clips a trim set aside. */
+  recordings?: Array<{ asset: Asset; parked: number }>;
 }
 /**
  * A timeline's source lane: the video, where its own start sits on the timeline (`atMs`, below 0 when it starts before the

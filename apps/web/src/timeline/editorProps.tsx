@@ -19,6 +19,7 @@ import { carriedOf, windowBounds } from "@afflatus/core";
 import { madeFromSource, windowed } from "./track/SourceLane";
 import type { ClipSource } from "./inspector/clipSource";
 import type { ClipRecording } from "./inspector/clipRecording";
+import { clipsOfRecording } from "./track/RecordingBand";
 import { failedBanner } from "../sayFailed";
 
 // What each part of the timeline editor is drawn with, from what the editor holds (useTimelineEditor): the wiring
@@ -142,6 +143,8 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     onJoin: (clip, joined) => patch.mutate({ clip: clip.id, patch: { joined } }),
     onOpenJoin: (clip) => e.openJoin(clip.id),
     onRecording: (asset, clip) => e.recording.run(asset, clip),
+    // its band on the Audio row dragged: trimmed as its Recording chapter's In and Out trim it
+    onRecordingTrim: (asset, fromMs, toMs) => e.recordingTrim.run(asset, clipsOfRecording(e.clips, e.videoRecipes, asset), fromMs, toMs),
     onSource: (asset) => {
       // the model the windows are made with: that of an empty clip given one that makes a source window by window (the one
       // selected, else the first; the owner picked Swap motion on a new clip, then dropped the source, and got Swap

@@ -91,7 +91,7 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     for (const c of v.clips.slice(1)) expect(c.inputs.description).toBe("A woman talks to the camera in a kitchen.");
   });
 
-  it("trimmed: its end in drops the clips past it, a rendered one kept whole; out again adds clips at its pauses; its start moved makes them anew", async () => {
+  it("trimmed: its end in sets the clips past it aside, a rendered one kept whole; out again brings them back, then adds clips at its pauses; its start moved makes them anew", async () => {
     const tl = await call("POST", "/api/timelines", { name: "zz-test recording trim" });
     const sound = await recording();
     const { clips } = await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
@@ -104,12 +104,16 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     let v = await view(tl.id);
     expect(v.clips).toHaveLength(2);
     expect(parts(v)[1]![0]! + parts(v)[1]![1]!).toBeCloseTo(9, 2);
-    // out again to the end: a clip added after, from where the second ends
+    expect(v.recordings).toEqual([expect.objectContaining({ parked: 1 })]);
+    // out again to the end: the second as long as it was, the third back as it was (the same clip)
     r = await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 0, toMs: 15000 });
     v = await view(tl.id);
     expect(v.clips).toHaveLength(3);
-    expect(parts(v)[2]![0]).toBeCloseTo(9, 2);
+    expect(v.clips[2].id).toBe(clips[2]);
+    expect(Math.abs(parts(v)[2]![0]! - 10.2)).toBeLessThan(0.1);
+    expect(parts(v)[1]![0]! + parts(v)[1]![1]!).toBeCloseTo(parts(v)[2]![0]!, 2);
     expect(v.clips[2].joined).toBe("continue");
+    expect(v.recordings[0].parked).toBe(0);
     // a rendered second clip: the end a little into it snaps back to where the first ends
     const take = newId();
     const video = newId();
@@ -119,6 +123,14 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     const firstEnd = Math.round((parts(v)[0]![0]! + parts(v)[0]![1]!) * 1000);
     r = await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 0, toMs: firstEnd + 500 });
     expect(r.toMs).toBe(firstEnd);
+    expect((await view(tl.id)).clips).toHaveLength(1);
+    // out again: the rendered one back with its take, the third after it; then past where they end, a new clip
+    await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 0, toMs: 15000 });
+    v = await view(tl.id);
+    expect(v.clips).toHaveLength(3);
+    expect(v.clips[1].take?.id).toBe(take);
+    expect(v.clips[2].id).toBe(clips[2]);
+    await call("POST", `/api/timelines/${tl.id}/undo`);
     expect((await view(tl.id)).clips).toHaveLength(1);
     await call("POST", `/api/timelines/${tl.id}/undo`);
     expect((await view(tl.id)).clips[1].take?.id).toBe(take);
