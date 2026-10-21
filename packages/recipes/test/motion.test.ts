@@ -141,7 +141,7 @@ describe("SCAIL-2 carrying on from the clip before", () => {
   });
 });
 
-describe("SCAIL-2 at 24 fps on H3's grid (card #36, hidden while it is tested)", () => {
+describe("SCAIL-2 at 24 fps on H3's grid (card #36, offered beside the 16 fps one)", () => {
   const at24 = (seconds: number) => {
     const input = parseInput(scailMotion24, { picture: "p1", driving: { asset: "v1" }, drivingSeconds: seconds });
     const media = { picture: { width: 768, height: 1360 }, driving: { width: 480, height: 854, frames: Math.round(seconds * 24), fps: 24, hasSound: true } };
@@ -159,11 +159,11 @@ describe("SCAIL-2 at 24 fps on H3's grid (card #36, hidden while it is tested)",
     // the form starts on 141 frames (5.9 s), not on 5 s, which would make 73
     expect(scailMotion24.inputs.find((i) => i.id === "drivingSeconds")).toMatchObject({ default: 141 / 24 });
   });
-  it("is a 24 fps recipe to the timeline, its driving video and clip before cut at 24, and not offered", () => {
+  it("is a 24 fps recipe to the timeline, its driving video and clip before cut at 24, offered", () => {
     expect(scailMotion24.traits).toMatchObject({ fps: 24, frameGrid: SCAIL_H3_GRID, windows: { most: 277, least: 73, carried: 5 } });
     const clips = scailMotion24.inputs.filter((i) => i.type === "clip");
     expect(clips.map((i) => (i.type === "clip" ? i.fps : 0))).toEqual([24, 24]);
-    expect(scailMotion24.hidden).toBe(true);
+    expect(scailMotion24.hidden).toBeUndefined();
     // RIFE is not on by default at 24 (it is at 16)
     expect(scailMotion24.inputs.find((i) => i.id === "smooth")).toMatchObject({ default: false });
   });
