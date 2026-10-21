@@ -1,7 +1,10 @@
 import { lazy, Suspense, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { isShown, type InputSpec } from "@afflatus/core";
 import { useAdvice } from "./advice";
-import { thumbUrl, type RecipeInfo, type RecipeStatus } from "./api";
+import { api, thumbUrl, type RecipeInfo, type RecipeStatus } from "./api";
+import { useQuery } from "@tanstack/react-query";
+import { useSettled } from "./hooks";
+import { queryKeys } from "./queryKeys";
 import { useModelSettings, useRecipes } from "./data";
 import { Field, sameValue } from "./fields";
 import { changedIn, formDefaults, layoutOf, ownValues, matchesText, summariesOf, thumbsOf } from "./form";
@@ -37,7 +40,63 @@ export { mainTextOf } from "./form";
 /** A chapter a screen puts before the form's own (a timeline clip's Source, its Takes). */
 export type LeadPart = { id: string; title: string; summary: ReactNode; node: ReactNode; help?: string };
 
-export function Form({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, chapterExtra, first, keepEmpty, promptInView }: {
+/**
+ * The form a recipe's inputs make. A form whose prompt is written from parts (card #34: a swap's In the source, How they look,
+ * What happens) shows the prompt they give in its prompt as sent, greyed, while that is left empty: the text a render sends.
+ */
+export function Form(props: {
+  recipe: RecipeInfo;
+  status: RecipeStatus | undefined;
+  /** What the draft holds for this recipe: only what was touched. */
+  stored: Record<string, unknown> | undefined;
+  /** Inputs the screen fills in itself at render time (a timeline hands the clip before over): counted as set for what is shown, never stored. */
+  given?: Record<string, unknown>;
+  onChange(input: string, value: unknown): void;
+  /** Let these inputs follow the defaults again. */
+  onClear(inputs: string[]): void;
+  /** What picks the model and the operation, first in "Made with"; and what that is, in a few words. */
+  made?: ReactNode;
+  madeSummary?: string;
+  /** The people, places and style, first in "In it"; and who they are, in a few words. */
+  look?: ReactNode;
+  lookSummary?: string;
+  /** What sits above the prompt: the designer, the snippets. */
+  helpers?: ReactNode;
+  /** Chapters of the screen's own before every other (a timeline clip's Source and Takes): first in the strip too, in this order. */
+  lead?: LeadPart | ReadonlyArray<LeadPart | undefined>;
+  /** The chapters drawn first, in this order, by id; the others follow in the form's own order (a swap clip's Model, Takes, Mask). */
+  first?: readonly string[];
+  /** What the screen puts at the top of one of the recipe's own chapters, by its id (a swap clip's Mask: who is replaced, Show the mask). */
+  chapterExtra?: Record<string, ReactNode>;
+  /** What the screen adds to the Inputs chapter's frames (a timeline clip's pinned frames), with its words for the summary. */
+  frameExtra?: { node: ReactNode; summary: string };
+  /** Show the recipe's chapters that hold nothing yet (the import screen's preview, while sections are arranged). */
+  keepEmpty?: boolean;
+  /** Bring the prompt into view when the form opens on a short screen: the Create panel. A timeline clip's form stays where it is. */
+  promptInView?: boolean;
+}) {
+  const written = useWrittenPrompt(props.recipe, props.stored);
+  const recipe = useMemo(
+    () => (written ? { ...props.recipe, inputs: props.recipe.inputs.map((i) => (i.id === written.into && i.type === "prompt" ? { ...i, placeholder: written.text } : i)) } : props.recipe),
+    [props.recipe, written],
+  );
+  return <FormOf {...props} recipe={recipe} />;
+}
+
+/** What the parts give the prompt as sent, asked once they stop changing (the server writes it by the recipe's own rules). */
+function useWrittenPrompt(recipe: RecipeInfo, stored: Record<string, unknown> | undefined): { into: string; text: string } | null {
+  const key = useSettled(useMemo(() => JSON.stringify(stored ?? {}), [stored]), 400);
+  const asked = useQuery({
+    queryKey: queryKeys.formPrompt(recipe.id, key),
+    queryFn: () => api.formPrompt(recipe.id, JSON.parse(key) as Record<string, unknown>),
+    enabled: Boolean(recipe.partsInto),
+    staleTime: Infinity,
+    placeholderData: (before) => before,
+  }).data;
+  return asked?.into && asked.text ? { into: asked.into, text: asked.text } : null;
+}
+
+function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, chapterExtra, first, keepEmpty, promptInView }: {
   recipe: RecipeInfo;
   status: RecipeStatus | undefined;
   /** What the draft holds for this recipe: only what was touched. */

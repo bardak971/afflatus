@@ -1,7 +1,7 @@
 import { defineRecipe, type BuildContext, type BuiltGraph, type GraphBuilder, type Ref, type Variant } from "@afflatus/core";
 import { H3_FPS } from "./family";
 import { buildH3, h3Video } from "./video";
-import { asClip, carriedOf, framesOf, h3Swap, SWAP_FRAMES, SWAP_GUIDE, SWAP_OWN, type H3Swap } from "./swap";
+import { asClip, carriedOf, framesOf, h3Swap, SWAP_FRAMES, SWAP_GUIDE, SWAP_OWN, swapFromParts, typedPrompt, type H3Swap } from "./swap";
 import { controlled, frameBefore, MOTION_CHAPTER, motionControlInputs, motionNeeds, motionNodes, poseVideo, POSE_SDPOSE, type H3Motion } from "./motion";
 
 /**
@@ -43,6 +43,17 @@ export function motionPromptFrom(swap: string): string {
   return [`${sentence(who)} carries on moving as in the clip before.`, ...told.map(sentence)].join(" ");
 }
 
+/**
+ * A window that carries on, written from the parts (card #34): the person by how they look, carrying on as in the clip
+ * before, then what happens in this window. Nothing of the room or the light: H3 draws what is named.
+ */
+export function motionFromParts(input: Pick<H3SwapMotion, "look" | "happens">): string {
+  const look = (input.look ?? "").trim().replace(/\s+/g, " ").replace(/[.!\s]+$/, "");
+  const happens = (input.happens ?? "").trim().replace(/\s+/g, " ");
+  const first = `The person${look ? `, ${look},` : ""} carries on moving as in the clip before.`;
+  return happens ? `${first} ${happens.charAt(0).toUpperCase()}${happens.slice(1)}${/[.!?]$/.test(happens) ? "" : "."}` : look ? first : SWAP_MOTION_PROMPT;
+}
+
 const SWAP_MOTION_GUIDE = `${SWAP_GUIDE}
 A WINDOW THAT CARRIES ON (clip 2 on, joined to the one before) is not a swap: H3 is moved by the pose of the source's part, from the window before's last frames, with the cast's picture and the clip before's last frame. Afflatus says which picture is whom: its prompt names no picture or video tag, and never the person replaced:
 - Name the person by how they look in the clip before (man or woman, hair, build, clothes), and what they do in this part, in the present tense: "The man with short brown hair, in a white shirt and jeans, dances, turning on the spot and raising his arms."
@@ -72,7 +83,8 @@ function motionWindow(input: H3SwapMotion, ctx: BuildContext): BuiltGraph {
   const size = source?.width && source.height ? { width: source.width, height: source.height } : undefined;
   // as the swap runs: without H3's fp16 accumulation patch
   const asRef = { ...ctx, has: (cls: string) => cls !== "ModelPatchTorchSettings" && ctx.has(cls) };
-  const written = input.who.trim() || SWAP_MOTION_PROMPT;
+  // typed, the prompt is the user's; else written from the parts (card #34), else the plain carrying on
+  const written = typedPrompt(input.who) ? input.who.trim() : motionFromParts(input);
   const who = written.replace(TAGS, "").replace(/\s+([.,])/g, "$1").trim();
   let heard: Ref | null = null;
   const sourceSound = (g: GraphBuilder, n: number) =>
@@ -109,7 +121,11 @@ export const h3SwapMotion = defineRecipe<H3SwapMotion>({
   summary: "Swap character's first window, then H3 moved by the source's pose from the window before: the person replaced never comes back.",
   // each window keeps its own prompt; one that carries on starts on clip 1's person, carrying on (Make puts it there)
   traits: { ...h3Swap.traits!, windows: { ...h3Swap.traits!.windows!, own: SWAP_OWN } },
-  windowCarryOn: (form) => ({ who: motionPromptFrom(String(form.who ?? "")) }),
+  // a typed swap prompt carried on as clip 1 names the person (the regexes); written from the parts, nothing to carry: each
+  // window writes its own from the parts it shares and its own What happens
+  // window 1 a swap, the windows that carry on the motion's own prompt (card #34)
+  promptFromParts: (input) => (input.previous ? motionFromParts(input) : swapFromParts(input, Math.max(1, input.references?.length ?? 0))),
+  windowCarryOn: (form) => (typedPrompt(String(form.who ?? "")) ? { who: motionPromptFrom(String(form.who ?? "")) } : {}),
   inputs,
   guide: SWAP_MOTION_GUIDE,
   chapters: [...(h3Swap.chapters ?? []), MOTION_CHAPTER],

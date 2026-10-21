@@ -83,7 +83,7 @@ export const h3Inputs: InputSpec[] = [
     note: "MiniMax's own, or a fine-tune of it",
   },
   {
-    id: "description", type: "prompt", weights: false, label: "Prompt", style: "sentences",
+    id: "description", type: "prompt", weights: false, label: "What happens", style: "sentences",
     placeholder: "She walks to the railing and looks out at the sea. The camera follows her slowly. (S1) says <d>[English] What a view.</d> softly.",
   },
   { id: "soundscape", type: "prompt", weights: false, label: "Sound effects", style: "sentences", optional: true, placeholder: "waves, a light wind, seagulls far away" },
@@ -136,7 +136,7 @@ export const h3Inputs: InputSpec[] = [
     note: "the part is brought to a usual speaking level (-16 LUFS, measured as EBU R128) before it is used: a quiet sample carries a voice weakly",
   },
   {
-    id: "subject", type: "prompt", weights: false, label: "Subject description", style: "sentences", optional: true, showWhen: "references", holds: "subject",
+    id: "subject", type: "prompt", weights: false, label: "How they look", style: "sentences", optional: true, showWhen: "references", holds: "subject",
     placeholder: "brown hair, green eyes, freckles", note: "in a few words, to help the pictures",
   },
   { id: "seconds", type: "number", label: "Duration", min: 4, max: 15, step: 0.5, default: 5, unit: " s", note: "the model is trained on 4 to 15 seconds. A clip that joins others is made longer by the frames it shares with them, within 15 seconds in all" },

@@ -359,6 +359,8 @@ export const api = {
   advice: (recipe: string, input: Record<string, unknown>) => call<{ estimate: Advice | null }>("POST", "/advice", { recipe, input }),
   /** What the form says under an option whose node pack the machine lacks. */
   formPacks: (recipe: string, input: Record<string, unknown>) => call<FormPacks>("POST", "/form/packs", { recipe, input }),
+  /** The prompt as sent of a form written from parts, while its prompt is left empty (Recipe.promptFromParts). */
+  formPrompt: (recipe: string, input: Record<string, unknown>) => call<{ into: string | null; text: string }>("POST", "/form/prompt", { recipe, input }),
   civitaiFind: (file: string, folder: string | null, hints: string[] = []) =>
     call<{ items: CivitaiFind[]; exact: HuggingFaceFind[]; asked: string[]; silent: string[] }>(
       "GET", `/civitai/find?${new URLSearchParams({ file, ...(folder ? { folder } : {}), ...(hints.length ? { hints: hints.join("|") } : {}) })}`,
