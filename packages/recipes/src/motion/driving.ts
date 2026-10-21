@@ -1,5 +1,5 @@
 import { frameOf, gridAtOrBefore, type BuildContext, type ClipValue, type FrameGrid, type GraphBuilder, type InputSpec, type LoraValue, type Ref } from "@afflatus/core";
-import { finishFrames } from "../shared/finish";
+import { finishFrames, rifeRuns } from "../shared/finish";
 import { saveVideo } from "../shared/out";
 import { UPSCALE } from "../video/upscale";
 
@@ -120,10 +120,10 @@ export function previousFrames(g: GraphBuilder, ctx: BuildContext): Ref | null {
 
 /** The node classes the shared part needs, and those it uses only when there. */
 export const MOTION_NODES = ["LoadImage", "LoadVideo", "GetVideoComponents", "ImageScale"];
-export const MOTION_OPTIONAL = ["ColorTransfer", "ImageBlur", "ImageAddNoise", "TrimAudioDuration", "FrameInterpolationModelLoader", "FrameInterpolate"];
-/** The batch nodes RIFE's last frame held takes (motionSaved), and the match to the clip before's look (matchedToDriving). */
+export const MOTION_OPTIONAL = ["ColorTransfer", "ImageBlur", "ImageAddNoise", "TrimAudioDuration", "FrameInterpolationModelLoader", "FrameInterpolate", "GetImageSize"];
+/** The batch nodes RIFE's lead frame takes (motionSaved), and the match to the clip before's look (matchedToDriving). */
 export const motionBatchNodes = (input: Pick<MotionValues, "smooth" | "previous" | "matchDriving">) =>
-  input.smooth || (input.previous && input.matchDriving) ? ["ImageBatch", "ImageFromBatch"] : [];
+  input.previous && (input.smooth || input.matchDriving) ? ["ImageBatch", "ImageFromBatch"] : [];
 
 /** The clip's frame: a timeline's (its clips share one frame), else the picture's shape at `short` on its short side; on the grid the model takes. */
 export function motionCanvas(input: MotionValues, ctx: BuildContext, grid: number): { width: number; height: number } {
@@ -205,25 +205,34 @@ export function matchedToDriving(g: GraphBuilder, ctx: BuildContext, images: Ref
 /**
  * The driving video's own sound over the clip's frames, when kept and it has some: carrying on from a clip before, its first
  * `carried` frames are that clip's and are dropped, and the sound starts after them, so that windows of one source play its
- * sound end to end.
+ * sound end to end. `lead`: it starts that many of the model's frames earlier, with the picture, as long (motionSaved's lead frame).
  */
-export function motionSound(g: GraphBuilder, ctx: BuildContext, input: Pick<MotionValues, "keepSound">, at: { fps: number; frames: number; parts: string; carried?: number }): Ref | undefined {
+export function motionSound(g: GraphBuilder, ctx: BuildContext, input: Pick<MotionValues, "keepSound">, at: { fps: number; frames: number; parts: string; carried?: number; lead?: number }): Ref | undefined {
   const skip = ctx.uploads.previous ? at.carried ?? 0 : 0;
+  const lead = ctx.uploads.previous ? at.lead ?? 0 : 0;
   return input.keepSound && Boolean(ctx.media.driving?.hasSound) && ctx.has("TrimAudioDuration")
-    ? g.out("TrimAudioDuration", { audio: [at.parts, 1], start_index: skip / at.fps, duration: (at.frames - skip) / at.fps })
+    ? g.out("TrimAudioDuration", { audio: [at.parts, 1], start_index: (skip - lead) / at.fps, duration: (at.frames - skip) / at.fps })
     : undefined;
 }
 
 /**
  * The clip saved: RIFE ×2 when asked, with the driving video's own sound over its part when kept and it has some (`sound`:
- * that sound, when the recipe took it already, for its Face refine).
+ * that sound, when the recipe took it already, for its Face refine; not taken when the clip leads, its sound then starting earlier).
  */
 export function motionSaved(g: GraphBuilder, ctx: BuildContext, images: Ref, input: MotionValues, at: { frame: { width: number; height: number }; fps: number; frames: number; parts: string; carried?: number; made?: Ref; sound?: Ref }) {
-  const sound = at.sound ?? motionSound(g, ctx, input, at);
-  // RIFE's n frames make 2n − 1: the last one again, so that the clip lasts what its part does (n / fps, the length its sound
-  // and its draft have); 1/32 s short a window, the windows drifted from their sound. Its grain on the frames as filed
+  // RIFE's n frames make 2n − 1, half a model frame short of the part. A window that carries on opens on the frame between the
+  // clip before's last as filed and its own first (put before them for RIFE: the lead), its sound from that moment: the clip
+  // before stops on its last frame and this one starts half a frame early, so that a join neither holds a frame nor skips one.
+  // The last frame was held instead until 2026-10-21: at every join the picture stopped for 1/32 s, then jumped two frames'
+  // worth (Timeline 26: steps of 0.5 then 10.2 against 3)
+  const look = ctx.uploads.previous ? ctx.uploads["previous.look"] : undefined;
+  const leading = Boolean(look) && rifeRuns(input.smooth, ctx) && ctx.has("GetImageSize") && ctx.has("ImageScale") && ctx.has("ImageBatch") && ctx.has("ImageFromBatch");
+  const size = leading ? g.add("GetImageSize", { image: images }) : null;
+  const leadFrom: Ref | undefined = size ? g.out("ImageScale", { image: g.out("LoadImage", { image: look! }), upscale_method: "lanczos", width: [size, 0], height: [size, 1], crop: "center" }) : undefined;
+  const sound = leading ? motionSound(g, ctx, input, { ...at, lead: 0.5 }) : at.sound ?? motionSound(g, ctx, input, at);
+  // its grain on the frames as filed
   const done = finishFrames(g, ctx, images, { upscale: UPSCALE.off, upscaleBy: 1, upscaleModel: "", crf: input.crf }, {
-    frame: at.frame, rife: input.smooth, fps: at.fps, holdLast: true, ...(input.matchDriving ? { last: (x: Ref) => grained(g, ctx, x) } : {}), ...(sound ? { audio: sound } : {}),
+    frame: at.frame, rife: input.smooth, fps: at.fps, ...(leadFrom ? { leadFrom } : {}), ...(input.matchDriving ? { last: (x: Ref) => grained(g, ctx, x) } : {}), ...(sound ? { audio: sound } : {}),
   });
   // the model's own frames, kept beside the clip: the window after carries on from them, not from the finished ones (matched to
   // the driving video, softened, grained, interpolated and compressed: each join started softer than the clip before ended, the

@@ -67,8 +67,8 @@ describe("SCAIL-2 · Motion transfer", () => {
     expect(Array.isArray(conds[1]!.inputs.video_frame_offset)).toBe(true);
     expect(conds[1]!.inputs.previous_frames).toBeDefined();
     expect(of(graph, "ImageFromBatch").some((n) => n.inputs.batch_index === 5)).toBe(true);
-    // the two chunks joined, and RIFE's last frame held (motionSaved)
-    expect(of(graph, "ImageBatch")).toHaveLength(2);
+    // the two chunks joined (nothing else: the last frame is no longer held, and a window that opens a shot has no lead frame)
+    expect(of(graph, "ImageBatch")).toHaveLength(1);
     expect(built.passes).toHaveLength(2);
   });
 
@@ -259,7 +259,7 @@ describe("a Motion transfer window as filed", () => {
     }
   });
 
-  it("lasts what its part does with RIFE ×2: its frames doubled and the last one held, 2n at twice the rate, as long as its sound", () => {
+  it("with RIFE ×2: 2n − 1 frames at twice the rate, a window that carries on opening on the frame between the clip before's last and its own first, its sound from there", () => {
     for (const { recipe, slots: s, fps, shape } of SHAPES) {
       for (const previous of [false, true]) {
         const built = made(recipe, s, fps, { drivingSeconds: 81.5 / fps, smooth: true, ...(previous ? { previous: { asset: "v0" } } : {}) }, previous ? { previous: "prev.mp4", "previous.look": "prev.png" } : {});
@@ -267,9 +267,18 @@ describe("a Motion transfer window as filed", () => {
         const saver = graph[built.outputs[0]!.node]!;
         const carried = previous ? shape.carried : 0;
         const filed = framesOf(graph, saver.inputs.images, 81);
-        expect(filed).toBe(2 * (81 - carried));
+        const own = 81 - carried;
+        // its last frame no longer held (a stop of 1/32 s at every join, then a jump): 2n − 1, and one more before them when it
+        // carries on, RIFE's frame from the clip before's last as filed (dropped after RIFE) to its own first
+        expect(filed).toBe(previous ? 2 * own : 2 * own - 1);
         expect(saver.inputs.frame_rate).toBe(2 * fps);
-        expect(filed / (2 * fps)).toBeCloseTo(of(graph, "TrimAudioDuration")[0]!.inputs.duration as number, 6);
+        const trim = of(graph, "TrimAudioDuration")[0]!.inputs;
+        // its sound as long as its own part, from half a model frame before it when it carries on: the clock stays the source's
+        expect(trim.duration as number).toBeCloseTo(own / fps, 6);
+        expect(trim.start_index as number).toBeCloseTo(previous ? (carried - 0.5) / fps : 0, 6);
+        if (previous) {
+          expect(of(graph, "FrameInterpolate").map((n) => at(graph, n.inputs.images).class_type)).toEqual(["ImageBatch"]);
+        }
         // the model's own frames beside it, as made, at the model's speed: not matched, not grained
         const raw = graph[built.outputs[1]!.node]!;
         expect(framesOf(graph, raw.inputs.images, 81)).toBe(81 - carried);
