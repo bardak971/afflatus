@@ -8,7 +8,7 @@ import { buildH3, h3Video, type H3Extra } from "./video";
 import { saveVideo } from "../shared/out";
 import { rifeNeeds } from "../shared/finish";
 import { partBounds } from "../motion/driving";
-import { H3_LANDINGS } from "./join";
+import { H3_CONTINUATION_NODES, H3_LANDINGS, H3_SEAM, H3_TRIM } from "./join";
 import { FACE_REFINE_SLOTS } from "./faceRefine";
 
 /**
@@ -400,7 +400,7 @@ export const h3Swap = defineRecipe<H3Swap>({
   output: "video",
   // a video of its own, made from another: on a timeline's source lane, a window of a long source carrying on from the window
   // before (its last 5 frames pinned at the start), otherwise no join with the clips around it
-  traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED, runUp: SWAP_RUN_UP, own: SWAP_OWN } },
+  traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED, runUp: SWAP_RUN_UP, own: SWAP_OWN } },
   inputs: swapInputs,
   guide: SWAP_GUIDE,
   // a character swap's form: the model, its takes, who is replaced and how, then the rest as any form (the owner, 2026-10-18)

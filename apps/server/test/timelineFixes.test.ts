@@ -10,7 +10,7 @@ import { joinVideosInto } from "../src/exportJoin";
 import { newId, now, OWNER } from "../src/db";
 import { newAssetRow } from "../src/media";
 import { markJoins, trimsOf, LEAST_PLAY_MS, type AssetRow, type ClipRow, type Placed, type TakeRow } from "../src/timelineModel";
-import { handoverOnGrid } from "../src/timelinePlan";
+import { handoverFrame, handoverOnGrid } from "../src/timelinePlan";
 import { tools } from "../src/video";
 import { get, makeApp, type TestApp } from "./helpers";
 
@@ -537,6 +537,17 @@ describe("the join sums shared by the server and the player", () => {
     // a grid frame shorter than the run-up asked for, or no latent kept: as asked, joined on frames
     expect(handoverOnGrid(1500, before, 39)).toBe(1500);
     expect(handoverOnGrid(4100, { durationMs: 5167, latentFrames: null }, 22)).toBe(4100);
+  });
+  it("hands a frozen clip over on its own model's frames: a kept latent's grid, else its model's rate", () => {
+    // an H3 clip (latent kept): 4.1 s is frame 98, back to the grid's 90 (3.75 s); with a 22 or a 39-frame run-up alike
+    expect(handoverFrame(4100, { latentFrames: 124, fps: 24 }, 22)).toBe(3750);
+    expect(handoverFrame(4100, { latentFrames: 124, fps: 24 }, 39)).toBe(3750);
+    // a grid frame under the run-up the form takes: its own frame instead (0.95 s is frame 23; the grid's 22 < 39)
+    expect(handoverFrame(950, { latentFrames: 124, fps: 24 }, 39)).toBe(958);
+    // a SCAIL-2 clip (16 a second, no latent): on a whole 16 fps frame, not on H3's 24
+    expect(handoverFrame(4100, { latentFrames: null, fps: 16 }, 22)).toBe(4125);
+    // a video of unknown rate: where it stopped moving
+    expect(handoverFrame(4100, { latentFrames: null, fps: null }, 22)).toBe(4100);
   });
   it("marks a landing on a finished take as on its draft (markJoins)", () => {
     const asset = { duration_ms: 5000, latent_frames: null, fps: 24 } as AssetRow;

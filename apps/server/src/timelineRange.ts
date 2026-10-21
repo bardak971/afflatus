@@ -1,4 +1,4 @@
-import { FRAME_SLACK_MS, latentFrameAtOrBefore, MODEL_FPS, secondsInput, type Recipe } from "@afflatus/core";
+import { FRAME_SLACK_MS, joinFrames, latentFrameAtOrBefore, LATENT_FPS, secondsInput, type Recipe } from "@afflatus/core";
 import { fromName, nameOf } from "./autoName";
 import { CutError, rangeKeep, slowMotion } from "./cut";
 import { newId, now, OWNER, type Db } from "./db";
@@ -447,10 +447,12 @@ export class TimelineRange {
     const under = x > 0 ? this.before(laid, x) : undefined;
     if (!under?.p.active?.asset.latent_frames || under.p.clip.kind !== "video") return x;
     const assetMs = visible(under.p.active).start + (x - under.atMs);
-    const frame = Math.round((assetMs * MODEL_FPS) / 1000);
+    const frame = Math.round((assetMs * LATENT_FPS) / 1000);
     const grid = latentFrameAtOrBefore(frame);
-    const back = ((frame - grid) * 1000) / MODEL_FPS;
-    return grid >= 22 && back > 0 && x - back > under.atMs + FRAME_SLACK_MS ? Math.round(x - back) : x;
+    const back = ((frame - grid) * 1000) / LATENT_FPS;
+    // the frames a continuation of it takes by default (its own model's run-up): a grid frame before them leaves too few
+    const runUp = joinFrames(this.core.registry.recipe(under.p.clip.recipe_id ?? ""), "previous");
+    return grid >= runUp && back > 0 && x - back > under.atMs + FRAME_SLACK_MS ? Math.round(x - back) : x;
   }
 
   /**
@@ -487,7 +489,7 @@ export class TimelineRange {
     const onto = after?.p.clip.kind === "video" && carriesClip(recipe, "next") ? after.p.active : null;
     if (!onto || !after) return 0;
     const from = plays(onto).start + (b - after.atMs);
-    const there = landingOnGrid({ take: { ...onto.take, trim_start_ms: from - onto.take.head_ms }, asset: onto.asset });
+    const there = landingOnGrid({ take: { ...onto.take, trim_start_ms: from - onto.take.head_ms }, asset: onto.asset }, joinFrames(recipe, "next"));
     return there > from && b + (there - from) < after.atMs + after.lengthMs - 100 ? there - from : 0;
   }
 

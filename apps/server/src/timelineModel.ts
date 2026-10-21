@@ -1,5 +1,5 @@
 import type { EventEmitter } from "node:events";
-import { chunkAtOrAfter, clipMusicOf, follows, joinFade as fadeOf, landsOn, MODEL_FPS, plannedSeconds, transitionOf, type ClipMusic, type JoinTake, type Recipe, type Transition } from "@afflatus/core";
+import { chunkAtOrAfter, clipMusicOf, follows, joinFade as fadeOf, landsOn, LATENT_FPS, plannedSeconds, transitionOf, type ClipMusic, type JoinTake, type Recipe, type Transition } from "@afflatus/core";
 import type { Db, Tables } from "./db";
 import type { Registry } from "./registry";
 import type { Storage } from "./storage";
@@ -138,8 +138,8 @@ export const plays = (t: { take: TakeRow; asset: AssetRow }) => {
  */
 export const lengthOnGrid = (asset: AssetRow) => {
   const file = asset.duration_ms ?? 0;
-  const grid = asset.latent_frames ? Math.round((asset.latent_frames * 1000) / MODEL_FPS) : 0;
-  return grid && Math.abs(grid - file) <= 1000 / MODEL_FPS ? grid : file;
+  const grid = asset.latent_frames ? Math.round((asset.latent_frames * 1000) / LATENT_FPS) : 0;
+  return grid && Math.abs(grid - file) <= 1000 / LATENT_FPS ? grid : file;
 };
 /**
  * Whether two takes went through the same enlargement, as far as their size tells: a clip enlarged ×2 in its render
@@ -155,14 +155,14 @@ export const sameMaking = (a: AssetRow, b: AssetRow) => {
  * 17-frame chunks begins when its latent was kept (at most 16 frames, ⅔ s), so that the landing is made in the latent and
  * on time (pack 0.6.0, H3_LANDING). Not when that leaves too little of it to land on: then where it plays, from its frames.
  */
-export const landingOnGrid = (t: { take: TakeRow; asset: AssetRow }) => {
+export const landingOnGrid = (t: { take: TakeRow; asset: AssetRow }, landFrames: number) => {
   const { start, end } = plays(t);
   if (!t.asset.latent_key || !t.asset.latent_frames) return start;
-  const frame = Math.ceil((start * MODEL_FPS) / 1000 - 0.25);
+  const frame = Math.ceil((start * LATENT_FPS) / 1000 - 0.25);
   const chunk = chunkAtOrAfter(frame);
-  const at = Math.round((chunk * 1000) / MODEL_FPS);
-  // the 22 frames landed on in its latent, and half a second of it left to play
-  return chunk + 22 <= t.asset.latent_frames && at + 500 <= end ? Math.max(start, at) : start;
+  const at = Math.round((chunk * 1000) / LATENT_FPS);
+  // the frames landed on in its latent (the landing the form asks), and half a second of it left to play
+  return chunk + landFrames <= t.asset.latent_frames && at + 500 <= end ? Math.max(start, at) : start;
 };
 /** How a take fades in over the clip before as it plays, in the export and the player alike (see joinFade in @afflatus/core). */
 export const joinFade = (x: Taken, joined: boolean) =>

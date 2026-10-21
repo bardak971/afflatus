@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { RANDOM_SEED, TRANSITION_KINDS, TRANSITION_MS, hiddenRunUp, movedSeed, resamplesLatent, typedSeed } from "@afflatus/core";
+import { RANDOM_SEED, TRANSITION_KINDS, TRANSITION_MS, hiddenRunUp, movedSeed, resamplesLatent, typedSeed, type Recipe } from "@afflatus/core";
 import { fromRender, markPng } from "./aiMark";
 import { nameOf } from "./autoName";
 import { VERSION } from "./config";
@@ -617,7 +617,7 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
     if (b.route === "latent" && resamplesLatent(clip.recipe ? s.registry.recipe(clip.recipe) : undefined)) {
       const gen = await t.generationOf(draft.asset.id);
       if (!gen) { skipped.push({ clip: i + 1, why: "not rendered here: no seed to repeat" }); continue; }
-      const why = notRenderedAgain(view.clips, i, gen.inputs);
+      const why = notRenderedAgain(view.clips, i, gen.inputs, s.registry.recipe(gen.recipe));
       if (why) { skipped.push({ clip: i + 1, why }); continue; }
       const kept = await s.db.selectFrom("assets").select("latent_key").where("id", "=", draft.asset.id).executeTakeFirst();
       if (!kept?.latent_key) { skipped.push({ clip: i + 1, why: "its latent was not kept (rendered before Afflatus kept them, or without its node pack): finish it with SeedVR2, RTX or a model" }); continue; }
@@ -645,7 +645,7 @@ const refinesFaces = (recipe: { inputs: Array<{ id: string }> } | undefined): bo
 async function keptForFinish(s: Services, clips: Awaited<ReturnType<Timelines["view"]>>["clips"], i: number, asset: string): Promise<NonNullable<Awaited<ReturnType<Timelines["generationOf"]>>> | string> {
   const gen = await s.timelines.generationOf(asset);
   if (!gen) return "not rendered here: no seed to repeat";
-  const why = notRenderedAgain(clips, i, gen.inputs);
+  const why = notRenderedAgain(clips, i, gen.inputs, s.registry.recipe(gen.recipe));
   if (why) return why;
   const kept = await s.db.selectFrom("assets").select("latent_key").where("id", "=", asset).executeTakeFirst();
   return kept?.latent_key ? gen : "its latent was not kept (rendered before Afflatus kept them, or without its node pack)";
@@ -656,16 +656,21 @@ async function keptForFinish(s: Services, clips: Awaited<ReturnType<Timelines["v
  * draft again only from the same start: a continuation still after the video it carried on from (or that video's finish), a
  * clip that was not one not made into one, nothing it landed on. Otherwise it would be a new video.
  */
-function notRenderedAgain(clips: Awaited<ReturnType<Timelines["view"]>>["clips"], i: number, inputs: Record<string, unknown>): string | null {
+function notRenderedAgain(clips: Awaited<ReturnType<Timelines["view"]>>["clips"], i: number, inputs: Record<string, unknown>, recipe: Recipe<any> | undefined): string | null {
   const clip = clips[i]!;
+  // the clips it joined onto, by their role in its form (H3's previous and next)
+  const joined = (role: "previous" | "next") => {
+    const spec = recipe?.inputs.find((x) => x.type === "clip" && x.role === role);
+    return spec ? inputs[spec.id] : undefined;
+  };
   const prior = i > 0 ? clips[i - 1] : undefined;
   const priorAssets = prior?.take ? [prior.take.asset.id, prior.takes.find((x) => x.id === prior.take!.finishedFrom)?.asset.id] : [];
-  const carried = (inputs.previous as { asset?: string } | undefined)?.asset;
+  const carried = (joined("previous") as { asset?: string } | undefined)?.asset;
   return carried && (clip.joined !== "continue" || !priorAssets.includes(carried))
     ? "it carried on from a video that is no longer the clip before it (rejoined, moved or restored): rendered again it would be a new video. Finish it with SeedVR2, RTX or a model"
     : !carried && clip.joined === "continue" && prior
       ? "it was not made as a continuation of the clip before: rendered again as one it would be a new video. Finish it with SeedVR2, RTX or a model"
-      : inputs.next
+      : joined("next")
         ? "it was made to land on the clip after: rendered again it would not land the same. Finish it with SeedVR2, RTX or a model"
         : null;
 }

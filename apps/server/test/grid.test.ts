@@ -34,12 +34,12 @@ describe("two takes of the same making", () => {
 describe("where a clip lands on the take after it", () => {
   const take = (head: number, trim = 0) => ({ head_ms: head, trim_start_ms: trim, tail_ms: 0, trim_end_ms: 0 }) as TakeRow;
   const asset = { duration_ms: 5167, latent_frames: 124, latent_key: "l" } as AssetRow;
-  it("from its first frame: there", () => expect(landingOnGrid({ take: take(0), asset })).toBe(0));
-  it("a continuation playing from frame 22 (its overlap): frame 34, half a second further in", () => expect(landingOnGrid({ take: take(917), asset })).toBe(1417));
-  it("already on a chunk: there", () => expect(landingOnGrid({ take: take(917, 500), asset })).toBe(1417));
+  it("from its first frame: there", () => expect(landingOnGrid({ take: take(0), asset }, 22)).toBe(0));
+  it("a continuation playing from frame 22 (its overlap): frame 34, half a second further in", () => expect(landingOnGrid({ take: take(917), asset }, 22)).toBe(1417));
+  it("already on a chunk: there", () => expect(landingOnGrid({ take: take(917, 500), asset }, 22)).toBe(1417));
   it("without a latent, or too near its end: where it plays", () => {
-    expect(landingOnGrid({ take: take(917), asset: { ...asset, latent_key: null } as AssetRow })).toBe(917);
-    expect(landingOnGrid({ take: take(917, 4000), asset })).toBe(4917);
+    expect(landingOnGrid({ take: take(917), asset: { ...asset, latent_key: null } as AssetRow }, 22)).toBe(917);
+    expect(landingOnGrid({ take: take(917, 4000), asset }, 22)).toBe(4917);
   });
 });
 
