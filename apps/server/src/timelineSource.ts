@@ -32,6 +32,11 @@ export interface SourcePlan {
    * on any other clip of the source reaches every clip but on these settings (the owner, 2026-10-18: one form, the clip's).
    */
   apart?: Record<string, string[]>;
+  /**
+   * The windows set aside by a shorter stretch (its end trimmed in after Make: Timelines.trimSource), whole: each clip's row
+   * and its takes' rows, in order, so that the stretch made long again brings them back as they were, takes and all.
+   */
+  parked?: Array<{ clip: Record<string, unknown>; takes: Array<Record<string, unknown>> }>;
 }
 
 /** What a timeline's PATCH takes of it: a new source (its video), or changes to the one there; null takes it away. */
@@ -65,6 +70,7 @@ export function sourceOfRow(raw: string | null | undefined): SourcePlan | null {
       windowMs: Number(x.windowMs) || 5000, inputs: { ...older, ...(x.inputs && typeof x.inputs === "object" ? x.inputs : {}) }, snap: Boolean(x.snap), clip: x.clip ?? null,
       ...(x.pick && typeof x.pick.x === "number" && typeof x.pick.y === "number" ? { pick: { x: x.pick.x, y: x.pick.y } } : {}),
       ...(x.apart && typeof x.apart === "object" ? { apart: Object.fromEntries(Object.entries(x.apart).filter(([, v]) => Array.isArray(v) && v.length).map(([k, v]) => [k, v.filter((i): i is string => typeof i === "string")])) } : {}),
+      ...(Array.isArray(x.parked) && x.parked.length ? { parked: x.parked.filter((p) => p && typeof p.clip === "object" && Array.isArray(p.takes)) } : {}),
     };
   } catch {
     return null;

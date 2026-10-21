@@ -116,7 +116,9 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
   // the lane is drawn from the track's start at the earliest: a video that starts before it is cut there
   const box = Math.max(PAD, left);
   const cut = box - left;
-  const editable = Boolean(onStretch) && !place.made;
+  // made or not: before Make the stretch's settings, after Make a trim (its end sets windows aside and brings them back,
+  // its start makes them anew: asked first when that leaves rendered takes behind)
+  const editable = Boolean(onStretch);
 
   const down = (kind: "slide" | "end") => (e: ReactPointerEvent<HTMLElement>) => {
     if (e.button !== 0) return;

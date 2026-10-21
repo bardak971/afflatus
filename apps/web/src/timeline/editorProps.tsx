@@ -174,7 +174,8 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     },
     onOpenSource: e.setOpened,
     onRemoveSource: e.removeSource,
-    onStretchSource: (fromMs, toMs) => edit.mutate({ source: { fromMs, toMs } }),
+    // before Make its settings; after Make a trim (windows set aside or made anew: useTimelineEditor's stretch)
+    onStretchSource: (fromMs, toMs) => e.stretch.run(fromMs, toMs),
     sourcePlace: e.place,
     onPeekSource: (ms) => {
       // the stage turns to the source as soon as it is dragged: its frame there shows as it moves
@@ -273,6 +274,8 @@ function clipSourceOf(e: LoadedEditor, current: Clip): ClipSource | undefined {
     }),
     onSelectWindow: e.select,
     runUp: runUp ? { counts: runUp.counts, value: recipe ? carriedOf(recipe, e.inputsOf(current)) : runUp.counts[0]!, on: (n: number) => e.cutSource.run({ inputs: { ...source.inputs, [runUp.input]: String(n) } }) } : null,
+    stretchAsk: e.stretch.ask ? { ...e.stretch.ask, change: () => e.stretch.run(e.stretch.ask!.fromMs, e.stretch.ask!.toMs, true), keep: e.stretch.keep } : null,
+    onUses: (fromMs, toMs) => e.stretch.run(fromMs, toMs),
     formAsk: ask ? { title: e.videoRecipes.find((r) => r.id === ask.recipe)?.title ?? ask.recipe, rendered: ask.rendered, windows: ask.windows, change: () => e.sourceForm.run(ask.recipe, true), keep: e.sourceForm.keep } : null,
     count: made.length,
     first: made[0]?.id === current.id,

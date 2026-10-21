@@ -107,6 +107,8 @@ export function useTimelineMutations(id: string, o: {
   });
   /** The source cut again into its clips (its window or its scene cuts changed): those rendered at its start are kept. */
   const cutSource = useMutation({ mutationFn: () => api.makeFromSource(id, true), onSuccess: after });
+  /** The source's stretch trimmed after Make (Timelines.trimSource). */
+  const trimSource = useMutation({ mutationFn: (v: { fromMs: number; toMs: number }) => api.trimSource(id, v.fromMs, v.toMs), onSuccess: after });
   /** A voice recording made into Lip sync clips (their ids, the first opened once the timeline is read again). */
   const recording = useMutation({ mutationFn: (v: { asset: string; clip?: string }) => api.makeFromRecording(id, v.asset, v.clip), onSuccess: after });
   /** The source given another windowed form: its windows and takes kept on the same grid, else made anew (Timelines.sourceForm). */
@@ -228,6 +230,6 @@ export function useTimelineMutations(id: string, o: {
   });
   // the latest that failed, not the first of the list: an old error does not hide a new one
   // (with when it was asked, `errorAt`, for the editor to weigh it against its own range actions')
-  const { error, at: errorAt } = latestFailure([plan, loop, render, fix, patch, edit, makeSource, cutSource, sourceForm, recording, splitSource, add, remove, removeMany, removeTake, stop, undo, redo, exportIt, frame, split, duplicate]);
-  return { after, render, patch, fix, edit, makeSource, cutSource, sourceForm, recording, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error, errorAt };
+  const { error, at: errorAt } = latestFailure([plan, loop, render, fix, patch, edit, makeSource, cutSource, sourceForm, recording, trimSource, splitSource, add, remove, removeMany, removeTake, stop, undo, redo, exportIt, frame, split, duplicate]);
+  return { after, render, patch, fix, edit, makeSource, cutSource, sourceForm, recording, trimSource, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error, errorAt };
 }
