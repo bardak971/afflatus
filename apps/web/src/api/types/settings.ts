@@ -37,6 +37,8 @@ export interface FinishSettings {
   seedvrFrames?: number;
   /** RCAS after a pixel route, 0 to 1; 0 = off. */
   sharpen?: number;
+  /** Face refine with the latent re-sample, in the same job, on the clips whose model offers it. */
+  face?: boolean;
 }
 /** A model the designer can write with, as Settings sends it back: its key only when one was typed (else the saved one is kept). */
 export type LlmPatch = Omit<LlmInfo, "hasApiKey"> & { apiKey?: string };

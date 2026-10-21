@@ -58,8 +58,26 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
   const stills = clips.filter((c) => c.kind === "still").length;
   // the clips whose model re-samples its own latent (H3's, or a workflow that offers it); the others take SeedVR2 on that route
   const resampled = videos.filter((c) => resamplesLatent(recipes.data?.recipes.find((r) => r.id === c.recipe))).length;
-  // the clips whose model offers Face refine (H3's): the others are skipped on that route
-  const refined = videos.filter((c) => recipes.data?.recipes.find((r) => r.id === c.recipe)?.inputs.some((input) => input.id === "faceRefineOnly")).length;
+  // the clips whose model offers Face refine (it says so in its traits: H3's five forms): the others are skipped on that route
+  const recipeOf = (c: Clip) => recipes.data?.recipes.find((r) => r.id === c.recipe);
+  const refined = videos.filter((c) => Boolean(recipeOf(c)?.traits?.faceRefine)).length;
+  // what each model's clips take on this route, one row a family (the mock's Finish across models): read from each model's
+  // own description, so a new model adds its row and nothing else changes
+  const rows = (() => {
+    const by = new Map<string, { name: string; clips: number[]; latent: boolean; face: boolean }>();
+    for (const c of videos) {
+      const r = recipeOf(c);
+      const family = r?.family ?? "imported";
+      const row = by.get(family) ?? { name: recipes.data?.families.find((f) => f.id === family)?.name ?? "Imported video", clips: [], latent: resamplesLatent(r), face: Boolean(r?.traits?.faceRefine) };
+      row.clips.push(clips.indexOf(c) + 1);
+      by.set(family, row);
+    }
+    const pixel = v.route === "rtx" ? "RTX VSR" : v.route === "model" ? "a pixel model" : "SeedVR2";
+    return [...by.values()].map((row) => ({
+      ...row,
+      route: v.route === "face" ? (row.face ? "Face refine" : "left as it is") : v.route === "latent" && row.latent ? `latent re-sample${v.face && row.face ? " + Face refine" : ""}` : pixel,
+    }));
+  })();
   // what it should take, worked out by the server as the waiting list will show it job by job (finishForecast)
   const forecast = useQuery({
     queryKey: queryKeys.finishForecast.of(timeline, v, redo, todo.map((c) => c.take?.id).join()),
@@ -76,6 +94,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
           {stills > 0 && <Chip>{plural(stills, "still")} left as {stills > 1 ? "they are" : "it is"}</Chip>}
           {v.route === "face" && refined < videos.length && <Chip tone="warn" tip="Face refine redraws H3's faces: the other clips are left as they are.">{videos.length - refined} of {videos.length} not H3: skipped</Chip>}
           {v.route === "latent" && resampled < videos.length && <Chip tone="warn" tip="Only a model that offers the latent re-sample (H3) is re-sampled in the latent; the other clips take SeedVR2.">{videos.length - resampled} of {videos.length} not re-sampled: SeedVR2</Chip>}
+          {v.route === "latent" && v.face && refined > 0 && <Chip tip="Their faces redrawn closer to the person's picture after the re-sample, in the same job.">Face refine on {plural(refined, "clip")}</Chip>}
         </div>
         {attention}
         <div className="flex flex-col">
@@ -103,6 +122,26 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
                 </span>
               </FieldRow>
             </>
+          )}
+          {/* what each model's clips take, a row a family: the timeline mixes models (H3, SCAIL-2, LTX) */}
+          {rows.length > 1 && (
+            <FieldRow label="By model" note="What each model's clips take on this route">
+              <span className="flex flex-col gap-0.5 text-xs">
+                {rows.map((row) => (
+                  <span key={row.name}><span className="font-semibold">{row.name}</span> <span className="text-ink-3">· {plural(row.clips.length, "clip")}{row.clips.length <= 3 ? `: ${row.clips.join(", ")}` : ""}</span> · {row.route}</span>
+                ))}
+              </span>
+            </FieldRow>
+          )}
+          {v.route === "latent" && refined > 0 && (
+            <FieldRow label="Face refine" note={`The faces of the ${plural(refined, "clip")} whose model offers it redrawn closer to the person's picture (the cast's, else the first reference picture), after the re-sample, in the same job. Best on slow-moving shots`} trail>
+              <Toggle bare on={Boolean(v.face)} onChange={(face) => setV({ ...v, face })} label="Face refine after the re-sample" />
+            </FieldRow>
+          )}
+          {v.route === "latent" && v.face && refined > 0 && (
+            <FieldRow label="Face denoise" note="On the smallest faces (30 px and under); a face of 120 px and more gets a third of it" trail>
+              <NumberBox label="Face refine denoise" value={v.faceDenoise ?? 0.45} min={0.3} max={0.6} step={0.05} onCommit={(faceDenoise) => setV({ ...v, faceDenoise })} />
+            </FieldRow>
           )}
           {v.route === "latent" && (
             <>

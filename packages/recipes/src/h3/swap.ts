@@ -435,7 +435,7 @@ export const h3Swap = defineRecipe<H3Swap>({
   // the prompt as sent written from the parts while it is left empty (card #34)
   partsInto: "who",
   promptFromParts: (input) => swapFromParts(input, Math.max(1, input.references?.length ?? 0)),
-  traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED, runUp: SWAP_RUN_UP, own: SWAP_OWN } },
+  traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], faceRefine: "faceRefine", windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED, runUp: SWAP_RUN_UP, own: SWAP_OWN } },
   inputs: swapInputs,
   guide: SWAP_GUIDE,
   // a character swap's form: the model, its takes, who is replaced and how, then the rest as any form (the owner, 2026-10-18)
