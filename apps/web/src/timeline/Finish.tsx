@@ -2,7 +2,7 @@ import { resamplesLatent } from "@afflatus/core";
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
-import { api, type Clip, type FinishSettings } from "../api";
+import { api, type Clip, type FinishRedo, type FinishSettings } from "../api";
 import { useRecipes, useSettings } from "../data";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
 import { FieldRow } from "../fields";
@@ -41,7 +41,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
   const recipes = useRecipes();
   const client = useQueryClient();
   const [v, setV] = useState<FinishSettings>(FALLBACK);
-  const [redo, setRedo] = useState(false);
+  const [redo, setRedo] = useState<FinishRedo>(false);
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     if (settings.data && !loaded) {
@@ -75,7 +75,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
     const pixel = v.route === "rtx" ? "RTX VSR" : v.route === "model" ? "a pixel model" : "SeedVR2";
     return [...by.values()].map((row) => ({
       ...row,
-      route: v.route === "face" ? (row.face ? "Face refine" : "left as it is") : v.route === "latent" && row.latent ? `latent re-sample${v.face && row.face ? " + Face refine" : ""}` : pixel,
+      route: v.route === "face" ? (row.face ? "Face refine" : "left as it is") : v.route === "latent" && row.latent ? `latent re-sample${v.face && row.face ? " + Face refine" : ""}` : v.face && row.face ? `Face refine, then ${pixel}` : pixel,
     }));
   })();
   // what it should take, worked out by the server as the waiting list will show it job by job (finishForecast)
@@ -95,6 +95,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
           {v.route === "face" && refined < videos.length && <Chip tone="warn" tip="Face refine redraws the faces of H3 clips and of SCAIL-2 clips at 24 fps: the other clips are left as they are.">{videos.length - refined} of {videos.length} skipped</Chip>}
           {v.route === "latent" && resampled < videos.length && <Chip tone="warn" tip="Only a model that offers the latent re-sample (H3) is re-sampled in the latent; the other clips take SeedVR2.">{videos.length - resampled} of {videos.length} not re-sampled: SeedVR2</Chip>}
           {v.route === "latent" && v.face && refined > 0 && <Chip tip="Their faces redrawn closer to the person's picture after the re-sample, in the same job.">Face refine on {plural(refined, "clip")}</Chip>}
+          {v.route !== "latent" && v.route !== "face" && v.face && refined > 0 && <Chip tip="Their faces redrawn first, then the upscale on what it made: two jobs a clip.">Face refine first on {plural(refined, "clip")}</Chip>}
         </div>
         {attention}
         <div className="flex flex-col">
@@ -133,12 +134,14 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
               </span>
             </FieldRow>
           )}
-          {v.route === "latent" && refined > 0 && (
-            <FieldRow label="Face refine" note={`The faces of the ${plural(refined, "clip")} whose model offers it redrawn closer to the person's picture (the cast's, else the first reference picture), after the re-sample, in the same job. Best on slow-moving shots`} trail>
-              <Toggle bare on={Boolean(v.face)} onChange={(face) => setV({ ...v, face })} label="Face refine after the re-sample" />
+          {v.route !== "face" && refined > 0 && (
+            <FieldRow label="Face refine" note={v.route === "latent"
+              ? `The faces of the ${plural(refined, "clip")} whose model offers it redrawn closer to the person's picture (the cast's, else the first reference picture), after the re-sample, in the same job. Best on slow-moving shots`
+              : `The faces of the ${plural(refined, "clip")} whose model offers it redrawn closer to the person's picture first, from the draft's kept latent, then the upscale on what it made: two jobs a clip. Best on slow-moving shots`} trail>
+              <Toggle bare on={Boolean(v.face)} onChange={(face) => setV({ ...v, face })} label={v.route === "latent" ? "Face refine after the re-sample" : "Face refine before the upscale"} />
             </FieldRow>
           )}
-          {v.route === "latent" && v.face && refined > 0 && (
+          {v.route !== "face" && v.face && refined > 0 && (
             <FieldRow label="Face denoise" note="On the smallest faces (30 px and under); a face of 120 px and more gets a third of it" trail>
               <NumberBox label="Face refine denoise" value={v.faceDenoise ?? 0.45} min={0.3} max={0.6} step={0.05} onCommit={(faceDenoise) => setV({ ...v, faceDenoise })} />
             </FieldRow>
@@ -165,8 +168,8 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
             </FieldRow>
           )}
           {finished.length > 0 && (
-            <FieldRow label="Redo finished" note={`The ${plural(finished.length, "clip")} finished already. Off: they are skipped`} trail>
-              <Toggle bare on={redo} onChange={setRedo} label={`Redo the ${plural(finished.length, "clip")} finished already`} />
+            <FieldRow label="Redo finished" note={`The ${plural(finished.length, "clip")} finished already. Changed: only those finished with other settings than these, or whose clip changed since`}>
+              <Segmented<"no" | "changed" | "all"> label="Redo finished" value={redo === "changed" ? "changed" : redo ? "all" : "no"} onChange={(r) => setRedo(r === "changed" ? "changed" : r === "all")} options={[{ value: "no", label: "No" }, { value: "changed", label: "Changed" }, { value: "all", label: "All" }]} />
             </FieldRow>
           )}
         </div>
@@ -181,7 +184,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
         <DialogFoot>
           <Button tone="quiet" onClick={onClose}>Close <Keys keys="Esc" size="sm" /></Button>
           <Button disabled={save.isPending} data-tip="These settings become what the dialog starts on, in Settings." onClick={() => save.mutate()}>{save.isSuccess ? "Saved as my defaults" : "Save as my defaults"}</Button>
-          <Button tone="primary" disabled={!todo.length || go.isPending} onClick={() => go.mutate()}>Finish {plural(todo.length, "clip")}</Button>
+          <Button tone="primary" disabled={!todo.length || go.isPending} onClick={() => go.mutate()}>{redo === "changed" && finished.length ? `Finish up to ${plural(todo.length, "clip")}` : `Finish ${plural(todo.length, "clip")}`}</Button>
         </DialogFoot>
     </Dialog>
   );

@@ -184,7 +184,7 @@ export const queryKeys = {
   timelinePlanned: (id: string, clips: readonly number[], updatedAt: string) => ["timeline-planned", id, clips.join(","), updatedAt] as const,
   finishForecast: {
     all: () => ["finishForecast"] as const,
-    of: <V>(timeline: string, v: V, redo: boolean, takes: string) => ["finishForecast", timeline, v, redo, takes] as const,
+    of: <V>(timeline: string, v: V, redo: boolean | string, takes: string) => ["finishForecast", timeline, v, redo, takes] as const,
   },
   forecasts: <A>(asked: A) => ["forecasts", asked] as const,
   /**

@@ -229,7 +229,11 @@ export function runCut(core: QueueCore, row: JobRow): Promise<void> {
     if (!opts) throw new Error("this job's settings cannot be read");
     const clips = core.clips;
     if (!clips) throw new Error("timelines are not available");
-    const video = await core.db.selectFrom("assets").selectAll().where("id", "=", opts.asset).executeTakeFirst();
+    // after a job of the same clip (Face refine first): that job's video, which did not exist when this one was queued
+    const made = opts.fromJob ? await core.db.selectFrom("jobs").select(["generation_id", "status"]).where("id", "=", opts.fromJob).executeTakeFirst() : null;
+    if (opts.fromJob && (!made?.generation_id || made.status !== "done")) throw new Error("the Face refine it was to finish did not end: nothing to finish");
+    const assetId = made?.generation_id ? ((await core.db.selectFrom("assets").select("id").where("generation_id", "=", made.generation_id).where("kind", "=", "video").executeTakeFirst())?.id ?? opts.asset) : opts.asset;
+    const video = await core.db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
     // a sound is cut too (copy, split, remove)
     if (!video || (video.kind !== "video" && !(video.kind === "audio" && (opts.action === "copy" || opts.action === "split" || opts.action === "remove")))) throw new Error("that video is no longer in your library");
     // what it makes lands in the folder of the timeline it is made in: its clip's, the one named, else see folderForMade

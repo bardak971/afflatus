@@ -72,6 +72,13 @@ export interface CutOptions {
   /** "finish": the start of the video that is never seen (a continuation's hidden run-up, hiddenRunUp): enlarged plainly, not restored. */
   hiddenMs?: number;
   finishedFrom?: string;
+  /**
+   * The job whose video it works on, in place of `asset` (read when it runs): a finish after a Face refine of the same clip,
+   * queued behind it (the rethink's Finish: Face refine first, then SeedVR2, RTX or a model).
+   */
+  fromJob?: string;
+  /** Made after a Face refine of the same clip, at this denoise: part of what the finish was, for a redo to compare. */
+  faceFirst?: number;
   /** The timeline it is cut in, without a clip: its folder is where the new videos land (folderForMade). */
   timeline?: string;
 }
@@ -383,7 +390,7 @@ export class Timelines {
       // the same frames, so that clips still compare like for like whether they play their finished take or not
       const from = takes.find((y) => y.take.id === x.take.finished_from);
       const source = from?.asset.generation_id ? rendered.get(from.asset.generation_id) : undefined;
-      return source?.measure ? { genMs: own?.genMs ?? null, measure: source.measure, recipe: own?.recipe ?? source.recipe } : own;
+      return source?.measure ? { genMs: own?.genMs ?? null, measure: source.measure, recipe: own?.recipe ?? source.recipe, facePass: own?.facePass ?? false } : own;
     };
     const viewOf = (takes: Taken[]) => (x: Taken) => takeView(x, renderOf(x, takes));
     let at = 0;

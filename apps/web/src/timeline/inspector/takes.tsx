@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { ImagePlus, Scissors, X } from "lucide-react";
+import { ImagePlus, ScanFace, Scissors, X } from "lucide-react";
 import { api, thumbUrl, type Asset, type Clip, type Take } from "../../api";
 import { Button, cx, NumberBox } from "../../ui";
 import { FieldRow } from "../../fields";
@@ -36,7 +36,7 @@ function TakeChip({ tone, tip, children }: { tone: "accent" | "good" | "warn" | 
 }
 
 /** A clip's takes, one per row, the one that plays marked: hovered, one is previewed in the player; clicked, it plays. Each says how its joins jump, and can be removed. */
-export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, onRemoveTake }: {
+export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, onRemoveTake, onFacePass }: {
   clip: Clip;
   take: Take | null;
   joinOf(take: string): { in: number | null; out: number | null } | undefined;
@@ -45,6 +45,8 @@ export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, on
   onPreview(take: Take | null): void;
   onPatch(patch: ShownPatch): void;
   onRemoveTake(id: string): void;
+  /** A Face refine of this take alone, as a new take (the mock's takes): only where the clip's model offers it. */
+  onFacePass?(take: Take): void;
 }) {
   // past ×3 the join shows, as Needs attention counts it
   const bad = (v: number) => v > SHOWS;
@@ -56,9 +58,21 @@ export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, on
   const recipes = useRecipes();
   const forms = new Set(clip.takes.map((t) => t.recipe).filter(Boolean));
   const formOf = (t: Take) => (forms.size > 1 && t.recipe ? recipes.data?.recipes.find((r) => r.id === t.recipe)?.title ?? null : null);
+  // the closest face first, to pick from, once two or more were measured; each keeps its number (the order it was made in)
+  const [byFace, setByFace] = useState(false);
+  const numbered = clip.takes.map((t, i) => ({ t, i }));
+  const listed = byFace && faced.length > 1 ? [...numbered].sort((a, b) => (b.t.measure?.face ?? -2) - (a.t.measure?.face ?? -2)) : numbered;
+  const numberOf = (id: string | null) => Math.max(1, clip.takes.findIndex((x) => x.id === id) + 1);
   return (
     <div className="-mx-1.5 flex flex-col gap-0.5">
-      {clip.takes.map((t, i) => {
+      {faced.length > 1 && (
+        <span className="flex justify-end px-1.5">
+          <button type="button" aria-pressed={byFace} onClick={() => setByFace(!byFace)} data-tip="Sort the takes by how much the face is its person's (Face Match); off, in the order they were made" className={cx("rounded-md px-1.5 py-px text-[11.5px] font-semibold", byFace ? "bg-accent-wash text-accent" : "text-ink-3 hover:bg-hover hover:text-ink")}>
+            Closest face first
+          </button>
+        </span>
+      )}
+      {listed.map(({ t, i }) => {
         const on = t.id === take?.id;
         const j = joinOf(t.id);
         const trouble = takeTrouble(t, clip.takes);
@@ -94,7 +108,9 @@ export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, on
                   <span className="font-bold">Take {i + 1}</span>
                   {on && <TakeChip tone="accent">plays</TakeChip>}
                   {trouble && <TakeChip tone="warn" tip={trouble}>broken</TakeChip>}
-                  {t.finishedFrom && !trouble && <TakeChip tone="good" tip={`The finished version of take ${Math.max(1, clip.takes.findIndex((x) => x.id === t.finishedFrom) + 1)}: the same clip, brought to its final quality (${t.asset.width} × ${t.asset.height})`}>finished</TakeChip>}
+                  {t.finishedFrom && !trouble && (t.facePass
+                    ? <TakeChip tone="good" tip={`Take ${numberOf(t.finishedFrom)}'s own frames, its faces redrawn closer to the person's picture (Face refine), nothing else changed`}>face pass of take {numberOf(t.finishedFrom)}</TakeChip>
+                    : <TakeChip tone="good" tip={`The finished version of take ${numberOf(t.finishedFrom)}: the same clip, brought to its final quality (${t.asset.width} × ${t.asset.height})`}>finished</TakeChip>)}
                   {smoothest === t.id && clip.takes.length > 1 && <TakeChip tone="neutral" tip="The smoothest joins of the takes">smoothest</TakeChip>}
                   {closest === t.id && <TakeChip tone="neutral" tip="The face closest to its person's picture, of the takes measured">closest face</TakeChip>}
                   {formOf(t) && <TakeChip tone="neutral" tip="The form it was rendered with: this clip's takes come from more than one">{formOf(t)}</TakeChip>}
@@ -116,6 +132,11 @@ export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, on
                 {(Math.max(0, plays) / 1000).toFixed(1)} s
               </span>
             </button>
+            {onFacePass && !t.facePass && !trouble && (
+              <button type="button" aria-label={`Face pass of take ${i + 1}`} data-tip="Face pass: this take's own frames, its faces redrawn closer to the person's picture (the cast's, else the first reference picture), as a new take. Best on slow-moving shots" onClick={() => onFacePass(t)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover/take:opacity-100 hover:bg-hover hover:text-ink focus-visible:opacity-100">
+                <ScanFace size={13} />
+              </button>
+            )}
             <button type="button" aria-label={`Remove take ${i + 1}`} data-tip="Remove this take. Its video goes to the bin with it; Undo brings both back." onClick={() => onRemoveTake(t.id)} className="mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover/take:opacity-100 hover:bg-hover hover:text-ink focus-visible:opacity-100">
               <X size={13} />
             </button>
