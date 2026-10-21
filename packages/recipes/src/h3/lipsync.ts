@@ -2,7 +2,7 @@ import { defineRecipe, type GraphBuilder, type InputSpec, type Ref, type Variant
 import { H3_FPS, H3_MAX_FRAMES } from "./family";
 import { h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video } from "./video";
-import { H3_STARTS, turboNeeds } from "./model";
+import { H3_STARTS, turboNeeds, vedaNeeds } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
 import { upscaleNeeds } from "../video/upscale";
 import { rifeNeeds } from "../shared/finish";
@@ -73,7 +73,7 @@ const lipSyncInputs: InputSpec[] = h3Inputs.flatMap((spec): InputSpec[] => {
 
 export const h3LipSync = defineRecipe<H3LipSync>({
   // Turbo's LoRA, and H3's latent upscaler for an upscale with it (built by buildH3, as a clip is)
-  needsWith: (input, slots) => [...turboNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth)],
+  needsWith: (input, slots) => [...turboNeeds(input, slots), ...vedaNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth)],
   id: "h3.lipsync",
   family: "h3",
   version: 1,
@@ -129,6 +129,11 @@ export const h3LipSync = defineRecipe<H3LipSync>({
         name: "a recording and the picture of who speaks",
         input: { description: "a café terrace", start: "p1", recording: "a1" },
         slots: all, uploads: { start: "a.png", recording: "rec.wav" }, media: { start: { width: 832, height: 1216 }, recording: { width: 0, height: 0, seconds: 5.9 } },
+      },
+      {
+        name: "Veda's sparse attention on a recording",
+        input: { description: "a café terrace", start: "p1", recording: "a1", veda: true, vedaGenerated: 24, vedaReference: 40 },
+        slots: { ...all, ...{ veda: "minimax_h3_r2va_veda_preview_fp8.safetensors", vedaT2va: "minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors" } }, uploads: { start: "a.png", recording: "rec.wav" }, media: { start: { width: 832, height: 1216 }, recording: { width: 0, height: 0, seconds: 5.9 } },
       },
       {
         name: "Face refine of the cast person (a Finish of it loads its own latent)",

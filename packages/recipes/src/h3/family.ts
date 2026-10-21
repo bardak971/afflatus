@@ -82,9 +82,15 @@ export const h3 = defineFamily({
     },
     {
       // models/veda is the Veda node pack's own folder: ComfyUI knows it once the pack is loaded
-      id: "veda", label: "Veda predictor (reference model)", folder: "veda", detect: ["r2va.*veda", "veda.*r2va"], optional: true, onlyFor: ["h3.swap", "h3.swapMotion"],
-      hint: "Optional, for Swap character's Veda sparse attention: the predictor made for H3's reference model, in ComfyUI's models/veda folder (the veda-sparse-attention node pack makes it).",
+      id: "veda", label: "Veda predictor (reference model)", folder: "veda", detect: ["r2va.*veda", "veda.*r2va"], optional: true, onlyFor: ["h3.video", "h3.lipsync", "h3.swap", "h3.swapMotion", "h3.motion"],
+      hint: "Optional, for Veda sparse attention on clips made by H3's reference model (the swaps, clips with reference pictures): its predictor, in ComfyUI's models/veda folder (the veda-sparse-attention node pack makes it).",
       get: { file: "minimax_h3_r2va_veda_preview_fp8.safetensors", url: "https://huggingface.co/Veda-Sparse/Minimax-H3-R2VA-Veda-Preview/resolve/main/minimax_h3_r2va_veda_preview_fp8.safetensors" },
+    },
+    {
+      // Veda's other predictor (its makers': for text-to-video, and FL2VA and the fine-tunes as well), trained on the 8-step turbo
+      id: "vedaT2va", label: "Veda predictor (text and frames)", folder: "veda", detect: ["t2va.*veda", "veda.*t2va"], optional: true, onlyFor: ["h3.video", "h3.lipsync", "h3.motion"],
+      hint: "Optional, for Veda sparse attention on clips made without reference pictures (from words, a first and last frame, a clip before): its predictor, in ComfyUI's models/veda folder (the veda-sparse-attention node pack makes it).",
+      get: { file: "minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors", url: "https://huggingface.co/Veda-Sparse/Minimax-H3-T2VA-Veda-8NFE-600Step-Preview/resolve/main/minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors" },
     },
     {
       // the motion's ControlNet (motion.ts): one checkpoint for pose, depth, edges and inpaint; 2.0, its 10 control blocks

@@ -169,13 +169,13 @@ export const swapInputs: InputSpec[] = [
     }
     if (spec.id === "references" && spec.type === "references") {
       // one: the LoRA was trained on one <Picture 1>, and with three of the cast's photos H3 took one's room for the scene (2026-10-13)
-      return [{ ...spec, label: "Who goes in", max: 1, roles: ["person"], note: "a picture of the person who takes their place: the cast's first (the face). The scene stays the video's: a second photo brought its own room in" }];
+      return [{ ...spec, label: "References", max: 1, roles: ["person"], note: "a picture of the person who takes their place: the cast's first (the face). The scene stays the video's: a second photo brought its own room in" }];
     }
     return [spec];
   }),
   {
     // 576p: small phone clips swapped at their own 352 px held 0 of 4, at 576p 2 of 4 (a tester's clips, 2026-10-13)
-    id: "swapSize", type: "choice", label: "Size", options: [...SWAP_SIZES], default: "576p",
+    id: "swapSize", type: "choice", label: "Resolution", options: [...SWAP_SIZES], default: "576p",
     note: "the height it renders at, in the source's shape: 576p by default (a small phone clip swapped better made larger), or the source's own size",
   },
   { id: "keepSound", type: "toggle", label: "Keep the source's sound", default: true, advanced: true, note: "the file carries the source video's own sound; off, the sound H3 makes" },
@@ -220,15 +220,8 @@ export const swapInputs: InputSpec[] = [
   // the sampler: below 1 the render keeps more of the source's shapes and motion, the swap weaker
   { id: "denoise", type: "number", label: "Denoise", min: 0.5, max: 1, step: 0.05, default: 1, note: "BasicScheduler's denoise: below 1 the render stays closer to the source's shapes and motion (fewer limbs drawn past the mask), the swap weaker" },
   { id: "matchStrength", type: "number", label: "Colour match strength", min: 0, max: 2, step: 0.05, default: 1, advanced: true, note: "ColorTransfer's strength, a window after the first matched to the window before; lower when its colours drift oddly" },
-  { id: "vedaGenerated", type: "number", label: "Veda generated sparsity", min: 8, max: 64, step: 8, default: 32, section: "speed", showWhen: "veda", note: "VedaSparseAttention's generated_sparsity: key tiles kept of each query tile, of the clip's own tokens; fewer is faster" },
-  { id: "vedaReference", type: "number", label: "Veda reference sparsity", min: 8, max: 64, step: 8, default: 32, section: "speed", showWhen: "veda", note: "VedaSparseAttention's reference_sparsity: the same of the reference tokens (the source video, the picture)" },
   // Show the mask (the owner's mock, 2026-10-18): the same build, kept to the tracking, the masks and their picture
   { id: "maskPreview", type: "toggle", label: "Mask preview", default: false, internal: true },
-  {
-    // the tested character-swap workflow runs it at 32 / 32; its makers trained it at 768p on 8-step turbo, other sizes and steps work
-    id: "veda", type: "toggle", label: "Veda sparse attention", default: false, advanced: true, section: "speed",
-    note: "faster on long windows: a small predictor picks the attention that matters and the rest is skipped, the steps unchanged. Needs the veda-sparse-attention node pack and its predictor for the reference model, both in Settings › Models; without them the full attention runs",
-  },
 ];
 
 /** The frames of the window: the part handed over (or asked for), floored to H3's 17k + 5, 90 to 141 (the carried frames among them). */
@@ -428,7 +421,7 @@ export const h3Swap = defineRecipe<H3Swap>({
   // the mask's nodes are not asked of a machine: one without them (an older node pack) swaps unmasked, and the job says so
   // Veda's node only serves its toggle, and without its pack the swap runs the full attention and says so on the job: an
   // optional node, so that it never stops a render and Settings › Models offers its pack among the optional ones
-  optionalNodes: [...(h3Video.optionalNodes ?? []), ...MASK_NODES, "VedaSparseAttention", "AfflatusSwapMaskPreview", "AfflatusSwapPaste"],
+  optionalNodes: [...(h3Video.optionalNodes ?? []), ...MASK_NODES, "AfflatusSwapMaskPreview", "AfflatusSwapPaste"],
   finishing: (input) => h3Video.finishing!(asClip(input, "swap.safetensors", SWAP_FRAMES, 0, "minimax_h3_ref2va.safetensors")),
 
   build(input, ctx) {
@@ -465,19 +458,16 @@ export const h3Swap = defineRecipe<H3Swap>({
         guide: (g, at) => g.out("MiniMaxH3AddGuide", { positive: at.positive, latent: at.latent, vae: at.vae, audio_vae: at.audioVae, audio: sourceSound(g, at.frames), frame_idx: 0 }),
       } : {}),
       ...(mask?.extra ?? {}),
-      ...(input.veda && ctx.slots.veda ? { veda: ctx.slots.veda, vedaSparsity: { generated: input.vedaGenerated, reference: input.vedaReference } } : {}),
+      vedaFor: "reference",
       ...(input.denoise < 1 ? { denoise: input.denoise } : {}),
       // the reference model's own turbo LoRA, else the usual one (a distilled model takes neither)
       ...(ctx.slots.refTurbo ?? ctx.slots.turbo ? { turbo: ctx.slots.refTurbo ?? ctx.slots.turbo } : {}),
     });
-    // Veda asked for and its predictor not there: the clip is made with the full attention, and the job says why (its node
-    // pack missing is said by the queue, which knows why it is: ctx.wants)
-    const veda = input.veda && !ctx.slots.veda ? ["Veda was on, but its reference-model predictor is not in ComfyUI's models/veda folder (Settings › Models has it): made with the full attention."] : [];
     // a prompt that names neither the source nor the cast's picture still runs: H3 may then leave them out, and the job says so
     const lacks = swapPromptLacks(input.who, input.references.length).map((tag) => `The prompt has no ${tag}: H3 may not use ${tag === "<Video 1>" ? "the source video" : "the cast's picture"}.`);
     // Difference asked for and the pack not yet loaded: pasted by the mask, and said
     const pasted = input.maskOn && input.paste === "Difference" && !ctx.has("AfflatusSwapPaste") ? ["Paste by Difference needs the Afflatus node pack 0.29.0 (restart ComfyUI to load it): pasted by the mask."] : [];
-    const notes = [...veda, ...lacks, ...pasted];
+    const notes = [...lacks, ...pasted];
     const warned = notes.length ? { ...built, warnings: [...(built.warnings ?? []), ...notes] } : built;
     // Show the mask: only what the tracking, the masks and their picture need, the H3 model never loaded
     const shown = mask?.preview();

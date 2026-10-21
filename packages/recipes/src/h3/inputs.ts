@@ -46,6 +46,10 @@ export interface H3Video extends ColourMatch {
   smooth: boolean;
   quick: boolean;
   cache: boolean;
+  /** Veda's sparse attention, and its key tiles kept of each query tile (generated, reference tokens). */
+  veda?: boolean;
+  vedaGenerated?: number;
+  vedaReference?: number;
   joinFrom: string;
   upscale: string;
   upscaleBy: number;
@@ -199,6 +203,14 @@ export const h3Inputs: InputSpec[] = [
   { id: "smooth", type: "toggle", label: "RIFE ×2", note: "frame interpolation: frames interpolated with RIFE, from 24 to 48 a second", default: true, advanced: true },
   { id: "sharpRefs", type: "toggle", label: "Full-res references", note: "holds a face better, several times slower", default: false, advanced: true },
   { id: "cache", type: "toggle", label: "Step cache", note: "faster, softer: steps that barely change are skipped (MiniMaxH3Cache, from the ComfyUI-DaSiWa-Nodes pack; without it nothing changes). Only without Turbo", default: false, showWhen: { input: "fast", in: [false] }, advanced: true },
+  {
+    // every H3 form alike (the owner, 2026-10-20): the swap's toggle, on every form. The tested character-swap workflow runs it
+    // at 32 / 32; its makers trained the predictors at 768p on 8-step turbo, other sizes and steps work
+    id: "veda", type: "toggle", label: "Veda sparse attention", default: false, advanced: true, section: "speed",
+    note: "faster on long clips: a small predictor picks the attention that matters and the rest is skipped, the steps unchanged. Needs the veda-sparse-attention node pack and its predictor (the reference model's for clips with references, the text-and-frames one otherwise), in Settings › Models; without them the full attention runs",
+  },
+  { id: "vedaGenerated", type: "number", label: "Veda generated sparsity", min: 8, max: 64, step: 8, default: 32, section: "speed", showWhen: "veda", note: "VedaSparseAttention's generated_sparsity: key tiles kept of each query tile, of the clip's own tokens; fewer is faster" },
+  { id: "vedaReference", type: "number", label: "Veda reference sparsity", min: 8, max: 64, step: 8, default: 32, section: "speed", showWhen: "veda", note: "VedaSparseAttention's reference_sparsity: the same of the reference tokens (the pictures, a source video)" },
   {
     id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
     note: "while it renders, a short clip of what is forming, each step, with its sound so far. A small cost per step. Needs the KJNodes pack",

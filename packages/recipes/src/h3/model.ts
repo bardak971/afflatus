@@ -59,6 +59,15 @@ export const H3_STARTS: StartRule[] = [{
  * pictures say who and what is in the clip without being frames of it, and the voice is the one the
  * person speaks with. Otherwise the pictures are the clip's first and last frame.
  */
+/**
+ * Veda's predictor a clip with Veda on needs (Recipe.needsWith): the reference model's for a clip it makes (with references
+ * or a voice, on a model that is not a hybrid one), else the text-and-frames one. A swap names its own (always the first).
+ */
+export const vedaNeeds = (input: H3Video, slots: Record<string, string> = {}): string[] => {
+  if (!input.veda) return [];
+  return uses(input).reference && !modelOf(input, slots).hybrid ? ["veda"] : ["vedaT2va"];
+};
+
 export const uses = (input: H3Video) => {
   const reference = input.references.length > 0 || input.refVideos.length > 0 || Boolean(input.voice);
   return {
@@ -75,11 +84,15 @@ export type H3Uses = ReturnType<typeof uses>;
  * the attention and precision patches, the turbo LoRA and the user's LoRAs, the sigma shift, and the
  * live preview. With it, what the chain is (turbo or not, with which LoRA) and how many steps it takes.
  */
-export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, picked: H3Model, how: H3Uses, audioVae: Ref, veda?: string, turboPick?: string, vedaSparsity?: { generated: number; reference: number }): { model: Ref; turbo: boolean; steps: number; lora: string | undefined; distilled: boolean; unet: string | undefined } {
+export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, picked: H3Model, how: H3Uses, audioVae: Ref, vedaFor?: "reference", turboPick?: string): { model: Ref; turbo: boolean; steps: number; lora: string | undefined; distilled: boolean; unet: string | undefined; vedaMissing: "reference" | "t2va" | null } {
   const { slots } = ctx;
   // references: a hybrid model follows them itself, any other hands those clips to MiniMax's reference model
   const own = !how.reference || picked.hybrid;
   const unet = own ? picked.file : slots.refUnet;
+  // Veda's predictor is made for one model: the reference model's (R2VA) for the clips it makes (a swap's, whatever its
+  // file), else the text-and-frames one (T2VA, which its makers say serves FL2VA and the fine-tunes too)
+  const vedaKind = vedaFor ?? (own ? "t2va" : "reference");
+  const veda = input.veda ? (vedaKind === "reference" ? slots.veda : slots.vedaT2va) : undefined;
   // the reference model has a turbo LoRA of its own when one is installed; without it the usual one is
   // used, as the model author's own H3 workflow does (one turbo LoRA after whichever model the clip needs)
   // (a recipe that knows better names its own: the swap's reference model, run as the clip's own file, takes the reference one)
@@ -104,11 +117,11 @@ export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, 
   // attention, which it runs on top of for the layers it leaves full. 32 key tiles kept of each query tile, its default and
   // the tested character-swap workflow's (a count, not a share: it holds on small first passes)
   if (veda && wanted(ctx, { input: "veda", nodes: ["VedaSparseAttention"], without: "Veda", instead: "made with the full attention" })) {
-    model = g.out("VedaSparseAttention", { model, predictor: veda, generated_sparsity: String(vedaSparsity?.generated ?? 32), reference_sparsity: String(vedaSparsity?.reference ?? 32), full_attention_layers: "", full_attention_steps: "", verbose: false });
+    model = g.out("VedaSparseAttention", { model, predictor: veda, generated_sparsity: String(input.vedaGenerated ?? 32), reference_sparsity: String(input.vedaReference ?? 32), full_attention_layers: "", full_attention_steps: "", verbose: false });
   }
   // the live preview, with the sound so far, sent to whoever queued the prompt: what ComfyUI itself shows
   model = livePreview(g, ctx, model, input.livePreview, audioVae);
   // a turbo model with Fast off takes the steps typed (4 to 8 are what it is made for)
   const steps = lora || (distilled && input.fast) ? input.turboSteps : input.steps;
-  return { model, turbo, steps, lora, distilled, unet };
+  return { model, turbo, steps, lora, distilled, unet, vedaMissing: input.veda && !veda ? vedaKind : null };
 }
