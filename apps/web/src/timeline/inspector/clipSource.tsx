@@ -3,7 +3,7 @@ import { Slide } from "./parts";
 import type { RecipeInfo, Timeline } from "../../api";
 import { clock as mmss, plural } from "../../format";
 import type { LeadPart } from "../../RecipeForm";
-import { Button, Segmented, Toggle } from "../../ui";
+import { Button, NumberBox, Segmented, Toggle } from "../../ui";
 
 /**
  * A clip made from the timeline's source, as its panel shows it (the owner, 2026-10-18: no source form, the clip's form is
@@ -40,6 +40,10 @@ export type ClipSource = {
   onSelectWindow(id: string): void;
   /** Frames from the clip before, for every window (H3's 5 / 22 / 39): changed, the source is cut again. Null: the model has one count. */
   runUp: { counts: number[]; value: number; on(n: number): void } | null;
+  /** The source's start moved after Make, rendered windows in the way: said here, Change or Keep. */
+  stretchAsk: { fromMs: number; rendered: number; windows: number; change(): void; keep(): void } | null;
+  /** The stretch's In and Out typed (seconds of the source): a trim after Make, as the lane's drags. */
+  onUses(fromMs: number, toMs: number): void;
   /** Another form asked for on another grid, rendered windows in the way: said here, Change or Keep. */
   formAsk: { title: string; rendered: number; windows: number; change(): void; keep(): void } | null;
   /** Its changes are kept to it ("This clip"). */
@@ -81,6 +85,24 @@ export function sourceLead(s: ClipSource, clip: { inputs: Record<string, unknown
             </span>
           </div>
         )}
+        {s.stretchAsk && (
+          <div role="alert" className="flex flex-col gap-2 rounded-lg border border-warn/50 bg-warn-wash/40 p-2.5">
+            <span className="text-xs">
+              <span className="font-semibold">The source starting at {mmss(s.stretchAsk.fromMs, { decimals: 1 })} shifts every window:</span>{" "}
+              <span className="text-ink-2">its {plural(s.stretchAsk.windows, "window")} are made anew; {plural(s.stretchAsk.rendered, "rendered take")} go to the library (Undo brings them back). To keep them, trim its end instead.</span>
+            </span>
+            <span className="flex gap-1.5">
+              <Button size="sm" tone="primary" onClick={s.stretchAsk.change}>Change</Button>
+              <Button size="sm" onClick={s.stretchAsk.keep}>Keep it</Button>
+            </span>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="grow text-xs font-semibold">Uses</span>
+          <NumberBox label="In (s of the source)" value={s.source.fromMs / 1000} min={0} max={Math.max(0, s.source.toMs / 1000 - 1)} step={0.1} unit=" s" onCommit={(v) => s.onUses(Math.round(v * 1000), s.source.toMs)} />
+          <span className="text-ink-3">→</span>
+          <NumberBox label="Out (s of the source)" value={s.source.toMs / 1000} min={s.source.fromMs / 1000 + 1} max={(s.source.video.durationMs ?? s.source.toMs) / 1000} step={0.1} unit=" s" onCommit={(v) => s.onUses(s.source.fromMs, Math.round(v * 1000))} />
+        </div>
         <Slide label="Window" value={Math.min(Math.max(s.source.windowMs, s.windows.leastMs), s.windows.mostMs)} min={s.windows.leastMs} max={s.windows.mostMs} step={100} show={(ms) => `${(ms / 1000).toFixed(1)} s`} onCommit={(windowMs) => s.onCut({ windowMs })} />
         <Toggle on={s.source.snap} disabled={s.cutting} onChange={(snap) => s.onCut({ snap })} label="Cut at scene changes" note={s.source.snap ? "a window ends at a cut in the source; the next one opens a new shot" : "windows of the same length, end to end"} />
         {s.runUp && (

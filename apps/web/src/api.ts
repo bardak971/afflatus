@@ -561,6 +561,8 @@ export const api = {
   /** Where a Show the mask stands, and once done its video. */
   maskPreviewOf: (clipId: string, job: string) => call<{ status: string; error: string | null; video: Asset | null }>("GET", `/clips/${clipId}/mask-preview/${job}`),
   makeFromSource: (id: string, again?: boolean) => call<{ clips: string[] }>("POST", `/timelines/${id}/source/make`, again ? { again } : undefined),
+  /** The source's stretch trimmed after Make: its end in or out (windows set aside, brought back), its start moved (made anew). */
+  trimSource: (id: string, fromMs: number, toMs: number) => call<{ clips: string[]; toMs: number }>("POST", `/timelines/${id}/source/trim`, { fromMs, toMs }),
   /** A voice recording made into Lip sync clips cut at its pauses: in place of the empty `clip`, else at the end (their ids). */
   makeFromRecording: (id: string, asset: string, clip?: string) => call<{ clips: string[] }>("POST", `/timelines/${id}/recording`, { asset, ...(clip ? { clip } : {}) }),
   /** The source given another windowed form: in place on the same grid (`switched`), else every window made anew (their ids). */

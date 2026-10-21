@@ -132,7 +132,7 @@ export function useTimelineEditor(id: string) {
     timeline: t, clipsNow, recipes: recipes.data?.recipes ?? [], edits: { save, turn, ready, inputsOf, editInputs, dropEdits, savedElsewhere, sourceTyped }, firstRecipe,
     on: { note: setNote, select, unpick: () => setPicked(new Set()), writing: setWriting, open: setOpened },
   });
-  const { after, render, patch, fix, edit, makeSource: makeSourceMut, cutSource: cutSourceMut, sourceForm: sourceFormMut, recording: recordingMut, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
+  const { after, render, patch, fix, edit, makeSource: makeSourceMut, cutSource: cutSourceMut, sourceForm: sourceFormMut, recording: recordingMut, trimSource: trimSourceMut, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
   const pickedNow = useRef(picked);
   pickedNow.current = picked;
   /** The source taken away with the clips it made, rendered or not (one step for Undo), its panel closed. */
@@ -208,6 +208,30 @@ export function useTimelineEditor(id: string) {
       sourceFormMut.mutate(recipeId, { onSuccess: (r) => void (r.clips.length && setToRender({ ids: r.clips, render: false })) });
     },
     keep: () => setFormAsk(null),
+  };
+
+  /**
+   * The source's stretch changed (its lane dragged, In / Out typed). Before Make, its settings only. After Make, trimmed
+   * (trimSource): its end at once (windows set aside and brought back, takes kept); its start moved makes every window anew,
+   * asked first in the Source chapter when that leaves rendered takes behind (`stretchAsk`: Change or Keep), the first
+   * window opened so the question is in view.
+   */
+  const [stretchAsk, setStretchAsk] = useState<{ fromMs: number; toMs: number; rendered: number; windows: number } | null>(null);
+  const stretch = {
+    pending: trimSourceMut.isPending,
+    ask: stretchAsk,
+    run: (fromMs: number, toMs: number, sure = false) => {
+      const made = t ? madeFromSource(t, videoRecipes) : [];
+      if (!t?.source || !made.length) return edit.mutate({ source: { fromMs, toMs } });
+      const rendered = made.filter((c) => c.take).length;
+      if (!sure && rendered > 0 && Math.round(fromMs) !== t.source.fromMs) {
+        setStretchAsk({ fromMs, toMs, rendered, windows: made.length });
+        return select(made[0]!.id);
+      }
+      setStretchAsk(null);
+      trimSourceMut.mutate({ fromMs, toMs }, { onSuccess: (r) => void (r.clips.length && setToRender({ ids: r.clips, render: false })) });
+    },
+    keep: () => setStretchAsk(null),
   };
 
   /** A voice recording made into Lip sync clips, the first one opened (nothing renders: its scene is to be written first). */
@@ -311,7 +335,7 @@ export function useTimelineEditor(id: string) {
 
   return {
     id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, current,
-    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, removeSource, makeSource, cutSource, sourceForm, recording, splitSource, masks, setMasks, maskOfCurrent, place, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
+    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, removeSource, makeSource, cutSource, sourceForm, recording, stretch, splitSource, masks, setMasks, maskOfCurrent, place, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, typeSource, sourceTyped, inputsOf, editInputs, formOf, ready, keptToClip, keepToClip, sayOf, say, m, range, setRange, loopRange, snapQuiet,

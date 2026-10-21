@@ -400,6 +400,81 @@ describe("a timeline's source lane", () => {
     });
   });
 
+  describe("trimmed after Make (Timelines.trimSource)", () => {
+    const madeSwap = async () => {
+      const tl = await call("POST", "/api/timelines", { name: "zz-test source trim" });
+      const meme = await asset("video");
+      const photo = await asset("image");
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id } });
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 0, toMs: 20000, recipe: "h3.swap", inputs: { who: "Swap the man in <Video 1> with the character in <Picture 1>.", references: [{ asset: photo.id, role: "person" }] } } });
+      await call("POST", `/api/timelines/${tl.id}/source/make`);
+      return { tl, v: await view(tl.id) };
+    };
+    const takeFor = async (clipId: string) => {
+      const video = await asset("video");
+      const take = newId();
+      await t.db.insertInto("takes").values({ id: take, clip_id: clipId, asset_id: video.id, head_ms: 0, tail_ms: 0, trim_start_ms: 0, trim_end_ms: 0, prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, finished_from: null, created_at: now() }).execute();
+      await t.db.updateTable("clips").set({ take_id: take }).where("id", "=", clipId).execute();
+      return take;
+    };
+    const ends = (v: { clips: Array<{ inputs: Record<string, number> }> }) => v.clips.map((c) => Math.round((c.inputs.sourceStart! + c.inputs.sourceSeconds!) * 1000));
+    // where a window's own frames begin: past the 22 it carries from the one before (its run-up)
+    const ownStart = (c: { inputs: Record<string, number> }) => Math.round(c.inputs.sourceStart! * 1000 + (22 * 1000) / 24);
+
+    it("its end in sets the windows past it aside; out again brings the same clips back, takes and all", async () => {
+      const { tl, v } = await madeSwap();
+      expect(v.clips.length).toBeGreaterThanOrEqual(4);
+      const ids = v.clips.map((c: { id: string }) => c.id);
+      const take = await takeFor(ids.at(-1));
+      const cut = ends(v)[1]!;
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: cut });
+      const short = await view(tl.id);
+      expect(short.clips.map((c: { id: string }) => c.id)).toEqual(ids.slice(0, 2));
+      // the next window's own frames begin a moment before (its run-up): the end stops there
+      expect(Math.abs(short.source.toMs - cut)).toBeLessThan(50);
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: 20000 });
+      const back = await view(tl.id);
+      expect(back.clips.map((c: { id: string }) => c.id)).toEqual(ids);
+      expect(back.clips.at(-1).take?.id).toBe(take);
+    });
+
+    it("never shortens a rendered window: its end snaps to the window's nearer end", async () => {
+      const { tl, v } = await madeSwap();
+      await takeFor(v.clips[1].id);
+      const [start, end] = [ownStart(v.clips[1]), ends(v)[1]!];
+      // a little into it: back to where the window before ends, the window set aside
+      const r1 = await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: start + 500 });
+      expect(r1.toMs).toBe(ends(v)[0]);
+      expect((await view(tl.id)).clips).toHaveLength(1);
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: 20000 });
+      // most of the way through: on to its end, the window whole
+      const r2 = await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: end - 300 });
+      expect(r2.toMs).toBe(end);
+      const kept = await view(tl.id);
+      expect(kept.clips).toHaveLength(2);
+      expect(ends(kept)[1]).toBe(end);
+    });
+
+    it("shortens an empty window the end falls in, and moving the start makes every window anew (one step to undo)", async () => {
+      const { tl, v } = await madeSwap();
+      const start = Math.round(v.clips[1].inputs.sourceStart! * 1000);
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: start + 4000 });
+      const short = await view(tl.id);
+      expect(short.clips).toHaveLength(2);
+      expect(ends(short)[1]).toBe(start + 4000);
+      await takeFor(short.clips[0].id);
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 2000, toMs: start + 4000 });
+      const moved = await view(tl.id);
+      expect(moved.source.fromMs).toBe(2000);
+      expect(moved.clips[0].inputs.sourceStart).toBe(2);
+      expect(moved.clips.every((c: { take: unknown }) => !c.take)).toBe(true);
+      await call("POST", `/api/timelines/${tl.id}/undo`);
+      const undone = await view(tl.id);
+      expect(undone.source.fromMs).toBe(0);
+      expect(undone.clips[0].take).toBeTruthy();
+    });
+  });
+
   it("gives a swap's first window the person clicked on the stretch's first frame; a new start or video forgets the click", async () => {
     const tl = await call("POST", "/api/timelines", { name: "zz-test swap pick" });
     const meme = await asset("video");
