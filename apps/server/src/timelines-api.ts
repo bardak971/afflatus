@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { RANDOM_SEED, TRANSITION_KINDS, TRANSITION_MS, hiddenRunUp, movedSeed, resamplesLatent, typedSeed, type Recipe } from "@afflatus/core";
+import { RANDOM_SEED, TRANSITION_KINDS, TRANSITION_MS, hiddenRunUp, movedSeed, resamplesLatent, typedSeed, type InputSpec, type Recipe } from "@afflatus/core";
 import { fromRender, markPng } from "./aiMark";
 import { nameOf } from "./autoName";
 import { VERSION } from "./config";
@@ -610,8 +610,20 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
     const label = `${view.name} · clip ${i + 1} · finish`;
     // Face refine: the draft's own latent decoded as it is (nothing sampled again) and its faces redrawn, the same length and
     // frames as the draft by construction; an H3 clip only, rendered here, its latent kept
+    // A model that keeps no latent (SCAIL-2 at 24 fps: its form has no "only" input) has its take's own frames refined instead
+    const refining = b.route === "face" && clip.recipe ? s.registry.recipe(clip.recipe) : undefined;
+    if (refining && refinesFaces(refining) && !refining.inputs.some((input) => input.id === "faceRefineOnly")) {
+      const gen = await t.generationOf(draft.asset.id);
+      if (!gen) { skipped.push({ clip: i + 1, why: "not rendered here: no picture of the person to refine towards" }); continue; }
+      const a = draft.asset;
+      // its own denoise (the form's, else the recipe's default: 0.35 on SCAIL), not the dialog's, which is H3's
+      const denoise = typeof gen.inputs.faceRefineDenoise === "number" ? gen.inputs.faceRefineDenoise : defaultDenoise(refining);
+      plan.push({ kind: "cut", label, video: { width: a.width ?? null, height: a.height ?? null, durationMs: a.durationMs ?? null, fps: a.fps ?? null },
+        cut: { asset: a.id, startMs: 0, endMs: a.durationMs ?? 0, action: "finish", route: "face", by: 1, faceDenoise: denoise, picture: typeof gen.inputs.picture === "string" ? gen.inputs.picture : undefined, family: refining.family, clip: clip.id, finishedFrom: from } });
+      continue;
+    }
     if (b.route === "face") {
-      const why = clip.recipe && refinesFaces(s.registry.recipe(clip.recipe)) ? await keptForFinish(s, view.clips, i, draft.asset.id) : "not an H3 clip: Face refine redraws H3's faces";
+      const why = clip.recipe && refinesFaces(s.registry.recipe(clip.recipe)) ? await keptForFinish(s, view.clips, i, draft.asset.id) : "a model that offers no Face refine: H3's and SCAIL-2 at 24 fps do";
       if (typeof why === "string") { skipped.push({ clip: i + 1, why }); continue; }
       plan.push({ kind: "render", recipe: why.recipe, input: { ...why.inputs, seed: why.seed, upscale: "Off", faceRefine: true, faceRefineOnly: true, faceRefineDenoise: b.faceDenoise ?? 0.45 }, opts: {
         label, clip: { id: clip.id, fit: false, mirror: why.mirror }, look: clip.look ?? view.look, folder, finishedFrom: from,
@@ -642,6 +654,12 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
 }
 
 /** A recipe whose form offers Face refine (the H3 forms): its clips can be finished that way. */
+/** A Face refine form's own denoise to start on (SCAIL-2's 0.35; H3's 0.45). */
+const defaultDenoise = (recipe: { inputs: InputSpec[] }): number => {
+  const spec = recipe.inputs.find((input) => input.id === "faceRefineDenoise");
+  return spec?.type === "number" && typeof spec.default === "number" ? spec.default : 0.35;
+};
+
 /** A model whose takes can have their faces redrawn from a finish: it says so in its traits (H3's five forms). */
 const refinesFaces = (recipe: { traits?: { faceRefine?: string } | null } | undefined): boolean => Boolean(recipe?.traits?.faceRefine);
 

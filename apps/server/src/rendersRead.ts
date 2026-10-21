@@ -44,7 +44,7 @@ function stepFor(spanMs: number): number {
 
 /** The tools that run on ComfyUI without a recipe of their own (a finish, a slow motion): their record's name. */
 const TOOL_NAMES: Record<string, string> = {
-  "tool.finish.seedvr": "Finish · SeedVR2", "tool.finish.rtx": "Finish · RTX", "tool.finish.model": "Finish · upscale model", "tool.slow": "Slow motion · RIFE",
+  "tool.finish.seedvr": "Finish · SeedVR2", "tool.finish.rtx": "Finish · RTX", "tool.finish.model": "Finish · upscale model", "tool.finish.face": "Finish · Face refine", "tool.slow": "Slow motion · RIFE",
 };
 export const nameOf = (registry: Registry, recipeId: string) => {
   if (TOOL_NAMES[recipeId]) return TOOL_NAMES[recipeId]!;
