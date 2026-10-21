@@ -202,14 +202,24 @@ export function matchedToDriving(g: GraphBuilder, ctx: BuildContext, images: Ref
   return images;
 }
 
-/** The clip saved: RIFE ×2 when asked, with the driving video's own sound over its part when kept and it has some. */
-export function motionSaved(g: GraphBuilder, ctx: BuildContext, images: Ref, input: MotionValues, at: { frame: { width: number; height: number }; fps: number; frames: number; parts: string; carried?: number; made?: Ref }) {
-  // carrying on from a clip before, its first `carried` frames are that clip's and are dropped: the sound starts after them,
-  // so that windows of one source play its sound end to end
+/**
+ * The driving video's own sound over the clip's frames, when kept and it has some: carrying on from a clip before, its first
+ * `carried` frames are that clip's and are dropped, and the sound starts after them, so that windows of one source play its
+ * sound end to end.
+ */
+export function motionSound(g: GraphBuilder, ctx: BuildContext, input: Pick<MotionValues, "keepSound">, at: { fps: number; frames: number; parts: string; carried?: number }): Ref | undefined {
   const skip = ctx.uploads.previous ? at.carried ?? 0 : 0;
-  const sound = input.keepSound && Boolean(ctx.media.driving?.hasSound) && ctx.has("TrimAudioDuration")
+  return input.keepSound && Boolean(ctx.media.driving?.hasSound) && ctx.has("TrimAudioDuration")
     ? g.out("TrimAudioDuration", { audio: [at.parts, 1], start_index: skip / at.fps, duration: (at.frames - skip) / at.fps })
     : undefined;
+}
+
+/**
+ * The clip saved: RIFE ×2 when asked, with the driving video's own sound over its part when kept and it has some (`sound`:
+ * that sound, when the recipe took it already, for its Face refine).
+ */
+export function motionSaved(g: GraphBuilder, ctx: BuildContext, images: Ref, input: MotionValues, at: { frame: { width: number; height: number }; fps: number; frames: number; parts: string; carried?: number; made?: Ref; sound?: Ref }) {
+  const sound = at.sound ?? motionSound(g, ctx, input, at);
   // RIFE's n frames make 2n − 1: the last one again, so that the clip lasts what its part does (n / fps, the length its sound
   // and its draft have); 1/32 s short a window, the windows drifted from their sound. Its grain on the frames as filed
   const done = finishFrames(g, ctx, images, { upscale: UPSCALE.off, upscaleBy: 1, upscaleModel: "", crf: input.crf }, {

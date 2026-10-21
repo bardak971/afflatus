@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ComfyCancelled, detect, waitForOutputs, type Measured, type OutputFile } from "@afflatus/comfy";
 import { choicesOf, GraphBuilder, TOOLS_FAMILY, type BuildContext, type Ref } from "@afflatus/core";
-import { pixelUpscale, RTX_NODES, saveVideo, sharpened, UPSCALE, upscaleNodes } from "@afflatus/recipes";
+import { faceRefined, faceRefineSkipped, pixelUpscale, RTX_NODES, saveVideo, sharpened, UPSCALE, upscaleNodes } from "@afflatus/recipes";
 import type { Comfy } from "./comfy";
 import { slowSoundOnto } from "./cut";
 import { finishedName, nameOf } from "./autoName";
@@ -41,7 +41,7 @@ async function toolNote(core: QueueCore, row: JobRow, recipe: string, model: str
 }
 
 /** The route a finish runs on, as its record names it (`tool.finish.<route>`): H3's latent re-sample is a render; a clip it cannot re-sample takes SeedVR2. */
-const finishRoute = (route: string | undefined) => (route === "rtx" ? "rtx" : route === "model" ? "model" : "seedvr");
+const finishRoute = (route: string | undefined) => (route === "rtx" ? "rtx" : route === "model" ? "model" : route === "face" ? "face" : "seedvr");
 
 /**
  * What a finish should take, from its route's own past finishes: the usual pace × what it makes (the video `by` times its
@@ -234,7 +234,8 @@ export function runCut(core: QueueCore, row: JobRow): Promise<void> {
     if (!video || (video.kind !== "video" && !(video.kind === "audio" && (opts.action === "copy" || opts.action === "split" || opts.action === "remove")))) throw new Error("that video is no longer in your library");
     // what it makes lands in the folder of the timeline it is made in: its clip's, the one named, else see folderForMade
     const folder = await folderForMade(core.db, video, (await timelineOfClip(core.db, opts.clip)) ?? opts.timeline);
-    if (opts.action === "finish") await runFinish(core, row, run, clips, video, opts, folder);
+    if (opts.action === "finish" && opts.route === "face") await runFaceFinish(core, row, run, clips, video, opts, folder);
+    else if (opts.action === "finish") await runFinish(core, row, run, clips, video, opts, folder);
     else if (opts.action === "slow" && opts.engine === "rife") await runSlowRife(core, row, run, clips, video, opts, folder);
     else if (opts.action === "slow") await runSlowFfmpeg(core, row, run, clips, video, opts, folder);
     else await clips.range.cutRange(video, opts.startMs, opts.endMs, opts.action, { crf: opts.crf, even: opts.even, signal: run.abort.signal, folder });
@@ -311,6 +312,65 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
     if (video.latent_frames && Math.abs((kept.duration_ms ?? 0) - (video.duration_ms ?? 0)) <= 42) {
       kept = await core.db.updateTable("assets").set({ latent_frames: video.latent_frames }).where("id", "=", kept.id).returningAll().executeTakeFirstOrThrow();
     }
+    await noteTool(core, note, "done", kept);
+    return kept;
+  }));
+  if (opts.clip) await place(core, clips, opts.clip, made, "the finished take", opts.finishedFrom ?? null);
+}
+
+/**
+ * Finish › Face refine on a take whose model keeps no latent (SCAIL-2 at 24 fps): H3's Face refine on the take's own frames,
+ * its sound held, as its render would have run it. The frames as the take plays them, unless they were interpolated (RIFE ×2):
+ * then the model's own, interpolated again after. The same frames and length as the take.
+ */
+async function runFaceFinish(core: QueueCore, row: JobRow, run: Running, clips: Timelines, video: AssetRow, opts: CutOptions, folder: string | null): Promise<void> {
+  const made = (await madeBefore(core, row)) ?? (await makeOnce(core, row, async () => {
+    const comfy = await core.comfy();
+    const catalog = await comfy.catalog();
+    // the family's Face refine files (H3's, offered with it), found by name as the setup page finds them
+    const slots: Record<string, string> = {};
+    for (const slot of (opts.family ? core.registry.family(opts.family)?.slots ?? [] : []).filter((x) => x.id.startsWith("face"))) {
+      const hit = detect(await comfy.client.models(slot.folder).catch(() => [] as string[]), slot.detect);
+      if (hit) slots[slot.id] = hit;
+    }
+    run.gpu = true;
+    const raw = video.raw_key ? await core.storage.get(video.raw_key).catch(() => null) : null;
+    const rawFacts = raw ? (await readVideo(raw, extOf(video.mime)).catch(() => null))?.facts ?? null : null;
+    const doubled = Boolean(raw && rawFacts?.fps) && interpolatedFrom(video, rawFacts);
+    const rife = doubled ? rifeModelIn(catalog) : null;
+    if (doubled && !rife) throw new Error("This take was interpolated, and ComfyUI has no RIFE model left to interpolate the refined frames again (models/frame_interpolation).");
+    const taken = await core.storage.get(video.file_key);
+    const framesFile = await comfy.client.upload(doubled ? raw! : taken, extOf(video.mime));
+    const picture = opts.picture ? await core.db.selectFrom("assets").select(["file_key", "mime"]).where("id", "=", opts.picture).executeTakeFirst() : undefined;
+    const pictureFile = picture ? await comfy.client.upload(await core.storage.get(picture.file_key), extOf(picture.mime)) : undefined;
+    const g = new GraphBuilder();
+    const parts = g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: framesFile }) });
+    // the model's own frames have no sound of their own: it is the take's, loaded beside them
+    const sound: Ref | undefined = !video.has_sound ? undefined
+      : doubled ? [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: await comfy.client.upload(taken, extOf(video.mime)) }) }), 1] : [parts, 1];
+    const fps = doubled ? rawFacts!.fps : video.fps ?? 24;
+    const frames = Math.round(((doubled ? rawFacts!.durationMs : video.duration_ms ?? 0) / 1000) * fps);
+    const options = asBuilt(catalog, (await core.packFacts?.().catch(() => null)) ?? ANY_PACKS, packsSaid(row));
+    const ctx: BuildContext = { seed: Math.floor(Math.random() * 2 ** 31), slots, uploads: {}, media: {}, has: (n: string) => n in catalog, options: optionsIn(catalog), wants: options.wants };
+    const values = { faceRefine: true, faceRefineDenoise: opts.faceDenoise ?? 0.35, faceRefineSteps: 4, references: [], subject: "", quick: true };
+    const why = faceRefineSkipped(values, ctx, { picture: pictureFile, own: true });
+    if (why) throw new Error(why);
+    const faces = faceRefined(g, ctx, values, [parts, 0], { audio: sound, picture: pictureFile, frames });
+    if (!faces.pass) throw new Error("Not face-refined: its node pack (comfyui-h3-facerefine) or Afflatus's audio lock is not on this ComfyUI.");
+    for (const { w, why: without } of options.without) await warnJob(core.db, row.id, ranWithoutSaid(w, without));
+    let images = faces.images;
+    if (rife) {
+      // RIFE's 2n − 1 frames and the last one again: as long as the take
+      g.phase("interpolating");
+      const smooth = g.out("FrameInterpolate", { interp_model: g.out("FrameInterpolationModelLoader", { model_name: rife }), images, multiplier: 2 });
+      images = g.out("ImageBatch", { image1: smooth, image2: g.out("ImageFromBatch", { image: smooth, batch_index: -1, length: 1 }) });
+    }
+    g.phase("encoding");
+    const outNode = saveVideo(g, ctx, { images, ...(sound ? { audio: sound } : {}), fps: video.fps ?? 24, crf: 16 });
+    const note = await toolNote(core, row, "tool.finish.face", slots.faceRefineUnet ?? "Face refine", `route=face;denoise=${values.faceRefineDenoise}`, (video.width ?? 0) * (video.height ?? 0) * Math.max(1, frames));
+    const output = await followed(core, comfy, run, row, g, outNode, [...faces.loads, ...(rife ? [`frame_interpolation/${rife}`] : [])], note);
+    const bytes = await comfy.client.view(output);
+    const kept = await clips.range.keepCut(video, bytes, `${await nameOf(core.db, video)} · face refined`, 0, video.duration_ms ?? 0, folder);
     await noteTool(core, note, "done", kept);
     return kept;
   }));

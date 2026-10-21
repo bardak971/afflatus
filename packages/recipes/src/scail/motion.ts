@@ -6,8 +6,9 @@ import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import { rifeNeeds, rifeSkippedSaid } from "../shared/finish";
 import {
   chunkLengths, drivingFrames, previousFrames, previousInput, matchedToDriving, motionBatchNodes, MOTION_GRID, MOTION_NODES, MOTION_OPTIONAL, motionOutInputs, motionCanvas, motionFrames, motionInputs,
-  motionSaved, type MotionShape, type MotionValues,
+  motionSaved, motionSound, type MotionShape, type MotionValues,
 } from "../motion/driving";
+import { FACE_REFINE_OPTIONAL, FACE_REFINE_OTHER_INPUTS, FACE_REFINE_OWN_SLOTS, FACE_REFINE_SLOTS, faceRefined, faceRefineSkipped } from "../h3/faceRefine";
 
 /**
  * SCAIL-2 · Motion transfer: the picture's people moved like the driving video's. As ComfyUI's SCAIL-2 template runs it in
@@ -25,7 +26,17 @@ export interface ScailMotion extends MotionValues {
   poseStrength: number;
   dpoStrength: number;
   livePreview: boolean;
+  /** At 24 fps only: H3's Face refine on SCAIL's own frames. */
+  faceRefine?: boolean;
+  faceRefineDenoise?: number;
+  faceRefineSteps?: number;
 }
+
+/**
+ * The H3 nodes Face refine runs on SCAIL beside SCAIL's own (its text encoder, VAEs, loader and scheduler are SCAIL's node
+ * types too); its pack's nodes and the audio lock stay optional, done without when missing.
+ */
+const FACE_REFINE_H3 = ["MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift", "ModelAttentionBackend", "SamplerCustomAdvanced", "RandomNoise", "BasicGuider"];
 
 
 /** Who is matched with whom, as SCAIL2ColoredMask sorts them. */
@@ -40,7 +51,7 @@ const TURBO_STRENGTH = 0.8;
  * own frames (card #36). The rate is the recipe's, not a form choice: the driving video and the clip before are cut at it, and
  * the timeline reads it from the traits.
  */
-function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; most: number; least: number; seconds?: number; hidden?: true }) {
+function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; most: number; least: number; seconds?: number; hidden?: true; faceRefine?: true }) {
   const fps = o.fps;
   const shape: MotionShape = { fps, most: o.most, least: o.least, grid: o.grid, ...(o.seconds ? { seconds: o.seconds } : {}) };
   return defineRecipe<ScailMotion>({
@@ -52,7 +63,8 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
     summary: "A picture moved like a driving video: body, hands and mouth. The picture's room, light and people are kept; the motion is the video's.",
     output: "video",
     // made from a picture and another video; on a timeline, a window of a long source carrying on from the window before (its last frames)
-    traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps, frameGrid: o.grid, windows: { most: shape.most, least: shape.least, carried: SCAIL_CARRIED } },
+    // on H3's grid, H3's Face refine runs on its own frames: a finish of a take redraws the take's frames (it keeps no latent)
+    traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps, frameGrid: o.grid, windows: { most: shape.most, least: shape.least, carried: SCAIL_CARRIED }, ...(o.faceRefine ? { faceRefine: "faceRefine" } : {}) },
     inputs: [
       ...motionInputs(shape),
       {
@@ -78,6 +90,7 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
       },
       previousInput(fps, SCAIL_CARRIED),
       ...motionOutInputs(fps),
+      ...(o.faceRefine ? FACE_REFINE_OTHER_INPUTS : []),
     ],
     needs: ["dpo", "turbo", "clipVision", "sam"],
     // RIFE with "RIFE ×2" on
@@ -86,8 +99,10 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
       ...MOTION_NODES, "UNETLoader", "LoraLoaderModelOnly", "CLIPLoader", "VAELoader", "CLIPTextEncode", "CLIPVisionLoader", "CLIPVisionEncode",
       "CheckpointLoaderSimple", "SAM3_VideoTrack", "SCAIL2ColoredMask", "WanSCAILToVideo", "ModelSamplingSD3", "KSamplerSelect", "BasicScheduler", "SamplerCustom", "VAEDecode",
       ...(motionFrames(input, { media: {} }, shape) > SCAIL_CHUNK ? ["ImageFromBatch", "ImageBatch"] : input.previous ? ["ImageFromBatch"] : []), ...motionBatchNodes(input),
+      // Face refine: H3's nodes, and a window carrying on (its frames off H3's grid by the ones it dropped) made up to it and cut back
+      ...(o.faceRefine && input.faceRefine ? [...FACE_REFINE_H3, ...(input.previous ? ["ImageFromBatch", "ImageBatch", "RepeatImageBatch"] : [])] : []),
     ],
-    optionalNodes: [...MOTION_OPTIONAL, VHS, ...CORE_VIDEO_OUT, "ModelPreviewOverrideKJ", FACE_NODE],
+    optionalNodes: [...MOTION_OPTIONAL, VHS, ...CORE_VIDEO_OUT, "ModelPreviewOverrideKJ", FACE_NODE, ...(o.faceRefine ? FACE_REFINE_OPTIONAL : [])],
 
     build(input, ctx) {
       if (!input.picture || !ctx.uploads.picture) throw new Error("Motion transfer needs a picture: what moves.");
@@ -164,11 +179,20 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
         offset = [cond, 3];
       });
 
-      const images = matchedToDriving(g, ctx, made!, pose, input, frame);
-      const saved = motionSaved(g, ctx, images, input, { frame, fps, frames: total, parts, carried: SCAIL_CARRIED, made: made! });
-      const unsmoothed = rifeSkippedSaid(input.smooth, ctx);
+      // Face refine (24 fps): H3's pass on SCAIL's own frames, before anything else is done to them, so that the clip, its raw
+      // frames and the window after (which carries on from them) all have the refined faces. Its person is the Picture's
+      const sound = motionSound(g, ctx, input, { fps, frames: total, parts, carried: SCAIL_CARRIED });
+      // (read only where the form has them: the 16 fps form has no Face refine)
+      const refineValues = o.faceRefine && input.faceRefine
+        ? { faceRefine: true, faceRefineDenoise: input.faceRefineDenoise ?? 0.35, faceRefineSteps: input.faceRefineSteps ?? 4, references: [], subject: "", quick: true }
+        : { faceRefine: false, faceRefineDenoise: 0, faceRefineSteps: 0, references: [], subject: "", quick: true };
+      const faces = faceRefined(g, ctx, refineValues, made!, { audio: sound, picture: ctx.uploads.picture, frames: total - (ctx.uploads.previous ? SCAIL_CARRIED : 0) });
+      const images = matchedToDriving(g, ctx, faces.images, pose, input, frame);
+      const saved = motionSaved(g, ctx, images, input, { frame, fps, frames: total, parts, carried: SCAIL_CARRIED, made: faces.images, ...(sound ? { sound } : {}) });
+      const said = [rifeSkippedSaid(input.smooth, ctx), faceRefineSkipped(refineValues, ctx, { picture: ctx.uploads.picture, own: true })].filter((x): x is string => Boolean(x));
+      if (faces.pass) passes.push({ ...faces.pass, frames: total });
       return {
-        ...(unsmoothed ? { warnings: [unsmoothed] } : {}),
+        ...(said.length ? { warnings: said } : {}),
         graph: g.graph,
         phases: g.phases,
         outputs: [
@@ -177,7 +201,7 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
           // the face along the clip against the Picture's: a window whose person drifted is flagged on the timeline
           ...faceScore(g, ctx, images, [picture]),
         ],
-        totalSteps: input.steps * lengths.length,
+        totalSteps: input.steps * lengths.length + (faces.pass?.steps ?? 0),
         // the frames a step samples (its largest chunk: the steps are counted per chunk above), said: read off its nodes, the
         // "rest of the batch" of ImageFromBatch (length 4096) was counted, and a timeline's windows were recorded with 30 to 50
         // times their work (forecasts of 375 and 533 min for 4 min); the whole part, with the chunks' steps, was 4 times over
@@ -185,7 +209,7 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
         passes,
         loads: [
           ...saved.loads, `diffusion_models/${slots.unet}`, `text_encoders/${slots.clip}`, `vae/${slots.vae}`, `clip_vision/${slots.clipVision}`, `checkpoints/${slots.sam}`,
-          ...(slots.dpo ? [`loras/${slots.dpo}`] : []), ...(slots.turbo ? [`loras/${slots.turbo}`] : []), ...loraLoads(input.loras),
+          ...(slots.dpo ? [`loras/${slots.dpo}`] : []), ...(slots.turbo ? [`loras/${slots.turbo}`] : []), ...loraLoads(input.loras), ...faces.loads,
         ],
       };
     },
@@ -208,6 +232,19 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
           input: { picture: "p1", driving: { asset: "v1" }, drivingSeconds: 10, order: "Biggest first", person: "1", matchDriving: false, smooth: false, keepSound: false, loras: [{ file: "l.safetensors", weight: 0.7 }] },
           slots, uploads: { picture: "p.png", driving: "d.mp4" }, media: { picture, driving: part(10) },
         },
+        ...(o.faceRefine ? [
+          {
+            name: "Face refine on SCAIL's own frames, towards the Picture, the driving video's sound held",
+            input: { picture: "p1", driving: { asset: "v1" }, drivingSeconds: 141 / fps, faceRefine: true },
+            slots: { ...slots, ...FACE_REFINE_SLOTS, ...FACE_REFINE_OWN_SLOTS }, uploads: { picture: "p.png", driving: "d.mp4" }, media: { picture, driving: part(141 / fps) },
+          },
+          {
+            name: "Face refine on a window carrying on, its frames made up to H3's grid, no sound kept",
+            input: { picture: "p1", driving: { asset: "v1" }, previous: { asset: "v0" }, drivingSeconds: 141 / fps, keepSound: false, faceRefine: true },
+            slots: { ...slots, ...FACE_REFINE_SLOTS, ...FACE_REFINE_OWN_SLOTS }, uploads: { picture: "p.png", driving: "d.mp4", previous: "prev.mp4", "previous.look": "prev.png" },
+            media: { picture, driving: part(141 / fps), previous: { width: 480, height: 854, frames: 5, fps } },
+          },
+        ] : []),
         {
           name: "carrying on from the clip before",
           input: { picture: "p1", driving: { asset: "v1" }, previous: { asset: "v0" }, drivingSeconds: 5 },
@@ -226,4 +263,4 @@ export const scailMotion = scailAt({ id: "scail.motion", title: "Motion transfer
  * its renders came out oddly, so 16 stays the default): 73 to 277 frames (3 to 11.5 s) a job, 141 (5.9 s, H3's longest) to
  * start on, its 81-frame chunks then 3.4 s each.
  */
-export const scailMotion24 = scailAt({ id: "scail.motion24", title: "Motion transfer (24 fps)", fps: 24, grid: SCAIL_H3_GRID, most: 277, least: 73, seconds: 141 / 24 });
+export const scailMotion24 = scailAt({ id: "scail.motion24", title: "Motion transfer (24 fps)", fps: 24, grid: SCAIL_H3_GRID, most: 277, least: 73, seconds: 141 / 24, faceRefine: true });

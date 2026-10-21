@@ -34,20 +34,36 @@ export const FACE_REFINE_INPUTS: InputSpec[] = [
 ];
 
 /**
- * The person's picture the faces are drawn towards: the cast's (a "person" reference), else the clip's first reference
- * picture; null when the clip has none (the toggle then does nothing, and the job says why).
+ * Face refine on a recipe that is not H3's (SCAIL-2 at 24 fps): no "only" input (its finish redraws the take's own frames,
+ * it keeps no latent), and 0.35 to start on: on a SCAIL dance (Timeline 26, 2026-10-21) 0.45 stopped the mouth following
+ * the source (r 0.60 to 0.15) and smeared a frame, where 0.35 kept 90 % of the likeness and the source's mouth, eyes and head.
  */
-export function facePicture(input: Pick<H3Video, "references">, ctx: Pick<BuildContext, "uploads">): string | null {
+export const FACE_REFINE_OTHER_INPUTS: InputSpec[] = FACE_REFINE_INPUTS.filter((spec) => spec.id !== "faceRefineOnly").map((spec) =>
+  spec.id === "faceRefineDenoise" && spec.type === "number" ? { ...spec, default: 0.35, note: `${spec.note}. 0.35 here: 0.45 stopped the mouth following the source` } : spec);
+
+/** What Face refine reads of a form: its own settings, and the person's words and pictures. */
+export type FaceRefineValues = Pick<H3Video, "faceRefine" | "faceRefineDenoise" | "faceRefineSteps" | "references" | "subject" | "quick">;
+
+/**
+ * The person's picture the faces are drawn towards: the cast's (a "person" reference), else the clip's first reference
+ * picture, else the one the recipe gives (SCAIL's Picture: the person it moves); null when there is none (the toggle then
+ * does nothing, and the job says why).
+ */
+export function facePicture(input: Pick<H3Video, "references">, ctx: Pick<BuildContext, "uploads">, fallback?: string): string | null {
   const refs = input.references ?? [];
   const person = refs.findIndex((r, i) => r.role === "person" && ctx.uploads[`references.${i}`]);
   const first = person >= 0 ? person : refs.findIndex((_, i) => ctx.uploads[`references.${i}`]);
-  return first >= 0 ? (ctx.uploads[`references.${first}`] ?? null) : null;
+  return first >= 0 ? (ctx.uploads[`references.${first}`] ?? null) : (fallback ?? null);
 }
 
-/** Why a clip with Face refine on is made without it, or null when it is refined (said on its job). */
-export function faceRefineSkipped(input: Pick<H3Video, "faceRefine" | "references">, ctx: Pick<BuildContext, "uploads" | "slots">): string | null {
+/**
+ * Why a clip with Face refine on is made without it, or null when it is refined (said on its job). `own`: the recipe has
+ * none of H3's text encoder and VAEs of its own (SCAIL), so the pass loads them from the family's Face refine slots.
+ */
+export function faceRefineSkipped(input: Pick<H3Video, "faceRefine" | "references">, ctx: Pick<BuildContext, "uploads" | "slots">, opts: { picture?: string; own?: boolean } = {}): string | null {
   if (!input.faceRefine) return null;
-  if (!facePicture(input, ctx)) return "Not face-refined: the clip has no person's picture (a cast person or a reference picture).";
+  if (!facePicture(input, ctx, opts.picture)) return "Not face-refined: the clip has no person's picture (a cast person or a reference picture).";
+  if (opts.own && !(ctx.slots.faceClip && ctx.slots.faceVideoVae && ctx.slots.faceAudioVae)) return "Not face-refined: MiniMax H3's text encoder and VAEs are not on this ComfyUI (Settings › Models has them, with the model's Face refine files).";
   if (!ctx.slots.faceRefineUnet) return "Not face-refined: no fused reference turbo model on this ComfyUI (Settings › Models has it, under MiniMax H3).";
   if (!ctx.slots.faceDetector) return "Not face-refined: no face detector on this ComfyUI (face_yolov8m.pt in models/ultralytics/bbox; Settings › Models has it).";
   return null;
@@ -60,28 +76,40 @@ export interface FaceRefined {
   loads: string[];
 }
 
+/** The frame counts H3 samples: 17k + 5 (the pass pads to the next one, and cuts its result back). */
+const onH3Grid = (frames: number) => (frames < 5 ? 5 : frames + ((17 - ((frames - 5) % 17)) % 17));
+
 /**
  * The decoded frames with their faces redrawn, or the frames as they were (Face refine off, no picture, no model, or the
- * pack not installed where the job runs). `audio` is the clip's own decoded sound, held as it is while the crops are
- * redrawn; `clip` the text encoder the clip was made with.
+ * pack not installed where the job runs). `audio` is the clip's own sound, held as it is while the crops are redrawn (none:
+ * redrawn without it); `clip`, `vae` and `audioVae` the H3 clip's own, else (a recipe that is not H3's) loaded from the
+ * family's Face refine slots; `picture` the recipe's own picture of the person, when the form has no reference; `frames`
+ * the count of `images` when it may be off H3's 17k + 5 (a SCAIL window that dropped the frames it carried on from).
  */
 export function faceRefined(
-  g: GraphBuilder, ctx: BuildContext, input: H3Video, images: Ref,
-  at: { audio: Ref; vae: Ref; audioVae: Ref; clip: Ref },
+  g: GraphBuilder, ctx: BuildContext, input: FaceRefineValues, images: Ref,
+  at: { audio?: Ref; vae?: Ref; audioVae?: Ref; clip?: Ref; picture?: string; frames?: number },
 ): FaceRefined {
   const as: FaceRefined = { images, pass: null, loads: [] };
-  if (!input.faceRefine || faceRefineSkipped(input, ctx)) return as;
+  const own = !at.clip;
+  if (!input.faceRefine || faceRefineSkipped(input, ctx, { picture: at.picture, own })) return as;
   if (!wanted(ctx, { input: "faceRefine", nodes: [FACE_STITCH], without: "Face refine" })) return as;
-  const face = facePicture(input, ctx);
-  if (!face || !ctx.has(AUDIO_LOCK)) return as;
+  const face = facePicture(input, ctx, at.picture);
+  if (!face || (at.audio && !ctx.has(AUDIO_LOCK))) return as;
   const { slots } = ctx;
   g.phase("refining");
+  const clip = at.clip ?? g.out("CLIPLoader", { clip_name: slots.faceClip, type: "minimax", device: "default" });
+  const vae = at.vae ?? g.out("VAELoader", { vae_name: slots.faceVideoVae });
+  const audioVae = at.audioVae ?? g.out("VAELoader", { vae_name: slots.faceAudioVae });
+  // a count off H3's grid is made up to the next one with the last frame again, and the redrawn frames cut back to it
+  const pad = at.frames ? onH3Grid(at.frames) - at.frames : 0;
+  const base: Ref = pad ? g.out("ImageBatch", { image1: images, image2: g.out("RepeatImageBatch", { image: g.out("ImageFromBatch", { image: images, batch_index: -1, length: 1 }), amount: pad }) }) : images;
   const picture = g.out("ImageScaleToTotalPixels", { image: g.out("LoadImage", { image: face }), upscale_method: "lanczos", megapixels: 0.48, resolution_steps: 1 });
   // the person followed by face identity against the picture, the crop 2.5 face heights square on a 512 canvas (up to 768
   // for a face that would be enlarged past it), its centre and size smoothed over 21 and 51 frames; where no face is found,
   // the person detector's head, when that model is there
   const track = g.add("H3FaceTrackCrop", {
-    images, detector: slots.faceDetector, confidence: 0.35, crop_factor: 2.5, canvas_width: 512, canvas_height: 512, canvas_mode: "auto_capped_768",
+    images: base, detector: slots.faceDetector, confidence: 0.35, crop_factor: 2.5, canvas_width: 512, canvas_height: 512, canvas_mode: "auto_capped_768",
     smooth_window: 21, size_smooth_window: 51, smooth_method: "gaussian", size_mode: "per_frame", identity_reference: picture, identity_track: true,
     identity_threshold: 0.28, select: "largest_face", fallback_detector: slots.faceSeg ?? "none", fallback_head_frac: 0.5, select_index: 0,
     identity_model: "insightface", cut_detection: "none", cut_threshold: 3, absent_shots: "off", X: 0, Y: 0, frame_index: 0,
@@ -92,12 +120,13 @@ export function faceRefined(
   model = g.out("MiniMaxH3SigmaShift", { model, shift_video: 12, shift_audio: 3 });
   const subject = input.subject?.trim() ? `, ${input.subject.trim().replace(/[.\s]+$/, "")}` : "";
   const r2v = g.add("MiniMaxH3ReferenceToVideo", {
-    clip: at.clip, prompt: `Close-up of the face of the person in <Picture 1>${subject}. Sharp focus, clear details.`,
-    width: [track, 4], height: [track, 5], length: [track, 6], ref_image_size: "match", vae: at.vae, audio_vae: at.audioVae,
-    "ref_images.ref_image_0": picture, "ref_audios.ref_audio_0": at.audio,
+    clip, prompt: `Close-up of the face of the person in <Picture 1>${subject}. Sharp focus, clear details.`,
+    width: [track, 4], height: [track, 5], length: [track, 6], ref_image_size: "match", vae, audio_vae: audioVae,
+    "ref_images.ref_image_0": picture, ...(at.audio ? { "ref_audios.ref_audio_0": at.audio } : {}),
   });
-  const started = g.out("H3InjectVideoLatent", { av_latent: [r2v, 1], images: [track, 0], vae: at.vae });
-  const held = g.out(AUDIO_LOCK, { av_latent: started, audio_vae: at.audioVae, audio: at.audio });
+  const started = g.out("H3InjectVideoLatent", { av_latent: [r2v, 1], images: [track, 0], vae });
+  // without a sound, H3 makes one beside the redrawn faces, and it is left out
+  const held = at.audio ? g.out(AUDIO_LOCK, { av_latent: started, audio_vae: audioVae, audio: at.audio }) : started;
   // the denoise by face size: whole on a face of 30 px and under, a third from 120 px, eased over 9 frames
   const scaled = g.add("H3PerFrameDenoise", {
     model, av_latent: held, transform: [track, 1], denoise_multiplier_small_face: 1, denoise_multiplier_large_face: 0.35,
@@ -110,22 +139,28 @@ export function faceRefined(
     sigmas: g.out("BasicScheduler", { model: [scaled, 2], scheduler: "simple", steps: input.faceRefineSteps, denoise: input.faceRefineDenoise }),
     latent_image: [scaled, 0],
   });
-  const redrawn = g.out("VAEDecode", { samples: [sampler, 0], vae: at.vae });
+  const redrawn = g.out("VAEDecode", { samples: [sampler, 0], vae });
   // pasted over the face's own outline (SAM) when SAM is there, else over the face's box; faded out where no face is found
   const sam = Boolean(slots.faceSam) && FACE_REFINE_MASK.every((n) => ctx.has(n))
   const masked = sam
     ? { masks: g.out("H3FaceMaskSAM", { crops: [track, 0], sam_model: g.out("SAMLoader", { model_name: slots.faceSam, device_mode: "AUTO" }), transform: [track, 1], threshold: 0.93, dilation: 0, temporal_smooth: 5 }) }
     : {};
   const stitched = g.out("H3FaceStitch", {
-    base_images: images, refined_crops: redrawn, transform: [track, 1], paste_region: "face_only", mask_dilation: 16, feather: 6,
+    base_images: base, refined_crops: redrawn, transform: [track, 1], paste_region: "face_only", mask_dilation: 16, feather: 6,
     colour_match: 1, blend: 1, undetected_frames: "fade_out", feather_scales_with_crop: false, ...masked,
   });
-  const loads = [`diffusion_models/${slots.faceRefineUnet}`, `ultralytics/${slots.faceDetector}`, ...(slots.faceSeg ? [`ultralytics/${slots.faceSeg}`] : []), ...(sam ? [`sams/${slots.faceSam}`] : [])];
-  return { images: stitched, pass: { node: sampler, steps: input.faceRefineSteps }, loads };
+  const loads = [
+    `diffusion_models/${slots.faceRefineUnet}`, `ultralytics/${slots.faceDetector}`, ...(slots.faceSeg ? [`ultralytics/${slots.faceSeg}`] : []), ...(sam ? [`sams/${slots.faceSam}`] : []),
+    ...(own ? [`text_encoders/${slots.faceClip}`, `vae/${slots.faceVideoVae}`, `vae/${slots.faceAudioVae}`] : []),
+  ];
+  const out: Ref = pad ? g.out("ImageFromBatch", { image: stitched, batch_index: 0, length: at.frames! }) : stitched;
+  return { images: out, pass: { node: sampler, steps: input.faceRefineSteps }, loads };
 }
 
 /** Face refine's files, for the forms' sample builds (the graph checker's variants). */
 export const FACE_REFINE_SLOTS = { faceRefineUnet: "minimax_h3_fused_refdelta_r1024_turbo8_int8.safetensors", faceDetector: "bbox/face_yolov8m.pt", faceSeg: "segm/person_yolov8m-seg.pt", faceSam: "sam_vit_b_01ec64.pth" };
+/** And H3's own pieces, for a recipe that is not H3's (SCAIL's variants). */
+export const FACE_REFINE_OWN_SLOTS = { faceClip: "qwen3vl_minimax_h3.safetensors", faceVideoVae: "minimax_h3_video_vae.safetensors", faceAudioVae: "minimax_h3_audio_vae.safetensors" };
 
 /** The nodes a clip with Face refine on is built with, beside the clip's own (none required: it is done without when missing). */
 // (its reference model's conditioning is the clip's own: a clip with a person's picture is made by the reference route)

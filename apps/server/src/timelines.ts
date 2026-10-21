@@ -53,8 +53,15 @@ export interface CutOptions {
   /** How the frames in between are made: RIFE on the GPU through ComfyUI, or ffmpeg on the processor. */
   engine?: "rife" | "ffmpeg";
   clip?: string;
-  /** "finish": the route, how much larger, SeedVR2's colour match, the pixel route's model. */
-  route?: "seedvr" | "rtx" | "model";
+  /**
+   * "finish": the route, how much larger, SeedVR2's colour match, the pixel route's model. "face": Face refine on the take's
+   * own frames, for a model that keeps no latent (SCAIL-2 at 24 fps); H3's is a render from its latent.
+   */
+  route?: "seedvr" | "rtx" | "model" | "face";
+  /** "face": the denoise on the smallest faces, the picture of the person (an asset), the model family whose files it loads. */
+  faceDenoise?: number;
+  picture?: string;
+  family?: string;
   by?: number;
   colour?: string;
   upscaleModel?: string;
