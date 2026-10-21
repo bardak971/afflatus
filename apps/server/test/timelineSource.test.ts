@@ -438,6 +438,23 @@ describe("a timeline's source lane", () => {
       expect(back.clips.at(-1).take?.id).toBe(take);
     });
 
+    it("an empty window shortened to the end gets its length back before the windows set aside return: no gap between them", async () => {
+      const { tl, v } = await madeSwap();
+      const ids = v.clips.map((c: { id: string }) => c.id);
+      const before = ends(v);
+      const start = Math.round(v.clips[1].inputs.sourceStart! * 1000);
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: start + 4000 });
+      expect(ends(await view(tl.id))[1]).toBe(start + 4000);
+      // shorter again, the shortened window itself set aside: it goes at its length before
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: ends(v)[0]! });
+      expect((await view(tl.id)).clips.map((c: { id: string }) => c.id)).toEqual(ids.slice(0, 1));
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: start + 4000 });
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: 20000 });
+      const back = await view(tl.id);
+      expect(back.clips.map((c: { id: string }) => c.id)).toEqual(ids);
+      expect(ends(back)).toEqual(before);
+    });
+
     it("never shortens a rendered window: its end snaps to the window's nearer end", async () => {
       const { tl, v } = await madeSwap();
       await takeFor(v.clips[1].id);
