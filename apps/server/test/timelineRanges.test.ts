@@ -281,6 +281,10 @@ describe.skipIf(!ffmpegThere)("a clip's take, trimmed on the timeline", { timeou
     // the redo is the finished version of the draft, not of the finished take
     expect(w.clips[0].takes).toHaveLength(3);
     expect(w.clips[0].takes[2].finishedFrom).toBe(w.clips[0].takes[0].id);
+    // a redo with the very settings it was finished with: left as it is (a second Finish redoes only what changed)
+    const same = await call("POST", `/api/timelines/${tl}/finish`, { route: "model", factor: 1.5, upscaleModel: "RealESRGAN_x4plus.pth", sharpen: 0.3, redo: "changed", clips: [a] });
+    expect(same.jobs).toEqual([]);
+    expect(same.skipped[0].why).toBe("finished already with these settings");
     // SeedVR2 without its files: the job waits on this ComfyUI for their Download (where you render, card #20), never fetched unasked
     const sv = await call("POST", `/api/timelines/${tl}/finish`, { route: "seedvr", factor: 2, redo: true, clips: [a] });
     expect(sv.jobs).toHaveLength(1);
@@ -312,6 +316,21 @@ describe.skipIf(!ffmpegThere)("a clip's take, trimmed on the timeline", { timeou
     expect(JSON.parse(latFaceJob.inputs)).toMatchObject({ upscale: "Latent: re-sampled", faceRefine: true, faceRefineDenoise: 0.4 });
     expect(JSON.parse(latFaceJob.inputs).faceRefineOnly).toBeFalsy();
     await call("POST", `/api/jobs/${latFace.jobs[0]}/cancel`);
+    // Face refine first, then SeedVR2 on what it makes: two jobs, the second queued behind the first and reading its video
+    const chained = await call("POST", `/api/timelines/${tl}/finish`, { route: "seedvr", factor: 2, face: true, faceDenoise: 0.4, redo: true, clips: [a] });
+    expect(chained.jobs).toHaveLength(2);
+    const [faceFirst, after] = await Promise.all(chained.jobs.map((id: string) => t.db.selectFrom("jobs").selectAll().where("id", "=", id).executeTakeFirstOrThrow()));
+    expect(JSON.parse(faceFirst!.inputs)).toMatchObject({ faceRefine: true, faceRefineOnly: true, faceRefineDenoise: 0.4 });
+    expect(after!.depends_on).toBe(faceFirst!.id);
+    expect(JSON.parse(after!.inputs)).toMatchObject({ action: "finish", route: "seedvr", fromJob: faceFirst!.id, faceFirst: 0.4 });
+    // cancelled, the Face refine takes the finish queued behind it along
+    await call("POST", `/api/jobs/${chained.jobs[0]}/cancel`);
+    await call("POST", `/api/jobs/${chained.jobs[1]}/cancel`).catch(() => null);
+    expect((await t.db.selectFrom("jobs").select("status").where("id", "=", chained.jobs[1]).executeTakeFirst())?.status).not.toBe("queued");
+    // one take's own Face pass: that take, finished already or not
+    const pass = await call("POST", `/api/timelines/${tl}/finish`, { route: "face", factor: 2, take: w.clips[0].takes[0].id, clips: [a] });
+    expect(pass.jobs).toHaveLength(1);
+    await call("POST", `/api/jobs/${pass.jobs[0]}/cancel`);
     // Face refine from the same kept latent: the clip's own recipe, seed and form, its faces only redrawn, nothing enlarged
     const face = await call("POST", `/api/timelines/${tl}/finish`, { route: "face", factor: 2, faceDenoise: 0.4, redo: true, clips: [a] });
     expect(face.jobs).toHaveLength(1);

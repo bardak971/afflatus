@@ -13,6 +13,8 @@ export interface Rendered {
   measure: Measure | null;
   /** The recipe it was rendered with: a window's takes can come from several forms (a source's form changed in place). */
   recipe: string;
+  /** Made by a Face refine alone (a take's Face pass, or the Face route of a finish): its faces redrawn, nothing else. */
+  facePass: boolean;
 }
 
 /** A take as the browser gets it. */
@@ -35,6 +37,8 @@ export function takeView(x: Taken, rendered: Rendered | undefined) {
     measure: rendered?.measure ?? null,
     /** The recipe it was rendered with, when it was rendered here; null otherwise. */
     recipe: rendered?.recipe ?? null,
+    /** A Face refine of the take it finishes, alone: the same frames, its faces redrawn. */
+    facePass: rendered?.facePass ?? false,
   };
 }
 
@@ -111,9 +115,9 @@ export class TimelineViews {
   /** How long each take's render took and how its own part looks, by generation (a finish made by a cut has none). */
   async renderedOf(all: Placed[]): Promise<Map<string, Rendered>> {
     const made = [...new Set(all.flatMap((p) => p.takes.map((x) => x.asset.generation_id)).filter((g): g is string => Boolean(g)))];
-    const records = made.length ? await this.db.selectFrom("generations").select(["id", "gen_ms", "measure", "recipe_id"]).where("id", "in", made).execute() : [];
+    const records = made.length ? await this.db.selectFrom("generations").select(["id", "gen_ms", "measure", "recipe_id", "inputs"]).where("id", "in", made).execute() : [];
     // how each render's own part looks (mean luma, sharpness), measured on its frames when it was stored
-    return new Map(records.map((g) => [g.id, { genMs: g.gen_ms, measure: g.measure ? (JSON.parse(g.measure) as Measure) : null, recipe: g.recipe_id }]));
+    return new Map(records.map((g) => [g.id, { genMs: g.gen_ms, measure: g.measure ? (JSON.parse(g.measure) as Measure) : null, recipe: g.recipe_id, facePass: g.inputs.includes('"faceRefineOnly":true') }]));
   }
 
   /**

@@ -15,6 +15,7 @@ import { clock, plural, spell } from "../format";
 import { PartHead } from "../recipeForm/Part";
 import { Select } from "../Select";
 import { Button, Chip, cx, Help, Segmented } from "../ui";
+import { change, past } from "./lookDrift";
 import { attention, attentionLine, canDismiss, dismissKey, fixAll, fixOf, fixWords, planFix, plansToAsk, SHOWS, withPlans, type Act, type Fix, type JoinFigures, type Plan, type Row } from "./attention";
 
 /** The rows of Needs attention set aside, per timeline, in this browser (see dismissKey). */
@@ -160,6 +161,12 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
   const figured = joined.filter((c) => typeof joinsOf.get(c.id) === "number");
   const loading = joined.some((c) => joinsOf.get(c.id) === undefined);
   const worst = figured.reduce<Clip | null>((w, c) => (!w || joinsOf.get(c.id)! > joinsOf.get(w.id)! ? c : w), null);
+  // how the faces hold (Face Match of the takes that play): a face holds within DRIFT.face of the timeline's closest one
+  const faced = clips.filter((c) => c.take?.measure?.face != null);
+  const faceOf = (c: Clip) => c.take!.measure!.face!;
+  const bestFace = faced.length ? Math.max(...faced.map(faceOf)) : 0;
+  const faceHolds = (c: Clip) => !past("face", change(faceOf(c), bestFace, 0.05));
+  const worstFace = faced.reduce<Clip | null>((w, c) => (!w || faceOf(c) < faceOf(w) ? c : w), null);
 
   // what needs attention, one row each with the action that mends it (useAttention); Fix all once two rows or more have one
   const setAside = listed.length - own.length;
@@ -339,7 +346,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
 
       <section className="flex flex-col gap-2 rounded-xl border border-line bg-raised px-3 py-2.5 shadow-card">
         <PartHead>Joins and renders</PartHead>
-        {(loading || figured.length > 0 || renderMs > 0) && (
+        {(loading || figured.length > 0 || renderMs > 0 || faced.length > 1) && (
           <div className="grid grid-cols-2 gap-x-4 gap-y-2">
             {/* while the joins are measured their two facts keep their place as shapes: a count of some of them would be wrong */}
             {loading ? (
@@ -353,6 +360,8 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
                 {worst && <Fact label="Worst join" value={`clip ${number(worst.id)} · ×${joinsOf.get(worst.id)!.toFixed(1)}`} warn={joinsOf.get(worst.id)! > SHOWS} />}
               </>
             )}
+            {faced.length > 1 && <Fact label="Faces that hold" value={`${faced.filter(faceHolds).length} of ${faced.length}`} tip="Face Match of the takes that play: a face holds within a fifth of the timeline's closest one" />}
+            {faced.length > 1 && worstFace && <Fact label="Worst face" value={`clip ${number(worstFace.id)} · ${faceOf(worstFace).toFixed(2)}`} warn={!faceHolds(worstFace)} />}
             {renderMs > 0 && <Fact label="Rendered in" value={spell(renderMs)} />}
             {renderMs > 0 && <Fact label="Measured" value={`${rendered} of ${plural(videos, "clip")}`} />}
           </div>
@@ -385,9 +394,9 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
 }
 
 /** One figure of the facts grid: a dim label over its value; a shape of the value's size while it is not known. */
-function Fact({ label, value, warn }: { label: string; value?: string; warn?: boolean }) {
+function Fact({ label, value, warn, tip }: { label: string; value?: string; warn?: boolean; tip?: string }) {
   return (
-    <span className="flex min-w-0 flex-col gap-px">
+    <span className="flex min-w-0 flex-col gap-px" data-tip={tip}>
       <span className="text-[11.5px] text-ink-3">{label}</span>
       {value === undefined ? <span className="m-skeleton my-[3px] h-[18px] w-20" /> : <span className={cx("truncate font-mono", warn ? "text-warn-ink" : "text-ink")}>{value}</span>}
     </span>

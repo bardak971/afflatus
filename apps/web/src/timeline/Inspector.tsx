@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Music } from "lucide-react";
 import { api, thumbUrl, type Asset, type Clip, type MachineState, type RecipeInfo, type Take, type Timeline } from "../api";
@@ -25,6 +25,7 @@ import { LookTable } from "./inspector/look";
 import { Slide } from "./inspector/parts";
 import { Duration, PinnedFrames, TakeList } from "./inspector/takes";
 import { queryKeys } from "../queryKeys";
+import { useSayFailed } from "../sayFailed";
 
 /** The selected clip: how it starts, its takes, its sound, its pictures and its form. */
 /** Where how many takes a render makes is remembered, per browser. */
@@ -159,7 +160,16 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   // ---- what the clip got (its takes, how much of the one that plays is used, how it looks) and its pinned
   // frames: above the form for a clip with no form; inside it otherwise, as its Takes chapter and in Inputs
   const inForm = Boolean(!still && form && recipe);
-  const takesInner = clip.takes.length > 0 ? <TakeList clip={clip} take={take} joinOf={joinOf} smoothest={smoothest} onPreview={onPreview} onPatch={onPatch} onRemoveTake={onRemoveTake} /> : null;
+  // a take's Face pass (the mock's takes): a finish of that one take on the Face route, its faces redrawn as a new take
+  const client = useQueryClient();
+  const failed = useSayFailed({ id: "face-pass", once: true, href: `/timelines/${timeline.id}`, go: "Open the timeline" });
+  const facePass = useMutation({
+    mutationFn: (t: Take) => api.finishTimeline(timeline.id, { route: "face", factor: 1, clips: [clip.id], take: t.id }),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.timelines.one(timeline.id) }),
+    onError: failed("The Face pass was not queued"),
+  });
+  const offersFace = Boolean(recipe?.traits?.faceRefine) && !clip.job;
+  const takesInner = clip.takes.length > 0 ? <TakeList clip={clip} take={take} joinOf={joinOf} smoothest={smoothest} onPreview={onPreview} onPatch={onPatch} onRemoveTake={onRemoveTake} onFacePass={offersFace && !facePass.isPending ? (t) => facePass.mutate(t) : undefined} /> : null;
   const takesHelp = clip.takes.length > 1 ? `Hover a take to preview it, click to make it play.${joins.data ? ` The join figures say how much the picture jumps at In and at Out (×1 = like the clip's own motion; past ×${SHOWS} the join shows); the smoothest is marked.` : joins.isFetching ? " Measuring the joins…" : ""}` : "Each render adds a take; the one you pick plays.";
   const durationInner = still || take ? <Duration clip={clip} take={take} room={room} rendered={Boolean(recipe)} onPatch={onPatch} /> : null;
   const lookInner = take?.measure && !still ? <LookTable timeline={timeline} index={index} take={take} onSelectClip={onSelectClip} /> : null;

@@ -6,7 +6,7 @@ import type { Advice, DeployOverhead, FillPlan, FormPacks, GpuOffer, HuntAsk, Hu
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
-import type { DeployAsk, Health, FinishSettings, MachineProbe, SessionState, Settings, SettingsPatch, SignedDevices } from "./api/types/settings";
+import type { DeployAsk, Health, FinishRedo, FinishSettings, MachineProbe, SessionState, Settings, SettingsPatch, SignedDevices } from "./api/types/settings";
 import { signedOut } from "./access/signedOut";
 import type { GoBackCheck, UpdatesView } from "./api/types/updates";
 import type { CostsView } from "./api/types/costs";
@@ -600,9 +600,9 @@ export const api = {
   /** Asks for the export: it runs in the queue, and the timeline says when it is there. */
   exportTimeline: (id: string, opts: { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range?: { inMs: number; outMs: number }; blend?: boolean; match?: boolean; fit?: "timeline" | "largest"; webMb?: 10 | 25 }) => call<{ id: string }>("POST", `/timelines/${id}/export`, opts),
   /** Every clip's selected take brought to its final quality by an upscale route, as a new take each; the drafts stay. */
-  finishTimeline: (id: string, opts: Partial<FinishSettings> & { route: FinishSettings["route"]; factor: number; redo?: boolean; clips?: string[] }) => call<{ jobs: string[]; skipped: Array<{ clip: number; why: string }> }>("POST", `/timelines/${id}/finish`, opts),
+  finishTimeline: (id: string, opts: Partial<FinishSettings> & { route: FinishSettings["route"]; factor: number; redo?: FinishRedo; clips?: string[]; take?: string }) => call<{ jobs: string[]; skipped: Array<{ clip: number; why: string }> }>("POST", `/timelines/${id}/finish`, opts),
   /** What finishTimeline with these settings would take in all; null while one of its jobs has nothing learned yet. */
-  finishForecast: (id: string, opts: Partial<FinishSettings> & { route: FinishSettings["route"]; factor: number; redo?: boolean; clips?: string[] }) => call<{ ms: number | null }>("POST", `/timelines/${id}/finish/forecast`, opts),
+  finishForecast: (id: string, opts: Partial<FinishSettings> & { route: FinishSettings["route"]; factor: number; redo?: FinishRedo; clips?: string[] }) => call<{ ms: number | null }>("POST", `/timelines/${id}/finish/forecast`, opts),
   /** One frame of a video, saved as a picture in the library. */
   frame: (video: string, atMs: number, timeline?: string, once?: boolean, scratch?: boolean) => call<Asset>("POST", `/assets/${video}/frame`, { atMs, ...(timeline ? { timeline } : {}), ...(once ? { once } : {}), ...(scratch ? { scratch } : {}) }),
   /** A box's working picture taken into the library, kept: the one picked of Make the picture's round. */

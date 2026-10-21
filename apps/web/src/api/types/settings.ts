@@ -25,6 +25,9 @@ export interface LlmInfo {
   /** Asked not to think before it answers. */
   noThinking: boolean;
 }
+/** A finish of clips finished already: skipped (false), all redone (true), or only those finished with other settings. */
+export type FinishRedo = boolean | "changed";
+
 export interface FinishSettings {
   route: "seedvr" | "latent" | "rtx" | "model" | "face";
   factor: number;

@@ -551,7 +551,7 @@ export function finishProps(e: LoadedEditor): ComponentProps<typeof FinishDialog
     onQueued: (r) => {
       e.after();
       e.setFin(false);
-      setNote(`${plural(r.jobs.length, "clip")} finishing in the queue${r.skipped.length ? `, ${r.skipped.length} skipped` : ""}`, `One job each; the finished takes arrive as they land.${r.skipped.length ? ` Skipped: ${r.skipped.map((x) => `clip ${x.clip} (${x.why})`).join(", ")}.` : ""}`);
+      setNote(`${plural(r.jobs.length, "finish job")} in the queue${r.skipped.length ? `, ${r.skipped.length} skipped` : ""}`, `One job a clip (two with Face refine before an upscale); the finished takes arrive as they land.${r.skipped.length ? ` Skipped: ${r.skipped.map((x) => `clip ${x.clip} (${x.why})`).join(", ")}.` : ""}`);
     },
   };
 }
