@@ -191,9 +191,8 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
       // the sound its pass holds, on its own frames (the file's, motionSaved's, may start half a frame earlier)
       const sound = refineValues.faceRefine ? motionSound(g, ctx, input, { fps, frames: total, parts, carried: SCAIL_CARRIED }) : undefined;
       const faces = faceRefined(g, ctx, refineValues, made!, { audio: sound, picture: ctx.uploads.picture, frames: total - (ctx.uploads.previous ? SCAIL_CARRIED : 0) });
-      const own = total - (ctx.uploads.previous ? SCAIL_CARRIED : 0);
       const withHead = head ? g.out("ImageBatch", { image1: head, image2: faces.images }) : faces.images;
-      const images = matchedToDriving(g, ctx, withHead, pose, input, frame, head ? { head: SCAIL_CARRIED, frames: own } : undefined);
+      const images = matchedToDriving(g, ctx, withHead, pose, input, frame, fps);
       const saved = motionSaved(g, ctx, images, input, { frame, fps, frames: total, parts, carried: SCAIL_CARRIED, ...(head ? { head: SCAIL_CARRIED } : {}), made: faces.images, ...(sound ? { sound } : {}) });
       const said = [rifeSkippedSaid(input.smooth, ctx), faceRefineSkipped(refineValues, ctx, { picture: ctx.uploads.picture, own: true })].filter((x): x is string => Boolean(x));
       if (faces.pass) passes.push({ ...faces.pass, frames: total });

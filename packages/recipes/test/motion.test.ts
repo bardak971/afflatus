@@ -74,7 +74,7 @@ describe("SCAIL-2 · Motion transfer", () => {
 
   it("matches the clip to the driving video, keeps its sound and doubles the frames with RIFE", () => {
     const { graph } = build();
-    expect(of(graph, "ColorTransfer")[0]!.inputs).toMatchObject({ method: "reinhard_lab", source_stats: "uniform" });
+    expect(of(graph, "AfflatusColorFollow")).toHaveLength(1);
     expect(of(graph, "ImageAddNoise")).toHaveLength(1);
     // brought down to the phone video's own short side (480), never made larger
     expect(of(graph, "ImageScale").at(-1)!.inputs).toMatchObject({ width: 480, height: 854 });
@@ -82,6 +82,7 @@ describe("SCAIL-2 · Motion transfer", () => {
     expect(of(graph, "FrameInterpolate")).toHaveLength(1);
     const plain = build({ matchDriving: false, keepSound: false, smooth: false }).graph;
     expect(of(plain, "ColorTransfer")).toHaveLength(0);
+    expect(of(plain, "AfflatusColorFollow")).toHaveLength(0);
     expect(of(plain, "TrimAudioDuration")).toHaveLength(0);
     expect(of(plain, "FrameInterpolate")).toHaveLength(0);
     // a silent driving video: nothing to keep
@@ -301,7 +302,7 @@ describe("a Motion transfer window as filed", () => {
       const interpolate = of(graph, "FrameInterpolate")[0]!;
       expect(above(graph, interpolate.inputs.images, "ImageAddNoise")).toBe(false);
       // the colour and the softness still before it
-      expect(above(graph, interpolate.inputs.images, "ColorTransfer")).toBe(true);
+      expect(above(graph, interpolate.inputs.images, "AfflatusColorFollow")).toBe(true);
       expect(above(graph, interpolate.inputs.images, "ImageBlur")).toBe(true);
       // not asked to match the driving video: no grain either
       expect(of(made(recipe, s, fps, { smooth: true, matchDriving: false }).graph as Graph, "ImageAddNoise")).toHaveLength(0);
@@ -336,22 +337,35 @@ describe("SCAIL-2's chunks", () => {
 });
 
 describe("a Motion transfer window matched to the driving video", () => {
-  const scail = (uploads: Record<string, string>, over: Record<string, unknown> = {}) => {
+  const scail = (uploads: Record<string, string>, over: Record<string, unknown> = {}, has?: (n: string) => boolean) => {
     const input = parseInput(scailMotion, { picture: "p1", driving: { asset: "v1" }, ...(uploads.previous ? { previous: { asset: "v0" } } : {}), ...over });
-    return scailMotion.build(input, dryContext({ slots, uploads: { picture: "p.png", driving: "d.mp4", ...uploads }, media: { picture: { width: 768, height: 1360 }, driving: part(81 / SCAIL_FPS) } })).graph as Graph;
+    return scailMotion.build(input, dryContext({ slots, uploads: { picture: "p.png", driving: "d.mp4", ...uploads }, media: { picture: { width: 768, height: 1360 }, driving: part(81 / SCAIL_FPS) }, ...(has ? { has } : {}) })).graph as Graph;
   };
   const toDriving = (graph: Graph) => of(graph, "ColorTransfer").filter((n) => n.inputs.source_stats === "uniform");
+  const withoutFollow = (n: string) => n !== "AfflatusColorFollow";
 
-  it("opening a shot, takes the driving video's colours, pooled over its part", () => {
-    const graph = scail({});
-    expect(toDriving(graph)).toHaveLength(1);
-    expect(at(graph, toDriving(graph)[0]!.inputs.image_ref).class_type).toBe("ImageScale");
+  it("follows the driving video's colours moment by moment, a window that opens a shot and one that carries on alike", () => {
+    for (const uploads of [{}, { previous: "prev.mp4", "previous.look": "prev.png" }] as Array<Record<string, string>>) {
+      const graph = scail(uploads);
+      const [follow, ...more] = of(graph, "AfflatusColorFollow");
+      expect(more).toHaveLength(0);
+      // the driving video's part frame for frame, averaged over a second (8 frames either side at 16 a second)
+      expect(at(graph, follow!.inputs.reference).class_type).toBe("ImageScale");
+      expect(follow!.inputs).toMatchObject({ radius: 8, strength: 1 });
+      // nothing pooled over the window, nothing held to the clip before: they meet on the driving video's colours at the join
+      expect(of(graph, "ColorTransfer").filter((n) => n.inputs.source_stats !== "per_frame")).toHaveLength(0);
+    }
+    // a window that carries on: its head (the clip before's last moments made again) followed with its own frames
+    const carried = scail({ previous: "prev.mp4", "previous.look": "prev.png" });
+    expect(at(carried, of(carried, "AfflatusColorFollow")[0]!.inputs.images).class_type).toBe("ImageBatch");
   });
 
-  it("carrying on, takes the transform the clip before was filed with: read from its own first frame to that clip's last as filed", () => {
-    const graph = scail({ previous: "prev.mp4", "previous.look": "prev.png" });
-    // the driving video's own transform too, which it eases to (below)
-    expect(toDriving(graph)).toHaveLength(1);
+  it("without the node pack's Follow Colours, as before: the driving video's pooled, or carrying on the clip before's as filed", () => {
+    const opening = scail({}, {}, withoutFollow);
+    expect(toDriving(opening)).toHaveLength(1);
+    expect(at(opening, toDriving(opening)[0]!.inputs.image_ref).class_type).toBe("ImageScale");
+    const graph = scail({ previous: "prev.mp4", "previous.look": "prev.png" }, {}, withoutFollow);
+    expect(toDriving(graph)).toHaveLength(0);
     const look = of(graph, "ColorTransfer").find((n) => n.inputs.source_stats === "target_frame")!;
     expect(look.inputs).toMatchObject({ method: "reinhard_lab", "source_stats.target_index": 0, strength: 1 });
     expect(at(graph, look.inputs.image_ref).inputs.image).toBe("prev.png");
@@ -360,16 +374,15 @@ describe("a Motion transfer window matched to the driving video", () => {
     expect(both.class_type).toBe("ImageBatch");
     expect(at(graph, both.inputs.image1).class_type).toBe("ImageAddNoise");
     expect(above(graph, both.inputs.image1, "ImageBlur")).toBe(true);
-    // and dropped after: the clip keeps its own frames
     const after = of(graph, "ImageFromBatch").find((n) => at(graph, n.inputs.image) === look)!;
     expect(after.inputs).toMatchObject({ batch_index: 1, length: 4096 });
-    // then eased to the driving video's colours over its first second, two frames a step (Timeline 8's clip 2 kept the clip
-    // before's drifted look for all of its 5 s)
-    expect(of(graph, "ImageBlend").map((n) => n.inputs.blend_factor)).toEqual([0.06, 0.19, 0.31, 0.44, 0.56, 0.69, 0.81, 0.94]);
+    // and without the clip before's last frame as filed (not read): the driving video's pooled
+    expect(toDriving(scail({ previous: "prev.mp4" }, {}, withoutFollow))).toHaveLength(1);
   });
 
-  it("carrying on without the clip before's last frame as filed (not read), takes the driving video's colours as before", () => {
-    expect(toDriving(scail({ previous: "prev.mp4" }))).toHaveLength(1);
-    expect(of(scail({ previous: "prev.mp4", "previous.look": "prev.png" }, { matchDriving: false }), "ColorTransfer").filter((n) => n.inputs.source_stats !== "per_frame")).toHaveLength(0);
+  it("not asked to match the driving video: its colours as made", () => {
+    const graph = scail({ previous: "prev.mp4", "previous.look": "prev.png" }, { matchDriving: false });
+    expect(of(graph, "AfflatusColorFollow")).toHaveLength(0);
+    expect(of(graph, "ColorTransfer").filter((n) => n.inputs.source_stats !== "per_frame")).toHaveLength(0);
   });
 });

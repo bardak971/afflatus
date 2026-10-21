@@ -35,6 +35,8 @@ beforeEach(async () => {
   const catalog = referenceCatalog();
   // SAM 3 is a checkpoint: the reference catalog's checkpoints are an SDXL test's
   catalog.CheckpointLoaderSimple!.input.required!.ckpt_name = [SCAIL_FILES.checkpoints];
+  // a ComfyUI without the node pack's Follow Colours (before 0.34.0): the window matched to the clip before's last frame as filed
+  delete catalog.AfflatusColorFollow;
   fake = await startFakeComfy({ catalog, models: SCAIL_FILES });
   t = await makeApp({ comfyUrl: fake.url });
   await t.services.queue.start();

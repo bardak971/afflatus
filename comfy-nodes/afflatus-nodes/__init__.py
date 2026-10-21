@@ -15,6 +15,8 @@ Eleven nodes for continuing a MiniMax H3 clip from its own latent rather than fr
   enough ComfyUI says "update ComfyUI" when the module it reads is missing, instead of a bare ImportError.
 - Afflatus: Face Match — how much a face in a picture is the person of some photos (InsightFace's ArcFace, on the CPU),
   to rank the pictures a Motion transfer is made from; registered only when insightface is installed.
+- Afflatus: Follow Colours — a Motion transfer clip's colours brought to its driving video's at each moment, both
+  averaged over about a second first, so that a drift inside a window is followed and windows of one source meet.
 
 Afflatus writes this pack into ComfyUI's custom_nodes folder itself when it knows the folder (Settings →
 ComfyUI); ComfyUI picks it up at its next start. It can also be installed by hand: copy this folder into
@@ -86,6 +88,7 @@ from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, Affla
 from .face_match import AfflatusFaceAt, AfflatusFaceMatch, available as face_available  # noqa: E402
 from .swap_mask import AfflatusSwapMask, AfflatusSwapMaskPreview, AfflatusSwapPaste  # noqa: E402
 from .face_refine import AfflatusH3AudioLock  # noqa: E402
+from .colour_follow import AfflatusColorFollow  # noqa: E402
 
 
 def _version() -> str:
@@ -121,6 +124,8 @@ class AfflatusExtension(ComfyExtension):
             AfflatusSwapPaste,
             # the clip's sound held while Face refine redraws its faces
             AfflatusH3AudioLock,
+            # a Motion transfer clip's colours brought to its driving video's, moment by moment
+            AfflatusColorFollow,
             # a face's likeness to some photos, for the pictures a Motion transfer is made from: only with insightface installed
             *([AfflatusFaceMatch, AfflatusFaceAt] if face_available() else []),
         ]

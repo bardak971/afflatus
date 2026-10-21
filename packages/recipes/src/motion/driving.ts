@@ -120,7 +120,9 @@ export function previousFrames(g: GraphBuilder, ctx: BuildContext): Ref | null {
 
 /** The node classes the shared part needs, and those it uses only when there. */
 export const MOTION_NODES = ["LoadImage", "LoadVideo", "GetVideoComponents", "ImageScale"];
-export const MOTION_OPTIONAL = ["ColorTransfer", "ImageBlur", "ImageAddNoise", "TrimAudioDuration", "FrameInterpolationModelLoader", "FrameInterpolate", "ImageBlend"];
+export const MOTION_OPTIONAL = ["ColorTransfer", "ImageBlur", "ImageAddNoise", "TrimAudioDuration", "FrameInterpolationModelLoader", "FrameInterpolate", "AfflatusColorFollow"];
+/** The node pack's moment-by-moment colour match (Afflatus: Follow Colours, 0.34.0); without it, the transforms of before. */
+export const COLOUR_FOLLOW = "AfflatusColorFollow";
 /** The batch nodes RIFE's lead frame takes (motionSaved), and the match to the clip before's look (matchedToDriving). */
 export const motionBatchNodes = (input: Pick<MotionValues, "smooth" | "previous" | "matchDriving">) =>
   input.previous && (input.smooth || input.matchDriving) ? ["ImageBatch", "ImageFromBatch"] : [];
@@ -173,11 +175,18 @@ const grained = (g: GraphBuilder, ctx: BuildContext, images: Ref) => (ctx.has("I
  * as it is filed (motionSaved). On the meme test the render was darker and cleaner than the phone video it copied, which read
  * as a render (YAVG 50 against 69).
  */
-export function matchedToDriving(g: GraphBuilder, ctx: BuildContext, images: Ref, driving: Ref, input: MotionValues, frame: { width: number; height: number }, ease?: { head: number; frames: number }): Ref {
+export function matchedToDriving(g: GraphBuilder, ctx: BuildContext, images: Ref, driving: Ref, input: MotionValues, frame: { width: number; height: number }, fps?: number): Ref {
   if (!input.matchDriving) return images;
-  const made = images;
   const look = ctx.uploads.previous ? ctx.uploads["previous.look"] : undefined;
-  if (ctx.has("ColorTransfer") && look) {
+  if (ctx.has(COLOUR_FOLLOW)) {
+    // each frame to the driving video's colours at the same moment, both averaged over about a second (the node pack 0.34.0):
+    // one transform pooled over a window kept the model's drift inside it, and held to the clip before, the window after kept
+    // it on (Timeline 8: clip 2 4 to 5 levels redder than its driving video for all of it); an ease back to the pooled colours
+    // dimmed a window by 14 levels within a second where its driving video darkened only later. Two windows of one source
+    // meet on its colours at the same moment, with nothing carried from one to the next. The frames given are the driving
+    // video's part, frame for frame (a window's head included)
+    images = g.out(COLOUR_FOLLOW, { images, reference: driving, radius: Math.max(1, Math.round((fps ?? 16) / 2)), strength: 1 });
+  } else if (ctx.has("ColorTransfer") && look) {
     // carrying on, it takes the transform the clip before was filed with, not one of its own: pooled over each window's own
     // part, two windows got two transforms and each join stepped in colour. That transform is read where the two meet, from
     // this clip's first frame (softened and grained as the clip before's last was when filed) to that last frame as filed,
@@ -189,9 +198,6 @@ export function matchedToDriving(g: GraphBuilder, ctx: BuildContext, images: Ref
       method: "reinhard_lab", source_stats: "target_frame", "source_stats.target_index": 0, strength: 1,
     });
     images = g.out("ImageFromBatch", { image: matched, batch_index: 1, length: 4096 });
-    // then eased to the driving video's own colours over its first second: held to the clip before throughout, a window kept a
-    // look the clip before had drifted to (Timeline 8's clip 2: 4 to 5 levels redder than its driving video for all of it)
-    if (ease && ctx.has("ImageBlend")) images = eased(g, images, g.out("ColorTransfer", { image_target: made, image_ref: driving, method: "reinhard_lab", source_stats: "uniform", strength: 1 }), ease);
   } else if (ctx.has("ColorTransfer")) {
     images = g.out("ColorTransfer", { image_target: images, image_ref: driving, method: "reinhard_lab", source_stats: "uniform", strength: 1 });
   }
@@ -204,27 +210,6 @@ export function matchedToDriving(g: GraphBuilder, ctx: BuildContext, images: Ref
     images = g.out("ImageScale", { image: images, upscale_method: "lanczos", width: to.width, height: to.height, crop: "disabled" });
   }
   return images;
-}
-
-/** How many of the model's frames a window that carries on takes to go from the clip before's colours to its driving video's: a second. */
-const EASE_FRAMES = 16;
-
-/**
- * `from` (matched to the clip before) giving way to `to` (matched to the driving video) over the first EASE_FRAMES of the clip's
- * own frames, in steps of a couple of frames; its head (`own.head` frames in front) stays `from`.
- */
-function eased(g: GraphBuilder, from: Ref, to: Ref, own: { head: number; frames: number }): Ref {
-  const span = Math.min(EASE_FRAMES, own.frames);
-  const steps = Math.min(8, span);
-  const part = (image: Ref, at: number, length: number) => g.out("ImageFromBatch", { image, batch_index: at, length });
-  const pieces: Ref[] = own.head ? [part(from, 0, own.head)] : [];
-  for (let k = 0; k < steps; k++) {
-    const at = own.head + Math.floor((k * span) / steps);
-    const length = own.head + Math.floor(((k + 1) * span) / steps) - at;
-    pieces.push(g.out("ImageBlend", { image1: part(from, at, length), image2: part(to, at, length), blend_factor: Math.round(((k + 0.5) / steps) * 100) / 100, blend_mode: "normal" }));
-  }
-  if (own.frames > span) pieces.push(part(to, own.head + span, 4096));
-  return pieces.reduce((all, piece) => g.out("ImageBatch", { image1: all, image2: piece }));
 }
 
 /**
