@@ -1355,15 +1355,20 @@ describe("H3's upscale pass", () => {
     expect((node(b, "VAEDecodeTiled")[0] ?? node(b, "VAEDecode")[0])!.inputs.samples).toEqual((node(b, "VAEDecodeTiled")[0] ?? node(b, "VAEDecode")[0])!.inputs.samples);
   });
 
-  it("carries a chain's colour match on: one transform from its run-up's last frame (the clip before's last moment) to that frame as filed", () => {
+  it("carries a chain's colour match on: its frames brought to the clip before's last frame as filed, moment by moment", () => {
     const joined = { width: 576, height: 1024, frames: 22, fps: 24, hasSound: true, latentFrames: 124 };
-    const at = (uploads: Record<string, string>) => h3Video.build(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, seconds: 5 }), dryContext({ slots, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors [temp]", ...uploads }, media: { previous: joined } }));
+    const at = (uploads: Record<string, string>, has?: (n: string) => boolean) => h3Video.build(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, seconds: 5 }), dryContext({ slots, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors [temp]", ...uploads }, media: { previous: joined }, ...(has ? { has } : {}) }));
     // handed the clip before's last frame as filed (the server does when that clip's chain was matched, see colourMatchedChain)
-    const carried = node(at({ "previous.look": "look.png" }), "ColorTransfer");
+    const followed = node(at({ "previous.look": "look.png" }), "AfflatusColorFollow");
+    expect(followed).toHaveLength(1);
+    expect(followed[0]!.inputs).toMatchObject({ radius: 12, strength: 1 });
+    // without the node pack's Follow Colours: one transform from its run-up's last frame (the clip before's last moment) to it
+    const carried = node(at({ "previous.look": "look.png" }, (n) => n !== "AfflatusColorFollow"), "ColorTransfer");
     expect(carried).toHaveLength(1);
     expect(carried[0]!.inputs).toMatchObject({ method: "reinhard_lab", source_stats: "target_frame", "source_stats.target_index": 21, strength: 1 });
     // not handed it: the model's own colours, as before
     expect(node(at({}), "ColorTransfer")).toHaveLength(0);
+    expect(node(at({}), "AfflatusColorFollow")).toHaveLength(0);
     // a clip that opens a chain has no run-up to read: matched to its first frame only when asked
     expect(node(h3Video.build(parseInput(h3Video, { description: "a", seconds: 5 }), dryContext({ slots, uploads: { "previous.look": "look.png" } })), "ColorTransfer")).toHaveLength(0);
   });

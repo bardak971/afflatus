@@ -349,7 +349,7 @@ export const wanVideo = defineRecipe<WanVideo>({
     const { sampled, passes, steps } = wanPasses(g, ctx, input, models, cond);
 
     g.phase("decoding");
-    const made = finishFrames(g, ctx, colourMatched(g, ctx, g.out("VAEDecode", { samples: [sampled, 0], vae }), input), input, { frame: { width, height }, rife: input.smooth, fps: input.fps });
+    const made = finishFrames(g, ctx, colourMatched(g, ctx, g.out("VAEDecode", { samples: [sampled, 0], vae }), input, input.fps), input, { frame: { width, height }, rife: input.smooth, fps: input.fps });
     const lorasOf = (turboLora: string | undefined, loras: LoraValue[]) => [...(turboLora ? [`loras/${turboLora}`] : []), ...loraLoads(loras)];
     const unsmoothed = rifeSkippedSaid(input.smooth, ctx);
     return {

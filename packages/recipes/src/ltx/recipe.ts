@@ -570,7 +570,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       g.phase("decoding");
       const images = g.out("VAEDecodeTiled", { samples: made.video, vae: loaded.vae, tile_size: input.tile, overlap: 64, temporal_size: input.tileFrames, temporal_overlap: spec.decode.overlap });
       const heard = g.out("LTXVAudioVAEDecode", { samples: made.audio, audio_vae: loaded.audioVae });
-      const done = finishFrames(g, ctx, colourMatched(g, ctx, images, openingStart(input)), input, { frame: { width, height }, rife: input.smooth && !temporal, fps, audio: heard, doubled: temporal });
+      const done = finishFrames(g, ctx, colourMatched(g, ctx, images, openingStart(input), fps), input, { frame: { width, height }, rife: input.smooth && !temporal, fps, audio: heard, doubled: temporal });
       const unsmoothed = rifeSkippedSaid(input.smooth && !temporal, ctx);
 
       return {

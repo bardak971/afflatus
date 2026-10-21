@@ -38,7 +38,7 @@ export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made:
   const native: Ref = upscaling ? g.out("VAEDecode", { samples: [sampled, 0], vae }) : images;
   // matched to the first frame (a clip that opens a chain), or carrying that match on (one that continues it: its run-up's last
   // frame is the clip before's last moment)
-  const looked = colourCarried(g, ctx, colourMatched(g, ctx, images, openingStart(input)), (made.head ?? 0) - 1);
+  const looked = colourCarried(g, ctx, colourMatched(g, ctx, images, openingStart(input), H3_FPS), (made.head ?? 0) - 1, H3_FPS);
   const done = finishFrames(g, ctx, looked, input, { frame: { width, height }, rife: input.smooth, fps: H3_FPS, audio });
   const raw = done.images !== native ? saveVideo(g, ctx, { images: native, audio, fps: H3_FPS, crf: 16 }) : null;
   // the clip's own sampled window, kept beside it for the clips that continue it or land on it: its audio

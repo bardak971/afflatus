@@ -38,32 +38,45 @@ export const COLOUR_MATCH_INPUTS: InputSpec[] = [
 /** A form's colour match with its start picture only when the clip opens on it: not when it carries on from a previous clip. */
 export const openingStart = <T extends Partial<ColourMatch> & { start?: string; previous?: unknown }>(input: T): Partial<ColourMatch> & { start?: string } =>
   ({ colourMatch: input.colourMatch, colourStrength: input.colourStrength, start: input.previous ? undefined : input.start });
-/** The node the colour match brings in: ComfyUI's own, optional on older ComfyUIs. */
-export const COLOUR_MATCH_NODES = ["ColorTransfer"];
+/** The node pack's moment-by-moment colour match (Afflatus: Follow Colours, 0.34.0); without it, ComfyUI's ColorTransfer. */
+export const COLOUR_FOLLOW = "AfflatusColorFollow";
+/** The nodes the colour match brings in: ComfyUI's own, optional on older ComfyUIs, and the node pack's. */
+export const COLOUR_MATCH_NODES = ["ColorTransfer", COLOUR_FOLLOW];
+/** Frames either side a moment-by-moment match averages over: about a second in all. */
+const followRadius = (fps: number) => Math.max(1, Math.round(fps / 2));
 
 /**
- * The frames' colours pulled towards the start picture's: one transform pooled over every frame (`uniform`),
- * so a clip does not flicker the way a per-frame match does, and nothing when it is off, there is no start
- * picture, or this ComfyUI has no ColorTransfer. `start` is the picture the clip opens on: a clip carrying on from a
- * previous one does not (H3 and LTX leave it out then, see `openingStart`), and matched to it would jump in colour at the join.
+ * The frames' colours pulled towards the start picture's, moment by moment (the node pack's Follow Colours: each frame's
+ * colours, averaged over about a second, brought to the picture's): the opening, which already looks like the picture, stays
+ * as it is, and a change of light later on is pulled back. One transform pooled over every frame (ComfyUI's ColorTransfer,
+ * without the node pack) also moved the opening: Timeline 7's came out darker and bluer than its picture (lightness 18 for 24)
+ * while its last seconds kept some of the change. Nothing when it is off, there is no start picture, or neither node is there.
+ * `start` is the picture the clip opens on: a clip carrying on from a previous one does not (H3 and LTX leave it out then, see
+ * `openingStart`; H3 carries the match on instead, colourCarried).
  */
-export function colourMatched(g: GraphBuilder, ctx: BuildContext, images: Ref, input: Partial<ColourMatch> & { start?: string }): Ref {
+export function colourMatched(g: GraphBuilder, ctx: BuildContext, images: Ref, input: Partial<ColourMatch> & { start?: string }, fps = 24): Ref {
   const start = input.start ? ctx.uploads.start : undefined;
-  if (!input.colourMatch || !start || !ctx.has("ColorTransfer")) return images;
+  if (!input.colourMatch || !start) return images;
   const ref = g.out("LoadImage", { image: start });
-  return g.out("ColorTransfer", { image_target: images, image_ref: ref, method: "reinhard_lab", source_stats: "uniform", strength: input.colourStrength ?? 0.75 });
+  const strength = input.colourStrength ?? 0.75;
+  if (ctx.has(COLOUR_FOLLOW)) return g.out(COLOUR_FOLLOW, { images, reference: ref, radius: followRadius(fps), strength });
+  if (!ctx.has("ColorTransfer")) return images;
+  return g.out("ColorTransfer", { image_target: images, image_ref: ref, method: "reinhard_lab", source_stats: "uniform", strength });
 }
 
 /**
  * A clip that carries on from one whose chain was colour-matched to its first frame (Colour match to the first frame on the
  * chain's first clip): its frames given the transform that brings its own frame of the clip before's last moment (`at`, a frame
- * of its run-up) to that frame as it was filed (`previous.look`), one transform for them all. The match is made on the frames
- * as filed, while the latent the clip after carries on from is the model's: the clip after came out in the model's own
+ * of its run-up) to that frame as it was filed (`previous.look`), one transform for them all; with the node pack, every frame
+ * brought to that frame's colours moment by moment, as the chain's first clip was to its picture. The match is made on the
+ * frames as filed, while the latent the clip after carries on from is the model's: the clip after came out in the model's own
  * colours, a step at a seamless join (Timeline 7: 17 against 1.2, brightness 61.9 to 66.6 and U 3.8 to 0.1, 2026-10-21).
  */
-export function colourCarried(g: GraphBuilder, ctx: BuildContext, images: Ref, at: number): Ref {
+export function colourCarried(g: GraphBuilder, ctx: BuildContext, images: Ref, at: number, fps = 24): Ref {
   const look = ctx.uploads.previous ? ctx.uploads["previous.look"] : undefined;
-  if (!look || at < 0 || !ctx.has("ColorTransfer")) return images;
+  if (!look || at < 0) return images;
+  if (ctx.has(COLOUR_FOLLOW)) return g.out(COLOUR_FOLLOW, { images, reference: g.out("LoadImage", { image: look }), radius: followRadius(fps), strength: 1 });
+  if (!ctx.has("ColorTransfer")) return images;
   return g.out("ColorTransfer", { image_target: images, image_ref: g.out("LoadImage", { image: look }), method: "reinhard_lab", source_stats: "target_frame", "source_stats.target_index": at, strength: 1 });
 }
 

@@ -13,8 +13,8 @@ const wan = (over: Record<string, unknown>, has?: (t: string) => boolean) =>
   wanVideo.build(parseInput(wanVideo, { prompt: "a", start: "p", ...over }), dryContext({ slots: wanSlots, uploads: { start: "a.png" }, media: { start: picture }, ...(has ? { has } : {}) })).graph as Graph;
 const ltx = (over: Record<string, unknown>, has?: (t: string) => boolean) =>
   ltxVideo.build(parseInput(ltxVideo, { prompt: "a", start: "p", ...over }), dryContext({ slots: ltxSlots, uploads: { start: "a.png" }, media: { start: picture }, ...(has ? { has } : {}) })).graph as Graph;
-const h3 = (over: Record<string, unknown>) =>
-  h3Video.build(parseInput(h3Video, { description: "a", start: "p", ...over }), dryContext({ slots: h3Slots, uploads: { start: "a.png" }, media: { start: picture } })).graph as Graph;
+const h3 = (over: Record<string, unknown>, has?: (t: string) => boolean) =>
+  h3Video.build(parseInput(h3Video, { description: "a", start: "p", ...over }), dryContext({ slots: h3Slots, uploads: { start: "a.png" }, media: { start: picture }, ...(has ? { has } : {}) })).graph as Graph;
 
 describe("the colour match to the first frame", () => {
   it("is off by default in every video family", () => {
@@ -22,18 +22,28 @@ describe("the colour match to the first frame", () => {
     expect(of(ltx({}), "ColorTransfer")).toEqual([]);
     expect(of(h3({}), "ColorTransfer")).toEqual([]);
   });
-  it("pulls the frames towards the start picture with one transform for the whole clip", () => {
+  it("pulls the frames towards the start picture moment by moment, averaged over about a second (the node pack's Follow Colours)", () => {
     for (const graph of [wan({ colourMatch: true }), ltx({ colourMatch: true }), h3({ colourMatch: true })]) {
-      const [match] = of(graph, "ColorTransfer");
-      expect(match?.inputs).toMatchObject({ method: "reinhard_lab", source_stats: "uniform", strength: 0.75 });
-      const ref = graph[(match!.inputs.image_ref as [string, number])[0]]!;
+      const [match] = of(graph, "AfflatusColorFollow");
+      expect(match?.inputs).toMatchObject({ strength: 0.75 });
+      expect(match!.inputs.radius as number).toBeGreaterThanOrEqual(8);
+      const ref = graph[(match!.inputs.reference as [string, number])[0]]!;
       expect(ref).toMatchObject({ class_type: "LoadImage", inputs: { image: "a.png" } });
+      expect(of(graph, "ColorTransfer")).toEqual([]);
     }
   });
-  it("does nothing without a start picture or without the node", () => {
+  it("without the node pack's Follow Colours, one transform for the whole clip", () => {
+    for (const graph of [ltx({ colourMatch: true }, (t) => t !== "AfflatusColorFollow"), h3({ colourMatch: true }, (t) => t !== "AfflatusColorFollow")]) {
+      const [match] = of(graph, "ColorTransfer");
+      expect(match?.inputs).toMatchObject({ method: "reinhard_lab", source_stats: "uniform", strength: 0.75 });
+    }
+  });
+  it("does nothing without a start picture or without either node", () => {
     const words = wanVideo.build(parseInput(wanVideo, { prompt: "a", colourMatch: true }), dryContext({ slots: { ...wanSlots, t2vHigh: "th.safetensors", t2vLow: "tl.safetensors" } })).graph as Graph;
     expect(of(words, "ColorTransfer")).toEqual([]);
-    expect(of(ltx({ colourMatch: true }, (t) => t !== "ColorTransfer"), "ColorTransfer")).toEqual([]);
+    expect(of(words, "AfflatusColorFollow")).toEqual([]);
+    const neither = ltx({ colourMatch: true }, (t) => t !== "ColorTransfer" && t !== "AfflatusColorFollow");
+    expect([...of(neither, "ColorTransfer"), ...of(neither, "AfflatusColorFollow")]).toEqual([]);
   });
 });
 

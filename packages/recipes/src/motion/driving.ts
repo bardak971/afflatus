@@ -1,5 +1,5 @@
 import { frameOf, gridAtOrBefore, type BuildContext, type ClipValue, type FrameGrid, type GraphBuilder, type InputSpec, type LoraValue, type Ref } from "@afflatus/core";
-import { finishFrames, rifeRuns } from "../shared/finish";
+import { COLOUR_FOLLOW, finishFrames, rifeRuns } from "../shared/finish";
 import { saveVideo } from "../shared/out";
 import { UPSCALE } from "../video/upscale";
 
@@ -120,9 +120,7 @@ export function previousFrames(g: GraphBuilder, ctx: BuildContext): Ref | null {
 
 /** The node classes the shared part needs, and those it uses only when there. */
 export const MOTION_NODES = ["LoadImage", "LoadVideo", "GetVideoComponents", "ImageScale"];
-export const MOTION_OPTIONAL = ["ColorTransfer", "ImageBlur", "ImageAddNoise", "TrimAudioDuration", "FrameInterpolationModelLoader", "FrameInterpolate", "AfflatusColorFollow"];
-/** The node pack's moment-by-moment colour match (Afflatus: Follow Colours, 0.34.0); without it, the transforms of before. */
-export const COLOUR_FOLLOW = "AfflatusColorFollow";
+export const MOTION_OPTIONAL = ["ColorTransfer", "ImageBlur", "ImageAddNoise", "TrimAudioDuration", "FrameInterpolationModelLoader", "FrameInterpolate", COLOUR_FOLLOW];
 /** The batch nodes RIFE's lead frame takes (motionSaved), and the match to the clip before's look (matchedToDriving). */
 export const motionBatchNodes = (input: Pick<MotionValues, "smooth" | "previous" | "matchDriving">) =>
   input.previous && (input.smooth || input.matchDriving) ? ["ImageBatch", "ImageFromBatch"] : [];
