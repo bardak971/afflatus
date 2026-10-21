@@ -13,6 +13,9 @@ export const RIFE_GET = { file: "rife_v4.26.safetensors", url: "https://huggingf
 export const rifeNeeds = (wanted: boolean | undefined): string[] => (wanted ? ["rife"] : []);
 
 /** What a render that asked for RIFE and could not run it says on its job (it stays at the model's rate); null otherwise. */
+/** Whether RIFE runs for a form that asks for it: its model and its nodes on this ComfyUI (finishFrames, rifeSkippedSaid). */
+export const rifeRuns = (wanted: boolean | undefined, ctx: Pick<BuildContext, "slots" | "has">) => Boolean(wanted) && Boolean(ctx.slots.rife) && ctx.has("FrameInterpolate") && ctx.has("FrameInterpolationModelLoader");
+
 export function rifeSkippedSaid(wanted: boolean | undefined, ctx: Pick<BuildContext, "slots" | "has">): string | null {
   if (!wanted) return null;
   if (!ctx.slots.rife) return "Not interpolated: no RIFE model on this ComfyUI (models/frame_interpolation; Settings › Models has it).";
@@ -63,8 +66,11 @@ export function finishFrames(
   g: GraphBuilder, ctx: BuildContext, images: Ref, input: UpscaleValues & { crf: number },
   opts: {
     frame: { width: number; height: number }; rife: boolean; fps: number; audio?: Ref; doubled?: boolean;
-    /** RIFE's 2n − 1 frames given the last one again: 2n, as long as the n it was given (Motion transfer's windows). */
-    holdLast?: boolean;
+    /**
+     * The clip before's last frame as it was filed, put before the frames for RIFE and dropped after it: the frame RIFE makes
+     * between the two then opens the clip, half a model frame early (Motion transfer's windows that carry on). Of the frames' size.
+     */
+    leadFrom?: Ref;
     /** What is done to the final frames before they are saved (Motion transfer's grain). */
     last?: (images: Ref) => Ref;
   },
@@ -73,11 +79,12 @@ export function finishFrames(
   const early = input.upscale === UPSCALE.seedvr || input.upscale === UPSCALE.model;
   const pixel = early ? pixelUpscale(g, images, input, opts.frame, ctx) : null;
   if (pixel) images = pixel.images;
-  const smooth = opts.rife && Boolean(slots.rife) && ctx.has("FrameInterpolate") && ctx.has("FrameInterpolationModelLoader");
+  const smooth = rifeRuns(opts.rife, ctx);
   if (smooth) {
     g.phase("interpolating");
-    images = g.out("FrameInterpolate", { interp_model: g.out("FrameInterpolationModelLoader", { model_name: slots.rife }), images, multiplier: 2 });
-    if (opts.holdLast) images = g.out("ImageBatch", { image1: images, image2: g.out("ImageFromBatch", { image: images, batch_index: -1, length: 1 }) });
+    const led = opts.leadFrom ? g.out("ImageBatch", { image1: opts.leadFrom, image2: images }) : images;
+    images = g.out("FrameInterpolate", { interp_model: g.out("FrameInterpolationModelLoader", { model_name: slots.rife }), images: led, multiplier: 2 });
+    if (opts.leadFrom) images = g.out("ImageFromBatch", { image: images, batch_index: 1, length: 4096 });
   }
   const late = pixel ?? pixelUpscale(g, images, input, opts.frame, ctx);
   // the route ran before the interpolation already: its frames were interpolated above (taken again here, the interpolation was

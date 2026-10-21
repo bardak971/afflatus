@@ -181,11 +181,12 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
 
       // Face refine (24 fps): H3's pass on SCAIL's own frames, before anything else is done to them, so that the clip, its raw
       // frames and the window after (which carries on from them) all have the refined faces. Its person is the Picture's
-      const sound = motionSound(g, ctx, input, { fps, frames: total, parts, carried: SCAIL_CARRIED });
       // (read only where the form has them: the 16 fps form has no Face refine)
       const refineValues = o.faceRefine && input.faceRefine
         ? { faceRefine: true, faceRefineDenoise: input.faceRefineDenoise ?? 0.35, faceRefineSteps: input.faceRefineSteps ?? 4, references: [], subject: "", quick: true }
         : { faceRefine: false, faceRefineDenoise: 0, faceRefineSteps: 0, references: [], subject: "", quick: true };
+      // the sound its pass holds, on its own frames (the file's, motionSaved's, may start half a frame earlier)
+      const sound = refineValues.faceRefine ? motionSound(g, ctx, input, { fps, frames: total, parts, carried: SCAIL_CARRIED }) : undefined;
       const faces = faceRefined(g, ctx, refineValues, made!, { audio: sound, picture: ctx.uploads.picture, frames: total - (ctx.uploads.previous ? SCAIL_CARRIED : 0) });
       const images = matchedToDriving(g, ctx, faces.images, pose, input, frame);
       const saved = motionSaved(g, ctx, images, input, { frame, fps, frames: total, parts, carried: SCAIL_CARRIED, made: faces.images, ...(sound ? { sound } : {}) });
