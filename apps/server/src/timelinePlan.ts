@@ -1,4 +1,4 @@
-import { FRAME_SLACK_MS, joinFrames, latentFrameAtOrBefore, LATENT_FPS, modelsDiffer, type Recipe } from "@afflatus/core";
+import { FRAME_SLACK_MS, joinFrames, joinWay, latentFrameAtOrBefore, LATENT_FPS, type Recipe } from "@afflatus/core";
 import { FfmpegMissing } from "./cut";
 import { frozenTailAt } from "./measure";
 import { newId, now, type Db } from "./db";
@@ -166,10 +166,10 @@ export class TimelinePlan {
       const recipe = recipeId ? registry.recipe(recipeId) : undefined;
       if (recipe) inputs = settingsOf(recipe, all, index);
     }
-    // after a clip of another family it starts on its own: a Cut, the default across two models (Extend stays possible, set
-    // on the join, with its warning). Carrying on, it would be handed that clip with H3's run-up, whatever its model
+    // after a clip it cannot carry on from (another family, or a model that does not carry on) it starts on its own: a Cut,
+    // the default across two models (Extend stays possible, set on the join, with its warning; joinWay)
     const before = all[index - 1];
-    if (joined === "continue" && before?.clip.kind === "video" && before.clip.recipe_id && recipeId && modelsDiffer(registry.recipe(before.clip.recipe_id), registry.recipe(recipeId))) joined = "cut";
+    if (joined === "continue" && before?.clip.kind === "video" && before.clip.recipe_id && recipeId && joinWay(registry.recipe(before.clip.recipe_id), registry.recipe(recipeId)) === "cut") joined = "cut";
     // the cast and places of the clip before come along when it has its own: set once, not again for every clip
     const look = kind === "video" ? (all[index - 1]?.clip.look ?? null) : null;
     return { kind, recipeId, inputs, joined, still, take, asset, look };

@@ -1,7 +1,7 @@
 import { chatJson } from "./llm";
 import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
-import { modelsDiffer, musicPlan, plural, typedSeed, type ClipMusic, type InputSpec, type Transition } from "@afflatus/core";
+import { joinWay, musicPlan, plural, typedSeed, type ClipMusic, type InputSpec, type Transition } from "@afflatus/core";
 import { newId, now, OWNER, type Db } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError, notFound } from "./errors";
@@ -908,15 +908,16 @@ export class Timelines {
     else if (keys.length) await this.remember(clip.timeline_id, labelOf(patch));
 
     const { animate, trims, order, mirror } = checked;
-    // switched to a model of another family than the clip before's, it starts on its own: a Cut, the default across two
-    // models (Extend stays possible, set on the join after, with its warning). The clip after, carrying on from it into
-    // another family, is made a cut likewise. Left as it was, it was handed the clip before with H3's run-up, whatever its model
+    // switched to a model that cannot carry on from the clip before's (another family, or none that carries on), it starts on
+    // its own: a Cut, the default across two models (Extend stays possible, set on the join after, with its warning). The clip
+    // after, carrying on from it, is made a cut likewise. Left as it was, it was handed a clip it cannot carry on from (joinWay)
     const at = all.findIndex((p) => p.clip.id === clip.id);
     const modelOf = (p: Placed | undefined) => (p?.clip.kind === "video" && p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined);
     const switched = patch.recipe && patch.recipe !== clip.recipe_id ? this.registry.recipe(patch.recipe) : undefined;
-    const cutHere = Boolean(switched) && patch.joined === undefined && clip.joined === "continue" && at > 0 && modelsDiffer(modelOf(all[at - 1]), switched);
+    const prior = at > 0 ? modelOf(all[at - 1]) : undefined;
+    const cutHere = Boolean(switched && prior) && patch.joined === undefined && clip.joined === "continue" && joinWay(prior, switched) === "cut";
     const next = at >= 0 ? all[at + 1] : undefined;
-    const cutNext = switched && next?.clip.joined === "continue" && modelsDiffer(switched, modelOf(next)) ? next : undefined;
+    const cutNext = switched && next?.clip.joined === "continue" && modelOf(next) && joinWay(switched, modelOf(next)) === "cut" ? next : undefined;
     // a window of a source made a cut, or made to carry on again: its part of the driving video moves by the frames carried
     const joined = patch.joined ?? (patch.transition || cutHere ? "cut" : undefined);
     const runUp = joined && joined !== clip.joined && !animate

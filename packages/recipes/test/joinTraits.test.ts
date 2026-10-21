@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { joinFrames, LATENT_FPS, LATENT_GRID, type Recipe } from "@afflatus/core";
+import { joinFrames, joinWay, LATENT_FPS, LATENT_GRID, type Recipe } from "@afflatus/core";
 import { recipeById, recipes } from "../src/index";
 
 /**
@@ -34,5 +34,26 @@ describe("recipes that join in a kept latent", () => {
     expect(r.traits!.fps).toBe(LATENT_FPS);
     expect(r.traits!.frameGrid).toEqual(LATENT_GRID);
     expect(r.traits!.latentTrim).toBeTruthy();
+  });
+});
+
+describe("how a clip meets the one before it, by default (the join rule)", () => {
+  const r = (id: string) => recipeById(id)!;
+  it("seamless between any two H3 forms: they carry on in one kept latent", () => {
+    for (const [a, b] of [["h3.video", "h3.lipsync"], ["h3.lipsync", "h3.video"], ["h3.swapMotion", "h3.video"], ["h3.video", "h3.swap"], ["h3.motion", "h3.motion"]]) {
+      expect(joinWay(r(a!), r(b!))).toBe("seamless");
+    }
+  });
+  it("on frames within a family that keeps no latent: SCAIL-2's windows", () => {
+    expect(joinWay(r("scail.motion"), r("scail.motion"))).toBe("frames");
+  });
+  it("a cut when the model changes, or when nothing is before it", () => {
+    expect(joinWay(r("h3.video"), r("ltx.video"))).toBe("cut");
+    expect(joinWay(r("scail.motion"), r("h3.video"))).toBe("cut");
+    expect(joinWay(r("h3.swapMotion"), r("scail.motion"))).toBe("cut");
+    expect(joinWay(undefined, r("h3.video"))).toBe("cut");
+  });
+  it("a cut after anything for a model that cannot carry on", () => {
+    expect(joinWay(r("h3.video"), { family: "h3", traits: { continues: false } })).toBe("cut");
   });
 });
