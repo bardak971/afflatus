@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, type Clip } from "../../api";
 import { cx } from "../../ui";
+import { useRecipes } from "../../data";
+import { recipeLabel } from "../../format";
 import { past, pct, type Against } from "../lookDrift";
 import { clipFacts, PEEK } from "./peek";
 import { queryKeys } from "../../queryKeys";
@@ -30,6 +32,7 @@ export function ClipFacts({ clip, index, clips }: { clip: Clip; index: number; c
   });
   const jump = joins.data?.items.find((j) => j.take === take?.id)?.in ?? null;
   const f = clipFacts(clip, index, clips, jump);
+  const form = useFormLine(clip, clips);
   const d = f.drift;
   const all = d ? (d.same ? [{ head: `vs clip ${d.start + 1} (the one before)`, of: d.whole }] : [{ head: `vs clip ${d.before + 1}`, of: d.hop }, { head: `vs clip ${d.start + 1}`, of: d.whole }]) : [];
 
@@ -44,6 +47,7 @@ export function ClipFacts({ clip, index, clips }: { clip: Clip; index: number; c
           {f.head.detail && <span className="text-ink-3">· {f.head.detail}</span>}
         </span>
       )}
+      {form && <span className="-mt-1.5 text-xs text-ink-2">{form}</span>}
       {f.chips.length > 0 && (
         <span className="flex flex-wrap gap-1.5">
           {f.chips.map((c) => (
@@ -79,4 +83,22 @@ export function ClipFacts({ clip, index, clips }: { clip: Clip; index: number; c
       )}
     </div>
   );
+}
+
+/**
+ * The clip's form, as the card says it (the rethink: the track names no model, the card does): "MiniMax H3 · Swap motion",
+ * and for a window of the source which one it is ("window 2 of the source"). Null for a still or a clip with no model.
+ */
+function useFormLine(clip: Clip, clips: Clip[]): string | null {
+  const data = useRecipes().data;
+  const recipe = data?.recipes.find((r) => r.id === clip.recipe);
+  if (clip.kind !== "video" || !recipe) return null;
+  const name = recipeLabel(data?.families.find((f) => f.id === recipe.family)?.name, recipe.title);
+  const driving = recipe.traits?.windows ? recipe.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window) : undefined;
+  const asset = driving ? (clip.inputs[driving.id] as { asset?: string } | undefined)?.asset : undefined;
+  if (!driving || !asset) return name;
+  // its place among the clips made from the same video: the windows of one source, in order
+  const of = (c: Clip) => c.kind === "video" && (c.inputs[driving.id] as { asset?: string } | undefined)?.asset === asset;
+  const k = clips.filter(of).indexOf(clip) + 1;
+  return k > 0 ? `${name} · window ${k} of the source` : name;
 }
