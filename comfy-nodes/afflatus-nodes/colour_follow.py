@@ -7,7 +7,9 @@ than its driving video for all of its 5 s). Here each frame is matched to the re
 colour figures averaged over a second or so first: a slow drift is followed, a frame's own flicker is not added, and two
 windows of one source meet on the same colours, both aiming at the same moment of it.
 
-The arithmetic is numpy (the tests run it without torch); torch only carries the frames in and out.
+The figures are numpy (the tests run them without torch). The node converts the frames to Lab and back in torch, float32 on
+their own device and a few frames at a time: numpy's float64 took 0.3 s a frame at 576x1024 and nearly 1 s at 1080p, minutes
+on a long clip, for the same figures to a hundredth of a level. `rgb_to_lab` and `lab_to_rgb` stay as the reference for it.
 """
 
 import numpy as np
@@ -71,13 +73,28 @@ def ref_index(i, frames, ref_frames):
 
 
 # A step in a frame's mean Lab colour from the frame before this large is a jump, not a drift (a frame to the next moves by
-# a level or two in a calm shot): the clip's figures are averaged on each side of it, never across
+# a level or two in a calm shot): the figures of the clip and of its reference are averaged on each side of it, never across
 JUMP = 6.0
 
+# Frames either side a step in the reference must hold for to be a cut: a driving video's flicker steps as far and comes back,
+# and taken for cuts its steps went into the clip unaveraged
+HOLD = 6
 
-def stretches(means, jump=JUMP):
-    """The clip's frames as runs between its jumps: (first, past-the-last) pairs."""
-    cuts = [i for i in range(1, len(means)) if np.abs(np.asarray(means[i]) - np.asarray(means[i - 1])).max() > jump]
+
+def stretches(means, jump=JUMP, hold=1):
+    """
+    Frames as runs between their jumps, read off each frame's mean: (first, past-the-last) pairs. With `hold`, a step is a
+    jump only when the `hold` frames after it are that far from the `hold` frames before it too, by their medians (a flash
+    of a frame or two does not move a median).
+    """
+    if not len(means):
+        return [(0, 0)]
+    m = np.asarray(means, dtype=np.float64).reshape(len(means), -1)
+
+    def apart(a, b):
+        return np.abs(a - b).max() > jump
+
+    cuts = [i for i in range(1, len(m)) if apart(m[i], m[i - 1]) and apart(np.median(m[i : i + hold], axis=0), np.median(m[max(0, i - hold) : i], axis=0))]
     edges = [0, *cuts, len(means)]
     return [(edges[k], edges[k + 1]) for k in range(len(edges) - 1)]
 
@@ -97,15 +114,19 @@ def follow_params(target_stats, ref_stats, radius, scale_most=2.0):
     same moment. `target_stats` and `ref_stats`: lists of (mean, std), one per frame of each. The clip's own figures are
     averaged within its runs between jumps: averaged across one, a first frame that already looked like its picture took the
     transform of the brighter frames after it (Timeline 7: an H3 take that left its start picture at its second frame, its
-    first then darker and bluer than the picture, 39 for 55).
+    first then darker and bluer than the picture, 39 for 55). The reference's jumps that hold (its cuts) split the runs too,
+    and both sides are averaged within the same runs: a cut in the driving video averaged across became a second-long colour
+    fade around it, whether the clip cut with it (its own side then split, the reference's not: a full fade) or kept its
+    light.
     """
     n, m = len(target_stats), len(ref_stats)
-    runs = stretches([s[0] for s in target_stats])
+    r_rows = [ref_stats[ref_index(i, n, m)] for i in range(n)]
+    edges = sorted({e for a, b in stretches([s[0] for s in target_stats]) + stretches([s[0] for s in r_rows], hold=HOLD) for e in (a, b)})
+    runs = list(zip(edges[:-1], edges[1:]))
     t_mean = smoothed_within([s[0] for s in target_stats], radius, runs)
     t_std = smoothed_within([s[1] for s in target_stats], radius, runs)
-    r_rows = [ref_stats[ref_index(i, n, m)] for i in range(n)]
-    r_mean = smoothed([s[0] for s in r_rows], radius)
-    r_std = smoothed([s[1] for s in r_rows], radius)
+    r_mean = smoothed_within([s[0] for s in r_rows], radius, runs)
+    r_std = smoothed_within([s[1] for s in r_rows], radius, runs)
     scale = np.clip(r_std / np.maximum(t_std, 1e-6), 1 / scale_most, scale_most)
     offset = r_mean - scale * t_mean
     return scale, offset
@@ -116,6 +137,60 @@ def apply_follow(rgb, scale, offset, strength=1.0):
     lab = rgb_to_lab(np.asarray(rgb, dtype=np.float64))
     moved = lab * scale + offset
     return lab_to_rgb(lab + strength * (moved - lab))
+
+
+def _torch_lab(torch, rgb):
+    """`rgb_to_lab` in torch, on the frames' own device and dtype: (..., 3) in 0..1."""
+    m = torch.tensor(_M.T / _WHITE, dtype=rgb.dtype, device=rgb.device)
+    c = rgb.clamp(0, 1)
+    lin = torch.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+    xyz = lin @ m
+    # torch has no cube root; xyz is not negative from clamped colours, and its branch below the threshold is linear anyway
+    f = torch.where(xyz > _EPS, xyz.clamp_min(0) ** (1 / 3), (_KAPPA * xyz + 16) / 116)
+    return torch.stack([116 * f[..., 1] - 16, 500 * (f[..., 0] - f[..., 1]), 200 * (f[..., 1] - f[..., 2])], dim=-1)
+
+
+def _torch_rgb(torch, lab):
+    """`lab_to_rgb` in torch."""
+    m = torch.tensor(_WHITE[:, None] * _M_INV.T, dtype=lab.dtype, device=lab.device)
+    fy = (lab[..., 0] + 16) / 116
+    f = torch.stack([fy + lab[..., 1] / 500, fy, fy - lab[..., 2] / 200], dim=-1)
+    xyz = torch.where(f ** 3 > _EPS, f ** 3, (116 * f - 16) / _KAPPA)
+    lin = (xyz @ m).clamp_min(0)
+    return torch.where(lin <= 0.0031308, 12.92 * lin, 1.055 * lin.clamp_min(1e-12) ** (1 / 2.4) - 0.055).clamp(0, 1)
+
+
+# Pixels converted at once: a few 1080p frames, so that the float32 copies a conversion makes stay a few hundred MB whatever
+# the clip's length and size
+_CHUNK_PIXELS = 1 << 23
+
+
+def _chunks(frames, height, width):
+    step = max(1, _CHUNK_PIXELS // max(1, height * width))
+    return [(a, min(frames, a + step)) for a in range(0, frames, step)]
+
+
+def torch_stats(torch, frames, step=4):
+    """`frame_stats` of each frame of a (frames, H, W, 3) tensor, read in torch: a list of (mean[3], std[3]) as numpy."""
+    small = frames[:, ::step, ::step, :3]
+    out = []
+    for a, b in _chunks(*small.shape[:3]):
+        lab = _torch_lab(torch, small[a:b].float()).reshape(b - a, -1, 3)
+        mean = lab.mean(dim=1)
+        std = (lab - mean[:, None]).square().mean(dim=1).sqrt()
+        out += list(zip(mean.double().cpu().numpy(), std.double().cpu().numpy()))
+    return out
+
+
+def torch_follow(torch, images, scale, offset, strength=1.0):
+    """`apply_follow` on each frame of a (frames, H, W, 3) tensor by its row of `scale` and `offset`, on the frames' device."""
+    out = torch.empty_like(images)
+    for a, b in _chunks(*images.shape[:3]):
+        s = torch.tensor(np.asarray(scale[a:b]), dtype=torch.float32, device=images.device)[:, None, None, :]
+        o = torch.tensor(np.asarray(offset[a:b]), dtype=torch.float32, device=images.device)[:, None, None, :]
+        lab = _torch_lab(torch, images[a:b].float())
+        out[a:b] = _torch_rgb(torch, lab + strength * (lab * s + o - lab)).to(images.dtype)
+    return out
 
 
 class AfflatusColorFollow(io.ComfyNode):
@@ -141,12 +216,6 @@ class AfflatusColorFollow(io.ComfyNode):
     def execute(cls, images, reference, radius: int = 8, strength: float = 1.0) -> io.NodeOutput:
         import torch
 
-        frames = images.shape[0]
-        target = [frame_stats(images[i].cpu().numpy()) for i in range(frames)]
-        ref = [frame_stats(reference[j].cpu().numpy()) for j in range(reference.shape[0])]
-        scale, offset = follow_params(target, ref, radius)
-        out = torch.empty_like(images)
-        for i in range(frames):
-            moved = apply_follow(images[i].cpu().numpy(), scale[i], offset[i], strength)
-            out[i] = torch.from_numpy(moved.astype(np.float32)).to(images.device, dtype=images.dtype)
-        return io.NodeOutput(out)
+        with torch.no_grad():
+            scale, offset = follow_params(torch_stats(torch, images), torch_stats(torch, reference), radius)
+            return io.NodeOutput(torch_follow(torch, images, scale, offset, strength))
