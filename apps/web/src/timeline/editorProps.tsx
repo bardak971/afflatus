@@ -18,6 +18,7 @@ import { plural } from "../format";
 import { carriedOf, windowBounds } from "@afflatus/core";
 import { madeFromSource, windowed } from "./track/SourceLane";
 import type { ClipSource } from "./inspector/clipSource";
+import type { ClipRecording } from "./inspector/clipRecording";
 import { failedBanner } from "../sayFailed";
 
 // What each part of the timeline editor is drawn with, from what the editor holds (useTimelineEditor): the wiring
@@ -243,6 +244,32 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
   };
 }
 
+/**
+ * A Lip sync clip made from a recording (its form's recording, part by part), as its panel takes it: the Recording chapter,
+ * the recording's stretch over all its clips. Undefined for any other clip.
+ */
+function clipRecordingOf(e: LoadedEditor, current: Clip): ClipRecording | undefined {
+  const recipe = e.videoRecipes.find((r) => r.id === current.recipe);
+  const spec = recipe?.inputs.find((i) => i.type === "audio" && i.role === "sound" && i.window);
+  if (!spec || spec.type !== "audio" || !spec.window) return undefined;
+  const asset = current.inputs[spec.id];
+  if (typeof asset !== "string" || !asset) return undefined;
+  const w = spec.window;
+  const mine = e.clips.filter((c) => c.recipe === current.recipe && c.inputs[spec.id] === asset);
+  const at = (c: Clip) => Math.round(Number(c.inputs[w.start] ?? 0) * 1000);
+  const end = (c: Clip) => at(c) + Math.round(Number(c.inputs[w.seconds] ?? 0) * 1000);
+  const ask = e.recordingTrim.ask?.asset === asset ? e.recordingTrim.ask : null;
+  return {
+    count: mine.length,
+    part: { startMs: at(current), seconds: Number(current.inputs[w.seconds] ?? 0) },
+    fromMs: mine.length ? at(mine[0]!) : 0,
+    toMs: mine.length ? end(mine.at(-1)!) : 0,
+    onUses: (fromMs, toMs) => e.recordingTrim.run(asset, mine, fromMs, toMs),
+    ask: ask ? { fromMs: ask.fromMs, rendered: ask.rendered, clips: ask.clips, change: () => e.recordingTrim.run(asset, mine, ask.fromMs, ask.toMs, true), keep: e.recordingTrim.keep } : null,
+    trimming: e.recordingTrim.pending,
+  };
+}
+
 /** A clip made from the timeline's source, as its panel takes it: its Source chapter and where a change goes. */
 function clipSourceOf(e: LoadedEditor, current: Clip): ClipSource | undefined {
   const source = e.t.source;
@@ -326,6 +353,7 @@ export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<t
   const { t, clips, recipes, render, patch, designed, writeBetween } = e;
   return {
     fromSource: clipSourceOf(e, current),
+    fromRecording: clipRecordingOf(e, current),
     onSelectClip: e.select,
     timeline: t,
     clip: current,

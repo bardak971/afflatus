@@ -19,6 +19,7 @@ import { SHOWS } from "./attention";
 import { Estimate } from "./estimate";
 import { ClipForm } from "./inspector/form";
 import { MaskChapter, ShareFoot, sourceLead, type ClipSource } from "./inspector/clipSource";
+import { recordingLead, type ClipRecording } from "./inspector/clipRecording";
 import { ClipHead } from "./inspector/head";
 import { LookTable } from "./inspector/look";
 import { Slide } from "./inspector/parts";
@@ -29,7 +30,7 @@ import { queryKeys } from "../queryKeys";
 /** Where how many takes a render makes is remembered, per browser. */
 const TAKES_KEY = "afflatus.timeline.takes";
 
-export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, takesOn, busy, error, onInputs, onRecipe, onPatch, onRender, onMenu, onRemoveTake, onStop, onPreview, onDesigner, designer, writing, writeError, onWriteBetween, onClose, onSelectClip, onOpen, fromSource }: {
+export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, takesOn, busy, error, onInputs, onRecipe, onPatch, onRender, onMenu, onRemoveTake, onStop, onPreview, onDesigner, designer, writing, writeError, onWriteBetween, onClose, onSelectClip, onOpen, fromSource, fromRecording }: {
   timeline: Timeline;
   clip: Clip;
   index: number;
@@ -76,6 +77,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   onSelectClip?(id: string): void;
   /** A clip made from the timeline's source: its Source chapter, and whether a change goes to every clip of the source. */
   fromSource?: ClipSource;
+  /** A Lip sync clip made from a recording: its Recording chapter (In / Out of the recording). */
+  fromRecording?: ClipRecording;
 }) {
   const panelWidth = useColumnWidth();
   const all = useRecipes();
@@ -227,7 +230,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
         {!still && (
           <ClipForm
             timeline={timeline} clip={clip} index={index} recipes={recipes} recipe={recipe} form={form} status={status} stored={stored} whole={whole}
-            before={before} after={after} take={take} opens={opens} ends={ends} carries={carries} lead={[fromSource && recipe ? sourceLead(fromSource, { inputs: stored }, recipe) : undefined, takesLead]} frameExtra={framesExtra}
+            before={before} after={after} take={take} opens={opens} ends={ends} carries={carries} lead={[fromSource && recipe ? sourceLead(fromSource, { inputs: stored }, recipe) : undefined, fromRecording ? recordingLead(fromRecording) : undefined, takesLead]} frameExtra={framesExtra}
             chapterExtra={fromSource ? { mask: <MaskChapter s={fromSource} maskOn={stored.maskOn === true} /> } : undefined}
             writing={writing} writeError={writeError} onRecipe={onRecipe} onInputs={onInputs} onPatch={onPatch} onDesigner={onDesigner} onWriteBetween={onWriteBetween}
           />
