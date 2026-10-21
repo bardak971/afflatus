@@ -53,8 +53,29 @@ export function joinFade(x: { landedMs?: number; joined: boolean; seamless: bool
   return { ms: JOIN_FADE_MS, mode: "hold" };
 }
 
-/** H3's frames a second, the grid its latent's frames are on. */
-export const MODEL_FPS = 24;
+/**
+ * The frames a second of the latents the app keeps (H3's, on LATENT_GRID): frame N of a kept latent is at N / LATENT_FPS
+ * seconds. A clip without a kept latent is on its own model's rate (traits.fps), never on this one.
+ */
+export const LATENT_FPS = 24;
+
+/** A recipe's form as the joins read it: its inputs. */
+type JoinForm = { inputs: ReadonlyArray<{ id: string; type: string; role?: string; frames?: number[]; framesFrom?: string; default?: unknown }> };
+
+/**
+ * How many frames of the clip before (`previous`) or after (`next`) a join of this recipe takes: the count its form asks in
+ * the input its clip input names (`framesFrom`: H3's "Frames from the clip before", its Landing), else that input's default,
+ * else the clip input's first count. 0 when the recipe takes no such clip.
+ */
+export function joinFrames(recipe: JoinForm | undefined, role: "previous" | "next", form: Record<string, unknown> = {}): number {
+  const clip = recipe?.inputs.find((i) => i.type === "clip" && i.role === role);
+  if (!clip) return 0;
+  const counts = clip.framesFrom ? recipe!.inputs.find((i) => i.id === clip.framesFrom) : undefined;
+  const asked = Number(clip.framesFrom ? form[clip.framesFrom] : NaN);
+  if (Number.isFinite(asked) && asked > 0) return asked;
+  const fallback = Number(counts?.default);
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : (clip.frames?.[0] ?? 0);
+}
 
 /**
  * The frame on H3's latent grid (17k + 5 frames) at or before `frame`: a clip handed over there continues in the

@@ -1,4 +1,4 @@
-import { FRAME_SLACK_MS, latentFrameAtOrBefore, MODEL_FPS, modelsDiffer, type Recipe } from "@afflatus/core";
+import { FRAME_SLACK_MS, joinFrames, latentFrameAtOrBefore, LATENT_FPS, modelsDiffer, type Recipe } from "@afflatus/core";
 import { FfmpegMissing } from "./cut";
 import { frozenTailAt } from "./measure";
 import { newId, now, type Db } from "./db";
@@ -46,10 +46,26 @@ function ownInputs(recipe: Recipe<any>, input: Record<string, unknown>): Record<
  */
 export function handoverOnGrid(atMs: number, before: { durationMs: number; latentFrames: number | null }, runUpFrames: number): number {
   if (!before.latentFrames || atMs >= before.durationMs - FRAME_SLACK_MS) return atMs;
-  const frame = Math.round((atMs * MODEL_FPS) / 1000);
+  const frame = Math.round((atMs * LATENT_FPS) / 1000);
   const grid = latentFrameAtOrBefore(frame);
-  if (grid === frame || grid < Math.max(runUpFrames, 22)) return atMs;
-  return Math.round(grid * (1000 / MODEL_FPS));
+  if (grid === frame || grid < runUpFrames) return atMs;
+  return Math.round(grid * (1000 / LATENT_FPS));
+}
+
+/**
+ * Where a clip before that ends frozen hands over, from the last moment it still moves (`livelyMs`): on a frame of its kept
+ * latent's grid (17k + 5 frames, at or before that moment) so the join is made in the latent, cut there, unless that leaves
+ * fewer frames than the run-up the form takes; else on a whole frame of the model that made it (SCAIL-2's 16 a second, not
+ * H3's 24), the frames handed over being whole frames of it. A video of unknown making hands over where it stopped moving.
+ */
+export function handoverFrame(livelyMs: number, before: { latentFrames: number | null; fps: number | null | undefined }, runUpFrames: number): number {
+  if (before.latentFrames) {
+    const frame = Math.round((livelyMs * LATENT_FPS) / 1000);
+    const grid = latentFrameAtOrBefore(frame);
+    return Math.round((grid >= runUpFrames ? grid : frame) * (1000 / LATENT_FPS));
+  }
+  const fps = before.fps;
+  return fps ? Math.round(Math.round((livelyMs * fps) / 1000) * (1000 / fps)) : livelyMs;
 }
 
 /** What a new clip takes over from the nearest clip before it made with the same recipe: its settings, not its story or its pictures. */
@@ -206,7 +222,7 @@ export class TimelinePlan {
     const endSpec = recipe.inputs.find((s) => s.type === "image" && s.role === "end");
     const pinnedEnd = Boolean(endSpec && typeof plan.input[endSpec.id] === "string" && plan.input[endSpec.id] !== "");
     if (fit && !pinnedEnd && nextSpec && after?.active && after.clip.joined === "continue") {
-      const at = landingOnGrid(after.active);
+      const at = landingOnGrid(after.active, joinFrames(recipe, "next", raw));
       plan.input[nextSpec.id] = { asset: after.active.asset.id, at };
       plan.links.next = { take: after.active.take.id, at };
     }
@@ -245,19 +261,14 @@ export class TimelinePlan {
           if (err instanceof FfmpegMissing) throw err;
           return null;
         });
-        // on the model's frame grid: the frames handed over are whole frames of it, and the clip before stops on one
         if (lively !== null && lively < at - FRAME_SLACK_MS) {
-          const frame = Math.round((lively * MODEL_FPS) / 1000);
-          // a clip whose latent was kept hands over on its latent's grid (17k + 5 frames, at or before the frozen tail):
-          // the join is then made in the latent, cut there, rather than from frames
-          const grid = before.asset.latent_frames ? latentFrameAtOrBefore(frame) : frame;
-          const usable = grid >= 22 ? grid : frame;
-          at = Math.round(usable * (1000 / MODEL_FPS));
+          const fps = this.core.registry.recipe(prior.clip.recipe_id ?? "")?.traits?.fps ?? before.asset.fps;
+          at = handoverFrame(lively, { latentFrames: before.asset.latent_frames, fps }, joinFrames(recipe, "previous", raw));
         }
       }
       // a clip before trimmed by hand stops wherever its out point was put: picked up on the latent's grid all the same, and
       // that clip then stops there when the take comes back (TimelineTakes, the hand-over before the frozen tail)
-      if (!sameBefore) at = handoverOnGrid(at, { durationMs: before.asset.duration_ms ?? 0, latentFrames: before.asset.latent_frames }, Number(raw.context) || 22);
+      if (!sameBefore) at = handoverOnGrid(at, { durationMs: before.asset.duration_ms ?? 0, latentFrames: before.asset.latent_frames }, joinFrames(recipe, "previous", raw));
       plan.input[prevSpec.id] = { asset: before.asset.id, at };
       plan.links.prev = { take: before.take.id, at };
     } else if (startSpec && recipe.traits?.continues === "frame" && !quick) {

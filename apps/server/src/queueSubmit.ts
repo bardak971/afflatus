@@ -481,7 +481,9 @@ async function finishLatent(
   asset: Pick<Tables["assets"], "latent_key" | "latent_frames">, shown: Pick<Tables["assets"], "fine_latent_key" | "width" | "height">,
   cut: { at: number | undefined; counts: number[]; durationMs: number },
 ): Promise<void> {
-  if (!asset.latent_key || !asset.latent_frames) return;
+  // only a recipe that joins in a kept latent reads one (it names the nodes that do, traits.latentNodes): the others are not
+  // sent a file they would not open
+  if (!asset.latent_key || !asset.latent_frames || !recipe.traits?.latentNodes?.length) return;
   const { at, counts } = cut;
   const atFrames = at === undefined ? 0 : Math.round((at / 1000) * spec.fps);
   const whole = spec.role === "previous" && (at === undefined || at >= cut.durationMs - FRAME_SLACK_MS);

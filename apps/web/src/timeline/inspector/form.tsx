@@ -102,8 +102,12 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
   // its own pinned last frame wins over landing on the clip after (the server skips the landing then)
   const endsHow = ends ? "ends on a picture" : nextJoined ? `ends where clip ${index + 2} begins` : "ends free";
   const seconds = secondsInput(form.inputs);
-  const landing = recipe.inputs.find((i) => i.id === "landing" && i.type === "choice");
+  // the input the form's next clip names for how many of its frames are landed on (H3's Landing), not an id of H3's own
+  const nextClip = recipe.inputs.find((i) => i.type === "clip" && i.role === "next");
+  const landing = nextClip?.type === "clip" && nextClip.framesFrom ? recipe.inputs.find((i) => i.id === nextClip.framesFrom && i.type === "choice") : undefined;
   const landingOptions = landing && landing.type === "choice" && Array.isArray(landing.options) ? landing.options : [];
+  // three counts read as a tight, a normal and a long landing, whatever the model's counts are
+  const landingWord = (o: string, k: number) => (landingOptions.length === 3 ? `${["Tight", "Normal", "Long"][k]} · ${o}` : o);
   // the prompt as a card of its own, as in the Studio: the same cards, spaced alike
   const formElement = (
       <CastPictures recipe={form} input={whole ?? stored} look={clip.look ?? timeline.look}>
@@ -176,7 +180,7 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
         {landing && nextJoined && landingOptions.length > 0 && (
           <div className="flex flex-col gap-1.5">
             <span className="flex items-baseline justify-between text-xs font-semibold">Landing <span className="font-normal text-ink-2">frames of clip {index + 2} it lands on</span></span>
-            <Segmented label="Landing" value={String(stored.landing ?? (landing.type === "choice" ? landing.default : "22"))} onChange={(v) => onInputs({ ...stored, landing: v })} options={landingOptions.map((o) => ({ value: o, label: o === "5" ? "Tight · 5" : o === "22" ? "Normal · 22" : o === "39" ? "Long · 39" : o }))} />
+            <Segmented label="Landing" value={String(stored[landing.id] ?? (landing.type === "choice" ? landing.default : ""))} onChange={(v) => onInputs({ ...stored, [landing.id]: v })} options={landingOptions.map((o, k) => ({ value: o, label: landingWord(String(o), k) }))} />
           </div>
         )}
       </div>
