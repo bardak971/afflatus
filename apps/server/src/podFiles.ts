@@ -6,7 +6,7 @@ import type { Db } from "./db";
 import { PASSING, type Downloads } from "./downloads";
 import { stat } from "node:fs/promises";
 import { GUESSED, MEASURED_FROM, measuredRange, recordFetch, recordMeasure, type MeasureKind, type Range } from "./podMeasures";
-import { localCopy, measureKind, podSource, presetsOf, type PodSource, type SourceLookup } from "./podSources";
+import { isOfficialFile, localCopy, measureKind, podSource, presetsOf, type PodSource, type SourceLookup } from "./podSources";
 import { PACKS_MS, PodPacks, type PodPackView } from "./podPacks";
 import { PACK_UPLOADS, uploadFile } from "./podUpload";
 import type { Settings } from "./settings";
@@ -782,8 +782,11 @@ export class PodFiles {
       const src = e.source!;
       if (src.kind === "upload") return await this.send(machine, comfy, e, src.path);
       const settings = await this.d.settings();
-      if (!settings.downloadModels) throw new Error("downloading into ComfyUI is turned off (Settings › Models › Missing models)");
-      if (!settings.civitaiLookups) throw new Error("looking up models online is turned off, so Hugging Face and Civitai are not asked (Settings › Models)");
+      // a family's own official file is no lookup, and a deploy or a queued job asked for it (the consent, as a Download
+      // pressed on it is in fetchFile.ts): fetched whatever these say, so a fresh install's pod gets what its screens promise
+      const official = src.kind === "url" && isOfficialFile(this.d.lookup.families(), { url: src.url, file: e.file, folder: e.folder });
+      if (!official && !settings.downloadModels) throw new Error("downloading into ComfyUI is turned off (Settings › Models › Missing models)");
+      if (!official && !settings.civitaiLookups) throw new Error("looking up models online is turned off, so Hugging Face and Civitai are not asked (Settings › Models)");
       const name = e.file.split(/[\\/]/).pop()!;
       let source: string;
       let headers: Record<string, string> | undefined;

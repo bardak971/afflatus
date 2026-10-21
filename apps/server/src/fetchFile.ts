@@ -8,6 +8,7 @@ import { httpError as bad } from "./errors";
 import { fileName } from "./media";
 import { webUrl } from "./modelPages";
 import { assertPublicUrl } from "./outbound";
+import { isOfficialFile } from "./podSources";
 import type { Services } from "./services";
 import { readSettings, type Settings } from "./settings";
 
@@ -51,7 +52,7 @@ export async function beginDownload(s: Services, req: FastifyRequest, b: Downloa
   const settings = await readSettings(s.db);
   // a family's official file, its Download pressed (a form, a Queue row, Settings › Models): the press is the consent, and the
   // address is the family's own, not a lookup. Anything else needs downloads and lookups turned on
-  const official = Boolean(b.url) && s.registry.families().some((f) => f.slots.some((x) => x.get?.url === b.url && x.get?.file === b.file && x.folder === b.folder));
+  const official = isOfficialFile(s.registry.families(), b);
   if (!official && !settings.downloadModels) throw bad("Downloading into ComfyUI is turned off. Turn it on in Settings.");
   // "Lookups off" means Afflatus never contacts Civitai or Hugging Face, which is where model files come from
   if (!official && !settings.civitaiLookups) throw bad("Looking up models online is turned off. Turn on “Search Hugging Face and Civitai” in Settings › Models to fetch model files.");
