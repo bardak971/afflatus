@@ -178,6 +178,31 @@ describe("a source's windows trimmed", () => {
     expect(out.clips.map((c: { inputs: { sourceSeconds: number } }) => c.inputs.sourceSeconds)).toEqual(v.clips.map((c: { inputs: { sourceSeconds: number } }) => c.inputs.sourceSeconds));
   });
 
+  it("passes a rendered window set aside under a model gone since: kept aside with its take, said once, the end goes on (T-26)", async () => {
+    const tl = await madeSwap();
+    const v = await view(tl);
+    const ids = v.clips.map((c: { id: string }) => c.id);
+    const take = await takeFor(ids[3]);
+    await call("POST", `/api/timelines/${tl}/source/trim`, { fromMs: 0, toMs: Math.round(v.clips[1].inputs.sourceStart * 1000) + 4000 });
+    const row = await t.db.selectFrom("timelines").select("source").where("id", "=", tl).executeTakeFirstOrThrow();
+    const src = JSON.parse(String(row.source)) as { parked: Array<{ clip: { id: string; recipe_id: string } }> };
+    expect(src.parked.map((p) => p.clip.id)).toEqual([ids[2], ids[3]]);
+    src.parked[1]!.clip.recipe_id = "zz-test.gone";
+    await t.db.updateTable("timelines").set({ source: JSON.stringify(src) }).where("id", "=", tl).execute();
+    const r = await call("POST", `/api/timelines/${tl}/source/trim`, { fromMs: 0, toMs: 20000 });
+    expect(r.toMs).toBe(20000);
+    expect(r.said).toMatch(/stays aside with its takes/);
+    const out = await sourceState(tl);
+    expect(out.clips.map((c) => c.id).slice(0, 3)).toEqual(ids.slice(0, 3));
+    expect(out.clips.length).toBeGreaterThan(3);
+    expect(out.parked).toEqual([expect.objectContaining({ id: ids[3], takes: [take] })]);
+    // said once: a trim in and out again passes it without a word
+    await call("POST", `/api/timelines/${tl}/source/trim`, { fromMs: 0, toMs: 15000 });
+    const again = await call("POST", `/api/timelines/${tl}/source/trim`, { fromMs: 0, toMs: 20000 });
+    expect(again.said).toBeUndefined();
+    expect(allTakes(await sourceState(tl)).has(take)).toBe(true);
+  });
+
   it("sets a window shortened, then rendered at that length, aside at its rendered length: the end out stops at it (T-23)", async () => {
     const tl = await madeSwap();
     const v = await view(tl);

@@ -35,8 +35,9 @@ export interface SourcePlan {
   /**
    * The windows set aside by a shorter stretch (its end trimmed in after Make: Timelines.trimSource), whole: each clip's row
    * and its takes' rows, in order, so that the stretch made long again brings them back as they were, takes and all.
+   * `told`: a rendered one that never comes back (of another model), passed by a trim out and said so once.
    */
-  parked?: Array<{ clip: Record<string, unknown>; takes: Array<Record<string, unknown>> }>;
+  parked?: Array<{ clip: Record<string, unknown>; takes: Array<Record<string, unknown>>; told?: true }>;
   /**
    * The empty window a shorter stretch shortened to its end, and its length before (seconds): the stretch made long again
    * gives it that length back before the windows set aside return, so that no part of the video is left between them.

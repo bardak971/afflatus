@@ -114,8 +114,14 @@ export function useTimelineMutations(id: string, o: {
   const cutSource = useMutation({ mutationFn: () => api.makeFromSource(id, true), onSuccess: after });
   /** A recording's Lip sync clips trimmed (Timelines.trimRecording). */
   const trimRecording = useMutation({ mutationFn: (v: { asset: string; fromMs: number; toMs: number }) => api.trimRecording(id, v.asset, v.fromMs, v.toMs), onSuccess: readBack });
-  /** The source's stretch trimmed after Make (Timelines.trimSource). */
-  const trimSource = useMutation({ mutationFn: (v: { fromMs: number; toMs: number }) => api.trimSource(id, v.fromMs, v.toMs), onSuccess: readBack });
+  /** The source's stretch trimmed after Make (Timelines.trimSource); what the server says of it (windows it passed) in the header. */
+  const trimSource = useMutation({
+    mutationFn: (v: { fromMs: number; toMs: number }) => api.trimSource(id, v.fromMs, v.toMs),
+    onSuccess: (r) => {
+      if (r.said) o.on.note(r.said);
+      return readBack();
+    },
+  });
   /** A voice recording made into Lip sync clips (their ids, the first opened once the timeline is read again). */
   const recording = useMutation({ mutationFn: (v: { asset: string; clip?: string }) => api.makeFromRecording(id, v.asset, v.clip), onSuccess: after });
   /** The source given another windowed form: its windows and takes kept on the same grid, else made anew (Timelines.sourceForm). */
