@@ -396,8 +396,53 @@ def zone_cells(noise: np.ndarray, frames: int, height: int, width: int, scale: i
 
 # The joined flood below is settled when no value moves by more than this in a pass: a quarter of an 8-bit level
 SETTLED = 1 / 1024
+# Its cap of passes, per cell of the frame's longer side on the coarser grid
+JOIN_PASSES = 4
+# A cell of the person's paste mask reaches 1 from this: the blur's normalised kernel leaves 0.99999994 inside a small
+# grow, which is the person whole all the same
+WHOLE = 1 - 1e-6
+# Two pieces of the person's paste mask are one where cells of at least this much join them: the faint blurred edges of
+# a hand near the arm touch below it, and the hand is still a piece of its own
+PIECE_EDGE = 1 / 64
 # Pixels of the clip whose colour difference is read at once: a few 1080p frames
 _DIFF_PIXELS = 1 << 23
+
+
+def whole_pieces(person):
+    """
+    [frames, 1, h, w] torch float: the person's paste mask with each piece of it that reaches 1 nowhere (a hand SAM found
+    apart from the arm, a speck of its track, the whole person at a small grow and a wide blur) scaled to reach 1 at its
+    peak; the pieces that reach 1 as they are. The joined flood keeps a cell at its value only where its keep is 1, so
+    such a piece lost its peak squared at every pass and came out at what the cap of passes, or the pass the flood
+    settled at, left of it (0.36, then 0.96, for a hand peaking at 0.9995; a speck SAM left, gone): the paste mask is the
+    person, always kept, so they are kept whole (the owner, 2026-10-22; perf review M-22).
+    """
+    import torch
+    import torch.nn.functional as F
+
+    inside = person >= PIECE_EDGE
+    # a piece that reaches 1 nowhere has its peak below 1, so with no such peak there is nothing to scale: the usual
+    # case, where the two floods below would cost a window a dozen passes for nothing
+    if not bool(((person >= F.max_pool2d(person, 3, 1, 1)) & inside & (person < WHOLE)).any()):
+        return person
+    reached = person >= WHOLE
+    # both floods only grow, so they end, in about as many passes as a piece is wide
+    while True:
+        grown = (F.max_pool2d(reached.float(), 3, 1, 1) > 0) & inside
+        if torch.equal(grown, reached):
+            break
+        reached = grown
+    piece = inside & ~reached
+    if not bool(piece.any()):
+        return person
+    top = person * piece
+    while True:
+        grown = F.max_pool2d(top, 3, 1, 1) * piece
+        if torch.equal(grown, top):
+            break
+        top = grown
+    # a value divided by itself is exactly 1, so each piece's peak holds itself in the flood as the body's 1 does
+    return torch.where(piece, person / top.clamp_min(PIECE_EDGE), person)
 
 
 def difference_alpha(render, source, noise: np.ndarray, paste, threshold: float = 0.06, grow: int = 8, sigma: float = 4.0, reach: int = 1, scale: int = PASTE_SCALE, spread: int = 40):
@@ -427,6 +472,7 @@ def difference_alpha(render, source, noise: np.ndarray, paste, threshold: float 
     person = paste[:frames].float().cpu()[:, None]
     if s > 1:
         person = F.max_pool2d(person, s)
+    person = whole_pieces(person)
     keep = torch.maximum(keep * zone, person)
     # only what is joined to the person: a new limb or a longer garment is, people H3 invented elsewhere in the zone are
     # not (the owner's Timeline 19 take, Grow 160: two women at the table, 2026-10-18). Grown from the person through
@@ -436,14 +482,16 @@ def difference_alpha(render, source, noise: np.ndarray, paste, threshold: float 
     for _ in range(int(round(spread / s))):
         near = F.max_pool2d(near, 3, 1, 1)
     keep = keep * near
+    # each peak of the person's mask holds its own value, as the body's 1 does: a speck SAM left beside another that
+    # reaches 1, joined to it by their faint blurred edges, fell at every pass to what the cap of passes left of it
+    peaks = person * ((person >= F.max_pool2d(person, 3, 1, 1)) & (person >= PIECE_EDGE))
     joined = person.clone()
-    for _ in range(4 * max(H, W) // s):
-        grown = F.max_pool2d(joined, 3, 1, 1) * keep
+    for _ in range(JOIN_PASSES * max(H, W) // s):
+        grown = torch.maximum(F.max_pool2d(joined, 3, 1, 1) * keep, peaks)
         # settled once no value moves by more than SETTLED in a pass. Waiting for no change at all ran to the cap of passes
-        # on a piece of the person's mask that peaks below 1: its value loses its peak squared at every pass and never
-        # stops changing (a speck SAM left, or a grow of 4 with a blur of 2.5, where no cell reaches 1: 2 to 3 minutes a
-        # window on 2026-10-18). The body comes out the same to 1e-4; such a piece keeps the value it has then (whether it
-        # should be kept whole or dropped is not settled yet)
+        # on a piece of the person's mask that peaked below 1: its value lost its peak squared at every pass and never
+        # stopped changing (a speck SAM left, or a grow of 4 with a blur of 2.5, where no cell reached 1: 2 to 3 minutes a
+        # window on 2026-10-18). With its peaks held, every value now settles where its peak's path leaves it
         moved = float((grown - joined).abs_().max())
         joined = grown
         if moved <= SETTLED:
