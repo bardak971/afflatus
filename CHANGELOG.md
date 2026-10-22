@@ -57,6 +57,9 @@ The 0.6.0 cycle: the timeline reworked around sources, recordings and joins, Fac
 - **Cuts and exports:** cutting a range late in a long video seeks instead of decoding from the start, and cuts no longer hold the video in memory; long chains of dissolves or transitions export in pieces (~0.6 GB instead of 2–3.5 GB); imports, cuts and exports are measured for the editor in one pass.
 - **Node pack 0.36.6:** Swap Paste by Difference no longer stalls for minutes; Follow Colours is twice as fast and holds about 1 GB less; Face Match runs on 4 threads and keeps its reference photos; a pod's download carries on where it was after a pack restart or being put back in line.
 - **Housekeeping:** the hourly sweep no longer checks every library file or reads every Undo step twice, and the first sweep waits until the app answers; finished jobs keep only the run data still read; the search index is compacted; settings of removed machines, old Go back copies and the access log are tidied.
+- **Finished jobs are deleted from the Queue's history 30 days after they end** (Settings › Storage › Keep finished jobs; For good keeps them all). A job still used (its result in the library, on a clip, behind an export, a render time or a running pod) is kept.
+- **Render times' "All" over more than three months draws its charts per week** (the crosshair says the week's first and last days): the answer is about five times smaller, and every total, pace and model figure is unchanged.
+- **The Queue page no longer downloads the whole waiting line again on every change** while a long line renders: the rows that did not change stay in the page.
 
 ### Fixed
 - **Swap character's Paste = Difference keeps every piece of the person's paste mask** (node pack 0.36.7): a hand SAM found apart from the arm, or a speck of its track, came out half see-through or gone, by how many passes the flood around the person ran; it is now pasted back whole, and the body's edge is as before.
