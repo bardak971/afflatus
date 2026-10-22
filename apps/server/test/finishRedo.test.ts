@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { newId, now, OWNER } from "../src/db";
 import { newAssetRow } from "../src/media";
+import type { JobRow } from "../src/queueModel";
 import { CUT_JOB } from "../src/timelineModel";
 import { get, makeApp, type TestApp } from "./helpers";
 
@@ -74,5 +75,42 @@ describe("a Face refine with a finish queued behind it (Face refine first, then 
     expect(v.clips[0].take.id).toBe(draft);
     expect(v.clips[0].takes.map((x: { asset: { id: string } }) => x.asset.id)).toContain(refined);
     expect(v.undo).toBe(before);
+  });
+
+  // The case above calls finished(…, true) itself; this goes through the queue's place, which tells a cut queued behind the
+  // job, made from its video, from no finish behind it (review O-12 on T-10). place is private: it is reached as the queue
+  // reaches it when a render is filed, on job rows put in by hand.
+  it("is told from the queue's own rows: a cut made from its video behind it holds it back, none lets it play", async () => {
+    const tl = (await t.app.inject({ method: "POST", url: "/api/timelines", payload: { name: "zz-test face first, queue" } })).json();
+    const clip = (await t.app.inject({ method: "POST", url: `/api/timelines/${tl.id}/clips`, payload: { recipe: "scail.motion24" } })).json().clip as string;
+    const draft = await take(clip, await video({ prompt: "zz-test" }), null);
+    const place = (row: JobRow, generation: string) => (t.services.queue as unknown as { place(row: JobRow, generation: string, resume: null): Promise<void> }).place(row, generation, null);
+    const job = async (o: { recipe: string; status: string; dependsOn?: string; inputs?: Record<string, unknown> }) => {
+      const id = newId();
+      await t.db.insertInto("jobs").values({
+        id, owner_id: OWNER, recipe_id: o.recipe, label: "zz-test", status: o.status, priority: 0, clip_id: clip, created_at: now(), updated_at: now(),
+        finished_from: o.recipe === CUT_JOB ? null : draft, depends_on: o.dependsOn ?? null, inputs: JSON.stringify(o.inputs ?? { prompt: "zz-test", faceRefineOnly: true }),
+      } as never).execute();
+      return (await t.db.selectFrom("jobs").selectAll().where("id", "=", id).executeTakeFirstOrThrow()) as JobRow;
+    };
+    const refinedBy = async () => {
+      const asset = await video({ prompt: "zz-test", faceRefineOnly: true });
+      return { asset, generation: (await t.db.selectFrom("assets").select("generation_id").where("id", "=", asset).executeTakeFirstOrThrow()).generation_id! };
+    };
+
+    const held = await job({ recipe: "scail.motion24", status: "running" });
+    await job({ recipe: CUT_JOB, status: "queued", dependsOn: held.id, inputs: { asset: "x", startMs: 0, endMs: 3000, action: "finish", route: "upscale", by: 2, clip, finishedFrom: draft, fromJob: held.id } });
+    const first = await refinedBy();
+    await place(held, first.generation);
+    let v = (await get(t.app, `/api/timelines/${tl.id}`)).json();
+    expect(v.clips[0].take.id).toBe(draft);
+    expect(v.clips[0].takes.map((x: { asset: { id: string } }) => x.asset.id)).toContain(first.asset);
+
+    // no finish behind it: the Face refine is the clip's finished take
+    const alone = await job({ recipe: "scail.motion24", status: "running" });
+    const second = await refinedBy();
+    await place(alone, second.generation);
+    v = (await get(t.app, `/api/timelines/${tl.id}`)).json();
+    expect(v.clips[0].take.asset.id).toBe(second.asset);
   });
 });

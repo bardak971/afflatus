@@ -70,11 +70,12 @@ afterEach(async () => {
   await fake?.close().catch(() => {});
 });
 
-async function setUp(opts: { manager?: boolean; rule?: "ask" | "always" } = {}) {
+async function setUp(opts: { manager?: boolean; rule?: "ask" | "always"; lacks?: string[]; models?: Record<string, string[]> } = {}) {
   const all = referenceCatalog();
-  const catalog = Object.fromEntries(Object.entries(all).filter(([n]) => !DASIWA.includes(n)));
+  const lacks = [...DASIWA, ...(opts.lacks ?? [])];
+  const catalog = Object.fromEntries(Object.entries(all).filter(([n]) => !lacks.includes(n)));
   // the restart loads the pack's nodes as they really are
-  fake = await startFakeComfy({ catalog, models: FILES, manager: opts.manager ?? true, afterReboot: Object.fromEntries(DASIWA.map((n) => [n, all[n]!])) });
+  fake = await startFakeComfy({ catalog, models: opts.models ?? FILES, manager: opts.manager ?? true, afterReboot: Object.fromEntries(DASIWA.map((n) => [n, all[n]!])) });
   t = await makeApp({ comfyUrl: fake.url });
   if (opts.rule) {
     const s = await readSettings(t.db);
@@ -144,6 +145,21 @@ describe("a node pack a render asks for, on a ComfyUI of your own", () => {
     await until(() => fake.packs.some((p) => p.id === "ComfyUI-DaSiWa-Nodes"), 15_000);
     await until(() => fake.prompts.size === 1, 20_000);
     expect(sentNodes()).toContain("MiniMaxH3Cache");
+  }, 40_000);
+
+  it("Ask, two jobs, one said Install: the other gets that pack, never its other pack unasked, and still asks", async () => {
+    // packsToWant was tested alone (review O-12): this goes through OwnPacks.mayStart with a second job under way (N-2).
+    await setUp({ lacks: ["VedaSparseAttention"], models: { ...FILES, veda: ["minimax_h3_r2va_veda_preview_fp8.safetensors", "minimax_h3_t2va_veda_preview_fp8.safetensors"] } });
+    const first = (await post(t.app, "/api/jobs", { recipe: "h3.video", input: CACHED })).json().ids[0] as string;
+    const second = (await post(t.app, "/api/jobs", { recipe: "h3.video", input: { ...CACHED, veda: true } })).json().ids[0] as string;
+    const rowOf = async (id: string) => (await queueOf()).waiting.find((w) => w.id === id)?.packs;
+    await slowly(async () => (await rowOf(first))?.state === "ask" && (await rowOf(second))?.state === "ask");
+    expect((await rowOf(second))!.packs.map((p) => p.name).sort()).toEqual(["ComfyUI-DaSiWa-Nodes", "veda-sparse-attention"]);
+    await post(t.app, `/api/jobs/${first}/packs`, { do: "install", packs: ["ComfyUI-DaSiWa-Nodes"] });
+    await until(() => fake.prompts.size === 1, 20_000);
+    // The first job renders with the pack it asked for; the second still asks, and nothing brought its Veda pack unasked.
+    expect((await rowOf(second))?.state).toBe("ask");
+    expect(fake.packs.map((p) => p.id)).toEqual(["ComfyUI-DaSiWa-Nodes"]);
   }, 40_000);
 
   it("a job that asks for no pack goes as before, past one that waits for its click", async () => {
