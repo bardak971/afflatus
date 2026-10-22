@@ -33,8 +33,10 @@ export function recordingParts(o: { fromS: number; toS: number; wantS: number; l
       parts.push({ start: at, seconds: toS - at });
       break;
     }
-    const cuts = o.pauses.map((p) => (p.start + p.end) / 2).filter((m) => m - at >= leastS && m - at <= mostS);
-    const end = cuts.length ? cuts.reduce((best, m) => (Math.abs(m - at - want) < Math.abs(best - at - want) ? m : best)) : at + mostS;
+    // a pause past the end (a recording trimmed, its Out before the words go on) is no place to cut: a part made to it
+    // would render the words trimmed off, and one past the recording's end would say a length the sound has not
+    const cuts = o.pauses.map((p) => (p.start + p.end) / 2).filter((m) => m - at >= leastS && m - at <= mostS && m < toS);
+    const end = cuts.length ? cuts.reduce((best, m) => (Math.abs(m - at - want) < Math.abs(best - at - want) ? m : best)) : Math.min(at + mostS, toS);
     parts.push({ start: at, seconds: end - at });
     at = end;
   }
