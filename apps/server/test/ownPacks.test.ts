@@ -15,12 +15,13 @@ import type { Lane } from "../src/queueModel";
  */
 
 /** A pretend ComfyUI as PodPacks reads it: Manager's install queue and history, its own queue, its restart. */
-function stubComfy(o: { result?: (id: string) => string; queue?: () => { running: unknown[]; pending: unknown[] }; noAnswer?: boolean } = {}) {
+function stubComfy(o: { result?: (id: string) => string; queue?: () => { running: unknown[]; pending: unknown[] }; noAnswer?: boolean; loads?: boolean } = {}) {
   const tasks: Array<{ ui_id: string; id: string }> = [];
   const history: Record<string, { result: string }> = {};
   let reboots = 0;
   let installs = 0;
   let queueReads = 0;
+  let down = false;
   const json = (v: unknown) => new Response(JSON.stringify(v), { status: 200, headers: { "Content-Type": "application/json" } });
   const client = {
     baseUrl: "http://stub",
@@ -41,16 +42,21 @@ function stubComfy(o: { result?: (id: string) => string; queue?: () => { running
         reboots++;
         return new Response("", { status: 200 });
       }
+      // `loads`: ComfyUI has every pack's node once restarted
+      if (o.loads && path.startsWith("/object_info/")) return json({ [decodeURIComponent(path.slice("/object_info/".length))]: {} });
       return new Response("", { status: 404 });
     },
-    status: async () => ({}),
+    status: async () => {
+      if (down) throw new TypeError("fetch failed");
+      return {};
+    },
     queue: async () => {
       queueReads++;
       return o.queue?.() ?? { running: [], pending: [] };
     },
   };
-  const comfy = { client, forgetAll: () => {} } as unknown as Comfy;
-  return { comfy, get reboots() { return reboots; }, get installs() { return installs; }, get queueReads() { return queueReads; } };
+  const comfy = { client, forgetAll: () => {}, openedAt: 0 } as unknown as Comfy;
+  return { comfy, get reboots() { return reboots; }, get installs() { return installs; }, get queueReads() { return queueReads; }, set down(d: boolean) { down = d; } };
 }
 
 const lane = (comfy: Comfy, more: Partial<Lane> = {}) => ({ id: "own", machine: { id: "own", name: "Studio PC", packs: "ask" }, comfy, device: "cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync", running: null, starting: null, outside: null, ...more }) as unknown as Lane;
@@ -134,6 +140,83 @@ describe("a pack Manager installed that ComfyUI did not load at its restart", ()
     expect(own.holding("own")).toBe(true);
     await settle(own.packs, "own");
     expect([stub.installs, stub.reboots]).toEqual([1, 1]);
+    own.stop();
+  });
+});
+
+describe("a job cancelled while ComfyUI restarts for its pack (review 0.6.0, N-15)", () => {
+  it("leaves the restart followed: the pack is loaded, the machine is free, and the next job's pack comes", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-22T10:00:00Z"));
+    const stub = stubComfy({ loads: true });
+    const l = lane(stub.comfy);
+    const own = new OwnPacks({ lane: () => l, manager: async () => true, changed: () => {} });
+    own.keepOnly([{ id: "job-1", packs: null }]);
+    own.packs.want("own", ["comfyui-gguf"], "job-1");
+    await settle(own.packs, "own");
+    expect(own.packs.restartingNow("own")).toBe(true);
+    // cancelled while ComfyUI restarts: its pack is kept, the restart was made for it
+    own.keepOnly([]);
+    expect(own.packs.view("own").map((e) => e.name)).toEqual(["comfyui-gguf"]);
+    vi.setSystemTime(new Date("2026-10-22T10:00:10Z"));
+    await settle(own.packs, "own");
+    expect(own.packs.restartingNow("own")).toBe(false);
+    expect(own.holding("own")).toBe(false);
+    expect(own.packs.view("own")[0]).toMatchObject({ state: "ready" });
+    // the next job's pack is installed and restarted for as usual
+    own.keepOnly([{ id: "job-2", packs: null }]);
+    own.packs.want("own", ["comfyui-impact-pack"], "job-2");
+    await settle(own.packs, "own");
+    expect([stub.installs, stub.reboots]).toEqual([2, 2]);
+    own.stop();
+  });
+
+  it("still frees the machine after the restart's 5 min when ComfyUI never comes back", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-22T10:00:00Z"));
+    const stub = stubComfy({ loads: true });
+    const l = lane(stub.comfy);
+    const own = new OwnPacks({ lane: () => l, manager: async () => true, changed: () => {} });
+    own.keepOnly([{ id: "job-1", packs: null }]);
+    own.packs.want("own", ["comfyui-gguf"], "job-1");
+    await settle(own.packs, "own");
+    expect(own.packs.restartingNow("own")).toBe(true);
+    stub.down = true;
+    own.keepOnly([]);
+    vi.setSystemTime(new Date("2026-10-22T10:04:00Z"));
+    await settle(own.packs, "own");
+    expect(own.holding("own")).toBe(true);
+    vi.setSystemTime(new Date("2026-10-22T10:05:30Z"));
+    await settle(own.packs, "own");
+    expect(own.packs.restartingNow("own")).toBe(false);
+    expect(own.holding("own")).toBe(false);
+    own.stop();
+  });
+});
+
+describe("a pack remembered on the disk when ComfyUI was restarted by hand since (review 0.6.0, N-16)", () => {
+  it("is installed again when a job wants it, not only restarted for and said installed, not loaded", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-22T10:00:00Z"));
+    const stub = stubComfy({ loads: true });
+    const l = lane(stub.comfy, { running: {} as never });
+    const own = new OwnPacks({ lane: () => l, manager: async () => true, changed: () => {} });
+    own.keepOnly([{ id: "job-1", packs: null }]);
+    own.packs.want("own", ["comfyui-gguf"], "job-1");
+    await settle(own.packs, "own");
+    own.keepOnly([]);
+    l.running = null;
+    // its ComfyUI restarted by hand (its socket opened again), the pack since taken off its disk
+    vi.setSystemTime(new Date("2026-10-22T10:10:00Z"));
+    (stub.comfy as { openedAt: number }).openedAt = Date.now();
+    vi.setSystemTime(new Date("2026-10-22T10:20:00Z"));
+    own.keepOnly([{ id: "job-2", packs: null }]);
+    own.packs.want("own", ["comfyui-gguf"], "job-2");
+    await settle(own.packs, "own");
+    expect([stub.installs, stub.reboots]).toEqual([2, 1]);
+    vi.setSystemTime(new Date("2026-10-22T10:20:10Z"));
+    await settle(own.packs, "own");
+    expect(own.packs.view("own")[0]).toMatchObject({ state: "ready" });
     own.stop();
   });
 });

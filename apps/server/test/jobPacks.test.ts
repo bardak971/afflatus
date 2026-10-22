@@ -117,6 +117,18 @@ describe("a node pack a render asks for, on a ComfyUI of your own", () => {
     expect(await warningOf(id)).not.toContain("Ran without");
   }, 40_000);
 
+  it("cancelled while ComfyUI restarts for its pack: the restart is followed, and the next job renders (review 0.6.0, N-15)", async () => {
+    await setUp();
+    const id = (await post(t.app, "/api/jobs", { recipe: "h3.video", input: CACHED })).json().ids[0] as string;
+    await slowly(async () => (await queueOf()).waiting[0]?.packs?.state === "ask");
+    await post(t.app, `/api/jobs/${id}/packs`, { do: "install", packs: ["ComfyUI-DaSiWa-Nodes"] });
+    await until(() => fake.reboots === 1, 15_000);
+    expect((await post(t.app, `/api/jobs/${id}/cancel`)).statusCode).toBe(200);
+    await post(t.app, "/api/jobs", { recipe: "h3.video", input: { ...CACHED, cache: false } });
+    await until(() => fake.prompts.size === 1, 20_000);
+    expect(fake.reboots).toBe(1);
+  }, 40_000);
+
   it("Run without: renders at once without the node, and says so on the job", async () => {
     await setUp();
     const id = (await post(t.app, "/api/jobs", { recipe: "h3.video", input: CACHED })).json().ids[0] as string;

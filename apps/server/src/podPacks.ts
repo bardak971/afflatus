@@ -32,6 +32,8 @@ interface Entry extends PodPackView {
   failedAt?: number;
   /** Manager found it in its list of packs: that list is loaded there. */
   resolved?: boolean;
+  /** Taken as installed from the disk (onDisk): when it was dropped there (ms). */
+  diskAt?: number;
 }
 
 /**
@@ -70,8 +72,11 @@ export const PACKS_MS = 4 * 60_000;
 
 export class PodPacks {
   private readonly pods = new Map<string, Map<string, Entry>>();
-  /** The packs Manager installed that were dropped before ComfyUI's restart loaded them, by machine: on its disk, not loaded. */
-  private readonly onDisk = new Map<string, Set<string>>();
+  /**
+   * The packs Manager installed that were dropped before ComfyUI's restart loaded them, by machine: on its disk, not
+   * loaded; each with when it was dropped (ms), so that a restart by hand since then (its socket opened again) undoes it.
+   */
+  private readonly onDisk = new Map<string, Map<string, number>>();
   /** A restart asked for, by machine: since when. */
   private readonly restarting = new Map<string, number>();
   private seq = 0;
@@ -99,8 +104,9 @@ export class PodPacks {
       if (!e) {
         // one Manager installed and that was dropped before the restart is on disk already: only the restart is left to do
         // (asking Manager to install it again would turn on what it answers for a pack that is there)
-        const onDisk = this.onDisk.get(machine)?.delete(name) ?? false;
-        pod.set(name, (e = { name, state: onDisk ? "installed" : "next", jobs: [] }));
+        const diskAt = this.onDisk.get(machine)?.get(name);
+        this.onDisk.get(machine)?.delete(name);
+        pod.set(name, (e = diskAt === undefined ? { name, state: "next", jobs: [] } : { name, state: "installed", jobs: [], diskAt }));
         changed = true;
       } else if (e.state === "failed" && !e.unloaded && this.againMs !== null && Date.now() - (e.failedAt ?? 0) > this.againMs) {
         Object.assign(e, { state: "next", tries: 0 });
@@ -119,11 +125,13 @@ export class PodPacks {
   /**
    * Packs asked for jobs none of which may run on the pod any more (or that said Run without for it), not being installed
    * yet (or installed and waiting for the restart): dropped, so that its ComfyUI is not restarted for them. One Manager is
-   * installing is left to finish (and not restarted for, restartWhenIn).
+   * installing is left to finish (and not restarted for, restartWhenIn). Nothing is dropped while its ComfyUI restarts: the
+   * restart is followed through the packs it was made for (pass), and a pod's planner, which cannot judge the pod while it
+   * is down, would drop them all; ComfyUI loads them anyway.
    */
   drop(machine: string, mayRun: (job: string, pack: string) => boolean): boolean {
     const pod = this.pods.get(machine);
-    if (!pod) return false;
+    if (!pod || this.restarting.has(machine)) return false;
     let changed = false;
     for (const [name, e] of pod) {
       if (!e.jobs.length || e.jobs.some((job) => mayRun(job, name)) || (e.state !== "next" && e.state !== "installed")) continue;
@@ -177,8 +185,8 @@ export class PodPacks {
     this.pods.get(machine)?.delete(e.name);
     if (e.state !== "installed") return;
     let disk = this.onDisk.get(machine);
-    if (!disk) this.onDisk.set(machine, (disk = new Set()));
-    disk.add(e.name);
+    if (!disk) this.onDisk.set(machine, (disk = new Map()));
+    disk.set(e.name, e.diskAt ?? Date.now());
   }
 
   machines(): string[] {
@@ -198,15 +206,35 @@ export class PodPacks {
   /** One look at a pod's packs: follow a restart, follow Manager's installs, start what waits, restart once they are in. */
   async pass(machine: string): Promise<{ changed: boolean; loaded: boolean }> {
     const pod = this.pods.get(machine);
-    if (!pod?.size) return { changed: false, loaded: false };
+    // a restart under way is followed even when no pack is left to it: until it is, the machine is held (holding)
+    if (!pod?.size && !this.restarting.has(machine)) return { changed: false, loaded: false };
     const comfy = await this.d.comfyOf(machine);
     if (!comfy) return { changed: false, loaded: false };
-    const all = [...pod.values()];
+    const all = [...(pod?.values() ?? [])];
     if (this.restarting.has(machine)) return this.followRestart(machine, comfy, all);
-    let changed = await this.followInstalls(comfy, all);
+    let changed = this.forgetDisk(machine, comfy, all);
+    changed = (await this.followInstalls(comfy, all)) || changed;
     changed = (await this.startInstalls(comfy, all)) || changed;
     changed = (await this.restartWhenIn(machine, comfy, all)) || changed;
     return { changed, loaded: false };
+  }
+
+  /**
+   * ComfyUI restarted by hand (its socket opened again) since a pack was remembered as on the disk: that restart loaded
+   * it, so one still lacked was taken off the disk meanwhile, and is installed again rather than only restarted for.
+   */
+  private forgetDisk(machine: string, comfy: Comfy, all: Entry[]): boolean {
+    const opened = comfy.openedAt ?? 0;
+    const disk = this.onDisk.get(machine);
+    for (const [name, at] of disk ?? []) if (at < opened) disk!.delete(name);
+    let changed = false;
+    for (const e of all) {
+      if (e.state !== "installed" || e.diskAt === undefined || e.diskAt >= opened) continue;
+      e.state = "next";
+      delete e.diskAt;
+      changed = true;
+    }
+    return changed;
   }
 
   /** A restart under way: done once ComfyUI answers again with a node of each pack; failed when it does not come back. */
