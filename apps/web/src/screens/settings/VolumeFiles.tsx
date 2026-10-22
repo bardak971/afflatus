@@ -109,7 +109,7 @@ export function VolumeFiles({ volume, name, folder: askedFolder, pickUnused = fa
   const used = v?.used ?? null;
   const install = used !== null ? Math.max(0, used - modelBytes) : null;
   return (
-    <Dialog label={`Files of ${name}`} onClose={onClose} onEscape={() => !confirm && Boolean(q) && (setQ(""), true)} className="flex h-[min(720px,calc(100vh-48px))] w-full max-w-[1080px] flex-col overflow-hidden rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-[peek-rise_120ms_ease-out]">
+    <Dialog label={`Files of ${name}`} onClose={onClose} onEscape={() => !confirm && Boolean(q) && (setQ(""), true)} className="flex h-[min(720px,calc(100vh-48px))] w-full max-w-[1080px] flex-col overflow-hidden rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-peek-rise">
       {/* the keys of the list (/, Del, Ctrl+A), wherever the focus is in it */}
       <div className="flex min-h-0 grow flex-col" onKeyDown={keys}>
         <div className="flex flex-wrap items-center gap-2.5 border-b border-line px-[18px] py-3">

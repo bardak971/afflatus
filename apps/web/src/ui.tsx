@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
-import { Check, Trash2 } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type Ref, type TextareaHTMLAttributes } from "react";
+import { Check, Search, Trash2, X } from "lucide-react";
 import { cx } from "./cx";
 import { Progress } from "./progress/Progress";
 import { snapTo } from "./snap";
@@ -31,6 +31,97 @@ export function Button({ tone = "plain", size = "md", className, ...rest }: Butt
 /** A link that looks like a button of the kit: a download, a page outside the app. */
 export function ButtonLink({ tone, size, className, ...rest }: AnchorHTMLAttributes<HTMLAnchorElement> & { tone?: ButtonProps["tone"]; size?: ButtonProps["size"] }) {
   return <a {...rest} className={buttonClass({ tone, size, className })} />;
+}
+
+/** The three heights of a square button: dense (the track, rows), small, and the height of the form's bar. */
+export type IconSize = 28 | 32 | 40;
+const ICON_BOX: Record<IconSize, string> = { 28: "size-7", 32: "size-8", 40: "size-10" };
+const ICON_GLYPH: Record<IconSize, number> = { 28: 14, 32: 15, 40: 17 };
+
+/**
+ * A button that is an icon alone, in the kit's three sizes and one radius. Its `label` is required: it is what a screen
+ * reader says and the app's tip (`tip` when the tip says more than the name; `keys` drawn as keycaps after it).
+ * `outline`: edged, for one standing on its own; `pressed`: a toggle that is on.
+ */
+export function IconButton({ label, tip, keys, size = 32, tone = "ghost", pressed, className, children, ...rest }: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label" | "aria-pressed"> & {
+  label: string;
+  tip?: string;
+  keys?: string;
+  size?: IconSize;
+  tone?: "ghost" | "outline";
+  pressed?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      {...rest}
+      aria-label={label}
+      aria-pressed={pressed}
+      data-tip={tip ?? label}
+      data-tip-keys={keys}
+      className={cx(
+        "inline-flex shrink-0 items-center justify-center rounded-control transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+        ICON_BOX[size],
+        tone === "outline" && "border border-line-strong",
+        pressed ? "bg-accent-wash text-accent" : "text-ink-2 hover:bg-hover hover:text-ink disabled:hover:bg-transparent disabled:hover:text-ink-2",
+        className,
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** The one close of the app: an × that says what it closes in its tip (Esc drawn after it where Esc does the same). */
+export function CloseButton({ onClose, label = "Close", size = 32, ...rest }: Omit<Parameters<typeof IconButton>[0], "label" | "children" | "onClick"> & { onClose(): void; label?: string }) {
+  return (
+    <IconButton {...rest} label={label} size={size} onClick={onClose}>
+      <X size={ICON_GLYPH[size]} />
+    </IconButton>
+  );
+}
+
+/**
+ * The one search box of the app, its focus marked on the box it sits in (the field inside draws none: styles.css).
+ * `box`: a field of the kit's small height; `head`: the search line heading a panel or a popover (drafts, load a model),
+ * edge to edge with a line under it, its focus an accent underline; its height and padding are the panel's (className).
+ * `end`: what follows the text (a keycap). `inputClassName`: the text's size, in place of the body size.
+ */
+export function SearchField({ value, onChange, label, placeholder, look = "box", icon, end, className, inputClassName, inputRef, ...rest }: Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "className" | "size"> & {
+  value: string;
+  onChange(value: string): void;
+  label: string;
+  look?: "box" | "head";
+  icon?: ReactNode;
+  end?: ReactNode;
+  className?: string;
+  inputClassName?: string;
+  inputRef?: Ref<HTMLInputElement>;
+}) {
+  return (
+    <label
+      className={cx(
+        "flex min-w-0 items-center text-ink",
+        look === "box"
+          ? "h-8 gap-2 rounded-control border border-line bg-raised px-2.5 focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--color-accent-wash)]"
+          : "shrink-0 border-b border-line focus-within:shadow-[inset_0_-2px_0_var(--color-accent)]",
+        className,
+      )}
+    >
+      {icon ?? <Search size={14} className="shrink-0 text-ink-3" />}
+      <input
+        ref={inputRef}
+        {...rest}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={label}
+        placeholder={placeholder ?? label}
+        className={cx("min-w-0 grow bg-transparent outline-none placeholder:text-ink-3", inputClassName ?? "text-body")}
+      />
+      {end}
+    </label>
+  );
 }
 
 /**
@@ -146,15 +237,17 @@ export function Help({ text, title, className, inside }: { text: string; title?:
   const Mark = inside ? "span" : "button";
   return (
     <span className={cx("inline-flex shrink-0 items-center", className)}>
+      {/* a 24 px target (WCAG 2.5.8) around the 16 px mark, its margins taken back so the row around it keeps its height.
+          Neutral at rest: there are well over a hundred, and in the accent they read as things to do (review 4, P2) */}
       <Mark
         {...(inside ? {} : { type: "button" as const })}
         data-help=""
         aria-label={title ? `${title}: ${text}` : text}
         data-tip={text}
         data-tip-head={title}
-        className="flex h-4 w-4 items-center justify-center rounded-full bg-accent-wash text-[10px] leading-none font-bold text-accent hover:brightness-125 focus-visible:brightness-125"
+        className="group/help -m-1 flex size-6 items-center justify-center rounded-full"
       >
-        ?
+        <span aria-hidden className="flex size-4 items-center justify-center rounded-full bg-raised text-micro leading-none font-bold text-ink-3 group-hover/help:bg-accent-wash group-hover/help:text-accent group-focus-visible/help:bg-accent-wash group-focus-visible/help:text-accent">?</span>
       </Mark>
     </span>
   );
@@ -356,11 +449,22 @@ export function Checkbox({ checked, onChange, label, children, disabled, classNa
 }
 
 /** A status chip: what something is (to render, unused, exported), or where it is (a folder), then clickable. */
-export function Chip({ tone = "neutral", children, onClick, tip, className }: { tone?: "neutral" | "warn" | "good" | "accent" | "link"; children: ReactNode; onClick?(): void; tip?: string; className?: string }) {
+export function Chip({ tone = "neutral", size = "sm", children, onClick, tip, className }: {
+  /** warn: failed or broken; attention: needs a look (a stale join, a clip before that changed); neutral: to do, not ready. */
+  tone?: "neutral" | "warn" | "attention" | "good" | "accent" | "link";
+  /** xs: 18 px, for a chip on a picture or in a dense row. */
+  size?: "sm" | "xs";
+  children: ReactNode;
+  onClick?(): void;
+  tip?: string;
+  className?: string;
+}) {
   const look = cx(
-    "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold whitespace-nowrap",
+    "inline-flex shrink-0 items-center rounded-full font-semibold whitespace-nowrap",
+    size === "xs" ? "h-4.5 gap-1 px-1.5 text-micro" : "h-6 gap-1.5 px-2.5 text-xs",
     tone === "neutral" && "bg-hover text-ink-2",
     tone === "warn" && "bg-warn-wash text-warn-ink",
+    tone === "attention" && "bg-attention-wash text-attention-ink",
     tone === "good" && "bg-good/15 text-good",
     tone === "accent" && "bg-accent-wash text-accent",
     tone === "link" && "border border-line-strong text-ink",
@@ -418,8 +522,45 @@ export function ScrollColumn({ className, children }: { className?: string; chil
   );
 }
 
-export function SectionTitle({ children }: { children: ReactNode }) {
-  return <div className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">{children}</div>;
+/**
+ * A heading inside a page or a panel, in two levels: a section (small capitals, quiet: MODEL, NEEDS A LOOK · 3) and a
+ * group within it (sentence case, a step stronger than the text: After sampling). Two looks only, so that the levels read.
+ */
+export function SectionTitle({ level = "section", className, children }: { level?: "section" | "group"; className?: string; children: ReactNode }) {
+  return <div className={cx(level === "section" ? "text-meta font-semibold tracking-label text-ink-3 uppercase" : "text-body font-semibold text-ink-2", className)}>{children}</div>;
+}
+
+/**
+ * The head of a page (Queue, Settings, Prompt kit, Workflows): its title, then what switches its views (the page's
+ * Segmented), then its actions on the right, at one height.
+ */
+export function PageHeader({ title, after, actions, className }: { title: ReactNode; after?: ReactNode; actions?: ReactNode; className?: string }) {
+  return (
+    <header className={cx("flex h-14 shrink-0 items-center gap-3.5 border-b border-line px-5", className)}>
+      <h1 className="m-0 shrink-0 text-page font-bold">{title}</h1>
+      {after}
+      <span className="grow" />
+      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+    </header>
+  );
+}
+
+/**
+ * The one spinner of the app: a ring with a lit quarter. Under "reduce motion" it stands still, the ring still saying that
+ * something works. `current`: in the colour of the text around it rather than the accent.
+ */
+export function Spinner({ size = 12, tone = "accent", className }: { size?: number; tone?: "accent" | "current"; className?: string }) {
+  return (
+    <span
+      aria-hidden
+      style={{ width: size, height: size }}
+      className={cx(
+        "inline-block shrink-0 animate-spin rounded-full border-2 motion-reduce:animate-none",
+        tone === "accent" ? "border-accent/30 border-t-accent" : "border-current/30 border-t-current",
+        className,
+      )}
+    />
+  );
 }
 
 /**
@@ -433,11 +574,20 @@ export function Bar({ value, tone = "accent", steps, loading, meter }: { value: 
 }
 
 /** Shown where a list has nothing in it yet: says what will appear and how to get it there. `help`: the why and the how, behind a "?" beside the title. */
-export function Empty({ title, help, helpTitle, children }: { title: string; help?: string; /** The ? tip's head, when it is about something else than the title says ("Snippets" for "No snippets yet"). */ helpTitle?: string; children?: ReactNode }) {
+export function Empty({ title, help, helpTitle, action, children }: {
+  title: string;
+  help?: string;
+  /** The ? tip's head, when it is about something else than the title says ("Snippets" for "No snippets yet"). */
+  helpTitle?: string;
+  /** The way to fill it, under what it says: a button, a drop hint with its keys. */
+  action?: ReactNode;
+  children?: ReactNode;
+}) {
   return (
     <div className="flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-line-strong px-8 py-14 text-center">
       <div className="flex items-center gap-1.5 text-base font-semibold">{title}{help && <Help text={help} title={helpTitle} />}</div>
       {children && <div className="max-w-md text-ink-2">{children}</div>}
+      {action && <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-ink-2">{action}</div>}
     </div>
   );
 }

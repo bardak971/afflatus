@@ -92,6 +92,10 @@ export function Tips() {
     // pressed or typed on: no tip for it again until the pointer has left it
     let quiet: HTMLElement | null = null;
     const pointer = { x: -1, y: -1 };
+    // where the pointer was when a tip was shown for a keyboard focus: the tip stays while the keys are used, and goes once
+    // the pointer moves off that spot (the hand back on the mouse), even over nothing that has a tip of its own. Before,
+    // a focused status-bar "?" kept its tip standing over the inspector until the pointer crossed into another element.
+    let keyedAt: { x: number; y: number } | null = null;
 
     const show = (el: HTMLElement, fresh: boolean) => {
       if (!el.isConnected || !el.dataset.tip) return;
@@ -123,11 +127,17 @@ export function Tips() {
       pointer.y = e.clientY;
       const el = tipped(e.target);
       if (quiet && el !== quiet) quiet = null;
+      keyedAt = null;
       aim(el);
     };
     const onMove = (e: PointerEvent) => {
       pointer.x = e.clientX;
       pointer.y = e.clientY;
+      if (keyedAt && showing && Math.hypot(e.clientX - keyedAt.x, e.clientY - keyedAt.y) > 8) {
+        keyedAt = null;
+        current = null;
+        hide();
+      }
     };
     const onOut = (e: PointerEvent) => {
       // out of the window (pointerover sees every other move)
@@ -137,14 +147,20 @@ export function Tips() {
         hide();
       }
     };
+    // the last key pressed moved the focus on purpose (Tab, the arrows): a focus given back by Esc, as a popover
+    // closes, is not one the person went to, and its tip would open by itself and stay until the mouse moved
+    let stepped = false;
     const press = () => {
       quiet = current;
       hide();
       warmUntil = 0;
     };
-    // the last key pressed moved the focus on purpose (Tab, the arrows): a focus given back by Esc, as a popover
-    // closes, is not one the person went to, and its tip would open by itself and stay until the mouse moved
-    let stepped = false;
+    // a press of the pointer: a Tab pressed before it (inside the keyboard sheet, then closed by its ×) no longer makes
+    // the focus given back a keyboard one, whose tip would stand where the pointer is not (review 4)
+    const pointerPress = () => {
+      stepped = false;
+      press();
+    };
     const onKey = (e: KeyboardEvent) => {
       // a modifier alone is not typing; every other key sends the tip away (a Tab then shows the next one's, on focus)
       if (e.key === "Shift" || e.key === "Control" || e.key === "Alt" || e.key === "Meta") return;
@@ -157,6 +173,7 @@ export function Tips() {
       if (el && el.matches(":focus-visible") && stepped) {
         quiet = null;
         current = null;
+        keyedAt = { x: pointer.x, y: pointer.y };
         pointer.x = -1;
         aim(el);
       }
@@ -171,7 +188,7 @@ export function Tips() {
     document.addEventListener("pointerover", onOver, true);
     document.addEventListener("pointermove", onMove, { capture: true, passive: true });
     document.addEventListener("pointerout", onOut, true);
-    document.addEventListener("pointerdown", press, true);
+    document.addEventListener("pointerdown", pointerPress, true);
     document.addEventListener("wheel", hide, { capture: true, passive: true });
     document.addEventListener("scroll", hide, { capture: true, passive: true });
     document.addEventListener("keydown", onKey, true);
@@ -183,7 +200,7 @@ export function Tips() {
       document.removeEventListener("pointerover", onOver, true);
       document.removeEventListener("pointermove", onMove, true);
       document.removeEventListener("pointerout", onOut, true);
-      document.removeEventListener("pointerdown", press, true);
+      document.removeEventListener("pointerdown", pointerPress, true);
       document.removeEventListener("wheel", hide, true);
       document.removeEventListener("scroll", hide, true);
       document.removeEventListener("keydown", onKey, true);
@@ -241,7 +258,7 @@ export function Tips() {
       id="app-tip"
       role="tooltip"
       style={{ visibility: "hidden", left: 0, top: 0 }}
-      className={`pointer-events-none fixed z-[200] rounded-xl border border-line-strong bg-raised px-3 py-2 text-left text-[12.5px] leading-[1.45] font-normal tracking-normal text-ink normal-case shadow-[0_12px_30px_color-mix(in_srgb,var(--color-shade)_45%,transparent)] select-none ${long ? "w-max max-w-[300px] whitespace-pre-line" : "w-max whitespace-nowrap"} ${fresh ? "motion-safe:animate-[tip-in_110ms_ease-out] motion-reduce:animate-[peek-fade_100ms_ease-out]" : ""}`}
+      className={`pointer-events-none fixed z-[200] rounded-xl border border-line-strong bg-raised px-3 py-2 text-left text-[12.5px] leading-[1.45] font-normal tracking-normal text-ink normal-case shadow-[0_12px_30px_color-mix(in_srgb,var(--color-shade)_45%,transparent)] select-none ${long ? "w-max max-w-[300px] whitespace-pre-line" : "w-max whitespace-nowrap"} ${fresh ? "motion-safe:animate-tip-in motion-reduce:animate-peek-fade" : ""}`}
     >
       {head ? (
         <>

@@ -25,6 +25,11 @@
   --color-warn: #ff8a5c;
   --color-warn-wash: #2a1a12;
   --color-warn-ink: #ffb79c;
+  /* what needs a look (a stale join, a clip before that changed): its own amber, so that the warning means failed or
+     broken only (review 4, P1). Studio Dark's values; every theme gives its own (theme/themes.ts) */
+  --color-attention: #e8b44c;
+  --color-attention-wash: #3c3323;
+  --color-attention-ink: #e8c47b;
   /* what is written on a fill of the warning colour */
   --color-warn-on: #2a0e00;
   /* the knob of a switch that is on, over the accent */
@@ -36,6 +41,71 @@
   --color-boot: #b9a2e0;
   /* what pictures and videos are shown on: a near black that sways no colour, in every theme */
   --color-stage: #08090b;
+
+  /*
+   * The kit's scales (review 4, section 4.1). New names beside Tailwind's own, never over them: rounded-md, text-xs and the
+   * rest are used hundreds of times as they are, and the adoption pass moves them onto these one by one.
+   *
+   * Type, six steps, each with its leading and tracking as a set: micro (chips, keycaps), meta (figures, section labels),
+   * body (text and controls), title (a card's or a row's name), page (a page's title), display (rare).
+   */
+  --text-micro: 10.5px;
+  --text-micro--line-height: 1.3;
+  --text-meta: 11.5px;
+  --text-meta--line-height: 1.4;
+  --text-body: 12.5px;
+  --text-body--line-height: 1.45;
+  --text-title: 14px;
+  --text-title--line-height: 1.3;
+  --text-title--letter-spacing: -0.01em;
+  --text-page: 17px;
+  --text-page--line-height: 1.25;
+  --text-page--letter-spacing: -0.01em;
+  --text-display: 24px;
+  --text-display--line-height: 1.15;
+  --text-display--letter-spacing: -0.02em;
+  /* the tracking of an uppercase label (a section's title), which the type steps leave at 0 */
+  --tracking-label: 0.06em;
+
+  /* radii, five steps: keycaps and ticks, chips on media, controls (buttons, fields, selects), cards and menus, dialogs */
+  --radius-key: 4px;
+  --radius-chip: 7px;
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --radius-dialog: 18px;
+
+  /* a panel's padding at its sides (px-gutter) */
+  --spacing-gutter: 18px;
+
+  /* a menu, a popover or a hover card over the page; a dialog over a dimmed page (today's shadow-2xl shadow-shade/60) */
+  --shadow-pop: 0 12px 30px color-mix(in srgb, var(--color-shade) 45%, transparent);
+  --shadow-modal: 0 25px 50px -12px color-mix(in srgb, var(--color-shade) 60%, transparent);
+
+  /*
+   * The layers, from the page up. Each is today's value of what it names, so that moving a z-[N] onto a name changes no
+   * order: a panel over the page (the designer), the viewer and the usual dialog, a dialog over the viewer, the banners,
+   * popovers and the projects panel (usePanelPlace tells a dialog above them by this value), lists and toasts, the command
+   * bar and the load panel, context menus, a question asked over all of it, the restart screen, and the tooltip on top.
+   */
+  --z-index-sticky: 20;
+  --z-index-panel: 30;
+  --z-index-overlay: 40;
+  --z-index-modal: 50;
+  --z-index-banner: 65;
+  --z-index-popover: 66;
+  --z-index-toast: 70;
+  --z-index-bar: 85;
+  --z-index-menu: 90;
+  --z-index-confirm: 95;
+  --z-index-gate: 100;
+  --z-index-tip: 200;
+
+  /* the one-off entrances, on the motion set's durations and curve (below) rather than their own */
+  --animate-tip-in: tip-in var(--t-pop) var(--ease-snap);
+  --animate-peek-rise: peek-rise var(--t-pop) var(--ease-snap);
+  --animate-peek-fade: peek-fade var(--t-pop) ease-out;
+  --animate-bar-in: bar-in var(--t-pop) var(--ease-snap);
+  --animate-bar-fade: bar-fade var(--t-pop) ease-out;
 }
 
 html {
@@ -197,17 +267,18 @@ input[type="range"] {
   --t-travel: 140ms;
   --t-trail: 50ms;
 }
-/* a menu, a list, a popover: it comes from where it opens (origin set by the user of the class) */
+/* a menu, a list, a popover: it comes from where it opens. Its user sets the origin (transform-origin, the side it opens
+   from) and, for one that opens upward, --pop-from: 4px, so that it rises from below instead of dropping from above */
 @keyframes m-pop-in {
   from {
     opacity: 0;
-    transform: translateY(-4px) scale(0.98);
+    transform: translateY(var(--pop-from, -4px)) scale(0.98);
   }
 }
 @keyframes m-pop-out {
   to {
     opacity: 0;
-    transform: translateY(-2px) scale(0.99);
+    transform: translateY(calc(var(--pop-from, -4px) / 2)) scale(0.99);
   }
 }
 /* a toast slides a few pixels down into place */

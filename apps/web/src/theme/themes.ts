@@ -11,10 +11,13 @@ export const TOKENS = [
   "ink", "ink-2", "ink-3", "ink-strong",
   "accent", "accent-ink", "accent-wash",
   "good", "warn", "warn-wash", "warn-ink", "warn-on",
+  "attention", "attention-wash", "attention-ink",
   "picture", "shade", "knob", "stage", "boot",
 ] as const;
 
 type Warning = Pick<Tokens, "warn" | "warn-wash" | "warn-ink">;
+/** The role between done and failed: something that needs a look. Its own amber, so that the warning's red means failed or broken only. */
+type Attention = "attention" | "attention-wash" | "attention-ink";
 
 export interface Theme {
   id: string;
@@ -27,9 +30,14 @@ export interface Theme {
   /** Of a light theme: the dark theme whose tokens go on everything marked `data-stage`. */
   stage?: string;
   /** Everything but the accent. Its `stage` is what pictures and videos are shown on: near black in every theme. */
-  base: Omit<Tokens, "accent" | "accent-ink" | "accent-wash" | "knob" | "boot">;
+  base: Omit<Tokens, "accent" | "accent-ink" | "accent-wash" | "knob" | "boot" | Attention>;
   /** The family's reds and oranges a warning can be in, its own first: another is taken when the accent is too like it. */
   alerts: string[];
+  /**
+   * The family's ambers and golds, its own first: what needs a look (a stale join, a clip before that changed) is in one
+   * of them, the one that stands furthest from the warning and the accent in use (attentionFor).
+   */
+  ambers: string[];
   /** The warning's tokens in one of `alerts`. */
   warning(colour: string): Warning;
   /** What is written on a fill of the accent. */
@@ -78,11 +86,14 @@ const studio: Theme = {
   accents: { coral: "#ff9a73", amber: "#d9b56b", rose: "#e08aa5", lilac: "#b9a2e0", sky: "#7fb0e8", mint: "#6fc9b0" },
   base: {
     ground: "#141414", panel: "#1b1b1b", raised: "#232323", hover: "#2a2a2a", line: "#2b2b2b", "line-strong": "#3a3a3a",
-    ink: "#e8e8e8", "ink-2": "#a9a9a9", "ink-3": "#7c7c7c", "ink-strong": "#ffffff",
+    // the quietest ink at 4.86:1 on a raised field: at #7c7c7c (taken to #848484 to read on the panel) it was 4.2:1 there,
+    // short of AA for the 11 and 12 px text it is used for (review 4, P18)
+    ink: "#e8e8e8", "ink-2": "#a9a9a9", "ink-3": "#8f8f8f", "ink-strong": "#ffffff",
     good: "#6fc9b0", ...warning("#f0875e", "#1b1b1b", "#e8e8e8", false), "warn-on": "#2a0e00",
     picture: "#7fb0e8", shade: "#000000", stage: darkStage("#141414"),
   },
   alerts: ["#f0875e", "#f06a72"],
+  ambers: ["#e8b44c", "#d9b56b"],
   warning: (c) => warning(c, "#1b1b1b", "#e8e8e8", false),
   onAccent: "#151515",
   wash: 0.1,
@@ -97,6 +108,7 @@ const studioLight: Theme = {
     picture: "#2f72b3", shade: "#8a8a8a", stage: studio.base.panel,
   },
   alerts: ["#c4532a", "#c8373f"],
+  ambers: ["#a8792a"],
   warning: (c) => warning(c, "#f7f7f7", "#1d1d1d", true),
   onAccent: "#ffffff",
   wash: 0.1,
@@ -135,6 +147,7 @@ function ofCatppuccin(id: string, name: string, c: Flavor, stage?: Theme): Theme
           picture: c.blue, shade: "#000000", stage: darkStage(c.mantle),
         },
     alerts: [c.peach, c.red, c.maroon],
+    ambers: [c.yellow, c.peach],
     warning: (w) => warning(w, panel, text, light),
     onAccent: light ? "#ffffff" : c.crust,
     wash: light ? 0.1 : 0.12,
@@ -176,6 +189,9 @@ function ofRosePine(id: string, name: string, c: Variant, stage?: Theme): Theme 
         },
     // love is the warning; beside a rose accent, gold is the one that stands apart
     alerts: [c.love, c.gold, c.rose],
+    // gold is all the palette has of an amber. Beside a gold accent, or a love one (whose warning is then in gold), the
+    // rose (a peach-pink here) is the one left apart; beside a rose accent the warning is in gold, so only love is
+    ambers: [c.gold, c.rose, c.love],
     warning: warningOf,
     onAccent: light ? "#ffffff" : c.base,
     wash: light ? 0.1 : 0.12,
@@ -196,6 +212,7 @@ const tokyoNightTheme: Theme = {
     picture: tn.cyan, shade: "#000000", stage: darkStage(tn.bg_dark),
   },
   alerts: [tn.orange, tn.red],
+  ambers: [tn.yellow, tn.orange],
   warning: (w) => warning(w, tn.bg, tn.fg, false),
   onAccent: tn.bg_dark,
   wash: 0.12,
@@ -215,6 +232,7 @@ const tokyoDayTheme: Theme = {
     picture: td.cyan, shade: td.comment, stage: tokyoNightTheme.base.panel,
   },
   alerts: [td.orange, td.red],
+  ambers: [td.yellow, td.orange],
   warning: (w) => warning(w, tdPanel, tdInk, true),
   onAccent: "#ffffff",
   wash: 0.1,
@@ -234,6 +252,7 @@ const kanagawaWave: Theme = {
     picture: kw.crystalBlue, shade: "#000000", stage: darkStage(kw.sumiInk0),
   },
   alerts: [kw.waveRed, kw.surimiOrange],
+  ambers: [kw.carpYellow, kw.surimiOrange],
   warning: (w) => warning(w, kw.sumiInk3, kw.fujiWhite, false),
   onAccent: kw.sumiInk0,
   wash: 0.12,
@@ -251,6 +270,7 @@ const kanagawaLotus: Theme = {
     picture: kl.lotusBlue4, shade: kl.lotusGray3, stage: kanagawaWave.base.panel,
   },
   alerts: [kl.lotusRed, kl.lotusOrange],
+  ambers: [kl.lotusYellow, kl.lotusOrange],
   warning: (w) => warning(w, klPanel, kl.lotusInk2, true),
   onAccent: "#ffffff",
   wash: 0.1,
@@ -352,6 +372,35 @@ export function warnFor(theme: Theme, accent: string): string {
 }
 
 /**
+ * Below this many degrees of hue apart, the attention amber reads as the accent or the warning. Smaller than WARN_GAP: an
+ * amber and an orange are told apart by their lightness too, and most palettes have no amber further from their orange.
+ */
+export const ATTENTION_GAP = 15;
+/**
+ * What needs a look beside an accent and a warning: the family's own amber, unless it is too near one of the two in hue
+ * (a yellow accent; Rosé Pine's warning in gold beside a love accent), then the amber of the family that stands furthest
+ * from both.
+ */
+export function attentionFor(theme: Theme, accent: string, warn: string): string {
+  const own = theme.ambers[0]!;
+  const apart = (c: string) => Math.min(hueGap(c, accent), hueGap(c, warn));
+  if (apart(own) >= ATTENTION_GAP) return own;
+  return theme.ambers.reduce((best, c) => (apart(c) > apart(best) ? c : best), own);
+}
+
+/**
+ * The attention tokens in an amber: on a dark theme a deeper wash and a paler ink, on a light one a pale tint and a
+ * darker ink, as a warning's; each taken just far enough to read as text on its wash and on the panels and the page.
+ */
+function attentionTokens(theme: Theme, base: Theme["base"], amber: string): Pick<Tokens, Attention> {
+  const on = [base.panel, base.raised, base.ground];
+  const colour = legible(amber, on, theme.light);
+  const wash = mix(base.panel, colour, theme.light ? 0.09 : 0.16);
+  const ink = theme.light ? mix(colour, "#000000", 0.28) : mix(colour, base.ink, 0.3);
+  return { attention: colour, "attention-wash": wash, "attention-ink": legible(ink, [wash, ...on], theme.light) };
+}
+
+/**
  * What Queue › Costs draws a pod's boot in (its parts in shades of it): of the theme's accents, the one whose hue stands
  * furthest from the three it is drawn beside (the accent in use for rendering, the picture blue for fetching, the warning
  * for failed renders), so that a boot never reads as one of them whatever the accent. On a light theme it is taken just
@@ -401,5 +450,6 @@ export function tokensOf(theme: Theme, accent: string | undefined): Tokens {
     // the knob of a switch that is on: whatever is written on the accent
     knob: written,
     boot: bootColour(theme, theme.accents[name]!, warn),
+    ...attentionTokens(theme, base, attentionFor(theme, theme.accents[name]!, warn)),
   };
 }

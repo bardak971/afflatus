@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bootColour, chartColours, contrast, FAMILIES, hueGap, LEGIBLE, legible, mix, themeById, THEMES, TINT, tokensOf, VISIBLE, WARN_GAP, warnFor } from "../src/theme/themes";
+import { attentionFor, bootColour, chartColours, contrast, FAMILIES, hueGap, LEGIBLE, legible, mix, themeById, THEMES, TINT, TOKENS, tokensOf, VISIBLE, WARN_GAP, warnFor } from "../src/theme/themes";
 
 describe("the themes' text", () => {
   // every theme, with every accent it offers: the inks and the accent (links, picked items) read on the panels and on the page
@@ -67,6 +67,47 @@ describe("the themes' text", () => {
       const t = tokensOf(theme, undefined);
       for (const on of ["panel", "raised", "ground"] as const) expect(contrast(t.good, t[on]), `${theme.id}: good on ${on}`).toBeGreaterThanOrEqual(LEGIBLE);
     }
+  });
+});
+
+describe("the attention amber", () => {
+  // what needs a look (a stale join, a clip before that changed) has its own colour, so that red means failed only
+  it("is in every theme with every accent, its text readable on its wash, the panels and the page", () => {
+    for (const theme of THEMES) {
+      for (const accent of Object.keys(theme.accents)) {
+        const t = tokensOf(theme, accent);
+        for (const token of TOKENS) expect(t[token], `${theme.id} ${accent}: ${token}`).toMatch(/^#[0-9a-f]{6}$/);
+        for (const on of ["attention-wash", "panel", "raised", "ground"] as const) {
+          expect(contrast(t["attention-ink"], t[on]), `${theme.id} ${accent}: attention-ink on ${on}`).toBeGreaterThanOrEqual(LEGIBLE);
+        }
+        for (const on of ["panel", "raised", "ground"] as const) {
+          expect(contrast(t.attention, t[on]), `${theme.id} ${accent}: attention on ${on}`).toBeGreaterThanOrEqual(LEGIBLE);
+        }
+      }
+    }
+  });
+  it("is never in the warning's colour, and stands as far from it and the accent as the family allows", () => {
+    for (const theme of THEMES) {
+      for (const [name, raw] of Object.entries(theme.accents)) {
+        const warn = warnFor(theme, raw);
+        const amber = attentionFor(theme, raw, warn);
+        expect(amber, `${theme.id} ${name}`).not.toBe(warn);
+        const apart = (c: string) => Math.min(hueGap(c, raw), hueGap(c, warn));
+        if (amber !== theme.ambers[0]) for (const other of theme.ambers) expect(apart(amber), `${theme.id} ${name}`).toBeGreaterThanOrEqual(apart(other));
+      }
+    }
+  });
+  it("is the mock's amber on Studio Dark, beside its coral", () => {
+    expect(tokensOf(themeById("studio"), "coral").attention).toBe("#e8b44c");
+  });
+});
+
+describe("Studio Dark's quietest ink", () => {
+  // raised on purpose from #7c7c7c (4.2:1 on a raised field) for the 11 and 12 px text it is used for (review 4, P18)
+  it("is #8f8f8f and reads on a raised field too", () => {
+    const t = tokensOf(themeById("studio"), "coral");
+    expect(t["ink-3"]).toBe("#8f8f8f");
+    expect(contrast(t["ink-3"], t.raised)).toBeGreaterThanOrEqual(LEGIBLE);
   });
 });
 

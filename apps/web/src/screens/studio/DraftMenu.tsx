@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { ChevronDown, Film, Image as ImageIcon, Music, Plus, Search } from "lucide-react";
+import { ChevronDown, Film, Image as ImageIcon, Music, Plus } from "lucide-react";
 import { Thumb } from "../../Thumb";
 import { fuzzyFilter, REMOVED_RECIPES, removedName } from "@afflatus/core";
 import { thumbUrl, type DraftBrief, type FamilyInfo, type RecipeInfo } from "../../api";
@@ -8,7 +8,7 @@ import { plural, triedLabel, when } from "../../format";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { Keys } from "../../Keys";
 import { Popover } from "../../Popover";
-import { cx, TwoStep } from "../../ui";
+import { cx, SearchField, TwoStep } from "../../ui";
 
 /** When a draft was last changed (or started): the app's one way of saying when (format.ts `when`). */
 const changed = (iso: string, now = Date.now()): string => when(iso, now);
@@ -176,27 +176,26 @@ export function DraftMenu({ drafts: rows, open: current, titleOf, onPick, onNew,
       </button>
       {shown && (
         <Popover anchor={button} onClose={close} label="Drafts" width={420} height={560}>
-          <label className="flex h-11 shrink-0 items-center gap-2 border-b border-line px-3">
-            <Search size={14} className="shrink-0 text-ink-3" />
-            <input
-              autoFocus
-              data-search="drafts"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setAt(0);
-              }}
-              onKeyDown={onKeys}
-              role="combobox"
-              aria-expanded
-              aria-controls={`${ids}-list`}
-              aria-activedescendant={active ? optionId(active) : undefined}
-              placeholder="Search drafts by name, prompt or model"
-              aria-label="Search drafts"
-              className="min-w-0 grow bg-transparent text-sm outline-none placeholder:text-ink-3"
-            />
-            <Keys keys="Esc" size="sm" />
-          </label>
+          <SearchField
+            look="head"
+            autoFocus
+            data-search="drafts"
+            value={query}
+            onChange={(text) => {
+              setQuery(text);
+              setAt(0);
+            }}
+            onKeyDown={onKeys}
+            role="combobox"
+            aria-expanded
+            aria-controls={`${ids}-list`}
+            aria-activedescendant={active ? optionId(active) : undefined}
+            placeholder="Search drafts by name, prompt or model"
+            label="Search drafts"
+            className="h-11 gap-2 px-3"
+            inputClassName="text-sm"
+            end={<Keys keys="Esc" size="sm" />}
+          />
           <button type="button" onClick={() => { close(); onNew(); }} className="flex h-12 shrink-0 items-center gap-2.5 border-b border-line px-3 text-left font-semibold hover:bg-hover">
             <span className="flex h-9 w-9 items-center justify-center rounded-[3px] border border-dashed border-line-strong text-ink-2"><Plus size={14} /></span>
             <span className="grow">New draft</span>

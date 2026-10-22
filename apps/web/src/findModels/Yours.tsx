@@ -1,12 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { Check, Plus, Search } from "lucide-react";
+import { Check, Plus } from "lucide-react";
 import { fileKey } from "@afflatus/core";
 import { api, type DeployFile } from "../api";
 import { plural, size } from "../format";
 import { useSettled } from "../hooks";
 import { filesOfPick, ViaChip } from "../modelFilesUi";
 import { queryKeys } from "../queryKeys";
-import { cx, ErrorNote, fieldClass } from "../ui";
+import { cx, ErrorNote, SearchField } from "../ui";
 import type { PickedFile } from "./store";
 
 /** One of the user's own: a preset or a family's usual files, as a card; + picks all its files. */
@@ -50,10 +50,7 @@ export function Yours({ words, onWords, picked, onPick }: { words: string; onWor
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="border-b border-line px-4 py-2.5">
-        <label className={cx(fieldClass, "flex h-9 items-center gap-2 px-3")}>
-          <Search size={14} className="text-ink-3" />
-          <input autoFocus value={words} onChange={(e) => onWords(e.target.value)} placeholder="Your presets, your families, this PC's files" className="min-w-0 grow bg-transparent outline-none placeholder:text-ink-3" />
-        </label>
+        <SearchField autoFocus value={words} onChange={onWords} label="Search your presets, families and files" placeholder="Your presets, your families, this PC's files" />
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4">
         {found.isError && <ErrorNote>{found.error.message}</ErrorNote>}

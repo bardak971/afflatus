@@ -1,7 +1,8 @@
 import { relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { sharedFindings, sources } from "../../../scripts/check-shared";
+import { readFileSync } from "node:fs";
+import { DESIGN_RULES, designCounts, overBudget, sharedFindings, sources } from "../../../scripts/check-shared";
 
 // the guard `pnpm lint` runs: what it refuses, and what it leaves alone
 describe("the shared helpers' guard", () => {
@@ -41,5 +42,44 @@ describe("the shared helpers' guard", () => {
     expect(read.some((p) => p.endsWith(".test.ts"))).toBe(false);
     expect(why("scripts/check-graphs.ts", "console.log(`${bad} problem${bad === 1 ? \"\" : \"s\"}`);")).toEqual(["a plural made inline"]);
     expect(why("scripts/check-shared.ts", " *   - a plural made inline (`=== 1 ? \"\" : \"s\"`)")).toEqual([]);
+  });
+});
+
+// the web app's design held to a budget (review 4, section 4.3): a count may only come down
+describe("the design budget", () => {
+  const one = (file: string, text: string) => designCounts([{ file, text }]);
+  it("counts what the kit or a token does, written by hand in the web app", () => {
+    const line = '<button className="h-7 w-7 rounded-[10px] text-[11px] tracking-[0.08em] z-[70] bg-white"><X size={14} /></button>';
+    expect(one("apps/web/src/x.tsx", line)).toEqual({
+      "font-size": 1, radius: 1, "z-index": 1, tracking: 1, "raw-colour": 1, "close-icon": 1, "pulse-spin": 0, "icon-button": 1, "animate-motion": 0,
+    });
+    expect(one("apps/web/src/x.tsx", '<span className="animate-spin" /><div className="animate-pulse bg-[#ff0000]" />')).toMatchObject({ "pulse-spin": 2, "raw-colour": 1 });
+    // the tokens themselves are not counted
+    expect(Object.values(one("apps/web/src/x.tsx", '<IconButton label="Zoom" className="text-meta rounded-control z-popover tracking-label size-8" />')).every((n) => n === 0)).toBe(true);
+  });
+  it("leaves the kit, the charts and the server alone", () => {
+    expect(one("apps/web/src/ui.tsx", '<button className="size-8"><X /></button> animate-spin')).toMatchObject({ "close-icon": 0, "icon-button": 0, "pulse-spin": 0 });
+    expect(one("apps/web/src/screens/queue/CostsChart.tsx", 'fill="[#ff8800]"')["raw-colour"]).toBe(0);
+    expect(Object.values(one("apps/server/src/x.ts", "text-[11px] z-[9]")).every((n) => n === 0)).toBe(true);
+  });
+  it("counts a script animation only in a file that never asks motionAllowed", () => {
+    expect(one("apps/web/src/x.ts", "el.animate([{ opacity: 0 }], 100); row.animate?.([], 1);")["animate-motion"]).toBe(2);
+    expect(one("apps/web/src/x.ts", "if (motionAllowed()) el.animate([{ opacity: 0 }], 100);")["animate-motion"]).toBe(0);
+  });
+  it("fails a count that went up, and asks to lower a budget a count went under", () => {
+    const budget = Object.fromEntries(DESIGN_RULES.map((r) => [r.id, 5]));
+    const { up, down } = overBudget({ ...budget, radius: 6, "z-index": 4 }, budget);
+    expect(up).toHaveLength(1);
+    expect(up[0]).toMatch(/^radius: 6, over its budget of 5/);
+    expect(down).toEqual(["z-index: 4, under its budget of 5"]);
+    // a rule with no budget yet is held at nothing
+    expect(overBudget({ "font-size": 1 }, {}).up).toHaveLength(1);
+  });
+  it("holds today's counts: the budget file names every rule, and the sources keep within it", () => {
+    const root = fileURLToPath(new URL("../../..", import.meta.url));
+    const budget = JSON.parse(readFileSync(`${root}scripts/design-budget.json`, "utf8")) as Record<string, number>;
+    expect(Object.keys(budget).sort()).toEqual(DESIGN_RULES.map((r) => r.id).sort());
+    const files = sources(root).map((p) => ({ file: relative(root, p).replace(/\\/g, "/"), text: readFileSync(p, "utf8") }));
+    expect(overBudget(designCounts(files), budget).up).toEqual([]);
   });
 });

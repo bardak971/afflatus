@@ -229,7 +229,7 @@ export function Preview({ item, detail, recipes, settingCtx, extra }: {
     </>
   );
   return (
-    <aside aria-label="Preview" className={cx("flex w-[380px] shrink-0 flex-col gap-3.5 overflow-y-auto border-l border-line bg-panel/60 p-[18px]", "animate-[bar-fade_120ms_ease-out] motion-reduce:animate-none")}>
+    <aside aria-label="Preview" className={cx("flex w-[380px] shrink-0 flex-col gap-3.5 overflow-y-auto border-l border-line bg-panel/60 p-[18px]", "animate-bar-fade motion-reduce:animate-none")}>
       {body}
     </aside>
   );
