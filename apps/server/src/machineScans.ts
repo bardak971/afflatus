@@ -165,7 +165,7 @@ export function lackOn(
   const slots = scan.families.find((f) => f.id === recipe.family)?.slots ?? [];
   // the family's files this input asks for (Turbo's LoRAs): without them it would run, but not as asked. A model left
   // out of the form is the family's file there, as the build loads it (a distilled one asks for no turbo LoRA)
-  const asks = recipe.needsWith?.(input, slotFilesOf(slots)) ?? [];
+  const asks = recipe.needsWith?.(input, slotFilesOf(slots), { own: !machine.rented }) ?? [];
   const lacking = slots.filter((x) => asks.includes(x.id) && !x.file && !soft(x.id));
   if (status?.ready && on && !asked.length && !lacking.length) return null;
   // a family file the job's own pick fills is not asked for as the family's usual file (a pod would fetch a model it never uses)

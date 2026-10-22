@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
-import { dryContext, graphFiles, missingSlotFile, missingSlotIn, parseInput, type GraphFile } from "@afflatus/core";
-import { h3, h3Video, ltxVideo, wanVideo } from "@afflatus/recipes";
+import { dryContext, graphFiles, missingSlotFile, missingSlotIn, nodesOfPack, parseInput, type GraphFile } from "@afflatus/core";
+import { h3, h3Video, ltxVideo, recipeById, UPSCALE, wanVideo } from "@afflatus/recipes";
 import { newId, now, OWNER } from "../src/db";
 import { loadedOn, offeredOn, podSlotFiles } from "../src/jobFiles";
 import type { QueueCore } from "../src/queueModel";
@@ -181,6 +181,32 @@ describe("podSlotFiles, one name per slot", () => {
   });
 });
 
+describe("a Motion transfer window carrying on with no cast picture, on a machine of the user's own", () => {
+  const h3MotionTransfer = recipeById("h3.motion")!;
+  const status = (id: string, file: string | null) => ({ id, label: id, folder: slot(id).folder, file, choices: [], auto: null, chosen: false, optional: Boolean(slot(id).optional), hint: "" });
+  const input = parseInput(h3MotionTransfer, { picture: "zz-test-picture", source: { asset: "v1" }, previous: { asset: "w1" }, references: [] }) as Record<string, unknown>;
+  // every family file there but the reference model's
+  const there = h3.slots.filter((s) => !s.optional).map((s) => status(s.id, `${s.id}.safetensors`));
+
+  it("is built there on the frames carried alone, not given the reference model to wait for; a pod is sent it", () => {
+    expect(podSlotFiles(h3MotionTransfer, input, h3.slots, there, null).refUnet).toBe(download("refUnet"));
+    expect(podSlotFiles(h3MotionTransfer, input, h3.slots, there, null, true).refUnet).toBeUndefined();
+    // the machine's own reference model is used where it has one, and a cast picture still needs it
+    expect(podSlotFiles(h3MotionTransfer, input, h3.slots, [...there, status("refUnet", "mine.safetensors")], null, true).refUnet).toBe("mine.safetensors");
+    expect(podSlotFiles(h3MotionTransfer, { ...input, references: [{ asset: "zz-test-person", role: "person" }] }, h3.slots, there, null, true).refUnet).toBe(download("refUnet"));
+  });
+
+  it("is not kept off it for want of the reference model by its family's slots either (its graph not built)", () => {
+    const scan: Scan = {
+      at: "now", comfy: { online: true, url: "x", nodes: 1 } as Scan["comfy"], families: [{ id: "h3", slots: h3.slots.map((s) => ({ ...status(s.id, s.optional ? null : `${s.id}.safetensors`), ...(s.get ? { get: s.get } : {}) } as never)) }],
+      recipes: [{ id: "h3.motion", ready: true, missingNodes: [], missingSlots: [], emptyInputs: [], missingFiles: [], missing: [], problems: [], limitedBy: [], options: {} }],
+    };
+    const rented = { families: {}, rented: { provider: "runpod" } as never };
+    expect(lackOn(h3MotionTransfer, input, scan, { families: {} }, rented, () => "h3", null)?.files.map((f) => f.file)).toContain(download("refUnet"));
+    expect(lackOn(h3MotionTransfer, input, scan, { families: {} }, { families: {} }, () => "h3", null)?.files.map((f) => f.file) ?? []).not.toContain(download("refUnet"));
+  });
+});
+
 describe("lackOn from what the job's graph loads", () => {
   const ready: RecipeStatus = { id: "h3.swap", ready: false, missingNodes: [], missingSlots: ["unet"], emptyInputs: [], missingFiles: [], missing: [], problems: [], limitedBy: [], options: {} };
   const pod = (over: Partial<RecipeStatus> = {}): Scan => ({ at: "now", comfy: { online: true, url: "x", nodes: 1 } as Scan["comfy"], families: [{ id: "h3", slots: h3.slots.map((s) => ({ ...s, file: null, choices: [], auto: null, chosen: false, optional: Boolean(s.optional), hint: "" })) }], recipes: [{ ...ready, ...over }] });
@@ -273,6 +299,28 @@ describe("an option's files and node packs on a pod", () => {
       expect(loaded).toMatchObject({ missingNodes: ["UnetLoaderGGUF"] });
       expect(loaded?.absent.map((f) => f.file)).not.toContain(GGUF);
       expect(podLack(loaded, on.scan)).toMatchObject({ sendable: true, packs: ["comfyui-gguf"] });
+    } finally {
+      await other.close();
+    }
+  });
+
+  it("a latent finish this PC lacks the MMH3 pack for: built for a pod with every node, its files counted, the pack said where it lacks (every new pod refused it)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // this PC's ComfyUI without the pack, the pod as the image makes it, with it
+    const MMH3 = nodesOfPack("Comfyui-MMH3-UltimateUpscale");
+    for (const n of MMH3) delete (fake.catalog as Record<string, unknown>)[n];
+    const latent = row("h3.video", { description: "a red ball rolls", seconds: 5, upscale: UPSCALE.latent });
+    const fresh = await t.services.queue.loadedOnNew(latent);
+    expect(fresh?.refused).toBeUndefined();
+    expect(fresh?.files.map((f) => f.file)).toContain(download("unet"));
+    expect(warn).not.toHaveBeenCalledWith(expect.stringMatching(/its graph cannot be built/));
+    // a pod without the pack (RunPod's own image): it lacks the pack, which is sent
+    const { other, on } = await pod(MMH3);
+    try {
+      const loaded = await loadedOn(core(), latent, on);
+      expect(loaded?.refused).toBeUndefined();
+      expect(loaded?.missingNodes).toEqual(expect.arrayContaining(["MMH3UltimateUpscale"]));
+      expect(podLack(loaded, on.scan)).toMatchObject({ sendable: true, packs: ["Comfyui-MMH3-UltimateUpscale"] });
     } finally {
       await other.close();
     }

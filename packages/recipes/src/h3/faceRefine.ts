@@ -61,10 +61,12 @@ export function facePicture(input: Pick<H3Video, "references">, ctx: Pick<BuildC
  * latent): the fused reference turbo and the face detector, the person detector and SAM the pass uses when they are there
  * (a pod is sent only what its graph loads: SAM only where its nodes are), and with `own` (a recipe that is not H3's) H3's
  * text encoder and VAEs. Optional in the family, they were asked for by no form: on a fresh pod the pass was left out, and
- * a Finish › Face refine was a paid decode of the take as it was.
+ * a Finish › Face refine was a paid decode of the take as it was. None for a clip with no person's picture to refine
+ * towards (a cast person or a reference picture; `picture`: the recipe's own picture stands in, as SCAIL's), which the
+ * pass leaves as it is (faceRefineSkipped): a machine without them was held for files it never loads.
  */
-export function faceRefineNeeds(input: Partial<Pick<H3Video, "faceRefine">>, opts: { own?: boolean } = {}): string[] {
-  if (!input.faceRefine) return [];
+export function faceRefineNeeds(input: Partial<Pick<H3Video, "faceRefine" | "references">>, opts: { own?: boolean; picture?: boolean } = {}): string[] {
+  if (!input.faceRefine || (!(input.references ?? []).length && !opts.picture)) return [];
   return ["faceRefineUnet", "faceDetector", "faceSeg", "faceSam", ...(opts.own ? ["faceClip", "faceVideoVae", "faceAudioVae"] : [])];
 }
 

@@ -94,7 +94,7 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
     ],
     needs: ["dpo", "turbo", "clipVision", "sam"],
     // RIFE with "RIFE ×2" on, Face refine's files (H3's, its text encoder and VAEs too) with it on
-    needsWith: (input) => [...rifeNeeds(input.smooth), ...(o.faceRefine ? faceRefineNeeds(input, { own: true }) : [])],
+    needsWith: (input) => [...rifeNeeds(input.smooth), ...(o.faceRefine ? faceRefineNeeds(input, { own: true, picture: Boolean(input.picture) }) : [])],
     nodes: (input) => [
       ...MOTION_NODES, "UNETLoader", "LoraLoaderModelOnly", "CLIPLoader", "VAELoader", "CLIPTextEncode", "CLIPVisionLoader", "CLIPVisionEncode",
       "CheckpointLoaderSimple", "SAM3_VideoTrack", "SCAIL2ColoredMask", "WanSCAILToVideo", "ModelSamplingSD3", "KSamplerSelect", "BasicScheduler", "SamplerCustom", "VAEDecode",
