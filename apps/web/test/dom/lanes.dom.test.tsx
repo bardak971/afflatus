@@ -82,14 +82,37 @@ describe("the end column (the lanes mock, 2026-10-22)", () => {
     expect(screen.queryByLabelText(/^Source: none/)).toBeNull();
   });
 
-  it("is pinned at the view's right edge only while the clips run past the view", () => {
-    // the clips end in view, the column cut by the edge: it stays after them (it was pulled left over clip 2's Audio cell)
-    expect(endColumnAt(900, PAD, { left: 0, width: 1000 })).toEqual({ left: 910, pinned: false });
+  it("is the full column only where all of it fits after the clips, else the strip: after them while it fits there, else pinned at the view's right edge (W-20)", () => {
+    // the full column after the clips, in view
+    expect(endColumnAt(600, PAD, { left: 0, width: 1000 })).toEqual({ left: 610, pinned: false });
+    // the clips end in view, the full column would be cut by the edge: the strip, after them (the column pulled left sat
+    // over clip 2's Audio cell)
+    expect(endColumnAt(900, PAD, { left: 0, width: 1000 })).toEqual({ left: 910, pinned: true });
+    // the strip itself would be cut by the edge: at the edge, over the end of the last clip
+    expect(endColumnAt(980, PAD, { left: 0, width: 1000 })).toEqual({ left: 1000 - STRIP, pinned: true });
     expect(endColumnAt(2000, PAD, { left: 0, width: 1000 })).toEqual({ left: 1000 - STRIP, pinned: true });
     // scrolled to the end, the clips' end in view again: after them
     expect(endColumnAt(2000, PAD, { left: 1500, width: 1000 })).toEqual({ left: 2010, pinned: false });
     // not measured yet: after the clips
     expect(endColumnAt(2000, PAD, { left: 0, width: 0 })).toEqual({ left: 2010, pinned: false });
+  });
+
+  it("gives Fit all the whole track but for the strip, and shows the strip after the clips it fitted (W-20)", async () => {
+    const wide = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1000);
+    try {
+      const zooms: number[] = [];
+      // three clips not rendered yet: 15 s, fitted on arriving
+      track([clip("a", 0), clip("b", 5000), clip("c", 10_000)], { onZoom: (pps) => zooms.push(pps) });
+      await waitFor(() => expect(zooms).toHaveLength(1));
+      const room = 1000 - STRIP - PAD * 3;
+      expect(zooms[0]).toBeCloseTo(room / 15);
+      // where the clips end at that zoom: the strip after them, whole in the view, over none of them
+      const end = PAD + room;
+      expect(endColumnAt(end, PAD, { left: 0, width: 1000 })).toEqual({ left: end + PAD, pinned: true });
+      expect(end + PAD + STRIP).toBeLessThanOrEqual(1000);
+    } finally {
+      wide.mockRestore();
+    }
   });
 
   it("is a slim strip of icons while pinned, each with its words in the tip, its drop and its menu; the full column once the clips end in view", () => {
