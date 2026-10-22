@@ -328,7 +328,7 @@ describe("drags on the track, drawn", () => {
     function Lane() {
       const [t, setT] = useState(timeline);
       readBack = setT;
-      return <SourceLane timeline={t} place={place} recipes={[model]} pps={50} width={2000} selected={false} over={false} onDragOver={() => {}} onSelect={() => {}} onStretch={onStretch} onPeek={() => {}} />;
+      return <SourceLane timeline={t} place={place} recipes={[model]} pps={50} selected={false} over={false} onDragOver={() => {}} onSelect={() => {}} onStretch={onStretch} onPeek={() => {}} />;
     }
     draw(<Lane />);
     const end = () => screen.getByRole("separator", { name: /stops in the source/ });
