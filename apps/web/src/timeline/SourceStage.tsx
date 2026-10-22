@@ -163,6 +163,7 @@ export const SourceStage = forwardRef<PlayerHandle, {
   };
   return (
     <div ref={box} data-stage className="relative flex min-h-0 grow items-center justify-center bg-stage">
+      {/* design: the letterbox is black whatever the theme, as the video's own bars are */}
       <div className="relative overflow-hidden bg-black" style={{ width: w, height: fh }}>
         <video
           key={video.id}

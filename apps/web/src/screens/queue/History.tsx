@@ -293,6 +293,7 @@ function Thumb({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): 
   const first = made[0];
   const box = "relative flex h-9 w-16 @max-[420px]/history:w-12 items-center justify-center overflow-hidden rounded-chip bg-raised text-ink-3";
   if (!first || head.kind === "cut" || head.kind === "export" || first.kind === "audio") {
+    // design: the × is the cancelled job's status icon in its thumbnail, not a close
     const icon = head.kind === "export" ? <FileOutput size={15} /> : head.kind === "cut" ? <Scissors size={15} /> : head.kind === "load" ? <Loader2 size={15} /> : first?.kind === "audio" ? <Music size={15} /> : head.status === "cancelled" ? <X size={15} /> : <Play size={15} />;
     return first ? <button type="button" aria-label={`Open ${first.name || first.kind}`} onClick={() => onOpen(first.id)} className={cx(box, "hover:text-ink")}>{icon}</button> : <span className={box}>{icon}</span>;
   }

@@ -474,6 +474,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
             {deploy.isPending ? "Deploying…" : picked ? `Deploy · ${usd(withDisk(picked.price))}/h` : "Deploy"}
           </button>
           )}
+          {/* design: the split button's second half, joined to Deploy's coral, not an icon button of its own */}
           <button type="button" aria-label="More: save as the next deploy" data-tip="Save these choices as the next deploy's, without deploying" onClick={(e) => more.open(e, true)} disabled={!want.gpu || changing} className="flex h-10 w-9 items-center justify-center rounded-r-lg border-l border-accent-ink/25 bg-accent text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
             <ChevronDown size={15} />
           </button>

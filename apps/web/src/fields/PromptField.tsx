@@ -53,7 +53,8 @@ function TagCheck({ text, ignore, onChange }: { text: string; ignore: string[]; 
         aria-expanded={open}
         onClick={() => setOpen(!open)}
         data-tip="Anime models learned danbooru's tags: another word does little, a typo nothing"
-        className="flex items-center gap-1 self-start rounded-md text-xs text-warn-ink hover:underline"
+        // amber: a tag to look at, nothing broken (the render goes either way); red is for what failed
+        className="flex items-center gap-1 self-start rounded-md text-xs text-attention-ink hover:underline"
       >
         {plural(issues.length, "tag")} {issues.length > 1 ? "are" : "is"} not on danbooru's list{fixable.length ? ` · ${fixable.length} to fix` : ""}
         <ChevronDown size={12} />

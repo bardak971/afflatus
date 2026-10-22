@@ -313,7 +313,7 @@ function Idle({ last, machines }: { last: Job | null; machines: MachineState[] }
 
 /**
  * The renders of the project that nobody kept, which go to the bin by themselves: how many and when the next goes
- * ("23 expiring · 3 h"), in the warning colour when it goes within the hour; nothing when there are none. Its panel
+ * ("23 expiring · 3 h"), amber when it goes within the hour; nothing when there are none. Its panel
  * says when the last goes, shows only them in the library, or keeps them all.
  */
 function Expiring() {
@@ -352,7 +352,8 @@ function Expiring() {
         // it comes after the rest of the strip (its count is a query of its own): it fades in rather than pops
         className={cx(
           "m-fade inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs whitespace-nowrap transition-colors hover:brightness-125",
-          said.soon ? "bg-warn-wash text-warn-ink" : "bg-hover text-ink-2",
+          // amber within the hour: it asks for a look (Keep), nothing failed
+          said.soon ? "bg-attention-wash text-attention-ink" : "bg-hover text-ink-2",
           open && "ring-1 ring-accent",
         )}
       >

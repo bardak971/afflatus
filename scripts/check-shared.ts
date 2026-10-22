@@ -115,6 +115,26 @@ const matches = (re: RegExp, text: string) => text.match(re)?.length ?? 0;
 /** The kit itself, where the one spinner, the one close and the icon button are made. */
 const KIT = /^apps\/web\/src\/ui\.tsx$/;
 
+/**
+ * The marker that takes a line out of the design rules: a comment `// design: <why>` (or `{/* design: <why> *\/}`) at
+ * the end of the line, or alone on the line just above it, saying why the line is not a hand-made copy of a kit piece or
+ * a token (a stat figure bigger than display, the player's letterbox black, a dot that pulses to mean "live"). The
+ * reason is required, so the budget counts only the real one-offs and each exception says where it stands and why. A
+ * marker at the end of a line covers that line alone, so one cannot let a neighbour through unseen.
+ */
+const MARKER = /\/[/*]\s*design:\s*\S/;
+/** A marker alone on its line, a comment and nothing else: it speaks for the line below. */
+const MARKER_ALONE = /^\s*(?:\/\/|\{?\/\*)\s*design:\s*\S/;
+
+/**
+ * The text with its marked lines blanked, so the rules do not count them (the lines keep their places).
+ * @internal exported for the test
+ */
+export function unmarked(text: string): string {
+  const lines = text.split("\n");
+  return lines.map((l, i) => (MARKER.test(l) || (i > 0 && MARKER_ALONE.test(lines[i - 1]!)) ? "" : l)).join("\n");
+}
+
 /** The rules, in the order of the review's list (section 4.3; rule 10, the banned words, is `wordFindings`, which fails outright). */
 export const DESIGN_RULES: DesignRule[] = [
   { id: "font-size", why: "an arbitrary font size (text-[Npx]): use the type scale (text-micro … text-display)", count: (_f, t) => matches(/\btext-\[\d+(?:\.\d+)?px\]/g, t) },
@@ -127,7 +147,22 @@ export const DESIGN_RULES: DesignRule[] = [
     // the charts and the transitions' looks draw in colours of their own
     count: (f, t) => (/\.tsx$/.test(f) && !/transitionLook|[Cc]hart/.test(f) ? matches(/\bbg-(?:red|amber|zinc|gray|neutral|slate|white|black)\b|\[#[0-9a-fA-F]{3,8}\]/g, t) : 0),
   },
-  { id: "close-icon", why: "an × of its own (<X>): use CloseButton", count: (f, t) => (KIT.test(f) ? 0 : matches(/<X\b/g, t)) },
+  {
+    id: "close-icon",
+    why: "an × of its own (<X>): use CloseButton",
+    // An × that is a menu row's icon (`icon: <X …/>`, drawn by the menu beside its words) or the glyph given to an
+    // IconButton on its line is not a close of its own. The track's stop in a queued clip's box is drawn at 16 px inside
+    // the clip, under the kit's smallest size (taken at 24 through its ::before); it is let through by its one shape,
+    // the 10 px × alone on its line in TrackClip.tsx.
+    count: (f, t) =>
+      KIT.test(f)
+        ? 0
+        : t
+            .split("\n")
+            .map((l) => l.replace(/\bicon:\s*<X\b/g, "").replace(/<(?:IconButton|CloseButton)\b.*/, ""))
+            .map((l) => (f === "apps/web/src/timeline/track/TrackClip.tsx" ? l.replace(/^\s*<X size=\{10\} \/>\s*$/, "") : l))
+            .reduce((n, l) => n + matches(/<X\b/g, l), 0),
+  },
   { id: "pulse-spin", why: "animate-pulse or animate-spin: use .m-skeleton or Spinner", count: (f, t) => (KIT.test(f) ? 0 : matches(/\banimate-(?:pulse|spin)\b/g, t)) },
   {
     id: "icon-button",
@@ -150,7 +185,8 @@ export function designCounts(files: Array<{ file: string; text: string }>): Reco
   const counts: Record<string, number> = Object.fromEntries(DESIGN_RULES.map((r) => [r.id, 0]));
   for (const { file, text } of files) {
     if (!designed(file)) continue;
-    for (const r of DESIGN_RULES) counts[r.id] = (counts[r.id] ?? 0) + r.count(file, text);
+    const counted = unmarked(text);
+    for (const r of DESIGN_RULES) counts[r.id] = (counts[r.id] ?? 0) + r.count(file, counted);
   }
   return counts;
 }
@@ -227,7 +263,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const rule = DESIGN_RULES.find((r) => r.id === process.argv[listed + 1]);
     if (!rule) throw new Error(`--list takes a rule: ${DESIGN_RULES.map((r) => r.id).join(", ")}`);
     for (const { file, text } of files) {
-      const n = designed(file) ? rule.count(file, text) : 0;
+      const n = designed(file) ? rule.count(file, unmarked(text)) : 0;
       if (n) console.log(`${file}: ${n}`);
     }
     // The shared findings are printed above whatever the rule, so a listing run fails on them as the lint does.

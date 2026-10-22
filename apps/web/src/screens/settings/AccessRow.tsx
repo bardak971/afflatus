@@ -58,7 +58,7 @@ export function useAccessActions(id: string, label: string, probe: MachineProbe 
 /** A small pill: the lock's state at a glance, its icon and word in the state's colour. */
 function Pill({ locked, children }: { locked: boolean; children: string }) {
   return (
-    <span className={cx("inline-flex shrink-0 items-center gap-1.5 self-start rounded-full border py-[3px] pl-2 pr-2.5 text-xs font-semibold", locked ? "border-good/35 bg-good/10 text-good" : "border-warn/40 bg-warn-wash text-warn-ink")}>
+    <span className={cx("inline-flex shrink-0 items-center gap-1.5 self-start rounded-full border py-[3px] pl-2 pr-2.5 text-xs font-semibold", locked ? "border-good/35 bg-good/10 text-good" : "border-attention/40 bg-attention-wash text-attention-ink")}>
       {locked ? <Lock size={13} strokeWidth={2.2} /> : <LockOpen size={13} strokeWidth={2.2} />}
       {children}
     </span>

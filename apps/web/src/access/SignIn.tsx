@@ -218,6 +218,7 @@ export function SignIn({ state, onIn }: { state: SessionState; onIn(): void }) {
               <input
                 ref={codeField} value={code} onChange={(e) => setCode(codeShown(e.target.value))} autoComplete="one-time-code" spellCheck={false} autoCapitalize="characters"
                 placeholder="K7M2P-9XQ4R" aria-invalid={said !== null}
+                // design: a code's characters spaced apart to be read and typed one by one, not a label's tracking
                 className={cx("h-12 text-center font-mono text-xl tracking-[0.18em] placeholder:text-ink-3/50", fieldClass)}
               />
             </label>

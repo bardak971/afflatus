@@ -59,7 +59,8 @@ function MachineFacts({ probe, state, rented }: { probe: MachineProbe | undefine
       </span>
     ),
     access?.state === "locked" && <span key="lock" className="inline-flex items-center gap-1 font-semibold text-good" data-tip={access.fixed ? (rented ? "Locked from its first second: Afflatus set its token in the pod's environment" : "Locked by its start settings (AFFLATUS_TOKEN)") : "Locked: every call needs its token, which Afflatus keeps"}><Lock size={12} strokeWidth={2.2} />Locked</span>,
-    access?.state === "open" && <span key="lock" className="inline-flex items-center gap-1 font-semibold text-warn-ink"><LockOpen size={12} strokeWidth={2.2} />Not locked</span>,
+    // not locked asks for a look (amber); locked with another token is broken: Afflatus cannot call it (red)
+    access?.state === "open" && <span key="lock" className="inline-flex items-center gap-1 font-semibold text-attention-ink"><LockOpen size={12} strokeWidth={2.2} />Not locked</span>,
     access?.state === "wrong" && <span key="lock" className="inline-flex items-center gap-1 font-semibold text-warn-ink"><Lock size={12} strokeWidth={2.2} />Locked with another token</span>,
   ].filter(Boolean);
   const noPack = probe?.online && !probe.pack && !rented;

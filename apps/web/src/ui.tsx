@@ -3,6 +3,7 @@ import { Check, Search, Trash2, X } from "lucide-react";
 import { cx } from "./cx";
 import { Progress } from "./progress/Progress";
 import { snapTo } from "./snap";
+import { useFit } from "./useFit";
 import { PANEL, useExplain, usePanelWidth } from "./store";
 
 /** The few shapes every screen shares, so that a button looks the same wherever it is. */
@@ -242,7 +243,7 @@ export function NumberBox({ value, min, max, step = 1, unit, label, id, onCommit
 }
 
 /** `bare`: the switch alone, where what it switches is already written beside it; the label is still what a screen reader says. */
-export function Toggle({ on, onChange, label, note, bare, disabled }: { on: boolean; onChange(on: boolean): void; label: string; note?: string; bare?: boolean; disabled?: boolean }) {
+export function Toggle({ on, onChange, label, note, bare, disabled, tip }: { on: boolean; onChange(on: boolean): void; label: string; note?: string; bare?: boolean; disabled?: boolean; tip?: string }) {
   return (
     <div className={cx("flex items-center gap-2.5", disabled && "opacity-50")}>
       <button
@@ -250,6 +251,7 @@ export function Toggle({ on, onChange, label, note, bare, disabled }: { on: bool
         role="switch"
         aria-checked={on}
         aria-label={label}
+        data-tip={tip}
         disabled={disabled}
         onClick={() => onChange(!on)}
         className={cx(
@@ -424,6 +426,7 @@ export function Segmented<T extends string>({ value, options, onChange, label, o
       <span
         ref={pill}
         aria-hidden
+        // design: the pill's radius is the group's 12 less its 3 px inset, so the two curves run side by side
         className="pointer-events-none absolute rounded-[9px] bg-line-strong motion-safe:data-[travel]:[transition:left_var(--t-travel)_var(--ease-snap)_var(--edge-l),right_var(--t-travel)_var(--ease-snap)_var(--edge-r),top_var(--t-travel)_var(--ease-snap)]"
       />
       {options.map((o) => (
@@ -435,7 +438,7 @@ export function Segmented<T extends string>({ value, options, onChange, label, o
           data-tip={o.tip}
           onClick={() => onChange(o.value)}
           className={cx(
-            // over the pill
+            // design: over the pill, at its radius (the group's 12 less its 3 px inset)
             "relative grow rounded-[9px] whitespace-nowrap transition-colors",
             size === "md" ? "h-[30px] px-3 text-body" : "h-[26px] px-2.5 text-xs",
             mono && "font-mono",
@@ -613,14 +616,40 @@ export function SectionTitle({ level = "section", className, children }: { level
  * The head of a page (Queue, Settings, Prompt kit, Workflows): its title, then what switches its views (the page's
  * Segmented), then its actions on the right, at one height, so that the title and the views are where the eye left them
  * on the page before. Its side room is the pages' own (px-8), so the title stands over what the page lists.
+ *
+ * In a narrow window the actions fold before the views do: `actions` given as a function is drawn at a fold level, from
+ * 0 (all of it) to `folds` (the most compact), one step more each time the header runs out of room (useFit), and the
+ * page decides what each step gives up (a status in fewer words, a switch without its label, a search for its icon, a
+ * button's words for an icon and its tip). `after` may fold too, but only what rides on the views (a figure in a tab),
+ * never a tab. `titleYields`: at the last step the title is read by screen readers only (Settings, whose nine tabs
+ * and the sidebar already say where one is). Only past the last step do the views scroll sideways, so no tab is hidden
+ * while room can still be made. `foldKey`: what the actions hold changed (another view), so fold again from nothing.
+ * The header does not clip (a search's list of finds hangs below it): it stays on one line, and its width is the page's.
+ * Its room is measured inside the side padding: a row that ran into the padding read as fitting (Prompt kit's New button
+ * against the window's edge at 1024 px).
  */
-export function PageHeader({ title, after, actions, className }: { title: ReactNode; after?: ReactNode; actions?: ReactNode; className?: string }) {
+export function PageHeader({ title, after, actions, folds = 0, foldKey, titleYields, className }: {
+  title: ReactNode;
+  after?: ReactNode | ((fold: number) => ReactNode);
+  actions?: ReactNode | ((fold: number) => ReactNode);
+  folds?: number;
+  foldKey?: string;
+  titleYields?: boolean;
+  className?: string;
+}) {
+  const bar = useRef<HTMLDivElement>(null);
+  const fold = useFit(bar, folds, foldKey);
+  const views = typeof after === "function" ? after(fold) : after;
   return (
-    <header className={cx("flex h-14 shrink-0 items-center gap-3.5 border-b border-line px-8", className)}>
-      <h1 className="m-0 shrink-0 text-page font-bold">{title}</h1>
-      {after}
-      <span className="grow" />
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+    <header className={cx("relative flex h-14 shrink-0 border-b border-line px-8", className)}>
+      <div ref={bar} className="flex min-w-0 grow flex-nowrap items-center gap-3.5">
+        <h1 className={cx("m-0 shrink-0 text-page font-bold", titleYields && folds > 0 && fold >= folds && "sr-only")}>{title}</h1>
+        {/* the views keep their width while a fold is left to take; past the last one they scroll rather than push the
+            actions out of the header */}
+        {views && folds > 0 ? <div className={cx("flex min-w-0 items-center overflow-x-auto [scrollbar-width:none]", fold < folds ? "shrink-0" : "shrink")}>{views}</div> : views}
+        <span className="grow" />
+        {actions && <div className="flex shrink-0 items-center gap-2">{typeof actions === "function" ? actions(fold) : actions}</div>}
+      </div>
     </header>
   );
 }

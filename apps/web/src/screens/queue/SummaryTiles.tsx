@@ -61,6 +61,7 @@ function Headline({ label, value, sub, subTip, delta, deltaTip, children }: { la
     <div className="flex min-w-0 flex-col gap-1 overflow-hidden rounded-2xl border border-line bg-panel px-4.5 pt-4 pb-2.5">
       <span className="text-meta font-bold tracking-label text-ink-3 uppercase">{label}</span>
       <span className="flex items-baseline gap-2.5">
+        {/* design: a headline figure, meant to stand bigger than the type scale's display */}
         <span className="truncate font-mono text-[34px] leading-tight font-bold tracking-tight">{value}</span>
         {delta !== null && <span className="shrink-0 font-mono text-xs font-semibold text-ink-2" data-tip={deltaTip}>{delta > 0 ? "▲" : delta < 0 ? "▼" : "="} {Math.abs(delta)} %</span>}
       </span>

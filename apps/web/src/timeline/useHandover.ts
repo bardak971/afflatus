@@ -132,6 +132,7 @@ export function useHandover(h: Handover) {
             setFrozen(c);
             thaw.current = window.setTimeout(() => setFrozen(null), dissolve + 60);
             const nextVideo = following.take ? els.current.get(following.take.id) : undefined;
+            // design: the dissolve is the video's own (the export draws it), so it plays with reduced motion too
             nextVideo?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: dissolve, easing: "linear" });
           }
           // shown at once, before the page redraws: waiting for the redraw held this clip's last frame a frame or two longer (the

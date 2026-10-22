@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearch } from "wouter";
+import { Bell, MemoryStick, Pause, Play } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type MachineState, type QueueStatus } from "../api";
 import { useQueue, useSettings } from "../data";
@@ -7,7 +8,7 @@ import { NOTIFY_HELP, NOTIFY_REFUSED, NotifyToggle } from "../NotifyToggle";
 import { useQueueOps } from "../queueOps";
 import { unloadBlock } from "../queueRules";
 import { useSayFailed } from "../sayFailed";
-import { Button, cx, ErrorNote, Help, LiveDot, PageHeader, SectionTitle, SegmentCount, Segmented } from "../ui";
+import { Button, cx, ErrorNote, Help, IconButton, LiveDot, PageHeader, SectionTitle, SegmentCount, Segmented } from "../ui";
 import { History } from "./queue/History";
 import { RenderTimes } from "./queue/Times";
 import { Costs } from "./queue/Costs";
@@ -23,28 +24,39 @@ import { queryKeys } from "../queryKeys";
 type Tab = "queue" | "times" | "costs" | "log";
 const isTab = (v: string | null): v is Tab => v === "queue" || v === "times" || v === "costs" || v === "log";
 
-/** The header's buttons: unload the models, pause or resume. With several ComfyUIs: unload every idle one, pause or resume all of them. */
-function QueueControls({ q, free, pause, resume }: { q: QueueStatus | undefined; free: { mutate(machine?: undefined): void; isPending: boolean; isSuccess: boolean }; pause: { mutate(machine?: undefined): void }; resume: { mutate(machine?: undefined): void } }) {
+/**
+ * The header's buttons: unload the models, pause or resume. With several ComfyUIs: unload every idle one, pause or resume
+ * all of them. `compact`: the header's last fold, an icon each with its words in the tip.
+ */
+function QueueControls({ q, free, pause, resume, compact }: { q: QueueStatus | undefined; free: { mutate(machine?: undefined): void; isPending: boolean; isSuccess: boolean }; pause: { mutate(machine?: undefined): void }; resume: { mutate(machine?: undefined): void }; compact?: boolean }) {
   const several = severalMachines(q);
   // a machine busy outside Afflatus is skipped too: its models are in use by someone else's work (the server skips it)
   const idle = several.filter((m) => !machineUnloadBlock(m));
   const why = several.length ? (idle.length ? null : "every machine is at work or away") : unloadBlock(q);
+  const unloadTip = several.length ? `Unloads the models of every machine that is not rendering nor busy outside Afflatus (${idle.map(machineLabel).join(", ") || "none now"}). Each lane's menu unloads one.` : "Unloads ComfyUI's models from VRAM and RAM, for a game or another program. The next render loads what it needs again. Not while a job is running.";
+  const unloadSaid = free.isPending ? "Unloading…" : free.isSuccess ? "Models unloaded" : several.length ? "Unload idle" : "Unload models";
+  const pauseTip = q?.paused ? "Send what waits to ComfyUI again" : "Finish the running render, then send nothing new: the GPU is yours";
+  const pauseSaid = several.length ? (q?.paused ? "Resume all" : "Pause all") : q?.paused ? "Resume queue" : "Pause queue";
+  const toggle = () => (q?.paused ? resume : pause).mutate(undefined);
+  // no machine at all (rented only, none up): nothing to unload
+  const unloads = q?.online && (q.machines?.length ?? 0) > 0;
+  if (compact)
+    return (
+      <>
+        {unloads && <IconButton label={unloadSaid} tip={`${unloadSaid}: ${unloadTip}`} tone="outline" disabled={free.isPending || Boolean(why)} onClick={() => free.mutate(undefined)}><MemoryStick size={15} /></IconButton>}
+        {q && <IconButton label={pauseSaid} tip={`${pauseSaid}: ${pauseTip}`} tone={q.paused ? "primary" : "outline"} onClick={toggle}>{q.paused ? <Play size={15} /> : <Pause size={15} />}</IconButton>}
+      </>
+    );
   return (
     <>
-      {/* no machine at all (rented only, none up): nothing to unload */}
-      {q?.online && (q.machines?.length ?? 0) > 0 && (
-        <Button
-          size="sm"
-          disabled={free.isPending || Boolean(why)}
-          data-tip={several.length ? `Unloads the models of every machine that is not rendering nor busy outside Afflatus (${idle.map(machineLabel).join(", ") || "none now"}). Each lane's menu unloads one.` : "Unloads ComfyUI's models from VRAM and RAM, for a game or another program. The next render loads what it needs again. Not while a job is running."}
-          onClick={() => free.mutate(undefined)}
-        >
-          {free.isPending ? "Unloading…" : free.isSuccess ? "Models unloaded" : several.length ? "Unload idle" : "Unload models"}
+      {unloads && (
+        <Button size="sm" disabled={free.isPending || Boolean(why)} data-tip={unloadTip} onClick={() => free.mutate(undefined)}>
+          {unloadSaid}
         </Button>
       )}
       {q && (
-        <Button size="sm" tone={q.paused ? "primary" : "plain"} data-tip={q.paused ? "Send what waits to ComfyUI again" : "Finish the running render, then send nothing new: the GPU is yours"} onClick={() => (q.paused ? resume : pause).mutate(undefined)}>
-          {several.length ? (q.paused ? "Resume all" : "Pause all") : q.paused ? "Resume queue" : "Pause queue"}
+        <Button size="sm" tone={q.paused ? "primary" : "plain"} data-tip={pauseTip} onClick={toggle}>
+          {pauseSaid}
         </Button>
       )}
     </>
@@ -104,45 +116,52 @@ export function Queue() {
       <PageHeader
         title="Queue"
         after={
-          // in a narrow window the views scroll sideways rather than push the buttons out of the header
-          <div className="min-w-0 shrink overflow-x-auto [scrollbar-width:none]">
-            <Segmented<Tab>
-              oneLine
-              className="w-max"
-              label="View"
-              value={tab}
-              options={[
-                { value: "queue", label: <span className="inline-flex items-center gap-1.5">{atWork > 0 && <LiveDot label="a job at work" />}Queue{holds ? <SegmentCount>{holds}</SegmentCount> : null}</span> },
-                { value: "times", label: "Render times" },
-                { value: "costs", label: "Costs" },
-                { value: "log", label: "ComfyUI log" },
-              ]}
-              onChange={setTab}
-            />
-          </div>
+          <Segmented<Tab>
+            oneLine
+            className="w-max"
+            label="View"
+            value={tab}
+            options={[
+              { value: "queue", label: <span className="inline-flex items-center gap-1.5">{atWork > 0 && <LiveDot label="a job at work" />}Queue{holds ? <SegmentCount>{holds}</SegmentCount> : null}</span> },
+              { value: "times", label: "Render times" },
+              { value: "costs", label: "Costs" },
+              { value: "log", label: "ComfyUI log" },
+            ]}
+            onChange={setTab}
+          />
         }
-        actions={
-          <>
-            {/* by the actions, as the mock has it; in a narrow window the views scroll before any of this goes */}
-            <div className="flex items-center gap-3 text-meta text-ink-2">
-              <span className="flex shrink-0 items-center gap-1.5">
-                {/* not read yet, or could not be: nothing is said about ComfyUI */}
-                <span className={cx("h-2 w-2 rounded-full", !q || noGpu ? "bg-ink-3" : q.online ? "bg-good" : "bg-warn")} />
-                {!q ? "…" : noGpu ? "No machine yet" : several.length ? onlineSaid(several) : q.online ? "ComfyUI online" : "ComfyUI offline · queued jobs wait"}
-              </span>
-              {q?.model && !several.length && !noGpu && <span className="max-w-48 truncate font-mono" data-tip={`${q.model} loaded`}>{q.model} loaded</span>}
-            </div>
-            {/* the notify switch is the queue view's: the other views have nothing that empties */}
-            {tab === "queue" && (
-              <span className="flex shrink-0 items-center gap-2 text-body">
-                <NotifyToggle kind="queueEmpty" onRefused={setRefused} />
-                <Help text={NOTIFY_HELP} />
-                {refused && <span className="flex items-center gap-1.5 text-meta text-warn-ink">{NOTIFY_REFUSED.said} <Help text={NOTIFY_REFUSED.help} /></span>}
-              </span>
-            )}
-            <QueueControls q={q} free={free} pause={pause} resume={resume} />
-          </>
-        }
+        // In a narrow window the actions fold before a view is hidden (1100 px clipped "ComfyUI log", review 4's ends):
+        // the loaded model goes and the switch keeps a bell for its words, then the status says itself in fewer words,
+        // then the buttons keep an icon each with their words in the tip.
+        folds={3}
+        foldKey={tab}
+        actions={(fold) => {
+          const status = !q ? "…" : noGpu ? "No machine yet" : several.length ? onlineSaid(several) : q.online ? "ComfyUI online" : "ComfyUI offline · queued jobs wait";
+          const short = !q ? "…" : noGpu ? "No machine" : several.length ? `${several.filter((m) => m.online !== false).length}/${several.length} online` : q.online ? "Online" : "Offline";
+          return (
+            <>
+              {/* by the actions, as the mock has it */}
+              <div className="flex items-center gap-3 text-meta text-ink-2">
+                <span className="flex shrink-0 items-center gap-1.5" data-tip={fold >= 2 ? status : undefined}>
+                  {/* not read yet, or could not be: nothing is said about ComfyUI */}
+                  <span className={cx("h-2 w-2 rounded-full", !q || noGpu ? "bg-ink-3" : q.online ? "bg-good" : "bg-warn")} />
+                  {fold >= 2 ? short : status}
+                </span>
+                {fold < 1 && q?.model && !several.length && !noGpu && <span className="max-w-48 truncate font-mono" data-tip={`${q.model} loaded`}>{q.model} loaded</span>}
+              </div>
+              {/* the notify switch is the queue view's: the other views have nothing that empties */}
+              {tab === "queue" && (
+                <span className="flex shrink-0 items-center gap-2 text-body">
+                  {fold >= 1 && <Bell size={14} aria-hidden className="text-ink-2" />}
+                  <NotifyToggle kind="queueEmpty" onRefused={setRefused} bare={fold >= 1} />
+                  <Help text={NOTIFY_HELP} />
+                  {refused && <span className="flex items-center gap-1.5 text-meta text-warn-ink">{NOTIFY_REFUSED.said} <Help text={NOTIFY_REFUSED.help} /></span>}
+                </span>
+              )}
+              <QueueControls q={q} free={free} pause={pause} resume={resume} compact={fold >= 3} />
+            </>
+          );
+        }}
       />
       {/* the queue scrolls as one page under its header, each part at its own height: wide, its parts once scrolled each in a
           box of a fixed share, and the waiting list was drawn over the history, a rendering machine's card cut off, a gap

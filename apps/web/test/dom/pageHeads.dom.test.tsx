@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, within } from "@testing-library/react";
 import type { FamilyInfo, HistoryJob, RecipeInfo, RecipeStatus } from "../../src/api";
 import { Workflows } from "../../src/screens/Workflows";
 import { FailedRow } from "../../src/screens/queue/FailedRow";
+import { PageHeader, Segmented } from "../../src/ui";
 import { fakeApi } from "./fakeApi";
 import { draw } from "./render";
 
@@ -56,5 +57,67 @@ describe("a failed job in the Queue's history", () => {
     expect(within(cells[5] as HTMLElement).getByRole("button", { name: "More actions on zz-test picture" })).toBeTruthy();
     expect(cells[3]!.textContent).toBe("—");
     expect(cells[4]!.textContent).toBe("just now");
+  });
+});
+
+describe("a page header in a narrow window", () => {
+  // No layout here: the header's row is as wide as the pieces still drawn in full (data-wide), against a page width.
+  let pageWidth = 0;
+  // the prototype that holds each width here, found from an element as the page makes them
+  const owner = (key: string) => {
+    for (let p: object | null = document.createElement("div"); p; p = Object.getPrototypeOf(p)) if (Object.getOwnPropertyDescriptor(p, key)) return p;
+    throw new Error(`no ${key}`);
+  };
+  const kept: Array<[object, string, PropertyDescriptor]> = [];
+  const stub = (key: string, get: (this: Element) => number) => {
+    const p = owner(key);
+    kept.push([p, key, Object.getOwnPropertyDescriptor(p, key)!]);
+    Object.defineProperty(p, key, { configurable: true, get });
+  };
+  beforeEach(() => {
+    // as a browser's does, the observer reports the size it finds as soon as it watches
+    vi.stubGlobal("ResizeObserver", class { constructor(private seen: () => void) {} observe() { this.seen(); } disconnect() {} });
+    stub("scrollWidth", function () { return 600 + 200 * this.querySelectorAll("[data-wide]").length; });
+    stub("clientWidth", () => pageWidth);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    for (const [p, key, d] of kept.splice(0)) Object.defineProperty(p, key, d);
+  });
+  const Head = () => (
+    <PageHeader
+      title="Settings"
+      titleYields
+      folds={2}
+      after={<Segmented oneLine label="Views" value="a" onChange={() => {}} options={[{ value: "a", label: "One" }, { value: "b", label: "Two" }, { value: "c", label: "Three" }]} />}
+      actions={(fold) => (
+        <>
+          {fold < 1 && <span data-wide>Notify when the queue is empty</span>}
+          {fold < 2 ? <span data-wide>Pause all</span> : <span>II</span>}
+        </>
+      )}
+    />
+  );
+
+  it("folds the actions a step at a time until the row fits, and keeps every tab and the title while it can", () => {
+    pageWidth = 900;
+    draw(<Head />);
+    const head = screen.getByRole("banner");
+    // 1000 wide at first: one step (the switch's words) is enough
+    expect(within(head).queryByText("Notify when the queue is empty")).toBeNull();
+    expect(within(head).getByText("Pause all")).toBeTruthy();
+    expect(within(head).getAllByRole("radio")).toHaveLength(3);
+    expect(within(head).getByRole("heading", { level: 1 }).className).not.toContain("sr-only");
+  });
+
+  it("past the last step lets the title go to screen readers and the tabs scroll, never drops a tab", () => {
+    pageWidth = 500;
+    draw(<Head />);
+    const head = screen.getByRole("banner");
+    expect(within(head).getByText("II")).toBeTruthy();
+    expect(within(head).getAllByRole("radio")).toHaveLength(3);
+    const title = within(head).getByRole("heading", { level: 1, name: "Settings" });
+    expect(title.className).toContain("sr-only");
+    expect(within(head).getByRole("radiogroup").parentElement!.className).toMatch(/\bshrink\b/);
   });
 });

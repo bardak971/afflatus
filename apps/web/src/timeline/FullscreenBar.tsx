@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
-import { Minimize, Pause, Play, Repeat, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
+import { Minimize, Repeat, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { fileUrl, type Clip, type Timeline } from "../api";
 import { clock as clockText } from "../format";
 import { Keys } from "../Keys";
 import { cx } from "../ui";
+import { PlayButton } from "../mediaControls";
 import { Slider } from "../Slider";
 import { useClock, type Clock } from "./clock";
 import { fitFrame, frameUrl, placeCard } from "./track/peek";
@@ -185,9 +186,7 @@ export function FullscreenBar({ box, c, live, clips, timeline }: {
           <div className="flex h-11 items-center gap-3">
             {seeks && <button type="button" aria-label="Previous clip" data-tip="Previous clip" onClick={() => jump(-1)} className={button}><SkipBack size={17} /></button>}
             {live !== "picture" && (
-              <button type="button" aria-label={paused ? "Play" : "Pause"} data-tip={paused ? "Play (Space)" : "Pause (Space)"} onClick={toggle} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink hover:brightness-110">
-                {paused ? <Play size={18} className="ml-0.5" fill="currentColor" /> : <Pause size={18} fill="currentColor" />}
-              </button>
+              <PlayButton on={!paused} onClick={toggle} size={44} />
             )}
             {seeks && <button type="button" aria-label="Next clip" data-tip="Next clip" disabled={here >= parts.length - 1} onClick={() => jump(1)} className={button}><SkipForward size={17} /></button>}
             {!live && (

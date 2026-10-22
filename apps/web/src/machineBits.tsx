@@ -43,8 +43,9 @@ export function FilesLine({ g }: { g: NonNullable<ReturnType<typeof gettingFiles
 /** A ring round a machine's dot that fills as its files come in: on its idle dot, or round its filled one while it renders. */
 function FilesRing({ share, running }: { share: number | null; running: boolean }) {
   const round = 2 * Math.PI * 4;
-  // a size not known: a quarter that turns, not a share
   return (
+    // a size not known: a quarter that turns, not a share
+    // design: the files ring's own turning quarter, drawn in the machine's dot (no Spinner fits 11 px)
     <svg aria-hidden width="11" height="11" viewBox="0 0 11 11" className={cx("shrink-0", share === null && "motion-safe:animate-spin")}>
       <circle cx="5.5" cy="5.5" r="4" fill={running ? "currentColor" : "none"} strokeWidth="1.8" className={running ? "text-accent stroke-accent" : "stroke-line-strong"} />
       <circle cx="5.5" cy="5.5" r="4" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeDasharray={`${Math.max(0.6, (share ?? 0.25) * round)} ${round}`} transform="rotate(-90 5.5 5.5)" className={running ? "stroke-ink" : "stroke-accent"} />
@@ -60,7 +61,7 @@ function FilesRing({ share, running }: { share: number | null; running: boolean 
  * A machine on its way up, as its dot says it in the pill, its popover and its Queue lane: the idle ring it will be,
  * pulsing. Neither the warning of one away nor the accent of one getting files.
  */
-export const STARTING_DOT = "animate-pulse border-[1.5px] border-good";
+export const STARTING_DOT = "animate-pulse border-[1.5px] border-good"; // design: a live dot, pulsing to say "on its way up"
 
 export function Dot({ m }: { m: MachineState }) {
   // a pod RunPod was not read for yet (Afflatus just started): grey and filled, as its lane says "checking", never the

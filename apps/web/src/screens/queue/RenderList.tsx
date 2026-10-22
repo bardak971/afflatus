@@ -38,7 +38,10 @@ export function RenderList({ d, renders, picked, onModel, only, onOnly, onOpen }
       {listed.map((r) => (
         <div key={r.id} id={`render-${r.id}`} className="grid grid-cols-[44px_minmax(0,1.2fr)_minmax(0,2fr)_150px_120px] items-center gap-4 rounded-control border border-line bg-panel px-3 py-2 target:border-accent">
           {r.assetId
-            ? <button type="button" onClick={() => onOpen(r.assetId!)} aria-label="Open output" data-tip="Open output" className="block rounded-md bg-raised"><Thumb src={thumbUrl(r.assetId)} alt="" loading="lazy" sizes="44px" className="h-11 w-11 rounded-md object-cover" /></button>
+            ? (
+              // design: the output's thumbnail, opening it; its size is the picture's, not an icon button's
+              <button type="button" onClick={() => onOpen(r.assetId!)} aria-label="Open output" data-tip="Open output" className="block rounded-md bg-raised"><Thumb src={thumbUrl(r.assetId)} alt="" loading="lazy" sizes="44px" className="h-11 w-11 rounded-md object-cover" /></button>
+            )
             : <div className="flex h-11 w-11 items-center justify-center rounded-md bg-raised text-ink-3" data-tip={r.status === "done" ? "Output deleted" : "No output"}>{r.kind === "video" ? <Clapperboard size={16} /> : <ImageIcon size={16} />}</div>}
           <div className="flex min-w-0 flex-col">
             <span className="truncate font-medium">{r.name}</span>

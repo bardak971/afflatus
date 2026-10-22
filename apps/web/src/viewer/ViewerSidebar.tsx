@@ -483,13 +483,14 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
             <Button size="sm" tone="quiet" data-tip={keep?.tip} onClick={() => keep?.run?.()}><Star size={13} /> Keep <Kbd>S</Kbd></Button>
           </div>
         ) : (
-          // expiring is the normal life of a render, not a fault: the warn look only in its last hour, as the status bar's chip
-          <div className={cx("flex items-center justify-between gap-3 rounded-xl px-3 py-2", left < 3_600_000 ? "bg-warn-wash text-warn-ink" : "bg-raised text-ink-2")}>
+          // expiring is the normal life of a render, not a fault: amber only in its last hour, as the status bar's chip, and
+          // Keep a plain button as on a render not kept (it was the red of a destructive act)
+          <div className={cx("flex items-center justify-between gap-3 rounded-xl px-3 py-2", left < 3_600_000 ? "bg-attention-wash text-attention-ink" : "bg-raised text-ink-2")}>
             <span className="flex items-center gap-1.5">
               Expires in {leftWords(left)}
               <Help text={`Renders nobody kept go to the bin by themselves ${daysSaid(unkeptDays)} after they were made (or unkept); Settings › Storage says how long. Keep holds one until you bin it.`} />
             </span>
-            <Button size="sm" tone="danger" onClick={() => keep?.run?.()}><Star size={13} /> Keep <Kbd>S</Kbd></Button>
+            <Button size="sm" tone="quiet" data-tip={keep?.tip} onClick={() => keep?.run?.()}><Star size={13} /> Keep <Kbd>S</Kbd></Button>
           </div>
         )}
 

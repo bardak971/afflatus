@@ -99,6 +99,7 @@ function VolumeRow({ v, stock, onAct }: { v: NetworkVolume; stock: Array<{ name:
     <div className="flex gap-3.5 border-b border-line px-gutter py-3.5 last:border-b-0">
       <span className={cx("relative grid size-10 shrink-0 place-items-center rounded-control border", v.usedBy ? "border-good/40 bg-good/10 text-good" : v.unused ? "border-warn/40 bg-warn-wash text-warn-ink" : "border-line-strong bg-raised text-ink-2")}>
         <HardDrive size={18} />
+        {/* design: a live dot, pulsing while a pod has the volume */}
         {v.usedBy && <span aria-hidden className="absolute -top-1 -right-1 size-2.5 animate-pulse rounded-full border-2 border-panel bg-good" />}
       </span>
       <div className="flex min-w-0 grow flex-col gap-2">
