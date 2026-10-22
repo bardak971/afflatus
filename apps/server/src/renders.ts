@@ -1,6 +1,7 @@
 import type { Kysely } from "kysely";
 import type { Measured } from "@afflatus/comfy";
 import { modelOf, timeKey, TOOLS_FAMILY, type Recipe } from "@afflatus/core";
+import { freezeOld, freezeSplits } from "./costs";
 import { now, OWNER, type Db, type Tables } from "./db";
 import { RELOAD_MS, reloadAbove } from "./forecast";
 import type { JobRow, Resume } from "./queueModel";
@@ -166,6 +167,8 @@ export async function toolPace(db: Db, recipe: string, machine: string | null = 
  */
 export async function fold(db: Db, keepDays: number, when = Date.now()): Promise<number> {
   return db.transaction().execute(async (tx) => {
+    // the rented sessions' splits kept before their renders become figures (costs.ts freezeSplits)
+    await freezeOld(tx, when);
     const folded = keepDays > 0 ? await foldBefore(tx, `${dayOf(new Date(when - keepDays * DAY).toISOString())}T00:00:00.000Z`) : 0;
     await digestDays(tx, when);
     return folded;
@@ -212,8 +215,12 @@ export async function usualParts(db: Db, recipe: Recipe<any>, input: Record<stri
 
 /** Forget everything that was measured. */
 export async function clear(db: Db): Promise<void> {
-  await db.deleteFrom("render_stats").execute();
-  await db.deleteFrom("render_days").execute();
-  await db.deleteFrom("render_digests").execute();
-  await db.deleteFrom("render_machine_digests").execute();
+  await db.transaction().execute(async (tx) => {
+    // every ended rented session's split kept first: forgotten, its renders would read as idle (costs.ts freezeSplits)
+    await freezeSplits(tx, Date.now());
+    await tx.deleteFrom("render_stats").execute();
+    await tx.deleteFrom("render_days").execute();
+    await tx.deleteFrom("render_digests").execute();
+    await tx.deleteFrom("render_machine_digests").execute();
+  });
 }

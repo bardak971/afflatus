@@ -6,6 +6,7 @@ import { openSqlite, migrate, type Db } from "../src/db";
 import { energyOf, PowerLog } from "../src/power";
 import type { Registry } from "../src/registry";
 import type { RankOffer } from "@afflatus/core";
+import { clear, fold } from "../src/renders";
 import { readSettings } from "../src/settings";
 import { complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
@@ -297,6 +298,30 @@ describe("the costs of a window", () => {
     expect(await deployOverhead(db, NOW, { volume: true })).toMatchObject({ fetchMs: 0 });
     await db.deleteFrom("rent_sessions").execute();
     expect(await deployOverhead(db, NOW)).toBeNull();
+  });
+
+  it("an ended session's split is kept: its renders folded into days, or forgotten, move nothing from rendering to idle", async () => {
+    const before = await view();
+    const overhead = await deployOverhead(db, NOW);
+    // the fold 100 days on: every render row of the record becomes figures
+    await fold(db, 90, NOW + 100 * 24 * HOUR);
+    expect(await db.selectFrom("render_stats").select("id").execute()).toEqual([]);
+    const folded = await view();
+    expect(folded.sessions.map((x) => x.parts)).toEqual(before.sessions.map((x) => x.parts));
+    expect(folded.where.ms).toEqual(before.where.ms);
+    expect(folded.where.ms.render).toBe(40 * MIN);
+    // the hunt's overhead and the idle advice read the same split: the folded sessions are not all idle
+    expect(await deployOverhead(db, NOW)).toEqual(overhead);
+    expect(folded.advice.find((a) => a.kind === "idle")?.title).toBe(before.advice.find((a) => a.kind === "idle")?.title);
+  });
+
+  it("Forget every render time keeps the ended sessions' split, as it was", async () => {
+    const before = await view();
+    await clear(db);
+    expect(await db.selectFrom("render_stats").select("id").execute()).toEqual([]);
+    const after = await view();
+    expect(after.sessions.map((x) => x.parts)).toEqual(before.sessions.map((x) => x.parts));
+    expect(after.where.ms).toEqual(before.where.ms);
   });
 
   it("the renders on pods by project: a timeline's clip and a draft in it, a draft in none in the Inbox", async () => {

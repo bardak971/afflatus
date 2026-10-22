@@ -78,6 +78,12 @@ const rankSchema = z.strictObject({
 /** The CUDA pick a deploy of that image applies (rentedDeploy.ts): RunPod's own image takes none, whatever the dialog says. */
 const cudaOf = (o: { template: "afflatus" | "runpod"; cuda: CudaPick }): CudaPick => (o.template === "afflatus" ? o.cuda : "either");
 
+/**
+ * A GPU set aside, by what RunPod's refusal was about: the GPU in this cloud, data center set and CUDA pick. The same GPU
+ * asked elsewhere (another cloud, a volume's data center, the other CUDA build) is another stock, refused or not.
+ */
+const asideKey = (st: HuntState, gpu: string) => [st.cloud, st.dataCenter ?? "", cudaOf(st.deploy), gpu].join("|");
+
 const stateSchema = z.object({
   mode: z.enum(["value", "fast", "cheap"]),
   ceiling: z.number().positive(),
@@ -134,8 +140,10 @@ export class Hunt {
   private pausesLooked: Promise<void> | null = null;
   private pausesAgain = false;
   private watching: Promise<void> | null = null;
-  /** GPUs RunPod refused for want of one free, by id, with when they may be tried first again while another is free. */
+  /** GPUs RunPod refused for want of one free (asideKey), with when they may be tried first again while another is free. One hunt's only. */
   private readonly aside = new Map<string, number>();
+  /** Whether this hunt's deploy call is under way: "deploying" without it is a deploy that never began or never said how it ended. */
+  private deployCall = false;
   everyMs = EVERY_MS;
   /** How recent a read of RunPod's GPUs is taken again (0 in the tests, which change the stock between rounds). */
   freshMs = FRESH_MS;
@@ -334,6 +342,14 @@ export class Hunt {
     return { ...(await this.rank(offers, rows, { ...asked, cuda: cudaOf(asked), dataCenter })), held: rows.length };
   }
 
+  /**
+   * Whether the hunt's deploy is under way: its status, and its call. A status left "deploying" by a write that failed
+   * around the call locks nothing (Cancel, the user's Deploy); the next round sets it back to hunting.
+   */
+  deploying(): boolean {
+    return this.state?.status === "deploying" && this.deployCall;
+  }
+
   // ---------------------------------------------------------------- start, change, cancel
 
   async start(asked: z.infer<typeof askSchema>) {
@@ -365,6 +381,8 @@ export class Hunt {
     this.state = st;
     this.ranking = null;
     this.askedAt = null;
+    // a GPU set aside by a hunt before is this hunt's to try: the user may have cancelled to change what it asks
+    this.aside.clear();
     if (st.hold === "rest") st.pausedByHunt = await this.pauseHome();
     await this.save();
     console.log(`[hunt] started (${st.mode}, at most ${dollars(st.ceiling)}/h, ${st.hold === "rest" ? `${plural(st.pausedByHunt.length, "home machine")} paused` : "the home machines go on"})`);
@@ -401,7 +419,7 @@ export class Hunt {
     const st = this.state;
     if (!st) return { ok: true };
     // the pod being made is billed from its first second: it is let come up (a machine like any, with its idle and the caps)
-    if (st.status === "deploying") throw httpError("A GPU is being deployed for this hunt: cancel once it is up, or stop its pod then.", 409);
+    if (this.deploying()) throw httpError("A GPU is being deployed for this hunt: cancel once it is up, or stop its pod then.", 409);
     await this.end(null, "cancelled");
     return { ok: true };
   }
@@ -459,6 +477,7 @@ export class Hunt {
     this.state = null;
     this.ranking = null;
     this.askedAt = null;
+    this.aside.clear();
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     const resumed = await this.resume(st.pausedByHunt);
@@ -480,7 +499,15 @@ export class Hunt {
 
   private async round(): Promise<void> {
     const st = this.state;
-    if (!st || st.status === "deploying") return;
+    if (!st) return;
+    // "deploying" with no deploy call under way (a write that failed around it): the hunt goes on rather than staying
+    // locked, which would refuse Cancel and the user's own deploys and keep the home machines paused until a restart
+    if (st.status === "deploying" && !this.deployCall) {
+      console.warn("[hunt] deploying with no deploy under way: hunting again");
+      Object.assign(st, { status: "hunting", deployingSince: null });
+      await this.save();
+    }
+    if (st.status === "deploying") return;
     if (st.status === "up") return this.watchPod();
     const started = Date.parse(st.startedAt);
     if (this.now() >= Date.parse(st.giveUpAt)) return this.end(`No GPU you would take came free in ${took(this.now() - started)}`);
@@ -504,7 +531,7 @@ export class Hunt {
     this.askedAt = this.offersSeen.get(st.cloud)?.at ?? this.now();
     // one refused just now is passed over while another is free; with none other it is tried again, as nothing is lost
     const now = this.now();
-    const pick = firstFree(ranking.filter((g) => (this.aside.get(g.id) ?? 0) <= now)) ?? firstFree(ranking);
+    const pick = firstFree(ranking.filter((g) => (this.aside.get(asideKey(st, g.id)) ?? 0) <= now)) ?? firstFree(ranking);
     if (!pick) return this.save();
     // a deploy under way (the user's), or a pod deployed for the renders and not up yet (the user's, made before the hunt or
     // while it ran): it is coming for these renders, and a second pod would be billed for the same ones. Asked again next round
@@ -512,21 +539,25 @@ export class Hunt {
     if (this.state !== st) return;
     st.status = "deploying";
     st.deployingSince = new Date(this.now()).toISOString();
-    st.before = (await readSettings(this.s.db)).machines.filter((m) => m.rented).map((m) => m.id);
-    await this.save();
+    this.deployCall = true;
     let made: { id: string; dataCenter: string | null };
     try {
+      // the reads and the write before the deploy inside the try: one failing goes back to hunting, never "deploying" for good
+      st.before = (await readSettings(this.s.db)).machines.filter((m) => m.rented).map((m) => m.id);
+      await this.save();
       // the late files worked out under the deploy's lock, as the user's are (rented-api.ts): a deploy under way from here on
       made = await this.s.rented.deploy(async () => {
         const late = await this.lateFiles(st).catch(() => []);
         return { ...st.deploy, files: [...st.deploy.files, ...late], gpu: pick.id, again: false };
       });
     } catch (err) {
+      this.deployCall = false;
       st.deployingSince = null;
-      if (refusalOf(err as Error) === "noGpu") this.aside.set(pick.id, this.now() + ASIDE_MS);
+      if (refusalOf(err as Error) === "noGpu") this.aside.set(asideKey(st, pick.id), this.now() + ASIDE_MS);
       return this.refused(st, err as Error);
     }
-    this.aside.delete(pick.id);
+    this.deployCall = false;
+    this.aside.delete(asideKey(st, pick.id));
     Object.assign(st, { status: "up", deployingSince: null, machine: made.id, fails: 0, lastError: null, found: { gpu: pick.id, name: pick.name, price: pick.price, dataCenter: made.dataCenter, at: new Date(this.now()).toISOString() } });
     await this.save();
     console.log(`[hunt] ${pick.name} found and deployed after ${took(this.now() - started)}`);

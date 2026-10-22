@@ -368,6 +368,58 @@ describe("the hunt", () => {
     expect((await hunt()).hunt).toMatchObject({ status: "up" });
   });
 
+  it("forgets the GPUs it set aside when it ends: a hunt started again tries the best one first", async () => {
+    await queue();
+    await start({ mode: "cheap" });
+    free("NVIDIA A40");
+    free("NVIDIA GeForce RTX 4090");
+    runpod.noCapacity.add("NVIDIA A40");
+    await t.services.hunt.tick();
+    expect(runpod.pods).toHaveLength(0);
+    // cancelled and started again within the 5 minutes, the A40 to be had now: the cheaper GPU is deployed, not the 4090
+    expect((await t.app.inject({ method: "DELETE", url: "/api/hunt" })).statusCode).toBe(200);
+    runpod.noCapacity.delete("NVIDIA A40");
+    await start({ mode: "cheap" });
+    await t.services.hunt.tick();
+    expect(runpod.pods).toHaveLength(1);
+    expect(runpod.pods[0]).toMatchObject({ gpu: "NVIDIA A40" });
+  });
+
+  it("a write failing just before its deploy sends it back to hunting, and the next round deploys", async () => {
+    await queue();
+    await start();
+    free("NVIDIA A40");
+    const hunter = t.services.hunt as unknown as { save: () => Promise<void>; state: { status: string } | null };
+    const save = hunter.save.bind(hunter);
+    // the write that keeps "deploying" fails once (a busy database)
+    let failed = 0;
+    vi.spyOn(hunter, "save").mockImplementation(async () => {
+      if (hunter.state?.status === "deploying" && !failed++) throw new Error("SQLITE_BUSY: database is locked");
+      return save();
+    });
+    await t.services.hunt.tick();
+    expect(failed).toBe(1);
+    expect(creates()).toBe(0);
+    expect((await hunt()).hunt).toMatchObject({ status: "hunting", lastError: expect.stringMatching(/SQLITE_BUSY/) });
+    // the next round deploys as any would
+    await t.services.hunt.tick();
+    expect(creates()).toBe(1);
+    expect((await hunt()).hunt).toMatchObject({ status: "up" });
+  });
+
+  it("never stays deploying with no deploy under way: the next round hunts again, and Cancel is not refused meanwhile", async () => {
+    await queue();
+    await start();
+    // as if a write had failed around a deploy that never began
+    (t.services.hunt as unknown as { state: { status: string; deployingSince: string | null } }).state.status = "deploying";
+    // what Cancel and the user's Deploy (rented-api.ts) ask: no deploy of the hunt's is under way
+    expect(t.services.hunt.deploying()).toBe(false);
+    await t.services.hunt.tick();
+    expect((await hunt()).hunt).toMatchObject({ status: "hunting" });
+    expect((await t.app.inject({ method: "DELETE", url: "/api/hunt" })).statusCode).toBe(200);
+    expect(await paused()).toBe(false);
+  });
+
   it("with RunPod's own image, is not held by the CUDA pick that image does not take", async () => {
     await queue();
     runpod.gpus = runpod.gpus.map((g) => (g.id === "NVIDIA A40" ? { ...g, cuda13: false, dataCenters: [{ id: "EU-RO-1", availability: "HIGH" }] } : g));

@@ -68,7 +68,13 @@ async function s3Facts(s: Services, settings: Settings): Promise<{ user: string 
 async function s3Of(s: Services, settings: Settings, view: VolumeView): Promise<{ s3: VolumeS3 } | { why: string }> {
   if (!settings.runpodS3Secret) return { why: "No S3 API key: add its secret in Settings › Rented GPUs to read the volume with no pod running." };
   const { user, dataCenters } = await s3Facts(s, settings);
-  const endpoint = dataCenters.includes(view.dataCenter) ? s3Endpoint(view.dataCenter) : null;
+  let endpoint: string | null;
+  try {
+    endpoint = dataCenters.includes(view.dataCenter) ? s3Endpoint(view.dataCenter) : null;
+  } catch {
+    // pretend sites with no pretend S3 (the demo, a test): a reason on the view rather than a failed request
+    return { why: "RunPod's S3 API is not asked here: no site on the internet is, and RUNPOD_S3_URL says no pretend one." };
+  }
   if (!endpoint) return { why: `RunPod's S3 API does not serve ${view.dataCenter}.` };
   if (!user) return { why: "RunPod did not say the account's user id, which the S3 API key goes with: try again in a moment." };
   return { s3: new VolumeS3(view.id, view.dataCenter, { user, secret: settings.runpodS3Secret }, endpoint) };

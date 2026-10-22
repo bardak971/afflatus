@@ -130,7 +130,7 @@ export function registerRented(app: FastifyInstance, s: Services): void {
   app.post("/api/runpod/deploy", async (req) => {
     const ask = deploySchema.parse(req.body);
     // the GPU hunt's own deploy between its pick and RunPod's answer: this one would be a second pod for the same renders
-    if (s.hunt.view().hunt?.status === "deploying") throw httpError("The GPU hunt is deploying a GPU now: wait for it to end.", 409);
+    if (s.hunt.deploying()) throw httpError("The GPU hunt is deploying a GPU now: wait for it to end.", 409);
     return s.rented.deploy(async () => ({ ...ask, files: await deployFiles(s, ask), again: false }));
   });
 

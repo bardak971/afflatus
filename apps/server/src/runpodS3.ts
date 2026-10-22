@@ -14,10 +14,16 @@ export const S3_DATA_CENTERS: readonly string[] = [
   "EU-CZ-1", "EU-RO-1", "EUR-IS-1", "EUR-NO-1", "US-CA-2", "US-GA-2", "US-IL-1", "US-KS-2", "US-MD-1", "US-MO-1", "US-MO-2", "US-NC-1", "US-NC-2", "US-NE-1", "US-WA-1",
 ];
 
-/** The S3 endpoint of a data center; null where RunPod has none (a pretend S3 stands in for the ones it has). */
+/**
+ * The S3 endpoint of a data center; null where RunPod has none (a pretend S3 stands in for the ones it has). Under pretend
+ * sites (AFFLATUS_PRETEND_SITES: the demo, the tests) it throws unless RUNPOD_S3_URL says the pretend one, as runpod.ts's
+ * API and proxy do, so that a signed request never reaches RunPod's own S3 from there.
+ */
 export function s3Endpoint(dataCenter: string): string | null {
   if (!S3_DATA_CENTERS.includes(dataCenter)) return null;
-  return envSaid.runpodS3()?.replace(/\/+$/, "") ?? `https://s3api-${dataCenter.toLowerCase()}.runpod.io`;
+  const said = envSaid.runpodS3()?.trim();
+  if (!said && envSaid.pretendSites()) throw new Error("not sent: no site on the internet is asked here (RUNPOD_S3_URL is not set)");
+  return (said || `https://s3api-${dataCenter.toLowerCase()}.runpod.io`).replace(/\/+$/, "");
 }
 
 export interface S3Key {

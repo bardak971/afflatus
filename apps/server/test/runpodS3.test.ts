@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { awsEncode, readListPage, s3Endpoint, signS3 } from "../src/runpodS3";
 
 /** RunPod's S3 API as Afflatus speaks it: the signature, the endpoints and the listing's XML. */
@@ -23,10 +23,24 @@ describe("signing", () => {
 });
 
 describe("endpoints", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   it("has one per data center that RunPod serves, none elsewhere", () => {
+    // RunPod's own addresses are only said where sites on the internet may be asked
+    vi.stubEnv("AFFLATUS_PRETEND_SITES", "0");
+    vi.stubEnv("RUNPOD_S3_URL", "");
     expect(s3Endpoint("EU-RO-1")).toBe("https://s3api-eu-ro-1.runpod.io");
     expect(s3Endpoint("EUR-IS-1")).toBe("https://s3api-eur-is-1.runpod.io");
     expect(s3Endpoint("US-TX-3")).toBeNull();
+  });
+
+  it("never says RunPod's own S3 under pretend sites: the pretend one when its env says it, a throw otherwise", () => {
+    vi.stubEnv("AFFLATUS_PRETEND_SITES", "1");
+    vi.stubEnv("RUNPOD_S3_URL", "");
+    expect(() => s3Endpoint("EU-RO-1")).toThrow(/RUNPOD_S3_URL is not set/);
+    expect(s3Endpoint("US-TX-3")).toBeNull();
+    vi.stubEnv("RUNPOD_S3_URL", "http://127.0.0.1:9000/");
+    expect(s3Endpoint("EU-RO-1")).toBe("http://127.0.0.1:9000");
   });
 });
 
