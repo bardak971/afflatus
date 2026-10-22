@@ -174,6 +174,11 @@ interface ImageInput extends Base {
   /** "mid": a picture the clip passes through, at the moment the number input named by `at` says. "guide": one the result follows the shapes of (a ControlNet's), not one it is made from. */
   role: "source" | "start" | "end" | "mid" | "mask" | "guide";
   optional?: boolean;
+  /**
+   * Needed by a clip that opens, not by one that carries on from the clip before (Motion transfer's Picture: a window
+   * after a swap has none of its own, card #42). Parsed as optional, never filled in for it; a form on its own asks for it.
+   */
+  opensOnly?: boolean;
   /** Of a "mid" picture: the id of the number input that holds its moment, in seconds from the start of the clip. */
   at?: string;
   /** Of a "mask": the id of the picture input it is painted over. White = the part to redo, the same size as that picture. */
@@ -354,7 +359,7 @@ function schemaOf(spec: InputSpec): z.ZodType {
     case "seed":
       return z.number().int().min(RANDOM_SEED).max(2 ** 32 - 1).default(RANDOM_SEED);
     case "image":
-      return spec.optional ? z.string().min(1).optional() : z.string().min(1);
+      return spec.optional || spec.opensOnly ? z.string().min(1).optional() : z.string().min(1);
     case "clip": {
       const clip = z.strictObject({
         asset: z.string().min(1), at: z.number().min(0).optional(),

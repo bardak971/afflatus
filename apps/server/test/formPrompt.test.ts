@@ -28,7 +28,8 @@ describe("the prompt as sent, written from the parts", () => {
   });
 
   it("is a window's that carries on, with the clip before the timeline gives it", async () => {
-    const asked = (await post(t.app, "/api/form/prompt", { recipe: "h3.swapMotion", input: { look: "", happens: "he waves", previous: true } })).json();
+    // a Motion transfer window after a swap (card #42: Swap motion's that carried on)
+    const asked = (await post(t.app, "/api/form/prompt", { recipe: "h3.motion", input: { afterSwap: true, look: "", happens: "he waves", previous: true } })).json();
     expect(asked.text).toBe("The person carries on moving as in the clip before. He waves.");
   });
 });

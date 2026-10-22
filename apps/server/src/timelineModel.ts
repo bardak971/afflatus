@@ -195,7 +195,7 @@ export const plannedLengthOf = (p: Placed, recipe: Recipe<any> | undefined) => {
 export function formFilled(recipe: Recipe<any>, inputs: Record<string, unknown>, from: { carries: boolean; afterStill: boolean }): boolean {
   for (const i of recipe.inputs) {
     if (i.type === "prompt" && ((!i.optional && i.default === undefined) || i.example) && !String(inputs[i.id] ?? "").trim()) return false;
-    const given = from.carries && i.type === "image" && i.role === "start" && (recipe.traits?.continues === "frame" || from.afterStill);
+    const given = from.carries && i.type === "image" && ((i.role === "start" && (recipe.traits?.continues === "frame" || from.afterStill)) || Boolean(i.opensOnly));
     if (i.type === "image" && !i.optional && !inputs[i.id] && !given) return false;
     if (i.type === "clip" && i.role === "source" && !i.optional && !inputs[i.id]) return false;
   }

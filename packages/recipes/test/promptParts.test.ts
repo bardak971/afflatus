@@ -2,8 +2,7 @@ import { describe, expect, it } from "vitest";
 import { dryContext, parseInput, type Recipe } from "@afflatus/core";
 import { recipeById } from "../src/index";
 import { swapFromParts, SWAP_CAPTION, typedPrompt } from "../src/h3/swap";
-import { motionFromParts } from "../src/h3/swapMotion";
-import { motionTransferFromParts } from "../src/h3/motionTransfer";
+import { motionFromParts, motionTransferFromParts } from "../src/h3/motionTransfer";
 import { h3Video } from "../src/h3/video";
 
 /**
@@ -60,7 +59,8 @@ describe("what a render sends", () => {
   it("each form says which of its inputs is the prompt as sent", () => {
     expect(recipeById("h3.swap")!.partsInto).toBe("who");
     expect(recipeById("h3.motion")!.partsInto).toBe("description");
-    expect(recipeById("h3.swapMotion")!.promptFromParts!({ ...(parseInput(recipeById("h3.swapMotion")!, { ...(v.input as object) }) as object), previous: { asset: "w1" }, look: "", happens: "he waves" } as never)).toMatch(/carries on moving as in the clip before\. He waves\.$/);
+    // a Motion transfer window after a swap (no Picture of its own) writes its prompt as carrying on
+    expect(recipeById("h3.motion")!.promptFromParts!({ afterSwap: true, look: "", happens: "he waves" } as never)).toMatch(/carries on moving as in the clip before\. He waves\.$/);
   });
 });
 
@@ -81,10 +81,10 @@ describe("the shot's words (card #27)", () => {
     const motion = recipeById("h3.motion")!;
     const v = motion.variants[0]!;
     expect(sent(motion, v as never, { description: "A man dances in a living room.", shot: "Wide" })).not.toContain("Wide shot.");
-    const swapMotion = recipeById("h3.swapMotion")!;
-    const w = swapMotion.variants.find((x) => (x.input as { previous?: unknown }).previous)!;
-    expect(sent(swapMotion, w as never, { who: "The man with short brown hair dances.", shot: "Medium" })).not.toContain("Medium shot.");
-    expect(sent(swapMotion, w as never, { who: "", look: "", happens: "he waves", shot: "Medium" })).toContain("Medium shot. The person carries on moving as in the clip before. He waves.");
+    // a window after a swap (Swap motion's that carried on, card #42)
+    const w = motion.variants.find((x) => (x.input as { afterSwap?: boolean }).afterSwap)!;
+    expect(sent(motion, w as never, { description: "The man with short brown hair dances.", shot: "Medium" })).not.toContain("Medium shot.");
+    expect(sent(motion, w as never, { description: "", look: "", happens: "he waves", shot: "Medium" })).toContain("Medium shot. The person carries on moving as in the clip before. He waves.");
   });
 
   it("are not glued in front of a prompt already in H3's layout, sent as written", () => {

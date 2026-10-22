@@ -28,7 +28,7 @@ describe("the frames a join takes", () => {
 describe("recipes that join in a kept latent", () => {
   const latent = recipes.filter((r: Recipe<any>) => r.traits?.latentNodes?.length);
   it("every H3 form", () => {
-    expect(latent.map((r) => r.id).sort()).toEqual(["h3.lipsync", "h3.motion", "h3.swap", "h3.swapMotion", "h3.video"]);
+    expect(latent.map((r) => r.id).sort()).toEqual(["h3.lipsync", "h3.motion", "h3.swap", "h3.video"]);
   });
   it.each(latent.map((r) => [r.id, r] as const))("%s: on the kept latent's rate and grid, with the node that cuts it", (_id, r) => {
     expect(r.traits!.fps).toBe(LATENT_FPS);
@@ -40,7 +40,7 @@ describe("recipes that join in a kept latent", () => {
 describe("how a clip meets the one before it, by default (the join rule)", () => {
   const r = (id: string) => recipeById(id)!;
   it("seamless between any two H3 forms: they carry on in one kept latent", () => {
-    for (const [a, b] of [["h3.video", "h3.lipsync"], ["h3.lipsync", "h3.video"], ["h3.swapMotion", "h3.video"], ["h3.video", "h3.swap"], ["h3.motion", "h3.motion"]]) {
+    for (const [a, b] of [["h3.video", "h3.lipsync"], ["h3.lipsync", "h3.video"], ["h3.motion", "h3.video"], ["h3.swap", "h3.motion"], ["h3.motion", "h3.swap"], ["h3.video", "h3.swap"], ["h3.motion", "h3.motion"]]) {
       expect(joinWay(r(a!), r(b!))).toBe("seamless");
     }
   });
@@ -53,7 +53,7 @@ describe("how a clip meets the one before it, by default (the join rule)", () =>
   it("a cut when the model changes, or when nothing is before it", () => {
     expect(joinWay(r("h3.video"), r("ltx.video"))).toBe("cut");
     expect(joinWay(r("scail.motion"), r("h3.video"))).toBe("cut");
-    expect(joinWay(r("h3.swapMotion"), r("scail.motion"))).toBe("cut");
+    expect(joinWay(r("h3.motion"), r("scail.motion"))).toBe("cut");
     expect(joinWay(undefined, r("h3.video"))).toBe("cut");
   });
   it("a cut after anything for a model that cannot carry on", () => {
@@ -64,7 +64,7 @@ describe("how a clip meets the one before it, by default (the join rule)", () =>
 describe("recipes whose takes a finish can Face refine", () => {
   it("every H3 form and SCAIL-2 at 24 fps say so in their traits, naming an input they have; no other recipe", () => {
     const refining = recipes.filter((r: Recipe<any>) => r.traits?.faceRefine);
-    expect(refining.map((r) => r.id).sort()).toEqual(["h3.lipsync", "h3.motion", "h3.swap", "h3.swapMotion", "h3.video", "scail.motion24"]);
+    expect(refining.map((r) => r.id).sort()).toEqual(["h3.lipsync", "h3.motion", "h3.swap", "h3.video", "scail.motion24"]);
     for (const r of refining) expect(r.inputs.some((i) => i.id === r.traits!.faceRefine), r.id).toBe(true);
   });
 });

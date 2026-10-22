@@ -108,6 +108,12 @@ export interface VideoTraits {
      * source before): the first recipe that has it, so that the timeline names no recipe of its own.
      */
     sourceDefault?: true;
+    /**
+     * The form a window that carries on is made with when this form's source is made (H3 · Swap character: Motion
+     * transfer, the person replaced never in its input; card #42), one of the same grid; each window's form changed by
+     * hand after. Left out, every window takes this form.
+     */
+    carryOn?: string;
   };
 }
 
@@ -243,10 +249,12 @@ export interface Recipe<In = Record<string, unknown>> {
    */
   needsWith?(input: In, slots?: Record<string, string>): string[];
   /**
-   * Of a recipe made window by window: what a window that carries on is made with in place of the source's form, from that
-   * form (Swap motion: a prompt that describes the person as clip 1's does, without the swap's <Video 1>).
+   * Of a recipe made window by window: a window of a source given this form from another of its grid (`from`), its part
+   * of the source already moved to this form's inputs; `alone`: this window only (made so, or changed by itself), not
+   * every window of the source at once. What it adds to them (Motion transfer after a swap: carrying on from it, on its
+   * model and with its sampling); left out, the inputs as they are.
    */
-  windowCarryOn?(form: Record<string, unknown>): Record<string, unknown>;
+  windowFrom?(from: Recipe<any>, inputs: Record<string, unknown>, alone: boolean): Record<string, unknown>;
   /**
    * A form whose prompt is written from parts (card #34): the input that is the prompt as sent (`into`), and the text the
    * parts give it, sent while that input is left empty. The form shows it there, greyed, as what goes.

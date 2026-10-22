@@ -24,7 +24,7 @@ function build(values: Record<string, unknown>, ctx: Partial<BuildContext> = {})
 
 describe("MiniMax H3 · Face refine", () => {
   it("is on every H3 form, off by default, in the Output chapter", () => {
-    for (const id of ["h3.video", "h3.lipsync", "h3.swap", "h3.swapMotion", "h3.motion"]) {
+    for (const id of ["h3.video", "h3.lipsync", "h3.swap", "h3.motion"]) {
       const spec = recipeById(id)!.inputs.find((i) => i.id === "faceRefine");
       expect(spec, id).toMatchObject({ type: "toggle", default: false, section: "out" });
       expect(recipeById(id)!.inputs.find((i) => i.id === "faceRefineOnly"), id).toMatchObject({ internal: true });
@@ -151,8 +151,8 @@ describe("MiniMax H3 · Face refine", () => {
   it("asks for its files on every form that has it (a pod was never sent them), and none with it off", () => {
     const face = ["faceRefineUnet", "faceDetector", "faceSeg", "faceSam"];
     const forms: Array<[string, Record<string, unknown>]> = [
-      ["h3.video", { description: "a" }], ["h3.lipsync", { description: "a", recording: "r" }], ["h3.motion", { picture: "p", driving: { asset: "v" } }],
-      ["h3.swap", { who: "the man", source: { asset: "v" } }], ["h3.swapMotion", { who: "the man", source: { asset: "v" } }],
+      ["h3.video", { description: "a" }], ["h3.lipsync", { description: "a", recording: "r" }], ["h3.motion", { picture: "p", source: { asset: "v" } }],
+      ["h3.swap", { who: "the man", source: { asset: "v" } }], ["h3.motion", { afterSwap: true, previous: { asset: "w" }, source: { asset: "v" } }],
     ];
     for (const [id, values] of forms) {
       const r = recipeById(id)!;
@@ -173,9 +173,9 @@ describe("MiniMax H3 · Face refine", () => {
     expect(prompt(swapped)).toBe("Close-up of the face of the person in <Picture 1>, short grey hair. Sharp focus, clear details.");
     const motion = recipeById("h3.motion")!;
     expect(motion.inputs.filter((i) => i.type === "prompt" && i.label === "How they look").map((i) => i.id)).toEqual(["look"]);
-    const moved = motion.build(parseInput(motion, { picture: "p1", driving: { asset: "v1" }, look: "a red scarf", references: [{ asset: "r1", role: "person" }], faceRefine: true }), dryContext({
-      slots: { ...slots, h3Control: "minimax_h3_fun_controlnet_union_2.0.safetensors" }, uploads: { picture: "p.png", driving: "v.mp4", "references.0": "person.png" },
-      media: { picture: { width: 576, height: 1024 }, driving: { width: 576, height: 1024, frames: 141, fps: 24, hasSound: true } },
+    const moved = motion.build(parseInput(motion, { picture: "p1", source: { asset: "v1" }, look: "a red scarf", references: [{ asset: "r1", role: "person" }], faceRefine: true }), dryContext({
+      slots: { ...slots, h3Control: "minimax_h3_fun_controlnet_union_2.0.safetensors" }, uploads: { picture: "p.png", source: "v.mp4", "references.0": "person.png" },
+      media: { picture: { width: 576, height: 1024 }, source: { width: 576, height: 1024, frames: 141, fps: 24, hasSound: true } },
     })).graph as Graph;
     expect(prompt(moved)).toBe("Close-up of the face of the person in <Picture 1>, a red scarf. Sharp focus, clear details.");
   });

@@ -129,8 +129,9 @@ export function windowShapeOf(recipe: WindowedTraits | undefined, inputs?: Recor
 
 /**
  * Whether two forms that make a source window by window cut it the same way: the same frame rate, frame grid and window
- * shape (H3's Swap character, Swap motion and Motion transfer between them). Between two such forms a source changes form
- * in place, its windows and their takes kept; across grids (SCAIL-2 and H3) its windows are made anew.
+ * shape (H3's Swap character and Motion transfer between them). Between two such forms a source changes form in place, its
+ * windows and their takes kept, and each window may take either (card #42); across grids (SCAIL-2 and H3) its windows are
+ * made anew.
  */
 export function sameWindowGrid(a: { traits?: VideoTraits | null } | undefined, b: { traits?: VideoTraits | null } | undefined): boolean {
   const [x, y] = [a?.traits, b?.traits];

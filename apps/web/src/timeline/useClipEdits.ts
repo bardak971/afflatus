@@ -134,8 +134,9 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
       const carries = Boolean(before) && c.joined === "continue";
       for (const i of recipe.inputs) {
         if (i.type === "prompt" && ((!i.optional && i.default === undefined) || i.example) && !String(input[i.id] ?? "").trim()) return { why: `Write ${i.label.toLowerCase()} first.` };
-        // a clip that picks up from the last frame of the one before, or opens on the picture before it, needs no opening picture of its own
-        const given = carries && i.type === "image" && i.role === "start" && (recipe.traits?.continues === "frame" || before?.kind === "still");
+        // a clip that picks up from the last frame of the one before, or opens on the picture before it, needs no opening picture
+        // of its own; nor one whose picture only a clip that opens needs (Motion transfer after a swap)
+        const given = carries && i.type === "image" && ((i.role === "start" && (recipe.traits?.continues === "frame" || before?.kind === "still")) || Boolean(i.opensOnly));
         if (i.type === "image" && !i.optional && !input[i.id] && !given) return { why: `Choose the ${i.label.toLowerCase()} first.` };
         // a source video (Motion transfer's driving video) comes from the timeline's source lane
         if (i.type === "clip" && i.role === "source" && !i.optional && !input[i.id]) return { why: `It has no ${i.label.toLowerCase()}: drop one on the Source lane under the track.` };

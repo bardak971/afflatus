@@ -86,7 +86,7 @@ export function ClipFacts({ clip, index, clips }: { clip: Clip; index: number; c
 }
 
 /**
- * The clip's form, as the card says it (the rethink: the track names no model, the card does): "MiniMax H3 · Swap motion",
+ * The clip's form, as the card says it (the rethink: the track names no model, the card does): "MiniMax H3 · Motion transfer",
  * and for a window of the source which one it is ("window 2 of the source"). Null for a still or a clip with no model.
  */
 function useFormLine(clip: Clip, clips: Clip[]): string | null {

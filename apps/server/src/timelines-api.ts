@@ -208,6 +208,12 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   app.post<{ Params: { id: string } }>("/api/timelines/:id/recording", async (req) => ({ clips: await t.makeFromRecording(req.params.id, z.strictObject({ asset: z.string().min(1), clip: z.string().optional(), seconds: z.number().min(1).max(60).optional() }).parse(req.body)) }));
   // the source given another windowed form: in place on the same grid (its windows and takes kept), else made anew (Timelines.sourceForm)
   app.post<{ Params: { id: string } }>("/api/timelines/:id/source/form", async (req) => t.sourceForm(req.params.id, z.strictObject({ recipe: z.string().min(1) }).parse(req.body).recipe));
+  // one window of the source given another form of its grid, in place (Timelines.windowForm, card #42)
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/source/window", async (req) => {
+    const { clip, recipe } = z.strictObject({ clip: z.string().min(1), recipe: z.string().min(1) }).parse(req.body);
+    await t.windowForm(req.params.id, clip, recipe);
+    return { ok: true };
+  });
   /** The source split at a moment of it: the part before, from its stretch's start, a clip playing it as it is. */
   app.post<{ Params: { id: string } }>("/api/timelines/:id/source/split", async (req) => ({ clip: await t.splitSource(req.params.id, z.strictObject({ atMs: z.number().min(0) }).parse(req.body).atMs) }));
   app.delete<{ Params: { id: string } }>("/api/timelines/:id", async (req) => {

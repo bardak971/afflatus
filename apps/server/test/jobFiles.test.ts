@@ -138,14 +138,14 @@ describe("the files a pod is sent for a waiting job", () => {
     for (const r of [
       row("h3.video", { description: "a man waves", seconds: 5, references: cast }),
       row("h3.lipsync", { description: "a man talks", recording: "zz-test-voice", references: cast }),
-      row("h3.motion", { picture: "zz-test-picture", driving: { asset: await video() }, references: cast }),
+      row("h3.motion", { picture: "zz-test-picture", source: { asset: await video() }, references: cast }),
     ]) {
       const files = (await deployed(r)).map((f) => f.file);
       expect(files, r.recipe_id).toContain(download("refUnet"));
       expect(files, r.recipe_id).not.toContain(download("unet"));
     }
     // a window of Motion transfer that carries on is given the frame before as a picture: the reference model too, cast or not
-    const window = row("h3.motion", { picture: "zz-test-picture", driving: { asset: await video() }, previous: { asset: await video() }, references: [] });
+    const window = row("h3.motion", { picture: "zz-test-picture", source: { asset: await video() }, previous: { asset: await video() }, references: [] });
     expect((await deployed(window)).map((f) => f.file)).toContain(download("refUnet"));
   });
 

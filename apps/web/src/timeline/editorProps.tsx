@@ -15,7 +15,7 @@ import { pinMenuItems, placeItems, type ClipMenuActions } from "./menus";
 import type { ContextMenu } from "../ContextMenu";
 import type { LoadedEditor } from "./useTimelineEditor";
 import { plural } from "../format";
-import { carriedOf, windowBounds } from "@afflatus/core";
+import { carriedOf, sameWindowGrid, windowBounds } from "@afflatus/core";
 import { madeFromSource, sourceDropClip, windowed } from "./track/SourceLane";
 import type { ClipSource } from "./inspector/clipSource";
 import type { ClipRecording } from "./inspector/clipRecording";
@@ -297,6 +297,8 @@ function clipSourceOf(e: LoadedEditor, current: Clip): ClipSource | undefined {
         startMs: w ? Number(inputs[w.start] ?? 0) * 1000 : 0,
         seconds: w ? Number(inputs[w.seconds] ?? 0) : 0,
         opens: c.joined === "cut",
+        // each window's own form among the grid's (card #42): Swap character, Motion transfer
+        form: e.videoRecipes.find((r) => r.id === c.recipe)?.title ?? "",
         carried: recipe ? carriedOf(recipe, inputs) : 0,
         own: c !== made[0] && ownOf(c) !== ownOf(made[0]!),
         rendered: Boolean(c.take),
@@ -388,6 +390,11 @@ export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<t
     // from where its rendered clips end)
     onRecipe: (recipe) => {
       const made = windowed(e.videoRecipes.find((r) => r.id === recipe));
+      // Apply to: This clip, a form of the source's grid: this window alone, in place (card #42: a swap again where the motion
+      // drifts, or where the lips must follow the source), its takes kept
+      const next = e.videoRecipes.find((r) => r.id === recipe);
+      const of = e.videoRecipes.find((r) => r.id === e.t.source?.recipe);
+      if (made && clipSourceOf(e, current) && e.keptToClip(current.id) && sameWindowGrid(of, next)) return e.m.windowForm.mutate({ clip: current.id, recipe });
       // the source's form, every window with it: on the same grid in place, its takes kept; else made anew, asked first (sourceForm)
       if (made && clipSourceOf(e, current)) return e.sourceForm.run(recipe);
       if (made && e.place?.made && !current.take && !current.job) return e.cutSource.run({ recipe, clip: current.id });

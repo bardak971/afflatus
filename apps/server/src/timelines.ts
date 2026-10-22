@@ -549,32 +549,41 @@ export class Timelines {
    * change on one of the clips made from the source, or given with the source's form (`inputs` of the source's own), is
    * set on the source and on every clip made from it: all of the form but each window's part of the driving video, the
    * clip it carries on from and its seed. A clip set apart on a setting keeps its own (`share`, SourcePlan.apart). A
-   * Picture taken away is not taken from the others. A clip of another video, or of another model, is left alone. Its
-   * takes stay; its next take is made with the new form.
+   * Picture taken away is not taken from the others. A clip of another video, or of a model that cuts it otherwise, is
+   * left alone. The windows may have forms of their own among one grid's (Swap character, Motion transfer: card #42): a
+   * setting goes to every window, read by those whose form has it and kept unread by the others (it comes back with that
+   * form). Its takes stay; its next take is made with the new form.
    */
   private async sameForm(timelineId: string, from: Pick<ClipRow, "id" | "recipe_id" | "inputs"> | null, inputs: Record<string, unknown>, tx: Db, share?: ClipPatch["share"]) {
     const t = await tx.selectFrom("timelines").select(["source"]).where("id", "=", timelineId).executeTakeFirst();
     const plan = sourceOfRow(t?.source);
     if (!plan?.recipe) return;
-    const recipe = this.registry.recipe(plan.recipe);
-    const driving = recipe?.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window);
-    if (!recipe || !driving || driving.type !== "clip" || !driving.window) return;
-    const bound = (inp: Record<string, unknown>) => (inp[driving.id] as { asset?: string } | undefined)?.asset === plan.asset;
-    if (from && (from.recipe_id !== recipe.id || !bound(inputs))) return;
+    const source = this.registry.recipe(plan.recipe);
+    if (!source?.traits?.windows) return;
+    // the forms a window of the source may have: the source's, and those that cut it alike (sameWindowGrid)
+    const ofGrid = (id: string | null) => {
+      const r = id ? this.registry.recipe(id) : undefined;
+      const d = r?.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window);
+      return r && (r.id === source.id || sameWindowGrid(source, r)) && d?.type === "clip" && d.window ? { recipe: r, driving: d as typeof d & { window: NonNullable<typeof d.window> } } : undefined;
+    };
+    const bound = (form: NonNullable<ReturnType<typeof ofGrid>>, inp: Record<string, unknown>) => (inp[form.driving.id] as { asset?: string } | undefined)?.asset === plan.asset;
+    const mineForm = ofGrid(from ? from.recipe_id : source.id);
+    if (!mineForm || (from && !bound(mineForm, inputs))) return;
+    const { recipe, driving } = mineForm;
     const pictures = new Set(recipe.inputs.filter((i) => i.type === "image").map((i) => i.id));
-    const ids = recipe.inputs.filter((i) => i.type !== "clip" && i.id !== "seed" && i.id !== driving.window!.start && i.id !== driving.window!.seconds).map((i) => i.id);
+    const ids = recipe.inputs.filter((i) => i.type !== "clip" && i.id !== "seed" && i.id !== driving.window.start && i.id !== driving.window.seconds).map((i) => i.id);
     const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
     const was = from ? (JSON.parse(from.inputs) as Record<string, unknown>) : {};
-    const clips = (await tx.selectFrom("clips").select(["id", "inputs"]).where("timeline_id", "=", timelineId).where("recipe_id", "=", recipe.id).execute())
-      .map((c) => ({ id: c.id, inputs: JSON.parse(c.inputs) as Record<string, unknown> }))
-      .filter((c) => bound(c.inputs));
+    const clips = (await tx.selectFrom("clips").select(["id", "inputs", "recipe_id"]).where("timeline_id", "=", timelineId).execute())
+      .map((c) => ({ id: c.id, inputs: JSON.parse(c.inputs) as Record<string, unknown>, form: ofGrid(c.recipe_id) }))
+      .filter((c) => c.form && bound(c.form, c.inputs));
     // what each clip keeps its own, the ones gone forgotten
     const apart: Record<string, string[]> = Object.fromEntries(Object.entries(plan.apart ?? {}).filter(([id]) => clips.some((c) => c.id === id)));
     const mine = from ? apart[from.id] ?? [] : [];
     const changed = from ? ids.filter((k) => !same(was[k], inputs[k])) : ids.filter((k) => k in inputs);
     // what each window keeps its own (its prompt) goes to the others only when given to all; the run-up is the cut's, the
     // same in every window whatever is set apart (a window carrying on from another count would no longer meet its part)
-    const ownIds = new Set(recipe.traits?.windows?.own ?? []);
+    const ownIds = new Set([source, recipe, ...clips.map((c) => c.form!.recipe)].flatMap((r) => r.traits?.windows?.own ?? []));
     const runUp = recipe.traits?.windows?.runUp?.input;
     // the values every clip in line takes (undefined: back to the model's own), and whether they go over what others keep
     let spread: Record<string, unknown> = {};
@@ -613,24 +622,6 @@ export class Timelines {
       const next = { ...c.inputs };
       for (const k of taken) if (spread[k] === undefined) delete next[k]; else next[k] = spread[k];
       await tx.updateTable("clips").set({ inputs: JSON.stringify(next), updated_at: now() }).where("id", "=", c.id).execute();
-    }
-    // the first window's prompt written (Swap motion's: Make came before it, on an empty form): the windows that carry on
-    // and still hold what was made for its old prompt take what its new one makes (windowCarryOn); one written by hand stays
-    if (from && recipe.windowCarryOn) {
-      const before = recipe.windowCarryOn(was);
-      const after = recipe.windowCarryOn(inputs);
-      const follow = Object.keys(after).filter((k) => !same(before[k], after[k]));
-      const opens = follow.length ? (await tx.selectFrom("clips").select("joined").where("id", "=", from.id).executeTakeFirst())?.joined === "cut" : false;
-      if (opens) {
-        const rows = await tx.selectFrom("clips").select(["id", "inputs", "joined"]).where("timeline_id", "=", timelineId).where("recipe_id", "=", recipe.id).execute();
-        for (const r of rows) {
-          if (r.id === from.id || r.joined !== "continue") continue;
-          const held = JSON.parse(r.inputs) as Record<string, unknown>;
-          if (!bound(held)) continue;
-          const keep = follow.filter((k) => same(held[k], before[k]));
-          if (keep.length) await tx.updateTable("clips").set({ inputs: JSON.stringify({ ...held, ...Object.fromEntries(keep.map((k) => [k, after[k]])) }), updated_at: now() }).where("id", "=", r.id).execute();
-        }
-      }
     }
     // the source's form follows (what the next Make takes), and what each clip keeps
     const form = { ...plan.inputs };
@@ -756,12 +747,17 @@ export class Timelines {
         }
         // back as they were, in order, while each starts where the window before it ends and the stretch holds it whole. One
         // of another model (set aside before the source's model changed), or that no longer meets the windows, never comes
-        // back over them: those go, and Undo brings them back with the windows they were cut with
+        // back over them: those go, and Undo brings them back with the windows they were cut with. A window of another form
+        // of the source's grid is one of its own (card #42: a Motion transfer after a swap)
         let at = last ? order.indexOf(last.clip.id) + 1 : order.length;
         let back = 0;
         let stale = false;
+        const ofGrid = (id: unknown) => {
+          const r = typeof id === "string" ? this.registry.recipe(id) : undefined;
+          return Boolean(r && (r.id === recipe.id || sameWindowGrid(recipe, r)));
+        };
         for (const row of parked) {
-          const span = row.clip.recipe_id === recipe.id ? part(row.clip, false) : null;
+          const span = ofGrid(row.clip.recipe_id) ? part(row.clip, false) : null;
           if (!span || (last && Math.abs(span.start - end) > 50)) {
             stale = true;
             break;
@@ -807,9 +803,8 @@ export class Timelines {
 
   /**
    * The source given another form that makes it window by window (from its Model list, or a window clip's). Between forms
-   * of one grid (H3's Swap character, Swap motion, Motion transfer), in place: its windows keep their parts, their own
-   * settings and their takes, and each one's next take is made with the new form; a window that carries on with the
-   * carried-on settings of the old form (Swap motion's motion prompt) takes the new form's, or window 1's when it has none.
+   * of one grid (H3's Swap character, Motion transfer), in place: every window takes it, whatever form it had of its own
+   * (windowForm), and keeps its part, its own settings and its takes; each one's next take is made with the new form.
    * The windows a trim set aside take the new form too: a trim out brings them back made with it. Refused while a window
    * renders or waits in the queue (its render was sent with the old form). Across grids (SCAIL-2 and H3), every window made
    * anew, rendered or not (makeFromSource `anew`): the editor says so before it asks. Nothing made yet: only the source's
@@ -834,26 +829,13 @@ export class Timelines {
       }
       if ((await this.busyOf(ofSource)).size) throw httpError("A clip of the source is rendering or in the queue: let it end, or stop it, to change the source's model.", 409);
       const mine = all.filter((p) => ofSource.includes(p.clip.id));
-      const own = [...new Set([...(old.traits?.windows?.own ?? []), ...(next.traits?.windows?.own ?? [])])];
-      const pick = (form: Record<string, unknown>) => Object.fromEntries(own.map((k) => [k, form[k]]));
-      const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-      const first = windowFormFor(old, next, JSON.parse(mine[0]!.clip.inputs) as Record<string, unknown>);
-      const firstOld = JSON.parse(mine[0]!.clip.inputs) as Record<string, unknown>;
-      // a window's form in the new model's words: one that carries on with what the old form carried on with takes the new form's
-      const formOf = (raw: string, carries: boolean) => {
-        let inputs = windowFormFor(old, next, JSON.parse(raw) as Record<string, unknown>);
-        if (carries) {
-          // what it carried on with, as the old form gave it, or window 1's own: the new form's carried-on settings
-          const carried = old.windowCarryOn ? { ...pick(firstOld), ...old.windowCarryOn(firstOld) } : pick(firstOld);
-          if (same(pick(inputs), pick(carried))) inputs = { ...inputs, ...pick(first), ...(next.windowCarryOn?.(first) ?? {}) };
-        }
-        return inputs;
-      };
-      const parked = (plan.parked ?? []).map((row) => ({ ...row, clip: { ...row.clip, recipe_id: next.id, inputs: JSON.stringify(formOf(String(row.clip.inputs), row.clip.joined === "continue")) } }));
+      // a window's form in the new model's words, from the form it has: each window may have its own (card #42)
+      const formOf = (row: { recipe_id?: unknown; inputs?: unknown }) => windowFormFor((typeof row.recipe_id === "string" ? this.registry.recipe(row.recipe_id) : undefined) ?? old, next, JSON.parse(String(row.inputs)) as Record<string, unknown>);
+      const parked = (plan.parked ?? []).map((row) => ({ ...row, clip: { ...row.clip, recipe_id: next.id, inputs: JSON.stringify(formOf(row.clip)) } }));
       await this.db.transaction().execute(async (tx) => {
         await this.remember(timelineId, `the source made with ${next.title}`, undefined, tx);
         for (const p of mine) {
-          const inputs = formOf(p.clip.inputs, p.clip.joined === "continue" && p !== mine[0]);
+          const inputs = formOf(p.clip);
           await tx.updateTable("clips").set({ recipe_id: next.id, inputs: JSON.stringify(inputs), updated_at: now() }).where("id", "=", p.clip.id).execute();
         }
         await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, recipe: next.id, ...(parked.length ? { parked } : {}) }), updated_at: now() }).where("id", "=", timelineId).execute();
@@ -862,6 +844,36 @@ export class Timelines {
     });
     await this.touch(timelineId);
     return out;
+  }
+
+  /**
+   * One window of the source given another form of its grid (card #42: Swap character where a shot opens or the motion
+   * drifts, Motion transfer where it carries on), from its Model list with Apply to: This clip. In place: its part, its own
+   * settings and its takes kept (each take keeps the form it was made with), its next take made with the new form; the
+   * other windows and the source's own form as they are. One step to undo.
+   */
+  async windowForm(timelineId: string, clipId: string, recipeId: string): Promise<void> {
+    const next = this.registry.recipe(recipeId);
+    const t = await this.row(timelineId);
+    const plan = sourceOfRow(t.source);
+    const source = plan?.recipe ? this.registry.recipe(plan.recipe) : undefined;
+    if (!plan || !source) throw httpError("Drop a video on the Source lane first.");
+    if (!next?.traits?.windows || !sameWindowGrid(source, next)) throw httpError(`${next?.title ?? recipeId} does not cut the source as its other windows do: give it to all of them.`);
+    await this.history.oneAtATime(timelineId, async () => {
+      const all = await this.placed(timelineId);
+      const p = all.find((x) => x.clip.id === clipId);
+      if (!p || !clipsOfSource(plan, [p.clip], (r) => this.registry.recipe(r)).length) throw httpError("That clip is not a window of the source.");
+      if (p.clip.recipe_id === next.id) return;
+      if ((await this.busyOf([clipId])).size) throw httpError("The clip is rendering or in the queue: let it end, or stop it, to change its model.", 409);
+      const was = (p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined) ?? source;
+      const inputs = windowFormFor(was, next, JSON.parse(p.clip.inputs) as Record<string, unknown>, true);
+      // the step kept with the change, as one
+      await this.db.transaction().execute(async (tx) => {
+        await this.remember(timelineId, `clip ${all.indexOf(p) + 1} made with ${next.title}`, undefined, tx);
+        await tx.updateTable("clips").set({ recipe_id: next.id, inputs: JSON.stringify(inputs), updated_at: now() }).where("id", "=", clipId).execute();
+      });
+    });
+    await this.touch(timelineId);
   }
 
   private async cutAgain(all: Placed[], plan: SourcePlan, driving: Extract<InputSpec, { type: "clip" }>) {
@@ -989,7 +1001,11 @@ export class Timelines {
       const seed = typedSeed(plan.inputs.seed);
       // the form every window is made with: the settings of the last clip of that model, then the source's own form; the
       // clips a timeline fills in itself and the driving video's part are each window's
-      const own = ownInputIds(recipe);
+      // the form a window that carries on is made with (Swap character's: Motion transfer), when it cuts the source alike;
+      // its own settings kept on the source's form too (a Picture aside: a window after a swap has none of its own)
+      const carry = recipe.traits.windows.carryOn ? this.registry.recipe(recipe.traits.windows.carryOn) : undefined;
+      const carryOn = carry && sameWindowGrid(recipe, carry) ? carry : undefined;
+      const own = new Set([...ownInputIds(recipe), ...(carryOn ? [...ownInputIds(carryOn)].filter((id) => carryOn.inputs.find((i) => i.id === id)?.type !== "image") : [])]);
       const form = Object.fromEntries(Object.entries(again?.form ?? { ...settingsOf(recipe, all, index), ...plan.inputs }).filter(([k]) => own.has(k) && k !== driving.id && k !== driving.window!.start && k !== driving.window!.seconds && !(again && k === "seed")));
       const pictureSpec = recipe.inputs.find((i) => i.type === "image" && i.role === "source");
       const picture = pictureSpec && typeof form[pictureSpec.id] === "string" ? (form[pictureSpec.id] as string) : null;
@@ -1003,12 +1019,12 @@ export class Timelines {
         }
         const made: string[] = [];
         for (const [k, w] of windows.entries()) {
+          // the first window replaces the person clicked on its first frame, the ones after follow it (h3.swap's pick)
+          const inputs = { ...form, [driving.id]: { asset: plan.asset, ...(k === 0 && !again?.kept && plan.pick && driving.pick ? { pick: plan.pick } : {}) }, [driving.window!.start]: w.start, [driving.window!.seconds]: w.seconds, ...(seed !== null ? { seed } : {}) };
+          const carries = !w.opens && carryOn;
           const clip: NewClip = {
-            kind: "video", recipeId: recipe.id, joined: w.opens ? "cut" : "continue", still: null, take: null, asset: undefined, look: null,
-            // the first window replaces the person clicked on its first frame, the ones after follow it (h3.swap's pick)
-            // a window that carries on starts on what the model gives those (Swap motion: its motion prompt, the swap's naming
-            // <Video 1>, which a window driven by the pose has not)
-            inputs: { ...form, ...(w.opens ? {} : recipe.windowCarryOn?.(form) ?? {}), [driving.id]: { asset: plan.asset, ...(k === 0 && !again?.kept && plan.pick && driving.pick ? { pick: plan.pick } : {}) }, [driving.window!.start]: w.start, [driving.window!.seconds]: w.seconds, ...(seed !== null ? { seed } : {}) },
+            kind: "video", recipeId: carries ? carryOn.id : recipe.id, joined: w.opens ? "cut" : "continue", still: null, take: null, asset: undefined, look: null,
+            inputs: carries ? windowFormFor(recipe, carryOn, inputs, true) : inputs,
           };
           const id = await this.planner.insertClip(timelineId, order, index + k, clip, tx);
           order.splice(index + k, 0, { clip: { id } });
