@@ -262,3 +262,45 @@ describe("migration 0080, what a pod's run ran on", () => {
     await db.destroy();
   });
 });
+
+describe("migration 0083, H3 · Swap motion retired", () => {
+  // Its down is a no-op on purpose (a window made Swap character or Motion transfer cannot be told from one made so by
+  // hand), so taken back and run again it must leave the rows as the first run left them (review O-17).
+  it("is taken back without undoing the forms it gave, and run again changes nothing", async () => {
+    const db = openSqlite(":memory:");
+    await migrate(db, "0082_timeline_recordings");
+    const at = new Date().toISOString();
+    await db.insertInto("timelines").values({ id: "tl", owner_id: OWNER, name: "zz-test Swap motion", created_at: at, updated_at: at } as never).execute();
+    const clip = (id: string, position: number, joined: string, inputs: unknown) => ({ id, timeline_id: "tl", position, take_id: null, joined, recipe_id: "h3.swapMotion", inputs: JSON.stringify(inputs), created_at: at, updated_at: at });
+    await db.insertInto("clips").values([clip("open", 0, "cut", { who: "", sourceStart: 0 }), clip("carry", 1, "continue", { who: "", sourceStart: 5 })] as never).execute();
+    const rows = async () => (await db.selectFrom("clips").select(["id", "recipe_id", "inputs"]).orderBy("position").execute()).map((c) => [c.id, c.recipe_id, JSON.parse(c.inputs)]);
+    expect(await migrate(db, "0083_swap_motion_retired")).toEqual(["0083_swap_motion_retired"]);
+    const after = await rows();
+    expect(after.map((r) => r[1])).toEqual(["h3.swap", "h3.motion"]);
+    await migrate(db, "0082_timeline_recordings");
+    expect(await rows()).toEqual(after);
+    expect(await migrate(db, "0083_swap_motion_retired")).toEqual(["0083_swap_motion_retired"]);
+    expect(await rows()).toEqual(after);
+    await db.destroy();
+  });
+});
+
+describe("migration 0084, an ended session's split kept", () => {
+  it("leaves the sessions there were without one (null), keeps one written after; and is taken back", async () => {
+    const db = openSqlite(":memory:");
+    await migrate(db, "0083_swap_motion_retired");
+    const at = new Date().toISOString();
+    await db.insertInto("rent_sessions").values({ id: "old", machine_id: "rp-a", pod: "a", rate: 0.6, started_at: at, ended_at: at, seen_at: at, gpu: "NVIDIA A40", up_at: null, idle_minutes: 3 } as never).execute();
+    expect(await migrate(db, "0084_session_split")).toEqual(["0084_session_split"]);
+    expect((await db.selectFrom("rent_sessions").select("split").executeTakeFirstOrThrow()).split).toBeNull();
+    await db.updateTable("rent_sessions").set({ split: JSON.stringify({ spans: [], estimated: [] }) }).execute();
+    expect(JSON.parse((await db.selectFrom("rent_sessions").select("split").executeTakeFirstOrThrow()).split!)).toEqual({ spans: [], estimated: [] });
+    await migrate(db, "0083_swap_motion_retired");
+    const columns = (await sql<{ name: string }>`pragma table_info(rent_sessions)`.execute(db)).rows.map((c) => c.name);
+    expect(columns).not.toContain("split");
+    // the session itself is kept, and the column comes back empty
+    expect(await migrate(db, "0084_session_split")).toEqual(["0084_session_split"]);
+    expect(await db.selectFrom("rent_sessions").select(["id", "split"]).execute()).toEqual([{ id: "old", split: null }]);
+    await db.destroy();
+  });
+});

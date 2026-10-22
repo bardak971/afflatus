@@ -416,7 +416,10 @@ describe("the hunt", () => {
     expect(t.services.hunt.deploying()).toBe(false);
     await t.services.hunt.tick();
     expect((await hunt()).hunt).toMatchObject({ status: "hunting" });
+    // stuck again, and Cancel sent while it still says "deploying" (not after a round has cleared it): it ends the hunt
+    (t.services.hunt as unknown as { state: { status: string } }).state.status = "deploying";
     expect((await t.app.inject({ method: "DELETE", url: "/api/hunt" })).statusCode).toBe(200);
+    expect((await hunt()).hunt).toBeNull();
     expect(await paused()).toBe(false);
   });
 

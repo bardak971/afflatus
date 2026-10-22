@@ -249,8 +249,10 @@ try {
   await edges.mouse.move(at.x + 20, at.y, { steps: 4 });
   await edges.mouse.move(at.x + 40, at.y, { steps: 4 });
   await edges.mouse.up();
-  await edges.waitForTimeout(1500);
-  const trimmedTo = await lengthOf2();
+  // The trim is written once the release's patch is through: wait for the shorter length (up to 15 s) rather than read it
+  // once after a fixed pause, which a slow runner (CI's player job) could read before the patch and call "not trimmed".
+  let trimmedTo = await lengthOf2();
+  for (const until = Date.now() + 15_000; trimmedTo >= was && Date.now() < until; trimmedTo = await lengthOf2()) await edges.waitForTimeout(200);
   if (trimmedTo >= was) problems.push(`clip 2's start edge dragged at its middle: clip 2 still ${trimmedTo} ms long (was ${was}), not trimmed`);
   else console.log(`player check: a selected clip's trim edges take the press at a join (clip 2 trimmed from ${was} to ${trimmedTo} ms)`);
   await edges.close();

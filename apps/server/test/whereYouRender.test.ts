@@ -210,12 +210,15 @@ describe("a family's official file missing on the user's own ComfyUI", () => {
     await t.services.queue.start();
     const comfy = await t.services.comfy();
     const catalogs = vi.spyOn(comfy.client, "catalog");
+    const listings = vi.spyOn(comfy.client, "models");
     const id = (await post(t.app, "/api/jobs", { recipe: RECIPE, input: { prompt: "a lighthouse at noon", checkpoint: SDXL_BASE } })).json().ids[0] as string;
     const waiting = async () => (await t!.app.inject({ method: "GET", url: "/api/queue" })).json().waiting.find((w: { id: string }) => w.id === id);
     await until(async () => Boolean((await waiting())?.fetch?.m1));
     const before = catalogs.mock.calls.length;
-    // many "minutes" waiting: the node list is not read again for any of them
-    await new Promise((r) => setTimeout(r, 600));
+    // many "minutes" waiting: the node list is not read again for any of them. Counted in the queue's own passes (each
+    // lists the awaited folder) rather than in wall time, which a slow runner could fill with fewer passes than meant.
+    const listed = listings.mock.calls.length;
+    await until(() => listings.mock.calls.length >= listed + 3);
     expect(catalogs.mock.calls.length).toBe(before);
     fake.models.checkpoints!.push(SDXL_BASE);
     const spec = fake.catalog.CheckpointLoaderSimple!.input.required!.ckpt_name as unknown[];

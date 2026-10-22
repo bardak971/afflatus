@@ -110,9 +110,15 @@ describe.skipIf(!url)("on Postgres", () => {
           vram_peak: 70, heat_peak: 68, asset_id: null, work: 832 * 1216, machine_id: null, gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, ram_peak: null, ram_total: null, created_at: new Date(NOW - ago).toISOString(),
         });
         await db.insertInto("render_stats").values([0, 1, 2, 3, 4, 5].map((n) => render(n, n * DAY + 3_600_000))).execute();
+        // an ended pod session: the fold keeps its split before its renders become figures (costs.ts freezeSplits, in the
+        // fold's transaction), the write that never ran on Postgres while the schema had no session (review O-17)
+        const ended = new Date(NOW - 3 * DAY).toISOString();
+        await db.insertInto("rent_sessions").values({ id: "s1", machine_id: "rp-a", pod: "a", rate: 0.6, started_at: new Date(NOW - 3 * DAY - 3_600_000).toISOString(), ended_at: ended, seen_at: ended, gpu: "NVIDIA A40", up_at: null, idle_minutes: 3 } as never).execute();
         const all = async () => JSON.stringify(await summary(db, services.registry, "all", 90, NOW));
         const fromRows = await all();
         expect(await fold(db, 90, NOW)).toBe(0);
+        const split = (await db.selectFrom("rent_sessions").select("split").where("id", "=", "s1").executeTakeFirstOrThrow()).split;
+        expect(JSON.parse(split!)).toMatchObject({ spans: expect.any(Array), estimated: expect.any(Array) });
         const digested = async () => (await db.selectFrom("render_digests").select("day").orderBy("day").execute()).map((d) => d.day);
         expect((await digested()).length).toBeGreaterThan(3);
         expect(await all()).toBe(fromRows);

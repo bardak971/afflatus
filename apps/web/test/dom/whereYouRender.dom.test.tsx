@@ -132,12 +132,17 @@ describe("Settings › ComfyUI with no ComfyUI of the user's own", () => {
   it("does not offer a pod's address as the user's ComfyUI", async () => {
     // with pods only, the settings say the first pod's address
     serveSettings(settings({ machines: [pod], comfyUrl: pod.url }));
-    const { client } = draw(<NoComfyCard />);
-    const box = await screen.findByLabelText("ComfyUI URL");
-    // The box starts empty, so it is read only once the settings have arrived and been drawn: a GET merely sent, or a
-    // sleep, passed an undrawn answer as well as a right one (review O-12).
-    await waitFor(() => expect(client.getQueryState(["settings"])?.status).toBe("success"));
-    expect((box as HTMLInputElement).value).toBe("");
+    const pending = later<Response>();
+    fakeApi.on("GET /settings", () => pending.promise);
+    const { user } = draw(<NoComfyCard />);
+    const box = (await screen.findByLabelText("ComfyUI URL")) as HTMLInputElement;
+    // The box starts empty, and an empty box is the answer, so an empty read proved nothing: a read before the settings'
+    // effect has filled the box passed as well as a right one (review O-12). Typed into while the settings load, the box
+    // is filled by that effect when they come, so its turning from what was typed is the settings drawn.
+    await user.type(box, "zz-test typed");
+    pending.answer(jsonAnswer(settings({ machines: [pod], comfyUrl: pod.url })));
+    await waitFor(() => expect(box.value).not.toBe("zz-test typed"));
+    expect(box.value).toBe("");
   });
 
   it("puts the user's own last address in the box once the settings arrive", async () => {
