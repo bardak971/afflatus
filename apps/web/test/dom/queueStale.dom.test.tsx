@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
-import type { CostsView, TimesSummary } from "../../src/api";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
+import type { CostsView, PodSession, TimesSummary } from "../../src/api";
 import { Costs } from "../../src/screens/queue/Costs";
 import { RenderTimes } from "../../src/screens/queue/Times";
 import { fakeApi, jsonAnswer } from "./fakeApi";
@@ -8,7 +8,7 @@ import { draw } from "./render";
 
 /** The Costs and Render times tabs when a background refetch fails (review S-7): the figures read before stay, said as not refreshed. */
 
-const zero = { render: 0, boot: 0, fetch: 0, outside: 0, idle: 0, failed: 0 };
+const zero = { render: 0, boot: 0, fetch: 0, packs: 0, outside: 0, idle: 0, failed: 0 };
 const zeroBoot = { pull: 0, packs: 0, comfy: 0, startFailed: 0, boot: 0 };
 const now = Date.now();
 const costs: CostsView = {
@@ -35,6 +35,24 @@ describe("the Costs tab", () => {
     fakeApi.on("GET /costs", () => jsonAnswer({ error: "zz-test server away" }, 500));
     draw(<Costs />);
     await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("zz-test server away"));
+  });
+});
+
+describe("the Costs tab's pod sessions", () => {
+  it("are sent the newest only, and every one asked for once Show all is pressed", async () => {
+    const session = (i: number): PodSession => ({
+      id: `zz${i}`, machine: "rp-a", gpu: "A40", cuda: null, hostCuda: null, dataCenter: null, pull: null, bootLog: false, rate: 0.6, from: now - (i + 1) * 3_600_000, to: now - (i + 1) * 3_600_000 + 600_000,
+      open: false, usd: 0.1, parts: { ...zero, idle: 600_000 }, boot: zeroBoot, startFailed: null, crash: null, packs: [], estimated: [], why: "", idleMinutes: 10, fetched: { files: 0, bytes: 0 }, renders: [],
+    } as unknown as PodSession);
+    const all = Array.from({ length: 30 }, (_, i) => session(i));
+    // the handler sees the path without its query: the request just logged says what was asked
+    fakeApi.on("GET /costs", () => (fakeApi.calls("GET", "/costs").at(-1)!.path.includes("sessions=all") ? { ...costs, runpod: true, sessions: all } : { ...costs, runpod: true, sessions: all.slice(0, 12), sessionsAll: { count: 30, longestMs: 600_000 } }));
+    draw(<Costs />);
+    fireEvent.click(await screen.findByRole("button", { name: "Show all 30" }));
+    await waitFor(() => expect(screen.getAllByText(/^A40/).length).toBeGreaterThanOrEqual(30));
+    const asked = fakeApi.calls("GET", "/costs");
+    expect(asked.filter((a) => a.path.includes("sessions=all"))).toHaveLength(1);
+    expect(asked[0]!.path).not.toContain("sessions=all");
   });
 });
 

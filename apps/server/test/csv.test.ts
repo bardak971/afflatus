@@ -75,7 +75,7 @@ describe("the CSV writer", () => {
 
 const session = (over: Partial<SessionView>): SessionView => ({
   id: "s", machine: "rp-a", gpu: "A40", cuda: "12.8", hostCuda: "13.2", dataCenter: "CA-MTL-1", pull: { fresh: true, bytes: 6e9, mbps: 35.14 }, bootLog: false, rate: 0.6, from: 0, to: HOUR, open: false, usd: 0.6,
-  parts: { render: 30 * MIN, boot: 4 * MIN, fetch: 6 * MIN, outside: 5 * MIN, idle: 12 * MIN, failed: 3 * MIN },
+  parts: { render: 30 * MIN, boot: 4 * MIN, fetch: 6 * MIN, packs: 0, outside: 5 * MIN, idle: 12 * MIN, failed: 3 * MIN },
   boot: { pull: MIN, packs: MIN, comfy: 2 * MIN, startFailed: 0, boot: 0 }, startFailed: null, crash: null, packs: [], estimated: [], why: "", idleMinutes: 10,
   fetched: { files: 1, bytes: 26e9 }, renders: [], ...over,
 });

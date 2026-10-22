@@ -170,10 +170,11 @@ def test_only_into_a_model_folder_and_under_a_model_name(tmp_path):
 
 
 class _Request:
-    def __init__(self, body=None, content_type="application/json", match=None):
+    def __init__(self, body=None, content_type="application/json", match=None, query=None):
         self.content_type = content_type
         self._body = body
         self.match_info = match or {}
+        self.query = query or {}
 
     async def json(self):
         return self._body
@@ -473,3 +474,48 @@ def test_the_models_folder_is_listed_with_sizes_each_file_once_and_never_a_packs
     files = asyncio.run(listing(_Request())).body["files"]
     assert [(f["folder"], f["path"], f["name"], f["bytes"]) for f in files] == [("loras", "loras/wan/a.safetensors", "wan/a.safetensors", 1000)]
     assert files[0]["modified"] > 0
+
+
+def test_a_failure_that_passes_keeps_its_part_and_the_next_download_carries_on_from_it(tmp_path, site):
+    s = site(cuts=1)
+    first = _fetch(tmp_path, s.url, attempts=1)
+    assert first.state == "error" and "1 times in a row" in first.error
+    assert os.path.getsize(first.part) == SIZE // 3
+    # Afflatus asks for the file again: the new download takes the bytes over, and asks only for the rest
+    again = _fetch(tmp_path, s.url)
+    assert (again.state, again.bytes) == ("done", SIZE)
+    assert s.asked == [None, f"bytes={SIZE // 3}-"]
+    with open(again.path, "rb") as f:
+        assert hashlib.sha256(f.read()).digest() == hashlib.sha256(FILE).digest()
+    assert os.listdir(tmp_path / "loras") == ["model.safetensors"]
+
+
+def test_a_stop_asked_to_keep_its_part_keeps_it_and_one_still_written_is_never_taken(tmp_path, site):
+    path = str(tmp_path / "loras" / "model.safetensors")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    # what an earlier download of the file left (its own id in its name)
+    with open(path + ".0badc0de.part", "wb") as f:
+        f.write(FILE[:1000])
+    # the route's stop with ?keep=1: the bytes it took over stay
+    found, routes, web = _routes()
+    jobs = downloads.register(routes, web, _FolderPaths(str(tmp_path)))
+    kept = Job("http://127.0.0.1:9/api/downloads/fetch/x?t=1", path)
+    jobs[kept.id] = kept
+    assert asyncio.run(found[("DELETE", "/afflatus/download/{id}")](_Request(match={"id": kept.id}, query={"keep": "1"}))).status == 200
+    run(kept)
+    assert kept.state == "stopped" and os.path.getsize(kept.part) == 1000
+    assert not os.path.exists(path + ".0badc0de.part")
+    # a part another download's thread still writes is left to it: this one starts from its first byte
+    s = site()
+    busy = Job(s.url, path)
+    busy.busy_parts = lambda: {kept.part}
+    run(busy, backoff=0.01)
+    assert busy.state == "done" and s.asked == [None]
+    assert os.path.exists(kept.part)
+    # a stop without keep removes what it had, as before
+    gone = Job("http://127.0.0.1:9/api/downloads/fetch/x?t=1", str(tmp_path / "loras" / "other.safetensors"))
+    with open(str(tmp_path / "loras" / "other.safetensors.0badc0de.part"), "wb") as f:
+        f.write(FILE[:1000])
+    gone.stop()
+    run(gone)
+    assert gone.state == "stopped" and not os.path.exists(gone.part)

@@ -7,7 +7,8 @@ import type { Tables } from "./db";
  * written once the day is over. The record itself is written by renders.ts and read by rendersRead.ts.
  */
 
-export type RenderRow = Selectable<Tables["render_stats"]>;
+/** A render's row as the figures read it: when its job took the machine (0088) is Costs' alone, and older rows have none. */
+export type RenderRow = Omit<Selectable<Tables["render_stats"]>, "started_at"> & { started_at?: string | null };
 
 export const DAY = 86_400_000;
 const sorted = (values: number[]) => [...values].sort((a, b) => a - b);

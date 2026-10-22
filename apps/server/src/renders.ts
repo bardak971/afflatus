@@ -36,8 +36,11 @@ const gbOf = (bytes: number | null | undefined): number | null => (bytes ? Math.
 export async function record(
   db: Db, row: Pick<JobRow, "id" | "created_at">, recipe: Recipe<any>, resume: Pick<Resume, "timing" | "totalSteps" | "startedAt">, measured: Measured | null,
   status: "done" | "failed" | "cancelled", whole: boolean, totalMs: number, generationId?: string,
-  /** The machine it ran on, and its GPU's name: each machine's speed is learned from its own rows. `energy`: what its GPU drew (power.ts). */
-  where: { machine: string | null; gpu: string | null; energy?: { wh: number; avgW: number } | null } = { machine: null, gpu: null },
+  /**
+   * The machine it ran on, and its GPU's name: each machine's speed is learned from its own rows. `energy`: what its GPU drew
+   * (power.ts). `claimedAt`: when its job took the machine, before its files went up (else when its prompt went).
+   */
+  where: { machine: string | null; gpu: string | null; energy?: { wh: number; avgW: number } | null; claimedAt?: number } = { machine: null, gpu: null },
 ): Promise<void> {
   const made = generationId ? await db.selectFrom("assets").select(["id", "kind", "width", "height", "duration_ms"]).where("generation_id", "=", generationId).orderBy("created_at").executeTakeFirst() : undefined;
   const spent = measured?.phases ?? {};
@@ -62,7 +65,7 @@ export async function record(
       step_ms: measured?.stepMs ?? null, expected_ms: resume.timing?.expectedMs ?? null, work: resume.timing?.work ?? null,
       vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made?.id ?? null, machine_id: where.machine, gpu: where.gpu, node_ms: nodeMs(measured), created_at: at,
       energy_wh: where.energy ? Math.round(where.energy.wh * 1000) / 1000 : null, power_avg_w: where.energy ? Math.round(where.energy.avgW * 10) / 10 : null,
-      ram_peak: gbOf(measured?.ramPeak), ram_total: gbOf(measured?.ramTotal),
+      ram_peak: gbOf(measured?.ramPeak), ram_total: gbOf(measured?.ramTotal), started_at: new Date(Math.min(where.claimedAt ?? Infinity, resume.startedAt)).toISOString(),
     })
     .onConflict((oc) => oc.column("id").doNothing())
     .execute();
@@ -107,7 +110,7 @@ export async function recordTool(
     total_ms: Math.round(totalMs), load_ms: load, sample_ms: 0, refine_ms: refine, finish_ms: finish, step_ms: null, expected_ms: expectedMs, work,
     vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made.assetId, machine_id: machine, node_ms: nodeMs(measured), created_at: at,
     energy_wh: energy ? Math.round(energy.wh * 1000) / 1000 : null, power_avg_w: energy ? Math.round(energy.avgW * 10) / 10 : null,
-    ram_peak: gbOf(measured?.ramPeak), ram_total: gbOf(measured?.ramTotal),
+    ram_peak: gbOf(measured?.ramPeak), ram_total: gbOf(measured?.ramTotal), started_at: new Date(row.startedAt).toISOString(),
   };
   await db
     .insertInto("render_stats")

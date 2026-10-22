@@ -73,6 +73,8 @@ export interface Running {
   /** What it was expected to take, and when it started on the GPU: a run at twice that with the memory full is spilling. */
   expectedMs?: number | null;
   startedAt?: number;
+  /** When a fresh job took its machine, before its files went up: its render's row keeps it (render_stats.started_at). */
+  claimedAt?: number;
   /** When ComfyUI last said something of it (a step, a node starting, a preview): a render silent for long is stuck. */
   movedAt?: number;
   /** When a system feed last read its GPU's load: with a fresh one, a silent render is known to leave its GPU idle. */
@@ -82,6 +84,13 @@ export interface Running {
   /** Whether its models had to be loaded (none were in memory): until its first step, "loading" or only "preparing". */
   cold?: boolean;
 }
+
+/**
+ * How long a render with a forecast may run on a rented pod whatever it says before it is failed as stuck (queue.ts
+ * overrunFor): three times its forecast, and at least half an hour over it. Wide on purpose: a forecast short of a render's
+ * real time fails a render that would have ended, and that costs the time it had run.
+ */
+export const overrunAllowed = (forecastMs: number): number => Math.max(3 * forecastMs, forecastMs + 30 * 60_000);
 
 /** What is stored once ComfyUI accepted the graph: enough to wait for it again after a restart. */
 export interface Resume {

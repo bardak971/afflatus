@@ -59,6 +59,9 @@ describe("a render is put on record", () => {
     expect(a.load_ms + a.sample_ms + a.refine_ms + a.finish_ms).toBe(a.total_ms);
     // nothing was known before the first render
     expect(a.expected_ms).toBeNull();
+    // kept from when its job took the machine, before its prompt went: Costs counts Afflatus's work around it as the render's
+    expect(a.started_at).not.toBeNull();
+    expect(Date.parse(a.started_at!)).toBeLessThanOrEqual(Date.parse(a.created_at) - a.total_ms);
 
     // the same model again: nothing to load, and now there is something to expect it by
     const b = (await recordOf(await rendered({ steps: 20, prompt: "a dog" })))!;

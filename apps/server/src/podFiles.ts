@@ -112,12 +112,17 @@ export interface PodFilesDeps {
   busy(machine: string): boolean;
   /** Something changed: the pod's row says it. */
   changed?(): void;
-  /** A file came to a pod, or failed there: what lists the pod's files is read again, and the queue looks at its jobs again. */
-  settled?(machine: string): void;
+  /**
+   * A file came to a pod or left it (`files`), or failed there, or its node packs were loaded: the queue looks at its jobs
+   * again, and what lists the pod's files is read again only when they changed (a failure changes none of them).
+   */
+  settled?(machine: string, files: boolean): void;
   /** Whether the pod makes room on its disk (its Make room, rentedSchema.makeRoom): the models it fetched that no waiting job needs are deleted. */
   makesRoom?(machine: string): Promise<boolean>;
   /** Whether the machine's pod runs on a network volume: its models are on the volume, whose room is then what is said full. */
   onVolume?(machine: string): Promise<boolean>;
+  /** A stretch of installing node packs for its jobs is over (podPacks.ts packsTime): kept for Costs. */
+  packsTime?(machine: string, from: number, to: number): void;
 }
 
 /** A file whose size nothing says yet is planned as this large. */
@@ -136,6 +141,8 @@ const THERE = /\(409: that file is there already/;
 /** How many times a passing failure puts a file back in line before it is failed, and the first wait (doubled each time). */
 const TRIES = 4;
 const RETRY_MS = 15_000;
+/** How long the files landing on a pod without letting a job start are gathered into one read of its files (landed). */
+const LANDINGS_MS = 5_000;
 /** How long a file under way may bring no new byte and still hold its pod's idle time (moving()). */
 const STALL_MS = 5 * 60_000;
 /**
@@ -280,7 +287,7 @@ export class PodFiles {
         console.log(`[pod files] ${e.file} (${gbSaid(removed)}) removed from ${machine} to make room`);
         const d = this.disks.get(machine)!;
         this.disks.set(machine, { ...d, free: d.free + removed });
-        this.d.settled?.(machine);
+        this.d.settled?.(machine, true);
         this.d.changed?.();
       }
       // what the disk says now, not what was added up
@@ -322,7 +329,7 @@ export class PodFiles {
   private readonly packs: PodPacks;
 
   constructor(private readonly d: PodFilesDeps) {
-    this.packs = new PodPacks({ comfyOf: d.comfyOf, busy: d.busy, beforeRestart: (m) => this.requeueFetching(m) });
+    this.packs = new PodPacks({ comfyOf: d.comfyOf, busy: d.busy, beforeRestart: (m) => this.requeueFetching(m), packsTime: d.packsTime });
   }
 
   /** No job may start on the machine: its node packs wait for its ComfyUI to restart, or it restarts now. */
@@ -333,14 +340,47 @@ export class PodFiles {
   /** How long a file put back in line after a passing failure waits before it is asked again (shorter in tests). */
   retryMs = RETRY_MS;
 
+  /** How long files that land without letting a job start are gathered before the pod's files are read again (landed). */
+  landingsMs = LANDINGS_MS;
+  /** The read of the pod's files that waits for the files landing meanwhile, by machine (landed). */
+  private readonly landings = new Map<string, NodeJS.Timeout>();
+
+  /**
+   * A file is on the pod: its folders and node list are read again (settled), at once when it lets one of its jobs start
+   * (every file that job waits for is there), else once with the others landing within LANDINGS_MS. Each landing read the
+   * node list and every folder again: about 7 times a deploy, a few MB each.
+   */
+  private landed(machine: string, e: Entry): void {
+    const pod = [...(this.pods.get(machine)?.values() ?? [])];
+    const starts = e.jobs.some((job) => pod.every((o) => o.state === "ready" || !o.jobs.includes(job)));
+    const waiting = this.landings.get(machine);
+    if (starts) {
+      if (waiting) clearTimeout(waiting);
+      this.landings.delete(machine);
+      this.d.settled?.(machine, true);
+      return;
+    }
+    if (waiting) return;
+    const timer = setTimeout(() => {
+      this.landings.delete(machine);
+      this.d.settled?.(machine, true);
+    }, this.landingsMs);
+    timer.unref?.();
+    this.landings.set(machine, timer);
+  }
+
   /** Everything the pod is getting put back in line: its ComfyUI restarts, and its downloads and uploads live in its process. */
   private requeueFetching(machine: string): void {
     for (const e of this.pods.get(machine)?.values() ?? []) if (e.state === "fetching") this.requeue(e);
   }
 
-  /** A file under way stopped and put back in line, as it was before it started. */
+  /**
+   * A file under way stopped and put back in line, as it was before it started. The pod's node pack keeps what it fetched of
+   * it, and its next download carries on from there: a file given its place to one a job waits for, or cut by ComfyUI's
+   * restart for node packs, was fetched again from its first byte (21 GB 60 % done: about 50 s of a billed pod).
+   */
   private requeue(e: Entry): void {
-    if (e.downloadId) this.d.downloads.stop(e.downloadId);
+    if (e.downloadId) this.d.downloads.stop(e.downloadId, true);
     e.upload?.abort();
     e.state = "next";
     e.bytes = 0;
@@ -628,7 +668,7 @@ export class PodFiles {
     }
     const d = this.disks.get(machine);
     if (d) this.disks.set(machine, { ...d, at: 0 });
-    this.d.settled?.(machine);
+    this.d.settled?.(machine, true);
     this.d.changed?.();
     void this.tick();
   }
@@ -644,6 +684,8 @@ export class PodFiles {
     this.pods.delete(machine);
     this.disks.delete(machine);
     this.packs.forget(machine);
+    clearTimeout(this.landings.get(machine));
+    this.landings.delete(machine);
     this.d.changed?.();
   }
 
@@ -739,7 +781,8 @@ export class PodFiles {
       if (!this.d.alive(machine)) continue;
       const r = await this.packs.pass(machine).catch(() => ({ changed: false, loaded: false }));
       if (r.changed) changed = true;
-      if (r.loaded) this.d.settled?.(machine);
+      // its restart forgot what was known of it already (podPacks.ts followRestart)
+      if (r.loaded) this.d.settled?.(machine, false);
     }
     if (changed) this.d.changed?.();
   }
@@ -815,7 +858,7 @@ export class PodFiles {
       e.movedAt = e.flowingAt;
       e.movedBytes = 0;
       if (!this.current(machine, e)) return;
-      const started = await this.d.downloads.start(comfy, "", { file: e.file, folder: e.folder, title: name, source, ...(headers ? { headers } : {}), ...(total ? { total } : {}), machine, directOnly: true, ...((e.tries ?? 0) + 1 < TRIES ? { quietPassing: true } : {}) });
+      const started = await this.d.downloads.start(comfy, "", { file: e.file, folder: e.folder, title: name, source, ...(headers ? { headers } : {}), ...(total ? { total } : {}), machine, directOnly: true, filesRead: true, ...((e.tries ?? 0) + 1 < TRIES ? { quietPassing: true } : {}) });
       // the pod forgotten (stopped, gone) while its download was asked for: stopped, not left running for nothing
       if (!this.current(machine, e) || e.state !== "fetching") {
         this.d.downloads.stop(started.id);
@@ -878,7 +921,7 @@ export class PodFiles {
     void this.disk(machine, 0);
     if (e.total) e.bytes = e.total;
     this.d.changed?.();
-    this.d.settled?.(machine);
+    this.landed(machine, e);
     if (measured && e.flowingAt && e.via) {
       const to = e.wholeAt ?? Date.now();
       const ms = to - e.flowingAt;
@@ -924,7 +967,7 @@ export class PodFiles {
     e.state = "failed";
     e.error = error;
     console.warn(`[pod files] ${e.file} (${e.folder}) failed on ${machine}: ${error}`);
-    this.d.settled?.(machine);
+    this.d.settled?.(machine, false);
     return true;
   }
 }

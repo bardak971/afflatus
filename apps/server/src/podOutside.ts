@@ -92,4 +92,17 @@ export class PodOutside {
   }
 }
 
+/**
+ * A stretch of a pod installing node packs for its jobs, up to its ComfyUI's restart to load them (podPacks.ts packsTime),
+ * kept under its open session for Costs (pod_packs, 0089): billed, and no job could start there meanwhile. A machine with no
+ * open rent session (this PC's own, a pod not billed) is not timed.
+ */
+export async function keepPacksTime(db: Db, machine: string, from: number, to: number): Promise<void> {
+  const session = await db.selectFrom("rent_sessions").select(["id", "started_at"]).where("machine_id", "=", machine).where("ended_at", "is", null).executeTakeFirst();
+  if (!session) return;
+  const start = Math.max(from, Date.parse(session.started_at));
+  if (!(to > start)) return;
+  await db.insertInto("pod_packs").values({ id: randomUUID(), session_id: session.id, machine_id: machine, started_at: iso(start), ended_at: iso(to) }).execute();
+}
+
 const iso = (ms: number) => new Date(ms).toISOString();

@@ -13,7 +13,7 @@ import { paceOn, recordTool, toolPace, toolPaces, type ToolPaces } from "./rende
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB } from "./timelineModel";
 import { Died, GPU_AT_WORK, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type Running } from "./queueModel";
-import { taken } from "./queueSubmit";
+import { pictureOnce, resentFor, taken } from "./queueSubmit";
 import { ANY_PACKS, asBuilt, optionsIn, packsSaid, ranWithoutSaid } from "./jobPacks";
 
 /** The jobs that need no model of their own: a cut (a copy, a split, a slow-motion, a finish) and an export, done by ffmpeg, with ComfyUI only for RIFE and the upscale routes. */
@@ -85,7 +85,25 @@ async function noteTool(core: QueueCore, note: ToolNote, status: "done" | "faile
  * Its prompt id is saved on the job before it is sent, as a render's is (Resume.unsent): the job run again after a restart
  * follows the prompt ComfyUI still has (running, waiting or done) instead of running the finish on the GPU a second time.
  */
-async function followed(core: QueueCore, comfy: Comfy, run: Running, row: Pick<JobRow, "id" | "resume">, g: GraphBuilder, outNode: string, loads: string[] = [], note?: ToolNote) {
+/**
+ * A family's files for a tool, as the setup page finds them by name: from the scan kept of that ComfyUI, a folder listed only
+ * for a slot it has nothing for (a finish listed a folder per slot, one after the other, while the GPU waited). Taken from
+ * the scan only when it is the file the slot's patterns name in ComfyUI's own list, as a listing would give it: never a
+ * .gguf (another pack's list) nor one found by its weights.
+ */
+async function toolSlots(core: QueueCore, comfy: Comfy, family: string, which: (slot: { id: string }) => boolean): Promise<Record<string, string>> {
+  // the scan as kept, never one made for this: a whole scan lists every folder
+  const kept = (await comfy.scanKept()?.catch(() => null))?.families.find((f) => f.id === family)?.slots ?? [];
+  const slots: Record<string, string> = {};
+  await Promise.all((core.registry.family(family)?.slots ?? []).filter(which).map(async (slot) => {
+    const auto = kept.find((s) => s.id === slot.id && s.folder === slot.folder)?.auto;
+    const hit = auto && !/\.gguf$/i.test(auto) && detect([auto], slot.detect) ? auto : detect(await comfy.client.models(slot.folder).catch(() => [] as string[]), slot.detect);
+    if (hit) slots[slot.id] = hit;
+  }));
+  return slots;
+}
+
+async function followed(core: QueueCore, comfy: Comfy, run: Running, row: Pick<JobRow, "id" | "resume">, g: GraphBuilder, outNode: string, loads: string[] = [], note?: ToolNote, resend: Array<() => Promise<string>> = []) {
   const signal = run.abort.signal;
   const sent = readJson<{ promptId?: unknown }>(row.resume, {}).promptId;
   const again = typeof sent === "string" && (await taken(comfy, sent).catch(() => false)) ? sent : null;
@@ -104,7 +122,11 @@ async function followed(core: QueueCore, comfy: Comfy, run: Running, row: Pick<J
     const chosen = randomUUID();
     await keep(chosen);
     // a ComfyUI from before prompt ids could be chosen gives one of its own: that one is kept and followed
-    promptId = await comfy.client.submit(g.graph, { promptId: chosen, outputs: [outNode] });
+    // a picture taken as there already (pictureOnce) that ComfyUI no longer has: sent again, and the prompt goes once more
+    promptId = await comfy.client.submit(g.graph, { promptId: chosen, outputs: [outNode] }).catch(async (err: unknown) => {
+      if (!(await resentFor(err, resend, signal))) throw err;
+      return comfy.client.submit(g.graph, { promptId: chosen, outputs: [outNode] });
+    });
     if (promptId !== chosen) await keep(promptId);
   }
   run.promptId = promptId;
@@ -264,12 +286,8 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
   const made = (await madeBefore(core, row)) ?? (await makeOnce(core, row, async () => {
     const comfy = await core.comfy();
     const catalog = await comfy.catalog();
-    // SeedVR2's two files, found by name as the setup page finds them (the full scan is not needed for that)
-    const slots: Record<string, string> = {};
-    for (const slot of (core.registry.family(TOOLS_FAMILY)?.slots ?? []).filter((x) => x.id === "seedvr" || x.id === "seedvrVae")) {
-      const hit = detect(await comfy.client.models(slot.folder).catch(() => [] as string[]), slot.detect);
-      if (hit) slots[slot.id] = hit;
-    }
+    // SeedVR2's two files, found by name as the setup page finds them
+    const slots = await toolSlots(core, comfy, TOOLS_FAMILY, (x) => x.id === "seedvr" || x.id === "seedvrVae");
     const route = opts.route === "rtx" ? UPSCALE.rtx : opts.route === "model" ? UPSCALE.model : UPSCALE.seedvr;
     let upscaleModel = opts.upscaleModel || "";
     if (route === UPSCALE.model && !upscaleModel) {
@@ -345,11 +363,7 @@ async function runFaceFinish(core: QueueCore, row: JobRow, run: Running, clips: 
     const comfy = await core.comfy();
     const catalog = await comfy.catalog();
     // the family's Face refine files (H3's, offered with it), found by name as the setup page finds them
-    const slots: Record<string, string> = {};
-    for (const slot of (opts.family ? core.registry.family(opts.family)?.slots ?? [] : []).filter((x) => x.id.startsWith("face"))) {
-      const hit = detect(await comfy.client.models(slot.folder).catch(() => [] as string[]), slot.detect);
-      if (hit) slots[slot.id] = hit;
-    }
+    const slots = opts.family ? await toolSlots(core, comfy, opts.family, (x) => x.id.startsWith("face")) : {};
     run.gpu = true;
     const raw = video.raw_key ? await core.storage.get(video.raw_key).catch(() => null) : null;
     const rawFacts = raw ? (await readVideo(raw, extOf(video.mime)).catch(() => null))?.facts ?? null : null;
@@ -357,14 +371,21 @@ async function runFaceFinish(core: QueueCore, row: JobRow, run: Running, clips: 
     const rife = doubled ? rifeModelIn(catalog) : null;
     if (doubled && !rife) throw new Error("This take was interpolated, and ComfyUI has no RIFE model left to interpolate the refined frames again (models/frame_interpolation).");
     const taken = await core.storage.get(video.file_key);
-    const framesFile = await comfy.client.upload(doubled ? raw! : taken, extOf(video.mime));
     const picture = opts.picture ? await core.db.selectFrom("assets").select(["file_key", "mime"]).where("id", "=", opts.picture).executeTakeFirst() : undefined;
-    const pictureFile = picture ? await comfy.client.upload(await core.storage.get(picture.file_key), extOf(picture.mime)) : undefined;
+    // the frames, the photo and the take's own sound go up at once, the photo once to each ComfyUI under its content's name:
+    // a timeline's takes are finished with the same one, and each sent it again while the pod's GPU waited
+    const resend: Array<() => Promise<string>> = [];
+    const upload = (bytes: Uint8Array, ext: string, o?: { name?: string; into?: "input" }) => comfy.client.upload(bytes, ext, o);
+    const [framesFile, pictureFile, soundFile] = await Promise.all([
+      upload(doubled ? raw! : taken, extOf(video.mime)),
+      picture ? core.storage.get(picture.file_key).then((bytes) => pictureOnce(comfy, bytes, extOf(picture.mime), upload, resend)) : undefined,
+      // the model's own frames have no sound of their own: it is the take's, loaded beside them
+      video.has_sound && doubled ? upload(taken, extOf(video.mime)) : undefined,
+    ]);
     const g = new GraphBuilder();
     const parts = g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: framesFile }) });
-    // the model's own frames have no sound of their own: it is the take's, loaded beside them
     const sound: Ref | undefined = !video.has_sound ? undefined
-      : doubled ? [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: await comfy.client.upload(taken, extOf(video.mime)) }) }), 1] : [parts, 1];
+      : soundFile ? [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: soundFile }) }), 1] : [parts, 1];
     const fps = doubled ? rawFacts!.fps : video.fps ?? 24;
     const frames = Math.round(((doubled ? rawFacts!.durationMs : video.duration_ms ?? 0) / 1000) * fps);
     const options = asBuilt(catalog, (await core.packFacts?.().catch(() => null)) ?? ANY_PACKS, packsSaid(row));
@@ -385,7 +406,7 @@ async function runFaceFinish(core: QueueCore, row: JobRow, run: Running, clips: 
     g.phase("encoding");
     const outNode = saveVideo(g, ctx, { images, ...(sound ? { audio: sound } : {}), fps: video.fps ?? 24, crf: 16 });
     const note = await toolNote(core, row, "tool.finish.face", slots.faceRefineUnet ?? "Face refine", `route=face;denoise=${values.faceRefineDenoise}`, (video.width ?? 0) * (video.height ?? 0) * Math.max(1, frames));
-    const output = await followed(core, comfy, run, row, g, outNode, [...faces.loads, ...(rife ? [`frame_interpolation/${rife}`] : [])], note);
+    const output = await followed(core, comfy, run, row, g, outNode, [...faces.loads, ...(rife ? [`frame_interpolation/${rife}`] : [])], note, resend);
     const bytes = await comfy.client.view(output);
     const kept = await clips.range.keepCut(video, bytes, `${await nameOf(core.db, video)} · face refined`, 0, video.duration_ms ?? 0, folder);
     await noteTool(core, note, "done", kept);

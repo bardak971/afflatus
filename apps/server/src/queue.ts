@@ -20,7 +20,7 @@ import { reportsDeath } from "./runpod";
 import type { Storage } from "./storage";
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
-import { CAP_REACHED, DEFAULT_QUEUE_OPTIONS, Died, GPU_AT_WORK, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type Lane, type QueueOptions, type Resume, type Running } from "./queueModel";
+import { CAP_REACHED, DEFAULT_QUEUE_OPTIONS, Died, GPU_AT_WORK, overrunAllowed, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type Lane, type QueueOptions, type Resume, type Running } from "./queueModel";
 import * as bulk from "./queueBulk";
 import { needsComfy, Offline } from "./queueOffline";
 import * as submitting from "./queueSubmit";
@@ -56,6 +56,8 @@ const LOADS_KEY = "queue.loads";
 const keyOf = (key: string, machine: string) => (machine === FIRST_MACHINE ? key : `${key}.${machine}`);
 /** At most how often a running render's step count is saved on its job, when the options do not say. */
 const STEPS_SAVE_MS = 5_000;
+/** A machine whose socket brought a message this recently is taken as answering by the queue's pass, without asking it. */
+const HEARD_MS = 3_000;
 /** How often a render's machine is read for its RAM (its peak, render_stats.ram_peak): a small read of ComfyUI's own. */
 const RAM_EVERY_MS = 10_000;
 /** How recent a read of the GPU's load must be for a silent render's GPU to be known idle: system feeds report every few seconds. */
@@ -320,8 +322,9 @@ export class Queue {
       lane.machine = machine;
       // a lane keeps the client its running job started with: a new address is taken up between jobs
       if (!lane.running || !lane.comfy) lane.comfy = comfy;
-      // its ComfyUI's queue changed (a prompt queued from its own page, one done): whose its prompts are is read again
-      if (lane.comfy?.monitor) lane.comfy.monitor.onQueue = () => void this.outside.readOutside(lane);
+      // its ComfyUI's queue changed (a prompt queued from its own page, one done): whose its prompts are is read again. An
+      // empty queue is no one's: not asked (a read of its queue after each render, between two prompts on a pod)
+      if (lane.comfy?.monitor) lane.comfy.monitor.onQueue = (n) => (n === 0 ? this.outside.noteOutside(lane, { running: 0, pending: 0 }) : void this.outside.readOutside(lane));
       return lane;
     });
     // a machine taken out of the settings: its lane goes once it is idle
@@ -1034,7 +1037,9 @@ export class Queue {
               asked.set(l.id, false);
               return false;
             }
-            l.reachable = await l.comfy!.client.status().then((st) => ((l.device = st.device), true), () => false);
+            // its socket just said a render ended: it answers, and a request to ask it again was one more round trip between
+            // two prompts, a pod's GPU idle all of it
+            l.reachable = l.device && l.comfy!.monitor.heardWithin(HEARD_MS) ? true : await l.comfy!.client.status().then((st) => ((l.device = st.device), true), () => false);
             asked.set(l.id, l.reachable);
             if (l.reachable) {
               this.dropStale(l);
@@ -1319,6 +1324,20 @@ export class Queue {
     const forecast = run.expectedMs ?? null;
     const waited = now - run.startedAt >= (forecast ? Math.min(2 * forecast, forecast + FORECAST_SLACK_MS) : FORECAST_SLACK_MS);
     return { ms: waited ? silent : 0, gpuIdle: false };
+  }
+
+  /**
+   * How long the render a machine runs has gone past what it may take whatever it says (OVERRUN: three times its forecast, and
+   * at least half an hour over it), 0 when it has not, or has no forecast. A hang that keeps its GPU busy (a loop in a node)
+   * moves the render all the same (GPU_AT_WORK), and on a pod it was billed until a cap or a Stop. One waiting in its ComfyUI
+   * behind work from outside Afflatus is not timed (quietFor). `now`: the caller's clock (a test's stand-in).
+   */
+  overrunFor(machine: string, now = Date.now()): { ms: number; forecastMs: number } {
+    const lane = this.lanes.get(machine);
+    const run = lane?.running;
+    const forecastMs = run?.expectedMs ?? 0;
+    if (!run?.promptId || !run.startedAt || !(forecastMs > 0) || lane?.outside?.running) return { ms: 0, forecastMs };
+    return { ms: Math.max(0, now - run.startedAt - overrunAllowed(forecastMs)), forecastMs };
   }
 
   /**
@@ -1636,7 +1655,7 @@ export class Queue {
     const abort = new AbortController();
     /** The prompt followed from before it was sent (see the hold below): no longer followed once the job ends, however it ends. */
     let early: string | null = null;
-    const running: Running = { id: row.id, machine: lane.id, abort, promptId: resume?.promptId, gpu: true, expectedMs: resume?.timing?.expectedMs ?? null, startedAt: resume?.startedAt ?? Date.now() };
+    const running: Running = { id: row.id, machine: lane.id, abort, promptId: resume?.promptId, gpu: true, expectedMs: resume?.timing?.expectedMs ?? null, startedAt: resume?.startedAt ?? Date.now(), ...(resume ? {} : { claimedAt: Date.now() }) };
     lane.running = running;
     lane.starting = null;
     // a job starts there only once its ComfyUI answers: a going away after this one is told again
@@ -1929,7 +1948,8 @@ export class Queue {
     try {
       // what its GPU drew over its own stretch, from the power read on the way (none on a rented pod, nor without the reading)
       const energy = lane.comfy?.home ? lane.comfy.power.energy(resume.startedAt, resume.startedAt + totalMs) : null;
-      await record(this.db, row, recipe, resume, measured, status, whole, totalMs, generationId, { machine: lane.id, gpu: gpuOf(lane.device, lane.comfy?.monitor.system?.gpus ?? []), energy });
+      const claimedAt = lane.running?.id === row.id ? lane.running.claimedAt : undefined;
+      await record(this.db, row, recipe, resume, measured, status, whole, totalMs, generationId, { machine: lane.id, gpu: gpuOf(lane.device, lane.comfy?.monitor.system?.gpus ?? []), energy, claimedAt });
       // the record changed: the next forecast reads it again at once, not after the second the mark is kept; the next pass
       // plans on the forecasts kept all the same (pump)
       this.forecasts.recorded();

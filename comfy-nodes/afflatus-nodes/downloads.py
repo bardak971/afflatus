@@ -23,7 +23,8 @@ without asking first):
   POST   /afflatus/download {url, folder, filename, total}  → {id, path}
   GET    /afflatus/download/<id>  → {state: downloading|done|error|stopped, bytes, total, error, note, expired}
   POST   /afflatus/download/<id>/url {url}  → a fresh signed link for a download whose link expired (`expired` true)
-  DELETE /afflatus/download/<id>  → stops it, and removes its .part
+  DELETE /afflatus/download/<id>  → stops it, and removes its .part (`?keep=1`, 0.36.6: keeps it, for the next download of
+         that file to carry on from: Afflatus put it back in line, or ComfyUI restarts to load node packs)
   GET    /afflatus/disk  → {free, total, downloading}: the bytes of the disk the model folders are on (0.19.0)
   POST   /afflatus/models/remove {folder, filename}  → {removed}: a model file taken off the disk, to make room (0.19.0)
   GET    /afflatus/models/list  → {files: [{folder, path, bytes, modified}]}: every model file of the models folder, with its
@@ -68,6 +69,11 @@ STALE_PART_S = 3600
 
 class Refused(ValueError):
     """A request the pack will not carry out: said back as a 400 with this message."""
+
+
+class _Passing(Refused):
+    """Tried and failed too many times in a row on something that passes (a cut, a 5xx, a 429): its .part is kept, for
+    Afflatus's next try of the file to carry on from."""
 
 
 def relay_ok(url) -> bool:
@@ -290,6 +296,11 @@ class Job:
         self.cancelled = threading.Event()
         # the bytes the other downloads under way still have to write: room this one cannot count on (register sets it)
         self.reserved = lambda: 0
+        # the .part files of the other downloads whose thread still runs: never taken over (register sets it)
+        self.busy_parts = lambda: set()
+        # its thread runs (run sets it false as it ends); a stop asked to keep its .part (stop)
+        self.alive = True
+        self.keep = False
 
     @property
     def part(self):
@@ -319,8 +330,10 @@ class Job:
                 return True
         return False
 
-    def stop(self):
-        """Stopped as soon as it is asked: said so at once, and a retry of the same file is not turned away while the thread lets go."""
+    def stop(self, keep=False):
+        """Stopped as soon as it is asked: said so at once, and a retry of the same file is not turned away while the thread lets go.
+        `keep`: its .part stays, for the next download of the file to carry on from."""
+        self.keep = keep
         self.cancelled.set()
         if self.state == "downloading":
             self.state = "stopped"
@@ -363,15 +376,55 @@ def _room(job, have):
         raise Refused(f"the disk is full: {_gb(free)} free, {_gb(kept)} of it kept for other downloads, {_gb(need)} of this file to come")
 
 
+def _taken_over(job):
+    """The bytes of the same file an earlier download left (stopped to be asked again, failed on something that passes,
+    or cut by ComfyUI restarting), moved to this one's .part to carry on from: the largest one no running download writes.
+    A file of 21 GB 60 % done was fetched again from its first byte. Returns how many bytes it has (0: none)."""
+    folder, name = os.path.split(job.path)
+    left = re.compile(re.escape(name) + r"\.[0-9a-f]{8}\.part$")
+    try:
+        found = [os.path.join(folder, f) for f in os.listdir(folder) if left.match(f)]
+    except OSError:
+        return 0
+    busy = job.busy_parts()
+    found = [p for p in found if p != job.part and p not in busy]
+    best = None
+    for p in found:
+        try:
+            size = os.path.getsize(p)
+        except OSError:
+            continue
+        # one larger than the file said is not of this file
+        if job.declared and size > job.declared:
+            continue
+        if best is None or size > best[1]:
+            best = (p, size)
+    for p in found:
+        if not best or p != best[0]:
+            _remove(p)
+    if not best or not best[1]:
+        return 0
+    try:
+        os.replace(best[0], job.part)
+    except OSError:
+        return 0
+    return best[1]
+
+
 def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeout=60, renew_wait=RENEW_WAIT_S):
-    """Fetch `job.url` into `job.path`, through `<path>.part`: picked up with a Range after a cut, tried again with a
-    growing wait, named only once whole. Sets job.state to done, error or stopped; the .part never outlives a failure."""
+    """Fetch `job.url` into `job.path`, through `<path>.part`: picked up with a Range after a cut (or from what an earlier
+    download of it left, _taken_over), tried again with a growing wait, named only once whole. Sets job.state to done,
+    error or stopped; the .part outlives only a stop asked to keep it and a failure that passes (_Passing)."""
     part = job.part
     have = 0
     fails = 0
     try:
         _remove(part)
         os.makedirs(os.path.dirname(job.path), exist_ok=True)
+        have = _taken_over(job)
+        job.bytes = have
+        if have:
+            job.note = f"Carrying on from byte {have}, as an earlier download of it left it."
         while True:
             if job.cancelled.is_set():
                 raise _Stopped()
@@ -440,7 +493,7 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
             job.bytes = have
             fails = 1 if have > before else fails + 1
             if fails >= attempts:
-                raise Refused(f"the download failed {attempts} times in a row ({why})")
+                raise _Passing(f"the download failed {attempts} times in a row ({why})")
             job.note = f"{why}: trying again from byte {have} ({fails + 1} of {attempts})."
             if job.cancelled.wait(backoff * 2 ** (fails - 1)):
                 raise _Stopped()
@@ -453,16 +506,19 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
         job.state = "done"
         job.note = None
     except _Stopped:
-        _remove(part)
+        if not job.keep:
+            _remove(part)
         job.state = "stopped"
     except Exception as e:
-        _remove(part)
+        if not isinstance(e, _Passing):
+            _remove(part)
         # a stop said at once (Job.stop) stays a stop, whatever the thread met while letting go
         if job.state == "downloading":
             job.state = "error"
             job.error = str(e)
     finally:
         job.ended = job.ended or time.time()
+        job.alive = False
 
 
 def sweep_parts(folder_paths, older_than=STALE_PART_S, now=None):
@@ -538,6 +594,7 @@ def register(routes, web, folder_paths):
                 return web.Response(status=507, text=f"the disk has {max(0, free)} bytes free, the file is {int(total)}")
         job = Job(body["url"], path, total)
         job.reserved = lambda: reserved(job)
+        job.busy_parts = lambda: {j.part for j in jobs.values() if j is not job and j.alive}
         jobs[job.id] = job
         threading.Thread(target=run, args=(job,), name=f"afflatus-download-{job.id[:8]}", daemon=True).start()
         return web.json_response({"id": job.id, "path": path})
@@ -569,7 +626,7 @@ def register(routes, web, folder_paths):
         job = jobs.get(request.match_info.get("id", ""))
         if job is None:
             return web.Response(status=404)
-        job.stop()
+        job.stop(keep=request.query.get("keep") == "1")
         return web.json_response({"ok": True})
 
     @routes.get("/afflatus/disk")

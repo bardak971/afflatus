@@ -11,13 +11,24 @@ import type { Services } from "./services";
 const FRESH_MS = 10_000;
 /** The windows kept at once. */
 const KEPT = 8;
+/**
+ * How many of a window's sessions the tab is sent (the newest: its list shows 12), the rest on "Show all" (`sessions=all`).
+ * Sent whole, "All" of a long record was a megabyte, read again every minute.
+ */
+export const SESSIONS_SENT = 12;
+
+/** A window's figures with its newest sessions only, and how many there are and the longest, for the list's scale. */
+function firstSessions(view: CostsView): CostsView {
+  if (view.sessions.length <= SESSIONS_SENT) return view;
+  return { ...view, sessions: view.sessions.slice(0, SESSIONS_SENT), sessionsAll: { count: view.sessions.length, longestMs: Math.max(...view.sessions.map((s) => s.to - s.from)) } };
+}
 
 type Worked = { view: CostsView; spending: Spending | null };
 
 /** The Queue's Costs tab (costs.ts): everything it shows for a window, in one call; and the same window as a CSV file. */
 export function registerCosts(app: FastifyInstance, s: Services): void {
   const kept = new Map<string, { at: number; value: Promise<Worked> }>();
-  const windowAsked = z.object({ from: z.coerce.number().int().optional(), to: z.coerce.number().int().optional() });
+  const windowAsked = z.object({ from: z.coerce.number().int().optional(), to: z.coerce.number().int().optional(), sessions: z.enum(["all"]).optional() });
   /** A window's figures, with RunPod's spending they were worked out with (the CSV's volumes row): kept a moment, as above. */
   const workedOut = (q: z.infer<typeof windowAsked>): Promise<Worked> => {
     // a preset's window ends now and moves on each call: kept by its ends rounded to the time it is kept
@@ -46,7 +57,11 @@ export function registerCosts(app: FastifyInstance, s: Services): void {
     return value;
   };
 
-  app.get("/api/costs", async (req) => (await workedOut(windowAsked.parse(req.query))).view);
+  app.get("/api/costs", async (req) => {
+    const q = windowAsked.parse(req.query);
+    const { view } = await workedOut(q);
+    return q.sessions === "all" ? view : firstSessions(view);
+  });
 
   /** The window's pod sessions and storage as a CSV file (csvExports.ts costsCsv): the tab has just read the same figures, kept above. */
   app.get("/api/costs.csv", async (req, reply) => {

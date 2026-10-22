@@ -332,8 +332,11 @@ export const api = {
   /** Finished jobs again, several in one request ("Retry all"), in the order given; with `dismiss`, the ones queued again leave the history. */
   retryJobs: (ids: string[], dismiss = false) => call<{ ids: string[]; failed: number }>("POST", "/jobs/retry", { ids, dismiss }),
   /** The render times of a period or a window; of one machine (a Machine's id) when one is named. */
-  /** The Costs tab's figures for a window (ms); none: all of it. */
-  costs: (range: { from: number; to: number } | null, o?: Asked) => call<CostsView>("GET", range ? `/costs?from=${Math.round(range.from)}&to=${Math.round(range.to)}` : "/costs", undefined, o?.signal),
+  /** The Costs tab's figures for a window (ms); none: all of it. Its newest sessions only, unless `allSessions`. */
+  costs: (range: { from: number; to: number } | null, o?: Asked, allSessions = false) => {
+    const q = [...(range ? [`from=${Math.round(range.from)}`, `to=${Math.round(range.to)}`] : []), ...(allSessions ? ["sessions=all"] : [])];
+    return call<CostsView>("GET", `/costs${q.length ? `?${q.join("&")}` : ""}`, undefined, o?.signal);
+  },
   renderTimes: (range: TimesPeriod | TimesWindow, o?: Asked & { machine?: string | null }) => call<TimesSummary>("GET", `${typeof range === "string" ? `/renders/summary?period=${range}` : `/renders/summary?from=${Math.round(range.from)}&to=${Math.round(range.to)}`}${o?.machine ? `&machine=${encodeURIComponent(o.machine)}` : ""}`, undefined, o?.signal),
   renders: (opts: { recipe?: string; trouble?: boolean; before?: string; limit?: number; from?: number; to?: number; machine?: string | null }, o?: Asked) =>
     call<{ total: number; more: boolean; items: RenderItem[] }>("GET", `/renders?${new URLSearchParams({ ...(opts.recipe ? { recipe: opts.recipe } : {}), ...(opts.trouble ? { only: "trouble" } : {}), ...(opts.before ? { before: opts.before } : {}), ...(opts.from ? { from: String(Math.round(opts.from)) } : {}), ...(opts.to ? { to: String(Math.round(opts.to)) } : {}), ...(opts.machine ? { machine: opts.machine } : {}), limit: String(opts.limit ?? 50) })}`, undefined, o?.signal),

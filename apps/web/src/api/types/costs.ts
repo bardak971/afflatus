@@ -1,6 +1,6 @@
 /** The Queue's Costs tab (GET /api/costs; the server's costs.ts): what the rented GPUs cost and where it went, and this PC's electricity. */
 
-export type CostPart = "render" | "boot" | "fetch" | "outside" | "idle" | "failed";
+export type CostPart = "render" | "boot" | "fetch" | "packs" | "outside" | "idle" | "failed";
 export type PartMs = Record<CostPart, number>;
 /** Booting's parts: pulling the image, the node packs' installs, starting ComfyUI, a start that failed, and a boot not known in parts. */
 export type BootPart = "pull" | "packs" | "comfy" | "startFailed" | "boot";
@@ -119,7 +119,10 @@ export interface CostsView {
   where: { ms: PartMs; usd: Record<CostPart, number>; boot: { ms: BootMs; usd: BootMs }; estimated: boolean };
   spend: { gpus: string[]; values: number[][] };
   projects: ProjectCost[];
+  /** Newest first: the newest few only, unless all were asked for (api.costs `allSessions`). */
   sessions: PodSession[];
+  /** When only the newest sessions were sent: how many there are, and the longest one's length (the list's scale). */
+  sessionsAll?: { count: number; longestMs: number };
   renderCosts: RenderCostRow[];
   advice: CostAdvice[];
   home: HomeCost[];

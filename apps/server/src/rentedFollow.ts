@@ -13,6 +13,7 @@ import { dollars, machineSaid } from "./notifyWords";
 import { machinesSetAside, readSettings, updateSettings, type Machine, type MachineSetAside, type Settings } from "./settings";
 import { resetRun, type RentedView, type Seen } from "./rentedModel";
 import { capReached, HOUR, RentedBilling } from "./rentedBilling";
+import { overrunAllowed } from "./queueModel";
 
 /**
  * A deploy's name RunPod has not listed for this long is forgotten (settlePending): RunPod lists a pod it made within
@@ -1043,6 +1044,12 @@ export class RentedFollow extends RentedBilling {
     const why = quiet.gpuIdle ? "its GPU idle" : "past its forecast";
     if (quiet.ms >= this.stuckMs && (await this.queue.endStuck(m.id, `Stuck: no progress from ComfyUI for ${Math.round(quiet.ms / 60_000)} min, ${why}, on the rented GPU ${m.name || m.id}; failed so that the pod is not billed for a render that never ends`))) {
       console.log(`[rented] ${m.name || m.id}: a render stuck for ${Math.round(quiet.ms / 60_000)} min (${why}) failed`);
+      return;
+    }
+    // a hang that keeps its GPU busy says it moves: past three times its forecast (and half an hour over), it is stuck too
+    const over = this.queue.overrunFor(m.id, now);
+    if (over.ms > 0 && (await this.queue.endStuck(m.id, `Stuck: still running at ${Math.round((over.ms + overrunAllowed(over.forecastMs)) / 60_000)} min, against ${Math.round(over.forecastMs / 60_000)} min forecast, on the rented GPU ${m.name || m.id}; failed so that the pod is not billed for a render that never ends`))) {
+      console.log(`[rented] ${m.name || m.id}: a render past three times its forecast failed`);
     }
   }
 

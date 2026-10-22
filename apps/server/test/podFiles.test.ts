@@ -828,3 +828,43 @@ describe("a pod's file waiting its turn at the node pack", () => {
     expect(Date.parse(fetched.ended_at) - Date.parse(fetched.started_at)).toBeLessThan(1000);
   }, 15_000);
 });
+
+describe("the pod's files read again as its files land or fail", () => {
+  it("once for the files that land together, at once for the one that lets a job start, never for a failure; the pictures sent stay", async () => {
+    const comfy = new Comfy(pod.url, t.services.registry);
+    comfy.uploaded.set("input/zz-test", { at: Date.now(), name: Promise.resolve("zz-test.png") });
+    const told: boolean[] = [];
+    const pf = new PodFiles({
+      db: t.services.db, downloads: t.services.downloads,
+      comfyOf: async () => comfy, cloudOf: async () => "SECURE", alive: () => true, busy: () => false,
+      lookup: { db: t.services.db, presets: async () => [], families: () => [], comfyDir: async () => home },
+      settings: async () => ({ civitaiKey: "", downloadModels: true, civitaiLookups: true }),
+      // as services.ts does: the files read again when they changed
+      settled: (_m, changed) => {
+        told.push(changed);
+        if (changed) comfy.forgetFiles();
+      },
+    });
+    pf.landingsMs = 300;
+    const ready = (file: string) => until(async () => (await pf.tick(), pf.view("pod").find((f) => f.file === file)?.state === "ready"));
+    // a file fetched ahead (no job waits for it) and the first of a job's two (its other one still coming): gathered
+    pf.want("pod", [{ file: "ahead.safetensors", folder: "loras", url: `${siteUrl}/files/ahead.safetensors` }], { tier: "ahead" });
+    pf.want("pod", [{ file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors` }, { file: "slow.safetensors", folder: "loras", url: `${siteUrl}/files/slow.safetensors` }], { tier: "need", job: "j1" });
+    await ready("ahead.safetensors");
+    await ready("a.safetensors");
+    expect(told).toEqual([]);
+    await until(() => told.length === 1, 5_000);
+    expect(told).toEqual([true]);
+    // a job's last file: at once
+    pf.want("pod", [{ file: "c.safetensors", folder: "loras", url: `${siteUrl}/files/c.safetensors` }], { tier: "need", job: "j2" });
+    await ready("c.safetensors");
+    expect(told).toEqual([true, true]);
+    // a file that fails (its source gives no link a pod can take): the queue looks again, the files are not read
+    pf.want("pod", [{ file: "d.safetensors", folder: "loras", url: `${siteUrl}/nolink/d.safetensors` }], { tier: "need", job: "j3" });
+    await until(async () => (await pf.tick(), pf.view("pod").find((f) => f.file === "d.safetensors")?.state === "failed"));
+    expect(told).toEqual([true, true, false]);
+    // what was sent to that ComfyUI is still known there: a landing does not send each window's photo again
+    expect(comfy.uploaded.has("input/zz-test")).toBe(true);
+    pf.forget("pod");
+  });
+});

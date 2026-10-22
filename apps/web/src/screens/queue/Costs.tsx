@@ -289,11 +289,14 @@ function SessionRow({ s, longest, split }: { s: PodSession; longest: number; spl
   );
 }
 
-function Sessions({ d }: { d: CostsView }) {
+function Sessions({ d, more }: { d: CostsView; more: { key: string; ask: (signal: AbortSignal) => Promise<CostsView> } }) {
   const [all, setAll] = useState(false);
+  const whole = useQuery({ queryKey: queryKeys.costs.of(more.key), queryFn: ({ signal }) => more.ask(signal), enabled: all && Boolean(d.sessionsAll), refetchInterval: 60_000 });
   if (!d.sessions.length) return null;
-  const longest = Math.max(...d.sessions.map((s) => s.to - s.from));
-  const shown = all ? d.sessions : d.sessions.slice(0, 12);
+  const list = all && d.sessionsAll && whole.data ? whole.data.sessions : d.sessions;
+  const count = d.sessionsAll?.count ?? d.sessions.length;
+  const longest = d.sessionsAll?.longestMs ?? Math.max(...d.sessions.map((s) => s.to - s.from));
+  const shown = all ? list : list.slice(0, 12);
   const split = bootSplit(d.where.boot.ms).length > 0;
   return (
     <section className={CARD} aria-label="Pod sessions">
@@ -303,7 +306,7 @@ function Sessions({ d }: { d: CostsView }) {
       {shown.map((s) => <SessionRow key={s.id} s={s} longest={longest} split={split} />)}
       <span className="flex items-center gap-3 text-meta text-ink-3">
         Bars to one scale: the longest, {long(longest)}.
-        {d.sessions.length > shown.length && <Button size="sm" onClick={() => setAll(true)}>Show all {d.sessions.length}</Button>}
+        {count > shown.length && <Button size="sm" disabled={all} onClick={() => setAll(true)}>Show all {count}</Button>}
       </span>
     </section>
   );
@@ -423,9 +426,10 @@ function useCostsView() {
   const [view, setView] = useState<View>({ preset: "30D" });
   const [typed, setTyped] = useState<{ from: string; to: string } | null>(null);
   const key = "from" in view ? `${Math.round(view.from)}-${Math.round(view.to)}` : view.preset;
+  const ask = (signal: AbortSignal, allSessions = false) => api.costs("from" in view ? { from: view.from, to: view.to } : presetWindow(view.preset), { signal }, allSessions);
   const costs = useQuery({
     queryKey: queryKeys.costs.of(key),
-    queryFn: ({ signal }) => api.costs("from" in view ? { from: view.from, to: view.to } : presetWindow(view.preset), { signal }),
+    queryFn: ({ signal }) => ask(signal),
     placeholderData: (previous) => previous ?? lastCosts(client),
     refetchInterval: 60_000,
     // kept a while once the tab is left: back on it, the last answer is there at once while it is asked again
@@ -433,6 +437,8 @@ function useCostsView() {
   });
   return {
     view, typed, setTyped, costs,
+    // every session of the window, asked only once "Show all" is pressed: sent with each read, "All" was a megabyte a minute
+    allSessions: { key: `${key}:sessions`, ask: (signal: AbortSignal) => ask(signal, true) },
     zoom: (from: number, to: number) => {
       setTyped(null);
       setView({ preset: "custom", from, to });
@@ -445,7 +451,7 @@ function useCostsView() {
 }
 
 export function Costs() {
-  const { view, typed, setTyped, costs, zoom, pick } = useCostsView();
+  const { view, typed, setTyped, costs, allSessions, zoom, pick } = useCostsView();
   const d = costs.data;
   // the error alone only with nothing read: a failed refetch keeps the last figures (StaleNote says so)
   if (costs.isError && !d) return <ErrorNote>{costs.error.message}</ErrorNote>;
@@ -473,7 +479,7 @@ export function Costs() {
           <ByProject d={d} />
         </div>
       )}
-      {pods && <Sessions d={d} />}
+      {pods && <Sessions d={d} more={allSessions} />}
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
         <RenderCosts d={d} />
         {pods && <AdviceCard d={d} />}
