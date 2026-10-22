@@ -45,6 +45,7 @@ const SERVER: Record<string, string> = {
   volumeUnusedDays: "rented.unused",
   bootLogDays: "rented.bootlogs",
   lastDeploy: "internal: the Deploy dialog's last choices, its next defaults and what Deploy again repeats",
+  machinesSetAside: "internal: not stored as a setting; the stored machines that could not be read, said above the machine cards in Settings › ComfyUI",
   finish: "internal: the Finish dialog's own choices, saved from it as the next time's defaults",
   slotFiles: "models.files",
   acceptedPresets: "internal: a preset's licence, accepted where the preset is applied",
