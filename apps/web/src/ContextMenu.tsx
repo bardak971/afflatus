@@ -435,13 +435,22 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
               }}
               onClick={() => choose(i)}
               className={cx(
-                "flex h-8 shrink-0 items-center gap-2.5 rounded-lg px-2 text-left text-sm disabled:opacity-40",
+                "flex min-h-8 shrink-0 items-center gap-2.5 rounded-lg px-2 text-left text-sm disabled:opacity-40",
+                it.disabled && it.note && "py-1",
                 (i === active || sub?.index === i) && !it.disabled && (it.danger ? "bg-warn-wash" : "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]"),
                 it.danger ? "text-warn-ink" : "text-ink",
               )}
             >
               <span className={cx("flex w-4 shrink-0 items-center justify-center", it.danger ? "text-warn-ink" : it.checked ? "text-accent" : "text-ink-2")}>{it.checked !== undefined ? it.checked && <Check size={14} /> : it.icon}</span>
-              <span className="min-w-0 grow truncate">{it.label}{it.note && <span className="ml-1.5 text-xs text-ink-3">{it.note}</span>}</span>
+              {/* a greyed row's note says why it is greyed, the one thing to read there: it wraps under the label instead of being cut */}
+              {it.disabled && it.note ? (
+                <span className="flex min-w-0 grow flex-col">
+                  <span className="truncate">{it.label}</span>
+                  <span className="text-xs leading-snug text-ink-3">{it.note}</span>
+                </span>
+              ) : (
+                <span className="min-w-0 grow truncate">{it.label}{it.note && <span className="ml-1.5 text-xs text-ink-3">{it.note}</span>}</span>
+              )}
               {it.key && <Keys keys={it.key} size="sm" className="text-ink-2" />}
               {it.items && <ChevronRight size={14} className="shrink-0 text-ink-2" />}
             </button>
