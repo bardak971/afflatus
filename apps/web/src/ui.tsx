@@ -714,8 +714,9 @@ export function Empty({ title, help, helpTitle, action, children }: {
   );
 }
 
-export function ErrorNote({ children }: { children: ReactNode }) {
-  return <div role="alert" className="rounded-lg bg-warn-wash px-3 py-2 text-warn-ink">{children}</div>;
+/** What went wrong, in a box: red. `attention`: what wants a look but is not broken (a ComfyUI not answering), amber. */
+export function ErrorNote({ children, tone = "warn" }: { children: ReactNode; tone?: "warn" | "attention" }) {
+  return <div role="alert" className={cx("rounded-lg px-3 py-2", tone === "attention" ? "bg-attention-wash text-attention-ink" : "bg-warn-wash text-warn-ink")}>{children}</div>;
 }
 
 /**

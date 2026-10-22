@@ -199,6 +199,17 @@ export const History = memo(function History() {
       return next;
     });
 
+  // nothing ever finished, failed or was cancelled (a first launch): there is nothing to filter, so the filters, the search
+  // and the model pick are not drawn, and the empty history stays small under the machine's card, which leads
+  const nothingYet = items.length === 0 && !jobs.isLoading && status === "all" && !typed && !model && counts !== undefined && counts.done + counts.failed + counts.cancelled === 0;
+  if (nothingYet) {
+    return (
+      <section aria-label="History" className="shrink-0">
+        <Empty title="Nothing finished yet" />
+      </section>
+    );
+  }
+
   return (
     // the page scrolls down to it, and there it is a window's height, its list scrolling inside under its filters (which so
     // stay in sight): sized by their content, each step of a running render had the browser measure the whole list again,

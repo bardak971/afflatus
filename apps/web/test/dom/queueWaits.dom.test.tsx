@@ -33,7 +33,9 @@ describe("a waiting render's node packs", () => {
     const onPacks = vi.fn();
     const w = job({ packs: { machine: "m1", packs: [{ name: "zz-test-pack", without: "its cache" }], state: "ask" } });
     const { user } = draw(<WaitingList waiting={[w]} running={null} onOrder={() => {}} onRemove={() => {}} onPacks={onPacks} />);
-    expect(await screen.findByText(/waits for the node pack zz-test-pack/)).toBeTruthy();
+    // short words that fit at 1100 px, the pack named in the tip
+    const said = await screen.findByText("waits for a node pack");
+    expect(said.getAttribute("data-tip")).toMatch(/zz-test-pack/);
     await user.click(screen.getByRole("button", { name: "Install and restart" }));
     expect(onPacks).toHaveBeenLastCalledWith("j1", "install", ["zz-test-pack"]);
     await user.click(screen.getByRole("button", { name: "Run without its cache" }));

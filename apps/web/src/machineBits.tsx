@@ -59,7 +59,7 @@ function FilesRing({ share, running }: { share: number | null; running: boolean 
  */
 /**
  * A machine on its way up, as its dot says it in the pill, its popover and its Queue lane: the idle ring it will be,
- * pulsing. Neither the warning of one away nor the accent of one getting files.
+ * pulsing. Neither the amber of one away nor the accent of one getting files.
  */
 export const STARTING_DOT = "animate-pulse border-[1.5px] border-good"; // design: a live dot, pulsing to say "on its way up"
 
@@ -69,7 +69,7 @@ export function Dot({ m }: { m: MachineState }) {
   if (m.rented?.status === "UNKNOWN") return <span aria-hidden data-state="checking" className="size-[7px] shrink-0 rounded-full bg-ink-3" />;
   // a rented pod that is not running: a grey ring while stopped, the starting look while it starts (its first start too,
   // RunPod saying it runs while its image is pulled). It was a pulsing warning dot, which read as an error in a theme
-  // whose warning is red: the warning is for a start that failed, as for a machine away
+  // whose warning is red: the warning is for a start that failed
   if (m.rented && (m.rented.status !== "RUNNING" || m.rented.booting)) {
     // a start that failed, or a ComfyUI that died on it (terminated as a crash): the warning, not the stopped ring
     if (m.rented.boot?.failed || m.rented.stoppedBy === "crash") return <span aria-hidden data-state="failed" className="size-[7px] shrink-0 rounded-full bg-warn" />;
@@ -78,7 +78,9 @@ export function Dot({ m }: { m: MachineState }) {
       ? <span aria-hidden data-state="starting" className={cx("size-[7px] shrink-0 rounded-full", STARTING_DOT)} />
       : <span aria-hidden data-state="stopped" className="size-[7px] shrink-0 rounded-full border-[1.5px] border-ink-3" />;
   }
-  if (m.online === false) return <span aria-hidden className="size-[7px] shrink-0 rounded-full bg-warn" />;
+  // away is amber, not red (the owner, 2026-10-22): a ComfyUI not answering often comes back by itself (restarting, a
+  // pod booting), a look rather than a failure; locked against Afflatus's token stays red, Afflatus cannot call it
+  if (m.online === false) return <span aria-hidden data-state={m.locked ? "locked" : "offline"} className={cx("size-[7px] shrink-0 rounded-full", m.locked ? "bg-warn" : "bg-attention")} />;
   // its ComfyUI at work for someone else (its own page): an accent ring filled with its wash, as its Queue lane has it,
   // never the idle ring
   if (!m.running && !m.paused && busyOutside(m)) return <span aria-hidden data-state="outside" className="size-[7px] shrink-0 rounded-full border-[1.5px] border-accent bg-accent-wash" />;

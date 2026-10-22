@@ -21,18 +21,20 @@ const MachineMenuBody = lazy(() => import("../../MachineMenu").then((m) => ({ de
 export const JOB_DRAG = "application/x-afflatus-job";
 
 /**
- * How a row looks in its state (machineState): a stopped pod as a paused machine, a locked one as one away, a starting one
- * as on its way up (the pill's dot), a pod whose start failed as one away.
+ * How a row looks in its state (machineState): a stopped pod as a paused machine, a starting one as on its way up (the
+ * pill's dot). One away (offline) is amber: it often comes back by itself, ComfyUI restarting or a pod booting (the owner,
+ * 2026-10-22). One locked against Afflatus's token, or a pod whose start failed (or that crashed), is broken: red.
  */
-type State = "rendering" | "outside" | "getting" | "idle" | "paused" | "offline" | "starting";
-const lookOf = (word: MachineWord, failed = false): State => (word === "stopped" || word === "checking" ? "paused" : word === "locked" || (word === "starting" && failed) ? "offline" : word === "getting files" ? "getting" : word === "busy outside Afflatus" ? "outside" : word);
+type State = "rendering" | "outside" | "getting" | "idle" | "paused" | "offline" | "broken" | "starting";
+const lookOf = (word: MachineWord, failed = false): State => (word === "stopped" || word === "checking" ? "paused" : word === "locked" || (word === "starting" && failed) ? "broken" : word === "getting files" ? "getting" : word === "busy outside Afflatus" ? "outside" : word);
 
 /**
  * A machine's dot: filled green while it renders, a ring in the accent while it gets files, that ring filled with the
- * accent's wash while its ComfyUI is busy outside Afflatus, a green ring when idle, grey when paused, a warning ring when away.
+ * accent's wash while its ComfyUI is busy outside Afflatus, a green ring when idle, grey when paused, an amber ring when away,
+ * a warning ring when broken.
  */
 function Dot({ state }: { state: State }) {
-  return <span aria-hidden data-state={state} className={cx("size-2 shrink-0 rounded-full", state === "rendering" ? "bg-good" : state === "outside" ? "border-[1.5px] border-accent bg-accent-wash" : state === "getting" ? "border-[1.5px] border-accent" : state === "idle" ? "border-[1.5px] border-good" : state === "starting" ? STARTING_DOT : state === "paused" ? "bg-ink-3" : "border-[1.5px] border-warn")} />;
+  return <span aria-hidden data-state={state} className={cx("size-2 shrink-0 rounded-full", state === "rendering" ? "bg-good" : state === "outside" ? "border-[1.5px] border-accent bg-accent-wash" : state === "getting" ? "border-[1.5px] border-accent" : state === "idle" ? "border-[1.5px] border-good" : state === "starting" ? STARTING_DOT : state === "paused" ? "bg-ink-3" : state === "offline" ? "border-[1.5px] border-attention" : "border-[1.5px] border-warn")} />;
 }
 
 /** Its state as a pill (its word: machineState), in the colours the app gives them. */
@@ -40,7 +42,7 @@ function StatePill({ state, word }: { state: State; word: MachineWord | "crashed
   return (
     <span data-tip={state === "outside" ? OUTSIDE_TIP : undefined} className={cx(
       "self-start rounded-full px-2 py-px text-meta font-semibold whitespace-nowrap",
-      state === "rendering" ? "bg-accent-wash text-accent" : state === "outside" ? "border border-accent/40 bg-accent-wash text-accent" : state === "getting" ? "border border-accent/40 text-accent" : state === "idle" ? "border border-good/40 text-good" : state === "starting" ? "border border-good/40 text-ink-2" : state === "paused" ? "bg-hover text-ink-2" : "bg-warn-wash text-warn-ink",
+      state === "rendering" ? "bg-accent-wash text-accent" : state === "outside" ? "border border-accent/40 bg-accent-wash text-accent" : state === "getting" ? "border border-accent/40 text-accent" : state === "idle" ? "border border-good/40 text-good" : state === "starting" ? "border border-good/40 text-ink-2" : state === "paused" ? "bg-hover text-ink-2" : state === "offline" ? "bg-attention-wash text-attention-ink" : "bg-warn-wash text-warn-ink",
     )}>
       {word}
     </span>
@@ -211,7 +213,7 @@ function MachineRow({ m, onStop, onPin }: { m: MachineState; onStop(id: string):
   const word = machineState(m);
   // a pod whose ComfyUI died, terminated for it: said as a crash, in the colours of a machine gone wrong, not as stopped
   const crashed = word === "stopped" && m.rented?.stoppedBy === "crash";
-  const state = crashed ? "offline" : lookOf(word, Boolean(m.rented?.boot?.failed));
+  const state = crashed ? "broken" : lookOf(word, Boolean(m.rented?.boot?.failed));
   const name = machineLabel(m);
   const files = gettingFiles(m);
   const thumb = useRef<HTMLButtonElement>(null);
@@ -228,7 +230,7 @@ function MachineRow({ m, onStop, onPin }: { m: MachineState; onStop(id: string):
       // the container its grid asks for its width (a narrow row, on a phone, leaves its figures out): an element is not its own
       className={cx(
         "@container/row min-w-0 rounded-control border bg-panel text-body",
-        drop.over ? "border-accent ring-1 ring-accent" : state === "rendering" || state === "getting" ? "border-accent/30" : state === "offline" ? "border-warn/30" : "border-line",
+        drop.over ? "border-accent ring-1 ring-accent" : state === "rendering" || state === "getting" ? "border-accent/30" : state === "offline" ? "border-attention/35" : state === "broken" ? "border-warn/30" : "border-line",
         state === "paused" && "opacity-75",
       )}
     >
@@ -250,7 +252,8 @@ function MachineRow({ m, onStop, onPin }: { m: MachineState; onStop(id: string):
         </span>
       ) : (
         <span className="flex min-w-0 items-center gap-3">
-          <span className={cx("min-w-0 truncate text-xs", state === "offline" ? "text-warn-ink" : "text-ink-3")} data-tip={state === "outside" ? OUTSIDE_TIP : undefined}>{quiet(m, word)}</span>
+          {/* two lines at most, the whole in its tip: a pod's boot line ran out at 1440 with three machines, two to a line */}
+          <span className={cx("line-clamp-2 min-w-0 text-xs", state === "offline" ? "text-attention-ink" : state === "broken" ? "text-warn-ink" : "text-ink-3")} data-tip={state === "outside" ? OUTSIDE_TIP : quiet(m, word)}>{quiet(m, word)}</span>
           <span className="grow" />
           {figures}
         </span>

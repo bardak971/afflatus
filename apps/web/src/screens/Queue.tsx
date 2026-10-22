@@ -26,9 +26,10 @@ const isTab = (v: string | null): v is Tab => v === "queue" || v === "times" || 
 
 /**
  * The header's buttons: unload the models, pause or resume. With several ComfyUIs: unload every idle one, pause or resume
- * all of them. `compact`: the header's last fold, an icon each with its words in the tip.
+ * all of them. `compact`: the header's last fold, an icon each with its words in the tip. `nothingToPause`: no machine,
+ * nothing waiting and not paused (a first launch): Pause is not drawn, the empty state's way to add a machine leads.
  */
-function QueueControls({ q, free, pause, resume, compact }: { q: QueueStatus | undefined; free: { mutate(machine?: undefined): void; isPending: boolean; isSuccess: boolean }; pause: { mutate(machine?: undefined): void }; resume: { mutate(machine?: undefined): void }; compact?: boolean }) {
+function QueueControls({ q, free, pause, resume, compact, nothingToPause }: { q: QueueStatus | undefined; nothingToPause?: boolean; free: { mutate(machine?: undefined): void; isPending: boolean; isSuccess: boolean }; pause: { mutate(machine?: undefined): void }; resume: { mutate(machine?: undefined): void }; compact?: boolean }) {
   const several = severalMachines(q);
   // a machine busy outside Afflatus is skipped too: its models are in use by someone else's work (the server skips it)
   const idle = several.filter((m) => !machineUnloadBlock(m));
@@ -44,7 +45,7 @@ function QueueControls({ q, free, pause, resume, compact }: { q: QueueStatus | u
     return (
       <>
         {unloads && <IconButton label={unloadSaid} tip={`${unloadSaid}: ${unloadTip}`} tone="outline" disabled={free.isPending || Boolean(why)} onClick={() => free.mutate(undefined)}><MemoryStick size={15} /></IconButton>}
-        {q && <IconButton label={pauseSaid} tip={`${pauseSaid}: ${pauseTip}`} tone={q.paused ? "primary" : "outline"} onClick={toggle}>{q.paused ? <Play size={15} /> : <Pause size={15} />}</IconButton>}
+        {q && !nothingToPause && <IconButton label={pauseSaid} tip={`${pauseSaid}: ${pauseTip}`} tone={q.paused ? "primary" : "outline"} onClick={toggle}>{q.paused ? <Play size={15} /> : <Pause size={15} />}</IconButton>}
       </>
     );
   return (
@@ -54,7 +55,7 @@ function QueueControls({ q, free, pause, resume, compact }: { q: QueueStatus | u
           {unloadSaid}
         </Button>
       )}
-      {q && (
+      {q && !nothingToPause && (
         <Button size="sm" tone={q.paused ? "primary" : "plain"} data-tip={pauseTip} onClick={toggle}>
           {pauseSaid}
         </Button>
@@ -144,7 +145,7 @@ export function Queue() {
               <div className="flex items-center gap-3 text-meta text-ink-2">
                 <span className="flex shrink-0 items-center gap-1.5" data-tip={fold >= 2 ? status : undefined}>
                   {/* not read yet, or could not be: nothing is said about ComfyUI */}
-                  <span className={cx("h-2 w-2 rounded-full", !q || noGpu ? "bg-ink-3" : q.online ? "bg-good" : "bg-warn")} />
+                  <span className={cx("h-2 w-2 rounded-full", !q || noGpu ? "bg-ink-3" : q.online ? "bg-good" : "bg-attention")} />
                   {fold >= 2 ? short : status}
                 </span>
                 {fold < 1 && q?.model && !several.length && !noGpu && <span className="max-w-48 truncate font-mono" data-tip={`${q.model} loaded`}>{q.model} loaded</span>}
@@ -158,7 +159,7 @@ export function Queue() {
                   {refused && <span className="flex items-center gap-1.5 text-meta text-warn-ink">{NOTIFY_REFUSED.said} <Help text={NOTIFY_REFUSED.help} /></span>}
                 </span>
               )}
-              <QueueControls q={q} free={free} pause={pause} resume={resume} compact={fold >= 3} />
+              <QueueControls q={q} free={free} pause={pause} resume={resume} compact={fold >= 3} nothingToPause={noGpu && !q?.paused && !q?.waiting.length && !q?.running} />
             </>
           );
         }}

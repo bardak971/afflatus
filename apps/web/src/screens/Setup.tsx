@@ -55,7 +55,7 @@ function useTabMarks(): Partial<Record<Tab, ReactNode>> {
   // no ComfyUI of the user's own expected (rented only, or none yet): no dot, nothing is offline
   const planned = Boolean(comfy && !comfy.online && comfy.planned);
   return {
-    comfyui: comfy && !planned && <span aria-label={comfy.online ? "connected" : "not answering"} className={cx("h-[7px] w-[7px] rounded-full", comfy.online ? "bg-good" : "bg-warn")} />,
+    comfyui: comfy && !planned && <span aria-label={comfy.online ? "connected" : "not answering"} className={cx("h-[7px] w-[7px] rounded-full", comfy.online ? "bg-good" : "bg-attention")} />,
     rented: lowBalance ? <Chip size="xs" tone="warn" className="font-mono">balance low</Chip>
       : unusedVolumes > 0 ? <Chip size="xs" tone="warn" className="font-mono">{plural(unusedVolumes, "volume")} unused</Chip>
       : podRunning && <span aria-label="a pod running" className="h-[7px] w-[7px] rounded-full bg-good" />,

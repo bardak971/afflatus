@@ -168,7 +168,7 @@ export function FirstLaunch() {
                 <Button tone="primary" disabled={save.isPending || !url.trim()} onClick={() => add(url.trim())}>Add it</Button>
               </div>
               <span className="text-ink-3">
-                {probe?.online ? <span className="mr-1 inline-flex items-center gap-2 text-ink">{foundSaid(probe)} ·</span> : probe ? <span className="mr-1 text-warn-ink">{probe.locked ? "Locked against Afflatus: add it, then paste its token" : "Not answering"} ·</span> : null}
+                {probe?.online ? <span className="mr-1 inline-flex items-center gap-2 text-ink">{foundSaid(probe)} ·</span> : probe ? <span className={cx("mr-1", probe.locked ? "text-warn-ink" : "text-attention-ink")}>{probe.locked ? "Locked against Afflatus: add it, then paste its token" : "Not answering"} ·</span> : null}
                 Offline is fine: add it now, jobs wait until it answers. Started with <span className="font-mono">--listen</span> on another PC? Its address, port included.
               </span>
             </>

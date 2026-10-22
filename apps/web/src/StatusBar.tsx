@@ -217,12 +217,12 @@ function Running({ run }: { run: RunningJob }) {
   );
 }
 
-/** ComfyUI does not answer: what waits, and a way to ask it again now. */
+/** ComfyUI does not answer: what waits, and a way to ask it again now. Amber, not red: it often comes back by itself. */
 function Offline({ q }: { q: QueueStatus }) {
   const retry = useQueueOps().reconnect;
   return (
-    <span className={cx(pill, "shrink-0 bg-warn-wash text-warn-ink")} data-tip={`ComfyUI has not answered for ${elapsed(q.offlineForMs)}: queued jobs wait for it. Its address is in Settings › ComfyUI.`}>
-      <span className={cx(dot, "bg-warn")} />
+    <span className={cx(pill, "shrink-0 bg-attention-wash text-attention-ink")} data-tip={`ComfyUI has not answered for ${elapsed(q.offlineForMs)}: queued jobs wait for it. Its address is in Settings › ComfyUI.`}>
+      <span className={cx(dot, "bg-attention")} />
       <span className="font-semibold">ComfyUI offline</span>
       {q.waiting.length > 0 && <span className="opacity-80">· {q.waiting.length} waiting</span>}
       <button type="button" className="font-bold underline disabled:opacity-60" disabled={retry.isPending} onClick={() => retry.mutate()} data-tip="Ask ComfyUI again now">

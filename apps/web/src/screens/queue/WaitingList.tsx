@@ -255,14 +255,16 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
 function PacksNote({ wait, machine, onPacks }: { wait: PackWait; machine: string | null; onPacks?: (what: "install" | "without", packs: string[]) => void }) {
   const names = wait.packs.map((p) => p.name);
   const said = `the node pack${names.length > 1 ? "s" : ""} ${names.join(", ")}`;
-  const on = machine ? ` on ${machine}` : "";
   const comfy = machine ? `${machine}'s ComfyUI` : "ComfyUI";
   // only what every one of its packs can be done without: a pack it cannot run without (GGUF, Impact) leaves Install only
   const without = wait.packs.every((p) => p.without) ? wait.packs.map((p) => p.without).join(" and ") : null;
   if (wait.state === "ask") {
     return (
       <>
-        <span className="min-w-0 truncate text-xs text-attention-ink" data-tip={`It asks for ${said}, which ${machine ?? "your ComfyUI"} lacks. Settings › Machines can have such packs installed without asking.`}>waits for {said}{on}</span>
+        {/* short words, the packs named in the tip: their names ran the line out under Install and restart at 1100 px */}
+        <span className="min-w-0 truncate text-xs text-attention-ink" data-tip={`It asks for ${said}, which ${machine ?? "your ComfyUI"} lacks. Settings › Machines can have such packs installed without asking.`}>
+          waits for {names.length > 1 ? `${names.length} node packs` : "a node pack"}
+        </span>
         {onPacks && (
           <button type="button" className="shrink-0 text-xs font-semibold text-accent hover:underline" data-tip={`ComfyUI-Manager installs ${names.length > 1 ? "them" : "it"}; ${comfy} then restarts once nothing renders on it, from Afflatus or from outside.`} onClick={() => onPacks("install", names)}>
             Install and restart

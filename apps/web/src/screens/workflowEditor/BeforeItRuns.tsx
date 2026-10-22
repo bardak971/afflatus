@@ -22,6 +22,18 @@ export function beforeItems(m: Mapping): string[] {
   ];
 }
 
+/**
+ * How bad what stands before a first render is, for its colour: "broken" (red) when ComfyUI would refuse the prompt
+ * whatever is fetched (a node type it lacks, a choice it does not offer); "attention" (amber) when only a note of the
+ * reading wants a look; "todo" (neutral) when what is left is files to download or replace, a to-do, not a failure.
+ */
+export function beforeTone(m: Mapping): "broken" | "attention" | "todo" | null {
+  const { found, graph, looseNotes } = m;
+  if (found.missingNodes.length || (found.missingChoices ?? []).some((c) => String(graph[c.node]?.inputs[c.input] ?? c.value) === c.value)) return "broken";
+  if (looseNotes.length) return "attention";
+  return beforeItems(m).length ? "todo" : null;
+}
+
 /** What stands between the workflow and a first render: packs, files, choices this ComfyUI lacks, and the notes of the reading. At the top of step 1. */
 export function BeforeItRuns({ m }: { m: Mapping }) {
   const { found, graph, model, looseNotes, replaceFile } = m;
@@ -38,9 +50,17 @@ export function BeforeItRuns({ m }: { m: Mapping }) {
   };
   if (!(found.missingNodes.length > 0 || (found.replaced ?? []).length > 0 || (found.missingUnneeded ?? []).length > 0 || found.missingFiles.length > 0 || (found.missingChoices ?? []).length > 0 || (found.relocated ?? []).length > 0 || found.missingWhenOn.length > 0 || looseNotes.length > 0)) return null;
   const n = beforeItems(m).length;
+  const tone = beforeTone(m);
   return (
-    <div data-jump="before" className={cx("flex shrink-0 scroll-mt-3 flex-col rounded-xl border text-xs [&>*:nth-child(n+3)]:border-t [&>*:nth-child(n+3)]:border-line", n ? "border-warn/40 bg-warn/5" : "border-line bg-panel")}>
-      <div className={cx("px-3 pt-2.5 pb-1 text-meta font-bold tracking-label uppercase", n ? "text-warn-ink" : "text-ink-2")}>Before it can run{n ? ` · ${n}` : ""}</div>
+    <div
+      data-jump="before"
+      data-tone={tone ?? "none"}
+      className={cx(
+        "flex shrink-0 scroll-mt-3 flex-col rounded-xl border text-xs [&>*:nth-child(n+3)]:border-t [&>*:nth-child(n+3)]:border-line",
+        tone === "broken" ? "border-warn/40 bg-warn/5" : tone === "attention" ? "border-attention/40 bg-attention-wash" : "border-line bg-panel",
+      )}
+    >
+      <div className={cx("px-3 pt-2.5 pb-1 text-meta font-bold tracking-label uppercase", tone === "broken" ? "text-warn-ink" : tone === "attention" ? "text-attention-ink" : "text-ink-2")}>Before it can run{n ? ` · ${n}` : ""}</div>
       {found.missingNodes.length > 0 && <div className="px-3 py-2"><MissingPacks missing={found.missingNodes} packs={found.packs} graph={graph} wiring={m.wiring} editor={m.start.editor} onInspected={m.reread} /></div>}
       {found.missingFiles.map((f) => <MissingFile key={keyOf(f)} f={f} m={m} hints={hintsFor(f.node)} where={where(f)} />)}
       {(found.missingChoices ?? []).map((c) => {
@@ -114,7 +134,7 @@ export function BeforeItRuns({ m }: { m: Mapping }) {
           <Help text="Bypassed parts use node types your ComfyUI does not have. Those switches will not work until they are installed." />
         </span>
       )}
-      {looseNotes.map((n) => <div key={n} className="px-3 py-2 text-warn-ink">{n}</div>)}
+      {looseNotes.map((n) => <div key={n} className="px-3 py-2 text-attention-ink">{n}</div>)}
     </div>
   );
 }

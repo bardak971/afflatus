@@ -139,7 +139,7 @@ function MachinePick({ pickKey, of, msOn, file, why, note, small }: {
                   onClick={() => pick(m?.id ?? null)}
                   className={cx("grid grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-2.5 border-t border-line px-3.5 py-2.5 text-left", on ? "bg-accent-wash/50" : "hover:bg-hover", off && "opacity-55")}
                 >
-                  {m ? <span className={cx("size-[7px] rounded-full", m.online === false ? "bg-warn" : m.paused ? "bg-ink-3" : m.running ? "bg-accent" : "border-[1.5px] border-good")} /> : <Server size={13} className="text-accent" />}
+                  {m ? <span className={cx("size-[7px] rounded-full", m.online === false ? (m.locked ? "bg-warn" : "bg-attention") : m.paused ? "bg-ink-3" : m.running ? "bg-accent" : "border-[1.5px] border-good")} /> : <Server size={13} className="text-accent" />}
                   <span className="min-w-0 truncate">
                     <span className="font-semibold">{m ? machineLabel(m) : "Any machine"}</span>{" "}
                     <span className="text-xs text-ink-3">· {m ? off ?? note(m) ?? said(m, waitingOn(m.id), holds) : "the machine that ends it first"}</span>
