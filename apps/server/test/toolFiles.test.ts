@@ -163,3 +163,20 @@ describe("toolLackOn", () => {
     });
   });
 });
+
+describe("a SCAIL-2 take's Face refine finish on a machine", () => {
+  it("asks for H3's Face refine pack where it is not, as a render's node is, and for no SeedVR2 node", async () => {
+    const core = (t.services.queue as unknown as { core: QueueCore }).core;
+    const comfy = await t.services.comfy();
+    const on = { id: "pod", comfy, scan: await comfy.scan() };
+    const face = cut({ asset: await take(false), action: "finish", route: "face" });
+    expect((await toolNeeds(t.services as never, face))?.nodes).toEqual(["LoadVideo", "GetVideoComponents", "H3FaceStitch"]);
+    // a machine without the pack (nor SeedVR2's nodes, which it does not use): the pack is asked, and can be sent
+    const catalog = await comfy.catalog();
+    fake.catalog = Object.fromEntries(Object.entries(catalog).filter(([k]) => !k.startsWith("H3Face") && !k.startsWith("SeedVR2"))) as never;
+    comfy.forgetAll();
+    const loaded = await loadedOn(core, face, { ...on, scan: { ...on.scan, at: "later" } });
+    expect(loaded?.missingNodes).toEqual(["H3FaceStitch"]);
+    expect(toolLackOn(loaded!, [])).toEqual({ off: false, files: [], sendable: true, packs: ["comfyui-h3-facerefine"] });
+  });
+});

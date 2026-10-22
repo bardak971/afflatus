@@ -1,6 +1,6 @@
 import type { Comfy } from "./comfy";
 import { loadedOn } from "./jobFiles";
-import { cannotWhy, installsUnasked, packFacts, packsLacked, packsSaid, type PackFacts, type PackWait } from "./jobPacks";
+import { cannotWhy, installsUnasked, packFacts, packsLacked, packsSaid, type PackFacts, type PacksSaid, type PackWait } from "./jobPacks";
 import { PodPacks } from "./podPacks";
 import { outsideBusy } from "./queueOutside";
 import type { JobRow, Lane } from "./queueModel";
@@ -17,6 +17,8 @@ export interface OwnPacksDeps {
   lane(id: string): Lane | undefined;
   /** Whether this ComfyUI has ComfyUI-Manager (downloads.ts manager); null when it cannot be told. */
   manager(comfy: Comfy): Promise<boolean | null>;
+  /** Whether Afflatus downloads a file through this ComfyUI now (its node pack or its Manager, in ComfyUI's process). */
+  downloading?(comfy: Comfy): boolean;
   /** Something changed that the Queue shows, or that lets a job start: a new pass. */
   changed(): void;
 }
@@ -26,28 +28,53 @@ const TICK_MS = 2000;
 /** A pack whose install failed is done without for this long, then tried again when a job asks for it (Manager's settings may have changed). */
 const AGAIN_MS = 30 * 60_000;
 
+/**
+ * The packs a job asks for there that it waits for: all of them when the machine installs unasked (Always) or its row said
+ * Install for each; else, under Ask, only those its row said Install for, or that are being installed already for another
+ * job (it waits for those anyway). One being installed for another job is no Install for the job's other packs.
+ */
+export function packsToWant(names: string[], o: { unasked: boolean; said: PacksSaid; underWay: ReadonlySet<string> }): string[] {
+  return o.unasked ? names : names.filter((n) => o.said.install?.includes(n) || o.underWay.has(n));
+}
+
 export class OwnPacks {
   readonly packs: PodPacks;
   /** The jobs waiting for packs, as their Queue rows show them, by job id. */
   private readonly waits = new Map<string, PackWait>();
+  /** The jobs that wait, each with the packs it said Run without for (keepOnly); null until the first pass. */
+  private waiting: Map<string, string[]> | null = null;
   private timer: NodeJS.Timeout | null = null;
   private stopped = false;
 
   constructor(private readonly d: OwnPacksDeps) {
     this.packs = new PodPacks({
       comfyOf: async (machine) => d.lane(machine)?.comfy ?? null,
-      // ComfyUI is never restarted under a render, Afflatus's or anyone's
-      busy: (machine) => {
-        const lane = d.lane(machine);
-        return !lane || Boolean(lane.running || lane.starting) || outsideBusy(lane);
-      },
+      // ComfyUI is never restarted under a render, Afflatus's or anyone's, nor under a download of Afflatus's that runs in
+      // ComfyUI's process (it would die with it): the restart waits for it to end
+      busy: (machine) => this.busyWith(d.lane(machine)) !== null,
+      // nor for a pack no job wants any more: its jobs were cancelled, or said Run without
+      stillWanted: (job, pack) => !this.waiting || (this.waiting.has(job) && !this.waiting.get(job)!.includes(pack)),
     });
     this.packs.againMs = AGAIN_MS;
+    // Manager's list of packs has long been loaded on a ComfyUI of the user's own: a pack it cannot find is not there
+    this.packs.resolveTries = 1;
   }
 
-  /** What can come to a machine: its card, its Manager, the packs that failed there. */
+  /** What a machine is busy with, that its ComfyUI is not restarted under; null when it is free. */
+  private busyWith(lane: Lane | undefined): string | null {
+    if (!lane) return "nothing known of it";
+    if (lane.running || lane.starting) return "a render";
+    if (outsideBusy(lane)) return "work from outside Afflatus";
+    if (lane.comfy && this.d.downloading?.(lane.comfy)) return "a download through its ComfyUI";
+    return null;
+  }
+
+  /**
+   * What can come to a machine: its card, its Manager, the packs that failed there. A failed one is so for AGAIN_MS only:
+   * then a job asking for it has it tried again (Manager's settings may have changed).
+   */
   async facts(lane: Lane): Promise<PackFacts> {
-    const failed = new Map(this.packs.view(lane.id).filter((e) => e.state === "failed").map((e) => [e.name, e.error ?? "its install failed"]));
+    const failed = new Map(this.packs.failing(lane.id).map((e) => [e.name, e.error ?? "its install failed"]));
     const manager = lane.comfy ? await this.d.manager(lane.comfy).catch(() => null) : null;
     return packFacts(lane.device, manager, failed, lane.machine?.name || lane.id);
   }
@@ -68,13 +95,16 @@ export class OwnPacks {
     if (!soft.length && !hard.length) return this.goes(row.id);
     if (unknown.length || hard.some((p) => cannotWhy(facts, p))) return this.goes(row.id);
     const names = [...soft.map((s) => s.pack), ...hard];
-    // asked for already (Always, its row's Install, or another job's on this machine): it waits for them
-    const asked = installsUnasked(lane.machine!) || names.every((n) => said.install?.includes(n)) || this.packs.view(lane.id).some((e) => names.includes(e.name) && e.state !== "failed");
-    if (asked && this.packs.want(lane.id, names, row.id)) this.tick();
+    // asked for already (Always, its row's Install, or another job's on this machine): it waits for them. Under Ask, each
+    // pack on its own: another job's install brings that one, never the job's others unasked
+    const underWay = new Set(this.packs.view(lane.id).filter((e) => e.state !== "failed").map((e) => e.name));
+    const go = packsToWant(names, { unasked: installsUnasked(lane.machine!), said, underWay });
+    const asked = go.length === names.length;
+    if (go.length && this.packs.want(lane.id, go, row.id)) this.tick();
     const view = this.packs.view(lane.id).filter((e) => names.includes(e.name));
     const failed = view.find((e) => e.state === "failed");
     const state: PackWait["state"] = !asked ? "ask" : this.packs.restartingNow(lane.id) ? "restarting" : failed ? "failed" : view.some((e) => e.state === "installing") ? "installing" : view.length && view.every((e) => e.state === "installed" || e.state === "ready") ? "installed" : "next";
-    const busy = state === "installed" ? (outsideBusy(lane) ? "work from outside Afflatus" : lane.running ? "a render" : undefined) : undefined;
+    const busy = state === "installed" ? (this.busyWith(lane) ?? undefined) : undefined;
     this.waits.set(row.id, {
       machine: lane.id, state,
       packs: names.map((name) => ({ name, ...(soft.find((s) => s.pack === name) ? { without: soft.find((s) => s.pack === name)!.without } : {}) })),
@@ -98,10 +128,14 @@ export class OwnPacks {
     return this.packs.holding(machine);
   }
 
-  /** The jobs that are gone: what they waited for is dropped, unless being installed; their rows forgotten. */
-  keepOnly(active: ReadonlySet<string>): void {
-    for (const job of [...this.waits.keys()]) if (!active.has(job)) this.waits.delete(job);
-    for (const machine of this.packs.machines()) this.packs.drop(machine, (job) => active.has(job));
+  /**
+   * The jobs that wait (`queued`): what the others waited for is dropped, unless being installed, and their rows forgotten;
+   * so is a pack every job that wanted it said Run without for, which frees a machine held for its restart.
+   */
+  keepOnly(queued: ReadonlyArray<Pick<JobRow, "id" | "packs">>): void {
+    this.waiting = new Map(queued.map((r) => [r.id, packsSaid(r).without ?? []]));
+    for (const job of [...this.waits.keys()]) if (!this.waiting.has(job)) this.waits.delete(job);
+    for (const machine of this.packs.machines()) this.packs.drop(machine, (job, pack) => this.waiting!.has(job) && !this.waiting!.get(job)!.includes(pack));
   }
 
   /** The installs and restarts looked at every TICK_MS while any is under way. */

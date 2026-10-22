@@ -348,6 +348,15 @@ export class Downloads {
     return d ? this.view(d) : null;
   }
 
+  /**
+   * Whether a download runs in this ComfyUI's process now (its node pack's or its Manager's): a restart of that ComfyUI
+   * would cut it off, so one for node packs waits for it (queuePacks.ts). Afflatus's own writes go on through a restart.
+   */
+  runsIn(comfy: Comfy): boolean {
+    return [...this.all.values()].some((d) => d.via !== "afflatus" && d.comfy.client.baseUrl === comfy.client.baseUrl
+      && (d.status === "downloading" || d.status === "saving" || (d.status === "starting" && Boolean(d.begun))));
+  }
+
   /** Newest first. What finished is forgotten after an hour, a failure nobody read after a day. */
   list(): DownloadView[] {
     const now = Date.now();
@@ -401,18 +410,22 @@ export class Downloads {
   }
 
   /** The Manager answers by ComfyUI: a pod's Models tab and the first ComfyUI's banner, read in turn, each asked again (up to 5 s) with one kept. */
-  private readonly managerSeen = new Map<string, { at: number; value: { found: boolean; version?: string } }>();
+  private readonly managerSeen = new Map<string, { at: number; value: { found: boolean; version?: string; unknown?: true } }>();
 
-  /** Whether this ComfyUI has ComfyUI-Manager, and which. Asked at most every half minute: the list of downloads is read often. */
-  async manager(comfy: Comfy): Promise<{ found: boolean; version?: string }> {
+  /**
+   * Whether this ComfyUI has ComfyUI-Manager, and which. Asked at most every half minute: the list of downloads is read often.
+   * A ComfyUI that does not answer (restarting, too busy to answer in time) says nothing either way: `unknown`, kept a few
+   * seconds only. Read as "no Manager", it had the queue run jobs without the packs they asked for, saying none could come.
+   */
+  async manager(comfy: Comfy): Promise<{ found: boolean; version?: string; unknown?: true }> {
     const seen = this.managerSeen.get(comfy.client.baseUrl);
-    if (seen && Date.now() - seen.at < 30_000) return seen.value;
-    let value: { found: boolean; version?: string };
+    if (seen && Date.now() - seen.at < (seen.value.unknown ? 5000 : 30_000)) return seen.value;
+    let value: { found: boolean; version?: string; unknown?: true };
     try {
       const res = await comfy.client.raw("/v2/manager/version", { signal: AbortSignal.timeout(5000) });
-      value = res.ok ? { found: true, version: (await res.text()).trim().slice(0, 40) } : { found: false };
+      value = res.ok ? { found: true, version: (await res.text()).trim().slice(0, 40) } : res.status >= 500 ? { found: false, unknown: true } : { found: false };
     } catch {
-      value = { found: false };
+      value = { found: false, unknown: true };
     }
     this.managerSeen.set(comfy.client.baseUrl, { at: Date.now(), value });
     if (this.managerSeen.size > 32) this.managerSeen.delete(this.managerSeen.keys().next().value!);

@@ -190,6 +190,7 @@ export class Queue {
     this.ownPacks = new OwnPacks({
       lane: (id) => this.lanes.get(id),
       manager: (comfy) => this.managerOf(comfy),
+      downloading: (comfy) => this.downloadingIn(comfy),
       changed: () => {
         this.events.emit("queue");
         void this.pump();
@@ -969,7 +970,9 @@ export class Queue {
                 break;
               }
             }
-            if (!next) continue;
+            // the awaits above gave the packs' timer its turn: a pack come in meanwhile holds the machine for its restart
+            // (checked again here, in the same step as the start, which the restart waits for: podPacks.ts restartWhenIn)
+            if (!next || this.ownPacks.holding(lane.id)) continue;
             this.startOn(lane, next);
             taken.add(next.id);
             started = true;
@@ -984,7 +987,7 @@ export class Queue {
         // what rented pods were sent for jobs that may no longer run there goes, at every pass (nothing waiting too)
         this.planner.dropUnsought(active, sent);
         // the packs asked for jobs that are gone are dropped (unless being installed), and their rows forgotten
-        this.ownPacks.keepOnly(new Set(active.filter((r) => r.status === "queued").map((r) => r.id)));
+        this.ownPacks.keepOnly(active.filter((r) => r.status === "queued"));
         // the machines that answered this pass, or that run a job now, say whether any ComfyUI is there. A paused machine is
         // asked nothing for the plan: before every ComfyUI is called away (whileOffline gives the jobs up after a while),
         // one paused that answers says it is there, its jobs waiting for its Resume, not for a ComfyUI to come back
@@ -1078,6 +1081,8 @@ export class Queue {
 
   /** Whether a ComfyUI has ComfyUI-Manager, which installs the node packs renders ask for (downloads.ts manager; set by services.ts); null: not known. */
   managerOf: (comfy: Comfy) => Promise<boolean | null> = async () => null;
+  /** Whether Afflatus downloads a file through this ComfyUI now (its process): its restart for node packs waits for it (services.ts sets it). */
+  downloadingIn: (comfy: Comfy) => boolean = () => false;
 
   /** Files are coming to a machine now (a rented pod's, their bytes moving): its idle time is held meanwhile (rented.ts). */
   fetching(machine: string): boolean {

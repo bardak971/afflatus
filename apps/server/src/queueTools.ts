@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ComfyCancelled, detect, waitForOutputs, type Measured, type OutputFile } from "@afflatus/comfy";
 import { choicesOf, GraphBuilder, TOOLS_FAMILY, type BuildContext, type Ref } from "@afflatus/core";
-import { faceRefined, faceRefineSkipped, pixelUpscale, RTX_NODES, saveVideo, sharpened, UPSCALE, upscaleNodes } from "@afflatus/recipes";
+import { FACE_STITCH, faceRefined, faceRefineSkipped, pixelUpscale, RTX_NODES, saveVideo, sharpened, UPSCALE, upscaleNodes } from "@afflatus/recipes";
 import type { Comfy } from "./comfy";
 import { slowSoundOnto } from "./cut";
 import { finishedName, nameOf } from "./autoName";
@@ -190,6 +190,9 @@ export async function toolNeeds(core: Pick<QueueCore, "db" | "storage">, row: Pi
   if (!video) return null;
   const route = opts.route ?? "seedvr";
   const rife = interpolatedFrom(video, await rawFactsOf(core, video));
+  // Face refine (SCAIL-2's take): H3's Face refine pack, which it cannot run without (runFaceFinish), asked for as a render's
+  // node is (a machine of the user's own installs it, Always or its row's Install); no upscale of any route
+  if (route === "face") return { rife, seedvr: false, upscaleModel: null, nodes: ["LoadVideo", "GetVideoComponents", FACE_STITCH, ...(rife ? RIFE_NODES : [])] };
   const upscale = route === "rtx" ? UPSCALE.rtx : route === "model" ? UPSCALE.model : UPSCALE.seedvr;
   return {
     rife, seedvr: route === "seedvr", upscaleModel: route === "model" ? opts.upscaleModel || "" : null,

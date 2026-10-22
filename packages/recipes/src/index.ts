@@ -66,7 +66,7 @@ export type { WanVideo } from "./wan/video";
 export { h3Canvas, h3Frames, H3_FPS } from "./h3/family";
 export { pixelUpscale, RTX_NODES, seedvrChunk, sharpened, UPSCALE, upscaleNodes } from "./video/upscale";
 export { saveVideo } from "./shared/out";
-export { faceRefined, faceRefineSkipped } from "./h3/faceRefine";
+export { FACE_STITCH, faceRefined, faceRefineSkipped } from "./h3/faceRefine";
 export { h3Prompt, h3ReferencePrompt, isH3Layout } from "./h3/prompt";
 export { introduce, kleinSize } from "./klein/common";
 export { padsFor } from "./klein/recipes";

@@ -214,7 +214,9 @@ export class Planner {
           if (!pin || pin === lane.id) fetch[lane.id] = { files: [], packs: own.packs!, ms: PACKS_MS };
           return;
         }
-        if (own && ownCannot) {
+        // a lone one takes it all the same (below): the job goes, and its submit says what to install (queuePacks.ts mayStart),
+        // rather than wait for a pack that cannot come with no machine to go to
+        if (own && ownCannot && !alone) {
           lacks[lane.id] = { ...own, sendable: false, why: ownCannot };
           return;
         }
