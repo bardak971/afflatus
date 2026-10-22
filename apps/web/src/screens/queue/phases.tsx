@@ -6,7 +6,7 @@ import { cx } from "../../ui";
 export const PHASES: Array<{ id: keyof TimeParts; label: string; tip: string; tone: string; color: string }> = [
   { id: "loading", label: "model load", tip: "Loading the checkpoint, text encoders and VAE into VRAM", tone: "bg-ink-3", color: "var(--color-ink-3)" },
   { id: "sampling", label: "sampling", tip: "The main sampling pass", tone: "bg-accent", color: "var(--color-accent)" },
-  { id: "refining", label: "refine/upscale", tip: "Refine and upscale passes: hires fix, upscale, SeedVR2, detailer", tone: "bg-picture", color: "var(--color-picture)" },
+  { id: "refining", label: "refine/upscale", tip: "Refine and upscale passes: hires fix, upscale, SeedVR2, face and hand refine", tone: "bg-picture", color: "var(--color-picture)" },
   { id: "finishing", label: "VAE decode/encode", tip: "VAE decode, frame interpolation, video encoding, saving", tone: "bg-good", color: "var(--color-good)" },
 ];
 

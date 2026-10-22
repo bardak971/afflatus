@@ -152,13 +152,13 @@ Each comes with a form on its authors' own settings; presets for the official re
 
 | Family | Models | What you can do |
 |---|---|---|
-| SDXL | any SDXL checkpoint: Illustrious, NoobAI, Pony, Juggernaut XL… | txt2img, img2img, inpaint, outpaint, upscale, face and hand detailer, a ControlNet guide |
-| FLUX.2 Klein | 4B base and its fine-tunes | txt2img, edit by instruction, variation, inpaint, outpaint, upscale, face and hand detailer |
-| FLUX.1 | dev, Krea dev, schnell, Kontext | txt2img, edit, img2img, inpaint, outpaint, upscale, face and hand detailer |
-| Krea 2 | Turbo and its fine-tunes | txt2img, img2img, inpaint, upscale, face and hand detailer |
-| Qwen Image | 2512, Qwen Image Edit | txt2img, edit, img2img, inpaint, outpaint, upscale, face and hand detailer |
+| SDXL | any SDXL checkpoint: Illustrious, NoobAI, Pony, Juggernaut XL… | txt2img, img2img, inpaint, outpaint, upscale, face and hand refine, a ControlNet guide |
+| FLUX.2 Klein | 4B base and its fine-tunes | txt2img, edit by instruction, variation, inpaint, outpaint, upscale, face and hand refine |
+| FLUX.1 | dev, Krea dev, schnell, Kontext | txt2img, edit, img2img, inpaint, outpaint, upscale, face and hand refine |
+| Krea 2 | Turbo and its fine-tunes | txt2img, img2img, inpaint, upscale, face and hand refine |
+| Qwen Image | 2512, Qwen Image Edit | txt2img, edit, img2img, inpaint, outpaint, upscale, face and hand refine |
 | Qwen Image 2.1 | | txt2img, edit, the picture for a motion transfer |
-| Z-Image | Turbo and its fine-tunes | txt2img, img2img, inpaint, outpaint, upscale, face and hand detailer |
+| Z-Image | Turbo and its fine-tunes | txt2img, img2img, inpaint, outpaint, upscale, face and hand refine |
 | MiniMax H3 | video with sound | text, first and last frame, keyframe, references, continuation, lip sync: the timeline's native model |
 | Wan 2.2 | | video from text, a first frame, or first and last frames |
 | LTX 2.3 | | video with sound: text, first and last frames, a keyframe in between, continuation |

@@ -66,6 +66,7 @@ export const BANNED_WORDS: Array<{ test: RegExp; say: string }> = [
   { test: /\bRequeue\b/, say: "Render again" },
   { test: /\bRetry unchanged\b|\bRetry all \S+ unchanged\b/, say: "Render again" },
   { test: /\bFace detailer\b|\bFace pass\b/, say: "Face refine" },
+  { test: /\bHand detailer\b/, say: "Hand refine" },
   { test: /\bCancel (?:this )?render\b/, say: "Stop" },
   { test: /\bCancel this one\b/, say: "Remove from queue" },
   { test: /\bCancel all waiting\b/, say: "Remove all waiting" },

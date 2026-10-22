@@ -108,7 +108,7 @@ describe("every place shows the same list", () => {
         expect(lines(menu).slice(head + (head ? 1 : 0)), place).toEqual(shared);
       }
       // the groups apart, in order; the passes folded for a picture
-      if (kind === "image") expect(shared.slice(0, 15)).toEqual(["Open", "Keep", "Download", "Rename…", "—", "Reuse · same seed", "Reuse · new seed", "Variation", "Image to video (i2v)", "Motion transfer…", "—", "Passes › Upscale 2x", "Passes › Face refine", "Passes › Hand detailer", "Passes › Remove background"]);
+      if (kind === "image") expect(shared.slice(0, 15)).toEqual(["Open", "Keep", "Download", "Rename…", "—", "Reuse · same seed", "Reuse · new seed", "Variation", "Image to video (i2v)", "Motion transfer…", "—", "Passes › Upscale 2x", "Passes › Face refine", "Passes › Hand refine", "Passes › Remove background"]);
     });
   }
 

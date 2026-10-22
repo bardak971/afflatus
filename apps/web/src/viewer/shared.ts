@@ -9,7 +9,7 @@ export const OPS: Record<string, { ends: string[]; label: string; takes?(r: Reci
   u: { ends: [".sharper"], label: "Upscale 2x" },
   f: { ends: [".fix-face"], label: "Face refine" },
   // the face detailer given a hand detector; Klein's redraws a face from a person's pictures and is not offered for hands
-  h: { ends: [".fix-face"], label: "Hand detailer", takes: (r) => Boolean(handsOf(r)) },
+  h: { ends: [".fix-face"], label: "Hand refine", takes: (r) => Boolean(handsOf(r)) },
   b: { ends: [REMOVE_BACKGROUND], label: "Remove background" },
   i: { ends: [".paint-over"], label: "Inpaint" },
   e: { ends: [".edit", ".redraw"], label: "Edit" },

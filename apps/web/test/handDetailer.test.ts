@@ -29,7 +29,7 @@ describe("the face detailer's form on a hand detector", () => {
   });
 });
 
-describe("the Hand detailer pass", () => {
+describe("the Hand refine pass", () => {
   it("is the picture's own family's face detailer, never Klein's", () => {
     expect(toolOf("h", all, families, "flux.text-to-picture", () => true)?.id).toBe("flux.fix-face");
     const fromKlein = toolOf("h", all, families, "klein.picture", (r) => r.id === "sdxl.fix-face");
