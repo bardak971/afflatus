@@ -86,12 +86,14 @@ describe("the design budget", () => {
     // --budget never raises one: a count over its budget still fails the writing run.
     expect(budgetVerdict({ ...budget, radius: 6 }, budget, true).fails).toBe(true);
   });
-  it("holds today's counts: the budget file names every rule, and the sources keep within it", () => {
+  it("holds today's counts: the budget file names every rule, and the sources meet it exactly", () => {
     const root = fileURLToPath(new URL("../../..", import.meta.url));
     const budget = JSON.parse(readFileSync(`${root}scripts/design-budget.json`, "utf8")) as Record<string, number>;
     expect(Object.keys(budget).sort()).toEqual(DESIGN_RULES.map((r) => r.id).sort());
     const files = sources(root).map((p) => ({ file: relative(root, p).replace(/\\/g, "/"), text: readFileSync(p, "utf8") }));
-    expect(overBudget(designCounts(files), budget).up).toEqual([]);
+    // The lint's own verdict, so a count under its budget fails here too (review O-15): vitest is on the "done" list and
+    // the lint was not, so a budget left high once a count came down passed every check but CI's.
+    expect(budgetVerdict(designCounts(files), budget, false)).toEqual({ lines: [], fails: false });
   });
 });
 

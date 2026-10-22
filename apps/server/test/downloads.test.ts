@@ -231,6 +231,19 @@ describe("fetching a missing model file into ComfyUI", () => {
     expect((await t.app.inject({ method: "DELETE", url: "/api/downloads/nope" })).statusCode).toBe(404);
   });
 
+  it("tells the queue it runs in that ComfyUI while it does, so a node pack's restart waits for it (services.ts)", async () => {
+    // OwnPacks is tested with its own `downloading`; this is the wiring that gives it the real one (review O-12)
+    await start(true);
+    await on();
+    const comfy = await t.services.comfy();
+    expect(t.services.queue.downloadingIn(comfy)).toBe(false);
+    const d = (await post(t.app, "/api/downloads", { file: "slow.safetensors", folder: "loras", url: `${siteUrl}/files/slow.safetensors` })).json();
+    await until(async () => (await list()).items[0].bytes > 0);
+    expect(t.services.queue.downloadingIn(comfy)).toBe(true);
+    await t.app.inject({ method: "DELETE", url: `/api/downloads/${d.id}` });
+    expect(t.services.queue.downloadingIn(comfy)).toBe(false);
+  });
+
   it("is asked again as it was first asked, once stopped or failed (the bar's Download again)", async () => {
     await start(true);
     await on();
