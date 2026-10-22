@@ -14,7 +14,7 @@ const music = { asset: { id: "m1" }, duck: true, duckDb: 6, startClip: "c1" } as
 
 const pinned: Array<[QueryKey, unknown[]]> = [
   [k.recipes(), ["recipes"]],
-  [k.officialSizes(), ["official-sizes"]],
+  [k.officialSizes(true), ["official-sizes", true]],
   [k.setup(), ["setup"]],
   [k.queue(), ["queue"]],
   [k.settings(), ["settings"]],

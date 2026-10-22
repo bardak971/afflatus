@@ -61,7 +61,7 @@ export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiK
   /** Some of the notices' settings: what is sent is put over what is saved. The token and the webhook only when typed ("" takes one off). */
   notify?: { telegramToken?: string; telegramChat?: string; discordWebhook?: string; picture?: boolean; events?: Partial<Record<NotifyKind, { telegram?: boolean; discord?: boolean }>> };
   /** The machines as the page has them, without what it is only told (a token's end). A token left out stays as it is. */
-  machines?: Array<Omit<Machine, "tokenEnd"> & { token?: string }>;
+  machines?: Array<Omit<Machine, "tokenEnd" | "local"> & { token?: string }>;
   civitaiKey?: string;
   huggingFaceToken?: string;
   runpodKey?: string;
@@ -121,6 +121,8 @@ export interface Machine {
   families: Record<string, boolean>;
   /** The last four characters of its token when its ComfyUI is locked (the token itself stays on the server); empty without one. */
   tokenEnd: string;
+  /** Its ComfyUI runs on Afflatus's computer, as the server tells from its address (never a pod); absent on one the page made. */
+  local?: boolean;
   /** A rented pod: its provider and id, and what happens when it sits idle. Absent for a ComfyUI of its own. */
   rented?: RentedMachine;
 }

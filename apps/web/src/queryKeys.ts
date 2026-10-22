@@ -9,8 +9,8 @@ import type { Clip, Timeline } from "./api";
  */
 export const queryKeys = {
   recipes: () => ["recipes"] as const,
-  /** How large the families' official files are (data.ts useOfficialSizes). */
-  officialSizes: () => ["official-sizes"] as const,
+  /** How large the families' official files are (data.ts useOfficialSizes), read again when lookups are switched (the server asks only with them on). */
+  officialSizes: (lookups: boolean | null) => ["official-sizes", lookups] as const,
   /** What ComfyUI can do: every machine together, or one machine's (under it, so a "setup" event reads both again). */
   setup: (machine?: string) => (machine ? (["setup", machine] as const) : (["setup"] as const)),
   /** The queue alone: the history is not under it (see history). */

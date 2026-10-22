@@ -6,7 +6,7 @@ Afflatus does not bundle or install ComfyUI. It talks to yours over HTTP: on the
 
 Any ComfyUI 0.3.x or newer you can reach at an address: a git clone, the portable build or the desktop app. In Afflatus, **Settings → ComfyUI**, enter its address (`http://127.0.0.1:8188` on the same machine) and press **Test**. It reads the version, the card and the node list; it never starts a render.
 
-When ComfyUI is on **this** computer, also give Afflatus **ComfyUI's folder** (the one with `main.py`). With it, Afflatus:
+When ComfyUI is on **this** computer, also give Afflatus **ComfyUI's folder**: the one that holds `custom_nodes` and `models` (where `main.py` is on a manual or portable install; on ComfyUI Desktop, the base folder chosen when installing it). Afflatus usually finds it by itself, from the folders ComfyUI reports. With it, Afflatus:
 
 - writes its node pack into `custom_nodes` (restart ComfyUI once after that);
 - reads your model files' headers to tell which family each belongs to, so a renamed file is still found.

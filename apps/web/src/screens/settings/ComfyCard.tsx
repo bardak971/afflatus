@@ -116,8 +116,8 @@ export function ComfyCard() {
   );
   // the machines not read yet, or not read at all: nothing said of them (the "no ComfyUI" cards flashed while they loaded,
   // and stood in for a failure to read them)
-  if (settings.isError) return <ErrorNote>The settings could not be read: {settings.error.message}</ErrorNote>;
-  if (!settings.data) return null;
+  // a read again that failed keeps the settings in hand (React Query keeps its data): the card stays, the note only with none
+  if (!settings.data) return settings.isError ? <ErrorNote>The settings could not be read: {settings.error.message}</ErrorNote> : null;
   // no ComfyUI of the user's own (a rented-only start, none added yet): its question, the pods below, nothing offline
   if (!machines.some((m) => !m.rented)) {
     return (
@@ -164,7 +164,7 @@ export function ComfyCard() {
             <Fact tip="Node types this ComfyUI has">{comfy.nodes} nodes</Fact>
           </Row>
         )}
-        <Row setting="comfy.folder" label="Folder on this computer" htmlFor="comfy-dir" help={`Optional: ComfyUI's own folder, the one with main.py. It lets "Open in ComfyUI" show the workflow straight away, and Afflatus write its node pack into custom_nodes. Leave it empty when ComfyUI runs on another computer.`}>
+        <Row setting="comfy.folder" label="Folder on this computer" htmlFor="comfy-dir" help={`Optional: ComfyUI's folder, the one that holds custom_nodes and models (beside main.py on a manual or portable install; on ComfyUI Desktop, the base folder chosen when installing it). It lets "Open in ComfyUI" show the workflow straight away, and Afflatus write its node pack into custom_nodes. Leave it empty when ComfyUI runs on another computer.`}>
           <input id="comfy-dir" value={dir} onChange={(e) => setDir(e.target.value)} placeholder="D:\ComfyUI  —  empty when ComfyUI runs elsewhere" spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
           <Button onClick={() => saveDir.mutate()} disabled={saveDir.isPending || dir.trim() === (settings.data?.comfyDir ?? "")}>Save</Button>
         </Row>

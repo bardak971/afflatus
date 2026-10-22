@@ -62,7 +62,8 @@ function Choice({ on, onClick, children }: { on: boolean; onClick(): void; child
 /**
  * What becomes of Afflatus's node pack: written into ComfyUI's custom_nodes by itself when ComfyUI runs on this machine
  * (its folder found); on this machine with its folder not found, its folder to set; else put in by hand from Settings ›
- * ComfyUI (a ComfyUI on another computer). `local` unknown: said as another computer's, as before.
+ * ComfyUI (a ComfyUI on another computer). `local` is the server's word (a probe's, or the settings' for a machine added,
+ * Test pressed or not); unknown, it is said as another computer's.
  */
 const packSaid = (dir: string | null | undefined, local?: boolean) =>
   dir
@@ -119,8 +120,6 @@ export function FirstLaunch() {
   const end = () => save.mutate({ firstLaunch: "done" }, { onError: sayFailed("The first launch was not closed") });
 
   const first = own[0];
-  // what was asked of an address on this page (Test, or the usual addresses): whether it runs on this PC, for the pack's words
-  const probeOf = (at: string) => (probe?.url === at ? probe : find.data?.found?.url === at ? find.data.found : null);
   const answered = comfy === "added" || comfy === "none" || comfy === "install";
   const hasKey = Boolean(settings.data?.hasRunpodKey);
   const rentsOn = hasKey || rent === "yes";
@@ -196,7 +195,7 @@ export function FirstLaunch() {
               <button type="button" className="ml-auto font-semibold text-ink-3 underline underline-offset-2" onClick={() => setComfy("have")}>Change</button>
             </div>
           )}
-          {comfy === "added" && first && <span className="text-ink-3">{settings.data?.comfyDir ? `Its node pack is written into its custom_nodes folder (${settings.data.comfyDir}): ComfyUI loads it at its next start.` : packSaid(null, probeOf(first.url)?.local)}</span>}
+          {comfy === "added" && first && <span className="text-ink-3">{settings.data?.comfyDir ? `Its node pack is written into its custom_nodes folder (${settings.data.comfyDir}): ComfyUI loads it at its next start.` : packSaid(null, first.local)}</span>}
           {comfy === "none" && (
             <div className="flex items-center gap-2.5 text-ink">
               None: rented GPUs only
