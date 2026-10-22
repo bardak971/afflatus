@@ -3,7 +3,7 @@ import type { WaitOptions } from "@afflatus/comfy";
 import type { BuiltGraph, Phase, Recipe } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 import type { Db, Tables } from "./db";
-import type { Rate, StatRows } from "./forecast";
+import type { FamilyReads, Rate, StatRows } from "./forecast";
 import type { PackFacts } from "./jobPacks";
 import type { Registry } from "./registry";
 import type { Machine } from "./settings";
@@ -177,6 +177,8 @@ export interface QueueCore {
   usual(): Promise<Usual>;
   /** A model's past renders as forecasts read them (forecast.ts statRows), kept until the record of render times changes. */
   statRows(modelFile: string): Promise<StatRows>;
+  /** A model's family's renders and loads as forecasts read them (forecast.ts familyReads), kept as `statRows` are; left out, read at each ask. */
+  familyReads?: FamilyReads;
   /** Each machine's learned pace (forecast.ts machinePaces), for a forecast on one machine read from another's renders. */
   paces(): Promise<ReadonlyMap<string, number>>;
   /** About how long a waiting render will take, its model to load or not (the forecast, queueSubmit.forecastOf), built as its job will be (a finish on its draft, a clip with what it joins onto), on `machine` when it is said; null when nothing like it was rendered. */
@@ -228,4 +230,16 @@ export interface Lane {
   /** Its state as kept across restarts, read once. */
   ready: Promise<void>;
   core: QueueCore;
+}
+
+/**
+ * How long the queue's plan and forecasts wait for a machine's node list: a ComfyUI on this PC or the LAN answers within a
+ * second, and one slower is read on in the background (comfy.ts keeps it) for the next ask.
+ */
+export const CATALOG_WAIT_MS = 2_000;
+
+/** What a promise gives, or null when it fails or has not settled within `ms`. */
+export function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  let timer: NodeJS.Timeout | undefined;
+  return Promise.race([p.catch(() => null), new Promise<null>((done) => (timer = setTimeout(() => done(null), ms)))]).finally(() => clearTimeout(timer));
 }

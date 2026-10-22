@@ -104,7 +104,7 @@ function nodeChoices(catalog: NodeCatalog, f: GraphFile): string[] | null {
 
 /** A Map that holds its `max` most recently used entries: one read goes to the end, the least recently used goes first. */
 export class Recent<K, V> extends Map<K, V> {
-  constructor(private readonly max: number) {
+  constructor(public max: number) {
     super();
   }
 
@@ -124,13 +124,51 @@ export class Recent<K, V> extends Map<K, V> {
   }
 }
 
+/** The least room the kept graphs have, and the most: a key holds a job's inputs, and the line may hold thousands. */
+const KEPT_LEAST = 4096;
+const KEPT_MOST = 65_536;
+
 /**
  * What was worked out for a job on a machine, by what it depends on: the planner asks again at every pass, for every waiting
  * job on every machine. The least recently used goes first, with room for a long line on several machines: kept first in,
  * first out (512), a longer line cycled through it, each entry gone just before it was asked for again, and every graph was
- * built anew at every pass.
+ * built anew at every pass. Its room grows with the line (roomFor): at 4,096, 10 machines and 420 waiting jobs thrashed it
+ * the same way, every graph built at every pass (the 2026-10-22 review, M-8).
  */
-const kept = new Recent<string, Loaded | null>(4096);
+const kept = new Recent<string, Loaded | null>(KEPT_LEAST);
+
+/**
+ * The same, by what it depends on but the machine's scan time, for a job on a machine of now: a scan is made again every
+ * minute, and with its time in the key every graph of the line was built anew each minute, a whole line's builds for files
+ * that had not moved (M-9). What it lacks there is read again from that scan's folder listings (relisted); the graph itself
+ * depends on the scan only through the family's files (`slots`, in the key). A clip's graph is left out (what it joins onto
+ * moves without its scan), and an entry is built again after STABLE_MS, whatever else may move a graph.
+ */
+const stable = new Recent<string, { at: number; loaded: Loaded | null }>(KEPT_LEAST);
+const STABLE_MS = 10 * 60_000;
+
+/**
+ * Each waiting job's form as parsed, by its recipe and its inputs: every pass parsed every job's form once per machine
+ * before its kept graph was looked up (3,800 parses a warm pass at 10 machines, M-9). Parsed, a form is only read.
+ */
+const parsed = new Recent<string, Record<string, unknown>>(KEPT_LEAST);
+/** Each recipe object's number, for the keys: a saved workflow changed is a new recipe under the same id. */
+const recipeNumbers = new WeakMap<object, number>();
+let recipesNumbered = 0;
+const numberOf = (recipe: object) => recipeNumbers.get(recipe) ?? (recipeNumbers.set(recipe, ++recipesNumbered), recipesNumbered);
+
+/**
+ * Room for this many jobs × machines in what is kept (the planner says it at each pass): twice that, the entries of the scan
+ * before beside those of the scan of now, between KEPT_LEAST and KEPT_MOST; that room.
+ */
+export function roomFor(entries: number): number {
+  const room = Math.min(KEPT_MOST, Math.max(KEPT_LEAST, 2 * entries));
+  kept.max = room;
+  stable.max = room;
+  parsed.max = room;
+  return room;
+}
+
 /** The folder listings kept, by machine and folder. */
 const KEPT = 512;
 
@@ -150,8 +188,8 @@ export async function loadedOn(
   const recipe = core.registry.recipe(row.recipe_id);
   const family = recipe ? core.registry.family(recipe.family) : undefined;
   if (!recipe || !family) return null;
-  const raw = readJson<Record<string, unknown>>(row.inputs, {});
-  const keys: { key: string } = { key: "" };
+  const raw = rawOf(row);
+  const keys: Keys = { key: "", stable: "" };
   try {
     const got = on ? await graphOn(core, row, recipe, family, raw, on, keys, packs) : await freshGraph(core, row, recipe, family, raw, keys, packs);
     if ("kept" in got) return got.kept;
@@ -159,7 +197,7 @@ export async function loadedOn(
     const absent: GraphFile[] = [];
     for (const f of on ? files : []) if (!offeredOn(catalog, f, there, await listingOf(on!, f.folder))) absent.push(f);
     const loaded: Loaded = { files, absent: on ? absent : files, ...(on ? { missingNodes: lackedNodes(graph, catalog), ...(wanted.length ? { wanted } : {}) } : {}) };
-    keep(keys.key, loaded);
+    keep(keys, loaded);
     return loaded;
   } catch (err) {
     const why = (err as Error).message;
@@ -168,7 +206,7 @@ export async function loadedOn(
     // GGUF model on a pod without the GGUF pack: the pack is sent), and with none lacking, the job is kept off it, with why
     let freshWhy: string | null = null;
     if (on && keys.key && !kept.has(keys.key)) {
-      const freshKeys = { key: "" };
+      const freshKeys: Keys = { key: "", stable: "" };
       // built anew: what was kept for a pod to come (the Deploy dialog's files) has no graph to read its nodes from. Only
       // a pod is built again with every node: that build takes every "use if present" route (KJNodes' patches, VHS's
       // output), and on a machine of the user's own they became packs it had to have, installed unasked under Always, the
@@ -190,7 +228,7 @@ export async function loadedOn(
         const missingNodes = lackedNodes(fresh.graph, catalog);
         const wanted = fresh.wanted.filter((w) => !w.nodes.some((n) => n in catalog));
         const loaded: Loaded = { files: fresh.files, absent, missingNodes, ...(wanted.length ? { wanted } : {}), ...(missingNodes.length ? {} : { refused: why }) };
-        keep(keys.key, loaded);
+        keep(keys, loaded);
         return loaded;
       }
     }
@@ -200,11 +238,11 @@ export async function loadedOn(
     if (keys.key && (!on || freshWhy)) {
       if (!kept.has(keys.key)) console.warn(`[queue] job ${row.id}: its graph cannot be built, even for a pod that has nothing yet: kept off (${why.slice(0, 160)})`);
       const refused: Loaded = { files: [], absent: [], refused: why };
-      keep(keys.key, refused);
+      keep(keys, refused);
       return refused;
     }
     if (!keys.key || !kept.has(keys.key)) console.warn(`[queue] job ${row.id}: its files are counted by its family's slots, its graph could not be built here (${why.slice(0, 160)})`);
-    if (keys.key) keep(keys.key, null);
+    if (keys.key) keep(keys, null);
     return null;
   }
 }
@@ -219,7 +257,7 @@ export async function loadedOn(
  * whatever was kept for it.
  */
 async function freshGraph(
-  core: QueueCore, row: Parameters<typeof graphOn>[1], recipe: Recipe<any>, family: Family, raw: Record<string, unknown>, keys: { key: string },
+  core: QueueCore, row: Parameters<typeof graphOn>[1], recipe: Recipe<any>, family: Family, raw: Record<string, unknown>, keys: Keys,
   packs: { facts?: PackFacts; said?: PacksSaid }, anew = false,
 ): ReturnType<typeof graphOn> {
   try {
@@ -227,7 +265,7 @@ async function freshGraph(
   } catch (err) {
     // (a failure before its build, a node list not read, is not the nodes')
     if (!keys.key) throw err;
-    return await graphOn(core, row, recipe, family, raw, null, { key: "" }, packs, { everyNode: true, anew: true }).catch(() => {
+    return await graphOn(core, row, recipe, family, raw, null, { key: "", stable: "" }, packs, { everyNode: true, anew: true }).catch(() => {
       throw err;
     });
   }
@@ -251,7 +289,7 @@ const OWN_TRIES = 4;
  */
 async function ownGraph(
   core: QueueCore, row: Parameters<typeof graphOn>[1], recipe: Recipe<any>, family: Family, raw: Record<string, unknown>,
-  on: { id: string; comfy: Comfy; scan: Scan; own?: boolean }, keys: { key: string }, packs: { facts?: PackFacts; said?: PacksSaid },
+  on: { id: string; comfy: Comfy; scan: Scan; own?: boolean }, keys: Keys, packs: { facts?: PackFacts; said?: PacksSaid },
 ): ReturnType<typeof graphOn> {
   const catalog = await on.comfy.catalog();
   const given = new Set<string>();
@@ -285,24 +323,37 @@ const lackedNodes = (graph: Record<string, { class_type: string }>, catalog: Nod
  */
 async function graphOn(
   core: QueueCore, row: Pick<JobRow, "id" | "inputs" | "finished_from" | "clip_id" | "clip_fit" | "clip_mirror">, recipe: Recipe<any>, family: Family,
-  raw: Record<string, unknown>, on: { id: string; comfy: Comfy; scan: Scan; own?: boolean } | null, keys: { key: string }, packs: { facts?: PackFacts; said?: PacksSaid } = {},
+  raw: Record<string, unknown>, on: { id: string; comfy: Comfy; scan: Scan; own?: boolean } | null, keys: Keys, packs: { facts?: PackFacts; said?: PacksSaid } = {},
   how: { everyNode?: boolean; anew?: boolean; has?: (node: string) => boolean } = {},
 ): Promise<{ kept: Loaded | null } | { graph: Record<string, { class_type: string }>; files: GraphFile[]; catalog: NodeCatalog; there: SlotStatus[] | null; wanted: Wanted[] }> {
   const comfy = on?.comfy ?? (await core.comfy());
   const catalog = await comfy.catalog();
   const slotsIn = (s: Scan | null) => s?.families.find((f) => f.id === recipe.family)?.slots ?? null;
   // this PC's files stand where no download is known: they are sent from here
-  const here = slotsIn(await (await core.comfy()).scan().catch(() => null));
+  const here = slotsIn(await hereScan(core));
   const there = on ? (slotsIn(on.scan) ?? []) : null;
-  const input = parseInput(recipe, withTexts(recipe, raw)) as Record<string, unknown>;
+  const input = parsedOf(recipe, row, raw);
   const slots = podSlotFiles(recipe, input, family.slots, there, here, Boolean(on?.own));
   // what the machine has is as its last scan read it: a file come or gone since is a new scan, and worked out anew
   // what the options are given there is part of it: a pack that cannot come, or a Run without, builds them without
   const facts = packs.facts ?? ANY_PACKS;
   const packsKey = JSON.stringify([facts.nvidia, [...facts.cannot.keys()].sort(), packs.said ?? {}]);
-  keys.key = [row.id, row.inputs, row.finished_from ?? "", row.clip_id ?? "", on?.id ?? "", on?.scan.at ?? "", catalogKey(catalog) ?? "", JSON.stringify(slots), packsKey, how.everyNode ? "every node" : "", on?.own ? "own" : ""].join("\u0001");
-  if (!how.anew && kept.has(keys.key)) return { kept: kept.get(keys.key)! };
-  const plan = row.clip_id && core.clips ? await core.clips.plan(row.clip_id, recipe, input, Boolean(row.clip_fit), row.finished_from, true, readJson<string[]>(row.clip_mirror, [])).catch(() => null) : null;
+  const parts = [row.id, row.inputs, row.finished_from ?? "", row.clip_id ?? "", on?.id ?? "", on?.scan.at ?? "", catalogKey(catalog) ?? "", JSON.stringify(slots), packsKey, how.everyNode ? "every node" : "", on?.own ? "own" : ""];
+  keys.key = parts.join("\u0001");
+  // the same but the scan's time, for a job on a machine of now that is no clip (see stable)
+  keys.stable = on && !row.clip_id && !how.everyNode && !how.has ? [numberOf(recipe), ...parts.filter((_, i) => i !== 5)].join("\u0001") : "";
+  const was = how.anew ? undefined : kept.get(keys.key);
+  if (was !== undefined) return { kept: was };
+  if (!how.anew && keys.stable) {
+    const before = stable.get(keys.stable);
+    if (before && Date.now() - before.at <= STABLE_MS) {
+      const loaded = await relisted(before.loaded, on!, catalog, there ?? []);
+      keep(keys, loaded);
+      return { kept: loaded };
+    }
+  }
+  // (a copy: the parsed form is kept, and read by every pass)
+  const plan = row.clip_id && core.clips ? await core.clips.plan(row.clip_id, recipe, { ...input }, Boolean(row.clip_fit), row.finished_from, true, readJson<string[]>(row.clip_mirror, [])).catch(() => null) : null;
   // the options it asks for are given the node their pack brings when this ComfyUI lacks it: its graph then says the pack
   const ahead = lookAhead(catalog, facts, packs.said);
   // a pod (one to come, or a rented one) takes Face refine's paste-back over SAM's outline, its nodes counted as there: they
@@ -339,14 +390,14 @@ async function toolLoadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id
   const needs = await toolNeeds(core, row).catch(() => null);
   if (!needs) return null;
   const mine = await core.comfy();
-  const mineScan = await mine.scan().catch(() => null);
+  const mineScan = await hereScan(core);
   const listedOn = (folder: string) => (on ? listingOf(on, folder) : Promise.resolve(null));
   const files: GraphFile[] = [];
   const add = (file: string, folder: string, classType: string, input: string, slot?: string) => files.push({ file, folder, node: "", classType, input, ...(slot ? { slot } : {}) });
   if (needs.seedvr) {
     const toolsIn = (s: Scan | null) => s?.families.find((f) => f.id === TOOLS_FAMILY)?.slots ?? null;
     const slots = (core.registry.family(TOOLS_FAMILY)?.slots ?? []).filter((x) => x.id === "seedvr" || x.id === "seedvrVae");
-    const named = podSlotFiles({ needs: ["seedvr", "seedvrVae"] }, {}, slots, on ? (toolsIn(on.scan) ?? []) : null, toolsIn(await mine.scan().catch(() => null)));
+    const named = podSlotFiles({ needs: ["seedvr", "seedvrVae"] }, {}, slots, on ? (toolsIn(on.scan) ?? []) : null, toolsIn(mineScan));
     for (const x of slots) add(named[x.id]!, x.folder, x.id === "seedvr" ? "UNETLoader" : "VAELoader", x.id === "seedvr" ? "unet_name" : "vae_name", x.id);
   }
   if (needs.upscaleModel !== null) {
@@ -376,7 +427,7 @@ async function toolLoadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id
     for (const x of slots) add(named[x.id]!, x.folder, FACE_LOADERS[x.id]![0], FACE_LOADERS[x.id]![1], x.id);
   }
   if (!on) {
-    keep(key, { files, absent: files });
+    keep({ key, stable: "" }, { files, absent: files });
     return { files, absent: files };
   }
   const nodes = catalog ?? ({} as NodeCatalog);
@@ -388,10 +439,73 @@ async function toolLoadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id
   const asked = rtx && !skipWhy(rtx, facts, packs.said ?? {}) ? rtx : null;
   const missingNodes = [...[...needs.nodes, ...samNodes].filter((n) => !(n in nodes)), ...(asked ? [asked.nodes.at(-1)!] : [])];
   const loaded = { files, absent, ...(missingNodes.length ? { missingNodes } : {}), ...(asked ? { wanted: [asked] } : {}) };
-  keep(key, loaded);
+  keep({ key, stable: "" }, loaded);
   return loaded;
 }
 
-function keep(key: string, value: Loaded | null) {
-  kept.set(key, value);
+/**
+ * What was kept for a job on a machine at another of its scans (stable), with what it lacks there read again from this scan's
+ * folder listings, as loadedOn reads it after a build: the graph's files are the same, the machine's folders may not be.
+ */
+async function relisted(loaded: Loaded | null, on: { id: string; comfy: Comfy; scan: Scan }, catalog: NodeCatalog, there: readonly SlotStatus[]): Promise<Loaded | null> {
+  if (!loaded?.files.length) return loaded;
+  const absent: GraphFile[] = [];
+  for (const f of loaded.files) if (!offeredOn(catalog, f, there, await listingOf(on, f.folder))) absent.push(f);
+  return { ...loaded, absent };
 }
+
+/**
+ * A form as parseInput gives it, kept by its recipe and its inputs (see parsed), and by its row for the pass that read it (a
+ * key holds the whole form: one per machine was most of a warm pass). A form that does not parse throws each time.
+ */
+function parsedOf(recipe: Recipe<any>, row: Pick<JobRow, "inputs">, raw: Record<string, unknown>): Record<string, unknown> {
+  const mine = parsedRows.get(row);
+  if (mine?.recipe === recipe && mine.inputs === row.inputs) return mine.input;
+  const key = `${numberOf(recipe)}\u0001${row.inputs}`;
+  let input = parsed.get(key);
+  if (!input) parsed.set(key, (input = parseInput(recipe, withTexts(recipe, raw)) as Record<string, unknown>));
+  parsedRows.set(row, { recipe, inputs: row.inputs, input });
+  return input;
+}
+const parsedRows = new WeakMap<object, { recipe: Recipe<any>; inputs: string; input: Record<string, unknown> }>();
+
+/** A job's inputs as stored, read once per row read (the planner asks of each row on every machine). */
+function rawOf(row: Pick<JobRow, "inputs">): Record<string, unknown> {
+  const mine = raws.get(row);
+  if (mine?.inputs === row.inputs) return mine.raw;
+  const raw = readJson<Record<string, unknown>>(row.inputs, {});
+  raws.set(row, { inputs: row.inputs, raw });
+  return raw;
+}
+const raws = new WeakMap<object, { inputs: string; raw: Record<string, unknown> }>();
+
+/** How long the first machine's scan is taken as away once it was (hereScan): as long as its node list is (comfy.ts). */
+const HERE_AWAY_MS = 15_000;
+const awayScans = new WeakMap<Comfy, number>();
+
+/**
+ * The first machine's scan, as a graph built for another machine reads it (this PC's files, sent from here). Away, it is not
+ * asked again for HERE_AWAY_MS: a scan that found its ComfyUI away is not kept (comfy.ts), and each waiting job on each
+ * machine asked it again, five seconds each for one that accepts and never answers.
+ */
+async function hereScan(core: QueueCore): Promise<Scan | null> {
+  const comfy = await core.comfy();
+  const away = awayScans.get(comfy);
+  if (away !== undefined && Date.now() - away < HERE_AWAY_MS) return null;
+  const got = await comfy.scan().catch(() => null);
+  if (got?.comfy.online) awayScans.delete(comfy);
+  else awayScans.set(comfy, Date.now());
+  return got;
+}
+
+/** What a job's graph on a machine is kept by (graphOn): all it depends on, and the same but its machine's scan time (none: not kept so). */
+interface Keys {
+  key: string;
+  stable: string;
+}
+
+function keep(keys: Keys, value: Loaded | null) {
+  kept.set(keys.key, value);
+  if (keys.stable) stable.set(keys.stable, { at: Date.now(), loaded: value });
+}
+

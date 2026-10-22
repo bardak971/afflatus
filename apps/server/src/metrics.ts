@@ -3,7 +3,6 @@ import type { FastifyInstance } from "fastify";
 import { allowedHosts, hostAllowed } from "./hostCheck";
 import { costMetrics } from "./costMetrics";
 import { BUCKETS } from "./renderDigests";
-import { machinePaces } from "./forecast";
 import { tallyByRecipe, type RecipeSum } from "./rendersRead";
 import { serverRegistry } from "./serverMetrics";
 import type { Services } from "./services";
@@ -67,7 +66,7 @@ export function registerMetrics(app: FastifyInstance, s: Services): void {
       ["afflatus_gpu_temperature_celsius", "The GPU's temperature", (l) => l.gpus[0]?.temperature],
       ["afflatus_gpu_load_percent", "The GPU's load", (l) => l.gpus[0]?.load],
     ];
-    const paces = await machinePaces(s.db);
+    const paces = await s.queue.paces();
     const rows: string[][] = gauges.map(() => []);
     const paced: string[] = [];
     for (const { machine, comfy } of await s.machines()) {

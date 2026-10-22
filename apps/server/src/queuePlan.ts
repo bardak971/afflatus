@@ -1,8 +1,8 @@
-import { isOfficialFile, modelName, modelOf, type Recipe } from "@afflatus/core";
+import { isOfficialFile, modelName, modelOf, type NodeCatalog, type Recipe } from "@afflatus/core";
 import type { Db } from "./db";
 import { paceOf } from "./forecast";
 import type { Scan } from "@afflatus/comfy";
-import type { Loaded } from "./jobFiles";
+import { roomFor, type Loaded } from "./jobFiles";
 import { lackOn, toolLackOn, toolSlots, type Lack } from "./machineScans";
 import type { PodFiles } from "./podFiles";
 import { PACKS_MS } from "./podPacks";
@@ -10,7 +10,7 @@ import { PACKS_MS } from "./podPacks";
 
 import { needsComfy } from "./queueOffline";
 import type { Expected } from "./queueForecast";
-import { CAP_REACHED, readJson, type JobRow, type Lane, type Running } from "./queueModel";
+import { CAP_REACHED, CATALOG_WAIT_MS, readJson, within, type JobRow, type Lane, type Running } from "./queueModel";
 import { outsideBusy } from "./queueOutside";
 import * as tools from "./queueTools";
 import * as view from "./queueView";
@@ -24,6 +24,11 @@ import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
  * The queue's plan (queue.ts): the machines as the scheduler reads them, the waiting jobs as it reads them, which machines
  * can run each, and the files a plan needs on rented pods. The worker asks it at each pass; it starts nothing itself.
  */
+
+
+/** How many waiting jobs ableOf judges in one turn of the event loop. */
+const YIELD_EVERY = 25;
+
 
 /** How long a running job has left, from what it was expected to take; null when that cannot be told. */
 const remainingOf = (run: Running | null): number | null => (run?.expectedMs && run.startedAt ? Math.max(0, run.expectedMs - (Date.now() - run.startedAt)) : null);
@@ -151,12 +156,15 @@ export class Planner {
    * there (machineScans.ts lackOn), and what keeps it off each of the others. A machine known to be away, or whose scan cannot
    * be read, is not held against a job. A machine of the user's own that lacks only files with a download address (a family's
    * official file, picked greyed in a form) can run it once they are in: it waits there, Download on its Queue row. A lone
-   * machine of the user's own takes everything else, as it always did.
+   * machine of the user's own takes everything else, as it always did. `scanWaitMs`: how long a machine's scan is waited for
+   * (the screens' plan: one not read by then counts as one whose scan cannot be read); left out, as long as it takes.
    */
-  async ableOf(rows: JobRow[]): Promise<Map<string, Able>> {
+  async ableOf(rows: JobRow[], opts: { scanWaitMs?: number } = {}): Promise<Map<string, Able>> {
     const out = new Map<string, Able>();
     const lanes = this.d.machineLanes().filter((l) => l.machine && l.comfy);
     if (!rows.length) return out;
+    // what is kept of each job on each machine has room for the whole line (jobFiles.ts)
+    roomFor(rows.length * Math.max(1, lanes.length));
     // a lone machine of the user's own is judged only for the files it may be given (downloaded on its row's say-so)
     const alone = lanes.length < 2 && !lanes.some((l) => l.machine!.rented);
     const settings = await readSettings(this.d.db).catch(() => null);
@@ -166,9 +174,27 @@ export class Planner {
     const families = this.d.registry.families();
     const anyUrl = settings.downloadModels && settings.civitaiLookups;
     // a machine known to be away, or a rented pod not running, is not asked (a dead pod's address would hold the pass)
-    const scans = await Promise.all(lanes.map(async (l) => ({ lane: l, scan: l.reachable === false || this.d.unavailable(l.id) ? null : await l.comfy!.scan().catch(() => null) })));
+    const scanOf = (l: Lane) => (opts.scanWaitMs === undefined ? l.comfy!.scan().catch(() => null) : within(l.comfy!.scan(), opts.scanWaitMs));
+    const scans = await Promise.all(lanes.map(async (l) => ({ lane: l, scan: l.reachable === false || this.d.unavailable(l.id) ? null : await scanOf(l) })));
     const familyOf = (id: string) => this.d.registry.recipe(id)?.family;
-    for (const r of rows) {
+    // each machine's node list, for the clips that join in the latent: asked once per pass and only of a machine whose scan
+    // answered, waited for CATALOG_WAIT_MS at most (unread, it counts as one without the nodes, as a failed read did). Asked
+    // per clip, a ComfyUI that accepted and never answered held the Queue screen 60 s per clip, minutes on end, and one away
+    // was asked once per clip at every read (the 2026-10-22 review, H-3 and M-10)
+    const catalogOf = new Map<string, Promise<NodeCatalog | null>>();
+    const catalogs = (id: string): Promise<NodeCatalog | null> => {
+      let got = catalogOf.get(id);
+      if (!got) {
+        const on = scans.find((s) => s.lane.id === id);
+        got = on?.scan?.comfy.online ? within(on.lane.comfy!.catalog(), CATALOG_WAIT_MS) : Promise.resolve(null);
+        catalogOf.set(id, got);
+      }
+      return got;
+    };
+    for (const [i, r] of rows.entries()) {
+      // a long line is judged in turns, the other requests answered between them: its jobs' kept answers come back at once,
+      // and 300 jobs queued at once held the server up to a second in one go (the 2026-10-22 review, L-11)
+      if (i && i % YIELD_EVERY === 0) await new Promise((go) => setImmediate(go));
       const recipe = r.recipe_id === CUT_JOB || r.recipe_id === EXPORT_JOB ? undefined : this.d.registry.recipe(r.recipe_id);
       // a finish or a RIFE slow-motion: no recipe, but model files all the same (RIFE, SeedVR2's, an upscale model), sent to a
       // pod as a render's are (a finish failed on a pod for want of RIFE, 2026-10-18)
@@ -266,8 +292,7 @@ export class Planner {
       if (latentNodes?.length && can.size > 1) {
         const packed = new Set<string>();
         for (const id of can) {
-          const lane = scans.find((s) => s.lane.id === id)?.lane;
-          const catalog = lane ? await lane.comfy!.catalog().catch(() => null) : null;
+          const catalog = await catalogs(id);
           if (catalog && latentNodes.every((n) => n in catalog)) packed.add(id);
         }
         if (packed.size && packed.size < can.size) {

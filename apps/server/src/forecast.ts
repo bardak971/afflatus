@@ -201,6 +201,8 @@ export interface Like {
   paces?: ReadonlyMap<string, number>;
   /** Where its model's renders are read from (statRows), when they are kept between forecasts (the queue's, until the record changes). */
   rows?: (modelFile: string) => Promise<StatRows>;
+  /** Where its family's renders and loads are read from (familyReads), when they are kept between forecasts as `rows` are. */
+  familyReads?: FamilyReads;
 }
 
 /** What of a recorded render `onMachine` reads and scales. */
@@ -300,15 +302,36 @@ export function statRows(db: Db, modelFile: string) {
 }
 export type StatRows = Awaited<ReturnType<typeof statRows>>;
 
+/** A record's rows with their work as workOfRow reads it, the rows it leaves out gone. */
+type Worked = Array<StatRows[number] & { work: number }>;
+/**
+ * The rows of each record read (statRows, familyRows) with their work, by the rows and the frames-a-second lookup they were
+ * read with: the queue keeps a model's rows for a whole pass (Forecasts), and each waiting job on each machine copied every
+ * one of them again, 567 MB of copies in three passes over two years of renders (the 2026-10-22 review, L-6).
+ */
+const worked = new WeakMap<StatRows, WeakMap<(recipeId: string) => number | undefined, Worked>>();
+const NO_FPS = (): undefined => undefined;
+function workedOf(rs: StatRows, fps: (recipeId: string) => number | undefined): Worked {
+  let byFps = worked.get(rs);
+  if (!byFps) worked.set(rs, (byFps = new WeakMap()));
+  let out = byFps.get(fps);
+  if (!out) {
+    out = rs.flatMap((r) => {
+      const w = workOfRow(r, fps);
+      return w ? [{ ...r, work: w }] : [];
+    });
+    byFps.set(fps, out);
+  }
+  return out;
+}
+
 /** What this model's past renders say about a render of `work` sampled over `steps`, with its model to load or already in memory. */
 export async function forecast(db: Db, modelFile: string, work: number, steps: number, cold: boolean, like: Like = {}): Promise<Forecast | null> {
   if (!modelFile) return null;
   const found = await (like.rows ?? ((file: string) => statRows(db, file)))(modelFile);
-  const fps = like.fps ?? (() => undefined);
-  const timed = (rs: StatRows) => onMachine(rs.flatMap((r) => {
-    const w = workOfRow(r, fps);
-    return w ? [{ ...r, work: w }] : [];
-  }), like);
+  const fps = like.fps ?? NO_FPS;
+  const reads = like.familyReads ?? familyReads(db);
+  const timed = (rs: StatRows) => onMachine(workedOf(rs, fps), like);
   const all = timed(found);
   // a render that samples nothing of its own (a finish re-sampling a draft's latent, a sharper pass over a picture) spends its
   // steps in the passes after, and is priced from the renders like it: next to a draft's, its steps read nothing alike. A
@@ -316,10 +339,10 @@ export async function forecast(db: Db, modelFile: string, work: number, steps: n
   // (the recipe's usual is, fromRates): a model's first finish priced from its drafts was said 5,626 s, and took 309
   const ofKind = <R extends { sample_ms: number }>(rs: R[]): R[] => (like.samples === undefined ? rs : rs.filter((r) => (r.sample_ms > 0) === like.samples));
   let rows = ofKind(all);
-  if (!rows.length && all.length && like.family) rows = ofKind(timed(await familyRows(db, like.family, modelFile)));
+  if (!rows.length && all.length && like.family) rows = ofKind(timed(await reads.rows(like.family, modelFile)));
   // a model never rendered here reads the renders of the same recipe with the family's other models (a new version of a
   // checkpoint steps as the one before it did): the recipe's usual time over every size and machine said 37.5 s for 10.8
-  if (!all.length && like.family && like.recipeId) rows = ofKind(timed(await familyRows(db, like.family, modelFile)).filter((r) => r.recipe_id === like.recipeId));
+  if (!all.length && like.family && like.recipeId) rows = ofKind(timed(await reads.rows(like.family, modelFile)).filter((r) => r.recipe_id === like.recipeId));
   if (!rows.length) return null;
   // the renders of the same recipe when there are enough of them: the model's others sample something else per step
   // (an upscale re-samples tiles of a larger picture), and placed among them a form read like theirs
@@ -363,7 +386,7 @@ export async function forecast(db: Db, modelFile: string, work: number, steps: n
   };
   let warmLoads = warmOnly(pool.filter((r) => !r.cold).map((r) => r.load_ms));
   if (warmLoads.length < 3 && like.family) {
-    const family = warmOnly(await familyWarmLoads(db, like.family, like.machine ?? null));
+    const family = warmOnly(await reads.warmLoads(like.family, like.machine ?? null));
     if (family.length > warmLoads.length) warmLoads = family;
   }
   const warm = warmLoads.length ? median(warmLoads) : 0;
@@ -374,13 +397,32 @@ export async function forecast(db: Db, modelFile: string, work: number, steps: n
     // never loaded one
     const coldOf = (rs: typeof all) => rs.filter((r) => r.cold).map((r) => r.load_ms);
     const here = (rs: typeof all) => rs.filter((r) => r.machine_id === like.machine);
-    let coldLoads = like.machine ? [coldOf(here(pool)), coldOf(here(all))].find((ls) => ls.length) ?? (await coldLoadsElsewhere(db, like.family, like.machine)) : [];
-    if (!coldLoads.length) coldLoads = [pool, rows].map(coldOf).find((ls) => ls.length) ?? (await coldLoadsElsewhere(db, like.family, null));
+    let coldLoads = like.machine ? [coldOf(here(pool)), coldOf(here(all))].find((ls) => ls.length) ?? (await reads.coldLoads(like.family, like.machine)) : [];
+    if (!coldLoads.length) coldLoads = [pool, rows].map(coldOf).find((ls) => ls.length) ?? (await reads.coldLoads(like.family, null));
     load = Math.max(warm, coldLoads.length ? median(coldLoads) : 0);
   }
   const f = forecastFrom(points, work, steps, Math.max(0, around) + load, like.chunks, stepMs);
   // what the load adds over what a model in memory still spends before its first step
   return f && cold ? { ...f, loadMs: Math.round(load - warm) } : f;
+}
+
+/** What a forecast reads of its model's family beside the model's own renders: kept for a pass by the queue (Forecasts). */
+export interface FamilyReads {
+  /** The family's other models' renders (familyRows). */
+  rows(family: string, modelFile: string): Promise<StatRows>;
+  /** The family's loads with their model in memory, on a machine, else anywhere (familyWarmLoads). */
+  warmLoads(family: string, machine: string | null): Promise<number[]>;
+  /** The latest cold loads of the family, else of any model, on a machine when it is said (coldLoadsElsewhere). */
+  coldLoads(family: string | undefined, machine: string | null): Promise<number[]>;
+}
+
+/** The family's reads as the record stands, each read again at each ask. */
+export function familyReads(db: Db): FamilyReads {
+  return {
+    rows: (family, modelFile) => familyRows(db, family, modelFile),
+    warmLoads: (family, machine) => familyWarmLoads(db, family, machine),
+    coldLoads: (family, machine) => coldLoadsElsewhere(db, family, machine),
+  };
 }
 
 /**

@@ -57,7 +57,8 @@ export const nameOf = (registry: Registry, recipeId: string) => {
 /** The parts of a render's time, as they are drawn. */
 const parts = (c: Cell) => ({ loading: c.loadMs, sampling: c.sampleMs, refining: c.refineMs, finishing: c.finishMs });
 
-export async function summary(db: Db, registry: Registry, period: Period | Window, keepDays: number, when = Date.now(), machine: string | null = null) {
+/** `paced`: each machine's learned pace, as the queue keeps it (renders-api.ts); left out, worked out from the record. */
+export async function summary(db: Db, registry: Registry, period: Period | Window, keepDays: number, when = Date.now(), machine: string | null = null, paced: () => Promise<ReadonlyMap<string, number>> = () => machinePaces(db)) {
   const first = (await db.selectFrom("render_stats").select((eb) => eb.fn.min("created_at").as("at")).executeTakeFirst())?.at ?? null;
   const firstDay = (await db.selectFrom("render_days").select((eb) => eb.fn.min("day").as("day")).executeTakeFirst())?.day ?? null;
   const since = firstDay ? `${firstDay}T00:00:00.000Z` : first;
@@ -166,7 +167,7 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   // each machine's share of the window and its learned pace, from the renders kept one by one
   const shares = await db.selectFrom("render_stats").select(["machine_id", (eb) => eb.fn.countAll<number>().as("n"), (eb) => eb.fn.sum<number>("total_ms").as("ms")])
     .where("created_at", ">=", iso(start)).where("created_at", "<", iso(end)).groupBy("machine_id").execute();
-  const paces = await machinePaces(db);
+  const paces = await paced();
   // a rented pod by the GPU it ran on (its last session's), for one terminated since: its id ("rp-abc…") said nothing
   const pods = shares.flatMap((m) => (m.machine_id ? [m.machine_id] : []));
   // and the CUDA build its image was, where it was kept (0080): a slower build on a GPU shows apart

@@ -325,3 +325,25 @@ describe("migration 0085, a running session's split kept up to a moment", () => 
     await db.destroy();
   });
 });
+
+describe("migration 0087, the record of render times by family", () => {
+  const plan = async (db: ReturnType<typeof openSqlite>, query: string) =>
+    (await sql.raw<{ detail: string }>(`explain query plan ${query}`).execute(db)).rows.map((r) => r.detail).join(" | ");
+
+  it("finds a family's renders newest first by an index, not through every model's; and is taken back", async () => {
+    const db = openSqlite(":memory:");
+    await migrate(db, "0086_jobs_to_run");
+    // forecast.ts familyRows and familyWarmLoads, as a waiting job's forecast asks them
+    const rows = "select * from render_stats where family = 'sdxl' and model_file != 'a.safetensors' and model_file != '' and status = 'done' and whole = 1 order by created_at desc limit 200";
+    const loads = "select load_ms from render_stats where status = 'done' and whole = 1 and cold = 0 and family = 'sdxl' and model_file != '' order by created_at desc limit 50";
+    expect(await plan(db, rows)).not.toContain("render_stats_by_family");
+    expect(await migrate(db)).toContain("0087_render_stats_family");
+    for (const q of [rows, loads]) {
+      expect(await plan(db, q)).toContain("render_stats_by_family (family=? AND status=?)");
+      expect(await plan(db, q)).not.toContain("TEMP B-TREE");
+    }
+    await migrate(db, "0086_jobs_to_run");
+    expect(await plan(db, rows)).not.toContain("render_stats_by_family");
+    await db.destroy();
+  });
+});
