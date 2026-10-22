@@ -188,7 +188,7 @@ export function useTimelineMutations(id: string, o: {
     onSuccess: (r) => {
       // what the server has now is what counts: what was typed was saved before the undo
       dropEdits();
-      o.on.note(`Undone: ${r.undone}.`);
+      o.on.note(`Undone: ${r.undone}.${r.said ? ` ${r.said}` : ""}`);
       after();
     },
   });
@@ -200,7 +200,7 @@ export function useTimelineMutations(id: string, o: {
     },
     onSuccess: (r) => {
       dropEdits();
-      o.on.note(`Redone: ${r.redone}.`);
+      o.on.note(`Redone: ${r.redone}.${r.said ? ` ${r.said}` : ""}`);
       after();
     },
   });

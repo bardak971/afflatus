@@ -322,7 +322,7 @@ export class Linked {
     const folders = (await this.db.selectFrom("folders").selectAll().where("path", "is not", null).execute()).filter((f) => under(resolve(f.path!), dir));
     const ids = folders.map((f) => f.id);
     const files = await this.db.selectFrom("assets").select(["id", "name", "file_key", "thumb_key"]).where("folder_id", "in", ids).execute();
-    const used = await inUse(this.db);
+    const used = await inUse(this.db, { undo: true });
     const needed = files.filter((a) => isLinked(a.file_key) && used.has(a.id));
     if (needed.length) {
       const first = needed[0]!;
@@ -466,7 +466,7 @@ export class Linked {
     // gone from the disk: gone from the folder (nothing of it is in Afflatus's storage but its small picture). Unless something
     // still uses it (a timeline's take, a person's picture, a job to run): that row stays as it is, its file answered as not on
     // the disk, until the file comes back, a later reading finds it renamed, or the folder is linked again where it is now
-    const used = missing.length ? await inUse(this.db) : new Map<string, string>();
+    const used = missing.length ? await inUse(this.db, { undo: true }) : new Map<string, string>();
     const staying = new Set<string>();
     for (const a of missing) {
       if (!used.has(a.id)) await this.forget(a);

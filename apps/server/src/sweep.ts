@@ -19,10 +19,13 @@ export interface Keep {
 /** What the settings say, as the sweep takes it: 0 days is never. */
 export const keepOf = (s: { unkeptDays: number; binDays: number }): Keep => ({ unkeptMs: s.unkeptDays ? s.unkeptDays * DAY_MS : null, binMs: s.binDays ? s.binDays * DAY_MS : null });
 
+/** How many Undo snapshots inUse reads at once. */
+const SNAPSHOT_PAGE = 100;
+
 /** An asset id as it is written inside a JSON document (a person's pictures, a preset's form, a job's inputs). */
 const ID_IN_JSON = /"([0-9a-f]{32})"/g;
 /** The same, also inside JSON kept as a string within JSON (an Undo snapshot's clip inputs and source), its quotes escaped. */
-const ID_IN_NESTED_JSON = /"([0-9a-f]{32})\\*"/g;
+export const ID_IN_NESTED_JSON = /"([0-9a-f]{32})\\*"/g;
 
 /**
  * The assets something still needs, each with what needs it (for saying so): the take that plays in a clip,
@@ -33,8 +36,10 @@ const ID_IN_NESTED_JSON = /"([0-9a-f]{32})\\*"/g;
  * erased, any of these would leave a clip, a person, a draft or a job pointing at nothing: the sweep, the bin
  * and the library leave them alone. `takes: false`: all of it but the takes, for what works out on its own which
  * takes are needed (timelineUnused.ts). `jobs: false`: all of it but the jobs, for a job asking about its own inputs.
+ * `undo: true`: also what a timeline's Undo and Redo would put back, for what erases (the sweep, a linked file forgotten);
+ * not for the bin and Unkeep, which a restore undoes (TimelineHistory.restore takes back out of the bin what it puts back).
  */
-export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean; jobs?: boolean } = {}): Promise<Map<string, string>> {
+export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean; jobs?: boolean; undo?: boolean } = {}): Promise<Map<string, string>> {
   const used = new Map<string, string>();
   const add = (ids: Array<string | null>, what: string) => {
     for (const id of ids) if (id && !used.has(id)) used.set(id, what);
@@ -71,8 +76,19 @@ export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean; jobs?: 
   }
   // what a timeline's Undo and Redo would put back (at most HISTORY steps each way), read last so that what uses it now
   // says so: erased, an Undo brought its clip back without its take (the take of a window a trim out had dropped among
-  // them). Not for the callers that work the takes out on their own: every take a timeline played lately would be in use
-  if (opts.takes !== false) for (const table of ["timeline_history", "timeline_future"] as const) scan((await db.selectFrom(table).select("snapshot").execute()).map((r) => r.snapshot), "a timeline's Undo", ID_IN_NESTED_JSON);
+  // them). Only for erasing: refused a Bin or an Unkeep, an item named only there stayed for as long as the timeline was
+  // left alone, with advice that could not be followed. Read a page at a time: every snapshot of every timeline at once
+  // held hundreds of MB inside the sweep's transaction
+  if (opts.undo) {
+    for (const table of ["timeline_history", "timeline_future"] as const) {
+      for (let after = ""; ;) {
+        const page = await db.selectFrom(table).select(["id", "snapshot"]).where("id", ">", after).orderBy("id").limit(SNAPSHOT_PAGE).execute();
+        scan(page.map((r) => r.snapshot), "a timeline's Undo", ID_IN_NESTED_JSON);
+        if (page.length < SNAPSHOT_PAGE) break;
+        after = page.at(-1)!.id;
+      }
+    }
+  }
   return used;
 }
 
@@ -104,7 +120,7 @@ export const ERASED = ["id", "file_key", "thumb_key", "raw_key", "latent_key", "
  */
 export async function eraseUnused(db: Db, storage: Storage, due: (tx: Db) => Promise<Erased[]>): Promise<{ picked: number; erased: Erased[] }> {
   const { picked, erased } = await db.transaction().execute(async (tx) => {
-    const used = await inUse(tx);
+    const used = await inUse(tx, { undo: true });
     const all = await due(tx);
     const ids = all.filter((a) => !used.has(a.id)).map((a) => a.id);
     const out: Erased[] = [];
@@ -133,7 +149,7 @@ export async function sweep(db: Db, storage: Storage, at = Date.now(), keep: Kee
   // what is in use read in the same transaction as the binning: an item picked into a draft or kept in between stays out
   const binned = keep.unkeptMs === null ? 0 : await db.transaction().execute(async (tx) => {
     const unkeptBefore = new Date(at - keep.unkeptMs!).toISOString();
-    const used = await inUse(tx);
+    const used = await inUse(tx, { undo: true });
     const due = await tx
       .selectFrom("assets")
       .select("id")

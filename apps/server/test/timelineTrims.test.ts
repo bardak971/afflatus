@@ -399,3 +399,103 @@ describe("trims fuzzed (seeded, the same steps every run)", () => {
     }
   }, 120000);
 });
+
+describe("Undo and Redo over renders (T-24)", () => {
+  const assetOf = async (take: string) => (await t.db.selectFrom("takes").select("asset_id").where("id", "=", take).executeTakeFirstOrThrow()).asset_id;
+  const futures = async (tl: string) => (await t.db.selectFrom("timeline_future").select("seq").where("timeline_id", "=", tl).execute()).length;
+
+  it("refuses an Undo or a Redo that would resize, set aside or remove a clip in the queue, and writes nothing", async () => {
+    const tl = await madeSwap();
+    const w2 = (await sourceState(tl)).clips[2]!;
+    // the trim in shortens window 3, sent to render: its Undo would give it its length back under the render
+    await call("POST", `/api/timelines/${tl}/source/trim`, { fromMs: 0, toMs: Math.round((w2.s + w2.n - 1) * 1000) });
+    await queued(w2.id, w2.recipe ?? "h3.swap");
+    const before = await sourceState(tl);
+    const n = await steps(tl);
+    const r = await inj("POST", `/api/timelines/${tl}/undo`);
+    expect(r.statusCode).toBe(409);
+    expect(r.json().message ?? r.body).toMatch(/Clip 3 is rendering or in the queue/);
+    expect(await sourceState(tl)).toEqual(before);
+    expect([await steps(tl), await futures(tl)]).toEqual([n, 0]);
+    // its render over, the Undo goes through
+    await t.db.deleteFrom("jobs").execute();
+    await call("POST", `/api/timelines/${tl}/undo`);
+    expect((await sourceState(tl)).clips[2]!.n).toBe(w2.n);
+    // a Redo that would set aside a window in the queue: refused too
+    await queued(before.parked[0]!.id, w2.recipe ?? "h3.swap");
+    expect((await inj("POST", `/api/timelines/${tl}/redo`)).statusCode).toBe(409);
+    expect(await futures(tl)).toBe(1);
+  });
+
+  it("refuses the Undo of a trim out that made the window in the queue", async () => {
+    const tl = await madeSwap();
+    await call("POST", `/api/timelines/${tl}/source/trim`, { fromMs: 0, toMs: 12000 });
+    const r = await call("POST", `/api/timelines/${tl}/source/trim`, { fromMs: 0, toMs: 28000 });
+    expect(r.clips.length).toBeGreaterThan(0);
+    await queued(r.clips[0], "h3.swap");
+    expect((await inj("POST", `/api/timelines/${tl}/undo`)).statusCode).toBe(409);
+    expect((await sourceState(tl)).clips.some((c) => c.id === r.clips[0])).toBe(true);
+  });
+
+  it("keeps a take rendered since off a clip put back at another length, its video kept, and Redo puts it back", async () => {
+    const tl = await madeSwap();
+    const w2 = (await sourceState(tl)).clips[2]!;
+    await call("POST", `/api/timelines/${tl}/source/trim`, { fromMs: 0, toMs: Math.round((w2.s + w2.n - 1) * 1000) });
+    const short = (await sourceState(tl)).clips[2]!.n;
+    const take = await takeFor(w2.id);
+    const video = await assetOf(take);
+    await t.db.updateTable("assets").set({ kept_at: null }).where("id", "=", video).execute();
+    const u = await call("POST", `/api/timelines/${tl}/undo`);
+    expect(u.said).toMatch(/clip 3 does not fit that clip at this step: its video stays kept in the library, and Redo puts it back/);
+    const undone = await sourceState(tl);
+    expect(undone.clips[2]).toMatchObject({ id: w2.id, n: w2.n, take: null });
+    expect(allTakes(undone).has(take)).toBe(false);
+    expect((await t.db.selectFrom("assets").select("kept_at").where("id", "=", video).executeTakeFirstOrThrow()).kept_at).not.toBeNull();
+    await call("POST", `/api/timelines/${tl}/redo`);
+    expect((await sourceState(tl)).clips[2]).toMatchObject({ id: w2.id, n: short, take });
+  });
+
+  it("keeps a take on a window the undone trim out brought back with that window, set aside, and says so of one on a window it made", async () => {
+    const tl = await madeSwap();
+    const all = (await sourceState(tl)).clips.map((c) => c.id);
+    await call("POST", `/api/timelines/${tl}/source/trim`, { fromMs: 0, toMs: 12000 });
+    const aside = (await sourceState(tl)).parked.map((p) => p.id);
+    expect(aside.length).toBeGreaterThan(0);
+    const r = await call("POST", `/api/timelines/${tl}/source/trim`, { fromMs: 0, toMs: 28000 });
+    const out = await sourceState(tl);
+    const brought = out.clips.find((c) => aside.includes(c.id))!;
+    const made = out.clips.find((c) => r.clips.includes(c.id))!;
+    expect(all).toContain(brought.id);
+    const kept = await takeFor(brought.id);
+    const left = await takeFor(made.id);
+    const leftVideo = await assetOf(left);
+    const u = await call("POST", `/api/timelines/${tl}/undo`);
+    const undone = await sourceState(tl);
+    expect(undone.parked.find((p) => p.id === brought.id)).toMatchObject({ take: kept, takes: [kept] });
+    expect(u.said).toMatch(/does not fit that clip at this step/);
+    expect((await t.db.selectFrom("assets").select(["kept_at", "deleted_at"]).where("id", "=", leftVideo).executeTakeFirstOrThrow()).deleted_at).toBeNull();
+    // the trim out again brings the window back with its take
+    await call("POST", `/api/timelines/${tl}/redo`);
+    const redone = await sourceState(tl);
+    expect(redone.clips.find((c) => c.id === brought.id)?.take).toBe(kept);
+    expect(redone.clips.find((c) => c.id === made.id)?.take).toBe(left);
+  });
+});
+
+describe("the library's Bin and Unkeep and what only Undo names (T-27)", () => {
+  it("bins and unkeeps a picture only a timeline's Undo names, and its Undo takes it back out of the bin", async () => {
+    const tl = await madeSwap();
+    const src = JSON.parse(String((await t.db.selectFrom("timelines").select("source").where("id", "=", tl).executeTakeFirstOrThrow()).source));
+    const old = src.inputs.references[0].asset as string;
+    const fresh = await asset("image");
+    await call("PATCH", `/api/timelines/${tl}`, { source: { inputs: { ...src.inputs, references: [{ asset: fresh, role: "person" }] } } });
+    expect((await inj("POST", `/api/assets/${old}/keep`, { kept: false })).statusCode).toBe(200);
+    expect((await inj("DELETE", `/api/assets/${old}`)).statusCode).toBe(200);
+    const bulk = await call("POST", "/api/assets/bulk", { ids: [old], action: "bin" });
+    expect(bulk.inUse).toBeUndefined();
+    // what is placed still refuses
+    expect((await inj("DELETE", `/api/assets/${fresh}`)).statusCode).toBe(409);
+    await call("POST", `/api/timelines/${tl}/undo`);
+    expect((await t.db.selectFrom("assets").select("deleted_at").where("id", "=", old).executeTakeFirstOrThrow()).deleted_at).toBeNull();
+  });
+});

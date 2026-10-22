@@ -87,13 +87,26 @@ describe("sweep, and what a timeline's Undo and Redo would put back", () => {
     });
     await t.db.insertInto("timeline_history").values({ id: newId(), timeline_id: tl, seq: 1, label: "zz-test", snapshot: snapshot(take, still), created_at: ago(0) }).execute();
     await t.db.insertInto("timeline_future").values({ id: newId(), timeline_id: tl, seq: 1, label: "zz-test", snapshot: snapshot(redone, parked), created_at: ago(0) }).execute();
-    const used = await inUse(t.db);
+    const used = await inUse(t.db, { undo: true });
     for (const id of [take, still, parked, redone]) expect(used.get(id)).toBe("a timeline's Undo");
+    // the bin and Unkeep do not read them: an item named only there can be binned, and a restore takes it back out (T-27)
+    for (const id of [take, still, parked, redone]) expect((await inUse(t.db)).has(id)).toBe(false);
     // what works the takes out on its own (the unused takes) does not read them
     expect((await inUse(t.db, { takes: false })).has(take)).toBe(false);
     expect(await sweep(t.db, t.services.storage)).toEqual({ binned: 0, erased: 1 });
     expect(await row(loose)).toBeUndefined();
     for (const id of [take, still, parked, redone]) expect(await row(id)).toBeDefined();
+  });
+});
+
+describe("inUse's Undo snapshots, a page at a time (T-25)", () => {
+  it("reads every snapshot, past the first page too", async () => {
+    const tl = (await t.app.inject({ method: "POST", url: "/api/timelines", payload: { name: "zz-test pages" } })).json().id as string;
+    const late = await add({ madeAgo: 0, kept: true, binnedAgo: BIN_MS + HOUR });
+    const rows = Array.from({ length: 250 }, (_, k) => ({ id: newId(), timeline_id: tl, seq: k + 1, label: "zz-test", snapshot: JSON.stringify({ timeline: { id: tl }, clips: [], takes: k === 249 ? [{ id: "t", clip_id: "c", asset_id: late }] : [] }), created_at: ago(0) }));
+    await t.db.insertInto("timeline_history").values(rows).execute();
+    expect((await inUse(t.db, { undo: true })).get(late)).toBe("a timeline's Undo");
+    expect(await sweep(t.db, t.services.storage)).toEqual({ binned: 0, erased: 0 });
   });
 });
 

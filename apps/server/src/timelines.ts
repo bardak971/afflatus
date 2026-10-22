@@ -206,7 +206,9 @@ export class Timelines {
     this.exporter = new TimelineExport(core, (asset) => this.media.means(asset));
     this.takes = new TimelineTakes(core);
     this.planner = new TimelinePlan(core, this.takes, this.media);
-    this.history = new TimelineHistory(db, (id) => this.row(id), () => this.changed());
+    // a clip's part of a source or recording: the inputs Undo and Redo may not change under a render in the queue
+    const partKeys = (id: string | null) => (id ? this.registry.recipe(id)?.inputs.flatMap((i) => ("window" in i && i.window ? [i.id, i.window.start, i.window.seconds] : [])) : undefined) ?? [];
+    this.history = new TimelineHistory(db, (id) => this.row(id), () => this.changed(), partKeys);
     this.views = new TimelineViews(db);
   }
 
