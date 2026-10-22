@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { FFMPEG_TIMEOUT, ffmpegThere, patternClip } from "./clipKit";
-import { get, makeApp, referenceCatalog, until, type TestApp } from "./helpers";
+import { get, sentView, withTakes, makeApp, referenceCatalog, until, type TestApp } from "./helpers";
 
 /** What is made inside a timeline lands in its folder, and follows it when it moves. Skipped where ffmpeg is not installed. */
 
@@ -34,9 +34,9 @@ afterEach(async () => {
 const call = async (method: "POST" | "PATCH" | "DELETE", url: string, payload?: unknown) => {
   const res = await t.app.inject({ method, url, payload: payload as object });
   if (res.statusCode >= 400) throw new Error(`${method} ${url}: ${res.statusCode} ${res.body}`);
-  return res.json();
+  return sentView(res.json());
 };
-const view = async (id: string) => (await get(t.app, `/api/timelines/${id}`)).json();
+const view = async (id: string) => withTakes((await get(t.app, `/api/timelines/${id}`)).json());
 const folderOf = async (asset: string) => (await t.db.selectFrom("assets").select("folder_id").where("id", "=", asset).executeTakeFirstOrThrow()).folder_id;
 const jobDone = (job: string, ms = 120_000) =>
   until(async () => {

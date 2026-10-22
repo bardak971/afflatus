@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 import type { Measured } from "@afflatus/comfy";
 import { modelOf, timeKey, TOOLS_FAMILY, type Recipe } from "@afflatus/core";
-import { freezeOld, keepSplitsUntil } from "./costs";
+import { freezeOld, freezeOldInTurns, keepSplitsUntil } from "./costs";
 import { now, OWNER, type Db, type Tables } from "./db";
 import { RELOAD_MS, reloadAbove } from "./forecast";
 import type { JobRow, Resume } from "./queueModel";
@@ -166,6 +166,8 @@ export async function toolPace(db: Db, recipe: string, machine: string | null = 
  * hour, so a day is digested soon after it ends even when nothing renders.
  */
 export async function fold(db: Db, keepDays: number, when = Date.now()): Promise<number> {
+  // the sessions to split, a hundred at a time first: the first fold after an update has them all
+  await freezeOldInTurns(db, when);
   return db.transaction().execute(async (tx) => {
     // the rented sessions' splits kept before their renders become figures (costs.ts freezeSplits): those ended a day ago
     // whole, and those the cutoff has passed the start of up to it (keepSplitsUntil), a pod still running or ended since

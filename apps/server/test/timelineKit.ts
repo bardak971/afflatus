@@ -6,7 +6,7 @@ import { afterEach, beforeAll, beforeEach } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import type { Graph } from "@afflatus/core";
 import { FFMPEG_TIMEOUT, ffmpegThere, patternClip, toneFile } from "./clipKit";
-import { get, makeApp, referenceCatalog, until, type TestApp } from "./helpers";
+import { get, makeApp, referenceCatalog, sentView, until, withTakes, type TestApp } from "./helpers";
 
 /**
  * What the timeline tests share (timelines, timelineEdits and timelineRanges.test.ts, split so that they run side by side):
@@ -80,9 +80,9 @@ export function timelineSteps(s: Suite) {
   const call = async (method: "POST" | "PATCH" | "DELETE", url: string, payload?: unknown) => {
     const res = await s.t.app.inject({ method, url, payload: payload as object });
     if (res.statusCode >= 400) throw new Error(`${method} ${url}: ${res.statusCode} ${res.body}`);
-    return res.json();
+    return sentView(res.json());
   };
-  const view = async (id: string) => (await get(s.t.app, `/api/timelines/${id}`)).json();
+  const view = async (id: string) => withTakes((await get(s.t.app, `/api/timelines/${id}`)).json());
   const prompts = () => [...s.fake.prompts.entries()];
 
   /** Let the pretend ComfyUI finish the latest prompt with this video. */

@@ -313,7 +313,7 @@ export interface TimelineCore {
   /** The clips of a timeline in order, each with its takes (those whose video still exists). `db`: the transaction this is part of. */
   placed(timelineId: string, db?: Db): Promise<Placed[]>;
   /** How much moves along a video and how loud it is, and where people speak in it (timelineMedia.motion). */
-  motion(assetId: string): Promise<{ rate: number; values: number[]; sound: number[] | null; speech: number[] | null }>;
+  motion(assetId: string, row?: AssetRow): Promise<{ rate: number; values: number[]; sound: number[] | null; speech: number[] | null }>;
   /**
    * Keep what the timeline looks like now, before a change. `label` says what the change is, for the Undo button; `added`, a take
    * the change adds. `db`: the transaction the change is made in, only from inside the timeline's turn (oneAtATime).

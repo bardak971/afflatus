@@ -24,9 +24,11 @@ export interface Asked {
 export async function forecastsOf(s: Services, forms: Asked[]): Promise<Array<{ ms: number; loadMs: number; model: string; samples: number; on: Record<string, number> | null; can: string[] | null } | null>> {
   const seen = new Map<string, Promise<Awaited<ReturnType<Services["queue"]["forecast"]>>>>();
   const fits = await fitsOf(s, forms);
+  // each clip's timeline read once for all of them: read for each clip, a 150-clip timeline was read 150 times (1.4 s)
+  const placed = s.timelines.placedOnce();
   return Promise.all(forms.map(async (f) => {
     const key = `${f.recipe}\n${f.clip ?? ""}\n${JSON.stringify(f.input)}`;
-    if (!seen.has(key)) seen.set(key, s.queue.forecast(f.recipe, f.input, f.clip ? { clip: { id: f.clip, fit: fits.get(f.clip) ?? false } } : {}).catch(() => null));
+    if (!seen.has(key)) seen.set(key, s.queue.forecast(f.recipe, f.input, f.clip ? { clip: { id: f.clip, fit: fits.get(f.clip) ?? false }, placed } : {}).catch(() => null));
     const got = await seen.get(key)!;
     if (!got) return null;
     const on = got.on ? Object.fromEntries(Object.entries(got.on).map(([m, g]) => [m, g.ms])) : null;

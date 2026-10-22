@@ -145,13 +145,14 @@ export class TimelineMedia {
   }
 
   /** How much moves along a video and how loud it is, ten samples a second (see measureOf). Measured once, then kept. A sound file gives loudness only. */
-  motion(assetId: string): Promise<{ rate: number; values: number[]; sound: number[] | null; speech: number[] | null }> {
-    return this.once(`motion:${assetId}`, () => this.motionOf(assetId));
+  /** `row`: the asset's row, when the caller has it already (the duck, which has the whole timeline's). */
+  motion(assetId: string, row?: AssetRow): Promise<{ rate: number; values: number[]; sound: number[] | null; speech: number[] | null }> {
+    return this.once(`motion:${assetId}`, () => this.motionOf(assetId, row));
   }
 
-  private async motionOf(assetId: string): Promise<{ rate: number; values: number[]; sound: number[] | null; speech: number[] | null }> {
+  private async motionOf(assetId: string, row?: AssetRow): Promise<{ rate: number; values: number[]; sound: number[] | null; speech: number[] | null }> {
     const { storage } = this.core;
-    const asset = await this.core.assetRow(assetId);
+    const asset = row?.id === assetId ? row : await this.core.assetRow(assetId);
     if (!asset || (asset.kind !== "video" && asset.kind !== "audio")) throw notFound("this video");
     const key = keptKey.motion(asset.id);
     const have = await storage.get(key).catch(() => null);

@@ -819,11 +819,12 @@ async function splitNow(db: Db, r: SessionRow, now: number, usualBootMs: number 
  * again from what is left then read the session's renders as idle, moving amounts already spent from one part to another
  * (the Costs tab, the daily Grafana panel, the hunt's overhead). Called before either deletes a row: worked out then, the
  * split kept is the one shown until then. One kept up to a moment while it ran (keepSplitsUntil) is finished now. Returns
- * how many were kept.
+ * how many were kept. `only`: of these sessions alone.
  */
-export async function freezeSplits(db: Db, endedBefore: number): Promise<number> {
-  const iso = (ms: number) => new Date(ms).toISOString();
-  const rows = await db.selectFrom("rent_sessions").selectAll().where("ended_at", "is not", null).where("ended_at", "<", iso(endedBefore)).where((eb) => eb.or([eb("split", "is", null), eb("split_until", "is not", null)])).execute();
+export async function freezeSplits(db: Db, endedBefore: number, only?: readonly string[]): Promise<number> {
+  let q = toFreeze(db, endedBefore).selectAll();
+  if (only) q = q.where("id", "in", only.length ? [...only] : [""]);
+  const rows = await q.execute();
   if (!rows.length) return 0;
   const usualBootMs = await usualBoot(db);
   for (const r of rows) {
@@ -853,8 +854,32 @@ export async function keepSplitsUntil(db: Db, until: number, now: number): Promi
   return rows.length;
 }
 
+/** The sessions freezeSplits keeps the split of: ended before `endedBefore`, and not kept whole yet. */
+const toFreeze = (db: Db, endedBefore: number) =>
+  db.selectFrom("rent_sessions").where("ended_at", "is not", null).where("ended_at", "<", new Date(endedBefore).toISOString()).where((eb) => eb.or([eb("split", "is", null), eb("split_until", "is not", null)]));
+
 /** The sessions whose split is kept by the hourly fold: those ended at least FREEZE_AFTER_MS before `now`. */
 export const freezeOld = (db: Db, now: number) => freezeSplits(db, now - FREEZE_AFTER_MS);
+
+/** How many sessions freezeOldInTurns splits in one transaction. */
+const FREEZE_TURN = 100;
+
+/**
+ * freezeOld a hundred sessions at a time, each hundred in its own transaction, the server let in between: the first fold
+ * after an update to 0.6.0 found every past session to split (1,500 at a heavy user's scale), one block of about 1 s.
+ * The fold's own freezeOld, in its transaction, still keeps those ended meanwhile before their rows go. Returns how many
+ * were kept.
+ */
+export async function freezeOldInTurns(db: Db, now: number): Promise<number> {
+  let kept = 0;
+  for (let after = ""; ;) {
+    const ids = (await toFreeze(db, now - FREEZE_AFTER_MS).select("id").where("id", ">", after).orderBy("id").limit(FREEZE_TURN).execute()).map((r) => r.id);
+    if (ids.length) kept += await db.transaction().execute((tx) => freezeSplits(tx, now - FREEZE_AFTER_MS, ids));
+    if (ids.length < FREEZE_TURN) return kept;
+    after = ids.at(-1)!;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
 
 /** Each session's stretches of work from outside Afflatus (pod_outside), by its id. */
 type OutsideBySession = Map<string, Array<{ from: number; to: number }>>;

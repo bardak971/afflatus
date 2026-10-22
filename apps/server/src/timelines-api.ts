@@ -177,6 +177,14 @@ async function slowEngine(s: Services): Promise<"rife" | "ffmpeg"> {
   }
 }
 
+/**
+ * A timeline's view as it is sent to the editor: each clip's playing take by its id, which the editor finds among the clip's
+ * takes (web api.ts, withTakes). Sent whole beside them, every playing take went twice: 115 of 507 KB at 150 clips.
+ */
+export function sent<V extends { clips: Array<{ take: { id: string } | null }> }>(view: V) {
+  return { ...view, clips: view.clips.map((c) => ({ ...c, take: c.take?.id ?? null })) };
+}
+
 export function registerTimelines(app: FastifyInstance, s: Services): void {
   const t = s.timelines;
 
@@ -189,14 +197,14 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
       const f = await s.db.selectFrom("folders").select(["id", "project_id"]).where("id", "=", body.folder).executeTakeFirst();
       if (!f) throw httpError("this folder was not found", 404);
       if ((f.project_id ?? null) !== (body.project ?? null)) throw httpError("that folder is not in this project", 400);
-      return t.create(body.name, body.project ?? null, f.id, true);
+      return sent(await t.create(body.name, body.project ?? null, f.id, true));
     }
-    return t.create(body.name, body.project ?? null, await rootFolderOf(s.db, body.project));
+    return sent(await t.create(body.name, body.project ?? null, await rootFolderOf(s.db, body.project)));
   });
-  app.get<{ Params: { id: string } }>("/api/timelines/:id", async (req) => t.view(req.params.id));
+  app.get<{ Params: { id: string } }>("/api/timelines/:id", async (req) => sent(await t.view(req.params.id)));
   /** The music ducked under speech: its gain along the timeline (duck.ts), for the player; null when there is no music or it is not ducked. */
   app.get<{ Params: { id: string } }>("/api/timelines/:id/duck", async (req) => ({ curve: await t.duck(req.params.id) }));
-  app.patch<{ Params: { id: string } }>("/api/timelines/:id", async (req) => t.edit(req.params.id, timelinePatch.parse(req.body)));
+  app.patch<{ Params: { id: string } }>("/api/timelines/:id", async (req) => sent(await t.edit(req.params.id, timelinePatch.parse(req.body))));
   /** Its source lane's stretch made into clips, window by window (timelineSource.ts): the new clips' ids, to be rendered by the editor. */
   // `again`: the source cut again into the clips it made, those rendered kept (Timelines.makeFromSource)
   app.post<{ Params: { id: string } }>("/api/timelines/:id/source/make", async (req) => ({ clips: await t.makeFromSource(req.params.id, z.strictObject({ again: z.boolean().optional() }).parse(req.body ?? {})) }));
@@ -269,7 +277,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
 
   app.post<{ Params: { id: string } }>("/api/timelines/:id/clips", async (req) => {
     const clip = await t.addClip(req.params.id, newClip.parse(req.body ?? {}));
-    return { clip, timeline: await t.view(req.params.id) };
+    return { clip, timeline: sent(await t.view(req.params.id)) };
   });
   app.patch<{ Params: { id: string } }>("/api/clips/:id", async (req) => {
     // the form as kept when the server worked out some of it (a voice's part): the editor shows that
@@ -307,7 +315,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     const b = z.strictObject({ recipe: z.string().min(1), clips: z.array(z.record(z.string(), z.string())).min(1).max(12) }).parse(req.body);
     // one step to undo, however many clips
     const made = await t.planner.planClips(req.params.id, b.recipe, b.clips);
-    return { clips: made, timeline: await t.view(req.params.id) };
+    return { clips: made, timeline: sent(await t.view(req.params.id)) };
   });
 
   /** Export the timeline as one video. It runs in the queue, after the renders that are already waiting. */
@@ -601,17 +609,18 @@ type FinishJob =
 /** The jobs that finish a timeline's clips (see the finish route), one each, and the clips skipped with why. */
 async function finishClips(s: Services, timeline: string, b: z.infer<typeof finishBody>): Promise<{ jobs: string[]; skipped: Array<{ clip: number; why: string }> }> {
   const { plan, skipped } = await finishPlan(s, timeline, b);
-  const jobs: string[] = [];
-  for (const j of plan) {
-    if (j.kind !== "render") {
-      jobs.push(await s.queue.enqueueCut(j.cut, j.label));
-      continue;
+  // all of the finish queued, or none of it: a job refused part way leaves no half finish behind, and says why
+  const jobs = await s.queue.enqueueAll(async (ask) => {
+    for (const j of plan) {
+      if (j.kind !== "render") {
+        await ask.cut(j.cut, j.label);
+        continue;
+      }
+      const id = await ask.render(j.recipe, j.input, j.opts);
+      // the pixel route after the Face refine, on what it makes: queued behind it
+      if (j.then) await ask.cut({ ...j.then.cut, fromJob: id }, j.then.label, { dependsOn: id });
     }
-    const id = await s.queue.enqueue(j.recipe, j.input, j.opts);
-    jobs.push(id);
-    // the pixel route after the Face refine, on what it makes: queued behind it
-    if (j.then) jobs.push(await s.queue.enqueueCut({ ...j.then.cut, fromJob: id }, j.then.label, { dependsOn: id }));
-  }
+  });
   return { jobs, skipped };
 }
 

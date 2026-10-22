@@ -3,7 +3,8 @@ import { ComfyAway, ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnr
 import { expandWildcards, modelFileName, modelOf, parseInput, removedSaid, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import { Comfy, NO_COMFY_URL, type MachineComfy } from "./comfy";
 import { fileName } from "./media";
-import { newId, now, OWNER, toRun, type Db } from "./db";
+import type { Insertable } from "kysely";
+import { newId, now, OWNER, toRun, type Db, type Tables } from "./db";
 import { addedBy } from "./events";
 import { httpError } from "./errors";
 import type { HuntSummary } from "./hunt";
@@ -79,6 +80,12 @@ export function gpuOf(device: string | null, gpus: ReadonlyArray<{ name: string 
   const name = (device ?? "").replace(/^\w+:\d+\s+/, "").replace(/\s+:\s+\S+$/, "").trim();
   if (name && name.toLowerCase() !== "cpu") return gpus.find((g) => g.name.toLowerCase() === name.toLowerCase())?.name ?? name;
   return gpus.length === 1 ? gpus[0]!.name : null;
+}
+
+/** What a render's job is queued with (Queue.enqueue). */
+export interface EnqueueOptions {
+  label?: string; dependsOn?: string; clip?: { id: string; fit: boolean; mirror?: readonly string[] }; draft?: string | null; folder?: string | null;
+  warm?: boolean; look?: unknown; finishedFrom?: string | null; asked?: Record<string, unknown>; machine?: string | null;
 }
 
 export class Queue {
@@ -402,7 +409,39 @@ export class Queue {
 
   // ---------------------------------------------------------------- enqueue / cancel / pause
 
-  async enqueue(recipeId: string, rawInput: unknown, opts: { label?: string; dependsOn?: string; clip?: { id: string; fit: boolean; mirror?: readonly string[] }; draft?: string | null; folder?: string | null; warm?: boolean; look?: unknown; finishedFrom?: string | null; asked?: Record<string, unknown>; machine?: string | null } = {}): Promise<string> {
+  async enqueue(recipeId: string, rawInput: unknown, opts: EnqueueOptions = {}): Promise<string> {
+    const row = await this.renderJob(recipeId, rawInput, opts);
+    await this.db.insertInto("jobs").values(row).execute();
+    this.events.emit("queue");
+    void this.pump();
+    return row.id;
+  }
+
+  /**
+   * Several jobs queued in one transaction (a timeline's finish): `build` asks for each as enqueue and enqueueCut would, in
+   * order, and is given its id at once (to wait for it). All are written, or none: a form refused part way queues nothing
+   * and says why, rather than half a finish. Their ids, in the order asked. One commit for all of them: one each, a finish
+   * of 103 jobs wrote 4.3 MB to the database's log.
+   */
+  async enqueueAll(build: (ask: { render: (recipeId: string, rawInput: unknown, opts?: EnqueueOptions) => Promise<string>; cut: (opts: CutOptions, label: string, extra?: { dependsOn?: string }) => Promise<string> }) => Promise<void>): Promise<string[]> {
+    const rows: Array<Insertable<Tables["jobs"]> & { id: string }> = [];
+    await build({
+      render: async (recipeId, rawInput, opts = {}) => (rows.push(await this.renderJob(recipeId, rawInput, opts)), rows.at(-1)!.id),
+      cut: async (opts, label, extra = {}) => (rows.push(await this.cutJob(opts, label, extra)), rows.at(-1)!.id),
+    });
+    if (!rows.length) return [];
+    // written before any pass is told of them: a pass never picks one up with the others still to come
+    await this.db.transaction().execute(async (tx) => {
+      for (const row of rows) await tx.insertInto("jobs").values(row).execute();
+    });
+    this.events.emit("queue");
+    if (rows.some((r) => r.recipe_id === CUT_JOB && r.clip_id)) this.events.emit("timeline");
+    void this.pump();
+    return rows.map((r) => r.id);
+  }
+
+  /** A render's job as enqueue writes it. */
+  private async renderJob(recipeId: string, rawInput: unknown, opts: EnqueueOptions) {
     const recipe = this.registry.recipe(recipeId);
     if (!recipe) throw httpError(`there is no model or operation called ${recipeId}`);
     // loading the models is asked for while the form is still being filled in: a text not written yet is no reason to refuse
@@ -418,19 +457,13 @@ export class Queue {
     const pin = opts.machine && (await this.machines()).some((m) => m.machine.id === opts.machine) ? opts.machine : null;
     const id = newId();
     const at = now();
-    await this.db
-      .insertInto("jobs")
-      .values({
-        id, owner_id: OWNER, recipe_id: recipe.id, label: opts.label?.trim() || recipe.title, inputs: JSON.stringify(input), asked,
-        status: "queued", warm: opts.warm ? 1 : 0, look: opts.look ? JSON.stringify(opts.look) : null, priority: recipe.output === "image" ? 0 : 10, depends_on: opts.dependsOn ?? null,
-        attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip?.id ?? null, clip_fit: opts.clip?.fit ? 1 : 0, clip_mirror: opts.clip?.mirror?.length ? JSON.stringify(opts.clip.mirror) : null,
-        draft_id: opts.draft ?? null, folder_id: opts.folder ?? null, finished_from: opts.finishedFrom ?? null, pin_machine: pin,
-        created_at: at, started_at: null, finished_at: null, updated_at: at,
-      })
-      .execute();
-    this.events.emit("queue");
-    void this.pump();
-    return id;
+    return {
+      id, owner_id: OWNER, recipe_id: recipe.id, label: opts.label?.trim() || recipe.title, inputs: JSON.stringify(input), asked,
+      status: "queued", warm: opts.warm ? 1 : 0, look: opts.look ? JSON.stringify(opts.look) : null, priority: recipe.output === "image" ? 0 : 10, depends_on: opts.dependsOn ?? null,
+      attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip?.id ?? null, clip_fit: opts.clip?.fit ? 1 : 0, clip_mirror: opts.clip?.mirror?.length ? JSON.stringify(opts.clip.mirror) : null,
+      draft_id: opts.draft ?? null, folder_id: opts.folder ?? null, finished_from: opts.finishedFrom ?? null, pin_machine: pin,
+      created_at: at, started_at: null, finished_at: null, updated_at: at,
+    } satisfies Insertable<Tables["jobs"]>;
   }
 
   /**
@@ -457,24 +490,27 @@ export class Queue {
 
   /** A range of a video kept as new videos (see Timelines.cutRange): ffmpeg only, no model, no ComfyUI. */
   async enqueueCut(opts: CutOptions, label: string, extra: { dependsOn?: string } = {}): Promise<string> {
+    const row = await this.cutJob(opts, label, extra);
+    await this.db.insertInto("jobs").values(row).execute();
+    this.events.emit("queue");
+    if (opts.clip) this.events.emit("timeline");
+    void this.pump();
+    return row.id;
+  }
+
+  /** A cut's job as enqueueCut writes it. */
+  private async cutJob(opts: CutOptions, label: string, extra: { dependsOn?: string }) {
     const id = newId();
     const at = now();
     // a cut made for a clip works on that clip's timeline
     const timeline = opts.clip ? (await this.db.selectFrom("clips").select("timeline_id").where("id", "=", opts.clip).executeTakeFirst())?.timeline_id ?? null : null;
-    await this.db
-      .insertInto("jobs")
-      .values({
-        id, owner_id: OWNER, recipe_id: CUT_JOB, label, inputs: JSON.stringify(opts), status: "queued", warm: 0, look: null, priority: 20, depends_on: extra.dependsOn ?? null,
-        // a cut made for a clip (a finish, a slow motion) is that clip's job: the editor shows the clip busy with it, and a
-        // second Finish skips the clip while it waits or runs
-        attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip ?? null, clip_fit: 0, timeline_id: timeline, draft_id: null, folder_id: null,
-        created_at: at, started_at: null, finished_at: null, updated_at: at,
-      })
-      .execute();
-    this.events.emit("queue");
-    if (opts.clip) this.events.emit("timeline");
-    void this.pump();
-    return id;
+    return {
+      id, owner_id: OWNER, recipe_id: CUT_JOB, label, inputs: JSON.stringify(opts), status: "queued", warm: 0, look: null, priority: 20, depends_on: extra.dependsOn ?? null,
+      // a cut made for a clip (a finish, a slow motion) is that clip's job: the editor shows the clip busy with it, and a
+      // second Finish skips the clip while it waits or runs
+      attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip ?? null, clip_fit: 0, timeline_id: timeline, draft_id: null, folder_id: null,
+      created_at: at, started_at: null, finished_at: null, updated_at: at,
+    } satisfies Insertable<Tables["jobs"]>;
   }
 
   /**
@@ -1821,7 +1857,7 @@ export class Queue {
    * the queue's own waits aside): open, taking what it makes, with its files (`can`, as a waiting job of it is told). Those
    * are the machines Auto shares a batch of it between (`auto`). The machine picked by hand reads its own in `on`.
    */
-  async forecast(recipeId: string, rawInput: unknown, opts: { finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null } = {}) {
+  async forecast(recipeId: string, rawInput: unknown, opts: { finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null; placed?: NonNullable<Parameters<typeof submitting.forecastOf>[3]>["placed"] } = {}) {
     const lanes = this.machineLanes();
     if (lanes.length < 2) return submitting.forecastOf(this.core, recipeId, rawInput, { ...opts, machine: lanes[0]?.id ?? null });
     const loads = (machine: string) => this.lanes.get(machine)?.lastLoads ?? null;

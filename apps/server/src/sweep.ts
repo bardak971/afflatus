@@ -21,6 +21,11 @@ export const keepOf = (s: { unkeptDays: number; binDays: number }): Keep => ({ u
 
 /** How many Undo snapshots inUse reads at once. */
 const SNAPSHOT_PAGE = 100;
+/**
+ * How many undoNamed reads before it lets the server answer something else: up to 280 KB each (a 150-clip timeline), so
+ * that each page holds the event loop for a few ms, not the whole read's 100 ms.
+ */
+const AHEAD_PAGE = 20;
 
 /** An asset id as it is written inside a JSON document (a person's pictures, a preset's form, a job's inputs). */
 const ID_IN_JSON = /"([0-9a-f]{32})"/g;
@@ -38,8 +43,9 @@ export const ID_IN_NESTED_JSON = /"([0-9a-f]{32})\\*"/g;
  * takes are needed (timelineUnused.ts). `jobs: false`: all of it but the jobs, for a job asking about its own inputs.
  * `undo: true`: also what a timeline's Undo and Redo would put back, for what erases (the sweep, a linked file forgotten);
  * not for the bin and Unkeep, which a restore undoes (TimelineHistory.restore takes back out of the bin what it puts back).
+ * `undo` given as what undoNamed read ahead: those ids, and only the steps kept since are read here.
  */
-export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean; jobs?: boolean; undo?: boolean } = {}): Promise<Map<string, string>> {
+export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean; jobs?: boolean; undo?: boolean | UndoNamed } = {}): Promise<Map<string, string>> {
   const used = new Map<string, string>();
   const add = (ids: Array<string | null>, what: string) => {
     for (const id of ids) if (id && !used.has(id)) used.set(id, what);
@@ -79,8 +85,8 @@ export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean; jobs?: 
   // them). Only for erasing: refused a Bin or an Unkeep, an item named only there stayed for as long as the timeline was
   // left alone, with advice that could not be followed. Read a page at a time: every snapshot of every timeline at once
   // held hundreds of MB inside the sweep's transaction
-  if (opts.undo) {
-    for (const table of ["timeline_history", "timeline_future"] as const) {
+  if (opts.undo === true) {
+    for (const table of UNDO_TABLES) {
       for (let after = ""; ;) {
         const page = await db.selectFrom(table).select(["id", "snapshot"]).where("id", ">", after).orderBy("id").limit(SNAPSHOT_PAGE).execute();
         scan(page.map((r) => r.snapshot), "a timeline's Undo", ID_IN_NESTED_JSON);
@@ -88,8 +94,50 @@ export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean; jobs?: 
         after = page.at(-1)!.id;
       }
     }
+  } else if (opts.undo) {
+    const ahead = opts.undo;
+    add([...ahead.ids], "a timeline's Undo");
+    // a step kept since the read ahead (an edit made meanwhile) is read here, in the transaction: its ids alone are listed,
+    // from the key's index, without the snapshots
+    for (const table of UNDO_TABLES) {
+      const since = (await db.selectFrom(table).select("id").execute()).map((r) => r.id).filter((id) => !ahead.read.has(id));
+      for (let i = 0; i < since.length; i += 500) {
+        scan((await db.selectFrom(table).select("snapshot").where("id", "in", since.slice(i, i + 500)).execute()).map((r) => r.snapshot), "a timeline's Undo", ID_IN_NESTED_JSON);
+      }
+    }
   }
   return used;
+}
+
+const UNDO_TABLES = ["timeline_history", "timeline_future"] as const;
+
+/** What every timeline's Undo and Redo would put back (undoNamed): the ids, and the steps they were read from. */
+export interface UndoNamed {
+  ids: Set<string>;
+  read: Set<string>;
+}
+
+/**
+ * The ids every kept Undo and Redo step names, read once for a whole sweep and outside its transactions, a few pages at a
+ * time with the server let in between. Read in each of the sweep's two transactions, the scan of every snapshot (33 MB at
+ * a heavy user's scale) held the server twice, 216 ms in one block. A step dropped meanwhile (past the 40 kept) still keeps
+ * what it named until the next sweep, which only waits longer; one kept meanwhile is read by inUse in the transaction.
+ */
+export async function undoNamed(db: Kysely<Tables>): Promise<UndoNamed> {
+  const out: UndoNamed = { ids: new Set(), read: new Set() };
+  for (const table of UNDO_TABLES) {
+    for (let after = ""; ;) {
+      const page = await db.selectFrom(table).select(["id", "snapshot"]).where("id", ">", after).orderBy("id").limit(AHEAD_PAGE).execute();
+      for (const r of page) {
+        out.read.add(r.id);
+        for (const m of r.snapshot.matchAll(ID_IN_NESTED_JSON)) out.ids.add(m[1]!);
+      }
+      if (page.length < AHEAD_PAGE) break;
+      after = page.at(-1)!.id;
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  }
+  return out;
 }
 
 type Erased = Pick<Tables["assets"], "id" | "file_key" | "thumb_key" | "raw_key" | "latent_key" | "fine_latent_key" | "duration_ms">;
@@ -116,11 +164,11 @@ export const ERASED = ["id", "file_key", "thumb_key", "raw_key", "latent_key", "
  * Erase for good what `due` picks, but what something uses (inUse): the check, the picking and the rows' deletion in one
  * transaction, then the files of the rows that went. Done item after item, an item put back from the bin or picked into
  * a draft meanwhile was erased all the same. A row is only deleted while it is in the bin (or a painted part, which never
- * is). Returns how many `due` picked and the rows erased.
+ * is). Returns how many `due` picked and the rows erased. `undo`: what the Undo steps name, when read ahead (undoNamed).
  */
-export async function eraseUnused(db: Db, storage: Storage, due: (tx: Db) => Promise<Erased[]>): Promise<{ picked: number; erased: Erased[] }> {
+export async function eraseUnused(db: Db, storage: Storage, due: (tx: Db) => Promise<Erased[]>, undo: true | UndoNamed = true): Promise<{ picked: number; erased: Erased[] }> {
   const { picked, erased } = await db.transaction().execute(async (tx) => {
-    const used = await inUse(tx, { undo: true });
+    const used = await inUse(tx, { undo });
     const all = await due(tx);
     const ids = all.filter((a) => !used.has(a.id)).map((a) => a.id);
     const out: Erased[] = [];
@@ -146,10 +194,12 @@ export async function eraseUnused(db: Db, storage: Storage, due: (tx: Db) => Pro
  * whatever the bin keeps: it is no item of the library. Returns how many items each rule touched.
  */
 export async function sweep(db: Db, storage: Storage, at = Date.now(), keep: Keep = { unkeptMs: UNKEPT_MS, binMs: BIN_MS }): Promise<{ binned: number; erased: number }> {
+  // what the Undo steps name, read once for both transactions below and outside them
+  const undo = await undoNamed(db);
   // what is in use read in the same transaction as the binning: an item picked into a draft or kept in between stays out
   const binned = keep.unkeptMs === null ? 0 : await db.transaction().execute(async (tx) => {
     const unkeptBefore = new Date(at - keep.unkeptMs!).toISOString();
-    const used = await inUse(tx, { undo: true });
+    const used = await inUse(tx, { undo });
     const due = await tx
       .selectFrom("assets")
       .select("id")
@@ -182,7 +232,7 @@ export async function sweep(db: Db, storage: Storage, at = Date.now(), keep: Kee
     // a box's working picture (a frame read, a picture not picked) a day on: what is in use (a picked one put in a form,
     // a job still to run on it) stays, as everywhere
     ...await tx.selectFrom("assets").select(ERASED).where("origin", "=", "scratch").where("kept_at", "is", null).where("created_at", "<", scratchBefore).execute(),
-  ]);
+  ], undo);
   await sweepOrphans(db, storage, at).catch((err) => console.warn("[sweep] files with no item:", (err as Error).message));
   return { binned, erased: erased.length };
 }

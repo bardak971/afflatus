@@ -77,7 +77,7 @@ export class TimelineHistory {
   private async snapshot(where: "timeline_history" | "timeline_future", timelineId: string, label: string, added?: string[], db: Db = this.db) {
     const state = JSON.stringify({ ...(await this.stateOf(timelineId, db)), ...(added?.length ? { added } : {}) });
     const row = { id: newId(), timeline_id: timelineId, label, snapshot: state, created_at: now() };
-    const last = await db.selectFrom(where).select("seq").where("timeline_id", "=", timelineId).orderBy("seq", "desc").executeTakeFirst();
+    const last = await db.selectFrom(where).select("seq").where("timeline_id", "=", timelineId).orderBy("seq", "desc").limit(1).executeTakeFirst();
     const seq = (last?.seq ?? 0) + 1;
     await db.insertInto(where).values({ ...row, seq }).execute();
     await db.deleteFrom(where).where("timeline_id", "=", timelineId).where("seq", "<=", seq - HISTORY).execute();
@@ -107,9 +107,10 @@ export class TimelineHistory {
    * take" takes it back) stays on its clip, and stays the one that plays if it was, when that clip is back as it was
    * rendered, placed or among those a trim set aside. A take whose clip is not (gone at that step, or back with another
    * part of its source or recording than its render had) is not put on it: its video stays in the library, kept, and the
-   * step the other way puts it back. Returns what to tell the user of those, if any.
+   * step the other way puts it back. Returns what to tell the user of those, if any. `text`: the state as it was kept (the
+   * snapshot's text), `was` read from it.
    */
-  private async restore(tx: Db, timelineId: string, was: Kept, step: "Undo" | "Redo"): Promise<{ said?: string; linked: Array<Tables["assets"]> }> {
+  private async restore(tx: Db, timelineId: string, was: Kept, text: string, step: "Undo" | "Redo"): Promise<{ said?: string; linked: Array<Tables["assets"]> }> {
     // what is there now is read in the same transaction that replaces it: a take landing between the reading and the
     // writing was put back without playing, or deleted with its clip's row
     const nowClips = await tx.selectFrom("clips").selectAll().where("timeline_id", "=", timelineId).orderBy("position").execute();
@@ -181,7 +182,11 @@ export class TimelineHistory {
     // and an item named only in Undo or Redo may be binned from the library meanwhile (nothing erases it while a step
     // names it: inUse's `undo`); a linked folder's file is left in the bin here and put back into its directory once the
     // step is written (step), as the bin's Restore does: that writes on the disk, which no transaction takes back
-    const named = [...new Set([...JSON.stringify([was, source, recordings]).matchAll(ID_IN_NESTED_JSON)].map((m) => m[1]!))];
+    // Read from the snapshot's own text, not from the state written out again: that stringified it a second time inside the
+    // transaction (280 KB at 150 clips). The takes made since that went onto clips a trim set aside (asideChanged) are not in
+    // the snapshot: they are read from the source and recordings as written back.
+    const texts = asideChanged ? [text, JSON.stringify([source, recordings])] : [text];
+    const named = [...new Set(texts.flatMap((t) => [...t.matchAll(ID_IN_NESTED_JSON)].map((m) => m[1]!)))];
     const linked: Array<Tables["assets"]> = [];
     for (let i = 0; i < named.length; i += 500) {
       const slice = named.slice(i, i + 500);
@@ -219,12 +224,13 @@ export class TimelineHistory {
   private step(timelineId: string, from: "timeline_history" | "timeline_future"): Promise<{ label: string; said?: string }> {
     const undo = from === "timeline_history";
     return this.oneAtATime(timelineId, async () => {
-      const last = await this.db.selectFrom(from).selectAll().where("timeline_id", "=", timelineId).orderBy("seq", "desc").executeTakeFirst();
+      // the last step alone: without the limit every kept step of the timeline was read (40 snapshots, 11 MB at 150 clips) to use one
+      const last = await this.db.selectFrom(from).selectAll().where("timeline_id", "=", timelineId).orderBy("seq", "desc").limit(1).executeTakeFirst();
       if (!last) throw httpError(undo ? "There is nothing to undo." : "There is nothing to redo.");
       const was = JSON.parse(last.snapshot) as Kept;
       const { said, linked } = await this.db.transaction().execute(async (tx) => {
         await this.snapshot(undo ? "timeline_future" : "timeline_history", timelineId, last.label, was.added, tx);
-        const out = await this.restore(tx, timelineId, was, undo ? "Undo" : "Redo");
+        const out = await this.restore(tx, timelineId, was, last.snapshot, undo ? "Undo" : "Redo");
         await tx.deleteFrom(from).where("id", "=", last.id).execute();
         return out;
       });

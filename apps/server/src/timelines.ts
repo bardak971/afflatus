@@ -199,7 +199,7 @@ export class Timelines {
       db, storage, registry, events,
       row: (id) => this.row(id), clipRow: (id) => this.clipRow(id), assetRow: (id) => this.assetRow(id), placed: (id, db) => this.placed(id, db),
       remember: (id, label, added, db) => this.remember(id, label, added, db), oneAtATime: (key, work) => this.history.oneAtATime(key, work), touch: (id) => this.touch(id), keep: (id, db) => this.keep(id, db), renumber: (id, order, db) => this.renumber(id, order, db),
-      settingsOf, frame: (video, atMs, once, timeline) => this.media.frame(video, atMs, once, timeline), motion: (id) => this.media.motion(id),
+      settingsOf, frame: (video, atMs, once, timeline) => this.media.frame(video, atMs, once, timeline), motion: (id, row) => this.media.motion(id, row),
     };
     this.range = new TimelineRange(core);
     this.media = new TimelineMedia(core);
@@ -1048,10 +1048,12 @@ export class Timelines {
             kind: "video", recipeId: madeWith.id, joined: w.opens ? "cut" : "continue", still: null, take: null, asset: undefined, look: null,
             inputs: { ...(madeWith.id !== recipe.id ? windowFormFor(recipe, madeWith, inputs, true) : inputs), ...itsOwn },
           };
-          const id = await this.planner.insertClip(timelineId, order, index + k, clip, tx);
+          const id = await this.planner.insertClip(timelineId, order, index + k, clip, tx, false);
           order.splice(index + k, 0, { clip: { id } });
           made.push(id);
         }
+        // the clips after them moved along once, all the windows in
+        await this.renumber(timelineId, order.map((p) => p.clip.id), tx);
         // the source's start sits where its stretch now plays from; the clip it was taken from is gone. Cut again, it stays where
         // it was, and the clips it no longer has keep nothing apart
         const apart = plan.apart ? Object.fromEntries(Object.entries(plan.apart).filter(([id]) => !again?.drop.includes(id))) : undefined;
@@ -1146,10 +1148,12 @@ export class Timelines {
         kind: "video", recipeId: recipe.id, joined: k === 0 && opens ? "cut" : "continue", still: null, take: null, asset: undefined, look: null,
         inputs: { ...form, [spec.id]: sound.id, [spec.window!.start]: part.start, [spec.window!.seconds]: part.seconds },
       };
-      const id = await this.planner.insertClip(timelineId, order, index + k, clip, tx);
+      const id = await this.planner.insertClip(timelineId, order, index + k, clip, tx, false);
       order.splice(index + k, 0, { clip: { id } });
       made.push(id);
     }
+    // the clips after them moved along once, all the parts in
+    await this.renumber(timelineId, order.map((p) => p.clip.id), tx);
     await this.keep(sound.id, tx);
     return made;
   }
@@ -1381,8 +1385,15 @@ export class Timelines {
     await db.updateTable("assets").set({ kept_at: now() }).where("id", "=", assetId).where("kept_at", "is", null).execute();
   }
 
+  /**
+   * The clips of a timeline put in this order. Only those whose place changes are written: each written, a clip added at the
+   * end of 150 wrote 151 rows, and a recording made into 12 clips 1,878.
+   */
   private async renumber(timelineId: string, order: string[], db: Db = this.db) {
-    for (const [i, id] of order.entries()) await db.updateTable("clips").set({ position: i }).where("id", "=", id).where("timeline_id", "=", timelineId).execute();
+    const was = new Map((await db.selectFrom("clips").select(["id", "position"]).where("timeline_id", "=", timelineId).execute()).map((c) => [c.id, c.position]));
+    for (const [i, id] of order.entries()) {
+      if (was.get(id) !== i) await db.updateTable("clips").set({ position: i }).where("id", "=", id).where("timeline_id", "=", timelineId).execute();
+    }
   }
 
   /** Where a clip put after `after` goes (`self`, a clip that moves, left out): first for null, last when left out; a clip not on the timeline is refused. */
@@ -1692,6 +1703,18 @@ export class Timelines {
 
   /** Just before a clip's job is sent: its inputs with its neighbours filled in (TimelinePlan.plan). */
   plan(...args: Parameters<TimelinePlan["plan"]>): Promise<ClipPlan> { return this.planner.plan(...args); }
+  /**
+   * The clips of timelines, each timeline read once however often it is asked: for one request that plans many clips
+   * (plan's `placed`). Not kept past the reader, so an edit made after it is never missed by the next request.
+   */
+  placedOnce(): (timelineId: string) => Promise<Placed[]> {
+    const read = new Map<string, Promise<Placed[]>>();
+    return (timelineId) => {
+      let got = read.get(timelineId);
+      if (!got) read.set(timelineId, (got = this.placed(timelineId)));
+      return got;
+    };
+  }
   /** A clip's job is done: its video becomes a take, and plays (TimelineTakes.finished). */
   finished(...args: Parameters<TimelineTakes["finished"]>): Promise<void> { return this.takes.finished(...args); }
 
@@ -1765,7 +1788,7 @@ export class Timelines {
     const laid = laidOut(await this.placed(timelineId));
     const plan = musicPlan(musicBaseOf(t, await this.assetRow(t.music_asset_id)), musicClipsOf(laid));
     if (!plan.spans.some((s) => s.duckDb > 0)) return null;
-    return duckCurve(laid, (id) => this.media.motion(id), plan);
+    return duckCurve(laid, (id, row) => this.media.motion(id, row), plan);
   }
 
   /** A clip's timeline as it is on screen, and the clip's place in it. */

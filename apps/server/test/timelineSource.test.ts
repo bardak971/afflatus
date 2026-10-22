@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { newId, now } from "../src/db";
 import { newAssetRow } from "../src/media";
 import type { AssetRow } from "../src/timelineModel";
-import { get, makeApp, type TestApp } from "./helpers";
+import { get, sentView, withTakes, makeApp, type TestApp } from "./helpers";
 
 /**
  * A timeline's source lane: a long video made into Motion transfer clips window by window (timelineSource.ts). Rows put in
@@ -20,9 +20,9 @@ afterEach(async () => {
 const call = async (method: "GET" | "POST" | "PATCH" | "DELETE", url: string, payload?: unknown) => {
   const res = await t.app.inject({ method, url, payload: payload as object });
   if (res.statusCode >= 400) throw Object.assign(new Error(`${method} ${url}: ${res.statusCode} ${res.body}`), { statusCode: res.statusCode });
-  return res.json();
+  return sentView(res.json());
 };
-const view = async (id: string) => (await get(t.app, `/api/timelines/${id}`)).json();
+const view = async (id: string) => withTakes((await get(t.app, `/api/timelines/${id}`)).json());
 
 async function asset(kind: "video" | "image", over: Partial<AssetRow> = {}): Promise<AssetRow> {
   const id = newId();

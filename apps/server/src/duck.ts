@@ -1,5 +1,6 @@
 import { duckDbAt, type MusicPlan } from "@afflatus/core";
-import { visible, type Laid } from "./timelineModel";
+import { eachAtMost } from "./measures-api";
+import { visible, type AssetRow, type Laid } from "./timelineModel";
 
 /**
  * The music ducked under speech: one gain curve for a timeline, worked out on the server from where people speak in each
@@ -20,8 +21,11 @@ const RELEASE_MS = 500;
 
 export interface DuckCurve { rate: number; gains: number[] }
 
-/** A sound's speech-band levels, in dB, `rate` a second (null: it has no sound). */
-export type SpeechOf = (assetId: string) => Promise<{ rate: number; speech: number[] | null }>;
+/** A sound's speech-band levels, in dB, `rate` a second (null: it has no sound). `row`: its asset's row, when read already. */
+export type SpeechOf = (assetId: string, row?: AssetRow) => Promise<{ rate: number; speech: number[] | null }>;
+
+/** How many sounds' levels are read side by side: each a kept file, or, measured the first time, one ffmpeg. */
+const SPEECH_AT_ONCE = 4;
 
 /**
  * Where speech is heard along the timeline, then the music's gain there: down by `depth` dB under speech, eased in and
@@ -31,15 +35,21 @@ export async function duckCurve(laid: Laid[], speechOf: SpeechOf, depth: number 
   const total = laid.length ? laid.at(-1)!.atMs + laid.at(-1)!.lengthMs : 0;
   const n = Math.ceil((total / 1000) * DUCK_RATE);
   const talking = new Array<boolean>(n).fill(false);
-  for (const l of laid) {
+  // what is heard: the clip's own sound from where it is seen, or the sound file put on it, from its start
+  const heard = laid.flatMap((l) => {
     const p = l.p;
-    if (p.clip.kind !== "video" || p.clip.sound === "muted" || p.clip.volume <= 0) continue;
-    // what is heard: the clip's own sound from where it is seen, or the sound file put on it, from its start
+    if (p.clip.kind !== "video" || p.clip.sound === "muted" || p.clip.volume <= 0) return [];
     const own = p.clip.sound !== "file";
-    const assetId = own ? p.active?.asset.id : p.sound?.id;
-    if (!assetId) continue;
-    const from = own && p.active ? visible(p.active).start : 0;
-    const s = await speechOf(assetId).catch(() => null);
+    const asset = own ? p.active?.asset : p.sound;
+    return asset ? [{ l, asset, from: own && p.active ? visible(p.active).start : 0 }] : [];
+  });
+  // the sounds read a few at a time, with the rows the timeline was read with: one after the other, each reading its row
+  // again, a 150-clip timeline took 141 statements and 43 ms
+  const rows = new Map(heard.map((h) => [h.asset.id, h.asset]));
+  const levels = await eachAtMost([...rows.keys()], SPEECH_AT_ONCE, (id) => speechOf(id, rows.get(id)));
+  for (const { l, asset, from } of heard) {
+    const p = l.p;
+    const s = levels[asset.id];
     if (!s?.speech?.length) continue;
     const gainDb = 20 * Math.log10(p.clip.volume / 100);
     const first = Math.floor((l.atMs / 1000) * DUCK_RATE);

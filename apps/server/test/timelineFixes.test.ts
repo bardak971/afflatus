@@ -12,7 +12,7 @@ import { newAssetRow } from "../src/media";
 import { markJoins, trimsOf, LEAST_PLAY_MS, type AssetRow, type ClipRow, type Placed, type TakeRow } from "../src/timelineModel";
 import { handoverFrame, handoverOnGrid } from "../src/timelinePlan";
 import { tools } from "../src/video";
-import { get, makeApp, type TestApp } from "./helpers";
+import { get, sentView, withTakes, makeApp, type TestApp } from "./helpers";
 
 /**
  * The timeline's fixes of the 2026-10-07 review, each on rows put in the database by hand: a landed or seamless clip split
@@ -31,9 +31,9 @@ afterEach(async () => {
 const call = async (method: "GET" | "POST" | "PATCH" | "DELETE", url: string, payload?: unknown) => {
   const res = await t.app.inject({ method, url, payload: payload as object });
   if (res.statusCode >= 400) throw Object.assign(new Error(`${method} ${url}: ${res.statusCode} ${res.body}`), { statusCode: res.statusCode });
-  return res.json();
+  return sentView(res.json());
 };
-const view = async (id: string) => (await get(t.app, `/api/timelines/${id}`)).json();
+const view = async (id: string) => withTakes((await get(t.app, `/api/timelines/${id}`)).json());
 
 /** A video of the library, its file never read (nothing here asks ffmpeg). */
 async function video(over: Partial<AssetRow> = {}): Promise<AssetRow> {

@@ -15,6 +15,10 @@ import { ffmpegPool } from "./pool";
 import { readVideo, videoFacts } from "./video";
 import { ANY_PACKS, asBuilt, cannotWhy, optionsIn, packsSaid, ranWithoutSaid } from "./jobPacks";
 import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel";
+import type { Placed } from "./timelineModel";
+
+/** Where a timeline's clips are read (Timelines.placedOnce). */
+type PlacedReader = (timelineId: string) => Promise<Placed[]>;
 import { draftOf, measuredFirst, renderedOf } from "./queueStore";
 
 /** A job on its way to ComfyUI: its form settled, its files uploaded, its graph built and checked, the prompt queued. */
@@ -814,11 +818,12 @@ async function clipFacts(core: QueueCore, spec: InputSpec & { type: "clip" }, va
  * machine (its own renders, else the others' at its pace: forecast.ts onMachine); left out, every machine's renders as they
  * are. `machines`: each one's forecast too (`on`), from the one graph built. `loads`: what each machine was last asked to
  * load (its lane's lastLoads), so that with `cold` left out each is told whether it holds the model itself: judged by the
- * first machine's, a machine holding another model was told it warm.
+ * first machine's, a machine holding another model was told it warm. `placed`: where a clip's timeline is read, shared by
+ * the forms of one request (Timelines.placedOnce).
  */
 export async function forecastOf(
   core: QueueCore, recipeId: string, rawInput: unknown,
-  opts: { cold?: boolean; finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null; machine?: string | null; machines?: readonly string[]; loads?: (machine: string) => string | null } = {},
+  opts: { cold?: boolean; finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null; machine?: string | null; machines?: readonly string[]; loads?: (machine: string) => string | null; placed?: PlacedReader } = {},
 ): Promise<{ forecast: Forecast; shape: { pixels: number; frames: number }; model: string; on?: Record<string, Forecast> } | null> {
   const recipe = core.registry.recipe(recipeId);
   if (!recipe) return null;
@@ -828,7 +833,7 @@ export async function forecastOf(
   } catch {
     return null;
   }
-  const plan = opts.clip && core.clips ? await core.clips.plan(opts.clip.id, recipe, chosen, opts.clip.fit, opts.finishedFrom ?? null, true).catch(() => null) : null;
+  const plan = opts.clip && core.clips ? await core.clips.plan(opts.clip.id, recipe, chosen, opts.clip.fit, opts.finishedFrom ?? null, true, [], opts.placed).catch(() => null) : null;
   if (plan) chosen = parseInput(recipe, withTexts(recipe, plan.input)) as Record<string, unknown>;
   const built = await builtOf(core, recipeId, plan ? plan.input : rawInput, { finishedFrom: opts.finishedFrom ?? null, canvas: plan?.canvas }).catch(() => null);
   // its settings as submit files them: a file left on its default that this ComfyUI does not have is its best one (the time key)
