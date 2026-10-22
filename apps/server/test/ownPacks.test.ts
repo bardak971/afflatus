@@ -219,6 +219,11 @@ describe("the card a ComfyUI runs on", () => {
     expect(packFacts("cuda:0 NVIDIA RTX A6000 : cudaMallocAsync", true, new Map(), "x").nvidia).toBe(true);
     expect(packFacts("cuda:0 AMD Radeon RX 7900 XTX : native", true, new Map(), "x").nvidia).toBe(false);
     expect(packFacts("cuda:0 NVIDIA GeForce GTX 1080 Ti : cudaMallocAsync", true, new Map(), "x").nvidia).toBe(false);
+    // the data-centre cards of the RTX generations have no "RTX" in their name: an A40 ran RTX VSR on a pod
+    expect(packFacts("cuda:0 NVIDIA A40 : cudaMallocAsync", true, new Map(), "x").nvidia).toBe(true);
+    expect(packFacts("cuda:0 NVIDIA L40S : cudaMallocAsync", true, new Map(), "x").nvidia).toBe(true);
+    expect(packFacts("cuda:0 Tesla V100-SXM2-16GB : cudaMallocAsync", true, new Map(), "x").nvidia).toBe(false);
+    expect(packFacts("cuda:0 Quadro P4000 : cudaMallocAsync", true, new Map(), "x").nvidia).toBe(false);
   });
 });
 

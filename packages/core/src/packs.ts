@@ -52,12 +52,15 @@ export const EITHER_PACKS = [
 export const NVIDIA_ONLY = ["RTXVideoSuperResolution", "DaSiWa_RTX_UpscalerRefiner"];
 
 /**
- * Whether a ComfyUI's device (its /system_stats name) is an NVIDIA RTX card, the only ones RTX Video Super Resolution runs
- * on (NVIDIA's pack says "Only works on Nvidia RTX GPUs"): "cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync". By the
- * card's name, not by "cuda": ComfyUI names an AMD card under ROCm (or ZLUDA) "cuda:0 AMD Radeon RX 7900 XTX : native",
- * and a GTX or an older Quadro is NVIDIA's without being an RTX.
+ * Whether a ComfyUI's device (its /system_stats name) is an NVIDIA card of the RTX generations, the only ones RTX Video
+ * Super Resolution runs on (NVIDIA's pack says "Only works on Nvidia RTX GPUs"): "cuda:0 NVIDIA GeForce RTX 4090 :
+ * cudaMallocAsync". By the card's name, not by "cuda": ComfyUI names an AMD card under ROCm (or ZLUDA) "cuda:0 AMD Radeon
+ * RX 7900 XTX : native". The data-centre cards of those generations carry no "RTX" in their name (an A40 ran it on a
+ * pod, 2026-10-19), so what is left out is the older NVIDIA ones: a GTX, GT or MX, a Quadro K/M/P, a Tesla K/M/P/V, a
+ * Titan X / Xp / V.
  */
-export const isNvidiaRtx = (device: string): boolean => /nvidia/i.test(device) && /\brtx\b/i.test(device);
+export const isNvidiaRtx = (device: string): boolean =>
+  /nvidia|tesla|quadro/i.test(device) && !/\b(gtx|gt|mx)\b|\bquadro\s+[kmp]\d|\btesla\s+[kmpv]\d|\btitan\s+(x|xp|v)\b/i.test(device);
 
 /**
  * Packs used whenever they are there, faster or nicer with them, that no form needs. One may still be installed for a
