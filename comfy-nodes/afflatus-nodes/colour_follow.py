@@ -83,20 +83,67 @@ HOLD = 6
 # Times the reference's own flicker around it a cut must stand out by, as well as by `JUMP`. A strongly flickering driving
 # video (3 to 4 levels a frame, or a slower wander) holds a 6-level step for 6 frames now and then by chance, and each one
 # taken for a cut stepped the clip by 10 to 20 levels where averaging kept it under 3. The flicker is each frame's distance
-# from the median of the frames within 2 `hold` of it (a running median keeps a cut's step, so a cut nearby does not count
-# as flicker), its median over the frames within 8 `hold`: a calm shot's cut of 6 levels stays one. Each side of the step is
-# also measured on its own and the larger taken (three quarters of it at least, the two sides' figures differing by chance
-# even in one steady flicker): measured across both, a calm side set the bar near a flickering one where a flicker started
-# or stopped, and its first steps were taken for cuts
+# from the median of the frames within 2 `hold` of it and in its shot (see `GRAIN`; a running median keeps a cut's step,
+# so a cut nearby does not count as flicker), its median over the frames within 8 `hold`: a calm shot's cut of 6 levels
+# stays one. Each side of the step is also measured on its own and the larger taken (three quarters of it at least, the
+# two sides' figures differing by chance even in one steady flicker): measured across both, a calm side set the bar near a
+# flickering one where a flicker started or stopped, and its first steps were taken for cuts. The `hold` frames nearest
+# the step on each side count as a side too, their flicker read off their frame-to-frame steps: within a second or two of
+# a window's end one side is too short to count, and the other mostly holds frames from before the flicker started (or
+# after it stopped), so a flicker starting in a window's last second or two was taken for cuts there, on the frames the
+# next window is held to
 NOISE = 6.0
 
-# A stretch of frames whose flicker reads more than this many times their distance from their own shot's median is a run of
-# short steady shots, not a flicker: the 2 `hold` running median spans two or three shots under 13 frames and reads their
-# cuts as flicker (a calm fast-cut driving video lost every cut and faded through them). Each frame's own shot is the `hold`
-# frames ending at it or starting at it, whichever is nearer its colour (one of them lies within its shot when the shot holds
-# `hold` frames), and such a stretch's flicker is taken as twice that distance. A flicker, even a slow wander, mostly reads 2
-# to 4 times its distance from them, and keeps its own figure
-SHOTS = 5.0
+# Times the grain of the shots on both sides a step between two runs of frames must stand out by for the flicker around it
+# to be measured within each shot: a running median across a cut reads the cut as flicker, and a fast-cut driving video in a
+# level of grain lost a third to most of its cuts. The grain is read off a run's frame-to-frame steps, which a cut the runs
+# missed moves by one step of many. A flicker or a wander steps nearly as far within its runs as between them, and stays
+# measured as one: at 3 times a wander's false cuts rose, and at 6 a montage in 1.5 levels of grain kept fewer cuts than
+# before
+GRAIN = 4.5
+
+
+def _grain(*runs, mean=False):
+    """
+    The flicker of runs of frames read off their frame-to-frame steps, as the flicker figure reads a steady grain (its median
+    distance from its level), the largest of its channels: from the median step over the square root of 2, which a cut
+    among the steps does not move, or with `mean` from the mean step (a steady grain's is 2 / sqrt(pi) times its spread),
+    which a few frames give more surely (read off their median, a calm-looking handful let a flicker's step through, and a
+    cut inside a flicker near the window's ends was lost more often).
+    """
+    d = np.abs(np.concatenate([np.diff(r, axis=0) for r in runs]))
+    return (np.mean(d, axis=0) * 0.6745 * np.sqrt(np.pi) / 2 if mean else np.median(d, axis=0) / np.sqrt(2)).max()
+
+
+def _shots(m, jump, hold):
+    """
+    Each frame's shot, as (first, past-the-last): the frames between steps that hold (`stretches` without `noise`) and that
+    stand out `GRAIN` times the grain of the runs on both sides of them. A frame in a run shorter than `hold`, whose grain
+    tells nothing, is in the whole clip; one at the clip's start or end is short because the clip is, and the run beside it
+    decides alone (a calm shot's cut 3 frames from the end, joined to the shot before, read as flicker there). A clip
+    shorter than 2 `hold` has no such run on both sides of a step: its runs count from half its length, a single frame as
+    calm.
+    """
+    runs = stretches(m, jump, hold)
+    n, need = len(m), min(hold, len(m) // 2)
+
+    def grain(a, b):
+        if b - a < need:
+            return 0.0 if a == 0 or b == n else np.inf
+        return _grain(m[a:b]) if b - a > 1 else 0.0
+
+    shots = [list(runs[0])]
+    for (a0, b0), (a, b) in zip(runs, runs[1:]):
+        step = np.abs(np.median(m[a : a + hold], axis=0) - np.median(m[max(0, a - hold) : a], axis=0)).max()
+        if step > GRAIN * max(grain(a0, b0), grain(a, b)):
+            shots.append([a, b])
+        else:
+            shots[-1][1] = b
+    out = [(0, n)] * n
+    for a, b in shots:
+        if b - a >= need:
+            out[a:b] = [(a, b)] * (b - a)
+    return out
 
 
 def stretches(means, jump=JUMP, hold=1, noise=0.0):
@@ -104,37 +151,39 @@ def stretches(means, jump=JUMP, hold=1, noise=0.0):
     Frames as runs between their jumps, read off each frame's mean: (first, past-the-last) pairs. With `hold`, a step is a
     jump only when the `hold` frames after it are that far from the `hold` frames before it too, by their medians (a flash
     of a frame or two does not move a median). With `noise`, both must also be `noise` times the flicker around it (see
-    `NOISE` and `SHOTS`).
+    `NOISE` and `GRAIN`).
     """
     if not len(means):
         return [(0, 0)]
     m = np.asarray(means, dtype=np.float64).reshape(len(means), -1)
     n = len(m)
-    flicker = shot = None
+    flicker = None
     if noise:
-        flicker = np.abs(m - np.array([np.median(m[max(0, j - 2 * hold) : j + 2 * hold + 1], axis=0) for j in range(n)]))
-        shot = np.array(
-            [
-                np.minimum(np.abs(m[j] - np.median(m[max(0, j - hold + 1) : j + 1], axis=0)), np.abs(m[j] - np.median(m[j : j + hold], axis=0)))
-                for j in range(n)
-            ]
-        )
+        shot = _shots(m, jump, hold)
+        flicker = np.abs(m - np.array([np.median(m[max(j - 2 * hold, shot[j][0]) : min(j + 2 * hold + 1, shot[j][1])], axis=0) for j in range(n)]))
 
     def spread(a, b):
-        f, s = np.median(flicker[a:b], axis=0), np.median(shot[a:b], axis=0)
-        return np.where(f > SHOTS * s, 2 * s, f).max()
+        return np.median(flicker[a:b], axis=0).max()
 
     def least(i):
         if flicker is None:
             return jump
         a, b = max(0, i - 8 * hold), min(n, i + 8 * hold)
         sides = [spread(x, y) for x, y in ((a, i), (i, b)) if y - x >= hold]
+        near = [x for x in (m[max(0, i - hold) : i], m[i : i + hold]) if len(x) > 1]
+        if near:
+            sides.append(_grain(*near, mean=True))
         v = max([spread(a, b), *[0.75 * s for s in sides]])
+        # A few frames' steps can read calm by chance: within `hold` of an end, where the next window is held to these
+        # frames, the 2 `hold` nearest count as well (as they are: doubled below, a calm shot's 7-level cut on the last
+        # frames was lost)
+        wide = [x for x in (m[max(0, i - 2 * hold) : i], m[i : i + 2 * hold]) if len(x) > 1] if min(i, n - i) < hold else []
+        wide = 0.75 * _grain(*wide, mean=True) if wide else 0.0
         # Within 2 frames of either end a step has too few frames on that side to show it holds, and one taken for a cut there
         # left the window's end frames on the reference's raw flicker, where the window beside it is held to this one: it must
         # stand out twice as far (a calm shot's cut there still does)
         edge = 2 if min(i, n - i) < 3 else 1
-        return max(jump, edge * noise * v)
+        return max(jump, noise * max(edge * v, wide))
 
     def apart(a, b, by):
         return np.abs(a - b).max() > by
@@ -143,7 +192,17 @@ def stretches(means, jump=JUMP, hold=1, noise=0.0):
         if not apart(m[i], m[i - 1], jump):
             return False
         by = least(i)
-        return apart(m[i], m[i - 1], by) and apart(np.median(m[i : i + hold], axis=0), np.median(m[max(0, i - hold) : i], axis=0), by)
+        after, before = np.median(m[i : i + hold], axis=0), np.median(m[max(0, i - hold) : i], axis=0)
+        if not (apart(m[i], m[i - 1], by) and apart(after, before, by)):
+            return False
+        if flicker is None or hold <= min(i, n - i):
+            return True
+        # Within `hold` of either end, every frame on the short side must lie past the middle of the step, on its own side:
+        # a calm shot's cut there holds to the end, and a flicker's few frames fall back across it
+        c = np.argmax(np.abs(after - before))
+        short, own = (m[i:, c], after[c]) if n - i < hold else (m[:i, c], before[c])
+        middle = (after[c] + before[c]) / 2
+        return bool(np.all((short - middle) * (own - middle) > 0))
 
     edges = [0, *[i for i in range(1, n) if cut(i)], n]
     return [(edges[k], edges[k + 1]) for k in range(len(edges) - 1)]

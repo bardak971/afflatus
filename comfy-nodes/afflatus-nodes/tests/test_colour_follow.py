@@ -273,3 +273,44 @@ def test_a_10_level_cut_in_a_2_level_flicker_is_kept_as_often_as_before():
     # 0.36.1 kept it 24 times in these 40; the rules for montages and for a flicker that starts must not lose more of them
     kept = sum(ref_cuts(flicker(241, 0.02, 500 + seed) - np.where(np.arange(241) >= 120, 0.1, 0.0)) == [120] for seed in range(40))
     assert kept >= 24, kept
+
+
+def test_a_flicker_that_starts_or_stops_within_a_second_or_two_of_the_windows_end_is_no_cut():
+    # A calm shot that starts flickering by 4 to 10 levels a frame 7 to 34 frames before the window's end, or a flickering
+    # one that calms down 7 to 34 frames after its start: the side past the step was too short to count, the other mostly
+    # calm, and the flicker's steps were taken for cuts on the frames the next window is held to (4 to 86 windows in 100)
+    cut = 0
+    for k, (sd, at) in enumerate((sd, at) for sd in (0.04, 0.06, 0.1) for at in (7, 12, 18, 24, 30, 34)):
+        for seed in range(3):
+            calm, strong = flicker(241, 0.005, 600 + 10 * k + seed), flicker(241, sd, 800 + 10 * k + seed)
+            starts = np.concatenate([calm[: 241 - at], strong[241 - at :]])
+            stops = np.concatenate([strong[:at], calm[at:]])
+            cut += bool(ref_cuts(starts)) + bool(ref_cuts(stops))
+    # 0.36.2 cut 38 of these 108; a rare few frames that hold a step by chance stay cuts
+    assert cut <= 3, cut
+
+
+def test_a_fast_cut_montage_in_a_level_of_grain_keeps_its_cuts():
+    # Shots of 6, 8 or 13 frames, or 8 to 16, each 8 to 10 levels from the one before, under a frame-to-frame grain of about
+    # a level: a running median across a cut read it as flicker, and such a montage lost a third to most of its cuts
+    rng = np.random.default_rng(630)
+    for gap in (6, 8, 13, None):
+        kept = total = 0
+        for seed in range(4):
+            lengths = rng.integers(8, 17, 40) if gap is None else [gap] * 40
+            ats = [a for a in np.cumsum(lengths) if a < 241]
+            level, grey = 0.0, np.zeros(241)
+            for a in ats:
+                level += rng.uniform(0.08, 0.1) * (1 if level <= 0 else -1)
+                grey[a:] = level
+            got = ref_cuts(grey + flicker(241, 0.01, 640 + seed))
+            kept += sum(a in got for a in ats)
+            total += len(ats)
+        assert kept >= 0.85 * total, (gap, kept, total)
+
+
+def test_a_short_clips_cut_is_kept_and_its_flicker_is_not_one():
+    # Under 2 `hold` frames no run on either side of a step holds `hold` frames: its runs count from half its length
+    for n in (2, 3, 5, 8, 11):
+        assert ref_cuts(np.where(np.arange(n) >= n // 2, -0.1, 0.0)) == [n // 2], n
+    assert sum(bool(ref_cuts(flicker(n, 0.06, 650 + n))) for n in (5, 8, 11, 15, 20)) == 0
