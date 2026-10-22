@@ -30,7 +30,7 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
 
   /** Everything the composer can make things with, and the form of each. */
   app.get("/api/recipes", async () => ({ families: s.registry.families(), recipes: s.registry.recipes().map(describeRecipe) }));
-  /** How large the families' official files are, by address: those known now, the others asked in the background (officialSizes.ts). */
+  /** How large the families' official files are, by address: those known now, the others asked in the background with lookups on (officialSizes.ts). */
   app.get("/api/official-sizes", async () => s.officialSizes.sizes());
 
   /**

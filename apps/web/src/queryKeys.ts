@@ -9,6 +9,8 @@ import type { Clip, Timeline } from "./api";
  */
 export const queryKeys = {
   recipes: () => ["recipes"] as const,
+  /** How large the families' official files are (data.ts useOfficialSizes). */
+  officialSizes: () => ["official-sizes"] as const,
   /** What ComfyUI can do: every machine together, or one machine's (under it, so a "setup" event reads both again). */
   setup: (machine?: string) => (machine ? (["setup", machine] as const) : (["setup"] as const)),
   /** The queue alone: the history is not under it (see history). */
@@ -152,7 +154,7 @@ export const queryKeys = {
   scenes: (asset: string) => ["scenes", asset] as const,
   /** What a form would take, from the record of render times: under "advice", read again when a render ends. */
   /** What a form says under its options whose node packs the machine lacks: read again once ComfyUI restarts (the setup's key). */
-  formPacks: (recipe: string | undefined, values: string) => ["setup", "formPacks", recipe, values] as const,
+  formPacks: (recipe: string | undefined, values: string, machine?: string) => ["setup", "formPacks", recipe, values, machine ?? null] as const,
   formPrompt: (recipe: string, values: string) => ["setup", "formPrompt", recipe, values] as const,
   advice: {
     all: () => ["advice"] as const,
