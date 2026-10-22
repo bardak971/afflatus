@@ -11,8 +11,10 @@
  * (an arbitrary font size, radius, z-index or tracking, a raw colour, an × of its own, a spinner of its own, a hand-made
  * icon button, an animation that does not ask motionAllowed). Those were in hundreds of places when the rules came, so
  * they do not fail on a match: scripts/design-budget.json holds each rule's count, and the lint fails when one goes up.
- * When one goes down it says so, and `tsx scripts/check-shared.ts --budget` writes the new counts in (a budget only ever
- * comes down); `--list <rule>` prints where a rule's matches are.
+ * When one goes down the lint fails too, with "lower the budget to N", until `tsx scripts/check-shared.ts --budget` writes
+ * the new counts in (it never raises one: a budget only ever comes down). The lint does not write the file itself: the
+ * budget changes only in a commit its author made, so a lint run on one branch never leaves the tree dirty, and two
+ * branches that lowered it meet as a plain conflict on the numbers. `--list <rule>` prints where a rule's matches are.
  */
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -117,6 +119,23 @@ export function overBudget(counts: Record<string, number>, budget: Record<string
 }
 
 /**
+ * What a lint run says about the budget, and whether it fails. A count under its budget fails as one over it does, or the
+ * budget would only come down when someone remembered to run `--budget`, and a later addition could take the slack back
+ * unseen. `writing` is the `--budget` run that has just written the counts in (nothing over), which leaves nothing under.
+ * @internal exported for the test
+ */
+export function budgetVerdict(counts: Record<string, number>, budget: Record<string, number>, writing: boolean): { lines: string[]; fails: boolean } {
+  const lines: string[] = [];
+  for (const r of DESIGN_RULES) {
+    const now = counts[r.id] ?? 0;
+    const allowed = budget[r.id] ?? 0;
+    if (now > allowed) lines.push(`design budget: ${r.id}: ${now}, over its budget of ${allowed}. ${r.why} (tsx scripts/check-shared.ts --list ${r.id} shows where)`);
+    else if (now < allowed && !writing) lines.push(`design budget: ${r.id}: ${now}, under its budget of ${allowed}: lower the budget to ${now} (tsx scripts/check-shared.ts --budget)`);
+  }
+  return { lines, fails: lines.length > 0 };
+}
+
+/**
  * The source files the guard reads: TypeScript under apps/<name>/src, packages/<name>/src and scripts/. The scripts are
  * read because an inline plural slipped into check-graphs.ts while they were left out; their .mjs run on bare Node,
  * cannot import core, and are not read.
@@ -160,23 +179,24 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       const n = designed(file) ? rule.count(file, text) : 0;
       if (n) console.log(`${file}: ${n}`);
     }
-    process.exit(0);
+    // The shared findings are printed above whatever the rule, so a listing run fails on them as the lint does.
+    process.exit(found.length ? 1 : 0);
   }
   const budgetFile = join(root, "scripts", "design-budget.json");
   const counts = designCounts(files);
   const budget = JSON.parse(readFileSync(budgetFile, "utf8")) as Record<string, number>;
-  const { up, down } = overBudget(counts, budget);
+  let writing = false;
   if (process.argv.includes("--budget")) {
     // only ever down: a count over its budget is a failure to fix, not one to write in
-    if (up.length) console.error("A rule is over its budget: the budget is not raised.");
+    if (overBudget(counts, budget).up.length) console.error("A rule is over its budget: the budget is not raised.");
     else {
       writeFileSync(budgetFile, `${JSON.stringify(counts, null, 2)}\n`);
       console.log("design budget: written down to today's counts.");
+      writing = true;
     }
-  } else {
-    for (const d of down) console.log(`design budget: ${d}. Lower it: tsx scripts/check-shared.ts --budget`);
   }
-  for (const u of up) console.error(`design budget: ${u} (tsx scripts/check-shared.ts --list <rule> shows where)`);
+  const verdict = budgetVerdict(counts, budget, writing);
+  for (const line of verdict.lines) console.error(line);
   if (found.length) console.error(`\n${plural(found.length, "place")} written by hand beside a shared helper (scripts/check-shared.ts).`);
-  if (found.length || up.length) process.exit(1);
+  if (found.length || verdict.fails) process.exit(1);
 }

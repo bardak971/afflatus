@@ -2,7 +2,7 @@ import { relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { DESIGN_RULES, designCounts, overBudget, sharedFindings, sources } from "../../../scripts/check-shared";
+import { budgetVerdict, DESIGN_RULES, designCounts, overBudget, sharedFindings, sources } from "../../../scripts/check-shared";
 
 // the guard `pnpm lint` runs: what it refuses, and what it leaves alone
 describe("the shared helpers' guard", () => {
@@ -74,6 +74,17 @@ describe("the design budget", () => {
     expect(down).toEqual(["z-index: 4, under its budget of 5"]);
     // a rule with no budget yet is held at nothing
     expect(overBudget({ "font-size": 1 }, {}).up).toHaveLength(1);
+  });
+  it("fails the lint on a count under its budget, saying the number to lower it to, but not on the run that writes it in", () => {
+    // A lower count only printed "Lower it" and passed (review O-11), so the budget came down only when someone remembered.
+    const budget = Object.fromEntries(DESIGN_RULES.map((r) => [r.id, 5]));
+    const under = budgetVerdict({ ...budget, "z-index": 4 }, budget, false);
+    expect(under.fails).toBe(true);
+    expect(under.lines).toEqual([expect.stringMatching(/z-index: 4, under its budget of 5: lower the budget to 4/)]);
+    expect(budgetVerdict({ ...budget, "z-index": 4 }, budget, true)).toEqual({ lines: [], fails: false });
+    expect(budgetVerdict(budget, budget, false)).toEqual({ lines: [], fails: false });
+    // --budget never raises one: a count over its budget still fails the writing run.
+    expect(budgetVerdict({ ...budget, radius: 6 }, budget, true).fails).toBe(true);
   });
   it("holds today's counts: the budget file names every rule, and the sources keep within it", () => {
     const root = fileURLToPath(new URL("../../..", import.meta.url));
