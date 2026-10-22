@@ -3,6 +3,7 @@ import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import type { Clip, RecipeInfo, Timeline } from "../../src/api";
 import { ContextMenu } from "../../src/ContextMenu";
+import { TimelineHeader } from "../../src/timeline/EditorBars";
 import { useNewClock } from "../../src/timeline/clock";
 import { clipMenuItems, type ClipMenuActions } from "../../src/timeline/menus";
 import { layout } from "../../src/timeline/model";
@@ -40,14 +41,14 @@ const none = { data: undefined, isSuccess: false } as never;
 const refused = (error: string, status = 409) => jsonAnswer({ error }, status);
 
 /** The editor's clip forms and mutations, the latest of each read through `now()`, the first render's through `first`. */
-function rig() {
+function rig(note: (text: string, more?: string) => void = () => {}) {
   const seen: Array<{ edits: ReturnType<typeof useClipEdits>; m: ReturnType<typeof useTimelineMutations>; trim: ReturnType<typeof useOneTrim> }> = [];
   function Editor() {
     const trim = useOneTrim();
     const edits = useClipEdits({ timeline, clips: timeline.clips, recipes: none, setup: none, settings: none, comfyOnline: true });
     const m = useTimelineMutations(timeline.id, {
       timeline, clipsNow: { current: timeline.clips }, recipes: [model], firstRecipe: () => undefined, edits,
-      on: { note: () => {}, select: () => {}, unpick: () => {}, writing: () => {}, open: () => {} },
+      on: { note, select: () => {}, unpick: () => {}, writing: () => {}, open: () => {} },
     });
     seen.push({ edits, m, trim });
     return null;
@@ -128,6 +129,34 @@ describe("the timeline editor's mutations, drawn", () => {
     expect(made).toEqual([["zz-test-window"], [], []]);
     expect(now().trim.waits("source")).toBe(false);
     expect(now().trim.busy).toBe(false);
+  });
+
+  it("puts what Undo, Redo and a trim of the source say behind the note's \"?\", whole, not in its one cut-off line (W-18)", async () => {
+    const said = "zz-test: the take rendered since on clip 2 does not fit that clip at this step: its video stays kept in the library, and Redo puts it back.";
+    const told = "zz-test: a rendered window set aside under a model this source no longer takes stays aside with its takes: the end goes on past it.";
+    fakeApi.on("POST /timelines/:id/undo", { undone: "Trim the source", said });
+    fakeApi.on("POST /timelines/:id/redo", { redone: "Trim the source" });
+    fakeApi.on("POST /timelines/:id/source/trim", { clips: [], toMs: 5000, said: told });
+    const notes: Array<{ text: string; more?: string }> = [];
+    const { now } = rig((text, more) => notes.push({ text, more }));
+    act(() => now().m.undo.mutate());
+    await waitFor(() => expect(notes).toHaveLength(1));
+    act(() => now().m.redo.mutate());
+    await waitFor(() => expect(notes).toHaveLength(2));
+    act(() => now().m.trimSource.mutate({ fromMs: 2000, toMs: 6000 }));
+    await waitFor(() => expect(notes).toHaveLength(3));
+    expect(notes).toEqual([{ text: "Undone: Trim the source.", more: said }, { text: "Redone: Trim the source.", more: undefined }, { text: "Trimmed: what was rendered is kept aside.", more: told }]);
+    // drawn in the header: the step on the line, what the server said whole behind the "?"
+    draw(
+      <TimelineHeader
+        t={timeline} clips={timeline.clips} total={5000} saveFailed={null} onRetrySave={() => {}} said={{ error: null, note: notes[0]! }}
+        undo={{ run: () => {}, pending: false }} redo={{ run: () => {}, pending: false }}
+        missing={[]} allMs={0} allOn={() => 0} allBlocked={() => null} picked={{ size: 0, renderable: false }} rendering={false}
+        onRename={() => {}} onRenderMissing={() => {}} onRenderPicked={() => {}} onFinish={() => {}} onExport={() => {}}
+      />,
+    );
+    expect(screen.getByText("Undone: Trim the source.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: said })).toBeTruthy();
   });
 
   it("takes a trim again once one has failed (W-2)", async () => {

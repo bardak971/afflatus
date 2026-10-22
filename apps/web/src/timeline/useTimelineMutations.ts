@@ -114,11 +114,15 @@ export function useTimelineMutations(id: string, o: {
   const cutSource = useMutation({ mutationFn: () => api.makeFromSource(id, true), onSuccess: after });
   /** A recording's Lip sync clips trimmed (Timelines.trimRecording). */
   const trimRecording = useMutation({ mutationFn: (v: { asset: string; fromMs: number; toMs: number }) => api.trimRecording(id, v.asset, v.fromMs, v.toMs), onSuccess: readBack });
-  /** The source's stretch trimmed after Make (Timelines.trimSource); what the server says of it (windows it passed) in the header. */
+  /**
+   * The source's stretch trimmed after Make (Timelines.trimSource). What the server says of it (windows it passed) goes
+   * behind the header note's "?", where it is read whole and stays longer: it is said once only, and a sentence that
+   * long was cut off in the note's line.
+   */
   const trimSource = useMutation({
     mutationFn: (v: { fromMs: number; toMs: number }) => api.trimSource(id, v.fromMs, v.toMs),
     onSuccess: (r) => {
-      if (r.said) o.on.note(r.said);
+      if (r.said) o.on.note("Trimmed: what was rendered is kept aside.", r.said);
       return readBack();
     },
   });
@@ -188,7 +192,8 @@ export function useTimelineMutations(id: string, o: {
     onSuccess: (r) => {
       // what the server has now is what counts: what was typed was saved before the undo
       dropEdits();
-      o.on.note(`Undone: ${r.undone}.${r.said ? ` ${r.said}` : ""}`);
+      // what the server says of the step (a take that does not fit its clip) behind the "?": whole, and longer on screen
+      o.on.note(`Undone: ${r.undone}.`, r.said);
       after();
     },
   });
@@ -200,7 +205,7 @@ export function useTimelineMutations(id: string, o: {
     },
     onSuccess: (r) => {
       dropEdits();
-      o.on.note(`Redone: ${r.redone}.${r.said ? ` ${r.said}` : ""}`);
+      o.on.note(`Redone: ${r.redone}.`, r.said);
       after();
     },
   });
