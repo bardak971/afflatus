@@ -63,6 +63,16 @@ describe("reading a volume", () => {
     expect(s3.calls).toEqual([]);
   });
 
+  it("says why under pretend sites with no pretend S3, rather than failing or asking RunPod's own", async () => {
+    await withKey();
+    vi.stubEnv("RUNPOD_S3_URL", "");
+    const res = await get(t.app, "/api/runpod/volumes/vol-ro/files");
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ source: "none", files: [] });
+    expect(res.json().why).toMatch(/S3 API is not asked here/);
+    expect(s3.calls).toEqual([]);
+  });
+
   it("lists the models folder only: each file's folder, name and bytes; ComfyUI itself and RunPod's upload parts left out", async () => {
     await withKey();
     const view = await files();
