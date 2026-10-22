@@ -2,6 +2,19 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Button } from "./ui";
 
 /**
+ * Which screen an address shows, for the boundary around the screens (App): a screen that failed is drawn afresh once
+ * another one is opened. "/create" and "/timelines" are the Studio's own addresses, with its form open or its timelines
+ * shown: the same screen. A timeline's editor, and a workflow's, is a screen of its own for each one: keyed by the kind
+ * alone, an editor that failed stayed failed over the next timeline opened straight from it (Back, Forward, a banner's
+ * link to the timeline).
+ */
+export function screenKey(path: string): string {
+  if (path === "/create" || path === "/timelines") return "";
+  if (/^\/timelines\/[^/]+/.test(path) || /^\/workflows\/[^/]+\/edit/.test(path)) return path;
+  return path.split("/")[1] ?? "";
+}
+
+/**
  * What stands in for a screen that failed to draw, or whose chunk could not be loaded (a tab left open
  * across an upgrade): what went wrong, and a reload. Without it React unmounts the whole page and leaves
  * it blank. `whole`: the boundary around the app itself, which has nothing around it to fall back on.

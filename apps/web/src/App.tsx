@@ -12,7 +12,7 @@ import { ConfirmHost } from "./Confirm";
 import { DeployHost } from "./deploy";
 import { FindModelsHost } from "./findModels/Host";
 import { UpdateNews } from "./UpdateNews";
-import { ErrorBoundary } from "./ErrorBoundary";
+import { ErrorBoundary, screenKey } from "./ErrorBoundary";
 import { FolderImportNote } from "./folderImport";
 import { useBanners } from "./store";
 import { BarHost } from "./bar/BarHost";
@@ -98,9 +98,8 @@ export function App() {
         <NavRail />
         {/* while a screen's code loads: an editor's own shape for the timeline and workflow editors (they then land in place), else a line */}
         <Suspense fallback={/^\/timelines\/[^/]+/.test(path) ? <EditorSkeleton id={path.split("/")[2]} /> : /^\/workflows\/[^/]+/.test(path) ? <WorkflowEditorSkeleton /> : <div className="grow p-8 text-ink-2">Loading…</div>}>
-        {/* a screen that fails takes only itself down; going to another screen starts afresh ("/create" and "/timelines" are
-            the Studio's own addresses, with its form open or its timelines shown: the same screen; a timeline's editor is not) */}
-        <ErrorBoundary key={path === "/create" || path === "/timelines" ? "" : path.split("/")[1]}>
+        {/* a screen that fails takes only itself down; going to another screen starts afresh (screenKey) */}
+        <ErrorBoundary key={screenKey(path)}>
         <Switch>
           <Route path="/">{first.shows ? <FirstLaunch /> : <Studio key="studio" />}</Route>
           {/* the Studio with its form open: the same screen (the same key, so opening the form keeps what is on it), the address following the form */}
