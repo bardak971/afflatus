@@ -7,19 +7,19 @@ import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import { COLOUR_MATCH_NODES, rifeNeeds, rifeSkippedSaid } from "../shared/finish";
 import { conditionFor, type MorePicture } from "./condition";
 import { finish, H3_SAVE_LATENT } from "./finish";
-import { FACE_REFINE_OPTIONAL, FACE_REFINE_SLOTS, faceRefineSkipped } from "./faceRefine";
+import { FACE_REFINE_OPTIONAL, FACE_REFINE_SLOTS, faceRefineNeeds, faceRefineSkipped } from "./faceRefine";
 import { h3Inputs, type H3Video } from "./inputs";
 import { frameFor, H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_LANDING, H3_SEAM, H3_TRIM, resolveJoin } from "./join";
 import { H3_LATENT_ENLARGE_NODES, H3_LATENT_UPSCALE_NODES, latentUpscaleNeeds, latentUpscalePass, latentUpscaleRounds, plainResizeSaid } from "./latent-upscale";
-import { AUTO_SAMPLER, H3_STARTS, loadH3Model, modelOf, namedFor, turboNeeds, uses, vedaNeeds } from "./model";
+import { AUTO_SAMPLER, H3_STARTS, loadH3Model, modelOf, namedFor, referenceNeeds, turboNeeds, uses, vedaNeeds } from "./model";
 
 // the recipe's parts live beside it (inputs, join, condition, latent-upscale, finish); its input type is still had from here
 export type { H3Video } from "./inputs";
 
 export const h3Video = defineRecipe<H3Video>({
-  // Turbo's LoRA, and H3's latent upscaler for an upscale with it
-  // Turbo's LoRA, H3's latent upscaler for an upscale with it, RIFE with "RIFE ×2" on
-  needsWith: (input, slots) => [...turboNeeds(input, slots), ...vedaNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth)],
+  // Turbo's LoRA, the reference model for a clip with references, H3's latent upscaler for an upscale with it, RIFE with
+  // "RIFE ×2" on, Face refine's files with it on
+  needsWith: (input, slots) => [...turboNeeds(input, slots), ...referenceNeeds(input, slots), ...vedaNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...faceRefineNeeds(input)],
   id: "h3.video",
   family: "h3",
   version: 2,
@@ -44,11 +44,11 @@ export const h3Video = defineRecipe<H3Video>({
     const routeNodes = upscaleNodes(input);
     const guided = Boolean(input.previous || input.next || input.mid) || (how.start && (input.references.length > 0 || input.refVideos.length > 0));
     const picked = modelOf(input, {});
-    // a turbo model that makes the clip itself takes no turbo LoRA
-    const turboLora = input.fast && !(picked.turbo && (!how.reference || picked.hybrid));
+    // a turbo model that makes the clip itself takes no turbo LoRA; a Finish › Face refine loads no model of the clip's
+    const turboLora = input.fast && !(picked.turbo && (!how.reference || picked.hybrid)) && !refinesOnly(input);
     return [
       ...routeNodes,
-      ...unetNodes(input.model), "CLIPLoader", "VAELoader", "MiniMaxH3SigmaShift", how.reference ? "MiniMaxH3ReferenceToVideo" : "MiniMaxH3ImageToVideo", "RandomNoise", "KSamplerSelect",
+      ...(refinesOnly(input) ? ["UNETLoader"] : unetNodes(input.model)), "CLIPLoader", "VAELoader", "MiniMaxH3SigmaShift", how.reference ? "MiniMaxH3ReferenceToVideo" : "MiniMaxH3ImageToVideo", "RandomNoise", "KSamplerSelect",
       // the latent route runs on the third-party H3 nodes (so a ComfyUI without them is refused up front, not quietly left at the
       // original size), decodes the enlarged latent in tiles, and the model's own frames plainly for the raw side file
       "BasicScheduler", "BasicGuider", "SamplerCustomAdvanced", ...(input.upscale === UPSCALE.latent ? [...H3_LATENT_UPSCALE_NODES, "VAEDecodeTiled", "VAEDecode"] : ["VAEDecode"]), "VAEDecodeAudio",
@@ -173,8 +173,16 @@ export interface H3Extra {
   sound?(g: GraphBuilder, decoded: Ref, at: { head: number; frames: number }): Ref;
   /** What the clip is sampled from, in place of the empty latent (a swap's: the source's own, the person masked to be redrawn). */
   latent?(g: GraphBuilder, at: { latent: Ref; vae: Ref; width: number; height: number; frames: number }): Ref;
-  /** The decoded frames as the clip keeps them (a swap's: the source's own pixels pasted back outside the person). */
-  frames?(g: GraphBuilder, images: Ref): Ref;
+  /**
+   * The decoded frames as the clip keeps them (a swap's: the source's own pixels pasted back outside the person), at the
+   * clip's size and length: a Finish › Face refine samples nothing, and what the paste-back reads is made here then.
+   */
+  frames?(g: GraphBuilder, images: Ref, at: { width: number; height: number; frames: number }): Ref;
+  /**
+   * How the person looks, for Face refine's prompt, when the form says it in a field of its own (a swap's, a Motion
+   * transfer's "How they look") rather than H3's `subject`: a swap's clip takes no subject, and its look never reached the pass.
+   */
+  faceLook?: string;
   /** Veda's predictor for MiniMax's reference model, whatever the clip's file (a swap's: it runs the reference model as its own). */
   vedaFor?: "reference";
   /** The sampler's denoise, below 1 to keep more of what the latent starts from (a swap: the source's shapes). */
@@ -202,6 +210,11 @@ export function withShot<T extends { shot?: string; description: string }>(input
   return words && !input.description.trim().startsWith(words) ? { ...input, description: `${words} ${input.description}`.trim() } : input;
 }
 
+/** A Finish › Face refine: the take's own latent decoded as it is and only its faces redrawn, nothing of the clip sampled. */
+export const refinesOnly = (input: Pick<H3Video, "faceRefineOnly" | "upscale">) => Boolean(input.faceRefineOnly) && input.upscale !== UPSCALE.latent;
+/** The model chain of a build that samples nothing (refinesOnly): nothing loaded, and nothing reads it. */
+const NO_MODEL: ReturnType<typeof loadH3Model> = { model: ["", 0], turbo: false, steps: 0, lora: undefined, distilled: false, unet: undefined, vedaMissing: null };
+
 /** The H3 clip's graph, shared by the recipes made on it. */
 export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}): BuiltGraph {
   // the shot's words open what happens (card #27), every H3 form alike; a recipe that writes its own prompt says it there
@@ -211,7 +224,14 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   const more = extra.pictures ? extra.pictures(g) : [];
   const how = more.length ? { ...uses(input), reference: true } : uses(input);
   const picked = modelOf(input, slots);
-  if (how.reference && !picked.hybrid && !slots.refUnet) {
+  // a finish by the latent re-sample starts from the draft's own sampled latent (uploaded as "self.latent"): rendered again, even
+  // with its seed, H3 does not make the same frames (measured 2026-10-08: 20 to 30 dB from the draft, the motion drifting)
+  // Finish › Face refine loads it the same way, and samples nothing: the take's frames as they are, only its faces redrawn
+  const own = input.upscale === UPSCALE.latent || input.faceRefineOnly ? ctx.uploads["self.latent"] : undefined;
+  // the clip's model is then never loaded: its loaders, connected to nothing, still named its files, and a pod was sent the
+  // model and the LoRA a Finish › Face refine never samples with
+  const modelless = Boolean(own) && refinesOnly(input);
+  if (how.reference && !picked.hybrid && !slots.refUnet && !modelless) {
     throw new Error("Reference pictures and voices need MiniMax H3's reference model (put minimax_h3_ref2va_*.safetensors in ComfyUI's models/diffusion_models folder) or a hybrid model picked under Model.");
   }
   const join = resolveJoin(input, ctx);
@@ -219,13 +239,10 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
 
   const audioVae = g.out("VAELoader", { vae_name: slots.audioVae });
   const vae = g.out("VAELoader", { vae_name: slots.videoVae });
-  const { model, turbo, steps, lora, unet, vedaMissing } = loadH3Model(g, ctx, input, picked, how, audioVae, extra.vedaFor, extra.turbo);
+  // (the model is read below only where something is sampled: the clip, the latent re-sample)
+  const { model, turbo, steps, lora, unet, vedaMissing } = modelless ? NO_MODEL : loadH3Model(g, ctx, input, picked, how, audioVae, extra.vedaFor, extra.turbo);
   const { positive, latent, previous, plain, clip } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae }, extra.prompt, more);
 
-  // a finish by the latent re-sample starts from the draft's own sampled latent (uploaded as "self.latent"): rendered again, even
-  // with its seed, H3 does not make the same frames (measured 2026-10-08: 20 to 30 dB from the draft, the motion drifting)
-  // Finish › Face refine loads it the same way, and samples nothing: the take's frames as they are, only its faces redrawn
-  const own = input.upscale === UPSCALE.latent || input.faceRefineOnly ? ctx.uploads["self.latent"] : undefined;
   // a finish samples nothing: the patch (and the pose it reads) is left out of it
   const patched = extra.model && !own ? extra.model(g, model, { vae, width, height, frames: join.frames }) : null;
   const sampledWith = patched?.model ?? model;
@@ -267,8 +284,8 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
     }
   }
   const sound = extra.sound ? (decoded: Ref) => extra.sound!(g, decoded, { head: join.head, frames: join.frames }) : undefined;
-  const frames = extra.frames ? (images: Ref) => extra.frames!(g, images) : undefined;
-  const made = finish(g, ctx, input, { finished, sampled, fine, vae, audioVae, clip, width, height, head: join.head, sound, frames });
+  const frames = extra.frames ? (images: Ref) => extra.frames!(g, images, { width, height, frames: join.frames }) : undefined;
+  const made = finish(g, ctx, extra.faceLook === undefined ? input : { ...input, subject: extra.faceLook }, { finished, sampled, fine, vae, audioVae, clip, width, height, head: join.head, sound, frames });
 
   const { head, tail, latentJoin } = join;
   const ms = (n: number) => Math.round((n / H3_FPS) * 1000);
@@ -278,7 +295,10 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   // Veda asked for and its predictor not there: made with the full attention, and said (its node pack missing is said by the
   // queue, which knows why it is: ctx.wants)
   const vedaSaid = vedaMissing ? `Veda was on, but its predictor for ${vedaMissing === "reference" ? "the reference model" : "text and frames (T2VA)"} is not in ComfyUI's models/veda folder (Settings › Models has it): made with the full attention.` : null;
-  const said = [fine ? plainResizeSaid(input, ctx) : null, rifeSkippedSaid(input.smooth, ctx), faceRefineSkipped(input, ctx), vedaSaid].filter((x): x is string => Boolean(x));
+  const skipped = faceRefineSkipped(input, ctx, { audio: true });
+  // a Finish › Face refine that refines nothing would be the take made again, named a face pass: it fails, with why
+  if (modelless && input.faceRefine && !made.refine) throw new Error(skipped ?? "Not face-refined: Face refine's node pack (comfyui-h3-facerefine) is not on this ComfyUI.");
+  const said = [fine ? plainResizeSaid(input, ctx) : null, rifeSkippedSaid(input.smooth, ctx), skipped, vedaSaid].filter((x): x is string => Boolean(x));
   const refining = made.refine ? [made.refine] : [];
   return {
     graph: g.graph,
@@ -286,7 +306,7 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
     outputs: made.outputs,
     totalSteps: (own ? resampled : steps + resampled) + (made.refine?.steps ?? 0),
     passes: [...(own ? [] : [{ node: sampled, steps }, ...(fine ? [{ node: fine[0], steps: resampled }] : [])]), ...refining],
-    loads: [`diffusion_models/${unet}`, `text_encoders/${slots.clip}`, ...(lora ? [`loras/${lora}`] : []), ...(patched?.loads ?? []), ...made.loads],
+    loads: [...(unet ? [`diffusion_models/${unet}`] : []), `text_encoders/${slots.clip}`, ...(lora ? [`loras/${lora}`] : []), ...(patched?.loads ?? []), ...made.loads],
     // a continuation window counts its frames as an extension and an overlap, and a finish loads its latent from a file:
     // neither says the clip's frames in an input the forecast reads, so they are said here (the shared ones included)
     frames: join.frames,

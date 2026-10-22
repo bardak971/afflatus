@@ -4,7 +4,7 @@ import { ANY_PACKS, lookAhead, skipWhy, type PackFacts, type PacksSaid } from ".
 import type { Comfy } from "./comfy";
 import { readJson, type JobRow, type QueueCore } from "./queueModel";
 import { builtOf, withTexts } from "./queueSubmit";
-import { RIFE_GET } from "@afflatus/recipes";
+import { FACE_REFINE_MASK, RIFE_GET } from "@afflatus/recipes";
 import { pickRife, toolNeeds } from "./queueTools";
 import { CUT_JOB } from "./timelineModel";
 
@@ -108,9 +108,10 @@ const KEPT = 512;
 /**
  * The files a waiting job's graph loads on a machine (`on`: its ComfyUI and its scan), or on a pod that has nothing yet
  * (`on` null: built against this PC's node list, nothing relocated). The job is built as the queue will build it there,
- * with stand-ins for its pictures and clips (builtOf); a timeline clip with what it joins onto as known now. Null when it
- * cannot be built without its real media: the caller counts its files by its family's slots, and it is said in the log,
- * so that such jobs can be found and fixed.
+ * with stand-ins for its pictures and clips (builtOf); a timeline clip with what it joins onto as known now. Refused, with
+ * no files, when it cannot be built even for a pod that has nothing yet. Null when it could not be built for another
+ * reason (its recipe gone, a node list not read): the caller counts its files by its family's slots, and it is said in
+ * the log, so that such jobs can be found and fixed.
  */
 export async function loadedOn(
   core: QueueCore, row: Pick<JobRow, "id" | "recipe_id" | "inputs" | "finished_from" | "clip_id" | "clip_fit" | "clip_mirror">, on: { id: string; comfy: Comfy; scan: Scan } | null,
@@ -136,8 +137,15 @@ export async function loadedOn(
     // on a machine: built as for a pod that has nothing yet (this PC's node list, the downloads), the failure is the
     // machine's own when that one builds. Its files and the node types it lacks there are then those of that graph (a
     // GGUF model on a pod without the GGUF pack: the pack is sent), and with none lacking, the job is kept off it, with why
+    let freshWhy: string | null = null;
     if (on && keys.key && !kept.has(keys.key)) {
-      const fresh = await graphOn(core, row, recipe, family, raw, null, { key: "" }, packs).catch(() => null);
+      const freshKeys = { key: "" };
+      const fresh = await graphOn(core, row, recipe, family, raw, null, freshKeys, packs).catch((e: Error) => {
+        // (a failure before its build, a node list not read, is not the job's)
+        if (freshKeys.key) freshWhy = e.message;
+        return null;
+      });
+      if (fresh && "kept" in fresh && fresh.kept?.refused) freshWhy = fresh.kept.refused;
       if (fresh && !("kept" in fresh)) {
         const catalog = await on.comfy.catalog();
         const there = on.scan.families.find((f) => f.id === recipe.family)?.slots ?? [];
@@ -149,6 +157,15 @@ export async function loadedOn(
         keep(keys.key, loaded);
         return loaded;
       }
+    }
+    // its graph cannot be built even for a pod that has nothing yet, with every file its form asks for: kept off every
+    // machine, with why, rather than counted by its family's slots. That fallback sent a fresh pod H3's frames model for a
+    // reference clip it never loads, judged sendable, booted and fetched for, refused at its submit (2026-10-22)
+    if (keys.key && (!on || freshWhy)) {
+      if (!kept.has(keys.key)) console.warn(`[queue] job ${row.id}: its graph cannot be built, even for a pod that has nothing yet: kept off (${why.slice(0, 160)})`);
+      const refused: Loaded = { files: [], absent: [], refused: why };
+      keep(keys.key, refused);
+      return refused;
     }
     if (!keys.key || !kept.has(keys.key)) console.warn(`[queue] job ${row.id}: its files are counted by its family's slots, its graph could not be built here (${why.slice(0, 160)})`);
     if (keys.key) keep(keys.key, null);
@@ -192,6 +209,12 @@ async function graphOn(
   return { graph: built.graph, files: graphFiles(built.graph, slots, folders), catalog, there, wanted: ahead.missing };
 }
 
+/** Where Face refine's files are read in its graph (faceRefined): the node and input each slot's file goes to. */
+const FACE_LOADERS: Record<string, [classType: string, input: string]> = {
+  faceRefineUnet: ["UNETLoader", "unet_name"], faceDetector: ["H3FaceTrackCrop", "detector"], faceSeg: ["H3FaceTrackCrop", "fallback_detector"],
+  faceSam: ["SAMLoader", "model_name"], faceClip: ["CLIPLoader", "clip_name"], faceVideoVae: ["VAELoader", "vae_name"], faceAudioVae: ["VAELoader", "vae_name"],
+};
+
 /**
  * The files a finish or a RIFE slow-motion loads on a machine (toolNeeds): SeedVR2's two files for its SeedVR2 route, the
  * upscale model picked for the model route, a RIFE model for a slow-motion or the finish of an interpolated take. A pod
@@ -231,6 +254,17 @@ async function toolLoadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id
     // (podSlotFiles); this PC's only when the download is not wanted: a machine that has nothing yet gets the download
     const there = await listedOn("frame_interpolation");
     add((there ? pickRife(there) : null) ?? RIFE_GET.file, "frame_interpolation", "FrameInterpolationModelLoader", "model_name", "rife");
+  }
+  if (needs.face) {
+    // Face refine's files of the take's family, each named as podSlotFiles names a slot; SAM only where its nodes are, as
+    // the pass takes it (this PC's node list for a pod to come)
+    const face = needs.face;
+    const slotsIn = (s: Scan | null) => s?.families.find((f) => f.id === face.family)?.slots ?? null;
+    const nodes = catalog ?? (await mine.catalog().catch(() => ({}) as NodeCatalog));
+    const sam = FACE_REFINE_MASK.every((n) => n in nodes);
+    const slots = (core.registry.family(face.family)?.slots ?? []).filter((x) => face.slots.includes(x.id) && FACE_LOADERS[x.id] && (x.id !== "faceSam" || sam));
+    const named = podSlotFiles({ needs: slots.map((x) => x.id) }, {}, slots, on ? (slotsIn(on.scan) ?? []) : null, slotsIn(mineScan));
+    for (const x of slots) add(named[x.id]!, x.folder, FACE_LOADERS[x.id]![0], FACE_LOADERS[x.id]![1], x.id);
   }
   if (!on) {
     keep(key, { files, absent: files });

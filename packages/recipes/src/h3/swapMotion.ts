@@ -103,6 +103,7 @@ function motionWindow(input: H3SwapMotion, ctx: BuildContext): BuiltGraph {
       return { model: made.model, loads: [`model_patches/${made.file}`, ...sd] };
     },
     vedaFor: "reference",
+    faceLook: input.look,
     ...(ctx.slots.refTurbo ?? ctx.slots.turbo ? { turbo: ctx.slots.refTurbo ?? ctx.slots.turbo } : {}),
   });
   // said on the job, the window rendered all the same

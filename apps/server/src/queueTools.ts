@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ComfyCancelled, detect, waitForOutputs, type Measured, type OutputFile } from "@afflatus/comfy";
 import { choicesOf, GraphBuilder, TOOLS_FAMILY, type BuildContext, type Ref } from "@afflatus/core";
-import { faceRefined, faceRefineSkipped, pixelUpscale, RTX_NODES, saveVideo, sharpened, UPSCALE, upscaleNodes } from "@afflatus/recipes";
+import { AUDIO_LOCK, FACE_REFINE_NODES, faceRefined, faceRefineNeeds, faceRefineSkipped, pixelUpscale, RTX_NODES, saveVideo, sharpened, UPSCALE, upscaleNodes } from "@afflatus/recipes";
 import type { Comfy } from "./comfy";
 import { slowSoundOnto } from "./cut";
 import { finishedName, nameOf } from "./autoName";
@@ -168,6 +168,8 @@ export interface ToolNeeds {
   /** The node classes it cannot run without; `anyNode`: one of these at least (RTX VSR: NVIDIA's pack or DaSiWa's). */
   nodes: string[];
   anyNode?: string[];
+  /** Face refine's files (a Finish › Face refine of a take that keeps no latent): the family it is had from, and its slots. */
+  face?: { family: string; slots: string[] };
 }
 
 /** Something a tool job did less well than asked, said on the job as a render's is (queue.ts warn). */
@@ -186,10 +188,18 @@ export async function toolNeeds(core: Pick<QueueCore, "db" | "storage">, row: Pi
   if (!usesGpu(row)) return null;
   const opts = cutOptionsOf(row)!;
   if (opts.action === "slow") return { rife: true, seedvr: false, upscaleModel: null, nodes: SLOW_NODES };
-  const video = await core.db.selectFrom("assets").select(["fps", "mime", "raw_key"]).where("id", "=", opts.asset).executeTakeFirst();
+  const video = await core.db.selectFrom("assets").select(["fps", "mime", "raw_key", "has_sound"]).where("id", "=", opts.asset).executeTakeFirst();
   if (!video) return null;
   const route = opts.route ?? "seedvr";
   const rife = interpolatedFrom(video, await rawFactsOf(core, video));
+  // Face refine (runFaceFinish): its own pack's nodes, offered for install where they lack as a render's are, the audio lock
+  // that holds the take's sound, and its family's files. It fell to SeedVR2's nodes, and asked for neither its pack nor its files
+  if (route === "face") {
+    return {
+      rife, seedvr: false, upscaleModel: null, nodes: ["LoadVideo", "GetVideoComponents", ...FACE_REFINE_NODES, ...(video.has_sound ? [AUDIO_LOCK] : []), ...(rife ? RIFE_NODES : [])],
+      ...(opts.family ? { face: { family: opts.family, slots: faceRefineNeeds({ faceRefine: true }, { own: true }) } } : {}),
+    };
+  }
   const upscale = route === "rtx" ? UPSCALE.rtx : route === "model" ? UPSCALE.model : UPSCALE.seedvr;
   return {
     rife, seedvr: route === "seedvr", upscaleModel: route === "model" ? opts.upscaleModel || "" : null,
@@ -360,7 +370,7 @@ async function runFaceFinish(core: QueueCore, row: JobRow, run: Running, clips: 
     const options = asBuilt(catalog, (await core.packFacts?.().catch(() => null)) ?? ANY_PACKS, packsSaid(row));
     const ctx: BuildContext = { seed: Math.floor(Math.random() * 2 ** 31), slots, uploads: {}, media: {}, has: (n: string) => n in catalog, options: optionsIn(catalog), wants: options.wants };
     const values = { faceRefine: true, faceRefineDenoise: opts.faceDenoise ?? 0.35, faceRefineSteps: 4, references: [], subject: "", quick: true };
-    const why = faceRefineSkipped(values, ctx, { picture: pictureFile, own: true });
+    const why = faceRefineSkipped(values, ctx, { picture: pictureFile, own: true, audio: Boolean(sound) });
     if (why) throw new Error(why);
     const faces = faceRefined(g, ctx, values, [parts, 0], { audio: sound, picture: pictureFile, frames });
     if (!faces.pass) throw new Error("Not face-refined: its node pack (comfyui-h3-facerefine) or Afflatus's audio lock is not on this ComfyUI.");

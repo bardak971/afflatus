@@ -124,6 +124,62 @@ describe("MiniMax H3 · Face refine", () => {
     expect(h3Video.finishing?.(parseInput(h3Video, { description: "a", faceRefine: true }))).toBeNull();
   });
 
+  it("finishes a kept take with none of the clip's model loaded: a pod was sent the model and LoRA it never samples with", () => {
+    const own = { uploads: { ...uploads, "self.latent": "own.safetensors" } };
+    const { built, graph } = build({ faceRefine: true, faceRefineOnly: true, references: people, loras: [{ file: "mine.safetensors", weight: 0.8 }] }, { slots: { ...slots, turbo: "minimax_h3_turbo.safetensors" }, ...own });
+    // the one model is the faces'
+    expect(of(graph, "UNETLoader").map((n) => n.inputs.unet_name)).toEqual([slots.faceRefineUnet]);
+    expect(of(graph, "LoraLoaderModelOnly")).toHaveLength(0);
+    expect(built.loads).not.toContain(`diffusion_models/${slots.refUnet}`);
+    // and needs no reference model to be built
+    expect(() => build({ faceRefine: true, faceRefineOnly: true, references: people }, { slots: { ...slots, refUnet: undefined as never }, ...own })).not.toThrow();
+    expect(h3Video.needsWith!(parseInput(h3Video, { description: "a", faceRefine: true, faceRefineOnly: true, references: people }), {})).not.toContain("refUnet");
+  });
+
+  it("fails a Finish › Face refine that cannot refine, with why: the take made again was named a face pass", () => {
+    const own = { "self.latent": "own.safetensors" };
+    expect(() => build({ faceRefine: true, faceRefineOnly: true, references: people }, { uploads: { ...uploads, ...own }, slots: { ...slots, faceRefineUnet: undefined as never } })).toThrow(/no fused reference turbo/);
+    expect(() => build({ faceRefine: true, faceRefineOnly: true, references: people }, { uploads: { ...uploads, ...own }, wants: () => null })).toThrow(/comfyui-h3-facerefine/);
+  });
+
+  it("says why it is done without on a pack with no audio lock, where it was left out without a word", () => {
+    const { built, graph } = build({ faceRefine: true, references: people }, { has: (cls) => cls !== "AfflatusH3AudioLock" });
+    expect(of(graph, "H3FaceStitch")).toHaveLength(0);
+    expect(built.warnings?.join(" ")).toMatch(/no H3 Audio Lock yet/);
+  });
+
+  it("asks for its files on every form that has it (a pod was never sent them), and none with it off", () => {
+    const face = ["faceRefineUnet", "faceDetector", "faceSeg", "faceSam"];
+    const forms: Array<[string, Record<string, unknown>]> = [
+      ["h3.video", { description: "a" }], ["h3.lipsync", { description: "a", recording: "r" }], ["h3.motion", { picture: "p", driving: { asset: "v" } }],
+      ["h3.swap", { who: "the man", source: { asset: "v" } }], ["h3.swapMotion", { who: "the man", source: { asset: "v" } }],
+    ];
+    for (const [id, values] of forms) {
+      const r = recipeById(id)!;
+      expect(r.needsWith!(parseInput(r, { ...values, faceRefine: true, references: [{ asset: "r1", role: "person" }] }), {}), id).toEqual(expect.arrayContaining(face));
+      expect(r.needsWith!(parseInput(r, { ...values, references: [{ asset: "r1", role: "person" }] }), {}).filter((x) => x.startsWith("face")), id).toEqual([]);
+    }
+    const scail = recipeById("scail.motion24")!;
+    expect(scail.needsWith!(parseInput(scail, { picture: "p", driving: { asset: "v" }, faceRefine: true }), {})).toEqual(expect.arrayContaining([...face, "faceClip", "faceVideoVae", "faceAudioVae"]));
+  });
+
+  it("takes the form's own How they look into its prompt on a swap and a Motion transfer, which have one such field", () => {
+    const prompt = (graph: Graph) => of(graph, "MiniMaxH3ReferenceToVideo").map((n) => String(n.inputs.prompt)).find((p) => p.startsWith("Close-up of the face"));
+    const swap = recipeById("h3.swap")!;
+    const swapped = swap.build(parseInput(swap, { who: "", inSource: "the woman", look: "short grey hair.", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], faceRefine: true }), dryContext({
+      slots: { ...slots, swapLora: "swap.safetensors", swapUnet: "minimax_h3_ref2va.safetensors" }, uploads: { source: "src.mp4", "references.0": "person.png" },
+      media: { source: { width: 576, height: 1024, frames: 141, fps: 24, hasSound: true } },
+    })).graph as Graph;
+    expect(prompt(swapped)).toBe("Close-up of the face of the person in <Picture 1>, short grey hair. Sharp focus, clear details.");
+    const motion = recipeById("h3.motion")!;
+    expect(motion.inputs.filter((i) => i.type === "prompt" && i.label === "How they look").map((i) => i.id)).toEqual(["look"]);
+    const moved = motion.build(parseInput(motion, { picture: "p1", driving: { asset: "v1" }, look: "a red scarf", references: [{ asset: "r1", role: "person" }], faceRefine: true }), dryContext({
+      slots: { ...slots, h3Control: "minimax_h3_fun_controlnet_union_2.0.safetensors" }, uploads: { picture: "p.png", driving: "v.mp4", "references.0": "person.png" },
+      media: { picture: { width: 576, height: 1024 }, driving: { width: 576, height: 1024, frames: 141, fps: 24, hasSound: true } },
+    })).graph as Graph;
+    expect(prompt(moved)).toBe("Close-up of the face of the person in <Picture 1>, a red scarf. Sharp focus, clear details.");
+  });
+
   it("after the latent re-sample, refines the larger frames and keeps the sampled latent as it is", () => {
     const { graph } = build({ faceRefine: true, references: people, upscale: UPSCALE.latent });
     const stitch = of(graph, "H3FaceStitch")[0]!;

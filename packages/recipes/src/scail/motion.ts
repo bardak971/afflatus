@@ -8,7 +8,7 @@ import {
   chunkLengths, drivingFrames, previousFrames, previousInput, matchedToDriving, motionBatchNodes, MOTION_GRID, MOTION_NODES, MOTION_OPTIONAL, motionOutInputs, motionCanvas, motionFrames, motionInputs,
   motionSaved, motionSound, type MotionShape, type MotionValues,
 } from "../motion/driving";
-import { FACE_REFINE_OPTIONAL, FACE_REFINE_OTHER_INPUTS, FACE_REFINE_OWN_SLOTS, FACE_REFINE_SLOTS, faceRefined, faceRefineSkipped } from "../h3/faceRefine";
+import { FACE_REFINE_OPTIONAL, FACE_REFINE_OTHER_INPUTS, FACE_REFINE_OWN_SLOTS, FACE_REFINE_SLOTS, faceRefined, faceRefineNeeds, faceRefineSkipped } from "../h3/faceRefine";
 
 /**
  * SCAIL-2 · Motion transfer: the picture's people moved like the driving video's. As ComfyUI's SCAIL-2 template runs it in
@@ -93,8 +93,8 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
       ...(o.faceRefine ? FACE_REFINE_OTHER_INPUTS : []),
     ],
     needs: ["dpo", "turbo", "clipVision", "sam"],
-    // RIFE with "RIFE ×2" on
-    needsWith: (input) => rifeNeeds(input.smooth),
+    // RIFE with "RIFE ×2" on, Face refine's files (H3's, its text encoder and VAEs too) with it on
+    needsWith: (input) => [...rifeNeeds(input.smooth), ...(o.faceRefine ? faceRefineNeeds(input, { own: true }) : [])],
     nodes: (input) => [
       ...MOTION_NODES, "UNETLoader", "LoraLoaderModelOnly", "CLIPLoader", "VAELoader", "CLIPTextEncode", "CLIPVisionLoader", "CLIPVisionEncode",
       "CheckpointLoaderSimple", "SAM3_VideoTrack", "SCAIL2ColoredMask", "WanSCAILToVideo", "ModelSamplingSD3", "KSamplerSelect", "BasicScheduler", "SamplerCustom", "VAEDecode",
@@ -194,7 +194,7 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
       const withHead = head ? g.out("ImageBatch", { image1: head, image2: faces.images }) : faces.images;
       const images = matchedToDriving(g, ctx, withHead, pose, input, frame, fps);
       const saved = motionSaved(g, ctx, images, input, { frame, fps, frames: total, parts, carried: SCAIL_CARRIED, ...(head ? { head: SCAIL_CARRIED } : {}), made: faces.images, ...(sound ? { sound } : {}) });
-      const said = [rifeSkippedSaid(input.smooth, ctx), faceRefineSkipped(refineValues, ctx, { picture: ctx.uploads.picture, own: true })].filter((x): x is string => Boolean(x));
+      const said = [rifeSkippedSaid(input.smooth, ctx), faceRefineSkipped(refineValues, ctx, { picture: ctx.uploads.picture, own: true, audio: Boolean(sound) })].filter((x): x is string => Boolean(x));
       if (faces.pass) passes.push({ ...faces.pass, frames: total });
       return {
         ...(said.length ? { warnings: said } : {}),
