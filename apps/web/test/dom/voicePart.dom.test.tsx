@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { act, waitFor } from "@testing-library/react";
 import type { Clip, RecipeInfo, Timeline } from "../../src/api";
 import { inspectorProps, overviewProps, trackProps } from "../../src/timeline/editorProps";
@@ -41,9 +41,20 @@ async function editor() {
   return { e: () => seen as LoadedEditor, clip: () => seen.shown!.clips.find((c) => c.id === "b")! };
 }
 
-/** The voice's part as the Recording chapter says it, once the save is answered (well before the half-second autosave). */
-async function partSaid(e: () => LoadedEditor, clip: () => Clip) {
-  await waitFor(() => expect(fakeApi.calls("PATCH", "/clips/b")).toHaveLength(1), { timeout: 300 });
+/**
+ * The voice given by `give`, saved at once: on a clock that stands still short of the half-second autosave, so the save
+ * sent is the one asked at once and never the autosave's, however slow the run; then the voice's part as the Recording
+ * chapter says it, once the save is answered.
+ */
+async function partSaid(e: () => LoadedEditor, clip: () => Clip, give: () => void) {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    act(give);
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    expect(fakeApi.calls("PATCH", "/clips/b")).toHaveLength(1);
+  } finally {
+    vi.useRealTimers();
+  }
   expect(fakeApi.calls("PATCH", "/clips/b")[0]!.body).toMatchObject({ inputs: { recording: "zz-test-tone" } });
   await waitFor(() => expect(clip().inputs).toMatchObject({ recording: "zz-test-tone", recordingStart: 0, recordingSeconds: 7 }));
   const r = inspectorProps(e(), clip()).fromRecording!;
@@ -53,20 +64,17 @@ async function partSaid(e: () => LoadedEditor, clip: () => Clip) {
 describe("a voice given to a Lip sync clip", () => {
   it("dropped on its Audio cell, or chosen or opened from its menu, takes its part at once", async () => {
     const { e, clip } = await editor();
-    act(() => trackProps(e()).onVoice!(clip(), "zz-test-tone"));
-    await partSaid(e, clip);
+    await partSaid(e, clip, () => trackProps(e()).onVoice!(clip(), "zz-test-tone"));
   });
 
   it("chosen from Needs a look's row, takes its part at once", async () => {
     const { e, clip } = await editor();
-    act(() => overviewProps(e()).onVoice("b", "zz-test-tone"));
-    await partSaid(e, clip);
+    await partSaid(e, clip, () => overviewProps(e()).onVoice("b", "zz-test-tone"));
   });
 
   it("set in its Recording field, takes its part at once", async () => {
     const { e, clip } = await editor();
-    act(() => inspectorProps(e(), clip()).onInputs({ ...clip().inputs, recording: "zz-test-tone" }));
-    await partSaid(e, clip);
+    await partSaid(e, clip, () => inspectorProps(e(), clip()).onInputs({ ...clip().inputs, recording: "zz-test-tone" }));
   });
 });
 
