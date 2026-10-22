@@ -1,4 +1,4 @@
-import type { BuildContext, GraphBuilder, InputSpec, Ref } from "@afflatus/core";
+import { beyondPack, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
 
 /**
  * Faster sampling, same pixels (near enough): SageAttention, a quicker attention kernel, through KJNodes'
@@ -37,7 +37,8 @@ export const speedNodes = (input: SpeedSettings) => [...(input.sage ? [SAGE_NODE
 /** The model with the speed-ups asked for. */
 export function faster(g: GraphBuilder, model: Ref, input: SpeedSettings, ctx: BuildContext): Ref {
   if (input.sage) {
-    if (!ctx.has(SAGE_NODE)) throw new Error(SAGE_NEEDED);
+    // KJNodes alone does not bring it: the sageattention package is Python's, which no node list tells of
+    if (!ctx.has(SAGE_NODE)) throw beyondPack(SAGE_NEEDED);
     model = g.out(SAGE_NODE, { model, sage_attention: input.sageKernel });
   }
   if (input.compile) model = g.out(COMPILE_NODE, { model, backend: "inductor" });

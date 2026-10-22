@@ -190,6 +190,30 @@ describe("a node pack a render asks for, on a ComfyUI of your own", () => {
     expect(fake.packs.map((p) => p.id)).toEqual(["ComfyUI-DaSiWa-Nodes"]);
   }, 40_000);
 
+  for (const rule of ["ask", "always"] as const) {
+    it(`an older copy of the pack on the disk, the restart bringing nothing new (${rule}): failed with how to update it, the job runs without, ComfyUI not restarted again (review of 0.6.0, N-20)`, async () => {
+      // DaSiWa's pack before its H3 Cache: its first node answers after the restart, the one the job lacked does not.
+      // Counted loaded by that first node, the job waited for good under "installed"
+      const all = referenceCatalog();
+      const catalog = Object.fromEntries(Object.entries(all).filter(([n]) => n !== "MiniMaxH3Cache"));
+      fake = await startFakeComfy({ catalog, models: FILES, manager: true, afterReboot: {} });
+      t = await makeApp({ comfyUrl: fake.url });
+      const s = await readSettings(t.db);
+      await writeSettings(t.db, { machines: s.machines.map((m) => ({ ...m, packs: rule })) });
+      const id = (await post(t.app, "/api/jobs", { recipe: "h3.video", input: CACHED })).json().ids[0] as string;
+      if (rule === "ask") {
+        await slowly(async () => (await queueOf()).waiting[0]?.packs?.state === "ask");
+        await post(t.app, `/api/jobs/${id}/packs`, { do: "install", packs: ["ComfyUI-DaSiWa-Nodes"] });
+      }
+      await until(() => fake.reboots === 1, 15_000);
+      await until(() => fake.prompts.size === 1, 20_000);
+      expect(sentNodes()).not.toContain("MiniMaxH3Cache");
+      await until(async () => (await warningOf(id)).includes("update ComfyUI-DaSiWa-Nodes (its version lacks MiniMaxH3Cache)"));
+      expect(await warningOf(id)).toContain("git pull");
+      expect(fake.reboots).toBe(1);
+    }, 40_000);
+  }
+
   it("a job that asks for no pack goes as before, past one that waits for its click", async () => {
     await setUp();
     await post(t.app, "/api/jobs", { recipe: "h3.video", input: CACHED });

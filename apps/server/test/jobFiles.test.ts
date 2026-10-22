@@ -8,6 +8,7 @@ import { loadedOn, offeredOn, podSlotFiles } from "../src/jobFiles";
 import { packsLacked } from "../src/jobPacks";
 import type { QueueCore } from "../src/queueModel";
 import { Comfy } from "../src/comfy";
+import { CUT_JOB } from "../src/timelineModel";
 import { filesUsed, lackOn } from "../src/machineScans";
 import { CHECKPOINT, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
@@ -375,6 +376,18 @@ describe("an option's files and node packs on a pod", () => {
     expect(packsLacked(loaded)).toEqual({ soft: [], hard: ["comfyui-h3-facerefine"], unknown: [] });
   });
 
+  it("Faster attention on the machine of the user's own without KJNodes: refused naming KJNodes and the sageattention package, never given KJNodes to install (N-21)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // KJNodes brings the patch, not the sageattention package in ComfyUI's Python: installed under Always with a restart,
+    // the render then failed inside the patch
+    for (const n of nodesOfPack("comfyui-kjnodes")) delete (fake.catalog as Record<string, unknown>)[n];
+    const comfy = new Comfy(fake.url, t.services.registry);
+    const mine = { id: "mine", comfy, scan: await comfy.scan(), own: true };
+    const loaded = await loadedOn(core(), row("ltx.video", { prompt: "a red ball rolls", sage: true }), mine);
+    expect(loaded?.refused).toMatch(/KJNodes .*PathchSageAttentionKJ.* and the sageattention package/);
+    expect(packsLacked(loaded).hard).not.toContain("comfyui-kjnodes");
+  });
+
   it("a carried Motion transfer window on a machine of the user's own that throws there: its files as that machine asks them, not the reference model a pod is sent", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     // the user's other ComfyUI, without the MMH3 pack and without the reference model; this PC has the pack
@@ -384,6 +397,38 @@ describe("an option's files and node packs on a pod", () => {
       const loaded = await loadedOn(core(), window, { ...on, own: true });
       expect(loaded?.files.length).toBeGreaterThan(0);
       expect(loaded?.files.map((f) => f.file)).not.toContain(download("refUnet"));
+    } finally {
+      await other.close();
+    }
+  });
+
+  it("Face refine on a pod, this PC without SAM's nodes: SAM's file is sent for an H3 render, a SCAIL render and a Finish › Face refine alike, and SAM's pack asked for on a pod without it (H-25)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // read on this PC's node list, the renders fetched no SAM for a fresh pod, and pasted the face over its box there,
+    // while H3's Finish › Face refine, built with every node, did get it
+    const SAM = ["SAMLoader", "H3FaceMaskSAM"];
+    for (const n of SAM) delete (fake.catalog as Record<string, unknown>)[n];
+    const cast = [{ asset: "zz-test-person", role: "person" }];
+    const sam = download("faceSam");
+    const render = row("h3.video", { description: "a man waves", seconds: 5, references: cast, faceRefine: true });
+    const scail = row("scail.motion24", { picture: "zz-test-picture", driving: { asset: await video() }, drivingSeconds: 5, prompt: "A man raps to the camera.", faceRefine: true });
+    const finish = { ...(await swapRow({ swapModel: REF2VA, faceRefine: true, faceRefineOnly: true, references: cast })), finished_from: "zz-test-take" };
+    // SCAIL's Finish › Face refine, a cut job on the take's own frames
+    const cut = row(CUT_JOB, { asset: await video(), startMs: 0, endMs: 5000, action: "finish", route: "face", by: 1, picture: "zz-test-picture", family: "scail" });
+    for (const r of [render, scail, finish]) expect((await deployed(r)).map((f) => f.file), r.recipe_id).toContain(sam);
+    expect((await t.services.queue.loadedOnNew(cut))?.files.map((f) => f.file)).toContain(sam);
+    // a rented pod up without them: SAM's nodes are what it lacks, their packs sent, as for the finish
+    const { other, on } = await pod(SAM);
+    try {
+      for (const r of [render, finish, cut]) {
+        const loaded = await loadedOn(core(), r, on);
+        expect(loaded?.files.map((f) => f.file), r.recipe_id).toContain(sam);
+        expect(loaded?.missingNodes, r.recipe_id).toEqual(expect.arrayContaining(SAM));
+      }
+      // a machine of the user's own is not asked for them: it pastes over the box without SAM, as before
+      const own = await loadedOn(core(), render, { ...on, own: true });
+      expect(own?.missingNodes ?? []).not.toContain("SAMLoader");
+      expect(own?.files.map((f) => f.file)).not.toContain(sam);
     } finally {
       await other.close();
     }

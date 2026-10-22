@@ -1,4 +1,4 @@
-import { nodesOfPack } from "@afflatus/core";
+import { nodesOfPack, packOfNode } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 import { loadedOn } from "./jobFiles";
 import { cannotWhy, installsUnasked, packFacts, packsLacked, packsSaid, type PackFacts, type PacksSaid, type PackWait } from "./jobPacks";
@@ -106,7 +106,13 @@ export class OwnPacks {
     const underWay = new Set(this.packs.view(lane.id).filter((e) => e.state !== "failed").map((e) => e.name));
     const go = packsToWant(names, { unasked: installsUnasked(lane.machine!), said, underWay });
     const asked = go.length === names.length;
-    if (go.length && this.packs.want(lane.id, go, row.id)) this.tick();
+    // with the node types it lacks of each: the restart counts a pack loaded once ComfyUI lists them, not by its first node
+    const lacks: Record<string, string[]> = {};
+    for (const node of loaded?.missingNodes ?? []) {
+      const pack = packOfNode(node)?.name;
+      if (pack && go.includes(pack)) (lacks[pack] ??= []).push(node);
+    }
+    if (go.length && this.packs.want(lane.id, go, row.id, lacks)) this.tick();
     const view = this.packs.view(lane.id).filter((e) => names.includes(e.name));
     const failed = view.find((e) => e.state === "failed");
     const state: PackWait["state"] = !asked ? "ask" : this.packs.restartingNow(lane.id) ? "restarting" : failed ? "failed" : view.some((e) => e.state === "installing") ? "installing" : view.length && view.every((e) => e.state === "installed" || e.state === "ready") ? "installed" : "next";

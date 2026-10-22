@@ -1,5 +1,5 @@
 import { catalogKey, filesIn, type Scan } from "@afflatus/comfy";
-import { choicesOf, graphFiles, isMissingSlotFile, missingSlotFile, packOfNode, parseInput, sameFile, TOOLS_FAMILY, type Family, type GraphFile, type NodeCatalog, type Recipe, type Wanted } from "@afflatus/core";
+import { choicesOf, graphFiles, isBeyondPack, isMissingSlotFile, missingSlotFile, packOfNode, parseInput, sameFile, TOOLS_FAMILY, type Family, type GraphFile, type NodeCatalog, type Recipe, type Wanted } from "@afflatus/core";
 import { ANY_PACKS, lookAhead, skipWhy, type PackFacts, type PacksSaid } from "./jobPacks";
 import type { Comfy } from "./comfy";
 import { readJson, type JobRow, type QueueCore } from "./queueModel";
@@ -233,7 +233,10 @@ async function freshGraph(
   }
 }
 
-/** How many packs a job's graph is built again with on a machine of the user's own (ownGraph), one per build that throws. */
+/**
+ * How many times ownGraph builds a job's graph on a machine of the user's own: as the machine is, then once more with each
+ * pack a build threw for, so three packs at most.
+ */
 const OWN_TRIES = 4;
 
 /**
@@ -243,7 +246,8 @@ const OWN_TRIES = 4;
  * for last, found lacking, and named in its words (or its pack is) is one it cannot run without: a "use if present" check
  * says nothing when it fails, and a throw for a file or a value is the job's own, refused with why. Its graph then says the
  * packs it lacks there, and its Queue row offers Install and restart (jobPacks.ts); a node of no pack Afflatus can install
- * is not given, and the job is refused with the build's words.
+ * is not given, nor one whose pack alone does not make it run (core beyondPack: SageAttention), and the job is refused with
+ * the build's words.
  */
 async function ownGraph(
   core: QueueCore, row: Parameters<typeof graphOn>[1], recipe: Recipe<any>, family: Family, raw: Record<string, unknown>,
@@ -264,7 +268,7 @@ async function ownGraph(
       const words = (err as Error).message.toLowerCase();
       const pack = last.there ? undefined : packOfNode(last.node);
       const named = pack && (words.includes(last.node.toLowerCase()) || words.includes(pack.name.toLowerCase()));
-      if (!pack || pack.own || !named || tries >= OWN_TRIES) throw err;
+      if (!pack || pack.own || !named || isBeyondPack(err) || tries >= OWN_TRIES) throw err;
       for (const node of pack.nodes) given.add(node);
     }
   }
@@ -296,12 +300,17 @@ async function graphOn(
   // what the options are given there is part of it: a pack that cannot come, or a Run without, builds them without
   const facts = packs.facts ?? ANY_PACKS;
   const packsKey = JSON.stringify([facts.nvidia, [...facts.cannot.keys()].sort(), packs.said ?? {}]);
-  keys.key = [row.id, row.inputs, row.finished_from ?? "", row.clip_id ?? "", on?.id ?? "", on?.scan.at ?? "", catalogKey(catalog) ?? "", JSON.stringify(slots), packsKey, how.everyNode ? "every node" : ""].join("\u0001");
+  keys.key = [row.id, row.inputs, row.finished_from ?? "", row.clip_id ?? "", on?.id ?? "", on?.scan.at ?? "", catalogKey(catalog) ?? "", JSON.stringify(slots), packsKey, how.everyNode ? "every node" : "", on?.own ? "own" : ""].join("\u0001");
   if (!how.anew && kept.has(keys.key)) return { kept: kept.get(keys.key)! };
   const plan = row.clip_id && core.clips ? await core.clips.plan(row.clip_id, recipe, input, Boolean(row.clip_fit), row.finished_from, true, readJson<string[]>(row.clip_mirror, [])).catch(() => null) : null;
   // the options it asks for are given the node their pack brings when this ComfyUI lacks it: its graph then says the pack
   const ahead = lookAhead(catalog, facts, packs.said);
-  const built = await builtOf(core, recipe.id, plan ? plan.input : raw, { finishedFrom: row.finished_from, canvas: plan?.canvas, slots, comfy, catalog, relocate: Boolean(on), wants: ahead.wants, ...(how.everyNode ? { has: () => true } : how.has ? { has: how.has } : {}) });
+  // a pod (one to come, or a rented one) takes Face refine's paste-back over SAM's outline, its nodes counted as there: they
+  // come as the pack of any node it lacks, as for a Finish › Face refine (built with every node). Read on this PC's node
+  // list, a render with Face refine (H3's, SCAIL's) fetched no SAM for a fresh pod, and pasted the face over its box
+  const has = how.everyNode ? () => true : (how.has ?? ((n: string) => n in catalog));
+  const podHas = on?.own ? has : (n: string) => FACE_REFINE_MASK.includes(n) || has(n);
+  const built = await builtOf(core, recipe.id, plan ? plan.input : raw, { finishedFrom: row.finished_from, canvas: plan?.canvas, slots, comfy, catalog, relocate: Boolean(on), wants: ahead.wants, has: podHas });
   if (!built) throw new Error("its form could not be read");
   const folders = Object.fromEntries(family.slots.map((s) => [s.id, s.folder]));
   return { graph: built.graph, files: graphFiles(built.graph, slots, folders), catalog, there, wanted: ahead.missing };
@@ -325,7 +334,7 @@ async function toolLoadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id
   // again (the queue screen reads the finishes waiting for their clip too)
   const catalog = on ? await on.comfy.catalog().catch(() => null) : null;
   const facts = packs.facts ?? ANY_PACKS;
-  const key = ["tool", row.id, row.inputs, on?.id ?? "", on?.scan.at ?? "", catalog ? (catalogKey(catalog) ?? "") : "", JSON.stringify([facts.nvidia, [...facts.cannot.keys()].sort(), packs.said ?? {}])].join("|");
+  const key = ["tool", row.id, row.inputs, on?.id ?? "", on?.own ? "own" : "", on?.scan.at ?? "", catalog ? (catalogKey(catalog) ?? "") : "", JSON.stringify([facts.nvidia, [...facts.cannot.keys()].sort(), packs.said ?? {}])].join("|");
   if (kept.has(key)) return kept.get(key)!;
   const needs = await toolNeeds(core, row).catch(() => null);
   if (!needs) return null;
@@ -353,13 +362,15 @@ async function toolLoadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id
     const there = await listedOn("frame_interpolation");
     add((there ? pickRife(there) : null) ?? RIFE_GET.file, "frame_interpolation", "FrameInterpolationModelLoader", "model_name", "rife");
   }
+  const samNodes: string[] = [];
   if (needs.face) {
-    // Face refine's files of the take's family, each named as podSlotFiles names a slot; SAM only where its nodes are, as
-    // the pass takes it (this PC's node list for a pod to come)
+    // Face refine's files of the take's family, each named as podSlotFiles names a slot; SAM on a machine of the user's own
+    // only where its nodes are, as the pass takes it, and always on a pod, its nodes asked for there as a render's are (graphOn)
     const face = needs.face;
     const slotsIn = (s: Scan | null) => s?.families.find((f) => f.id === face.family)?.slots ?? null;
     const nodes = catalog ?? (await mine.catalog().catch(() => ({}) as NodeCatalog));
-    const sam = FACE_REFINE_MASK.every((n) => n in nodes);
+    const sam = !on?.own || FACE_REFINE_MASK.every((n) => n in nodes);
+    if (!on?.own && face.slots.includes("faceSam")) samNodes.push(...FACE_REFINE_MASK);
     const slots = (core.registry.family(face.family)?.slots ?? []).filter((x) => face.slots.includes(x.id) && FACE_LOADERS[x.id] && (x.id !== "faceSam" || sam));
     const named = podSlotFiles({ needs: slots.map((x) => x.id) }, {}, slots, on ? (slotsIn(on.scan) ?? []) : null, slotsIn(mineScan));
     for (const x of slots) add(named[x.id]!, x.folder, FACE_LOADERS[x.id]![0], FACE_LOADERS[x.id]![1], x.id);
@@ -375,7 +386,7 @@ async function toolLoadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id
   // pack), as the option of a form is (jobPacks.ts), unless it is done without there (it then upscales with a model, or resizes)
   const rtx: Wanted | null = needs.anyNode?.length && !needs.anyNode.some((n) => n in nodes) ? { input: "upscale", nodes: needs.anyNode, without: "RTX VSR" } : null;
   const asked = rtx && !skipWhy(rtx, facts, packs.said ?? {}) ? rtx : null;
-  const missingNodes = [...needs.nodes.filter((n) => !(n in nodes)), ...(asked ? [asked.nodes.at(-1)!] : [])];
+  const missingNodes = [...[...needs.nodes, ...samNodes].filter((n) => !(n in nodes)), ...(asked ? [asked.nodes.at(-1)!] : [])];
   const loaded = { files, absent, ...(missingNodes.length ? { missingNodes } : {}), ...(asked ? { wanted: [asked] } : {}) };
   keep(key, loaded);
   return loaded;
