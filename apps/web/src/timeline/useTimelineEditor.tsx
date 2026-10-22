@@ -174,10 +174,23 @@ export function useTimelineEditor(id: string) {
   // made from a source with no form of its own (a swap's: its clips' form is the one), the first is opened instead, to set
   // the form every clip shares before anything renders (the owner, 2026-10-18)
   const [toRender, setToRender] = useState<{ ids: string[]; render: boolean } | null>(null);
+  /**
+   * When the timeline had last been read as the clips were first waited for. A read that settles after it without them
+   * never will have them: an Undo sent at once cancels the read Make started and reads the timeline without its clips (as
+   * another tab's removal does), so that "Making…" waited for them until the editor was left. The wait ends there, on
+   * those of them still on the timeline.
+   */
+  const waitedFrom = useRef<{ of: object; at: number } | null>(null);
+  const readAt = timeline.dataUpdatedAt;
   useEffect(() => {
     if (!toRender) return;
     const made = clips.filter((c) => toRender.ids.includes(c.id));
-    if (made.length < toRender.ids.length) return;
+    if (made.length < toRender.ids.length) {
+      const w = waitedFrom.current;
+      if (w?.of !== toRender) return void (waitedFrom.current = { of: toRender, at: readAt });
+      if (readAt <= w.at) return;
+      if (!made.length) return setToRender(null);
+    }
     setToRender(null);
     setSourceOpen(false);
     if (!toRender.render) return void (made[0] && select(made[0].id));
@@ -186,7 +199,7 @@ export function useTimelineEditor(id: string) {
     const now = made.filter((c) => ready(c).input);
     if (now.length) render.mutate({ clips: now });
     if (why) setNote(`${plural(made.length, "clip")} made from the source, not rendered: ${why}`);
-  }, [clips, toRender, render, ready, setNote, setSourceOpen, select]);
+  }, [clips, toRender, readAt, render, ready, setNote, setSourceOpen, select]);
   /** The source's stretch made into clips, sent to render in order (each waits for the one it carries on from). */
   const makeSource = {
     pending: makeSourceMut.isPending || Boolean(toRender),
