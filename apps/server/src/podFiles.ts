@@ -347,12 +347,15 @@ export class PodFiles {
 
   /**
    * A file is on the pod: its folders and node list are read again (settled), at once when it lets one of its jobs start
-   * (every file that job waits for is there), else once with the others landing within LANDINGS_MS. Each landing read the
-   * node list and every folder again: about 7 times a deploy, a few MB each.
+   * (every file that job waits for is there) or no other file is coming to it, else once with the others landing within
+   * LANDINGS_MS. Each landing read the node list and every folder again: about 7 times a deploy, a few MB each. A deploy's
+   * files are no job's (e.jobs empty) though the jobs waiting need them: its last one gathered, the queue learnt of it 5 s
+   * late, the pod billed and idle meanwhile.
    */
   private landed(machine: string, e: Entry): void {
     const pod = [...(this.pods.get(machine)?.values() ?? [])];
-    const starts = e.jobs.some((job) => pod.every((o) => o.state === "ready" || !o.jobs.includes(job)));
+    const last = !pod.some((o) => o !== e && (o.state === "next" || o.state === "fetching"));
+    const starts = last || e.jobs.some((job) => pod.every((o) => o.state === "ready" || !o.jobs.includes(job)));
     const waiting = this.landings.get(machine);
     if (starts) {
       if (waiting) clearTimeout(waiting);
