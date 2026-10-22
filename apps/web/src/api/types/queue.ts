@@ -83,6 +83,8 @@ export interface PackWait {
   packs: Array<{ name: string; without?: string }>;
   state: "ask" | "next" | "installing" | "installed" | "ready" | "failed" | "restarting";
   error?: string;
+  /** It failed after Manager installed it, at ComfyUI's restart: on the disk, not loaded (not tried again by itself). */
+  unloaded?: true;
   /** Installed, its ComfyUI waiting to be free to restart: what it is busy with. */
   waitsFor?: string;
 }
@@ -189,6 +191,8 @@ export interface MachineState {
    * no job while it has any. Null when not known.
    */
   outside?: { running: number; pending: number } | null;
+  /** It takes no job: node packs wait for its ComfyUI to restart, or it restarts now. */
+  packsHold?: boolean;
 }
 export interface QueueStatus {
   /** Pause all; each machine says its own in `machines`. */

@@ -67,6 +67,8 @@ export interface LaneView {
   rented: RentedRow | null;
   /** Of a ComfyUI of its own: the model files downloading into it now, as a pod's are said. */
   files?: PodFileView[];
+  /** It takes no job: node packs wait for its ComfyUI to restart, or it restarts now (podPacks.ts holding). */
+  packsHold?: boolean;
 }
 
 export async function status(
@@ -172,6 +174,11 @@ export async function status(
        * takes no job while it has any. Null when not known (not read yet, or not answering).
        */
       outside: l.outside ?? null,
+      /**
+       * It takes no job while node packs wait for its ComfyUI to restart, or while it restarts: the waiting jobs planned there
+       * that do not ask for those packs say so, rather than waiting with no reason given.
+       */
+      packsHold: l.packsHold ?? false,
       /** A rented pod: started, stopped, what it has cost; null for a ComfyUI of its own. */
       rented: l.rented,
       ...(l.files?.length ? { files: l.files } : {}),

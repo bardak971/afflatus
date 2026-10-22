@@ -17,6 +17,8 @@ export interface PodPackView {
   error?: string;
   /** The waiting jobs that wait for it. */
   jobs: string[];
+  /** Failed after Manager installed it: at ComfyUI's restart (it did not load it, did not come back, or was not restarted). */
+  unloaded?: true;
 }
 
 interface Entry extends PodPackView {
@@ -26,7 +28,7 @@ interface Entry extends PodPackView {
   notBefore?: number;
   /** When its install was asked for (ms): one Manager never says anything of is failed after INSTALL_MS. */
   askedAt?: number;
-  /** When it failed (ms): asked for again after `againMs`, when set. */
+  /** When it failed (ms): asked for again after `againMs`, when set (a failure at the restart, `unloaded`, never is). */
   failedAt?: number;
   /** Manager found it in its list of packs: that list is loaded there. */
   resolved?: boolean;
@@ -68,6 +70,8 @@ export const PACKS_MS = 4 * 60_000;
 
 export class PodPacks {
   private readonly pods = new Map<string, Map<string, Entry>>();
+  /** The packs Manager installed that were dropped before ComfyUI's restart loaded them, by machine: on its disk, not loaded. */
+  private readonly onDisk = new Map<string, Set<string>>();
   /** A restart asked for, by machine: since when. */
   private readonly restarting = new Map<string, number>();
   private seq = 0;
@@ -93,9 +97,12 @@ export class PodPacks {
     for (const name of names) {
       let e = pod.get(name);
       if (!e) {
-        pod.set(name, (e = { name, state: "next", jobs: [] }));
+        // one Manager installed and that was dropped before the restart is on disk already: only the restart is left to do
+        // (asking Manager to install it again would turn on what it answers for a pack that is there)
+        const onDisk = this.onDisk.get(machine)?.delete(name) ?? false;
+        pod.set(name, (e = { name, state: onDisk ? "installed" : "next", jobs: [] }));
         changed = true;
-      } else if (e.state === "failed" && this.againMs !== null && Date.now() - (e.failedAt ?? 0) > this.againMs) {
+      } else if (e.state === "failed" && !e.unloaded && this.againMs !== null && Date.now() - (e.failedAt ?? 0) > this.againMs) {
         Object.assign(e, { state: "next", tries: 0 });
         delete e.error;
         delete e.failedAt;
@@ -120,7 +127,7 @@ export class PodPacks {
     let changed = false;
     for (const [name, e] of pod) {
       if (!e.jobs.length || e.jobs.some((job) => mayRun(job, name)) || (e.state !== "next" && e.state !== "installed")) continue;
-      pod.delete(name);
+      this.dropped(machine, e);
       changed = true;
     }
     return changed;
@@ -141,22 +148,37 @@ export class PodPacks {
     return [...(this.pods.get(machine)?.values() ?? [])].filter((e) => e.jobs.includes(job));
   }
 
-  /** The packs whose install failed there and that are not to be tried again yet (againMs): what cannot come to it now. */
+  /**
+   * The packs that failed there and are not to be tried again yet (againMs): what cannot come to it now. One that failed at
+   * the restart is never tried again by itself: installing it again would only restart ComfyUI again, for the same failure
+   * (its import breaks, or the restart does). It comes once ComfyUI loads it, restarted by hand; until Afflatus restarts,
+   * which forgets it as it forgets every failure.
+   */
   failing(machine: string): PodPackView[] {
     const now = Date.now();
     return this.view(machine).filter((v) => {
       const e = this.pods.get(machine)!.get(v.name)!;
-      return e.state === "failed" && (this.againMs === null || now - (e.failedAt ?? 0) <= this.againMs);
+      return e.state === "failed" && (e.unloaded || this.againMs === null || now - (e.failedAt ?? 0) <= this.againMs);
     });
   }
 
   view(machine: string): PodPackView[] {
-    return [...(this.pods.get(machine)?.values() ?? [])].map(({ name, state, error, jobs }) => ({ name, state, ...(error ? { error } : {}), jobs: [...jobs] }));
+    return [...(this.pods.get(machine)?.values() ?? [])].map(({ name, state, error, jobs, unloaded }) => ({ name, state, ...(error ? { error } : {}), jobs: [...jobs], ...(unloaded ? { unloaded } : {}) }));
   }
 
   forget(machine: string): void {
     this.pods.delete(machine);
+    this.onDisk.delete(machine);
     this.restarting.delete(machine);
+  }
+
+  /** A pack no job wants any more taken out; one Manager installed is remembered as on the disk (want). */
+  private dropped(machine: string, e: Entry): void {
+    this.pods.get(machine)?.delete(e.name);
+    if (e.state !== "installed") return;
+    let disk = this.onDisk.get(machine);
+    if (!disk) this.onDisk.set(machine, (disk = new Set()));
+    disk.add(e.name);
   }
 
   machines(): string[] {
@@ -193,6 +215,8 @@ export class PodPacks {
     const back = await comfy.client.status().then(() => true, () => false);
     if (back && Date.now() - since > 3000) {
       this.restarting.delete(machine);
+      // the restart loaded whatever was on the disk: a dropped pack is not, from now on, one to restart for
+      this.onDisk.delete(machine);
       comfy.forgetAll();
       // loaded only when ComfyUI knows a node of the pack now: a restart that did not happen (or a pack that failed at its
       // import) leaves it failed, never "ready" with its nodes missing
@@ -200,13 +224,13 @@ export class PodPacks {
         const node = nodesOfPack(e.name)[0];
         const has = !node || (await comfy.client.raw(`/object_info/${encodeURIComponent(node)}`, { signal: AbortSignal.timeout(15_000) })
           .then(async (r) => (r.ok ? Boolean(((await r.json().catch(() => ({}))) as Record<string, unknown>)[node]) : false), () => false));
-        Object.assign(e, has ? { state: "ready" } : { state: "failed", failedAt: Date.now(), error: "ComfyUI did not load it after its restart (its log says why)" });
+        Object.assign(e, has ? { state: "ready" } : { state: "failed", failedAt: Date.now(), unloaded: true, error: "installed, but ComfyUI did not load it after its restart: its log says why; once that is fixed, restart ComfyUI by hand" });
       }
       return { changed: true, loaded: true };
     }
     if (Date.now() - since > RESTART_MS) {
       this.restarting.delete(machine);
-      for (const e of all) if (e.state === "installed") Object.assign(e, { state: "failed", failedAt: Date.now(), error: "ComfyUI did not come back after its restart" });
+      for (const e of all) if (e.state === "installed") Object.assign(e, { state: "failed", failedAt: Date.now(), unloaded: true, error: `installed, but ComfyUI did not come back in ${RESTART_MS / 60_000} min of its restart: it loads it once it is back (restart it by hand if it is not)` });
       return { changed: true, loaded: false };
     }
     return { changed: false, loaded: false };
@@ -282,7 +306,7 @@ export class PodPacks {
   private async restartWhenIn(machine: string, comfy: Comfy, all: Entry[]): Promise<boolean> {
     if (all.some((e) => e.state === "installing" || e.state === "next") || !all.some((e) => e.state === "installed") || this.d.busy(machine)) return false;
     const unwanted = this.d.stillWanted ? all.filter((e) => e.state === "installed" && e.jobs.length && !e.jobs.some((j) => this.d.stillWanted!(j, e.name))) : [];
-    for (const e of unwanted) this.pods.get(machine)?.delete(e.name);
+    for (const e of unwanted) this.dropped(machine, e);
     if (unwanted.length === all.filter((e) => e.state === "installed").length) return unwanted.length > 0;
     // ComfyUI's own queue read now, not as last polled: a prompt queued from its page a moment ago is not killed. Afflatus's
     // own state is read again after that wait, and the restart marked in the same step: the pump holds the machine from the
@@ -295,7 +319,7 @@ export class PodPacks {
     const res = await comfy.client.raw("/v2/manager/reboot", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: AbortSignal.timeout(15_000) }).catch(() => null);
     if (res && !res.ok) {
       this.restarting.delete(machine);
-      for (const e of all) if (e.state === "installed") Object.assign(e, { state: "failed", failedAt: Date.now(), error: `ComfyUI-Manager refused to restart ComfyUI (${res.status})` });
+      for (const e of all) if (e.state === "installed") Object.assign(e, { state: "failed", failedAt: Date.now(), unloaded: true, error: `installed, but ComfyUI-Manager refused to restart ComfyUI (${res.status}): restart it by hand to load it` });
     }
     return true;
   }

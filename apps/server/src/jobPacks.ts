@@ -141,6 +141,8 @@ export interface PackWait {
   state: "ask" | PodPackState | "restarting";
   /** A pack's install that failed, in Manager's words. */
   error?: string;
+  /** It failed after Manager installed it, at ComfyUI's restart: on the disk, not loaded (not tried again by itself). */
+  unloaded?: true;
   /** Installed, waiting for the machine to be free to restart: what it is busy with (work from outside Afflatus). */
   waitsFor?: string;
 }

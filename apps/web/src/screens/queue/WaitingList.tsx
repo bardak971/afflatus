@@ -102,6 +102,8 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
   const freeNow = (w: Job) => (w.pinned || !w.machine || !w.startsInMs ? undefined : machines.find((m) => m.id !== w.machine && !m.running && !m.paused && m.online !== false && !busyOutside(m) && (!w.runsOn || w.runsOn.includes(m.id))));
   /** The machine it goes to (or is pinned to), when that one's ComfyUI is busy outside Afflatus: why it waits. */
   const heldOutside = (w: Job) => machines.find((m) => m.id === (w.pinned ?? w.machine) && !m.running && busyOutside(m));
+  /** The machine it goes to, when that one takes no job until its ComfyUI restarts for another job's node packs. */
+  const heldForPacks = (w: Job) => (w.packs ? undefined : machines.find((m) => m.id === (w.pinned ?? w.machine) && !m.running && m.packsHold));
   const itemsOf = (j: { id: string; index: number }): MenuItem[] => {
     const place = betterPlace(waiting, j.id, running);
     const w = waiting.find((x) => x.id === j.id);
@@ -197,6 +199,7 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
             )}
             {heldOutside(w) && <span className="min-w-0 truncate text-xs text-ink-2" data-tip={`${machineLabel(heldOutside(w)!)}: ${OUTSIDE_TIP}`}>· {machineLabel(heldOutside(w)!)} busy outside Afflatus</span>}
             {filesOf(w, i) ? <FilesChip of={filesOf(w, i)!} /> : <FetchNote w={w} machines={machines} />}
+            {heldForPacks(w) && <span className="min-w-0 truncate text-xs text-ink-2" data-tip={`${machineLabel(heldForPacks(w)!)} takes no job until its ComfyUI restarts to load a node pack another job asked for: a job sent meanwhile would be lost in the restart.`}>· waits: {machineLabel(heldForPacks(w)!)}'s ComfyUI restarts for a node pack</span>}
             {noGpu && w.kind !== "export" && w.kind !== "cut" && <span className="shrink-0 text-xs text-warn-ink" data-tip="No ComfyUI of your own is added and no rented GPU is up: it starts once one is (Deploy a GPU, above).">waits for a GPU</span>}
             {ownWait(w) && <span className="shrink-0 text-xs text-warn-ink">waits for {plural(ownWait(w)!.files.length, "file")} on {ownWait(w)!.name}</span>}
             {w.packs && <PacksNote wait={w.packs} machine={machines.length ? machineLabel(machines.find((m) => m.id === w.packs!.machine) ?? { name: w.packs.machine, url: "" }) : null} onPacks={onPacks && ((what, packs) => onPacks(w.id, what, packs))} />}
@@ -273,7 +276,7 @@ function PacksNote({ wait, machine, onPacks }: { wait: PackWait; machine: string
       </>
     );
   }
-  if (wait.state === "failed") return <Chip tone="warn" tip={wait.error ?? "ComfyUI-Manager did not install it"}>{names.join(", ")} failed to install</Chip>;
+  if (wait.state === "failed") return <Chip tone="warn" tip={wait.error ?? "ComfyUI-Manager did not install it"}>{names.join(", ")} {wait.unloaded ? "installed, not loaded" : "failed to install"}</Chip>;
   const words = wait.state === "restarting" ? `restarting ${comfy}…` : wait.state === "installed" ? `installed · restarts ${comfy} once it is free${wait.waitsFor ? ` (busy with ${wait.waitsFor})` : ""}` : `installing ${names.join(", ")}…`;
   return (
     <span className="flex min-w-0 items-center gap-1 truncate text-xs text-ink-2" data-tip={words}>

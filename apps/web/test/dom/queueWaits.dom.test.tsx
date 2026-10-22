@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
-import type { FamilyInfo, Job } from "../../src/api";
+import type { FamilyInfo, Job, MachineState } from "../../src/api";
 import { ModelField } from "../../src/fields/FileSelect";
 import { WaitingList } from "../../src/screens/queue/WaitingList";
 import { fakeApi } from "./fakeApi";
@@ -45,6 +45,19 @@ describe("a waiting render's node packs", () => {
     draw(<WaitingList waiting={[w]} running={null} onOrder={() => {}} onRemove={() => {}} onPacks={() => {}} />);
     expect(await screen.findByRole("button", { name: "Install and restart" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Run without/ })).toBeNull();
+  });
+});
+
+describe("a waiting render held by another job's node packs", () => {
+  it("says it waits for its machine's ComfyUI to restart, and a pack that did not load says it is installed", async () => {
+    serve();
+    const machine = { id: "m1", name: "Studio PC", url: "", takes: "all", paused: false, online: true, locked: false, outside: null, rented: null, model: null, pace: null, running: null, packsHold: true } as unknown as MachineState;
+    const held = job({ id: "j2", machine: "m1", label: "zz-test held" });
+    const unloaded = job({ id: "j3", machine: "m1", packs: { machine: "m1", packs: [{ name: "zz-test-pack" }], state: "failed", unloaded: true, error: "installed, but ComfyUI did not load it" } });
+    draw(<WaitingList waiting={[held, unloaded]} running={null} machines={[machine]} onOrder={() => {}} onRemove={() => {}} />);
+    expect(await screen.findByText(/waits: Studio PC's ComfyUI restarts for a node pack/)).toBeTruthy();
+    expect(screen.getAllByText(/restarts for a node pack/)).toHaveLength(1);
+    expect(screen.getByText(/zz-test-pack installed, not loaded/)).toBeTruthy();
   });
 });
 

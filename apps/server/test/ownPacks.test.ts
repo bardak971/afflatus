@@ -19,6 +19,7 @@ function stubComfy(o: { result?: (id: string) => string; queue?: () => { running
   const tasks: Array<{ ui_id: string; id: string }> = [];
   const history: Record<string, { result: string }> = {};
   let reboots = 0;
+  let installs = 0;
   let queueReads = 0;
   const json = (v: unknown) => new Response(JSON.stringify(v), { status: 200, headers: { "Content-Type": "application/json" } });
   const client = {
@@ -28,6 +29,7 @@ function stubComfy(o: { result?: (id: string) => string; queue?: () => { running
       if (path === "/v2/manager/queue/task") {
         const t = JSON.parse(String(init!.body)) as { ui_id: string; params: { id: string } };
         tasks.push({ ui_id: t.ui_id, id: t.params.id });
+        installs++;
         return new Response("", { status: 200 });
       }
       if (path === "/v2/manager/queue/start") {
@@ -48,7 +50,7 @@ function stubComfy(o: { result?: (id: string) => string; queue?: () => { running
     },
   };
   const comfy = { client, forgetAll: () => {} } as unknown as Comfy;
-  return { comfy, get reboots() { return reboots; }, get queueReads() { return queueReads; } };
+  return { comfy, get reboots() { return reboots; }, get installs() { return installs; }, get queueReads() { return queueReads; } };
 }
 
 const lane = (comfy: Comfy, more: Partial<Lane> = {}) => ({ id: "own", machine: { id: "own", name: "Studio PC", packs: "ask" }, comfy, device: "cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync", running: null, starting: null, outside: null, ...more }) as unknown as Lane;
@@ -87,6 +89,72 @@ describe("a pack whose install failed on a ComfyUI of your own", () => {
   });
 });
 
+describe("a pack Manager installed that ComfyUI did not load at its restart", () => {
+  it("is not installed again by itself, nor ComfyUI restarted again for it: the row says it is installed, and how to load it", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-22T10:00:00Z"));
+    // Manager says success, but ComfyUI never has its node (its import breaks): the stub has no /object_info
+    const stub = stubComfy();
+    const l = lane(stub.comfy, { machine: { id: "own", name: "Studio PC", packs: "always" } as never });
+    const own = new OwnPacks({ lane: () => l, manager: async () => true, changed: () => {} });
+    own.packs.want("own", ["veda-sparse-attention"], "job-1");
+    await settle(own.packs, "own");
+    expect(own.packs.restartingNow("own")).toBe(true);
+    // ComfyUI back a moment later, without the pack's node
+    vi.setSystemTime(new Date("2026-10-22T10:00:10Z"));
+    await settle(own.packs, "own");
+    expect(own.packs.view("own")[0]).toMatchObject({ state: "failed", unloaded: true, error: expect.stringContaining("installed, but ComfyUI did not load it") });
+    expect([stub.installs, stub.reboots]).toEqual([1, 1]);
+    // well past AGAIN_MS, a new job asking for it does without it: no second install, no second restart
+    vi.setSystemTime(new Date("2026-10-22T11:00:00Z"));
+    expect((await own.facts(l)).cannot.has("veda-sparse-attention")).toBe(true);
+    expect(own.packs.want("own", ["veda-sparse-attention"], "job-2")).toBe(true);
+    await settle(own.packs, "own");
+    vi.setSystemTime(new Date("2026-10-22T11:00:10Z"));
+    await settle(own.packs, "own");
+    expect([stub.installs, stub.reboots]).toEqual([1, 1]);
+    expect(own.holding("own")).toBe(false);
+    own.stop();
+  });
+
+  it("dropped before the restart, it is only restarted for when a job asks for it again, not installed again", async () => {
+    const stub = stubComfy();
+    const l = lane(stub.comfy, { running: {} as never });
+    const own = new OwnPacks({ lane: () => l, manager: async () => true, changed: () => {} });
+    own.keepOnly([{ id: "job-1", packs: null }]);
+    own.packs.want("own", ["comfyui-gguf"], "job-1");
+    await settle(own.packs, "own");
+    expect(own.packs.view("own")[0]!.state).toBe("installed");
+    own.keepOnly([]);
+    expect(own.packs.view("own")).toEqual([]);
+    l.running = null;
+    own.keepOnly([{ id: "job-2", packs: null }]);
+    own.packs.want("own", ["comfyui-gguf"], "job-2");
+    expect(own.packs.view("own")[0]!.state).toBe("installed");
+    expect(own.holding("own")).toBe(true);
+    await settle(own.packs, "own");
+    expect([stub.installs, stub.reboots]).toEqual([1, 1]);
+    own.stop();
+  });
+});
+
+describe("a machine taken out while its packs wait for its restart", () => {
+  it("is forgotten at the next look, and the timer stops", async () => {
+    const stub = stubComfy();
+    let l: Lane | undefined = lane(stub.comfy, { running: {} as never });
+    const own = new OwnPacks({ lane: () => l, manager: async () => true, changed: () => {} });
+    own.packs.want("own", ["comfyui-gguf"], "job-1");
+    await settle(own.packs, "own");
+    expect(own.holding("own")).toBe(true);
+    l = undefined;
+    const inside = own as unknown as { pass(): Promise<void>; timer: NodeJS.Timeout | null };
+    await inside.pass();
+    expect(own.packs.machines()).toEqual([]);
+    expect(inside.timer).toBeNull();
+    own.stop();
+  });
+});
+
 describe("Ask, pack by pack", () => {
   it("another job's install brings that pack only, never the job's others unasked", () => {
     const names = ["ComfyUI-DaSiWa-Nodes", "comfyui-gguf"];
@@ -115,6 +183,21 @@ describe("whether a ComfyUI has ComfyUI-Manager", () => {
     expect(await downloads.manager(comfy)).toEqual({ found: true, version: "V4.2.1" });
     const other = { client: { baseUrl: "http://stub-none", raw: async () => new Response("", { status: 404 }) } } as unknown as Comfy;
     expect(await downloads.manager(other)).toEqual({ found: false });
+  });
+
+  it("is asked once while a question is under way: the callers meanwhile share its answer", async () => {
+    const downloads = new Downloads(new EventEmitter());
+    let asked = 0;
+    let answer!: (r: Response) => void;
+    const comfy = { client: { baseUrl: "http://stub-slow", raw: () => {
+      asked++;
+      return new Promise<Response>((done) => (answer = done));
+    } } } as unknown as Comfy;
+    const all = Promise.all([downloads.manager(comfy), downloads.manager(comfy), downloads.manager(comfy)]);
+    await Promise.resolve();
+    answer(new Response("V4.2.1", { status: 200 }));
+    expect(await all).toEqual([{ found: true, version: "V4.2.1" }, { found: true, version: "V4.2.1" }, { found: true, version: "V4.2.1" }]);
+    expect(asked).toBe(1);
   });
 });
 
