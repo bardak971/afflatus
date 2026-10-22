@@ -84,6 +84,7 @@ export const INDEX: SettingSpot[] = [
   { tab: "storage", label: "Bin", key: "storage.bin", words: "empty the bin trash delete" },
   { tab: "storage", label: "Unkept renders go to the bin after", key: "storage.unkeptDays", words: "expire expiring countdown not kept auto bin day never keep everything" },
   { tab: "storage", label: "Keep what is in the bin", key: "storage.binDays", words: "bin retention erase delete week 30 days until emptied trash" },
+  { tab: "storage", label: "Keep finished jobs", key: "storage.jobDays", words: "queue history jobs retention delete prune old done failed cancelled database days for good" },
   { tab: "storage", label: "Takes that never play", key: "storage.idle", near: "storage.disk", words: "idle" },
   { tab: "storage", label: "Render times kept for", key: "storage.renderTimes", words: "history retention days forget" },
   { tab: "storage", label: "Forget every render time", key: "storage.forgetTimes", words: "estimates reset clear render stats history start again" },

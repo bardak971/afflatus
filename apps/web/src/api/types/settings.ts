@@ -292,6 +292,8 @@ export interface Settings {
   downloadModels: boolean;
   /** How many days the time of each render is kept one by one; 0 for good. Older ones become daily figures. */
   renderHistoryDays: number;
+  /** How many days a finished job nothing still names stays in the Queue's history; 0 for good. */
+  jobHistoryDays: number;
   /** The days a result nobody kept has before it goes to the bin by itself: 1, 3 or 7; 0 for never. */
   unkeptDays: 0 | 1 | 3 | 7;
   /** The days the bin keeps what is in it before it is erased: 7 or 30; 0 until it is emptied by hand. */

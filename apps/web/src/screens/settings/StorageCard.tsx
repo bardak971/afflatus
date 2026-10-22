@@ -18,9 +18,10 @@ export function StorageCard() {
   const empty = useMutation({ mutationFn: api.emptyBin, onSuccess: done });
   // how long the library waits on its own: the server's sweep reads these (the hourly one, the next after a change)
   const settings = useSettings();
-  const keepFor = useMutation({ mutationFn: (patch: { unkeptDays?: 0 | 1 | 3 | 7; binDays?: 0 | 7 | 30 }) => api.saveSettings(patch), onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved) });
+  const keepFor = useMutation({ mutationFn: (patch: { unkeptDays?: 0 | 1 | 3 | 7; binDays?: 0 | 7 | 30; jobHistoryDays?: number }) => api.saveSettings(patch), onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved) });
   const unkeptDays = settings.data?.unkeptDays ?? 1;
   const binDays = settings.data?.binDays ?? 7;
+  const jobDays = settings.data?.jobHistoryDays ?? 30;
   const s = storage.data;
   const parts = s ? [
     { label: "Videos that play, or are in your library", bytes: s.videos, tone: "bg-accent" },
@@ -75,6 +76,9 @@ export function StorageCard() {
           <Row setting="storage.binDays" label="Keep what is in the bin" help="How long the bin holds what was moved to it before it is erased, file and all. Until emptied: nothing is erased until you empty the bin (here, in the bin's strip, or > empty the bin).">
             <Segmented oneLine label="Keep what is in the bin" value={String(binDays)} options={BIN_FOR} onChange={(v) => keepFor.mutate({ binDays: Number(v) as 0 | 7 | 30 })} />
           </Row>
+          <Row setting="storage.jobDays" label="Keep finished jobs" help="How long a done, failed or stopped job stays in the Queue's history before it is deleted from the database, checked every hour. A job still used is kept whatever its age: one whose result is in the library, on a clip, behind an export or a render time, or from a rented pod still running. The prompt history keeps the pictures and the settings either way. For good: no job is deleted.">
+            <Segmented oneLine label="Keep finished jobs" value={String(jobDays)} options={jobsFor(jobDays)} onChange={(v) => keepFor.mutate({ jobHistoryDays: Number(v) })} />
+          </Row>
           {(idle.isError || empty.isError || keepFor.isError) && <Block><ErrorNote>{(idle.error ?? empty.error ?? keepFor.error)?.message}</ErrorNote></Block>}
           {empty.data?.inUse ? <Block className="text-xs text-ink-2">{plural(empty.data.inUse, "item")} {empty.data.inUse === 1 ? "was" : "were"} left in the bin: a timeline, a person or a waiting job still uses {empty.data.inUse === 1 ? "it" : "them"}.</Block> : null}
         </Card>
@@ -118,6 +122,12 @@ function Backup() {
 /** The choices of the two rules that act on their own (the server takes these and no others). */
 const UNKEPT_FOR = [{ value: "1", label: "1 day" }, { value: "3", label: "3 days" }, { value: "7", label: "A week" }, { value: "0", label: "Never" }];
 const BIN_FOR = [{ value: "7", label: "A week" }, { value: "30", label: "30 days" }, { value: "0", label: "Until emptied" }];
+
+/** How long finished jobs are kept: the server takes any number of days, so one set another way is shown among them. */
+const JOB_DAYS = [7, 30, 90, 365];
+const jobsFor = (days: number) => [...new Set([...JOB_DAYS, ...(days > 0 ? [days] : [])])].sort((a, b) => a - b)
+  .map((n) => ({ value: String(n), label: n === 7 ? "A week" : n === 365 ? "A year" : plural(n, "day") }))
+  .concat({ value: "0", label: "For good" });
 
 const KEEP_FOR = [{ value: "30", label: "30 days" }, { value: "90", label: "90 days" }, { value: "365", label: "A year" }, { value: "0", label: "For good" }];
 

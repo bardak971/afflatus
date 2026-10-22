@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { migrate, newId, OWNER, openSqlite, type Db } from "../src/db";
 import { dropGoneMachines, writeSettings } from "../src/settings";
 import { JOURNAL_LIMIT } from "../src/sqliteWorker";
-import { optimizeSearch, RESUME_KEPT_MS, slimFinished } from "../src/tidy";
+import { optimizeSearch, pruneJobs, RESUME_KEPT_MS, slimFinished, tidyDb } from "../src/tidy";
 
 let db: Db;
 beforeEach(async () => {
@@ -25,13 +25,13 @@ const whole = (i = 0) => ({
   startedAt: 1, input: { prompt: "a lighthouse on a cliff at dusk ".repeat(20) }, timing: { model: "zz-test", modelFile: "zz-test.safetensors", timeKey: "steps=30", cold: false, expectedMs: 9000, expect: {} },
 });
 
-async function job(status: string, finishedAgoMs: number | null, resume: unknown, at = Date.now()) {
+async function job(status: string, finishedAgoMs: number | null, resume: unknown, at = Date.now(), over: Record<string, unknown> = {}) {
   const id = newId();
   const finished = finishedAgoMs === null ? null : new Date(at - finishedAgoMs).toISOString();
   await db.insertInto("jobs").values({
     id, owner_id: OWNER, recipe_id: "sdxl.text-to-picture", label: "zz-test", inputs: "{}", status, warm: 0, look: null, priority: 0, depends_on: null, attempts: 1,
     resume: resume === null ? null : JSON.stringify(resume), error: null, generation_id: null, clip_id: null, timeline_id: null, clip_fit: 0, finished_from: null, draft_id: null, folder_id: null,
-    created_at: new Date(at - 3 * DAY).toISOString(), started_at: null, finished_at: finished, updated_at: new Date(at).toISOString(),
+    created_at: new Date(at - 3 * DAY).toISOString(), started_at: null, finished_at: finished, updated_at: new Date(at).toISOString(), ...over,
   } as never).execute();
   return id;
 }
@@ -68,6 +68,128 @@ describe("a finished job's resume", () => {
     const later = await job("done", RESUME_KEPT_MS + 60_000, whole(9), at + DAY);
     expect(await slimFinished(db, at + DAY)).toBe(1);
     expect(await resumeOf(later)).toEqual({ promptId: "p-9", seed: 1243, overlap: { headMs: 500, tailMs: 0, latent: true } });
+  });
+});
+
+describe("finished jobs nothing names", () => {
+  const left = async () => new Set((await db.selectFrom("jobs").select("id").execute()).map((r) => r.id));
+  const iso = (agoMs: number) => new Date(Date.now() - agoMs).toISOString();
+  const generation = (id: string) => db.insertInto("generations").values({ id, owner_id: OWNER, recipe_id: "sdxl.text-to-picture", recipe_version: 1, family: "sdxl", inputs: "{}", resolved: "{}", gen_ms: 1, draft_id: null, created_at: iso(0) } as never).execute();
+  const asset = async (generationId: string | null) => {
+    const id = newId();
+    await db.insertInto("assets").values({
+      id, owner_id: OWNER, kind: "image", origin: "generated", name: "zz-test", file_key: `assets/${id}`, thumb_key: null, mime: "image/png", bytes: 1, width: 1, height: 1,
+      duration_ms: null, fps: null, has_sound: 0, folder_id: null, generation_id: generationId, kept_at: null, deleted_at: null, created_at: iso(0),
+    } as never).execute();
+    return id;
+  };
+  const renderRow = (id: string) => db.insertInto("render_stats").values({
+    id, owner_id: OWNER, recipe_id: "sdxl.text-to-picture", family: "sdxl", model: "zz-test", model_file: "zz-test.safetensors", time_key: "steps=28", kind: "image", width: 1, height: 1,
+    duration_ms: null, steps: 28, status: "done", whole: 1, cold: 0, waited_ms: 0, total_ms: 1, load_ms: 0, sample_ms: 1, refine_ms: 0, finish_ms: 0, step_ms: null, expected_ms: null,
+    vram_peak: null, heat_peak: null, asset_id: null, work: null, machine_id: null, gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, ram_peak: null, ram_total: null, created_at: iso(40 * DAY),
+  }).execute();
+  const session = (ended: string | null) => db.insertInto("rent_sessions").values({
+    id: "s1", machine_id: "rp-a", pod: "a", rate: 0.6, started_at: iso(60 * DAY), ended_at: ended, seen_at: null, gpu: null, up_at: null, idle_minutes: 3, busy_at: null,
+    pulled_at: null, packs_from: null, packs_to: null, boot_packs: null, start_failed: null,
+  }).execute();
+
+  it("go once ended more than the days kept; the newer ones, and those still to run whatever their old end, stay", async () => {
+    const old = await job("done", 31 * DAY, null);
+    const warm = await job("done", 31 * DAY, null, Date.now(), { warm: 1 });
+    const stopped = await job("cancelled", 200 * DAY, null, Date.now(), { warm: 1 });
+    const recent = await job("done", 29 * DAY, null);
+    // a job queued again, or running, after it ended once keeps its old end until it ends again
+    const requeued = await job("queued", 200 * DAY, null);
+    const running = await job("running", 200 * DAY, null);
+    const waiting = await job("queued", null, null);
+    expect(await pruneJobs(db, 30, 90)).toBe(3);
+    const kept = await left();
+    for (const id of [old, warm, stopped]) expect(kept.has(id)).toBe(false);
+    expect([...kept].sort()).toEqual([recent, requeued, running, waiting].sort());
+  });
+
+  it("stay while a render row, a waiting job, an item of the library, a clip, a timeline or a take names them", async () => {
+    const at = Date.now();
+    const old = (over: Record<string, unknown>) => job("done", 40 * DAY, null, at, over);
+    const rendered = await old({});
+    await renderRow(rendered);
+    const waitedOn = await old({});
+    await job("queued", null, null, at, { depends_on: waitedOn });
+    const made = await old({ generation_id: "gen-kept" });
+    await generation("gen-kept");
+    await asset("gen-kept");
+    // its item erased from the library: the generation (the prompt history) stays, the job has nothing left to show
+    await generation("gen-erased");
+    const erased = await old({ generation_id: "gen-erased" });
+    await db.insertInto("timelines").values({ id: "tl", owner_id: OWNER, name: "zz-test", created_at: iso(0), updated_at: iso(0) } as never).execute();
+    await db.insertInto("clips").values({ id: "clip", timeline_id: "tl", position: 0, take_id: null, joined: "cut", recipe_id: "h3.video", inputs: "{}", created_at: iso(0), updated_at: iso(0) } as never).execute();
+    await db.insertInto("takes").values({
+      id: "take", clip_id: "clip", asset_id: await asset(null), head_ms: 0, tail_ms: 0, trim_start_ms: 0, trim_end_ms: 0, prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null,
+      finished_from: null, join_kind: null, created_at: iso(0),
+    } as never).execute();
+    const onClip = await old({ clip_id: "clip" });
+    const exported = await old({ timeline_id: "tl" });
+    const finished = await old({ finished_from: "take" });
+    const goneClip = await old({ clip_id: "gone" });
+    const goneTimeline = await old({ timeline_id: "gone" });
+    const goneTake = await old({ finished_from: "gone" });
+    expect(await pruneJobs(db, 30, 90, at)).toBe(4);
+    const kept = await left();
+    for (const id of [rendered, waitedOn, made, onClip, exported, finished]) expect(kept.has(id)).toBe(true);
+    for (const id of [erased, goneClip, goneTimeline, goneTake]) expect(kept.has(id)).toBe(false);
+  });
+
+  it("keep a failed or stopped render while the Render times count it, and all of them for good when those are", async () => {
+    const at = Date.now();
+    const failed = await job("failed", 60 * DAY, null, at);
+    await job("failed", 120 * DAY, null, at);
+    await job("failed", 60 * DAY, null, at, { warm: 1 });
+    expect(await pruneJobs(db, 30, 90, at)).toBe(2);
+    expect(await left()).toEqual(new Set([failed]));
+    const stopped = await job("cancelled", 400 * DAY, null, at);
+    expect(await pruneJobs(db, 30, 0, at)).toBe(0);
+    expect(await left()).toEqual(new Set([failed, stopped]));
+  });
+
+  it("keep every one that ended while a rented pod still runs, until it ends", async () => {
+    const at = Date.now();
+    const onPod = await job("done", 40 * DAY, null, at, { machine_id: "rp-a" });
+    const before = await job("done", 70 * DAY, null, at);
+    await session(null);
+    expect(await pruneJobs(db, 30, 90, at)).toBe(1);
+    expect(await left()).toEqual(new Set([onPod]));
+    await db.updateTable("rent_sessions").set({ ended_at: iso(DAY) }).execute();
+    expect(await pruneJobs(db, 30, 90, at)).toBe(1);
+    expect((await left()).size).toBe(0);
+    void before;
+  });
+
+  it("follow the days set, and 0 keeps every job", async () => {
+    const at = Date.now();
+    const tenDays = await job("done", 10 * DAY, null, at);
+    const year = await job("done", 400 * DAY, null, at);
+    expect(await pruneJobs(db, 0, 90, at)).toBe(0);
+    expect((await left()).size).toBe(2);
+    expect(await pruneJobs(db, 30, 90, at)).toBe(1);
+    expect((await left()).has(year)).toBe(false);
+    expect(await pruneJobs(db, 7, 90, at)).toBe(1);
+    expect((await left()).has(tenDays)).toBe(false);
+  });
+
+  it("are gone through a page at a time, the kept ones among them, first in the database's tidying", async () => {
+    const at = Date.now();
+    const kept: string[] = [];
+    for (let i = 0; i < 1300; i++) {
+      const id = await job("done", 31 * DAY + (i % 7) * 1000, whole(i), at);
+      if (i % 100 === 0) {
+        await renderRow(id);
+        kept.push(id);
+      }
+    }
+    expect(await tidyDb(db, { jobDays: 30, renderDays: 90 }, at)).toBe(1300 - kept.length);
+    expect([...(await left())].sort()).toEqual(kept.sort());
+    // the jobs kept are cut down as before
+    expect(Object.keys(await resumeOf(kept[0]!)).sort()).toEqual(["overlap", "promptId", "seed"]);
   });
 });
 
