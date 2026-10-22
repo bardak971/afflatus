@@ -139,7 +139,8 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
       // after the seek, which says where the player is: the playhead stays exactly where it was put
       if (trackMs !== undefined) e.setCursor(trackMs);
     },
-    onMove: (clip, afterId) => patch.mutate({ clip, patch: { after: afterId } }),
+    // its answer tells the track whether to keep the order dropped (until the timeline says it) or glide back
+    onMove: (clip, afterId) => patch.mutateAsync({ clip, patch: { after: afterId } }),
     onJoin: (clip, joined) => patch.mutate({ clip: clip.id, patch: { joined } }),
     onOpenJoin: (clip) => e.openJoin(clip.id),
     onRecording: (asset, clip) => e.recording.run(asset, clip),

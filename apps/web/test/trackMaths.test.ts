@@ -52,7 +52,6 @@ describe("what a drop on a clip does", () => {
     expect(clipTarget("picture", s, 0.75, 250, clips, none)).toEqual({ kind: "insert", index: 2 });
     expect(clipTarget("picture", slot(clip("s", { kind: "still" }), 1), 0.25, 250, clips, all)).toEqual({ kind: "insert", index: 1 });
     expect(clipTarget("video", s, 0.6, 250, clips, all)).toEqual({ kind: "insert", index: 2 });
-    expect(clipTarget("clip", s, 0.4, 250, clips, all)).toEqual({ kind: "insert", index: 1 });
   });
 
   it("gives no first frame to a clip that carries on from the one before", () => {

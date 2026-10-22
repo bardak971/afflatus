@@ -46,6 +46,9 @@ export function sourceDropClip(t: Timeline, recipes: RecipeInfo[], selected?: Cl
   return (selected && empty(selected) ? selected : undefined) ?? t.clips.find(empty);
 }
 
+/** An end of the source's stretch: 8 px drawn, 24 px to take (WCAG 2.5.8), inside the lane where it is cut at its edge. */
+const END_HIT = "absolute inset-y-0 z-10 w-2 cursor-ew-resize bg-accent before:absolute before:inset-y-0 before:-inset-x-2 before:content-['']";
+
 export type SourcePlace ={ atMs: number; lengthMs: number; made: boolean; windows: SourceWindow[]; replaces: string | null };
 
 /**
@@ -112,9 +115,9 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
         onClick={onSelect}
         aria-label="Source: none. Drop a long video here."
         style={{ left: PAD + 1, top: SOURCE.top, height: SOURCE.height, width: Math.max(160, width - PAD * 2 - 60) }}
-        className={cx("absolute flex items-center gap-1.5 overflow-hidden rounded border border-dashed border-line-strong px-2 text-left text-[11px] text-ink-3", over && "outline outline-2 outline-accent")}
+        className={cx("absolute flex items-center gap-1.5 overflow-hidden rounded border border-dashed border-line-strong px-2 text-left text-body text-ink-3", over && "outline outline-2 outline-accent")}
       >
-        <Film size={11} className="relative shrink-0" />
+        <Film size={13} className="relative shrink-0" />
         <span className="relative truncate">Drop a long video here: Motion transfer, window by window</span>
       </button>
     );
@@ -245,7 +248,7 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
             aria-label="Drag: where the source's stretch starts"
             data-hint={`drag: where it starts (${(fromMs / 1000).toFixed(1)} s of the source)`}
             onPointerDown={down("start")}
-            className="absolute inset-y-0 z-10 w-2 cursor-ew-resize rounded-l bg-accent"
+            className={cx(END_HIT, "rounded-l")}
             style={{ left: Math.max(0, inLane(fromMs)) }}
           />
         )}
@@ -256,7 +259,7 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
             aria-label="Drag: where Motion transfer stops in the source"
             data-hint={`drag: where Motion transfer stops (${(toMs / 1000).toFixed(1)} s of the source)`}
             onPointerDown={down("end")}
-            className="absolute inset-y-0 z-10 w-2 cursor-ew-resize rounded-r bg-accent"
+            className={cx(END_HIT, "rounded-r")}
             style={{ left: inLane(toMs) - 8 }}
           />
         )}

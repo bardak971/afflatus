@@ -4,7 +4,6 @@ import { clock } from "../format";
 
 /** What the editor's parts share: how clips are laid out along the track, and a few words about them. */
 
-export const DRAG_CLIP = "application/x-afflatus-clip";
 /** A transition dragged from the track's strip onto a join: its kind (core TRANSITION_KINDS). */
 export const DRAG_TRANSITION = "application/x-afflatus-transition";
 
