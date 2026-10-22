@@ -16,10 +16,16 @@ import { queryKeys } from "./queryKeys";
 export const useRecipes = () => useQuery({ queryKey: queryKeys.recipes(), queryFn: api.recipes, staleTime: Infinity });
 /**
  * How large the families' official files are (address → bytes): what a greyed file says beside it. The server asks them
- * in the background at first: read again every 20 s until some came, then kept.
+ * in the background with lookups on: read again every 20 s while it says it is asking, a few minutes at most, then kept
+ * (with lookups off, or offline, it asks nothing and the page stops at once).
  */
 export const useOfficialSizes = () =>
-  useQuery({ queryKey: ["official-sizes"], queryFn: ({ signal }) => api.officialSizes({ signal }), staleTime: Infinity, refetchInterval: (q) => (q.state.data && Object.keys(q.state.data).length ? false : 20_000) });
+  useQuery({
+    queryKey: queryKeys.officialSizes(), queryFn: ({ signal }) => api.officialSizes({ signal }), staleTime: Infinity, select: (d) => d.sizes,
+    refetchInterval: (q) => (q.state.data?.asking && q.state.dataUpdateCount < SIZES_POLLS ? 20_000 : false),
+  });
+/** How many times the sizes are read while the server asks them: a quarter of an hour at most. */
+const SIZES_POLLS = 45;
 /** A model family's name by its id: the id itself while the recipes load, or for a family no longer installed. */
 export function useFamilyName(): (id: string) => string {
   const families = useRecipes().data?.families;

@@ -8,6 +8,8 @@ import { appendTo } from "../../promptText";
 import { LookBar, lookWords } from "../../LookBar";
 import { recipeLabel } from "../../format";
 import { Form, mainTextOf } from "../../RecipeForm";
+import { timelineKey } from "../../draftMachine";
+import { usePickedMachine } from "../../GenerateOn";
 import { CardPrompt } from "../../recipeForm/Part";
 import { CastPictures } from "../../castPictures";
 import { useInputEdits } from "../../hooks";
@@ -54,6 +56,8 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
   const all = useRecipes();
   const entities = useEntities();
   const edit = useInputEdits(stored, onInputs);
+  // the machine picked for the timeline's renders: the form's node pack notes speak for it
+  const pickedOn = usePickedMachine(timelineKey(timeline.id));
   // how each model would meet the clip before, said beside it before it is picked (the join rule, joinWay): a still or no clip
   // before says nothing. The forms made window by window come last, under where they are made from
   const prior = index > 0 && before?.kind === "video" && before.recipe ? all.data?.recipes.find((r) => r.id === before.recipe) : undefined;
@@ -125,6 +129,7 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
       <Form
         key={`${clip.id}:${form.id}`}
         recipe={form}
+        machine={pickedOn?.id}
         given={carries ? { previous: true } : undefined}
         status={status}
         stored={stored}

@@ -198,6 +198,8 @@ export function ProjectSwitch() {
         >
           {onPin ? <FolderKanban size={15} /> : <Initial name={picked?.name ?? ""} inbox={inbox} />}
         </span>
+        {/* the panel's name over the place: "Projects" is what opens, the place is where you are (review 4, finding 25) */}
+        {!onPin && <span className="-mb-1 w-full truncate px-0.5 text-center text-micro font-medium text-ink-3">Projects</span>}
         <span className="w-full truncate px-0.5 text-center">{label}</span>
       </button>
       <Pins current={current} />

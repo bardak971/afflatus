@@ -20,6 +20,8 @@ const recipes = [recipe("flux.t2i", "txt2img"), recipe("flux.edit", "Edit", { ne
 function serve(slots: Slot[], statuses: RecipeStatus[], downloads: unknown[] = []) {
   fakeApi.on("GET /setup", { comfy: { online: true, url: "http://127.0.0.1:8188" }, families: [{ id: "flux", slots }], recipes: statuses });
   fakeApi.on("GET /settings", { downloadModels: true, civitaiLookups: false, slotFiles: {} });
+  // the family's own downloads, as the recipes list says them: with lookups off, only those are downloaded on a press
+  fakeApi.on("GET /recipes", { families: [{ id: "flux", name: "FLUX.1", slots: slots.map((s) => ({ id: s.id, folder: s.folder, ...(s.get ? { get: s.get } : {}) })) }], recipes: [] });
   fakeApi.on("GET /downloads", { on: true, items: downloads, manager: { found: false }, via: "afflatus" });
 }
 

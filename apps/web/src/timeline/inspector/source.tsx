@@ -5,7 +5,7 @@ import type { DesignerSession, Look, RecipeInfo, SourcePatch, Timeline } from ".
 import type { DesignerTurn } from "../../designer/types";
 import { useQueue, useRecipes, useSetup } from "../../data";
 import { timelineKey } from "../../draftMachine";
-import { RenderOn } from "../../GenerateOn";
+import { RenderOn, usePickedMachine } from "../../GenerateOn";
 import { severalMachines } from "../../machines";
 import { clock as mmss, plural, recipeLabel } from "../../format";
 import { PictureMaker, usePictureSets } from "../../pictureMaker";
@@ -68,6 +68,8 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
 }) {
   const panelWidth = useColumnWidth();
   const several = severalMachines(useQueue().data).length > 0;
+  // the machine picked for the timeline's renders: the form's node pack notes speak for it
+  const pickedOn = usePickedMachine(timelineKey(timeline.id));
   const all = useRecipes();
   const setup = useSetup();
   const source = timeline.source;
@@ -228,6 +230,7 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
             <Form
               key={`source:${form.id}`}
               recipe={form}
+              machine={pickedOn?.id}
               status={status}
               stored={inputs}
               onChange={(input, value) => setInputs((x) => ({ ...x, [input]: value }))}

@@ -133,6 +133,8 @@ export interface QueueOptions {
   offlineExpiryMs: number;
   maxAttempts: number;
   wait: Pick<WaitOptions, "timeoutMs" | "pollMs" | "offlineMs" | "queueCheckEvery">;
+  /** How long before the model folders of a machine a job waits on for files are read again (Queue filesWait); a minute when left out. */
+  filesRetryMs?: number;
   /** At most how often the running render's step count is saved on its job (Resume.stepsDone); 5 s when left out. */
   stepsSaveMs?: number;
 }

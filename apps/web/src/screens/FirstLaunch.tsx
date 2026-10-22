@@ -1,11 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { shortGpu } from "@afflatus/core";
 import { Check, ExternalLink } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type ComfyProbe, type Settings } from "../api";
+import { ask } from "../Confirm";
 import { useSettings } from "../data";
 import { queryKeys } from "../queryKeys";
 import { useSayFailed } from "../sayFailed";
 import { Button, Chip, cx, ErrorNote, fieldClass } from "../ui";
+import { INSTALLS } from "./settings/NoComfyCard";
 import { CAP_DAY_WHY, CAP_MONTH_WHY, CapBox } from "./settings/RentedCard";
 import { SecretField } from "./settings/SecretField";
 
@@ -15,13 +18,6 @@ import { SecretField } from "./settings/SecretField";
  * listed. Two questions, the second appearing once the first is answered; no Next or Back. Skip, Done, or leaving by the
  * rail ends it for good (App.tsx FirstLaunchGate); Settings › ComfyUI brings it back.
  */
-
-/** The official ways to get ComfyUI, nothing more: the audience knows what ComfyUI is. */
-const INSTALLS = [
-  { name: "ComfyUI Desktop", what: "Windows, macOS", href: "https://www.comfy.org/download", site: "comfy.org" },
-  { name: "ComfyUI portable", what: "Windows, NVIDIA, one folder", href: "https://docs.comfy.org/installation/comfyui_portable_windows", site: "docs.comfy.org" },
-  { name: "Manual install", what: "Linux, any GPU, your own venv", href: "https://docs.comfy.org/installation/manual_install", site: "docs.comfy.org" },
-];
 
 /** What the first question was answered, or where it stands. */
 type Comfy = "looking" | "found" | "have" | "install" | "added" | "none";
@@ -65,16 +61,21 @@ function Choice({ on, onClick, children }: { on: boolean; onClick(): void; child
 
 /**
  * What becomes of Afflatus's node pack: written into ComfyUI's custom_nodes by itself when ComfyUI runs on this machine
- * (its folder found), else put in by hand from Settings › ComfyUI (a ComfyUI on another computer).
+ * (its folder found); on this machine with its folder not found, its folder to set; else put in by hand from Settings ›
+ * ComfyUI (a ComfyUI on another computer). `local` unknown: said as another computer's, as before.
  */
-const packSaid = (dir: string | null | undefined) =>
-  dir ? "Afflatus puts its node pack in it by itself (loaded at ComfyUI's next start)." : "On another computer: Afflatus cannot write its node pack there; Settings › ComfyUI has it to put in by hand.";
+const packSaid = (dir: string | null | undefined, local?: boolean) =>
+  dir
+    ? "Afflatus puts its node pack in it by itself (loaded at ComfyUI's next start)."
+    : local
+      ? "On this PC, but its folder was not found: set it in Settings › ComfyUI (Folder on this computer) and Afflatus writes its node pack in."
+      : "On another computer: Afflatus cannot write its node pack there; Settings › ComfyUI has it to put in by hand.";
 
 /** A machine as found: its version, its GPU, its address. */
 const foundSaid = (p: ComfyProbe) => (
   <>
     <b className="text-ink-strong">ComfyUI{p.version ? ` ${p.version}` : ""}</b>
-    {p.device && <Chip>{p.device.replace(/^cuda:\d+\s*/, "").replace(/\s*:.*$/, "")}</Chip>}
+    {p.device && <Chip>{shortGpu(p.device)}</Chip>}
     <span className="font-mono text-xs">{hostOf(p.url)}</span>
     {p.locked && <Chip tone="warn" tip="Its Afflatus node pack refuses calls without its token: once it is added, paste the token in Settings › ComfyUI.">locked</Chip>}
   </>
@@ -102,9 +103,15 @@ export function FirstLaunch() {
 
   const test = useMutation({ mutationFn: (at: string) => api.probeComfy(at), onSuccess: setProbe });
   const add = (at: string) => save.mutate({ comfyUrl: at }, { onSuccess: () => setComfy("added"), onError: sayFailed("Your ComfyUI was not added") });
-  // rented only: a ComfyUI of the user's own added before (Change) is taken out, the pods kept
-  const none = () => {
-    if (own.length) save.mutate({ machines: (settings.data?.machines ?? []).filter((m) => m.rented) as Settings["machines"] }, { onError: sayFailed("Your ComfyUI was not taken out") });
+  // rented only: a ComfyUI of the user's own added before (Change) is taken out, the pods kept. Asked first: its token and
+  // its families' switches go with it, and the page cannot put them back
+  const none = async () => {
+    if (own.length) {
+      const names = own.map((m) => m.name || hostOf(m.url)).join(", ");
+      const ok = await ask({ title: "Render on rented GPUs only?", text: `${own.length > 1 ? "Your ComfyUIs" : "Your ComfyUI"} (${names}) ${own.length > 1 ? "are" : "is"} taken out of Afflatus, with ${own.length > 1 ? "their" : "its"} settings. The pods stay.`, yes: own.length > 1 ? "Take them out" : "Take it out" });
+      if (!ok) return;
+      save.mutate({ machines: (settings.data?.machines ?? []).filter((m) => m.rented) as Settings["machines"] }, { onError: sayFailed("Your ComfyUI was not taken out") });
+    }
     setComfy("none");
     setRent("yes");
   };
@@ -112,6 +119,8 @@ export function FirstLaunch() {
   const end = () => save.mutate({ firstLaunch: "done" }, { onError: sayFailed("The first launch was not closed") });
 
   const first = own[0];
+  // what was asked of an address on this page (Test, or the usual addresses): whether it runs on this PC, for the pack's words
+  const probeOf = (at: string) => (probe?.url === at ? probe : find.data?.found?.url === at ? find.data.found : null);
   const answered = comfy === "added" || comfy === "none" || comfy === "install";
   const hasKey = Boolean(settings.data?.hasRunpodKey);
   const rentsOn = hasKey || rent === "yes";
@@ -139,7 +148,7 @@ export function FirstLaunch() {
                 <Button tone="primary" size="sm" disabled={save.isPending} onClick={() => add(find.data!.found!.url)}>Render on it</Button>
                 <Button tone="quiet" size="sm" className="bg-transparent text-ink-2" onClick={() => setComfy("have")}>Not this one</Button>
               </div>
-              <span className="text-ink-3">{find.data.found.locked ? "It is locked by an Afflatus node pack: once added, paste its token in Settings › ComfyUI." : packSaid(find.data.found.dir)}</span>
+              <span className="text-ink-3">{find.data.found.locked ? "It is locked by an Afflatus node pack: once added, paste its token in Settings › ComfyUI." : packSaid(find.data.found.dir, find.data.found.local)}</span>
             </>
           )}
           {(comfy === "have" || comfy === "install") && (
@@ -148,7 +157,7 @@ export function FirstLaunch() {
               <div className="flex flex-wrap gap-2">
                 <Choice on={comfy === "have"} onClick={() => setComfy("have")}>Yes</Choice>
                 <Choice on={comfy === "install"} onClick={() => setComfy("install")}>Not yet: I want to render on this PC</Choice>
-                <Choice on={false} onClick={none}>No: rented GPUs only</Choice>
+                <Choice on={false} onClick={() => void none()}>No: rented GPUs only</Choice>
               </div>
             </>
           )}
@@ -187,7 +196,7 @@ export function FirstLaunch() {
               <button type="button" className="ml-auto font-semibold text-ink-3 underline underline-offset-2" onClick={() => setComfy("have")}>Change</button>
             </div>
           )}
-          {comfy === "added" && first && <span className="text-ink-3">{settings.data?.comfyDir ? `Its node pack is written into its custom_nodes folder (${settings.data.comfyDir}): ComfyUI loads it at its next start.` : packSaid(null)}</span>}
+          {comfy === "added" && first && <span className="text-ink-3">{settings.data?.comfyDir ? `Its node pack is written into its custom_nodes folder (${settings.data.comfyDir}): ComfyUI loads it at its next start.` : packSaid(null, probeOf(first.url)?.local)}</span>}
           {comfy === "none" && (
             <div className="flex items-center gap-2.5 text-ink">
               None: rented GPUs only

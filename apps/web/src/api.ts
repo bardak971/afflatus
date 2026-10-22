@@ -164,7 +164,7 @@ function assetParams(opts: AssetFilter): URLSearchParams {
 export const api = {
   recipes: (o?: Asked) => call<{ families: FamilyInfo[]; recipes: RecipeInfo[] }>("GET", "/recipes", undefined, o?.signal),
   /** How large the families' official files are, by address (bytes): the ones the server knows yet. */
-  officialSizes: (o?: Asked) => call<Record<string, number>>("GET", "/official-sizes", undefined, o?.signal),
+  officialSizes: (o?: Asked) => call<{ sizes: Record<string, number>; asking: boolean }>("GET", "/official-sizes", undefined, o?.signal),
   /** What ComfyUI can do; each recipe's options come as places in a list of lists (core's listOptions), put back here. */
   /** `machine`: that ComfyUI's alone; without, what every machine together can do (the same with one). */
   setup: (o?: Asked, machine?: string) => call<ListedOptions<RecipeStatus> & Omit<Scan, "recipes">>("GET", `/setup${machineParam(machine)}`, undefined, o?.signal).then((sent): Scan => unlistOptions(sent)),
@@ -358,9 +358,9 @@ export const api = {
   },
   advice: (recipe: string, input: Record<string, unknown>) => call<{ estimate: Advice | null }>("POST", "/advice", { recipe, input }),
   /** What the form says under an option whose node pack the machine lacks. */
-  formPacks: (recipe: string, input: Record<string, unknown>) => call<FormPacks>("POST", "/form/packs", { recipe, input }),
+  formPacks: (recipe: string, input: Record<string, unknown>, machine?: string, o?: Asked) => call<FormPacks>("POST", "/form/packs", { recipe, input, ...(machine ? { machine } : {}) }, o?.signal),
   /** The prompt as sent of a form written from parts, while its prompt is left empty (Recipe.promptFromParts). */
-  formPrompt: (recipe: string, input: Record<string, unknown>) => call<{ into: string | null; text: string }>("POST", "/form/prompt", { recipe, input }),
+  formPrompt: (recipe: string, input: Record<string, unknown>, o?: Asked) => call<{ into: string | null; text: string }>("POST", "/form/prompt", { recipe, input }, o?.signal),
   civitaiFind: (file: string, folder: string | null, hints: string[] = []) =>
     call<{ items: CivitaiFind[]; exact: HuggingFaceFind[]; asked: string[]; silent: string[] }>(
       "GET", `/civitai/find?${new URLSearchParams({ file, ...(folder ? { folder } : {}), ...(hints.length ? { hints: hints.join("|") } : {}) })}`,

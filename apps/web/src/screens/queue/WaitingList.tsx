@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ArrowDownToLine, ArrowUpToLine, Layers, Loader2, Pin, Server, Trash2, X } from "lucide-react";
 import { api, type Job, type MachineLack, type MachineState, type PackWait, type RunningJob } from "../../api";
@@ -17,6 +17,7 @@ import { settingHref } from "../settings/settingsIndex";
 import { DownloadTo } from "../../useGetFile";
 import { markPlace } from "../../motion";
 import { motionAllowed } from "../../useFlip";
+import { useSayFailed } from "../../sayFailed";
 
 /** How many waiting jobs show before the rest fold into "and N more". */
 const SHOWN = 3;
@@ -292,11 +293,16 @@ function PacksNote({ wait, machine, onPacks }: { wait: PackWait; machine: string
  */
 function OwnDownloads({ w }: { w: Job }) {
   const wait = useOwnWait()(w);
+  // a file put in by hand (or by ComfyUI-Manager's page) is seen within a minute; Look again reads its folders now
+  const look = useMutation({ mutationFn: (machine: string) => api.rescanSetup(machine), onError: useSayFailed({ id: "own-wait-rescan", href: "/queue" })("Its ComfyUI could not be asked again") });
   if (!wait) return null;
   return (
     <DownloadTo.Provider value={wait.id}>
       <div className="mb-1 ml-[44px] flex flex-col gap-1.5 rounded-[10px] border border-line bg-raised px-3 py-2 text-xs text-ink-2">
-        <span>Waits for {plural(wait.files.length, "file")} on {wait.name}, then runs there{wait.others ? " (or run it on a pod from its menu)" : ""}:</span>
+        <span>
+          Waits for {plural(wait.files.length, "file")} on {wait.name}, then runs there{wait.others ? " (or run it on a pod from its menu)" : ""}:{" "}
+          <button type="button" disabled={look.isPending} onClick={() => look.mutate(wait.id)} className="font-semibold text-accent hover:underline disabled:opacity-60" data-tip="Reads its model folders again now: a file put in by hand starts the job (it is seen by itself within a minute or two).">{look.isPending ? "Looking…" : "Look again"}</button>
+        </span>
         {wait.files.map((f) => (
           <div key={`${f.folder}/${f.file}`}>
             <span className="font-semibold text-ink">{f.file}</span> <span className="text-ink-3">· {f.folder}</span>

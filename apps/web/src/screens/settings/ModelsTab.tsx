@@ -12,6 +12,7 @@ import { Block, Card } from "./Rows";
 import { DownloadAll, FamilyBody } from "./ModelsFamily";
 import { modelHelp } from "../../modelHelp";
 import { queryKeys } from "../../queryKeys";
+import { useSayFailed } from "../../sayFailed";
 
 /**
  * The card's head: what it counts, said. A bare "15 of 15 ready" read as "everything is fine" under families that were
@@ -34,9 +35,11 @@ function AllOnHint({ off }: { off: number }) {
   const client = useQueryClient();
   const [closed, setClosed] = useState(() => localStorage.getItem(HINT_CLOSED) === "1");
   const settings = useSettings();
+  const sayFailed = useSayFailed({ id: "all-families", href: "/settings/models", go: "Open Settings › Models" });
   const turn = useMutation({
     mutationFn: () => api.saveSettings({ allFamilies: true, families: Object.fromEntries(Object.entries(settings.data?.families ?? {}).filter(([, on]) => on)) }),
     onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved),
+    onError: sayFailed("The families were not turned on"),
   });
   if (closed) return null;
   const close = () => {

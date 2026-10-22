@@ -51,6 +51,7 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
   selection: Selection;
 }) {
   const { kind, setKind, typed, setTyped, made, lora, kept, reach, showTimelines } = filters;
+  const [path] = useLocation();
   // the scope the display is remembered for: with the form closed, the grid is the folder's
   const scopeNow = reach as Scope;
   const { picked } = selection;
@@ -72,7 +73,8 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
   const active = [made && "model", lora && "LoRA", !inBin && kept && "Kept only", !inBin && filters.unkept && "Expiring only", !showTimelines && (view.groupBy ?? "none") !== "none" && `grouped by ${view.groupBy}`].filter((x): x is string => Boolean(x));
   return (
     <header ref={bar} className="relative flex h-[60px] shrink-0 flex-nowrap items-center gap-2 overflow-hidden px-5">
-      <h1 className="sr-only">Studio</h1>
+      {/* the page's name for a screen reader, as the rail names it: /timelines is Timelines, not Studio */}
+      <h1 className="sr-only">{path.startsWith("/timelines") ? "Timelines" : "Studio"}</h1>
       <PlaceCrumbs place={place} onPlace={(p) => view.set({ place: p })} anchor={folderButton} open={Boolean(foldersOpen)} onOpen={(o) => setFoldersOpen(o ? "click" : false)} className={fold >= 3 ? "w-[clamp(110px,9vw,140px)]!" : undefined} />
       {/* what the library shows: media, or the timelines (the rail's Timelines entry lands on the second) */}
       {place.type !== "bin" && fold >= 5 && (!ticking || fold < 9) && (

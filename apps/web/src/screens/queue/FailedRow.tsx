@@ -9,7 +9,7 @@ import { Button, buttonClass, Chip, cx } from "../../ui";
 import { useQueueBulk } from "./bulk";
 import { readableError } from "./failures";
 import { fixLink } from "./fixLink";
-import { ROW, useJobActions } from "./jobActions";
+import { MODEL_CELL, ROW, TOOK_CELL, useJobActions } from "./jobActions";
 import { modelTip, useModelName } from "./modelName";
 import { lighter, memoryThatRanOut, shorterStretch } from "./retry";
 
@@ -115,7 +115,11 @@ export function FailedRow({ jobs, quiet = false }: { jobs: HistoryJob[]; quiet?:
             {second && button(second, "plain")}
           </span>
         </span>
-        <span className="truncate text-[12.5px] text-ink-2" data-tip={modelTip(modelOf(job), job.model)}>{modelOf(job)}</span>
+        <span className={cx("truncate text-[12.5px] text-ink-2", MODEL_CELL)} data-tip={modelTip(modelOf(job), job.model)}>{modelOf(job)}</span>
+        {/* nothing came out: no time to say, a dash as a finished row with none has */}
+        <span className={cx("text-right font-mono text-xs text-ink-3", TOOK_CELL)}>—</span>
+        <span className="text-right text-xs text-ink-2">{job.finishedAt ? when(job.finishedAt) : ""}</span>
+        {/* in a column of its own, at the row's end: under Took it read as a figure of the row */}
         <span className="flex justify-end">
           <button
             type="button"
@@ -127,7 +131,6 @@ export function FailedRow({ jobs, quiet = false }: { jobs: HistoryJob[]; quiet?:
             <MoreHorizontal size={16} />
           </button>
         </span>
-        <span className="text-right text-xs text-ink-2">{job.finishedAt ? when(job.finishedAt) : ""}</span>
       </div>
       {open && (
         <div className="mr-3 mb-1 ml-[90px] flex flex-col gap-2 rounded-[10px] bg-raised px-3 py-2.5 text-[12.5px] leading-normal">
