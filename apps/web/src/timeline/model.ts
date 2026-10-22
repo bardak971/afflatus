@@ -59,6 +59,24 @@ export function layout(clips: Clip[], pps: number, recipes: RecipeInfo[], stretc
   });
 }
 
+/**
+ * The slots laid again, with each one unchanged kept as the object it was (and the list itself when none changed): a clip
+ * is drawn again only when its slot changed (TrackClip is memo). Typing in a clip's form gives the timeline shown a new
+ * list of clips at each key, the clip typed in new and the others the same objects: laid anew, every slot was new and the
+ * 150 clips of a long timeline were all drawn again at each key.
+ */
+export function keptSlots(was: Slot[] | null, now: Slot[]): Slot[] {
+  if (!was) return now;
+  const before = new Map(was.map((s) => [s.clip.id, s]));
+  const same = (a: Slot | undefined, b: Slot) =>
+    a !== undefined && a.clip === b.clip && a.index === b.index && a.startMs === b.startMs && a.lengthMs === b.lengthMs && a.left === b.left && a.width === b.width && a.planned === b.planned;
+  const kept = now.map((s) => {
+    const a = before.get(s.clip.id);
+    return same(a, s) ? a! : s;
+  });
+  return kept.length === was.length && kept.every((s, i) => s === was[i]) ? was : kept;
+}
+
 /** Where the playhead is drawn for a moment of what plays, and which clip it is in. */
 export function placeOf(slots: Slot[], playMs: number): { slot: Slot; x: number; layoutMs: number } | null {
   const playable = slots.filter((s) => !s.planned);

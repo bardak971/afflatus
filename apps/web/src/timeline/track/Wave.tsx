@@ -1,5 +1,11 @@
-/** How loud a sound is along a stretch of it, drawn behind the words of its row: -60 dB is the floor, 0 the top. */
-export function Wave({ sound, rate, fromMs, toMs }: { sound: number[] | null; rate: number; fromMs: number; toMs: number }) {
+import { memo } from "react";
+
+/**
+ * How loud a sound is along a stretch of it, drawn behind the words of its row: -60 dB is the floor, 0 the top. Drawn
+ * again only when its sound or its stretch changes: the music lane has one per clip, and each path is built anew at every
+ * draw of the lane (about 17 on a 150-clip timeline at each draw of the track).
+ */
+export const Wave = memo(function Wave({ sound, rate, fromMs, toMs }: { sound: number[] | null; rate: number; fromMs: number; toMs: number }) {
   if (!sound || sound.length < 2) return null;
   const step = 1000 / rate;
   const a = Math.max(0, Math.floor(fromMs / step));
@@ -14,4 +20,4 @@ export function Wave({ sound, rate, fromMs, toMs }: { sound: number[] | null; ra
       <path d={d} fill="currentColor" opacity={0.3} />
     </svg>
   );
-}
+});

@@ -78,6 +78,8 @@ export function plainKey(e: KeyboardEvent, opts: { over?: string } = {}): boolea
 export function useSearchKey(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // only "/" and ":" are this one's: any other key goes on at once (the open modals were looked for at every key typed)
+      if (e.key !== "/" && e.key !== ":") return;
       // A modal open (a question, the Deploy dialog) keeps the keys: only a search box inside the topmost one is reached,
       // never one behind it, where the focus would go out of sight of the dialog (as Dialog.tsx's dialogOver says).
       const top = [...document.querySelectorAll("[role=dialog][aria-modal=true]")].at(-1);

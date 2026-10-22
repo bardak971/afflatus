@@ -5,7 +5,7 @@ import type { Asset, Clip, RecipeInfo, Timeline, TimelinePatch } from "../api";
 import { Keys } from "../Keys";
 import { useKeysHere } from "../keys/here";
 import { cx, IconButton } from "../ui";
-import { DRAG_TRANSITION, layout, NEW_CLIP, otherShape, PAD, ZOOM, type PinWhere, type ShownPatch, type TimeRange } from "./model";
+import { DRAG_TRANSITION, keptSlots, layout, NEW_CLIP, otherShape, PAD, ZOOM, type PinWhere, type ShownPatch, type Slot, type TimeRange } from "./model";
 import { STRIP_KINDS } from "./inspector/join";
 import { SWATCH } from "./transitionLook";
 import type { Clock } from "./clock";
@@ -15,10 +15,11 @@ import { PinPeek, type PinOver } from "./track/PinPeek";
 import { Playhead } from "./track/Playhead";
 import { MusicLane } from "./track/MusicLane";
 import { ownSoundModel, RecordingBands, voiceOf } from "./track/RecordingBand";
-import { EndColumn, endColumnAt } from "./track/EndColumn";
+import { EndColumnLive } from "./track/EndColumn";
 import { useLaneMenus } from "./track/LaneMenus";
 import { HEIGHT, MUSIC, ROW, SOUND, SOURCE } from "./track/rows";
 import { SourceLane, ToCome, type SourcePlace } from "./track/SourceLane";
+import { nearJoin } from "./track/nearJoin";
 import { joinCovered, TrackClip, type TrackClipActs } from "./track/TrackClip";
 import { TrackRuler } from "./track/TrackRuler";
 import { useClipDrag, type ClipMove } from "./track/useClipDrag";
@@ -169,7 +170,9 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
     if (pinTimer.current) clearTimeout(pinTimer.current);
   }, []);
 
-  const slots = useMemo(() => layout(clips, pps, recipes, stretch ?? undefined), [clips, pps, recipes, stretch]);
+  // laid again keeping the slots that did not change (keptSlots): a clip draws again only when its own slot changed
+  const laid = useRef<Slot[] | null>(null);
+  const slots = useMemo(() => (laid.current = keptSlots(laid.current, layout(clips, pps, recipes, stretch ?? undefined))), [clips, pps, recipes, stretch]);
   const clipsEnd = slots.length ? slots.at(-1)!.left + slots.at(-1)!.width : PAD;
   // the clips Make will add after the last one, and the source under them: the track reaches past them
   const toCome = sourcePlace && !sourcePlace.made && !sourcePlace.replaces && sourcePlace.windows.length ? PAD + ((sourcePlace.atMs + sourcePlace.windows.at(-1)!.toMs) / 1000) * pps : 0;
@@ -208,36 +211,16 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const hint = moved?.holding ? moveHint(moved, clips.map((c) => c.id)) : dropHint;
   const legend = dropLegend && !moved?.holding;
 
-  // the join the pointer is near, within 20 px either side of it on the video row: its "+" shows (review 4, P6)
-  const [nearJoin, setNearJoin] = useState<string | null>(null);
+  // the join the pointer is near, within 20 px either side of it on the video row: its "+" shows (review 4, P6). Kept
+  // out of the Track's state (nearJoin.ts), so that crossing a join draws only the two clips concerned again
+  const [near] = useState(nearJoin);
   const nearAt = (e: ReactPointerEvent) => {
     const box = inner.current?.getBoundingClientRect();
     const y = box ? e.clientY - box.top : -1;
     const x = xOf(e.clientX);
     const s = !moved && e.buttons === 0 && y >= ROW.top - 4 && y <= ROW.top + ROW.height ? slots.find((k) => k.index > 0 && Math.abs(x - k.left) <= JOIN_ZONE / 2) : undefined;
-    const id = s?.clip.id ?? null;
-    if (id !== nearJoin) setNearJoin(id);
+    near.set(s?.clip.id ?? null);
   };
-
-  // the part of the track in view, for the end column: pinned at its right edge while the clips reach past the view (at
-  // 1440 px the Audio hint went under the inspector after the last clip)
-  const [view, setView] = useState({ left: 0, width: 0 });
-  useEffect(() => {
-    const el = scroller.current;
-    if (!el) return;
-    const read = () => setView((v) => (v.left === el.scrollLeft && v.width === el.clientWidth ? v : { left: el.scrollLeft, width: el.clientWidth }));
-    read();
-    el.addEventListener("scroll", read, { passive: true });
-    const sized = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(read);
-    sized?.observe(el);
-    return () => {
-      el.removeEventListener("scroll", read);
-      sized?.disconnect();
-    };
-  }, []);
-  // after the last clip, and over the clips only while they run past the view: the Audio hint pulled left whenever it did
-  // not fit whole sat over the last clip's own Audio cell (the owner's Timeline 9, 2026-10-22) and read as that clip's
-  const column = endColumnAt(end, PAD, view);
 
   // ---- the range: In and Out, swept on the ruler with Shift, or dragged by their brackets; they snap to cuts, to the playhead and to quiet moments
   const { playEnd, measureOf, motion, snapRange, band, rangeMenuAt } = useRangeDrag({ slots, clips, timeline, pps, clock, snapQuiet, range, xOf, onRangeMenu });
@@ -285,7 +268,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
             style={{ width, height: HEIGHT }}
             onContextMenu={rangeMenuAt}
             onPointerMove={nearAt}
-            onPointerLeave={() => nearJoin && setNearJoin(null)}
+            onPointerLeave={() => near.set(null)}
           >
             <TrackRuler
               clock={clock}
@@ -326,7 +309,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                   renderMs={s.planned ? renderOf?.(c)?.ms : undefined}
                   lift={moved?.clip === c.id ? (moved.holding ? "held" : "landing") : undefined}
                   moving={Boolean(moved)}
-                  near={nearJoin === c.id && !moved}
+                  nearJoin={near}
                   voice={voiceName(c)}
                   acts={acts}
                 />
@@ -336,10 +319,14 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
             {/* the voice recordings, each a band under the Lip sync clips made of it */}
             <RecordingBands timeline={timeline} slots={slots} recipes={recipes} pps={pps} onTrim={onRecordingTrim} onSelect={onSelect} />
 
-            {/* the end column: New clip, a voice recording, a long video, the three drops that add their clips after the last one */}
-            <EndColumn
-              left={column.left}
-              pinned={column.pinned}
+            {/* the end column: New clip, a voice recording, a long video, the three drops that add their clips after the last one.
+                After the last clip, and over the clips only while they run past the view (pinned at its right edge: at 1440 px
+                the Audio hint went under the inspector after the last clip); the Audio hint pulled left whenever it did not fit
+                whole sat over the last clip's own Audio cell (the owner's Timeline 9, 2026-10-22) and read as that clip's */}
+            <EndColumnLive
+              scroller={scroller}
+              end={end}
+              pad={PAD}
               busy={busy}
               overRecording={over?.kind === "recording" && !over.clip}
               overSource={over?.kind === "source"}

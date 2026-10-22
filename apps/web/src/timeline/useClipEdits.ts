@@ -119,8 +119,9 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
   const shown = useMemo(() => (t ? { ...t, clips: clips.map((c) => (edits[c.id] ? { ...c, inputs: edits[c.id]! } : c)) } : undefined), [t, clips, edits]);
 
   /** The whole form of a clip as a render would send it, whether it is ready to render or not (its models are told from it). */
+  const formsSeen = useRef<Kept<Record<string, unknown> | null>>(null);
   const formOf = useMemo(
-    () => once((c: Clip): Record<string, unknown> | null => {
+    () => once(seenFor(formsSeen, [recipes.data, setup.data, setup.isSuccess, comfyOnline, settings.data]), inputsOf, (c: Clip): Record<string, unknown> | null => {
       const recipe = c.kind === "still" ? undefined : recipes.data?.recipes.find((r) => r.id === c.recipe);
       if (!recipe) return null;
       const status = setup.data?.recipes.find((r) => r.id === recipe.id);
@@ -137,8 +138,9 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
    * The whole form of a clip as it would be sent, or why it cannot be rendered yet (`voice`: a Lip sync clip waiting for its
    * voice recording, which Needs a look lists on its own row).
    */
+  const readySeen = useRef<Kept<Ready>>(null);
   const ready = useMemo(
-    () => once((c: Clip): { input?: Record<string, unknown>; why?: string; voice?: true } => {
+    () => once(seenFor(readySeen, [recipes.data, setup.data, setup.isSuccess, comfyOnline, settings.data, clips]), inputsOf, (c: Clip): Ready => {
       if (c.kind === "still") return { why: "A still is not rendered." };
       const recipe = recipes.data?.recipes.find((r) => r.id === c.recipe);
       if (!recipe) return { why: c.recipe ? "The model this clip was generated with is no longer here. Choose another one." : "Choose a model for this clip." };
@@ -217,16 +219,32 @@ export function filledOver(edit: Record<string, unknown>, sent: Record<string, u
   return next;
 }
 
+/** Whether a clip can be rendered: its whole form, or why not (`voice`: a Lip sync clip waiting for its voice recording). */
+type Ready = { input?: Record<string, unknown>; why?: string; voice?: true };
+/** A clip's answer, and the form it was worked out from. */
+type Seen<T> = { from: Record<string, unknown>; v: T };
+/** The clips' answers kept, and the reads besides the forms they were worked out with. */
+type Kept<T> = { reads: unknown[]; seen: WeakMap<Clip, Seen<T>> } | null;
+
+/** The answers kept for these reads: kept over the edits of the forms, new when anything else they read changed. */
+function seenFor<T>(kept: { current: Kept<T> }, reads: unknown[]): WeakMap<Clip, Seen<T>> {
+  if (!kept.current || kept.current.reads.length !== reads.length || kept.current.reads.some((r, i) => r !== reads[i])) kept.current = { reads, seen: new WeakMap() };
+  return kept.current.seen;
+}
+
 /**
- * A clip's answer worked out once for each state of the forms (a new one each time what it depends on changes): the
- * track, the header, the overview and the inspector all ask it, several times a draw.
+ * A clip's answer worked out once for each state of its own form (`seen`: new each time what else it depends on
+ * changes, seenFor): the track, the header, the overview and the inspector all ask it, several times a draw. It is kept over the
+ * edits of the other clips' forms: worked out anew for every clip at each key typed, the 150 clips of a long timeline
+ * cost ~9 ms a key (their whole forms, their checks).
  */
-function once<T>(of: (c: Clip) => T): (c: Clip) => T {
-  const seen = new WeakMap<Clip, T>();
+function once<T>(seen: WeakMap<Clip, Seen<T>>, inputsOf: (c: Clip) => Record<string, unknown>, of: (c: Clip) => T): (c: Clip) => T {
   return (c) => {
-    if (seen.has(c)) return seen.get(c)!;
+    const from = inputsOf(c);
+    const was = seen.get(c);
+    if (was && was.from === from) return was.v;
     const v = of(c);
-    seen.set(c, v);
+    seen.set(c, { from, v });
     return v;
   };
 }
