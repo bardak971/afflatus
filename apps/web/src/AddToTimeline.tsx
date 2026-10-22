@@ -7,7 +7,6 @@ import { thumbUrl, type Asset } from "./api";
 import { useFolders, useTimelines } from "./data";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
 import { clock, plural, when } from "./format";
-import { Keys } from "./Keys";
 import { useProject } from "./project";
 import { Select } from "./Select";
 import { useBanners, useStudio } from "./store";
@@ -60,7 +59,6 @@ export function AddToTimeline({ asset, onClose }: { asset: Asset; onClose(): voi
           {timelines.isSuccess && !items.length && <span className="text-ink-2">{typed.trim() ? "No timeline of that name here." : "No timeline in this folder."}</span>}
         </div>
         <DialogFoot>
-          <Button tone="quiet" onClick={onClose}>Cancel <Keys keys="Esc" size="sm" /></Button>
           <Button onClick={() => { onClose(); go("/timelines"); }}>All timelines</Button>
           <Button tone="primary" disabled={add.isPending} onClick={() => add.mutate(null)}><Plus size={14} strokeWidth={2.6} /> New timeline with it</Button>
         </DialogFoot>

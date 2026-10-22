@@ -68,7 +68,7 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
   const upload = useUpload((a) => onPick(a.id), kit);
 
   return (
-    <Dialog label={title} onClose={onClose} z="z-50" className="flex max-h-full w-full max-w-4xl flex-col rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-[peek-rise_120ms_ease-out]">
+    <Dialog label={title} onClose={onClose} z="z-50" className="flex max-h-full w-full max-w-4xl flex-col rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-peek-rise">
         {/* the head, with the search and the ways to bring one in between it and the way out */}
         <header className="flex shrink-0 items-center gap-2.5 border-b border-line px-5 py-3.5">
           <span className="min-w-0 grow">

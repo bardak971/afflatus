@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
-import { Search, X } from "lucide-react";
+import { X } from "lucide-react";
 import { fileKey } from "@afflatus/core";
 import { api, type BrowseCard } from "./api";
 import { keepTabIn } from "./Dialog";
@@ -13,7 +13,7 @@ import { useSettled } from "./hooks";
 import { Keys } from "./Keys";
 import { queryKeys } from "./queryKeys";
 import { Select } from "./Select";
-import { Checkbox, cx, ErrorNote, fieldClass, Segmented } from "./ui";
+import { Checkbox, cx, ErrorNote, SearchField, Segmented } from "./ui";
 
 /**
  * Find models: Civitai's and Hugging Face's models, and the user's own (presets, families, this PC's files), in a large
@@ -154,10 +154,7 @@ export function FindModels({ target }: { target: FindTarget }) {
         </div>
         {tab !== "yours" && (
           <div className="flex items-center gap-3 border-b border-line px-5 py-2.5">
-            <label className={cx(fieldClass, "flex h-9 grow items-center gap-2 px-3")}>
-              <Search size={14} className="text-ink-3" />
-              <input autoFocus value={words} onChange={(e) => setWords(e.target.value)} placeholder={tab === "civitai" ? "Search Civitai, or paste a Civitai or Hugging Face link" : "Search Hugging Face, or paste a link"} className="min-w-0 grow bg-transparent outline-none placeholder:text-ink-3" />
-            </label>
+            <SearchField autoFocus value={words} onChange={setWords} label={tab === "civitai" ? "Search Civitai" : "Search Hugging Face"} placeholder={tab === "civitai" ? "Search Civitai, or paste a Civitai or Hugging Face link" : "Search Hugging Face, or paste a link"} className="grow" />
             {tab === "civitai" && (
               <>
                 <span className="w-[160px]"><Select size="sm" label="Sort" value={sort} onChange={setSort} options={(bases.data?.sorts ?? []).map((s) => ({ value: s, label: SORT_SAID[s] ?? s }))} /></span>

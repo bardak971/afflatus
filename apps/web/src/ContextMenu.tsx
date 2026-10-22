@@ -235,8 +235,10 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
         data-context-menu
         // a menu opened from inside a popover (the folder panel) is part of it: pressing an item does not close the popover first
         data-floating=""
-        className="fixed z-[90] flex outline-none max-h-[calc(100vh-8px)] min-w-[230px] max-w-[340px] flex-col overflow-y-auto overscroll-contain rounded-[14px] border border-line-strong bg-panel p-1.5 shadow-2xl shadow-shade/60 motion-safe:animate-[tip-in_100ms_ease-out]"
-        style={{ left: pos.x, top: pos.y }}
+        className="fixed z-[90] flex outline-none max-h-[calc(100vh-8px)] min-w-[230px] max-w-[340px] flex-col overflow-y-auto overscroll-contain rounded-[14px] border border-line-strong bg-panel p-1.5 shadow-2xl shadow-shade/60 motion-safe:animate-tip-in"
+        // it grows out of where it was asked for (the click, or the row a submenu opens from), which is not its corner once
+        // it was pushed back inside the window or flipped to the left
+        style={{ left: pos.x, top: pos.y, transformOrigin: `${Math.max(0, at.x - pos.x)}px ${Math.max(0, at.y - pos.y)}px` }}
         onContextMenu={(e) => e.preventDefault()}
       >
         {head && (

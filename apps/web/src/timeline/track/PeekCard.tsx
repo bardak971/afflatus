@@ -120,7 +120,7 @@ export function PeekCard({ x, y, width, bounds, label, children }: {
     <div
       role="tooltip"
       aria-label={label}
-      className="pointer-events-none fixed z-[70] rounded-[14px] border border-line-strong bg-panel p-2 text-ink shadow-[0_24px_60px_color-mix(in_oklab,var(--color-shade)_55%,transparent)] motion-safe:animate-[peek-rise_100ms_ease-out] motion-reduce:animate-[peek-fade_100ms_ease-out]"
+      className="pointer-events-none fixed z-[70] rounded-[14px] border border-line-strong bg-panel p-2 text-ink shadow-[0_24px_60px_color-mix(in_oklab,var(--color-shade)_55%,transparent)] motion-safe:animate-peek-rise motion-reduce:animate-peek-fade"
       style={{ left, bottom: window.innerHeight - y, width: outer }}
     >
       {children}

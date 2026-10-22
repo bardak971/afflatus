@@ -4,6 +4,7 @@ import { Check, ChevronDown, Search } from "lucide-react";
 import { fuzzyFilter } from "@afflatus/core";
 import { Keys } from "./Keys";
 import { useLeave } from "./leave";
+import { popFrom } from "./motion";
 import { cx } from "./ui";
 
 export interface Option {
@@ -197,7 +198,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
         <div
           ref={panelRef}
           data-floating
-          style={{ left: place.left, width: place.width, top: place.top, bottom: place.bottom, maxHeight: place.height, transformOrigin: place.top !== undefined ? "top" : "bottom" }}
+          style={{ left: place.left, width: place.width, top: place.top, bottom: place.bottom, maxHeight: place.height, transformOrigin: place.top !== undefined ? "top" : "bottom", ...popFrom(place.top === undefined) }}
           className="m-pop fixed z-[70] flex flex-col overflow-hidden rounded-[14px] border border-line-strong bg-panel shadow-2xl shadow-shade/60"
         >
           <div className="flex shrink-0 items-center gap-2 border-b border-line px-3">

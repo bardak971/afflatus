@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Search } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { api, type SettingsPatch, type UpdateRow } from "../../api";
 import { useModelUpdates, useSettings } from "../../data";
 import { dateTime, dayOf, fileLabel, plural } from "../../format";
 import { Dialog, DialogHead, DIALOG } from "../../Dialog";
-import { Button, cx, ErrorNote, Segmented, Toggle } from "../../ui";
+import { Button, cx, ErrorNote, SearchField, Segmented, Toggle } from "../../ui";
 import { Block, Card, Row } from "./Rows";
 import { queryKeys } from "../../queryKeys";
 
@@ -81,10 +81,7 @@ export function UpdatesCard() {
               <DialogHead icon={<RefreshCw size={16} />} title="Newer versions on Civitai" sub={`${newer.length} of your models · ${r?.checkedAt ? `checked ${dateTime(r.checkedAt)}` : "not checked yet"}`} onClose={() => setOpen(false)} />
               <div className="flex flex-wrap items-center gap-2">
                 <Segmented label="Kind" value={kind} onChange={(v) => setKind(v as typeof kind)} options={[{ value: "all", label: `All ${newer.length}` }, ...KINDS.map((k) => ({ value: k.id, label: `${k.label} ${newer.filter((u) => u.folder === k.id).length}` })).filter((o) => !o.label.endsWith(" 0"))]} />
-                <label className="flex h-8 grow items-center gap-2 rounded-lg border border-line bg-raised px-2.5">
-                  <Search size={13} className="shrink-0 text-ink-3" />
-                  <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Filter ${newer.length}`} className="min-w-0 grow bg-transparent text-xs text-ink outline-none placeholder:text-ink-3" />
-                </label>
+                <SearchField autoFocus value={q} onChange={setQ} label="Filter the newer versions" placeholder={`Filter ${newer.length}`} className="grow" />
               </div>
               {/* its own scroll, the head kept in view; what you have and what is newer on one line, so it fits */}
               <div className="min-h-0 overflow-y-auto rounded-xl border border-line">

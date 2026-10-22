@@ -7,7 +7,6 @@ import { useRecipes, useSettings } from "../data";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
 import { FieldRow } from "../fields";
 import { est, fileLabel, plural } from "../format";
-import { Keys } from "../Keys";
 import { Select } from "../Select";
 import { Button, Chip, cx, ErrorNote, Help, NumberBox, Segmented, Toggle } from "../ui";
 import { queryKeys } from "../queryKeys";
@@ -182,7 +181,6 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
           </span>
         )}
         <DialogFoot>
-          <Button tone="quiet" onClick={onClose}>Close <Keys keys="Esc" size="sm" /></Button>
           <Button disabled={save.isPending} data-tip="These settings become what the dialog starts on, in Settings." onClick={() => save.mutate()}>{save.isSuccess ? "Saved as my defaults" : "Save as my defaults"}</Button>
           <Button tone="primary" disabled={!todo.length || go.isPending} onClick={() => go.mutate()}>{redo === "changed" && finished.length ? `Finish up to ${plural(todo.length, "clip")}` : `Finish ${plural(todo.length, "clip")}`}</Button>
         </DialogFoot>

@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { ask } from "../Confirm";
 import { releaseLeaveGuard, useLeaveGuard } from "../leaveGuard";
+import { markPlace } from "../motion";
 import { scrollInside } from "../scrollInside";
 import { Button, Chip } from "../ui";
 import { beforeItems } from "./workflowEditor/BeforeItRuns";
@@ -100,5 +101,5 @@ function jump(selector: string) {
   const el = document.querySelector<HTMLElement>(selector);
   if (!el) return;
   scrollInside(el);
-  el.animate([{ boxShadow: "0 0 0 2px var(--color-accent)" }, { boxShadow: "0 0 0 2px transparent" }], { duration: 1200, easing: "ease-out" });
+  markPlace(el, 1200);
 }

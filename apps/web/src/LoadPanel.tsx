@@ -12,7 +12,7 @@ import { useStripForm } from "./ModelLoad";
 import { failedBanner } from "./sayFailed";
 import { useBanners } from "./store";
 import { queryKeys } from "./queryKeys";
-import { cx } from "./ui";
+import { cx, SearchField } from "./ui";
 
 /** Past this many rows of all the models, typing more narrows them: a long list is not read. */
 const MANY = 40;
@@ -195,7 +195,7 @@ export function LoadDialog({ machine: asked, onClose }: { machine?: string; onCl
   return createPortal(
     <div className="fixed inset-0 z-[85]" onKeyDown={key}>
       {/* the page behind, dimmed as the command bar dims it: a click on it closes the dialog */}
-      <div aria-hidden className="absolute inset-0 bg-ground/55 backdrop-blur-[3px] animate-[bar-fade_110ms_ease-out] motion-reduce:animate-none" onPointerDown={onClose} />
+      <div aria-hidden className="absolute inset-0 bg-ground/55 backdrop-blur-[3px] animate-bar-fade motion-reduce:animate-none" onPointerDown={onClose} />
       <div
         role="dialog"
         aria-modal="true"
@@ -203,21 +203,21 @@ export function LoadDialog({ machine: asked, onClose }: { machine?: string; onCl
         className={cx(
           "absolute top-[11vh] left-1/2 flex max-h-[78vh] w-[760px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-[18px] border border-line-strong bg-panel/95 backdrop-blur-md",
           "shadow-[0_40px_120px_-12px_color-mix(in_srgb,var(--color-shade)_75%,transparent),0_0_0_1px_color-mix(in_srgb,var(--color-accent)_12%,transparent),0_0_70px_-8px_color-mix(in_srgb,var(--color-accent)_14%,transparent)]",
-          "origin-top animate-[bar-in_120ms_cubic-bezier(.2,.8,.2,1)] motion-reduce:animate-none",
+          "origin-top animate-bar-in motion-reduce:animate-none",
         )}
       >
-        <div className="flex items-center gap-3 border-b border-line px-5 py-4">
-          <Search size={17} className="shrink-0 text-accent" />
-          <input
-            ref={input}
-            value={query}
-            onChange={(e) => { setQuery(e.target.value); setAt(0); }}
-            placeholder={`Load a model: find any on ${where}…`}
-            aria-label="Find a model"
-            className="min-w-0 grow bg-transparent text-[17px] outline-none placeholder:text-ink-3"
-          />
-          <span className="rounded-md border border-line px-1.5 py-0.5 font-mono text-[11px] text-ink-3">Esc</span>
-        </div>
+        <SearchField
+          look="head"
+          inputRef={input}
+          value={query}
+          onChange={(text) => { setQuery(text); setAt(0); }}
+          placeholder={`Load a model: find any on ${where}…`}
+          label="Find a model"
+          icon={<Search size={17} className="shrink-0 text-accent" />}
+          className="gap-3 px-5 py-4"
+          inputClassName="text-[17px]"
+          end={<span className="rounded-md border border-line px-1.5 py-0.5 font-mono text-[11px] text-ink-3">Esc</span>}
+        />
         {several.length > 0 && (
           <div className="flex items-center gap-3 border-b border-line px-5 py-2.5">
             <span className="text-xs text-ink-3">on</span>
