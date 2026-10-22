@@ -16,6 +16,8 @@ export const FACE_STITCH = "H3FaceStitch";
 export const FACE_REFINE_NODES = ["H3FaceTrackCrop", "H3InjectVideoLatent", "H3PerFrameDenoise", FACE_STITCH];
 /** The paste-back's mask by SAM (the face's own outline, not its box): used when there, the box otherwise. */
 export const FACE_REFINE_MASK = ["SAMLoader", "H3FaceMaskSAM"];
+/** Why a Finish › Face refine cannot be made where its pack is not: it does nothing but the pass. */
+export const FACE_REFINE_PACK_NEEDED = "Not face-refined: Face refine's node pack (comfyui-h3-facerefine) is not on this ComfyUI.";
 /** The clip's sound held while the crops are redrawn (afflatus-nodes). */
 export const AUDIO_LOCK = "AfflatusH3AudioLock";
 
@@ -101,16 +103,20 @@ const onH3Grid = (frames: number) => (frames < 5 ? 5 : frames + ((17 - ((frames 
  * pack not installed where the job runs). `audio` is the clip's own sound, held as it is while the crops are redrawn (none:
  * redrawn without it); `clip`, `vae` and `audioVae` the H3 clip's own, else (a recipe that is not H3's) loaded from the
  * family's Face refine slots; `picture` the recipe's own picture of the person, when the form has no reference; `frames`
- * the count of `images` when it may be off H3's 17k + 5 (a SCAIL window that dropped the frames it carried on from).
+ * the count of `images` when it may be off H3's 17k + 5 (a SCAIL window that dropped the frames it carried on from); `only`
+ * a Finish › Face refine, which redraws the faces and nothing else.
  */
 export function faceRefined(
   g: GraphBuilder, ctx: BuildContext, input: FaceRefineValues, images: Ref,
-  at: { audio?: Ref; vae?: Ref; audioVae?: Ref; clip?: Ref; picture?: string; frames?: number },
+  at: { audio?: Ref; vae?: Ref; audioVae?: Ref; clip?: Ref; picture?: string; frames?: number; only?: boolean },
 ): FaceRefined {
   const as: FaceRefined = { images, pass: null, loads: [] };
   const own = !at.clip;
   if (!input.faceRefine || faceRefineSkipped(input, ctx, { picture: at.picture, own, audio: Boolean(at.audio) })) return as;
-  if (!wanted(ctx, { input: "faceRefine", nodes: [FACE_STITCH], without: "Face refine" })) return as;
+  // a Finish › Face refine is the pass alone: its pack is one it cannot run without, never an option to do without (its
+  // Queue row offered Run without, and the finish then failed for want of the pass)
+  if (at.only && !ctx.has(FACE_STITCH)) throw new Error(FACE_REFINE_PACK_NEEDED);
+  if (!at.only && !wanted(ctx, { input: "faceRefine", nodes: [FACE_STITCH], without: "Face refine" })) return as;
   const face = facePicture(input, ctx, at.picture);
   if (!face) return as;
   const { slots } = ctx;
