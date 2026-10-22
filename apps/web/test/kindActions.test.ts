@@ -18,7 +18,7 @@ describe("the list of a timeline, a draft, a folder and a project", () => {
   it("holds a timeline's actions in the mock's order, its work actions with them", () => {
     expect(menuOf({ kind: "timeline", clips: 9, toRender: 3, exported: true, unused: { takes: 4, bytes: 1.2e9 } })).toEqual([
       "Open", "Show in Projects", "—",
-      "Render missing clips · 3 clips", "Finish…", "Export… · exported before", "Fix all · what Needs attention lists", "—",
+      "Render missing clips · 3 clips", "Finish…", "Export… · exported before", "Fix all · what Needs a look lists", "—",
       "Rename", "Put in a folder · renders land there", "Move to · another project", "—",
       expect.stringMatching(/^Bin unused takes… · 4 · /), "Delete… · videos stay",
     ]);

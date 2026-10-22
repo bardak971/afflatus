@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, X } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { api, type Clip, type Timeline } from "../api";
@@ -14,7 +14,7 @@ import { lookWords } from "../LookBar";
 import { clock, plural, spell } from "../format";
 import { PartHead } from "../recipeForm/Part";
 import { Select } from "../Select";
-import { Button, Chip, cx, Help, Segmented } from "../ui";
+import { Button, Chip, CloseButton, cx, Help, SectionTitle, Segmented } from "../ui";
 import { change, past } from "./lookDrift";
 import { attention, attentionLine, canDismiss, dismissKey, fixAll, fixOf, fixWords, planFix, plansToAsk, SHOWS, withPlans, type Act, type Fix, type JoinFigures, type Plan, type Row } from "./attention";
 
@@ -58,7 +58,7 @@ export function useAttention(t: Timeline, clips: Clip[], renderable: (c: Clip) =
 }
 
 /**
- * Needs attention in one warn line, for the Export and Finish dialogs (the same rows as the Overview's, from
+ * Needs a look in one amber line, for the Export and Finish dialogs (the same rows as the Overview's, from
  * useAttention), with a quiet "Fix all first" that closes the dialog and runs what Fix all would; "Show them" when
  * nothing listed has an action, which closes the dialog onto the Overview. Nothing while the checks run, or when all is well.
  */
@@ -76,9 +76,9 @@ export function AttentionNote({ timeline, clips, renderable, msOf, why, known, o
   if (checking || !rows.length) return null;
   const plan = planFix(rows, clips, msOf);
   return (
-    <div role="status" className="m-pop flex items-center gap-2 rounded-lg border border-warn/35 bg-warn-wash/60 px-3 py-1.5 text-sm text-warn-ink">
+    <div role="status" className="m-pop flex items-center gap-2 rounded-lg border border-attention/35 bg-attention-wash px-3 py-1.5 text-sm text-attention-ink">
       <span className="min-w-0 grow">{attentionLine(rows, clips)}</span>
-      <button type="button" onClick={() => onFixFirst(plan)} data-tip={plan ? fixWords(plan, clips) || undefined : "Closes this and shows Needs attention: what it lists has no action that mends it here."} className={quiet}>
+      <button type="button" onClick={() => onFixFirst(plan)} data-tip={plan ? fixWords(plan, clips) || undefined : "Closes this and shows Needs a look: what it lists has no action that mends it here."} className={quiet}>
         {plan ? "Fix all first" : "Show them"}
       </button>
     </div>
@@ -198,7 +198,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
     const one = rows.filter((r) => r.act && fixOf(r.act));
     if (fix) onFix(fix);
     else if (one.length === 1) run(one[0]!.act!);
-    else say({ id: `bar-fix:${Date.now()}`, tone: "good", title: `${t.name}: nothing to fix`, text: rows.length ? "What Needs attention lists has no action that mends it." : undefined, href: `/timelines/${t.id}`, go: "Open the timeline" });
+    else say({ id: `bar-fix:${Date.now()}`, tone: "good", title: `${t.name}: nothing to fix`, text: rows.length ? "What Needs a look lists has no action that mends it." : undefined, href: `/timelines/${t.id}`, go: "Open the timeline" });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per request: the rest is read as it stands then
   }, [asked, checking, rendering]);
   const landsIn = folder && folder.id !== project?.folderId ? folder.name : project?.name ?? "the Inbox";
@@ -226,23 +226,26 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
       {checking ? (
         // the checks still running (the forms, the joins' figures): the card's shape, not a count that grows under the pointer
         <section aria-busy="true" aria-label="Checking the clips and their joins" className="flex flex-col gap-2.5 rounded-xl border border-line px-3 py-2.5 shadow-card">
-          <PartHead>Needs attention</PartHead>
+          <PartHead>Needs a look</PartHead>
           <span className="m-skeleton h-4 w-3/4" />
           <span className="m-skeleton h-4 w-1/2" />
         </section>
       ) : rows.length > 0 ? (
-        <section className="m-pop flex flex-col rounded-xl border border-warn/35 bg-warn-wash/60 pb-1.5">
+        // amber: something to look at, not something that failed (a failed render's row says it in red); the rows'
+        // buttons all of one weight, Fix all leading them in the head
+        <section className="m-pop flex flex-col rounded-xl border border-attention/35 bg-attention-wash pb-1.5">
           <div className="flex items-center gap-2 px-3 pt-2 pb-1">
-            <span className="grow text-[11px] font-bold tracking-[0.08em] text-warn-ink uppercase">Needs attention · {rows.length}</span>
+            <span aria-hidden className="size-2 shrink-0 rounded-full bg-attention" />
+            <SectionTitle className="grow text-attention-ink!">Needs a look · {rows.length}</SectionTitle>
             {fix && (
-              <Button size="sm" tone="primary" disabled={rendering} onClick={() => onFix(fix)} data-tip={fixWords(fix, clips)}>
+              <Button size="sm" disabled={rendering} onClick={() => onFix(fix)} data-tip={fixWords(fix, clips)}>
                 Fix all{fix.ms > 0 && <Estimate ms={fix.ms} />}
               </Button>
             )}
           </div>
           {rows.map((r) => (
-            <div key={r.key} className="flex min-h-[34px] flex-wrap items-center gap-1.5 px-3 py-1">
-              <span className={cx("flex min-w-0 grow flex-wrap items-center gap-x-1.5 text-sm", r.warn ? "text-warn-ink" : "text-ink")}>
+            <div key={r.key} className="flex min-h-[34px] items-center gap-1.5 px-3 py-1">
+              <span className={cx("flex min-w-0 grow flex-wrap items-center gap-x-1.5 text-sm", r.kind === "failed" ? "text-warn-ink" : r.warn ? "text-attention-ink" : "text-ink")}>
                 {LABEL[r.kind]}
                 {/* which clips, said in words with links ("clip 5", "clips 2, 3"): a boxed number beside the row read as a count */}
                 <span className="text-xs text-ink-3">·</span>
@@ -255,23 +258,24 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
                     </span>
                   ))}
                   {r.ids.length > 8 && ` and ${r.ids.length - 8} more`}
-                  {r.figure !== undefined && <span className="ml-1 font-mono text-[11px]" data-tip={`At the join the picture changes up to ×${r.figure.toFixed(1)} its own motion from frame to frame (the run-up's end counted too). Past ×${SHOWS} the join shows.`}>×{times(r.figure)} motion</span>}
+                  {r.figure !== undefined && <span className="ml-1 font-mono text-micro" data-tip={`At the join the picture changes up to ×${r.figure.toFixed(1)} its own motion from frame to frame (the run-up's end counted too). Past ×${SHOWS} the join shows.`}>×{times(r.figure)} motion</span>}
                 </span>
                 {r.reasons && <Help title={r.reasons.length === 1 ? "Why it failed" : "Why they failed"} text={r.reasons.map((x) => (r.reasons!.length === 1 ? x.why : `Clip ${number(x.clip)}: ${x.why}`)).join("\n")} />}
               </span>
-              {r.act && <ActButton act={r.act} kind={r.kind} disabled={rendering} onClick={() => run(r.act!)} />}
-              {canDismiss(r) && (
-                <button type="button" aria-label="Hide this row" data-tip="Hide this row: nothing changes on the timeline, and it is not listed again until its clips play another take" onClick={() => dismiss(r)} className="-mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 hover:bg-hover hover:text-ink">
-                  <X size={13} />
-                </button>
-              )}
+              {/* the action and its × wrap together, under the words, never the × alone on a line */}
+              <span className="ml-auto flex shrink-0 items-center gap-1">
+                {r.act && <ActButton act={r.act} kind={r.kind} disabled={rendering} onClick={() => run(r.act!)} />}
+                {canDismiss(r) && (
+                  <CloseButton size={28} label="Hide this row" tip="Hide this row: nothing changes on the timeline, and it is not listed again until its clips play another take" onClose={() => dismiss(r)} className="-mr-1.5 text-ink-3" />
+                )}
+              </span>
             </div>
           ))}
           {setAside > 0 && <ShowAgain n={setAside} onClick={() => dismissed.set(t.id, [])} />}
         </section>
       ) : (
         <section className="flex flex-col gap-1 rounded-xl border border-line px-3 py-2.5 shadow-card">
-          <PartHead>Needs attention</PartHead>
+          <PartHead>Needs a look</PartHead>
           <span className="text-sm text-good">{setAside ? "Nothing else: the rest is hidden." : "Every clip is rendered and every join holds."}</span>
           {setAside > 0 && <ShowAgain n={setAside} onClick={() => dismissed.set(t.id, [])} />}
         </section>
@@ -357,11 +361,11 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
             ) : (
               <>
                 {figured.length > 0 && <Fact label="Joins that hold" value={`${figured.filter((c) => !badJoin(c)).length} of ${figured.length}`} />}
-                {worst && <Fact label="Worst join" value={`clip ${number(worst.id)} · ×${joinsOf.get(worst.id)!.toFixed(1)}`} warn={joinsOf.get(worst.id)! > SHOWS} />}
+                {worst && <Fact label="Worst join" value={`clip ${number(worst.id)} · ×${joinsOf.get(worst.id)!.toFixed(1)}`} look={joinsOf.get(worst.id)! > SHOWS} />}
               </>
             )}
             {faced.length > 1 && <Fact label="Faces that hold" value={`${faced.filter(faceHolds).length} of ${faced.length}`} tip="Face Match of the takes that play: a face holds within a fifth of the timeline's closest one" />}
-            {faced.length > 1 && worstFace && <Fact label="Worst face" value={`clip ${number(worstFace.id)} · ${faceOf(worstFace).toFixed(2)}`} warn={!faceHolds(worstFace)} />}
+            {faced.length > 1 && worstFace && <Fact label="Worst face" value={`clip ${number(worstFace.id)} · ${faceOf(worstFace).toFixed(2)}`} look={!faceHolds(worstFace)} />}
             {renderMs > 0 && <Fact label="Rendered in" value={spell(renderMs)} />}
             {renderMs > 0 && <Fact label="Measured" value={`${rendered} of ${plural(videos, "clip")}`} />}
           </div>
@@ -378,7 +382,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
               const broke = carry !== null && carry > SHOWS;
               const bad = jumped || broke;
               return (
-                <button key={c.id} type="button" onClick={() => onPick(c.id)} data-tip={`Clip ${i + 1}: as it comes in from clip ${i}, with its fade, the picture changes up to ×${figure?.toFixed(1) ?? "?"} its own motion from frame to frame${jumped ? `. Past ×${SHOWS} the join shows` : ""}${carry !== null ? `; where its own frames begin after the run-up, ×${carry.toFixed(1)}${broke ? ": a cut there, the model stepped away from its guide" : ""}` : ""}`} className={cx("rounded-md border px-1.5 py-px font-mono text-xs hover:border-accent", bad ? "border-warn text-warn-ink" : "border-line-strong text-ink-2 hover:text-ink")}>
+                <button key={c.id} type="button" onClick={() => onPick(c.id)} data-tip={`Clip ${i + 1}: as it comes in from clip ${i}, with its fade, the picture changes up to ×${figure?.toFixed(1) ?? "?"} its own motion from frame to frame${jumped ? `. Past ×${SHOWS} the join shows` : ""}${carry !== null ? `; where its own frames begin after the run-up, ×${carry.toFixed(1)}${broke ? ": a cut there, the model stepped away from its guide" : ""}` : ""}`} className={cx("rounded-md border px-1.5 py-px font-mono text-xs hover:border-accent", bad ? "border-attention/60 bg-attention-wash text-attention-ink" : "border-line-strong text-ink-2 hover:text-ink")}>
                   {i + 1}: {figure === undefined ? <span aria-label="measuring" className="m-skeleton inline-block h-3 w-7 align-[-1px] rounded-sm!" /> : figure === null ? "–" : `×${figure.toFixed(1)}`}{broke && ` · end ×${carry.toFixed(1)}`}
                 </button>
               );
@@ -393,12 +397,12 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
   );
 }
 
-/** One figure of the facts grid: a dim label over its value; a shape of the value's size while it is not known. */
-function Fact({ label, value, warn, tip }: { label: string; value?: string; warn?: boolean; tip?: string }) {
+/** One figure of the facts grid: a dim label over its value (amber when it needs a look); a shape of the value's size while it is not known. */
+function Fact({ label, value, look, tip }: { label: string; value?: string; look?: boolean; tip?: string }) {
   return (
     <span className="flex min-w-0 flex-col gap-px" data-tip={tip}>
       <span className="text-[11.5px] text-ink-3">{label}</span>
-      {value === undefined ? <span className="m-skeleton my-[3px] h-[18px] w-20" /> : <span className={cx("truncate font-mono", warn ? "text-warn-ink" : "text-ink")}>{value}</span>}
+      {value === undefined ? <span className="m-skeleton my-[3px] h-[18px] w-20" /> : <span className={cx("truncate font-mono", look ? "text-attention-ink" : "text-ink")}>{value}</span>}
     </span>
   );
 }
@@ -406,7 +410,7 @@ function Fact({ label, value, warn, tip }: { label: string; value?: string; warn
 /** A join's figure on its row: "×20" past ten, where the tenth says nothing, "×4.8" under. */
 const times = (v: number) => (v >= 10 ? v.toFixed(0) : v.toFixed(1));
 
-/** The rows hidden with their ×, said at the foot of Needs attention: a click lists them again. */
+/** The rows hidden with their ×, said at the foot of Needs a look: a click lists them again. */
 function ShowAgain({ n, onClick }: { n: number; onClick(): void }) {
   return (
     <button type="button" onClick={onClick} className="self-start px-3 pt-1 text-xs text-ink-3 underline-offset-2 hover:text-ink hover:underline">
@@ -415,18 +419,17 @@ function ShowAgain({ n, onClick }: { n: number; onClick(): void }) {
   );
 }
 
-/** What each row of Needs attention says. */
+/** What each row of Needs a look says. */
 const LABEL: Record<Row["kind"], string> = {
   missing: "Not rendered yet",
   stale: "Clip before changed",
   failed: "Failed",
-  join: "Join shows",
+  join: "Join jumps",
   shape: "Another aspect ratio",
 };
 
-/** A row's action: quiet, or warn-washed where something went wrong (the clip before changed, a failed render). */
+/** A row's action, all of one weight: the row's colour says how much it matters, the button only what it does. */
 function ActButton({ act, kind, disabled, onClick }: { act: Act; kind: Row["kind"]; disabled: boolean; onClick(): void }) {
-  const warn = kind === "stale" || kind === "failed";
   const n = act.do === "render" ? act.clips.length : 0;
   const [words, tip] =
     act.do === "take" ? [`Use take ${act.number}`, `Take ${act.number} comes in at ×${act.figure.toFixed(1)}: it plays instead (Undo puts the other back)`]
@@ -434,13 +437,13 @@ function ActButton({ act, kind, disabled, onClick }: { act: Act; kind: Row["kind
     // what the form waits for, said on the button ("Write prompt"); "Open" when the reason is not one short step
     : act.do === "open" ? [/^(Write|Choose) .{1,24} first\.$/.test(act.why) ? act.why.replace(/ first\.$/, "") : "Open", `${act.why} Opens the clip's form.`]
     : kind === "missing" ? [n === 1 ? "Render" : `Render ${n}`, n === 1 ? "Renders the clip, its first take" : `Renders the ${n} clips with no take yet, in order`]
-    : kind === "stale" ? ["New take", `A new take of ${n === 1 ? "the clip" : `the ${n} clips`}, from the clip before as it is now`]
+    : kind === "stale" ? ["Render a new take", `A new take of ${n === 1 ? "the clip" : `the ${n} clips`}, from the clip before as it is now`]
     : kind === "failed" ? ["Retry", `Queues ${n === 1 ? "the clip" : `the ${n} clips`} again`]
-    : ["New take", `No other take comes in at ×${SHOWS} or under: render another`];
+    : ["Render a new take", `No other take comes in at ×${SHOWS} or under: render another`];
   return (
-    <Button size="sm" tone={warn ? "danger" : "quiet"} disabled={disabled && act.do !== "open"} onClick={onClick} data-tip={tip}>
+    <Button size="sm" disabled={disabled && act.do !== "open"} onClick={onClick} data-tip={tip}>
       {words}
-      {act.do === "take" ? <span className="font-mono text-[11px] font-medium opacity-75">×{act.figure.toFixed(1)}</span> : act.do === "render" && act.ms > 0 && kind !== "failed" && <Estimate ms={act.ms} />}
+      {act.do === "take" ? <span className="font-mono text-micro font-medium opacity-75">×{act.figure.toFixed(1)}</span> : act.do === "render" && act.ms > 0 && kind !== "failed" && <Estimate ms={act.ms} />}
     </Button>
   );
 }

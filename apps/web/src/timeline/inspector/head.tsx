@@ -51,10 +51,10 @@ export function ClipHead({ clip, index, shown, before, after, carries, imported,
             <Chip>imported video<Help title="Imported video" text="It can be trimmed, and a new clip can extend from any of its frames. It gets no new take, unless you choose a model to render in its place, under Model." /></Chip>
           )}
           {misfit && (
-            <Chip tone="warn">{misfit.mine} in a {misfit.video} video<Help title="Another shape" text={`This ${still ? "still" : "clip"} is ${misfit.mine}, the video is ${misfit.video}. ${clip.fill ? "It fills the frame: its edges are cropped." : "It is letterboxed: shown whole, with bars."} Fill frame switches between the two.`} /></Chip>
+            <Chip tone="attention">{misfit.mine} in a {misfit.video} video<Help title="Another shape" text={`This ${still ? "still" : "clip"} is ${misfit.mine}, the video is ${misfit.video}. ${clip.fill ? "It fills the frame: its edges are cropped." : "It is letterboxed: shown whole, with bars."} Fill frame switches between the two.`} /></Chip>
           )}
           {sizeStep && take && (
-            <Chip tone="warn">sharpness jumps at the join<Help title="Another size" text={`This clip is ${take.asset.width} × ${take.asset.height}, the clip ${sizeStep.before ? "before" : "after"} ${sizeStep.other.width} × ${sizeStep.other.height}: one was enlarged and the other not, so the join shows a change of sharpness. Finish all clips (the Finish button above the timeline) to bring every clip to one size the same way, or render both alike.`} /></Chip>
+            <Chip tone="attention">sharpness jumps at the join<Help title="Another size" text={`This clip is ${take.asset.width} × ${take.asset.height}, the clip ${sizeStep.before ? "before" : "after"} ${sizeStep.other.width} × ${sizeStep.other.height}: one was enlarged and the other not, so the join shows a change of sharpness. Finish all clips (the Finish button above the timeline) to bring every clip to one size the same way, or render both alike.`} /></Chip>
           )}
         </div>
         {onSelectClip && (

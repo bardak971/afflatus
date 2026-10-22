@@ -44,15 +44,15 @@ export function FoldedStrip({ label, attention }: { label: string; attention: nu
     <aside aria-label={`${label}, folded`} className="flex w-10 shrink-0 flex-col items-center border-l border-line bg-panel py-2">
       <button
         type="button"
-        aria-label={`Unfold the column: ${label}${attention ? `, ${attention} need attention` : ""}`}
-        data-tip={`Unfold: ${label}${attention ? ` · Needs attention · ${attention}` : ""}`}
+        aria-label={`Unfold the column: ${label}${attention ? `, ${attention} need a look` : ""}`}
+        data-tip={`Unfold: ${label}${attention ? ` · Needs a look · ${attention}` : ""}`}
         onClick={() => fold(false)}
         className="group flex w-full grow flex-col items-center gap-2.5 text-ink-2"
       >
         <span className="flex h-8 w-8 items-center justify-center rounded-lg group-hover:bg-hover group-hover:text-ink">
           <PanelRightOpen size={16} />
         </span>
-        {attention > 0 && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-warn-wash px-1.5 text-[11px] font-bold text-warn-ink">{attention}</span>}
+        {attention > 0 && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-attention-wash px-1.5 text-micro font-bold text-attention-ink">{attention}</span>}
         <span className="text-[10px] font-semibold tracking-wide whitespace-nowrap text-ink-3 uppercase [writing-mode:vertical-rl] group-hover:text-ink-2">{label}</span>
       </button>
     </aside>

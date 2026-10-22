@@ -67,19 +67,23 @@ function useDrag(set: (at: number) => void) {
   };
 }
 
-/** The round accent button that plays and pauses. */
-export function PlayButton({ on, onClick }: { on: boolean; onClick(): void }) {
+/**
+ * The round accent button that plays and pauses: the one look of play in the app (the viewer, the music, the timeline's
+ * player). `label` and `tip` where it plays something more particular (the timeline's range).
+ */
+export function PlayButton({ on, onClick, label, tip, disabled, className }: { on: boolean; onClick(): void; label?: string; tip?: string; disabled?: boolean; className?: string }) {
   return (
     <button
       type="button"
-      aria-label={on ? "Pause" : "Play"}
-      data-tip={on ? "Pause" : "Play"}
+      aria-label={label ?? (on ? "Pause" : "Play")}
+      data-tip={tip ?? (on ? "Pause" : "Play")}
       data-tip-keys="Space"
+      disabled={disabled}
       onClick={(e) => {
         e.stopPropagation();
         onClick();
       }}
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink hover:brightness-110"
+      className={cx("flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink hover:brightness-110 disabled:opacity-40 disabled:hover:brightness-100", className)}
     >
       {on ? <Pause size={14} fill="currentColor" strokeWidth={0} /> : <Play size={14} fill="currentColor" strokeWidth={0} className="translate-x-px" />}
     </button>

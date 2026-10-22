@@ -113,7 +113,7 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "export", name: "Export timeline", typed: "export", example: "export", what: "The open timeline as one video" },
   { id: "export-editor", name: "Export for a video editor", typed: "export for editor", example: "export for resolve", what: "The open timeline as its clips and a project file for DaVinci Resolve, Premiere Pro or Kdenlive" },
   { id: "finish", name: "Finish timeline…", typed: "finish", example: "finish", what: "The Finish dialog on the open timeline: every take upscaled to its final quality" },
-  { id: "fix-all", name: "Fix all", typed: "fix all", example: "fix all", what: "What the open timeline's Needs attention lists, mended as its Fix all does" },
+  { id: "fix-all", name: "Fix all", typed: "fix all", example: "fix all", what: "What the open timeline's Needs a look lists, mended as its Fix all does" },
   { id: "generate", name: "Generate", typed: "generate", example: "generate", what: "The open draft, as its Generate button" },
   { id: "seed", name: "Set seed…", typed: "seed ", example: "seed 1234", what: "Of the open draft", needs: true },
   { id: "steps", name: "Set steps…", typed: "steps ", example: "steps 30", what: "Of the open draft", needs: true },

@@ -14,7 +14,7 @@ import { askViewer, type ViewerAsk } from "./viewer/ask";
  * menu, else the one it was last open on), and the menu drawn while `menu` is open. Stays mounted after: what a line
  * started (a timeline's dialog) outlives the menu.
  */
-export function TileMenuBody({ onOpen, onSelect, into, first, place = "grid", form = true, listed = true, seed, menu, acting, onClose }: TileMenuOptions & {
+export function TileMenuBody({ onOpen, onSelect, into, first, place = "grid", form = true, listed = true, seed, omit, menu, acting, onClose }: TileMenuOptions & {
   menu: { at: Parameters<typeof ContextMenu>[0]["at"]; subject: Asset } | null;
   acting: Asset;
   onClose(): void;
@@ -42,7 +42,7 @@ export function TileMenuBody({ onOpen, onSelect, into, first, place = "grid", fo
       compare: () => openWith(item, "compare"),
       details: () => openWith(item, "details"),
       ...(seed !== undefined && seed !== null && acts.seed === null ? { "copy-seed": () => acts.mutations.copySeed(seed) } : {}),
-    }, { "save-frame": "the first frame" });
+    }, { "save-frame": "the first frame" }).filter((x) => !omit?.includes(x.id));
     const places = form ? formPlaces(formTarget, item) : [];
     const own: MenuItem[] = [
       ...(first?.(item) ?? []),

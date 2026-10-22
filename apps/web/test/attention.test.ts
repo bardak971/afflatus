@@ -12,7 +12,7 @@ const ms = (c: Clip) => (c.id === "slow" ? null : 60_000);
 const read = (clips: Clip[], joins: Record<string, JoinFigures | undefined> = {}, misfit: string[] = []) =>
   attention(clips, { joins: new Map(Object.entries(joins)), renderable: (c) => c.kind === "video" && !c.job, msOf: ms, misfit: (c) => misfit.includes(c.id) && !c.fill });
 
-describe("the rows of Needs attention", () => {
+describe("the rows of Needs a look", () => {
   it("lists clips with no take yet, rendered together with their estimate", () => {
     const rows = read([rendered("a", ["t"]), clip({ id: "b" }), clip({ id: "slow" }), clip({ id: "q", job: { id: "j", status: "queued" } })]);
     expect(rows).toEqual([{ key: "missing", kind: "missing", ids: ["b", "slow"], warn: false, act: { do: "render", clips: ["b", "slow"], ms: 60_000 } }]);
@@ -120,7 +120,7 @@ describe("a clip whose form is still to fill", () => {
   });
 });
 
-describe("Needs attention in words", () => {
+describe("Needs a look in words", () => {
   const clips = [rendered("a", ["t"]), rendered("b", ["u1", "u2"]), rendered("c", ["w"]), rendered("d", ["x"]), clip({ id: "e" })];
   it("says clip numbers as a list", () => {
     expect(clipWords([5])).toBe("clip 5");
@@ -138,8 +138,8 @@ describe("Needs attention in words", () => {
       { key: "join:b", kind: "join", ids: ["b"], warn: true, figure: 5 },
       { key: "join:d", kind: "join", ids: ["d"], warn: true, figure: 20 },
     ];
-    expect(attentionLine(rows, clips)).toBe("3 things need attention: clip 5 not rendered, joins at clips 2 and 4");
-    expect(attentionLine([{ key: "stale", kind: "stale", ids: ["b"], warn: true }], clips)).toBe("1 thing needs attention: clip before clip 2 changed");
+    expect(attentionLine(rows, clips)).toBe("3 things need a look: clip 5 not rendered, joins at clips 2 and 4");
+    expect(attentionLine([{ key: "stale", kind: "stale", ids: ["b"], warn: true }], clips)).toBe("1 thing needs a look: clip before clip 2 changed");
     expect(attentionLine([], clips)).toBe("");
   });
 });

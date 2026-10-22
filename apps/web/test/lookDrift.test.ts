@@ -131,7 +131,7 @@ describe("the clip's figures on the hover card", () => {
     const f = clipFacts(b, 1, [a, b], null);
     expect(f.chips).toEqual([{ text: "cut", tone: "neutral" }]);
     expect(f.drift).toBeNull();
-    expect(f.lines).toEqual([{ text: "The last render failed", tone: "warn" }, { text: "Join stale: clip 1 changed since", tone: "warn" }]);
+    expect(f.lines).toEqual([{ text: "The last render failed", tone: "warn" }, { text: "Join stale: clip 1 changed since", tone: "attention" }]);
   });
 
   it("keeps a few words for a still or a clip not rendered", () => {
