@@ -512,9 +512,11 @@ export async function soundPart(source: Media, ext: string, opts: { start: numbe
 export async function pausesOf(source: Media, ext: string): Promise<Array<{ start: number; end: number }>> {
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
-    const loud = Number(/max_volume:\s*(-?[\d.]+) dB/.exec(await reportOf(["-i", input, "-vn", "-af", "volumedetect"]))?.[1] ?? NaN);
-    if (!Number.isFinite(loud)) return [];
-    const said = await reportOf(["-i", input, "-vn", "-af", `silencedetect=noise=${(loud - 30).toFixed(1)}dB:d=0.2`]);
+    // read whole or not at all: the pauses are kept beside the sound for good (TimelineMedia.pauses), so a failed or
+    // timed-out read (its report cut short, or none) would cut every recording of it at the most a clip takes
+    const loud = Number(/max_volume:\s*(-?[\d.]+) dB/.exec(await reportOf(["-i", input, "-vn", "-af", "volumedetect"], true))?.[1] ?? NaN);
+    if (!Number.isFinite(loud)) throw new CutError("ffmpeg found no sound to read in this file");
+    const said = await reportOf(["-i", input, "-vn", "-af", `silencedetect=noise=${(loud - 30).toFixed(1)}dB:d=0.2`], true);
     const starts = [...said.matchAll(/silence_start:\s*(-?[\d.]+)/g)].map((m) => Math.max(0, Number(m[1])));
     const ends = [...said.matchAll(/silence_end:\s*(-?[\d.]+)/g)].map((m) => Number(m[1]));
     // a pause still open at the end of the sound has no end said: it runs to the end, which is no place to cut
@@ -522,9 +524,15 @@ export async function pausesOf(source: Media, ext: string): Promise<Array<{ star
   });
 }
 
-/** What ffmpeg writes about a sound as it reads it (its own report, on stderr): volumedetect's and silencedetect's figures. */
-async function reportOf(args: string[]): Promise<string> {
-  return (await ffRun(tools.ffmpeg, ["-hide_banner", "-nostats", ...args, "-f", "null", "-"], { timeout: 60_000 })).stderr;
+/**
+ * What ffmpeg writes about a sound as it reads it (its own report, on stderr): volumedetect's and silencedetect's figures.
+ * `whole`: a run that failed or was stopped at its time limit throws (failureOf) rather than giving the report so far.
+ */
+async function reportOf(args: string[], whole = false): Promise<string> {
+  const timeout = 60_000;
+  const r = await ffRun(tools.ffmpeg, ["-hide_banner", "-nostats", ...args, "-f", "null", "-"], { timeout });
+  if (whole && r.err) throw failureOf(r.err, r.stderr, timeout);
+  return r.stderr;
 }
 
 /**

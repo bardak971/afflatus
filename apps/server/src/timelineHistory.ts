@@ -24,7 +24,13 @@ const TAKE_COLUMNS: Record<keyof TakeRow, true> = {
   id: true, clip_id: true, asset_id: true, head_ms: true, tail_ms: true, trim_start_ms: true, trim_end_ms: true,
   prev_take_id: true, prev_at_ms: true, next_take_id: true, next_at_ms: true, finished_from: true, join_kind: true, created_at: true,
 };
-const takeColumns = (t: TakeRow): TakeRow => Object.fromEntries(Object.entries(t).filter(([k]) => k in TAKE_COLUMNS)) as TakeRow;
+export const takeColumns = (t: TakeRow): TakeRow => Object.fromEntries(Object.entries(t).filter(([k]) => k in TAKE_COLUMNS)) as TakeRow;
+/** The columns a clip has now, likewise: a clip kept whole before a column went (in a snapshot, or set aside by a trim) still carries it. */
+const CLIP_COLUMNS: Record<keyof ClipRow, true> = {
+  id: true, timeline_id: true, position: true, take_id: true, joined: true, recipe_id: true, inputs: true, kind: true, still_asset_id: true, still_ms: true, sound: true,
+  sound_asset_id: true, volume: true, fill: true, fit_next: true, look: true, chat: true, designer: true, music: true, pin_mirror: true, transition: true, created_at: true, updated_at: true,
+};
+export const clipColumns = (c: ClipRow): ClipRow => Object.fromEntries(Object.entries(c).filter(([k]) => k in CLIP_COLUMNS)) as ClipRow;
 
 export class TimelineHistory {
   constructor(
@@ -111,7 +117,7 @@ export class TimelineHistory {
         // what was said to the designer, and with which model, is no step of the timeline (it is saved without one): a clip
         // still there keeps its conversation as it is now, whatever the step put back
         const talk = there ? { chat: there.chat, designer: there.designer } : {};
-        await tx.insertInto("clips").values({ ...c, ...talk, take_id: playing && kept.some((t) => t.id === playing) ? playing : null }).execute();
+        await tx.insertInto("clips").values({ ...clipColumns(c), ...talk, take_id: playing && kept.some((t) => t.id === playing) ? playing : null }).execute();
       }
       for (const t of kept) await tx.insertInto("takes").values(takeColumns(t)).execute();
       await tx

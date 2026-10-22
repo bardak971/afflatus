@@ -130,8 +130,8 @@ export interface Timeline {
   exportFailed: string | null;
   /** Its source lane: a long video made into clips window by window; null = none. */
   source: TimelineSource | null;
-  /** Its voice recordings, each made into Lip sync clips (drawn under them on the Audio row), and how many of its clips a trim set aside. */
-  recordings?: Array<{ asset: Asset; parked: number }>;
+  /** Its voice recordings, each made into Lip sync clips (drawn under them on the Audio row), how many of its clips a trim set aside, and of those the rendered. */
+  recordings?: Array<{ asset: Asset; parked: number; parkedTakes?: number }>;
 }
 /**
  * A timeline's source lane: the video, where its own start sits on the timeline (`atMs`, below 0 when it starts before the
@@ -154,9 +154,11 @@ export interface TimelineSource {
   pick?: { x: number; y: number } | null;
   /** The clips set apart from the others, by id: the settings each keeps its own. */
   apart?: Record<string, string[]>;
+  /** How many of the windows a trim set aside are rendered: moving the start leaves them behind too. */
+  parkedTakes?: number;
 }
 /** A change to the source lane: a new video, or its settings. */
-export type SourcePatch = Partial<Omit<TimelineSource, "video" | "apart">>;
+export type SourcePatch = Partial<Omit<TimelineSource, "video" | "apart" | "parkedTakes">>;
 /** How a clip regenerated in a range meets its neighbours: with their video as context (the motion carries across), on a frame, or nothing there. */
 export interface RangeContext {
   start: "clip" | "frame" | "none";

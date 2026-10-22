@@ -1334,10 +1334,16 @@ export class Queue {
     return ended;
   }
 
-  /** The jobs that wait on this one can never run now: each fails (and what waits on those), whichever way this one ended. */
+  /**
+   * The jobs that wait on this one can never run now: each fails (and what waits on those), whichever way this one ended.
+   * Said as what it waited for: a finish queued behind a Face refine is no continuation of a clip.
+   */
   private async failDependents(id: string): Promise<void> {
-    const dependents = await this.db.selectFrom("jobs").select("id").where("depends_on", "=", id).where("status", "=", "queued").execute();
-    for (const d of dependents) await this.finish(d.id, "failed", { error: "the clip it continues was not rendered" }, "queued");
+    const dependents = await this.db.selectFrom("jobs").select(["id", "recipe_id", "inputs"]).where("depends_on", "=", id).where("status", "=", "queued").execute();
+    for (const d of dependents) {
+      const error = d.recipe_id === CUT_JOB && tools.cutOptionsOf(d)?.fromJob === id ? tools.FACE_REFINE_NOT_ENDED : "the clip it continues was not rendered";
+      await this.finish(d.id, "failed", { error }, "queued");
+    }
   }
 
   /** Something that went less well than asked in a job that goes on: said on the job (and in the log), not only in the log. */
@@ -1604,7 +1610,11 @@ export class Queue {
    */
   private async place(row: JobRow, generationId: string, resume: Resume | null): Promise<void> {
     if (!row.clip_id || !this.clips) return;
-    await this.clips.finished(row.clip_id, generationId, resume?.overlap, resume?.links ?? {}, row.finished_from).catch((err: Error) => this.warn(row.id, `Its take was not placed on its clip: ${err.message}`));
+    // a Face refine with a finish queued behind it, made from its video: that finish is the clip's finished take, this one
+    // only among its takes (it played for the length of the upscale, then gave way: two finished takes for one Finish)
+    const behind = row.finished_from ? await this.db.selectFrom("jobs").select(["recipe_id", "inputs"]).where("depends_on", "=", row.id).where("status", "in", ["queued", "running"]).execute() : [];
+    const between = behind.some((j) => j.recipe_id === CUT_JOB && tools.cutOptionsOf(j)?.fromJob === row.id);
+    await this.clips.finished(row.clip_id, generationId, resume?.overlap, resume?.links ?? {}, row.finished_from, between).catch((err: Error) => this.warn(row.id, `Its take was not placed on its clip: ${err.message}`));
   }
 
   /** A job whose result was filed before this process stopped: its take placed when it was not yet, and the job closed. */

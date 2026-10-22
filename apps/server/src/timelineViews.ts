@@ -51,10 +51,11 @@ export class TimelineViews {
 
   /** What a timeline's view says besides its clips: its frame, place, look, music, what Undo and Redo would do, its export. */
   /** The source lane as the editor shows it: the plan, with its video (null when it left the library). */
+  /** The source, with how many of the windows a trim set aside are rendered (`parkedTakes`: what moving its start leaves behind too). */
   private async sourceView(t: TimelineRow) {
     const plan = sourceOfRow(t.source);
     const video = plan ? await this.assetRow(plan.asset) : null;
-    return plan && video ? { ...plan, video: assetView(video) } : null;
+    return plan && video ? { ...plan, video: assetView(video), parkedTakes: (plan.parked ?? []).filter((row) => row.clip.take_id).length } : null;
   }
 
   async headOf(t: TimelineRow) {

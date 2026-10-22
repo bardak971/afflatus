@@ -332,6 +332,8 @@ describe.skipIf(!ffmpegThere)("a clip's take, trimmed on the timeline", { timeou
     await call("POST", `/api/jobs/${chained.jobs[0]}/cancel`);
     await call("POST", `/api/jobs/${chained.jobs[1]}/cancel`).catch(() => null);
     expect((await t.db.selectFrom("jobs").select("status").where("id", "=", chained.jobs[1]).executeTakeFirst())?.status).not.toBe("queued");
+    // said as what it waited for: a Face refine that did not end, not a clip it continues
+    expect((await t.db.selectFrom("jobs").select("error").where("id", "=", chained.jobs[1]).executeTakeFirstOrThrow()).error).toBe("the Face refine it was to finish did not end: nothing to finish");
     // one take's own Face pass: that take, finished already or not
     const pass = await call("POST", `/api/timelines/${tl}/finish`, { route: "face", factor: 2, take: w.clips[0].takes[0].id, clips: [a] });
     expect(pass.jobs).toHaveLength(1);

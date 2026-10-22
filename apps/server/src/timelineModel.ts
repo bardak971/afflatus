@@ -20,7 +20,7 @@ export const stripKey = (id: string, size?: string) => `strips/${id.slice(0, 2)}
 
 /**
  * The keys of what the timeline works out of a video and keeps beside it: its film strip (the track's,
- * and the trim bar's when its length is known), its motion and loudness, its scene cuts, its colour along it, the join
+ * and the trim bar's when its length is known), its motion and loudness, its scene cuts, a sound's pauses, its colour along it, the join
  * scores of its takes. They go when the video goes, or when the file behind it changes (a linked folder's file written again).
  */
 export function derivedKeys(asset: { id: string; duration_ms: number | null }): string[] {
@@ -34,6 +34,7 @@ export function derivedKeys(asset: { id: string; duration_ms: number | null }): 
     ...(trim ? [`strips/${dir}/${asset.id}-${trim}.jpg`] : []),
     `motion/${dir}/${asset.id}.json`,
     `scenes/${dir}/${asset.id}.json`,
+    `pauses/${dir}/${asset.id}.json`,
     `means/${dir}/${asset.id}.json`,
     `joins/${dir}/${asset.id}.json`,
   ];
