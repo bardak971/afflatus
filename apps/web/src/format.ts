@@ -119,7 +119,7 @@ const PHASES: Record<string, string> = {
   behind: "Queued on ComfyUI · waiting behind work outside Afflatus",
   // before the first step with every model already in memory (tracking, encoding the references): nothing is loaded
   loading: "Loading model", preparing: "Preparing", sampling: "Sampling", upscaling: "Upscale",
-  refining: "Refine pass", restoring: "SeedVR2 restore", detailing: "Detailer", processing: "Processing", decoding: "VAE decode", interpolating: "Frame interpolation", encoding: "Encoding",
+  refining: "Refine pass", restoring: "SeedVR2 restore", detailing: "Face / hand refine", processing: "Processing", decoding: "VAE decode", interpolating: "Frame interpolation", encoding: "Encoding",
   exporting: "Exporting", cutting: "Cutting",
 };
 export const phaseLabel = (phase: string) => PHASES[phase] ?? phase;
