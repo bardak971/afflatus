@@ -156,17 +156,21 @@ try {
   // the frames dropped around the two hand-overs: in the last second of a clip before one, and over the change itself. The
   // next clip pre-rolling under the one seen (two decodes at once) dropped 12 to 18 of them with an 800 ms pre-roll, every
   // other frame over its last 0.6 s, seen as a stutter before each join; 2 with 300 ms (2026-10-21)
-  let late = 0;
+  // Counted per hand-over (clip 1 to 2, clip 2 to 3), each against its own cap: a sum would let one join drop twice its
+  // share while the other dropped none, and that one join is the stutter the user sees.
+  const late = new Map<number, number>([[1, 0], [2, 0]]);
   for (let i = 1; i < seen.length; i++) {
     const a = seen[i - 1]!;
     const b = seen[i]!;
-    if (b.clip === a.clip && a.clip < 3 && b.index >= LAST_SECOND) late += b.index - Math.max(a.index, LAST_SECOND - 1) - 1;
-    else if (b.clip === a.clip + 1) late += Math.max(0, FILE - 1 - a.index) + Math.max(0, b.index - RUN_UP_LAST);
+    if (b.clip === a.clip && a.clip < 3 && b.index >= LAST_SECOND) late.set(a.clip, late.get(a.clip)! + b.index - Math.max(a.index, LAST_SECOND - 1) - 1);
+    else if (b.clip === a.clip + 1) late.set(a.clip, late.get(a.clip)! + Math.max(0, FILE - 1 - a.index) + Math.max(0, b.index - RUN_UP_LAST));
   }
-  if (late > 2 * HANDOVER_DROPS) {
-    if (process.env.CI) console.log(`::warning::player check: ${late} frames dropped around the hand-overs (a slow runner, not failed in CI)`);
-    else problems.push(`${late} frames dropped around the two hand-overs (at most ${HANDOVER_DROPS} each): the next clip's pre-roll stalls the one seen`);
-  } else if (late) console.log(`  ${late} of the drops around the two hand-overs (at most ${HANDOVER_DROPS} each)`);
+  for (const [clip, n] of late) {
+    if (n > HANDOVER_DROPS) {
+      if (process.env.CI) console.log(`::warning::player check: ${n} frames dropped around the hand-over from clip ${clip} to ${clip + 1} (a slow runner, not failed in CI)`);
+      else problems.push(`${n} frames dropped around the hand-over from clip ${clip} to ${clip + 1} (at most ${HANDOVER_DROPS}): the next clip's pre-roll stalls the one seen`);
+    } else if (n) console.log(`  ${n} of the drops around the hand-over from clip ${clip} to ${clip + 1} (at most ${HANDOVER_DROPS})`);
+  }
 
   // ---- Space twice before a far clip's video has loaded: it stays still. In a fresh page, clip 3's file held back four
   // seconds; [ ] go to clip 2 (clip 3's video put on the page under it, waiting for its file), then to clip 3
