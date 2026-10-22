@@ -83,6 +83,42 @@ function useFirstLaunch(path: string): { shows: boolean } {
   return { shows };
 }
 
+/**
+ * The screens, by address, in one error boundary: a screen that fails takes only itself down, and the boundary is keyed by
+ * the screen (screenKey), so going to another screen, or to another timeline or workflow in the same editor, starts afresh.
+ * @internal exported for the test, which draws these routes and this key rather than a copy of them
+ */
+export function Screens({ path, firstLaunch }: { path: string; firstLaunch: boolean }) {
+  return (
+    <ErrorBoundary key={screenKey(path)}>
+      <Switch>
+        <Route path="/">{firstLaunch ? <FirstLaunch /> : <Studio key="studio" />}</Route>
+        {/* the Studio with its form open: the same screen (the same key, so opening the form keeps what is on it), the address following the form */}
+        <Route path="/create">{firstLaunch ? <FirstLaunch /> : <Studio key="studio" open />}</Route>
+        <Route path="/kit" component={People} />
+        {/* the screen's old address still leads to it */}
+        <Route path="/people"><Redirect to="/kit" /></Route>
+        {/* the rail's Timelines entry: the Studio, on the timelines of the place it looks at */}
+        {/* the same Studio as / and /create (one key): Media / Timelines is a switch inside it, so its highlight travels and nothing is drawn afresh */}
+        <Route path="/timelines"><Studio key="studio" timelines /></Route>
+        <Route path="/timelines/:id" component={TimelineEditor} />
+        <Route path="/workflows" component={Workflows} />
+        {/* the workflow editor: a saved workflow by its id, a fresh import (no id until it is saved) held in memory */}
+        <Route path="/workflows/:id/edit" component={WorkflowEdit} />
+        <Route path="/workflows/new" component={WorkflowImport} />
+        <Route path="/queue" component={Queue} />
+        <Route path="/settings" component={Setup} />
+        <Route path="/settings/:tab" component={Setup} />
+        {/* the screen's old address still leads to it */}
+        <Route path="/setup"><Redirect to="/settings" /></Route>
+        <Route>
+          <div className="p-8 text-ink-2">Page not found. <Link href="/" className="underline">Open the Studio</Link></div>
+        </Route>
+      </Switch>
+    </ErrorBoundary>
+  );
+}
+
 export function App() {
   useLiveEvents();
   useSearchKey();
@@ -98,33 +134,7 @@ export function App() {
         <NavRail />
         {/* while a screen's code loads: an editor's own shape for the timeline and workflow editors (they then land in place), else a line */}
         <Suspense fallback={/^\/timelines\/[^/]+/.test(path) ? <EditorSkeleton id={path.split("/")[2]} /> : /^\/workflows\/[^/]+/.test(path) ? <WorkflowEditorSkeleton /> : <div className="grow p-8 text-ink-2">Loading…</div>}>
-        {/* a screen that fails takes only itself down; going to another screen starts afresh (screenKey) */}
-        <ErrorBoundary key={screenKey(path)}>
-        <Switch>
-          <Route path="/">{first.shows ? <FirstLaunch /> : <Studio key="studio" />}</Route>
-          {/* the Studio with its form open: the same screen (the same key, so opening the form keeps what is on it), the address following the form */}
-          <Route path="/create">{first.shows ? <FirstLaunch /> : <Studio key="studio" open />}</Route>
-          <Route path="/kit" component={People} />
-          {/* the screen's old address still leads to it */}
-          <Route path="/people"><Redirect to="/kit" /></Route>
-          {/* the rail's Timelines entry: the Studio, on the timelines of the place it looks at */}
-          {/* the same Studio as / and /create (one key): Media / Timelines is a switch inside it, so its highlight travels and nothing is drawn afresh */}
-          <Route path="/timelines"><Studio key="studio" timelines /></Route>
-          <Route path="/timelines/:id" component={TimelineEditor} />
-          <Route path="/workflows" component={Workflows} />
-          {/* the workflow editor: a saved workflow by its id, a fresh import (no id until it is saved) held in memory */}
-          <Route path="/workflows/:id/edit" component={WorkflowEdit} />
-          <Route path="/workflows/new" component={WorkflowImport} />
-          <Route path="/queue" component={Queue} />
-          <Route path="/settings" component={Setup} />
-          <Route path="/settings/:tab" component={Setup} />
-          {/* the screen's old address still leads to it */}
-          <Route path="/setup"><Redirect to="/settings" /></Route>
-          <Route>
-            <div className="p-8 text-ink-2">Page not found. <Link href="/" className="underline">Open the Studio</Link></div>
-          </Route>
-        </Switch>
-        </ErrorBoundary>
+        <Screens path={path} firstLaunch={first.shows} />
         </Suspense>
       </div>
       <StatusBar />
