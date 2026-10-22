@@ -413,6 +413,8 @@ export interface Tables {
    * running to the one that found none; `seen_at` the last read that found it, what an interval left open is closed at.
    */
   pod_outside: { id: string; session_id: string; machine_id: string; started_at: string; seen_at: string; ended_at: string | null };
+  /** When a pod installed node packs for its jobs after its boot and restarted its ComfyUI to load them, by session (podPacks.ts, 0089): Costs' "Node packs". */
+  pod_packs: { id: string; session_id: string; machine_id: string; started_at: string; ended_at: string };
   /** What rented pods were measured at (podFiles.ts): a file's bytes over its time per source (hf, civitai, upload), a deploy's boot (ms). */
   pod_measures: { id: string; kind: string; cloud: string | null; bytes: number; ms: number; at: string };
   /** Every model file of this computer hashed once, and the site version or file it is (modelHashes.ts). Sizes and times as numbers (bigint on Postgres: read through Number). */

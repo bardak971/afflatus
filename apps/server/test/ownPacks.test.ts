@@ -404,3 +404,25 @@ describe("the look-ahead kept", () => {
     expect(kept.size).toBe(2);
   });
 });
+
+describe("the time a pod spends on node packs for its jobs", () => {
+  it("is told from the first install asked to ComfyUI back from its restart, once: Costs keeps it apart from Idle", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-22T10:00:00Z"));
+    const stub = stubComfy({ loads: true });
+    const told: Array<[string, number, number]> = [];
+    const packs = new PodPacks({ comfyOf: async () => stub.comfy, busy: () => false, packsTime: (m, from, to) => told.push([m, from, to]) });
+    const asked = Date.now();
+    packs.want("pod", ["comfyui-gguf"], "job-1");
+    await packs.pass("pod");
+    vi.setSystemTime(asked + 60_000);
+    await settle(packs, "pod", 3);
+    expect(stub.reboots).toBe(1);
+    expect(told).toEqual([]);
+    // back from its restart: the stretch ends there
+    vi.setSystemTime(asked + 90_000);
+    await settle(packs, "pod", 2);
+    expect(packs.view("pod")[0]!.state).toBe("ready");
+    expect(told).toEqual([["pod", asked, asked + 90_000]]);
+  });
+});

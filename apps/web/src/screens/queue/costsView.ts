@@ -36,6 +36,8 @@ export const PART_SAID: ReadonlyArray<{ part: CostPart; name: string; color: str
   { part: "render", name: "Rendering", color: "var(--color-accent)" },
   { part: "boot", name: "Booting", color: "var(--color-boot)" },
   { part: "fetch", name: "Fetching files", color: "var(--color-picture)" },
+  // node packs installed for its jobs after its boot, and ComfyUI's restart to load them: setup like files and the boot
+  { part: "packs", name: "Installing node packs", color: "color-mix(in srgb, var(--color-picture) 50%, var(--color-boot))" },
   { part: "outside", name: "Outside Afflatus", color: "var(--color-good)" },
   { part: "idle", name: "Idle", color: "var(--color-ink-3)" },
   { part: "failed", name: "Failed renders", color: "var(--color-warn)" },
@@ -125,6 +127,7 @@ export function sessionBits(s: PodSession, longest: number, split = false): Arra
     : part === "fetch" ? `Fetching ${s.fetched.files ? `${plural(s.fetched.files, "file")}, ${gb(s.fetched.bytes)}` : "files"} · ${long(ms)}${guessed("fetch")}`
     : part === "render" ? `${plural(done, "render")} · ${long(ms)}`
     : part === "failed" ? `${plural(failed, "failed render")} · ${long(ms)}`
+    : part === "packs" ? `Installing node packs · ${long(ms)}: for its jobs, and ComfyUI's restart to load them`
     : part === "outside" ? `Outside Afflatus · ${long(ms)}: work queued in its ComfyUI from elsewhere`
     : `Idle · ${long(ms)}`;
   const share = (ms: number) => (longest > 0 ? ms / longest : 0);

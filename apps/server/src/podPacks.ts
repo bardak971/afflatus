@@ -58,6 +58,11 @@ export interface PodPacksDeps {
    * does. ComfyUI is not restarted for a pack installed for jobs none of which wants it any more (queuePacks.ts).
    */
   stillWanted?(job: string, pack: string): boolean;
+  /**
+   * A stretch of installing packs, up to ComfyUI's restart to load them, is over: from the first install asked to ComfyUI
+   * back (or the packs failed). Billed on a pod, and kept for Costs (pod_packs), which read it as Idle.
+   */
+  packsTime?(machine: string, from: number, to: number): void;
 }
 
 /** Manager keeps a history per client: Afflatus's own (packs.ts). */
@@ -86,6 +91,8 @@ export class PodPacks {
   private readonly onDisk = new Map<string, Map<string, number>>();
   /** A restart asked for, by machine: since when. */
   private readonly restarting = new Map<string, number>();
+  /** Packs installing, in and waiting for the restart, or the restart under way, by machine: since when (packsTime). */
+  private readonly installingSince = new Map<string, number>();
   private seq = 0;
   /** How long a pack Manager cannot find yet waits before it is asked again (shorter in tests). */
   retryMs = RETRY_MS;
@@ -197,6 +204,7 @@ export class PodPacks {
     this.pods.delete(machine);
     this.onDisk.delete(machine);
     this.restarting.delete(machine);
+    this.installingSince.delete(machine);
   }
 
   /** A pack no job wants any more taken out; one Manager installed is remembered as on the disk (want). */
@@ -224,6 +232,23 @@ export class PodPacks {
 
   /** One look at a pod's packs: follow a restart, follow Manager's installs, start what waits, restart once they are in. */
   async pass(machine: string): Promise<{ changed: boolean; loaded: boolean }> {
+    const done = await this.step(machine);
+    this.timeInstalls(machine);
+    return done;
+  }
+
+  /** Its packs' work timed: from a pass that finds an install asked for, to the first that finds none, nor a restart. */
+  private timeInstalls(machine: string): void {
+    const under = this.restarting.has(machine) || [...(this.pods.get(machine)?.values() ?? [])].some((e) => e.state === "installing" || e.state === "installed");
+    const since = this.installingSince.get(machine);
+    if (under && since === undefined) this.installingSince.set(machine, Date.now());
+    else if (!under && since !== undefined) {
+      this.installingSince.delete(machine);
+      this.d.packsTime?.(machine, since, Date.now());
+    }
+  }
+
+  private async step(machine: string): Promise<{ changed: boolean; loaded: boolean }> {
     const pod = this.pods.get(machine);
     // a restart under way is followed even when no pack is left to it: until it is, the machine is held (holding)
     if (!pod?.size && !this.restarting.has(machine)) return { changed: false, loaded: false };

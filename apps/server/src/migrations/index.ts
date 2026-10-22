@@ -87,6 +87,7 @@ import m0085 from "./0085-session-split-until";
 import m0086 from "./0086-jobs-to-run";
 import m0087 from "./0087-render-stats-family";
 import m0088 from "./0088-render-started";
+import m0089 from "./0089-pod-packs";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -182,4 +183,5 @@ export const migrations: Record<string, Migration> = {
   "0086_jobs_to_run": m0086,
   "0087_render_stats_family": m0087,
   "0088_render_started": m0088,
+  "0089_pod_packs": m0089,
 };

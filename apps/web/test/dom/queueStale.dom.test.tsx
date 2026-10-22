@@ -8,7 +8,7 @@ import { draw } from "./render";
 
 /** The Costs and Render times tabs when a background refetch fails (review S-7): the figures read before stay, said as not refreshed. */
 
-const zero = { render: 0, boot: 0, fetch: 0, outside: 0, idle: 0, failed: 0 };
+const zero = { render: 0, boot: 0, fetch: 0, packs: 0, outside: 0, idle: 0, failed: 0 };
 const zeroBoot = { pull: 0, packs: 0, comfy: 0, startFailed: 0, boot: 0 };
 const now = Date.now();
 const costs: CostsView = {

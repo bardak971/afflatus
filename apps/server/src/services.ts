@@ -9,7 +9,7 @@ import type { LibraryChange } from "./events";
 import { Downloads } from "./downloads";
 import { ModelHashes } from "./modelHashes";
 import { PodFiles } from "./podFiles";
-import { PodOutside } from "./podOutside";
+import { keepPacksTime, PodOutside } from "./podOutside";
 import { presetsWithFiles } from "./presetFiles";
 import { ShippedPresets, shippedPresetsDir } from "./presetFiles";
 import { DEFAULT_QUEUE_OPTIONS, Queue, type QueueOptions } from "./queue";
@@ -254,6 +254,7 @@ export async function createServices(
     busy: (id) => queue.busyOn(id),
     makesRoom: async (id) => Boolean((await machineOf(id))?.machine.rented?.makeRoom),
     onVolume: async (id) => Boolean((await machineOf(id))?.machine.rented?.volume),
+    packsTime: (id, from, to) => void keepPacksTime(db, id, from, to).catch((err) => console.warn("[pod packs]", (err as Error).message)),
     // a file there now, or one that failed: the pod's folders and its node list (whose choices name the files) are read
     // again, and its jobs looked at again
     settled: (id) => {

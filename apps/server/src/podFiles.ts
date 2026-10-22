@@ -118,6 +118,8 @@ export interface PodFilesDeps {
   makesRoom?(machine: string): Promise<boolean>;
   /** Whether the machine's pod runs on a network volume: its models are on the volume, whose room is then what is said full. */
   onVolume?(machine: string): Promise<boolean>;
+  /** A stretch of installing node packs for its jobs is over (podPacks.ts packsTime): kept for Costs. */
+  packsTime?(machine: string, from: number, to: number): void;
 }
 
 /** A file whose size nothing says yet is planned as this large. */
@@ -322,7 +324,7 @@ export class PodFiles {
   private readonly packs: PodPacks;
 
   constructor(private readonly d: PodFilesDeps) {
-    this.packs = new PodPacks({ comfyOf: d.comfyOf, busy: d.busy, beforeRestart: (m) => this.requeueFetching(m) });
+    this.packs = new PodPacks({ comfyOf: d.comfyOf, busy: d.busy, beforeRestart: (m) => this.requeueFetching(m), packsTime: d.packsTime });
   }
 
   /** No job may start on the machine: its node packs wait for its ComfyUI to restart, or it restarts now. */

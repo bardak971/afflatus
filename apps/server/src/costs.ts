@@ -26,12 +26,12 @@ import type { Settings } from "./settings";
  * container's start to its end. What is not known of a boot (a session before, a pod with no boot log) stays plain booting.
  */
 
-export type Part = "render" | "boot" | "fetch" | "outside" | "idle" | "failed";
+export type Part = "render" | "boot" | "fetch" | "packs" | "outside" | "idle" | "failed";
 /** The chart's series for what RunPod billed beyond Afflatus's count of the pods' time. */
 export const NOT_SPLIT = "Not split";
-export const PARTS: readonly Part[] = ["render", "boot", "fetch", "outside", "idle", "failed"];
+export const PARTS: readonly Part[] = ["render", "boot", "fetch", "packs", "outside", "idle", "failed"];
 export type PartMs = Record<Part, number>;
-const noParts = (): PartMs => ({ render: 0, boot: 0, fetch: 0, outside: 0, idle: 0, failed: 0 });
+const noParts = (): PartMs => ({ render: 0, boot: 0, fetch: 0, packs: 0, outside: 0, idle: 0, failed: 0 });
 /** Booting's parts: pulling the image, the node packs, starting ComfyUI, a start that failed, and a boot not known in parts. */
 export type BootPart = "pull" | "packs" | "comfy" | "startFailed" | "boot";
 export const BOOT_PARTS: readonly BootPart[] = ["pull", "packs", "comfy", "startFailed", "boot"];
@@ -85,6 +85,8 @@ export interface SessionFacts {
   boot?: BootFacts;
   /** When its ComfyUI ran work from outside Afflatus (pod_outside, 0077); none before. */
   outside?: Array<{ from: number; to: number }>;
+  /** When it installed node packs for its jobs after its boot, up to its ComfyUI's restart (pod_packs, 0089); none before. */
+  packs?: Array<{ from: number; to: number }>;
 }
 
 /**
@@ -135,7 +137,8 @@ export function splitSession(f: SessionFacts): { spans: Span[]; estimated: strin
   // where a boot's parts change, within its boot
   for (const t of [f.boot?.pulledAt, f.boot?.packs?.from, f.boot?.packs?.to]) if (t !== undefined && t !== null && t < bootEnd) marks.add(clip(t));
   const outside = f.outside ?? [];
-  for (const r of [...f.renders, ...f.fetches, ...outside]) {
+  const packs = f.packs ?? [];
+  for (const r of [...f.renders, ...f.fetches, ...packs, ...outside]) {
     marks.add(clip(r.from));
     marks.add(clip(r.to));
   }
@@ -146,7 +149,9 @@ export function splitSession(f: SessionFacts): { spans: Span[]; estimated: strin
     if (b <= a) continue;
     const mid = (a + b) / 2;
     const render = f.renders.find((r) => r.from <= mid && mid < r.to);
-    const part: Part = render ? (render.ok ? "render" : "failed") : f.fetches.some((x) => x.from <= mid && mid < x.to) ? "fetch" : mid < bootEnd ? "boot" : outside.some((x) => x.from <= mid && mid < x.to) ? "outside" : "idle";
+    const within = (spans: ReadonlyArray<{ from: number; to: number }>) => spans.some((x) => x.from <= mid && mid < x.to);
+    // node packs installed for its jobs held every job off the pod: not idle, though nothing rendered
+    const part: Part = render ? (render.ok ? "render" : "failed") : within(f.fetches) ? "fetch" : mid < bootEnd ? "boot" : within(packs) ? "packs" : within(outside) ? "outside" : "idle";
     // a boot span says its part, but for a plain one (as before 0076)
     const sub = part === "boot" ? bootPartAt(f.boot, mid) : "boot";
     const boot = sub === "boot" ? undefined : sub;
@@ -730,7 +735,8 @@ function sessionOf<R extends RenderOf>(r: SessionRow, around: ReturnType<typeof 
     fetches: [...keptSpans.map((x) => ({ from: x.from, to: x.to })), ...guessed.map((m) => ({ from: Date.parse(m.at) - Number(m.ms), to: Date.parse(m.at) }))],
     fetchesGuessed: old,
     boot: bootFactsOf(r),
-    outside: around.outside.get(r.id) ?? [],
+    outside: (around.outside.get(r.id) ?? []).filter((x) => !x.packs),
+    packs: (around.outside.get(r.id) ?? []).filter((x) => x.packs),
   };
   return { mine, kept, guessed, facts };
 }
@@ -883,25 +889,27 @@ export async function freezeOldInTurns(db: Db, now: number): Promise<number> {
   }
 }
 
-/** Each session's stretches of work from outside Afflatus (pod_outside), by its id. */
-type OutsideBySession = Map<string, Array<{ from: number; to: number }>>;
+/** Each session's stretches of work from outside Afflatus (pod_outside), and of its node packs' installs (`packs`, pod_packs), by its id. */
+type OutsideBySession = Map<string, Array<{ from: number; to: number; packs?: true }>>;
 
 /**
- * The stretches of work from outside Afflatus seen between two moments, by session: each to its end, or, one still open (its
+ * The stretches of work from outside Afflatus seen between two moments, by session (and the node packs' installs beside them): each to its end, or, one still open (its
  * session running, or Afflatus stopped before its end was read), to its last sight, never further than what was seen.
  * `splitSession` clips them to their session.
  */
 async function outsideOf(db: Db, from: number, to: number): Promise<OutsideBySession> {
   const iso = (ms: number) => new Date(ms).toISOString();
   const rows = await db.selectFrom("pod_outside").select(["session_id", "started_at", "seen_at", "ended_at"]).where("seen_at", ">=", iso(from)).where("started_at", "<=", iso(to)).execute();
+  const packs = await db.selectFrom("pod_packs").select(["session_id", "started_at", "ended_at"]).where("ended_at", ">=", iso(from)).where("started_at", "<=", iso(to)).execute();
   const out: OutsideBySession = new Map();
-  for (const r of rows) {
-    const span = { from: Date.parse(r.started_at), to: Date.parse(r.ended_at ?? r.seen_at) };
-    if (!(span.to > span.from)) continue;
-    const had = out.get(r.session_id);
+  const put = (session: string, span: { from: number; to: number; packs?: true }) => {
+    if (!(span.to > span.from)) return;
+    const had = out.get(session);
     if (had) had.push(span);
-    else out.set(r.session_id, [span]);
-  }
+    else out.set(session, [span]);
+  };
+  for (const r of rows) put(r.session_id, { from: Date.parse(r.started_at), to: Date.parse(r.ended_at ?? r.seen_at) });
+  for (const r of packs) put(r.session_id, { from: Date.parse(r.started_at), to: Date.parse(r.ended_at), packs: true });
   return out;
 }
 
