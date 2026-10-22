@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash, generateKeyPairSync, randomBytes, sign, type KeyObject } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -16,7 +16,7 @@ import { check, NewerLibraryError, start } from "../src/start";
 import { LocalStorage } from "../src/storage";
 import { AfflatusUpdates } from "../src/updates";
 import { compareVersions, readRelease } from "../src/updatesCheck";
-import { nodeIn, readSums, systemTar, verifySignature, versionName } from "../src/updatesInstall";
+import { AFTER_KEPT, nodeIn, readSums, systemTar, verifySignature, versionName } from "../src/updatesInstall";
 import type { InstallKind, UpdatesView } from "../src/updatesModel";
 import { FAST, job, makeApp, makeFake, NOWHERE, post, until } from "./helpers";
 
@@ -342,6 +342,14 @@ describe("the check", () => {
 describe("the update of a bundle", () => {
   it("downloads, checks, unpacks beside, waits for the running render, copies the database, switches and restarts", async () => {
     const r = await rig({ before: ({ versions }) => mkdirSync(join(versions, "0.3.9")) });
+    // five libraries set aside by earlier Go backs and failed starts, the oldest with its journal: the newest AFTER_KEPT stay
+    mkdirSync(join(r.data, "backups"), { recursive: true });
+    const asides = ["after-0.3.7-a.db", "after-failed-0.3.8-b.db", "after-0.3.9-c.db", "after-0.4.0-d.db", "after-failed-0.4.1-e.db"];
+    asides.forEach((name, i) => {
+      writeFileSync(join(r.data, "backups", name), "zz-test");
+      utimesSync(join(r.data, "backups", name), new Date(Date.now() - (10 - i) * 3_600_000), new Date(Date.now() - (10 - i) * 3_600_000));
+    });
+    writeFileSync(join(r.data, "backups", "after-0.3.7-a.db-wal"), "zz-test");
     publish(gh, "0.4.2");
     await r.post("check");
     await addJob(r.services, "zz-test-running", "running");
@@ -363,6 +371,7 @@ describe("the update of a bundle", () => {
     // the new version's first start, from which alone the launcher falls back
     expect(readFileSync(join(r.versions, "trial"), "utf8")).toBe("0.4.2");
     expect(existsSync(join(r.data, "backups", "before-0.4.2.db"))).toBe(true);
+    expect(readdirSync(join(r.data, "backups")).filter((n) => n.startsWith("after-")).sort()).toEqual(asides.slice(-AFTER_KEPT).sort());
     // one previous version kept, never more; nothing left half done; the downloads gone
     expect(readdirSync(r.versions).sort()).toEqual(["0.4.1", "0.4.2", "current", "previous", "trial"]);
     expect(readdirSync(join(r.data, "updates"))).toEqual(["last.json"]);

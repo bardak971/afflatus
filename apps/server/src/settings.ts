@@ -790,6 +790,8 @@ async function written(db: Db, patch: unknown, fromPage = false, forget = ""): P
     // what was read before is stale now, whether or not every key got written
     cached.delete(db);
   }
+  // a machine taken out (a pod terminated, a machine removed): what the queue kept of it goes with it
+  if ("machines" in sent) await dropGoneMachines(db).catch((err: Error) => console.warn(`[settings] the queue's notes of removed machines stay: ${err.message}`));
   // still set aside, as the next read finds them
   return withAside(inStep(next), "machines" in sent ? still : machinesSetAside(current));
 }
@@ -906,4 +908,37 @@ export function publicSettings(s: Settings, here: (url: string) => boolean = () 
     // the password's hash stays here: the page is told whether there is one, and since when
     access: { hasPassword: s.access.password !== null, passwordSetAt: s.access.password?.setAt ?? null, localNoPassword: s.access.localNoPassword, stayDays: s.access.stayDays, resetTelegram: s.access.resetTelegram, hasMetricsToken: Boolean(s.access.metricsToken) },
   };
+}
+
+/** What the queue keeps of each machine but the first (queue.ts): paused or not, and what it last loaded, by machine id. */
+const MACHINE_NOTE = /^queue\.(?:paused|model|loads)\.(.+)$/;
+
+/**
+ * The queue's notes of machines no longer stored (a pod terminated, a machine removed, while this process ran or not),
+ * deleted: they were never read again, 60 of the owner's 93 settings were a gone pod's, and a machine added later under a
+ * gone one's id took its pause. The ids are read from the stored list itself, the rows set aside included; when it cannot
+ * be read, or one of its rows has no id, nothing goes. Read and deleted in one transaction: a machine added in between,
+ * its notes written at once (a newcomer paused by Pause all), keeps them. Returns how many went.
+ */
+export async function dropGoneMachines(db: Db): Promise<number> {
+  return db.transaction().execute(async (tx) => {
+    const row = await tx.selectFrom("settings").select("value").where("key", "=", "machines").executeTakeFirst();
+    let stored: unknown;
+    try {
+      stored = row ? JSON.parse(row.value) : undefined;
+    } catch {
+      return 0;
+    }
+    if (!Array.isArray(stored)) return 0;
+    const ids = stored.map((m) => (m && typeof m === "object" ? (m as { id?: unknown }).id : undefined));
+    if (!ids.every((id): id is string => typeof id === "string" && id !== "")) return 0;
+    const kept = new Set(ids);
+    const notes = await tx.selectFrom("settings").select("key").where("key", "like", "queue.%.%").execute();
+    const gone = notes.map((n) => n.key).filter((key) => {
+      const id = MACHINE_NOTE.exec(key)?.[1];
+      return id !== undefined && !kept.has(id);
+    });
+    for (let i = 0; i < gone.length; i += 500) await tx.deleteFrom("settings").where("key", "in", gone.slice(i, i + 500)).execute();
+    return gone.length;
+  });
 }

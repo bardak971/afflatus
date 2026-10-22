@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { modelOf, plural } from "@afflatus/core";
 import { envSaid } from "./config";
-import type { Db } from "./db";
+import { toRun, type Db } from "./db";
 import { httpError } from "./errors";
 import { dollars, machineSaid, took, type Notice } from "./notifyWords";
 import type { Registry } from "./registry";
@@ -427,7 +427,7 @@ export class Notify {
   /** Nothing running and nothing waiting, after renders: one notice for the batch. */
   private async emptied(): Promise<void> {
     if (!this.batch) return;
-    const left = await this.deps.db.selectFrom("jobs").select("id").where("status", "in", ["queued", "running"]).limit(1).executeTakeFirst();
+    const left = await this.deps.db.selectFrom("jobs").select("id").where(toRun).limit(1).executeTakeFirst();
     if (left) return;
     const b = this.batch;
     this.batch = null;

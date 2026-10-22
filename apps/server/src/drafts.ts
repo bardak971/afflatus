@@ -5,7 +5,7 @@ import { z } from "zod";
 import { NOT_IN_LIBRARY } from "./library";
 import { httpError } from "./errors";
 import { oneAtATime } from "./keyedLock";
-import { newId, now, OWNER, type Db, type Tables } from "./db";
+import { newId, now, OWNER, toRun, type Db, type Tables } from "./db";
 import { ASSETS_SPACE } from "./media";
 import { emptyLook, lookSchema, type Look } from "./entities";
 import type { Services } from "./services";
@@ -150,7 +150,7 @@ async function madeFrom(db: Db, ids: string[]): Promise<Set<string>> {
   if (!ids.length) return new Set();
   const [outputs, jobs] = await Promise.all([
     db.selectFrom("generations").innerJoin("assets", "assets.generation_id", "generations.id").select("generations.draft_id").distinct().where("generations.draft_id", "in", ids).execute(),
-    db.selectFrom("jobs").select("draft_id").distinct().where("draft_id", "in", ids).where("status", "in", ["queued", "running"]).execute(),
+    db.selectFrom("jobs").select("draft_id").distinct().where("draft_id", "in", ids).where(toRun).execute(),
   ]);
   return new Set([...outputs, ...jobs].map((r) => r.draft_id).filter((id): id is string => id !== null));
 }

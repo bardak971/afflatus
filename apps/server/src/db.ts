@@ -2,12 +2,12 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Kysely, PostgresDialect, SqliteAdapter, SqliteDialect, sql, type DialectAdapter, type Driver, type SqliteDatabase } from "kysely";
+import { Kysely, PostgresDialect, SqliteAdapter, SqliteDialect, sql, type DialectAdapter, type Driver, type SqlBool, type SqliteDatabase } from "kysely";
 import { Migrator } from "kysely/migration";
 import pg from "pg";
 import { envSaid, type Config } from "./config";
 import { migrations } from "./migrations";
-import { WorkerSqliteDriver } from "./sqliteWorker";
+import { JOURNAL_LIMIT, WorkerSqliteDriver } from "./sqliteWorker";
 
 /**
  * One schema for both databases. To keep it that way: ids and timestamps are text (ISO 8601),
@@ -458,6 +458,13 @@ export const OWNER = "local";
 export const newId = () => randomUUID().replace(/-/g, "");
 export const now = () => new Date().toISOString();
 
+/**
+ * A job still to run (queued or running), written as the partial index jobs_to_run is (migration 0086): the statuses as
+ * literals, in that order. Kysely's `where("status", "in", [...])` binds them as parameters, and SQLite then cannot tell
+ * the query keeps to the index's rows: it read the whole jobs table, 75 ms a call on a year of jobs, instead of 0.03 ms.
+ */
+export const toRun = sql<SqlBool>`status in ('queued', 'running')`;
+
 export function openDb(config: Config): { db: Db; kind: DbKind } {
   if (config.databaseUrl) {
     // a bigint column (a file's size, a render's work) comes back as a number, as SQLite's does, not as a string
@@ -490,6 +497,7 @@ export function openSqlite(file: string, opts: { worker?: boolean; inline?: bool
   if (opts.inline || !(opts.worker ?? envSaid.sqliteWorker())) {
     const sqlite = new DatabaseSync(file);
     sqlite.exec("PRAGMA journal_mode = WAL");
+    sqlite.exec(`PRAGMA journal_size_limit = ${JOURNAL_LIMIT}`);
     sqlite.exec("PRAGMA foreign_keys = ON");
     return new Kysely<Tables>({ dialect: new TransactionalSqlite({ database: forKysely(sqlite) }) });
   }
