@@ -149,7 +149,7 @@ export function FullscreenBar({ box, c, live, clips, timeline }: {
     if (p) c.onSeek(p.clip.atMs);
   };
   const seeks = !live && c.total > 0 && parts.length > 0;
-  const button = "flex h-[34px] w-[34px] items-center justify-center rounded-[10px] text-ink hover:bg-ink/15 disabled:opacity-40";
+  const button = "flex h-[34px] w-[34px] items-center justify-center rounded-control text-ink hover:bg-ink/15 disabled:opacity-40";
   const fade = cx("motion-safe:transition-opacity motion-safe:duration-300", shown ? "opacity-100" : "pointer-events-none opacity-0");
   const controls = {
     onPointerEnter: () => {
@@ -168,9 +168,9 @@ export function FullscreenBar({ box, c, live, clips, timeline }: {
       <div aria-hidden={!shown} className={cx("pointer-events-none absolute inset-x-0 top-0 z-20 h-[120px] bg-gradient-to-b from-ground/75 to-transparent", fade)}>
         <div className="absolute top-[22px] left-7 flex min-w-0 items-center gap-2.5">
           {name && <span className="truncate text-base font-bold text-ink">{name}</span>}
-          {!live && tag && <span className="flex h-[22px] shrink-0 items-center rounded-[7px] bg-accent/20 px-2 text-xs font-bold text-accent">{tag}</span>}
+          {!live && tag && <span className="flex h-[22px] shrink-0 items-center rounded-chip bg-accent/20 px-2 text-xs font-bold text-accent">{tag}</span>}
         </div>
-        <div className="absolute top-[22px] right-7 flex gap-3.5 text-[11.5px] text-ink-2">
+        <div className="absolute top-[22px] right-7 flex gap-3.5 text-meta text-ink-2">
           <KeyHint keys="Space" does="play" />
           {seeks && <KeyHint keys="← →" does="frame" />}
           {seeks && c.onJump && <KeyHint keys="[ ]" does="clip" />}
@@ -197,7 +197,7 @@ export function FullscreenBar({ box, c, live, clips, timeline }: {
             )}
             <span className="grow" />
             {c.loop && (
-              <button type="button" aria-pressed={c.loop.on} data-tip={c.loop.on ? "Looping the range" : "Loop the range"} data-tip-keys="L" onClick={c.loop.toggle} className={cx("flex h-[30px] items-center gap-1.5 rounded-[9px] px-2.5 text-xs font-semibold", c.loop.on ? "bg-accent/25 text-accent" : "bg-ink/10 text-ink hover:bg-ink/15")}>
+              <button type="button" aria-pressed={c.loop.on} data-tip={c.loop.on ? "Looping the range" : "Loop the range"} data-tip-keys="L" onClick={c.loop.toggle} className={cx("flex h-[30px] items-center gap-1.5 rounded-control px-2.5 text-xs font-semibold", c.loop.on ? "bg-accent/25 text-accent" : "bg-ink/10 text-ink hover:bg-ink/15")}>
                 <Repeat size={14} /> Loop range
               </button>
             )}
@@ -298,14 +298,14 @@ function ClipBar({ parts, here, at, total, onSeek }: { parts: Part[]; here: numb
         return (
           <span key={p.clip.id} data-part className={cx("relative min-w-1 rounded bg-ink/20", on ? "h-2" : "h-1.5")} style={{ flex: `${p.clip.lengthMs} 1 0` }}>
             <span aria-hidden className={cx("absolute inset-y-0 left-0 rounded", on ? "bg-accent" : "bg-accent/65")} style={{ width: `${fill}%` }} />
-            <span aria-hidden className={cx("absolute bottom-3 left-0 max-w-full truncate text-[11px] font-bold", on ? "text-accent" : "text-ink-2")}>Clip {p.n}</span>
+            <span aria-hidden className={cx("absolute bottom-3 left-0 max-w-full truncate text-meta font-bold", on ? "text-accent" : "text-ink-2")}>Clip {p.n}</span>
           </span>
         );
       })}
       {hover && card && peek.armed && (
         <div aria-hidden className="pointer-events-none absolute bottom-full mb-3 flex flex-col gap-[5px] rounded-xl border border-line-strong bg-panel p-1.5 text-ink shadow-[0_18px_48px_color-mix(in_oklab,var(--color-shade)_50%,transparent)]" style={{ left: card.left, width: CARD.outer }}>
           {peek.body}
-          <span className="flex justify-between px-0.5 text-[11.5px]">
+          <span className="flex justify-between px-0.5 text-meta">
             <span className="font-bold">Clip {parts[partAt(parts, hover.ms)]?.n}</span>
             <span className="font-mono text-ink-2">{clockText(hover.ms, { decimals: 1 })}</span>
           </span>

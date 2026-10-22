@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { ImagePlus, MoreHorizontal, Play, ScanFace, Scissors, Trash2, X } from "lucide-react";
+import { ImagePlus, MoreHorizontal, Play, ScanFace, Scissors, Trash2 } from "lucide-react";
 import { api, thumbUrl, type Asset, type Clip, type Take } from "../../api";
-import { Button, Chip, cx, IconButton, NumberBox, Segmented } from "../../ui";
+import { Button, Chip, CloseButton, cx, IconButton, NumberBox, Segmented } from "../../ui";
 import { FieldRow } from "../../fields";
 import { RangeSlider } from "../../RangeSlider";
 import { DRAG_PICTURE, useDropZone } from "../../dragging";
@@ -215,7 +215,7 @@ export function Duration({ clip, take, room, rendered, onPatch }: { clip: Clip; 
   return (
     <FieldRow stack label="Plays" note={`Drag either end, or the clip's edges on the timeline. This trims what plays${rendered ? "; to make the clip itself longer, change Duration in Output and render a new take" : ""}.`}>
       <RangeSlider label="Plays" from={shown.from} to={shown.to} min={0} max={max} step={0.1} gap={0.3} format={(v) => `${v.toFixed(1)} s`} onChange={(f, t) => setMoving({ from: f, to: t })} onCommit={commit} />
-      <span className="flex flex-wrap items-center justify-between gap-2 font-mono text-[11.5px] text-ink-2">
+      <span className="flex flex-wrap items-center justify-between gap-2 font-mono text-meta text-ink-2">
         <span>from {shown.from.toFixed(1)} s</span>
         {(take.trimStartMs > 0 || take.trimEndMs > 0) && <Button size="sm" className="font-sans" onClick={() => onPatch({ trimStartMs: 0, trimEndMs: 0 })}>Reset trim</Button>}
         <span>{(shown.to - shown.from).toFixed(1)} of {(room / 1000).toFixed(1)} s</span>
@@ -259,7 +259,7 @@ export function PinnedFrames({ stored, pins, frames, midDefault, mirrors, pictur
   /** A pinned frame's thumbnail: flipped while mirrored, its ↔ mark on the corner. */
   const thumb = (where: PinWhere, id: string) => (
     <span className="relative shrink-0">
-      <img src={thumbUrl(id)} alt="" className={cx("h-11 w-11 rounded-[3px] object-cover", flipped(mirrorOf(where)?.on))} />
+      <img src={thumbUrl(id)} alt="" className={cx("h-11 w-11 rounded-key object-cover", flipped(mirrorOf(where)?.on))} />
       {mirrorOf(where)?.on && <MirrorMark className="-top-1 -right-1" onMenu={menuOn(where)} />}
     </span>
   );
@@ -271,7 +271,7 @@ export function PinnedFrames({ stored, pins, frames, midDefault, mirrors, pictur
                   {thumb(p.where, p.id)}
                   <span className="grow">{p.text}</span>
                   <Button size="sm" onClick={() => setPicking(p.where)}>Change</Button>
-                  <button type="button" aria-label="Remove this pinned frame" onClick={() => onInputs(without(p.input))} className="flex h-7 w-7 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
+                  <CloseButton size={28} label="Remove this pinned frame" onClose={() => onInputs(without(p.input))} />
                 </PinDrop>
               ) : null,
             )}
@@ -280,7 +280,7 @@ export function PinnedFrames({ stored, pins, frames, midDefault, mirrors, pictur
                 {thumb("mid", through)}
                 <span className="grow">Keyframe at</span>
                 <NumberBox label="When the clip reaches this keyframe, in seconds" value={Number(stored[pins.midAt] ?? midDefault)} min={0.5} max={14.5} step={0.5} unit="s" onCommit={(v) => onInputs({ ...stored, [pins.midAt!]: v })} />
-                <button type="button" aria-label="Remove this pinned frame" onClick={() => onInputs(without(pins.mid))} className="flex h-7 w-7 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
+                <CloseButton size={28} label="Remove this pinned frame" onClose={() => onInputs(without(pins.mid))} />
               </PinDrop>
             )}
             <div className="flex flex-wrap items-center gap-1.5">

@@ -54,7 +54,7 @@ export function PinPeek({ over, slot, recipe, bounds }: {
     />
   );
   const picture = (
-    <span className={cx("relative block shrink-0 overflow-hidden rounded-[10px] bg-stage bg-contain bg-center bg-no-repeat", flipped(mirrored))} style={{ width: pinned.w, height: pinned.h, backgroundImage: `url(${thumbUrl(asset)})` }}>
+    <span className={cx("relative block shrink-0 overflow-hidden rounded-control bg-stage bg-contain bg-center bg-no-repeat", flipped(mirrored))} style={{ width: pinned.w, height: pinned.h, backgroundImage: `url(${thumbUrl(asset)})` }}>
       {whole}
     </span>
   );
@@ -87,7 +87,7 @@ export function PinPeek({ over, slot, recipe, bounds }: {
         <span className="shrink-0 font-semibold text-ink">{pinTitle(over.where, slot.index + 1, midAtS)}</span>
         {size?.id === asset && <span className="shrink-0 text-ink-3">{size.w}×{size.h}</span>}
         <span className="grow" />
-        <span className="truncate text-[11px] text-ink-3">drop another image to replace it</span>
+        <span className="truncate text-meta text-ink-3">drop another image to replace it</span>
       </span>
     </PeekCard>
   );
@@ -96,7 +96,7 @@ export function PinPeek({ over, slot, recipe, bounds }: {
 /** A label under a picture of the card, after a dot of its colour. */
 function Dot({ className, children }: { className: string; children: string }) {
   return (
-    <span className="flex items-center gap-1.5 text-[11px] text-ink-2">
+    <span className="flex items-center gap-1.5 text-meta text-ink-2">
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${className}`} />
       {children}
     </span>

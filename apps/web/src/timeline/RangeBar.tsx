@@ -1,7 +1,7 @@
-import { Magnet, X } from "lucide-react";
+import { Magnet } from "lucide-react";
 import type { Clip } from "../api";
 import type { MenuItem } from "../ContextMenu";
-import { Button, cx } from "../ui";
+import { Button, CloseButton, IconButton } from "../ui";
 import { stamp, type TimeRange } from "./model";
 
 /** The range bar's words for its actions: the menu says them in full. */
@@ -24,11 +24,11 @@ export function RangeBar({ range, emptyRange, clips, snapQuiet, onSnapQuiet, ite
       <span className="shrink-0 font-semibold text-accent">Range</span>
       <span className="shrink-0 font-mono">{stamp(range.inMs)} <span className="text-ink-3">→</span> {stamp(range.outMs)}</span>
       <span className="min-w-0 truncate text-ink-2">· {emptyRange ? "" : `${((range.outMs - range.inMs) / 1000).toFixed(1)} s · `}{where}</span>
-      <button type="button" aria-label="Snap to quiet moments" aria-pressed={snapQuiet} data-tip={snapQuiet ? "In and Out snap to quiet moments of the clips (the ticks under the ruler), to cuts and to the playhead. Click to snap to cuts and the playhead only." : "Snapping to quiet moments is off: In and Out snap to cuts and to the playhead. Click to snap to quiet moments too."} onClick={onSnapQuiet} className={cx("ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg", snapQuiet ? "bg-accent-wash text-accent" : "text-ink-3 hover:bg-hover hover:text-ink")}><Magnet size={14} /></button>
+      <IconButton size={28} label="Snap to quiet moments" pressed={snapQuiet} tip={snapQuiet ? "In and Out snap to quiet moments of the clips (the ticks under the ruler), to cuts and to the playhead. Click to snap to cuts and the playhead only." : "Snapping to quiet moments is off: In and Out snap to cuts and to the playhead. Click to snap to quiet moments too."} onClick={onSnapQuiet} className="ml-1"><Magnet size={14} /></IconButton>
       <span className="grow" />
       {items.filter((it): it is Exclude<MenuItem, "—"> => it !== "—" && it.key !== "Space" && it.key !== "L").map((it, i) =>
         it.label === "Clear the range" ? (
-          <button key={i} type="button" aria-label="Clear the range (Esc)" data-tip="Clear the range (Esc)" onClick={it.run} className="ml-1 flex h-7 w-7 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>
+          <CloseButton key={i} size={28} label="Clear the range" keys="Esc" onClose={() => it.run?.()} className="ml-1" />
         ) : (
           <Button key={i} size="sm" aria-label={it.label} disabled={it.disabled} data-tip={[it.label, it.note].filter(Boolean).join(" · ")} onClick={it.run} className="shrink-0">
             {it.icon} {SHORT[it.label] ?? it.label}

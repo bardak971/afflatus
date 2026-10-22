@@ -261,7 +261,7 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
         {bound.map((b) => (
           <span key={b.id} className="pointer-events-none absolute inset-y-1 rounded-sm border border-accent/70" style={{ left: inLane(b.from), width: Math.max(4, ((b.to - b.from) / 1000) * pps) }} />
         ))}
-        <span className="pointer-events-none absolute top-0.5 rounded bg-ground/85 px-1 text-[10px] font-semibold whitespace-nowrap" style={{ left: Math.max(2, inLane(fromMs) + 3) }}>
+        <span className="pointer-events-none absolute top-0.5 rounded bg-ground/85 px-1 text-micro font-semibold whitespace-nowrap" style={{ left: Math.max(2, inLane(fromMs) + 3) }}>
           {held ? (held.kind === "slip" ? `${(fromMs / 1000).toFixed(1)}–${(toMs / 1000).toFixed(1)} s` : `${((held.kind === "start" ? fromMs : toMs) / 1000).toFixed(1)} s${held.kind === "end" ? ": stops here" : ": starts here"}`) : `${video.name} · from ${(fromMs / 1000).toFixed(1)} s`}
         </span>
         {/* its left end: where it starts in the video */}
@@ -316,7 +316,7 @@ export function ToCome({ place, pps, label }: { place: SourcePlace; pps: number;
           key={k}
           aria-hidden
           data-hint="a clip Make will add here (the source's settings, in its panel)"
-          className="pointer-events-none absolute flex flex-col justify-between overflow-hidden rounded-lg border-2 border-dashed border-accent/70 bg-accent-wash/40 px-1.5 py-1 text-[11px]"
+          className="pointer-events-none absolute flex flex-col justify-between overflow-hidden rounded-lg border-2 border-dashed border-accent/70 bg-accent-wash/40 px-1.5 py-1 text-meta"
           style={{ left: x(place.atMs + w.fromMs) + 1, width: Math.max(8, ((w.toMs - w.fromMs) / 1000) * pps - 2), top: ROW.top, height: ROW.height }}
         >
           <span className="truncate font-bold text-accent">{k + 1} · {label}</span>

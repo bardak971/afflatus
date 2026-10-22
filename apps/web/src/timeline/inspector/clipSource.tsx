@@ -165,7 +165,7 @@ export function MaskChapter({ s, maskOn }: { s: ClipSource; maskOn: boolean }) {
           <Button tone="plain" className="h-11 justify-start gap-2 border-accent! px-3" onClick={() => s.onPicking(false)}>
             <Crosshair size={16} className="text-accent" aria-hidden />
             <span className="grow text-left"><span className="font-semibold">Picking</span><span className="text-ink-2"> · click the person on the stage</span></span>
-            <kbd className="font-mono text-[11px] text-ink-3">Esc</kbd>
+            <kbd className="font-mono text-meta text-ink-3">Esc</kbd>
           </Button>
         ) : s.source.pick ? (
           <div className="flex flex-wrap items-center gap-2">

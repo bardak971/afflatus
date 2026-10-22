@@ -164,8 +164,8 @@ export function FramePeek({ area, floor, slots, clips, recipes, pps, totalMs, pa
       {armed && (
         <>
           {/* where the pointer is, through the ruler and the clips; and the clip it is over */}
-          <div aria-hidden className="pointer-events-none absolute top-0 z-[13] w-[1.5px] bg-accent" style={{ left: over.x - 0.75, height: ROW.top + ROW.height }} />
-          <div aria-hidden className={cx("pointer-events-none absolute z-[13] rounded-lg border-2 border-accent", s.planned && "border-dashed")} style={{ left: s.left + 1, width: Math.max(8, s.width - 2), top: ROW.top, height: ROW.height }} />
+          <div aria-hidden className="pointer-events-none absolute top-0 z-13 w-[1.5px] bg-accent" style={{ left: over.x - 0.75, height: ROW.top + ROW.height }} />
+          <div aria-hidden className={cx("pointer-events-none absolute z-13 rounded-lg border-2 border-accent", s.planned && "border-dashed")} style={{ left: s.left + 1, width: Math.max(8, s.width - 2), top: ROW.top, height: ROW.height }} />
           <PeekCard x={over.clientX} y={over.top - PEEK.margin} width={PEEK.card} bounds={bounds ? { left: bounds.left, right: bounds.right } : undefined} label={`Frame at ${stamp(atMs)}`}>
             {/* a standing frame beside the clip's words, a lying one over them: about 320 px wide either way */}
             <div className={cx("flex gap-3", standing ? "items-start" : "flex-col")}>

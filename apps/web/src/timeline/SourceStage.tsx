@@ -202,7 +202,7 @@ export const SourceStage = forwardRef<PlayerHandle, {
         <span className="absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-accent bg-ground/90 px-3 py-1 text-xs whitespace-nowrap">
           <span className="font-semibold">Click the person to replace</span>
           <span className="text-ink-2">on the stretch's first frame, {clock(fromMs, { decimals: 1 })}</span>
-          <kbd className="rounded border border-line px-1.5 font-mono text-[11px] text-ink-2">Esc</kbd>
+          <kbd className="rounded border border-line px-1.5 font-mono text-meta text-ink-2">Esc</kbd>
         </span>
       ) : (
         <span className="absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-ground/85 px-3 py-1 text-xs font-semibold whitespace-nowrap">

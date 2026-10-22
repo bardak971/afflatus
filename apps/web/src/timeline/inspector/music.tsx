@@ -75,7 +75,7 @@ function SongStrip({ timeline, onFrom }: { timeline: Timeline; onFrom(fromMs: nu
         {measure.data && <Wave sound={measure.data.sound} rate={measure.data.rate} fromMs={0} toMs={songMs} />}
         <span className="pointer-events-none absolute top-0 bottom-0 rounded-md border-[1.5px] border-accent bg-accent/30" style={{ left: pct(from), width: pct(usedMs) }} />
       </div>
-      <div className="flex justify-between font-mono text-[11px] text-ink-3">
+      <div className="flex justify-between font-mono text-meta text-ink-3">
         <span>0:00</span>
         <span className="text-accent">{clock(from, { decimals: 1 })} → {clock(from + usedMs, { decimals: 1 })}</span>
         <span>{clock(songMs)}</span>

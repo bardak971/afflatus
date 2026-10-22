@@ -186,34 +186,27 @@ export function Transport({ t, clock, slots, cursor, total, source, playing, ran
 }) {
   return (
     <div className="flex h-[54px] shrink-0 items-center gap-2 border-t border-line bg-panel px-3">
-      <button type="button" aria-label="Previous clip" data-tip="Previous clip" disabled={!t.durationMs} onClick={() => onJump(-1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipBack size={15} /></button>
+      <IconButton label="Previous clip" disabled={!t.durationMs} onClick={() => onJump(-1)}><SkipBack size={15} /></IconButton>
       {/* the app's one play button (the viewer's, the music's); a range set rings it, as Play then plays the range */}
       <PlayButton on={playing} label={playing ? "Pause" : ranged ? "Play the range" : "Play"} tip={ranged ? "Play the range: from the playhead inside it, else from In; stops at Out" : "Play / pause"} disabled={!t.durationMs && !source} onClick={onToggle} className={cx(ranged && "ring-2 ring-accent/40 ring-offset-2 ring-offset-panel")} />
-      <button type="button" aria-label="Next clip" data-tip="Next clip" disabled={!t.durationMs} onClick={() => onJump(1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipForward size={15} /></button>
+      <IconButton label="Next clip" disabled={!t.durationMs} onClick={() => onJump(1)}><SkipForward size={15} /></IconButton>
       {ranged && (
-        <button type="button" aria-label="Loop the range" aria-pressed={loopRange} data-tip={loopRange ? "Loop is on: back to In at Out (L)" : "Loop the range (L)"} onClick={onToggleLoop} className={cx("flex h-8 w-8 items-center justify-center rounded-lg", loopRange ? "bg-accent-wash text-accent" : "text-ink-2 hover:bg-hover hover:text-ink")}><Repeat size={15} /></button>
+        <IconButton label="Loop the range" pressed={loopRange} tip={loopRange ? "Loop is on: back to In at Out" : "Loop the range"} keys="L" onClick={onToggleLoop}><Repeat size={15} /></IconButton>
       )}
       <Readout clock={clock} slots={slots} cursor={cursor} total={total} source={source} />
       <span className="grow" />
       {/* how loud it plays here (the clips' and the music's own volumes stay as set) */}
       <div className="group flex items-center gap-1">
-        <button type="button" aria-label={muted || volume === 0 ? "Unmute" : "Mute"} data-tip={muted || volume === 0 ? "Unmute" : "Mute"} onClick={onMute} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
+        <IconButton label={muted || volume === 0 ? "Unmute" : "Mute"} onClick={onMute}>
           {muted || volume === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
-        </button>
+        </IconButton>
         <Slider box={false} min={0} max={1} step={0.01} value={muted ? 0 : volume} label="Volume" format={(v) => `Volume ${Math.round(v * 100)} %`} onChange={onVolume} className="w-20" />
       </div>
-      <button type="button" aria-label="Full screen" data-tip="Full screen (Esc leaves it; Space plays and pauses)" disabled={!t.durationMs && !source} onClick={onFullscreen} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><Maximize size={15} /></button>
-      <button type="button" aria-label="Extend from this frame" data-tip="Extend from this frame: cuts the clip on screen here and adds a new clip that carries on from it" disabled={!t.durationMs || adding} onClick={onExtend} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><Link2 size={15} /></button>
-      <button
-        type="button"
-        aria-label="Save frame"
-        data-tip="Save frame: the frame on screen, as an image in your library"
-        disabled={!t.durationMs || saving}
-        onClick={onSaveFrame}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"
-      >
+      <IconButton label="Full screen" tip="Full screen (Esc leaves it; Space plays and pauses)" disabled={!t.durationMs && !source} onClick={onFullscreen}><Maximize size={15} /></IconButton>
+      <IconButton label="Extend from this frame" tip="Extend from this frame: cuts the clip on screen here and adds a new clip that carries on from it" disabled={!t.durationMs || adding} onClick={onExtend}><Link2 size={15} /></IconButton>
+      <IconButton label="Save frame" tip="Save frame: the frame on screen, as an image in your library" disabled={!t.durationMs || saving} onClick={onSaveFrame}>
         <Camera size={15} />
-      </button>
+      </IconButton>
     </div>
   );
 }

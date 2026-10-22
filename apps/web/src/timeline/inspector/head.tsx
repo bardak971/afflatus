@@ -1,6 +1,6 @@
 import { ArrowUpRight, ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
 import type { Asset, Clip } from "../../api";
-import { Chip, Help } from "../../ui";
+import { Chip, Help, IconButton } from "../../ui";
 import { FoldButton } from "../column";
 import { CloseButton } from "./parts";
 
@@ -38,7 +38,7 @@ export function ClipHead({ clip, index, shown, before, after, carries, imported,
       <div className="flex items-start gap-2">
         {/* its number and what it is, wrapping as one line: the prompt is in the form below, not said twice */}
         <div className="flex min-w-0 grow flex-wrap items-center gap-1.5 pt-0.5">
-          <span className="mr-0.5 flex h-6 shrink-0 items-center rounded-[7px] bg-accent-wash px-2 text-xs font-bold text-accent uppercase">{still ? "Still" : "Clip"} {index + 1}</span>
+          <span className="mr-0.5 flex h-6 shrink-0 items-center rounded-chip bg-accent-wash px-2 text-xs font-bold text-accent uppercase">{still ? "Still" : "Clip"} {index + 1}</span>
           <Chip tip={clip.lengthMs && shown?.width && shown.height ? "How long it plays · its size in pixels" : undefined}>
             {clip.lengthMs ? <span className="font-mono">{(clip.lengthMs / 1000).toFixed(1)} s{shown?.width && shown.height ? ` · ${shown.width}×${shown.height}` : ""}</span> : "not rendered yet"}
           </Chip>
@@ -59,31 +59,30 @@ export function ClipHead({ clip, index, shown, before, after, carries, imported,
         </div>
         {onSelectClip && (
           <>
-            <button type="button" aria-label="Previous clip" data-tip={before ? `Clip ${index}` : "This is the first clip"} disabled={!before} onClick={() => before && onSelectClip(before.id)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-line-strong text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40">
+            <IconButton size={28} tone="outline" label="Previous clip" tip={before ? `Clip ${index}` : "This is the first clip"} disabled={!before} onClick={() => before && onSelectClip(before.id)}>
               <ChevronLeft size={15} />
-            </button>
-            <button type="button" aria-label="Next clip" data-tip={after ? `Clip ${index + 2}` : "This is the last clip"} disabled={!after} onClick={() => after && onSelectClip(after.id)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-line-strong text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40">
+            </IconButton>
+            <IconButton size={28} tone="outline" label="Next clip" tip={after ? `Clip ${index + 2}` : "This is the last clip"} disabled={!after} onClick={() => after && onSelectClip(after.id)}>
               <ChevronRight size={15} />
-            </button>
+            </IconButton>
           </>
         )}
         {/* the designer is opened from the prompt's own Designer helper, and closed by its × or Escape: not a second button here */}
         <FoldButton />
         {/* Remove clip lives in this menu, with the clip's other actions, not as a button beside Close: one misclick from losing a clip */}
-        <button
-          type="button"
-          aria-label={`More actions on ${still ? "still" : "clip"} ${index + 1}`}
+        <IconButton
+          size={28}
+          label={`More actions on ${still ? "still" : "clip"} ${index + 1}`}
           aria-haspopup="menu"
-          data-tip="More: Duplicate, Move, Remove clip…"
+          tip="More: Duplicate, Move, Remove clip…"
           onClick={(e) => {
             // under the button rather than at the pointer, as a menu button's menu
             const r = e.currentTarget.getBoundingClientRect();
             onMenu({ preventDefault: () => e.preventDefault(), clientX: Math.max(1, r.right - 240), clientY: r.bottom + 4 });
           }}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"
         >
           <MoreHorizontal size={15} />
-        </button>
+        </IconButton>
         {onClose && <span className="ml-1.5 flex shrink-0 border-l border-line pl-1.5"><CloseButton onClose={onClose} /></span>}
       </div>
     </div>

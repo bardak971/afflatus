@@ -234,14 +234,14 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
         {c.kind === "still" && c.still && <img src={thumbUrl(c.still.id)} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover" />}
         {live && <ClipLive clip={c.id} />}
         {/* its number only: the frames stay clean (the prompt is in its hover card and its panel) */}
-        <span className="absolute top-1 left-1.5 rounded bg-ground/85 px-1.5 py-px text-[11px] font-bold">{s.index + 1}</span>
+        <span className="absolute top-1 left-1.5 rounded bg-ground/85 px-1.5 py-px text-meta font-bold">{s.index + 1}</span>
         {/* nothing to play yet: what it will be, in its own words, beside its number (clear of its pinned pictures) */}
         {s.planned && !c.job && s.width > 100 && (
-          <span className="absolute top-1.5 right-2 left-9 truncate text-[11px] text-ink-2">{titleOf(c, recipe)}</span>
+          <span className="absolute top-1.5 right-2 left-9 truncate text-meta text-ink-2">{titleOf(c, recipe)}</span>
         )}
         <span className="absolute inset-x-1.5 bottom-1 flex items-end justify-between gap-1">
           {c.job ? (
-            <span className="flex min-w-0 grow flex-col gap-1 rounded bg-ground/85 px-1.5 py-1 text-[11px]">
+            <span className="flex min-w-0 grow flex-col gap-1 rounded bg-ground/85 px-1.5 py-1 text-meta">
               <span className="flex items-center gap-1">
                 <span className="min-w-0 grow truncate font-semibold">{live ? <ClipPhase clip={c.id} /> : "Queued"}</span>
                 <button
@@ -274,15 +274,15 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
                       e.stopPropagation();
                       a().render(c);
                     }}
-                    className={cx("flex h-6 shrink-0 items-center rounded-[7px] px-2 text-[11px] font-bold hover:brightness-110", c.failed ? "bg-warn-wash text-warn-ink" : "border border-line-strong bg-raised text-ink")}
+                    className={cx("flex h-6 shrink-0 items-center rounded-chip px-2 text-meta font-bold hover:brightness-110", c.failed ? "bg-warn-wash text-warn-ink" : "border border-line-strong bg-raised text-ink")}
                   >
                     {c.failed ? "Retry" : "Render"}
                   </button>
-                  <span className={cx("truncate font-mono text-[10.5px]", c.failed ? "text-warn-ink" : "text-ink-3")}>{c.failed ? "failed" : est(renderMs)}</span>
+                  <span className={cx("truncate font-mono text-micro", c.failed ? "text-warn-ink" : "text-ink-3")}>{c.failed ? "failed" : est(renderMs)}</span>
                 </span>
               ) : (
                 // a length is never cut short ("3.0 s" read as "3", a count or a clip number): the tags beside it give way first
-                <span className={cx("rounded bg-ground/85 px-1.5 py-px text-[11px]", c.failed && s.planned ? "truncate text-warn-ink" : s.planned ? "truncate text-ink-2" : "shrink-0 font-semibold whitespace-nowrap")}>
+                <span className={cx("rounded bg-ground/85 px-1.5 py-px text-meta", c.failed && s.planned ? "truncate text-warn-ink" : s.planned ? "truncate text-ink-2" : "shrink-0 font-semibold whitespace-nowrap")}>
                   {/* said whole in the room there is, never cut mid-word ("Not rendere…") */}
                   {s.planned ? (c.failed ? (s.width > 150 ? "The render failed" : "Failed") : s.width > 150 ? "Not rendered yet" : s.width > 96 ? "Not rendered" : "…") : `${(s.lengthMs / 1000).toFixed(1)} s`}
                 </span>
@@ -290,16 +290,16 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
               {/* one row high: a tag that does not fit wraps out of sight whole ("St…" and "other…" said nothing), the warning
                   first so it is the one kept; the length beside them never shrinks */}
               <span className="flex h-[18px] min-w-0 flex-wrap items-center justify-end gap-1 overflow-hidden">
-                {misfit && s.width > 100 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] whitespace-nowrap text-attention-ink" data-tip="Not the timeline's aspect ratio: it is fitted into the frame">other ratio</span>}
-                {c.kind === "still" && s.width > 100 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] whitespace-nowrap text-ink-2">Still</span>}
-                {c.kind === "video" && !recipe && c.take && s.width > 96 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] whitespace-nowrap text-ink-2">Imported</span>}
-                {c.takes.length > 1 && s.width > 110 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] whitespace-nowrap text-ink-2">take {c.takes.findIndex((x) => x.id === c.take?.id) + 1} of {c.takes.length}</span>}
+                {misfit && s.width > 100 && <span className="rounded bg-ground/85 px-1.5 py-px text-micro whitespace-nowrap text-attention-ink" data-tip="Not the timeline's aspect ratio: it is fitted into the frame">other ratio</span>}
+                {c.kind === "still" && s.width > 100 && <span className="rounded bg-ground/85 px-1.5 py-px text-micro whitespace-nowrap text-ink-2">Still</span>}
+                {c.kind === "video" && !recipe && c.take && s.width > 96 && <span className="rounded bg-ground/85 px-1.5 py-px text-micro whitespace-nowrap text-ink-2">Imported</span>}
+                {c.takes.length > 1 && s.width > 110 && <span className="rounded bg-ground/85 px-1.5 py-px text-micro whitespace-nowrap text-ink-2">take {c.takes.findIndex((x) => x.id === c.take?.id) + 1} of {c.takes.length}</span>}
               </span>
               {drifts && (
                 <span
                   aria-label={`The face drifts: ${face!.toFixed(2)} against ${before!.toFixed(2)} in clip ${s.index}`}
                   data-tip={`The face drifts from clip ${s.index}'s: ${face!.toFixed(2)} against ${before!.toFixed(2)} (Face Match, against the person's picture). Another take may hold it`}
-                  className="absolute top-1.5 right-1.5 z-[3] h-2.5 w-2.5 rounded-full bg-attention ring-2 ring-ground/70"
+                  className="absolute top-1.5 right-1.5 z-3 h-2.5 w-2.5 rounded-full bg-attention ring-2 ring-ground/70"
                 />
               )}
             </>
@@ -371,7 +371,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
                 onClick={() => a().onOpenJoin?.(c)}
                 onDragOver={(e) => a().overJoin(e, s)}
                 style={{ left: s.left - pillW / 2, width: pillW, top: ROW.top + 9, height: ROW.height - 18, background: SWATCH[t.kind] }}
-                className={cx("absolute z-[9] rounded-md border border-white/40 shadow-sm", dropping && "outline-2 outline-accent")}
+                className={cx("absolute z-9 rounded-md border border-white/40 shadow-sm", dropping && "outline-2 outline-accent")}
               >
                 {(["left", "right"] as const).map((side) => (
                   <span key={side} onPointerDown={pull} onPointerMove={pullTo} onPointerUp={pullEnd} onPointerCancel={() => setPulling(null)} className={cx("absolute inset-y-0 w-3 cursor-ew-resize", side === "left" ? "-left-1.5" : "-right-1.5")} />
@@ -404,7 +404,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
                 data-hint={`A new clip between clip ${s.index} and clip ${s.index + 1}: its model is chosen in the column`}
                 onClick={() => a().onNewClip?.(prev.id)}
                 style={{ left: s.left - 12, top: ROW.top + 1 }}
-                className={cx("absolute z-10 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-[15px] leading-none font-bold text-ground transition-opacity hover:opacity-100 focus-visible:opacity-100", near ? "opacity-100" : "opacity-0")}
+                className={cx("absolute z-10 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-title leading-none font-bold text-ground transition-opacity hover:opacity-100 focus-visible:opacity-100", near ? "opacity-100" : "opacity-0")}
               >
                 +
               </button>
@@ -427,7 +427,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
         aria-label={`Audio of clip ${s.index + 1}: ${heard || "none yet"}`}
         style={{ left: s.left + 1, width: Math.max(8, s.width - 2), top: SOUND.top, height: SOUND.height }}
         className={cx(
-          "absolute flex items-center gap-1 overflow-hidden rounded px-1.5 text-[10px]",
+          "absolute flex items-center gap-1 overflow-hidden rounded px-1.5 text-micro",
           c.sound === "file" ? "bg-picture/20 text-picture" : c.sound === "muted" || heard === "Silent" || !heard ? "bg-raised text-ink-3" : "bg-good/15 text-good",
           over?.kind === "sound" && over.clip === c.id && "outline outline-2 outline-accent",
         )}

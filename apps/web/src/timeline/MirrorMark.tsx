@@ -17,7 +17,7 @@ export function MirrorMark({ className, style, onMenu }: { className?: string; s
       aria-label="Mirrored at render time"
       onContextMenu={onMenu}
       style={style}
-      className={cx("absolute z-[1] flex h-3.5 w-3.5 items-center justify-center rounded-full border border-ground bg-accent text-accent-ink", className)}
+      className={cx("absolute z-1 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-ground bg-accent text-accent-ink", className)}
     >
       <ArrowLeftRight size={9} strokeWidth={3} />
     </span>
