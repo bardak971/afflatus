@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { realpath } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { tmpdir } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chooseRoute, MANAGER_BIG, MANAGER_HF } from "../src/downloads";
@@ -230,6 +230,18 @@ describe("where Afflatus may write a model", () => {
       expect(onThisMachine(url), url).toBe(true);
     }
     for (const url of ["http://127.example.net:8188", "http://127.0.0.1.nip.io:8188", "http://192.0.2.10:8188", "not a url"]) {
+      expect(onThisMachine(url), url).toBe(false);
+    }
+  });
+
+  it("counts an IPv4 address said the IPv6 way as that address: loopback, this machine's own, or another", () => {
+    for (const url of ["http://[::ffff:127.0.0.1]:8188", "http://[::ffff:7f00:1]:8188", "http://[0:0:0:0:0:ffff:7f00:1]:8188"]) {
+      expect(onThisMachine(url), url).toBe(true);
+    }
+    // one of this machine's own IPv4 addresses, mapped (none on a machine with only loopback)
+    const own = Object.values(networkInterfaces()).flat().find((a) => a && a.family === "IPv4" && !a.internal);
+    if (own) expect(onThisMachine(`http://[::ffff:${own.address}]:8188`), own.address).toBe(true);
+    for (const url of ["http://[::ffff:192.0.2.10]:8188", "http://[::ffff:c000:20a]:8188", "http://[::ffff:1:7f00:1]:8188"]) {
       expect(onThisMachine(url), url).toBe(false);
     }
   });

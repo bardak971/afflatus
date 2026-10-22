@@ -5,7 +5,7 @@ import { recipes, sdxlTextToPicture } from "@afflatus/recipes";
 import { familyOn, filesAsked, filesUsed, lackOn, mergeScans } from "../src/machineScans";
 import type { Machine } from "../src/settings";
 
-const machine = (id: string, families: Record<string, boolean> = {}): Machine => ({ id, name: id, url: `http://${id}:8188`, dir: "", takes: "all", packs: "ask", families, token: "" });
+const machine = (id: string, families: Record<string, boolean> = {}): Machine => ({ id, name: id, url: `http://${id}:8188`, dir: "", dirCleared: "", takes: "all", packs: "ask", families, token: "" });
 const recipe = (id: string, ready: boolean, options: Record<string, string[]> = {}): RecipeStatus => ({
   id, ready, missingNodes: [], missingSlots: ready ? [] : ["model"], emptyInputs: [], missingFiles: [], missing: [], problems: [], limitedBy: [], options,
 });

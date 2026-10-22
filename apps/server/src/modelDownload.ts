@@ -273,10 +273,22 @@ export function onThisMachine(comfyUrl: string): boolean {
     return false;
   }
   if (host === "localhost") return true;
+  if (!isIP(host)) return false;
+  // an IPv4 address said the IPv6 way ([::ffff:127.0.0.1], which URL writes ::ffff:7f00:1) is that IPv4 address
+  host = unmapped(host);
   const kind = isIP(host);
-  if (!kind) return false;
   if ((kind === 4 && host.startsWith("127.")) || host === "::1") return true;
   return Object.values(networkInterfaces()).some((list) => list?.some((a) => a.address.toLowerCase() === host));
+}
+
+/** The IPv4 address an IPv4-mapped IPv6 one stands for (::ffff:7f00:1, ::ffff:127.0.0.1); any other address as it is. */
+function unmapped(host: string): string {
+  const dotted = /^(?:0{0,4}:){0,5}:?ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(host);
+  if (dotted && isIP(dotted[1]!) === 4) return dotted[1]!;
+  const hex = /^(?:0{0,4}:){0,5}:?ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
+  if (!hex) return host;
+  const [hi, lo] = [parseInt(hex[1]!, 16), parseInt(hex[2]!, 16)];
+  return [hi >> 8, hi & 255, lo >> 8, lo & 255].join(".");
 }
 
 /** ComfyUI's older names of two folders: a request may use either. */
