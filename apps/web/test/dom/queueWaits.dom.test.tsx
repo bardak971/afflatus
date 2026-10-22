@@ -73,6 +73,13 @@ describe("a waiting render's official file on the user's own ComfyUI", () => {
     await user.click(screen.getByRole("button", { name: "Look again" }));
     await waitFor(() => expect(fakeApi.calls("POST", "/setup/rescan").map((c) => c.path)).toEqual(["/setup/rescan?machine=m1"]));
   });
+  it("offers it too where the job wants it in another folder than its family's (a shipped preset's checkpoint loaded as a diffusion model), as the server takes it", async () => {
+    serve();
+    const w = job({ fetch: { m1: { files: [{ file: OFFICIAL.file, folder: "diffusion_models", url: OFFICIAL.url }], ms: 0 } } } as Partial<Job>);
+    const { user } = draw(<WaitingList waiting={[w]} running={null} onOrder={() => {}} onRemove={() => {}} />);
+    await user.click(await screen.findByRole("button", { name: /Download/ }));
+    await waitFor(() => expect(fakeApi.calls("POST", "/downloads").map((c) => c.body)).toContainEqual({ file: OFFICIAL.file, folder: "diffusion_models", url: OFFICIAL.url, machine: "m1" }));
+  });
 });
 
 describe("a model field's official files not here", () => {

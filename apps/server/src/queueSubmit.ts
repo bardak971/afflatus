@@ -713,7 +713,7 @@ export async function builtOf(core: QueueCore, recipeId: string, rawInput: unkno
   // a finish that re-samples the draft's own latent is built on it, as submit builds it: else it is built as the draft and its finish both
   if (opts.finishedFrom && recipe.finishing?.(input)?.latent === "own") uploads["self.latent"] = "stand-in";
   const own = opts.slots ? null : await slots(core, comfy, recipe);
-  const built = recipe.build(settled(recipe, input, catalog), { seed: opts.seed ?? 1, slots: opts.slots ?? own!.files, uploads, media, canvas: opts.canvas, has: (cls: string) => cls in catalog, options: optionsIn(catalog), ...(opts.wants ? { wants: opts.wants } : {}) });
+  const built = recipe.build(settled(recipe, input, catalog), { seed: opts.seed ?? 1, slots: opts.slots ?? own!.files, uploads, media, canvas: opts.canvas, has: opts.has ?? ((cls: string) => cls in catalog), options: optionsIn(catalog), ...(opts.wants ? { wants: opts.wants } : {}) });
   // with this ComfyUI's own files (a forecast, Open in ComfyUI), a graph reading one it does not have is refused as before:
   // it named afflatus-missing-slot.… in ComfyUI's editor, and a forecast was keyed on it
   if (own) refuseGap(built.graph, own.gaps);
@@ -733,6 +733,8 @@ export interface BuildOn {
   relocate?: boolean;
   /** What the options the form turned on are given (jobPacks.ts lookAhead: the nodes they ask for, to be installed there); left out, what this ComfyUI has. */
   wants?: BuildContext["wants"];
+  /** Which node types the build takes as there; left out, those of `catalog` (a pod to come built with every node: jobFiles.ts freshGraph). */
+  has?: BuildContext["has"];
 }
 
 /** A library picture's size, as uploadImage sends it; null when it is not known (the stand-in's square is used). */

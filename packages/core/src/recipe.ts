@@ -245,9 +245,11 @@ export interface Recipe<In = Record<string, unknown>> {
    * model is made for a few steps). A machine without their files does not take the job, and a rented pod is sent them:
    * the recipe left alone would render without them, the full steps where Turbo was asked. `slots`: the family's files
    * found on that machine (slot id → file), which the build loads for a model left out of the form (a distilled one needs
-   * no turbo LoRA); left out, only the form's own pick is read.
+   * no turbo LoRA); left out, only the form's own pick is read. `own`: that machine is the user's own, not a rented pod.
+   * A file the build uses only where it is there (another route taken without it) is then asked only as `slots` has it,
+   * as its render there will: a pod is sent it, a machine of the user's own renders without it rather than wait for it.
    */
-  needsWith?(input: In, slots?: Record<string, string>): string[];
+  needsWith?(input: In, slots?: Record<string, string>, where?: { own?: boolean }): string[];
   /**
    * Of a recipe made window by window: a window of a source given this form from another of its grid (`from`), its part
    * of the source already moved to this form's inputs; `alone`: this window only (made so, or changed by itself), not

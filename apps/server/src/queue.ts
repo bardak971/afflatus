@@ -185,7 +185,7 @@ export class Queue {
       fitsBalance: (ms) => this.fitsBalance(ms),
       balanceNeed: (machine, recipeId, renderMs, fetchMs) => this.balanceNeed(machine, recipeId, renderMs, fetchMs),
       // a machine of the user's own builds the options whose packs cannot come there without them, as its render will
-      loaded: async (r, lane, scan) => loadedOn(this.core, r, { id: lane.id, comfy: lane.comfy!, scan }, lane.machine?.rented ? {} : { facts: await this.ownPacks.facts(lane), said: packsSaid(r) }),
+      loaded: async (r, lane, scan) => loadedOn(this.core, r, { id: lane.id, comfy: lane.comfy!, scan, own: !lane.machine?.rented }, lane.machine?.rented ? {} : { facts: await this.ownPacks.facts(lane), said: packsSaid(r) }),
       packsCannot: async (lane, packs) => {
         const facts = await this.ownPacks.facts(lane);
         const p = packs.find((x) => cannotWhy(facts, x));

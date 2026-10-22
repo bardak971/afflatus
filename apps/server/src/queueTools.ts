@@ -197,7 +197,7 @@ export async function toolNeeds(core: Pick<QueueCore, "db" | "storage">, row: Pi
   if (route === "face") {
     return {
       rife, seedvr: false, upscaleModel: null, nodes: ["LoadVideo", "GetVideoComponents", ...FACE_REFINE_NODES, ...(video.has_sound ? [AUDIO_LOCK] : []), ...(rife ? RIFE_NODES : [])],
-      ...(opts.family ? { face: { family: opts.family, slots: faceRefineNeeds({ faceRefine: true }, { own: true }) } } : {}),
+      ...(opts.family ? { face: { family: opts.family, slots: faceRefineNeeds({ faceRefine: true }, { own: true, picture: Boolean(opts.picture) }) } } : {}),
     };
   }
   const upscale = route === "rtx" ? UPSCALE.rtx : route === "model" ? UPSCALE.model : UPSCALE.seedvr;

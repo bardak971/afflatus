@@ -90,7 +90,7 @@ export class OwnPacks {
     if (!scan?.comfy.online) return true;
     const said = packsSaid(row);
     const facts = await this.facts(lane);
-    const loaded = await loadedOn(lane.core, row, { id: lane.id, comfy: lane.comfy, scan }, { facts, said }).catch(() => null);
+    const loaded = await loadedOn(lane.core, row, { id: lane.id, comfy: lane.comfy, scan, own: true }, { facts, said }).catch(() => null);
     const { soft, hard, unknown } = packsLacked(loaded);
     if (!soft.length && !hard.length) return this.goes(row.id);
     if (unknown.length || hard.some((p) => cannotWhy(facts, p))) return this.goes(row.id);

@@ -2,11 +2,12 @@ import { fileName } from "./media";
 import { civitaiVersion } from "./civitai";
 import type { Comfy } from "./comfy";
 import { filesIn } from "@afflatus/comfy";
+import { isOfficialFile } from "@afflatus/core";
 import type { Db } from "./db";
 import { PASSING, type Downloads } from "./downloads";
 import { stat } from "node:fs/promises";
 import { GUESSED, MEASURED_FROM, measuredRange, recordFetch, recordMeasure, type MeasureKind, type Range } from "./podMeasures";
-import { isOfficialFile, localCopy, measureKind, podSource, presetsOf, type PodSource, type SourceLookup } from "./podSources";
+import { localCopy, measureKind, podSource, presetsOf, type PodSource, type SourceLookup } from "./podSources";
 import { PACKS_MS, PodPacks, type PodPackView } from "./podPacks";
 import { PACK_UPLOADS, uploadFile } from "./podUpload";
 import type { Settings } from "./settings";
@@ -790,7 +791,7 @@ export class PodFiles {
       const settings = await this.d.settings();
       // a family's own official file is no lookup, and a deploy or a queued job asked for it (the consent, as a Download
       // pressed on it is in fetchFile.ts): fetched whatever these say, so a fresh install's pod gets what its screens promise
-      const official = src.kind === "url" && isOfficialFile(this.d.lookup.families(), { url: src.url, file: e.file, folder: e.folder });
+      const official = src.kind === "url" && isOfficialFile(this.d.lookup.families(), { url: src.url, file: e.file });
       if (!official && !settings.downloadModels) throw new Error("downloading into ComfyUI is turned off (Settings › Models › Missing models)");
       if (!official && !settings.civitaiLookups) throw new Error("looking up models online is turned off, so Hugging Face and Civitai are not asked (Settings › Models)");
       const name = e.file.split(/[\\/]/).pop()!;

@@ -279,10 +279,13 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
   presets: h3Video.presets,
   // a window after a swap needs what the swap's do (its model, unless picked), less its LoRA and SAM 3; any other is read
   // on the window as it is built (asWindow): a window carrying on asks for the reference model its frame before is given by
-  // (a pod never had it, and rendered the window by the frames alone), and Veda's and Turbo's files for that model
-  needsWith: (input, slots = {}) => {
+  // (a pod never had it, and rendered the window by the frames alone), and Veda's and Turbo's files for that model. On a
+  // machine of the user's own without the reference model, a window with no cast picture is read as the build takes it
+  // there, on the frames carried alone (canRefer), as before: it was held, waiting for a download of that model
+  needsWith: (input, slots = {}, where = {}) => {
     if (afterSwap(input)) return [...(h3Swap.needsWith?.(asSwap(input), slots) ?? []).filter((n) => n !== "swapSam"), ...motionNeeds(input), ...(input.swapModel ? [] : ["swapUnet"])];
-    const clip = asWindow(input);
+    const framesAlone = where.own && !slots.refUnet && !(input.references ?? []).length;
+    const clip = framesAlone ? asClip(input, SWAP_FRAMES, input.previous ? MOTION_CARRIED : 0) : asWindow(input);
     return [...turboNeeds(clip, slots), ...referenceNeeds(clip, slots), ...vedaNeeds(clip, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...motionNeeds(input), ...faceRefineNeeds(input)];
   },
   nodes: (input) => afterSwap(input) ? nodesAfterSwap(input) : [...new Set([

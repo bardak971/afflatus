@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { isOfficialFile } from "@afflatus/core";
 import { api } from "./api";
 import { useRecipes, useSettings } from "./data";
 import { siteName } from "./format";
@@ -53,9 +54,9 @@ export function useGetFile({ file, folder, url, civitai, pick, hints, auto, sour
   const client = useQueryClient();
   const lookups = Boolean(settings.data?.civitaiLookups);
   // a family's own file at its own address is downloaded on a press whatever the settings (the press is the consent, and
-  // no lookup is made): what a greyed file in a form, a waiting job and Settings › Models offer
+  // no lookup is made): what a greyed file in a form, a waiting job and Settings › Models offer, by the server's own test
   const recipes = useRecipes();
-  const official = Boolean(url) && (recipes.data?.families ?? []).some((f) => f.slots?.some((s) => s.get?.url === url && s.get?.file === file && s.folder === folder));
+  const official = isOfficialFile(recipes.data?.families ?? [], { url, file });
   // anything else needs downloads and lookups both on, as the server does (fetchFile.ts beginDownload): with lookups off its
   // Download only met a refusal
   const fetching = ((Boolean(settings.data?.downloadModels) && lookups) || official) && Boolean(folder);

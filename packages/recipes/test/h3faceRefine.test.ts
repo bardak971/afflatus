@@ -158,6 +158,8 @@ describe("MiniMax H3 · Face refine", () => {
       const r = recipeById(id)!;
       expect(r.needsWith!(parseInput(r, { ...values, faceRefine: true, references: [{ asset: "r1", role: "person" }] }), {}), id).toEqual(expect.arrayContaining(face));
       expect(r.needsWith!(parseInput(r, { ...values, references: [{ asset: "r1", role: "person" }] }), {}).filter((x) => x.startsWith("face")), id).toEqual([]);
+      // with no person's picture the pass leaves the clip as it is: none of its files is asked for
+      expect(r.needsWith!(parseInput(r, { ...values, faceRefine: true, references: [] }), {}).filter((x) => x.startsWith("face")), id).toEqual([]);
     }
     const scail = recipeById("scail.motion24")!;
     expect(scail.needsWith!(parseInput(scail, { picture: "p", driving: { asset: "v" }, faceRefine: true }), {})).toEqual(expect.arrayContaining([...face, "faceClip", "faceVideoVae", "faceAudioVae"]));

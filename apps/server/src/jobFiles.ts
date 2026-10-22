@@ -45,11 +45,12 @@ export interface Loaded {
  * download, else this PC's (sent up from here); a required one with none of those is named by missingSlotFile, and only a
  * graph that reads it says so. An optional slot is there only as the machine has it, unless the recipe or this input asks
  * for it (`needs`, `needsWith`: Turbo's LoRAs, SAM with the Mask on), when it comes as a required one does. The Deploy
- * dialog and the pod's own check both name the slots so, so a slot is never fetched under two names.
+ * dialog and the pod's own check both name the slots so, so a slot is never fetched under two names. `own`: a machine of the
+ * user's own, never asked a file its build does without there (Recipe.needsWith's `own`).
  */
 export function podSlotFiles(
   recipe: Pick<Recipe<any>, "needs" | "needsWith">, input: Record<string, unknown>, slots: readonly ModelSlot[],
-  there: readonly SlotStatus[] | null, here: readonly SlotStatus[] | null,
+  there: readonly SlotStatus[] | null, here: readonly SlotStatus[] | null, own = false,
 ): Record<string, string> {
   const at = (list: readonly SlotStatus[] | null, id: string) => list?.find((x) => x.id === id)?.file ?? null;
   const fill = (s: ModelSlot) => at(there, s.id) ?? s.get?.file ?? at(here, s.id) ?? missingSlotFile(s.id);
@@ -59,7 +60,7 @@ export function podSlotFiles(
     else if (at(there, s.id)) out[s.id] = at(there, s.id)!;
   }
   // what this input asks for, read against the files it is built with (a model made for few steps asks no turbo LoRA)
-  for (const id of recipe.needsWith?.(input, out) ?? []) {
+  for (const id of recipe.needsWith?.(input, out, { own }) ?? []) {
     const s = slots.find((x) => x.id === id);
     if (s && !out[id]) out[id] = fill(s);
   }
@@ -142,7 +143,7 @@ const KEPT = 512;
  * the log, so that such jobs can be found and fixed.
  */
 export async function loadedOn(
-  core: QueueCore, row: Pick<JobRow, "id" | "recipe_id" | "inputs" | "finished_from" | "clip_id" | "clip_fit" | "clip_mirror">, on: { id: string; comfy: Comfy; scan: Scan } | null,
+  core: QueueCore, row: Pick<JobRow, "id" | "recipe_id" | "inputs" | "finished_from" | "clip_id" | "clip_fit" | "clip_mirror">, on: { id: string; comfy: Comfy; scan: Scan; own?: boolean } | null,
   packs: { facts?: PackFacts; said?: PacksSaid } = {},
 ): Promise<Loaded | null> {
   if (row.recipe_id === CUT_JOB) return toolLoadedOn(core, row, on, packs);
@@ -152,7 +153,7 @@ export async function loadedOn(
   const raw = readJson<Record<string, unknown>>(row.inputs, {});
   const keys: { key: string } = { key: "" };
   try {
-    const got = await graphOn(core, row, recipe, family, raw, on, keys, packs);
+    const got = on ? await graphOn(core, row, recipe, family, raw, on, keys, packs) : await freshGraph(core, row, recipe, family, raw, keys, packs);
     if ("kept" in got) return got.kept;
     const { graph, files, catalog, there, wanted } = got;
     const absent: GraphFile[] = [];
@@ -168,12 +169,12 @@ export async function loadedOn(
     let freshWhy: string | null = null;
     if (on && keys.key && !kept.has(keys.key)) {
       const freshKeys = { key: "" };
-      const fresh = await graphOn(core, row, recipe, family, raw, null, freshKeys, packs).catch((e: Error) => {
+      // built anew: what was kept for a pod to come (the Deploy dialog's files) has no graph to read its nodes from
+      const fresh = await freshGraph(core, row, recipe, family, raw, freshKeys, packs, true).catch((e: Error) => {
         // (a failure before its build, a node list not read, is not the job's)
         if (freshKeys.key) freshWhy = e.message;
         return null;
       });
-      if (fresh && "kept" in fresh && fresh.kept?.refused) freshWhy = fresh.kept.refused;
       if (fresh && !("kept" in fresh)) {
         const catalog = await on.comfy.catalog();
         const there = on.scan.families.find((f) => f.id === recipe.family)?.slots ?? [];
@@ -201,6 +202,30 @@ export async function loadedOn(
   }
 }
 
+/**
+ * A job's graph as built for a pod that has nothing yet (graphOn with no machine). That build reads this PC's node list,
+ * which says nothing of the pod's: where it throws for a node this PC lacks (a latent finish without the MMH3 pack here,
+ * Face refine with an older Afflatus pack), it is built again with every node there, the pod image's packs and any pack
+ * sent to a pod; its node types a machine lacks are then said as the packs to install. Only a job that cannot be built
+ * even so is refused: every new pod was refused such a job, though the image has the pack (2026-10-22). The first
+ * failure is the one thrown, and `keys.key` is the first build's, for the caller to keep what it makes of it. `anew`: built
+ * whatever was kept for it.
+ */
+async function freshGraph(
+  core: QueueCore, row: Parameters<typeof graphOn>[1], recipe: Recipe<any>, family: Family, raw: Record<string, unknown>, keys: { key: string },
+  packs: { facts?: PackFacts; said?: PacksSaid }, anew = false,
+): ReturnType<typeof graphOn> {
+  try {
+    return await graphOn(core, row, recipe, family, raw, null, keys, packs, { anew });
+  } catch (err) {
+    // (a failure before its build, a node list not read, is not the nodes')
+    if (!keys.key) throw err;
+    return await graphOn(core, row, recipe, family, raw, null, { key: "" }, packs, { everyNode: true, anew: true }).catch(() => {
+      throw err;
+    });
+  }
+}
+
 /** The node types a graph uses that a node list lacks. */
 const lackedNodes = (graph: Record<string, { class_type: string }>, catalog: NodeCatalog): string[] =>
   [...new Set(Object.values(graph).map((n) => n.class_type))].filter((n) => !(n in catalog));
@@ -212,7 +237,8 @@ const lackedNodes = (graph: Record<string, { class_type: string }>, catalog: Nod
  */
 async function graphOn(
   core: QueueCore, row: Pick<JobRow, "id" | "inputs" | "finished_from" | "clip_id" | "clip_fit" | "clip_mirror">, recipe: Recipe<any>, family: Family,
-  raw: Record<string, unknown>, on: { id: string; comfy: Comfy; scan: Scan } | null, keys: { key: string }, packs: { facts?: PackFacts; said?: PacksSaid } = {},
+  raw: Record<string, unknown>, on: { id: string; comfy: Comfy; scan: Scan; own?: boolean } | null, keys: { key: string }, packs: { facts?: PackFacts; said?: PacksSaid } = {},
+  how: { everyNode?: boolean; anew?: boolean } = {},
 ): Promise<{ kept: Loaded | null } | { graph: Record<string, { class_type: string }>; files: GraphFile[]; catalog: NodeCatalog; there: SlotStatus[] | null; wanted: Wanted[] }> {
   const comfy = on?.comfy ?? (await core.comfy());
   const catalog = await comfy.catalog();
@@ -221,17 +247,17 @@ async function graphOn(
   const here = slotsIn(await (await core.comfy()).scan().catch(() => null));
   const there = on ? (slotsIn(on.scan) ?? []) : null;
   const input = parseInput(recipe, withTexts(recipe, raw)) as Record<string, unknown>;
-  const slots = podSlotFiles(recipe, input, family.slots, there, here);
+  const slots = podSlotFiles(recipe, input, family.slots, there, here, Boolean(on?.own));
   // what the machine has is as its last scan read it: a file come or gone since is a new scan, and worked out anew
   // what the options are given there is part of it: a pack that cannot come, or a Run without, builds them without
   const facts = packs.facts ?? ANY_PACKS;
   const packsKey = JSON.stringify([facts.nvidia, [...facts.cannot.keys()].sort(), packs.said ?? {}]);
-  keys.key = [row.id, row.inputs, row.finished_from ?? "", row.clip_id ?? "", on?.id ?? "", on?.scan.at ?? "", catalogKey(catalog) ?? "", JSON.stringify(slots), packsKey].join("\u0001");
-  if (kept.has(keys.key)) return { kept: kept.get(keys.key)! };
+  keys.key = [row.id, row.inputs, row.finished_from ?? "", row.clip_id ?? "", on?.id ?? "", on?.scan.at ?? "", catalogKey(catalog) ?? "", JSON.stringify(slots), packsKey, how.everyNode ? "every node" : ""].join("\u0001");
+  if (!how.anew && kept.has(keys.key)) return { kept: kept.get(keys.key)! };
   const plan = row.clip_id && core.clips ? await core.clips.plan(row.clip_id, recipe, input, Boolean(row.clip_fit), row.finished_from, true, readJson<string[]>(row.clip_mirror, [])).catch(() => null) : null;
   // the options it asks for are given the node their pack brings when this ComfyUI lacks it: its graph then says the pack
   const ahead = lookAhead(catalog, facts, packs.said);
-  const built = await builtOf(core, recipe.id, plan ? plan.input : raw, { finishedFrom: row.finished_from, canvas: plan?.canvas, slots, comfy, catalog, relocate: Boolean(on), wants: ahead.wants });
+  const built = await builtOf(core, recipe.id, plan ? plan.input : raw, { finishedFrom: row.finished_from, canvas: plan?.canvas, slots, comfy, catalog, relocate: Boolean(on), wants: ahead.wants, ...(how.everyNode ? { has: () => true } : {}) });
   if (!built) throw new Error("its form could not be read");
   const folders = Object.fromEntries(family.slots.map((s) => [s.id, s.folder]));
   return { graph: built.graph, files: graphFiles(built.graph, slots, folders), catalog, there, wanted: ahead.missing };
@@ -250,7 +276,7 @@ const FACE_LOADERS: Record<string, [classType: string, input: string]> = {
  * Each named as podSlotFiles names a slot: the machine's own, else the download, else this PC's (RIFE has no download:
  * this PC's is sent). Null for a cut that loads nothing.
  */
-async function toolLoadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id" | "inputs">, on: { id: string; comfy: Comfy; scan: Scan } | null, packs: { facts?: PackFacts; said?: PacksSaid } = {}): Promise<Loaded | null> {
+async function toolLoadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id" | "inputs">, on: { id: string; comfy: Comfy; scan: Scan; own?: boolean } | null, packs: { facts?: PackFacts; said?: PacksSaid } = {}): Promise<Loaded | null> {
   // kept as a render's is (the planner asks at every pass, of every machine); a finish whose take is not there yet is asked
   // again (the queue screen reads the finishes waiting for their clip too)
   const catalog = on ? await on.comfy.catalog().catch(() => null) : null;
