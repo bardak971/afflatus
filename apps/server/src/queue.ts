@@ -1823,6 +1823,9 @@ export class Queue {
   /** How a render ended that did not finish: stopped by hand, lost by ComfyUI (queued again while attempts remain), or failed; never while shutting down. */
   private async failed(err: Error, lane: Lane, row: JobRow, recipe: Recipe<any>, at: { resume: Resume | null; held?: Resume | null; measured: Measured | null; made?: string; whole: boolean; attempts: number; aborted: boolean }): Promise<void> {
     const { resume, measured, made, whole } = at;
+    // stopped by hand while its end was being worked out (its ComfyUI failing as the Stop came): a stop, not a loss. Read
+    // as lost, it was queued again, and a machine took up the job the user had just cancelled
+    const stoppedNow = () => lane.running?.id === row.id && lane.running.abort.signal.aborted && !(lane.running.abort.signal.reason instanceof Stuck);
     // what never reached ComfyUI took no GPU time: only a render that was under way is put on record
     const onRecord = resume && !made && !row.warm;
     // its ComfyUI died under it (its pod said so, or it answers again without it): whatever the wait saw of that, a failure
@@ -1837,7 +1840,7 @@ export class Queue {
       // stuck on a rented GPU: a failure, said as such, not a stop by the user
       if (onRecord) await this.note(lane, row, recipe, resume, measured, "failed", whole, Date.now() - resume.startedAt);
       await this.failure(row, resume?.promptId ?? at.held?.promptId, new Error((lane.running.abort.signal.reason as Stuck).message));
-    } else if (err instanceof ComfyCancelled || at.aborted) {
+    } else if (err instanceof ComfyCancelled || at.aborted || stoppedNow()) {
       // on record before the job says how it ended, as a render that is done
       if (onRecord) await this.note(lane, row, recipe, resume, measured, "cancelled", whole, Date.now() - resume.startedAt);
       await this.finish(row.id, "cancelled", { error: "stopped by you" });
@@ -1851,6 +1854,8 @@ export class Queue {
       // next attempt asks ComfyUI for it (taken) and follows it, instead of rendering again a video that would come out different
       const kept = resume ?? at.held;
       await this.requeueLost(row, kept && !made ? kept : null, Math.max(at.attempts, row.attempts + 1), err instanceof ComfyAway || err instanceof ComfyUnreachable);
+      // a Stop that came while it was put back in line: it stays stopped
+      if (stoppedNow()) await this.finish(row.id, "cancelled", { error: "stopped by you" }, "queued");
     } else {
       if (resume && awayErr(err)) this.sayGone(lane, row.label);
       if (onRecord) await this.note(lane, row, recipe, resume, measured, "failed", whole, Date.now() - resume.startedAt);

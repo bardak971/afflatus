@@ -863,6 +863,12 @@ describe("the pod's files read again as its files land or fail", () => {
     pf.want("pod", [{ file: "d.safetensors", folder: "loras", url: `${siteUrl}/nolink/d.safetensors` }], { tier: "need", job: "j3" });
     await until(async () => (await pf.tick(), pf.view("pod").find((f) => f.file === "d.safetensors")?.state === "failed"));
     expect(told).toEqual([true, true, false]);
+    // a deploy's file, no job's, with nothing else coming: at once, the jobs waiting may need it
+    pf.forget("pod");
+    told.length = 0;
+    pf.want("pod", [{ file: "deployed.safetensors", folder: "loras", url: `${siteUrl}/files/deployed.safetensors` }], { tier: "ahead" });
+    await ready("deployed.safetensors");
+    expect(told).toEqual([true]);
     // what was sent to that ComfyUI is still known there: a landing does not send each window's photo again
     expect(comfy.uploaded.has("input/zz-test")).toBe(true);
     pf.forget("pod");
