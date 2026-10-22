@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { InputSpec } from "@afflatus/core";
 import type { ModelSettings, RecipeInfo } from "../src/api";
-import { formDefaults, matchFiles } from "../src/form";
+import { formDefaults, layoutOf, matchFiles, pinnable, pinSaid, sectionsOf, whyHidden } from "../src/form";
+import { withFamilyPins } from "../src/recipeForm/pinned";
 
 const recipe = (inputs: InputSpec[], presets?: RecipeInfo["presets"]): RecipeInfo =>
   ({ id: "sdxl.text", family: "sdxl", version: 1, title: "Text to picture", summary: "A picture.", output: "image", inputs, traits: null, ...(presets ? { presets } : {}) });
@@ -60,5 +61,37 @@ describe("a preset's model files, as this ComfyUI names them", () => {
   });
   it("leaves a file this ComfyUI does not have as it is", () => {
     expect(matchFiles(recipe(inputs), options, { model: "elsewhere.safetensors" }).model).toBe("elsewhere.safetensors");
+  });
+});
+
+describe("pinned fields", () => {
+  const specs: InputSpec[] = [
+    { id: "prompt", type: "prompt", label: "Prompt", style: "tags" },
+    { id: "steps", type: "number", label: "Steps", min: 1, max: 60, step: 1, default: 28, advanced: true },
+    { id: "hires", type: "toggle", label: "Hires fix", default: false, advanced: true },
+    { id: "hiresDenoise", type: "number", label: "Denoising", min: 0.1, max: 0.8, step: 0.05, default: 0.45, advanced: true, showWhen: "hires" },
+    { id: "upscaler", type: "choice", label: "Upscaler", options: ["None", "4x"], default: "None", advanced: true, showWhen: "hires" },
+    { id: "tile", type: "number", label: "Tile", min: 0, max: 1, step: 0.1, default: 0.5, advanced: true, showWhen: { input: "upscaler", in: ["4x"] } },
+  ];
+  it("pin the settings, not the texts or the pictures", () => {
+    expect(specs.filter(pinnable).map((i) => i.id)).toEqual(["steps", "hires", "hiresDenoise", "upscaler", "tile"]);
+  });
+  it("say why one is not shown: the first setting up the chain that hides it", () => {
+    expect(whyHidden(specs[3]!, { hires: false }, specs)).toBe("Hires fix is off");
+    expect(whyHidden(specs[5]!, { hires: true, upscaler: "None" }, specs)).toBe("Upscaler is None");
+    expect(whyHidden(specs[5]!, { hires: false, upscaler: "4x" }, specs)).toBe("Hires fix is off");
+    expect(whyHidden(specs[3]!, { hires: true }, specs)).toBe("");
+  });
+  it("say where each lives, and what each holds in a few words", () => {
+    const at = sectionsOf(layoutOf(recipe(specs), { hires: true }, ""));
+    expect(at.get("steps")).toBe("Sampling");
+    expect(at.get("hiresDenoise")).toBe("Sampling");
+    expect(pinSaid(specs[1]!, 34)).toBe("Steps 34");
+    expect(pinSaid(specs[2]!, true)).toBe("Hires fix on");
+    expect(pinSaid(specs[4]!, "4x")).toBe("Upscaler 4x");
+  });
+  it("keep each family's list, and drop a family left with none", () => {
+    expect(withFamilyPins({ h3: ["shot"] }, "sdxl", ["cfg", "cfg", "steps"])).toEqual({ h3: ["shot"], sdxl: ["cfg", "steps"] });
+    expect(withFamilyPins({ h3: ["shot"], sdxl: ["cfg"] }, "sdxl", [])).toEqual({ h3: ["shot"] });
   });
 });

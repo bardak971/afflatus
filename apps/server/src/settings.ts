@@ -358,6 +358,15 @@ export const settingsSchema = z.object({
    * switches to each. A project deleted or archived is taken out (projects.ts).
    */
   pinnedProjects: z.array(z.string().min(1).max(80)).max(4).refine((ids) => new Set(ids).size === ids.length, "a project is pinned once").default([]),
+  /**
+   * The settings pinned to the top of the model forms (Pinned fields), per model family (the H3 forms share the family "h3",
+   * so a pin on one shows on all of them): input ids in their order on the Pinned card. An id a family's forms no longer have
+   * is kept here and skipped by the form; a family with no pin left is not listed.
+   */
+  pinnedFields: z
+    .record(z.string().min(1).max(120), z.array(z.string().min(1).max(120)).max(60).refine((ids) => new Set(ids).size === ids.length, "a field is pinned once"))
+    .refine((byFamily) => Object.keys(byFamily).length <= 200, "pins for 200 families at most")
+    .default({}),
   /** Where Afflatus's notices go (Telegram, Discord) and which kinds go there (notify.ts). */
   notify: notifySchema.prefault({}),
   /** The optional password and how it behaves (access.ts). */
@@ -805,6 +814,7 @@ export function publicSettings(s: Settings, here: (url: string) => boolean = () 
     binDays: s.binDays,
     bar: s.bar,
     pinnedProjects: s.pinnedProjects,
+    pinnedFields: s.pinnedFields,
     // the bot's token and the webhook stay here: anyone who has either can write as Afflatus
     notify: { hasTelegramToken: Boolean(s.notify.telegramToken), telegramChat: s.notify.telegramChat, hasDiscordWebhook: Boolean(s.notify.discordWebhook), picture: s.notify.picture, events: s.notify.events },
     // the password's hash stays here: the page is told whether there is one, and since when

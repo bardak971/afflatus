@@ -1,5 +1,6 @@
 import { useExplain } from "../store";
 import { fieldClass, Help } from "../ui";
+import { FIELD_NAME, FieldNameExtra } from "./FieldName";
 
 /** The look of a text or number box of a form. */
 export const field = `w-full ${fieldClass}`;
@@ -9,11 +10,12 @@ export function Label({ htmlFor, children, note, aside }: { htmlFor?: string; ch
   const explain = useExplain((s) => s.on);
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <span className="flex min-w-0 items-center gap-1.5">
+      <span {...FIELD_NAME} className="flex min-w-0 items-center gap-1.5">
         {/* a field drawn as a group of buttons has no one control to point at: its name is a plain word, the group says it itself */}
         {/* the size of a row's name (FieldRow): "Aspect ratio" was smaller than "Duration" above it */}
         {htmlFor ? <label htmlFor={htmlFor} className="shrink-0 font-semibold">{children}</label> : <span className="shrink-0 font-semibold">{children}</span>}
         {note && !explain && <Help text={note} />}
+        <FieldNameExtra spaced />
       </span>
       {(aside || (note && explain)) && <span className="min-w-0 text-right text-xs text-ink-2">{aside ?? note}</span>}
     </div>

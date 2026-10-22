@@ -58,6 +58,7 @@ const SERVER: Record<string, string> = {
   updateChecks: "server.updateChecks",
   bar: "bar.shortcut",
   pinnedProjects: "internal: the rail's pins, set on the rail and in the Projects panel",
+  pinnedFields: "interface.pins",
   notify: "notify.telegram",
   access: "access.password",
 };
