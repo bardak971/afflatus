@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
-import type { FamilyInfo, Job, MachineState } from "../../src/api";
+import type { FamilyInfo, Job, MachineState, RecipeInfo, RecipeStatus } from "../../src/api";
+import { Form } from "../../src/RecipeForm";
 import { ModelField } from "../../src/fields/FileSelect";
 import { WaitingList } from "../../src/screens/queue/WaitingList";
 import { fakeApi } from "./fakeApi";
@@ -80,6 +81,14 @@ describe("a waiting render's official file on the user's own ComfyUI", () => {
     await user.click(await screen.findByRole("button", { name: /Download/ }));
     await waitFor(() => expect(fakeApi.calls("POST", "/downloads").map((c) => c.body)).toContainEqual({ file: OFFICIAL.file, folder: "diffusion_models", url: OFFICIAL.url, machine: "m1" }));
   });
+  it("offers it too in a sub-folder as ComfyUI on Windows names it, with a backslash", async () => {
+    serve();
+    const file = `SDXL\\${OFFICIAL.file}`;
+    const w = job({ fetch: { m1: { files: [{ file, folder: "checkpoints", url: OFFICIAL.url }], ms: 0 } } } as Partial<Job>);
+    const { user } = draw(<WaitingList waiting={[w]} running={null} onOrder={() => {}} onRemove={() => {}} />);
+    await user.click(await screen.findByRole("button", { name: /Download/ }));
+    await waitFor(() => expect(fakeApi.calls("POST", "/downloads").map((c) => c.body)).toContainEqual({ file, folder: "checkpoints", url: OFFICIAL.url, machine: "m1" }));
+  });
 });
 
 describe("a model field's official files not here", () => {
@@ -93,5 +102,39 @@ describe("a model field's official files not here", () => {
     await waitFor(() => expect(under.getByText(/7(\.0)? GB/)).toBeTruthy());
     await user.click(under.getByRole("button", { name: /Download/ }));
     await waitFor(() => expect(fakeApi.calls("POST", "/downloads").map((c) => c.body)).toContainEqual({ file: OFFICIAL.file, folder: "checkpoints", url: OFFICIAL.url }));
+  });
+});
+
+describe("a form's model value that its ComfyUI lacks", () => {
+  const recipe = { id: "zz.picture", family: "zz", title: "zz-test picture", inputs: [{ id: "ckpt", type: "model", label: "Checkpoint", folder: "checkpoints" }] } as unknown as RecipeInfo;
+  const status = { id: "zz.picture", ready: true, missingNodes: [], missingSlots: [], emptyInputs: [], missingFiles: [], missing: [], problems: [], limitedBy: [], options: { ckpt: ["zz-test-mine.safetensors"] } } as RecipeStatus;
+  // drawn with its Model part opened, where the field and the note are
+  const drawn = async (value: string) => {
+    const { user } = draw(<Form recipe={recipe} status={status} stored={{ ckpt: value }} onChange={() => {}} onClear={() => {}} />);
+    await user.click((await screen.findAllByRole("button", { name: /Model/ }))[0]!);
+  };
+
+  it("is said missing in a sub-folder the family's file is not in, as the field and Generate see it (not passed by its bare name)", async () => {
+    serve();
+    await drawn(`SDXL/${OFFICIAL.file}`);
+    expect(await screen.findByText(/ComfyUI does not have/)).toBeTruthy();
+  });
+
+  it("is the family's own file at its path whatever the slash: offered with its Download, not said missing", async () => {
+    serve();
+    fakeApi.on("GET /setup", { comfy: { online: true }, recipes: [], lists: [] });
+    await drawn(OFFICIAL.file);
+    expect(await screen.findByText(/Not on your ComfyUI/)).toBeTruthy();
+    expect(screen.queryByText(/ComfyUI does not have/)).toBeNull();
+  });
+
+  it("is the family's file in its sub-folder with the other slash (ComfyUI on Windows): offered with its Download too", async () => {
+    serve();
+    fakeApi.on("GET /setup", { comfy: { online: true }, recipes: [], lists: [] });
+    const sub = { file: "zz/zz-test-base.safetensors", url: OFFICIAL.url };
+    fakeApi.on("GET /recipes", { families: [{ ...family, slots: [{ id: "checkpoint", folder: "checkpoints", get: sub }] }], recipes: [] });
+    await drawn("zz\\zz-test-base.safetensors");
+    expect(await screen.findByText(/Not on your ComfyUI/)).toBeTruthy();
+    expect(screen.queryByText(/ComfyUI does not have/)).toBeNull();
   });
 });

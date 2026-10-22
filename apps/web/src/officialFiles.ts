@@ -7,6 +7,16 @@ export interface Official {
   bytes: number | null;
 }
 
+/**
+ * Whether two names are the same file at the same place, whatever the slash: ComfyUI on Windows lists "SDXL\\x.safetensors"
+ * where a preset says "SDXL/x.safetensors". The whole path, not the bare name: the field, Generate and the form's
+ * missing-model note all ask it, so a file elsewhere in a sub-folder is said missing by all three, not hidden by one.
+ */
+export const samePath = (a: string, b: string) => a.replace(/\\/g, "/") === b.replace(/\\/g, "/");
+
+/** Whether a form's value is one of its family's official files (a slot's download), by its whole path: see samePath. */
+export const isFamilyFile = (family: FamilyInfo | undefined, file: string) => Boolean(family?.slots?.some((s) => s.get && samePath(s.get.file, file)));
+
 /** The folders whose files come with their model: never offered on their own (a VAE, a text encoder). */
 const COME_WITH_MODEL = new Set(["vae", "text_encoders", "clip", "clip_vision"]);
 

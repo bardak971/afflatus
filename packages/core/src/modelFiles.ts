@@ -14,19 +14,26 @@ export const MODEL_EXT = endsIn(MODEL_EXTS);
 /** Whether a name is a model file's. */
 export const isModelFile = (name: string) => MODEL_EXT.test(name);
 
-/** A model file's name without its folder and without its extension: "Wan\\wan_2.1_vae.safetensors" → "wan_2.1_vae". */
+/**
+ * A model file's name without its sub-folder, split on either slash: ComfyUI on Windows lists "SDXL\\x.safetensors". The
+ * tests below that ask for the bare name all split here, so none can drop the backslash again: the official test did once,
+ * and a pod was sent a file its fetch then refused, billed while it waited (2026-10-22).
+ */
+export const baseName = (file: string) => file.split(/[\\/]/).pop() ?? file;
+
 /**
  * One model file wherever it is said, by its folder and its name without its sub-folder, lower case: a job's file, a
  * preset's, a set's and a pod's are the same file when this is the same (a pod lists a file by its name in the folder).
  */
-export const fileKey = (f: { folder: string; file: string }) => `${f.folder}|${(f.file.split(/[\\/]/).pop() ?? f.file).toLowerCase()}`;
+export const fileKey = (f: { folder: string; file: string }) => `${f.folder}|${baseName(f.file).toLowerCase()}`;
 
-export const modelStem = (file: string) => (file.split(/[\\/]/).pop() ?? file).replace(MODEL_EXT, "");
+/** A model file's name without its folder and without its extension: "Wan\\wan_2.1_vae.safetensors" → "wan_2.1_vae". */
+export const modelStem = (file: string) => baseName(file).replace(MODEL_EXT, "");
 
 /** The families' downloads (their slots' `get`), as the server and the web both have them. */
 type Downloads = ReadonlyArray<{ slots?: ReadonlyArray<{ get?: { file: string; url: string } }> }>;
 
-const nameOf = (file: string) => (file.split(/[\/]/).pop() ?? file).toLowerCase();
+const nameOf = (file: string) => baseName(file).toLowerCase();
 
 /** Whether `file` is a family's official file by its name (a slot's download), whatever its sub-folder or case. */
 export const isOfficialName = (families: Downloads, file: string): boolean =>

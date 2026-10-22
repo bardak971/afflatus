@@ -1,5 +1,5 @@
 import { lazy, Suspense, useContext, useEffect, useMemo, type ReactNode } from "react";
-import { isOfficialName, isShown, type InputSpec } from "@afflatus/core";
+import { isShown, type InputSpec } from "@afflatus/core";
 import { useAdvice } from "./advice";
 import { api, thumbUrl, type RecipeInfo, type RecipeStatus } from "./api";
 import { useQuery } from "@tanstack/react-query";
@@ -17,7 +17,7 @@ import { PackNotes, usePackNotes } from "./recipeForm/packNotes";
 import { useFormSearch } from "./recipeForm/useFormSearch";
 import { scrollInside } from "./scrollInside";
 import { plural } from "./format";
-import { withOfficial } from "./officialFiles";
+import { isFamilyFile, withOfficial } from "./officialFiles";
 
 // what is said under a model ComfyUI does not have (with where a preset gets it): fetched the first time one is missing, not
 // with the form on every first paint
@@ -157,7 +157,9 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   const inUse = (picker ? String(values[picker.id] ?? "") : recipe.models?.[0]) || undefined;
   /** The form names a model file this ComfyUI does not list (a preset made elsewhere, a file removed). */
   // a family's official file picked greyed says itself under its field (ModelField: Download, or fetched by the pod)
-  const official = (file: string) => isOfficialName(family ? [family] : [], file);
+  // by its whole path, as the field and Generate match it: by its bare name, a preset's "SDXL/<official file>" that this
+  // ComfyUI lacks passed here while neither of them said a thing
+  const official = (file: string) => isFamilyFile(family, file);
   const isMissingModel = (id: string) => typeof values[id] === "string" && values[id] !== "" && Array.isArray(status?.options[id]) && !status!.options[id]!.includes(String(values[id])) && !official(String(values[id]));
   const setPart = useParts((st) => st.set);
 

@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
-import type { Family, PresetFile } from "@afflatus/core";
+import { baseName, type Family, type PresetFile } from "@afflatus/core";
 import { civitaiVersion } from "./civitai";
 import type { Selectable } from "kysely";
 import { now, type Db, type Tables } from "./db";
@@ -60,8 +60,9 @@ export interface SourceLookup {
   comfyDir: () => Promise<string>;
 }
 
-const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
-const baseName = (file: string) => file.split(/[\\/]/).pop() ?? file;
+// Core's split, the one the fetch's official test uses: a name matched here and refused there sent a pod a file it then
+// would not fetch (a Windows sub-folder name, 2026-10-22).
+const nameOf = (file: string) => baseName(file).toLowerCase();
 const CIVITAI_PAGE = /civitai\.(?:com|red|green)\/models\/\d+[^\s#]*?[?&]modelVersionId=(\d+)/i;
 const HF_FILE = /^https:\/\/huggingface\.co\/([^/]+)\/([^/]+)\/(?:blob|resolve)\/([^/]+)\/(.+)$/i;
 
