@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
-import { Mic, Minus, Plus } from "lucide-react";
+import { Minus, Plus } from "lucide-react";
 import { newTransition, TRANSITIONS, type ClipMusic, type Transition } from "@afflatus/core";
 import type { Asset, Clip, RecipeInfo, Timeline, TimelinePatch } from "../api";
 import { Keys } from "../Keys";
@@ -14,7 +14,9 @@ import type { PinPlace } from "./track/peek";
 import { PinPeek, type PinOver } from "./track/PinPeek";
 import { Playhead } from "./track/Playhead";
 import { MusicLane } from "./track/MusicLane";
-import { RecordingBands } from "./track/RecordingBand";
+import { ownSoundModel, RecordingBands, voiceOf } from "./track/RecordingBand";
+import { EndColumn, endColumnAt } from "./track/EndColumn";
+import { useLaneMenus } from "./track/LaneMenus";
 import { HEIGHT, MUSIC, ROW, SOUND, SOURCE } from "./track/rows";
 import { SourceLane, ToCome, type SourcePlace } from "./track/SourceLane";
 import { joinCovered, TrackClip, type TrackClipActs } from "./track/TrackClip";
@@ -47,7 +49,7 @@ function moveHint(m: ClipMove, now: string[]): string {
   return `Let go to move clip ${n(m.clip)} ${where} · Esc puts it back`;
 }
 
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, onSource, onRecording, onRecordingTrim, sourceSelected, onSelectSource, onOpenSource, onRemoveSource, onStretchSource, onSplitSource, onPeekSource, sourcePlace, sourceMode, sourceLabel, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, onSource, onRecording, onVoice, onRecipe, onSourceSettings, onRecordingTrim, sourceSelected, onSelectSource, onOpenSource, onRemoveSource, onStretchSource, onSplitSource, onPeekSource, sourcePlace, sourceMode, sourceLabel, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -106,6 +108,12 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onSource?(asset: string): void;
   /** A voice recording made into Lip sync clips (dropped past the clips, or on an empty one). */
   onRecording?(asset: string, clip?: string): void;
+  /** A recording made the voice of a Lip sync clip that has none (dropped on its Audio cell, or chosen from its menu). */
+  onVoice?(clip: Clip, asset: string): void;
+  /** A clip given another model (a Lip sync clip without a voice switched to its family's Video with audio). */
+  onRecipe?(clip: Clip, recipe: string): void;
+  /** The source's settings in the column: how Motion transfer cuts its windows (the empty Source drop's menu). */
+  onSourceSettings?(): void;
   /** A recording's band on the Audio row dragged: its In and Out, in ms of the recording (settled: RecordingBands' onTrim). */
   onRecordingTrim?(asset: string, fromMs: number, toMs: number): Promise<boolean> | void;
   sourceSelected?: boolean;
@@ -174,7 +182,25 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const fitMs = Math.max(totalMs, toComeMs, sourcePlace ? sourcePlace.atMs + sourcePlace.lengthMs : 0);
   const xOf = (clientX: number) => clientX - (inner.current?.getBoundingClientRect().left ?? 0);
 
-  const { over, dragging, draggedOf, hover, overClip, overJoin, drop, hint: dropHint, legend: dropLegend, lineAt, leave } = useTrackDrop({ clips, slots, end, recipes, onUpload, onInsert, onPin, onClipSound, onMusic, onTransition: onTransition ? (clip, kind) => onTransition(clip, newTransition(kind)) : undefined, onSource, onRecording });
+  const voiceTo = onVoice ? (id: string, asset: string) => {
+    const c = clips.find((x) => x.id === id);
+    if (c) onVoice(c, asset);
+  } : undefined;
+  const { over, dragging, draggedOf, hover, overClip, overJoin, drop, hint: dropHint, legend: dropLegend, lineAt, leave } = useTrackDrop({ clips, slots, end, recipes, onUpload, onInsert, onPin, onClipSound, onMusic, onTransition: onTransition ? (clip, kind) => onTransition(clip, newTransition(kind)) : undefined, onSource, onRecording, onVoice: voiceTo });
+
+  // ---- right-click on a lane that holds nothing yet, and on a Lip sync clip's Audio cell while it has no voice
+  const lanes = useLaneMenus({
+    onSource,
+    onRecording: onRecording ? (asset) => onRecording(asset) : undefined,
+    onMusic,
+    onVoice: voiceTo,
+    onUpload,
+    onSourceSettings,
+    switchOf: (c) => {
+      const to = onRecipe ? ownSoundModel(recipes.find((r) => r.id === c.recipe), recipes) : undefined;
+      return to ? { title: to.title, run: () => onRecipe!(c, to.id) } : null;
+    },
+  });
 
   // ---- a clip moved along the track by the pointer, 1:1 (useClipDrag); while it is held the line under the track says where it lands
   const clipDrag = useClipDrag({ slots, pps, xOf, scroller, onMove });
@@ -193,10 +219,9 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
     if (id !== nearJoin) setNearJoin(id);
   };
 
-  // the part of the track in view, for the Audio row's hint: kept in sight when the clips reach past the view (at 1440 px it
-  // went under the inspector after the last clip)
+  // the part of the track in view, for the end column: pinned at its right edge while the clips reach past the view (at
+  // 1440 px the Audio hint went under the inspector after the last clip)
   const [view, setView] = useState({ left: 0, width: 0 });
-  const [audioHintW, setAudioHintW] = useState(0);
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
@@ -210,18 +235,28 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
       sized?.disconnect();
     };
   }, []);
-  const audioHintAt = !clips.length ? PAD + 1 : view.width && audioHintW ? Math.max(PAD + 1, Math.min(end + PAD, view.left + view.width - audioHintW - 8)) : end + PAD;
+  // after the last clip, and over the clips only while they run past the view: the Audio hint pulled left whenever it did
+  // not fit whole sat over the last clip's own Audio cell (the owner's Timeline 9, 2026-10-22) and read as that clip's
+  const column = endColumnAt(end, PAD, view);
 
   // ---- the range: In and Out, swept on the ruler with Shift, or dragged by their brackets; they snap to cuts, to the playhead and to quiet moments
   const { playEnd, measureOf, motion, snapRange, band, rangeMenuAt } = useRangeDrag({ slots, clips, timeline, pps, clock, snapQuiet, range, xOf, onRangeMenu });
 
   const { zoomTo, fitAll } = useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clock, cursorMs, timelineId: timeline.id, clipCount: clips.length, keys });
 
+  /** A Lip sync clip's voice as its face says it: the recording's name, null while it has none; undefined for any other clip. */
+  const voiceName = (c: Clip) => {
+    const v = voiceOf(c, recipes.find((r) => r.id === c.recipe));
+    return v ? timeline.recordings?.find((r) => r.asset.id === v)?.asset.name || "Recording" : v;
+  };
+
   // what the clips do when pressed: read when it happens, so that a clip draws again only when what it shows changes
   const acts = useRef<TrackClipActs>(null!);
   acts.current = {
     xOf, slots, totalMs, pps, range, leaveTip, restPin, overClip, overJoin, startPull, movePull, endPull, onSelect, onPick, onRange, onSeek, onMenu, onSoundMenu, onPinMenu, onStop, onJoin, onOpenJoin, onTransition, onNewClip,
     render: (c) => renderOf?.(c)?.run(),
+    overVoice: (e, s) => hover(e, draggedOf(e) === "sound" ? { kind: "voice", clip: s.clip.id } : null),
+    onVoiceMenu: (c, e) => lanes.open(e, { kind: "voice", clip: c, n: clips.findIndex((x) => x.id === c.id) + 1 }),
     clipDown: clipDrag.down, clipMove: clipDrag.move, clipUp: clipDrag.up, clipCancel: clipDrag.cancel, mount: clipDrag.mount, dragged: clipDrag.dragged,
   };
 
@@ -292,39 +327,28 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                   lift={moved?.clip === c.id ? (moved.holding ? "held" : "landing") : undefined}
                   moving={Boolean(moved)}
                   near={nearJoin === c.id && !moved}
+                  voice={voiceName(c)}
                   acts={acts}
                 />
               );
             })}
 
-            <button
-              type="button"
-              onClick={() => onNewClip(clips.at(-1)?.id)}
-              disabled={busy}
-              style={{ left: end + PAD, width: NEW_CLIP, top: ROW.top, height: ROW.height }}
-              className="absolute flex flex-col items-center justify-center gap-1 rounded-lg border-[1.5px] border-dashed border-line-strong text-ink-2 hover:text-ink"
-            >
-              <Plus size={15} />
-              <span className="text-xs font-semibold">New clip</span>
-            </button>
-
-            {/* the voice recordings, each a band under the Lip sync clips made of it; none: where one goes */}
+            {/* the voice recordings, each a band under the Lip sync clips made of it */}
             <RecordingBands timeline={timeline} slots={slots} recipes={recipes} pps={pps} onTrim={onRecordingTrim} onSelect={onSelect} />
-            {onRecording && !timeline.recordings?.length && (
-              // past the clips, or over the end of the row in view when they reach past it; a drop on it goes past the clips
-              <span
-                aria-hidden
-                ref={(el) => {
-                  if (el && el.offsetWidth !== audioHintW) setAudioHintW(el.offsetWidth);
-                }}
-                onDragOver={(e) => hover(e, draggedOf(e) === "sound" ? { kind: "recording" } : null)}
-                style={{ left: audioHintAt, top: SOUND.top, height: SOUND.height }}
-                className={cx("absolute flex items-center gap-1.5 rounded border border-dashed border-line-strong bg-panel px-2 text-body whitespace-nowrap text-ink-3", !dragging && "pointer-events-none", over?.kind === "recording" && !over.clip && "outline outline-2 outline-accent")}
-              >
-                <Mic size={13} className="shrink-0" />
-                Drop a voice recording here: Lip sync, clip by clip
-              </span>
-            )}
+
+            {/* the end column: New clip, a voice recording, a long video, the three drops that add their clips after the last one */}
+            <EndColumn
+              left={column.left}
+              pinned={column.pinned}
+              busy={busy}
+              overRecording={over?.kind === "recording" && !over.clip}
+              overSource={over?.kind === "source"}
+              onNewClip={() => onNewClip(clips.at(-1)?.id)}
+              onRecordingOver={onRecording ? (e) => hover(e, draggedOf(e) === "sound" ? { kind: "recording" } : null) : undefined}
+              onSourceOver={onSource && !timeline.source ? (e) => hover(e, draggedOf(e) === "video" ? { kind: "source" } : null) : undefined}
+              onRecordingMenu={(e) => lanes.open(e, { kind: "recording" })}
+              onSourceMenu={(e) => lanes.open(e, { kind: "source" })}
+            />
 
             {/* the source: a long video under the clips, made into clips window by window */}
             {onSource && (
@@ -335,7 +359,6 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                 onPeek={onPeekSource}
                 recipes={recipes}
                 pps={pps}
-                width={width}
                 selected={Boolean(sourceSelected)}
                 over={over?.kind === "source"}
                 onDragOver={(e) => hover(e, draggedOf(e) === "video" ? { kind: "source" } : null)}
@@ -357,7 +380,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
               measureOf={measureOf}
               onDragOver={(e) => hover(e, draggedOf(e) === "sound" ? { kind: "music" } : null)}
               onSelectMusic={() => timeline.music && onSelectMusic()}
-              onMusicMenu={onMusicMenu}
+              // empty, its own menu: the library's music, or a file from the computer
+              onMusicMenu={timeline.music ? onMusicMenu : (e) => lanes.open(e, { kind: "music" })}
               onMusicEdit={onMusicEdit}
               onClipMusic={onClipMusic}
             />
@@ -366,6 +390,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
             {sourcePlace && !sourcePlace.made && sourcePlace.windows.length > 0 && <ToCome place={sourcePlace} pps={pps} label={sourceLabel ?? "Motion transfer"} />}
             <Playhead clock={clock} slots={slots} cursorMs={cursorMs} totalMs={totalMs} pps={pps} free={sourceMode} />
             <FramePeek area={inner} floor={floor} slots={slots} clips={clips} recipes={recipes} pps={pps} totalMs={totalMs} paused={Boolean(pinOver || stretch || dragging || moved)} />
+            {lanes.node}
             {pinOver && (() => {
               const s = slots.find((x) => x.clip.id === pinOver.clip);
               const r = floor.current?.getBoundingClientRect();

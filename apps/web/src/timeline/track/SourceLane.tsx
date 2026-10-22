@@ -1,5 +1,5 @@
 import { useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { Eye, Film, SlidersHorizontal, Split, Trash2 } from "lucide-react";
+import { Eye, SlidersHorizontal, Split, Trash2 } from "lucide-react";
 import { carriedOf, sourceWindows, trimIn, windowShapeOf, type ClipValue, type SourceWindow } from "@afflatus/core";
 import { ContextMenu, useMenu } from "../../ContextMenu";
 import { STRIP_FRAMES, stripUrl, type Asset, type Clip, type RecipeInfo, type Timeline } from "../../api";
@@ -99,15 +99,14 @@ export function sourcePlace(t: Timeline, slots: Slot[], recipes: RecipeInfo[]): 
 /**
  * The source lane, drawn as the music lane: the long video under the clips, its stretch to make lit where the made clips go,
  * the rest faint past both ends. Before Make, dragging it chooses where in the video Motion transfer starts (the video slides
- * under its place), its right end where it stops; once made, the clips made from it are outlined over their parts. Empty: a
- * place to drop one. A click opens it (the stage plays it); right-click: its menu (split at the playhead among it).
+ * under its place), its right end where it stops; once made, the clips made from it are outlined over their parts. Empty:
+ * nothing here (its drop is the end column's, after the last clip). A click opens it (the stage plays it); right-click: its menu (split at the playhead among it).
  */
-export function SourceLane({ timeline, place, recipes, pps, width, selected, over, onDragOver, onSelect, onOpen, onRemove, onStretch, onSplit, onPeek }: {
+export function SourceLane({ timeline, place, recipes, pps, selected, over, onDragOver, onSelect, onOpen, onRemove, onStretch, onSplit, onPeek }: {
   timeline: Timeline;
   place: SourcePlace | null;
   recipes: RecipeInfo[];
   pps: number;
-  width: number;
   selected: boolean;
   /** A video is dragged over the lane. */
   over: boolean;
@@ -152,21 +151,8 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
   const live = useRef<{ lineFrom: number; lineTo: number; fromMs: number; toMs: number; sent: typeof sent } | null>(null);
   const source = timeline.source;
   const x = (ms: number) => PAD + (ms / 1000) * pps;
-  if (!source || !place) {
-    return (
-      <button
-        type="button"
-        onDragOver={onDragOver}
-        onClick={onSelect}
-        aria-label="Source: none. Drop a long video here."
-        style={{ left: PAD + 1, top: SOURCE.top, height: SOURCE.height, width: Math.max(160, width - PAD * 2 - 60) }}
-        className={cx("absolute flex items-center gap-1.5 overflow-hidden rounded border border-dashed border-line-strong px-2 text-left text-body text-ink-3", over && "outline outline-2 outline-accent")}
-      >
-        <Film size={13} className="relative shrink-0" />
-        <span className="relative truncate">Drop a long video here: Motion transfer, window by window</span>
-      </button>
-    );
-  }
+  // none yet: its drop is in the end column after the last clip, where its clips go (EndColumn)
+  if (!source || !place) return null;
   const video = source.video;
   const length = place.lengthMs;
   const drawn = held ?? sent;

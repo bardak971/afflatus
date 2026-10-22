@@ -18,6 +18,27 @@ export function recordingInput(recipe: RecipeInfo | undefined) {
 }
 
 /**
+ * A Lip sync clip's voice, as its form holds it (the recording laid on its sound): undefined for a clip of a model that
+ * takes none, null while it has none, else the recording's id. Its form as it stands (`inputs`, with what was typed and
+ * not saved yet) when given.
+ */
+export function voiceOf(c: Clip, recipe: RecipeInfo | undefined, inputs: Record<string, unknown> = c.inputs): string | null | undefined {
+  const input = c.kind === "video" ? recordingInput(recipe) : null;
+  if (!input) return undefined;
+  const v = inputs[input.id];
+  return typeof v === "string" && v ? v : null;
+}
+
+/**
+ * What a Lip sync clip without a voice can be switched to: its family's model that makes the clip's own sound, with no
+ * recording and no source video to wait for (H3 · Video with audio).
+ */
+export function ownSoundModel(recipe: RecipeInfo | undefined, recipes: RecipeInfo[]): RecipeInfo | undefined {
+  if (!recipe) return undefined;
+  return recipes.find((r) => r.id !== recipe.id && r.family === recipe.family && r.output === "video" && !r.hidden && r.traits?.sound && !recordingInput(r) && !r.inputs.some((i) => i.type === "clip" && i.role === "source"));
+}
+
+/**
  * Where a recording's end, brought in to `toMs` from `curTo`, comes to rest: the server's own rule (trimIn) over its clips,
  * so that the band draws it there while it is dragged. A rendered clip, or one in the queue, is never shortened (the end goes
  * to its nearer end); an empty one is, down to the fewest seconds a clip takes. An end taken out rests where it is asked.

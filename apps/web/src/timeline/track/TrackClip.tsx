@@ -1,9 +1,9 @@
 import { memo, useEffect, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type Ref, type RefObject } from "react";
-import { Link2, Scissors, TriangleAlert, VolumeX, X } from "lucide-react";
+import { Link2, Mic, Scissors, TriangleAlert, VolumeX, X } from "lucide-react";
 import { STRIP_FRAMES, stripUrl, thumbUrl, type Clip, type RecipeInfo } from "../../api";
 import { est, phaseLabel } from "../../format";
 import { LivePreview } from "../../LivePreview";
-import { Bar, cx } from "../../ui";
+import { Bar, Chip, cx } from "../../ui";
 import { useQueueOf } from "../../screens/studio/queueOf";
 import { useRunningOf } from "../useRunning";
 import { modelsDiffer, TRANSITION_MS, TRANSITIONS, transitionSpan, type Transition } from "@afflatus/core";
@@ -42,6 +42,10 @@ export interface TrackClipActs {
   overClip(e: DragEvent, s: Slot): void;
   /** Something is dragged over the join before it (its dot, its transition). */
   overJoin(e: DragEvent, s: Slot): void;
+  /** Something is dragged over the Audio cell of a Lip sync clip that has no voice: a recording becomes its voice. */
+  overVoice(e: DragEvent, s: Slot): void;
+  /** Right-click on that cell: Choose a recording for it, Open an audio file, Switch it to its family's Video with audio. */
+  onVoiceMenu(clip: Clip, e: React.MouseEvent): void;
   /** Its edges: drag to shorten it (or to give back what was cut). */
   startPull(e: ReactPointerEvent, s: Slot, side: "start" | "end"): void;
   movePull(e: ReactPointerEvent): void;
@@ -92,8 +96,13 @@ export const joinCovered = (slots: Slot[], s: Slot, selected: string | null) =>
 /** How long a clip's film strip waits for its motion before it is asked for all the same. */
 const STRIP_WAIT_MS = 8000;
 
-export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, misfit, on, edged, picked, rendering, stretch, over, pinOn, ownSound, fileSound, renderMs, lift, moving, near, acts }: {
+export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, misfit, on, edged, picked, rendering, stretch, over, pinOn, ownSound, fileSound, renderMs, lift, moving, near, voice, acts }: {
   s: Slot;
+  /**
+   * A Lip sync clip's voice: the recording's name, null while it has none (said in amber on its face and in its Audio cell,
+   * which then takes one); undefined for a clip of any other model.
+   */
+  voice?: string | null;
   /** It is the clip moved by the pointer: held, or landing in its slot after the release. */
   lift?: "held" | "landing";
   /** A clip is being moved: the joins are not drawn meanwhile (each says how its clip follows the one before, which changes). */
@@ -177,7 +186,8 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
     onSelect(c.id);
     onPinMenu(c, where, e);
   };
-  const heard = c.kind === "still" || s.planned ? (c.sound === "file" ? c.soundAsset?.name || "Audio file" : "") : c.sound === "file" ? c.soundAsset?.name || "Audio file" : c.sound === "muted" ? "Muted" : video?.hasSound ? "Own audio" : "Silent";
+  // not rendered yet, a model that makes its own sound says so, neutral: what will be heard there once it is
+  const heard = c.kind === "still" || s.planned ? (c.sound === "file" ? c.soundAsset?.name || "Audio file" : s.planned && recipe?.traits?.sound && voice === undefined ? "own sound, once rendered" : "") : c.sound === "file" ? c.soundAsset?.name || "Audio file" : c.sound === "muted" ? "Muted" : video?.hasSound ? "Own audio" : "Silent";
   return (
     // its parts in one wrapper at the track's origin, laid out from its slot: a clip moved by the pointer moves them together
     <div ref={acts.current.mount(c.id)} className={cx("absolute top-0 left-0", lift && "z-sticky")}>
@@ -251,7 +261,18 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
         <span className="absolute top-1 left-1.5 rounded bg-ground/85 px-1.5 py-px text-meta font-bold">{s.index + 1}</span>
         {/* nothing to play yet: what it will be, in its own words, beside its number (clear of its pinned pictures) */}
         {s.planned && !c.job && s.width > 100 && (
-          <span className="absolute top-1.5 right-2 left-9 truncate text-meta text-ink-2">{titleOf(c, recipe)}</span>
+          <span className={cx("absolute top-1.5 left-9 truncate text-meta text-ink-2", voice !== undefined && s.width > 150 ? "right-30" : "right-2")}>{titleOf(c, recipe)}</span>
+        )}
+        {/* a Lip sync clip's voice on its face: amber while it has none, told apart before it is clicked; its recording's name once it has one */}
+        {voice !== undefined && s.width > 64 && (
+          <span className="absolute top-1 right-1.5 flex max-w-[45%] justify-end">
+            {voice === null ? (
+              <Chip size="xs" tone="attention" tip={`Clip ${s.index + 1} needs a voice recording: drop one on its Audio cell`}><Mic size={10} />needs a voice</Chip>
+            ) : (
+              // the icon outside the cut name: inside a truncated chip it took a line of its own
+              <Chip size="xs" tip={`Its voice: ${voice}`} className="max-w-full min-w-0 shrink!"><Mic size={10} className="shrink-0" /><span className="min-w-0 truncate">{voice}</span></Chip>
+            )}
+          </span>
         )}
         <span className="absolute inset-x-1.5 bottom-1 flex items-end justify-between gap-1">
           {c.job ? (
@@ -446,31 +467,54 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
         );
       })()}
 
-      {/* its sound */}
-      <button
-        type="button"
-        onClick={() => a().onSelect(c.id)}
-        onDragOver={(e) => a().overClip(e, s)}
-        onContextMenu={(e) => {
-          const { onSoundMenu, onSelect } = a();
-          if (!onSoundMenu) return;
-          onSelect(c.id);
-          onSoundMenu(c, e);
-        }}
-        aria-label={`Audio of clip ${s.index + 1}: ${heard || "none yet"}`}
-        style={{ left: s.left + 1, width: Math.max(8, s.width - 2), top: SOUND.top, height: SOUND.height }}
-        className={cx(
-          "absolute flex items-center gap-1 overflow-hidden rounded px-1.5 text-micro",
-          c.sound === "file" ? "bg-picture/20 text-picture" : c.sound === "muted" || heard === "Silent" || !heard ? "bg-raised text-ink-3" : "bg-good/15 text-good",
-          over?.kind === "sound" && over.clip === c.id && "outline outline-2 outline-accent",
-        )}
-      >
-        {/* how loud it is along the clip: its own sound over the part that plays, or the sound file from its start */}
-        {c.sound === "own" && video && c.take && <Wave sound={ownSound?.sound ?? null} rate={ownSound?.rate ?? 10} fromMs={c.take.startMs} toMs={c.take.endMs} />}
-        {c.sound === "file" && c.soundAsset && <Wave sound={fileSound?.sound ?? null} rate={fileSound?.rate ?? 10} fromMs={0} toMs={s.lengthMs} />}
-        {(c.sound === "muted" || heard === "Silent") && <VolumeX size={10} className="relative shrink-0" />}
-        {s.width > 64 && <span className="relative truncate">{heard}</span>}
-      </button>
+      {/* its sound; a Lip sync clip without a voice: amber, dashed, the drop for that one clip's voice */}
+      {voice === null ? (
+        <button
+          type="button"
+          onClick={() => a().onSelect(c.id)}
+          onDragOver={(e) => a().overVoice(e, s)}
+          onContextMenu={(e) => {
+            const { onVoiceMenu, onSelect } = a();
+            onSelect(c.id);
+            onVoiceMenu(c, e);
+          }}
+          aria-label={`Audio of clip ${s.index + 1}: no voice yet. Drop the voice for clip ${s.index + 1} here`}
+          data-voice-cell={c.id}
+          style={{ left: s.left + 1, width: Math.max(8, s.width - 2), top: SOUND.top, height: SOUND.height }}
+          className={cx(
+            "absolute flex items-center gap-1.5 overflow-hidden rounded border border-dashed border-attention/60 bg-attention-wash px-1.5 text-left text-body whitespace-nowrap text-attention-ink",
+            over?.kind === "voice" && over.clip === c.id && "outline outline-2 outline-accent",
+          )}
+        >
+          <Mic size={12} className="shrink-0" />
+          {s.width > 64 && <span className="truncate">Drop the voice for clip {s.index + 1} here</span>}
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => a().onSelect(c.id)}
+          onDragOver={(e) => a().overClip(e, s)}
+          onContextMenu={(e) => {
+            const { onSoundMenu, onSelect } = a();
+            if (!onSoundMenu) return;
+            onSelect(c.id);
+            onSoundMenu(c, e);
+          }}
+          aria-label={`Audio of clip ${s.index + 1}: ${heard || "none yet"}`}
+          style={{ left: s.left + 1, width: Math.max(8, s.width - 2), top: SOUND.top, height: SOUND.height }}
+          className={cx(
+            "absolute flex items-center gap-1 overflow-hidden rounded px-1.5 text-micro",
+            c.sound === "file" ? "bg-picture/20 text-picture" : c.sound === "muted" || heard === "Silent" || !heard || s.planned ? "bg-raised text-ink-3" : "bg-good/15 text-good",
+            over?.kind === "sound" && over.clip === c.id && "outline outline-2 outline-accent",
+          )}
+        >
+          {/* how loud it is along the clip: its own sound over the part that plays, or the sound file from its start */}
+          {c.sound === "own" && video && c.take && <Wave sound={ownSound?.sound ?? null} rate={ownSound?.rate ?? 10} fromMs={c.take.startMs} toMs={c.take.endMs} />}
+          {c.sound === "file" && c.soundAsset && <Wave sound={fileSound?.sound ?? null} rate={fileSound?.rate ?? 10} fromMs={0} toMs={s.lengthMs} />}
+          {(c.sound === "muted" || heard === "Silent") && <VolumeX size={10} className="relative shrink-0" />}
+          {s.width > 64 && <span className="relative truncate">{heard}</span>}
+        </button>
+      )}
     </div>
   );
 });

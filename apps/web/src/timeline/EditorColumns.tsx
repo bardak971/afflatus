@@ -16,18 +16,20 @@ export interface Checks {
   /** The server's plan of the clips left to render (the header's Render all): the Overview says each render's time from it. */
   plan?: Plan;
   why(c: Clip): string | undefined;
+  /** A Lip sync clip without its voice recording yet (listed on a row of its own). */
+  voiceless(c: Clip): boolean;
   known: boolean;
 }
 
 /** The right column folded: its strip, with the count of what Needs attention lists (the Overview's rows, worked out the same way). */
-export function FoldedColumn({ timeline, clips, label, renderable, msOf, why, known }: { timeline: Timeline; clips: Clip[]; label: string } & Checks) {
-  const { rows, checking } = useAttention(timeline, clips, renderable, msOf, { why, known });
+export function FoldedColumn({ timeline, clips, label, renderable, msOf, why, voiceless, known }: { timeline: Timeline; clips: Clip[]; label: string } & Checks) {
+  const { rows, checking } = useAttention(timeline, clips, renderable, msOf, { why, voiceless, known });
   // no count while the checks run: one that grows under the pointer reads as new trouble
   return <FoldedStrip label={label} attention={checking ? 0 : rows.length} />;
 }
 
 /** The right column with no clip open: the timeline's own Overview, or the start's invitation while it has no clip. */
-export function OverviewColumn({ t, clips, checks, width, picked, rendering, onEdit, onPick, onMusic, onCast, onFix, onRenderPicked, start }: {
+export function OverviewColumn({ t, clips, checks, width, picked, rendering, onEdit, onPick, onVoice, onMusic, onCast, onFix, onRenderPicked, start }: {
   t: Timeline;
   clips: Clip[];
   checks: Checks;
@@ -36,6 +38,8 @@ export function OverviewColumn({ t, clips, checks, width, picked, rendering, onE
   rendering: boolean;
   onEdit(patch: TimelinePatch): void;
   onPick(clip: string): void;
+  /** A Lip sync clip's voice, chosen from its Needs a look row. */
+  onVoice(clip: string, asset: string): void;
   onMusic(): void;
   onCast(): void;
   onFix: ComponentProps<typeof Overview>["onFix"];
@@ -66,6 +70,7 @@ export function OverviewColumn({ t, clips, checks, width, picked, rendering, onE
           clips={clips}
           {...checks}
           onPick={onPick}
+          onVoice={onVoice}
           onMusic={onMusic}
           onCast={onCast}
           onFolder={(folder) => onEdit({ folder })}

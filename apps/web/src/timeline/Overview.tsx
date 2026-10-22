@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
 import { create } from "zustand";
@@ -12,6 +12,7 @@ import { FieldRow } from "../fields";
 
 import { lookWords } from "../LookBar";
 import { clock, plural, spell } from "../format";
+import { Picker } from "../PictureField";
 import { PartHead } from "../recipeForm/Part";
 import { Select } from "../Select";
 import { Button, Chip, CloseButton, cx, Help, SectionTitle, Segmented } from "../ui";
@@ -37,7 +38,7 @@ const quiet = "shrink-0 text-xs font-semibold text-accent hover:underline disabl
  * count: the same requests either way. `checking` while what it is worked out from is not all known yet (the clips' forms,
  * through `known`, and the joins' figures): a row listed then could be wrong, or missing.
  */
-export function useAttention(t: Timeline, clips: Clip[], renderable: (c: Clip) => boolean, msOf: (c: Clip) => number | null, o: { why?(c: Clip): string | undefined; known?: boolean } = {}) {
+export function useAttention(t: Timeline, clips: Clip[], renderable: (c: Clip) => boolean, msOf: (c: Clip) => number | null, o: { why?(c: Clip): string | undefined; voiceless?(c: Clip): boolean; known?: boolean } = {}) {
   const joined = clips.filter((c, i) => i > 0 && c.joined === "continue" && c.take);
   const joinQueries = useQueries({
     // asked for together (timeline/measures.ts): one request for the timeline's joins, not one per clip
@@ -48,7 +49,7 @@ export function useAttention(t: Timeline, clips: Clip[], renderable: (c: Clip) =
     const items = joinItems.get(c.id);
     return [c.id, items ? (items.find((j) => j.take === c.take!.id)?.in ?? null) : undefined];
   }));
-  const listed = attention(clips, { joins: joinItems, renderable, msOf, misfit: (c) => otherShape(c, t) && !c.fill, why: o.why });
+  const listed = attention(clips, { joins: joinItems, renderable, msOf, misfit: (c) => otherShape(c, t) && !c.fill, why: o.why, voiceless: o.voiceless });
   // a join whose figures could not be read is not waited for: its row is left out, as before
   const checking = o.known === false || joinQueries.some((q) => q.isPending);
   const dismissed = useDismissed();
@@ -62,17 +63,18 @@ export function useAttention(t: Timeline, clips: Clip[], renderable: (c: Clip) =
  * useAttention), with a quiet "Fix all first" that closes the dialog and runs what Fix all would; "Show them" when
  * nothing listed has an action, which closes the dialog onto the Overview. Nothing while the checks run, or when all is well.
  */
-export function AttentionNote({ timeline, clips, renderable, msOf, why, known, onFixFirst }: {
+export function AttentionNote({ timeline, clips, renderable, msOf, why, voiceless, known, onFixFirst }: {
   timeline: Timeline;
   clips: Clip[];
   renderable(c: Clip): boolean;
   msOf(c: Clip): number | null;
   why?(c: Clip): string | undefined;
+  voiceless?(c: Clip): boolean;
   known?: boolean;
   /** The plan to run (null: only show Needs attention). */
   onFixFirst(plan: Omit<Fix, "ms"> | null): void;
 }) {
-  const { rows, checking } = useAttention(timeline, clips, renderable, msOf, { why, known });
+  const { rows, checking } = useAttention(timeline, clips, renderable, msOf, { why, voiceless, known });
   if (checking || !rows.length) return null;
   const plan = planFix(rows, clips, msOf);
   return (
@@ -90,7 +92,7 @@ export function AttentionNote({ timeline, clips, renderable, msOf, why, known, o
  * with its clips, which select the clip, and the action that mends it; Fix all runs them all), its music,
  * its cast and look.
  */
-export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, why, known, onPick, onMusic, onCast, onFolder, onFix, rendering, picked, onRenderPicked, fold }: {
+export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, why, voiceless, known, onVoice, onPick, onMusic, onCast, onFolder, onFix, rendering, picked, onRenderPicked, fold }: {
   /** The video's aspect ratio: the shapes to pick from, or the first clip rendered deciding. */
   /** `short`: what its switch says ("16:9"), where four words would not fit on one row of the panel. */
   aspect: { value: string; options: Array<{ value: string; label: string; short?: string; note?: string; detail?: string }>; onChange(value: string): void };
@@ -104,6 +106,10 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
   plan?: Plan;
   /** Why a clip cannot be rendered yet, when its form is still to fill. */
   why?(c: Clip): string | undefined;
+  /** A Lip sync clip without its voice recording yet: a row of its own. */
+  voiceless?(c: Clip): boolean;
+  /** A Lip sync clip's voice, chosen from its row ("Choose a recording…"). */
+  onVoice?(clip: string, asset: string): void;
   /** The clips' forms are known (their models, the setup, the settings): until then what can render is not. */
   known?: boolean;
   onPick(clip: string): void;
@@ -142,7 +148,9 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
     // the library hears of the move from the server (its library event); the timeline shows where its takes now are
     onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.timelines.one(t.id) }),
   });
-  const { joined, joinsOf, listed, rows: own, kept, dismissed, checking } = useAttention(t, clips, renderable, msOf, { why, known });
+  const { joined, joinsOf, listed, rows: own, kept, dismissed, checking } = useAttention(t, clips, renderable, msOf, { why, voiceless, known });
+  /** The Lip sync clip whose voice is being chosen from its row, if any. */
+  const [voicePick, setVoicePick] = useState<string | null>(null);
   const measured = clips.filter((c) => c.take?.renderMs);
   const renderMs = measured.reduce((sum, c) => sum + (c.take!.renderMs ?? 0), 0);
   const rendered = measured.length;
@@ -187,6 +195,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
     const f = fixOf(a);
     if (f) onFix(f);
     else if (a.do === "open") onPick(a.clip);
+    else if (a.do === "voice") setVoicePick(a.clip);
   };
   // the command bar's Fix all, taken once the joins are measured: Fix all as its button, or the one row's own action when it is
   // the only one with an action (the button shows from two)
@@ -391,6 +400,18 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
         )}
         {picked.size > 0 && <span className="pt-1"><Button size="sm" tone="primary" disabled={rendering} onClick={onRenderPicked}>Render {picked.size} picked</Button></span>}
       </section>
+      {/* the picker the clip's Recording field opens */}
+      {voicePick && (
+        <Picker
+          title="Recording"
+          kind="audio"
+          onClose={() => setVoicePick(null)}
+          onPick={(asset) => {
+            onVoice?.(voicePick, asset);
+            setVoicePick(null);
+          }}
+        />
+      )}
     </>
   );
 }
@@ -420,6 +441,7 @@ function ShowAgain({ n, onClick }: { n: number; onClick(): void }) {
 /** What each row of Needs a look says. */
 const LABEL: Record<Row["kind"], string> = {
   missing: "Not rendered yet",
+  voice: "Needs a voice recording",
   stale: "Clip before changed",
   failed: "Failed",
   join: "Join jumps",
@@ -433,13 +455,14 @@ function ActButton({ act, kind, disabled, onClick }: { act: Act; kind: Row["kind
     act.do === "take" ? [`Use take ${act.number}`, `Take ${act.number} comes in at ×${act.figure.toFixed(1)}: it plays instead (Undo puts the other back)`]
     : act.do === "fill" ? ["Fill the frame", `Crop ${act.clips.length === 1 ? "the clip" : `the ${act.clips.length} clips`} to the video's aspect ratio instead of bars (one Undo step each)`]
     // what the form waits for, said on the button ("Write prompt"); "Open" when the reason is not one short step
+    : act.do === "voice" ? ["Choose a recording…", "The recording this clip is made around: the mouth follows it. Or drop one on the clip's Audio cell on the track"]
     : act.do === "open" ? [/^(Write|Choose) .{1,24} first\.$/.test(act.why) ? act.why.replace(/ first\.$/, "") : "Open", `${act.why} Opens the clip's form.`]
     : kind === "missing" ? [n === 1 ? "Render" : `Render ${n}`, n === 1 ? "Renders the clip, its first take" : `Renders the ${n} clips with no take yet, in order`]
     : kind === "stale" ? ["Render a new take", `A new take of ${n === 1 ? "the clip" : `the ${n} clips`}, from the clip before as it is now`]
     : kind === "failed" ? ["Retry", `Queues ${n === 1 ? "the clip" : `the ${n} clips`} again`]
     : ["Render a new take", `No other take comes in at ×${SHOWS} or under: render another`];
   return (
-    <Button size="sm" disabled={disabled && act.do !== "open"} onClick={onClick} data-tip={tip}>
+    <Button size="sm" disabled={disabled && act.do !== "open" && act.do !== "voice"} onClick={onClick} data-tip={tip}>
       {words}
       {act.do === "take" ? <span className="font-mono text-micro font-medium opacity-75">×{act.figure.toFixed(1)}</span> : act.do === "render" && act.ms > 0 && kind !== "failed" && <Estimate ms={act.ms} />}
     </Button>
