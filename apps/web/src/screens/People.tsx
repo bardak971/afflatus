@@ -12,7 +12,7 @@ import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { handPreset } from "../handoff";
 import { useStudio } from "../store";
 import { Thumb } from "../Thumb";
-import { Button, cx, ErrorNote, Help } from "../ui";
+import { Button, cx, Empty, ErrorNote, Help } from "../ui";
 import { ask, askText } from "../Confirm";
 import { copyText } from "../secureContext";
 import { ItemHeader, noteOfDelete } from "./kit/ItemHeader";
@@ -201,7 +201,7 @@ export function People() {
   /** Before it, for presets: bringing one in from a file. */
   const importButton = tab === "preset" && (
     <>
-      <Button size="sm" onClick={() => fileInput.current?.click()} disabled={doImport.isPending} data-tip="A preset file: one saved from Afflatus, or one of the shipped shape" className="flex h-9 shrink-0 items-center gap-1.5"><Upload size={13} /> Import</Button>
+      <Button size="sm" onClick={() => fileInput.current?.click()} disabled={doImport.isPending} data-tip="A preset file: one saved from Afflatus, or one of the shipped shape" className="shrink-0"><Upload size={13} /> Import</Button>
       <input ref={fileInput} type="file" accept=".json,application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) doImport.mutate(f); e.target.value = ""; }} />
     </>
   );
@@ -220,10 +220,13 @@ export function People() {
     : mine.length > 0 && found.length === 0
     ? <div className="px-2 py-6 text-center text-xs text-ink-2">None of your {here.title.toLowerCase()} has these words.</div>
     : entities.isSuccess && mine.length === 0 && (
-      <div className="flex flex-col items-center gap-3 px-2 py-8 text-center">
-        <span className="flex items-center gap-1.5 text-xs text-ink-2">No {here.title.toLowerCase()} yet <Help text={explain} title={here.title} /></span>
-        <Button size="sm" tone="primary" disabled={create.isPending} onClick={onNew} className="flex items-center gap-1.5"><Plus size={13} /> {here.add}</Button>
-      </div>
+      <Empty
+        title={`No ${here.title.toLowerCase()} yet`}
+        help={explain}
+        helpTitle={here.title}
+        // plain: the header's New button is the page's one coral action, this is the same act where the rows would be
+        action={<Button size="sm" disabled={create.isPending} onClick={onNew}><Plus size={13} /> {here.add}</Button>}
+      />
     );
 
   return (

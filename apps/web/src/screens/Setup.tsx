@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useParams, useSearch } from "wouter";
-import { Search, X } from "lucide-react";
+import { X } from "lucide-react";
 import { fuzzyScore } from "@afflatus/core";
 import { api, type RecipeInfo } from "../api";
 import { lacksOnlyFiles } from "../officialFiles";
 import { useFamilies, useQueue, useRecipes, useSettings, useSetup, useStorage } from "../data";
 import { plural, size } from "../format";
 import { scrollInside } from "../scrollInside";
-import { cx, Segmented } from "../ui";
+import { cx, PageHeader, SearchField, SegmentCount, Segmented } from "../ui";
 import { AboutCard } from "./settings/AboutCard";
 import { CivitaiCard } from "./settings/CivitaiCard";
 import { ComfyCard } from "./settings/ComfyCard";
@@ -60,8 +60,8 @@ function useTabMarks(): Partial<Record<Tab, ReactNode>> {
       : unusedVolumes > 0 ? <span className="rounded-md bg-warn-wash px-1.5 font-mono text-[10.5px] text-warn-ink">{plural(unusedVolumes, "volume")} unused</span>
       : podRunning && <span aria-label="a pod running" className="h-[7px] w-[7px] rounded-full bg-good" />,
     models: notReady > 0 && <span className="rounded-md bg-warn-wash px-1.5 font-mono text-[10.5px] text-warn-ink">{notReady} not ready</span>,
-    storage: storage.data && <span className="font-mono text-[10.5px] font-normal text-ink-3">{size(storage.data.total)}</span>,
-    about: health.data && <span className="font-mono text-[10.5px] font-normal text-ink-3">{/^\d/.test(health.data.version) ? `v${health.data.version}` : health.data.version}</span>,
+    storage: storage.data && <SegmentCount>{size(storage.data.total)}</SegmentCount>,
+    about: health.data && <SegmentCount>{/^\d/.test(health.data.version) ? `v${health.data.version}` : health.data.version}</SegmentCount>,
   };
 }
 
@@ -150,37 +150,44 @@ export function Setup() {
     input.current?.focus();
   };
   return (
-    <div className="flex min-h-0 grow flex-col overflow-hidden px-8 pb-6">
-      <header className="flex h-20 shrink-0 items-center gap-5">
-        <h1 className="shrink-0 text-xl font-semibold">Settings</h1>
-        {/* in a narrow window the tabs scroll sideways and the search box gives up some width: both stay reachable */}
-        <div className="min-w-0 shrink overflow-x-auto">
-          <Segmented<Tab> oneLine className="w-max" label="Settings" value={tab} options={tabs.map((t) => ({ value: t.id, label: marks[t.id] ? <span className="inline-flex items-center gap-1.5">{t.label}{marks[t.id]}</span> : t.label }))} onChange={open} />
-        </div>
-        <span className="grow" />
-        <div className="relative w-64 min-w-40 shrink">
-          <label className="flex h-9 w-full items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
-            <Search size={14} className="shrink-0 text-ink-3" />
-            <input ref={input} data-search aria-label="Find a setting" placeholder="Find a setting" value={typed} onChange={(e) => { setTyped(e.target.value); setPicked(false); }} onKeyDown={(e) => { if (e.key === "Escape") setTyped(""); if (e.key === "Enter" && found[0]) pick(found[0].key); }} className="min-w-0 grow bg-transparent placeholder:text-ink-3" />
-            {typed && <button type="button" aria-label="Clear" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
-          </label>
-          {typed.trim() && !picked && (
-            <div role="listbox" aria-label="Settings found" className="absolute right-0 z-20 mt-1 flex w-80 flex-col overflow-hidden rounded-xl border border-line-strong bg-panel py-1 shadow-2xl shadow-shade/60">
-              {found.length === 0 && <span className="px-3 py-2 text-xs text-ink-2">No setting matches “{typed}”.</span>}
-              {found.map((f) => (
-                <button key={f.key} type="button" role="option" aria-selected={false} onClick={() => pick(f.key)} className="flex items-baseline gap-2 px-3 py-1.5 text-left hover:bg-hover">
-                  <span className="min-w-0 grow truncate text-sm">{f.label}</span>
-                  <span className="shrink-0 text-xs text-ink-3">{TABS.find((t) => t.id === f.tab)!.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </header>
+    <div className="flex min-h-0 grow flex-col overflow-hidden">
+      <PageHeader
+        title="Settings"
+        after={
+          // in a narrow window the tabs scroll sideways and the search box gives up some width: both stay reachable
+          <div className="min-w-0 shrink overflow-x-auto [scrollbar-width:none]">
+            <Segmented<Tab> oneLine className="w-max" label="Settings" value={tab} options={tabs.map((t) => ({ value: t.id, label: marks[t.id] ? <span className="inline-flex items-center gap-1.5">{t.label}{marks[t.id]}</span> : t.label }))} onChange={open} />
+          </div>
+        }
+        actions={
+          <div className="relative w-64 min-w-40 shrink">
+            <SearchField
+              inputRef={input}
+              data-search
+              label="Find a setting"
+              value={typed}
+              onChange={(v) => { setTyped(v); setPicked(false); }}
+              onKeyDown={(e) => { if (e.key === "Escape") setTyped(""); if (e.key === "Enter" && found[0]) pick(found[0].key); }}
+              end={typed && <button type="button" aria-label="Clear" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
+            />
+            {typed.trim() && !picked && (
+              <div role="listbox" aria-label="Settings found" className="absolute right-0 z-20 mt-1 flex w-80 flex-col overflow-hidden rounded-xl border border-line-strong bg-panel py-1 shadow-2xl shadow-shade/60">
+                {found.length === 0 && <span className="px-3 py-2 text-xs text-ink-2">No setting matches “{typed}”.</span>}
+                {found.map((f) => (
+                  <button key={f.key} type="button" role="option" aria-selected={false} onClick={() => pick(f.key)} className="flex items-baseline gap-2 px-3 py-1.5 text-left hover:bg-hover">
+                    <span className="min-w-0 grow truncate text-sm">{f.label}</span>
+                    <span className="shrink-0 text-xs text-ink-3">{TABS.find((t) => t.id === f.tab)!.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        }
+      />
 
       {/* cards of settings, every setting one row: one column, and two side by side in a wide window on every tab (one
           column left the page's other half empty and its cards a long scroll) */}
-      <div ref={scroller} className="min-h-0 grow overflow-y-auto pb-4">
+      <div ref={scroller} className="min-h-0 grow overflow-y-auto px-8 pt-5 pb-10">
         <div className="flex max-w-[860px] flex-col gap-4 min-[1600px]:max-w-[1736px]">
           {tab === "comfyui" && <ComfyCard />}
           {tab === "comfyui" && <ElectricityCard />}

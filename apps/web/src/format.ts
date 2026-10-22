@@ -141,9 +141,13 @@ export function triedLabel(family: string | undefined, others: readonly string[]
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** A day as words: "3 Oct", with the year when it is not this one. Never "03/10": which is the day and which the month is not the same everywhere. */
-export function dayOf(iso: string, now = Date.now()): string {
-  const d = new Date(iso);
+/**
+ * A day as words: "3 Oct", with the year when it is not this one. Never "03/10": which is the day and which the month is
+ * not the same everywhere. The app's one way to write a date (with `when` for "5 d ago" under a week): the Queue's day
+ * headings and its When column say the same day the same way.
+ */
+export function dayOf(at: string | Date, now = Date.now()): string {
+  const d = new Date(at);
   const day = `${d.getDate()} ${MONTHS[d.getMonth()]}`;
   return d.getFullYear() === new Date(now).getFullYear() ? day : `${day} ${d.getFullYear()}`;
 }

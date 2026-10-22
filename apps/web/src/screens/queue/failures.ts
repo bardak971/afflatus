@@ -1,6 +1,6 @@
 import { isModelFile } from "@afflatus/core";
 import type { HistoryJob } from "../../api";
-import { daysBack, localDay } from "../../format";
+import { dayOf as dayWords, daysBack, localDay } from "../../format";
 
 /**
  * Which failures the history pins on top, worked out apart from the screen: only the ones since the last render
@@ -39,13 +39,14 @@ export function dayOf(j: Pick<HistoryJob, "finishedAt" | "createdAt">): string {
   return localDay(new Date(at(j)));
 }
 
-/** A day's heading: "Today", "Yesterday", else "01/10" (and the year when it is not this one). */
+/** A day's heading: "Today", "Yesterday", else the day as the When column writes it ("1 Oct", and the year when it is not this one). */
 export function dayLabel(key: string, now = new Date()): string {
   const [y, m, d] = key.split("-").map(Number) as [number, number, number];
   const back = daysBack(key, now);
   if (back === 0) return "Today";
   if (back === 1) return "Yesterday";
-  return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}${y === now.getFullYear() ? "" : `/${y}`}`;
+  // the local day itself, not the key read as UTC midnight (the day before, west of Greenwich)
+  return dayWords(new Date(y, m - 1, d), now.getTime());
 }
 
 

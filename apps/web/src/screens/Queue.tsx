@@ -7,7 +7,7 @@ import { NOTIFY_HELP, NOTIFY_REFUSED, NotifyToggle } from "../NotifyToggle";
 import { useQueueOps } from "../queueOps";
 import { unloadBlock } from "../queueRules";
 import { useSayFailed } from "../sayFailed";
-import { Button, cx, ErrorNote, Help, SectionTitle, Segmented } from "../ui";
+import { Button, cx, ErrorNote, Help, LiveDot, PageHeader, SectionTitle, SegmentCount, Segmented } from "../ui";
 import { History } from "./queue/History";
 import { RenderTimes } from "./queue/Times";
 import { Costs } from "./queue/Costs";
@@ -34,7 +34,7 @@ function QueueControls({ q, free, pause, resume }: { q: QueueStatus | undefined;
       {/* no machine at all (rented only, none up): nothing to unload */}
       {q?.online && (q.machines?.length ?? 0) > 0 && (
         <Button
-          className="h-10 px-4"
+          size="sm"
           disabled={free.isPending || Boolean(why)}
           data-tip={several.length ? `Unloads the models of every machine that is not rendering nor busy outside Afflatus (${idle.map(machineLabel).join(", ") || "none now"}). Each lane's menu unloads one.` : "Unloads ComfyUI's models from VRAM and RAM, for a game or another program. The next render loads what it needs again. Not while a job is running."}
           onClick={() => free.mutate(undefined)}
@@ -43,7 +43,7 @@ function QueueControls({ q, free, pause, resume }: { q: QueueStatus | undefined;
         </Button>
       )}
       {q && (
-        <Button tone={q.paused ? "primary" : "plain"} className="h-10 px-4" data-tip={q.paused ? "Send what waits to ComfyUI again" : "Finish the running render, then send nothing new: the GPU is yours"} onClick={() => (q.paused ? resume : pause).mutate(undefined)}>
+        <Button size="sm" tone={q.paused ? "primary" : "plain"} data-tip={q.paused ? "Send what waits to ComfyUI again" : "Finish the running render, then send nothing new: the GPU is yours"} onClick={() => (q.paused ? resume : pause).mutate(undefined)}>
           {several.length ? (q.paused ? "Resume all" : "Pause all") : q.paused ? "Resume queue" : "Pause queue"}
         </Button>
       )}
@@ -95,68 +95,92 @@ export function Queue() {
     if (loaded) resetFree();
   }, [loaded, resetFree]);
 
+  // what the Queue's own segment says: how many jobs it holds (at work and waiting), and a live dot while one is at work
+  const atWork = q ? (several.length ? several.filter((m) => m.running).length : q.running ? 1 : 0) + (q.tool ? 1 : 0) : 0;
+  const holds = q ? atWork + q.waiting.length : undefined;
+
   return (
-    // the queue scrolls as one page, each part at its own height: wide, its parts once scrolled each in a box of a fixed
-    // share, and the waiting list was drawn over the history, a rendering machine's card cut off, a gap left under one
-    // waiting job (2026-10-17). The other views keep a box of their own under the header.
-    <div className={cx("flex min-h-0 grow flex-col overflow-y-auto px-4 pb-6 sm:px-8", tab !== "queue" && "lg:overflow-hidden")}>
-      <header className="flex min-h-20 shrink-0 flex-wrap items-center gap-x-5 gap-y-2 py-3 lg:py-0">
-        <h1 className="text-xl font-semibold">Queue</h1>
-        <div className="w-[460px] max-w-full">
-          <Segmented<Tab> label="View" value={tab} options={[{ value: "queue", label: "Queue" }, { value: "times", label: "Render times" }, { value: "costs", label: "Costs" }, { value: "log", label: "ComfyUI log" }]} onChange={setTab} />
-        </div>
-        {/* wide, what ComfyUI holds gives way (cut short) before the buttons wrap under the title */}
-        <div className="flex min-w-0 grow items-center gap-3 text-xs text-ink-2 lg:basis-0">
-          <span className="flex shrink-0 items-center gap-1.5">
-            {/* not read yet, or could not be: nothing is said about ComfyUI */}
-            <span className={cx("h-2 w-2 rounded-full", !q || noGpu ? "bg-ink-3" : q.online ? "bg-good" : "bg-warn")} />
-            {!q ? "…" : noGpu ? "No machine yet" : several.length ? onlineSaid(several) : q.online ? "ComfyUI online" : "ComfyUI offline · queued jobs wait"}
-          </span>
-          {q?.model && !several.length && !noGpu && <span className="truncate font-mono">{q.model} loaded</span>}
-        </div>
-        {/* in the header, by the queue's other switches: a column of its own, the page's height, held one switch */}
-        {tab === "queue" && (
-          <span className="flex shrink-0 items-center gap-2 text-sm">
-            <NotifyToggle kind="queueEmpty" onRefused={setRefused} />
-            <Help text={NOTIFY_HELP} />
-            {refused && <span className="flex items-center gap-1.5 text-xs text-warn-ink">{NOTIFY_REFUSED.said} <Help text={NOTIFY_REFUSED.help} /></span>}
-          </span>
-        )}
-        <QueueControls q={q} free={free} pause={pause} resume={resume} />
-      </header>
-
-      {queue.error && <ErrorNote>Could not read the queue: {queue.error.message}</ErrorNote>}
-
-      {tab === "times" && <div className="min-h-0 grow overflow-y-auto"><RenderTimes /></div>}
-      {tab === "costs" && <div className="min-h-0 grow overflow-y-auto"><Costs /></div>}
-      {tab === "log" && several.length > 0 && (
-        <div className="mb-2 shrink-0">
-          <Segmented oneLine size="sm" label="Whose log" value={logOf || several[0]!.id} options={several.map((m) => ({ value: m.id, label: machineLabel(m) }))} onChange={setLogOf} />
-        </div>
-      )}
-      {tab === "log" && <ComfyLog key={logOf || "first"} online={several.length ? several.find((m) => m.id === (logOf || several[0]!.id))?.online !== false : Boolean(q?.online)} pod={podUp(several.find((m) => m.id === (logOf || several[0]?.id)))} machine={several.length ? logOf || several[0]!.id : undefined} />}
-
-      {tab === "queue" && !q && !queue.error && <p className="text-sm text-ink-3">…</p>}
-      {tab === "queue" && q && (
-        <div className="flex shrink-0 flex-col gap-5">
-          {q.paused && (
-            <div className="flex items-center gap-2 rounded-[10px] bg-accent-wash px-3.5 py-2.5 text-sm font-semibold text-accent">
-              Paused · nothing new goes to ComfyUI
-              <Help text="The running render finishes, then nothing new goes to ComfyUI until you resume. Exports go on: they need no GPU." />
+    <div className="flex min-h-0 grow flex-col">
+      <PageHeader
+        title="Queue"
+        after={
+          // in a narrow window the views scroll sideways rather than push the buttons out of the header
+          <div className="min-w-0 shrink overflow-x-auto [scrollbar-width:none]">
+            <Segmented<Tab>
+              oneLine
+              className="w-max"
+              label="View"
+              value={tab}
+              options={[
+                { value: "queue", label: <span className="inline-flex items-center gap-1.5">{atWork > 0 && <LiveDot label="a job at work" />}Queue{holds ? <SegmentCount>{holds}</SegmentCount> : null}</span> },
+                { value: "times", label: "Render times" },
+                { value: "costs", label: "Costs" },
+                { value: "log", label: "ComfyUI log" },
+              ]}
+              onChange={setTab}
+            />
+          </div>
+        }
+        actions={
+          <>
+            {/* by the actions, as the mock has it; in a narrow window the views scroll before any of this goes */}
+            <div className="flex items-center gap-3 text-meta text-ink-2">
+              <span className="flex shrink-0 items-center gap-1.5">
+                {/* not read yet, or could not be: nothing is said about ComfyUI */}
+                <span className={cx("h-2 w-2 rounded-full", !q || noGpu ? "bg-ink-3" : q.online ? "bg-good" : "bg-warn")} />
+                {!q ? "…" : noGpu ? "No machine yet" : several.length ? onlineSaid(several) : q.online ? "ComfyUI online" : "ComfyUI offline · queued jobs wait"}
+              </span>
+              {q?.model && !several.length && !noGpu && <span className="max-w-48 truncate font-mono" data-tip={`${q.model} loaded`}>{q.model} loaded</span>}
             </div>
-          )}
-          <section aria-label="Machines" className="flex flex-col gap-1.5">
-            <SectionTitle>{(q.machines?.length ?? 0) > 1 ? `Machines · ${q.machines!.length}` : "Machine"}</SectionTitle>
-            {noGpu && <NoMachine waiting={q.waiting.length} />}
-            {q.machines?.length
-              ? <MachineLanes q={q} onStop={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} />
-              : !noGpu && <RunningCard running={q.running} onStop={(id) => cancel.mutate(id)} />}
-          </section>
-          {/* its head says what they come to: how many, how long, the model switches, and the bulk actions */}
-          {q.waiting.length > 0 && <WaitingList waiting={q.waiting} whole={q.whole} endsInMs={q.waitingEndsInMs} running={q.running} machines={several} onOrder={(ids) => order.mutate(ids)} onRemove={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} onPacks={(job, what, names) => packs.mutate({ job, what, names })} />}
-          <History />
-        </div>
-      )}
+            {/* the notify switch is the queue view's: the other views have nothing that empties */}
+            {tab === "queue" && (
+              <span className="flex shrink-0 items-center gap-2 text-body">
+                <NotifyToggle kind="queueEmpty" onRefused={setRefused} />
+                <Help text={NOTIFY_HELP} />
+                {refused && <span className="flex items-center gap-1.5 text-meta text-warn-ink">{NOTIFY_REFUSED.said} <Help text={NOTIFY_REFUSED.help} /></span>}
+              </span>
+            )}
+            <QueueControls q={q} free={free} pause={pause} resume={resume} />
+          </>
+        }
+      />
+      {/* the queue scrolls as one page under its header, each part at its own height: wide, its parts once scrolled each in a
+          box of a fixed share, and the waiting list was drawn over the history, a rendering machine's card cut off, a gap
+          left under one waiting job (2026-10-17). The other views keep a box of their own. */}
+      <div className={cx("flex min-h-0 grow flex-col overflow-y-auto px-4 pt-4 pb-6 sm:px-8", tab !== "queue" && "lg:overflow-hidden")}>
+        {queue.error && <ErrorNote>Could not read the queue: {queue.error.message}</ErrorNote>}
+
+        {tab === "times" && <div className="min-h-0 grow overflow-y-auto"><RenderTimes /></div>}
+        {tab === "costs" && <div className="min-h-0 grow overflow-y-auto"><Costs /></div>}
+        {tab === "log" && several.length > 0 && (
+          <div className="mb-2 shrink-0">
+            <Segmented oneLine size="sm" label="Whose log" value={logOf || several[0]!.id} options={several.map((m) => ({ value: m.id, label: machineLabel(m) }))} onChange={setLogOf} />
+          </div>
+        )}
+        {tab === "log" && <ComfyLog key={logOf || "first"} online={several.length ? several.find((m) => m.id === (logOf || several[0]!.id))?.online !== false : Boolean(q?.online)} pod={podUp(several.find((m) => m.id === (logOf || several[0]?.id)))} machine={several.length ? logOf || several[0]!.id : undefined} />}
+
+        {tab === "queue" && !q && !queue.error && <p className="text-sm text-ink-3">…</p>}
+        {tab === "queue" && q && (
+          <div className="flex shrink-0 flex-col gap-5">
+            {q.paused && (
+              <div className="flex items-center gap-2 rounded-[10px] bg-accent-wash px-3.5 py-2.5 text-sm font-semibold text-accent">
+                Paused · nothing new goes to ComfyUI
+                <Help text="The running render finishes, then nothing new goes to ComfyUI until you resume. Exports go on: they need no GPU." />
+              </div>
+            )}
+            <section aria-label="Machines" className="flex flex-col gap-1.5">
+              <SectionTitle>{(q.machines?.length ?? 0) > 1 ? `Machines · ${q.machines!.length}` : "Machine"}</SectionTitle>
+              {noGpu && <NoMachine waiting={q.waiting.length} />}
+              {q.machines?.length
+                ? <MachineLanes q={q} onStop={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} />
+                : !noGpu && <RunningCard running={q.running} onStop={(id) => cancel.mutate(id)} />}
+            </section>
+            {/* its head says what they come to: how many, how long, the model switches, and the bulk actions */}
+            {q.waiting.length > 0 && <WaitingList waiting={q.waiting} whole={q.whole} endsInMs={q.waitingEndsInMs} running={q.running} machines={several} onOrder={(ids) => order.mutate(ids)} onRemove={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} onPacks={(job, what, names) => packs.mutate({ job, what, names })} />}
+            <History />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
