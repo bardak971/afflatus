@@ -59,7 +59,7 @@ export class Precompute {
 
   constructor(
     private readonly db: Db,
-    private readonly media: Pick<TimelineMedia, "motion" | "strip" | "means" | "joins" | "missing">,
+    private readonly media: Pick<TimelineMedia, "motion" | "strip" | "means" | "joins" | "missing" | "measureTogether">,
     opts: PrecomputeOptions = {},
   ) {
     this.opts = { settleMs: opts.settleMs ?? 3_000, backfillAfterMs: opts.backfillAfterMs === undefined ? 60_000 : opts.backfillAfterMs, perMinute: opts.perMinute ?? 30, run: opts.run ?? ffmpegPool };
@@ -137,8 +137,18 @@ export class Precompute {
     const asset = await this.db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
     this.done.add(assetId);
     if (!asset || (asset.kind !== "video" && asset.kind !== "audio")) return;
-    // each its own place in the pool: what a screen asks for meanwhile goes between them
-    for (const what of await this.media.missing(asset)) {
+    const missing = await this.media.missing(asset);
+    // two or more of a video's: one decode for all of them, in one place in the pool
+    if (asset.kind === "video" && missing.length > 1) {
+      await this.ready();
+      if (this.stopped) return;
+      const started = Date.now();
+      const done = await this.opts.run(() => this.media.measureTogether(asset, missing), { last: true }).catch(() => false);
+      if (slow) await this.rest(Date.now() - started);
+      if (done) return;
+    }
+    // else each its own place in the pool: what a screen asks for meanwhile goes between them
+    for (const what of missing) {
       await this.ready();
       if (this.stopped) return;
       const started = Date.now();
@@ -251,7 +261,7 @@ export async function measureLanded(
   if (all) {
     const json = (v: unknown) => new TextEncoder().encode(JSON.stringify(v));
     await put(keptKey.motion(assetId), json(keptMotion(all.motion)));
-    await put(keptKey.strip(assetId), all.strip);
+    if (all.strip) await put(keptKey.strip(assetId), all.strip);
     if (all.means.t.length) await put(keptKey.means(assetId), json(all.means));
   }
   // a continuation: the step where its run-up ends and its own frames begin, kept with the look. The join figures look at

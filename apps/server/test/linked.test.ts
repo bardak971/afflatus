@@ -191,6 +191,25 @@ describe("a folder linked to a directory of the disk", () => {
     expect(existsSync(join(dir, "loose.png"))).toBe(true);
   });
 
+  it("copies a file into its directory and back from the bin by the file system, never read whole into memory", async () => {
+    const root = await link();
+    const mine = (await t.app.inject({ method: "POST", url: "/api/assets?name=loose.png", headers: { "content-type": "image/png" }, payload: picture() })).json();
+    const keys = new Set<string>();
+    const keyNow = async () => keys.add((await t.db.selectFrom("assets").select("file_key").where("id", "=", mine.id).executeTakeFirstOrThrow()).file_key);
+    await keyNow();
+    const read: string[] = [];
+    const get = t.services.storage.get.bind(t.services.storage);
+    t.services.storage.get = async (key: string) => (read.push(key), get(key));
+    await post(t.app, "/api/assets/move", { ids: [mine.id], folderId: root.id });
+    expect(readFileSync(join(dir, "loose.png")).equals(picture())).toBe(true);
+    expect((await t.app.inject({ method: "DELETE", url: `/api/assets/${mine.id}` })).statusCode).toBe(200);
+    await keyNow();
+    await post(t.app, `/api/assets/${mine.id}/restore`, {});
+    expect(readFileSync(join(dir, "loose.png")).equals(picture())).toBe(true);
+    // a 515 MB video read whole to be written again held 521 MB more: the file's own bytes were never asked for
+    expect(read.filter((k) => keys.has(k))).toEqual([]);
+  });
+
   it("is unlinked without touching the disk; a sub-directory is not deleted from the app", async () => {
     const root = await link();
     const sub = (await folders()).find((f) => f.name === "day 1")!;

@@ -123,12 +123,13 @@ function lookFrom(said: { stats: string; sharp: string; edges: string; grain: st
 
 /** What a take's landing measures of it at once (takeMeasures): its look, and what the timeline editor reads of it. */
 export interface TakeMeasures {
-  /** Of its own part (from `fromMs`), as lookOf measures it. */
+  /** Of its own part (from `fromMs`), as lookOf measures it. null when it was not asked for (`look: false`). */
   look: Measure | null;
   /** Of the whole video, as measureOf, meansAlong and filmStrip make them. */
   motion: { motion: number[]; sound: number[] | null; speech: number[] | null };
   means: FrameMeans;
-  strip: Uint8Array;
+  /** null when it was not asked for (`strip: false`). */
+  strip: Uint8Array | null;
 }
 
 /**
@@ -139,70 +140,78 @@ export interface TakeMeasures {
  * options needs escaping). A continuation's look starts at `fromMs`, cut there inside the graph as `-ss` would (the frames
  * from that moment, their clock moved back by it), so that its figures are those lookOf gives. null when the run fails
  * (a filter this ffmpeg lacks, a stream that cannot be read): the passes one at a time then.
+ *
+ * `look: false` leaves the look out (its five branches cost as much as the rest on a long video), and `strip: false` the
+ * strip: what the editor reads of a video that is no render (an import, a cut, an export) is measured that way, once.
  */
-export async function takeMeasures(source: Media, ext: string, opts: { fromMs?: number; durationMs: number; hasSound: boolean }): Promise<TakeMeasures | null> {
+export async function takeMeasures(source: Media, ext: string, opts: { fromMs?: number; durationMs: number; hasSound: boolean; look?: boolean; strip?: boolean }): Promise<TakeMeasures | null> {
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
-    const from = Math.max(0, opts.fromMs ?? 0) / 1000;
+    const looks = opts.look !== false;
+    const strips = opts.strip !== false;
+    const from = looks ? Math.max(0, opts.fromMs ?? 0) / 1000 : 0;
     const cut = from > 0 ? `trim=start=${from.toFixed(3)},setpts=PTS-round(${from.toFixed(3)}/TB),` : "";
     const acut = from > 0 ? `atrim=start=${from.toFixed(3)},asetpts=PTS-round(${from.toFixed(3)}/TB),` : "";
     const print = (file: string, key?: string) => `metadata=print${key ? `:key=${key}` : ""}:file=${file}`;
     const yavg = "lavfi.signalstats.YAVG";
     // the strip as filmStrip makes the whole video's
     const every = Math.max(0.01, opts.durationMs / 1000 / STRIP.frames);
+    const branches = ["[vm]", "[vs]", ...(strips ? ["[vt]"] : []), ...(looks ? ["[vl]"] : []), ...(from > 0 ? ["[vp]"] : [])];
     const graph = [
       // the motion, from the start, is the look's pace too when the look starts there
-      `[0:v]split=${from > 0 ? 5 : 4}[vm][vs][vt][vl]${from > 0 ? "[vp]" : ""}`,
+      `[0:v]split=${branches.length}${branches.join("")}`,
       `[vm]scale=96:-2,signalstats,${print("means.txt")}[om]`,
       `[vs]${LOOK.pace},${print("motion.txt", yavg)}[os]`,
-      `[vt]trim=end=${(opts.durationMs / 1000).toFixed(3)},${heldLast(every)}fps=1/${every.toFixed(4)}:start_time=0:round=down,scale=-2:${STRIP.height},tile=${STRIP.frames}x1[strip]`,
-      `[vl]${cut}split[l1][l2]`,
-      `[l1]${LOOK.stats},${print("stats.txt")}[o1]`,
-      `[l2]${LOOK.gray},split=4[g1][g2][g3][g4]`,
-      `[g1]${LOOK.sharp},${print("sharp.txt", yavg)}[o2]`,
-      `[g2]${LOOK.edges},${print("edges.txt", yavg)}[o3]`,
-      `[g4]median=radius=1[g5]`,
-      `[g3][g5]${LOOK.grain},${print("grain.txt", yavg)}[o4]`,
+      ...(strips ? [`[vt]trim=end=${(opts.durationMs / 1000).toFixed(3)},${heldLast(every)}fps=1/${every.toFixed(4)}:start_time=0:round=down,scale=-2:${STRIP.height},tile=${STRIP.frames}x1[strip]`] : []),
+      ...(looks ? [
+        `[vl]${cut}split[l1][l2]`,
+        `[l1]${LOOK.stats},${print("stats.txt")}[o1]`,
+        `[l2]${LOOK.gray},split=4[g1][g2][g3][g4]`,
+        `[g1]${LOOK.sharp},${print("sharp.txt", yavg)}[o2]`,
+        `[g2]${LOOK.edges},${print("edges.txt", yavg)}[o3]`,
+        `[g4]median=radius=1[g5]`,
+        `[g3][g5]${LOOK.grain},${print("grain.txt", yavg)}[o4]`,
+      ] : []),
       ...(from > 0 ? [`[vp]${cut}${LOOK.pace},${print("pace.txt", yavg)}[o5]`] : []),
     ];
-    const outs = ["[om]", "[os]", "[o1]", "[o2]", "[o3]", "[o4]", ...(from > 0 ? ["[o5]"] : [])];
+    const outs = ["[om]", "[os]", ...(looks ? ["[o1]", "[o2]", "[o3]", "[o4]"] : []), ...(from > 0 ? ["[o5]"] : [])];
     if (opts.hasSound) {
       const band = `aresample=8000,asetnsamples=n=${8000 / MOTION_RATE}:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level`;
       graph.push(
-        "[0:a]asplit=3[a1][a2][a3]",
+        `[0:a]asplit=${looks ? 3 : 2}[a1][a2]${looks ? "[a3]" : ""}`,
         `[a1]${band}:file=sound.txt[ao1]`,
         `[a2]highpass=f=300,highpass=f=300,lowpass=f=3400,lowpass=f=3400,${band}:file=speech.txt[ao2]`,
-        `[a3]${acut}${LOOK.voice}:file=voice.txt[ao3]`,
+        ...(looks ? [`[a3]${acut}${LOOK.voice}:file=voice.txt[ao3]`] : []),
       );
-      outs.push("[ao1]", "[ao2]", "[ao3]");
+      outs.push("[ao1]", "[ao2]", ...(looks ? ["[ao3]"] : []));
     }
     const ran = await ffRun(tools.ffmpeg, [
       "-hide_banner", "-loglevel", "error", "-nostats", "-y", "-i", resolve(input), "-filter_complex", graph.join(";"),
       ...outs.flatMap((o) => ["-map", o]), "-f", "null", "-",
-      "-map", "[strip]", "-frames:v", "1", "-q:v", "5", "strip.jpg",
+      ...(strips ? ["-map", "[strip]", "-frames:v", "1", "-q:v", "5", "strip.jpg"] : []),
     ], { cwd: dir, timeout: 10 * 60_000, maxBuffer: 16 * 1024 * 1024 });
     if (ran.missing) throw missing();
     if (ran.err) return null;
     const read = (name: string) => readFile(join(dir, name), "utf8").catch(() => "");
-    const strip = await readFile(join(dir, "strip.jpg")).catch(() => null);
+    const strip = strips ? await readFile(join(dir, "strip.jpg")).catch(() => null) : null;
     const motionSaid = await read("motion.txt");
-    if (!strip?.length || !motionSaid) return null;
+    if ((strips && !strip?.length) || !motionSaid) return null;
     const rawMotion = picked(motionSaid, "signalstats\\.YAVG");
     const levels = opts.hasSound ? levelsIn(await read("sound.txt")) : [];
     const speech = levels.length ? levelsIn(await read("speech.txt")) : [];
-    const look = lookFrom({
+    const look = looks ? lookFrom({
       stats: await read("stats.txt"),
       sharp: await read("sharp.txt"),
       edges: await read("edges.txt"),
       grain: await read("grain.txt"),
       pace: from > 0 ? picked(await read("pace.txt"), "signalstats\\.YAVG") : rawMotion,
       centroid: opts.hasSound ? await read("voice.txt") : "",
-    });
+    }) : null;
     return {
       look,
       motion: { motion: motionIn(motionSaid), sound: levels.length ? levels : null, speech: speech.length ? speech : null },
       means: meansIn(await read("means.txt")),
-      strip: new Uint8Array(strip),
+      strip: strip ? new Uint8Array(strip) : null,
     };
   });
 }
