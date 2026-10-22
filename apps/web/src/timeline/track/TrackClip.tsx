@@ -320,9 +320,9 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
       {on && !s.planned && !c.job && (
         <>
           {c.kind === "video" && (
-            <span role="separator" aria-label="Drag to trim the start of the clip" data-hint="drag: trim the start" onPointerDown={(e) => a().startPull(e, s, "start")} onPointerMove={(e) => a().movePull(e)} onPointerUp={() => a().endPull()} onPointerCancel={() => a().endPull()} className={cx(EDGE_HIT, "rounded-l-lg")} style={{ left: s.left + 1, top: ROW.top, height: ROW.height }} />
+            <span role="separator" aria-label="Drag to trim the start of the clip" data-hint="drag: trim the start" onPointerDown={(e) => a().startPull(e, s, "start")} onPointerMove={(e) => a().movePull(e)} onPointerUp={() => a().endPull()} onPointerCancel={() => a().endPull()} className={cx(EDGE_HIT, "rounded-l-lg", moving ? "z-10" : "z-20")} style={{ left: s.left + 1, top: ROW.top, height: ROW.height }} />
           )}
-          <span role="separator" aria-label="Drag to trim the end of the clip" data-hint={c.kind === "still" ? "drag: change the still's duration" : "drag: trim the end"} onPointerDown={(e) => a().startPull(e, s, "end")} onPointerMove={(e) => a().movePull(e)} onPointerUp={() => a().endPull()} onPointerCancel={() => a().endPull()} className={cx(EDGE_HIT, "rounded-r-lg")} style={{ left: s.left + s.width - 11.5, top: ROW.top, height: ROW.height }} />
+          <span role="separator" aria-label="Drag to trim the end of the clip" data-hint={c.kind === "still" ? "drag: change the still's duration" : "drag: trim the end"} onPointerDown={(e) => a().startPull(e, s, "end")} onPointerMove={(e) => a().movePull(e)} onPointerUp={() => a().endPull()} onPointerCancel={() => a().endPull()} className={cx(EDGE_HIT, "rounded-r-lg", moving ? "z-10" : "z-20")} style={{ left: s.left + s.width - 11.5, top: ROW.top, height: ROW.height }} />
         </>
       )}
 
@@ -458,10 +458,13 @@ function ClipBar({ clip }: { clip: string }) {
 }
 
 /**
- * A trim edge: 10 px drawn on the clip's edge, 26 px to take (8 px more on each side, over WCAG 2.5.8's 24); the join's
- * dot, drawn after it, keeps the middle of the cut.
+ * A trim edge: 10 px drawn on the clip's edge, 26 px to take (8 px more on each side, over WCAG 2.5.8's 24). Drawn only on
+ * the selected clip, and above the join's dot (z-20 against its z-10): the dot is drawn later and sat over the middle of
+ * both edges at the join, so a press meant to trim opened the join instead. The dot keeps its rim past the edges, and its
+ * whole self on every other join and with no clip selected. While a clip is moved (no dots then) they go back under it, the
+ * clip lifted at z-sticky passing over them.
  */
-const EDGE_HIT = "absolute z-10 w-2.5 cursor-ew-resize bg-accent before:absolute before:inset-y-0 before:-inset-x-2 before:content-['']";
+const EDGE_HIT = "absolute w-2.5 cursor-ew-resize bg-accent before:absolute before:inset-y-0 before:-inset-x-2 before:content-['']";
 
 /** A pinned picture on a clip: framed in the colour of pictures, ringed in the accent while its card shows. */
 const pinLook = (on: boolean, place: string) =>
