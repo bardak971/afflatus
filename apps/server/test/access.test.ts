@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { createServer, get as httpGet, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -442,6 +442,21 @@ describe("reset codes", () => {
       expect(await checkPassword("a brand new one", (await readSettings(t.db)).access.password!.hash)).toBe(true);
       await expect(a.reset({ ...who, nonce, code: code(), password: "yet another one", signOutOthers: true })).rejects.toMatchObject({ statusCode: 400 });
       expect(readFileSync(log, "utf8")).toMatch(/reset code sent to this computer[\s\S]*password reset with a code/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("go to a log file that is set aside once full, the line just written always in afflatus.log itself", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "afflatus-log-"));
+    try {
+      const log = join(dir, "logs", "afflatus.log");
+      const a = new Access(t.db, t.services.notify, { logFile: log, logMaxBytes: 300, log: { log: () => {}, warn: () => {} } });
+      for (let i = 0; i < 12; i++) await a.audit(`zz-test sign-in ${i} from ${LAN}`);
+      expect(statSync(log).size).toBeLessThan(300 + 100);
+      expect(readFileSync(log, "utf8")).toContain("zz-test sign-in 11 ");
+      expect(readFileSync(`${log}.1`, "utf8")).toContain("zz-test sign-in");
+      expect(readdirSync(join(dir, "logs")).sort()).toEqual(["afflatus.log", "afflatus.log.1"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

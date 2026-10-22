@@ -3,7 +3,7 @@ import { ComfyAway, ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnr
 import { expandWildcards, modelFileName, modelOf, parseInput, removedSaid, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import { Comfy, NO_COMFY_URL, type MachineComfy } from "./comfy";
 import { fileName } from "./media";
-import { newId, now, OWNER, type Db } from "./db";
+import { newId, now, OWNER, toRun, type Db } from "./db";
 import { addedBy } from "./events";
 import { httpError } from "./errors";
 import type { HuntSummary } from "./hunt";
@@ -334,7 +334,7 @@ export class Queue {
     // a finish or a RIFE pass that had sent its prompt (cut short by a crash, or queued again by the last shutdown) waits for
     // the machine that has it (Resume.lostAt, heldOn), which may still render it, and follows it there (queueTools followed):
     // sent to another machine meanwhile, it ran twice, the first one billed on a pod for a result nobody collected
-    const sent = await this.db.selectFrom("jobs").select(["id", "resume", "status"]).where("status", "in", ["running", "queued"]).where("recipe_id", "=", CUT_JOB)
+    const sent = await this.db.selectFrom("jobs").select(["id", "resume", "status"]).where(toRun).where("recipe_id", "=", CUT_JOB)
       .where("resume", "is not", null).where("machine_id", "is not", null).execute();
     for (const r of sent) {
       const kept = readJson<{ promptId?: unknown; lostAt?: unknown } | null>(r.resume, null);

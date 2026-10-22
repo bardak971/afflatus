@@ -1,5 +1,5 @@
 import type { EventEmitter } from "node:events";
-import type { Db } from "./db";
+import { toRun, type Db } from "./db";
 import { readJson, type Lane } from "./queueModel";
 
 /**
@@ -70,8 +70,10 @@ export class Outside {
     const ids = new Set<string>(this.d.stale(lane.id) ?? []);
     if (lane.running?.promptId) ids.add(lane.running.promptId);
     const since = new Date(Date.now() - OWN_KEPT_MS).toISOString();
-    const rows = await this.d.db.selectFrom("jobs").select("resume").where("resume", "is not", null)
-      .where((eb) => eb.or([eb("status", "in", ["running", "queued"]), eb("finished_at", ">=", since)])).execute();
+    // asked as two reads, each through its own index (jobs_to_run, jobs_by_finish): asked as one, with an `or`, SQLite read
+    // the whole jobs table at every ComfyUI queue event
+    const kept = this.d.db.selectFrom("jobs").select("resume").where("resume", "is not", null);
+    const rows = [...await kept.where(toRun).execute(), ...await kept.where("finished_at", ">=", since).execute()];
     for (const r of rows) {
       const id = readJson<{ promptId?: unknown }>(r.resume, {}).promptId;
       if (typeof id === "string") ids.add(id);

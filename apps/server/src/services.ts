@@ -28,6 +28,7 @@ import type { ModelInfo } from "@afflatus/core";
 import { readJson } from "./queueModel";
 import { Timelines } from "./timelines";
 import { sweepIdleDrafts } from "./drafts";
+import { tidyDb } from "./tidy";
 import { Updates } from "./modelUpdates";
 import { Precompute, type PrecomputeOptions } from "./precompute";
 import { Notify } from "./notify";
@@ -212,6 +213,8 @@ export async function createServices(
       .then(() => sweepIdleDrafts(db, registry))
       // the times of renders older than they are kept one by one become figures per model and day
       .then(async () => fold(db, (await readSettings(db)).renderHistoryDays))
+      // the database's own tidying: old jobs' resumes cut down, the word index merged, gone machines' notes dropped (tidy.ts)
+      .then(() => tidyDb(db))
       .catch((err) => console.warn("[sweep]", (err as Error).message));
   // what the items made before 0075_kept_bytes keep beside their file, counted in their sizes: read once, in the background
   void fillKeptBytes(db, storage).catch((err) => console.warn("[kept bytes]", (err as Error).message));

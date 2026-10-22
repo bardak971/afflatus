@@ -17,7 +17,7 @@ import { get, makeApp, post, type TestApp } from "./helpers";
  * for the paths named in `denied` (readdir answers EACCES) and `busy` (rm answers EBUSY), as a permission change or an
  * open file would.
  */
-const fsTrap = vi.hoisted(() => ({ denied: new Set<string>(), busy: new Set<string>() }));
+const fsTrap = vi.hoisted(() => ({ denied: new Set<string>(), busy: new Set<string>(), stats: [] as string[] }));
 vi.mock("node:fs/promises", async (original) => {
   const real = await original<typeof import("node:fs/promises")>();
   const refuse = (code: string) => Object.assign(new Error(`${code}: refused for the test`), { code });
@@ -29,7 +29,12 @@ vi.mock("node:fs/promises", async (original) => {
     if (fsTrap.busy.has(String(path))) throw refuse("EBUSY");
     return real.rm(path, opts as never);
   }) as typeof real.rm;
-  return { ...real, default: { ...real, readdir, rm }, readdir, rm };
+  // every stat counted, for the orphan sweep that reads the times of only the files no item names
+  const stat = ((path: string, opts?: unknown) => {
+    fsTrap.stats.push(String(path));
+    return real.stat(path, opts as never);
+  }) as typeof real.stat;
+  return { ...real, default: { ...real, readdir, rm, stat }, readdir, rm, stat };
 });
 
 let dir: string;
@@ -348,6 +353,33 @@ describe("the files of Afflatus's own storage", () => {
     expect(await t.db.selectFrom("assets").select("id").execute()).toEqual([]);
     expect(await sweepOrphans(t.db, t.services.storage)).toBe(0);
     for (const id of ids) expect(existsSync(join(t.dir, "assets", id.slice(0, 2), `${id}.png`))).toBe(true);
+  });
+
+  it("have their times read only when no item names them: the files of the library's items are not stat'ed", async () => {
+    const mine = await Promise.all([1, 2, 3].map(async (n) => (await t.app.inject({ method: "POST", url: `/api/assets?name=zz-test-${n}.png`, headers: { "content-type": "image/png" }, payload: picture(n) })).json() as { id: string }));
+    const orphan = newId();
+    await t.services.storage.put(`assets/${orphan.slice(0, 2)}/${orphan}.png`, picture());
+    old(join(t.dir, "assets", orphan.slice(0, 2), `${orphan}.png`));
+    const files = readdirSync(join(t.dir, "assets"), { recursive: true }).length + readdirSync(join(t.dir, "thumbs"), { recursive: true, withFileTypes: true }).length;
+    fsTrap.stats.length = 0;
+    expect(await sweepOrphans(t.db, t.services.storage)).toBe(1);
+    // one stat, the orphan's, where every file of assets/ and thumbs/ was read before
+    expect(fsTrap.stats.map((p) => p.slice(t.dir.length + 1).replace(/\\/g, "/"))).toEqual([`assets/${orphan.slice(0, 2)}/${orphan}.png`]);
+    expect(files).toBeGreaterThan(4);
+    for (const m of mine) expect((await get(t.app, `/api/assets/${m.id}/file`)).statusCode).toBe(200);
+  });
+
+  it("reach what was worked out of an item that is gone (strips at any size, motion, scenes, pauses, colour, joins), a day on", async () => {
+    const mine = (await t.app.inject({ method: "POST", url: "/api/assets?name=zz-test.png", headers: { "content-type": "image/png" }, payload: picture() })).json() as { id: string };
+    const gone = newId();
+    const fresh = newId();
+    const derived = (id: string) => [`strips/${id.slice(0, 2)}/${id}-2.jpg`, `strips/${id.slice(0, 2)}/${id}-17x96-2.jpg`, ...["motion", "scenes", "pauses", "means", "joins"].map((d) => `${d}/${id.slice(0, 2)}/${id}.json`)];
+    for (const id of [mine.id, gone, fresh]) for (const key of derived(id)) await t.services.storage.put(key, new Uint8Array([1]));
+    for (const id of [mine.id, gone]) for (const key of derived(id)) old(join(t.dir, key));
+    old(join(t.dir, "assets", mine.id.slice(0, 2), `${mine.id}.png`));
+    expect(await sweepOrphans(t.db, t.services.storage)).toBe(7);
+    for (const key of derived(gone)) expect(existsSync(join(t.dir, key)), key).toBe(false);
+    for (const key of [...derived(mine.id), ...derived(fresh)]) expect(existsSync(join(t.dir, key)), key).toBe(true);
   });
 
   it("are written whole or not at all: no part file is left beside one", async () => {

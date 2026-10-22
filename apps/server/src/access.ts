@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomBytes, randomInt, scrypt as scryptCallback, timingSafeEqual, type ScryptOptions } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { appendFile, mkdir } from "node:fs/promises";
+import { appendFile, mkdir, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { plural } from "@afflatus/core";
 import { loadConfig } from "./config";
@@ -8,6 +8,7 @@ import type { Db } from "./db";
 import { httpError } from "./errors";
 import type { Notify } from "./notify";
 import { readSettings, updateSettings, type AccessSettings } from "./settings";
+import { renameOver } from "./storage";
 
 /**
  * The optional password (Settings › Interface › Access). Off by default: Afflatus is open to whoever reaches its port,
@@ -224,9 +225,17 @@ function wrongError(message: string, left: number, waitMs: number): Error {
   return err;
 }
 
+/**
+ * How large the log file grows before it is renamed afflatus.log.1 (the one before that dropped) and a new one started:
+ * it was only ever appended to. A line is about a hundred bytes, so this is tens of thousands of sign-ins and codes.
+ */
+export const LOG_MAX_BYTES = 5 * 1024 * 1024;
+
 export interface AccessOptions {
   /** The log file the reset codes and the sign-ins are written to as well as the console (data/logs/afflatus.log); none in the tests. */
   logFile?: string;
+  /** How large the log file grows before it is set aside (LOG_MAX_BYTES unless a test says). */
+  logMaxBytes?: number;
   /** The address Afflatus listens on; HOST (loadConfig) when not said, read at each ask so that a test can set it. */
   host?: () => string;
   now?: () => number;
@@ -321,6 +330,9 @@ export class Access extends EventEmitter {
     if (!file) return;
     try {
       await mkdir(dirname(file), { recursive: true });
+      // set aside before the line is written, so that a code just sent is always in afflatus.log itself; two lines at once
+      // may both find it full, and the second rename finds nothing to move
+      if (((await stat(file).catch(() => null))?.size ?? 0) >= (this.opts.logMaxBytes ?? LOG_MAX_BYTES)) await renameOver(file, `${file}.1`).catch(() => {});
       await appendFile(file, `${new Date(this.now()).toISOString()} ${text.replace(/\r?\n/g, "\n    ")}\n`);
     } catch (err) {
       if (!this.logFailed) this.log.warn(`[access] the log file ${file} cannot be written: ${(err as Error).message}`);

@@ -1,6 +1,6 @@
 import type { Kysely } from "kysely";
 import { UNKEPT_MS } from "@afflatus/core";
-import { now, type Db, type Tables } from "./db";
+import { now, toRun, type Db, type Tables } from "./db";
 import type { Storage } from "./storage";
 import { SCRATCH_MS } from "./library";
 import { smallThumbKey } from "./thumbs";
@@ -71,7 +71,7 @@ export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean; jobs?: 
   const drafts = await db.selectFrom("drafts").select(["forms", "look"]).execute();
   scan(drafts.flatMap((d) => [d.forms, d.look]), "a draft");
   if (opts.jobs !== false) {
-    const jobs = await db.selectFrom("jobs").select(["inputs", "resume"]).where("status", "in", ["queued", "running"]).execute();
+    const jobs = await db.selectFrom("jobs").select(["inputs", "resume"]).where(toRun).execute();
     scan(jobs.flatMap((j) => [j.inputs, j.resume]), "a job still to run");
   }
   // what a timeline's Undo and Redo would put back (at most HISTORY steps each way), read last so that what uses it now
@@ -189,14 +189,22 @@ export async function sweep(db: Db, storage: Storage, at = Date.now(), keep: Kee
 
 /** Where a library item's files are kept, each named after the item's id ("assets/ab/<id>.png", "thumbs/ab/<id>.webp"). */
 const ITEM_DIRS = ["assets/", "thumbs/"];
+/**
+ * Where what the timeline works out of a video is kept, each named after the item's id too (timelineModel.ts derivedKeys):
+ * its film strips at every size asked, its motion, scene cuts, pauses, colour and join scores. Erasing an item takes the
+ * ones derivedKeys names, but not a strip of a size asked once, nor anything of a linked file forgotten (linked.ts).
+ */
+const DERIVED_DIRS = ["strips/", "motion/", "scenes/", "pauses/", "means/", "joins/"];
 const ITEM_FILE = /^([0-9a-f]{32})[.-]/;
 
 /**
  * The files of the library that no item names any more, erased: what was left when a server stopped between writing a
- * file and its row, or when a row went and its file could not be removed then, and the half-written ".part" files of a
- * write that stopped (storage.ts). Careful by design: only in the folders where items' files are kept, only a file named
- * after an item id that no row has and that no row names, or a ".part" file, and only a day after it was last written,
- * so that a render or an upload writing its files now is never taken. Returns how many were erased.
+ * file and its row, or when a row went and its file could not be removed then, what was worked out of an item that is
+ * gone, and the half-written ".part" files of a write that stopped (storage.ts). Careful by design: only in the folders
+ * where items' files and what is derived from them are kept, only a file named after an item id that no row has and that
+ * no row names, or a ".part" file, and only a day after it was last written, so that a render or an upload writing its
+ * files now is never taken. The names are compared first and only those few files' times read: read for every file, it
+ * was a stat per file of the library at every start and every hour. Returns how many were erased.
  */
 export async function sweepOrphans(db: Db, storage: Storage, at = Date.now()): Promise<number> {
   if (!storage.list) return 0;
@@ -205,12 +213,14 @@ export async function sweepOrphans(db: Db, storage: Storage, at = Date.now()): P
   const named = new Set(rows.flatMap((r) => [r.file_key, r.thumb_key, r.raw_key, r.latent_key, r.fine_latent_key]));
   const due: string[] = [];
   let items = 0;
-  for (const dir of ITEM_DIRS) {
+  for (const dir of [...ITEM_DIRS, ...DERIVED_DIRS]) {
     for await (const f of storage.list(dir)) {
-      if (at - f.mtimeMs < UNKEPT_MS || named.has(f.key)) continue;
+      if (named.has(f.key)) continue;
       const name = f.key.slice(f.key.lastIndexOf("/") + 1);
       const id = ITEM_FILE.exec(name)?.[1];
       if (!name.endsWith(".part") && (!id || ids.has(id))) continue;
+      const written = await f.mtimeMs();
+      if (written === null || at - written < UNKEPT_MS) continue;
       due.push(f.key);
       if (!name.endsWith(".part")) items++;
     }

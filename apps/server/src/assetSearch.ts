@@ -400,8 +400,10 @@ class AssetSearch {
 
   /**
    * The model families things in the library were made with, for the "Any model" filter. The few families there are are
-   * listed first, and each kept when one live item was made with it (generations_by_family_id): joining every generation to
-   * its items and then keeping the distinct families read the whole library on each call.
+   * listed first, and each kept when one live item was made with it: its generations read by family (generations_by_family_id),
+   * and for each the item made from it by its id (assets_by_generation). Joining every generation to its items and then
+   * keeping the distinct families read the whole library on each call; asked as one join per family, SQLite still went
+   * through every live item for each family (23 to 27 ms a call on a heavy user's library, against 0.1 to 0.5 ms).
    */
   async families() {
     return {
@@ -410,7 +412,12 @@ class AssetSearch {
           .selectFrom((db) => db.selectFrom("generations").select("family").distinct().as("f"))
           .select("f.family")
           .where(({ exists, selectFrom }) =>
-            exists(selectFrom("generations").innerJoin("assets", "assets.generation_id", "generations.id").select("generations.id").whereRef("generations.family", "=", "f.family").where("assets.deleted_at", "is", null)),
+            exists(
+              selectFrom("generations as g")
+                .select("g.id")
+                .whereRef("g.family", "=", "f.family")
+                .where(({ exists: has, selectFrom: from }) => has(from("assets as a").select("a.id").whereRef("a.generation_id", "=", "g.id").where("a.deleted_at", "is", null))),
+            ),
           )
           .execute()
       ).map((r) => r.family),

@@ -19,8 +19,12 @@ export interface Storage {
    * null when it is not on a disk here (a bucket). Left out: never on a disk here.
    */
   localPath?(key: string): string | null;
-  /** Every file whose key starts with `prefix` ("assets/"), with when it was last written. Left out: the storage cannot list. */
-  list?(prefix: string): AsyncIterable<{ key: string; mtimeMs: number }>;
+  /**
+   * Every file whose key starts with `prefix` ("assets/"), and when it was last written, read only when asked: the orphan
+   * sweep needs it of the few files no item names, and a read of it for every file was 18,820 stats an hour at scale.
+   * Null: the file went meanwhile. Left out: the storage cannot list.
+   */
+  list?(prefix: string): AsyncIterable<{ key: string; mtimeMs(): Promise<number | null> }>;
   /** Hold deletions until the function answered is called (see RoutedStorage.hold). Left out: deletions are never held. */
   hold?(): () => Promise<void>;
   /** A text that changes when the file under a key changes, for a key whose file can change (a linked folder's); null for the others. */
@@ -90,16 +94,15 @@ export class LocalStorage implements Storage {
     }
   }
 
-  async *list(prefix: string): AsyncIterable<{ key: string; mtimeMs: number }> {
-    const walk = async function* (dir: string, root: string): AsyncGenerator<{ key: string; mtimeMs: number }> {
+  async *list(prefix: string): AsyncIterable<{ key: string; mtimeMs(): Promise<number | null> }> {
+    // a folder at a time (a few hundred names at most, each item folder sharded by its id's first two letters): the walk
+    // gives the event loop back between two, where one read of the whole tree held it for up to 47 ms at scale
+    const walk = async function* (dir: string, root: string): AsyncGenerator<{ key: string; mtimeMs(): Promise<number | null> }> {
       const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
       for (const e of entries) {
         const full = join(dir, e.name);
         if (e.isDirectory()) yield* walk(full, root);
-        else if (e.isFile()) {
-          const info = await stat(full).catch(() => null);
-          if (info) yield { key: relative(root, full).split(sep).join("/"), mtimeMs: info.mtimeMs };
-        }
+        else if (e.isFile()) yield { key: relative(root, full).split(sep).join("/"), mtimeMs: () => stat(full).then((s) => s.mtimeMs, () => null) };
       }
     };
     yield* walk(this.path(prefix), this.root);

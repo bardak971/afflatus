@@ -5,7 +5,7 @@ import { mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { sql } from "kysely";
 import { environment, envSaid } from "./config";
-import { now } from "./db";
+import { now, toRun } from "./db";
 import { httpError } from "./errors";
 import { fetchToFile, freeBytes, Refused, sizeText } from "./modelDownload";
 import { assertPublicUrl } from "./outbound";
@@ -21,6 +21,9 @@ export function versionName(name: unknown): string | null {
   if (typeof name !== "string" || !/^[\w.+-]+$/.test(name) || name.startsWith(".") || name.endsWith(".")) return null;
   return name;
 }
+
+/** How many of the libraries set aside after an update (backups/after-*.db) an update keeps, the newest. */
+export const AFTER_KEPT = 3;
 
 const escaped = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** The archive of a release for a platform: afflatus-<v>-<platform>.zip or .tar.gz (the tag's "v" or not). */
@@ -142,7 +145,7 @@ export class UpdatesInstall extends UpdatesCheck {
     this.emit(true);
     // what is in the queue now finishes; what is asked for from now on waits for the new version
     const allowed = new Set<string>();
-    const work = this.db.selectFrom("jobs").select("id").where("status", "in", ["queued", "running"]).execute().then((active) => {
+    const work = this.db.selectFrom("jobs").select("id").where(toRun).execute().then((active) => {
       for (const r of active) allowed.add(r.id);
       if (run === this.runs) this.o.services.queue.holdNew(allowed);
       return this.install_(release, asset, allowed, abort.signal);
@@ -332,8 +335,16 @@ export class UpdatesInstall extends UpdatesCheck {
       if (e.isFile() && !/^(last|fallback|failed)\.json$/.test(e.name)) await rm(join(this.updatesDir, e.name), { force: true }).catch(() => {});
     }
     const backups = join(this.o.dataDir, "backups");
-    for (const name of await readdir(backups).catch(() => [] as string[])) {
+    const names = await readdir(backups).catch(() => [] as string[]);
+    for (const name of names) {
       if (/^before-.+\.db$/.test(name) && name !== `before-${to}.db`) await rm(join(backups, name), { force: true }).catch(() => {});
+    }
+    // the libraries set aside by a Go back (updatesGoBack.ts) or a failed first start (launch.mjs), each with what was made
+    // after its update: the newest AFTER_KEPT stay, the older ones go with their journal. None was ever removed before, a
+    // whole database each
+    const aside = await Promise.all(names.filter((n) => /^after-.+\.db$/.test(n)).map(async (name) => ({ name, at: (await stat(join(backups, name)).catch(() => null))?.mtimeMs ?? 0 })));
+    for (const { name } of aside.sort((a, b) => b.at - a.at).slice(AFTER_KEPT)) {
+      for (const tail of ["", "-wal", "-shm"]) await rm(join(backups, `${name}${tail}`), { force: true }).catch(() => {});
     }
   }
 

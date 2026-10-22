@@ -2,6 +2,14 @@ import { Worker } from "node:worker_threads";
 import { SqliteDriver, type CompiledQuery, type DatabaseConnection, type QueryResult, type SqliteDatabase } from "kysely";
 
 /**
+ * The most the WAL file keeps on the disk once a checkpoint has written it back (bytes). Left unset, it stayed as large as
+ * the biggest burst of writes since the start (a fold, an import, a first tidy of old jobs) for as long as the app ran.
+ * The commits stay synchronous = FULL, the default: NORMAL would save about a millisecond a commit but can lose the last
+ * one on a power cut, which is the owner's call.
+ */
+export const JOURNAL_LIMIT = 16 * 1024 * 1024;
+
+/**
  * SQLite in a worker thread. node:sqlite runs every statement synchronously: on the server's own thread, a route that reads
  * for 30 ms holds every other request, the SSE frames and the video Range reads for those 30 ms. Here one worker owns the
  * database and runs the statements one after the other, while the server's thread goes on with the rest.
@@ -22,6 +30,7 @@ let db;
 try {
   db = new DatabaseSync(workerData.file);
   db.exec("PRAGMA journal_mode = WAL");
+  db.exec("PRAGMA journal_size_limit = ${JOURNAL_LIMIT}");
   db.exec("PRAGMA foreign_keys = ON");
   parentPort.postMessage({ id: 0 });
 } catch (err) {
