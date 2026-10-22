@@ -32,6 +32,11 @@ FRAME_FACES = 2
 # The photos' faces by a hash of their pixels: the last few dozen.
 _refs: "OrderedDict[str, object]" = OrderedDict()
 _REFS_KEPT = 32
+# What of a photo its key is read from: about this many pixels, evenly spread, with its size
+_KEY_PIXELS = 1 << 16
+# ONNX Runtime's threads for one model run. Its default, one per core, fought torch's own threads inside ComfyUI: Face Match
+# took 8 to 12 s a render there against about 1 s on its own at 4 threads (2026-10-22)
+THREADS = 4
 
 
 def available() -> bool:
@@ -47,9 +52,33 @@ def _face_app():
         # a folder left half-extracted replaced (face_models.py), before InsightFace, which takes any folder as complete
         root = os.path.join(folder_paths.models_dir, "insightface")
         face_models.fetch(root)
-        _app = FaceAnalysis(name=face_models.NAME, root=root, allowed_modules=["detection", "recognition"], providers=["CPUExecutionProvider"])
-        _app.prepare(ctx_id=-1, det_size=(PHOTO_DET, PHOTO_DET))
+        options = _session_options()
+        app = FaceAnalysis(name=face_models.NAME, root=root, allowed_modules=["detection", "recognition"], providers=["CPUExecutionProvider"], sess_options=options)
+        _capped(app, options)
+        app.prepare(ctx_id=-1, det_size=(PHOTO_DET, PHOTO_DET))
+        _app = app
     return _app
+
+
+def _session_options():
+    import onnxruntime
+
+    options = onnxruntime.SessionOptions()
+    options.intra_op_num_threads = max(1, min(THREADS, os.cpu_count() or THREADS))
+    return options
+
+
+def _capped(app, options) -> None:
+    """Each model's session on `options`' threads. InsightFace 2 makes them with the options it is given; 0.7.3 (the pod
+    image's) drops them, so a session made on the default is made again on the same file."""
+    import onnxruntime
+
+    for model in app.models.values():
+        session = getattr(model, "session", None)
+        path = getattr(model, "model_file", None)
+        if session is None or not path or session.get_session_options().intra_op_num_threads == options.intra_op_num_threads:
+            continue
+        model.session = onnxruntime.InferenceSession(path, sess_options=options, providers=session.get_providers())
 
 
 def _bgr(image, index: int):
@@ -102,12 +131,19 @@ def _faces(bgr, det: int = PHOTO_DET, most: int = 0) -> list:
 
 
 def _reference(photo):
-    """The largest face of a photo, as a unit embedding (None without one): found once per photo, by a hash of its pixels."""
-    bgr = _bgr(photo, 0)
-    key = hashlib.sha1(bgr.tobytes() + repr(bgr.shape).encode()).hexdigest()
+    """
+    The largest face of a photo, as a unit embedding (None without one): found once per photo, by a hash of some of its
+    pixels and its size. Converting and hashing all of a 12 MP photo took 0.12 to 0.16 s on every render (2026-10-22); a
+    photo changed only between the pixels read is taken for the same one, its face then found where it was.
+    """
+    h, w = int(photo.shape[1]), int(photo.shape[2])
+    step = max(1, int((h * w / _KEY_PIXELS) ** 0.5))
+    some = photo[0, ::step, ::step, :3].detach().cpu().numpy()
+    key = hashlib.sha1(some.tobytes() + repr((tuple(photo.shape), str(some.dtype))).encode()).hexdigest()
     if key in _refs:
         _refs.move_to_end(key)
         return _refs[key]
+    bgr = _bgr(photo, 0)
     faces = _faces(bgr)
     ref = max(faces, key=lambda f: f[1])[0] if faces else None
     _refs[key] = ref

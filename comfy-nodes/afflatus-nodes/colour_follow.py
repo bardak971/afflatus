@@ -7,9 +7,10 @@ than its driving video for all of its 5 s). Here each frame is matched to the re
 colour figures averaged over a second or so first: a slow drift is followed, a frame's own flicker is not added, and two
 windows of one source meet on the same colours, both aiming at the same moment of it.
 
-The figures are numpy (the tests run them without torch). The node converts the frames to Lab and back in torch, float32 on
-their own device and a few frames at a time: numpy's float64 took 0.3 s a frame at 576x1024 and nearly 1 s at 1080p, minutes
-on a long clip, for the same figures to a hundredth of a level. `rgb_to_lab` and `lab_to_rgb` stay as the reference for it.
+The figures are numpy (the tests run them without torch). The node reads and moves the frames in torch, float32 on their own
+device and a piece at a time (torch_follow): numpy's float64 took 0.3 s a frame at 576x1024 and nearly 1 s at 1080p, minutes
+on a long clip, for the same figures to a hundredth of a level. `rgb_to_lab`, `lab_to_rgb` and `apply_follow` stay as the
+reference for it.
 """
 
 import numpy as np
@@ -298,16 +299,6 @@ def _torch_lab(torch, rgb):
     return torch.stack([116 * f[..., 1] - 16, 500 * (f[..., 0] - f[..., 1]), 200 * (f[..., 1] - f[..., 2])], dim=-1)
 
 
-def _torch_rgb(torch, lab):
-    """`lab_to_rgb` in torch."""
-    m = torch.tensor(_WHITE[:, None] * _M_INV.T, dtype=lab.dtype, device=lab.device)
-    fy = (lab[..., 0] + 16) / 116
-    f = torch.stack([fy + lab[..., 1] / 500, fy, fy - lab[..., 2] / 200], dim=-1)
-    xyz = torch.where(f ** 3 > _EPS, f ** 3, (116 * f - 16) / _KAPPA)
-    lin = (xyz @ m).clamp_min(0)
-    return torch.where(lin <= 0.0031308, 12.92 * lin, 1.055 * lin.clamp_min(1e-12) ** (1 / 2.4) - 0.055).clamp(0, 1)
-
-
 # Pixels converted at once: a few 1080p frames, so that the float32 copies a conversion makes stay a few hundred MB whatever
 # the clip's length and size
 _CHUNK_PIXELS = 1 << 23
@@ -330,14 +321,58 @@ def torch_stats(torch, frames, step=4):
     return out
 
 
+# Lab is linear in f, the cube roots of XYZ over the white (L = 116 fy - 16, a = 500 (fx - fy), b = 200 (fy - fz)): Lab = P f + q
+_P = np.array([[0.0, 116.0, 0.0], [500.0, -500.0, 0.0], [0.0, 200.0, -200.0]])
+_Q = np.array([-16.0, 0.0, 0.0])
+_P_INV = np.linalg.inv(_P)
+
+
+def follow_transforms(scale, offset, strength=1.0):
+    """
+    Per frame, the 3x3 `A` and the offset `c` with f' = A f + c: exactly Lab + strength (Lab scale + offset - Lab), as the
+    scale and offset act on Lab and Lab is linear in f. Float64, (n, 3, 3) and (n, 3).
+    """
+    s = 1 + strength * (np.asarray(scale, dtype=np.float64) - 1)
+    o = strength * np.asarray(offset, dtype=np.float64)
+    a = _P_INV @ (s[:, :, None] * _P)
+    c = (s * _Q + o - _Q) @ _P_INV.T
+    return a, c
+
+
+# Pixels of a frame moved at once by torch_follow: small enough that the conversion's float32 copies stay in the CPU's cache
+_PIECE_PIXELS = 1 << 18
+
+
 def torch_follow(torch, images, scale, offset, strength=1.0):
-    """`apply_follow` on each frame of a (frames, H, W, 3) tensor by its row of `scale` and `offset`, on the frames' device."""
-    out = torch.empty_like(images)
-    for a, b in _chunks(*images.shape[:3]):
-        s = torch.tensor(np.asarray(scale[a:b]), dtype=torch.float32, device=images.device)[:, None, None, :]
-        o = torch.tensor(np.asarray(offset[a:b]), dtype=torch.float32, device=images.device)[:, None, None, :]
-        lab = _torch_lab(torch, images[a:b].float())
-        out[a:b] = _torch_rgb(torch, lab + strength * (lab * s + o - lab)).to(images.dtype)
+    """
+    `apply_follow` on each frame of a (frames, H, W, 3) tensor by its row of `scale` and `offset`, on the frames' device.
+    Lab is never made: the frame's scale, offset and strength act on f, between the two halves of the conversion, as one 3x3
+    and an offset, on a piece of a frame at a time and in place. Converting to Lab and back over a few frames at once took
+    43.7 ms a frame at 576x1024 and held a gigabyte of copies above the output; this takes 18.9, for the same frames to 2e-5
+    (2026-10-22).
+    """
+    n, h, w = images.shape[:3]
+    out = torch.empty((n, h, w, 3), dtype=images.dtype, device=images.device)
+    a, c = follow_transforms(scale, offset, strength)
+    at = torch.tensor(a.transpose(0, 2, 1), dtype=torch.float32, device=images.device)
+    c = torch.tensor(c, dtype=torch.float32, device=images.device)
+    to_xyz = torch.tensor(_M.T / _WHITE, dtype=torch.float32, device=images.device)
+    to_rgb = torch.tensor(_WHITE[:, None] * _M_INV.T, dtype=torch.float32, device=images.device)
+    dst = out.view(n, h * w, 3)
+    for k in range(n):
+        src = images[k].reshape(h * w, 3)
+        for p in range(0, h * w, _PIECE_PIXELS):
+            v = src[p : p + _PIECE_PIXELS].float().clamp(0, 1)
+            lin = torch.where(v <= 0.04045, v / 12.92, v.add(0.055).div_(1.055).pow_(2.4))
+            xyz = lin @ to_xyz
+            # as _torch_lab: no cube root in torch, and xyz is not negative from clamped colours
+            f = torch.where(xyz > _EPS, xyz.clamp_min(0).pow_(1 / 3), xyz.mul(_KAPPA).add_(16).div_(116))
+            f = torch.addmm(c[k], f, at[k])
+            f3 = f.pow(3)
+            xyz = torch.where(f3 > _EPS, f3, f.mul_(116).sub_(16).div_(_KAPPA))
+            lin = (xyz @ to_rgb).clamp_min_(0)
+            rgb = torch.where(lin <= 0.0031308, lin * 12.92, lin.clamp_min(1e-12).pow_(1 / 2.4).mul_(1.055).sub_(0.055))
+            dst[k, p : p + _PIECE_PIXELS] = rgb.clamp_(0, 1)
     return out
 
 

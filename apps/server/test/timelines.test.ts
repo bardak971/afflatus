@@ -298,6 +298,36 @@ describe.skipIf(!ffmpegThere)("a timeline", { timeout: FFMPEG_TIMEOUT }, () => {
     expect(Math.abs(out.durationMs - v.durationMs)).toBeLessThan(120);
   });
 
+  it("a clip continued in the latent on the machine that saved it names the latent there, and sends it when that ComfyUI no longer has it", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test kept latent" });
+    const latentOf = (graph: Record<string, { class_type: string; inputs: Record<string, unknown> }>) => Object.values(graph).find((n) => n.class_type === "AfflatusLoadH3Latent")?.inputs.latent;
+    const sentLatents = () => fake.uploads.filter((u) => u.endsWith(".safetensors"));
+    const a = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "h3.video" })).clip as string;
+    await render(tl.id, [{ id: a }]);
+    await finishWithLatent(three!, 1, 73);
+    const [firstPrompt] = prompts().at(-1)!;
+    const b = (await call("POST", `/api/timelines/${tl.id}/clips`, {})).clip as string;
+    await render(tl.id, [{ id: b }]);
+    const second = await finishWithLatent(three!, 2, 141);
+    // the clip before's latent, named where this ComfyUI saved it: nothing went back up
+    expect(latentOf(second)).toBe(`${firstPrompt}.safetensors [output]`);
+    expect(sentLatents()).toHaveLength(0);
+    // that ComfyUI started again unseen (its temp folder emptied): the name is refused once, the latent goes up, the prompt
+    // goes again naming it as sent
+    const [secondPrompt] = prompts().at(-1)!;
+    fake.rejectNext.push({
+      error: { message: "Prompt outputs failed validation" },
+      node_errors: { "7": { class_type: "AfflatusLoadH3Latent", errors: [{ message: "Custom validation failed for node", details: `latent - H3 latent file not found: '${secondPrompt}.safetensors [output]'` }] } },
+    });
+    const c = (await call("POST", `/api/timelines/${tl.id}/clips`, {})).clip as string;
+    await render(tl.id, [{ id: c }]);
+    const third = await finishWithLatent(three!, 3, 209);
+    expect(sentLatents()).toHaveLength(1);
+    expect(latentOf(third)).toBe(`${sentLatents()[0]} [temp]`);
+    expect(fake.rejectNext).toHaveLength(0);
+    expect((await view(tl.id)).clips[2].take.joinKind).toBe("seamless");
+  });
+
   it("gives the player the export's colour matching: a nudge per clip toward the clip before at the join, within a few steps, zero for the first", async () => {
     const { id } = await twoClips();
     const { items } = (await get(t.app, `/api/timelines/${id}/match`)).json();

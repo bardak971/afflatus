@@ -299,6 +299,10 @@ async function fileOne(
     latentKey ? put(latentKey, latentBytes!) : null,
     fineKey ? put(fineKey, fineBytes!) : null,
   ]);
+  // they stay where ComfyUI saved them until it starts again: a continuation on this machine names them there (Comfy.kept)
+  for (const [k, f] of [[latentKey, side.latent], [fineKey, side.fine]] as const) {
+    if (k && f) comfy.kept.set(k, { at: Date.now(), name: `${f.subfolder ? `${f.subfolder}/` : ""}${f.filename} [${f.type}]` });
+  }
   // a video is read for its size, its length and a frame to show (when ffmpeg is installed), from where it is stored;
   // a clip that opens on the end of another one is shown by its own first frame, not by the other's
   const video = kind === "video" ? await readStored(storage, key, bytes, ext, headMs) : null;

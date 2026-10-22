@@ -124,16 +124,24 @@ def test_a_saved_latent_goes_to_the_temp_folder_and_says_so(folders):
     assert not os.listdir(folders.output)
 
 
-def test_a_latent_is_loaded_only_from_the_input_or_temp_folder_and_only_a_safetensors_file(folders):
+def test_a_latent_is_loaded_only_from_the_folder_its_name_says_and_only_a_safetensors_file(folders):
     with open(os.path.join(folders.temp, "a.safetensors"), "w") as f:
         f.write("x")
     with open(os.path.join(folders.output, "b.safetensors"), "w") as f:
         f.write("x")
     with open(os.path.join(folders.temp, "c.json"), "w") as f:
         f.write("x")
+    os.makedirs(os.path.join(folders.output, "Afflatus"))
+    with open(os.path.join(folders.output, "Afflatus", "d.safetensors"), "w") as f:
+        f.write("x")
     assert AfflatusLoadH3Latent.validate_inputs("a.safetensors [temp]") is True
-    # a name that climbs out of the folder it names, or a file that is not a latent
+    # one this ComfyUI wrote into its output folder, read where it is (a continuation on the same machine, pack 0.36.5)
+    assert AfflatusLoadH3Latent.validate_inputs("b.safetensors [output]") is True
+    assert AfflatusLoadH3Latent.validate_inputs("Afflatus/d.safetensors [output]") is True
+    # a name that climbs out of the folder it names, even into another one read, or a file that is not a latent
     assert AfflatusLoadH3Latent.validate_inputs("../output/b.safetensors [temp]") is not True
+    assert AfflatusLoadH3Latent.validate_inputs("../temp/a.safetensors [output]") is not True
+    assert AfflatusLoadH3Latent.validate_inputs("../../a.safetensors [output]") is not True
     assert AfflatusLoadH3Latent.validate_inputs("c.json [temp]") is not True
     with pytest.raises(ValueError, match="not found"):
         AfflatusLoadH3Latent.execute("../output/b.safetensors [temp]")

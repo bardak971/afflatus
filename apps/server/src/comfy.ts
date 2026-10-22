@@ -35,6 +35,12 @@ export class Comfy {
    * empties its temp folder then) and with everything else it is told.
    */
   readonly uploaded = new Map<string, { at: number; name: Promise<string> }>();
+  /**
+   * The files this ComfyUI saved that Afflatus keeps a copy of (an H3 latent), by the key they are stored under: named where
+   * they are there ("Afflatus/h3_00001_.safetensors [temp]"), so that a job on this machine that joins onto one names it
+   * rather than sending it back up (queueSubmit's sendLatent). Forgotten with the pictures when ComfyUI starts again.
+   */
+  readonly kept = new Map<string, { at: number; name: string }>();
 
   constructor(readonly url: string, private readonly registry: Registry, token = "") {
     this.client = new ComfyClient(url, undefined, token);
@@ -114,6 +120,7 @@ export class Comfy {
     this.nextScan = null;
     this.lastCatalog = null;
     this.uploaded.clear();
+    this.kept.clear();
   }
 
   /** The node list is read again next time (a node pack was written, and ComfyUI may have loaded it). */

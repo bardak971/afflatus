@@ -1,6 +1,7 @@
 """Afflatus: Follow Colours, on small numpy frames: no torch, no ComfyUI, no GPU."""
 
 import numpy as np
+from conftest import with_torch
 from afflatus_nodes.colour_follow import apply_follow, follow_params, frame_stats, lab_to_rgb, ref_index, rgb_to_lab, smoothed
 
 
@@ -153,6 +154,64 @@ def test_the_nodes_torch_conversion_gives_the_numpy_figures():
     path = os.path.join(os.path.dirname(here), "colour_follow.py")
     run = subprocess.run([sys.executable, "-I", "-c", _TORCH_CHECK, path], capture_output=True, text=True, timeout=120)
     assert run.returncode == 0 and "same" in run.stdout, run.stderr[-2000:]
+
+
+# The pixel pass as it was before 0.36.5: to Lab and back, the scale, offset and strength applied to Lab in between
+_LAB_AND_BACK = r"""
+cf = load("colour_follow")
+
+
+def lab_and_back(images, scale, offset, strength):
+    out = torch.empty_like(images)
+    for k in range(images.shape[0]):
+        s = torch.tensor(np.asarray(scale[k]), dtype=torch.float32)
+        o = torch.tensor(np.asarray(offset[k]), dtype=torch.float32)
+        lab = cf._torch_lab(torch, images[k].float())
+        lab = lab + strength * (lab * s + o - lab)
+        m = torch.tensor(cf._WHITE[:, None] * cf._M_INV.T, dtype=torch.float32)
+        fy = (lab[..., 0] + 16) / 116
+        f = torch.stack([fy + lab[..., 1] / 500, fy, fy - lab[..., 2] / 200], dim=-1)
+        xyz = torch.where(f ** 3 > cf._EPS, f ** 3, (116 * f - 16) / cf._KAPPA)
+        lin = (xyz @ m).clamp_min(0)
+        out[k] = torch.where(lin <= 0.0031308, 12.92 * lin, 1.055 * lin.clamp_min(1e-12) ** (1 / 2.4) - 0.055).clamp(0, 1)
+    return out
+"""
+
+
+def test_the_pixel_pass_in_one_transform_on_f_moves_the_frames_as_lab_and_back_did():
+    """Scale, offset and strength act on Lab, which is linear in f: one 3x3 and an offset on f per frame, a piece of a frame at a
+    time, give the frames converting to Lab and back gave, to 2e-5 (2.3 times faster, 2026-10-22). Random colours, the edges of
+    the sRGB and Lab curves, every strength, frames cut into several pieces, and frames with an alpha channel."""
+    out = with_torch(_LAB_AND_BACK + r"""
+cf._PIECE_PIXELS = 500
+rng = np.random.default_rng(5)
+edges = torch.tensor([0.0, 1.0, 0.04045, 0.0404, 0.0405, 0.0031308, 0.003, 1e-6, 0.999999, 0.5])
+grid = torch.stack(torch.meshgrid(edges, edges, edges, indexing="ij"), -1).reshape(1, 25, 40, 3).repeat(3, 1, 1, 1)
+worst = 0.0
+for images in (torch.rand(5, 30, 44, 3), grid):
+    n = images.shape[0]
+    for strength in (1.0, 0.5, 0.0):
+        scale, offset = np.clip(1 + rng.normal(0, 0.4, (n, 3)), 0.5, 2.0), rng.normal(0, 8, (n, 3))
+        worst = max(worst, float((cf.torch_follow(torch, images, scale, offset, strength) - lab_and_back(images, scale, offset, strength)).abs().max()))
+rgba = torch.cat([torch.rand(4, 30, 44, 3), torch.ones(4, 30, 44, 1)], -1)
+scale, offset = 1 + rng.normal(0, 0.2, (4, 3)), rng.normal(0, 4, (4, 3))
+worst = max(worst, float((cf.torch_follow(torch, rgba[..., :3], scale, offset, 0.8) - lab_and_back(rgba[..., :3].contiguous(), scale, offset, 0.8)).abs().max()))
+print(worst)
+""")
+    assert float(out) < 5e-5, out
+
+
+def test_the_pixel_pass_holds_little_more_than_its_output():
+    """Converting a few frames to Lab and back at once held about a gigabyte of float copies above the output (2.6 GB above a
+    1.63 GB output, 2026-10-22); a piece of a frame at a time holds the output and a few megabytes."""
+    out = with_torch(_LAB_AND_BACK + r"""
+images = torch.rand(40, 1024, 576, 3)
+scale, offset = np.full((40, 3), 1.05), np.ones((40, 3))
+_, extra = peak_above(lambda: cf.torch_follow(torch, images, scale, offset, 1.0))
+print(extra, images.numel() * 4 / 2**20)
+""", needs=("torch", "psutil"))
+    extra, output = (float(v) for v in out.split())
+    assert extra < output + 150, out
 
 
 def flicker(frames, sd, seed, ar=0.0):
