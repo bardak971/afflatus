@@ -79,3 +79,30 @@ describe("a trim waiting for the one on its way (W-13)", () => {
     expect(fakeApi.calls("POST", "/timelines/zz-test-timeline/source/trim").map((c) => c.body)).toEqual([{ fromMs: 2000, toMs: 7000 }, { fromMs: 2000, toMs: 6000 }]);
   });
 });
+
+describe("Make undone at once (W-17)", () => {
+  it("lets go of \"Making…\" once the timeline read back has none of the clips Make made", async () => {
+    const before = { ...timeline, clips: [], undo: "zz-test make" } as unknown as Timeline;
+    fakeApi.on("GET /timelines/:id", before);
+    fakeApi.on("GET /recipes", { families: [], recipes: [windowed] });
+    let seen!: ReturnType<typeof useTimelineEditor>;
+    function Editor() {
+      seen = useTimelineEditor(timeline.id);
+      return null;
+    }
+    draw(<Editor />);
+    await waitFor(() => expect(seen.t?.source && seen.videoRecipes.length).toBeTruthy());
+    // Make answers, and the timeline it read again is held: the Undo sent at once cancels that read
+    const makeRead = later<unknown>();
+    fakeApi.on("GET /timelines/:id", () => makeRead.promise);
+    fakeApi.on("POST /timelines/:id/source/make", { clips: ["zz-test-window"] });
+    act(() => seen.makeSource.run());
+    await waitFor(() => expect(fakeApi.calls("GET", "/timelines/zz-test-timeline").length).toBeGreaterThan(1));
+    expect(seen.makeSource.pending).toBe(true);
+    fakeApi.on("GET /timelines/:id", { ...before, undo: null, redo: "zz-test make" });
+    fakeApi.on("POST /timelines/:id/undo", { undone: "zz-test make" });
+    act(() => seen.undo.mutate());
+    await waitFor(() => expect(seen.t?.redo).toBe("zz-test make"));
+    await waitFor(() => expect(seen.makeSource.pending).toBe(false));
+  });
+});

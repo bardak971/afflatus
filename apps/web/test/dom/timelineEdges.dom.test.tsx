@@ -314,6 +314,49 @@ describe("drags on the track, drawn", () => {
     expect(onStretch).toHaveBeenLastCalledWith(1000, 8000);
   });
 
+  it("springs a trim's end from where it was drawn to the timeline read back, not from the stretch before the trim (W-15)", async () => {
+    capture();
+    // motion allowed, and the spring held where a jump leaves it (no frame runs): the end is drawn where the spring starts
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("no-preference"), media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+    vi.stubGlobal("requestAnimationFrame", () => 1);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    const answers: Array<(taken: boolean) => void> = [];
+    const onStretch = vi.fn(() => new Promise<boolean>((done) => answers.push(done)));
+    const place = { atMs: 5000, lengthMs: 20_000, made: true, windows: [], replaces: null };
+    let readBack!: (t: Timeline) => void;
+    // as the editor does: the timeline read back reaches the lane with the render after the settle
+    function Lane() {
+      const [t, setT] = useState(timeline);
+      readBack = setT;
+      return <SourceLane timeline={t} place={place} recipes={[model]} pps={50} selected={false} over={false} onDragOver={() => {}} onSelect={() => {}} onStretch={onStretch} onPeek={() => {}} />;
+    }
+    draw(<Lane />);
+    const end = () => screen.getByRole("separator", { name: /stops in the source/ });
+    const endPx = () => parseFloat(end().style.left);
+    const pull = (x: number, by: number, id: number) => {
+      fireEvent.pointerDown(end(), { button: 0, clientX: x, pointerId: id });
+      fireEvent.pointerMove(end(), { clientX: x + by, pointerId: id });
+      fireEvent.pointerUp(end(), { clientX: x + by, pointerId: id });
+    };
+    const settle = (toMs: number) => act(async () => {
+      readBack({ ...timeline, source: { ...timeline.source!, toMs } });
+      answers.at(-1)!(true);
+    });
+    // its end a second sooner, taken as asked: drawn where it was let go of, no spring from the old end
+    pull(700, -50, 1);
+    expect(onStretch).toHaveBeenLastCalledWith(2000, 7000);
+    const released = endPx();
+    await settle(7000);
+    expect(endPx()).toBe(released);
+    // a second sooner again, the server's end half a second later than asked: carried from where it was drawn, on the
+    // spring, rather than from the end before the trim
+    pull(650, -50, 2);
+    expect(onStretch).toHaveBeenLastCalledWith(2000, 6000);
+    const second = endPx();
+    await settle(6500);
+    expect(endPx()).toBe(second);
+  });
+
   it("trims once on one release of either of its ends, made or not (W-1)", () => {
     capture();
     for (const made of [false, true]) {
