@@ -532,7 +532,8 @@ export function SectionTitle({ level = "section", className, children }: { level
 
 /**
  * The head of a page (Queue, Settings, Prompt kit, Workflows): its title, then what switches its views (the page's
- * Segmented), then its actions on the right, at one height.
+ * Segmented), then its actions on the right, at one height. The pages take it in the screens pass (review 4, P9).
+ * @public
  */
 export function PageHeader({ title, after, actions, className }: { title: ReactNode; after?: ReactNode; actions?: ReactNode; className?: string }) {
   return (
