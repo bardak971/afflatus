@@ -134,8 +134,10 @@ describe("a deployed pod's boot on its card, its row and its log tab", () => {
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { runpodKey: KEY } });
   });
   afterEach(async () => {
-    vi.unstubAllEnvs();
     await t.close();
+    // the envs unstubbed last: a RunPod call still under way until the close (a hunt's round, a poll) read them
+    // again and, without them, went to RunPod itself
+    vi.unstubAllEnvs();
     await Promise.all([home, runpod, ...spawned.splice(0)].map((x) => x.close().catch(() => {})));
   });
   const ASK = { gpu: "NVIDIA A40", cloud: "SECURE", template: "afflatus", volume: "", disk: 120, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15 };

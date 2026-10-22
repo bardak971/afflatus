@@ -41,7 +41,6 @@ beforeEach(async () => {
   await t.app.inject({ method: "PUT", url: "/api/settings", payload: { runpodKey: KEY } });
 });
 afterEach(async () => {
-  vi.unstubAllEnvs();
   vi.restoreAllMocks();
   // the hunt's own timer stopped and its round under way ended before the app goes: one left running into the close (the
   // timer test's) held the close past its time under a loaded run, and the next test read no ranking
@@ -57,6 +56,9 @@ afterEach(async () => {
   // (the timer test's pod is up as it ends) waited on a ComfyUI that was only closed after it, past the hook's time
   await Promise.all(spawned.splice(0).map((x) => x.close().catch(() => {})));
   await t.close();
+  // the envs unstubbed last: a RunPod call still under way until the close (a hunt's round, a poll) read them
+  // again and, without them, went to RunPod itself
+  vi.unstubAllEnvs();
   await Promise.all([home, runpod].map((x) => x.close().catch(() => {})));
 });
 

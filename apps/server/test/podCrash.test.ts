@@ -38,13 +38,15 @@ beforeEach(async () => {
   await t.app.inject({ method: "PUT", url: "/api/settings", payload: { runpodKey: KEY } });
 });
 afterEach(async () => {
-  vi.unstubAllEnvs();
   // the test's jobs stopped first: a render sent to a pod again (a pod that only stopped answering) runs on a pretend ComfyUI
   // that never ends it, and the close waits for the queue to be idle, past the hook's 30 s under a loaded run
   const open = await t.db.selectFrom("jobs").select("id").where("status", "in", ["queued", "running"]).execute();
   await Promise.all(open.map((j) => t.services.queue.cancel(j.id).catch(() => false)));
   await t.services.queue.idle();
   await t.close();
+  // the envs unstubbed last: a RunPod call still under way until the close (a hunt's round, a poll) read them
+  // again and, without them, went to RunPod itself
+  vi.unstubAllEnvs();
   await Promise.all([home, runpod, ...spawned.splice(0)].map((x) => x.close().catch(() => {})));
 });
 
