@@ -116,15 +116,24 @@ export class Comfy {
     if (this.lastCatalog?.failed) this.lastCatalog = null;
   }
 
-  /** This ComfyUI has a file it did not have: nothing learned about it holds any more. */
+  /** ComfyUI started again (or what it is told no longer holds): nothing learned about it holds any more. */
   forgetAll(): void {
     // started again, maybe with a newer node pack that reads the power
     this.powerAbsentUntil = 0;
+    this.forgetFiles();
+    this.uploaded.clear();
+    this.kept.clear();
+  }
+
+  /**
+   * A model file came to it or left it: its folders and its node list (whose choices name the files) are read again. The
+   * pictures it was sent and the files it saved are still there, and stay known: forgotten with the rest, each landing of a
+   * pod's file had every window's reference photo sent again.
+   */
+  forgetFiles(): void {
     this.lastScan = null;
     this.nextScan = null;
     this.lastCatalog = null;
-    this.uploaded.clear();
-    this.kept.clear();
   }
 
   /** The node list is read again next time (a node pack was written, and ComfyUI may have loaded it). */

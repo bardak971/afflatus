@@ -91,6 +91,8 @@ export const PACK_BUSY_MS = 120_000;
 export const NO_DIRECT = "Its source gives no download link of its own, and a rented GPU cannot reach Afflatus to be sent the file through it.";
 
 interface Download extends DownloadView {
+  /** Its asker reads the ComfyUI's files again itself once it is there (a pod's files, podFiles.ts landed): not done here too. */
+  filesRead?: true;
   token: string;
   source: string;
   headers: Record<string, string>;
@@ -475,7 +477,7 @@ export class Downloads {
    * address the pack or Manager fetches); `comfyDir` is ComfyUI's folder from the Settings, read for a ComfyUI
    * too old to say its folders.
    */
-  async start(comfy: Comfy, self: string, want: { file: string; folder: string; title: string; source: string; headers?: Record<string, string>; total?: number; comfyDir?: string; machine?: string; directOnly?: boolean; quietPassing?: boolean }): Promise<DownloadView> {
+  async start(comfy: Comfy, self: string, want: { file: string; folder: string; title: string; source: string; headers?: Record<string, string>; total?: number; comfyDir?: string; machine?: string; directOnly?: boolean; quietPassing?: boolean; filesRead?: boolean }): Promise<DownloadView> {
     const name = want.file.split(/[\\/]/).pop() ?? "";
     const sub = want.file.split(/[\\/]/).slice(0, -1).filter(Boolean).join("/");
     if (!isModelFile(name) || want.file.split(/[\\/]/).some((p) => BAD_NAME.test(p))) throw httpError(`"${name}" is not a model file Afflatus can download.`);
@@ -498,6 +500,7 @@ export class Downloads {
       ...(want.machine ? { machine: want.machine } : {}),
       ...(want.directOnly ? { directOnly: true } : {}),
       ...(want.quietPassing ? { quietPassing: true } : {}),
+      ...(want.filesRead ? { filesRead: true as const } : {}),
     };
     // a machine that cannot reach Afflatus takes its files from the node pack only, and from the source's own link
     if (want.directOnly && route.via !== "pack") throw httpError("A rented GPU gets its files through the Afflatus node pack (0.12.0 or later), which this one does not answer with.");
@@ -827,8 +830,8 @@ export class Downloads {
         d.status = "done";
         d.finishedAt = Date.now();
         delete d.note;
-        // what was worked out about this ComfyUI no longer holds: it has one more file
-        d.comfy.forgetAll();
+        // what was worked out about its files no longer holds: it has one more (the pictures sent to it are still there)
+        if (!d.filesRead) d.comfy.forgetFiles();
         this.tell(true);
         this.events.emit("models");
         this.events.emit("setup");
