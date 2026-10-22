@@ -38,11 +38,11 @@ export function NewSnippet({ style, categories, first, onDone, onCancel }: {
       {categories.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {categories.map((c) => (
-            <button key={c} type="button" onClick={() => setAdding({ ...adding, category: c })} className={cx("rounded-full px-2 py-0.5 text-[11px]", adding.category.trim().toLowerCase() === c.toLowerCase() ? "bg-line-strong text-ink-strong" : "bg-hover text-ink-2 hover:text-ink")}>{c}</button>
+            <button key={c} type="button" onClick={() => setAdding({ ...adding, category: c })} className={cx("rounded-full px-2 py-0.5 text-meta", adding.category.trim().toLowerCase() === c.toLowerCase() ? "bg-line-strong text-ink-strong" : "bg-hover text-ink-2 hover:text-ink")}>{c}</button>
           ))}
         </div>
       )}
-      <AutoText aria-label="Text of the new snippet" rows={2} placeholder={style === "tags" ? "tags, tags… {a|b} is a wildcard: one is picked each time" : "A sentence or two. {a|b} is a wildcard: one is picked each time"} value={adding.text} onChange={(e) => setAdding({ ...adding, text: e.target.value })} onKeyDown={(e) => e.stopPropagation()} className={cx("py-1.5 text-[13px]", fieldClass)} />
+      <AutoText aria-label="Text of the new snippet" rows={2} placeholder={style === "tags" ? "tags, tags… {a|b} is a wildcard: one is picked each time" : "A sentence or two. {a|b} is a wildcard: one is picked each time"} value={adding.text} onChange={(e) => setAdding({ ...adding, text: e.target.value })} onKeyDown={(e) => e.stopPropagation()} className={cx("py-1.5 text-body", fieldClass)} />
       {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
       <div className="flex items-center justify-end gap-1.5">
         <span className="mr-auto text-xs text-ink-3">{first.trim() ? "Starts with the prompt in the form." : ""}</span>

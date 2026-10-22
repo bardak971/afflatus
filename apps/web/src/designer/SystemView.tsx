@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { Copy, X } from "lucide-react";
+import { Copy } from "lucide-react";
 import { api } from "../api";
-import { Button, ErrorNote } from "../ui";
+import { Button, CloseButton, ErrorNote } from "../ui";
 import { queryKeys } from "../queryKeys";
 import { useCopied } from "../hooks";
 
@@ -17,10 +17,10 @@ export function SystemView({ body, onClose }: { body: Parameters<typeof api.desi
         <Button size="sm" tone="quiet" disabled={!q.data} onClick={() => copy(q.data?.system ?? "")}>
           <Copy size={12} /> {copied ? "Copied" : "Copy"}
         </Button>
-        <Button size="sm" tone="quiet" onClick={onClose}><X size={12} /> Close</Button>
+        <CloseButton size={28} label="Close the system prompt" onClose={onClose} />
       </div>
       {q.isError && <ErrorNote>{q.error.message}</ErrorNote>}
-      <pre className="min-h-0 grow overflow-auto px-4 pb-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-ink">{q.data?.system ?? (q.isPending ? "…" : "")}</pre>
+      <pre className="min-h-0 grow overflow-auto px-4 pb-3 font-mono text-meta leading-relaxed whitespace-pre-wrap text-ink">{q.data?.system ?? (q.isPending ? "…" : "")}</pre>
     </div>
   );
 }

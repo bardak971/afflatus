@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { X } from "lucide-react";
 import { fileKey } from "@afflatus/core";
 import { api, type DeployAsk, type DeployFile, type DeployModels as View, type MeasuredRange, type PresetFile } from "./api";
 import { est, gb, plural, size, usd } from "./format";
@@ -10,7 +9,7 @@ import { ViaChip } from "./modelFilesUi";
 import { queryKeys } from "./queryKeys";
 import { useSayFailed } from "./sayFailed";
 import { Select } from "./Select";
-import { Button, Checkbox, cx, fieldClass, Help } from "./ui";
+import { Button, Checkbox, CloseButton, cx, fieldClass, Help } from "./ui";
 
 const WHY_MODELS = "What the pod gets once it is up, straight from Hugging Face or Civitai (a file no site is known for is sent from this PC). Your waiting jobs' files come first, in the order the queue needs them: a job starts as soon as its own files are there. A job whose file you untick stays home. Fetching is billed GPU time: the time and price are measured on your own deploys (the speeds of each source), or not said. A file fetched never keeps the pod: with nothing to render it goes idle and ends on time.";
 
@@ -41,7 +40,7 @@ export function LicenceChecks({ licences, accept, onChange }: { licences: Readon
 /** A file's line: its box, its name, what it is for, where it comes from, its size. */
 function FileRow({ f, on, onChange, note, dim, disabled }: { f: DeployFile; on: boolean; onChange?(on: boolean): void; note?: string; dim?: boolean; disabled?: boolean }) {
   return (
-    <div className={cx("grid grid-cols-[minmax(0,1fr)_auto_64px] items-center gap-3 py-1 text-[13px]", dim && "opacity-55")}>
+    <div className={cx("grid grid-cols-[minmax(0,1fr)_auto_64px] items-center gap-3 py-1 text-body", dim && "opacity-55")}>
       <Checkbox checked={on} disabled={disabled || !onChange} onChange={(v) => onChange?.(v)} className="min-w-0">
         {/* the whole name: a model's variants often differ only at its end */}
         <span className="min-w-0 break-all">{f.file}<span className="text-ink-3"> · {f.folder}{note ? ` · ${note}` : ""}</span></span>
@@ -143,7 +142,7 @@ export function DeployModels({ want, set, rate, gpu, onPicked }: { want: DeployA
       {v && (
         <div className="flex flex-col gap-3 rounded-xl border border-line p-3">
           <div className="flex flex-col">
-            <span className="flex items-center gap-2 pb-1 text-[13px] font-semibold">
+            <span className="flex items-center gap-2 pb-1 text-body font-semibold">
               Your waiting jobs<span className="font-normal text-ink-3">{v.jobs.count ? ` · ${plural(v.jobs.count, "job")} · fetched first, in queue order` : " · none waiting"}</span>
             </span>
             {v.jobs.files.map((f) => (
@@ -154,7 +153,7 @@ export function DeployModels({ want, set, rate, gpu, onPicked }: { want: DeployA
           </div>
 
           <div className="flex flex-col">
-            <span className="flex items-center gap-2 pb-1 text-[13px] font-semibold">
+            <span className="flex items-center gap-2 pb-1 text-body font-semibold">
               Model set
               <span className="w-[200px] font-normal">
                 <Select size="sm" label="Model set" value={want.set || "none"} onChange={(id) => set({ set: id === "none" ? "" : id })} options={[{ value: "none", label: "None" }, ...(sets.data?.items ?? []).map((s) => ({ value: s.id, label: s.name, note: `${plural(s.count, "file")} · ${gb(s.bytes)}` }))]} />
@@ -171,7 +170,7 @@ export function DeployModels({ want, set, rate, gpu, onPicked }: { want: DeployA
             {added.map((f) => (
               <div key={fileKey(f)} className="flex items-center gap-2">
                 <span className="min-w-0 grow"><FileRow f={f} on={Boolean(f.via)} note={f.via ? undefined : "no source: not sent"} /></span>
-                <button type="button" aria-label={`Take ${f.file} off`} onClick={() => setAdded((a) => a.filter((x) => fileKey(x) !== fileKey(f)))} className="grid size-6 place-items-center rounded-md text-ink-3 hover:bg-hover hover:text-ink"><X size={12} /></button>
+                <CloseButton size={24} label={`Take ${f.file} off`} onClose={() => setAdded((a) => a.filter((x) => fileKey(x) !== fileKey(f)))} />
               </div>
             ))}
             {/* the rest is found in Find models: yours, Civitai, Hugging Face */}

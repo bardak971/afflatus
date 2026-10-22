@@ -348,7 +348,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
         ["advanced", !advancedMoved && <div key="advanced-part" className="contents">{advancedPart}</div>],
       ], ([id]) => id).map(([, node]) => node)}
       {hidden.length > 0 && (
-        <section className="flex flex-col gap-1.5 rounded-[10px] border border-line bg-raised px-3 py-2">
+        <section className="flex flex-col gap-1.5 rounded-control border border-line bg-raised px-3 py-2">
           <span className={PART_HEAD}>Not shown now</span>
           {hidden.map((i) => (
             <span key={i.id} className="text-xs text-ink-2"><span className="font-semibold text-ink">{i.label}</span> · {revealedBy(i)}</span>

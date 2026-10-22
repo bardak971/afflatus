@@ -6,7 +6,7 @@ import { bootNote, busyOutside, gettingFiles, machineState, outsideSaid, rentedS
 // the files a machine is getting: worked out with its state's word (machines.ts), read here too
 export { gettingFiles };
 import { Progress } from "./progress/Progress";
-import { cx, Help } from "./ui";
+import { Chip, cx, Help } from "./ui";
 
 // the machines' small parts, shared by the status bar's pill and its popover (loaded later, on the first click) and the
 // Queue's lanes: a module of their own, so that none imports the others
@@ -33,9 +33,9 @@ export function FilesLine({ g }: { g: NonNullable<ReturnType<typeof gettingFiles
     <span className="flex min-w-0 flex-col gap-1">
       <span className="flex items-center gap-2">
         <Progress value={g.share ?? 0} loading={g.share === null} className="h-1.5 grow" under="bg-line" label="Files fetched" />
-        <span className="shrink-0 font-mono text-[11.5px] text-ink-2">{g.share === null ? `${gb(g.done)} in` : `${gb(g.done)} of ${gb(g.total)}`}</span>
+        <span className="shrink-0 font-mono text-meta text-ink-2">{g.share === null ? `${gb(g.done)} in` : `${gb(g.done)} of ${gb(g.total)}`}</span>
       </span>
-      <span className="truncate text-[11.5px] text-ink-2">{g.now.state === "fetching" ? "now" : "next"}: {g.now.file}{g.now.via ? ` · from ${fromSaid(g.now.via)}` : ""}</span>
+      <span className="truncate text-meta text-ink-2">{g.now.state === "fetching" ? "now" : "next"}: {g.now.file}{g.now.via ? ` · from ${fromSaid(g.now.via)}` : ""}</span>
     </span>
   );
 }
@@ -93,7 +93,7 @@ export function Bar({ label, value, warn, hot, tip }: { label: string; value: nu
   return (
     <span className={cx("inline-flex shrink-0 items-center gap-1.5 text-ink-2", warn && "text-warn-ink")} data-tip={tip ?? `${label} ${Math.round(value)} %`}>
       {label}
-      <Progress meter value={value / 100} className="h-1 w-[26px]" radius="rounded-[3px]" tone={warn ? "bg-warn" : hot ? "bg-accent" : "bg-ink-2"} />
+      <Progress meter value={value / 100} className="h-1 w-[26px]" radius="rounded-key" tone={warn ? "bg-warn" : hot ? "bg-accent" : "bg-ink-2"} />
     </span>
   );
 }
@@ -139,7 +139,7 @@ export function CudaChip({ m, className }: { m: Pick<MachineState, "rented">; cl
   if (!build) return null;
   const host = m.rented?.hostCuda;
   const tip = `The pod image's CUDA build: ${build}. Afflatus deploys the 13.0 build where a host of that GPU with a driver for CUDA 13 is free, else the 12.8 build (the same PyTorch for an older driver).${host ? ` This host's driver: CUDA ${host}.` : ""} How fast each build renders on a GPU is learned from your renders (Queue › Render times).`;
-  return <span className={cx("shrink-0 rounded bg-raised px-1.5 py-px font-mono text-[10.5px] text-ink-2", className)} data-tip={tip}>CUDA {build}</span>;
+  return <Chip size="xs" tip={tip} className={cx("font-mono", className)}>CUDA {build}</Chip>;
 }
 
 /**

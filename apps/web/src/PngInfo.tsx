@@ -61,7 +61,7 @@ export function PngInfo({ name, title = "PNG info", read, first, onClose, onSent
 
   const s = data?.settings;
   return (
-    <Dialog label={title} onClose={onClose} z="z-[80]" className="flex max-h-full w-full max-w-2xl flex-col rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-peek-rise">
+    <Dialog label={title} onClose={onClose} z="z-sheet" className="flex max-h-full w-full max-w-2xl flex-col rounded-dialog border border-line-strong bg-panel shadow-modal motion-safe:animate-peek-rise">
         <header className="shrink-0 border-b border-line px-5 py-3.5">
           <DialogHead icon={<ScanSearch size={16} />} title={title} sub={<span data-tip={name}>{name} · how it was made</span>} onClose={onClose} />
         </header>

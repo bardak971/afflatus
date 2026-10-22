@@ -12,7 +12,7 @@ import { useStripForm } from "./ModelLoad";
 import { failedBanner } from "./sayFailed";
 import { useBanners } from "./store";
 import { queryKeys } from "./queryKeys";
-import { cx, SearchField } from "./ui";
+import { Chip, cx, SearchField } from "./ui";
 
 /** Past this many rows of all the models, typing more narrows them: a long list is not read. */
 const MANY = 40;
@@ -148,13 +148,13 @@ export function LoadDialog({ machine: asked, onClose }: { machine?: string; onCl
         className={cx("grid grid-cols-[96px_minmax(0,1fr)_auto_auto] items-center gap-3 border-t border-line px-5 py-2.5", on && "bg-hover", r.ofForm && !on && "bg-accent-wash/30")}
         onMouseEnter={() => !off && setAt(pickable.indexOf(r))}
       >
-        <span className="justify-self-start truncate rounded-md bg-raised px-1.5 py-0.5 text-[11px] font-semibold text-ink-2" data-tip={r.family}>{r.family}</span>
+        <span className="justify-self-start truncate rounded-md bg-raised px-1.5 py-0.5 text-meta font-semibold text-ink-2" data-tip={r.family}>{r.family}</span>
         <span className="flex min-w-0 flex-col gap-0.5">
-          <span className="truncate font-mono text-[12.5px] text-ink" data-tip={r.path ?? r.file}>{r.file}</span>
+          <span className="truncate font-mono text-body text-ink" data-tip={r.path ?? r.file}>{r.file}</span>
           <span className={cx("truncate text-xs", r.ofForm ? "text-accent" : "text-ink-3")}>{r.from}</span>
         </span>
         <span className="flex shrink-0 items-center gap-2">
-          {loaded.length > 0 && <span className="rounded-full bg-good/15 px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap text-good" data-tip="Held there now: a render with it there starts sampling at once">loaded on {loaded.map(machineLabel).join(", ")}</span>}
+          {loaded.length > 0 && <Chip size="xs" tone="good" tip="Held there now: a render with it there starts sampling at once">loaded on {loaded.map(machineLabel).join(", ")}</Chip>}
           {several.length > 0 && (
             <span className="flex gap-1">
               {has(r).map(({ m, listed }) => (
@@ -193,7 +193,7 @@ export function LoadDialog({ machine: asked, onClose }: { machine?: string; onCl
   ];
 
   return createPortal(
-    <div className="fixed inset-0 z-[85]" onKeyDown={key}>
+    <div className="fixed inset-0 z-bar" onKeyDown={key}>
       {/* the page behind, dimmed as the command bar dims it: a click on it closes the dialog */}
       <div aria-hidden className="absolute inset-0 bg-ground/55 backdrop-blur-[3px] animate-bar-fade motion-reduce:animate-none" onPointerDown={onClose} />
       <div
@@ -201,7 +201,7 @@ export function LoadDialog({ machine: asked, onClose }: { machine?: string; onCl
         aria-modal="true"
         aria-label="Load a model"
         className={cx(
-          "absolute top-[11vh] left-1/2 flex max-h-[78vh] w-[760px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-[18px] border border-line-strong bg-panel/95 backdrop-blur-md",
+          "absolute top-[11vh] left-1/2 flex max-h-[78vh] w-[760px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-dialog border border-line-strong bg-panel/95 backdrop-blur-md",
           "shadow-[0_40px_120px_-12px_color-mix(in_srgb,var(--color-shade)_75%,transparent),0_0_0_1px_color-mix(in_srgb,var(--color-accent)_12%,transparent),0_0_70px_-8px_color-mix(in_srgb,var(--color-accent)_14%,transparent)]",
           "origin-top animate-bar-in motion-reduce:animate-none",
         )}
@@ -215,13 +215,13 @@ export function LoadDialog({ machine: asked, onClose }: { machine?: string; onCl
           label="Find a model"
           icon={<Search size={17} className="shrink-0 text-accent" />}
           className="gap-3 px-5 py-4"
-          inputClassName="text-[17px]"
-          end={<span className="rounded-md border border-line px-1.5 py-0.5 font-mono text-[11px] text-ink-3">Esc</span>}
+          inputClassName="text-page"
+          end={<span className="rounded-md border border-line px-1.5 py-0.5 font-mono text-meta text-ink-3">Esc</span>}
         />
         {several.length > 0 && (
           <div className="flex items-center gap-3 border-b border-line px-5 py-2.5">
             <span className="text-xs text-ink-3">on</span>
-            <div className="flex gap-0.5 rounded-[9px] border border-line bg-raised p-[3px] text-xs" role="radiogroup" aria-label="On which machine">
+            <div className="flex gap-0.5 rounded-control border border-line bg-raised p-[3px] text-xs" role="radiogroup" aria-label="On which machine">
               {options.map((o) => (
                 <button
                   key={o.id ?? "auto"}
@@ -231,7 +231,7 @@ export function LoadDialog({ machine: asked, onClose }: { machine?: string; onCl
                   disabled={o.away}
                   data-tip={o.tip}
                   onClick={() => { setMachine(o.id); setAt(0); input.current?.focus(); }}
-                  className={cx("flex items-center gap-1.5 rounded-[7px] px-2.5 py-1 whitespace-nowrap", machine === o.id ? "bg-hover font-semibold text-ink" : "text-ink-2 hover:text-ink", o.away && "opacity-60")}
+                  className={cx("flex items-center gap-1.5 rounded-chip px-2.5 py-1 whitespace-nowrap", machine === o.id ? "bg-hover font-semibold text-ink" : "text-ink-2 hover:text-ink", o.away && "opacity-60")}
                 >
                   {o.id && <span className={cx("size-[7px] rounded-full", o.away ? "bg-warn" : "border-[1.5px] border-good")} />}
                   {o.label}
@@ -244,13 +244,13 @@ export function LoadDialog({ machine: asked, onClose }: { machine?: string; onCl
         )}
         <div ref={list} className="min-h-0 overflow-y-auto">
           {rows.listed.filter((r) => r.ofForm).map(rowOf)}
-          {rows.listed.some((r) => !r.ofForm) && <div className="border-t border-line px-5 pt-2.5 pb-1 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Recent drafts</div>}
+          {rows.listed.some((r) => !r.ofForm) && <div className="border-t border-line px-5 pt-2.5 pb-1 text-meta font-bold tracking-label text-ink-3 uppercase">Recent drafts</div>}
           {rows.listed.filter((r) => !r.ofForm).map(rowOf)}
-          {rows.all.length > 0 && <div className="border-t border-line px-5 pt-2.5 pb-1 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">All models{rows.all.length >= MANY ? ` · the first ${MANY}` : ""}</div>}
+          {rows.all.length > 0 && <div className="border-t border-line px-5 pt-2.5 pb-1 text-meta font-bold tracking-label text-ink-3 uppercase">All models{rows.all.length >= MANY ? ` · the first ${MANY}` : ""}</div>}
           {rows.all.map(rowOf)}
           {!flat.length && <div className="border-t border-line px-5 py-4 text-sm text-ink-3">{words ? `No model called "${query.trim()}" on ${where}.` : "No form open and no draft yet: type a model's name."}</div>}
         </div>
-        <div className="flex items-center gap-4 border-t border-line px-5 py-2 text-[11.5px] text-ink-3">
+        <div className="flex items-center gap-4 border-t border-line px-5 py-2 text-meta text-ink-3">
           <span>↑↓ move</span><span>Enter load</span><span>Esc close</span>
           {several.length > 0 && <span className="ml-auto">a dot per machine: filled, it has the model</span>}
         </div>

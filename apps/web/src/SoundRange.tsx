@@ -131,7 +131,7 @@ export function SoundRange({ asset, total, start, seconds, min, most, label, pla
           onCommit(p.start, p.seconds);
         }}
       />
-      <span className="flex justify-between gap-3 font-mono text-[10.5px] text-ink-3">
+      <span className="flex justify-between gap-3 font-mono text-micro text-ink-3">
         <span className="shrink-0">0:00</span>
         {/* one line: cut short in a narrow panel rather than running into the times */}
         <span className="min-w-0 truncate">{marks.pauses.length ? "click: play from there · drag: a new part · Alt: not only in a pause" : ""}</span>

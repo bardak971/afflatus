@@ -2,7 +2,7 @@ import { memo } from "react";
 import { Check, Download, Heart, Lock, Plus } from "lucide-react";
 import type { BrowseCard } from "../api";
 import { compact, plural, shortDate, size } from "../format";
-import { cx } from "../ui";
+import { Chip, cx } from "../ui";
 
 /** A card's picture, or for Hugging Face (which has none) a quiet panel with its owner's initial. */
 function Thumb({ card }: { card: BrowseCard }) {
@@ -38,17 +38,17 @@ export const Card = memo(function Card({ card, picked, onOpen, onQuick }: { card
       <button type="button" onClick={() => onOpen(card)} className="flex min-w-0 flex-col rounded-xl text-left focus-visible:outline-offset-[-2px]">
         <span className="relative block h-[150px] w-full overflow-hidden">
           <Thumb card={card} />
-          <span className="absolute top-2 left-2 rounded-md bg-shade/80 px-1.5 py-0.5 text-[10.5px] font-bold text-ink">{[card.type, card.fits ?? card.base].filter(Boolean).join(" · ")}</span>
-          {picked && <span className="absolute top-2 right-2 flex items-center gap-1 rounded-md bg-accent px-1.5 py-0.5 text-[10.5px] font-bold text-accent-ink"><Check size={11} /> picked</span>}
+          <span className="absolute top-2 left-2 rounded-md bg-shade/80 px-1.5 py-0.5 text-micro font-bold text-ink">{[card.type, card.fits ?? card.base].filter(Boolean).join(" · ")}</span>
+          {picked && <span className="absolute top-2 right-2 flex items-center gap-1 rounded-md bg-accent px-1.5 py-0.5 text-micro font-bold text-accent-ink"><Check size={11} /> picked</span>}
           <span className="absolute bottom-2 left-2 flex flex-wrap gap-1">
-            {card.have && <span className="rounded-md bg-shade/80 px-1.5 py-0.5 text-[10.5px] font-bold text-good">on this PC</span>}
-            {inSet && <span className="rounded-md bg-shade/80 px-1.5 py-0.5 text-[10.5px] font-bold text-warn-ink">in set "{inSet}"</span>}
-            {card.update && <span className="rounded-md bg-shade/80 px-1.5 py-0.5 text-[10.5px] font-bold text-accent">{card.update.latest} out · you have {card.update.have}</span>}
-            {card.gated && <span className="flex items-center gap-1 rounded-md bg-shade/80 px-1.5 py-0.5 text-[10.5px] font-bold text-warn-ink"><Lock size={10} /> gated</span>}
+            {card.have && <span className="rounded-md bg-shade/80 px-1.5 py-0.5 text-micro font-bold text-good">on this PC</span>}
+            {inSet && <span className="rounded-md bg-shade/80 px-1.5 py-0.5 text-micro font-bold text-warn-ink">in set "{inSet}"</span>}
+            {card.update && <span className="rounded-md bg-shade/80 px-1.5 py-0.5 text-micro font-bold text-accent">{card.update.latest} out · you have {card.update.have}</span>}
+            {card.gated && <span className="flex items-center gap-1 rounded-md bg-shade/80 px-1.5 py-0.5 text-micro font-bold text-warn-ink"><Lock size={10} /> gated</span>}
           </span>
         </span>
         <span className="flex min-w-0 flex-col gap-1 px-3 py-2.5">
-          <span className="line-clamp-2 text-[13.5px] font-semibold break-words" data-tip={card.name}>{card.name}</span>
+          <span className="line-clamp-2 text-title font-semibold break-words" data-tip={card.name}>{card.name}</span>
           <span className="flex items-center gap-2 truncate text-xs text-ink-3">
             <span className="truncate">by {card.creator}</span>
             <span className="flex items-center gap-0.5"><Download size={11} />{compact(card.downloads)}</span>
@@ -58,8 +58,8 @@ export const Card = memo(function Card({ card, picked, onOpen, onQuick }: { card
           <span className="flex items-center gap-2 text-xs text-ink-2">
             {card.versions[0] && <span className="truncate">{card.versions[0].name}</span>}
             <span className="font-mono text-ink-3">{weightOf(card)}</span>
-            {card.licence.credit && <span className="rounded-full bg-hover px-2 text-[10.5px] text-ink-2">credit the creator</span>}
-            {card.licence.commercial === false && <span className="rounded-full bg-hover px-2 text-[10.5px] text-ink-2">no commercial use</span>}
+            {card.licence.credit && <Chip size="xs">credit the creator</Chip>}
+            {card.licence.commercial === false && <Chip size="xs">no commercial use</Chip>}
           </span>
         </span>
       </button>

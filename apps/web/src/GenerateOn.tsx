@@ -120,7 +120,7 @@ function MachinePick({ pickKey, of, msOn, file, why, note, small }: {
       </button>
       {open && (
         <Popover anchor={anchor} onClose={() => setOpen(false)} label="Render on" width={440} height={80 + (several.length + 1) * 52}>
-          <div className="flex flex-col text-[13px]">
+          <div className="flex flex-col text-body">
             <div className="flex items-baseline gap-2 px-3.5 py-2.5">
               <span className="font-semibold">Render on</span>
               <span className="text-xs text-ink-3">{of === "draft" ? "this draft" : "every clip of this timeline"}</span>
@@ -152,7 +152,7 @@ function MachinePick({ pickKey, of, msOn, file, why, note, small }: {
                 </button>
               );
             })}
-            <div className="border-t border-line px-3.5 py-2 text-[11.5px] text-ink-3">
+            <div className="border-t border-line px-3.5 py-2 text-meta text-ink-3">
               Kept for this {of} until you set Any machine again. <Link href={settingHref("comfy.machines")} onClick={() => setOpen(false)} className="hover:text-ink hover:underline">Machines ›</Link>
             </div>
           </div>

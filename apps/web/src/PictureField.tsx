@@ -1,7 +1,7 @@
 import { useExplain } from "./store";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Film, ImagePlus, Music, Search, Upload, X } from "lucide-react";
+import { Film, ImagePlus, Music, Upload } from "lucide-react";
 import type { ClipValue, ReferenceRole, ReferenceValue } from "@afflatus/core";
 import { Select } from "./Select";
 import { api, thumbUrl, type Asset } from "./api";
@@ -15,7 +15,7 @@ import { useSettled } from "./hooks";
 import { projectForNew, useProject } from "./project";
 import { clock } from "./format";
 import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, LEAN_MOTION, useDropZone } from "./dragging";
-import { Button, cx, Empty, ErrorNote, fieldClass, NumberBox, Help, Note, Segmented } from "./ui";
+import { Button, CloseButton, cx, Empty, ErrorNote, NumberBox, Help, Note, SearchField, Segmented } from "./ui";
 import { LoadMore } from "./LoadMore";
 import { AudioPlayer } from "./AudioPlayer";
 import { firstPart, SoundRange, useSoundMarks } from "./SoundRange";
@@ -68,17 +68,13 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
   const upload = useUpload((a) => onPick(a.id), kit);
 
   return (
-    <Dialog label={title} onClose={onClose} z="z-50" className="flex max-h-full w-full max-w-4xl flex-col rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-peek-rise">
+    <Dialog label={title} onClose={onClose} z="z-50" className="flex max-h-full w-full max-w-4xl flex-col rounded-dialog border border-line-strong bg-panel shadow-modal motion-safe:animate-peek-rise">
         {/* the head, with the search and the ways to bring one in between it and the way out */}
         <header className="flex shrink-0 items-center gap-2.5 border-b border-line px-5 py-3.5">
           <span className="min-w-0 grow">
             <DialogHead icon={kind === "audio" ? <Music size={16} /> : kind === "video" ? <Film size={16} /> : <ImagePlus size={16} />} title={title} sub="Pick one from your library, or bring one in" />
           </span>
-          {/* the kit's text box, the glass laid over it */}
-          <span className="relative w-64 shrink-0">
-            <Search size={13} aria-hidden className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-ink-3" />
-            <input autoFocus data-search="picker" aria-label={`Search ${WORD[kind]}s by prompt or name`} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Find by prompt or name" className={cx(fieldClass, "h-9 w-full pl-7.5 text-sm")} />
-          </span>
+          <SearchField autoFocus data-search="picker" label={`Search ${WORD[kind]}s by prompt or name`} value={typed} onChange={setTyped} placeholder="Find by prompt or name" className="w-64 shrink-0" inputClassName="text-sm" />
           {project !== null && (
             <Segmented
               size="sm" oneLine label="Where to look" value={all ? "all" : "here"} onChange={(v) => setAll(v === "all")}
@@ -103,7 +99,7 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
             }}
           />
           <Keys keys="Esc" size="sm" />
-          <button type="button" aria-label="Close" data-tip="Close" data-tip-keys="Esc" onClick={onClose} className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
+          <CloseButton keys="Esc" onClose={onClose} />
         </header>
         <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto p-5">
           {upload.error && <ErrorNote>{upload.error.message}</ErrorNote>}
@@ -135,7 +131,7 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
                 {sounding.map((a) => (
                   <button key={a.id} type="button" aria-label={a.name ? `Use the audio of ${a.name}` : "Use the audio of this video"} onClick={() => onPick(a.id)} className="relative aspect-[3/4] overflow-hidden rounded-lg border border-line bg-raised hover:border-accent">
                     <HoverVideo asset={a.id} video />
-                    <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1 rounded-md bg-ground/80 px-1.5 py-0.5 text-[11px] font-semibold"><Music size={11} /> {a.durationMs ? clock(a.durationMs) : "sound"}</span>
+                    <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1 rounded-md bg-ground/80 px-1.5 py-0.5 text-meta font-semibold"><Music size={11} /> {a.durationMs ? clock(a.durationMs) : "sound"}</span>
                   </button>
                 ))}
               </div>
@@ -156,7 +152,7 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
                 className="relative aspect-[3/4] overflow-hidden rounded-lg border border-line bg-raised hover:border-accent"
               >
                 <HoverVideo asset={a.id} video={a.kind === "video"} />
-                {a.durationMs ? <span className="absolute bottom-1.5 left-1.5 rounded-md bg-ground/80 px-1.5 py-0.5 text-[11px] font-semibold">{clock(a.durationMs)}</span> : null}
+                {a.durationMs ? <span className="absolute bottom-1.5 left-1.5 rounded-md bg-ground/80 px-1.5 py-0.5 text-meta font-semibold">{clock(a.durationMs)}</span> : null}
               </button>
             ))}
           </div>
@@ -444,8 +440,8 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
     >
       {value.map((ref, i) => (
         <div key={ref.asset} className={cx("flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5", !first.current.has(ref.asset) && "m-fade")}>
-          <button type="button" aria-label={`Show reference ${i + 1} large`} onClick={() => setOpen(ref.asset)} className="shrink-0 cursor-zoom-in rounded-[3px]">
-            <img src={thumbUrl(ref.asset)} alt="" className="h-12 w-12 rounded-[3px] object-cover" />
+          <button type="button" aria-label={`Show reference ${i + 1} large`} onClick={() => setOpen(ref.asset)} className="shrink-0 cursor-zoom-in rounded-key">
+            <img src={thumbUrl(ref.asset)} alt="" className="h-12 w-12 rounded-key object-cover" />
           </button>
           <div className="min-w-0 grow">
             {roles.length === 1 && <span className="text-ink-2">{video ? `Video ${i + 1}` : `Image ${i + 1}`}: {ROLE_WORDS[ref.role].label.toLowerCase()}</span>}
@@ -457,13 +453,13 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
               options={roles.map((r) => ({ value: r, label: ROLE_WORDS[r].label, note: ROLE_WORDS[r].note }))}
             />}
           </div>
-          <button type="button" aria-label={`Remove reference ${video ? "video" : "image"} ${i + 1}`} onClick={() => onChange(value.filter((_v, j) => j !== i))} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
+          <CloseButton size={28} label={`Remove reference ${video ? "video" : "image"} ${i + 1}`} onClose={() => onChange(value.filter((_v, j) => j !== i))} />
         </div>
       ))}
       {cast.map((c) => (
         <div key={`cast:${c.asset}`} className="flex items-center gap-2.5 rounded-lg border border-dashed border-line-strong p-1.5" data-tip={`Added from the cast when the form is sent. Take ${c.from} out of the cast to leave it out; your own images come first.`}>
-          <button type="button" aria-label={`Show ${c.from}'s reference large`} onClick={() => setOpen(c.asset)} className="shrink-0 cursor-zoom-in rounded-[3px]">
-            <img src={thumbUrl(c.asset)} alt="" className="h-12 w-12 rounded-[3px] object-cover opacity-90" />
+          <button type="button" aria-label={`Show ${c.from}'s reference large`} onClick={() => setOpen(c.asset)} className="shrink-0 cursor-zoom-in rounded-key">
+            <img src={thumbUrl(c.asset)} alt="" className="h-12 w-12 rounded-key object-cover opacity-90" />
           </button>
           <span className="min-w-0 grow text-ink-2"><span className="font-semibold text-ink">{c.from}</span> · {ROLE_WORDS[c.role].label.toLowerCase()}<span className="block text-xs text-ink-3">from the cast</span></span>
         </div>

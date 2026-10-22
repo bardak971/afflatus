@@ -33,7 +33,7 @@ const Viewer = lazy(() => import("./Viewer").then((m) => ({ default: m.Viewer })
 /** A number of the strip in the room of three digits. */
 const pad = (n: number) => String(Math.round(n)).padStart(3, " ");
 
-const pill = "relative inline-flex h-7 items-center gap-2 overflow-hidden rounded-[9px] bg-raised px-2.5 whitespace-nowrap";
+const pill = "relative inline-flex h-7 items-center gap-2 overflow-hidden rounded-control bg-raised px-2.5 whitespace-nowrap";
 const dot = "size-[7px] shrink-0 rounded-full";
 const Sep = () => <span className="h-[18px] w-px shrink-0 bg-line" />;
 
@@ -163,7 +163,7 @@ function Meter({ label, value, fill, warn, tip, className }: { label: string; va
   return (
     <span className={cx("inline-flex shrink-0 items-center gap-1.5 text-ink-2", warn && "text-warn-ink", className)} data-tip={tip}>
       {label}
-      <Progress meter value={value / 100} className="h-1 w-[26px]" radius="rounded-[3px]" tone={warn ? "bg-warn" : (fill ?? "bg-ink-2")} />
+      <Progress meter value={value / 100} className="h-1 w-[26px]" radius="rounded-key" tone={warn ? "bg-warn" : (fill ?? "bg-ink-2")} />
       <span className="font-mono whitespace-pre">{pad(value)}<span className="opacity-70">%</span></span>
     </span>
   );
@@ -202,7 +202,7 @@ function Running({ run }: { run: RunningJob }) {
         <span className="min-w-16 truncate font-semibold">{what}</span>
         {/* the first thing to go when the strip is short of room */}
         {of && <span className="max-w-48 min-w-0 truncate text-ink-2 max-[1440px]:hidden">{of}</span>}
-        {run.join && <span className="shrink-0 rounded-[5px] bg-accent-wash px-1.5 py-px text-[10.5px] font-bold text-accent" data-tip={JOIN_TIP[run.join]}>{JOIN_WORD[run.join]}</span>}
+        {run.join && <Chip size="xs" tone="accent" tip={JOIN_TIP[run.join]}>{JOIN_WORD[run.join]}</Chip>}
         {/* the phase and the steps go on a narrow window, so that what renders keeps room for its name */}
         <span className="contents max-sm:hidden">
           <Sep />
@@ -212,7 +212,7 @@ function Running({ run }: { run: RunningJob }) {
         <span className="shrink-0 font-mono whitespace-pre text-ink-2">· {left}</span>
         <Progress shape="edge" value={run.progress} steps={run.steps} loading={!run.progress} />
       </Link>
-      {run.spilling && <span className="shrink-0 rounded-[5px] bg-warn-wash px-1.5 py-px font-semibold whitespace-nowrap text-warn-ink" data-tip="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory (a finish frees ComfyUI's models first), or give SeedVR2 a smaller batch size (Finish).">spilling out of VRAM</span>}
+      {run.spilling && <span className="shrink-0 rounded-key bg-warn-wash px-1.5 py-px font-semibold whitespace-nowrap text-warn-ink" data-tip="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory (a finish frees ComfyUI's models first), or give SeedVR2 a smaller batch size (Finish).">spilling out of VRAM</span>}
     </>
   );
 }

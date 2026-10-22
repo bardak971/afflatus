@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
 import { useBanners } from "./store";
-import { Button } from "./ui";
+import { Button, Spinner } from "./ui";
 import { followRestart, securityNews, useRestarting, useUpdates, useUpdatesSeen } from "./updates";
 
 /** A restart that takes longer than this is said, with a way to read the page again by hand. */
@@ -50,11 +49,11 @@ function Restarting() {
   }, [since]);
   if (since === null) return null;
   return (
-    <div role="alertdialog" aria-modal="true" aria-label="Restarting" className="fixed inset-0 z-[100] flex items-center justify-center bg-ground/90 p-8 motion-safe:animate-peek-fade">
+    <div role="alertdialog" aria-modal="true" aria-label="Restarting" className="fixed inset-0 z-gate flex items-center justify-center bg-ground/85 p-8 motion-safe:animate-peek-fade">
       <div className="flex max-w-sm flex-col items-center gap-3 text-center">
-        <RefreshCw size={22} className="animate-spin text-accent [animation-duration:1.6s] motion-reduce:animate-none" aria-hidden />
+        <Spinner size={22} />
         <span className="text-base font-bold">Restarting…</span>
-        <span className="text-[13px] text-ink-2">
+        <span className="text-body text-ink-2">
           {long ? "Afflatus is taking longer than usual to come back: its console says why." : "Afflatus comes back by itself in a moment; this page reloads then."}
         </span>
         {long && <Button size="sm" onClick={() => location.reload()}>Reload</Button>}

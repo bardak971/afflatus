@@ -12,7 +12,7 @@ export function SeedButton({ seed, className }: { seed: number; className?: stri
       onClick={copy}
       data-tip="Copy the seed"
       aria-label={`Copy the seed ${seed}`}
-      className={cx("inline-flex max-w-full cursor-copy items-center gap-1 rounded-md border border-line-strong bg-raised px-1.5 font-mono text-[11.5px] leading-[18px] text-ink hover:bg-hover", className)}
+      className={cx("inline-flex max-w-full cursor-copy items-center gap-1 rounded-md border border-line-strong bg-raised px-1.5 font-mono text-meta leading-[18px] text-ink hover:bg-hover", className)}
     >
       {/* both laid in one cell: the button keeps its width while it says "Copied" */}
       <span className="grid">

@@ -6,9 +6,9 @@ export const MAC = onMac();
 
 const CAP = {
   // the sheet, the tips: a keycap on a panel
-  md: "h-5 min-w-5 rounded-[5px] border-line-strong bg-ground px-[5px] text-[11px] text-ink shadow-[inset_0_-1px_0_var(--color-line)]",
+  md: "h-5 min-w-5 rounded-key border-line-strong bg-ground px-[5px] text-meta text-ink shadow-[inset_0_-1px_0_var(--color-line)]",
   // menus and buttons: the colour of what it sits in, so it reads on a primary button as on a menu
-  sm: "h-4 min-w-4 rounded-[4px] border-current/30 bg-current/[0.06] px-1 text-[10px] text-current",
+  sm: "h-4 min-w-4 rounded-key border-current/30 bg-current/[0.06] px-1 text-micro text-current",
 };
 
 /**
@@ -19,17 +19,17 @@ const CAP = {
 export function Keys({ keys, size = "md", hits, className }: { keys: string; size?: "md" | "sm"; hits?: readonly KeyHit[]; className?: string }) {
   const parsed = parseKeys(keys);
   const box = `inline-flex shrink-0 items-center ${className ?? ""}`;
-  if (!parsed) return <span className={`${box} font-mono text-[11px] text-ink-2`}>{keys}</span>;
-  if ("code" in parsed) return <code className={`${box} font-mono text-[12px] text-accent`}>{parsed.code}</code>;
+  if (!parsed) return <span className={`${box} font-mono text-meta text-ink-2`}>{keys}</span>;
+  if ("code" in parsed) return <code className={`${box} font-mono text-meta text-accent`}>{parsed.code}</code>;
   const lit = (way: number, chord: number, k: string) => Boolean(hits?.some((h) => h.way === way && h.chord === chord && h.key === k));
   return (
     <span className={box}>
       {parsed.ways.map((way, i) => (
         <Fragment key={i}>
-          {i > 0 && <span className={size === "md" ? "mx-[5px] text-[11px] text-ink-3" : "mx-1 text-[10px] opacity-60"}>or</span>}
+          {i > 0 && <span className={size === "md" ? "mx-[5px] text-meta text-ink-3" : "mx-1 text-micro opacity-60"}>or</span>}
           {way.mouse ? (
             // a mouse move is words, not caps: "Ctrl + click"
-            <span className={size === "md" ? "text-xs whitespace-nowrap text-ink-2" : "text-[11px] whitespace-nowrap opacity-75"}>{way.pair[0]!.map((k) => capText(k, MAC)).join(" + ")}</span>
+            <span className={size === "md" ? "text-xs whitespace-nowrap text-ink-2" : "text-meta whitespace-nowrap opacity-75"}>{way.pair[0]!.map((k) => capText(k, MAC)).join(" + ")}</span>
           ) : (
             <span className={size === "md" ? "inline-flex items-center gap-1" : "inline-flex items-center gap-[3px]"}>
               {way.pair.map((chord, j) => (

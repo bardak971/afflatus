@@ -139,7 +139,7 @@ export function AudioPlayer({ asset, src, name, range, strip, bare, className, o
     <div
       onKeyDown={onKeys}
       onClick={onClick}
-      className={cx("flex min-w-0 items-center gap-3.5", !bare && !strip && "rounded-[14px] border border-line bg-raised px-3.5 py-2.5", !strip && className)}
+      className={cx("flex min-w-0 items-center gap-3.5", !bare && !strip && "rounded-card border border-line bg-raised px-3.5 py-2.5", !strip && className)}
     >
       <audio
         key={url}
@@ -167,7 +167,7 @@ export function AudioPlayer({ asset, src, name, range, strip, bare, className, o
       <PlayButton on={on} onClick={toggle} />
       {name ? (
         <span className="flex min-w-0 grow flex-col gap-1.5">
-          <span className="flex min-w-0 items-center gap-2 text-[13px]">
+          <span className="flex min-w-0 items-center gap-2 text-body">
             <span className="min-w-0 grow truncate font-semibold">{name}</span>
             {time}
           </span>
@@ -186,7 +186,7 @@ export function AudioPlayer({ asset, src, name, range, strip, bare, className, o
   if (!strip) return player;
   // the playhead shows once the part has been played or sought into
   return (
-    <div className={cx("flex min-w-0 flex-col gap-2", !bare && "rounded-[14px] border border-line bg-raised px-3.5 py-2.5", className)}>
+    <div className={cx("flex min-w-0 flex-col gap-2", !bare && "rounded-card border border-line bg-raised px-3.5 py-2.5", className)}>
       {player}
       {strip(on || now > from ? now : null, playFrom)}
     </div>

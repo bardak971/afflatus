@@ -1,5 +1,5 @@
 import { isModelFile } from "@afflatus/core";
-import { CopyPlus, Download as DownloadIcon, ExternalLink, FileDown, Link2, MoreHorizontal, Play, X } from "lucide-react";
+import { CopyPlus, Download as DownloadIcon, ExternalLink, FileDown, Link2, MoreHorizontal, Play } from "lucide-react";
 import type { Entity, PresetDef } from "./api";
 import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
 import { useRecipes } from "./data";
@@ -10,7 +10,7 @@ import { kitHref } from "./screens/kit/link";
 import { useSayFailed } from "./sayFailed";
 import { copyText } from "./secureContext";
 import { useBanners } from "./store";
-import { Button, cx, Help } from "./ui";
+import { Button, CloseButton, cx, Help, IconButton } from "./ui";
 
 /** Inputs a cell says together, under one label: the sampler and its scheduler, the two shifts of a video with sound. */
 const PAIRS: Array<{ ids: [string, string]; label: string; join: string }> = [
@@ -108,11 +108,11 @@ export function ShippedPreset({ e, onApply, onDuplicate, duplicating, onClose }:
       <div className="flex flex-col gap-2">
         {/* the name on a line of its own, whole: beside the buttons a long one was cut even on a wide screen */}
         <div className="flex items-start gap-3">
-          <h2 className="min-w-0 grow text-[22px] leading-tight font-bold text-balance">{e.name}</h2>
-          <button type="button" aria-label="Close" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
+          <h2 className="min-w-0 grow text-display leading-tight font-bold text-balance">{e.name}</h2>
+          <CloseButton onClose={onClose} />
         </div>
         {/* what it is for, what it is picked by, who made it */}
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-body text-ink-2">
           <span>{recipe ? recipeLabel(family?.name, recipe.title) : `${def.recipe ?? "Any model"} (no such form here)`}</span>
           {def.line && <><span className="text-ink-3">·</span><span>{def.line}</span></>}
           {def.author && <><span className="text-ink-3">·</span><span>by <span className="font-semibold text-ink">{def.author}</span></span></>}
@@ -131,9 +131,9 @@ export function ShippedPreset({ e, onApply, onDuplicate, duplicating, onClose }:
             <Play size={13} /> Apply in Studio{missing > 0 && <span className="font-medium text-ink-3">· renders once the file{missing > 1 ? "s are" : " is"} in</span>}
           </Button>
           <Button size="sm" onClick={onDuplicate} disabled={duplicating} data-tip="A copy in your presets, opened: it can be changed, and keeps the files and the credit" className="flex items-center gap-1.5"><CopyPlus size={13} /> Duplicate</Button>
-          <button type="button" aria-label={`More actions on ${e.name}`} aria-haspopup="menu" data-tip="Copy link, Save as a file" onClick={(ev) => more.open(ev, null)} className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-ink-2 hover:bg-hover hover:text-ink", more.menu ? "border-accent" : "border-line-strong")}>
+          <IconButton tone="outline" label={`More actions on ${e.name}`} aria-haspopup="menu" tip="Copy link, Save as a file" onClick={(ev) => more.open(ev, null)} className={cx(more.menu && "border-accent!")}>
             <MoreHorizontal size={15} />
-          </button>
+          </IconButton>
         </div>
       </div>
 
@@ -148,9 +148,9 @@ export function ShippedPreset({ e, onApply, onDuplicate, duplicating, onClose }:
         ) : (
           <div className="grid grid-cols-3 gap-2">
             {cells.map((c) => (
-              <div key={c.key} className={cx("flex min-w-0 flex-col gap-0.5 rounded-[10px] border border-line px-3 py-2", c.file && "col-span-3")}>
-                <span className="text-[11.5px] text-ink-3">{c.label}</span>
-                <span className={cx("font-semibold break-words", c.file && "font-mono text-[12.5px]")}>{c.text}</span>
+              <div key={c.key} className={cx("flex min-w-0 flex-col gap-0.5 rounded-control border border-line px-3 py-2", c.file && "col-span-3")}>
+                <span className="text-meta text-ink-3">{c.label}</span>
+                <span className={cx("font-semibold break-words", c.file && "font-mono text-body")}>{c.text}</span>
               </div>
             ))}
           </div>
@@ -164,8 +164,8 @@ export function ShippedPreset({ e, onApply, onDuplicate, duplicating, onClose }:
           </span>
           <div className="grid grid-cols-3 gap-2">
             {defaults.map((c) => (
-              <div key={c.key} className="flex min-w-0 flex-col gap-0.5 rounded-[10px] border border-dashed border-line px-3 py-2">
-                <span className="text-[11.5px] text-ink-3">{c.label}</span>
+              <div key={c.key} className="flex min-w-0 flex-col gap-0.5 rounded-control border border-dashed border-line px-3 py-2">
+                <span className="text-meta text-ink-3">{c.label}</span>
                 <span className="break-words text-ink-2">{c.text}</span>
               </div>
             ))}
@@ -177,7 +177,7 @@ export function ShippedPreset({ e, onApply, onDuplicate, duplicating, onClose }:
 
       {/* its licence in one line, marked until it is accepted (the theme's warning colour is a red: only the mark wears it); what matters in it behind the ?, in full at its link */}
       {def.licence && (
-        <div className={cx("flex items-start gap-2.5 rounded-[10px] border px-3 py-2.5 text-[13px] leading-snug", toAccept ? "border-line-strong bg-panel" : "border-line text-ink-2")}>
+        <div className={cx("flex items-start gap-2.5 rounded-control border px-3 py-2.5 text-body leading-snug", toAccept ? "border-line-strong bg-panel" : "border-line text-ink-2")}>
           {toAccept && <span aria-hidden className="font-bold text-warn-ink">!</span>}
           <span className="min-w-0">
             <span className="font-semibold text-ink">{def.licence.name}</span>

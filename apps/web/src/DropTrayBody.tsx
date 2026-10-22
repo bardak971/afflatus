@@ -123,7 +123,7 @@ export function DropTrayBody({ kind }: { kind: Kind | null }) {
   return (
     <>
       {kind && zones.length > 0 && (
-        <div ref={trayRef} style={{ transformOrigin: "bottom" }} className="m-pop pointer-events-none fixed inset-x-0 bottom-14 z-[70] flex flex-col items-center gap-2">
+        <div ref={trayRef} style={{ transformOrigin: "bottom" }} className="m-pop pointer-events-none fixed inset-x-0 bottom-14 z-toast flex flex-col items-center gap-2">
           <span className="rounded-full bg-ground/90 px-3 py-1 text-xs text-ink-2">Drop on an action</span>
           <div className="pointer-events-auto flex gap-3 rounded-3xl border border-line-strong bg-panel/95 p-3 shadow-2xl">
             {zones.map((z) => (
@@ -152,7 +152,7 @@ export function DropTrayBody({ kind }: { kind: Kind | null }) {
         </div>
       )}
       {said && !kind && (
-        <div ref={saidRef} role="status" className={cx("m-toast fixed bottom-14 left-1/2 z-[70] max-w-xl -translate-x-1/2 rounded-xl border px-4 py-2.5 shadow-2xl", said.bad ? "border-warn bg-warn-wash text-warn-ink" : "border-line-strong bg-panel")}>{said.text}</div>
+        <div ref={saidRef} role="status" className={cx("m-toast fixed bottom-14 left-1/2 z-toast max-w-xl -translate-x-1/2 rounded-xl border px-4 py-2.5 shadow-2xl", said.bad ? "border-warn bg-warn-wash text-warn-ink" : "border-line-strong bg-panel")}>{said.text}</div>
       )}
       {found && <Suspense fallback={null}><PngInfo name={found.file.name} first={found.data} read={(recipe) => api.embedded(found.file, recipe)} onClose={() => setFound(null)} /></Suspense>}
     </>

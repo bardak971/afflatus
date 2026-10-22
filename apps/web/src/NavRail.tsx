@@ -29,7 +29,7 @@ export function Mark({ big }: { big?: boolean }) {
       data-tip={big ? undefined : "Afflatus"}
       // on the dark of the stage in every theme, as the favicon: the accent there is the one tuned for the dark
       data-stage
-      className={cx("flex shrink-0 items-center justify-center border border-line bg-raised", big ? "h-[52px] w-[52px] rounded-[13px]" : "h-[38px] w-[38px] rounded-[11px]")}
+      className={cx("flex shrink-0 items-center justify-center border border-line bg-raised", big ? "h-[52px] w-[52px] rounded-card" : "h-[38px] w-[38px] rounded-control")}
     >
       <svg width={big ? 36 : 27} height={big ? 36 : 27} viewBox="0 0 100 100" className="text-accent" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" fillRule="evenodd" aria-hidden>
         <path d={MARK.body} />
@@ -48,7 +48,7 @@ function Item({ entry, path, tip, label, pill, badge }: { entry: Entry; path: st
       aria-current={on ? "page" : undefined}
       aria-label={label}
       data-tip={tip}
-      className={cx("group relative flex w-[62px] shrink-0 flex-col items-center gap-1 rounded-[12px] pt-1.5 pb-[7px] text-[10.5px] font-semibold", on ? "text-ink" : "text-ink-2 hover:text-ink")}
+      className={cx("group relative flex w-[62px] shrink-0 flex-col items-center gap-1 rounded-xl pt-1.5 pb-[7px] text-micro font-semibold", on ? "text-ink" : "text-ink-2 hover:text-ink")}
     >
       <span className={cx("relative flex h-[30px] w-12 items-center justify-center rounded-full", on ? "bg-accent/18 text-accent" : "group-hover:bg-hover")}>
         {pill}
@@ -78,7 +78,7 @@ function QueueItem({ path }: { path: string }) {
       pill={running && <ProgressRing value={Math.min(1, Math.max(0, running.progress))} steps={running.steps} loading={!(running.progress > 0)} />}
       badge={
         waiting > 0 && (
-          <span aria-hidden className="absolute top-0.5 right-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 font-mono text-[9.5px] font-extrabold text-accent-ink">
+          <span aria-hidden className="absolute top-0.5 right-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 font-mono text-micro font-extrabold text-accent-ink">
             {waiting}
           </span>
         )

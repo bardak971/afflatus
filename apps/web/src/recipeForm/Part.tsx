@@ -106,8 +106,8 @@ function FoldBody({ open, now, className, children }: { open: boolean; /** Opene
  * small, upper case, spaced, quiet) and a group inside a part (sentence case, a step larger, semibold). Plain classes
  * for now; the kit's SectionTitle takes their place when it is adopted.
  */
-export const PART_HEAD = "truncate text-[11.5px] font-semibold tracking-[0.06em] text-ink-3 uppercase";
-const GROUP_HEAD = "shrink-0 whitespace-nowrap text-[12.5px] font-semibold text-ink-2";
+export const PART_HEAD = "truncate text-meta font-semibold tracking-label text-ink-3 uppercase";
+const GROUP_HEAD = "shrink-0 whitespace-nowrap text-body font-semibold text-ink-2";
 
 /** The name of a part: the section level. */
 export const PartHead = ({ children }: { children: ReactNode }) => <span className={PART_HEAD}>{children}</span>;

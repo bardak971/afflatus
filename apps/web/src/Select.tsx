@@ -1,11 +1,11 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown, Search } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { fuzzyFilter } from "@afflatus/core";
 import { Keys } from "./Keys";
 import { useLeave } from "./leave";
 import { popFrom } from "./motion";
-import { cx } from "./ui";
+import { cx, SearchField } from "./ui";
 
 export interface Option {
   value: string;
@@ -184,7 +184,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
         }}
         className={cx(
           "flex w-full min-w-0 items-center gap-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45",
-          size === "md" ? "h-10 rounded-[10px] px-3" : "h-8 rounded-lg px-2.5 text-xs",
+          size === "md" ? "h-10 rounded-control px-3" : "h-8 rounded-lg px-2.5 text-xs",
           dashed ? "border-[1.5px] border-dashed border-line-strong text-ink-2 hover:text-ink" : open ? "border border-accent bg-accent-wash text-ink" : "border border-line-strong bg-raised text-ink hover:border-ink-3",
           className,
         )}
@@ -199,45 +199,43 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
           ref={panelRef}
           data-floating
           style={{ left: place.left, width: place.width, top: place.top, bottom: place.bottom, maxHeight: place.height, transformOrigin: place.top !== undefined ? "top" : "bottom", ...popFrom(place.top === undefined) }}
-          className="m-pop fixed z-[70] flex flex-col overflow-hidden rounded-[14px] border border-line-strong bg-panel shadow-2xl shadow-shade/60"
+          className="m-pop fixed z-toast flex flex-col overflow-hidden rounded-card border border-line-strong bg-panel shadow-2xl shadow-shade/60"
         >
-          <div className="flex shrink-0 items-center gap-2 border-b border-line px-3">
-            <Search size={14} className="shrink-0 text-ink-3" />
-            <input
-              autoFocus
-              role="combobox"
-              aria-expanded="true"
-              aria-controls={listId}
-              aria-autocomplete="list"
-              aria-activedescendant={shown[active] ? optionId(active) : undefined}
-              aria-label={`Search ${label}`}
-              placeholder={searchHint ?? (options.length > 1 ? `Search ${options.length}` : "Search")}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                // what is typed here is for the list alone: the screen behind must not react to it
-                e.stopPropagation();
-                if (e.key === "Escape") close();
-                else if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  moveTo(Math.max(0, Math.min(active + 1, shown.length - 1)));
-                } else if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  moveTo(Math.max(active - 1, 0));
-                } else if (e.key === "Enter") {
-                  e.preventDefault();
-                  if (shown[active]) pick(shown[active]);
-                }
-              }}
-              style={{ outline: "none" }}
-              className="h-10 min-w-0 grow bg-transparent text-ink placeholder:text-ink-3"
-            />
-          </div>
+          <SearchField
+            look="head"
+            className="gap-2 px-3"
+            inputClassName="h-10"
+            autoFocus
+            role="combobox"
+            aria-expanded="true"
+            aria-controls={listId}
+            aria-autocomplete="list"
+            aria-activedescendant={shown[active] ? optionId(active) : undefined}
+            label={`Search ${label}`}
+            placeholder={searchHint ?? (options.length > 1 ? `Search ${options.length}` : "Search")}
+            value={query}
+            onChange={setQuery}
+            onKeyDown={(e) => {
+              // what is typed here is for the list alone: the screen behind must not react to it
+              e.stopPropagation();
+              if (e.key === "Escape") close();
+              else if (e.key === "ArrowDown") {
+                e.preventDefault();
+                moveTo(Math.max(0, Math.min(active + 1, shown.length - 1)));
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                moveTo(Math.max(active - 1, 0));
+              } else if (e.key === "Enter") {
+                e.preventDefault();
+                if (shown[active]) pick(shown[active]);
+              }
+            }}
+          />
           <div ref={list} id={listId} role="listbox" aria-label={label} className="relative flex min-h-0 grow flex-col overflow-y-auto p-1">
             <span ref={highlight} aria-hidden className="pointer-events-none absolute rounded-lg bg-hover motion-safe:data-[glide]:[transition:top_var(--t-pop)_var(--ease-snap),height_var(--t-pop)_var(--ease-snap)]" />
             {shown.map((o, i) => (
               <Fragment key={o.value}>
-              {o.group && o.group !== shown[i - 1]?.group && <div className={cx("shrink-0 px-2 pt-2.5 pb-1 text-[11px] font-bold tracking-[0.08em] uppercase", o.marked ? "text-accent" : "text-ink-3")}>{o.group}</div>}
+              {o.group && o.group !== shown[i - 1]?.group && <div className={cx("shrink-0 px-2 pt-2.5 pb-1 text-meta font-bold tracking-label uppercase", o.marked ? "text-accent" : "text-ink-3")}>{o.group}</div>}
               <button
                 type="button"
                 id={optionId(i)}
@@ -274,7 +272,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
             {found.length > shown.length && <span className="px-3 py-2 text-xs text-ink-3">{found.length - shown.length} more: type to narrow the list.</span>}
           </div>
           {footer && <div className="shrink-0 border-t border-line p-1.5">{footer(() => close())}</div>}
-          <div aria-hidden className="flex shrink-0 items-center gap-3 border-t border-line px-3 py-1.5 text-[11px] text-ink-3">
+          <div aria-hidden className="flex shrink-0 items-center gap-3 border-t border-line px-3 py-1.5 text-meta text-ink-3">
             <span className="flex items-center gap-1"><Keys keys="â†‘" size="sm" /><Keys keys="â†“" size="sm" /> move</span>
             <span className="flex items-center gap-1"><Keys keys="Enter" size="sm" /> pick</span>
             <span className="flex items-center gap-1"><Keys keys="Esc" size="sm" /> close</span>

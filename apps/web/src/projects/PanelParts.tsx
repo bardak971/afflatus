@@ -1,7 +1,7 @@
 import type { RefObject } from "react";
-import { ArrowDown, ArrowUp, FolderKanban, FolderPlus, FolderUp, Link2, Plus, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, FolderKanban, FolderPlus, FolderUp, Link2, Plus } from "lucide-react";
 import type { Folder } from "../api";
-import { Button, cx, Help, Segmented } from "../ui";
+import { Button, cx, Help, SearchField, Segmented } from "../ui";
 import type { ItemKind, Sort, Target } from "./tree";
 import type { useTreeActions } from "./useTreeActions";
 
@@ -33,7 +33,7 @@ export function PanelBar({ scoped, scopeName, inboxOnly, searchRef, text, setTex
     <div className={cx("flex flex-wrap items-center gap-2.5", scoped ? "px-3.5 pt-3 pb-2.5" : "px-4 pt-3.5 pb-3")}>
       {scoped ? (
         <>
-          <span className="min-w-0 truncate text-[15px] font-bold">{scopeName}</span>
+          <span className="min-w-0 truncate text-title font-bold">{scopeName}</span>
           <span className="shrink-0 text-xs text-ink-3">{inboxOnly ? "the Inbox only" : "this project only"}</span>
           <Help text={HELP_SCOPED} />
         </>
@@ -43,20 +43,18 @@ export function PanelBar({ scoped, scopeName, inboxOnly, searchRef, text, setTex
           <Help text={HELP} />
         </>
       )}
-      <label className="ml-1.5 flex h-[34px] min-w-0 grow basis-[180px] items-center gap-2 rounded-[10px] border border-line-strong bg-raised px-3 text-ink-2 focus-within:border-accent">
-        <Search size={15} className="shrink-0" />
-        <input
-          ref={searchRef}
-          data-search=""
-          aria-label="Search projects, folders, timelines and drafts"
-          placeholder="Search folders, timelines, drafts…"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          maxLength={100}
-          className="h-8 min-w-0 grow border-0 bg-transparent text-sm text-ink outline-none placeholder:text-ink-3"
-        />
-        {found !== null && <span className="shrink-0 text-xs text-ink-3">{found} found</span>}
-      </label>
+      <SearchField
+        inputRef={searchRef}
+        data-search=""
+        label="Search projects, folders, timelines and drafts"
+        placeholder="Search folders, timelines, drafts…"
+        value={text}
+        onChange={setText}
+        maxLength={100}
+        end={found !== null && <span className="shrink-0 text-xs text-ink-3">{found} found</span>}
+        className="ml-1.5 grow basis-[180px]"
+        inputClassName="text-sm"
+      />
       {!scoped && (
         <>
           {/* the library's own chips: which kind of item the folders show and count */}
@@ -81,7 +79,7 @@ export function SortHeads({ headRef, columns, scoped, sort, sortBy }: {
   sortBy(by: Sort["by"]): void;
 }) {
   return (
-    <div ref={headRef} className={cx("sticky top-0 z-10 -mx-2 mb-0.5 grid items-center gap-2.5 border-b border-line bg-panel px-[18px] py-1 text-[11px] font-semibold text-ink-3 uppercase", columns)}>
+    <div ref={headRef} className={cx("sticky top-0 z-10 -mx-2 mb-0.5 grid items-center gap-2.5 border-b border-line bg-panel px-[18px] py-1 text-meta font-semibold text-ink-3 uppercase", columns)}>
       {(
         [
           { by: "name", label: "Name", end: false },

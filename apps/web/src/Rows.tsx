@@ -17,11 +17,11 @@ const Dense = createContext(false);
  */
 export function Card({ title, status, sub, help, dense, id, label, setting, children }: { title?: ReactNode; status?: ReactNode; /** A quiet line under the head, in it (a machine's facts). */ sub?: ReactNode; help?: string; dense?: boolean; id?: string; label?: string; setting?: string; children: ReactNode }) {
   return (
-    <section id={id} aria-label={label} data-setting={setting} className="overflow-hidden rounded-[14px] border border-line bg-panel shadow-card">
+    <section id={id} aria-label={label} data-setting={setting} className="overflow-hidden rounded-card border border-line bg-panel shadow-card">
       {title && (
         <div className={cx("flex flex-col gap-1.5 border-b border-line", dense ? "min-h-[42px] px-4 py-2" : "min-h-[48px] px-[18px] py-2.5", Boolean(sub) && "pb-3")}>
           <div className="flex min-h-[28px] items-center gap-2.5">
-            <h2 className={cx("min-w-0", dense ? "text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase" : "text-[14px] font-bold")}>{title}</h2>
+            <h2 className={cx("min-w-0", dense ? "text-meta font-bold tracking-label text-ink-3 uppercase" : "text-title font-bold")}>{title}</h2>
             {help && <Help text={help} title={typeof title === "string" ? title : label} className="-ml-1" />}
             <span className="grow" />
             {status}
@@ -39,7 +39,7 @@ export function Card({ title, status, sub, help, dense, id, label, setting, chil
 /** A dot and a word for a card's head or a tab: green when all is well, warn when not. */
 export function Status({ ok, children }: { ok: boolean; children?: ReactNode }) {
   return (
-    <span className={cx("flex shrink-0 items-center gap-1.5 text-[12.5px] font-semibold", ok ? "text-good" : "text-warn-ink")}>
+    <span className={cx("flex shrink-0 items-center gap-1.5 text-body font-semibold", ok ? "text-good" : "text-warn-ink")}>
       <span className={cx("h-[7px] w-[7px] rounded-full", ok ? "bg-good" : "bg-warn")} />
       {children}
     </span>
@@ -68,7 +68,7 @@ export function Row({ label, help, htmlFor, sub, start, tone, setting, children 
   return (
     <div data-setting={setting} className={cx("grid items-center", dense ? "min-h-[48px] grid-cols-[150px_minmax(0,1fr)] gap-3.5 px-4 py-1.5" : "min-h-[52px] grid-cols-[230px_minmax(0,1fr)] gap-4 px-[18px] py-2", tone === "warn" && "bg-warn-wash/50")}>
       <span className="flex min-w-0 flex-col">
-        <span className={cx("flex min-w-0 items-center gap-1.5 text-[13px]", dense && "font-semibold", tone === "warn" && "font-semibold text-warn-ink")}>
+        <span className={cx("flex min-w-0 items-center gap-1.5 text-body", dense && "font-semibold", tone === "warn" && "font-semibold text-warn-ink")}>
           {name !== undefined && help ? (
             // a name that wraps keeps its ? after its last word, held to it: beside the wrapped name, a ? of its own sat
             // at the column's edge ("Compare opens on original vs result")
@@ -83,7 +83,7 @@ export function Row({ label, help, htmlFor, sub, start, tone, setting, children 
             </>
           )}
         </span>
-        {sub && <span className="mt-0.5 text-[11.5px] text-ink-3">{sub}</span>}
+        {sub && <span className="mt-0.5 text-meta text-ink-3">{sub}</span>}
       </span>
       <div className={cx("flex min-w-0 flex-wrap items-center gap-2", start ? "justify-start" : "justify-end")}>{children}</div>
     </div>
@@ -98,5 +98,5 @@ export function Block({ children, className, setting }: { children: ReactNode; c
 
 /** A fact in a row: a version, a size, a count. */
 export function Fact({ children, tip }: { children: ReactNode; tip?: string }) {
-  return <Chip tip={tip} className="font-mono text-[11.5px] font-medium">{children}</Chip>;
+  return <Chip tip={tip} className="font-mono text-meta font-medium">{children}</Chip>;
 }

@@ -6,7 +6,7 @@ import { plural, size } from "../format";
 import { useSettled } from "../hooks";
 import { filesOfPick, ViaChip } from "../modelFilesUi";
 import { queryKeys } from "../queryKeys";
-import { cx, ErrorNote, SearchField } from "../ui";
+import { cx, Empty, ErrorNote, SearchField } from "../ui";
 import type { PickedFile } from "./store";
 
 /** One of the user's own: a preset or a family's usual files, as a card; + picks all its files. */
@@ -18,7 +18,7 @@ function OwnCard({ kind, name, files, picked, onPick }: { kind: string; name: st
       <span className="flex items-start gap-2">
         <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-lg bg-raised font-mono text-lg text-ink-3">{name.slice(0, 1).toUpperCase()}</span>
         <span className="flex min-w-0 grow flex-col">
-          <span className="line-clamp-2 text-[13.5px] font-semibold break-words">{name}</span>
+          <span className="line-clamp-2 text-title font-semibold break-words">{name}</span>
           <span className="text-xs text-ink-3">{kind} · {plural(files.length, "file")}{bytes ? ` · ${size(bytes)}` : ""}</span>
         </span>
         <button type="button" aria-label={`Pick ${name}'s files`} onClick={onPick} disabled={all || !files.length} className={cx("grid size-7 shrink-0 place-items-center rounded-lg", all ? "bg-accent-wash text-accent" : "bg-accent text-accent-ink hover:brightness-110")}>
@@ -56,7 +56,7 @@ export function Yours({ words, onWords, picked, onPick }: { words: string; onWor
         {found.isError && <ErrorNote>{found.error.message}</ErrorNote>}
         {d && d.presets.length > 0 && (
           <section className="flex flex-col gap-2">
-            <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Presets</span>
+            <span className="text-meta font-bold tracking-label text-ink-3 uppercase">Presets</span>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
               {d.presets.map((p) => <OwnCard key={p.id} kind="Preset" name={p.name} files={filesOfPick({ kind: "preset", hit: p })} picked={picked} onPick={() => pick(p.name, filesOfPick({ kind: "preset", hit: p }))} />)}
             </div>
@@ -64,7 +64,7 @@ export function Yours({ words, onWords, picked, onPick }: { words: string; onWor
         )}
         {d && d.families.length > 0 && (
           <section className="flex flex-col gap-2">
-            <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Model families · their usual files</span>
+            <span className="text-meta font-bold tracking-label text-ink-3 uppercase">Model families · their usual files</span>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
               {d.families.map((f) => <OwnCard key={f.id} kind="Family" name={f.name} files={filesOfPick({ kind: "family", hit: f })} picked={picked} onPick={() => pick(f.name, filesOfPick({ kind: "family", hit: f }))} />)}
             </div>
@@ -72,11 +72,11 @@ export function Yours({ words, onWords, picked, onPick }: { words: string; onWor
         )}
         {d && d.files.length > 0 && (
           <section className="flex flex-col gap-1">
-            <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">On this PC</span>
+            <span className="text-meta font-bold tracking-label text-ink-3 uppercase">On this PC</span>
             {d.files.map((f) => {
               const on = picked.has(fileKey(f));
               return (
-                <div key={fileKey(f)} className="grid grid-cols-[minmax(0,1fr)_auto_64px_28px] items-center gap-3 rounded-lg px-2 py-1.5 text-[13px] hover:bg-hover">
+                <div key={fileKey(f)} className="grid grid-cols-[minmax(0,1fr)_auto_64px_28px] items-center gap-3 rounded-lg px-2 py-1.5 text-body hover:bg-hover">
                   <span className="min-w-0 break-all">{f.file}<span className="text-ink-3"> · {f.folder}</span></span>
                   <ViaChip via={f.via} />
                   <span className="text-right font-mono text-xs text-ink-3">{f.size ? size(f.size) : "–"}</span>
@@ -87,7 +87,7 @@ export function Yours({ words, onWords, picked, onPick }: { words: string; onWor
           </section>
         )}
         {d && !words.trim() && <p className="text-xs text-ink-3">Type to find a file of this PC's ComfyUI too.</p>}
-        {d && words.trim() && !d.presets.length && !d.families.length && !d.files.length && <p className="py-10 text-center text-sm text-ink-2">Nothing of yours matches. Civitai and Hugging Face have more.</p>}
+        {d && words.trim() && !d.presets.length && !d.families.length && !d.files.length && <Empty title="Nothing of yours matches">Civitai and Hugging Face have more.</Empty>}
       </div>
     </div>
   );

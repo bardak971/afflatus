@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, Lock, X } from "lucide-react";
+import { ExternalLink, Lock } from "lucide-react";
 import { api, type BrowseCard, type BrowseFile } from "../api";
 import { compact, plural, shortDate, size } from "../format";
 import { queryKeys } from "../queryKeys";
 import { Select } from "../Select";
-import { Button, Checkbox, cx, ErrorNote } from "../ui";
+import { Button, Checkbox, Chip, CloseButton, cx, ErrorNote } from "../ui";
 import { FOLDERS, pickedOf, type PickedFile } from "./store";
 
 /** What the user has of a file, in a few words: "on this PC", "in set Video". */
@@ -33,7 +33,7 @@ export function Opened({ card, picked, onPick, onClose }: { card: BrowseCard; pi
       {/* closed, the results are back as they were */}
       <div className="flex items-center justify-end gap-2">
         <a href={card.page} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs text-ink-2 hover:text-ink">{card.site === "civitai" ? "On Civitai" : "On Hugging Face"} <ExternalLink size={12} /></a>
-        <button type="button" aria-label="Close" data-tip="Close" data-tip-keys="Esc" onClick={onClose} className="grid size-7 place-items-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
+        <CloseButton size={28} keys="Esc" onClose={onClose} />
       </div>
       <div className="grid grid-cols-[minmax(0,260px)_minmax(0,1fr)] gap-5">
         <div className="aspect-[3/4] overflow-hidden rounded-xl border border-line bg-raised">
@@ -42,8 +42,8 @@ export function Opened({ card, picked, onPick, onClose }: { card: BrowseCard; pi
         <div className="flex min-w-0 flex-col gap-3">
           <span className="flex flex-wrap items-center gap-2">
             <span className="text-lg font-bold">{card.name}</span>
-            {(card.type || card.fits || card.base) && <span className="rounded-full bg-hover px-2.5 py-0.5 text-xs font-semibold text-ink-2">{[card.type, card.fits ?? card.base].filter(Boolean).join(" · ")}</span>}
-            {card.gated && <span className="flex items-center gap-1 rounded-full bg-warn-wash px-2.5 py-0.5 text-xs font-semibold text-warn-ink"><Lock size={11} /> gated: accept its terms on Hugging Face</span>}
+            {(card.type || card.fits || card.base) && <Chip>{[card.type, card.fits ?? card.base].filter(Boolean).join(" · ")}</Chip>}
+            {card.gated && <Chip tone="warn"><Lock size={11} /> gated: accept its terms on Hugging Face</Chip>}
           </span>
           <span className="text-xs text-ink-3">by {card.creator}{card.downloads ? ` · ${compact(card.downloads)} downloads` : ""}{card.updatedAt ? ` · updated ${shortDate(card.updatedAt)}` : ""}</span>
           {versions.length > 1 && (
@@ -60,7 +60,7 @@ export function Opened({ card, picked, onPick, onClose }: { card: BrowseCard; pi
           {version && (
             <div className="flex flex-col rounded-xl border border-line">
               {version.files.map((f) => (
-                <div key={f.name} className="grid grid-cols-[minmax(0,1fr)_150px_80px] items-center gap-3 border-b border-line/60 px-3 py-2 text-[13px] last:border-b-0">
+                <div key={f.name} className="grid grid-cols-[minmax(0,1fr)_150px_80px] items-center gap-3 border-b border-line/60 px-3 py-2 text-body last:border-b-0">
                   {/* the box on the name's first line, not in the middle of the name and its note */}
                   <Checkbox checked={on.has(f.name)} onChange={(v) => setTicked(() => { const n = new Set(on); if (v) n.add(f.name); else n.delete(f.name); return n; })} className="min-w-0 items-start! [&>span:first-child]:mt-px">
                     <span className="flex min-w-0 flex-col">

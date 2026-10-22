@@ -9,7 +9,7 @@ import { FolderPicker } from "../FolderPicker";
 import { size } from "../format";
 import { useProject } from "../project";
 import { useOpenDraft, type Place } from "../store";
-import { Button, cx, ErrorNote } from "../ui";
+import { Button, cx, Empty, ErrorNote } from "../ui";
 import { usePins } from "./pins";
 import { groupKey, rangePick, type Row, type Target } from "./tree";
 import { PanelBar, ScopedFoot, SortHeads } from "./PanelParts";
@@ -206,7 +206,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
       role="dialog"
       aria-label={scoped ? `${scopeName}: folders, timelines and drafts` : "Projects"}
       style={{ left: place.left, top: place.top, width: place.width, maxHeight: place.maxHeight }}
-      className={cx("fixed z-[66] flex flex-col rounded-2xl border border-line-strong bg-panel text-sm shadow-2xl shadow-shade/60 motion-safe:animate-peek-rise", (hidden || covered) && "invisible")}
+      className={cx("fixed z-popover flex flex-col rounded-dialog border border-line-strong bg-panel text-sm shadow-modal motion-safe:animate-peek-rise", (hidden || covered) && "invisible")}
     >
       {/* the notch that points at the rail's button */}
       {!scoped && <span aria-hidden className="absolute -left-[7px] h-3 w-3 rotate-45 border-b border-l border-line-strong bg-panel" style={{ top: Math.max(10, Math.min(place.arrow - 6, 40)) }} />}
@@ -242,7 +242,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
         <SortHeads headRef={head} columns={columns} scoped={scoped} sort={sort} sortBy={sortBy} />
         {tree.isError && <div className="p-3"><ErrorNote>{tree.error.message}</ErrorNote></div>}
         {tree.isPending && <div className="p-4 text-ink-2">Reading your projects…</div>}
-        {tree.isSuccess && q && !groups.length && <div className="py-10 text-center text-ink-2">Nothing called “{q}”. The search looks at projects, folders, timelines and drafts.</div>}
+        {tree.isSuccess && q && !groups.length && <div className="p-4"><Empty title={`Nothing called “${q}”`}>The search looks at projects, folders, timelines and drafts.</Empty></div>}
         {/* the rows drawn: those in sight and a few more, the row the keys are on, the one renamed or dragged, the Bin (it stays at the foot) */}
         {drawn([focused, renaming?.key, drag.dragFrom.current, footHeight ? "bin" : null]).map((d, n) => {
           // the rows not drawn, as tall as they are; never what the browser keeps in place on a change (it grows as the list scrolls)
@@ -291,7 +291,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
 
       {picked.size > 0 && (
         <div className="flex items-center gap-2 border-t border-line bg-picture/8 px-3 py-2">
-          <span className="text-[13px] font-bold text-picture">{picked.size} selected</span>
+          <span className="text-body font-bold text-picture">{picked.size} selected</span>
           <span className="text-xs text-ink-2">drag them together, or</span>
           <span className="grow" />
           <Button size="sm" onClick={(e) => menus.openMenu(e, "picked")}>Move to…</Button>

@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ChevronDown, Search, X } from "lucide-react";
+import { ChevronDown, Search } from "lucide-react";
 import { ContextMenu, useMenu } from "../ContextMenu";
 import { useFit } from "../useFit";
-import { cx, pillBox, placePill, sameBox, type PillBox } from "../ui";
+import { CloseButton, cx, IconButton, pillBox, placePill, sameBox, type PillBox } from "../ui";
 import { scrollInside } from "../scrollInside";
 import { plural } from "../format";
 
@@ -175,7 +175,7 @@ export function Strip({ parts, open, query, setQuery, found }: {
               className="min-w-0 grow bg-transparent placeholder:text-ink-3"
             />
             {query.trim() && <span className="shrink-0 text-ink-3">{found}</span>}
-            <button type="button" aria-label="Stop searching" onClick={stop} className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-ink-2 hover:bg-hover hover:text-ink"><X size={13} /></button>
+            <CloseButton size={24} label="Stop searching" keys="Esc" onClose={stop} />
           </label>
         ) : (
           <>
@@ -185,7 +185,7 @@ export function Strip({ parts, open, query, setQuery, found }: {
                 type="button"
                 onClick={() => goTo(p.id)}
                 data-on={current === p.id ? "" : undefined}
-                className={cx("relative shrink-0 rounded px-1.5 py-1 text-[11px] font-semibold whitespace-nowrap transition-colors", current === p.id ? cx("text-ink-strong", !placed && "bg-line-strong") : "text-ink-2 hover:bg-hover hover:text-ink")}
+                className={cx("relative shrink-0 rounded px-1.5 py-1 text-meta font-semibold whitespace-nowrap transition-colors", current === p.id ? cx("text-ink-strong", !placed && "bg-line-strong") : "text-ink-2 hover:bg-hover hover:text-ink")}
               >
                 {p.label}
               </button>
@@ -198,7 +198,7 @@ export function Strip({ parts, open, query, setQuery, found }: {
                 data-tip={hidden.map((p) => p.label).join(", ")}
                 onClick={(e) => more.open(e, true)}
                 data-on={hidden.some((p) => p.id === current) ? "" : undefined}
-                className={cx("relative flex shrink-0 items-center gap-0.5 rounded px-1.5 py-1 text-[11px] font-semibold whitespace-nowrap transition-colors", hidden.some((p) => p.id === current) ? cx("text-ink-strong", !placed && "bg-line-strong") : "text-ink-2 hover:bg-hover hover:text-ink")}
+                className={cx("relative flex shrink-0 items-center gap-0.5 rounded px-1.5 py-1 text-meta font-semibold whitespace-nowrap transition-colors", hidden.some((p) => p.id === current) ? cx("text-ink-strong", !placed && "bg-line-strong") : "text-ink-2 hover:bg-hover hover:text-ink")}
               >
                 {hidden.find((p) => p.id === current)?.label ?? `+${hidden.length}`}
                 <ChevronDown size={11} />
@@ -209,16 +209,15 @@ export function Strip({ parts, open, query, setQuery, found }: {
         )}
         <span className="grow" />
         {!searching && (
-          <button
-            type="button"
-            data-search-opener
+          <IconButton
+            size={24}
+            data-search-opener=""
             onClick={() => setSearching(true)}
-            aria-label="Find a setting"
-            data-tip="Find a setting by its name"
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-2 hover:bg-hover hover:text-ink"
+            label="Find a setting"
+            tip="Find a setting by its name"
           >
             <Search size={14} />
-          </button>
+          </IconButton>
         )}
       </div>
     </div>

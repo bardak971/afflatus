@@ -8,7 +8,7 @@ import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
 import { fileLabel, gb, plural } from "./format";
 import { DownloadRow, GetFile, useDownloads } from "./GetFile";
 import { Keys } from "./Keys";
-import { Button, cx, ErrorNote } from "./ui";
+import { Button, Chip, cx, ErrorNote } from "./ui";
 import { queryKeys } from "./queryKeys";
 
 /**
@@ -84,8 +84,8 @@ export function PresetFiles({ id, def, fetch, inHead = false }: { id: string; de
               <div className="flex items-center gap-2">
                 <span className="flex min-w-0 flex-col">
                   <span className="flex items-center gap-1.5">
-                    <span className="truncate font-mono text-[11px]" data-tip={x.file}>{x.file}</span>
-                    {x.optional && <span className="shrink-0 rounded bg-raised px-1.5 py-px text-[10px] font-bold tracking-wide text-ink-3 uppercase">optional</span>}
+                    <span className="truncate font-mono text-meta" data-tip={x.file}>{x.file}</span>
+                    {x.optional && <Chip size="xs" className="tracking-wide uppercase">optional</Chip>}
                   </span>
                   {x.note && <span className="text-ink-3">{x.note}</span>}
                 </span>

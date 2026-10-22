@@ -1,5 +1,5 @@
-import { Eraser, Minus, Plus, Undo2, X } from "lucide-react";
-import { Button, Help, Segmented } from "../ui";
+import { Eraser, Minus, Plus, Undo2 } from "lucide-react";
+import { Button, CloseButton, Help, IconButton, Segmented } from "../ui";
 import { Slider } from "../Slider";
 import type { Tool } from "./useBrushCanvas";
 
@@ -41,15 +41,15 @@ export function PainterToolbar({ tool, onTool, brush, onBrush, canUndo, onUndo, 
       <Button size="sm" onClick={onUndo} disabled={!canUndo} data-tip="Undo the last stroke (Ctrl+Z)"><Undo2 size={14} /> Undo</Button>
       <Button size="sm" onClick={onClear} disabled={!canClear}><Eraser size={14} /> Start over</Button>
       <span className="flex items-center gap-1">
-        <button type="button" aria-label="Further away" data-tip="Further away" disabled={zoom <= 1} onClick={() => onZoom(zoom / 1.5)} className="flex h-8 w-8 items-center justify-center rounded-md border border-line-strong hover:bg-hover disabled:opacity-40"><Minus size={14} /></button>
+        <IconButton tone="outline" label="Further away" disabled={zoom <= 1} onClick={() => onZoom(zoom / 1.5)}><Minus size={14} /></IconButton>
         <span className="w-12 text-center text-xs text-ink-2 tabular-nums">{Math.round(zoom * 100)}%</span>
-        <button type="button" aria-label="Closer" data-tip="Closer" disabled={zoom >= maxZoom} onClick={() => onZoom(zoom * 1.5)} className="flex h-8 w-8 items-center justify-center rounded-md border border-line-strong hover:bg-hover disabled:opacity-40"><Plus size={14} /></button>
+        <IconButton tone="outline" label="Closer" disabled={zoom >= maxZoom} onClick={() => onZoom(zoom * 1.5)}><Plus size={14} /></IconButton>
         <Button size="sm" onClick={onWhole} disabled={zoom === 1}>Whole picture</Button>
       </span>
       <span className="grow" />
       {error && <span className="text-warn-ink">{error}</span>}
       <Button tone="primary" onClick={onSave} disabled={!canSave || saving}>{saving ? "Saving…" : "Done"}</Button>
-      <button type="button" aria-label="Close without saving" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-hover"><X size={18} /></button>
+      <CloseButton size={40} label="Close without saving" onClose={onClose} />
     </header>
   );
 }

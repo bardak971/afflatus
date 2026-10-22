@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Download as DownloadIcon, X } from "lucide-react";
+import { Download as DownloadIcon } from "lucide-react";
 import { api, type Download } from "./api";
 import { useQueue } from "./data";
 import { about, fileLabel, siteName, size } from "./format";
 import { machineName, severalMachines } from "./machines";
-import { Bar, buttonClass, cx } from "./ui";
+import { Bar, buttonClass, CloseButton, cx } from "./ui";
 import { count, useDownloads, useGetFile, type Find } from "./useGetFile";
 import { queryKeys } from "./queryKeys";
 
@@ -59,16 +59,14 @@ export function DownloadRow({ d, named }: { d: Download; named?: boolean }) {
   return (
     <div className="relative flex flex-col gap-1 rounded-md border border-line bg-raised py-1.5 pr-9 pl-2.5 text-ink">
       {d.status !== "saving" && (
-        <button
-          type="button"
-          aria-label={running ? `Cancel the download of ${fileLabel(d.file)}` : "Dismiss"}
-          data-tip={running ? "Cancel it. Nothing is kept of a cancelled download." : "Dismiss"}
+        <CloseButton
+          size={28}
+          label={running ? `Cancel the download of ${fileLabel(d.file)}` : "Dismiss"}
+          tip={running ? "Cancel it. Nothing is kept of a cancelled download." : "Dismiss"}
           disabled={stop.isPending}
-          onClick={() => stop.mutate()}
-          className="absolute top-1 right-1 flex h-7 w-7 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"
-        >
-          <X size={14} />
-        </button>
+          onClose={() => stop.mutate()}
+          className="absolute top-1 right-1"
+        />
       )}
       {named && <span className="font-semibold break-all">{fileLabel(d.file)} <span className="font-normal text-ink-2">into {d.folder}{on ? ` on ${on}` : ""}</span></span>}
       {stop.isError && <span className="text-xs text-warn-ink">{stop.error.message}</span>}

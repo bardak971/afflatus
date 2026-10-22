@@ -137,7 +137,7 @@ export function Dialog({ label, onClose, onEscape, children, className, z = "z-4
 }
 
 /** The usual card of a dialog: a head (DialogHead), what it holds, a foot (DialogFoot). Wider ones change max-w only. */
-export const DIALOG = "flex w-full max-w-md flex-col gap-3.5 rounded-[18px] border border-line-strong bg-panel p-5 shadow-2xl shadow-shade/60 motion-safe:animate-peek-rise";
+export const DIALOG = "flex w-full max-w-md flex-col gap-3.5 rounded-dialog border border-line-strong bg-panel p-5 shadow-modal motion-safe:animate-peek-rise";
 
 /**
  * The head of a dialog: an icon in its wash (warn for a question about something that cannot be undone), the
@@ -147,7 +147,7 @@ export const DIALOG = "flex w-full max-w-md flex-col gap-3.5 rounded-[18px] bord
 export function DialogHead({ icon, title, sub, tone = "accent", onClose }: { icon?: ReactNode; title: string; sub?: ReactNode; tone?: "accent" | "warn"; onClose?(): void }) {
   return (
     <div className="flex items-center gap-2.5">
-      {icon && <span className={cx("flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[9px]", tone === "warn" ? "bg-warn-wash text-warn-ink" : "bg-accent-wash text-accent")}>{icon}</span>}
+      {icon && <span className={cx("flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-control", tone === "warn" ? "bg-warn-wash text-warn-ink" : "bg-accent-wash text-accent")}>{icon}</span>}
       <span className="flex min-w-0 grow flex-col gap-px">
         <h2 className="m-0 truncate text-base font-bold">{title}</h2>
         {sub && <span className="truncate text-xs text-ink-3">{sub}</span>}

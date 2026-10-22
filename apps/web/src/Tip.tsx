@@ -258,7 +258,7 @@ export function Tips() {
       id="app-tip"
       role="tooltip"
       style={{ visibility: "hidden", left: 0, top: 0 }}
-      className={`pointer-events-none fixed z-[200] rounded-xl border border-line-strong bg-raised px-3 py-2 text-left text-[12.5px] leading-[1.45] font-normal tracking-normal text-ink normal-case shadow-[0_12px_30px_color-mix(in_srgb,var(--color-shade)_45%,transparent)] select-none ${long ? "w-max max-w-[300px] whitespace-pre-line" : "w-max whitespace-nowrap"} ${fresh ? "motion-safe:animate-tip-in motion-reduce:animate-peek-fade" : ""}`}
+      className={`pointer-events-none fixed z-tip rounded-xl border border-line-strong bg-raised px-3 py-2 text-left text-body leading-[1.45] font-normal tracking-normal text-ink normal-case shadow-[0_12px_30px_color-mix(in_srgb,var(--color-shade)_45%,transparent)] select-none ${long ? "w-max max-w-[300px] whitespace-pre-line" : "w-max whitespace-nowrap"} ${fresh ? "motion-safe:animate-tip-in motion-reduce:animate-peek-fade" : ""}`}
     >
       {head ? (
         <>

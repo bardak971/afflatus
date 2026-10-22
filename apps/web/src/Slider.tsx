@@ -124,7 +124,7 @@ export function Slider({ value, min, max, step = 1, onChange, onCommit, label, u
           )}
         />
         {drag !== null && (
-          <span aria-hidden style={{ left: `${at(shown)}%` }} className="pointer-events-none absolute -top-7 -translate-x-1/2 rounded-md bg-ink px-1.5 py-px font-mono text-[11px] font-medium whitespace-nowrap text-ground">
+          <span aria-hidden style={{ left: `${at(shown)}%` }} className="pointer-events-none absolute -top-7 -translate-x-1/2 rounded-md bg-ink px-1.5 py-px font-mono text-meta font-medium whitespace-nowrap text-ground">
             {said}
           </span>
         )}

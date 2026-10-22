@@ -87,7 +87,7 @@ export function BarRows({ acting, actions, shownActions, mode, text, sections, f
     <>
       {acting ? (
         <>
-          <div className="px-3 pt-2.5 pb-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Actions</div>
+          <div className="px-3 pt-2.5 pb-1.5 text-meta font-bold tracking-label text-ink-3 uppercase">Actions</div>
           {shownActions.map((a, i) => {
             // Enter and Ctrl+Enter on the result run the list's first two actions, wherever a filter shows them; on a search's
             // value (a LoRA, a model, a place) Enter writes it in the line and Ctrl+Enter runs the first
@@ -105,15 +105,15 @@ export function BarRows({ acting, actions, shownActions, mode, text, sections, f
               aria-disabled={a.disabled}
               onMouseMove={() => i !== acting.sel && onActSelect(i)}
               onClick={() => onRun(a)}
-              className={cx("flex w-full items-center gap-3 rounded-[10px] px-3 py-2 text-left", i === acting.sel && "bg-accent/14 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_35%,transparent)]", a.disabled && "opacity-45")}
+              className={cx("flex w-full items-center gap-3 rounded-control px-3 py-2 text-left", i === acting.sel && "bg-accent/14 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_35%,transparent)]", a.disabled && "opacity-45")}
             >
-              <span className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-raised", a.danger ? "text-warn-ink" : "text-ink-2")}>{a.icon ?? <Zap size={15} />}</span>
+              <span className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-raised", a.danger ? "text-warn-ink" : "text-ink-2")}>{a.icon ?? <Zap size={15} />}</span>
               <span className="flex min-w-0 grow flex-col">
-                <span className={cx("truncate text-[14.5px] font-semibold", a.danger ? "text-warn-ink" : "text-ink")}>{a.label}</span>
+                <span className={cx("truncate text-title font-semibold", a.danger ? "text-warn-ink" : "text-ink")}>{a.label}</span>
                 {(a.note || (place >= 0 && place < 2)) && <span className="truncate text-xs text-ink-2">{[a.note, place === 0 ? "Enter on the result" : place === 1 ? "Ctrl+Enter on the result" : ""].filter(Boolean).join(" · ")}</span>}
               </span>
               {a.keys && <Keys keys={a.keys} size="sm" className="text-ink-2" />}
-              {i === acting.sel && <span className="flex shrink-0 items-center gap-1 text-[11px] text-ink-2"><Keys keys="Enter" size="sm" /> run</span>}
+              {i === acting.sel && <span className="flex shrink-0 items-center gap-1 text-meta text-ink-2"><Keys keys="Enter" size="sm" /> run</span>}
             </button>
             );
           })}
@@ -137,8 +137,8 @@ export function BarRows({ acting, actions, shownActions, mode, text, sections, f
                   className={cx("flex flex-col gap-1 rounded-xl p-3.5 text-left", i === at ? "bg-good/10 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-good)_40%,transparent)]" : "bg-raised/60")}
                 >
                   <span className="text-xs text-ink-2">{it.card!.label}</span>
-                  <span className="font-mono text-[26px] leading-tight font-medium text-ink-strong">{it.card!.value}</span>
-                  <span className="text-[11.5px] text-ink-2">{it.card!.note}</span>
+                  <span className="font-mono text-display leading-tight font-medium text-ink-strong">{it.card!.value}</span>
+                  <span className="text-meta text-ink-2">{it.card!.note}</span>
                 </button>
               ))}
             </div>
@@ -147,7 +147,7 @@ export function BarRows({ acting, actions, shownActions, mode, text, sections, f
           )}
           <div className="flex flex-wrap gap-2 font-mono text-xs text-ink-2">
             {["7s 24fps", "121f 24fps", "1152x2048", "9:16 1mp", "17*10+5"].map((x) => (
-              <button key={x} type="button" tabIndex={-1} onClick={() => onType(`= ${x}`)} className="rounded-[7px] bg-raised px-2 py-1 hover:text-ink">{x}</button>
+              <button key={x} type="button" tabIndex={-1} onClick={() => onType(`= ${x}`)} className="rounded-chip bg-raised px-2 py-1 hover:text-ink">{x}</button>
             ))}
           </div>
         </div>
@@ -156,7 +156,7 @@ export function BarRows({ acting, actions, shownActions, mode, text, sections, f
           const first = flat.indexOf(s.rows[0]!);
           return (
             <div key={s.group} role="group" aria-label={s.group}>
-              <div className="px-3 pt-2.5 pb-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{s.group}</div>
+              <div className="px-3 pt-2.5 pb-1.5 text-meta font-bold tracking-label text-ink-3 uppercase">{s.group}</div>
               {s.rows.map((it, k) => {
                 const i = first + k;
                 const on = i === at;
@@ -173,11 +173,11 @@ export function BarRows({ acting, actions, shownActions, mode, text, sections, f
                     aria-selected={on}
                     onMouseMove={() => !on && onSelect(i)}
                     onClick={() => onChoose(it, i)}
-                    className={cx("flex w-full items-center gap-3 rounded-[10px] px-3 py-[9px] text-left", on && "bg-accent/14 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_35%,transparent)]")}
+                    className={cx("flex w-full items-center gap-3 rounded-control px-3 py-[9px] text-left", on && "bg-accent/14 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_35%,transparent)]")}
                   >
-                    <span className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[color-mix(in_srgb,currentColor_13%,transparent)]", it.job?.state === "failed" ? "text-warn" : TONE[it.kind])}>{iconOf(it)}</span>
+                    <span className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-[color-mix(in_srgb,currentColor_13%,transparent)]", it.job?.state === "failed" ? "text-warn" : TONE[it.kind])}>{iconOf(it)}</span>
                     <span className="flex min-w-0 grow flex-col gap-px">
-                      <span className={cx("truncate text-[14.5px] font-semibold", it.job?.state === "failed" ? "text-warn-ink" : "text-ink", it.archived && "opacity-60")}>
+                      <span className={cx("truncate text-title font-semibold", it.job?.state === "failed" ? "text-warn-ink" : "text-ink", it.archived && "opacity-60")}>
                         {pieces(it.label, it.ranges ?? []).map((p, n) => (p.hit ? <span key={n} className="text-accent">{p.text}</span> : <span key={n}>{p.text}</span>))}
                       </span>
                       {running !== null && <Progress value={running} steps={(it.job?.job as { steps?: number } | undefined)?.steps} loading={!running} className="my-1 h-1" tone="bg-good" under="bg-raised" />}
@@ -190,7 +190,7 @@ export function BarRows({ acting, actions, shownActions, mode, text, sections, f
                     )}
                     {/* the key that does the same in the app, from the key table (a row of the `?` mode: its own keys, a search's lit) */}
                     {it.keys && <Keys keys={it.keys} size="sm" hits={it.keyRow?.hits} className="text-ink-2" />}
-                    {on && <span className="flex shrink-0 items-center gap-1 text-[11px] whitespace-nowrap text-ink-2"><Keys keys="Enter" size="sm" /> {it.complete && it.group !== "Filters" ? "complete" : off ? "unavailable" : it.verb}</span>}
+                    {on && <span className="flex shrink-0 items-center gap-1 text-meta whitespace-nowrap text-ink-2"><Keys keys="Enter" size="sm" /> {it.complete && it.group !== "Filters" ? "complete" : off ? "unavailable" : it.verb}</span>}
                   </button>
                 );
               })}

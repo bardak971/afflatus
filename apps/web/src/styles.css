@@ -86,14 +86,19 @@
    * order: a panel over the page (the designer), the viewer and the usual dialog, a dialog over the viewer, the banners,
    * popovers and the projects panel (usePanelPlace tells a dialog above them by this value), lists and toasts, the command
    * bar and the load panel, context menus, a question asked over all of it, the restart screen, and the tooltip on top.
+   * Three sit between those: a folder import's card in its corner (status, under the banners), a model's page menu opened
+   * from a dialog or a popover (pick, over the lists), and the PNG info read over the viewer or a drop (sheet, over that).
    */
   --z-index-sticky: 20;
   --z-index-panel: 30;
   --z-index-overlay: 40;
   --z-index-modal: 50;
+  --z-index-status: 60;
   --z-index-banner: 65;
   --z-index-popover: 66;
   --z-index-toast: 70;
+  --z-index-pick: 75;
+  --z-index-sheet: 80;
   --z-index-bar: 85;
   --z-index-menu: 90;
   --z-index-confirm: 95;

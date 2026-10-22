@@ -30,6 +30,16 @@ describe("the kit's icon buttons", () => {
     await user.click(x);
     expect(closed).toHaveBeenCalledOnce();
   });
+  it("draws the least target (24 px) for a × inside a chip or a row, and one in the colour of what it sits on", () => {
+    draw(<><CloseButton size={24} label="Untick Rain" onClose={() => {}} /><CloseButton size={28} tone="inherit" onClose={() => {}} /></>);
+    const untick = screen.getByRole("button", { name: "Untick Rain" });
+    expect(untick.className).toContain("size-6");
+    expect(untick.querySelector("svg")?.getAttribute("width")).toBe("12");
+    // on a failure's banner, the × takes the banner's ink rather than the kit's grey
+    const onBanner = screen.getByRole("button", { name: "Close" });
+    expect(onBanner.className).not.toContain("text-ink-2");
+    expect(onBanner.className).toContain("hover:bg-hover");
+  });
 });
 
 describe("the kit's search field", () => {

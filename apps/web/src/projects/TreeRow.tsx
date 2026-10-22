@@ -31,7 +31,7 @@ function Lit({ text, q }: { text: string; q: string }) {
   return (
     <>
       {text.slice(0, i)}
-      <mark className="rounded-[3px] bg-accent/30 px-px text-ink-strong">{text.slice(i, i + q.length)}</mark>
+      <mark className="rounded-key bg-accent/30 px-px text-ink-strong">{text.slice(i, i + q.length)}</mark>
       {text.slice(i + q.length)}
     </>
   );
@@ -116,7 +116,7 @@ export function TreeRow({ r, setSize, posInSet, columns, scoped, q, isPicked, he
       )}
     >
       <span className="flex min-w-0 items-center">
-        <span className="font-mono text-[13px] whitespace-pre text-ink-3/60">{r.prefix}</span>
+        <span className="font-mono text-body whitespace-pre text-ink-3/60">{r.prefix}</span>
         {r.foldable ? (
           <button
             type="button"
@@ -159,7 +159,7 @@ export function TreeRow({ r, setSize, posInSet, columns, scoped, q, isPicked, he
           <span
             className={cx(
               "ml-1.5 min-w-0 truncate",
-              top ? "text-sm font-bold" : r.kind === "folder" || r.kind === "project" ? "text-[13px] font-semibold" : "text-[13px] font-medium",
+              top ? "text-sm font-bold" : r.kind === "folder" || r.kind === "project" ? "text-body font-semibold" : "text-body font-medium",
               r.kind === "archive" || r.archived || r.dim ? "text-ink-3" : r.kind === "more" ? "text-ink-2 italic" : "text-ink",
             )}
           >
@@ -167,7 +167,7 @@ export function TreeRow({ r, setSize, posInSet, columns, scoped, q, isPicked, he
           </span>
         )}
         {here && !scoped && (
-          <span className="ml-2 flex shrink-0 items-center gap-1 rounded-full bg-accent px-2 py-px text-[11px] font-bold whitespace-nowrap text-accent-ink">
+          <span className="ml-2 flex shrink-0 items-center gap-1 rounded-full bg-accent px-2 py-px text-meta font-bold whitespace-nowrap text-accent-ink">
             <Check size={11} strokeWidth={3} /> working in
           </span>
         )}
@@ -189,7 +189,7 @@ export function TreeRow({ r, setSize, posInSet, columns, scoped, q, isPicked, he
             onDragLeave={() => drag.overBadge === r.key && drag.setOverBadge(null)}
             onDrop={(e) => drag.badgeDrop(r, e)}
             className={cx(
-              "ml-2 shrink-0 rounded-full bg-warn-wash px-2 py-px text-[11px] font-semibold whitespace-nowrap text-warn-ink hover:shadow-[inset_0_0_0_1px_var(--color-warn-ink)]",
+              "ml-2 shrink-0 rounded-full bg-warn-wash px-2 py-px text-meta font-semibold whitespace-nowrap text-warn-ink hover:shadow-[inset_0_0_0_1px_var(--color-warn-ink)]",
               drag.overBadge === r.key && "bg-accent text-accent-ink shadow-[0_0_0_2px_var(--color-accent)]",
             )}
           >

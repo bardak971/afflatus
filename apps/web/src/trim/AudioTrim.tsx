@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
 import type { Asset } from "../api";
 import { AudioPlayer } from "../AudioPlayer";
 import { clock } from "../format";
 import { SoundRange } from "../SoundRange";
-import { Button, Toggle } from "../ui";
+import { CloseButton, Toggle } from "../ui";
 import { CutButtons } from "./CutButtons";
 import type { Range } from "./range";
 
@@ -51,7 +50,7 @@ export function AudioTrim({ asset, busy, onCut, onClose }: {
         <CutButtons what="sound" busy={busy} whole={whole} edge={part.start <= 0.01 || end >= total - 0.01} onCopy={() => onCut(range, "copy", even)} onSplit={() => onCut(range, "split", even)} onRemove={() => onCut(range, "remove", even)} />
         <Toggle on={even} onChange={setEven} label="Even loudness" note="what is made is brought to a usual level (EBU R128, -16 LUFS)" />
         <span className="grow" />
-        <Button size="sm" aria-label="Close Trim" onClick={onClose} data-tip="Close Trim (Esc)"><X size={13} /></Button>
+        <CloseButton label="Close Trim" keys="Esc" onClose={onClose} />
       </div>
     </div>
   );
