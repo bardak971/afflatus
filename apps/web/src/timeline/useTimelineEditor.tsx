@@ -230,7 +230,8 @@ export function useTimelineEditor(id: string) {
       const made = t ? madeFromSource(t, videoRecipes) : [];
       if (!t?.source || !made.length) return edit.mutate({ source: { fromMs, toMs } });
       if (oneTrim.busy) return;
-      const rendered = made.filter((c) => c.take).length;
+      // the rendered windows a trim set aside are left behind too: counted with those on the track
+      const rendered = made.filter((c) => c.take).length + (t.source.parkedTakes ?? 0);
       if (!sure && rendered > 0 && Math.round(fromMs) !== t.source.fromMs) {
         setStretchAsk({ fromMs, toMs, rendered, windows: made.length });
         return select(made[0]!.id);
@@ -252,7 +253,7 @@ export function useTimelineEditor(id: string) {
     run: (asset: string, mine: Clip[], fromMs: number, toMs: number, sure = false) => {
       if (oneTrim.busy) return;
       const startMs = Math.round(Number(mine[0]?.inputs.recordingStart ?? 0) * 1000);
-      const rendered = mine.filter((c) => c.take).length;
+      const rendered = mine.filter((c) => c.take).length + (t?.recordings?.find((r) => r.asset.id === asset)?.parkedTakes ?? 0);
       // asked in the first clip's Recording chapter, opened so the question is in view (its band dragged on the Audio row)
       if (!sure && rendered > 0 && Math.abs(fromMs - startMs) > 20) {
         setRecordingAsk({ asset, fromMs, toMs, rendered, clips: mine.length });

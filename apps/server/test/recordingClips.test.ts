@@ -140,4 +140,87 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     expect(parts(v)[0]![0]).toBeCloseTo(2, 2);
     expect(v.clips.every((c: { take: unknown }) => !c.take)).toBe(true);
   });
+
+  const queued = (clipId: string) =>
+    t.db.insertInto("jobs").values({ id: newId(), owner_id: "local", recipe_id: "h3.lipsync", label: "x", inputs: "{}", status: "queued", priority: 0, clip_id: clipId, created_at: now(), updated_at: now() } as never).execute();
+  const trim = (tl: string, sound: string, fromMs: number, toMs: number) => t.app.inject({ method: "POST", url: `/api/timelines/${tl}/recording/trim`, payload: { asset: sound, fromMs, toMs } });
+
+  it("never sets aside, replaces or is dropped on a clip that waits in the queue: refused, with no step to undo", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test recording queued" });
+    const sound = await recording();
+    const { clips } = await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
+    await queued(clips[2]);
+    const undo = (await view(tl.id)).undo;
+    // its end in, past the queued clip; its start moved (every clip made anew)
+    for (const res of [await trim(tl.id, sound, 0, 9000), await trim(tl.id, sound, 2000, 15000)]) {
+      expect(res.statusCode).toBe(409);
+      expect(res.body).toMatch(/Clip 3 is rendering or in the queue/);
+    }
+    const v = await view(tl.id);
+    expect(v.clips.map((c: { id: string }) => c.id)).toEqual(clips);
+    expect(v.undo).toBe(undo);
+    // a recording dropped on an empty clip that waits: refused, the clip and its render left as they are
+    const other = await recording();
+    const res = await t.app.inject({ method: "POST", url: `/api/timelines/${tl.id}/recording`, payload: { asset: other, clip: clips[2] } });
+    expect(res.statusCode).toBe(409);
+    expect((await view(tl.id)).clips.map((c: { id: string }) => c.id)).toEqual(clips);
+  });
+
+  it("keeps its first clip whatever the end asks: the recording stays on the track, and can be trimmed out again", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test recording first" });
+    const sound = await recording();
+    const { clips } = await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
+    const r = await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 0, toMs: 1000 });
+    // a Lip sync clip takes 4 s at the least
+    expect(r.toMs).toBe(4000);
+    const v = await view(tl.id);
+    expect(v.clips.map((c: { id: string }) => c.id)).toEqual(clips.slice(0, 1));
+    expect(v.recordings).toEqual([expect.objectContaining({ parked: 2, parkedTakes: 0 })]);
+    await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 0, toMs: 15000 });
+    expect((await view(tl.id)).clips.map((c: { id: string }) => c.id)).toEqual(clips);
+  });
+
+  it("made longer past the clips set aside: they come back and new clips follow, one step for Undo", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test recording longer" });
+    const sound = await recording();
+    const { clips } = await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
+    await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 0, toMs: 9000 });
+    // the clip set aside made to end at 13 s (as if cut shorter), so that the end out at 15 s goes past it
+    const row = await t.db.selectFrom("timelines").select("recordings").where("id", "=", tl.id).executeTakeFirstOrThrow();
+    const parked = JSON.parse(row.recordings!) as Record<string, Array<{ clip: { inputs: string } }>>;
+    const inputs = JSON.parse(parked[sound]![0]!.clip.inputs) as Record<string, number>;
+    parked[sound]![0]!.clip.inputs = JSON.stringify({ ...inputs, recordingSeconds: Math.round((13 - inputs.recordingStart!) * 100) / 100 });
+    await t.db.updateTable("timelines").set({ recordings: JSON.stringify(parked) }).where("id", "=", tl.id).execute();
+    const r = await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 0, toMs: 15000 });
+    expect(r.clips).toHaveLength(1);
+    const v = await view(tl.id);
+    expect(v.clips.map((c: { id: string }) => c.id)).toEqual([...clips, ...r.clips]);
+    expect(v.undo).toBe("the recording made longer");
+    await call("POST", `/api/timelines/${tl.id}/undo`);
+    expect((await view(tl.id)).clips.map((c: { id: string }) => c.id)).toEqual(clips.slice(0, 2));
+  });
+
+  it("refuses a video with no sound, and a sound ffmpeg cannot read, keeping no pauses for it", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test recording unreadable" });
+    const add = async (kind: "audio" | "video", hasSound: number) => {
+      const id = newId();
+      const key = `assets/${id.slice(0, 2)}/${id}`;
+      await t.services.storage.put(key, new TextEncoder().encode("not a sound"));
+      await t.db.insertInto("assets").values(newAssetRow({
+        id, kind, origin: "uploaded", name: "zz-test broken", file_key: key, thumb_key: null, mime: kind === "audio" ? "audio/wav" : "video/mp4", bytes: 11,
+        width: null, height: null, duration_ms: 15000, fps: null, has_sound: hasSound, folder_id: null, generation_id: null, kept_at: now(),
+      })).execute();
+      return id;
+    };
+    const mute = await add("video", 0);
+    const res = await t.app.inject({ method: "POST", url: `/api/timelines/${tl.id}/recording`, payload: { asset: mute } });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatch(/has no sound/);
+    const broken = await add("audio", 1);
+    const bad = await t.app.inject({ method: "POST", url: `/api/timelines/${tl.id}/recording`, payload: { asset: broken } });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.body).toMatch(/could not be read/);
+    await expect(t.services.storage.get(`pauses/${broken.slice(0, 2)}/${broken}.json`)).rejects.toThrow();
+    expect((await view(tl.id)).clips).toHaveLength(0);
+  });
 });
