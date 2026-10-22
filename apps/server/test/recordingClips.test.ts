@@ -323,4 +323,47 @@ describe.skipIf(!ffmpegThere)("a voice given to a Lip sync clip by its form", { 
     await call("PATCH", `/api/clips/${clip.id}`, { inputs: { ...clip.inputs, recording: sound, recordingStart: 1, description: "A woman talks." } });
     expect(await partOf(tl)).toEqual([1, 6]);
   });
+
+  it("a little longer than one clip holds, takes as much as it holds: not half of it", async () => {
+    const { tl, clip } = await lipSync("zz-test voice a little long");
+    // 17 s without a pause: the even share of a row of clips gave this one clip 8.5 s
+    const sound = await recording([tone(17)], 17000);
+    await call("PATCH", `/api/clips/${clip.id}`, { inputs: { ...clip.inputs, recording: sound } });
+    const [start, seconds] = await partOf(tl);
+    expect(start).toBe(0);
+    expect(seconds).toBeCloseTo(14.83, 1);
+  });
+
+  it("on a clip in the queue, is refused, with no step to undo; on a clip with a take, keeps the take's part", async () => {
+    const { tl, clip } = await lipSync("zz-test voice busy");
+    const first = await recording([tone(7)], 7000);
+    const other = await recording([tone(6)], 6000);
+    await call("PATCH", `/api/clips/${clip.id}`, { inputs: { ...clip.inputs, recording: first } });
+    const kept = (await view(tl.id)).clips[0].inputs as Record<string, unknown>;
+    const job = newId();
+    await t.db.insertInto("jobs").values({ id: job, owner_id: "local", recipe_id: "h3.lipsync", label: "x", inputs: "{}", status: "running", priority: 0, clip_id: clip.id, created_at: now(), updated_at: now() } as never).execute();
+    const steps = async () => (await t.db.selectFrom("timeline_history").select("seq").where("timeline_id", "=", tl.id).execute()).length;
+    const before = await steps();
+    // another voice, then its part typed by hand: both refused while it renders
+    for (const inputs of [{ ...kept, recording: other }, { ...kept, recordingSeconds: 5 }]) {
+      const r = await t.app.inject({ method: "PATCH", url: `/api/clips/${clip.id}`, payload: { inputs } });
+      expect(r.statusCode).toBe(409);
+      expect(r.json().error).toMatch(/rendering or in the queue/);
+    }
+    expect(await steps()).toBe(before);
+    expect(await partOf(tl)).toEqual([0, 7]);
+    // the scene typed meanwhile is kept
+    await call("PATCH", `/api/clips/${clip.id}`, { inputs: { ...kept, description: "A woman talks." } });
+    // the render done, with a take: the new voice is set, the take's part kept
+    await t.db.updateTable("jobs").set({ status: "done" }).where("id", "=", job).execute();
+    const take = newId();
+    const video = newId();
+    await t.db.insertInto("assets").values(newAssetRow({ id: video, kind: "video", origin: "uploaded", name: "t.mp4", file_key: `assets/zz/${video}`, thumb_key: null, mime: "video/mp4", bytes: 1, width: 480, height: 854, duration_ms: 7000, fps: 24, has_sound: 1, folder_id: null, generation_id: null, kept_at: now() })).execute();
+    await t.db.insertInto("takes").values({ id: take, clip_id: clip.id, asset_id: video, head_ms: 0, tail_ms: 0, trim_start_ms: 0, trim_end_ms: 0, prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, finished_from: null, created_at: now() } as never).execute();
+    await t.db.updateTable("clips").set({ take_id: take }).where("id", "=", clip.id).execute();
+    const r = await call("PATCH", `/api/clips/${clip.id}`, { inputs: { ...kept, description: "A woman talks.", recording: other } });
+    expect(r.inputs).toBeUndefined();
+    const c = (await view(tl.id)).clips[0] as { inputs: Record<string, unknown> };
+    expect(c.inputs).toMatchObject({ recording: other, recordingStart: 0, recordingSeconds: 7 });
+  });
 });
