@@ -2,7 +2,7 @@ import { projectForNew, projectParam } from "./project";
 import { unlistOptions, type ListedOptions, type ModelInfo, type RankedGpu } from "@afflatus/core";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
-import type { Advice, DeployOverhead, FillPlan, FormPacks, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumeFilesView, VolumePlan, Job, QueueAnswer, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
+import type { Advice, DeployOverhead, FillPlan, FormPacks, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumeFilesView, VolumePlan, Job, QueueAnswer, QueuePart, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
@@ -76,13 +76,35 @@ export async function failure(res: Response): Promise<ApiError> {
  * the others (`later`, a few figures each) with the rest of a job's fields empty, so that what counts, finds or orders
  * the waiting jobs sees all of them.
  */
-export function queueOf(a: QueueAnswer): QueueStatus {
-  const { later, waitingCount: _count, ...rest } = a;
+export function queueOf(a: QueueAnswer, had: HeldParts = held): QueueStatus {
+  const { later: sent, waitingCount: _count, parts, same = [], ...rest } = a;
+  // a part the server left out, unchanged since the copy this page holds, is that copy (readQueue)
+  const waiting = same.includes("waiting") && had.waiting ? had.waiting.rows : a.waiting;
+  const later = same.includes("later") && had.later ? had.later.rows : sent;
+  held = parts ? { waiting: { hash: parts.waiting, rows: waiting }, later: { hash: parts.later, rows: later } } : {};
   const empty = {
     status: "queued" as const, error: null, warning: null, generationId: null, join: null, upscaler: null, input: null, createdAt: "", startedAt: null, finishedAt: null, lacks: null, fetch: null,
     clipId: null, draftId: null, machine: null, pinned: null, estimateMs: null, startsInMs: null, runsOn: null,
   };
-  return { ...rest, whole: a.waiting.length, waiting: later.length ? [...a.waiting, ...later.map((l) => ({ ...empty, ...l }))] : a.waiting };
+  return { ...rest, whole: waiting.length, waiting: later.length ? [...waiting, ...later.map((l) => ({ ...empty, ...l }))] : waiting };
+}
+
+type HeldParts = { [P in QueuePart]?: { hash: string; rows: QueueAnswer[P] } };
+/**
+ * The waiting rows of the last answer of the queue, by the hash the server gave each part (queueView.ts paged). A read of
+ * the queue names them, and the server leaves out what did not change: while a long line rendered, each read sent the
+ * whole line again, ~200 kB, where the first jobs' rows were most often as they were (the 2026-10-22 review, L-12).
+ */
+let held: HeldParts = {};
+
+/** The queue, read with the hashes of the waiting rows this page holds; what the server says it left out is put back from them. */
+async function readQueue(o?: Asked): Promise<QueueStatus> {
+  const had = held;
+  const have = [had.waiting?.hash, had.later?.hash].filter((h): h is string => Boolean(h));
+  const a = await call<QueueAnswer>("GET", have.length ? `/queue?have=${have.join(",")}` : "/queue", undefined, o?.signal);
+  // a part left out that is not the copy held (never so: the server leaves out only what the read named) is read again whole
+  if (a.same?.some((p) => had[p]?.hash !== a.parts?.[p])) return queueOf(await call<QueueAnswer>("GET", "/queue", undefined, o?.signal), {});
+  return queueOf(a, had);
 }
 
 async function call<T>(method: string, path: string, body?: unknown, signal?: AbortSignal, extra?: Record<string, string>): Promise<T> {
@@ -226,7 +248,7 @@ export const api = {
   presetFiles: (o?: Asked) => call<{ online: boolean; items: PresetFilesView[] }>("GET", "/presets/files", undefined, o?.signal),
   nodePack: (o?: Asked) => call<{ pack: string; path: string; written: boolean; loaded: boolean; canWrite: boolean }>("GET", "/comfy/node-pack", undefined, o?.signal),
   getPresetFiles: (id: string, body: { accept?: boolean; optional?: boolean } = {}) => call<{ started: Download[]; failed: Array<{ file: string; error: string }>; skipped: number }>("POST", `/presets/${encodeURIComponent(id)}/get`, body),
-  queue: (o?: Asked) => call<QueueAnswer>("GET", "/queue", undefined, o?.signal).then(queueOf),
+  queue: (o?: Asked) => readQueue(o),
   /** Whole rows of the waiting jobs the queue's answer carries in a few figures (QueueStatus.whole), a page at a time. */
   queueWaiting: (offset: number, limit: number, o?: Asked) => call<{ items: Job[]; count: number }>("GET", `/queue/waiting?offset=${offset}&limit=${limit}`, undefined, o?.signal),
   /** `after`: the page after the one whose `next` it is; the first page without it. */
