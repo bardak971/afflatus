@@ -1,3 +1,4 @@
+import { nodesOfPack } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 import { loadedOn } from "./jobFiles";
 import { cannotWhy, installsUnasked, packFacts, packsLacked, packsSaid, type PackFacts, type PacksSaid, type PackWait } from "./jobPacks";
@@ -95,6 +96,11 @@ export class OwnPacks {
     if (!soft.length && !hard.length) return this.goes(row.id);
     if (unknown.length || hard.some((p) => cannotWhy(facts, p))) return this.goes(row.id);
     const names = [...soft.map((s) => s.pack), ...hard];
+    // a pack loaded here once that the node list has none of now (read after it was found loaded, so after that restart)
+    // is gone, and asked for again: kept as loaded, the job waited for good under "installed"
+    const loadedOnce = names.filter((n) => this.packs.view(lane.id).some((e) => e.name === n && e.state === "ready"));
+    const catalog = loadedOnce.length ? await lane.comfy.catalog().catch(() => null) : null;
+    if (catalog) this.packs.unready(lane.id, loadedOnce.filter((n) => !nodesOfPack(n).some((node) => node in catalog)));
     // asked for already (Always, its row's Install, or another job's on this machine): it waits for them. Under Ask, each
     // pack on its own: another job's install brings that one, never the job's others unasked
     const underWay = new Set(this.packs.view(lane.id).filter((e) => e.state !== "failed").map((e) => e.name));
