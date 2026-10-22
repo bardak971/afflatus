@@ -317,6 +317,26 @@ describe("a rented machine", () => {
   const MIN = 60_000;
 
   // The times below are set on the render's own record and read off the clock by the poll, not raced against it.
+  it("fails a render that keeps its GPU busy past three times its forecast and half an hour over: a hang that spins is billed too", async () => {
+    const { id, row, run } = await silentOnPod();
+    // its GPU at work all along: never silent
+    podComfy.send("crystools.monitor", { cpu_utilization: 10, gpus: [{ gpu_utilization: 95, vram_used: 20, vram_total: 24 }] });
+    await until(() => Boolean(run().loadAt));
+    run().expectedMs = 10 * MIN;
+    // 39 min into a 10 min forecast: within the half hour over it
+    run().startedAt = Date.now() - 39 * MIN;
+    run().movedAt = Date.now();
+    await t.services.rented.poll();
+    expect((await row()).status).toBe("running");
+    // past it: stuck, whatever its GPU says
+    run().startedAt = Date.now() - 41 * MIN;
+    run().movedAt = Date.now();
+    await t.services.rented.poll();
+    await until(async () => (await row()).status === "failed");
+    expect((await row()).error).toMatch(/^Stuck: still running at 41 min, against 10 min forecast/);
+    await until(async () => !t.services.queue.runningOn(id));
+  });
+
   it("fails a stuck render while RunPod's list cannot be read too: that check asks nothing of RunPod", async () => {
     const { id, row, run } = await silentOnPod();
     podComfy.send("crystools.monitor", { cpu_utilization: 10, gpus: [{ gpu_utilization: 2, vram_used: 20, vram_total: 24 }] });
@@ -346,7 +366,8 @@ describe("a rented machine", () => {
 
   it("keeps a long silent node whose GPU is at work, past 10 min and past its forecast", async () => {
     const { id, row, run } = await silentOnPod();
-    run().expectedMs = 5 * MIN;
+    // past its forecast, within three times it and half an hour over (overrunFor)
+    run().expectedMs = 15 * MIN;
     // No background read may end it as stuck while the GPU's load is on its way: in a loaded run one came in between and
     // failed the render 40 min silent before the load was read. The poll below is the one the test asks about.
     const stuckMs = t.services.rented.stuckMs;

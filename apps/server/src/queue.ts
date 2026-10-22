@@ -20,7 +20,7 @@ import { reportsDeath } from "./runpod";
 import type { Storage } from "./storage";
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
-import { CAP_REACHED, DEFAULT_QUEUE_OPTIONS, Died, GPU_AT_WORK, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type Lane, type QueueOptions, type Resume, type Running } from "./queueModel";
+import { CAP_REACHED, DEFAULT_QUEUE_OPTIONS, Died, GPU_AT_WORK, overrunAllowed, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type Lane, type QueueOptions, type Resume, type Running } from "./queueModel";
 import * as bulk from "./queueBulk";
 import { needsComfy, Offline } from "./queueOffline";
 import * as submitting from "./queueSubmit";
@@ -1319,6 +1319,20 @@ export class Queue {
     const forecast = run.expectedMs ?? null;
     const waited = now - run.startedAt >= (forecast ? Math.min(2 * forecast, forecast + FORECAST_SLACK_MS) : FORECAST_SLACK_MS);
     return { ms: waited ? silent : 0, gpuIdle: false };
+  }
+
+  /**
+   * How long the render a machine runs has gone past what it may take whatever it says (OVERRUN: three times its forecast, and
+   * at least half an hour over it), 0 when it has not, or has no forecast. A hang that keeps its GPU busy (a loop in a node)
+   * moves the render all the same (GPU_AT_WORK), and on a pod it was billed until a cap or a Stop. One waiting in its ComfyUI
+   * behind work from outside Afflatus is not timed (quietFor). `now`: the caller's clock (a test's stand-in).
+   */
+  overrunFor(machine: string, now = Date.now()): { ms: number; forecastMs: number } {
+    const lane = this.lanes.get(machine);
+    const run = lane?.running;
+    const forecastMs = run?.expectedMs ?? 0;
+    if (!run?.promptId || !run.startedAt || !(forecastMs > 0) || lane?.outside?.running) return { ms: 0, forecastMs };
+    return { ms: Math.max(0, now - run.startedAt - overrunAllowed(forecastMs)), forecastMs };
   }
 
   /**

@@ -85,6 +85,13 @@ export interface Running {
   cold?: boolean;
 }
 
+/**
+ * How long a render with a forecast may run on a rented pod whatever it says before it is failed as stuck (queue.ts
+ * overrunFor): three times its forecast, and at least half an hour over it. Wide on purpose: a forecast short of a render's
+ * real time fails a render that would have ended, and that costs the time it had run.
+ */
+export const overrunAllowed = (forecastMs: number): number => Math.max(3 * forecastMs, forecastMs + 30 * 60_000);
+
 /** What is stored once ComfyUI accepted the graph: enough to wait for it again after a restart. */
 export interface Resume {
   promptId: string;
