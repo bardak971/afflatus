@@ -120,11 +120,20 @@ describe("Settings › ComfyUI with no ComfyUI of the user's own", () => {
   it("does not offer a pod's address as the user's ComfyUI", async () => {
     // with pods only, the settings say the first pod's address
     serveSettings(settings({ machines: [pod], comfyUrl: pod.url }));
+    const { client } = draw(<NoComfyCard />);
+    const box = await screen.findByLabelText("ComfyUI URL");
+    // The box starts empty, so it is read only once the settings have arrived and been drawn: a GET merely sent, or a
+    // sleep, passed an undrawn answer as well as a right one (review O-12).
+    await waitFor(() => expect(client.getQueryState(["settings"])?.status).toBe("success"));
+    expect((box as HTMLInputElement).value).toBe("");
+  });
+
+  it("puts the user's own last address in the box once the settings arrive", async () => {
+    // The other side of the case above: the settings are drawn into the box, so its staying empty there is the rule.
+    serveSettings(settings({ machines: [pod], comfyUrl: "http://127.0.0.1:8000" }));
     draw(<NoComfyCard />);
     const box = await screen.findByLabelText("ComfyUI URL");
-    await waitFor(() => expect(fakeApi.calls("GET", "/settings").length).toBeGreaterThan(0));
-    await new Promise((r) => setTimeout(r, 50));
-    expect((box as HTMLInputElement).value).toBe("");
+    await waitFor(() => expect((box as HTMLInputElement).value).toBe("http://127.0.0.1:8000"));
   });
 
   it("shows no 'no ComfyUI' card while the settings load, and says it when they fail", async () => {
