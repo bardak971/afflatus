@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { settleEdits, withServerInputs } from "../src/timeline/useClipEdits";
+import { settleEdits, withFilledInputs, withServerInputs } from "../src/timeline/useClipEdits";
 
 const none = new Set<string>();
 
@@ -29,5 +29,23 @@ describe("a clip's edit in the timeline editor", () => {
   it("is not made for a clip that had none", () => {
     const edits = {};
     expect(withServerInputs(edits, "c1", { seed: 6 }, none)).toBe(edits);
+  });
+});
+
+describe("a clip's save answered with what the server worked out (a voice's part)", () => {
+  const sent = { description: "a talk", recording: "r1" };
+  const kept = { description: "a talk", recording: "r1", recordingStart: 0, recordingSeconds: 7 };
+
+  it("shows the form as kept, and is dropped once read back", () => {
+    let edits: Record<string, Record<string, unknown>> = { c1: sent };
+    edits = withFilledInputs(edits, "c1", sent, kept);
+    expect(edits.c1).toEqual(kept);
+    expect(settleEdits(edits, [{ id: "c1", inputs: kept }], none)).toEqual({});
+  });
+
+  it("leaves what was typed since as it is: its own save is answered the same way", () => {
+    const typed = { c1: { description: "a talk", recording: "r2" } };
+    expect(withFilledInputs(typed, "c1", sent, kept)).toBe(typed);
+    expect(withFilledInputs({}, "c1", sent, kept)).toEqual({});
   });
 });

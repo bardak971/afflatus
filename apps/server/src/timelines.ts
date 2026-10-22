@@ -1082,7 +1082,7 @@ export class Timelines {
     if (sound.kind === "video" && !sound.has_sound) throw httpError("That video has no sound: a recording has to be a sound, or a video with sound.");
     const { pauses } = await this.pausesOf(sound);
     // `fromS` to `toS`: the stretch of the recording its clips are made of (a recording trimmed: trimRecording), all of it by default
-    const parts = this.recordingPartsOf(spec, pauses, o.fromS ?? 0, o.toS ?? sound.duration_ms / 1000, o.seconds);
+    const parts = this.recordingPartsOf(spec.window.fits, pauses, o.fromS ?? 0, o.toS ?? sound.duration_ms / 1000, o.seconds);
     if (!parts.length) throw httpError("The recording is too short for a clip.");
     const ids = await this.history.oneAtATime(timelineId, async () => {
       await this.row(timelineId);
@@ -1111,8 +1111,7 @@ export class Timelines {
   }
 
   /** The parts `fromS` to `toS` of a recording is cut into for the Lip sync model's clips (recordingParts), about `seconds` each. */
-  private recordingPartsOf(spec: ReturnType<Timelines["recordingModel"]>["spec"], pauses: Array<{ start: number; end: number }>, fromS: number, toS: number, seconds = 5) {
-    const fits = spec.window.fits;
+  private recordingPartsOf(fits: VoiceWindow["fits"], pauses: Array<{ start: number; end: number }>, fromS: number, toS: number, seconds = 5) {
     const leastS = fits?.min ?? 1;
     const mostS = fits ? fits.frames / fits.fps - (fits.pad ?? 0) : 15;
     return recordingParts({ fromS, toS, wantS: seconds, leastS, mostS, pauses });
@@ -1181,6 +1180,42 @@ export class Timelines {
   }
 
   /**
+   * A voice given to a clip by its form (the recording dropped on its Audio cell, chosen from its menu or opened from a
+   * file, or set in its Recording field): the part of it the clip is to take, still to be worked out. A new voice, its part
+   * not changed with it, starts at 0; a voice with no length set (a clip given one before this was worked out here) keeps
+   * its start. Null when the form leaves nothing to work out.
+   */
+  private voiceAsked(recipeId: string | null, was: Record<string, unknown>, next: Record<string, unknown>): VoiceAsk | null {
+    const recipe = recipeId ? this.registry.recipe(recipeId) : undefined;
+    const spec = recipe?.inputs.find((i) => i.type === "audio" && i.role === "sound" && i.window);
+    if (!spec || spec.type !== "audio" || !spec.window) return null;
+    const w = spec.window;
+    const asset = next[spec.id];
+    if (typeof asset !== "string" || !asset) return null;
+    const seconds = Number(next[w.seconds]);
+    const fresh = asset !== was[spec.id] && next[w.start] === was[w.start] && next[w.seconds] === was[w.seconds];
+    if (!fresh && Number.isFinite(seconds) && seconds > 0) return null;
+    const start = Number(next[w.start]);
+    return { asset, window: w, fromS: !fresh && Number.isFinite(start) && start > 0 ? start : 0 };
+  }
+
+  /**
+   * The part of a recording a clip given it as its voice takes: the whole of it from `fromS`, as much as one clip holds,
+   * ended in a pause when it is longer (the rule its clips are cut by when it is dropped past the clips: recordingParts,
+   * the first part, asked as long as one clip holds). Null for what is not a sound of the library. A sound whose pauses
+   * cannot be read is cut where one clip ends: the form is saved whatever comes of it.
+   */
+  private async voicePart(ask: VoiceAsk): Promise<{ start: number; seconds: number } | null> {
+    const sound = await this.assetRow(ask.asset);
+    if (!sound || !sound.duration_ms || (sound.kind !== "audio" && !(sound.kind === "video" && sound.has_sound))) return null;
+    const toS = sound.duration_ms / 1000;
+    const { pauses } = await this.media.pauses(sound.id).catch(() => ({ pauses: [] }));
+    // a start past the sound's end (a voice changed for a shorter one) starts at 0
+    const fromS = ask.fromS < toS - 0.05 ? ask.fromS : 0;
+    return this.recordingPartsOf(ask.window.fits, pauses, fromS, toS, Number.POSITIVE_INFINITY)[0] ?? null;
+  }
+
+  /**
    * A recording's Lip sync clips trimmed (the rethink's trim, for recordings): the stretch of it they are made of, its In
    * and Out in ms of the recording. The same rule as the source's windows (trimSource, trimIn):
    * - Its end in: the clips past it set aside (an end out brings them back); an empty clip it falls in is shortened to it,
@@ -1238,7 +1273,7 @@ export class Timelines {
         const grow = trimOut({ start: lastPart.start, end: curTo, free: !last.clip.take_id && !busy.has(last.clip.id), reach }, parked.map((p) => ({ ...part(p.clip), fits: true, taken: p.takes.length > 0 })), toMs, { fromMs: curFrom, leastMs: (w.fits?.min ?? 1) * 1000, mostMs: mostS * 1000 });
         const { back } = grow;
         const end = Math.round(grow.end);
-        const parts = grow.more && toMs > end + 50 ? this.recordingPartsOf(spec, pauses, end / 1000, toMs / 1000) : [];
+        const parts = grow.more && toMs > end + 50 ? this.recordingPartsOf(w.fits, pauses, end / 1000, toMs / 1000) : [];
         if (grow.lastEnd === undefined && !back && !parts.length) return { clips: [], toMs: curTo };
         const after = back ? String(parked[back - 1]!.clip.id) : last.clip.id;
         const rest = grow.keep ? parked.slice(back) : [];
@@ -1396,8 +1431,9 @@ export class Timelines {
    * A change to a clip, checked whole before anything is kept or written: a refused change leaves no empty step, keeps
    * what Redo could do, and writes nothing. The clip and its take change together, or not at all.
    */
-  async editClip(id: string, patch: ClipPatch) {
-    const { timeline_id: timelineId } = await this.clipRow(id);
+  async editClip(id: string, patch: ClipPatch): Promise<{ inputs?: Record<string, unknown> }> {
+    const row = await this.clipRow(id);
+    const timelineId = row.timeline_id;
     const keys = Object.keys(patch).filter((k) => patch[k as keyof ClipPatch] !== undefined);
     if (keys.length && keys.every((k) => k === "chat" || k === "designer")) {
       // what was said to the designer, and with which language model, is not a change to the timeline: nothing to undo, nothing to redraw
@@ -1405,17 +1441,27 @@ export class Timelines {
         ...(patch.chat !== undefined ? { chat: chatJson(patch.chat) } : {}),
         ...(patch.designer !== undefined ? { designer: patch.designer ? JSON.stringify(patch.designer) : null } : {}),
       }).where("id", "=", id).execute();
-      return;
+      return {};
     }
+    // a voice given to the clip: its part worked out before the turn (the first time, ffmpeg reads the sound's pauses), as
+    // the clip stood then; in the turn, used if the clip still asks for that part
+    const ask = patch.inputs ? this.voiceAsked(patch.recipe ?? row.recipe_id, JSON.parse(row.inputs) as Record<string, unknown>, patch.inputs) : null;
+    const part = ask ? await this.voicePart(ask) : null;
     // in the timeline's turn, from the reading of the clips to the writing: a move worked out from the clips as read put
     // a clip added meanwhile at the same place as another
-    await this.history.oneAtATime(timelineId, () => this.editClipInTurn(id, patch, keys));
+    const filled = await this.history.oneAtATime(timelineId, () => this.editClipInTurn(id, patch, keys, ask && part ? { ask, part } : null));
     await this.touch(timelineId);
+    // the form as kept, when the server worked out some of it: the editor shows it in place of what it sent
+    return filled ? { inputs: filled } : {};
   }
 
-  private async editClipInTurn(id: string, patch: ClipPatch, keys: string[]) {
+  private async editClipInTurn(id: string, asked: ClipPatch, keys: string[], voice: { ask: VoiceAsk; part: { start: number; seconds: number } } | null): Promise<Record<string, unknown> | null> {
     // read again in the turn: the clip may have changed while the turn was waited for
     const clip = await this.clipRow(id);
+    // its voice's part, laid on the form when the clip as it is now still asks for the one worked out (Timelines.voicePart)
+    const again = voice && asked.inputs ? this.voiceAsked(asked.recipe ?? clip.recipe_id, JSON.parse(clip.inputs) as Record<string, unknown>, asked.inputs) : null;
+    const fill = again && voice && again.asset === voice.ask.asset && again.fromS === voice.ask.fromS ? { [again.window.start]: voice.part.start, [again.window.seconds]: voice.part.seconds } : null;
+    const patch: ClipPatch = fill ? { ...asked, inputs: { ...asked.inputs, ...fill } } : asked;
     const all = await this.placed(clip.timeline_id);
     const checked = await this.checkClipPatch(clip, patch, all);
     if (keys.every((k) => k === "inputs" || k === "share") && patch.inputs !== undefined && !patch.share) await this.rememberWriting(clip, all);
@@ -1477,6 +1523,7 @@ export class Timelines {
       const picture = await this.assetRow(checked.pinnedNow);
       if (picture) await this.adoptFolder(await this.row(clip.timeline_id), picture, all);
     }
+    return fill ? patch.inputs! : null;
   }
 
   /** A clip's form is saved as it is typed: everything written in one go is one step to undo, not one per save. */
@@ -1732,6 +1779,10 @@ function labelOf(patch: ClipPatch): string {
 }
 
 /** A window a cut again drops, as ownsOf reads it: its part, its own frames' start, its form and what it keeps its own. */
+/** The window of a model's recording input (H3 · Lip sync's): where in the sound a clip's part starts, how long it lasts, what one clip holds. */
+type VoiceWindow = NonNullable<Extract<InputSpec, { type: "audio" }>["window"]>;
+/** A voice given to a clip whose part is still to be worked out (Timelines.voiceAsked). */
+type VoiceAsk = { asset: string; window: VoiceWindow; fromS: number };
 type DroppedWindow = { from: number; start: number; to: number; recipe?: Recipe<any>; own: Record<string, unknown> };
 
 /**

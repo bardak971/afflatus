@@ -28,14 +28,14 @@ const call = async (method: "GET" | "POST" | "PATCH", url: string, payload?: unk
 };
 const view = async (id: string) => (await get(t.app, `/api/timelines/${id}`)).json();
 
-/** 15 s: words to 4.5 s, a pause to 4.9, words to 10.0, a pause to 10.4, words to the end. */
-async function recording(): Promise<string> {
+const tone = (s: number) => `sine=frequency=220:duration=${s}`;
+const quiet = (s: number) => `anullsrc=r=48000:cl=mono,atrim=duration=${s}`;
+
+/** 15 s by default: words to 4.5 s, a pause to 4.9, words to 10.0, a pause to 10.4, words to the end. */
+async function recording(parts = [tone(4.5), quiet(0.4), tone(5.1), quiet(0.4), tone(4.6)], ms = 15000): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), "zz-test-recording-"));
   try {
     const out = join(dir, "talk.wav");
-    const tone = (s: number) => `sine=frequency=220:duration=${s}`;
-    const quiet = (s: number) => `anullsrc=r=48000:cl=mono,atrim=duration=${s}`;
-    const parts = [tone(4.5), quiet(0.4), tone(5.1), quiet(0.4), tone(4.6)];
     const inputs = parts.flatMap((p) => ["-f", "lavfi", "-i", p]);
     const filter = `${parts.map((_, k) => `[${k}:a]aresample=48000,aformat=channel_layouts=mono[a${k}]`).join(";")};${parts.map((_, k) => `[a${k}]`).join("")}concat=n=${parts.length}:v=0:a=1[out]`;
     const r = spawnSync("ffmpeg", ["-y", "-loglevel", "error", ...inputs, "-filter_complex", filter, "-map", "[out]", out]);
@@ -45,7 +45,7 @@ async function recording(): Promise<string> {
     await t.services.storage.put(key, new Uint8Array(readFileSync(out)));
     await t.db.insertInto("assets").values(newAssetRow({
       id, kind: "audio", origin: "uploaded", name: "zz-test talking.wav", file_key: key, thumb_key: null, mime: "audio/wav", bytes: 1000,
-      width: null, height: null, duration_ms: 15000, fps: null, has_sound: 1, folder_id: null, generation_id: null, kept_at: now(),
+      width: null, height: null, duration_ms: ms, fps: null, has_sound: 1, folder_id: null, generation_id: null, kept_at: now(),
     })).execute();
     return id;
   } finally {
@@ -263,5 +263,64 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     expect(bad.body).toMatch(/could not be read/);
     await expect(t.services.storage.get(`pauses/${broken.slice(0, 2)}/${broken}.json`)).rejects.toThrow();
     expect((await view(tl.id)).clips).toHaveLength(0);
+  });
+});
+
+describe.skipIf(!ffmpegThere)("a voice given to a Lip sync clip by its form", { timeout: FFMPEG_TIMEOUT }, () => {
+  // what its Audio cell's drop, its menu's Choose a recording / Open an audio file and its Recording field all send: the
+  // clip's form with the recording in it, saved as it is typed
+  const lipSync = async (name: string) => {
+    const tl = await call("POST", "/api/timelines", { name });
+    await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "h3.lipsync" });
+    const clip = (await view(tl.id)).clips[0] as { id: string; inputs: Record<string, unknown> };
+    return { tl, clip };
+  };
+  const partOf = async (tl: { id: string }) => {
+    const c = (await view(tl.id)).clips[0] as { inputs: Record<string, number> };
+    return [c.inputs.recordingStart, c.inputs.recordingSeconds];
+  };
+
+  it("takes the whole recording from its start, and the save answers with the form as kept", async () => {
+    const { tl, clip } = await lipSync("zz-test voice whole");
+    const sound = await recording([tone(7)], 7000);
+    const r = await call("PATCH", `/api/clips/${clip.id}`, { inputs: { ...clip.inputs, description: "A woman talks to the camera.", recording: sound } });
+    expect(await partOf(tl)).toEqual([0, 7]);
+    expect(r.inputs).toMatchObject({ recording: sound, recordingStart: 0, recordingSeconds: 7, description: "A woman talks to the camera." });
+    // the clip lasts as long as its part
+    expect((await t.services.timelines.leaves()).find((x) => x.id === tl.id)?.plannedMs).toBe(7000);
+  });
+
+  it("takes no more than one clip holds, ended in the pause nearest that (as a recording dropped past the clips is cut)", async () => {
+    const { tl, clip } = await lipSync("zz-test voice capped");
+    const sound = await recording();
+    await call("PATCH", `/api/clips/${clip.id}`, { inputs: { ...clip.inputs, recording: sound } });
+    const [start, seconds] = await partOf(tl);
+    expect(start).toBe(0);
+    // 15 s is past the 14.8 one clip holds: cut in the pause at 10.2, not mid-word at 14.8
+    expect(Math.abs(seconds! - 10.2)).toBeLessThan(0.1);
+  });
+
+  it("changed for another recording, takes that one's part; the form saved again keeps the part as it is", async () => {
+    const { tl, clip } = await lipSync("zz-test voice changed");
+    const long = await recording();
+    const short = await recording([tone(6)], 6000);
+    await call("PATCH", `/api/clips/${clip.id}`, { inputs: { ...clip.inputs, recording: long } });
+    const kept = (await view(tl.id)).clips[0].inputs as Record<string, unknown>;
+    // its part set by hand, then the scene typed: left as it is
+    await call("PATCH", `/api/clips/${clip.id}`, { inputs: { ...kept, recordingStart: 4.7, recordingSeconds: 5.5 } });
+    const r = await call("PATCH", `/api/clips/${clip.id}`, { inputs: { ...kept, recordingStart: 4.7, recordingSeconds: 5.5, description: "A man talks." } });
+    expect(r.inputs).toBeUndefined();
+    expect(await partOf(tl)).toEqual([4.7, 5.5]);
+    // another recording, its form sent with the part of the one before: its own part, from 0
+    await call("PATCH", `/api/clips/${clip.id}`, { inputs: { ...kept, recordingStart: 4.7, recordingSeconds: 5.5, recording: short } });
+    expect(await partOf(tl)).toEqual([0, 6]);
+  });
+
+  it("given before its part was worked out (a voice with no length), takes it on its next save, from the start it has", async () => {
+    const { tl, clip } = await lipSync("zz-test voice old");
+    const sound = await recording([tone(7)], 7000);
+    await t.db.updateTable("clips").set({ inputs: JSON.stringify({ ...clip.inputs, recording: sound, recordingStart: 1 }) }).where("id", "=", clip.id).execute();
+    await call("PATCH", `/api/clips/${clip.id}`, { inputs: { ...clip.inputs, recording: sound, recordingStart: 1, description: "A woman talks." } });
+    expect(await partOf(tl)).toEqual([1, 6]);
   });
 });
