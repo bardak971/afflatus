@@ -394,6 +394,12 @@ def zone_cells(noise: np.ndarray, frames: int, height: int, width: int, scale: i
     return out
 
 
+# The joined flood below is settled when no value moves by more than this in a pass: a quarter of an 8-bit level
+SETTLED = 1 / 1024
+# Pixels of the clip whose colour difference is read at once: a few 1080p frames
+_DIFF_PIXELS = 1 << 23
+
+
 def difference_alpha(render, source, noise: np.ndarray, paste, threshold: float = 0.06, grow: int = 8, sigma: float = 4.0, reach: int = 1, scale: int = PASTE_SCALE, spread: int = 40):
     """
     [frames, H, W] torch float, where the render is kept over the source: inside the zone H3 redrew, where it differs
@@ -408,10 +414,14 @@ def difference_alpha(render, source, noise: np.ndarray, paste, threshold: float 
 
     frames, H, W = render.shape[0], render.shape[1], render.shape[2]
     s = scale if scale > 1 and H % scale == 0 and W % scale == 0 and CELL % scale == 0 else 1
-    d = (render[..., :3].float() - source[:frames, ..., :3].float()).abs().amax(-1)[:, None].cpu()
-    if s > 1:
-        d = F.avg_pool2d(d, s)
-    d = F.avg_pool2d(d, 3, 1, 1)
+    # a few frames at a time: the whole clip's colour difference in float was two copies of the clip above the output
+    # (2.8 GB beside a 722 MB output, 2026-10-22), for a figure kept only on the coarser grid
+    parts, step = [], max(1, _DIFF_PIXELS // max(1, H * W))
+    for a in range(0, frames, step):
+        b = min(frames, a + step)
+        part = (render[a:b, ..., :3].float() - source[a:b, ..., :3].float()).abs_().amax(-1)[:, None].cpu()
+        parts.append(F.avg_pool2d(part, s) if s > 1 else part)
+    d = F.avg_pool2d(torch.cat(parts), 3, 1, 1)
     keep = (d > threshold).float()
     zone = torch.from_numpy(zone_cells(noise, frames, H, W, s)).float()[:, None]
     person = paste[:frames].float().cpu()[:, None]
@@ -429,9 +439,15 @@ def difference_alpha(render, source, noise: np.ndarray, paste, threshold: float 
     joined = person.clone()
     for _ in range(4 * max(H, W) // s):
         grown = F.max_pool2d(joined, 3, 1, 1) * keep
-        if torch.equal(grown, joined):
-            break
+        # settled once no value moves by more than SETTLED in a pass. Waiting for no change at all ran to the cap of passes
+        # on a piece of the person's mask that peaks below 1: its value loses its peak squared at every pass and never
+        # stops changing (a speck SAM left, or a grow of 4 with a blur of 2.5, where no cell reaches 1: 2 to 3 minutes a
+        # window on 2026-10-18). The body comes out the same to 1e-4; such a piece keeps the value it has then (whether it
+        # should be kept whole or dropped is not settled yet)
+        moved = float((grown - joined).abs_().max())
         joined = grown
+        if moved <= SETTLED:
+            break
     keep = joined
     if reach > 0:
         keep = F.max_pool3d(keep.permute(1, 0, 2, 3)[None], (2 * reach + 1, 1, 1), 1, (reach, 0, 0))[0].permute(1, 0, 2, 3)
@@ -447,7 +463,8 @@ def difference_alpha(render, source, noise: np.ndarray, paste, threshold: float 
         keep = F.conv2d(F.pad(keep, (0, 0, r, r), mode="replicate"), k[None, None, :, None])
     if s > 1:
         keep = F.interpolate(keep, size=(H, W), mode="bilinear", align_corners=False)
-    return keep[:, 0].clamp(0, 1)
+    # in place: a second full-size copy of the alpha only to clamp it
+    return keep[:, 0].clamp_(0, 1)
 
 
 class AfflatusSwapPaste(io.ComfyNode):
@@ -479,7 +496,10 @@ class AfflatusSwapPaste(io.ComfyNode):
         a = difference_alpha(render, source, noise_mask.detach().cpu().float().numpy(), paste_mask, threshold, grow, blur, reach, spread=spread)
         a = a[..., None].to(render.device, render.dtype)
         src = source[: render.shape[0], ..., :3].to(render.device, render.dtype)
-        return io.NodeOutput(src * (1 - a) + render[..., :3] * a)
+        import torch
+
+        # into the output alone: the two weighted copies and their sum were three clips' worth of temporaries
+        return io.NodeOutput(torch.lerp(src, render[..., :3], a))
 
 
 class AfflatusSwapMatch(io.ComfyNode):

@@ -89,7 +89,7 @@ class AfflatusLoadH3Latent(io.ComfyNode):
             category="Afflatus",
             description="Loads a MiniMax H3 video+audio latent saved by Afflatus: Save H3 Latent. The name may carry ComfyUI's folder annotation (\"name.safetensors [temp]\").",
             inputs=[
-                io.String.Input("latent", default="", tooltip="The file's name in ComfyUI's input or temp folder, as an upload answers it."),
+                io.String.Input("latent", default="", tooltip="The file's name in ComfyUI's input, temp or output folder, as an upload answers it (\"name.safetensors [temp]\")."),
             ],
             outputs=[io.Latent.Output(display_name="latent"), io.Int.Output(display_name="frames")],
         )
@@ -126,26 +126,31 @@ class AfflatusLoadH3Latent(io.ComfyNode):
 
 
 def latent_path(name: str):
-    """Where a latent named as an upload answers it is ("x.safetensors [temp]"): only a .safetensors file inside ComfyUI's input or temp folder, else None.
+    """Where a latent named as an upload answers it is ("x.safetensors [temp]"): only a .safetensors file inside the folder its annotation names (input without one; temp; output), else None.
 
     The name comes from the prompt: ComfyUI resolves it against the folder its annotation names, so a name that
     climbs out of it ("../") or a link that points elsewhere is refused here, once the path is resolved for real.
+    A latent this ComfyUI saved itself is named where it is (" [temp]", or " [output]" for one written there): a
+    continuation on the same machine reads it in place rather than being sent it again (pack 0.36.5).
     """
     if not name:
         return None
     path = os.path.realpath(folder_paths.get_annotated_filepath(name))
     if not path.lower().endswith(".safetensors"):
         return None
-    for root in (folder_paths.get_input_directory(), folder_paths.get_temp_directory()):
-        root = os.path.realpath(root)
-        try:
-            inside = os.path.commonpath([root, path]) == root and path != root
-        except ValueError:
-            # another drive
-            inside = False
-        if inside:
-            return path
-    return None
+    if name.endswith(" [output]"):
+        root = folder_paths.get_output_directory()
+    elif name.endswith(" [temp]"):
+        root = folder_paths.get_temp_directory()
+    else:
+        root = folder_paths.get_input_directory()
+    root = os.path.realpath(root)
+    try:
+        inside = os.path.commonpath([root, path]) == root and path != root
+    except ValueError:
+        # another drive
+        inside = False
+    return path if inside else None
 
 
 class AfflatusNormalizeH3Latent(io.ComfyNode):

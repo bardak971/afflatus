@@ -8,6 +8,7 @@ import pytest
 np = pytest.importorskip("numpy")
 
 from afflatus_nodes import swap_mask  # noqa: E402
+from conftest import with_torch  # noqa: E402
 
 
 def box(frames, height, width, y0, y1, x0, x1, on=None):
@@ -220,6 +221,82 @@ def test_the_difference_paste_keeps_what_h3_drew_anew_and_gives_back_the_wall_it
     assert b[2, 90, 44] > 0.95 and b[2, 90, 60] < 0.05
     assert a[2, 90, 25] > 0.95  # the person
     assert a[2, 10, 10] < 0.05 and a[2, 120, 60] < 0.05  # the wall: the source's again
+
+
+# A person over a wall, the render drawn anew on the body only, and a speck of their mask SAM left in one frame apart from it
+_SWAP_SCENE = r"""
+import torch.nn.functional as F
+
+sm = load("swap_mask")
+frames, H, W = 6, 128, 192
+yy, xx = np.mgrid[0:H, 0:W]
+body = np.zeros((frames, H, W), bool)
+body[:] = ((yy - 72) / 40) ** 2 + ((xx - 48) / 22) ** 2 <= 1
+person = body.copy()
+person[2, 12:14, 170:172] = True
+gen = np.random.default_rng(0)
+source = torch.from_numpy(0.4 + 0.02 * gen.standard_normal((frames, H, W, 3)).astype(np.float32))
+render = source.clone()
+render[torch.from_numpy(body)] = 0.9
+noise = np.ones((sm.latent_frames(frames), H // 16, W // 16), np.float32)
+"""
+
+
+def test_the_joined_flood_settles_where_the_persons_mask_never_reaches_1_and_leaves_the_body_as_it_was():
+    """A speck of the person's mask, or a small grow with a blur (no cell reaches 1), kept the joined flood changing at every
+    pass up to its cap (2 to 3 minutes a window, 2026-10-18): it now settles once nothing moves by more than SETTLED. Against
+    the flood that waits for no change at all (SETTLED 0): far fewer passes, the body the same."""
+    out = with_torch(_SWAP_SCENE + r"""
+pool = F.max_pool2d
+passes = [0]
+
+
+def counted(*args, **kwargs):
+    passes[0] += 1
+    return pool(*args, **kwargs)
+
+
+F.max_pool2d = counted
+for grow, blur in ((10, 5.0), (4, 2.5)):
+    paste = sm.paste_mask(person, frames, W, H, grow, blur)
+    got = {}
+    for settled in (0.0, 1 / 1024):
+        sm.SETTLED = settled
+        passes[0] = 0
+        got[settled] = (sm.difference_alpha(render, source, noise, paste, 0.06, 8, 4.0, 1), passes[0])
+    (before, slow), (now, fast) = got[0.0], got[1 / 1024]
+    print(grow, blur, slow, fast, float((before - now).abs()[:, :, :120].max()), float((before - now).abs().max()))
+""")
+    for line in out.splitlines():
+        grow, blur, slow, fast, body, anywhere = line.split()
+        # the flood's cap is 4 x 192 / 4 = 192 passes; the coarser grid's, the near and the grow pools 13 more
+        assert int(slow) == 205 and int(fast) < 60, line
+        # the body, the same; the speck keeps the value it had when the flood settled, not what the cap left of it
+        assert float(body) < 1e-4 and float(anywhere) < 0.05, line
+
+
+def test_the_difference_paste_mixes_the_same_frames_in_place_of_three_copies():
+    """The paste-back is the render over the source by the alpha, as the two weighted copies and their sum made it, holding
+    about the output and its alpha above its inputs (2.8 GB of temporaries beside a 722 MB output before, 2026-10-22)."""
+    out = with_torch(_SWAP_SCENE + r"""
+paste = sm.paste_mask(person, frames, W, H, 30, 5.0)
+a = sm.difference_alpha(render, source, noise, paste, 0.06, 8, 4.0, 1)[..., None]
+want = source[..., :3] * (1 - a) + render[..., :3] * a
+got = sm.AfflatusSwapPaste.execute(render, source, torch.from_numpy(noise), paste)
+print(float((got - want).abs().max()))
+# a 576x1024 window of 48 frames: what it holds above its inputs, against its output
+big = torch.rand(48, 1024, 576, 3)
+base = big * 0.5
+mask = torch.zeros(48, 1024, 576)
+mask[:, 300:700, 200:400] = 1
+zone = np.ones((sm.latent_frames(48), 64, 36), np.float32)
+_, extra = peak_above(lambda: sm.AfflatusSwapPaste.execute(big, base, torch.from_numpy(zone), mask))
+print(extra / (big.numel() * 4 / 2**20))
+""", needs=("torch", "psutil"))
+    same, held = (float(v) for v in out.split())
+    assert same < 1e-6
+    # the output, its alpha (a third of it) and a few frames' difference: no longer three copies of the clip
+    assert held < 2.0, held
 
 
 def test_the_retired_colour_match_still_loads_and_passes_the_render_through():

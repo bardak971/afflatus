@@ -81,6 +81,8 @@ interface Up {
   upload(bytes: Uint8Array | Blob, ext: string, opts?: { into?: "input"; name?: string }): Promise<string>;
   /** A picture into ComfyUI under a name its content gives, sent to that machine once (see `submit`). */
   picture(bytes: Uint8Array, ext: string, opts?: { into?: "input" }): Promise<string>;
+  /** The latents named where the machine saved them (sendLatent), each with how to send it after all. */
+  resend: Array<{ name: string; send: () => Promise<string> }>;
 }
 
 /**
@@ -93,6 +95,22 @@ const PICTURE_KEPT_MS = 6 * 60 * 60_000;
 async function sendable(storage: Storage, key: string): Promise<Uint8Array | Blob> {
   const path = storage.localPath?.(key);
   return path ? openAsBlob(path) : storage.get(key);
+}
+
+/**
+ * A latent Afflatus keeps (a take's, by its stored key) as the job's machine gets it: named where that machine saved it, when
+ * it made it and has not started again since (Comfy.kept), rather than sent back up, a 7 to 13 MB latent a window while a
+ * pod's GPU waited (2026-10-22); else sent. Null when it is not stored. A name ComfyUI no longer finds (started again unseen,
+ * its temp folder emptied) is sent after all when the prompt is refused for it (see submit).
+ */
+async function sendLatent({ comfy, storage, upload, resend }: Up, key: string): Promise<string | null> {
+  const there = comfy.kept.get(key);
+  if (there && Date.now() - there.at < PICTURE_KEPT_MS) {
+    resend.push({ name: there.name, send: async () => upload(await sendable(storage, key), "safetensors") });
+    return there.name;
+  }
+  const saved = await sendable(storage, key).catch(() => null);
+  return saved ? upload(saved, "safetensors") : null;
 }
 
 /** Stopped by hand (or the process shutting down) while the job got ready: it goes no further. */
@@ -169,7 +187,8 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
     });
     return sent;
   };
-  const up: Up = { recipe, db, storage, comfy, input, catalog, finishedFrom: row.finished_from, mirror: plan?.mirror ?? [], sent: { uploads: {}, media: {}, warnings: [] }, signal, upload, picture };
+  const resend: Up["resend"] = [];
+  const up: Up = { recipe, db, storage, comfy, input, catalog, finishedFrom: row.finished_from, mirror: plan?.mirror ?? [], sent: { uploads: {}, media: {}, warnings: [] }, signal, upload, picture, resend };
   // what the media cost beside sending them (cutting a clip's frames, reading a picture): /metrics' "cuts"
   const media0 = performance.now();
   // every input's files are made and sent at once; what each says is kept in the form's order, and of the inputs that
@@ -196,9 +215,9 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   // a finish that needs the draft's own sampled latent (H3's latent re-sample, which samples it again as it is): the recipe says so
   if (row.finished_from && recipe.finishing?.(input)?.latent === "own") {
     const draft = await db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").select(["assets.latent_key as latent_key"]).where("takes.id", "=", row.finished_from).executeTakeFirst();
-    const saved = draft?.latent_key ? await sendable(storage, draft.latent_key).catch(() => null) : null;
+    const saved = draft?.latent_key ? await sendLatent(up, draft.latent_key) : null;
     if (!saved) throw new Error(`This draft's latent was not kept, so ${core.registry.family(recipe.family)?.name ?? recipe.family} cannot re-sample it: finish it with SeedVR2, RTX or a model.`);
-    up.sent.uploads["self.latent"] = await upload(saved, "safetensors");
+    up.sent.uploads["self.latent"] = saved;
   }
   const { uploads, media, warnings } = up.sent;
   checkMasks(recipe, media);
@@ -263,11 +282,19 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   going(signal);
   const asked = { preview: "latent2rgb" as const, promptId: resume.promptId, outputs: results };
   resume.promptId = await comfy.client.submit(prompt.graph, asked).catch(async (err: unknown) => {
+    if (!(err instanceof ComfyError)) throw err;
     // a picture this machine had from an earlier job is no longer there (ComfyUI started again unseen, its input folder
     // cleaned): sent again under the same name, the graph stays the same, and the prompt goes once more
-    if (!(err instanceof ComfyError) || !again.length || !/afflatus_[0-9a-f]{32}/.test(err.message)) throw err;
+    const pictures = again.length > 0 && /afflatus_[0-9a-f]{32}/.test(err.message);
+    // a latent named where this machine saved it, no longer there: sent after all, and named as sent in the graph
+    const latents = resend.filter((r) => err.message.includes(r.name.replace(/ \[\w+\]$/, "")));
+    if (!pictures && !latents.length) throw err;
     going(signal);
-    await Promise.all(again.map((send) => send()));
+    const [, sentNow] = await Promise.all([pictures ? Promise.all(again.map((send) => send())) : null, Promise.all(latents.map(async (r) => [r.name, await r.send()] as const))]);
+    const renamed = new Map(sentNow);
+    for (const node of Object.values(prompt.graph)) {
+      for (const [k, v] of Object.entries(node.inputs)) if (typeof v === "string" && renamed.has(v)) node.inputs[k] = renamed.get(v)!;
+    }
     return comfy.client.submit(prompt.graph, asked);
   });
   // noted once ComfyUI took it: a prompt it refused loads nothing, and the next job must not think otherwise
@@ -500,10 +527,11 @@ async function uploadLook(up: Up, spec: InputSpec & { type: "clip" }, asset: Pic
  * fits but cannot be read makes the join one on frames, which the job says.
  */
 async function finishLatent(
-  { recipe, storage, upload, catalog, finishedFrom, sent }: Up, spec: InputSpec & { type: "clip" },
+  up: Up, spec: InputSpec & { type: "clip" },
   asset: Pick<Tables["assets"], "latent_key" | "latent_frames">, shown: Pick<Tables["assets"], "fine_latent_key" | "width" | "height">,
   cut: { at: number | undefined; counts: number[]; durationMs: number },
 ): Promise<void> {
+  const { recipe, catalog, finishedFrom, sent } = up;
   // only a recipe that joins in a kept latent reads one (it names the nodes that do, traits.latentNodes): the others are not
   // sent a file they would not open
   if (!asset.latent_key || !asset.latent_frames || !recipe.traits?.latentNodes?.length) return;
@@ -517,7 +545,7 @@ async function finishLatent(
   // the clip after: landed on where one of its latent's chunks begins (its tokens keep their time spans there, see H3_LANDING)
   const fits = spec.role === "previous" ? whole || cutAt > 0 : Boolean(grid) && isChunkStart(atFrames, grid!) && atFrames + Math.min(...counts) <= asset.latent_frames;
   if (!fits) return;
-  const saved = await sendable(storage, asset.latent_key).catch(() => null);
+  const saved = await sendLatent(up, asset.latent_key);
   if (!saved) {
     sent.warnings.push(`The latent of the ${spec.role === "previous" ? "clip before" : "clip after"} was not found: the join was made on frames instead.`);
     return;
@@ -526,15 +554,15 @@ async function finishLatent(
   // to frames, as the recipe decides from the nodes it finds, and the job says so rather than fading without a word
   const lacking = spec.role === "previous" ? (recipe.traits?.latentNodes ?? []).filter((n) => !(n in catalog)) : [];
   if (lacking.length) sent.warnings.push(`The join was made on frames: this ComfyUI has no Afflatus node pack (no ${lacking[0]}), which a join in the latent takes.`);
-  sent.uploads[`${spec.id}.latent`] = await upload(saved, "safetensors");
+  sent.uploads[`${spec.id}.latent`] = saved;
   sent.media[spec.id] = { ...sent.media[spec.id]!, latentFrames: cutAt || asset.latent_frames, ...(cutAt ? { latentCut: cutAt } : {}), ...(spec.role === "next" ? { latentAt: atFrames } : {}) };
   // a finish after a clip finished by the same latent re-sample: that clip's re-sampled latent, for decoding the join as one piece with it
   const wantsFine = Boolean(finishedFrom && spec.role === "previous" && shown.fine_latent_key && shown.width && shown.height);
-  const fine = wantsFine ? await sendable(storage, shown.fine_latent_key!).catch(() => null) : null;
+  const fine = wantsFine ? await sendLatent(up, shown.fine_latent_key!) : null;
   // said on the job like the other fallbacks: the join is then decoded on its own, and may show where the two meet
   if (wantsFine && !fine) sent.warnings.push("The re-sampled latent of the clip before was not found: the join was not decoded as one piece with it.");
   if (fine) {
-    sent.uploads[`${spec.id}.fine`] = await upload(fine, "safetensors");
+    sent.uploads[`${spec.id}.fine`] = fine;
     sent.media[spec.id] = { ...sent.media[spec.id]!, fine: { width: shown.width!, height: shown.height! } };
   }
 }

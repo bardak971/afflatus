@@ -68,6 +68,7 @@ export function fakeRoutes(fake: FakeState, hooks: { queued(promptId: string, cl
     if (method !== "POST") return false;
     if (path === "/prompt") {
       if (fake.rejectWith) return json(400, fake.rejectWith);
+      if (fake.rejectNext.length) return json(400, fake.rejectNext.shift());
       const sent = JSON.parse(raw.toString("utf-8")) as { prompt: Graph; client_id?: string; prompt_id?: string };
       // the id the client chose, as ComfyUI takes it; else one of its own
       const id = typeof sent.prompt_id === "string" && sent.prompt_id ? sent.prompt_id : `prompt-${++n}`;
