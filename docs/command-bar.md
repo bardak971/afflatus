@@ -90,7 +90,7 @@ With "Search Hugging Face and Civitai" on (Settings › Models); off, a pasted l
 
 ## Actions behind a result (Tab)
 
-- **A render:** the viewer's own actions: view · show in its folder · use in this draft · keep · download · variation · reuse (same seed, new seed) · PNG info · i2v · the quick passes (Upscale 2x, Face refine, Hand detailer, Remove background) and the tools that open in a form (Inpaint, Edit, Outpaint) · mirror · Extend · save frame (the first frame) · extract audio · copy the seed · add to a timeline · open in ComfyUI · move to a project · rename · move to the bin (in the bin: put back, and "show in the bin"). Trim and Compare need the viewer on screen and are left to it.
+- **A render:** the viewer's own actions: view · show in its folder · use in this draft · keep · download · variation · reuse (same seed, new seed) · PNG info · i2v · the quick passes (Upscale 2x, Face refine, Hand refine, Remove background) and the tools that open in a form (Inpaint, Edit, Outpaint) · mirror · Extend · save frame (the first frame) · extract audio · copy the seed · add to a timeline · open in ComfyUI · move to a project · rename · move to the bin (in the bin: put back, and "show in the bin"). Trim and Compare need the viewer on screen and are left to it.
 - **A timeline:** open · show in Projects · render all · export… · finish… · fix all · bin unused takes · rename · move to another project · delete.
 - **A draft:** open · show in Projects · render again · duplicate · rename · move to another project · delete.
 - **A project:** work in it · show in Projects · pin to the rail · new folder inside · import a folder here · rename · archive · delete. An archived one: unarchive first. The Inbox: work in it · show in Projects.

@@ -96,7 +96,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     const file = offered.find((o) => new RegExp(way.match, "i").test(o));
     // offline, nothing is listed: the queue says ComfyUI does not answer, which is the reason
     if (!file && setup.data?.comfy.online) {
-      say({ id: `queued:${Date.now()}`, tone: "bad", title: "Hand detailer could not be queued", text: "The hand detector is not installed: Settings → Models → Image tools has it (one click).", href: "/settings/models", go: "Open settings" });
+      say({ id: `queued:${Date.now()}`, tone: "bad", title: "Hand refine could not be queued", text: "The hand detector is not installed: Settings → Models → Image tools has it (one click).", href: "/settings/models", go: "Open settings" });
       return;
     }
     queue("hand", { recipe: tool, stored: { ...toolInput(tool), ...way.values, ...(file ? { [way.input.id]: file } : {}) }, label: OPS.h!.label, from: a.id });
