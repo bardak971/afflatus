@@ -70,7 +70,7 @@ const baseName = (file: string) => file.split(/[\\/]/).pop() ?? file;
 export function isOfficialFile(families: Family[], want: { url?: string; file: string; folder: string }): boolean {
   if (!want.url) return false;
   const name = nameOf(want.file);
-  return families.some((f) => f.slots.some((x) => x.get?.url === want.url && x.folder === want.folder && nameOf(x.get.file) === name));
+  return families.some((f) => f.slots.some((x) => x.get !== undefined && x.get.url === want.url && x.folder === want.folder && nameOf(x.get.file) === name));
 }
 const CIVITAI_PAGE = /civitai\.(?:com|red|green)\/models\/\d+[^\s#]*?[?&]modelVersionId=(\d+)/i;
 const HF_FILE = /^https:\/\/huggingface\.co\/([^/]+)\/([^/]+)\/(?:blob|resolve)\/([^/]+)\/(.+)$/i;
