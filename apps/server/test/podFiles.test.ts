@@ -185,6 +185,8 @@ describe("a rented pod's model files", () => {
     await writeSettings(t.services.db, { downloadModels: false, civitaiLookups: false });
     const url = `${siteUrl}/files/official.safetensors`;
     const family = { id: "fam", slots: [{ folder: "checkpoints", get: { url, file: "official.safetensors" } }] } as unknown as Family;
+    mkdirSync(join(disk, "diffusion_models"));
+    pod.folderPaths!.diffusion_models = [join(disk, "diffusion_models")];
     const comfy = new Comfy(pod.url, t.services.registry);
     const off = new PodFiles({
       db: t.services.db, downloads: t.services.downloads,
@@ -192,14 +194,20 @@ describe("a rented pod's model files", () => {
       lookup: { db: t.services.db, presets: async () => [], families: () => [family], comfyDir: async () => home },
       settings: async () => ({ civitaiKey: "", downloadModels: false, civitaiLookups: false }),
     });
-    off.want("pod", [{ file: "official.safetensors", folder: "checkpoints" }, { file: "other.safetensors", folder: "loras", url: `${siteUrl}/files/other.safetensors` }], { tier: "need" });
+    // the same file at its official address in another folder (a shipped preset loading LTX 2.3's checkpoint as a diffusion
+    // model): the planner sent it to the pod, whose fetch refused it, the pod billed while it waited
+    off.want("pod", [
+      { file: "official.safetensors", folder: "checkpoints" }, { file: "other.safetensors", folder: "loras", url: `${siteUrl}/files/other.safetensors` },
+      { file: "official.safetensors", folder: "diffusion_models", url },
+    ], { tier: "need" });
     await until(async () => {
       await off.tick();
       return off.view("pod").every((f) => f.state === "ready" || f.state === "failed");
     });
-    const state = Object.fromEntries(off.view("pod").map((f) => [f.file, f.state]));
-    expect(state).toEqual({ "official.safetensors": "ready", "other.safetensors": "failed" });
+    const state = Object.fromEntries(off.view("pod").map((f) => [`${f.folder}/${f.file}`, f.state]));
+    expect(state).toEqual({ "checkpoints/official.safetensors": "ready", "loras/other.safetensors": "failed", "diffusion_models/official.safetensors": "ready" });
     expect(readFileSync(join(disk, "checkpoints", "official.safetensors")).equals(FILE)).toBe(true);
+    expect(readFileSync(join(disk, "diffusion_models", "official.safetensors")).equals(FILE)).toBe(true);
   });
 
   it("are ready when the pod has them already, a .gguf one too (listed by the GGUF pack, not in ComfyUI's own list)", async () => {

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useContext, useEffect, useMemo, type ReactNode } from "react";
-import { isShown, type InputSpec } from "@afflatus/core";
+import { isOfficialName, isShown, type InputSpec } from "@afflatus/core";
 import { useAdvice } from "./advice";
 import { api, thumbUrl, type RecipeInfo, type RecipeStatus } from "./api";
 import { useQuery } from "@tanstack/react-query";
@@ -157,7 +157,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   const inUse = (picker ? String(values[picker.id] ?? "") : recipe.models?.[0]) || undefined;
   /** The form names a model file this ComfyUI does not list (a preset made elsewhere, a file removed). */
   // a family's official file picked greyed says itself under its field (ModelField: Download, or fetched by the pod)
-  const official = (file: string) => Boolean(family?.slots?.some((x) => x.get?.file === file));
+  const official = (file: string) => isOfficialName(family ? [family] : [], file);
   const isMissingModel = (id: string) => typeof values[id] === "string" && values[id] !== "" && Array.isArray(status?.options[id]) && !status!.options[id]!.includes(String(values[id])) && !official(String(values[id]));
   const setPart = useParts((st) => st.set);
 

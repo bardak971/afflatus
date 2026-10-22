@@ -8,7 +8,7 @@ import { httpError as bad } from "./errors";
 import { fileName } from "./media";
 import { webUrl } from "./modelPages";
 import { assertPublicUrl } from "./outbound";
-import { isOfficialFile } from "./podSources";
+import { isOfficialFile } from "@afflatus/core";
 import type { Services } from "./services";
 import { readSettings, type Settings } from "./settings";
 

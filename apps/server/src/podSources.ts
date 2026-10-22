@@ -62,16 +62,6 @@ export interface SourceLookup {
 
 const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
 const baseName = (file: string) => file.split(/[\\/]/).pop() ?? file;
-/**
- * Whether `url` is a family's own official file for `file` in `folder` (a slot's `get`): fetching it is no lookup, the
- * address is the family's own, so it is fetched whatever the downloads and lookups settings say (a Download pressed on it,
- * or a pod getting it for a deploy or a queued job).
- */
-export function isOfficialFile(families: Family[], want: { url?: string; file: string; folder: string }): boolean {
-  if (!want.url) return false;
-  const name = nameOf(want.file);
-  return families.some((f) => f.slots.some((x) => x.get !== undefined && x.get.url === want.url && x.folder === want.folder && nameOf(x.get.file) === name));
-}
 const CIVITAI_PAGE = /civitai\.(?:com|red|green)\/models\/\d+[^\s#]*?[?&]modelVersionId=(\d+)/i;
 const HF_FILE = /^https:\/\/huggingface\.co\/([^/]+)\/([^/]+)\/(?:blob|resolve)\/([^/]+)\/(.+)$/i;
 
