@@ -1,5 +1,5 @@
 import { lazy, Suspense, useContext, useEffect, useMemo, type ReactNode } from "react";
-import { isShown, type InputSpec } from "@afflatus/core";
+import { isShown, sameFile, type InputSpec } from "@afflatus/core";
 import { useAdvice } from "./advice";
 import { api, thumbUrl, type RecipeInfo, type RecipeStatus } from "./api";
 import { useQuery } from "@tanstack/react-query";
@@ -160,7 +160,9 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   // by its whole path, as the field and Generate match it: by its bare name, a preset's "SDXL/<official file>" that this
   // ComfyUI lacks passed here while neither of them said a thing
   const official = (file: string) => isFamilyFile(family, file);
-  const isMissingModel = (id: string) => typeof values[id] === "string" && values[id] !== "" && Array.isArray(status?.options[id]) && !status!.options[id]!.includes(String(values[id])) && !official(String(values[id]));
+  // listed is matched as the server matches it when it builds the job (core sameFile): the same file in another sub-folder,
+  // or with the other slash, is there. An imported workflow names its model as its author kept it, and the render finds it
+  const isMissingModel = (id: string) => typeof values[id] === "string" && values[id] !== "" && Array.isArray(status?.options[id]) && !sameFile(status!.options[id]!, String(values[id])) && !official(String(values[id]));
   const setPart = useParts((st) => st.set);
 
   // ---- the search: typed, only the settings whose name (or explanation) matches stay on the form

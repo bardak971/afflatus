@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import type { FamilyInfo, Job, MachineState, RecipeInfo, RecipeStatus } from "../../src/api";
 import { Form } from "../../src/RecipeForm";
-import { ModelField } from "../../src/fields/FileSelect";
+import { ModelField, useWaitsOn } from "../../src/fields/FileSelect";
+import { useSettings, useSetup } from "../../src/data";
 import { WaitingList } from "../../src/screens/queue/WaitingList";
 import { fakeApi } from "./fakeApi";
 import { draw } from "./render";
@@ -107,12 +108,40 @@ describe("a model field's official files not here", () => {
   });
 });
 
+describe("a model field's official file kept in a sub-folder of the user's own", () => {
+  it("is on the ComfyUI, not greyed as not here: the server takes it there by its name", async () => {
+    serve();
+    fakeApi.on("GET /setup", { comfy: { online: true }, recipes: [], lists: [] });
+    fakeApi.on("GET /official-sizes", { sizes: {}, asking: false });
+    draw(<ModelField id="ckpt" spec={{ label: "Checkpoint", folder: "checkpoints" }} value={`Base\\${OFFICIAL.file}`} options={[`Base\\${OFFICIAL.file}`]} family={family} onChange={() => {}} />);
+    expect(await screen.findByText(/^1 on your ComfyUI$/)).toBeTruthy();
+    expect(screen.queryByText(/official not here/)).toBeNull();
+  });
+
+  it("is not a download Generate waits for", async () => {
+    serve();
+    fakeApi.on("GET /setup", { comfy: { online: true }, recipes: [], lists: [] });
+    const recipe = { id: "zz.picture", family: "zz", title: "zz-test picture", inputs: [{ id: "ckpt", type: "model", label: "Checkpoint", folder: "checkpoints", slot: "checkpoint" }] } as unknown as RecipeInfo;
+    const status = { id: "zz.picture", ready: true, missingNodes: [], missingSlots: [], emptyInputs: [], missingFiles: [], missing: [], problems: [], limitedBy: [], options: { ckpt: [`Base\\${OFFICIAL.file}`] } } as RecipeStatus;
+    const missing = { ...status, options: { ckpt: ["zz-test-mine.safetensors"] } };
+    function Says({ listed }: { listed: RecipeStatus }) {
+      const waitsOn = useWaitsOn(recipe, listed, family);
+      const settings = useSettings();
+      const setup = useSetup();
+      return <span>{settings.data && setup.data ? waitsOn({ ckpt: OFFICIAL.file }) ?? "goes at once" : "reading"}</span>;
+    }
+    draw(<><Says listed={status} /><Says listed={missing} /></>);
+    expect(await screen.findByText("goes at once")).toBeTruthy();
+    expect(await screen.findByText("waits for the download")).toBeTruthy();
+  });
+});
+
 describe("a form's model value that its ComfyUI lacks", () => {
   const recipe = { id: "zz.picture", family: "zz", title: "zz-test picture", inputs: [{ id: "ckpt", type: "model", label: "Checkpoint", folder: "checkpoints" }] } as unknown as RecipeInfo;
   const status = { id: "zz.picture", ready: true, missingNodes: [], missingSlots: [], emptyInputs: [], missingFiles: [], missing: [], problems: [], limitedBy: [], options: { ckpt: ["zz-test-mine.safetensors"] } } as RecipeStatus;
   // drawn with its Model part opened, where the field and the note are
-  const drawn = async (value: string) => {
-    const { user } = draw(<Form recipe={recipe} status={status} stored={{ ckpt: value }} onChange={() => {}} onClear={() => {}} />);
+  const drawn = async (value: string, listed = status.options.ckpt!) => {
+    const { user } = draw(<Form recipe={recipe} status={{ ...status, options: { ckpt: listed } }} stored={{ ckpt: value }} onChange={() => {}} onClear={() => {}} />);
     await user.click((await screen.findAllByRole("button", { name: /Model/ }))[0]!);
   };
 
@@ -138,5 +167,20 @@ describe("a form's model value that its ComfyUI lacks", () => {
     await drawn("zz\\zz-test-base.safetensors");
     expect(await screen.findByText(/Not on your ComfyUI/)).toBeTruthy();
     expect(screen.queryByText(/ComfyUI does not have/)).toBeNull();
+  });
+
+  it("is not said missing when ComfyUI lists it in another sub-folder or with the other slash, as the server finds it (an imported workflow's model)", async () => {
+    serve();
+    fakeApi.on("GET /setup", { comfy: { online: true }, recipes: [], lists: [] });
+    await drawn("SDXL/zz-test-mine.safetensors", ["SDXL\\zz-test-mine.safetensors"]);
+    expect(await screen.findByText(/1 on your ComfyUI/)).toBeTruthy();
+    expect(screen.queryByText(/ComfyUI does not have/)).toBeNull();
+  });
+
+  it("is said missing still when no listed file has its name", async () => {
+    serve();
+    fakeApi.on("GET /setup", { comfy: { online: true }, recipes: [], lists: [] });
+    await drawn("SDXL/zz-test-other.safetensors", ["SDXL\\zz-test-mine.safetensors"]);
+    expect(await screen.findByText(/ComfyUI does not have/)).toBeTruthy();
   });
 });
