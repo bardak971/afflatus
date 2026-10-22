@@ -6,7 +6,7 @@ import type { Db } from "./db";
 import { PASSING, type Downloads } from "./downloads";
 import { stat } from "node:fs/promises";
 import { GUESSED, MEASURED_FROM, measuredRange, recordFetch, recordMeasure, type MeasureKind, type Range } from "./podMeasures";
-import { localCopy, measureKind, podSource, presetsOf, type PodSource, type SourceLookup } from "./podSources";
+import { isOfficialFile, localCopy, measureKind, podSource, presetsOf, type PodSource, type SourceLookup } from "./podSources";
 import { PACKS_MS, PodPacks, type PodPackView } from "./podPacks";
 import { PACK_UPLOADS, uploadFile } from "./podUpload";
 import type { Settings } from "./settings";
@@ -749,6 +749,12 @@ export class PodFiles {
     if (!v) return this.fail(machine, e, "its download was lost: Afflatus was restarted, or it was taken off the list");
     // whole on the pod once the pack is done with it (ComfyUI listing it comes a moment after): its speed ends there
     if (v.status === "saving" || v.status === "done") e.wholeAt ??= Date.now();
+    // waiting its turn at the pack (its line full, a 429 waited out in downloads.ts): its clock starts once the pack takes
+    // it, or the wait is kept as fetch time and lowers the speed measured on that cloud (deployOverhead, the hunt's pick)
+    if (v.status === "starting" && v.waiting) {
+      e.flowingAt = Date.now();
+      e.movedAt = e.flowingAt;
+    }
     const moved = v.bytes !== e.bytes || (v.total || e.total) !== e.total;
     this.moved(e, v.bytes);
     e.bytes = v.bytes;
@@ -782,8 +788,11 @@ export class PodFiles {
       const src = e.source!;
       if (src.kind === "upload") return await this.send(machine, comfy, e, src.path);
       const settings = await this.d.settings();
-      if (!settings.downloadModels) throw new Error("downloading into ComfyUI is turned off (Settings › Models › Missing models)");
-      if (!settings.civitaiLookups) throw new Error("looking up models online is turned off, so Hugging Face and Civitai are not asked (Settings › Models)");
+      // a family's own official file is no lookup, and a deploy or a queued job asked for it (the consent, as a Download
+      // pressed on it is in fetchFile.ts): fetched whatever these say, so a fresh install's pod gets what its screens promise
+      const official = src.kind === "url" && isOfficialFile(this.d.lookup.families(), { url: src.url, file: e.file, folder: e.folder });
+      if (!official && !settings.downloadModels) throw new Error("downloading into ComfyUI is turned off (Settings › Models › Missing models)");
+      if (!official && !settings.civitaiLookups) throw new Error("looking up models online is turned off, so Hugging Face and Civitai are not asked (Settings › Models)");
       const name = e.file.split(/[\\/]/).pop()!;
       let source: string;
       let headers: Record<string, string> | undefined;

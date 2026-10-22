@@ -54,9 +54,11 @@ beforeEach(async () => {
   await t.services.queue.start();
 });
 afterEach(async () => {
-  vi.unstubAllEnvs();
   vi.restoreAllMocks();
   await t.close();
+  // the envs unstubbed last: a RunPod call still under way until the close (a hunt's round, a poll) read them
+  // again and, without them, went to RunPod itself
+  vi.unstubAllEnvs();
   await Promise.all([fake, telegram, discord].map((x) => x.close().catch(() => {})));
 });
 

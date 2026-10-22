@@ -74,7 +74,6 @@ export interface DownloadView {
   again?: true;
 }
 
-/** What a download onto a machine that cannot reach Afflatus (a rented pod) is refused with when its source gives no link of its own. */
 /**
  * A failure that passes (ComfyUI not answering for a moment, restarting, its line full): asked again later by whoever asked
  * for it. The pod's files (podFiles.ts) retry these themselves, so a download they asked for says nothing of one while they
@@ -85,6 +84,7 @@ export const PASSING = /not answering|cannot be reached|no longer knows the (dow
 /** How long a node pack whose line is full (429: its downloads at once under way) is waited for before the download is given up. */
 export const PACK_BUSY_MS = 120_000;
 
+/** What a download onto a machine that cannot reach Afflatus (a rented pod) is refused with when its source gives no link of its own. */
 export const NO_DIRECT = "Its source gives no download link of its own, and a rented GPU cannot reach Afflatus to be sent the file through it.";
 
 interface Download extends DownloadView {

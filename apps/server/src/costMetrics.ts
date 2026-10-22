@@ -4,8 +4,11 @@ import type { Services } from "./services";
 
 /**
  * The money side of /metrics: what the rented GPUs cost, as Queue › Costs works it out (costs.ts), for a dashboard beside
- * the render figures. Spend by part and by GPU and the pods' ends by reason are counters over the whole record (they only
- * grow, until the record is forgotten); the day, the month, the caps, the balance, the pace and storage are gauges.
+ * the render figures. The pods' ends by reason are a counter over the whole record (it only grows, until the record is
+ * forgotten). Spend by part and by GPU are gauges: they are the whole record split again at each read, and a split moves
+ * (a render's time is idle until its row lands at its end, then render; old renders folded, a boot estimate replaced by
+ * the real one), so a part goes down, which a counter's rate would read as a reset and add its whole total back in. The
+ * day, the month, the caps, the balance, the pace and storage are gauges too.
  * Nothing is said without a RunPod key, a rented machine or a pod session on record. Labels are the part, RunPod's GPU
  * name and the end's reason: never a pod's id, which is new at each deploy.
  */
@@ -41,12 +44,12 @@ export function costMetrics(s: Services): (head: Head, put: Line) => Promise<voi
     const v = await view().catch(() => null);
     if (!v) return;
 
-    head("afflatus_rented_spend_usd_total", "counter", "What the rented GPUs cost, USD, by what the pods did (Queue › Costs's parts)");
-    for (const part of PARTS) put("afflatus_rented_spend_usd_total", { part }, v.where.usd[part]);
+    head("afflatus_rented_spend_usd", "gauge", "What the rented GPUs cost over the whole record, USD, by what the pods did (Queue › Costs's parts, split again at each read)");
+    for (const part of PARTS) put("afflatus_rented_spend_usd", { part }, v.where.usd[part]);
     const byGpu = new Map<string, number>();
     for (const x of v.sessions) byGpu.set(x.gpu ?? "unknown", (byGpu.get(x.gpu ?? "unknown") ?? 0) + x.usd);
-    head("afflatus_rented_gpu_spend_usd_total", "counter", "What the rented GPUs cost, USD, by RunPod's GPU");
-    for (const [gpu, usd] of byGpu) put("afflatus_rented_gpu_spend_usd_total", { gpu }, usd);
+    head("afflatus_rented_gpu_spend_usd", "gauge", "What the rented GPUs cost over the whole record, USD, by RunPod's GPU");
+    for (const [gpu, usd] of byGpu) put("afflatus_rented_gpu_spend_usd", { gpu }, usd);
 
     const ends = await s.db.selectFrom("rent_sessions").select(["end_why", (eb) => eb.fn.countAll<number>().as("n")]).where("ended_at", "is not", null).groupBy("end_why").execute();
     head("afflatus_rented_pod_ends_total", "counter", "Pod runs that ended, by why: idle, cap, you, crash…; unknown when RunPod ended it or the run is from before");

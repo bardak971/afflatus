@@ -134,8 +134,10 @@ describe("a deployed pod's boot on its card, its row and its log tab", () => {
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { runpodKey: KEY } });
   });
   afterEach(async () => {
-    vi.unstubAllEnvs();
     await t.close();
+    // the envs unstubbed last: a RunPod call still under way until the close (a hunt's round, a poll) read them
+    // again and, without them, went to RunPod itself
+    vi.unstubAllEnvs();
     await Promise.all([home, runpod, ...spawned.splice(0)].map((x) => x.close().catch(() => {})));
   });
   const ASK = { gpu: "NVIDIA A40", cloud: "SECURE", template: "afflatus", volume: "", disk: 120, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15 };
@@ -226,6 +228,40 @@ describe("a deployed pod's boot on its card, its row and its log tab", () => {
     // the Costs tab says it with its run
     const costs = (await get(t.app, "/api/costs")).json() as { sessions: Array<{ cuda: string; hostCuda: string; pull: { fresh: boolean } | null; bootLog: boolean }> };
     expect(costs.sessions[0]).toMatchObject({ cuda: "13.0", hostCuda: "13.2", pull: { fresh: true }, bootLog: false });
+  });
+
+  it("asks the image's registry again a while after it gave no layers: one miss does not take the bytes off every later pull", async () => {
+    t.services.rented.pullEveryMs = 0;
+    let asked = 0;
+    t.services.rented.imageLayersOf = async () => (++asked === 1 ? null : FAKE_LAYERS);
+    runpod.pullMs = 3000;
+    const id = (await post(t.app, "/api/runpod/deploy", ASK)).json().id as string;
+    await until(async () => Boolean((await rowOf(id)).boot?.pull));
+    // no layers: its progress without bytes, and not asked again at once
+    expect((await rowOf(id)).boot?.pull?.bytes).toBe(0);
+    expect(asked).toBe(1);
+    // a while later: asked again, its bytes said
+    const later = Date.now() + 6 * 60_000;
+    t.services.rented.now = () => later;
+    await until(async () => (await rowOf(id)).boot?.pull?.bytes === 144e6);
+    expect(asked).toBe(2);
+  });
+
+  it("keeps the boot log of its boot: a read after it (its log tab, its ComfyUI's death) does not replace it", async () => {
+    t.services.rented.pullEveryMs = 0;
+    t.services.rented.imageLayersOf = async () => FAKE_LAYERS;
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { bootLogDays: 7 } });
+    const id = (await post(t.app, "/api/runpod/deploy", ASK)).json().id as string;
+    await until(async () => (await rowOf(id)).booting === false);
+    const kept = (await t.db.selectFrom("rent_sessions").select("boot_log").executeTakeFirstOrThrow()).boot_log!;
+    expect(kept).toMatch(/checking the GPU/);
+    // an hour of renders later, its log is ComfyUI's lines alone
+    const later = Date.now() + 60 * 60_000;
+    t.services.rented.now = () => later;
+    spawned[0]!.bootLog!.lines = [line("got prompt", new Date(later).toISOString())];
+    await until(async () => (await t.services.rented.bootLines(id))?.lines[0]?.m === "got prompt");
+    await t.services.rented.poll();
+    expect((await t.db.selectFrom("rent_sessions").select("boot_log").executeTakeFirstOrThrow()).boot_log).toBe(kept);
   });
 
   it("keeps a run's boot log only while boot logs are kept, served as text, and drops it after its days", async () => {

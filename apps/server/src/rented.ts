@@ -170,6 +170,18 @@ export class Rented extends RentedDeploy {
     }
   }
 
+  /**
+   * Whether a machine is a pod deployed for renders that has not answered yet (its first start), and is not down for good:
+   * one just made and not listed by RunPod yet counts, as it does for its volume (rentedVolumes.ts). The GPU hunt deploys
+   * nothing while one is: it is coming for the renders that wait.
+   */
+  firstStarting(m: Machine): boolean {
+    if (!m.rented?.deployedAt || m.rented.fill) return false;
+    const s = this.seen.get(m.id);
+    if (s?.answered || s?.stopping || s?.stoppedBy) return false;
+    return !s?.pod || BILLED.has(s.pod.status);
+  }
+
   /** A deploy under way (the user's, a fill's or the GPU hunt's): another is refused until it ends. */
   get busy(): boolean {
     return this.deploying;
