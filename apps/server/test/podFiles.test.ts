@@ -564,6 +564,27 @@ describe("a rented pod's node packs", () => {
     }
   });
 
+  it("asked for a job alone are kept while ComfyUI restarts for them: the planner, which cannot judge the pod then, does not strand it held (review 0.6.0, N-15)", async () => {
+    const { pm, pf } = await withManager();
+    try {
+      pf.wantPacks("pod", ["comfyui-impact-pack"], "j1");
+      await until(async () => (await pf.tick(), pm.reboots === 1));
+      expect(pf.holding("pod")).toBe(true);
+      // the pod down for its restart: unjudged, the plan sends j1 nowhere, and its packs would be dropped
+      pf.dropUnsought("pod", () => false);
+      expect(pf.packsView("pod").map((p) => p.name)).toEqual(["comfyui-impact-pack"]);
+      await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "ready"), 15_000);
+      expect(pf.holding("pod")).toBe(false);
+      // and the next job's pack comes as usual
+      pf.wantPacks("pod", ["comfyui-detail-daemon"], "j2");
+      await until(async () => (await pf.tick(), pf.packsView("pod").find((p) => p.name === "comfyui-detail-daemon")?.state === "ready"), 15_000);
+      expect(pm.reboots).toBe(2);
+      expect(pf.holding("pod")).toBe(false);
+    } finally {
+      await pm.close();
+    }
+  }, 40_000);
+
   it("that Manager does not install fail, their job with them", async () => {
     const { pm, pf } = await withManager(["comfyui-gguf"]);
     try {

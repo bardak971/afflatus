@@ -42,10 +42,17 @@ export class Comfy {
     // the socket opening again means ComfyUI was restarted (or came back): its nodes and files may have
     // changed, a node pack just written among them, so nothing kept about it holds
     this.monitor.onOpen = (again) => {
+      this.openedAt = Date.now();
       if (again) this.forgetAll();
       else this.onFirstAnswer?.();
     };
   }
+
+  /**
+   * When its socket last opened (ms; 0 before it ever did): a ComfyUI restarted since then, by hand or by anyone, loaded what
+   * was on its disk, so what podPacks.ts remembers as on the disk and not loaded no longer holds.
+   */
+  openedAt = 0;
 
   /** Its socket opened the first time (it answers, maybe for the first time since it was added): services.ts looks for its folder then. */
   onFirstAnswer?: () => void;
