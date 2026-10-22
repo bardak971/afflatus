@@ -114,6 +114,10 @@ export function ComfyCard() {
       {unload.isError && <Block><ErrorNote>{unload.error.message}</ErrorNote></Block>}
     </Card>
   );
+  // the machines not read yet, or not read at all: nothing said of them (the "no ComfyUI" cards flashed while they loaded,
+  // and stood in for a failure to read them)
+  if (settings.isError) return <ErrorNote>The settings could not be read: {settings.error.message}</ErrorNote>;
+  if (!settings.data) return null;
   // no ComfyUI of the user's own (a rented-only start, none added yet): its question, the pods below, nothing offline
   if (!machines.some((m) => !m.rented)) {
     return (

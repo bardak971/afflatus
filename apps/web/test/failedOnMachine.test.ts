@@ -20,8 +20,14 @@ describe("a machine's failed downloads", () => {
       dl("b", "read.safetensors", { seen: true }),
       dl("c", "coming.safetensors", { status: "downloading", error: undefined }),
       dl("d", "big.safetensors", { error: "its volume is full: 3 GB free, the file is 20 GB" }),
-    ], "rp-1", "RTX 4090")!;
+    ], "rp-1", "RTX 4090", "vol-1")!;
     expect(said.banner.title).toBe("Download of swap.safetensors failed on RTX 4090");
+    expect(said.ids).toEqual(["a"]);
+  });
+
+  it("say a want of room on a machine without a volume, which has no banner of its own", () => {
+    const said = failedOnMachine([dl("a", "big.safetensors", { error: "No space left on device (507)" })], "rp-1", "RTX 4090", null)!;
+    expect(said.banner.title).toBe("Download of big.safetensors failed on RTX 4090");
     expect(said.ids).toEqual(["a"]);
   });
 

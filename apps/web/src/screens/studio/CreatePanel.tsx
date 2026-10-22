@@ -27,6 +27,7 @@ import { PresetMenu, presetRefusal } from "./PresetMenu";
 import { useGenerate } from "./useGenerate";
 import { queryKeys } from "../../queryKeys";
 import { failedBanner } from "../../sayFailed";
+import { usePickedMachine } from "../../GenerateOn";
 
 // the designer's panel is a chunk of its own: fetched the first time it opens
 const Designer = lazy(() => import("../../Designer").then((m) => ({ default: m.Designer })));
@@ -48,6 +49,8 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
   const first = all.find((r) => families.isOn(r.family)) ?? all[0];
   const d = useDraft(first?.id);
   const draft = d.draft;
+  // the machine picked in Generate on: the form's node pack notes speak for it
+  const pickedOn = usePickedMachine(draft?.id);
   // a draft can be on a recipe that is gone (a workflow that was removed): fall back to the first one
   const recipe = all.find((r) => r.id === draft?.recipe) ?? first;
   // the open form, for the library's menus: "Use in this draft" (formTarget.ts)
@@ -153,6 +156,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
           <Form
             key={`${draft.id}:${recipe.id}`}
             promptInView
+            machine={pickedOn?.id}
             recipe={recipe}
             status={status}
             stored={formValues}

@@ -242,6 +242,16 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
       if (!shown.current) sayFailed(changing ? "The hunt was not changed" : "The hunt did not start")(err);
     },
   });
+  // one pod at a time from here: a deploy and a hunt pending at once made two (the hunt's first pick deployed beside the 12.8
+  // one), so each button waits for the other
+  const busy = deploy.isPending || huntGo.isPending;
+  // the GPU wanted on CUDA 12.8 now (no CUDA 13 host free), its rate on the button as every deploy's is
+  const on128 = only128(wantedOffer) ? wantedOffer! : null;
+  const deploy128 = on128 && (
+    <Button size="sm" data-tip={rateTip(on128.price)} disabled={imageMissing || busy || !models.ready || !diskFits || Boolean(volume?.usedBy)} onClick={() => deploy.mutate({ cuda: "12.8", cudaOnce: true })}>
+      {deploy.isPending ? "Deploying…" : `Deploy on CUDA 12.8 · ${usd(withDisk(on128.price))}/h`}
+    </Button>
+  );
   const more = useMenu<true>();
   // the choices kept as the next deploy's without deploying (Settings › Rented GPUs › Next deploy); the files are a deploy's own
   const saveNext = useMutation({
@@ -278,7 +288,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
                       : `The best GPU below is deployed the moment one comes free${volume ? ` in ${volume.dataCenter}` : ""}.`}
                   {alt && alt.id !== wantedFree?.id && ` The ${alt.name} is free now, at ${usd(alt.price)}/h for the GPU.`}
                 </span>
-                {gone && only128(wantedOffer) && <Button size="sm" disabled={imageMissing || deploy.isPending || !models.ready || !diskFits || Boolean(volume?.usedBy)} onClick={() => deploy.mutate({ cuda: "12.8", cudaOnce: true })}>Deploy on CUDA 12.8 now</Button>}
+                {gone && deploy128}
                 {alt && <Button size="sm" onClick={() => { set({ gpu: alt.id }); setHuntAsked(false); }}>Deploy it instead</Button>}
                 <Segmented<DeployAsk["cloud"]> size="sm" label="Cloud" value={want.cloud} options={[{ value: "SECURE", label: "Secure" }, { value: "COMMUNITY", label: "Community" }]} onChange={(cloud) => set({ cloud })} />
                 <Help text={WHY_CLOUD} />
@@ -349,7 +359,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
                     </span>
                     <span className="text-right font-mono text-xs">{g.memory} GB</span>
                     <span className="text-xs">{volume ? volume.dataCenter : "anywhere"}</span>
-                    <span className="text-xs">none</span>
+                    <span className="text-xs">{only128(g) ? "12.8 only" : "none"}</span>
                     <span className="text-right font-mono text-xs">{usd(g.price)}/h</span>
                   </button>
                 ))}
@@ -422,7 +432,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
         {!hunting && !changing && only128(wantedOffer) && (
           <span className="flex flex-wrap items-center gap-2 text-xs text-warn-ink">
             No {wantedOffer!.name} host with CUDA 13 is free now; one with CUDA 12.8 is (slower).
-            <Button size="sm" disabled={imageMissing || deploy.isPending || !models.ready || !diskFits || Boolean(volume?.usedBy)} onClick={() => deploy.mutate({ cuda: "12.8", cudaOnce: true })}>Deploy on CUDA 12.8 now</Button>
+            {deploy128}
           </span>
         )}
         {volume?.usedBy && (
@@ -449,20 +459,21 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
             : picked
             ? `Billed from deploy · ${picked.name} ${picked.places[0]!.id === "any" ? "on Community Cloud" : `in ${picked.places[0]!.id}`}`
             : gone
-              // the one picked last time, not in stock on this cloud now: said where the choice is made, nothing moves above
-              ? <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-warn-ink">{gone.name} not in stock {volume ? `in ${volume.dataCenter} ` : ""}now{instead ? `; the ${instead.name} is, at ${usd(instead.price)}/h for the GPU` : ""}{instead && <Button size="sm" onClick={() => set({ gpu: instead.id })}>Pick it</Button>}{keyed && <Button size="sm" onClick={() => { setHuntFor(gone.id); setHuntAsked(true); }}>Hunt for it</Button>}</span>
+              // the one picked last time, not in stock on this cloud now: said where the choice is made, nothing moves above.
+              // Free on CUDA 12.8 only, it is in stock, and the line above offers it: said so, not "not in stock"
+              ? <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-warn-ink">{gone.name} {on128 ? "free on CUDA 12.8 only" : "not in stock"} {volume ? `in ${volume.dataCenter} ` : ""}now{instead ? `; the ${instead.name} is, at ${usd(instead.price)}/h for the GPU` : ""}{instead && <Button size="sm" onClick={() => set({ gpu: instead.id })}>Pick it</Button>}{keyed && <Button size="sm" onClick={() => { setHuntFor(gone.id); setHuntAsked(true); }}>Hunt for it</Button>}</span>
               : "Pick a GPU"}
         </span>
         <Button tone="quiet" onClick={onClose} className="shrink-0">Cancel <Keys keys="Esc" size="sm" /></Button>
         {/* Deploy, and on its slice what else can be done with these choices: kept as the next deploy's, without deploying */}
         <span className="flex shrink-0">
           {hunting ? (
-            <button type="button" data-tip={pickNow ? rateTip(pickNow.price) : `Up to ${usd(huntAsk.ceiling)} an hour for the GPU; its ${diskGb} GB disk adds ${usd(diskPerHour(diskGb), true)} an hour while it runs`} onClick={() => huntGo.mutate()} disabled={huntGo.isPending || (changing ? !kept : imageMissing || !models.ready || !diskFits || Boolean(volume?.usedBy) || held === 0)} className="flex h-10 min-w-[150px] items-center justify-center gap-2 rounded-l-lg bg-accent px-4 text-[13px] font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="button" data-tip={pickNow ? rateTip(pickNow.price) : `Up to ${usd(huntAsk.ceiling)} an hour for the GPU; its ${diskGb} GB disk adds ${usd(diskPerHour(diskGb), true)} an hour while it runs`} onClick={() => huntGo.mutate()} disabled={busy || (changing ? !kept : imageMissing || !models.ready || !diskFits || Boolean(volume?.usedBy) || held === 0)} className="flex h-10 min-w-[150px] items-center justify-center gap-2 rounded-l-lg bg-accent px-4 text-[13px] font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
               <Search size={15} />
               {huntGo.isPending ? (changing ? "Changing…" : "Starting…") : pickNow ? `Deploy ${pickNow.name} now · ${usd(withDisk(pickNow.price))}/h` : `${changing ? "Change" : "Hunt"} · up to ${usd(huntAsk.ceiling)}/h`}
             </button>
           ) : (
-          <button type="button" data-tip={picked ? rateTip(picked.price) : undefined} onClick={() => deploy.mutate()} disabled={!picked || imageMissing || deploy.isPending || !models.ready || !diskFits || Boolean(volume?.usedBy)} className="flex h-10 min-w-[150px] items-center justify-center rounded-l-lg bg-accent px-4 text-[13px] font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" data-tip={picked ? rateTip(picked.price) : undefined} onClick={() => deploy.mutate()} disabled={!picked || imageMissing || busy || !models.ready || !diskFits || Boolean(volume?.usedBy)} className="flex h-10 min-w-[150px] items-center justify-center rounded-l-lg bg-accent px-4 text-[13px] font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
             {deploy.isPending ? "Deploying…" : picked ? `Deploy · ${usd(withDisk(picked.price))}/h` : "Deploy"}
           </button>
           )}

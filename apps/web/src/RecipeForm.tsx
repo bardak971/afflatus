@@ -74,6 +74,8 @@ export function Form(props: {
   keepEmpty?: boolean;
   /** Bring the prompt into view when the form opens on a short screen: the Create panel. A timeline clip's form stays where it is. */
   promptInView?: boolean;
+  /** The machine picked to render it on (Generate on), by id; none: Auto. Its node packs are what the form's notes speak for. */
+  machine?: string;
 }) {
   const written = useWrittenPrompt(props.recipe, props.stored, props.given);
   const recipe = useMemo(
@@ -86,13 +88,16 @@ export function Form(props: {
 /**
  * What the parts give the prompt as sent, asked once they stop changing (the server writes it by the recipe's own rules), with
  * what the screen gives too (`given`: a timeline window's clip before, set at plan time): Swap motion's windows that carry on
- * are written by the motion's rules, and showed the swap's caption, which the render never sends.
+ * are written by the motion's rules, and showed the swap's caption, which the render never sends. The field it fills is left
+ * out of what is asked: it is what goes while that field is empty, so typing there asks nothing. A request overtaken by a
+ * change is cancelled.
  */
 export function useWrittenPrompt(recipe: RecipeInfo, stored: Record<string, unknown> | undefined, given?: Record<string, unknown>): { into: string; text: string } | null {
-  const key = useSettled(useMemo(() => JSON.stringify({ ...stored, ...given }), [stored, given]), 400);
+  const into = recipe.partsInto;
+  const key = useSettled(useMemo(() => JSON.stringify(Object.fromEntries(Object.entries({ ...stored, ...given }).filter(([k]) => k !== into))), [stored, given, into]), 400);
   const asked = useQuery({
     queryKey: queryKeys.formPrompt(recipe.id, key),
-    queryFn: () => api.formPrompt(recipe.id, JSON.parse(key) as Record<string, unknown>),
+    queryFn: ({ signal }) => api.formPrompt(recipe.id, JSON.parse(key) as Record<string, unknown>, { signal }),
     enabled: Boolean(recipe.partsInto),
     staleTime: Infinity,
     placeholderData: (before) => before,
@@ -100,7 +105,7 @@ export function useWrittenPrompt(recipe: RecipeInfo, stored: Record<string, unkn
   return asked?.into && asked.text ? { into: asked.into, text: asked.text } : null;
 }
 
-function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, chapterExtra, first, keepEmpty, promptInView }: {
+function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, chapterExtra, first, keepEmpty, promptInView, machine }: {
   recipe: RecipeInfo;
   status: RecipeStatus | undefined;
   /** What the draft holds for this recipe: only what was touched. */
@@ -130,6 +135,8 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   keepEmpty?: boolean;
   /** Bring the prompt into view when the form opens on a short screen: the Create panel. A timeline clip's form stays where it is. */
   promptInView?: boolean;
+  /** The machine picked to render it on (Generate on), by id; none: Auto. Its node packs are what the form's notes speak for. */
+  machine?: string;
 }) {
   const family = useRecipes().data?.families.find((f) => f.id === recipe.family);
   const settings = useModelSettings();
@@ -140,7 +147,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   );
   const values = useMemo(() => ({ ...defaults, ...ownValues(recipe, stored) }), [recipe, defaults, stored]);
   // the node packs the options asked for need where the form renders: said under each (packNotes.tsx)
-  const packNotes = usePackNotes(recipe, values);
+  const packNotes = usePackNotes(recipe, values, machine);
   // what decides which settings show: the values, plus what the screen will fill in itself
   const seen = given ? { ...values, ...given } : values;
   // what it will take: the same query as the Generate button's (advice.ts)

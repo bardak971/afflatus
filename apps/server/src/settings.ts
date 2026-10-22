@@ -531,7 +531,7 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
     sent.machines = list;
     // none left (every machine removed, or a rented-only start): `comfyUrl` keeps the last address, for the next one added.
     // Only a ComfyUI of the user's own is kept so: a pod's proxy address was offered, once the pod was gone, as "Your ComfyUI"
-    const first = list.find((m) => !m.rented);
+    const first = (list as Array<{ url?: unknown; dir?: unknown; rented?: unknown }>).find((m) => !m.rented);
     if (first) {
       sent.comfyUrl = first.url;
       sent.comfyDir = first.dir ?? "";

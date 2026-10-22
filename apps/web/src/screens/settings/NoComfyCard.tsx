@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { shortGpu } from "@afflatus/core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { api, type ComfyProbe } from "../../api";
@@ -8,11 +9,11 @@ import { Button, cx, ErrorNote, fieldClass } from "../../ui";
 import { RentRow } from "./RentedCard";
 import { Block, Card, Row } from "./Rows";
 
-/** The official ways to get ComfyUI, as the first launch has them. */
-const INSTALLS = [
-  { name: "ComfyUI Desktop", href: "https://www.comfy.org/download" },
-  { name: "ComfyUI portable", href: "https://docs.comfy.org/installation/comfyui_portable_windows" },
-  { name: "manual install", href: "https://docs.comfy.org/installation/manual_install" },
+/** The official ways to get ComfyUI, nothing more (the audience knows what ComfyUI is): here and on the first launch. */
+export const INSTALLS = [
+  { name: "ComfyUI Desktop", what: "Windows, macOS", href: "https://www.comfy.org/download", site: "comfy.org" },
+  { name: "ComfyUI portable", what: "Windows, NVIDIA, one folder", href: "https://docs.comfy.org/installation/comfyui_portable_windows", site: "docs.comfy.org" },
+  { name: "Manual install", what: "Linux, any GPU, your own venv", href: "https://docs.comfy.org/installation/manual_install", site: "docs.comfy.org" },
 ];
 
 /**
@@ -25,7 +26,10 @@ export function NoComfyCard() {
   const client = useQueryClient();
   const [url, setUrl] = useState("");
   const [found, setFound] = useState<ComfyProbe | null>(null);
-  const saved = settings.data?.comfyUrl;
+  // the last address of a ComfyUI of the user's own, for the box: with pods only, the settings' address is the first pod's
+  // (its proxy), which is no ComfyUI of the user's own to add
+  const pods = (settings.data?.machines ?? []).filter((m) => m.rented).map((m) => m.url);
+  const saved = settings.data && !pods.includes(settings.data.comfyUrl) ? settings.data.comfyUrl : settings.data ? "" : undefined;
   useEffect(() => {
     if (saved !== undefined) setUrl(saved);
   }, [saved]);
@@ -54,7 +58,7 @@ export function NoComfyCard() {
         </Row>
         {(find.data || find.isError || add.isError) && (
           <Block className="text-xs text-ink-2">
-            {find.data && (found ? <span>Found ComfyUI {found.version}{found.device ? ` · ${found.device.replace(/^cuda:\d+\s*/, "").replace(/\s*:.*$/, "")}` : ""} at {found.url}</span> : <span>Nothing answers at {find.data.tried.map((t) => t.replace(/^https?:\/\//, "")).join(" or ")}.</span>)}
+            {find.data && (found ? <span>Found ComfyUI {found.version}{found.device ? ` · ${shortGpu(found.device)}` : ""} at {found.url}</span> : <span>Nothing answers at {find.data.tried.map((t) => t.replace(/^https?:\/\//, "")).join(" or ")}.</span>)}
             {find.isError && <ErrorNote>{find.error.message}</ErrorNote>}
             {add.isError && <ErrorNote>{add.error.message}</ErrorNote>}
           </Block>
