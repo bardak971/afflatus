@@ -47,9 +47,10 @@ export function TileMenuBody({ onOpen, onSelect, into, first, place = "grid", fo
     const own: MenuItem[] = [
       ...(first?.(item) ?? []),
       ...(places.length ? [{ label: "Use in this draft", icon: <Plus size={14} />, note: formTarget?.recipe.title, items: places }] : []),
-      ...(onSelect ? [{ label: "Select", key: "Ctrl+click", icon: <SquareCheck size={14} />, run: () => onSelect(item) }] : []),
     ];
-    return placeMenu(own, list, place);
+    // ticking it is putting it with others, to move, keep or bin them together: with Move to, not first
+    const select: MenuItem[] = onSelect ? [{ label: "Select", key: "Ctrl+click", icon: <SquareCheck size={14} />, run: () => onSelect(item) }] : [];
+    return placeMenu(own, list, place, select);
   };
 
   return (

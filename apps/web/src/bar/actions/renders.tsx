@@ -35,6 +35,7 @@ function subjectActions(x: BarCtx, a: Asset, project: string | null): Action[] {
     trim: openWith("trim"),
     details: openWith("details"),
     "copy-seed": () => item.seed !== null && copyText(String(item.seed)).then(() => x.onCopied(`the seed ${item.seed}`), () => x.onCopied("")),
+    "copy-prompt": () => item.prompt && copyText(item.prompt).then(() => x.onCopied("the prompt"), () => x.onCopied("")),
   }, { "save-frame": "the first frame" });
   const places = formPlaces(x.formTarget, a);
   const own: MenuItem[] = [
@@ -51,8 +52,8 @@ function subjectActions(x: BarCtx, a: Asset, project: string | null): Action[] {
   const open = take("Open");
   const back = a.inBin ? take("Put back") : [];
   const out = flatten([...open, ...back, ...own, ...rest]);
-  // the seed copied, the bar stays (as a figure of the calculator)
-  return out.map((y) => (y.label === "Copy the seed" ? { ...y, stay: true } : y));
+  // the seed or the prompt copied, the bar stays (as a figure of the calculator)
+  return out.map((y) => (y.label === "Copy the seed" || y.label === "Copy the prompt" ? { ...y, stay: true } : y));
 }
 
 /** A render of the library: its full list once it is read (its generation), until then what needs nothing more. */

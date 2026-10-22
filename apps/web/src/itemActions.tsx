@@ -1,5 +1,5 @@
-import { Send, ArrowRightFromLine, AudioLines, Clapperboard, Columns2, Copy, Download, Eraser, ExternalLink, Eye, Film, FlipHorizontal2, FlipVertical2, FolderKanban, Hand, ImageDown, Info, Maximize2, Mic, Paintbrush, Pencil, PenLine, PersonStanding, Scissors, Shuffle, SlidersHorizontal, Smile, SquareDashed, Star, Trash2, Undo2, VolumeX, Wand2, type LucideIcon } from "lucide-react";
-import type { MenuItem } from "./ContextMenu";
+import { Send, ArrowRightFromLine, AudioLines, Clapperboard, ClipboardCopy, Columns2, Copy, Download, Eraser, ExternalLink, Eye, Film, FlipHorizontal2, FlipVertical2, FolderKanban, Hand, ImageDown, Info, Maximize2, Mic, Paintbrush, Pencil, PenLine, PersonStanding, Scissors, Shuffle, SlidersHorizontal, Smile, SquareDashed, Star, Trash2, Undo2, VolumeX, Wand2, Wrench, type LucideIcon } from "lucide-react";
+import { fold, type MenuItem } from "./ContextMenu";
 
 /**
  * The one list of what can be done with an item of the library, per media type: every place that shows actions on an
@@ -17,11 +17,17 @@ export type ActionId =
   | "reuse-same" | "reuse-new" | "variation" | "i2v" | "extend" | "motion"
   | "upscale" | "face" | "hand" | "background" | "inpaint" | "edit" | "outpaint" | "mirror-h" | "mirror-v"
   | "trim" | "save-frame" | "extract-audio" | "remove-sound" | "voice"
-  | "compare" | "details" | "copy-seed" | "comfy"
+  | "compare" | "details" | "copy-seed" | "copy-prompt" | "comfy"
   | "timeline" | "move" | "send"
   | "bin" | "erase";
 
 export type GroupId = "item" | "make" | "passes" | "tools" | "look" | "put" | "last";
+
+/**
+ * The submenu an action folds into in a menu (a presentation only: the list stays one, flat in the command bar and the
+ * viewer's side): the ways to a new video, the passes, a video's tools but Trim, what tells about it.
+ */
+export type SubId = "video" | "passes" | "tools" | "info";
 
 interface Spec {
   group: GroupId;
@@ -32,6 +38,8 @@ interface Spec {
   icon: LucideIcon;
   /** What it does, in a sentence: the button's tip (a menu shows the reason it is off instead). */
   tip: string;
+  /** The submenu it folds into in a menu (`toMenu`); none: a row of its own. */
+  sub?: SubId;
 }
 
 const ALL: readonly Kind[] = ["image", "video", "audio"];
@@ -46,27 +54,28 @@ export const ACTIONS: Record<ActionId, Spec> = {
   "reuse-same": { group: "make", label: "Reuse · same seed", key: "L", kinds: ALL, icon: SlidersHorizontal, tip: "Open the form with the same generation parameters and the same seed, as a new draft." },
   "reuse-new": { group: "make", label: "Reuse · new seed", key: "Shift+L", kinds: ALL, icon: SlidersHorizontal, tip: "Open the form with the same generation parameters and a new seed, as a new draft." },
   variation: { group: "make", label: "Variation", key: "V", kinds: ALL, icon: Shuffle, tip: "Same parameters, new seed: queued at once." },
-  i2v: { group: "make", label: "Image to video (i2v)", key: "M", kinds: ["image"], icon: Clapperboard, tip: "A new video with this picture as the first frame, on the video model used last." },
-  extend: { group: "make", label: "Extend", key: "C", kinds: ["video"], icon: ArrowRightFromLine, tip: "A new clip that carries on from the end of this one, same model and parameters." },
-  motion: { group: "make", label: "Motion transfer…", key: "Shift+M", kinds: SEEN, icon: PersonStanding, tip: "A new draft of Motion transfer with this in its place: a picture is what moves, a video is how it moves (the driving video)." },
-  upscale: { group: "passes", label: "Upscale 2x", key: "U", kinds: ["image"], icon: Maximize2, tip: "Upscale 2x: queued at once with the picture's generation parameters." },
-  face: { group: "passes", label: "Face refine", key: "F", kinds: ["image"], icon: Smile, tip: "Face refine: queued at once with the picture's generation parameters." },
-  hand: { group: "passes", label: "Hand refine", key: "H", kinds: ["image"], icon: Hand, tip: "Hand refine: Face refine on the hand detector (hand_yolov8s), at denoise 0.35, crop factor 2, a prompt about hands; queued at once with the picture's generation parameters." },
-  background: { group: "passes", label: "Remove background", key: "B", kinds: ["image"], icon: Eraser, tip: "Remove background: queued at once." },
-  inpaint: { group: "passes", label: "Inpaint…", key: "I", kinds: ["image"], icon: Paintbrush, tip: "Inpaint: a new draft with this picture as the source, the mask painter open." },
-  edit: { group: "passes", label: "Edit…", key: "E", kinds: ["image"], icon: PenLine, tip: "Edit / img2img: a new draft in the form with this picture as the source." },
-  outpaint: { group: "passes", label: "Outpaint…", key: "R", kinds: ["image"], icon: SquareDashed, tip: "Outpaint: a new draft in the form, the picture on a larger canvas." },
-  "mirror-h": { group: "passes", label: "Mirror ↔", key: "Shift+H", kinds: ["image"], icon: FlipHorizontal2, tip: "A mirrored copy, left and right swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU." },
-  "mirror-v": { group: "passes", label: "Mirror ↕", key: "Shift+V", kinds: ["image"], icon: FlipVertical2, tip: "A mirrored copy, top and bottom swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU." },
+  i2v: { group: "make", sub: "video", label: "Image to video (i2v)", key: "M", kinds: ["image"], icon: Clapperboard, tip: "A new video with this picture as the first frame, on the video model used last." },
+  extend: { group: "make", sub: "video", label: "Extend", key: "C", kinds: ["video"], icon: ArrowRightFromLine, tip: "A new clip that carries on from the end of this one, same model and parameters." },
+  motion: { group: "make", sub: "video", label: "Motion transfer…", key: "Shift+M", kinds: SEEN, icon: PersonStanding, tip: "A new draft of Motion transfer with this in its place: a picture is what moves, a video is how it moves (the driving video)." },
+  upscale: { group: "passes", sub: "passes", label: "Upscale 2x", key: "U", kinds: ["image"], icon: Maximize2, tip: "Upscale 2x: queued at once with the picture's generation parameters." },
+  face: { group: "passes", sub: "passes", label: "Face refine", key: "F", kinds: ["image"], icon: Smile, tip: "Face refine: queued at once with the picture's generation parameters." },
+  hand: { group: "passes", sub: "passes", label: "Hand refine", key: "H", kinds: ["image"], icon: Hand, tip: "Hand refine: Face refine on the hand detector (hand_yolov8s), at denoise 0.35, crop factor 2, a prompt about hands; queued at once with the picture's generation parameters." },
+  background: { group: "passes", sub: "passes", label: "Remove background", key: "B", kinds: ["image"], icon: Eraser, tip: "Remove background: queued at once." },
+  inpaint: { group: "passes", sub: "passes", label: "Inpaint…", key: "I", kinds: ["image"], icon: Paintbrush, tip: "Inpaint: a new draft with this picture as the source, the mask painter open." },
+  edit: { group: "passes", sub: "passes", label: "Edit…", key: "E", kinds: ["image"], icon: PenLine, tip: "Edit / img2img: a new draft in the form with this picture as the source." },
+  outpaint: { group: "passes", sub: "passes", label: "Outpaint…", key: "R", kinds: ["image"], icon: SquareDashed, tip: "Outpaint: a new draft in the form, the picture on a larger canvas." },
+  "mirror-h": { group: "passes", sub: "passes", label: "Mirror ↔", key: "Shift+H", kinds: ["image"], icon: FlipHorizontal2, tip: "A mirrored copy, left and right swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU." },
+  "mirror-v": { group: "passes", sub: "passes", label: "Mirror ↕", key: "Shift+V", kinds: ["image"], icon: FlipVertical2, tip: "A mirrored copy, top and bottom swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU." },
   trim: { group: "tools", label: "Trim", key: "T", kinds: ["video", "audio"], icon: Scissors, tip: "Pick an in and an out, then copy, split or remove the range (a video: save its frames, or generate between them; a sound: its loudness evened out)." },
-  "save-frame": { group: "tools", label: "Save frame", key: "G", kinds: ["video"], icon: ImageDown, tip: "Save the frame the video is paused on as an image in your library." },
-  "extract-audio": { group: "tools", label: "Extract audio", kinds: ["video"], icon: AudioLines, tip: "Its audio track as a file of its own in your library: for another clip, or as music." },
-  "remove-sound": { group: "tools", label: "Remove sound", kinds: ["video"], icon: VolumeX, tip: "A copy of the video without its sound, beside it in your library; this one stays as it is." },
-  voice: { group: "tools", label: "Use as voice sample", kinds: ["video", "audio"], icon: Mic, tip: "A new draft on a model that speaks with this voice sample." },
-  compare: { group: "look", label: "Compare", key: "X", kinds: SEEN, icon: Columns2, tip: "Pin this one and move to another with the arrow keys: side by side, videos in step, two pictures also with a wipe." },
-  details: { group: "look", label: "Details", key: "P", kinds: ALL, icon: Info, tip: "The generation parameters: those it was made with, or for a file made elsewhere the ones written in it (PNG info)." },
-  "copy-seed": { group: "look", label: "Copy the seed", kinds: ALL, icon: Copy, tip: "The seed it was rendered with, on the clipboard." },
-  comfy: { group: "look", label: "Open in ComfyUI", kinds: ALL, icon: ExternalLink, tip: "Its graph, built again from these parameters, in ComfyUI's editor." },
+  "save-frame": { group: "tools", sub: "tools", label: "Save frame", key: "G", kinds: ["video"], icon: ImageDown, tip: "Save the frame the video is paused on as an image in your library." },
+  "extract-audio": { group: "tools", sub: "tools", label: "Extract audio", kinds: ["video"], icon: AudioLines, tip: "Its audio track as a file of its own in your library: for another clip, or as music." },
+  "remove-sound": { group: "tools", sub: "tools", label: "Remove sound", kinds: ["video"], icon: VolumeX, tip: "A copy of the video without its sound, beside it in your library; this one stays as it is." },
+  voice: { group: "tools", sub: "tools", label: "Use as voice sample", kinds: ["video", "audio"], icon: Mic, tip: "A new draft on a model that speaks with this voice sample." },
+  compare: { group: "look", sub: "info", label: "Compare", key: "X", kinds: SEEN, icon: Columns2, tip: "Pin this one and move to another with the arrow keys: side by side, videos in step, two pictures also with a wipe." },
+  details: { group: "look", sub: "info", label: "Details", key: "P", kinds: ALL, icon: Info, tip: "The generation parameters: those it was made with, or for a file made elsewhere the ones written in it (PNG info)." },
+  "copy-seed": { group: "look", sub: "info", label: "Copy the seed", kinds: ALL, icon: Copy, tip: "The seed it was rendered with, on the clipboard." },
+  "copy-prompt": { group: "look", sub: "info", label: "Copy the prompt", key: "Shift+C", kinds: ALL, icon: ClipboardCopy, tip: "The prompt it was rendered with, as sent, on the clipboard; a form written in parts (H3) gives each part under its name." },
+  comfy: { group: "look", sub: "info", label: "Open in ComfyUI", kinds: ALL, icon: ExternalLink, tip: "Its graph, built again from these parameters, in ComfyUI's editor." },
   timeline: { group: "put", label: "Timeline", kinds: ALL, icon: Film, tip: "At the end of a timeline, or a new one from it; a sound as a timeline's music." },
   move: { group: "put", label: "Move to", kinds: ALL, icon: FolderKanban, tip: "Into a project and a folder, or back to the Inbox." },
   send: { group: "put", label: "Send to", kinds: SEEN, icon: Send, tip: "The file itself to your Telegram chat or Discord channel (Settings › Notifications), with its name." },
@@ -102,7 +111,14 @@ export interface ItemFacts {
   madeHere: boolean;
   /** Made here with a model that is still here: what reuses its parameters can. */
   generated: boolean;
+  /**
+   * Known from the library's listing to have no render of its own (imported, uploaded, a frame, a copy): what needs one
+   * is not offered at all, even while its parameters are still being read.
+   */
+  madeElsewhere?: boolean;
   seed: number | null;
+  /** The prompt it was rendered with, as sent (`sentPrompt`); null or absent: none. */
+  prompt?: string | null;
   /** The video model a picture would open (i2v), by name; null: none takes a first frame. */
   opener: string | null;
   /** The model a Motion transfer would open on, by name; null or absent: none is installed. */
@@ -133,10 +149,29 @@ export interface ItemFacts {
   queued?: Partial<Record<ActionId, boolean>>;
 }
 
+/**
+ * The prompt a render was sent with, as Copy the prompt puts it on the clipboard: its form's texts but what to avoid,
+ * in the form's order. One text alone as it is; the quality tags in front of the prompt, as the SDXL forms send them;
+ * several texts (a form written in parts: H3's What happens, Sound effects, Music…) each under its name. `specs`: the
+ * form's inputs; absent (its recipe is gone), the input named prompt. Null: nothing was written.
+ */
+export function sentPrompt(inputs: Record<string, unknown>, specs?: ReadonlyArray<{ id: string; type: string; label?: string }>): string | null {
+  const text = (id: string) => (typeof inputs[id] === "string" ? (inputs[id] as string).trim() : "");
+  const texts = (specs ?? [{ id: "prompt", type: "prompt", label: "Prompt" }]).filter((i) => i.type === "prompt" && i.id !== "negative" && text(i.id)).map((i) => ({ id: i.id, label: i.label ?? i.id, text: text(i.id) }));
+  const quality = texts.find((t) => t.id === "quality");
+  const prompt = texts.find((t) => t.id === "prompt");
+  const shown = quality && prompt
+    ? texts.filter((t) => t !== quality).map((t) => (t === prompt ? { ...t, text: `${quality.text.replace(/,\s*$/, "")}, ${t.text}` } : t))
+    : texts;
+  if (!shown.length) return null;
+  return shown.length === 1 ? shown[0]!.text : shown.map((t) => `${t.label}: ${t.text}`).join("\n\n");
+}
+
 /** One action of the list, as a place draws it: a menu line, a button. */
 export interface ItemAction {
   id: ActionId;
   group: GroupId;
+  sub?: SubId;
   label: string;
   key?: string;
   icon: LucideIcon;
@@ -159,8 +194,30 @@ export type Runs = Partial<Record<ActionId, () => void>>;
 const anyOn = (items: MenuItem[]): boolean => items.some((it) => it !== "—" && !it.disabled && (it.run || (it.items && anyOn(it.items))));
 
 /**
- * The item's list: every action its type has, in order; one that does not apply now stays in its place, off, with the
- * reason as its note. In the bin the list is the bin's own: Put back and Delete now first, then Open, Download and
+ * Whether an action can never do anything for this item here, whatever the user does: it is not in the list at all (the
+ * menus' rule, ContextMenu.tsx). An imported file was not rendered here and has no seed nor prompt; a video without sound
+ * has no sound to take; the viewer shows the item it is open on. What a model, ComfyUI or a project would make work is
+ * not dead: it stays, off, with its reason.
+ */
+function dead(f: ItemFacts, id: ActionId): boolean {
+  // still being read: what a render gives is not known yet, unless the listing says there is none
+  const none = (known: boolean) => !known && (!f.reading || Boolean(f.madeElsewhere));
+  switch (id) {
+    case "open": return Boolean(f.shownHere);
+    case "reuse-same": case "reuse-new": case "variation": case "comfy": return none(f.madeHere);
+    case "copy-seed": return none(f.seed !== null);
+    case "copy-prompt": return none(Boolean(f.prompt));
+    case "extract-audio": case "remove-sound": return !f.hasSound;
+    case "voice": return f.kind === "video" && !f.hasSound;
+    // the place cannot (the viewer open on the item alone): Compare is the Studio's
+    case "compare": return f.compare !== true;
+    default: return false;
+  }
+}
+
+/**
+ * The item's list: every action its type has, in order, but those that can never apply to it (`dead`); one that does
+ * not apply now stays in its place, off, with the reason as its note. In the bin the list is the bin's own: Put back and Delete now first, then Open, Download and
  * Compare (a look that changes nothing); nothing else, as nothing else can be done there.
  * `runs` is what each does in the place; an action with no run there is off. `notes` are the place's own words on one.
  */
@@ -179,18 +236,19 @@ export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<Acti
       case "voice": return f.kind === "video" && !f.hasSound ? "it has no sound" : f.voice ? undefined : "no model takes a voice sample";
       case "compare": return f.compare === true ? undefined : f.compare;
       case "copy-seed": return f.seed !== null ? undefined : f.reading ? "reading…" : "no seed";
+      case "copy-prompt": return f.prompt ? undefined : f.reading ? "reading…" : "no prompt";
       case "comfy": return !f.madeHere ? (f.reading ? "reading…" : "not generated here") : f.comfyOnline ? undefined : "ComfyUI is offline";
       case "timeline": return anyOn(f.timelines) ? undefined : f.kind === "audio" ? "no timeline yet" : undefined;
       case "move": return anyOn(f.moves) ? undefined : "no project yet";
       default: return undefined;
     }
   };
-  const list = actionIds(f.kind).map((id): ItemAction => {
+  const list = actionIds(f.kind).filter((id) => !dead(f, id)).map((id): ItemAction => {
     const spec = ACTIONS[id];
     const off = why(id);
     const items = id === "timeline" ? f.timelines : id === "move" ? f.moves : id === "send" ? f.shares : id === "i2v" && (f.openers?.length ?? 0) > 1 ? f.openers : id === "motion" && (f.movers?.length ?? 0) > 1 ? f.movers : undefined;
     const run = runs[id];
-    const base: ItemAction = { id, group: spec.group, label: spec.label, key: spec.key, icon: spec.icon, tip: spec.tip, note: off ?? notes[id], disabled: Boolean(off) || Boolean(f.busy?.[id]) || (!run && !items?.length), run, items: off ? undefined : items };
+    const base: ItemAction = { id, group: spec.group, sub: spec.sub, label: spec.label, key: spec.key, icon: spec.icon, tip: spec.tip, note: off ?? notes[id], disabled: Boolean(off) || Boolean(f.busy?.[id]) || (!run && !items?.length), run, items: off ? undefined : items };
     if (f.queued?.[id] && !off) return { ...base, label: "Queued", done: true };
     switch (id) {
       case "keep": return { ...base, label: f.kept ? "Unkeep" : "Keep", pressed: f.kept, tip: f.kept ? "Kept: it stays. Unkeep it to let it go to the bin after a day again." : spec.tip };
@@ -218,16 +276,15 @@ export type Place = "grid" | "stage" | "viewer" | "inline" | "shelf" | "projects
 
 /**
  * Whether a place draws an action's key: only where the key does it. The viewer's keys act in the viewer (over the
- * screen, or in place on the stage, where Enter opens it large and F2 asks its name); the command bar names the viewer's key; the Projects
- * panel's own keys keep, rename and bin a row; the Studio's grid, the media shelf and the queue have none of these.
+ * screen, or in place on the stage, where Enter opens it large and F2 asks its name); the command bar names the viewer's
+ * key. Every other place shows the list as a menu only (the Studio's grid, the media shelf, a take's, the Projects
+ * panel, the queue), and an open menu runs a row on its key (ContextMenu's `keyedRow`): every key but Enter, which runs
+ * the row the arrows are on there.
  */
 export function keysShown(place: Place, id: ActionId): boolean {
   switch (place) {
-    case "viewer": return id !== "open";
-    case "inline": case "stage": return true;
-    case "command": return true;
-    case "projects": return id === "keep" || id === "rename" || id === "bin";
-    default: return false;
+    case "inline": case "stage": case "command": return true;
+    default: return id !== "open";
   }
 }
 
@@ -235,35 +292,60 @@ export function keysShown(place: Place, id: ActionId): boolean {
 export const PASSES = "Passes";
 
 /**
- * The list as a menu: its groups apart, the passes folded into a submenu (in the viewer's side they are buttons; in the
- * stage's Passes menu, `fold` false, lines of their own), the keys only where they act. Every menu of an item is this,
- * after the place's own first section.
+ * Each submenu of an item's menu: its row, and the fewest actions it folds (fewer are drawn flat, ContextMenu's
+ * `fold`). "Make a video" folds two: a picture's menu would run past 14 rows without it, and its two rows are one
+ * family (a new video from this one); the passes always fold, being many on every picture.
  */
-export function toMenu(list: ItemAction[], place: Place, fold = true): MenuItem[] {
+const SUBMENUS: Record<SubId, { label: string; icon: LucideIcon; min: number }> = {
+  video: { label: "Make a video", icon: Clapperboard, min: 2 },
+  passes: { label: PASSES, icon: Wand2, min: 1 },
+  tools: { label: "Video tools", icon: Wrench, min: 3 },
+  info: { label: "Info", icon: Info, min: 3 },
+};
+
+/**
+ * The list as a menu: its groups apart, each family in its submenu (`SUBMENUS`; in the viewer's side they are buttons;
+ * in the stage's Passes menu, `folds` false, lines of their own; in the command bar, which lays submenus flat as
+ * "Passes › Upscale 2x", only the passes), the keys only where they act. `organise`: the place's rows that go with
+ * Timeline, Move to and Send to (Select), at the end of their group. Every menu of an item is this, after the place's
+ * own first section.
+ */
+export function toMenu(list: ItemAction[], place: Place, folds: boolean | "passes" = true, organise: MenuItem[] = []): MenuItem[] {
   const line = (a: ItemAction): MenuItem => ({
     label: a.label, key: keysShown(place, a.id) ? a.key : undefined, icon: <a.icon size={14} />, note: a.note, danger: a.danger, disabled: a.disabled,
     ...(a.items ? { items: a.items } : { run: a.run }),
   });
+  const folding = (sub: SubId | undefined): sub is SubId => Boolean(sub) && (folds === true || (folds === "passes" && sub === "passes"));
   const out: MenuItem[] = [];
   let group: GroupId | null = null;
+  const done = new Set<SubId>();
+  const close = () => {
+    if (group === "put" && organise.length) out.push(...organise);
+  };
   for (const a of list) {
-    if (a.group !== group && group !== null) out.push("—");
-    if (a.group === "passes" && fold) {
-      if (group !== "passes") {
-        const passes = list.filter((x) => x.group === "passes");
-        const off = passes.every((x) => x.disabled);
-        out.push({ label: PASSES, icon: <Wand2 size={14} />, disabled: off, note: off ? passes[0]?.note : undefined, items: passes.map(line) });
+    if (a.group !== group && group !== null) {
+      close();
+      out.push("—");
+    }
+    if (folding(a.sub)) {
+      if (!done.has(a.sub)) {
+        done.add(a.sub);
+        const { label, icon: Icon, min } = SUBMENUS[a.sub];
+        out.push(...fold(label, <Icon size={14} />, list.filter((x) => x.sub === a.sub).map(line), min));
       }
     } else out.push(line(a));
     group = a.group;
   }
+  close();
+  // no group to go with (the bin's own list): a group of their own at the end
+  if (organise.length && !list.some((a) => a.group === "put")) out.push(...(out.length ? ["—" as const] : []), ...organise);
   return out;
 }
 
-/** A menu of an item: the place's own first section, then the list. */
-export const placeMenu = (own: MenuItem[], list: ItemAction[], place: Place): MenuItem[] => {
+/** A menu of an item: the place's own first section, then the list; `organise`: the place's rows that go with Move to (Select). */
+export const placeMenu = (own: MenuItem[], list: ItemAction[], place: Place, organise: MenuItem[] = []): MenuItem[] => {
   const head = own.filter((it, i) => !(it === "—" && i === own.length - 1));
-  return [...head, ...(head.length ? ["—" as const] : []), ...toMenu(list, place)];
+  return [...head, ...(head.length ? ["—" as const] : []), ...toMenu(list, place, place === "command" ? "passes" : true, organise)];
 };
 
 /**
@@ -288,7 +370,7 @@ export function stageBar(list: ItemAction[]): { row: ItemAction[]; passes: ItemA
  * Download), the Keep of the line under the name, the name itself (F2), the seed's cell, ComfyUI under the parameters,
  * the timeline row, the folder chip, the bin at the foot. Open has no place there: the item is open.
  */
-export type SideSlot = "buttons" | "status" | "name" | "seed" | "parameters" | "put" | "folder" | "foot" | "none";
+export type SideSlot = "buttons" | "status" | "name" | "seed" | "prompt" | "parameters" | "put" | "folder" | "foot" | "none";
 
 export const sideSlot = (id: ActionId): SideSlot => {
   const group = ACTIONS[id].group;
@@ -298,6 +380,8 @@ export const sideSlot = (id: ActionId): SideSlot => {
     case "keep": return "status";
     case "rename": return "name";
     case "copy-seed": return "seed";
+    // each text sent has its own Copy there
+    case "copy-prompt": return "prompt";
     case "comfy": return "parameters";
     case "timeline": return "put";
     case "move": return "folder";

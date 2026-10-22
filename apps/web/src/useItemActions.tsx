@@ -8,7 +8,7 @@ import { eraseNow } from "./binActions";
 import { askAboutDisk } from "./Confirm";
 import { useSettings, useSetup, type useAsset } from "./data";
 import { saveAsset } from "./download";
-import { itemActions, PASS_KEYS, type ActionId, type ItemFacts, type Runs } from "./itemActions";
+import { itemActions, PASS_KEYS, sentPrompt, type ActionId, type ItemFacts, type Runs } from "./itemActions";
 import { useItemMutations, useTimelineSubmenu } from "./itemMutations";
 import { useBanners } from "./store";
 import { handsOf, OPS } from "./viewer/shared";
@@ -107,6 +107,8 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     if (tool) openTool.mutate(tool.id, said(`Could not open ${OPS[key]!.label}`));
   };
   const seed = typedSeed(g?.resolved.seed);
+  // the inputs as sent (a cast worked in), read by the form's own inputs where its recipe is still here
+  const prompt = g ? sentPrompt(g.inputs, recipe?.inputs) : null;
   const reading = enabled && Boolean(asset.id) && detail.data?.id !== asset.id && detail.isFetching;
   const passes = Object.fromEntries(Object.entries(PASS_KEYS).flatMap(([id, k]) => {
     const tool = toolFor(k!);
@@ -116,7 +118,9 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
   /** What the list is made from, for the item; `more`: what the place knows (Compare, Trim open, its seed…). */
   const facts = (more: Partial<ItemFacts> = {}): ItemFacts => ({
     kind: a.kind, inBin: a.inBin, kept: a.kept, hasSound: a.hasSound, reading,
-    madeHere: Boolean(g), generated: Boolean(g && recipe), seed,
+    madeHere: Boolean(g), generated: Boolean(g && recipe), seed, prompt,
+    // the listing says it at once, before its parameters are read: no render, nothing that needs one
+    madeElsewhere: a.generationId === null,
     opener: opener ? openerName : null, mover: mover ? moverName : null, carrier: Boolean(carrier), passes, voice: Boolean(follower),
     // each model a picture can open on (i2v), or a motion transfer be made with: the menus' submenus
     openers: openerChoices.map((c) => ({ label: c.name, note: c.last ? "used last" : c.ready ? undefined : "not ready", run: () => animate.mutate(c.id, said("Could not open it in a form")) })),
@@ -165,6 +169,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     "remove-sound": () => media.silence.mutate(undefined, said("Could not remove the sound")),
     voice: () => follow.mutate(undefined, said("Could not open it in a form")),
     "copy-seed": () => seed !== null && mutations.copySeed(seed),
+    "copy-prompt": () => prompt && mutations.copyPrompt(prompt),
     comfy: () => mutations.openInComfy.mutate(a),
     bin: a.inBin ? () => mutations.restore([a.id]) : () => void toBin(),
     erase: () => void eraseNow(client, [a.id]),
@@ -174,5 +179,5 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
   const list = (more: Partial<ItemFacts> = {}, overrides: Runs = {}, notes: Partial<Record<ActionId, string>> = {}) =>
     itemActions(facts(more), { ...runs, ...overrides }, notes);
 
-  return { ...drafts, ...media, queued, quick, openPass, mutations, timeline, seed, facts, runs, list };
+  return { ...drafts, ...media, queued, quick, openPass, mutations, timeline, seed, prompt, facts, runs, list };
 }

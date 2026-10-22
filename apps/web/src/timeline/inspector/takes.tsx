@@ -86,7 +86,7 @@ export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, on
   const [viewing, setViewing] = useState<Asset | null>(null);
   const menu = useTileMenu({
     onOpen: setViewing,
-    // the viewer's keys do not act in the inspector: none drawn in the menu
+    // the viewer's keys do not act in the inspector: the menu's keys act in the menu only
     place: "shelf",
     form: false,
     // the take's Remove takes its video to the bin with it, and Undo brings both back: the library's own bin is left out

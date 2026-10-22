@@ -90,7 +90,12 @@ export function useItemMutations() {
     () => say({ id: `seed:${Date.now()}`, tone: "good", title: `Seed ${seed} copied` }),
     (err: Error) => failed("Could not copy the seed")(err),
   );
-  return { rename, renameIt, keep, bin, restore, moves, moveTo, newFolderFor, openInComfy, copySeed, failed };
+  /** The prompt on the clipboard, said in a banner as the seed is. */
+  const copyPrompt = (prompt: string) => void copyText(prompt).then(
+    () => say({ id: `prompt:${Date.now()}`, tone: "good", title: "Prompt copied" }),
+    (err: Error) => failed("Could not copy the prompt")(err),
+  );
+  return { rename, renameIt, keep, bin, restore, moves, moveTo, newFolderFor, openInComfy, copySeed, copyPrompt, failed };
 }
 
 /**

@@ -1,8 +1,29 @@
+/**
+ * The app's right-click menus, and the one way they are laid out (every menu follows it, so that a user who learned one
+ * reads the others):
+ *
+ * - **Header**: what it is about, then a dim line of its kind, its size and its place, joined by " · " (`headLine`):
+ *   "Picture · 1216×832", "Video · 0:08 · 576×1024 · Clip 3", "Sound · 2:47".
+ * - **Row order**, in groups apart: open and the most used first; then what makes something from it; its tools; what
+ *   tells about it (info); then where it goes (Select, Timeline, Move to, Send to); what destroys it last, in a group
+ *   of its own, in the danger colour.
+ * - **Keys**: a row shows its key at its right only where that key does the same where the menu was opened; and an
+ *   open menu runs a row on its key (in a submenu too: `keyedRow`), so a key shown always works there.
+ * - **No dead rows**: a row that can never do anything for this subject here is not drawn (an imported file has no
+ *   seed); a row is greyed, its reason in its note, only when the user can make it work (a model to install, ComfyUI to
+ *   start).
+ * - **Submenus** (`fold`): for a family of related rows, 3 or more as a rule, 2 only where the menu would run past
+ *   about 14 top rows without it; never the most used rows. A family with fewer rows than that is drawn flat, and a
+ *   submenu none of whose rows works is greyed with the first one's reason.
+ * - **Ellipsis**: a label ends in "…" when the row opens a dialog or a form that asks more before anything is done
+ *   (Rename…, Motion transfer…); a row that acts at once or opens a submenu has none.
+ */
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronRight } from "lucide-react";
 import { thumbUrl } from "./api";
 import { Keys } from "./Keys";
+import { parseKeys } from "./keys/grammar";
 import { useLeave } from "./leave";
 import { cx } from "./ui";
 
@@ -27,6 +48,70 @@ export type MenuItem =
       items?: MenuItem[];
     }
   | "—";
+
+/**
+ * A family of rows as one submenu row (`label` ›), or the rows themselves, flat, when they are fewer than `min` (see the
+ * conventions above). The submenu is greyed, with its first row's reason, when none of its rows works.
+ */
+export function fold(label: string, icon: ReactNode, rows: MenuItem[], min = 3): MenuItem[] {
+  const lines = rows.filter((r): r is Exclude<MenuItem, "—"> => r !== "—");
+  if (lines.length < min) return rows;
+  const off = !lines.some((r) => !r.disabled);
+  return [{ label, icon, disabled: off, note: off ? lines[0]?.note : undefined, items: rows }];
+}
+
+/** A menu head's dim line: its parts (kind, size, place) joined by " · ", the empty ones left out. */
+export function headLine(...parts: Array<ReactNode | null | undefined | false>): ReactNode {
+  const shown = parts.filter((p): p is Exclude<ReactNode, null | undefined | false> => p !== null && p !== undefined && p !== false && p !== "");
+  return <>{shown.map((p, i) => <span key={i}>{i > 0 && " · "}{p}</span>)}</>;
+}
+
+/** Key names of a key press as the grammar writes them, where the event's own name differs. */
+const PRESSED: Record<string, string> = { Delete: "Del", Escape: "Esc", ArrowLeft: "←", ArrowRight: "→", ArrowUp: "↑", ArrowDown: "↓", PageUp: "PgUp", PageDown: "PgDn", " ": "Space" };
+
+/**
+ * A key press in the grammar of the menus' keys, as the ways it may be written ("Shift+L"; Backspace also as "Del", as
+ * everywhere Del works). Shift is part of it with a letter or a named key, not with a sign it types ("?").
+ */
+export function pressedKeys(e: { key: string; shiftKey: boolean; ctrlKey: boolean; altKey: boolean; metaKey: boolean }): string[] {
+  const name = PRESSED[e.key] ?? (e.key.length === 1 ? e.key.toUpperCase() : e.key);
+  const shift = e.shiftKey && (/^[A-Z0-9]$/.test(name) || name.length > 1);
+  const mods = [e.ctrlKey || e.metaKey ? "Ctrl" : "", e.altKey ? "Alt" : "", shift ? "Shift" : ""].filter(Boolean);
+  const names = name === "Backspace" ? ["Backspace", "Del"] : [name];
+  return names.map((n) => [...mods, n].join("+"));
+}
+
+/** A chord written in the grammar, its modifiers in one order, to compare two spellings ("Shift+Ctrl+Z", "Ctrl+Shift+Z"). */
+const chordKey = (chord: string[]): string => {
+  const mods = ["Ctrl", "Alt", "Shift"].filter((m) => chord.includes(m) || (m === "Ctrl" && chord.includes("Meta")));
+  return [...mods, ...chord.filter((k) => !["Ctrl", "Alt", "Shift", "Meta"].includes(k))].join("+");
+};
+
+/** The keys that walk and run a menu: never a row's own while it is open. */
+const MENU_KEYS = new Set(["Enter", "Space", "Esc", "Tab", "←", "→", "↑", "↓", "Home", "End"]);
+
+/**
+ * The row an open menu runs on a key press: the first one, in its order and its submenus', whose key is the one pressed
+ * and that can run now (its submenu too). The keys that walk the menu are the menu's own.
+ */
+export function keyedRow(items: MenuItem[], pressed: string[]): Extract<MenuItem, object> | null {
+  const wanted = pressed.filter((p) => !MENU_KEYS.has(p.split("+").at(-1)!) || p.includes("+"));
+  if (!wanted.length) return null;
+  for (const it of items) {
+    if (it === "—" || it.disabled) continue;
+    if (it.items) {
+      const inner = keyedRow(it.items, wanted);
+      if (inner) return inner;
+      continue;
+    }
+    if (!it.key || !it.run) continue;
+    const parsed = parseKeys(it.key);
+    if (!parsed || "code" in parsed) continue;
+    const ways = parsed.ways.filter((w) => !w.mouse && w.pair.length === 1).map((w) => chordKey(w.pair[0]!));
+    if (wanted.some((p) => ways.includes(chordKey(p.split("+"))))) return it;
+  }
+  return null;
+}
 
 /** What a menu is about, at its top: a name, a dim line, and the picture of an item when it has one. */
 export interface MenuHead {
@@ -102,7 +187,7 @@ export function focusBehindMenu(el: Element | null): HTMLElement | null {
 /**
  * A right-click menu, at the pointer: it stays inside the window, closes on a click elsewhere, Escape,
  * a scroll, a resize or the focus going elsewhere (the command bar, a dialog); the arrow keys walk it, Enter
- * or Space runs, → opens a submenu and ← closes it. It takes the focus while it is open, so that a screen
+ * or Space runs, → opens a submenu and ← closes it, and a row's key runs that row. It takes the focus while it is open, so that a screen
  * reader follows the active item, and gives it back to where it was. While it is open the screen's own keys
  * are off (Keys.plainKey sees the [role=menu]).
  */
@@ -209,7 +294,16 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
     const key = (e: KeyboardEvent) => {
       if (!menuHearsKeys(document.activeElement)) return;
       const step = menuStep(e.key, runnable, active, Boolean(onBack));
-      if (!step) return;
+      if (!step) {
+        // a row's own key runs it while the menu is open, as the key shown at its right says
+        const row = keyedRow(items, pressedKeys(e));
+        if (!row) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+        row.run?.();
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       if (step.do === "close") onClose();
