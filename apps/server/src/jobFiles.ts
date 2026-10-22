@@ -101,8 +101,36 @@ function nodeChoices(catalog: NodeCatalog, f: GraphFile): string[] | null {
   return def ? choicesOf(def.input.required?.[f.input] ?? def.input.optional?.[f.input]) : null;
 }
 
-/** What was worked out for a job on a machine, by what it depends on: the planner asks again at every pass. */
-const kept = new Map<string, Loaded | null>();
+/** A Map that holds its `max` most recently used entries: one read goes to the end, the least recently used goes first. */
+export class Recent<K, V> extends Map<K, V> {
+  constructor(private readonly max: number) {
+    super();
+  }
+
+  override get(key: K): V | undefined {
+    if (!super.has(key)) return undefined;
+    const value = super.get(key)!;
+    super.delete(key);
+    super.set(key, value);
+    return value;
+  }
+
+  override set(key: K, value: V): this {
+    super.delete(key);
+    super.set(key, value);
+    if (this.size > this.max) this.delete(this.keys().next().value!);
+    return this;
+  }
+}
+
+/**
+ * What was worked out for a job on a machine, by what it depends on: the planner asks again at every pass, for every waiting
+ * job on every machine. The least recently used goes first, with room for a long line on several machines: kept first in,
+ * first out (512), a longer line cycled through it, each entry gone just before it was asked for again, and every graph was
+ * built anew at every pass.
+ */
+const kept = new Recent<string, Loaded | null>(4096);
+/** The folder listings kept, by machine and folder. */
 const KEPT = 512;
 
 /**
@@ -285,5 +313,4 @@ async function toolLoadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id
 
 function keep(key: string, value: Loaded | null) {
   kept.set(key, value);
-  if (kept.size > KEPT) kept.delete(kept.keys().next().value!);
 }

@@ -1,5 +1,7 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { missingNodesSaid, packOfNode } from "../src/packs";
+import { missingNodesSaid, nodesOfPack, packOfNode } from "../src/packs";
 
 describe("a node ComfyUI lacks", () => {
   it("is said as the pack to install, each pack once, and how", () => {
@@ -17,5 +19,15 @@ describe("a node ComfyUI lacks", () => {
     expect(said).toMatch(/It also lacks the node SomeOddNode: ComfyUI-Manager's "Install Missing Custom Nodes"/);
     expect(missingNodesSaid(["SomeOddNode"])).toMatch(/^ComfyUI is missing the node SomeOddNode/);
     expect(packOfNode("KSampler")).toBeUndefined();
+  });
+});
+
+describe("Afflatus's own pack in the catalogue", () => {
+  it("lists every node the pack registers, read from its files (deprecated ones too)", () => {
+    const dir = fileURLToPath(new URL("../../../comfy-nodes/afflatus-nodes/", import.meta.url));
+    const registered = readdirSync(dir).filter((f) => f.endsWith(".py")).flatMap((f) => [...readFileSync(dir + f, "utf8").matchAll(/node_id\s*=\s*"([^"]+)"/g)].map((m) => m[1]!));
+    expect(registered.length).toBeGreaterThan(15);
+    expect(registered.filter((n) => !nodesOfPack("afflatus-nodes").includes(n))).toEqual([]);
+    expect(packOfNode("AfflatusSwapPaste")?.own).toBe(true);
   });
 });
