@@ -479,7 +479,8 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
   for (const r of rows) {
     const from = Date.parse(r.started_at);
     const to = r.ended_at ? Date.parse(r.ended_at) : now;
-    const { mine, kept, guessed, split } = sessionOf(r, { renders: podRendersOf.get(r.machine_id) ?? [], fetches, measures, usualBootMs, outside }, now);
+    const { mine, kept, guessed, split: live } = sessionOf(r, { renders: podRendersOf.get(r.machine_id) ?? [], fetches, measures, usualBootMs, outside }, now);
+    const split = frozenSplit(r) ?? live;
     if (split.estimated.length) estimatedAny = true;
     const parts = partsOf(split.spans);
     const boot = bootPartsOf(split.spans);
@@ -661,6 +662,49 @@ function sessionOf<R extends { machine_id: string | null; created_at: string; to
   return { mine, kept, guessed, split };
 }
 
+type Split = ReturnType<typeof splitSession>;
+
+/** An ended session's split as it was kept (freezeSplits); null when none was, or what was kept cannot be read. */
+function frozenSplit(r: SessionRow): Split | null {
+  if (!r.split) return null;
+  try {
+    const kept = JSON.parse(r.split) as Split;
+    return Array.isArray(kept?.spans) && Array.isArray(kept.estimated) ? kept : null;
+  } catch {
+    return null;
+  }
+}
+
+/** How long after its end a session's split is kept: its last render's row, a file's or outside work's end, may come late. */
+const FREEZE_AFTER_MS = DAY;
+
+/**
+ * Each session that ended before `endedBefore` has its split by part kept on its row, once: the renders it is worked out
+ * from are folded into days after the history days (renders.ts fold) or forgotten at once (clear), and a split worked out
+ * again from what is left then read the session's renders as idle, moving amounts already spent from one part to another
+ * (the Costs tab, the daily Grafana panel, the hunt's overhead). Called before either deletes a row: worked out then, the
+ * split kept is the one shown until then. Returns how many were kept.
+ */
+export async function freezeSplits(db: Db, endedBefore: number): Promise<number> {
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const rows = await db.selectFrom("rent_sessions").selectAll().where("ended_at", "is not", null).where("ended_at", "<", iso(endedBefore)).where("split", "is", null).execute();
+  if (!rows.length) return 0;
+  const usualBootMs = median((await db.selectFrom("pod_measures").select("ms").where("kind", "=", "boot").orderBy("at", "desc").limit(12).execute()).map((r) => Number(r.ms)));
+  for (const r of rows) {
+    const [from, to] = [Date.parse(r.started_at), Date.parse(r.ended_at!)];
+    // what costs() reads around a session, for this one alone
+    const renders = await db.selectFrom("render_stats").select(["machine_id", "created_at", "total_ms", "status"]).where("machine_id", "=", r.machine_id).where("created_at", ">=", iso(from)).where("created_at", "<=", iso(to + DAY)).execute();
+    const fetches = await db.selectFrom("pod_fetches").selectAll().where("ended_at", ">=", iso(from)).where("started_at", "<=", iso(to)).execute();
+    const measures = await db.selectFrom("pod_measures").selectAll().where("at", ">=", iso(from)).where("at", "<=", iso(to + 60_000)).execute();
+    const { split } = sessionOf(r, { renders, fetches, measures, usualBootMs, outside: await outsideOf(db, from, to) }, to);
+    await db.updateTable("rent_sessions").set({ split: JSON.stringify(split) }).where("id", "=", r.id).where("split", "is", null).execute();
+  }
+  return rows.length;
+}
+
+/** The sessions whose split is kept by the hourly fold: those ended at least FREEZE_AFTER_MS before `now`. */
+export const freezeOld = (db: Db, now: number) => freezeSplits(db, now - FREEZE_AFTER_MS);
+
 /** Each session's stretches of work from outside Afflatus (pod_outside), by its id. */
 type OutsideBySession = Map<string, Array<{ from: number; to: number }>>;
 
@@ -718,7 +762,7 @@ export async function deployOverhead(db: Db, now = Date.now(), o: { volume?: boo
   const idles: number[] = [];
   const fetched: number[] = [];
   for (const r of rows) {
-    const { split } = sessionOf(r, { renders, fetches, measures, usualBootMs, outside }, now);
+    const split = frozenSplit(r) ?? sessionOf(r, { renders, fetches, measures, usualBootMs, outside }, now).split;
     const parts = partsOf(split.spans);
     boots.push(parts.boot);
     idles.push(idleTail(split.spans, false));

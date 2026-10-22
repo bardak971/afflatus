@@ -44,7 +44,7 @@ export function costMetrics(s: Services): (head: Head, put: Line) => Promise<voi
     const v = await view().catch(() => null);
     if (!v) return;
 
-    head("afflatus_rented_spend_usd", "gauge", "What the rented GPUs cost over the whole record, USD, by what the pods did (Queue › Costs's parts, split again at each read)");
+    head("afflatus_rented_spend_usd", "gauge", "What the rented GPUs cost over the whole record, USD, by what the pods did (Queue › Costs's parts; an ended session's as it was split, kept past its renders)");
     for (const part of PARTS) put("afflatus_rented_spend_usd", { part }, v.where.usd[part]);
     const byGpu = new Map<string, number>();
     for (const x of v.sessions) byGpu.set(x.gpu ?? "unknown", (byGpu.get(x.gpu ?? "unknown") ?? 0) + x.usd);

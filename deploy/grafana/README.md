@@ -22,7 +22,7 @@ What is there:
 | `afflatus_render_duration_seconds` | histogram | `recipe`, `family`, `title` | How long finished renders took (buckets 5 s to 1 h) |
 | `afflatus_render_added_seconds` | histogram | `machine`, `stage` before / filing | What Afflatus adds around each render on that machine: until ComfyUI has the prompt, and filing what it made |
 | `afflatus_render_added_part_seconds` | histogram | `machine`, `part` scan / cuts / uploads / free / measuring | Their parts |
-| `afflatus_rented_spend_usd` | gauge | `part` render / boot / fetch / outside / idle / failed | What the rented GPUs cost over the whole record, USD, by what the pods did (Queue › Costs's split). A gauge, not a counter: the record is split again at each read, so a part can go down (a render's time is idle until it ends, then render): take `delta()` over it, never `increase()` or `rate()` |
+| `afflatus_rented_spend_usd` | gauge | `part` render / boot / fetch / outside / idle / failed | What the rented GPUs cost over the whole record, USD, by what the pods did (Queue › Costs's split). A gauge, not a counter: a session running or ended within a day is split again at each read, so a part can go down (a render's time is idle until it ends, then render): take `delta()` over it, never `increase()` or `rate()`. An ended session's split is kept after that, so its renders folded into days after the history days, or forgotten, stay render |
 | `afflatus_rented_gpu_spend_usd` | gauge | `gpu` (as Costs names it: A40, RTX 4090…) | The same cost by GPU (a gauge too) |
 | `afflatus_rented_pod_ends_total` | counter | `reason` idle / cap / you / crash…, unknown when RunPod ended it | Pod runs that ended, by why |
 | `afflatus_rented_pods_running` | gauge | | Rented pods running now |
