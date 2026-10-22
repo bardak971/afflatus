@@ -1,4 +1,4 @@
-import { useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Mic } from "lucide-react";
 import type { Clip, RecipeInfo, Timeline } from "../../api";
 import { clock as mmss, plural } from "../../format";
@@ -31,8 +31,11 @@ export function RecordingBands({ timeline, slots, recipes, pps, onTrim, onSelect
   slots: Slot[];
   recipes: RecipeInfo[];
   pps: number;
-  /** The recording's stretch changed: its In and Out, in ms of the recording. */
-  onTrim?(asset: string, fromMs: number, toMs: number): void;
+  /**
+   * The recording's stretch changed: its In and Out, in ms of the recording. Settles true once the change is read back,
+   * false when it is not made (asked first, failed, or another one asked for in its place).
+   */
+  onTrim?(asset: string, fromMs: number, toMs: number): Promise<boolean> | void;
   /** A click on a band: its first clip opened (its Recording chapter). */
   onSelect(clip: string): void;
 }) {
@@ -50,27 +53,40 @@ function Band({ recording, slots, recipes, pps, onTrim, onSelect }: {
   slots: Slot[];
   recipes: RecipeInfo[];
   pps: number;
-  onTrim?(asset: string, fromMs: number, toMs: number): void;
+  onTrim?(asset: string, fromMs: number, toMs: number): Promise<boolean> | void;
   onSelect(clip: string): void;
 }) {
   const [held, setHeld] = useState<{ kind: "slip" | "start" | "end"; x: number; fromMs: number; toMs: number; moved: boolean } | null>(null);
+  /**
+   * The stretch released, drawn until its clips read back have it (`was`: the one they had then) or it is not made: back
+   * to the old one meanwhile, the band looked as if the drag had not been taken, and invited a second one.
+   */
+  const [sent, setSent] = useState<{ fromMs: number; toMs: number; kind: "slip" | "start" | "end"; was: { fromMs: number; toMs: number }; done: boolean } | null>(null);
   const asset = recording.asset.id;
   const mine = slots.filter((s) => {
     const input = recordingInput(recipes.find((r) => r.id === s.clip.recipe));
     return Boolean(input && s.clip.inputs[input.id] === asset);
   });
   const input = recordingInput(recipes.find((r) => r.id === mine[0]?.clip.recipe));
+  const at = (c: Clip) => (input ? Math.round(Number(c.inputs[input.start] ?? 0) * 1000) : 0);
+  const fromMs = mine.length ? at(mine[0]!.clip) : 0;
+  const toMs = mine.length && input ? at(mine.at(-1)!.clip) + Math.round(Number(mine.at(-1)!.clip.inputs[input.seconds] ?? 0) * 1000) : 0;
+  const arrived = Boolean(sent?.done && (fromMs !== sent.was.fromMs || toMs !== sent.was.toMs));
+  useEffect(() => {
+    if (arrived) setSent(null);
+  }, [arrived]);
   if (!mine.length || !input) return null;
-  const at = (c: Clip) => Math.round(Number(c.inputs[input.start] ?? 0) * 1000);
-  const fromMs = at(mine[0]!.clip);
-  const toMs = at(mine.at(-1)!.clip) + Math.round(Number(mine.at(-1)!.clip.inputs[input.seconds] ?? 0) * 1000);
   const length = recording.asset.durationMs ?? toMs;
-  const shown = held ?? { fromMs, toMs };
+  const drawn = held ?? (sent && !arrived ? sent : null);
+  const shown = drawn ?? { fromMs, toMs };
+  // a drag starts from the stretch drawn: one released and not yet read back, else its clips'
+  const base = sent && !arrived ? sent : { fromMs, toMs };
   // drawn under its clips; while dragged its edges follow the pointer, at the track's scale
   const px = (ms: number) => (ms / 1000) * pps;
   // slipped, the band stays where its clips are: the recording slides under it
-  const left = mine[0]!.left + (held?.kind === "start" ? px(shown.fromMs - fromMs) : 0);
-  const right = mine.at(-1)!.left + mine.at(-1)!.width + (held?.kind === "end" ? px(shown.toMs - toMs) : 0);
+  const edged = drawn && drawn.kind !== "slip";
+  const left = mine[0]!.left + (edged ? px(shown.fromMs - fromMs) : 0);
+  const right = mine.at(-1)!.left + mine.at(-1)!.width + (edged ? px(shown.toMs - toMs) : 0);
   const stretch = `${mmss(shown.fromMs, { decimals: 1 })}–${mmss(shown.toMs, { decimals: 1 })}`;
 
   const down = (kind: "slip" | "start" | "end") => (e: ReactPointerEvent<HTMLElement>) => {
@@ -81,7 +97,7 @@ function Band({ recording, slots, recipes, pps, onTrim, onSelect }: {
     } catch {
       // a pointer that cannot be captured is followed while it stays over the band
     }
-    setHeld({ kind, x: e.clientX, fromMs, toMs, moved: false });
+    setHeld({ kind, x: e.clientX, fromMs: base.fromMs, toMs: base.toMs, moved: false });
   };
   const move = (e: ReactPointerEvent) => {
     if (!held || !onTrim) return;
@@ -90,14 +106,23 @@ function Band({ recording, slots, recipes, pps, onTrim, onSelect }: {
     const dms = Math.round(((dx / pps) * 1000) / 100) * 100;
     if (held.kind === "slip") {
       // the recording slides under its clips: left, the same length of it taken later on
-      const span = toMs - fromMs;
-      const from = Math.max(0, Math.min(length - span, fromMs - dms));
+      const span = base.toMs - base.fromMs;
+      const from = Math.max(0, Math.min(length - span, base.fromMs - dms));
       setHeld({ ...held, moved: true, fromMs: from, toMs: from + span });
-    } else if (held.kind === "start") setHeld({ ...held, moved: true, fromMs: Math.max(0, Math.min(toMs - 1000, fromMs + dms)) });
-    else setHeld({ ...held, moved: true, toMs: Math.max(fromMs + 1000, Math.min(length, toMs + dms)) });
+    } else if (held.kind === "start") setHeld({ ...held, moved: true, fromMs: Math.max(0, Math.min(base.toMs - 1000, base.fromMs + dms)) });
+    else setHeld({ ...held, moved: true, toMs: Math.max(base.fromMs + 1000, Math.min(length, base.toMs + dms)) });
   };
   const up = () => {
-    if (held?.moved && (held.fromMs !== fromMs || held.toMs !== toMs)) onTrim?.(asset, held.fromMs, held.toMs);
+    if (held?.moved && (held.fromMs !== base.fromMs || held.toMs !== base.toMs)) {
+      const asked = onTrim?.(asset, held.fromMs, held.toMs);
+      // drawn meanwhile; taken, until its clips read back say it; not made, its clips' again at once (a newer release's
+      // own drawing is left alone)
+      if (asked) {
+        const ours = { fromMs: held.fromMs, toMs: held.toMs, kind: held.kind, was: { fromMs, toMs }, done: false };
+        setSent(ours);
+        void asked.then((taken) => setSent((now) => (now !== ours ? now : taken ? { ...ours, done: true } : null)));
+      }
+    }
     else if (held && !held.moved) onSelect(mine[0]!.clip.id);
     setHeld(null);
   };

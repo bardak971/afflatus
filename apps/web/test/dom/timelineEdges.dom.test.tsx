@@ -82,32 +82,61 @@ describe("the timeline editor's mutations, drawn", () => {
     expect(fakeApi.calls("PATCH", "/clips/zz-test-clip").at(-1)?.body).toEqual({ inputs: { prompt: "typed meanwhile", first: "zz-test-frame", last: "zz-test-frame" } });
   });
 
-  it("sends one source trim at a time: another one before the first is read back is dropped (W-2)", async () => {
+  it("sends one trim at a time: the last one of each kind asked for meanwhile runs once the first is read back (W-2, W-9)", async () => {
     const answer = later<unknown>();
     fakeApi.on("POST /timelines/:id/source/trim", () => answer.promise);
+    fakeApi.on("POST /timelines/:id/recording/trim", { clips: [], toMs: 9000 });
     const { now } = rig();
     const made: string[][] = [];
-    // two releases heard in the same render (a handle's and its lane's), then a typed Out while the first is out
+    // as the editor's runs do: while one is out, kept for later, and run then through the render of that moment
+    const source = (fromMs: number, toMs: number): Promise<boolean> => {
+      const { trim, m } = now();
+      if (trim.busy) return trim.later("source", () => source(fromMs, toMs));
+      return trim.run(m.trimSource.mutate, { fromMs, toMs }, (c) => made.push(c));
+    };
+    const recording = (toMs: number): Promise<boolean> => {
+      const { trim, m } = now();
+      if (trim.busy) return trim.later("recording:zz-test-talk", () => recording(toMs));
+      return trim.run(m.trimRecording.mutate, { asset: "zz-test-talk", fromMs: 0, toMs }, (c) => made.push(c));
+    };
+    const settled: Array<[string, boolean]> = [];
+    const note = (what: string) => (taken: boolean) => void settled.push([what, taken]);
+    // two releases heard in the same render (a handle's and its lane's), a typed Out and a recording's trim while the first is out
     act(() => {
-      expect(now().trim.run(now().m.trimSource.mutate, { fromMs: 2000, toMs: 6000 }, (c) => made.push(c))).toBe(true);
-      expect(now().trim.run(now().m.trimSource.mutate, { fromMs: 2000, toMs: 6000 }, (c) => made.push(c))).toBe(false);
+      void source(2000, 6000).then(note("first"));
+      void source(2000, 6000).then(note("twin"));
     });
-    expect(now().trim.run(now().m.trimSource.mutate, { fromMs: 2000, toMs: 5000 }, (c) => made.push(c))).toBe(false);
+    act(() => void source(2000, 5000).then(note("typed")));
+    act(() => void recording(9000).then(note("recording")));
     await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-timeline/source/trim")).toHaveLength(1));
-    answer.answer({ clips: ["zz-test-window"], toMs: 6000 });
-    await waitFor(() => expect(made).toEqual([["zz-test-window"]]));
-    // read back: the next one goes
+    // said as under way while they wait
+    expect(now().trim.waits("source")).toBe(true);
+    expect(now().trim.waits("recording:zz-test-talk")).toBe(true);
+    // the twin is the one the typed Out took the place of: never sent
+    expect(settled).toEqual([["twin", false]]);
+    expect(fakeApi.calls("POST", "/timelines/zz-test-timeline/recording/trim")).toHaveLength(0);
     fakeApi.on("POST /timelines/:id/source/trim", { clips: [], toMs: 5000 });
-    act(() => void now().trim.run(now().m.trimSource.mutate, { fromMs: 2000, toMs: 5000 }, (c) => made.push(c)));
-    await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-timeline/source/trim")).toHaveLength(2));
+    answer.answer({ clips: ["zz-test-window"], toMs: 6000 });
+    // read back: the typed Out goes, then the recording's trim once that one is back, each with what was asked last
+    await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-timeline/recording/trim")).toHaveLength(1));
+    const sent = fakeApi.calls("POST", "/timelines/zz-test-timeline/source/trim");
+    expect(sent.map((c) => c.body)).toEqual([{ fromMs: 2000, toMs: 6000 }, { fromMs: 2000, toMs: 5000 }]);
+    expect(fakeApi.calls("POST", "/timelines/zz-test-timeline/recording/trim")[0]!.body).toEqual({ asset: "zz-test-talk", fromMs: 0, toMs: 9000 });
+    await waitFor(() => expect(settled).toEqual([["twin", false], ["first", true], ["typed", true], ["recording", true]]));
+    expect(made).toEqual([["zz-test-window"], [], []]);
+    expect(now().trim.waits("source")).toBe(false);
+    expect(now().trim.busy).toBe(false);
   });
 
   it("takes a trim again once one has failed (W-2)", async () => {
     fakeApi.on("POST /timelines/:id/source/trim", () => refused("zz-test: a window is rendering"));
     const { now } = rig();
-    act(() => void now().trim.run(now().m.trimSource.mutate, { fromMs: 2000, toMs: 6000 }, () => {}));
+    let taken: boolean | undefined;
+    act(() => void now().trim.run(now().m.trimSource.mutate, { fromMs: 2000, toMs: 6000 }, () => {}).then((t) => (taken = t)));
     await waitFor(() => expect(now().m.trimSource.isError).toBe(true));
     expect(now().trim.busy).toBe(false);
+    // not made: the lane lets go of the stretch it drew
+    await waitFor(() => expect(taken).toBe(false));
   });
 
   it("pins a file onto a clip over the form as it stands when the upload lands, not as it was at the drop (W-4)", async () => {
@@ -221,6 +250,45 @@ describe("drags on the track, drawn", () => {
     fireEvent.pointerCancel(lane, { pointerId: 1 });
     expect(onPeek).toHaveBeenLastCalledWith(null);
     expect(onStretch).not.toHaveBeenCalled();
+  });
+
+  it("draws the stretch released until the timeline read back has it, and the old one again when it is not made (W-9)", async () => {
+    capture();
+    const answers: Array<(taken: boolean) => void> = [];
+    const onStretch = vi.fn(() => new Promise<boolean>((done) => answers.push(done)));
+    const place = { atMs: 5000, lengthMs: 20_000, made: true, windows: [], replaces: null };
+    const lane = (t: Timeline) => (
+      <SourceLane timeline={t} place={place} recipes={[model]} pps={50} width={2000} selected={false} over={false} onDragOver={() => {}} onSelect={() => {}} onStretch={onStretch} onPeek={() => {}} />
+    );
+    const { rerender } = draw(lane(timeline));
+    const pull = (by: number, id: number) => {
+      const start = screen.getByRole("separator", { name: "Drag: where the source's stretch starts" });
+      fireEvent.pointerDown(start, { button: 0, clientX: 300, pointerId: id });
+      fireEvent.pointerMove(start, { clientX: 300 + by, pointerId: id });
+      fireEvent.pointerUp(start, { clientX: 300 + by, pointerId: id });
+    };
+    const from = () => screen.getByText(/^zz-test\.mp4 · from/).textContent;
+    // 50 px a second: its start 50 px to the left starts it a second earlier, drawn so while it is sent
+    pull(-50, 1);
+    expect(onStretch).toHaveBeenLastCalledWith(1000, 8000);
+    expect(from()).toBe("zz-test.mp4 · from 1.0 s");
+    // dragged again meanwhile: from the stretch drawn, not the one the timeline still has
+    pull(-25, 2);
+    expect(onStretch).toHaveBeenLastCalledWith(500, 8000);
+    expect(from()).toBe("zz-test.mp4 · from 0.5 s");
+    // the first one is back: the newer one's drawing is left alone
+    await act(async () => answers[0]!(true));
+    expect(from()).toBe("zz-test.mp4 · from 0.5 s");
+    // the second one taken, and the timeline read back has it: what it says is drawn
+    await act(async () => answers[1]!(true));
+    expect(from()).toBe("zz-test.mp4 · from 0.5 s");
+    rerender(lane({ ...timeline, source: { ...timeline.source!, fromMs: 600 } }));
+    expect(from()).toBe("zz-test.mp4 · from 0.6 s");
+    // one not made (asked first, or failed): the stretch the timeline has, at once
+    pull(50, 3);
+    expect(from()).toBe("zz-test.mp4 · from 1.6 s");
+    await act(async () => answers[2]!(false));
+    expect(from()).toBe("zz-test.mp4 · from 0.6 s");
   });
 
   it("trims once on one release of either of its ends, made or not (W-1)", () => {

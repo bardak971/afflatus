@@ -270,7 +270,7 @@ function clipRecordingOf(e: LoadedEditor, current: Clip): ClipRecording | undefi
     toMs: mine.length ? end(mine.at(-1)!) : 0,
     onUses: (fromMs, toMs) => e.recordingTrim.run(asset, mine, fromMs, toMs),
     ask: ask ? { fromMs: ask.fromMs, rendered: ask.rendered, clips: ask.clips, change: () => e.recordingTrim.run(asset, mine, ask.fromMs, ask.toMs, true), keep: e.recordingTrim.keep } : null,
-    trimming: e.recordingTrim.pending,
+    trimming: e.recordingTrim.pending || e.recordingTrim.waits(asset),
   };
 }
 
@@ -309,6 +309,7 @@ function clipSourceOf(e: LoadedEditor, current: Clip): ClipSource | undefined {
     runUp: runUp ? { counts: runUp.counts, value: recipe ? carriedOf(recipe, e.inputsOf(current)) : runUp.counts[0]!, on: (n: number) => e.cutSource.run({ inputs: { ...source.inputs, [runUp.input]: String(n) } }) } : null,
     stretchAsk: e.stretch.ask ? { ...e.stretch.ask, change: () => e.stretch.run(e.stretch.ask!.fromMs, e.stretch.ask!.toMs, true), keep: e.stretch.keep } : null,
     onUses: (fromMs, toMs) => e.stretch.run(fromMs, toMs),
+    trimming: e.stretch.pending,
     formAsk: ask ? { title: e.videoRecipes.find((r) => r.id === ask.recipe)?.title ?? ask.recipe, rendered: ask.rendered, windows: ask.windows, change: () => e.sourceForm.run(ask.recipe, true), keep: e.sourceForm.keep } : null,
     count: made.length,
     first: made[0]?.id === current.id,

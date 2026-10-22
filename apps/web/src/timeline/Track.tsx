@@ -106,14 +106,15 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onSource?(asset: string): void;
   /** A voice recording made into Lip sync clips (dropped past the clips, or on an empty one). */
   onRecording?(asset: string, clip?: string): void;
-  /** A recording's band on the Audio row dragged: its In and Out, in ms of the recording. */
-  onRecordingTrim?(asset: string, fromMs: number, toMs: number): void;
+  /** A recording's band on the Audio row dragged: its In and Out, in ms of the recording (settled: RecordingBands' onTrim). */
+  onRecordingTrim?(asset: string, fromMs: number, toMs: number): Promise<boolean> | void;
   sourceSelected?: boolean;
   onSelectSource?(): void;
   /** The source's video in the viewer; the source taken away. */
   onOpenSource?(video: Asset): void;
   onRemoveSource?(): void;
-  onStretchSource?(fromMs: number, toMs: number): void;
+  /** The source's lane dragged: its stretch (settled: SourceLane's onStretch). */
+  onStretchSource?(fromMs: number, toMs: number): Promise<boolean> | void;
   /** Split the source at the playhead (null: the playhead is not inside its stretch). */
   onSplitSource?: (() => void) | null;
   /** The moment of the source a drag on its lane stands on (shown in the stage meanwhile); null: the drag is over. */
