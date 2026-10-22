@@ -257,6 +257,16 @@ export function notReady(status: RecipeStatus | undefined, comfyOnline: boolean,
 }
 
 /**
+ * The colour role of why a render waits (notReady's sentence, or the form's own "Write … first."): red only for a graph
+ * ComfyUI refuses, amber for ComfyUI not answering, and neutral for the rest, words to write, a picture to choose, files
+ * or node packs to get: a to-do, not a failure.
+ */
+export function whyTone(why: string, status: RecipeStatus | undefined): "broken" | "attention" | "todo" {
+  if (status?.problems?.[0] && why === problemSaid(status.problems[0])) return "broken";
+  return why === notReady(undefined, false) ? "attention" : "todo";
+}
+
+/**
  * An amount in US dollars, as a rented GPU's cost is said: cents under $100 ("$0.69", "$12.40"), whole dollars past it.
  * `fine`: a cost that runs (a pod's, by the second), to a tenth of a cent under a dollar ("$0.012"), so that it is seen to move.
  */

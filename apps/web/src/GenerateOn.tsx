@@ -45,7 +45,7 @@ const unpickable = (m: MachineState, makes: "image" | "video") =>
  * it first (a pod deployed with nothing could not be picked, and nothing could be sent to it). The pick stays with the
  * draft or the timeline (draftMachine.ts). With one ComfyUI, nothing.
  */
-export function GenerateOn({ recipe, pickKey, whole, look, msOn, of }: {
+export function GenerateOn({ recipe, pickKey, whole, look, msOn, of, off }: {
   recipe: RecipeInfo;
   /** Where the pick is kept: a draft's id, or a timeline's key (draftMachine.ts). */
   pickKey: string;
@@ -55,6 +55,8 @@ export function GenerateOn({ recipe, pickKey, whole, look, msOn, of }: {
   msOn(m: MachineState | null): number | null;
   /** What the pick is kept for, as the list says it. */
   of: "draft" | "timeline";
+  /** The render button beside it is off (something to do first): the slice is not drawn in the accent either. */
+  off?: boolean;
 }) {
   const { lacksOn } = useLoadChoices({ recipe, input: whole, look });
   const spec = recipe.inputs.find((i) => i.type === "model");
@@ -62,7 +64,7 @@ export function GenerateOn({ recipe, pickKey, whole, look, msOn, of }: {
   const makes = recipe.output === "image" ? "image" : "video";
   const why = (m: MachineState) => unpickable(m, makes) ?? (lacksOn(m.id) && !m.rented ? "lacks this model" : null);
   const note = (m: MachineState) => (lacksOn(m.id) && m.rented ? "fetches this model first" : null);
-  return <MachinePick pickKey={pickKey} of={of} msOn={msOn} file={file} why={why} note={note} />;
+  return <MachinePick pickKey={pickKey} of={of} msOn={msOn} file={file} why={why} note={note} off={off} />;
 }
 
 /**
@@ -74,7 +76,7 @@ export function RenderOn({ pickKey, msOn, blocked }: { pickKey: string; msOn(m: 
   return <MachinePick pickKey={pickKey} of="timeline" msOn={msOn} file={null} why={(m) => unpickable(m, "video") ?? blocked?.(m) ?? null} note={() => null} small />;
 }
 
-function MachinePick({ pickKey, of, msOn, file, why, note, small }: {
+function MachinePick({ pickKey, of, msOn, file, why, note, small, off }: {
   pickKey: string;
   of: "draft" | "timeline";
   /** What it takes on each machine (its own figure: machines.ts timeOn), and on Auto (null). */
@@ -86,6 +88,8 @@ function MachinePick({ pickKey, of, msOn, file, why, note, small }: {
   note(m: MachineState): string | null;
   /** The slice of a smaller button (the timeline's header). */
   small?: boolean;
+  /** The render button beside it is off. */
+  off?: boolean;
 }) {
   const queue = useQueue();
   const several = severalMachines(queue.data);
@@ -109,11 +113,15 @@ function MachinePick({ pickKey, of, msOn, file, why, note, small }: {
         aria-label="Render on a machine of your choosing"
         data-tip={picked ? `${of === "draft" ? "Renders" : "Its clips render"} on ${machineLabel(picked)}: click to pick another, or Any machine` : "Render on a machine of your choosing"}
         onClick={() => setOpen(!open)}
-        // the header's slice (small) sits beside plain buttons (the timeline's one coral button is the inspector's): edged as they are
+        // the header's slice (small) sits beside plain buttons (the timeline's one coral button is the inspector's): edged as they are.
+        // Beside a render button that is off, it is edged too: a slice still in the accent made the pair read as on. It stays
+        // a button, as the machine can be picked before what is left to do is done
         className={cx(
           "flex shrink-0 items-center justify-center",
-          small ? "h-10 w-9 rounded-r-control border border-l-0 border-line-strong text-ink-2 hover:bg-hover hover:text-ink" : "h-11 w-11 rounded-r-lg border-l border-accent-ink/25 bg-accent text-accent-ink hover:brightness-95",
-          open && (small ? "bg-hover" : "brightness-90"),
+          small ? "h-10 w-9 rounded-r-control border border-l-0 border-line-strong text-ink-2 hover:bg-hover hover:text-ink"
+            : off ? "h-11 w-11 rounded-r-lg border border-l-0 border-line-strong text-ink-2 hover:bg-hover hover:text-ink"
+            : "h-11 w-11 rounded-r-lg border-l border-accent-ink/25 bg-accent text-accent-ink hover:brightness-95",
+          open && (small || off ? "bg-hover" : "brightness-90"),
         )}
       >
         <Server size={small ? 15 : 16} />

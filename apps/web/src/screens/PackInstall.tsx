@@ -147,8 +147,9 @@ export function PackInstallActions({ install, named, missingLeft }: {
 /** A pack's line: where its install stands. */
 export function PackStateLine({ s }: { s: PackStateSaid | null }) {
   if (!s) return null;
+  // red only for an install that failed or cannot be done from here: a pack being installed is not a failure
   return (
-    <span className={s.state === "done" ? "font-semibold text-good" : "font-semibold"} data-tip={s.message}>
+    <span className={s.state === "done" ? "font-semibold text-good" : s.state === "pending" ? "font-semibold" : "font-semibold text-warn-ink"} data-tip={s.message}>
       {s.state === "pending" ? "installing…" : s.state === "done" ? "installed" : s.state === "failed" ? `failed: ${s.message ?? ""}` : "not installable from here"}
     </span>
   );

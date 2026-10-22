@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { screen, within } from "@testing-library/react";
 import type { MachineState, QueueStatus } from "../../src/api";
+import { GenerateOn } from "../../src/GenerateOn";
 import { Dot } from "../../src/machineBits";
 import { Queue } from "../../src/screens/Queue";
 import { MachineLanes } from "../../src/screens/queue/MachineLanes";
 import { KwhForm } from "../../src/screens/settings/ElectricityCard";
 import { beforeTone } from "../../src/screens/workflowEditor/BeforeItRuns";
+import { notReady, problemSaid, whyTone } from "../../src/format";
 import type { Mapping } from "../../src/screens/workflowEditor/useMapping";
 import { fakeApi } from "./fakeApi";
 import { draw } from "./render";
@@ -16,16 +18,50 @@ import { draw } from "./render";
  */
 
 describe("the workflow editor's Before it can run", () => {
-  const mapping = (found: Partial<Mapping["found"]>, looseNotes: string[] = []) =>
-    ({ found: { missingNodes: [], missingFiles: [], missingChoices: [], packs: {}, ...found }, graph: { 7: { class_type: "UNETLoader", inputs: { unet_name: "zz-test.safetensors", sampler: "zz" } } }, looseNotes }) as unknown as Mapping;
+  const mapping = (found: Partial<Mapping["found"]>, looseNotes: string[] = [], packsFailed = false) =>
+    ({ found: { missingNodes: [], missingFiles: [], missingChoices: [], packs: {}, ...found }, graph: { 7: { class_type: "UNETLoader", inputs: { unet_name: "zz-test.safetensors", sampler: "zz" } } }, looseNotes, packsFailed }) as unknown as Mapping;
   const file = { node: "7", input: "unet_name", file: "zz-test.safetensors", classType: "UNETLoader", label: "unet name", options: [] };
 
   it("is a neutral to-do when only files are left to download, red only for what ComfyUI would refuse", () => {
     expect(beforeTone(mapping({ missingFiles: [file] } as never))).toBe("todo");
     expect(beforeTone(mapping({ missingFiles: [file], missingNodes: ["ZzTestNode"] } as never))).toBe("broken");
+    // a node type a pack install brings is a to-do too, as the Workflows list's "N nodes to get" says it
+    expect(beforeTone(mapping({ missingFiles: [file], missingNodes: ["ZzTestNode"], packs: { ZzTestNode: "zz-test-pack" } } as never))).toBe("todo");
+    expect(beforeTone(mapping({ missingNodes: ["ZzTestNode"], packs: { ZzTestNode: "https://github.com/zz-test/pack" } } as never))).toBe("todo");
+    // red again for what no install brings: an address Manager cannot install, an install that failed
+    expect(beforeTone(mapping({ missingNodes: ["ZzTestNode"], packs: { ZzTestNode: "https://example.com/zz-test" } } as never))).toBe("broken");
+    expect(beforeTone(mapping({ missingNodes: ["ZzTestNode"], packs: { ZzTestNode: "zz-test-pack" } } as never, [], true))).toBe("broken");
     expect(beforeTone(mapping({ missingChoices: [{ node: "7", input: "sampler", value: "zz", title: "KSampler", options: [] }] } as never))).toBe("broken");
     expect(beforeTone(mapping({}, ["Length is counted at 16 fps."]))).toBe("attention");
     expect(beforeTone(mapping({}))).toBeNull();
+  });
+});
+
+describe("why a clip's Render waits, by its role", () => {
+  it("is a neutral to-do for words to write or files to get, amber for ComfyUI away, red only for a graph refused", () => {
+    const status = { ready: false, missingNodes: [], missingSlots: [], emptyInputs: [], missingFiles: [], problems: ["zz-test problem"] } as never;
+    expect(whyTone("Write what happens first.", undefined)).toBe("todo");
+    expect(whyTone("ComfyUI does not have zz-test.safetensors.", undefined)).toBe("todo");
+    expect(whyTone(notReady(undefined, false)!, undefined)).toBe("attention");
+    expect(whyTone(problemSaid("zz-test problem"), status)).toBe("broken");
+    expect(whyTone("Write what happens first.", status)).toBe("todo");
+  });
+});
+
+describe("the machine slice beside a Render that is off", () => {
+  // the accent fill itself, not its washes
+  const ACCENT = /(^|\s)bg-accent(\s|$)/;
+  it("is not drawn in the accent, so the pair reads as off; it stays a button", async () => {
+    const machine = { id: "zz-a", name: "zz-test a", url: "http://127.0.0.1:1", takes: "all", paused: false, online: true, locked: false, rented: null, model: null, pace: null, running: null };
+    fakeApi.on("GET /queue", { online: true, paused: false, running: null, waiting: [], later: [], recent: [], machines: [machine, { ...machine, id: "zz-b", name: "zz-test b" }] });
+    fakeApi.on("GET /setup", { recipes: [] });
+    const recipe = { id: "zz-test.video", inputs: [], output: "video" } as never;
+    const { rerender } = draw(<GenerateOn recipe={recipe} pickKey="zz-test" whole={{}} look={undefined as never} msOn={() => null} of="timeline" off />);
+    const slice = await screen.findByRole("button", { name: "Render on a machine of your choosing" });
+    expect(slice.className).not.toMatch(ACCENT);
+    expect((slice as HTMLButtonElement).disabled).toBe(false);
+    rerender(<GenerateOn recipe={recipe} pickKey="zz-test" whole={{}} look={undefined as never} msOn={() => null} of="timeline" />);
+    expect(screen.getByRole("button", { name: "Render on a machine of your choosing" }).className).toMatch(ACCENT);
   });
 });
 
