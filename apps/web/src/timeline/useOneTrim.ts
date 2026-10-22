@@ -67,6 +67,16 @@ export function useOneTrim() {
         listed();
       });
     },
+    /**
+     * The trims waiting dropped, each settling false (never sent): the timeline was moved under them (an Undo or a Redo,
+     * the source taken away). Run after that, a trim asked before it put back what the Undo took away, or asked a trim of
+     * a source no longer there.
+     */
+    drop() {
+      for (const next of waiting.current.values()) next.done(false);
+      waiting.current.clear();
+      listed();
+    },
     /** A trim of this kind is waiting for the one on its way. */
     waits: (key: string) => queued.includes(key),
   }), [queued]);

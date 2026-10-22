@@ -38,6 +38,8 @@ export interface ClipMenuActions {
   /** The clips picked with Ctrl + click: a menu on one of them removes them all. */
   picked: Set<string>;
   removeMany(clips: string[]): void;
+  /** The join before this clip opened in the column (its extend or cut, its transition), the clip selected with it. */
+  openJoin?(clip: string): void;
   /** The part of a video clip that plays made the timeline's source, the clips made from it to take its place (Motion transfer, window by window). */
   toSource?(c: Clip): void;
 }
@@ -65,6 +67,7 @@ export const clipMenuItems = (c: Clip, act: ClipMenuActions): MenuItem[] => {
   const recipe = act.recipes.find((r) => r.id === c.recipe);
   const canCarry = Boolean(recipe && index > 0 && recipe.inputs.some((i) => (i.type === "clip" && i.role === "previous") || (i.type === "image" && i.role === "start")));
   const video = c.take?.asset ?? null;
+  const next = index >= 0 ? act.clips[index + 1] : undefined;
   return [
     ...(c.kind === "video" && recipe ? [{ label: c.take ? "New take" : "Render this clip", key: "Ctrl+Enter", icon: <Wand2 size={14} />, disabled: Boolean(c.job) || act.pending.render, run: () => act.render(c) }] : []),
     ...(canCarry ? [c.joined === "continue"
@@ -72,6 +75,10 @@ export const clipMenuItems = (c: Clip, act: ClipMenuActions): MenuItem[] => {
       : { label: `Extend clip ${index}`, icon: <Link2 size={14} />, note: "carries its motion on", run: () => act.patch(c.id, { joined: "continue" }) }]
       // said rather than hidden: an imported workflow with no first-frame or previous-clip input cannot extend
       : c.kind === "video" && recipe && index > 0 ? [{ label: `Extend clip ${index}`, icon: <Link2 size={14} />, note: "this model cannot extend a clip", disabled: true, run: () => {} }] : []),
+    // its joins, before and after: on the selected clip the dots on the track are mostly under its trim edges, which take
+    // the press there (the edges first, so that a trim is never a join's click)
+    ...(act.openJoin && index > 0 ? [{ label: `How it meets clip ${index}`, icon: <Link2 size={14} />, note: "the join before it", run: () => act.openJoin!(c.id) }] : []),
+    ...(act.openJoin && next ? [{ label: `How it meets clip ${index + 2}`, icon: <Link2 size={14} />, note: "the join after it", run: () => act.openJoin!(next.id) }] : []),
     "—" as const,
     ...(c.take ? [splitHere(c, act)] : []),
     ...(c.kind === "video" && c.takes.length > 1 ? takeSteps(c, act) : []),

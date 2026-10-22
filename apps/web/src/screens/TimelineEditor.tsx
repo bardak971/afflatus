@@ -33,7 +33,14 @@ import { useTimelineEditor } from "../timeline/useTimelineEditor";
  * drawn with, editorProps.tsx's.
  */
 export function TimelineEditor({ params }: { params: { id: string } }) {
-  const editor = useTimelineEditor(params.id);
+  // one editor a timeline: the route keeps its component from one timeline to the next, and what the editor held for the
+  // one left (a trim waiting for the one on its way, the clips to send to render once read back) was run against the one
+  // opened, with its id
+  return <Editor key={params.id} id={params.id} />;
+}
+
+function Editor({ id }: { id: string }) {
+  const editor = useTimelineEditor(id);
   const { timeline, t, shown } = editor;
 
   if (timeline.isError) {
@@ -45,7 +52,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     );
   }
   // the editor's shape with the loading shine, the parts where they will land, rather than a line of words
-  if (!t || !shown) return <EditorSkeleton id={params.id} />;
+  if (!t || !shown) return <EditorSkeleton id={id} />;
 
   const e = { ...editor, t, shown };
   const { clips, current, musicOpen, range, clipMenu, rangeMenu, exp } = e;

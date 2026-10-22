@@ -1,4 +1,4 @@
-import { useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Mic } from "lucide-react";
 import type { Clip, RecipeInfo, Timeline } from "../../api";
 import { clock as mmss, plural } from "../../format";
@@ -58,10 +58,11 @@ function Band({ recording, slots, recipes, pps, onTrim, onSelect }: {
 }) {
   const [held, setHeld] = useState<{ kind: "slip" | "start" | "end"; x: number; fromMs: number; toMs: number; moved: boolean } | null>(null);
   /**
-   * The stretch released, drawn until its clips read back have it (`was`: the one they had then) or it is not made: back
-   * to the old one meanwhile, the band looked as if the drag had not been taken, and invited a second one.
+   * The stretch released, drawn until its trim settles: back to the old one meanwhile, the band looked as if the drag had
+   * not been taken, and invited a second one. Let go on the settle, taken or not (taken, its clips are read back by then):
+   * waiting for its clips to change kept a trim the server took but left as it was drawn, and the next drag started from it.
    */
-  const [sent, setSent] = useState<{ fromMs: number; toMs: number; kind: "slip" | "start" | "end"; was: { fromMs: number; toMs: number }; done: boolean } | null>(null);
+  const [sent, setSent] = useState<{ fromMs: number; toMs: number; kind: "slip" | "start" | "end" } | null>(null);
   const asset = recording.asset.id;
   const mine = slots.filter((s) => {
     const input = recordingInput(recipes.find((r) => r.id === s.clip.recipe));
@@ -71,16 +72,12 @@ function Band({ recording, slots, recipes, pps, onTrim, onSelect }: {
   const at = (c: Clip) => (input ? Math.round(Number(c.inputs[input.start] ?? 0) * 1000) : 0);
   const fromMs = mine.length ? at(mine[0]!.clip) : 0;
   const toMs = mine.length && input ? at(mine.at(-1)!.clip) + Math.round(Number(mine.at(-1)!.clip.inputs[input.seconds] ?? 0) * 1000) : 0;
-  const arrived = Boolean(sent?.done && (fromMs !== sent.was.fromMs || toMs !== sent.was.toMs));
-  useEffect(() => {
-    if (arrived) setSent(null);
-  }, [arrived]);
   if (!mine.length || !input) return null;
   const length = recording.asset.durationMs ?? toMs;
-  const drawn = held ?? (sent && !arrived ? sent : null);
+  const drawn = held ?? sent;
   const shown = drawn ?? { fromMs, toMs };
-  // a drag starts from the stretch drawn: one released and not yet read back, else its clips'
-  const base = sent && !arrived ? sent : { fromMs, toMs };
+  // a drag starts from the stretch drawn: one released and not yet settled, else its clips'
+  const base = sent ?? { fromMs, toMs };
   // drawn under its clips; while dragged its edges follow the pointer, at the track's scale
   const px = (ms: number) => (ms / 1000) * pps;
   // slipped, the band stays where its clips are: the recording slides under it
@@ -115,12 +112,12 @@ function Band({ recording, slots, recipes, pps, onTrim, onSelect }: {
   const up = () => {
     if (held?.moved && (held.fromMs !== base.fromMs || held.toMs !== base.toMs)) {
       const asked = onTrim?.(asset, held.fromMs, held.toMs);
-      // drawn meanwhile; taken, until its clips read back say it; not made, its clips' again at once (a newer release's
-      // own drawing is left alone)
+      // drawn meanwhile; settled, its clips' again, read back by then when taken (a newer release's own drawing is left
+      // alone)
       if (asked) {
-        const ours = { fromMs: held.fromMs, toMs: held.toMs, kind: held.kind, was: { fromMs, toMs }, done: false };
+        const ours = { fromMs: held.fromMs, toMs: held.toMs, kind: held.kind };
         setSent(ours);
-        void asked.then((taken) => setSent((now) => (now !== ours ? now : taken ? { ...ours, done: true } : null)));
+        void asked.then(() => setSent((now) => (now === ours ? null : now)));
       }
     }
     else if (held && !held.moved) onSelect(mine[0]!.clip.id);

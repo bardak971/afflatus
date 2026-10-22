@@ -73,16 +73,40 @@ describe("a recording on the Audio row", () => {
     // 40 px a second: its start a second later, drawn so while it is sent, and taken
     pull(40);
     expect(screen.getByLabelText("Recording zz-test talk.wav: 0:03.0–0:12.2")).toBeTruthy();
-    await act(async () => answers[0]!(true));
-    expect(screen.getByLabelText("Recording zz-test talk.wav: 0:03.0–0:12.2")).toBeTruthy();
-    // its clips made anew from there, read back: what they say is drawn
+    // its clips made anew from there and read back (before the trim settles taken), then taken: what they say is drawn
     const anew = [part("c3", 3.1, 4.7), part("c4", 7.8, 4.4)];
     rerender(bands(anew));
+    expect(screen.getByLabelText("Recording zz-test talk.wav: 0:03.0–0:12.2")).toBeTruthy();
+    await act(async () => answers[0]!(true));
     expect(screen.getByLabelText("Recording zz-test talk.wav: 0:03.1–0:12.2")).toBeTruthy();
     // one not made (asked first, or failed): its clips' stretch again at once
     pull(40);
     expect(screen.getByLabelText("Recording zz-test talk.wav: 0:04.1–0:12.2")).toBeTruthy();
     await act(async () => answers[1]!(false));
     expect(screen.getByLabelText("Recording zz-test talk.wav: 0:03.1–0:12.2")).toBeTruthy();
+  });
+
+  it("lets go of a stretch the server took but left as it was, and drags on from its clips' (W-11)", async () => {
+    const answers: Array<(taken: boolean) => void> = [];
+    const asked: string[] = [];
+    const onTrim = (_a: string, f: number, t: number) => new Promise<boolean>((done) => {
+      asked.push(`${f}–${t}`);
+      answers.push(done);
+    });
+    const { container } = draw(<RecordingBands timeline={timeline} slots={layout(clips, 40, [model])} recipes={[model]} pps={40} onTrim={onTrim} onSelect={() => {}} />);
+    const pull = (tip: string, x: number, by: number) => {
+      const edge = container.querySelector<HTMLElement>(`[data-tip^="${tip}"]`)!;
+      fireEvent.pointerDown(edge, { button: 0, clientX: x });
+      fireEvent.pointerMove(edge, { clientX: x + by });
+      fireEvent.pointerUp(edge, { clientX: x + by });
+    };
+    // its end a second sooner, taken but left as it was (its clips read back the same)
+    pull("Drag: where the recording ends", 500, -40);
+    expect(asked).toEqual(["2000–11200"]);
+    await act(async () => answers[0]!(true));
+    expect(screen.getByLabelText("Recording zz-test talk.wav: 0:02.0–0:12.2")).toBeTruthy();
+    // its start then a second later: with its clips' end, not the one refused
+    pull("Drag: where the recording starts", 100, 40);
+    expect(asked).toEqual(["2000–11200", "3000–12200"]);
   });
 });
