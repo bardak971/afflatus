@@ -827,7 +827,7 @@ export class Queue {
     const lanes = await this.refresh();
     const tools = this.lane(TOOLS);
     return [
-      ...lanes.map((l, i) => ({ machine: l.machine, core: l.core, paused: l.paused, reachable: l.reachable, outside: l.outside, locked: l.comfy?.locked ?? false, rented: l.machine ? this.rentedOf(l.machine) : null, files: l.machine && !l.machine.rented ? this.downloadsOf(l.machine, i === 0) : [] })),
+      ...lanes.map((l, i) => ({ machine: l.machine, core: l.core, paused: l.paused, reachable: l.reachable, outside: l.outside, locked: l.comfy?.locked ?? false, rented: l.machine ? this.rentedOf(l.machine) : null, files: l.machine && !l.machine.rented ? this.downloadsOf(l.machine, i === 0) : [], packsHold: Boolean(this.podFetch?.holding(l.id) || this.ownPacks.holding(l.id)) })),
       { machine: null, core: tools.core, paused: false, reachable: null, locked: false, rented: null },
     ];
   }

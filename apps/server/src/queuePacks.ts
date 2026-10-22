@@ -108,7 +108,7 @@ export class OwnPacks {
     this.waits.set(row.id, {
       machine: lane.id, state,
       packs: names.map((name) => ({ name, ...(soft.find((s) => s.pack === name) ? { without: soft.find((s) => s.pack === name)!.without } : {}) })),
-      ...(failed?.error ? { error: failed.error } : {}), ...(busy ? { waitsFor: busy } : {}),
+      ...(failed?.error ? { error: failed.error } : {}), ...(failed?.unloaded ? { unloaded: true as const } : {}), ...(busy ? { waitsFor: busy } : {}),
     });
     return false;
   }
@@ -151,6 +151,12 @@ export class OwnPacks {
     let changed = false;
     let busy = false;
     for (const machine of this.packs.machines()) {
+      // a machine taken out of the settings meanwhile: what it waited for goes with it, or a pack it held for its restart
+      // would keep this timer going for good
+      if (!this.d.lane(machine)) {
+        this.packs.forget(machine);
+        continue;
+      }
       const r = await this.packs.pass(machine).catch(() => ({ changed: false, loaded: false }));
       if (r.changed || r.loaded) changed = true;
       if (this.packs.restartingNow(machine) || this.packs.view(machine).some((e) => e.state !== "ready" && e.state !== "failed")) busy = true;

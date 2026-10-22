@@ -411,6 +411,8 @@ export class Downloads {
 
   /** The Manager answers by ComfyUI: a pod's Models tab and the first ComfyUI's banner, read in turn, each asked again (up to 5 s) with one kept. */
   private readonly managerSeen = new Map<string, { at: number; value: { found: boolean; version?: string; unknown?: true } }>();
+  /** The questions under way, by ComfyUI: callers meanwhile share the answer. */
+  private readonly managerAsking = new Map<string, Promise<{ found: boolean; version?: string; unknown?: true }>>();
 
   /**
    * Whether this ComfyUI has ComfyUI-Manager, and which. Asked at most every half minute: the list of downloads is read often.
@@ -420,16 +422,24 @@ export class Downloads {
   async manager(comfy: Comfy): Promise<{ found: boolean; version?: string; unknown?: true }> {
     const seen = this.managerSeen.get(comfy.client.baseUrl);
     if (seen && Date.now() - seen.at < (seen.value.unknown ? 5000 : 30_000)) return seen.value;
-    let value: { found: boolean; version?: string; unknown?: true };
-    try {
-      const res = await comfy.client.raw("/v2/manager/version", { signal: AbortSignal.timeout(5000) });
-      value = res.ok ? { found: true, version: (await res.text()).trim().slice(0, 40) } : res.status >= 500 ? { found: false, unknown: true } : { found: false };
-    } catch {
-      value = { found: false, unknown: true };
-    }
-    this.managerSeen.set(comfy.client.baseUrl, { at: Date.now(), value });
-    if (this.managerSeen.size > 32) this.managerSeen.delete(this.managerSeen.keys().next().value!);
-    return value;
+    // one question at a time per ComfyUI: the planner asks for each machine several times in a pass, and a ComfyUI that does
+    // not answer would otherwise have each of them wait out its own 5 s
+    const asking = this.managerAsking.get(comfy.client.baseUrl);
+    if (asking) return asking;
+    const ask = (async () => {
+      let value: { found: boolean; version?: string; unknown?: true };
+      try {
+        const res = await comfy.client.raw("/v2/manager/version", { signal: AbortSignal.timeout(5000) });
+        value = res.ok ? { found: true, version: (await res.text()).trim().slice(0, 40) } : res.status >= 500 ? { found: false, unknown: true } : { found: false };
+      } catch {
+        value = { found: false, unknown: true };
+      }
+      this.managerSeen.set(comfy.client.baseUrl, { at: Date.now(), value });
+      if (this.managerSeen.size > 32) this.managerSeen.delete(this.managerSeen.keys().next().value!);
+      return value;
+    })().finally(() => this.managerAsking.delete(comfy.client.baseUrl));
+    this.managerAsking.set(comfy.client.baseUrl, ask);
+    return ask;
   }
 
   /** Whether this ComfyUI runs a node pack that downloads (PACK_DOWNLOADS or newer). */
