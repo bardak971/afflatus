@@ -53,7 +53,12 @@ The 0.6.0 cycle: the timeline reworked around sources, recordings and joins, Fac
 - **Your ComfyUI saved by its address alone** on this PC has its folder found and the node pack written in.
 - **A node pack ComfyUI did not load after its restart** is no longer installed again, with a ComfyUI restart, every 30 minutes under Always: its Queue row says it is installed but not loaded, and how to load it (fix it and restart ComfyUI by hand). Once ComfyUI has been restarted by hand since, it is installed again instead.
 - **A machine or a rented pod is no longer held for good** when the job that needed a node pack was cancelled (or said Run without) while ComfyUI restarted for it, or, on a pod, when the job needed only a pack there.
-- **On your own ComfyUI, a render needing a node pack it lacks** (the latent re-sampled upscale without MMH3) is refused with the reason again, and KJNodes and VideoHelperSuite are no longer asked for as packs it needs, so they are not installed under Always.
+- **On your own ComfyUI, a render needing a node pack it cannot run without** (ComfyUI-GGUF for a .gguf model, MMH3 for the latent re-sampled upscale, controlnet_aux…) gets **Install and restart** on its Queue row (or installs under Always), as the form says; only that pack is asked for, never KJNodes or VideoHelperSuite, which a render only uses when there. A pack that was installed and later went missing is asked for again, and a Face refine finish no longer offers a Run without that cannot work.
+- **Undo and Redo leave a clip that is rendering or queued alone** (they say why instead of resizing, setting aside or removing it), and a take rendered since stays on its clip, or is kept in the library and said.
+- **A picture or video that only a timeline's Undo still names** can be binned and unkept; an Undo that needs it takes it back out of the bin.
+- **Queue › Costs' All and /metrics** no longer stall the server for seconds on a long record.
+- **One stored ComfyUI or pod Afflatus cannot read** no longer drops every machine: a bad setting takes its default, and a machine that cannot be read is kept, its pod stopped, and said in Settings › ComfyUI.
+- **A model ComfyUI lists in another sub-folder, or with the other slash,** is no longer called missing on the form.
 - **Jobs waiting on a machine held for a node pack's restart** say so on their Queue row.
 - **RTX VSR is no longer offered on cards without RTX:** GeForce MX and GTX, the T-series Quadros without RTX, Quadro GP100 and GV100, mining cards.
 - **The status bar** says "Model not here yet", with no Load, when the form's model file is not on ComfyUI yet.
