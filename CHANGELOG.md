@@ -44,6 +44,9 @@ The 0.6.0 cycle: the timeline reworked around sources, recordings and joins, Fac
 - **Swap character graphs saved from 0.5.2 load again, with their values:** Swap Mask's Soft zone input is back in its place, so the saved values land on the inputs they were saved for, and the Swap Colour Match node is kept, deprecated: it passes the render through, with no colour match.
 - **A pod getting its files no longer shows false failures:** its node pack takes two downloads at once, and one asked meanwhile (429) is now waited for as a download waiting its turn; a download the pack lost or refused for a moment is asked again without a word while tries are left, and only the last try says it. A machine's failed downloads are one banner, updated as more fail, instead of one per file and per try.
 - **Your ComfyUI saved by its address alone** on this PC has its folder found and the node pack written in.
+- **A node pack ComfyUI did not load after its restart** is no longer installed again, with a ComfyUI restart, every 30 minutes under Always: its Queue row says it is installed but not loaded, and how to load it (fix it and restart ComfyUI by hand).
+- **Jobs waiting on a machine held for a node pack's restart** say so on their Queue row.
+- **RTX VSR is no longer offered on cards without RTX:** GeForce MX and GTX, the T-series Quadros without RTX, Quadro GP100 and GV100, mining cards.
 - **The status bar** says "Model not here yet", with no Load, when the form's model file is not on ComfyUI yet.
 
 ## [0.5.2] - 2026-10-19
