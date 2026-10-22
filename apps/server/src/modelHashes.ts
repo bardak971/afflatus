@@ -8,7 +8,7 @@ import { fileName } from "./media";
 import { MODEL_EXT } from "@afflatus/core";
 import { modelDirsSaid } from "./modelFiles";
 import type { Services } from "./services";
-import { readSettings } from "./settings";
+import { ownMachines, readSettings } from "./settings";
 
 /**
  * Every model file of this computer's ComfyUI, hashed once (its SHA-256), so that the sites can say which file it is
@@ -172,7 +172,7 @@ export class ModelHashes {
   private async pass(): Promise<void> {
     this.error = null;
     const settings = await readSettings(this.s.db);
-    this.home = settings.machines.filter((m) => !m.rented).map((m) => m.id);
+    this.home = ownMachines(settings).map((m) => m.id);
     const all: Found[] = [];
     let anyDir = false;
     // the folders whose every directory was read: only their files can be said to be gone
