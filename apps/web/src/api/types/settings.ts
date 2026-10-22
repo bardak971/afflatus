@@ -62,9 +62,10 @@ export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiK
   notify?: { telegramToken?: string; telegramChat?: string; discordWebhook?: string; picture?: boolean; events?: Partial<Record<NotifyKind, { telegram?: boolean; discord?: boolean }>> };
   /**
    * The machines as the page has them, without what it is only told (a token's end). A token left out stays as it is.
-   * `dirCleared` (the address a folder was emptied at by hand) is the server's own: the page never sends it.
+   * `dirCleared` (the address a folder was emptied at by hand) is the server's own: the page never sends it. `clearDir`: this
+   * machine's folder is emptied on purpose; any other empty folder may be a list read before the server found it, and is kept.
    */
-  machines?: Array<Omit<Machine, "tokenEnd" | "local"> & { token?: string; dirCleared?: string }>;
+  machines?: Array<Omit<Machine, "tokenEnd" | "local"> & { token?: string; dirCleared?: string; clearDir?: true }>;
   civitaiKey?: string;
   huggingFaceToken?: string;
   runpodKey?: string;

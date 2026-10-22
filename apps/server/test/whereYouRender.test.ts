@@ -47,6 +47,24 @@ describe("a new install's settings", () => {
     await db.destroy();
   });
 
+  it("keeps a folder the server found when a page's list read before it comes back (a Packs click), and never marks it emptied by hand", async () => {
+    const db = openSqlite(":memory:");
+    await migrate(db);
+    await seedNewInstall(db);
+    await writeSettings(db, { comfyUrl: "http://127.0.0.1:8188" });
+    const stale = await readSettings(db);
+    // comfyFolder finds it at its first answer, then the page saves the list it read before
+    await writeSettings(db, { comfyDir: "/zz-test/ComfyUI" });
+    const page = stale.machines.map(({ token: _token, dirCleared: _cleared, ...m }) => ({ ...m, packs: "always" }));
+    const saved = await writeSettings(db, { machines: page });
+    expect(saved.comfyDir).toBe("/zz-test/ComfyUI");
+    expect(saved.machines[0]).toMatchObject({ dir: "/zz-test/ComfyUI", dirCleared: "", packs: "always" });
+    // emptied on purpose from its card, it is: and remembered
+    const cleared = await writeSettings(db, { machines: saved.machines.map(({ token: _token, dirCleared: _cleared, ...m }) => ({ ...m, dir: "", clearDir: true })) });
+    expect(cleared.machines[0]).toMatchObject({ dir: "", dirCleared: "http://127.0.0.1:8188" });
+    await db.destroy();
+  });
+
   it("drops the old ComfyUI's folder when the address moves to another one, and keeps it for the same one", async () => {
     const db = openSqlite(":memory:");
     await migrate(db);
@@ -372,7 +390,7 @@ describe("the user's ComfyUI on this machine, added by its address", () => {
       // the same emptied from its machine card is remembered too
       await writeSettings(t.db, { comfyDir: dir });
       const card = (await t.app.inject({ method: "GET", url: "/api/settings" })).json().machines[0];
-      expect((await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ ...card, dir: "" }] } })).json().comfyDir).toBe("");
+      expect((await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ ...card, dir: "", clearDir: true }] } })).json().comfyDir).toBe("");
       expect(await t.services.comfyFolder()).toBeNull();
       // another address: looked for there
       const other = fake.url.replace("127.0.0.1", "localhost");

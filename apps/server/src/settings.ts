@@ -533,10 +533,18 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
     sent.llms = (sent.llms as Array<{ id?: string; baseUrl?: unknown; apiKey?: string }>).map((l) => (l.apiKey === undefined ? { ...l, apiKey: keptKey(current.llms.find((c) => c.id === l.id), l.baseUrl) } : l));
   }
   delete sent.llm;
+  // the machines whose folder this write empties on purpose: the Connection card's folder saved empty (`comfyDir`), or a
+  // machine's own sent with `clearDir`. Any other empty folder is not taken as the user's word (see `dirCleared` below)
+  const byHand = new Set<unknown>();
   // the first machine and `comfyUrl` / `comfyDir` are one setting said two ways: whichever was sent, both are written
   if (Array.isArray(sent.machines)) {
     // a machine's token is not sent back by the page, which never has it: it stays, as long as the machine keeps its address
-    const list = (sent.machines as Array<{ id?: unknown; url?: unknown; dir?: unknown; token?: unknown }>).map((m) => (m && typeof m === "object" && m.token === undefined ? { ...m, token: keptToken(current.machines.find((c) => c.id === m.id), m.url) } : m));
+    const list = (sent.machines as Array<{ id?: unknown; url?: unknown; dir?: unknown; token?: unknown; clearDir?: unknown }>).map((m) => {
+      if (!m || typeof m !== "object") return m;
+      const { clearDir, ...rest } = m;
+      if (clearDir === true) byHand.add(m.id);
+      return rest.token === undefined ? { ...rest, token: keptToken(current.machines.find((c) => c.id === m.id), m.url) } : rest;
+    });
     if (fromPage) {
       const own = (m: { id?: unknown; rented?: unknown }) => {
         const was = current.machines.find((c) => c.id === m.id);
@@ -550,7 +558,15 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
         return { ...m, rented: { ...was.rented, ...pick } };
       };
       const kept = current.machines.filter((c) => c.rented && !list.some((m) => m.id === c.id));
-      list.splice(0, list.length, ...list.map(own), ...kept);
+      // a folder the page sends empty, not cleared on purpose, at the same ComfyUI, is a list read before the server found
+      // it (services.ts comfyFolder, at a start): the folder stays, or a Packs click in that moment lost it, and marked it
+      // "emptied by hand" so that it was never looked for again
+      const stale = (m: { id?: unknown; url?: unknown; dir?: unknown }) => {
+        const was = current.machines.find((c) => c.id === m.id);
+        const empty = !(typeof m.dir === "string" && m.dir.trim());
+        return was && empty && !byHand.has(m.id) && was.dir.trim() && typeof m.url === "string" && originOf(m.url) === originOf(was.url) ? { ...m, dir: was.dir } : m;
+      };
+      list.splice(0, list.length, ...list.map(own).map(stale), ...kept);
     }
     sent.machines = list;
     // none left (every machine removed, or a rented-only start): `comfyUrl` keeps the last address, for the next one added.
@@ -579,6 +595,7 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
     const [head, ...rest] = current.machines;
     const own = head && !head.rented;
     const first = own ? head : firstMachine(String(sent.comfyUrl ?? current.comfyUrl), String(sent.comfyDir ?? ""));
+    if ("comfyDir" in sent) byHand.add(first.id);
     const others = own ? rest : current.machines;
     const url = "comfyUrl" in sent ? sent.comfyUrl : first.url;
     // another ComfyUI (its address moved to another origin, as the token is dropped): the old one's folder goes with it,
@@ -588,8 +605,8 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
     sent.comfyUrl ??= current.comfyUrl;
     sent.comfyDir ??= moved ? "" : current.comfyDir;
   }
-  // a folder emptied by hand (a folder there before, the same ComfyUI) is remembered with its address, so that it is not looked
-  // for again; set again, or the ComfyUI moved elsewhere, it is forgotten
+  // a folder emptied by hand (a folder there before, the same ComfyUI, cleared on purpose by this write) is remembered with its
+  // address, so that it is not looked for again; set again, or the ComfyUI moved elsewhere, it is forgotten
   if (Array.isArray(sent.machines)) {
     sent.machines = (sent.machines as unknown[]).map((m) => {
       if (!m || typeof m !== "object") return m;
@@ -597,7 +614,7 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
       const was = current.machines.find((c) => c.id === id);
       const same = (other: string) => typeof url === "string" && originOf(url) === originOf(other);
       const emptied = !(typeof dir === "string" && dir.trim()) && was;
-      const cleared = !emptied ? "" : was.dir.trim() && same(was.url) ? url : was.dirCleared && same(was.dirCleared) ? was.dirCleared : "";
+      const cleared = !emptied ? "" : byHand.has(id) && was.dir.trim() && same(was.url) ? url : was.dirCleared && same(was.dirCleared) ? was.dirCleared : "";
       return { ...m, dirCleared: cleared };
     });
   }
