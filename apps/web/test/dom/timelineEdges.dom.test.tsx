@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import type { Clip, RecipeInfo, Timeline } from "../../src/api";
+import { ContextMenu } from "../../src/ContextMenu";
 import { useNewClock } from "../../src/timeline/clock";
+import { clipMenuItems, type ClipMenuActions } from "../../src/timeline/menus";
 import { layout } from "../../src/timeline/model";
 import { MusicLane } from "../../src/timeline/track/MusicLane";
 import { SourceLane } from "../../src/timeline/track/SourceLane";
@@ -279,16 +281,37 @@ describe("drags on the track, drawn", () => {
     // the first one is back: the newer one's drawing is left alone
     await act(async () => answers[0]!(true));
     expect(from()).toBe("zz-test.mp4 · from 0.5 s");
-    // the second one taken, and the timeline read back has it: what it says is drawn
-    await act(async () => answers[1]!(true));
-    expect(from()).toBe("zz-test.mp4 · from 0.5 s");
+    // the timeline read back (it is, before a trim settles taken), then the second one taken: what the timeline says is drawn
     rerender(lane({ ...timeline, source: { ...timeline.source!, fromMs: 600 } }));
+    expect(from()).toBe("zz-test.mp4 · from 0.5 s");
+    await act(async () => answers[1]!(true));
     expect(from()).toBe("zz-test.mp4 · from 0.6 s");
     // one not made (asked first, or failed): the stretch the timeline has, at once
     pull(50, 3);
     expect(from()).toBe("zz-test.mp4 · from 1.6 s");
     await act(async () => answers[2]!(false));
     expect(from()).toBe("zz-test.mp4 · from 0.6 s");
+  });
+
+  it("lets go of a stretch the server took but left as it was, and drags on from the timeline's (W-11)", async () => {
+    capture();
+    const answers: Array<(taken: boolean) => void> = [];
+    const onStretch = vi.fn((_fromMs: number, _toMs: number) => new Promise<boolean>((done) => answers.push(done)));
+    const place = { atMs: 5000, lengthMs: 20_000, made: true, windows: [], replaces: null };
+    draw(<SourceLane timeline={timeline} place={place} recipes={[model]} pps={50} width={2000} selected={false} over={false} onDragOver={() => {}} onSelect={() => {}} onStretch={onStretch} onPeek={() => {}} />);
+    const pull = (name: RegExp, x: number, by: number, id: number) => {
+      const edge = screen.getByRole("separator", { name });
+      fireEvent.pointerDown(edge, { button: 0, clientX: x, pointerId: id });
+      fireEvent.pointerMove(edge, { clientX: x + by, pointerId: id });
+      fireEvent.pointerUp(edge, { clientX: x + by, pointerId: id });
+    };
+    // its end a second sooner, which the server snaps back onto a rendered window: taken, and the timeline read back as it was
+    pull(/stops in the source/, 700, -50, 1);
+    expect(onStretch).toHaveBeenLastCalledWith(2000, 7000);
+    await act(async () => answers[0]!(true));
+    // its start then pulled a second earlier: with the timeline's end, not the one refused
+    pull(/where the source's stretch starts/, 300, -50, 2);
+    expect(onStretch).toHaveBeenLastCalledWith(1000, 8000);
   });
 
   it("trims once on one release of either of its ends, made or not (W-1)", () => {
@@ -314,5 +337,20 @@ describe("drags on the track, drawn", () => {
       expect(onStretch).toHaveBeenLastCalledWith(1000, 8000);
       unmount();
     }
+  });
+});
+
+describe("a clip's joins, from its menu (W-12)", () => {
+  it("opens the join before it and the one after it: on the selected clip the dots are under its trim edges", () => {
+    const first = { ...clip, takes: [clip.take] } as Clip;
+    const second = { ...first, id: "zz-test-clip-2", atMs: 5000 } as Clip;
+    const third = { ...first, id: "zz-test-clip-3", atMs: 10_000 } as Clip;
+    const openJoin = vi.fn();
+    const act = { clips: [first, second, third], recipes: [model], inputsOf: (c: Clip) => c.inputs, onClip: () => null, picked: new Set<string>(), pending: {}, openJoin } as unknown as ClipMenuActions;
+    draw(<ContextMenu at={{ x: 10, y: 10 }} label="Actions on this clip" items={clipMenuItems(second, act)} onClose={() => {}} />);
+    fireEvent.click(screen.getByRole("menuitem", { name: /How it meets clip 1/ }));
+    expect(openJoin).toHaveBeenLastCalledWith("zz-test-clip-2");
+    fireEvent.click(screen.getByRole("menuitem", { name: /How it meets clip 3/ }));
+    expect(openJoin).toHaveBeenLastCalledWith("zz-test-clip-3");
   });
 });

@@ -507,6 +507,7 @@ export function clipActs(e: LoadedEditor): ClipMenuActions {
     slow: (factor, inMs, outMs) => rangeAct.mutate({ slow: factor, inMs, outMs }),
     remove: (clip) => remove.mutate(clip),
     move: e.move,
+    openJoin: e.openJoin,
     picked: e.picked,
     removeMany: (ids) => removeMany.mutate(ids),
     toSource: (c) => {

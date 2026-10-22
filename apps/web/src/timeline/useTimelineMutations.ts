@@ -37,6 +37,8 @@ export function useTimelineMutations(id: string, o: {
     writing(clip: string | null): void;
     /** The viewer, on this item (a frame just saved). */
     open(asset: Asset): void;
+    /** An Undo or a Redo is on its way: the trims waiting to be sent are dropped (useOneTrim's `drop`). */
+    stepping?(): void;
   };
 }) {
   const { save, turn, ready, inputsOf, editInputs, dropEdits, savedElsewhere, sourceTyped } = o.edits;
@@ -173,6 +175,7 @@ export function useTimelineMutations(id: string, o: {
   });
   const undo = useMutation({
     mutationFn: async () => {
+      o.on.stepping?.();
       await save();
       return api.undoTimeline(id);
     },
@@ -185,6 +188,7 @@ export function useTimelineMutations(id: string, o: {
   });
   const redo = useMutation({
     mutationFn: async () => {
+      o.on.stepping?.();
       await save();
       return api.redoTimeline(id);
     },
@@ -238,5 +242,5 @@ export function useTimelineMutations(id: string, o: {
   // the latest that failed, not the first of the list: an old error does not hide a new one
   // (with when it was asked, `errorAt`, for the editor to weigh it against its own range actions')
   const { error, at: errorAt } = latestFailure([plan, loop, render, fix, patch, edit, makeSource, cutSource, sourceForm, windowForm, recording, trimSource, trimRecording, splitSource, add, remove, removeMany, removeTake, stop, undo, redo, exportIt, frame, split, duplicate]);
-  return { after, render, patch, fix, edit, makeSource, cutSource, sourceForm, windowForm, recording, trimSource, trimRecording, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error, errorAt };
+  return { after, readBack, render, patch, fix, edit, makeSource, cutSource, sourceForm, windowForm, recording, trimSource, trimRecording, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error, errorAt };
 }

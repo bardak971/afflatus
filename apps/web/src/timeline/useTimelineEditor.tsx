@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import type { Asset, Clip, DesignerSession, RecipeInfo, Take, Timeline } from "../api";
 import { useFamilies, useModelSettings, useRecipes, useSetup, useTimeline } from "../data";
@@ -130,18 +130,28 @@ export function useTimelineEditor(id: string) {
   };
   const clipsNow = useRef(clips);
   clipsNow.current = clips;
+  // one trim at a time (useOneTrim): one asked for before the last one's change is back waits, the last of its kind, and
+  // is run from the timeline read back, through these runs as the render after it has them
+  const oneTrim = useOneTrim();
   const m = useTimelineMutations(id, {
     timeline: t, clipsNow, recipes: recipes.data?.recipes ?? [], edits: { save, turn, ready, inputsOf, editInputs, dropEdits, savedElsewhere, sourceTyped }, firstRecipe,
-    on: { note: setNote, select, unpick: () => setPicked(new Set()), writing: setWriting, open: setOpened },
+    on: { note: setNote, select, unpick: () => setPicked(new Set()), writing: setWriting, open: setOpened, stepping: () => oneTrim.drop() },
   });
-  const { after, render, patch, fix, edit, makeSource: makeSourceMut, cutSource: cutSourceMut, sourceForm: sourceFormMut, recording: recordingMut, trimSource: trimSourceMut, trimRecording: trimRecordingMut, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
+  const { after, readBack, render, patch, fix, edit, makeSource: makeSourceMut, cutSource: cutSourceMut, sourceForm: sourceFormMut, recording: recordingMut, trimSource: trimSourceMut, trimRecording: trimRecordingMut, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
   const pickedNow = useRef(picked);
   pickedNow.current = picked;
   /** The source taken away with the clips it made, rendered or not (one step for Undo), its panel closed. */
   const removeSource = useCallback(() => {
+    oneTrim.drop();
     edit.mutate({ source: null });
     setSourceOpen(false);
-  }, [edit, setSourceOpen]);
+  }, [oneTrim, edit, setSourceOpen]);
+  // a source taken away or another one put in, from anywhere (the bar, another tab): a trim waiting was asked of the one
+  // before, and would be sent to the new one, or as the settings of a source no longer there
+  const sourceNow = t?.source?.asset ?? null;
+  useEffect(() => {
+    oneTrim.drop();
+  }, [sourceNow]); // eslint-disable-line react-hooks/exhaustive-deps -- on the source's change only: dropped, nothing waits to drop again
   const removePicked = useCallback(() => {
     if (pickedNow.current.size < 2) return false;
     removeMany.mutate([...pickedNow.current]);
@@ -221,9 +231,7 @@ export function useTimelineEditor(id: string) {
    * window opened so the question is in view.
    */
   const [stretchAsk, setStretchAsk] = useState<{ fromMs: number; toMs: number; rendered: number; windows: number } | null>(null);
-  // one trim at a time (useOneTrim): one asked for before the last one's change is back waits, the last of its kind, and
-  // is run from the timeline read back, through these runs as the render after it has them
-  const oneTrim = useOneTrim();
+  const [, readAgain] = useReducer((n: number) => n + 1, 0);
   const trimmed = (clips: string[]) => void (clips.length && setToRender({ ids: clips, render: false }));
   const runs = useRef<{ stretch: typeof stretch; recordingTrim: typeof recordingTrim; clips: Clip[]; videoRecipes: RecipeInfo[] }>(null!);
   /**
@@ -236,7 +244,14 @@ export function useTimelineEditor(id: string) {
     ask: stretchAsk,
     run: (fromMs: number, toMs: number, sure = false): Promise<boolean> => {
       const made = t ? madeFromSource(t, videoRecipes) : [];
-      if (!t?.source || !made.length) return edit.mutateAsync({ source: { fromMs, toMs } }).then(() => true, () => false);
+      // settled once read back, and with this editor drawn again then (`readAgain`), as a trim's settle is (useOneTrim's
+      // `lifted`): the lane lets go of the stretch it drew on the settle, and would draw the old one until the timeline's
+      // query told the editor of the new one
+      if (!t?.source || !made.length) return edit.mutateAsync({ source: { fromMs, toMs } }).then(async () => {
+        await readBack();
+        readAgain();
+        return true;
+      }, () => false);
       if (oneTrim.busy) return oneTrim.later("source", () => runs.current.stretch.run(fromMs, toMs, sure));
       // the rendered windows a trim set aside are left behind too: counted with those on the track
       const rendered = made.filter((c) => c.take).length + (t.source.parkedTakes ?? 0);
