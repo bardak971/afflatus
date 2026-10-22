@@ -48,6 +48,10 @@ The 0.6.0 cycle: the timeline reworked around sources, recordings and joins, Fac
 - **Jobs waiting on a machine held for a node pack's restart** say so on their Queue row.
 - **RTX VSR is no longer offered on cards without RTX:** GeForce MX and GTX, the T-series Quadros without RTX, Quadro GP100 and GV100, mining cards.
 - **The status bar** says "Model not here yet", with no Load, when the form's model file is not on ComfyUI yet.
+- **Queue › Costs keeps an ended pod session's split** (rendering, booting, idle…) once its render times are folded after 90 days or forgotten; they used to turn into idle, in Costs, the hunt's overhead estimate and the idle advice.
+- **A hunt no longer stays on "deploying"** after a failed write, which held Cancel and your own Deploy; a hunt cancelled and started again no longer passes over a GPU the one before had set aside.
+- **The "LTX 2.3 distilled" preset's file** is fetched by a pod and offered as a Download, as the family's official file it is.
+- **Only real loopback addresses count as this PC:** a host name that merely starts with "127." no longer decides where models and the node pack are written.
 
 ## [0.5.2] - 2026-10-19
 
