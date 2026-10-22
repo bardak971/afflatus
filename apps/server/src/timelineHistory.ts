@@ -1,4 +1,4 @@
-import { newId, now, type Db } from "./db";
+import { newId, now, type Db, type Tables } from "./db";
 import { httpError } from "./errors";
 import { KeyedLock } from "./keyedLock";
 import { ID_IN_NESTED_JSON } from "./sweep";
@@ -42,6 +42,13 @@ export class TimelineHistory {
     /** The inputs that say a clip's part of a source or recording (its media, start and length), by its recipe. */
     private readonly partKeys: (recipeId: string | null) => string[] = () => [],
   ) {}
+
+  /**
+   * Put a linked folder's file back from the bin into its directory (Linked.restore, set once the linked folders are
+   * made): the bin's own Restore does so, and a step that takes such a file back out of the bin has to as well, or the
+   * folder on disk no longer mirrors the library.
+   */
+  backToFolder: (a: Tables["assets"]) => Promise<void> = async () => {};
 
   /** What runs one at a time, by key (keyedLock.ts). */
   private readonly turns = new KeyedLock();
@@ -102,7 +109,7 @@ export class TimelineHistory {
    * part of its source or recording than its render had) is not put on it: its video stays in the library, kept, and the
    * step the other way puts it back. Returns what to tell the user of those, if any.
    */
-  private async restore(tx: Db, timelineId: string, was: Kept, step: "Undo" | "Redo"): Promise<string | undefined> {
+  private async restore(tx: Db, timelineId: string, was: Kept, step: "Undo" | "Redo"): Promise<{ said?: string; linked: Array<Tables["assets"]> }> {
     // what is there now is read in the same transaction that replaces it: a take landing between the reading and the
     // writing was put back without playing, or deleted with its clip's row
     const nowClips = await tx.selectFrom("clips").selectAll().where("timeline_id", "=", timelineId).orderBy("position").execute();
@@ -172,16 +179,28 @@ export class TimelineHistory {
       .execute();
     // what the step puts back has its pictures and videos back out of the bin: a take removed had sent its video there,
     // and an item named only in Undo or Redo may be binned from the library meanwhile (nothing erases it while a step
-    // names it: inUse's `undo`)
+    // names it: inUse's `undo`); a linked folder's file is left in the bin here and put back into its directory once the
+    // step is written (step), as the bin's Restore does: that writes on the disk, which no transaction takes back
     const named = [...new Set([...JSON.stringify([was, source, recordings]).matchAll(ID_IN_NESTED_JSON)].map((m) => m[1]!))];
-    for (let i = 0; i < named.length; i += 500) await tx.updateTable("assets").set({ deleted_at: null }).where("id", "in", named.slice(i, i + 500)).where("deleted_at", "is not", null).execute();
-    if (!left.length) return undefined;
+    const linked: Array<Tables["assets"]> = [];
+    for (let i = 0; i < named.length; i += 500) {
+      const slice = named.slice(i, i + 500);
+      linked.push(...(await tx.selectFrom("assets").selectAll().where("id", "in", slice).where("deleted_at", "is not", null).where("linked_path", "is not", null).execute()));
+      await tx.updateTable("assets").set({ deleted_at: null }).where("id", "in", slice).where("deleted_at", "is not", null).where("linked_path", "is", null).execute();
+    }
+    if (!left.length) return { linked };
     // a take left out is on no timeline now: its video kept, else it went to the bin in a day as a result nobody kept
     await tx.updateTable("assets").set({ kept_at: now() }).where("id", "in", left.map((t) => t.asset_id)).where("kept_at", "is", null).execute();
     const other = step === "Undo" ? "Redo" : "Undo";
-    return left.length === 1
-      ? `The take rendered since on clip ${number(left[0]!.clip_id)} does not fit that clip at this step: its video stays kept in the library, and ${other} puts it back.`
-      : `${left.length} takes rendered since do not fit their clips at this step: their videos stay kept in the library, and ${other} puts them back.`;
+    // the clip is named as the step leaves the timeline, the way the user sees it next; one the step takes off has no number
+    const after = [...was.clips].sort((a, b) => a.position - b.position);
+    const at = after.findIndex((c) => c.id === left[0]!.clip_id) + 1;
+    const said = left.length > 1
+      ? `${left.length} takes rendered since do not fit their clips at this step: their videos stay kept in the library, and ${other} puts them back.`
+      : at
+        ? `The take rendered since on clip ${at} does not fit that clip at this step: its video stays kept in the library, and ${other} puts it back.`
+        : `The take rendered since on a clip this ${step} takes off has no clip at this step: its video stays kept in the library, and ${other} puts it back.`;
+    return { said, linked };
   }
 
   /**
@@ -203,12 +222,15 @@ export class TimelineHistory {
       const last = await this.db.selectFrom(from).selectAll().where("timeline_id", "=", timelineId).orderBy("seq", "desc").executeTakeFirst();
       if (!last) throw httpError(undo ? "There is nothing to undo." : "There is nothing to redo.");
       const was = JSON.parse(last.snapshot) as Kept;
-      const said = await this.db.transaction().execute(async (tx) => {
+      const { said, linked } = await this.db.transaction().execute(async (tx) => {
         await this.snapshot(undo ? "timeline_future" : "timeline_history", timelineId, last.label, was.added, tx);
-        const said = await this.restore(tx, timelineId, was, undo ? "Undo" : "Redo");
+        const out = await this.restore(tx, timelineId, was, undo ? "Undo" : "Redo");
         await tx.deleteFrom(from).where("id", "=", last.id).execute();
-        return said;
+        return out;
       });
+      // a linked folder's file back into its directory; one that cannot be written there (a full or read-only disk) stays
+      // in the bin, where its own Restore can try again, rather than failing a step already written
+      for (const a of linked) await this.backToFolder(a).catch(() => {});
       this.changed();
       return { label: last.label, ...(said ? { said } : {}) };
     });

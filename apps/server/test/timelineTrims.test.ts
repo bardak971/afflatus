@@ -1,12 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { newId, now } from "../src/db";
 import { newAssetRow } from "../src/media";
 import { trimOut } from "../src/timelines";
-import { makeApp, type TestApp } from "./helpers";
+import { makeApp, png, type TestApp } from "./helpers";
 
 /**
  * A source's windows and a recording's Lip sync clips trimmed in and out after Make (Timelines.trimSource, trimRecording,
@@ -472,7 +472,8 @@ describe("Undo and Redo over renders (T-24)", () => {
     const u = await call("POST", `/api/timelines/${tl}/undo`);
     const undone = await sourceState(tl);
     expect(undone.parked.find((p) => p.id === brought.id)).toMatchObject({ take: kept, takes: [kept] });
-    expect(u.said).toMatch(/does not fit that clip at this step/);
+    // named as the Undo leaves the timeline: the window it is on is gone, so no number from before the step
+    expect(u.said).toMatch(/^The take rendered since on a clip this Undo takes off has no clip at this step: its video stays kept in the library, and Redo puts it back\.$/);
     expect((await t.db.selectFrom("assets").select(["kept_at", "deleted_at"]).where("id", "=", leftVideo).executeTakeFirstOrThrow()).deleted_at).toBeNull();
     // the trim out again brings the window back with its take
     await call("POST", `/api/timelines/${tl}/redo`);
@@ -497,5 +498,27 @@ describe("the library's Bin and Unkeep and what only Undo names (T-27)", () => {
     expect((await inj("DELETE", `/api/assets/${fresh}`)).statusCode).toBe(409);
     await call("POST", `/api/timelines/${tl}/undo`);
     expect((await t.db.selectFrom("assets").select("deleted_at").where("id", "=", old).executeTakeFirstOrThrow()).deleted_at).toBeNull();
+  });
+
+  it("puts a linked folder's picture its Undo takes out of the bin back into its directory, as the bin's Restore does (T-30)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "zz-test-linked-"));
+    try {
+      writeFileSync(join(dir, "one.png"), png(16, 24));
+      const folder = (await call("POST", "/api/folders/link", { path: dir, name: "zz-test Shoots" })).id as string;
+      const pic = await t.db.selectFrom("assets").selectAll().where("name", "=", "one.png").executeTakeFirstOrThrow();
+      const tl = await madeSwap();
+      const src = JSON.parse(String((await t.db.selectFrom("timelines").select("source").where("id", "=", tl).executeTakeFirstOrThrow()).source));
+      await call("PATCH", `/api/timelines/${tl}`, { source: { inputs: { ...src.inputs, references: [{ asset: pic.id, role: "person" }] } } });
+      await call("PATCH", `/api/timelines/${tl}`, { source: { inputs: src.inputs } });
+      // named only by Undo now: it can be binned, and its file leaves the directory
+      expect((await inj("DELETE", `/api/assets/${pic.id}`)).statusCode).toBe(200);
+      expect(existsSync(join(dir, "one.png"))).toBe(false);
+      await call("POST", `/api/timelines/${tl}/undo`);
+      const back = await t.db.selectFrom("assets").selectAll().where("id", "=", pic.id).executeTakeFirstOrThrow();
+      expect(back).toMatchObject({ deleted_at: null, linked_path: null, folder_id: folder, file_key: `linked:${join(dir, "one.png")}` });
+      expect(existsSync(join(dir, "one.png"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

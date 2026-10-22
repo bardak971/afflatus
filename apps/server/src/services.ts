@@ -199,6 +199,8 @@ export async function createServices(
   const precompute = dirs.precompute === false ? null : new Precompute(db, timelines.media, dirs.precompute);
   // a linked file that changed on the disk: what the timelines derived from it (strips, motion, scenes) goes too
   const linked = new Linked(db, storage, queue.events, timelines);
+  // Undo and Redo put a linked folder's file they take out of the bin back into its directory, as the bin's Restore does
+  timelines.history.backToFolder = (a) => linked.restore(a);
   await linked.load();
   // what changed in the linked directories while Afflatus was not running: read in the background
   void linked.scanAll();
