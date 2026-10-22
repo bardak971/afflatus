@@ -80,7 +80,7 @@ export class TimelineExport {
     const music: ExportMusic | undefined = track && plan && plan.endMs > plan.startMs
       ? {
           source: await sourceOf(this.core.storage, track.file_key), ext: extOf(track.mime), plan,
-          duck: plan.spans.some((s) => s.duckDb > 0) ? await duckCurve(laid, (asset) => this.core.motion(asset), plan) : null,
+          duck: plan.spans.some((s) => s.duckDb > 0) ? await duckCurve(laid, (asset, row) => this.core.motion(asset, row), plan) : null,
         }
       : undefined;
     return { t, shown, win, frame, fps, music, totalMs: win ? win.b - win.a : total };

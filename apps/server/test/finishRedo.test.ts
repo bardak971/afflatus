@@ -3,7 +3,7 @@ import { newId, now, OWNER } from "../src/db";
 import { newAssetRow } from "../src/media";
 import type { JobRow } from "../src/queueModel";
 import { CUT_JOB } from "../src/timelineModel";
-import { get, makeApp, type TestApp } from "./helpers";
+import { get, withTakes, makeApp, type TestApp } from "./helpers";
 
 /**
  * Finish › Redo finished › Changed: a clip finished with the settings asked is left as it is. Compared on the job the finish
@@ -58,7 +58,7 @@ describe("Redo finished › Changed", () => {
     expect(res.json().jobs).toEqual([]);
     expect(res.json().skipped).toEqual([{ clip: 1, why: "finished already with these settings" }]);
     // the view still says what plays
-    expect((await get(t.app, `/api/timelines/${tl.id}`)).json().clips[0].take.finishedFrom).toBe(draft);
+    expect(withTakes((await get(t.app, `/api/timelines/${tl.id}`)).json()).clips[0].take.finishedFrom).toBe(draft);
   });
 });
 
@@ -67,11 +67,11 @@ describe("a Face refine with a finish queued behind it (Face refine first, then 
     const tl = (await t.app.inject({ method: "POST", url: "/api/timelines", payload: { name: "zz-test face first" } })).json();
     const clip = (await t.app.inject({ method: "POST", url: `/api/timelines/${tl.id}/clips`, payload: { recipe: "scail.motion24" } })).json().clip as string;
     const draft = await take(clip, await video({ prompt: "zz-test" }), null);
-    const before = (await get(t.app, `/api/timelines/${tl.id}`)).json().undo;
+    const before = withTakes((await get(t.app, `/api/timelines/${tl.id}`)).json()).undo;
     const refined = await video({ prompt: "zz-test", faceRefineOnly: true });
     const generation = (await t.db.selectFrom("assets").select("generation_id").where("id", "=", refined).executeTakeFirstOrThrow()).generation_id!;
     await t.services.timelines.finished(clip, generation, undefined, {}, draft, true);
-    const v = (await get(t.app, `/api/timelines/${tl.id}`)).json();
+    const v = withTakes((await get(t.app, `/api/timelines/${tl.id}`)).json());
     expect(v.clips[0].take.id).toBe(draft);
     expect(v.clips[0].takes.map((x: { asset: { id: string } }) => x.asset.id)).toContain(refined);
     expect(v.undo).toBe(before);
@@ -102,7 +102,7 @@ describe("a Face refine with a finish queued behind it (Face refine first, then 
     await job({ recipe: CUT_JOB, status: "queued", dependsOn: held.id, inputs: { asset: "x", startMs: 0, endMs: 3000, action: "finish", route: "upscale", by: 2, clip, finishedFrom: draft, fromJob: held.id } });
     const first = await refinedBy();
     await place(held, first.generation);
-    let v = (await get(t.app, `/api/timelines/${tl.id}`)).json();
+    let v = withTakes((await get(t.app, `/api/timelines/${tl.id}`)).json());
     expect(v.clips[0].take.id).toBe(draft);
     expect(v.clips[0].takes.map((x: { asset: { id: string } }) => x.asset.id)).toContain(first.asset);
 
@@ -110,7 +110,7 @@ describe("a Face refine with a finish queued behind it (Face refine first, then 
     const alone = await job({ recipe: "scail.motion24", status: "running" });
     const second = await refinedBy();
     await place(alone, second.generation);
-    v = (await get(t.app, `/api/timelines/${tl.id}`)).json();
+    v = withTakes((await get(t.app, `/api/timelines/${tl.id}`)).json());
     expect(v.clips[0].take.asset.id).toBe(second.asset);
   });
 });

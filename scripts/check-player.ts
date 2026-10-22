@@ -105,7 +105,9 @@ try {
     await db.updateTable("assets").set({ latent_frames: N }).where("id", "=", asset.id).execute();
     await call("POST", `/api/timelines/${tl.id}/clips`, { asset: asset.id });
   }
-  const clips = (await call("GET", `/api/timelines/${tl.id}`)).clips as Array<{ id: string; take: { id: string; asset: { id: string } } }>;
+  // each clip's playing take is sent by its id, found among its takes
+  const sent = (await call("GET", `/api/timelines/${tl.id}`)).clips as Array<{ id: string; take: string; takes: Array<{ id: string; asset: { id: string } }> }>;
+  const clips = sent.map((c) => ({ id: c.id, take: c.takes.find((x) => x.id === c.take)! }));
   for (let i = 1; i < clips.length; i++) {
     await call("PATCH", `/api/clips/${clips[i]!.id}`, { joined: "continue" });
     await db.updateTable("takes").set({ head_ms: 917, join_kind: "seamless", prev_take_id: clips[i - 1]!.take.id, prev_at_ms: Math.round((N * 1000) / 24) }).where("id", "=", clips[i]!.take.id).execute();

@@ -96,6 +96,7 @@ export interface Clip {
   join: "fresh" | "stale" | "cut" | null;
   recipe: string | null;
   inputs: Record<string, unknown>;
+  /** The take that plays: one of `takes` (sent by its id, found there by api.ts). */
   take: Take | null;
   takes: Take[];
   atMs: number;

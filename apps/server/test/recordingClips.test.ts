@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { newId, now } from "../src/db";
 import { newAssetRow } from "../src/media";
 import { FFMPEG_TIMEOUT, ffmpegThere } from "./clipKit";
-import { get, makeApp, type TestApp } from "./helpers";
+import { get, sentView, withTakes, makeApp, type TestApp } from "./helpers";
 
 /**
  * A voice recording dropped on the track made into Lip sync clips, cut at its pauses (Timelines.makeFromRecording). The
@@ -24,9 +24,9 @@ afterEach(async () => {
 const call = async (method: "GET" | "POST" | "PATCH", url: string, payload?: unknown) => {
   const res = await t.app.inject({ method, url, payload: payload as object });
   if (res.statusCode >= 400) throw Object.assign(new Error(`${method} ${url}: ${res.statusCode} ${res.body}`), { statusCode: res.statusCode });
-  return res.json();
+  return sentView(res.json());
 };
-const view = async (id: string) => (await get(t.app, `/api/timelines/${id}`)).json();
+const view = async (id: string) => withTakes((await get(t.app, `/api/timelines/${id}`)).json());
 
 const tone = (s: number) => `sine=frequency=220:duration=${s}`;
 const quiet = (s: number) => `anullsrc=r=48000:cl=mono,atrim=duration=${s}`;

@@ -107,10 +107,11 @@ export class TimelinePlan {
         const order: Array<Pick<Placed, "clip">> = [...all];
         const out: string[] = [];
         for (const [k, text] of texts.entries()) {
-          const id = await this.insertClip(timelineId, order, order.length, { ...made[k]!, inputs: { ...made[k]!.inputs, ...text } }, tx);
+          const id = await this.insertClip(timelineId, order, order.length, { ...made[k]!, inputs: { ...made[k]!.inputs, ...text } }, tx, false);
           order.push({ clip: { id } as ClipRow });
           out.push(id);
         }
+        await this.core.renumber(timelineId, order.map((p) => p.clip.id), tx);
         return out;
       });
     });
@@ -175,8 +176,12 @@ export class TimelinePlan {
     return { kind, recipeId, inputs, joined, still, take, asset, look };
   }
 
-  /** The clip, its place among the others and its take, written in the transaction `tx`. */
-  async insertClip(timelineId: string, all: Array<{ clip: { id: string } }>, index: number, made: NewClip, tx: Db): Promise<string> {
+  /**
+   * The clip, its place among the others and its take, written in the transaction `tx`. `renumber` false: the others are not
+   * moved along, for a caller that adds several and renumbers once (each renumbering the timeline, 12 clips of a recording
+   * wrote 1,878 positions).
+   */
+  async insertClip(timelineId: string, all: Array<{ clip: { id: string } }>, index: number, made: NewClip, tx: Db, renumber = true): Promise<string> {
     const id = newId();
     const at = now();
     const order = all.map((p) => p.clip.id);
@@ -188,7 +193,7 @@ export class TimelinePlan {
         kind: made.kind, still_asset_id: made.still, still_ms: 3000, sound: "own", sound_asset_id: null, volume: 100, fill: 0, look: made.look ?? null, chat: null, created_at: at, updated_at: at,
       })
       .execute();
-    await this.core.renumber(timelineId, order, tx);
+    if (renumber) await this.core.renumber(timelineId, order, tx);
     const take = made.take;
     if (take) await this.takes.add(id, take.asset, { headMs: take.head, tailMs: take.tail, latent: take.latent, frames: take.frames }, {}, null, tx);
     if (made.still) await this.core.keep(made.still, tx);
@@ -202,11 +207,13 @@ export class TimelinePlan {
    * `quick`: for the forecast of a clip still waiting, nothing is measured or made (where the clip before stops
    * moving, its last frame as a picture) and a clip before with no take yet is no error: what it joins onto, as
    * far as it is known now, without the work. `flips`: the pinned pictures the job was sent to flip (its clip's Mirror).
+   * `placed`: where the timeline's clips are read, for a request that plans many clips of it (Timelines.placedOnce); each
+   * reading the whole timeline again, the editor's forecasts of a 150-clip timeline took 1.4 s.
    */
-  async plan(clipId: string, recipe: Recipe<any>, raw: Record<string, unknown>, fit: boolean, finishedFrom: string | null = null, quick = false, flips: readonly string[] = []): Promise<ClipPlan> {
+  async plan(clipId: string, recipe: Recipe<any>, raw: Record<string, unknown>, fit: boolean, finishedFrom: string | null = null, quick = false, flips: readonly string[] = [], placed: (timelineId: string) => Promise<Placed[]> = (id) => this.core.placed(id)): Promise<ClipPlan> {
     const clip = await this.core.clipRow(clipId);
     const t = await this.core.row(clip.timeline_id);
-    const all = await this.core.placed(clip.timeline_id);
+    const all = await placed(clip.timeline_id);
     const i = all.findIndex((p) => p.clip.id === clipId);
     const plan: ClipPlan = { input: ownInputs(recipe, raw), sources: [], links: {}, mirror: [] };
     if (t.width && t.height) plan.canvas = { width: t.width, height: t.height };

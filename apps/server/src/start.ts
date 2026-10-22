@@ -17,6 +17,9 @@ import { preflight, runPreflight } from "./preflight";
 import { AfflatusUpdates, RESTART_CODE } from "./updates";
 import type { UpdatesOptions } from "./updatesModel";
 
+/** How long after the services are made the start's sweep runs: after the server listens, and its first page is served. */
+const FIRST_SWEEP_MS = 5_000;
+
 /** The built web app, when there is one (`pnpm build`). In development Vite serves it instead. */
 export function webDir(): string | undefined {
   const dir = fileURLToPath(new URL("../../web/dist", import.meta.url));
@@ -162,7 +165,9 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<St
       log.warn("[access] AFFLATUS_RESET_PASSWORD=1: removing the password and every session. Take the setting out once in.");
       await resetAccess(db, log);
     }
-    services = await createServices(db, kind, new LocalStorage(join(config.dataDir, "files")), opts.queueOptions, { dataDir: config.dataDir });
+    // the start's sweep runs once the server listens: run at once, its reading of every Undo step held the start 0.25 s
+    // at a heavy user's scale, with nothing in it that cannot wait a few seconds
+    services = await createServices(db, kind, new LocalStorage(join(config.dataDir, "files")), opts.queueOptions, { dataDir: config.dataDir, firstSweepMs: FIRST_SWEEP_MS });
     updates = new AfflatusUpdates({ services, dataDir: config.dataDir, restart, ...opts.updates });
     await updates.init();
     app = buildApp(services, { webDir: opts.webDir, backup: { dataDir: config.dataDir, filesDir: join(config.dataDir, "files") }, updates });

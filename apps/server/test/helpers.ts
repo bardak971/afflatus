@@ -108,6 +108,22 @@ export function complete(fake: FakeComfy, promptId: string, width = 832, height 
 
 export const post = (app: FastifyInstance, url: string, payload?: unknown) => app.inject({ method: "POST", url, payload: payload as object });
 export const get = (app: FastifyInstance, url: string, headers?: Record<string, string>) => app.inject({ method: "GET", url, headers });
+
+/**
+ * A timeline's view as the editor reads it (web api.ts withTakes): the server sends each clip's playing take by its id
+ * (timelines-api.ts sent), found here among the clip's takes.
+ */
+export function withTakes<T extends { clips: Array<{ take: unknown; takes: Array<{ id: string }> }> }>(view: T): T {
+  return { ...view, clips: view.clips.map((c) => ({ ...c, take: typeof c.take === "string" ? (c.takes.find((x) => x.id === c.take) ?? null) : c.take })) };
+}
+
+/** An answer with a timeline's view in it (itself, or its `timeline`), the view as the editor reads it (withTakes). */
+export function sentView(body: any): any {
+  const isView = (v: any) => Array.isArray(v?.clips) && v.clips.every((c: unknown) => typeof c === "object" && c !== null && "takes" in c);
+  if (isView(body)) return withTakes(body);
+  if (isView(body?.timeline)) return { ...body, timeline: withTakes(body.timeline) };
+  return body;
+}
 export const job = (over: Record<string, unknown> = {}) => ({ recipe: "sdxl.text-to-picture", input: { prompt: "a cat", checkpoint: CHECKPOINT, ...over } });
 
 /**

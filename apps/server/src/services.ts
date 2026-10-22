@@ -89,8 +89,12 @@ export interface Services {
 
 export async function createServices(
   db: Db, dbKind: DbKind, own: Storage, queueOptions: QueueOptions = DEFAULT_QUEUE_OPTIONS,
-  /** Where the shipped presets are read from: the repository's folder (or PRESETS_DIR) unless said otherwise; null for none. And the data folder, where the downloads' state file is kept between runs. */
-  dirs: { shippedPresets?: string | null; dataDir?: string; precompute?: PrecomputeOptions | false } = {},
+  /**
+   * Where the shipped presets are read from: the repository's folder (or PRESETS_DIR) unless said otherwise; null for none. And
+   * the data folder, where the downloads' state file is kept between runs. `firstSweepMs`: how long after this the start's
+   * sweep runs (the server's start, 5 s: see start.ts); left out, at once.
+   */
+  dirs: { shippedPresets?: string | null; dataDir?: string; precompute?: PrecomputeOptions | false; firstSweepMs?: number } = {},
 ): Promise<Services> {
   // Afflatus's own files and the files of linked folders are read through the same door
   const storage = new RoutedStorage(own);
@@ -220,7 +224,11 @@ export async function createServices(
   void fillKeptBytes(db, storage).catch((err) => console.warn("[kept bytes]", (err as Error).message));
   const sweeper = setInterval(runSweep, 60 * 60_000);
   sweeper.unref();
-  const swept = runSweep();
+  let firstSweep: NodeJS.Timeout | null = null;
+  const swept = new Promise<unknown>((resolve) => {
+    firstSweep = setTimeout(() => resolve(runSweep()), dirs.firstSweepMs ?? 0);
+    firstSweep.unref();
+  });
   const downloads = new Downloads(queue.events, dirs.dataDir ? join(dirs.dataDir, "downloads.json") : undefined);
   // the node packs renders ask for are installed by each ComfyUI's Manager: one without it does without them (queuePacks.ts);
   // one that did not answer is not known to lack it (null), and its jobs wait for a real answer
@@ -313,6 +321,7 @@ export async function createServices(
     async close() {
       services.hunt.stop();
       clearInterval(sweeper);
+      if (firstSweep) clearTimeout(firstSweep);
       clearInterval(podFilesTimer);
       rented.stop();
       notify.stop();

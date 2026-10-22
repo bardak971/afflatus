@@ -4,7 +4,7 @@ import { newId, now } from "../src/db";
 import { newAssetRow } from "../src/media";
 import { CUT_JOB } from "../src/timelineModel";
 import { FFMPEG_TIMEOUT, ffmpegThere, patternClip } from "./clipKit";
-import { get, makeApp, png, referenceCatalog, until, type TestApp } from "./helpers";
+import { get, withTakes, makeApp, png, referenceCatalog, until, type TestApp } from "./helpers";
 
 /**
  * Finish › Face refine on a SCAIL-2 take at 24 fps: SCAIL keeps no latent, so its take's own frames are refined in a cut job
@@ -78,7 +78,7 @@ describe.skipIf(!ffmpegThere)("Finish › Face refine on a SCAIL-2 take at 24 fp
     const clip = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "scail.motion24" })).clip as string;
     await call("POST", `/api/timelines/${tl.id}/render`, { clips: [{ id: clip, input: { picture, driving: { asset: driving }, drivingStart: 0, drivingSeconds: 3.05, prompt: "zz-test", seed: 1 } }] });
     await finish(four!, 1);
-    const draft = (await get(t.app, `/api/timelines/${tl.id}`)).json().clips[0].take;
+    const draft = withTakes((await get(t.app, `/api/timelines/${tl.id}`)).json()).clips[0].take;
     expect(draft).toBeTruthy();
 
     const res = await call("POST", `/api/timelines/${tl.id}/finish`, { route: "face", factor: 2, faceDenoise: 0.45, redo: true });
@@ -97,8 +97,8 @@ describe.skipIf(!ffmpegThere)("Finish › Face refine on a SCAIL-2 take at 24 fp
     const sigmas = Object.values(graph).find((n) => n.class_type === "BasicScheduler")!;
     expect(sigmas.inputs).toMatchObject({ denoise: 0.35, steps: 4 });
 
-    await until(async () => (await get(t.app, `/api/timelines/${tl.id}`)).json().clips[0].takes.length === 2, 20_000);
-    const after = (await get(t.app, `/api/timelines/${tl.id}`)).json().clips[0];
+    await until(async () => withTakes((await get(t.app, `/api/timelines/${tl.id}`)).json()).clips[0].takes.length === 2, 20_000);
+    const after = withTakes((await get(t.app, `/api/timelines/${tl.id}`)).json()).clips[0];
     expect(after.take.finishedFrom).toBe(draft.id);
     expect(after.take.asset.name).toMatch(/face refined$/);
   });

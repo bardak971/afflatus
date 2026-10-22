@@ -2,7 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { newId, now } from "../src/db";
 import { FFMPEG_TIMEOUT } from "./clipKit";
 import { clicks, ffmpegThere, firstMiss, H, readFrames, runs, silentMs, synth, synthMade, W } from "./framesKit";
-import { get, makeApp, until, type TestApp } from "./helpers";
+import { get, sentView, withTakes, makeApp, until, type TestApp } from "./helpers";
 
 /**
  * The timeline, frame by frame. Synthetic clips carry their own number and each frame's index as a barcode (and a click in
@@ -23,9 +23,9 @@ afterEach(async () => {
 const call = async (method: "POST" | "PATCH", url: string, payload?: unknown) => {
   const res = await t.app.inject({ method, url, payload: payload as object });
   if (res.statusCode >= 400) throw new Error(`${method} ${url}: ${res.statusCode} ${res.body}`);
-  return res.json();
+  return sentView(res.json());
 };
-const view = async (id: string) => (await get(t.app, `/api/timelines/${id}`)).json();
+const view = async (id: string) => withTakes((await get(t.app, `/api/timelines/${id}`)).json());
 const upload = async (bytes: Uint8Array, name: string) => {
   const res = await t.app.inject({ method: "POST", url: `/api/assets?name=${name}`, headers: { "content-type": "video/mp4" }, payload: Buffer.from(bytes) });
   if (res.statusCode >= 400) throw new Error(res.body);

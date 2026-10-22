@@ -161,6 +161,11 @@ function assetParams(opts: AssetFilter): URLSearchParams {
   return q;
 }
 
+/** A timeline as the server sends it: each clip's playing take by its id (timelines-api.ts, sent), not a second copy of it. */
+type Sent = Omit<Timeline, "clips"> & { clips: Array<Omit<Timeline["clips"][number], "take"> & { take: string | null }> };
+/** The timeline as the editor reads it: each clip's playing take found among its takes. */
+const withTakes = (t: Sent): Timeline => ({ ...t, clips: t.clips.map((c) => ({ ...c, take: c.take === null ? null : (c.takes.find((x) => x.id === c.take) ?? null) })) });
+
 export const api = {
   recipes: (o?: Asked) => call<{ families: FamilyInfo[]; recipes: RecipeInfo[] }>("GET", "/recipes", undefined, o?.signal),
   /** How large the families' official files are, by address (bytes): the ones the server knows yet. */
@@ -487,7 +492,7 @@ export const api = {
   /** Every conversation with the designer, in drafts and on timelines, is forgotten. */
   forgetConversations: () => call<{ forgotten: number }>("DELETE", "/designer/conversations"),
   /** New clips at the end of a timeline, one per planned text, each flowing on from the one before. */
-  planTimeline: (id: string, recipe: string, clips: Array<Record<string, string>>) => call<{ clips: string[]; timeline: Timeline }>("POST", `/timelines/${id}/plan`, { recipe, clips }),
+  planTimeline: (id: string, recipe: string, clips: Array<Record<string, string>>) => call<{ clips: string[]; timeline: Sent }>("POST", `/timelines/${id}/plan`, { recipe, clips }).then((r) => ({ ...r, timeline: withTakes(r.timeline) })),
   deleteDraft: (id: string) => call<{ ok: true }>("DELETE", `/drafts/${id}`),
   modelSettings: (o?: Asked) => call<{ items: ModelSettings[] }>("GET", "/model-settings", undefined, o?.signal),
   saveModelSettings: (body: ModelSettings) => call<ModelSettings>("PUT", "/model-settings", body),
@@ -532,10 +537,10 @@ export const api = {
   deleteWorkflow: (id: string) => call<{ ok: true }>("DELETE", `/workflows/${id}`),
   /** The timelines of the project the app looks at. */
   timelines: (o?: Asked) => call<{ items: TimelineBrief[] }>("GET", `/timelines${projectParam() ? `?project=${encodeURIComponent(projectParam()!)}` : ""}`, undefined, o?.signal),
-  timeline: (id: string, o?: Asked) => call<Timeline>("GET", `/timelines/${id}`, undefined, o?.signal),
+  timeline: (id: string, o?: Asked) => call<Sent>("GET", `/timelines/${id}`, undefined, o?.signal).then(withTakes),
   /** A new timeline, in the project the app looks at unless another is named. */
   /** `folder`: the folder it is made in (the one open in the Studio): it lives and renders there. Left out: the project's root. */
-  createTimeline: (name?: string, project?: string | null, folder?: string | null) => call<Timeline>("POST", "/timelines", { ...(name ? { name } : {}), project: project === undefined ? projectForNew() : project, ...(folder ? { folder } : {}) }),
+  createTimeline: (name?: string, project?: string | null, folder?: string | null) => call<Sent>("POST", "/timelines", { ...(name ? { name } : {}), project: project === undefined ? projectForNew() : project, ...(folder ? { folder } : {}) }).then(withTakes),
   projects: (o?: Asked) => call<{ items: Project[]; inbox: { drafts: number; timelines: number; assets: number } }>("GET", "/projects", undefined, o?.signal),
   createProject: (name: string) => call<Project>("POST", "/projects", { name }),
   editProject: (id: string, patch: { name?: string; archived?: boolean }) => call<Project>("PATCH", `/projects/${id}`, patch),
@@ -555,7 +560,7 @@ export const api = {
   clearUnusedDraftsOf: (project: string | null, keep?: string) => call<{ deleted: number }>("POST", "/drafts/clear-unused", { project: project ?? "none", keep }),
   /** A draft taken to another project (null: the Inbox); nothing else moves with it. */
   moveDraft: (id: string, project: string | null) => call<Draft>("PUT", `/drafts/${id}`, { project }),
-  editTimeline: (id: string, patch: TimelinePatch) => call<Timeline>("PATCH", `/timelines/${id}`, patch),
+  editTimeline: (id: string, patch: TimelinePatch) => call<Sent>("PATCH", `/timelines/${id}`, patch).then(withTakes),
   /** The source lane's stretch made into clips, one a window: their ids (nothing is rendered yet). */
   /** The source made into clips; `again`: cut again, its rendered clips at the start kept. */
   /** A swap clip's Show the mask: its window's masks drawn over its frames, a short job (SAM 3 alone). */
@@ -583,7 +588,7 @@ export const api = {
   /** The timeline's takes no clip plays and nothing else needs go, their videos to the bin. */
   binUnusedTakes: (id: string) => call<{ binned: number; bytes: number }>("POST", `/timelines/${id}/unused-takes/bin`),
   /** A new clip: empty, or from a video or a picture of the library. After `after`, first when null, last when left out. */
-  addClip: (timeline: string, body: { after?: string | null; asset?: string; recipe?: string; as?: "still" | "clip"; stopAtMs?: number }) => call<{ clip: string; timeline: Timeline }>("POST", `/timelines/${timeline}/clips`, body),
+  addClip: (timeline: string, body: { after?: string | null; asset?: string; recipe?: string; as?: "still" | "clip"; stopAtMs?: number }) => call<{ clip: string; timeline: Sent }>("POST", `/timelines/${timeline}/clips`, body).then((r) => ({ ...r, timeline: withTakes(r.timeline) })),
   /** `inputs`: the form as the server kept it, when it worked out some of it (a voice's part). */
   editClip: (id: string, patch: ClipPatch) => call<{ ok: true; inputs?: Record<string, unknown> }>("PATCH", `/clips/${id}`, patch),
   deleteClip: (id: string) => call<{ ok: true }>("DELETE", `/clips/${id}`),
