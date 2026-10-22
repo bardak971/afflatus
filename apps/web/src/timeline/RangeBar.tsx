@@ -5,7 +5,7 @@ import { Button, CloseButton, IconButton } from "../ui";
 import { stamp, type TimeRange } from "./model";
 
 /** The range bar's words for its actions: the menu says them in full. */
-const SHORT: Record<string, string> = { "Play range": "Play", "Loop: on": "Loop", "Loop: off": "Loop", "Regenerate range": "Regenerate", "Insert a clip here": "Insert clip", "Split at In and Out": "Split at In / Out", "Remove range": "Remove", "Copy to library": "Copy", "Slow motion ×2": "Slow ×2", "Slow motion ×4": "Slow ×4" };
+const SHORT: Record<string, string> = { "Play range": "Play", "Regenerate range": "Regenerate", "Insert a clip here": "Insert clip", "Split at In and Out": "Split at In / Out", "Remove range": "Remove", "Copy to library": "Copy", "Slow motion ×2": "Slow ×2", "Slow motion ×4": "Slow ×4" };
 
 /** The bar under the video while a range is set: In and Out, what they span, the magnet, and the range's actions as buttons. */
 export function RangeBar({ range, emptyRange, clips, snapQuiet, onSnapQuiet, items }: {

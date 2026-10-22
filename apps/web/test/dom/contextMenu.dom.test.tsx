@@ -11,7 +11,7 @@ function Opener({ alpha, omega }: { alpha(): void; omega(): void }) {
   const items: MenuItem[] = [
     { label: "Alpha", run: alpha },
     "—",
-    { label: "Off", disabled: true, run: () => {} },
+    { label: "Off", disabled: true, note: "ComfyUI is offline", run: () => {} },
     { label: "Loop", checked: loop, run: () => setLoop((on) => !on) },
     { label: "Omega", run: omega },
   ];
@@ -20,7 +20,7 @@ function Opener({ alpha, omega }: { alpha(): void; omega(): void }) {
       <button type="button" onContextMenu={(e) => menu.open(e, "it")}>Opener</button>
       <button type="button">Elsewhere</button>
       <span data-testid="loop">{loop ? "on" : "off"}</span>
-      {menu.menu && <ContextMenu at={menu.menu.at} items={items} label="Actions on it" onClose={menu.close} />}
+      {menu.menu && <ContextMenu at={menu.menu.at} items={items} label="Actions on it" head={{ title: "It" }} onClose={menu.close} />}
     </>
   );
 }

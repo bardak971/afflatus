@@ -4,7 +4,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, Film, Folder, FolderPlus, Folde
 import type { Asset } from "../api";
 import { openProjects } from "../bar/bridge";
 import { useFolders, useProjects, type useAsset } from "../data";
-import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
+import { ContextMenu, headLine, useMenu, type MenuItem } from "../ContextMenu";
 import { Keys } from "../Keys";
 import { CloseButton, cx, IconButton } from "../ui";
 import { tileName } from "../screens/library/tileName";
@@ -49,7 +49,7 @@ function PlaceChip({ a, acts, onLeave }: { a: Asset; acts: ViewerActions; onLeav
         <span className="truncate">{label}</span>
         <ChevronDown size={12} className="shrink-0 text-ink-3" />
       </button>
-      {menu.menu && <ContextMenu at={menu.menu.at} label="Move to" items={items} onClose={menu.close} />}
+      {menu.menu && <ContextMenu at={menu.menu.at} label="Move to" head={{ title: "Move to", sub: headLine("Filed in", label) }} items={items} onClose={menu.close} />}
     </>
   );
 }

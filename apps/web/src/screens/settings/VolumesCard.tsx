@@ -159,7 +159,7 @@ function VolumeRow({ v, stock, onAct }: { v: NetworkVolume; stock: Array<{ name:
         )}
       </div>
       {more.menu && (
-        <ContextMenu at={more.menu.at} label={v.name} onClose={more.close} items={[
+        <ContextMenu at={more.menu.at} label={v.name} head={{ title: v.name, sub: "Network volume" }} onClose={more.close} items={[
           { label: "Grow…", note: "never shrinks", run: () => onAct("grow") },
           { label: "Delete…", danger: true, icon: <Trash2 size={14} />, disabled: mounted, note: mounted ? `mounted on ${v.mountedOn.map((p) => p.name).join(", ")}` : "its monthly bill stops", run: () => onAct("delete") },
         ]} />

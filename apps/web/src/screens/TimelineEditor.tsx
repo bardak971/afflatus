@@ -14,7 +14,7 @@ import { Track } from "../timeline/Track";
 import { ErrorNote } from "../ui";
 import { FinishDialog } from "../timeline/Finish";
 import { Viewer } from "../viewer/LazyViewer";
-import { ContextMenu } from "../ContextMenu";
+import { ContextMenu, headLine } from "../ContextMenu";
 import { EditorSkeleton } from "../timeline/EditorSkeleton";
 import { CastDialog } from "../timeline/CastDialog";
 import { TimelineHeader, Transport } from "../timeline/EditorBars";
@@ -162,7 +162,7 @@ function Editor({ id }: { id: string }) {
 
       {clipMenu.menu && <ContextMenu at={clipMenu.menu.at} label="Actions on this clip" head={e.clipHead(clipMenu.menu.subject)} items={clipMenuItems(clipMenu.menu.subject, clipActs(e))} onClose={clipMenu.close} />}
       {pinMenu && <ContextMenu {...pinMenu} />}
-      {rangeMenu.menu && range && <ContextMenu at={rangeMenu.menu.at} label="Actions on the range" head={{ title: "Range", sub: <span className="font-mono">{mmss(range.inMs, { decimals: 1 })} – {mmss(range.outMs, { decimals: 1 })}</span> }} items={e.rangeItems()} onClose={rangeMenu.close} />}
+      {rangeMenu.menu && range && <ContextMenu at={rangeMenu.menu.at} label="Actions on the range" head={{ title: "Range", sub: headLine(<span className="font-mono">{mmss(range.inMs, { decimals: 1 })} – {mmss(range.outMs, { decimals: 1 })}</span>, `${((range.outMs - range.inMs) / 1000).toFixed(1)} s`) }} items={e.rangeItems()} onClose={rangeMenu.close} />}
       <SoundMenus {...soundMenusProps(e)} />
 
       {exp && <ExportDialog {...exportProps(e, exp)} />}

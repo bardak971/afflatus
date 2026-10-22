@@ -115,9 +115,11 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
         <ContextMenu
           at={history.menu.at}
           label="Undo or redo"
+          head={{ title: t.name, sub: "Timeline · its history" }}
+          // only what there is to undo or redo: "Nothing to redo" was a dead row
           items={[
-            { label: t.undo ? `Undo: ${t.undo}` : "Nothing to undo", key: "Ctrl+Z", icon: <Undo2 size={14} />, disabled: !t.undo || undo.pending, run: undo.run },
-            { label: t.redo ? `Redo: ${t.redo}` : "Nothing to redo", key: "Ctrl+Shift+Z", icon: <Redo2 size={14} />, disabled: !t.redo || redo.pending, run: redo.run },
+            ...(t.undo ? [{ label: `Undo: ${t.undo}`, key: "Ctrl+Z", icon: <Undo2 size={14} />, disabled: undo.pending, note: undo.pending ? "undoing…" : undefined, run: undo.run }] : []),
+            ...(t.redo ? [{ label: `Redo: ${t.redo}`, key: "Ctrl+Shift+Z | Ctrl+Y", icon: <Redo2 size={14} />, disabled: redo.pending, note: redo.pending ? "redoing…" : undefined, run: redo.run }] : []),
           ]}
           onClose={history.close}
         />

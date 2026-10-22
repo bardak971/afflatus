@@ -3,7 +3,7 @@ import { openProjects, type Reveal } from "./bar/bridge";
 import { ArrowDown, ArrowUp, FolderKanban, LogIn, PinOff } from "lucide-react";
 import type { Asset } from "./api";
 import { useProjects } from "./data";
-import { ContextMenu, useMenu } from "./ContextMenu";
+import { ContextMenu, groups, headLine, useMenu } from "./ContextMenu";
 import { useKeysHere } from "./keys/here";
 import { useProject } from "./project";
 import { usePins } from "./projects/pins";
@@ -113,17 +113,20 @@ function Pins({ current }: { current: string }) {
           <ContextMenu
             at={menu.menu.at}
             label={`${nameOf(id)}, pinned`}
-            head={{ title: nameOf(id), sub: "pinned to the rail" }}
-            items={[
-              { label: "Work in it", icon: <LogIn size={14} />, disabled: id === current, note: id === current ? "working in it" : undefined, run: () => set(id) },
-              // the rail's own short menu; the rest of the project's list is a click away, in the Projects panel
-              { label: "Show in Projects", icon: <FolderKanban size={14} />, run: () => openProjects(nameOf(id)) },
-              "—",
-              { label: "Move up", key: "Alt+↑", icon: <ArrowUp size={14} />, disabled: i === 0, run: () => pins.move(id, i - 1) },
-              { label: "Move down", key: "Alt+↓", icon: <ArrowDown size={14} />, disabled: i === pins.ids.length - 1, run: () => pins.move(id, i + 2) },
-              "—",
-              { label: "Unpin", icon: <PinOff size={14} />, run: () => pins.unpin(id) },
-            ]}
+            head={{ title: nameOf(id), sub: headLine(id === "none" ? "Inbox" : "Project", "pinned to the rail") }}
+            // the rail's own short menu; the rest of the project's list is a click away, in the Projects panel. What would
+            // change nothing is not drawn (Work in it where one works, Move up on the first)
+            items={groups(
+              [
+                ...(id === current ? [] : [{ label: "Work in it", icon: <LogIn size={14} />, run: () => set(id) }]),
+                { label: "Show in Projects", icon: <FolderKanban size={14} />, run: () => openProjects(nameOf(id)) },
+              ],
+              [
+                ...(i > 0 ? [{ label: "Move up", key: "Alt+↑", icon: <ArrowUp size={14} />, run: () => pins.move(id, i - 1) }] : []),
+                ...(i < pins.ids.length - 1 ? [{ label: "Move down", key: "Alt+↓", icon: <ArrowDown size={14} />, run: () => pins.move(id, i + 2) }] : []),
+                { label: "Unpin", icon: <PinOff size={14} />, run: () => pins.unpin(id) },
+              ],
+            )}
             onClose={menu.close}
           />
         );

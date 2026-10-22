@@ -188,7 +188,7 @@ export function ShippedPreset({ e, onApply, onDuplicate, duplicating, onClose }:
         </div>
       )}
 
-      {more.menu && <ContextMenu at={more.menu.at} label={`More actions on ${e.name}`} items={moreItems} onClose={more.close} />}
+      {more.menu && <ContextMenu at={more.menu.at} label={`More actions on ${e.name}`} head={{ title: e.name, sub: "Preset · ships with Afflatus" }} items={moreItems} onClose={more.close} />}
     </div>
   );
 }

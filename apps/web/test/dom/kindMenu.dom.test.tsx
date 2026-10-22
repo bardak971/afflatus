@@ -27,11 +27,11 @@ async function cardMenu() {
   fakeApi.on("GET /projects/tree", tree);
   const drawn = draw(<><TimelineCards timelines={[timeline]} ready place={{ type: "all" }} /><ConfirmHost /></>);
   const card = screen.getByRole("link", { name: /zz-test timeline/ });
-  // its unused takes are read with the tree: until then Bin unused takes says "reading…"
+  // its unused takes are read with the tree: until then Bin unused takes says "reading…"; read, none, it is not drawn
   await waitFor(() => expect(fakeApi.calls("GET", "/projects/tree")).toHaveLength(1));
   await waitFor(() => {
     fireEvent.contextMenu(card, { button: 2, clientX: 30, clientY: 30 });
-    expect(within(screen.getByRole("menu")).getByRole("menuitem", { name: /Bin unused takes/ }).textContent).not.toContain("reading…");
+    expect(screen.getByRole("menu").textContent).not.toContain("reading…");
   });
   return { ...drawn, menu: screen.getByRole("menu", { name: "Actions on this timeline" }) };
 }
@@ -45,17 +45,16 @@ describe("a timeline card's menu (the kind's one list), drawn", () => {
 
   it("lists the timeline's actions in order, an action that cannot run off with its reason as its note", async () => {
     const { menu } = await cardMenu();
+    // nothing to render and no unused take: Render all and Bin unused takes would change nothing, and are not drawn
     expect(lines(menu)).toEqual([
       "OpenEnter",
       "Show in Projects",
-      "Render allnone to render (off)",
       "Finish…",
       "Export…",
       "Fix allwhat Needs a look lists",
-      "RenameF2",
+      "Rename…F2",
       "Put in a folderno folder in its project (off)",
       "Move tono project yet (off)",
-      "Bin unused takes…none (off)",
       "Delete…videos stayDel",
     ]);
   });

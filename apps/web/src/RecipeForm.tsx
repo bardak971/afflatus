@@ -1,7 +1,7 @@
 import { lazy, Suspense, useContext, useEffect, useMemo, type MouseEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Pin, PinOff, RotateCcw } from "lucide-react";
 import { isShown, sameFile, type InputSpec } from "@afflatus/core";
-import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
+import { ContextMenu, groups, headLine, useMenu } from "./ContextMenu";
 import { FieldNameNote } from "./fields/FieldName";
 import { useAdvice } from "./advice";
 import { api, thumbUrl, type RecipeInfo, type RecipeStatus } from "./api";
@@ -435,21 +435,21 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
         const pinned = pins.has(id);
         const k = pinnedRows.findIndex((r) => r.spec.id === id);
         const changed = !sameValue(values[id], defaults[id]);
-        const items: MenuItem[] = [
-          pinned ? { label: "Unpin", icon: <PinOff size={14} />, run: () => pins.unpin(id) } : { label: "Pin to the top", icon: <Pin size={14} />, run: () => pins.pin(id) },
-          ...(pinned && k >= 0 ? [
-            { label: "Move up", key: "Alt+↑", icon: <ArrowUp size={14} />, disabled: k === 0, run: () => movePinned(id, k - 1) },
-            { label: "Move down", key: "Alt+↓", icon: <ArrowDown size={14} />, disabled: k === pinnedRows.length - 1, run: () => movePinned(id, k + 2) },
-          ] : []),
-          "—",
+        // only what would change something: no Move up on the first pin, no Reset on a value at its default
+        const items = groups(
+          [
+            pinned ? { label: "Unpin", icon: <PinOff size={14} />, run: () => pins.unpin(id) } : { label: "Pin to the top", icon: <Pin size={14} />, run: () => pins.pin(id) },
+            ...(pinned && k > 0 ? [{ label: "Move up", key: "Alt+↑", icon: <ArrowUp size={14} />, run: () => movePinned(id, k - 1) }] : []),
+            ...(pinned && k >= 0 && k < pinnedRows.length - 1 ? [{ label: "Move down", key: "Alt+↓", icon: <ArrowDown size={14} />, run: () => movePinned(id, k + 2) }] : []),
+          ],
           // the changed mark's own reset ("Changed · reset"), from the menu
-          { label: "Reset to the model's default", icon: <RotateCcw size={14} />, disabled: !changed, run: () => onClear([id]) },
-        ];
+          changed && [{ label: "Reset to the model's default", icon: <RotateCcw size={14} />, run: () => onClear([id]) }],
+        );
         return (
           <ContextMenu
             at={fieldMenu.menu.at}
             label={`${spec.label}, setting`}
-            head={{ title: spec.label, sub: pinned ? `pinned · ${sectionOfId?.get(id) ?? "not shown now"}` : sectionOfId?.get(id) }}
+            head={{ title: spec.label, sub: headLine("Setting", pinned && "pinned", sectionOfId?.get(id) ?? (pinned ? "not shown now" : null)) }}
             items={items}
             onClose={fieldMenu.close}
           />

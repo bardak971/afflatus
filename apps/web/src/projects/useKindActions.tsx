@@ -84,9 +84,10 @@ export function useKindActions({ importInto }: { importInto?(t: Target): void } 
     const name = await askText({ title: `Rename ${row.label}`, value: row.label, placeholder: "A name", yes: "Rename" });
     if (name) await tree.rename(row, name);
   };
-  const line = (moving: Moving[], t: Target, label: string, icon: ReactNode, p: KindPlace, note?: string): MenuItem => ({
-    label, icon, note, disabled: !planDrop(moving, t), run: () => after(p, tree.move(moving, t)),
-  });
+  const line = (moving: Moving[], t: Target, label: string, icon: ReactNode, p: KindPlace, note?: string): MenuItem => {
+    const ok = Boolean(planDrop(moving, t));
+    return { label, icon, note: ok ? note : "already there", disabled: !ok, run: () => after(p, tree.move(moving, t)) };
+  };
   /** Move to: every project not archived, then the Inbox; where it already is, off. */
   const moves = (moving: Moving[], p: KindPlace): MenuItem[] => [
     ...projects.map((x) => line(moving, { kind: "group", group: x.id, root: x.folderId, name: x.name }, x.name, <FolderKanban size={14} />, p)),

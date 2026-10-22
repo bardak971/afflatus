@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent
 import { Music, SlidersHorizontal, Volume2, VolumeX } from "lucide-react";
 import { mostFromMs, musicPlan, songAt, type ClipMusic, type MusicSpan } from "@afflatus/core";
 import type { Clip, Timeline, TimelinePatch } from "../../api";
-import { ContextMenu, useMenu } from "../../ContextMenu";
+import { ContextMenu, groups, headLine, useMenu } from "../../ContextMenu";
 import { clock } from "../../format";
 import { cx } from "../../ui";
 import { PAD, placeOf, type Slot } from "../model";
@@ -206,19 +206,21 @@ export function MusicLane({ timeline, slots, pps, width, selected, over, measure
         <ContextMenu
           at={menu.menu.at}
           label="The music under this clip"
-          head={{ title: `Clip ${indexOf(menuClip.id) + 1}`, sub: "Music under it" }}
-          items={[
-            menuClip.music?.muted
-              ? { label: "Unmute here", icon: <Volume2 size={14} />, run: () => onClipMusic?.(menuClip, { ...menuClip.music, muted: false }) }
-              : { label: "Mute here", icon: <VolumeX size={14} />, run: () => onClipMusic?.(menuClip, { ...menuClip.music, muted: true }) },
-            { label: "Same as the rest", icon: <Music size={14} />, disabled: !menuClip.music, run: () => onClipMusic?.(menuClip, null) },
-            "—",
-            { label: "Music under it…", icon: <SlidersHorizontal size={14} />, note: clipMusicWords(menuClip.music).join(" · ") || undefined, run: () => {
-              const el = document.querySelector<HTMLElement>(`[data-music-clip="${menuClip.id}"]`);
-              if (el) setPop({ clip: menuClip.id, el });
-            } },
-            { label: "Music settings", icon: <SlidersHorizontal size={14} />, run: onSelectMusic },
-          ]}
+          head={{ title: `Music under clip ${indexOf(menuClip.id) + 1}`, sub: headLine("Music", clipMusicWords(menuClip.music).join(" · ") || "as the rest") }}
+          // its own settings first, then the whole music's; "Same as the rest" only where it differs (else a dead row)
+          items={groups(
+            [
+              { label: "Music under it…", icon: <SlidersHorizontal size={14} />, note: clipMusicWords(menuClip.music).join(" · ") || undefined, run: () => {
+                const el = document.querySelector<HTMLElement>(`[data-music-clip="${menuClip.id}"]`);
+                if (el) setPop({ clip: menuClip.id, el });
+              } },
+              menuClip.music?.muted
+                ? { label: "Unmute here", icon: <Volume2 size={14} />, run: () => onClipMusic?.(menuClip, { ...menuClip.music, muted: false }) }
+                : { label: "Mute here", icon: <VolumeX size={14} />, run: () => onClipMusic?.(menuClip, { ...menuClip.music, muted: true }) },
+              ...(menuClip.music ? [{ label: "Same as the rest", icon: <Music size={14} />, run: () => onClipMusic?.(menuClip, null) }] : []),
+            ],
+            [{ label: "Music settings", icon: <SlidersHorizontal size={14} />, run: onSelectMusic }],
+          )}
           onClose={menu.close}
         />
       )}

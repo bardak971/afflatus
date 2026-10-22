@@ -120,7 +120,7 @@ export function ThemeFlip() {
   const items: MenuItem[] = [
     ...THEMES.filter((t) => t.light === light).map((t): MenuItem => ({
       label: t.name,
-      icon: t.id === inUse.id ? <Check size={14} /> : <span className="h-3.5 w-3.5" />,
+      checked: t.id === inUse.id,
       run: () => choice.set(light ? { day: t.id } : { night: t.id }),
     })),
     "—",
@@ -133,7 +133,7 @@ export function ThemeFlip() {
       })),
     },
     "—",
-    { label: "Appearance settings…", icon: <Settings2 size={14} />, run: () => go("/settings/interface") },
+    { label: "Appearance settings", icon: <Settings2 size={14} />, run: () => go("/settings/interface") },
   ];
   return (
     <>

@@ -32,7 +32,7 @@ function Panel({ rows }: { rows: Row[] }) {
   return (
     <>
       <button type="button" onContextMenu={(e) => menus.openRowMenu(first, e)}>{first.label}</button>
-      {menus.menu && <ContextMenu at={menus.menu.at} items={menus.menuItems(menus.menu.subject)} label="Actions on the picked rows" onClose={menus.closeMenu} />}
+      {menus.menu && <ContextMenu at={menus.menu.at} items={menus.menuItems(menus.menu.subject)} label="Actions on the picked rows" head={menus.menuHead(menus.menu.subject)} onClose={menus.closeMenu} />}
       <ConfirmHost />
     </>
   );

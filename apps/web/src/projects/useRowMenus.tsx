@@ -1,7 +1,7 @@
 import type { MouseEvent } from "react";
 import { Eraser, Folder, FolderKanban, FolderOpen, Inbox, Trash2 } from "lucide-react";
 import type { Asset, Folder as FolderInfo, Project, TreeGroup } from "../api";
-import { useMenu, type MenuHead, type MenuItem } from "../ContextMenu";
+import { headLine, useMenu, type MenuHead, type MenuItem } from "../ContextMenu";
 import { size } from "../format";
 import { planDrop, type Row, type Target } from "./tree";
 import { toMenu, type KindAction, type KindActionId } from "./kindActions";
@@ -9,6 +9,9 @@ import { useItemMenu } from "./useItemMenu";
 import { useKindActions, type KindPlace } from "./useKindActions";
 import type { useTreeActions } from "./useTreeActions";
 import { movingOf } from "./useTreeDrag";
+
+/** What a row is, first in its menu's head ("Folder · 12 items · 1.2 GB"). */
+const KIND_WORD: Partial<Record<Row["kind"], string>> = { project: "Project", inbox: "Inbox", folder: "Folder", timeline: "Timeline", draft: "Draft", empty: "Drafts", loose: "Items", bin: "Bin" };
 
 /** In one project's tree, its row and the Inbox's keep only what makes something inside them: the rest is the panel's. */
 const INSIDE: readonly KindActionId[] = ["open", "show", "pin", "rename", "archive", "delete"];
@@ -75,7 +78,7 @@ export function useRowMenus({ picked, rows, byKey, scoped, projects, folders, gr
     const item = (t: Target): MenuItem => ({
       label: t.kind === "group" && t.group === null ? "The Inbox" : t.name,
       icon: t.kind === "folder" ? <Folder size={14} /> : t.group === null ? <Inbox size={14} /> : <FolderKanban size={14} />,
-      note: t.kind === "folder" ? projectName(t.group) : t.group === null ? "out of every project" : undefined,
+      note: !planDrop(moving, t) ? "already there" : t.kind === "folder" ? projectName(t.group) : t.group === null ? "out of every project" : undefined,
       disabled: !planDrop(moving, t),
       run: () => void actions.move(moving, t).then(clearPicks),
     });
@@ -144,7 +147,7 @@ export function useRowMenus({ picked, rows, byKey, scoped, projects, folders, gr
   /** The head of a row's menu: its name and what it holds; several picked: how many. */
   const menuHead = (r: Row | "picked"): MenuHead => {
     const n = r === "picked" ? picked.size : r.key === "picked-items" ? pickedItems().length : subjectOf(r).length;
-    return r === "picked" || n > 1 ? { title: `${n} items` } : { title: r.label, sub: r.meta || undefined };
+    return r === "picked" || n > 1 ? { title: `${n} items` } : { title: r.label, sub: headLine(KIND_WORD[r.kind], r.meta || null) };
   };
   // an item: the library tile's own menu; one of several picked items: a menu for them all
   const itemMenu = useItemMenu({ onView, onStudio: (a) => showInStudio(a, byKey.get(`a:${a.id}`)?.group ?? null) });

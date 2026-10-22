@@ -62,6 +62,6 @@ export function renderActions(x: BarCtx, a: Extract<CommandEntry, { kind: "asset
   return [
     { label: "Open", icon: <Eye size={14} />, keys: "Enter", run: () => x.view(a.id).catch(x.failed("Could not open it")) },
     { label: a.inBin ? "Show in the bin" : "Show in its folder", icon: <FolderOpen size={14} />, note: "in the Studio", run: () => x.showInFolder(a.id, a.project).catch(x.failed("Could not show it")) },
-    { label: "Reading what was made with it…", disabled: true, run: () => {} },
+    { label: "Reading what was made with it…", disabled: true, note: "a moment", run: () => {} },
   ];
 }

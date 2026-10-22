@@ -1,13 +1,13 @@
 import { useState, type MouseEvent } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronDown, ExternalLink, MapPin, Plus, Sparkles, User, X } from "lucide-react";
+import { ChevronDown, ExternalLink, MapPin, Plus, Sparkles, User, X } from "lucide-react";
 import { LIMITS } from "@afflatus/core";
 import { api, lookAdds, thumbUrl, type Entity, type Look, type RecipeInfo } from "./api";
 import { useEntities } from "./data";
 import { fileLabel } from "./format";
 import { useSettled } from "./hooks";
-import { ContextMenu, type MenuItem } from "./ContextMenu";
+import { ContextMenu, groups, headLine, type MenuItem } from "./ContextMenu";
 import { kitHref } from "./screens/kit/link";
 import { outfitsOf } from "./screens/kit/shared";
 import { Select } from "./Select";
@@ -96,17 +96,16 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
           const wear = (outfit: string | null) => onChange({ ...now, cast: now.cast.map((c) => (c.id === e.id ? { ...c, outfit } : c)) });
           const outfits: MenuItem[] = e.kind === "person"
             ? [
-              { label: "As in the references", icon: !member?.outfit ? <Check size={14} /> : undefined, run: () => wear(null) },
-              ...outfitsOf(e.def.outfits).map((o): MenuItem => ({ label: o.name || "Unnamed outfit", icon: member?.outfit === o.id ? <Check size={14} /> : undefined, run: () => wear(o.id) })),
-              "—",
+              { label: "As in the references", checked: !member?.outfit, run: () => wear(null) },
+              ...outfitsOf(e.def.outfits).map((o): MenuItem => ({ label: o.name || "Unnamed outfit", checked: member?.outfit === o.id, run: () => wear(o.id) })),
             ]
             : [];
-          const items: MenuItem[] = [
-            ...outfits,
-            { label: `Open ${e.name} in the kit`, icon: <ExternalLink size={14} />, run: () => go(kitHref(e.kind, e.id)) },
-            { label: "Remove from the cast", icon: <X size={14} />, danger: true, run: () => onChange({ ...now, cast: now.cast.filter((c) => c.id !== e.id) }) },
-          ];
-          return <ContextMenu at={menu.at} label={`${e.name} in the cast`} head={{ title: e.name, sub: e.kind === "person" ? "Person · outfit" : "Place", thumb: e.def.pictures[0] }} items={items} onClose={() => setMenu(null)} />;
+          const items = groups(
+            outfits,
+            [{ label: `Open ${e.name} in the kit`, icon: <ExternalLink size={14} />, run: () => go(kitHref(e.kind, e.id)) }],
+            [{ label: "Remove from the cast", icon: <X size={14} />, danger: true, run: () => onChange({ ...now, cast: now.cast.filter((c) => c.id !== e.id) }) }],
+          );
+          return <ContextMenu at={menu.at} label={`${e.name} in the cast`} head={{ title: e.name, sub: headLine(e.kind === "person" ? "Person" : "Place", "in the cast"), thumb: e.def.pictures[0] }} items={items} onClose={() => setMenu(null)} />;
         })()}
         {/* as many as a look holds: the server refuses more, and every save of the draft would fail */}
         {castable.length > 0 && now.cast.length < LIMITS.cast && (

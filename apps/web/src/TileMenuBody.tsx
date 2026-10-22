@@ -14,7 +14,7 @@ import { askViewer, type ViewerAsk } from "./viewer/ask";
  * menu, else the one it was last open on), and the menu drawn while `menu` is open. Stays mounted after: what a line
  * started (a timeline's dialog) outlives the menu.
  */
-export function TileMenuBody({ onOpen, onSelect, into, first, place = "grid", form = true, listed = true, seed, omit, menu, acting, onClose }: TileMenuOptions & {
+export function TileMenuBody({ onOpen, onSelect, into, first, last, place = "grid", form = true, listed = true, seed, omit, menu, acting, onClose }: TileMenuOptions & {
   menu: { at: Parameters<typeof ContextMenu>[0]["at"]; subject: Asset } | null;
   acting: Asset;
   onClose(): void;
@@ -50,7 +50,7 @@ export function TileMenuBody({ onOpen, onSelect, into, first, place = "grid", fo
     ];
     // ticking it is putting it with others, to move, keep or bin them together: with Move to, not first
     const select: MenuItem[] = onSelect ? [{ label: "Select", key: "Ctrl+click", icon: <SquareCheck size={14} />, run: () => onSelect(item) }] : [];
-    return placeMenu(own, list, place, select);
+    return placeMenu(own, list, place, select, last?.(item) ?? []);
   };
 
   return (

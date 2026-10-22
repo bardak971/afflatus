@@ -1,7 +1,7 @@
 import type { DragEvent, KeyboardEvent, MouseEvent, RefObject } from "react";
 import { GripVertical } from "lucide-react";
 import type { Section } from "@afflatus/workflows";
-import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
+import { ContextMenu, groups, headLine, useMenu, type MenuItem } from "../../ContextMenu";
 import { ADVANCED, cardMoved, cardsOf, PROMPT, sectionName } from "./sections";
 import type { Refocus } from "./useItemMoves";
 
@@ -49,18 +49,18 @@ export function useCardMoves({ sections, onChange, remove, startSection, refocus
     const top = i <= 0;
     const bottom = i >= cards.length - 1;
     const sec = id === PROMPT || id === ADVANCED ? undefined : sections.find((s) => s.id === id);
-    return [
-      { label: "Move up", key: "Alt+↑", disabled: top, run: () => moveCard(id, "up") },
-      { label: "Move down", key: "Alt+↓", disabled: bottom, run: () => moveCard(id, "down") },
-      { label: "To the top", disabled: top, run: () => moveCard(id, "top") },
-      { label: "To the bottom", disabled: bottom, run: () => moveCard(id, "bottom") },
-      // the head's own buttons, as menu items (its name is the box beside the handle)
-      ...(sec ? [
-        "—" as const,
-        { label: "Rename", run: () => { refocus.current = { name: sec.id }; } },
-        { label: "Remove the section", danger: true, run: () => remove(sec) },
-      ] : []),
-    ];
+    // only the moves there are (none up from the top): a row that would change nothing is not drawn
+    return groups(
+      [
+        ...(top ? [] : [{ label: "Move up", key: "Alt+↑", run: () => moveCard(id, "up") }]),
+        ...(bottom ? [] : [{ label: "Move down", key: "Alt+↓", run: () => moveCard(id, "down") }]),
+        ...(top ? [] : [{ label: "To the top", run: () => moveCard(id, "top") }]),
+        ...(bottom ? [] : [{ label: "To the bottom", run: () => moveCard(id, "bottom") }]),
+      ],
+      // the head's own buttons, as menu items (its name is the box beside the handle, which Rename… puts the cursor in)
+      sec && [{ label: "Rename…", run: () => { refocus.current = { name: sec.id }; } }],
+      sec && [{ label: "Remove the section", danger: true, run: () => remove(sec) }],
+    );
   };
   /** A card's handle: dragged to move the card, pressed (Enter, the menu key, a right-click) for its menu. */
   const handle = (id: string, tip: string) => (
@@ -84,7 +84,7 @@ export function useCardMoves({ sections, onChange, remove, startSection, refocus
     <ContextMenu
       at={cardMenu.menu.at}
       label={`Move ${cardName(cardMenu.menu.subject)}`}
-      head={{ title: cardName(cardMenu.menu.subject), sub: "section" }}
+      head={{ title: cardName(cardMenu.menu.subject), sub: headLine("Section", "of the form") }}
       items={cardItems(cardMenu.menu.subject)}
       onClose={closeCardMenu}
     />

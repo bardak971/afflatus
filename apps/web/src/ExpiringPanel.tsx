@@ -1,6 +1,6 @@
 import type { RefObject } from "react";
 import { Eye, Star } from "lucide-react";
-import { ContextMenu } from "./ContextMenu";
+import { ContextMenu, headLine } from "./ContextMenu";
 import { daysSaid } from "./keepFor";
 import { Popover } from "./Popover";
 import type { expiringSaid, useKeepAllExpiring } from "./screens/studio/expiring";
@@ -50,10 +50,10 @@ export function ExpiringPanel({ anchor, open, menuAt, count, said, where, keepFo
         <ContextMenu
           at={menuAt}
           label="Expiring renders"
-          head={{ title: `${count} expiring`, sub: `the next in ${said.next}` }}
+          head={{ title: `${count} expiring`, sub: headLine("Renders", `the next in ${said.next}`) }}
           items={[
             { label: "Show them", icon: <Eye size={14} />, note: "Expiring only", run: onShow },
-            { label: `Keep all ${count}`, icon: <Star size={14} />, disabled: keep.isPending, run: onKeepAll },
+            { label: `Keep all ${count}`, icon: <Star size={14} />, disabled: keep.isPending, note: keep.isPending ? "keeping…" : undefined, run: onKeepAll },
           ]}
           onClose={onMenuClose}
         />

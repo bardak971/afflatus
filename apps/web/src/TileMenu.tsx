@@ -27,8 +27,10 @@ export interface TileMenuOptions {
   onSelect?(asset: Asset): void;
   /** Where a variation queued from here lands. */
   into?: { draft?: string; folder?: string };
-  /** Actions the place does its own way in its first section, left out of the list (a take's Remove takes its file to the bin with it). */
+  /** Actions the place does its own way, left out of the list (a take's Remove takes its file to the bin with it). */
   omit?: readonly ActionId[];
+  /** The place's own destructive rows, in the menu's last group with the bin (a take's Remove, a job's Remove from the history). */
+  last?(asset: Asset): MenuItem[];
 }
 
 /**

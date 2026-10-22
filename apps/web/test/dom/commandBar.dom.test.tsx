@@ -11,7 +11,7 @@ function Screen({ run }: { run(): void }) {
   return (
     <>
       <button type="button" onContextMenu={(e) => menu.open(e, "it")}>Opener</button>
-      {menu.menu && <ContextMenu at={menu.menu.at} items={[{ label: "Menu's own", run }, { label: "Another", run }]} label="Actions on it" onClose={menu.close} />}
+      {menu.menu && <ContextMenu at={menu.menu.at} items={[{ label: "Menu's own", run }, { label: "Another", run }]} label="Actions on it" head={{ title: "It" }} onClose={menu.close} />}
       <BarHost />
     </>
   );

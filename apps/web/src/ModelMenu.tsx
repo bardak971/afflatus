@@ -23,7 +23,7 @@ export function ModelMenuBody({ at, onClose }: { at: Parameters<typeof ContextMe
     ? {
         label: "Unload models", icon: <MemoryStick size={14} />, note: "free VRAM",
         items: [
-          { label: "Every idle machine", disabled: !several.some((m) => !machineUnloadBlock(m)), run: () => ops.unload.mutate(undefined) },
+          { label: "Every idle machine", disabled: !several.some((m) => !machineUnloadBlock(m)), note: several.some((m) => !machineUnloadBlock(m)) ? undefined : "none is idle", run: () => ops.unload.mutate(undefined) },
           "—",
           ...several.map((m): MenuItem => ({ label: machineLabel(m), note: machineUnloadBlock(m) ?? undefined, disabled: Boolean(machineUnloadBlock(m)), run: () => ops.unload.mutate(m.id) })),
         ],

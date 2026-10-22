@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { FRAME_SLACK_MS } from "@afflatus/core";
 import { Copy, Gauge, Play, RefreshCw, Repeat, Scissors, Split, X } from "lucide-react";
 import { api, type Clip } from "../api";
-import type { MenuItem } from "../ContextMenu";
+import { groups, type MenuItem } from "../ContextMenu";
 import type { Banner } from "../store";
 import type { Clock } from "./clock";
 import type { PlayerHandle } from "./Player";
@@ -152,21 +152,28 @@ export function useRange({ id, clips, durationMs, clock, player, playing, setPla
     const busy = rangeAct.isPending;
     // slow motion needs a video under the range (each clip it covers is slowed on its own; stills are held longer)
     const withinOne = clips.some((c) => c.kind === "video" && c.take && c.atMs < range.outMs && c.atMs + c.lengthMs > range.inMs);
-    return [
-      { label: "Play range", key: "Space", icon: <Play size={14} />, disabled: emptyRange, note: emptyRange ? "In and Out are the same moment" : undefined, run: playRange },
-      { label: loopRange ? "Loop: on" : "Loop: off", key: "L", icon: <Repeat size={14} />, disabled: emptyRange, note: "back to In at Out", run: () => toggleLoop() },
-      "—" as const,
-      { label: emptyRange ? "Insert a clip here" : "Regenerate range", icon: <RefreshCw size={14} />, disabled: busy, note: emptyRange ? "a clip between the two, pinned to their frames" : "a new clip pinned to the frames at In and Out; it replaces what is between", run: () => rangeAct.mutate("regenerate") },
-      { label: "Loop back to In", icon: <Repeat size={14} />, disabled: emptyRange || busy, note: "a short new clip after Out that returns to the frame at In: the range plays round", run: () => rangeAct.mutate("loop") },
-      { label: "Split at In and Out", icon: <Split size={14} />, disabled: emptyRange || busy, note: "the clips under them become two", run: () => rangeAct.mutate("split") },
-      { label: "Remove range", icon: <Scissors size={14} />, danger: true, disabled: emptyRange || busy, note: "the clips after close the gap; Undo brings it back", run: () => rangeAct.mutate("remove") },
-      { label: "Copy to library", icon: <Copy size={14} />, disabled: emptyRange || busy, note: "one video of this part, through the queue", run: () => rangeAct.mutate("copy") },
-      "—" as const,
-      { label: "Slow motion ×2", icon: <Gauge size={14} />, disabled: emptyRange || busy || !withinOne, note: withinOne ? "each part becomes a clip of its own and gets the slowed video as a take, sound slowed too; stills are held longer" : "nothing in the range plays a video", run: () => rangeAct.mutate({ slow: 2 }) },
-      { label: "Slow motion ×4", icon: <Gauge size={14} />, disabled: emptyRange || busy || !withinOne, note: withinOne ? "a quarter speed" : "nothing in the range plays a video", run: () => rangeAct.mutate({ slow: 4 }) },
-      "—" as const,
-      { label: "Clear the range", key: "Esc", icon: <X size={14} />, run: () => setRange(null) },
-    ];
+    // why a row is off, said on it: a range of no length (In and Out at one moment) is widened by dragging either end
+    const empty = emptyRange ? "In and Out are the same moment" : undefined;
+    const why = empty ?? (busy ? "busy…" : undefined);
+    const slowWhy = why ?? (withinOne ? undefined : "nothing in the range plays a video");
+    return groups(
+      [
+        { label: "Play range", key: "Space", icon: <Play size={14} />, disabled: emptyRange, note: empty, run: playRange },
+        { label: "Loop the range", key: "L", icon: <Repeat size={14} />, checked: loopRange, disabled: emptyRange, note: empty ?? "back to In at Out", run: () => toggleLoop() },
+      ],
+      [
+        { label: emptyRange ? "Insert a clip here" : "Regenerate range", icon: <RefreshCw size={14} />, disabled: busy, note: busy ? "busy…" : emptyRange ? "a clip between the two, pinned to their frames" : "a new clip pinned to the frames at In and Out; it replaces what is between", run: () => rangeAct.mutate("regenerate") },
+        { label: "Loop back to In", icon: <Repeat size={14} />, disabled: emptyRange || busy, note: why ?? "a short new clip after Out that returns to the frame at In: the range plays round", run: () => rangeAct.mutate("loop") },
+        { label: "Copy to library", icon: <Copy size={14} />, disabled: emptyRange || busy, note: why ?? "one video of this part, through the queue", run: () => rangeAct.mutate("copy") },
+      ],
+      [
+        { label: "Split at In and Out", icon: <Split size={14} />, disabled: emptyRange || busy, note: why ?? "the clips under them become two", run: () => rangeAct.mutate("split") },
+        { label: "Slow motion ×2", icon: <Gauge size={14} />, disabled: Boolean(slowWhy), note: slowWhy ?? "each part becomes a clip of its own and gets the slowed video as a take, sound slowed too; stills are held longer", run: () => rangeAct.mutate({ slow: 2 }) },
+        { label: "Slow motion ×4", icon: <Gauge size={14} />, disabled: Boolean(slowWhy), note: slowWhy ?? "a quarter speed", run: () => rangeAct.mutate({ slow: 4 }) },
+      ],
+      [{ label: "Clear the range", key: "Esc", icon: <X size={14} />, run: () => setRange(null) }],
+      [{ label: "Remove range", icon: <Scissors size={14} />, danger: true, disabled: emptyRange || busy, note: why ?? "the clips after close the gap; Undo brings it back", run: () => rangeAct.mutate("remove") }],
+    );
   };
   return { range, setRange, rangeRef, loopRange, loopRef, snapQuiet, toggleSnapQuiet, playingRange, emptyRange, totalRef, toggle, toggleLoop, toggleLoopNow, playRange, rangeAct, rangeItems };
 }

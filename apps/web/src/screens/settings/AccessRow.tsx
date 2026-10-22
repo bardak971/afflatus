@@ -47,8 +47,8 @@ export function useAccessActions(id: string, label: string, probe: MachineProbe 
   const items: MenuItem[] = [
     ...(probe?.tokenEnd ? [{ label: copied ? "Token copied" : "Copy its token", icon: <Copy size={14} />, run: () => copyToken.mutate() }] : []),
     ...(locked && !access.fixed ? [
-      { label: "Renew the token…", icon: <KeyRound size={14} />, disabled: renew.isPending, run: askRenew },
-      { label: "Unlock…", icon: <LockOpen size={14} />, disabled: unlock.isPending, run: askUnlock },
+      { label: "Renew the token…", icon: <KeyRound size={14} />, disabled: renew.isPending, note: renew.isPending ? "renewing…" : undefined, run: askRenew },
+      { label: "Unlock…", icon: <LockOpen size={14} />, disabled: unlock.isPending, note: unlock.isPending ? "unlocking…" : undefined, run: askUnlock },
     ] : []),
   ];
   const failed = [copyToken, renew, unlock].find((m) => m.isError)?.error;

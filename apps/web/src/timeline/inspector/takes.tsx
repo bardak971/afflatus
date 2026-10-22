@@ -94,13 +94,17 @@ export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, on
     first: (asset) => {
       const at = numbered.find(({ t }) => t.asset.id === asset.id);
       if (!at) return [];
-      const { t, i } = at;
+      const { t } = at;
       const trouble = takeTrouble(t, clip.takes);
       return [
         ...(t.id !== take?.id ? [{ label: "Play this take", icon: <Play size={14} />, run: () => onPatch({ take: t.id }) }] : []),
         ...(onFacePass && !t.facePass && !trouble ? [{ label: "Face refine", icon: <ScanFace size={14} />, note: "as a new take", run: () => onFacePass(t) }] : []),
-        { label: `Remove take ${i + 1}`, icon: <Trash2 size={14} />, danger: true, run: () => onRemoveTake(t.id) },
       ];
+    },
+    // the take's Remove in the bin's place: last, alone, as every menu's destructive row
+    last: (asset) => {
+      const at = numbered.find(({ t }) => t.asset.id === asset.id);
+      return at ? [{ label: `Remove take ${at.i + 1}`, icon: <Trash2 size={14} />, danger: true, run: () => onRemoveTake(at.t.id) }] : [];
     },
   });
   return (

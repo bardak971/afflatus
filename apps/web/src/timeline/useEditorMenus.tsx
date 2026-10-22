@@ -1,6 +1,6 @@
 import type { RefObject } from "react";
 import type { Clip } from "../api";
-import { useMenu, type MenuHead } from "../ContextMenu";
+import { headLine, useMenu, type MenuHead } from "../ContextMenu";
 import { clock as mmss } from "../format";
 import type { PinWhere } from "./model";
 import type { PlayerHandle } from "./Player";
@@ -26,11 +26,11 @@ export function useEditorMenus(clips: Clip[], player: RefObject<PlayerHandle | n
   /** The head of a clip's menu: "Clip 3", its length and which take plays, the picture it shows. */
   const clipHead = (c: Clip): MenuHead => {
     const n = clips.findIndex((x) => x.id === c.id) + 1;
-    const take = c.take && c.takes.length > 1 ? ` · take ${c.takes.findIndex((x) => x.id === c.take!.id) + 1} of ${c.takes.length}` : "";
+    const take = c.take && c.takes.length > 1 ? `take ${c.takes.findIndex((x) => x.id === c.take!.id) + 1} of ${c.takes.length}` : null;
     return {
       title: `Clip ${n}`,
       thumb: c.take?.asset.id ?? c.still?.id ?? c.pictures[0]?.asset.id,
-      sub: <>{c.kind === "still" ? "Still · " : ""}<span className="font-mono">{mmss(c.lengthMs)}</span>{take}</>,
+      sub: headLine(c.kind === "still" ? "Still" : "Video", <span className="font-mono">{mmss(c.lengthMs)}</span>, take),
     };
   };
   return { clipMenu, soundMenu, pinMenu, musicMenu, rangeMenu, onClip, clipHead };

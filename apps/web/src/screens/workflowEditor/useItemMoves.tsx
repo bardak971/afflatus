@@ -1,6 +1,6 @@
 import type { KeyboardEvent, MouseEvent, RefObject } from "react";
 import type { Section, SwitchGroup, Toggle } from "@afflatus/workflows";
-import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
+import { ContextMenu, groups as menuGroups, headLine, useMenu, type MenuItem } from "../../ContextMenu";
 import { ADVANCED, isGroup, locate, placedIn, sectionName, stopsOf, withNew, type Spot } from "./sections";
 
 /** What takes the focus once the change is drawn: the setting or section moved (in its new place), or a section's name. */
@@ -74,6 +74,11 @@ export function useItemMoves({ sections, onChange, byId, toggles, move, refocus 
     const at = locate(sections, id);
     const isSwitch = Boolean(switchOf(id));
     const where = at?.group ? nameOfSwitch(at.group.toggle) : at ? sectionName(at.section) : "";
+    /** No section further down for it: the last, or Advanced where a switch's setting cannot go. */
+    const lastStop = () => {
+      const next = stops[stops.indexOf(at?.section.id ?? ADVANCED) + 1];
+      return !next || (next === ADVANCED && forgets(id));
+    };
     const places: MenuItem[] = stops.map((stop): MenuItem => {
       if (stop === ADVANCED) {
         const here = !at;
@@ -93,19 +98,20 @@ export function useItemMoves({ sections, onChange, byId, toggles, move, refocus 
       const here = at?.group?.toggle === group.toggle;
       return { label: nameOfSwitch(group.toggle), note: here ? "here" : sectionName(section), disabled: here, run: () => put(id, { section: section.id, group: group.toggle, index: group.items.length }) };
     });
-    return [
-      ...places,
-      "—",
-      ...(isSwitch ? [] : [under.length ? { label: "Under a switch", items: under } : { label: "Under a switch", note: "none yet", disabled: true }]),
-      { label: "A new section…", run: () => intoNew(id) },
-      "—",
-      ...(at ? [
-        { label: `Earlier in ${where}`, key: "Alt+←", disabled: at.index === 0, run: () => shift(id, -1) },
-        { label: `Later in ${where}`, key: "Alt+→", disabled: at.index >= at.size - 1, run: () => shift(id, 1) },
-      ] : []),
-      { label: "Section up", key: "Alt+↑", disabled: stops.indexOf(at?.section.id ?? ADVANCED) <= 0, run: () => hop(id, -1) },
-      { label: "Section down", key: "Alt+↓", disabled: (() => { const next = stops[stops.indexOf(at?.section.id ?? ADVANCED) + 1]; return !next || (next === ADVANCED && forgets(id)); })(), run: () => hop(id, 1) },
-    ];
+    return menuGroups(
+      places,
+      [
+        ...(isSwitch ? [] : [under.length ? { label: "Under a switch", items: under } : { label: "Under a switch", note: "none yet", disabled: true }]),
+        { label: "A new section…", run: () => intoNew(id) },
+      ],
+      // only the steps there are (none earlier than the first): a row that would change nothing is not drawn
+      [
+        ...(at && at.index > 0 ? [{ label: `Earlier in ${where}`, key: "Alt+←", run: () => shift(id, -1) }] : []),
+        ...(at && at.index < at.size - 1 ? [{ label: `Later in ${where}`, key: "Alt+→", run: () => shift(id, 1) }] : []),
+        ...(stops.indexOf(at?.section.id ?? ADVANCED) > 0 ? [{ label: "Section up", key: "Alt+↑", run: () => hop(id, -1) }] : []),
+        ...(lastStop() ? [] : [{ label: "Section down", key: "Alt+↓", run: () => hop(id, 1) }]),
+      ],
+    );
   };
   /** What a setting (or a switch) is pressed and walked by: its name, as a button that opens "move to". */
   const chip = (id: string, label: string, className: string) => (
@@ -126,7 +132,7 @@ export function useItemMoves({ sections, onChange, byId, toggles, move, refocus 
     <ContextMenu
       at={menu.menu.at}
       label={`Move ${byId.get(menu.menu.subject)?.label ?? nameOfSwitch(menu.menu.subject)}`}
-      head={{ title: byId.get(menu.menu.subject)?.label ?? nameOfSwitch(menu.menu.subject), sub: "move to" }}
+      head={{ title: byId.get(menu.menu.subject)?.label ?? nameOfSwitch(menu.menu.subject), sub: headLine(byId.get(menu.menu.subject) ? "Setting" : "Switch", "move to") }}
       items={menuItems(menu.menu.subject)}
       onClose={closeMenu}
     />
