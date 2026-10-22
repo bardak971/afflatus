@@ -20,6 +20,10 @@
  * made to say one word per act, so a retired one (Requeue, Face detailer, Generate on a button…) is refused with the word
  * that replaced it. Only what the user reads as a label is looked at: JSX text, and the strings of `label`, `aria-label`
  * and `data-tip`, so an id, a route or a comment keeps its old word.
+ *
+ * Rule 11, the menus (the conventions at the top of apps/web/src/ContextMenu.tsx), fails on a match too: a label's
+ * ellipsis written as three dots, a menu row greyed with no note saying why, a submenu's row with an ellipsis
+ * (`menuFindings`). What only a drawn menu shows is checked where menus are drawn, by ContextMenu's `menuProblems`.
  */
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -98,6 +102,33 @@ export function wordFindings(file: string, text: string): Finding[] {
     for (const label of labelsOf(l)) {
       const banned = BANNED_WORDS.find((w) => w.test.test(label));
       if (banned) found.push({ file, line: i + 1, text: l.trim().slice(0, 140), why: `a retired label word: say "${banned.say}" (one word per act, review 4 P4)` });
+    }
+  });
+  return found;
+}
+
+/**
+ * What a web source file that builds menus writes against the menu conventions (rule 11; ContextMenu.tsx holds them),
+ * where reading its lines can tell: a label's ellipsis written as three dots, a menu row greyed with no note saying why
+ * (a row that can never work is left out; one the user can make work says how), a submenu's row ending in "…". A menu
+ * with no head fails the typecheck (`head` is required), and what only a drawn menu shows (the destructive rows last
+ * and alone, a key on two rows) is ContextMenu's `menuProblems`, which every test that opens a menu runs.
+ */
+export function menuFindings(file: string, text: string): Finding[] {
+  if (!designed(file)) return [];
+  const lines = text.split("\n");
+  const menus = /\bMenuItem\b|<ContextMenu\b/.test(text);
+  const found: Finding[] = [];
+  const say = (i: number, why: string) => found.push({ file, line: i + 1, text: lines[i]!.trim().slice(0, 140), why: `${why} (the menu conventions, ContextMenu.tsx)` });
+  lines.forEach((l, i) => {
+    if (/^\s*(?:\/\/|\*|\/\*)/.test(l)) return;
+    if (labelsOf(l).some((label) => /\.\.\.\s*$/.test(label))) say(i, 'an ellipsis is one character: "…", not three dots');
+    if (!menus || !/\blabel:/.test(l)) return;
+    if (/\blabel:\s*(["'`])[^"'`]*…\1[^\n]*\bitems:/.test(l)) say(i, "a row that opens a submenu has no ellipsis");
+    // a row's object may run over a few lines: its note is looked for up to the next row
+    if (/\bdisabled:(?!\s*false\b)/.test(l)) {
+      const rest = [l, ...lines.slice(i + 1, i + 4).filter((_, k, all) => !all.slice(0, k + 1).some((x) => /\blabel:/.test(x)))];
+      if (!rest.some((x) => /\bnote\b/.test(x))) say(i, "a greyed menu row says why in its note, or is left out as a dead row");
     }
   });
   return found;
@@ -291,7 +322,7 @@ export function sources(root: string): string[] {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const root = fileURLToPath(new URL("..", import.meta.url));
   const files = sources(root).map((p) => ({ file: relative(root, p).replace(/\\/g, "/"), text: readFileSync(p, "utf8") }));
-  const found = files.flatMap(({ file, text }) => [...sharedFindings(file, text), ...wordFindings(file, text)]);
+  const found = files.flatMap(({ file, text }) => [...sharedFindings(file, text), ...wordFindings(file, text), ...menuFindings(file, text)]);
   for (const f of found) console.error(`${f.file}:${f.line}: ${f.why}\n    ${f.text}`);
 
   const listed = process.argv.indexOf("--list");

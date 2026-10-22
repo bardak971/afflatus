@@ -7,7 +7,7 @@ import { GetFile } from "../../GetFile";
 import { busyOutside, machineLabel, machineState, NO_ROOM, noGpuYet, OUTSIDE_TIP, rentedUp, volumeHref, volumeOf } from "../../machines";
 import { useSettings } from "../../data";
 import { JOB_DRAG } from "./MachineLanes";
-import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
+import { ContextMenu, groups, useMenu, type MenuItem } from "../../ContextMenu";
 import { aboutMs, est, plural, when } from "../../format";
 import { Button, Chip, CloseButton, cx, SectionTitle, Spinner } from "../../ui";
 import { useQueueBulk } from "./bulk";
@@ -107,24 +107,26 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
   const itemsOf = (j: { id: string; index: number }): MenuItem[] => {
     const place = betterPlace(waiting, j.id, running);
     const w = waiting.find((x) => x.id === j.id);
-    return [
-      { label: "Run next", icon: <ArrowUpToLine size={14} />, disabled: j.index === 0, run: () => onOrder(moved(ids, j.id, 0)) },
-      ...(machines.length && onPin && w
-        ? [{
-            label: "Render on", icon: <Server size={14} />, note: w.pinned ? machineLabel(machines.find((m) => m.id === w.pinned) ?? { name: w.pinned, url: "" }) : "any machine",
-            items: [
-              { label: "Any machine", note: "the one that ends it soonest", checked: !w.pinned, run: () => onPin(w.id, null) },
-              "—" as const,
-              ...machines.map((m): MenuItem => ({ label: machineLabel(m), note: lackSaid(w.lacks?.[m.id]) ?? (["rendering", "idle"].includes(machineState(m)) ? undefined : machineState(m)), checked: w.pinned === m.id, run: () => onPin(w.id, m.id) })),
-            ],
-          } satisfies MenuItem]
-        : []),
-      ...(place ? [{ label: `Move after the ${modelOf(place.after).split(" · ")[0]} jobs`, icon: <ArrowDownToLine size={14} />, note: `saves ${plural(place.saves, "load")}`, run: () => onOrder(moved(ids, j.id, place.to)) }] : []),
-      { label: "Group by model", icon: <Layers size={14} />, note: saves ? `saves ${plural(saves, "load")}` : undefined, disabled: !saves, run: () => void bulk.groupQueueByModel() },
-      "—",
-      { label: "Remove from queue", key: "Del", icon: <X size={14} />, danger: true, run: () => onRemove(j.id) },
-      { label: "Remove all waiting…", icon: <Trash2 size={14} />, danger: true, run: () => void bulk.cancelAllWaiting({ ids }) },
-    ];
+    // a row that would change nothing is not drawn (the first in line, a line already grouped): no dead rows
+    return groups(
+      [
+        ...(j.index > 0 ? [{ label: "Run next", icon: <ArrowUpToLine size={14} />, run: () => onOrder(moved(ids, j.id, 0)) }] : []),
+        ...(place ? [{ label: `Move after the ${modelOf(place.after).split(" · ")[0]} jobs`, icon: <ArrowDownToLine size={14} />, note: `saves ${plural(place.saves, "load")}`, run: () => onOrder(moved(ids, j.id, place.to)) }] : []),
+        ...(saves ? [{ label: "Group by model", icon: <Layers size={14} />, note: `saves ${plural(saves, "load")}`, run: () => void bulk.groupQueueByModel() }] : []),
+      ],
+      machines.length > 0 && onPin && w && [{
+        label: "Render on", icon: <Server size={14} />, note: w.pinned ? machineLabel(machines.find((m) => m.id === w.pinned) ?? { name: w.pinned, url: "" }) : "any machine",
+        items: [
+          { label: "Any machine", note: "the one that ends it soonest", checked: !w.pinned, run: () => onPin(w.id, null) },
+          "—" as const,
+          ...machines.map((m): MenuItem => ({ label: machineLabel(m), note: lackSaid(w.lacks?.[m.id]) ?? (["rendering", "idle"].includes(machineState(m)) ? undefined : machineState(m)), checked: w.pinned === m.id, run: () => onPin(w.id, m.id) })),
+        ],
+      }],
+      [
+        { label: "Remove from queue", key: "Del", icon: <X size={14} />, danger: true, run: () => onRemove(j.id) },
+        { label: "Remove all waiting…", icon: <Trash2 size={14} />, danger: true, run: () => void bulk.cancelAllWaiting({ ids }) },
+      ],
+    );
   };
   /** The head of its menu: its name, its place in the line and its model. */
   const waitingHead = (j: { id: string; label: string; index: number }) => {

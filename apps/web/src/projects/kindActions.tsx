@@ -1,6 +1,6 @@
 import { Archive, ArchiveRestore, ArrowRight, FileOutput, Film, Folder, FolderKanban, FolderOpen, FolderPlus, FolderRoot, Layers, Link2, LogIn, Pencil, PenLine, Pin, PinOff, Play, RefreshCw, Sparkles, Trash2, Unlink, Upload, Wand2, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import type { MenuItem } from "../ContextMenu";
+import { fold, type MenuItem } from "../ContextMenu";
 import { plural, size } from "../format";
 
 /**
@@ -36,15 +36,18 @@ interface Spec {
   many?: boolean;
   /** A submenu: in the command bar each of its lines is a row of its own, these words first ("Move to Client work"). */
   flat?: string;
+  /** The family it folds into in a menu (`toMenu`): the ways to add a folder; the command bar keeps them as rows. */
+  sub?: "add";
 }
 
 const OPEN: Omit<Spec, "icon" | "tip"> = { id: "open", label: "Open", key: "Enter" };
 const SHOW: Spec = { id: "show", label: "Show in Projects", icon: FolderKanban, tip: "The Projects panel, on it." };
-const RENAME: Spec = { id: "rename", label: "Rename", key: "F2", icon: Pencil, tip: "A name of your own." };
+// it asks the name (in the row, or in a dialog) before anything is done: an ellipsis, as the library's Rename…
+const RENAME: Spec = { id: "rename", label: "Rename…", key: "F2", icon: Pencil, tip: "A name of your own." };
 const MOVE: Spec = { id: "move", label: "Move to", icon: ArrowRight, note: "another project", tip: "Into another project, or out of every project to the Inbox.", many: true, flat: "Move to" };
-const NEW_FOLDER: Spec = { id: "new-folder", label: "New folder inside…", icon: FolderPlus, tip: "A folder inside it, asked a name." };
-const IMPORT: Spec = { id: "import", label: "Import a folder here…", icon: Upload, note: "copies it in", tip: "A folder of your computer copied in, with its sub-folders." };
-const LINK: Spec = { id: "link", label: "Link a disk folder…", icon: Link2, note: "used in place", tip: "A folder of your disk shown here, its files used where they are: nothing is copied." };
+const NEW_FOLDER: Spec = { id: "new-folder", label: "New folder inside…", icon: FolderPlus, tip: "A folder inside it, asked a name.", sub: "add" };
+const IMPORT: Spec = { id: "import", label: "Import a folder here…", icon: Upload, note: "copies it in", tip: "A folder of your computer copied in, with its sub-folders.", sub: "add" };
+const LINK: Spec = { id: "link", label: "Link a disk folder…", icon: Link2, note: "used in place", tip: "A folder of your disk shown here, its files used where they are: nothing is copied.", sub: "add" };
 const PIN: Spec = { id: "pin", label: "Pin to the rail", icon: Pin, note: "one click away", tip: "A square on the rail, under the project worked in: one click works in it." };
 const WORK: Spec = { id: "open", label: "Work in it", key: "Enter", icon: LogIn, tip: "The library, the drafts and the timelines show its own, and what you make lands in it." };
 
@@ -115,8 +118,8 @@ export const MENUS: Record<MenuKind, ReadonlyArray<Spec | "—">> = {
     { id: "root", label: "Make a root folder", icon: FolderRoot, note: "renders land there", tip: "A folder named after the project, where what is made in it lands." },
     "—",
     RENAME,
-    "—",
     { id: "archive", label: "Archive", icon: Archive, note: "hides it, keeps all", tip: "Out of the lists, everything in it kept: Unarchive brings it back." },
+    "—",
     { id: "delete", label: "Delete…", key: "Del", icon: Trash2, danger: true, note: "items go to the Inbox", tip: "The project deleted, asked first: its drafts, timelines and folders go to the Inbox." },
   ],
   inbox: [
@@ -170,6 +173,7 @@ export interface KindAction {
   /** Its section in the list: a rule is drawn where it changes. */
   section: number;
   flat?: string;
+  sub?: "add";
   run?(): void;
   items?: MenuItem[];
 }
@@ -183,7 +187,10 @@ const anyOn = (items: MenuItem[] | undefined): boolean => Boolean(items?.some((i
 
 /**
  * The kind's list: every action it has, in order; one that cannot run now stays in its place, off, with the reason as its
- * note. `hide` is what the place leaves out. Several picked (`count` over one): only what acts on them all.
+ * note, when the user can make it run (clips to add, a project to unarchive). One that would change nothing whatever the
+ * user does is not in it (the menus' rule, ContextMenu.tsx): Work in it where one works already, Render all with nothing
+ * to render, Bin unused takes with none, Link again on a folder that was not moved, what the place does not do at all.
+ * `hide` is what the place leaves out. Several picked (`count` over one): only what acts on them all.
  */
 export function kindActions(f: KindFacts, runs: KindRuns, subs: KindSubs = {}, hide: readonly KindActionId[] = []): KindAction[] {
   const n = f.count ?? 1;
@@ -205,7 +212,17 @@ export function kindActions(f: KindFacts, runs: KindRuns, subs: KindSubs = {}, h
     }
   };
   // what is not there at all: a sub-folder of the disk is not renamed, moved or unlinked; a project with a root folder makes none
-  const gone = (id: KindActionId) => hide.includes(id) || (f.sub && (id === "rename" || id === "move" || id === "unlink")) || (id === "root" && f.kind === "project" && f.hasRoot);
+  const gone = (id: KindActionId) => hide.includes(id) || (f.sub && (id === "rename" || id === "move" || id === "unlink")) || (id === "root" && f.kind === "project" && f.hasRoot) || dead(id);
+  /** What can never do anything here, whatever the user does: not drawn. */
+  function dead(id: KindActionId): boolean {
+    switch (id) {
+      case "open": return (f.kind === "project" || f.kind === "inbox") && Boolean(f.working) && !f.archived;
+      case "render-missing": return f.clips !== 0 && f.toRender === 0;
+      case "bin-unused": return f.unused === null || (typeof f.unused === "object" && !f.unused.takes);
+      case "relink": return !f.missing;
+      default: return false;
+    }
+  }
   const out: KindAction[] = [];
   let section = 0;
   for (const spec of MENUS[f.kind]) {
@@ -217,8 +234,10 @@ export function kindActions(f: KindFacts, runs: KindRuns, subs: KindSubs = {}, h
     const off = why(spec.id);
     const items = spec.id === "move" || spec.id === "put" ? subs[spec.id] : undefined;
     const run = runs[spec.id];
+    // what the place does not do (no run there, nothing to choose, no reason the user could change): not drawn
+    if (!off && !run && !items?.length) continue;
     const a: KindAction = {
-      id: spec.id, label: spec.label, key: spec.key, icon: spec.icon, tip: spec.tip, note: off ?? spec.note, danger: spec.danger, section, flat: spec.flat,
+      id: spec.id, label: spec.label, key: spec.key, icon: spec.icon, tip: spec.tip, note: off ?? spec.note, danger: spec.danger, section, flat: spec.flat, sub: spec.sub,
       disabled: Boolean(off) || (!run && !items?.length), run, items: off ? undefined : items,
     };
     out.push(counted(withState(a, f, off), n));
@@ -250,14 +269,25 @@ function counted(a: KindAction, n: number): KindAction {
   }
 }
 
-/** The list as a menu: a rule between its sections, the keys drawn where they act (`keys`). */
+/**
+ * The list as a menu: a rule between its sections, the keys drawn where they act (`keys`). The ways to add a folder (New
+ * folder, Import, Link) fold into "Add a folder" when they are three and the menu holds more than them (a project's tree,
+ * scoped, keeps only them: flat there).
+ */
 export function toMenu(list: KindAction[], keys: boolean): MenuItem[] {
+  const line = (a: KindAction): MenuItem => ({ label: a.label, key: keys ? a.key : undefined, icon: <a.icon size={14} />, note: a.note, danger: a.danger, disabled: a.disabled, ...(a.items ? { items: a.items } : { run: a.run }) });
+  const adds = list.filter((a) => a.sub === "add");
+  const folding = adds.length >= 3 && adds.length < list.length;
   const out: MenuItem[] = [];
   let section: number | null = null;
   for (const a of list) {
     if (section !== null && a.section !== section) out.push("—");
     section = a.section;
-    out.push({ label: a.label, key: keys ? a.key : undefined, icon: <a.icon size={14} />, note: a.note, danger: a.danger, disabled: a.disabled, ...(a.items ? { items: a.items } : { run: a.run }) });
+    if (folding && a.sub === "add") {
+      if (a === adds[0]) out.push(...fold("Add a folder", <FolderPlus size={14} />, adds.map(line)));
+      continue;
+    }
+    out.push(line(a));
   }
   return out;
 }
@@ -282,8 +312,7 @@ export function toBar(list: KindAction[]): BarLine[] {
       return a.items.flatMap((it): BarLine[] => (it === "—" || !it.run || it.disabled ? [] : [{ label: flatLabel(a.flat!, it.label), icon: it.icon ?? <a.icon size={14} />, note: it.note, disabled: it.disabled, run: it.run }]));
     }
     if (a.flat) return [];
-    // the bar asks the new name in a dialog (a menu renames in place): its line says it asks, as the bar's others do
-    return [{ label: a.id === "rename" ? `${a.label}…` : a.label, icon: <a.icon size={14} />, note: a.note, danger: a.danger, disabled: a.disabled, run: () => a.run?.() }];
+    return [{ label: a.label, icon: <a.icon size={14} />, note: a.note, danger: a.danger, disabled: a.disabled, run: () => a.run?.() }];
   });
 }
 

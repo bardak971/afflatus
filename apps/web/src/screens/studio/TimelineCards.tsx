@@ -6,7 +6,7 @@ import { Check, Film, Folder as FolderIcon, Plus, Trash2 } from "lucide-react";
 import { useTimelineOf } from "../../actions";
 import { Select } from "../../Select";
 import { api, thumbUrl, type TimelineBrief, type TimelineLeaf } from "../../api";
-import { ContextMenu, useMenu, type MenuHead, type MenuItem } from "../../ContextMenu";
+import { ContextMenu, headLine, useMenu, type MenuHead, type MenuItem } from "../../ContextMenu";
 import { useFolders, useProjects, useProjectsTree } from "../../data";
 import { DRAG_TIMELINE, DRAG_TYPE, useDragged } from "../../dragging";
 import { clock, plural, when } from "../../format";
@@ -180,7 +180,7 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
   const headOf = (t: TimelineBrief): MenuHead =>
     picked.has(t.id) && picked.size > 1
       ? { title: `${picked.size} timelines` }
-      : { title: t.name, thumb: t.cover ?? undefined, sub: <><span className="font-mono">{clock(t.durationMs)}</span> · {plural(t.clips, "clip")}</> };
+      : { title: t.name, thumb: t.cover ?? undefined, sub: headLine("Timeline", <span className="font-mono">{clock(t.durationMs)}</span>, plural(t.clips, "clip")) };
   const error = create.error ?? makeOf.error;
   const firstScreen = firstScreenCards(size);
 

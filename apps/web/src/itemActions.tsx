@@ -80,7 +80,7 @@ export const ACTIONS: Record<ActionId, Spec> = {
   move: { group: "put", label: "Move to", kinds: ALL, icon: FolderKanban, tip: "Into a project and a folder, or back to the Inbox." },
   send: { group: "put", label: "Send to", kinds: SEEN, icon: Send, tip: "The file itself to your Telegram chat or Discord channel (Settings › Notifications), with its name." },
   bin: { group: "last", label: "Move to the bin", key: "Del", kinds: ALL, icon: Trash2, tip: "Move to the bin." },
-  // only in the bin, after Put back (see itemActions)
+  // only in the bin, last of its list (see itemActions)
   erase: { group: "last", label: "Delete now…", kinds: ALL, icon: Trash2, tip: "Erased now, file and all, instead of waiting in the bin. Asked first; cannot be undone." },
 };
 
@@ -217,8 +217,8 @@ function dead(f: ItemFacts, id: ActionId): boolean {
 
 /**
  * The item's list: every action its type has, in order, but those that can never apply to it (`dead`); one that does
- * not apply now stays in its place, off, with the reason as its note. In the bin the list is the bin's own: Put back and Delete now first, then Open, Download and
- * Compare (a look that changes nothing); nothing else, as nothing else can be done there.
+ * not apply now stays in its place, off, with the reason as its note. In the bin the list is the bin's own: Put back first, then Open, Download and
+ * Compare (a look that changes nothing), Delete now last; nothing else, as nothing else can be done there.
  * `runs` is what each does in the place; an action with no run there is off. `notes` are the place's own words on one.
  */
 export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<ActionId, string>> = {}): ItemAction[] {
@@ -248,7 +248,9 @@ export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<Acti
     const off = why(id);
     const items = id === "timeline" ? f.timelines : id === "move" ? f.moves : id === "send" ? f.shares : id === "i2v" && (f.openers?.length ?? 0) > 1 ? f.openers : id === "motion" && (f.movers?.length ?? 0) > 1 ? f.movers : undefined;
     const run = runs[id];
-    const base: ItemAction = { id, group: spec.group, sub: spec.sub, label: spec.label, key: spec.key, icon: spec.icon, tip: spec.tip, note: off ?? notes[id], disabled: Boolean(off) || Boolean(f.busy?.[id]) || (!run && !items?.length), run, items: off ? undefined : items };
+    // a row that is running says so, as a greyed row says why
+    const busy = f.busy?.[id] ? "running…" : undefined;
+    const base: ItemAction = { id, group: spec.group, sub: spec.sub, label: spec.label, key: spec.key, icon: spec.icon, tip: spec.tip, note: off ?? busy ?? notes[id], disabled: Boolean(off) || Boolean(busy) || (!run && !items?.length), run, items: off ? undefined : items };
     if (f.queued?.[id] && !off) return { ...base, label: "Queued", done: true };
     switch (id) {
       case "keep": return { ...base, label: f.kept ? "Unkeep" : "Keep", pressed: f.kept, tip: f.kept ? "Kept: it stays. Unkeep it to let it go to the bin after a day again." : spec.tip };
@@ -263,12 +265,16 @@ export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<Acti
       default: return base;
     }
   });
+  // what the place does not do at all (no run, no submenu, and nothing the user could change) is not drawn: a dead row
+  const done = list.filter((a) => !(a.disabled && !a.note && !a.run && !a.items?.length));
   // Send to only where somewhere to send is set up
-  if (!f.inBin) return f.shares?.length ? list : list.filter((x) => x.id !== "send");
+  if (!f.inBin) return f.shares?.length ? done : done.filter((x) => x.id !== "send");
   const spec = ACTIONS.erase;
-  const erase: ItemAction = { id: "erase", group: spec.group, label: spec.label, icon: spec.icon, tip: spec.tip, danger: true, disabled: !runs.erase, run: runs.erase };
-  const pick = (id: ActionId) => list.filter((a) => a.id === id);
-  return [...pick("bin"), erase, ...pick("open"), ...pick("download"), ...pick("compare")];
+  const pick = (id: ActionId) => done.filter((a) => a.id === id);
+  // Put back first, with what looks at it; Delete now last, alone, as every menu's destructive row
+  const back = pick("bin").map((a): ItemAction => ({ ...a, group: "item" }));
+  const erase: ItemAction[] = runs.erase ? [{ id: "erase", group: spec.group, label: spec.label, icon: spec.icon, tip: spec.tip, danger: true, disabled: false, run: runs.erase }] : [];
+  return [...back, ...pick("open"), ...pick("download"), ...pick("compare"), ...erase];
 }
 
 /** Where a list is shown: each place's keys act or not. */
@@ -337,15 +343,26 @@ export function toMenu(list: ItemAction[], place: Place, folds: boolean | "passe
     group = a.group;
   }
   close();
-  // no group to go with (the bin's own list): a group of their own at the end
-  if (organise.length && !list.some((a) => a.group === "put")) out.push(...(out.length ? ["—" as const] : []), ...organise);
+  // no group to go with (the bin's own list): a group of their own at the end, before what destroys (Delete now)
+  if (organise.length && !list.some((a) => a.group === "put")) {
+    const last = out.findIndex((it, i) => it !== "—" && it.danger && out.slice(i).every((x) => x === "—" || x.danger));
+    if (last < 0) out.push(...(out.length ? ["—" as const] : []), ...organise);
+    else out.splice(last, 0, ...organise, "—");
+  }
   return out;
 }
 
-/** A menu of an item: the place's own first section, then the list; `organise`: the place's rows that go with Move to (Select). */
-export const placeMenu = (own: MenuItem[], list: ItemAction[], place: Place, organise: MenuItem[] = []): MenuItem[] => {
+/**
+ * A menu of an item: the place's own first section, then the list; `organise`: the place's rows that go with Move to
+ * (Select); `last`: the place's own destructive rows (a take's Remove, a finished job's Remove from the history), with
+ * the list's bin in the last group.
+ */
+export const placeMenu = (own: MenuItem[], list: ItemAction[], place: Place, organise: MenuItem[] = [], last: MenuItem[] = []): MenuItem[] => {
   const head = own.filter((it, i) => !(it === "—" && i === own.length - 1));
-  return [...head, ...(head.length ? ["—" as const] : []), ...toMenu(list, place, place === "command" ? "passes" : true, organise)];
+  const body = toMenu(list, place, place === "command" ? "passes" : true, organise);
+  const end = body.at(-1);
+  const binLast = end !== undefined && end !== "—" && end.danger;
+  return [...head, ...(head.length && body.length ? ["—" as const] : []), ...body, ...(last.length ? [...(binLast || !body.length ? [] : ["—" as const]), ...last] : [])];
 };
 
 /**

@@ -49,11 +49,12 @@ export function useLaneMenus({ onSource, onRecording, onMusic, onVoice, onUpload
     file.current.click();
   };
 
-  const itemsOf = (ask: LaneAsk): { head: string; items: MenuItem[] } => {
+  const itemsOf = (ask: LaneAsk): { head: string; sub: string; items: MenuItem[] } => {
     const open = { icon: <FileUp size={14} />, run: () => openFile(ask) };
     if (ask.kind === "source") {
       return {
         head: "Source",
+        sub: "Lane · a long video for Motion transfer",
         items: [
           { label: "Choose a video from the library…", icon: <Library size={14} />, run: () => setPicking(ask) },
           ...(onUpload ? [{ label: "Open a video file…", ...open }] : []),
@@ -65,6 +66,7 @@ export function useLaneMenus({ onSource, onRecording, onMusic, onVoice, onUpload
       const to = switchOf?.(ask.clip);
       return {
         head: `Clip ${ask.n}'s voice`,
+        sub: "Lip sync · no voice yet",
         items: [
           { label: `Choose a recording for clip ${ask.n}…`, icon: <Library size={14} />, run: () => setPicking(ask) },
           ...(onUpload ? [{ label: "Open an audio file…", ...open }] : []),
@@ -74,6 +76,7 @@ export function useLaneMenus({ onSource, onRecording, onMusic, onVoice, onUpload
     }
     return {
       head: ask.kind === "music" ? "Music" : "Voice recording",
+      sub: ask.kind === "music" ? "Lane · under the whole video" : "Lane · for Lip sync clips",
       items: [
         { label: ask.kind === "music" ? "Choose music from the library…" : "Choose a recording from the library…", icon: <Library size={14} />, run: () => setPicking(ask) },
         ...(onUpload ? [{ label: "Open an audio file…", ...open }] : []),
@@ -84,7 +87,7 @@ export function useLaneMenus({ onSource, onRecording, onMusic, onVoice, onUpload
   const shown = menu.menu ? itemsOf(menu.menu.subject) : null;
   const node = (
     <>
-      {menu.menu && shown && <ContextMenu at={menu.menu.at} label={shown.head} head={{ title: shown.head }} items={shown.items} onClose={menu.close} />}
+      {menu.menu && shown && <ContextMenu at={menu.menu.at} label={shown.head} head={{ title: shown.head, sub: shown.sub }} items={shown.items} onClose={menu.close} />}
       {picking && (
         <Picker
           // the voice's picker is the one its form field opens (the Recording slot)

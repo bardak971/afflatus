@@ -401,7 +401,7 @@ function MusicPicker({ action }: { action: ItemAction | undefined }) {
       <Button size="sm" className="justify-start" disabled={action.disabled} data-tip={action.disabled && action.note ? `Timeline: ${action.note}` : "As the music of a timeline"} onClick={(e) => menu.open(e, true)}>
         <Music size={14} /> As music of… <ChevronDown size={13} />
       </Button>
-      {menu.menu && action.items && <ContextMenu at={menu.menu.at} label="As the music of a timeline" items={action.items} onClose={menu.close} />}
+      {menu.menu && action.items && <ContextMenu at={menu.menu.at} label="As the music of a timeline" head={{ title: "As music of", sub: "a timeline" }} items={action.items} onClose={menu.close} />}
     </FieldRow>
   );
 }
@@ -508,7 +508,7 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
           </div>
         ))}
         {failed && <span className="-mt-2 text-warn-ink">{failed.message}</span>}
-        {choose.menu?.subject.items && <ContextMenu at={choose.menu.at} label={choose.menu.subject.label} items={choose.menu.subject.items} onClose={choose.close} />}
+        {choose.menu?.subject.items && <ContextMenu at={choose.menu.at} label={choose.menu.subject.label} head={{ title: choose.menu.subject.label, sub: "on which model" }} items={choose.menu.subject.items} onClose={choose.close} />}
 
         {g && (
           <div data-viewer-params className="flex scroll-mt-3 flex-col gap-3">

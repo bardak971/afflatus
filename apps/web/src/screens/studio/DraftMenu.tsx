@@ -5,7 +5,7 @@ import { fuzzyFilter, REMOVED_RECIPES, removedName } from "@afflatus/core";
 import { thumbUrl, type DraftBrief, type FamilyInfo, type RecipeInfo } from "../../api";
 import { useRecipes } from "../../data";
 import { plural, triedLabel, when } from "../../format";
-import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
+import { ContextMenu, headLine, useMenu, type MenuItem } from "../../ContextMenu";
 import { Keys } from "../../Keys";
 import { Popover } from "../../Popover";
 import { cx, SearchField, TwoStep } from "../../ui";
@@ -272,7 +272,7 @@ export function DraftMenu({ drafts: rows, open: current, titleOf, onPick, onNew,
             <ContextMenu
               at={rowMenu.menu.at}
               label="Actions on this draft"
-              head={{ title: nameOf(rowMenu.menu.subject), sub: `${modelLine(rowMenu.menu.subject)} · ${countOf(rowMenu.menu.subject)}` }}
+              head={{ title: nameOf(rowMenu.menu.subject), sub: headLine("Draft", modelLine(rowMenu.menu.subject), countOf(rowMenu.menu.subject)) }}
               items={closing(menuOf(rowMenu.menu.subject))}
               onClose={rowMenu.close}
             />

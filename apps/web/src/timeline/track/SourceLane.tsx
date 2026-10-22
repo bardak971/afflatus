@@ -1,9 +1,10 @@
 import { useLayoutEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Eye, SlidersHorizontal, Split, Trash2 } from "lucide-react";
 import { carriedOf, sourceWindows, trimIn, windowShapeOf, type ClipValue, type SourceWindow } from "@afflatus/core";
-import { ContextMenu, useMenu } from "../../ContextMenu";
+import { ContextMenu, groups, headLine, useMenu } from "../../ContextMenu";
 import { STRIP_FRAMES, stripUrl, type Asset, type Clip, type RecipeInfo, type Timeline } from "../../api";
 import { cx } from "../../ui";
+import { clock } from "../../format";
 import { motionAllowed } from "../../useFlip";
 import { fileVersion, PAD, type Slot } from "../model";
 import { ROW, SOURCE } from "./rows";
@@ -365,14 +366,15 @@ export function SourceLane({ timeline, place, recipes, pps, selected, over, onDr
         <ContextMenu
           at={menu.menu.at}
           label="The source"
-          head={{ title: "Source", sub: video.name }}
-          items={[
-            { label: "Source settings", icon: <SlidersHorizontal size={14} />, note: "its form, Make N clips", run: onSelect },
-            ...(onSplit !== undefined && !place.made ? [{ label: "Split at the playhead", key: "S", icon: <Split size={14} />, disabled: !onSplit, note: onSplit ? "the part before plays as it is; Motion transfer starts there" : "put the playhead inside the stretch", run: () => onSplit?.() }] : []),
-            ...(onOpen ? [{ label: "Open its video", icon: <Eye size={14} />, note: "the viewer", run: () => onOpen(video) }] : []),
-            "—" as const,
-            ...(onRemove ? [{ label: "Remove the source", icon: <Trash2 size={14} />, key: "Del", note: "with the clips made from it (Undo brings them back)", run: onRemove }] : []),
-          ]}
+          head={{ title: "Source", sub: headLine(video.name || "Video", video.durationMs ? <span className="font-mono">{clock(video.durationMs)}</span> : null) }}
+          items={groups(
+            [
+              { label: "Source settings", icon: <SlidersHorizontal size={14} />, note: "its form, Make N clips", run: onSelect },
+              ...(onOpen ? [{ label: "Open its video", icon: <Eye size={14} />, note: "the viewer", run: () => onOpen(video) }] : []),
+            ],
+            onSplit !== undefined && !place.made && [{ label: "Split at the playhead", key: "S", icon: <Split size={14} />, disabled: !onSplit, note: onSplit ? "the part before plays as it is; Motion transfer starts there" : "put the playhead inside the stretch", run: () => onSplit?.() }],
+            onRemove && [{ label: "Remove the source", icon: <Trash2 size={14} />, key: "Del", danger: true, note: "with the clips made from it (Undo brings them back)", run: onRemove }],
+          )}
           onClose={menu.close}
         />
       )}

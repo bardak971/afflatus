@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import type { Entity, FamilyInfo, RecipeInfo } from "../../api";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { useRecipes } from "../../data";
@@ -70,9 +70,9 @@ export function PresetList({ found, open, onSelect: select, onMenu, children }: 
   const missingCount = found.filter((e) => e.kind === "preset" && missingOf(e) > 0).length;
   // the model is a menu, not a row of chips: five families' names took two lines of a 420 px column
   const modelItems: MenuItem[] = [
-    { label: "Every model", icon: familyFilter ? undefined : <Check size={14} />, run: () => setFamilyFilter(null) },
+    { label: "Every model", checked: !familyFilter, run: () => setFamilyFilter(null) },
     "—",
-    ...presetFamilies.map((f) => ({ label: f.name, icon: familyFilter === f.id ? <Check size={14} /> : undefined, run: () => setFamilyFilter(f.id) })),
+    ...presetFamilies.map((f) => ({ label: f.name, checked: familyFilter === f.id, run: () => setFamilyFilter(f.id) })),
   ];
   const modelName = presetFamilies.find((f) => f.id === familyFilter)?.name ?? "Every model";
   /** A filter that is on or off, the look of the snippet chips. */
@@ -122,7 +122,7 @@ export function PresetList({ found, open, onSelect: select, onMenu, children }: 
         {toggle(onlyMine, setOnlyMine, "Mine", "Only the presets you made or imported, not the shipped ones")}
         {toggle(onlyMissing, setOnlyMissing, <>Files missing{missingCount > 0 && <span className="ml-1 tabular-nums text-ink-3">{missingCount}</span>}</>, "Only the presets that need a file this ComfyUI does not have")}
       </div>
-      {modelMenu.menu && <ContextMenu at={modelMenu.menu.at} label="Which model" items={modelItems} onClose={modelMenu.close} />}
+      {modelMenu.menu && <ContextMenu at={modelMenu.menu.at} label="Which model" head={{ title: "Presets for", sub: plural(presetFamilies.length, "model") }} items={modelItems} onClose={modelMenu.close} />}
       <div className="flex min-h-0 grow flex-col gap-1 overflow-y-auto px-3 py-3">
         {children}
         {found.length > 0 && presetsShown.length === 0 && <div className="px-2 py-6 text-center text-xs text-ink-2">No preset matches these filters.</div>}

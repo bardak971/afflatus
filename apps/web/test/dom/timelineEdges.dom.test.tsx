@@ -390,9 +390,13 @@ describe("a clip's joins, from its menu (W-12)", () => {
     const third = { ...first, id: "zz-test-clip-3", atMs: 10_000 } as Clip;
     const openJoin = vi.fn();
     const act = { clips: [first, second, third], recipes: [model], inputsOf: (c: Clip) => c.inputs, onClip: () => null, picked: new Set<string>(), pending: {}, openJoin } as unknown as ClipMenuActions;
-    draw(<ContextMenu at={{ x: 10, y: 10 }} label="Actions on this clip" items={clipMenuItems(second, act)} onClose={() => {}} />);
+    draw(<ContextMenu at={{ x: 10, y: 10 }} label="Actions on this clip" head={{ title: "Clip 2" }} items={clipMenuItems(second, act)} onClose={() => {}} />);
+    // its joins fold into "Joins" (extend or cut, the join before, the join after): a family of three
+    const joins = () => screen.queryByRole("menuitem", { name: /How it meets clip 3/ }) ?? (fireEvent.click(screen.getByRole("menuitem", { name: /^Joins/ })), null);
+    joins();
     fireEvent.click(screen.getByRole("menuitem", { name: /How it meets clip 1/ }));
     expect(openJoin).toHaveBeenLastCalledWith("zz-test-clip-2");
+    joins();
     fireEvent.click(screen.getByRole("menuitem", { name: /How it meets clip 3/ }));
     expect(openJoin).toHaveBeenLastCalledWith("zz-test-clip-3");
   });

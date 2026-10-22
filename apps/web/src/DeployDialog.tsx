@@ -479,7 +479,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
             <ChevronDown size={15} />
           </button>
         </span>
-        {more.menu && <ContextMenu at={more.menu.at} label="Deploy" items={[{ label: "Save as next deploy", note: "without deploying", icon: <Bookmark size={14} />, run: () => saveNext.mutate() }]} onClose={more.close} />}
+        {more.menu && <ContextMenu at={more.menu.at} label="Deploy" head={{ title: "Deploy", sub: "these choices" }} items={[{ label: "Save as next deploy", note: "without deploying", icon: <Bookmark size={14} />, run: () => saveNext.mutate() }]} onClose={more.close} />}
       </div>
     </Dialog>
   );

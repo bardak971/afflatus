@@ -2,7 +2,7 @@ import { relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { budgetVerdict, DESIGN_RULES, designCounts, overBudget, sharedFindings, sources, unmarked, wordFindings } from "../../../scripts/check-shared";
+import { budgetVerdict, DESIGN_RULES, designCounts, menuFindings, overBudget, sharedFindings, sources, unmarked, wordFindings } from "../../../scripts/check-shared";
 
 // the guard `pnpm lint` runs: what it refuses, and what it leaves alone
 describe("the shared helpers' guard", () => {
@@ -160,5 +160,30 @@ describe("the retired label words", () => {
     const root = fileURLToPath(new URL("../../..", import.meta.url));
     const files = sources(root).map((p) => ({ file: relative(root, p).replace(/\\/g, "/"), text: readFileSync(p, "utf8") }));
     expect(files.flatMap(({ file, text }) => wordFindings(file, text))).toEqual([]);
+  });
+});
+
+// rule 11: the menu conventions (apps/web/src/ContextMenu.tsx), where a menu's lines can tell
+describe("the menu conventions, read in the source", () => {
+  const menu = (...rows: string[]) => ['import type { MenuItem } from "./ContextMenu";', "const items: MenuItem[] = [", ...rows, "];"].join("\n");
+  const why = (file: string, text: string) => menuFindings(file, text).map((f) => f.why.replace(/ \(the menu conventions.*$/, ""));
+  it("refuses three dots for an ellipsis, a greyed row with no reason, an ellipsis on a submenu's row", () => {
+    expect(why("apps/web/src/x.tsx", menu('  { label: "Rename...", run },'))).toEqual(['an ellipsis is one character: "…", not three dots']);
+    expect(why("apps/web/src/x.tsx", "<Button>Loading...</Button>")).toEqual(['an ellipsis is one character: "…", not three dots']);
+    expect(why("apps/web/src/x.tsx", menu('  { label: "Move up", disabled: i === 0, run },'))).toEqual(["a greyed menu row says why in its note, or is left out as a dead row"]);
+    expect(why("apps/web/src/x.tsx", menu('  { label: "Move to…", items: moves },'))).toEqual(["a row that opens a submenu has no ellipsis"]);
+  });
+  it("takes a reason on the row's next lines, a row that is never off, and files with no menu", () => {
+    expect(why("apps/web/src/x.tsx", menu("  {", '    label: "Make it loop", disabled: busy,', '    note: busy ? "making…" : undefined,', "  },"))).toEqual([]);
+    expect(why("apps/web/src/x.tsx", menu('  { label: "Delete now…", danger: true, disabled: false, run },'))).toEqual([]);
+    // the next row's note is not this one's
+    expect(why("apps/web/src/x.tsx", menu('  { label: "A", disabled: true, run },', '  { label: "B", note: "b", run },'))).toEqual(["a greyed menu row says why in its note, or is left out as a dead row"]);
+    expect(why("apps/web/src/x.tsx", '<Button disabled={busy} label="Save" />')).toEqual([]);
+    expect(why("apps/server/src/x.ts", menu('  { label: "Up", disabled: true },'))).toEqual([]);
+  });
+  it("finds none in today's web app", () => {
+    const root = fileURLToPath(new URL("../../..", import.meta.url));
+    const files = sources(root).map((p) => ({ file: relative(root, p).replace(/\\/g, "/"), text: readFileSync(p, "utf8") }));
+    expect(files.flatMap(({ file, text }) => menuFindings(file, text))).toEqual([]);
   });
 });

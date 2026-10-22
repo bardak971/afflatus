@@ -49,7 +49,7 @@ export function useItemMutations() {
   });
   /**
    * The Move to submenu: each project with its root folder and its folders (a project with none is one line), then
-   * the Inbox; where it is now is off. `ids`: several items moved together (the item's own when left out).
+   * the Inbox; where it is now is off, and says "here". `ids`: several items moved together (the item's own when left out).
    */
   const moves = (asset: Pick<Asset, "id" | "folderId">, ids: string[] = [asset.id]): MenuItem[] => {
     const here = (folder: string | null) => ids.length === 1 && asset.folderId === folder;
@@ -62,15 +62,15 @@ export function useItemMutations() {
           const f = folders.find((x) => x.id === id);
           return !f || f.id === p.folderId ? [] : [...pathOf(f.parentId), f.name];
         };
-        const root: MenuItem = { label: inside.length ? "Root folder" : p.name, icon: <FolderKanban size={14} />, note: inside.length ? undefined : "its root folder", disabled: here(p.folderId), run: go(p.folderId) };
+        const root: MenuItem = { label: inside.length ? "Root folder" : p.name, icon: <FolderKanban size={14} />, note: here(p.folderId) ? "here" : inside.length ? undefined : "its root folder", disabled: here(p.folderId), run: go(p.folderId) };
         if (!inside.length) return root;
         return { label: p.name, icon: <FolderKanban size={14} />, items: [
           root,
-          ...inside.map((f): MenuItem => ({ label: pathOf(f.id).join(" › "), icon: <Folder size={14} />, note: `${f.count}`, disabled: here(f.id), run: go(f.id) })),
+          ...inside.map((f): MenuItem => ({ label: pathOf(f.id).join(" › "), icon: <Folder size={14} />, note: here(f.id) ? "here" : `${f.count}`, disabled: here(f.id), run: go(f.id) })),
         ] };
       }),
       ...(projects.length ? ["—" as const] : []),
-      { label: "The Inbox", icon: <Inbox size={14} />, note: "out of every project", disabled: here(null), run: go(null) },
+      { label: "The Inbox", icon: <Inbox size={14} />, note: here(null) ? "here" : "out of every project", disabled: here(null), run: go(null) },
     ];
   };
   /** A new folder, asked for by name, in the item's project (under its root folder) or the Inbox; the item goes into it. */

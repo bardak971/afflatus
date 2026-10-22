@@ -1,7 +1,7 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckSquare, ChevronDown, ChevronRight, Copy, Trash2 } from "lucide-react";
-import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
+import { ContextMenu, headLine, useMenu, type MenuItem } from "../../ContextMenu";
 import { ask } from "../../Confirm";
 import { fuzzyFilter } from "@afflatus/core";
 import { api, raw, type Entity } from "../../api";
@@ -64,16 +64,18 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
   const menu = useMenu<true>();
   const say = useBanners((b) => b.push);
   const failed = useSayFailed({ id: "kit", href: kitHref("snippet"), go: "Open the snippets" });
+  // what it holds first, then ticking it with others (the library's Select), Delete last: it asks first, so "…"
   const items: MenuItem[] = [
-    { label: ticked ? "Untick" : "Tick", icon: <CheckSquare size={14} />, note: "to move or delete several", run: () => onTick(!ticked) },
     // said in a banner, as the seed is: a menu item shows nothing once it closes
     { label: "Copy its text", icon: <Copy size={14} />, run: () => void copyText(text).then(() => say({ id: `copied:${Date.now()}`, tone: "good", title: `Text of ${snippet.name} copied` }), failed("Could not copy the snippet")) },
     "—",
-    { label: "Delete", icon: <Trash2 size={14} />, danger: true, run: () => void ask({ title: `Delete the snippet ${snippet.name}?`, text: "It goes from every draft that uses it.", yes: "Delete" }).then((yes) => yes && remove.mutate()) },
+    { label: "Select", icon: <CheckSquare size={14} />, checked: ticked, note: "to move or delete several", run: () => onTick(!ticked) },
+    "—",
+    { label: "Delete…", icon: <Trash2 size={14} />, danger: true, run: () => void ask({ title: `Delete the snippet ${snippet.name}?`, text: "It goes from every draft that uses it.", yes: "Delete" }).then((yes) => yes && remove.mutate()) },
   ];
   return (
     <div onContextMenu={(e) => { if (!(e.target as HTMLElement).closest("input, textarea")) menu.open(e, true); }} className={cx("grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_148px_auto] items-start gap-1.5 rounded-lg px-1.5 py-0.5", ticked ? "bg-accent-wash" : "hover:bg-panel")}>
-      {menu.menu && <ContextMenu at={menu.menu.at} label={`Snippet ${snippet.name}`} head={{ title: snippet.name, sub: snippet.def.category || "No category" }} items={items} onClose={menu.close} />}
+      {menu.menu && <ContextMenu at={menu.menu.at} label={`Snippet ${snippet.name}`} head={{ title: snippet.name, sub: headLine("Snippet", snippet.def.category || "no category") }} items={items} onClose={menu.close} />}
       <span className="flex h-8 w-7 items-center justify-center">
         <Checkbox label={`Tick ${snippet.name}`} checked={ticked} onChange={onTick} />
       </span>

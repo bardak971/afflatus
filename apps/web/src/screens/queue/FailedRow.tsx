@@ -2,7 +2,7 @@ import { useState, type CSSProperties } from "react";
 import { Link } from "wouter";
 import { ChevronsDownUp, ChevronsUpDown, FileText, MoreHorizontal, Pencil, RotateCcw, Trash2, Wrench } from "lucide-react";
 import type { HistoryJob } from "../../api";
-import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
+import { ContextMenu, groups, useMenu, type MenuItem } from "../../ContextMenu";
 import { useRecipes } from "../../data";
 import { when } from "../../format";
 import { Button, buttonClass, Chip, cx } from "../../ui";
@@ -66,15 +66,20 @@ export function FailedRow({ jobs, quiet = false }: { jobs: HistoryJob[]; quiet?:
   // an unchanged retry of a missing file, or of what a setting has to fix, fails the same way until that is done
   const until = said.missing ? "fails again until the file is there" : link ? "fails again until it is fixed" : undefined;
   const menu = useMenu<true>();
-  const items: MenuItem[] = [
-    ...(first ? [{ label: n > 1 ? `Render all ${n} again` : "Render again", icon: <RotateCcw size={14} />, note: until, disabled: again.isPending, run: () => retry() }] : []),
-    ...more.map((f) => ({ label: f.label, icon: <Wrench size={14} />, note: f.tip, disabled: again.isPending, run: f.run })),
-    ...(job.draftId && !(said.missing && fixes.length) ? [{ label: "Open its draft", icon: <Pencil size={14} />, run: () => toDraft(job.draftId!) }] : []),
-    { label: open ? "Hide the whole error" : "Show the whole error", icon: <FileText size={14} />, run: () => setOpen(!open) },
-    ...(n > 1 ? [{ label: split ? `Fold the ${n} jobs` : `Show the ${n} jobs`, icon: split ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />, run: () => setSplit(!split) }] : []),
-    "—",
-    { label: n > 1 ? `Dismiss all ${n}` : "Dismiss", icon: <Trash2 size={14} />, danger: true, note: "out of the history", run: () => (n > 1 ? void bulk.dismissAllFailed({ ids }) : dismiss.mutate(job.id)) },
-  ];
+  // the fix first (the row's own buttons), then its draft, then what tells about it, the dismissal last
+  const busy = again.isPending ? "queueing…" : undefined;
+  const items: MenuItem[] = groups(
+    [
+      ...(first ? [{ label: n > 1 ? `Render all ${n} again` : "Render again", icon: <RotateCcw size={14} />, note: busy ?? until, disabled: again.isPending, run: () => retry() }] : []),
+      ...more.map((f) => ({ label: f.label, icon: <Wrench size={14} />, note: busy ?? f.tip, disabled: again.isPending, run: f.run })),
+      ...(job.draftId && !(said.missing && fixes.length) ? [{ label: "Open its draft", icon: <Pencil size={14} />, run: () => toDraft(job.draftId!) }] : []),
+    ],
+    [
+      { label: open ? "Hide the whole error" : "Show the whole error", icon: <FileText size={14} />, run: () => setOpen(!open) },
+      ...(n > 1 ? [{ label: split ? `Fold the ${n} jobs` : `Show the ${n} jobs`, icon: split ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />, run: () => setSplit(!split) }] : []),
+    ],
+    [{ label: n > 1 ? `Dismiss all ${n}` : "Dismiss", icon: <Trash2 size={14} />, danger: true, note: "out of the history", run: () => (n > 1 ? void bulk.dismissAllFailed({ ids }) : dismiss.mutate(job.id)) }],
+  );
   const toggle = () => setOpen(!open);
   const button = (f: Fix, tone: "primary" | "plain") =>
     f.href ? (

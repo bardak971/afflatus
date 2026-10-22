@@ -1,7 +1,7 @@
 import { lazy, memo, Suspense, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Clipboard, FileOutput, Loader2, Music, Pencil, Play, RotateCcw, Scissors, Trash2, X } from "lucide-react";
-import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
+import { ContextMenu, groups, useMenu, type MenuItem } from "../../ContextMenu";
 import { api, type HistoryJob } from "../../api";
 import { HoverVideo } from "../../HoverVideo";
 import { useAsset, useJobs, useRecipes } from "../../data";
@@ -111,6 +111,7 @@ export const History = memo(function History() {
     onOpen: (a) => setOpen(a.id), place: "queue", listed: false,
     seed: menuJobs?.length === 1 ? menuJobs[0]!.seed : null,
     first: () => (menuJobs ? rowOwn(menuJobs, jobActs) : []),
+    last: () => (menuJobs ? rowGone(menuJobs, jobActs) : []),
   });
   const openResultMenu = (e: React.MouseEvent, rowJobs: HistoryJob[]) => {
     const first = rowJobs.flatMap((j) => j.made)[0];
@@ -137,12 +138,11 @@ export const History = memo(function History() {
   // right-click on a row with no result (a cut, an export, a result deleted since): its own section and its seed
   const menuOf = (jobs: HistoryJob[]): MenuItem[] => {
     const head = jobs[0]!;
-    return [
-      ...rowOwn(jobs, jobActs).slice(0, -1),
-      ...(head.seed !== null && jobs.length === 1 ? [{ label: "Copy the seed", icon: <Clipboard size={14} />, note: String(head.seed), run: () => { setCopiedFor(head.id); seedCopy.copy(String(head.seed)); } }] : []),
-      "—",
-      ...rowOwn(jobs, jobActs).slice(-1),
-    ];
+    return groups(
+      rowOwn(jobs, jobActs),
+      head.seed !== null && jobs.length === 1 && [{ label: "Copy the seed", icon: <Clipboard size={14} />, note: String(head.seed), run: () => { setCopiedFor(head.id); seedCopy.copy(String(head.seed)); } }],
+      rowGone(jobs, jobActs),
+    );
   };
   const menuHead = rowMenu.menu?.subject;
   const menuName = menuHead ? rowName(menuHead) : "";
@@ -341,14 +341,18 @@ function PlaceholderRow() {
 /** How a finished job ended, at the head of its menu. */
 const STATUS_WORD = { queued: "Waiting", running: "Running", done: "Done", failed: "Failed", cancelled: "Cancelled" } as const;
 
-/** A finished job's own section of its menu, before its result's list: back to its draft, the same job again, out of the history. */
-function rowOwn(jobs: HistoryJob[], { again, dismiss, toDraft }: ReturnType<typeof useJobActions>): MenuItem[] {
+/** A finished job's own section of its menu, before its result's list: back to its draft, the same job again. */
+function rowOwn(jobs: HistoryJob[], { again, toDraft }: ReturnType<typeof useJobActions>): MenuItem[] {
   const head = jobs[0]!;
   return [
     ...(head.draftId ? [{ label: "Open its draft", icon: <Pencil size={14} />, run: () => toDraft(head.draftId!) }] : []),
-    ...(head.kind === "render" ? [{ label: jobs.length > 1 ? `Render these ${jobs.length} again` : "Render again", icon: <RotateCcw size={14} />, note: "the same job, unchanged", disabled: again.isPending, run: () => jobs.forEach((j) => again.mutate({ id: j.id })) }] : []),
-    { label: "Remove from the history", icon: <Trash2 size={14} />, danger: true, note: "what it made stays in the library", run: () => dismiss.mutate(jobs.map((j) => j.id)) },
+    ...(head.kind === "render" ? [{ label: jobs.length > 1 ? `Render these ${jobs.length} again` : "Render again", icon: <RotateCcw size={14} />, note: again.isPending ? "queueing…" : "the same job, unchanged", disabled: again.isPending, run: () => jobs.forEach((j) => again.mutate({ id: j.id })) }] : []),
   ];
+}
+
+/** A finished job out of the history: its menu's last row, with its result's bin when it has one. */
+function rowGone(jobs: HistoryJob[], { dismiss }: ReturnType<typeof useJobActions>): MenuItem[] {
+  return [{ label: "Remove from the history", icon: <Trash2 size={14} />, danger: true, note: "what it made stays in the library", run: () => dismiss.mutate(jobs.map((j) => j.id)) }];
 }
 
 /** What a row does, handed down from the history: one set for every row. */

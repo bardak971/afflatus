@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown, Search } from "lucide-react";
-import { ContextMenu, useMenu } from "../ContextMenu";
+import { ContextMenu, headLine, useMenu } from "../ContextMenu";
 import { useFit } from "../useFit";
 import { CloseButton, cx, IconButton, pillBox, placePill, sameBox, type PillBox } from "../ui";
 import { scrollInside } from "../scrollInside";
@@ -204,7 +204,7 @@ export function Strip({ parts, open, query, setQuery, found }: {
                 <ChevronDown size={11} />
               </button>
             )}
-            {more.menu && <ContextMenu at={more.menu.at} label="More parts of the form" items={hidden.map((p) => ({ label: p.label, note: p.id === current ? "in view" : undefined, run: () => goTo(p.id) }))} onClose={more.close} />}
+            {more.menu && <ContextMenu at={more.menu.at} label="More parts of the form" head={{ title: "More parts", sub: headLine("Form", plural(hidden.length, "part")) }} items={hidden.map((p) => ({ label: p.label, note: p.id === current ? "in view" : undefined, run: () => goTo(p.id) }))} onClose={more.close} />}
           </>
         )}
         <span className="grow" />

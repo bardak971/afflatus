@@ -74,15 +74,17 @@ describe("the item's list", () => {
     expect(itemActions(facts("video", { voice: false }), runs).find((a) => a.id === "voice")).toMatchObject({ disabled: true, note: "no model takes a voice sample" });
   });
 
-  it("lists only the bin's own in the bin: Put back and Delete now first, then Open, Download and Compare", () => {
+  it("lists only the bin's own in the bin: Put back first, then Open, Download and Compare, Delete now last", () => {
     for (const kind of ["image", "video", "audio"] as const) {
       const list = itemActions(facts(kind, { inBin: true }), { ...runs, erase: () => {} });
-      expect(list.map((a) => a.id)).toEqual(["bin", "erase", "open", "download", ...(kind === "audio" ? [] : ["compare" as const])]);
+      expect(list.map((a) => a.id)).toEqual(["bin", "open", "download", ...(kind === "audio" ? [] : ["compare" as const]), "erase"]);
       expect(list.filter((a) => a.disabled)).toEqual([]);
       expect(list[0]).toMatchObject({ label: "Put back", key: undefined });
       expect(list[0]!.danger).toBeFalsy();
-      expect(list[1]).toMatchObject({ label: "Delete now…", danger: true });
+      expect(list.at(-1)).toMatchObject({ label: "Delete now…", danger: true });
     }
+    // where Delete now is not run, it is not there (never a dead row)
+    expect(itemActions(facts("image", { inBin: true }), runs).map((a) => a.id)).not.toContain("erase");
   });
 
   it("says why Reuse cannot while the parameters are read or its model is gone; leaves it out of what was not made here", () => {
@@ -184,13 +186,13 @@ describe("every place shows the same list", () => {
     expect(none).toMatchObject({ disabled: true, note: "no video model takes a first frame" });
   });
 
-  it("puts Select with Timeline and Move to, above the bin; at the end where there is no such group (in the bin)", () => {
+  it("puts Select with Timeline and Move to, above the bin; in the bin, in a group of its own before Delete now", () => {
     const select: MenuItem[] = [{ label: "Select", key: "Ctrl+click", run: () => {} }];
     const menu = lines(placeMenu([{ label: "Use in this draft", items: [] }], itemActions(facts("image"), runs), "grid", select));
     expect(menu[0]).toBe("Use in this draft");
     expect(menu.slice(-5)).toEqual(["Timeline", "Move to", "Select", "—", "Move to the bin"]);
     const bin = lines(placeMenu([], itemActions(facts("image", { inBin: true }), { ...runs, erase: () => {} }), "grid", select));
-    expect(bin.slice(-2)).toEqual(["—", "Select"]);
+    expect(bin.slice(-4)).toEqual(["—", "Select", "—", "Delete now…"]);
   });
 
   it("puts each action once in the stage's bar: the row, Passes, ··· or the bin", () => {

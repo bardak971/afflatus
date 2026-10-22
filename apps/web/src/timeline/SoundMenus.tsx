@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Clip, Timeline, TimelinePatch } from "../api";
-import { ContextMenu, type MenuHead, type useMenu } from "../ContextMenu";
+import { ContextMenu, headLine, type MenuHead, type useMenu } from "../ContextMenu";
 import { Picker } from "../PictureField";
 import { musicMenuItems, soundMenuItems } from "./menus";
 import type { ShownPatch } from "./model";
@@ -8,7 +8,7 @@ import type { ShownPatch } from "./model";
 /** The head of a clip's audio menu: what is heard, and how loud. */
 const soundHead = (clips: Clip[], c: Clip): MenuHead => ({
   title: `Audio of clip ${clips.findIndex((x) => x.id === c.id) + 1}`,
-  sub: `${c.sound === "own" ? "Own audio" : c.sound === "muted" ? "Muted" : "Audio file"} · ${c.volume} %`,
+  sub: headLine("Sound", c.sound === "own" ? "own audio" : c.sound === "muted" ? "muted" : "audio file", `${c.volume} %`),
 });
 
 /**
@@ -34,7 +34,7 @@ export function SoundMenus({ t, clips, soundMenu, musicMenu, onPatch, onEdit, se
   return (
     <>
       {soundMenu.menu && <ContextMenu at={soundMenu.menu.at} label="The audio of this clip" head={soundHead(clips, clips.find((x) => x.id === soundMenu.menu!.subject.id) ?? soundMenu.menu.subject)} items={soundMenuItems(clips.find((x) => x.id === soundMenu.menu!.subject.id) ?? soundMenu.menu.subject, { patch: onPatch, pick: setSoundPick, select })} onClose={soundMenu.close} />}
-      {musicMenu.menu && <ContextMenu at={musicMenu.menu.at} label="The music" head={{ title: "Music", sub: t.music ? t.music.asset.name || "Sound" : "None yet" }} items={musicMenuItems(t.music, { pick: () => setMusicPick(true), open: openMusic, edit: onEdit })} onClose={musicMenu.close} />}
+      {musicMenu.menu && <ContextMenu at={musicMenu.menu.at} label="The music" head={{ title: "Music", sub: headLine("Sound", t.music ? t.music.asset.name || null : "none yet") }} items={musicMenuItems(t.music, { pick: () => setMusicPick(true), open: openMusic, edit: onEdit })} onClose={musicMenu.close} />}
       {soundPick && <Picker title={`Audio of clip ${clips.findIndex((x) => x.id === soundPick.id) + 1}`} kind="audio" onClose={() => setSoundPick(null)} onPick={(soundAsset) => { onPatch(soundPick.id, { soundAsset }); setSoundPick(null); }} />}
       {musicPick && <Picker title="Music" kind="audio" onClose={() => setMusicPick(false)} onPick={(asset) => { onEdit({ music: { asset } }); setMusicPick(false); showMusic(); }} />}
     </>

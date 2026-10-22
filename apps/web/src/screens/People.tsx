@@ -8,7 +8,7 @@ import { useEntities, useRecipes } from "../data";
 import { PresetEditor } from "../PresetEditor";
 import { ShippedPreset } from "../ShippedPreset";
 import { importPresetFile, savePresetFile } from "../presetFile";
-import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
+import { ContextMenu, groups, headLine, useMenu, type MenuItem } from "../ContextMenu";
 import { handPreset } from "../handoff";
 import { useStudio } from "../store";
 import { Thumb } from "../Thumb";
@@ -148,20 +148,23 @@ export function People() {
   };
   /** The right-click menu of a row, also the open item's ··· menu: what its header offers, and Delete…. */
   const rowMenu = useMenu<Entity>();
-  const rowItems = (e: Entity): MenuItem[] => [
-    open === e.id
-      ? { label: "Close", icon: <X size={14} />, run: () => select(null) }
-      : { label: "Open", icon: <Eye size={14} />, run: () => select(e.id) },
-    // a preset that ships with Afflatus keeps its name; its copy can be renamed
-    ...(e.kind === "preset" && e.source === "shipped" ? [] : [{ label: "Rename…", icon: <Pencil size={14} />, run: () => void renameIt(e) }]),
-    { label: "Duplicate", icon: <CopyPlus size={14} />, note: "opened as a copy", disabled: duplicate.isPending, run: () => duplicate.mutate(e) },
-    { label: "Copy link", icon: <Link2 size={14} />, run: () => void copyText(`${window.location.origin}${kitHref(e.kind, e.id)}`).catch(() => {}) },
-    ...(e.kind === "preset" ? [
-      { label: "Apply in Studio", icon: <Play size={14} />, run: () => applyInStudio(e.id) },
-      { label: "Save as a file", icon: <FileDown size={14} />, run: () => savePresetFile(e) },
-    ] : []),
-    ...(e.kind === "preset" && e.source === "shipped" ? [] : ["—" as const, { label: "Delete…", icon: <Trash2 size={14} />, danger: true, run: () => void askRemove(e) }]),
-  ];
+  // a preset that ships with Afflatus keeps its name and stays; its copy can be renamed and deleted
+  const shippedOne = (e: Entity) => e.kind === "preset" && e.source === "shipped";
+  const rowItems = (e: Entity): MenuItem[] => groups(
+    [
+      open === e.id
+        ? { label: "Close", icon: <X size={14} />, run: () => select(null) }
+        : { label: "Open", icon: <Eye size={14} />, run: () => select(e.id) },
+      ...(e.kind === "preset" ? [{ label: "Apply in Studio", icon: <Play size={14} />, run: () => applyInStudio(e.id) }] : []),
+    ],
+    [
+      { label: "Duplicate", icon: <CopyPlus size={14} />, note: duplicate.isPending ? "copying…" : "opened as a copy", disabled: duplicate.isPending, run: () => duplicate.mutate(e) },
+      ...(shippedOne(e) ? [] : [{ label: "Rename…", icon: <Pencil size={14} />, run: () => void renameIt(e) }]),
+      { label: "Copy link", icon: <Link2 size={14} />, run: () => void copyText(`${window.location.origin}${kitHref(e.kind, e.id)}`).catch(() => {}) },
+      ...(e.kind === "preset" ? [{ label: "Save as a file", icon: <FileDown size={14} />, run: () => savePresetFile(e) }] : []),
+    ],
+    !shippedOne(e) && [{ label: "Delete…", icon: <Trash2 size={14} />, danger: true, run: () => void askRemove(e) }],
+  );
   const fileInput = useRef<HTMLInputElement>(null);
   const doImport = useMutation({
     mutationFn: async (file: File) => importPresetFile(file),
@@ -237,7 +240,7 @@ export function People() {
         onNew={onNew} busy={create.isPending || createSnippet.isPending}
       />
 
-      {rowMenu.menu && <ContextMenu at={rowMenu.menu.at} label="Actions on this item" head={{ title: rowMenu.menu.subject.name, sub: `${KIND_WORD[rowMenu.menu.subject.kind]} · ${summaryOf(rowMenu.menu.subject, recipeList)}` }} items={rowItems(rowMenu.menu.subject)} onClose={rowMenu.close} />}
+      {rowMenu.menu && <ContextMenu at={rowMenu.menu.at} label="Actions on this item" head={{ title: rowMenu.menu.subject.name, sub: headLine(KIND_WORD[rowMenu.menu.subject.kind], summaryOf(rowMenu.menu.subject, recipeList)) }} items={rowItems(rowMenu.menu.subject)} onClose={rowMenu.close} />}
       {(entities.isError || create.isError || createSnippet.isError || remove.isError || doImport.isError) && <div className="px-6 pt-3"><ErrorNote>{(entities.error ?? create.error ?? createSnippet.error ?? remove.error ?? doImport.error)?.message}</ErrorNote></div>}
 
       {tab === "snippet" ? (

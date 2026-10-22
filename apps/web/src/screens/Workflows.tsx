@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { create } from "zustand";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, ExternalLink, FileUp, MoreHorizontal, Pencil, Play, Trash2 } from "lucide-react";
-import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
+import { ContextMenu, headLine, useMenu, type MenuItem } from "../ContextMenu";
 import { ask } from "../Confirm";
 import { guessModel, readBindings, type Bindings } from "@afflatus/workflows";
 import { useOpenInComfy } from "../actions";
@@ -293,11 +293,11 @@ export function Workflows() {
   // right-click on a workflow: what its buttons do
   const cardMenu = useMenu<WorkflowBrief>();
   const cardItems = (w: WorkflowBrief): MenuItem[] => [
-    { label: "Try it", icon: <Play size={14} />, note: "the form, on a new draft", disabled: tryIt.isPending, run: () => tryIt.mutate(w.id) },
+    { label: "Try it", icon: <Play size={14} />, note: tryIt.isPending ? "opening…" : "the form, on a new draft", disabled: tryIt.isPending, run: () => tryIt.mutate(w.id) },
     { label: "Edit", icon: <Pencil size={14} />, note: "its mapping and form", run: () => editIt(w.id) },
     "—",
     { label: "Export", icon: <Download size={14} />, note: "a file another Afflatus imports", run: () => shareIt.mutate(w) },
-    { label: "Open in ComfyUI", icon: <ExternalLink size={14} />, disabled: openInComfy.isPending || !comfyOnline, note: comfyOnline ? undefined : "ComfyUI is not running", run: () => openInComfy.mutate(w) },
+    { label: "Open in ComfyUI", icon: <ExternalLink size={14} />, disabled: openInComfy.isPending || !comfyOnline, note: comfyOnline ? (openInComfy.isPending ? "opening…" : undefined) : "ComfyUI is not running", run: () => openInComfy.mutate(w) },
     "—",
     { label: "Remove…", icon: <Trash2 size={14} />, danger: true, note: "what it made stays in the library", run: () => void ask({ title: `Remove ${w.title}?`, text: "What you generated with it stays in your library.", yes: "Remove" }).then((yes) => yes && remove.mutate(w.id)) },
   ];
@@ -378,7 +378,7 @@ export function Workflows() {
           <ContextMenu
             at={cardMenu.menu.at}
             label={`Actions on ${menuOf.title}`}
-            head={{ title: recipeLabel(menuOf.model, menuOf.title), sub: `${KIND[menuOf.output]} · ${menuOf.nodes} nodes` }}
+            head={{ title: recipeLabel(menuOf.model, menuOf.title), sub: headLine("Workflow", KIND[menuOf.output], plural(menuOf.nodes, "node")) }}
             // the ··· holds everything but Try it, which is a button on every row: Edit is always there, whatever buttons the row shows
             items={fromMore ? cardItems(menuOf).slice(1) : cardItems(menuOf)}
             onClose={cardMenu.close}

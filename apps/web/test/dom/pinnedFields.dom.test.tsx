@@ -73,8 +73,8 @@ describe("pinned fields", () => {
     expect(pinnedCard()).toBeNull();
     fireEvent.contextMenu(nameOf(screen.getByRole("slider", { name: "CFG scale" })), { button: 2, clientX: 40, clientY: 40 });
     const menu = await screen.findByRole("menu");
-    // nothing changed yet: the reset is there, off
-    expect(within(menu).getByRole("menuitem", { name: /Reset to the model's default/ }).hasAttribute("disabled")).toBe(true);
+    // nothing changed yet: the reset would do nothing, and is not drawn (no dead rows)
+    expect(within(menu).queryByRole("menuitem", { name: /Reset to the model's default/ })).toBeNull();
     await user.click(within(menu).getByRole("menuitem", { name: /Pin to the top/ }));
     // every family's pins are sent: the H3 forms' stay
     await waitFor(() => expect(saved().at(-1)).toEqual({ h3: ["shot"], sdxl: ["cfg"] }));

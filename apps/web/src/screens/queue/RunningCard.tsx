@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Clipboard, X } from "lucide-react";
 import type { RunningJob } from "../../api";
-import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
+import { ContextMenu, headLine, useMenu, type MenuItem } from "../../ContextMenu";
 import { elapsed, phaseLabel, timeLeft } from "../../format";
 import { LivePreview, StageStrip } from "../../LivePreview";
 import { Bar, Button, cx, Help } from "../../ui";
@@ -90,7 +90,7 @@ export function RunningCard({ running, onStop }: { running: RunningJob | null; o
           <StageStrip job={running} />
         </div>
       )}
-      {menu.menu && <ContextMenu at={menu.menu.at} label="Actions on the running render" head={{ title: running.label, sub: `Running · ${modelOf(running)}` }} items={items} onClose={menu.close} />}
+      {menu.menu && <ContextMenu at={menu.menu.at} label="Actions on the running render" head={{ title: running.label, sub: headLine("Running", modelOf(running), running.steps ? `step ${running.step} of ${running.steps}` : null) }} items={items} onClose={menu.close} />}
     </div>
   );
 }

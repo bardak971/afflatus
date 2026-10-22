@@ -44,14 +44,15 @@ export function useItemMenu({ onView, onStudio }: { onView(asset: Asset): void; 
       { label: `Unkeep ${assets.length}`, icon: <StarOff size={14} />, run: () => keep(ids, false) },
       { label: `Download ${assets.length}`, icon: <Download size={14} />, note: "one file each", run: () => assets.forEach((a) => saveAsset(a)) },
       "—",
-      {
-        label: "Timeline", icon: <Film size={14} />, disabled: !playable.length, note: !playable.length ? "sounds go one by one, as music" : playable.length < assets.length ? `${playable.length} of them: no sounds` : "at the end, in order",
+      // sounds alone go one by one, as music: no Timeline for them (a dead row)
+      ...(playable.length ? [{
+        label: "Timeline", icon: <Film size={14} />, note: playable.length < assets.length ? `${playable.length} of them: no sounds` : "at the end, in order",
         items: [
           ...recent().map((t): MenuItem => ({ label: `Add to ${t.name}`, icon: <Film size={14} />, note: timelineNote(t), run: () => addAll.mutate({ assets: playable, timeline: t }) })),
           ...(recent().length ? ["—" as const] : []),
           { label: "Start a timeline from them", icon: <Plus size={14} />, run: () => addAll.mutate({ assets: playable, timeline: null }) },
         ],
-      },
+      }] : []),
       { label: "Move to", icon: <FolderInput size={14} />, items: more.moveTo },
       "—",
       { label: `Move ${assets.length} to the bin`, key: "Del", icon: <Trash2 size={14} />, danger: true, run: more.bin },

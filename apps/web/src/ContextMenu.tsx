@@ -66,6 +66,68 @@ export function headLine(...parts: Array<ReactNode | null | undefined | false>):
   return <>{shown.map((p, i) => <span key={i}>{i > 0 && " · "}{p}</span>)}</>;
 }
 
+/**
+ * A menu's groups as one list: a rule between two groups, none for a group left empty or out (`false`, `null`), so a menu
+ * built from parts that come and go never starts, ends or doubles a rule.
+ */
+export function groups(...parts: Array<MenuItem[] | false | null | undefined>): MenuItem[] {
+  const shown = parts.filter((p): p is MenuItem[] => Boolean(p && p.some((it) => it !== "—")));
+  return shown.flatMap((p, i) => (i ? ["—" as const, ...p] : p));
+}
+
+/**
+ * What in a menu breaks the conventions above, one sentence each (none: it follows them). What a program can tell is
+ * checked: the rules (none first, last or doubled), a greyed row says why, the destructive rows are the last group and
+ * alone in it, a label's ellipsis is "…" and never on a submenu's row, a key shown parses and is no other row's, a row
+ * does something. Whether a key works where the menu opens, and whether a row opens a dialog, are for the reader. The
+ * menu itself asks it under the tests (ContextMenu), so a menu drawn by a test that breaks one fails it.
+ */
+export function menuProblems(items: MenuItem[], where = "the menu"): string[] {
+  const out: string[] = [];
+  const keys = new Map<string, string>();
+  const walk = (list: MenuItem[], at: string) => {
+    if (!list.some((it) => it !== "—")) out.push(`${at}: no row`);
+    list.forEach((it, i) => {
+      if (it !== "—") return;
+      if (i === 0) out.push(`${at}: starts with a rule`);
+      else if (i === list.length - 1) out.push(`${at}: ends with a rule`);
+      else if (list[i - 1] === "—") out.push(`${at}: two rules in a row`);
+    });
+    // the destructive rows: the last group, of them alone (a menu of nothing else is one group)
+    const first = list.findIndex((it) => it !== "—" && it.danger);
+    if (first >= 0) {
+      const after = list.slice(first).filter((it): it is Exclude<MenuItem, "—"> => it !== "—");
+      if (after.some((it) => !it.danger)) out.push(`${at}: "${after.find((it) => !it.danger)!.label}" comes after a destructive row (destructive rows go last)`);
+      else if (list.slice(first).includes("—")) out.push(`${at}: the destructive rows are split by a rule`);
+      else if (first > 0 && list[first - 1] !== "—") out.push(`${at}: "${(list[first] as Exclude<MenuItem, "—">).label}" is destructive but not in a group of its own`);
+    }
+    for (const it of list) {
+      if (it === "—") continue;
+      const row = `${at} › ${it.label}`;
+      if (/\.\.\.\s*$/.test(it.label)) out.push(`${row}: an ellipsis is "…", not three dots`);
+      if (it.items && it.label.endsWith("…")) out.push(`${row}: opens a submenu, so no ellipsis`);
+      if (it.disabled && !it.note) out.push(`${row}: greyed without its reason (a note), or a dead row to leave out`);
+      if (!it.disabled && !it.run && !it.items) out.push(`${row}: does nothing`);
+      if (it.key) {
+        const parsed = parseKeys(it.key);
+        if (!parsed || "code" in parsed) out.push(`${row}: its key "${it.key}" is not in the keys grammar`);
+        else {
+          for (const way of parsed.ways) {
+            if (way.mouse || way.pair.length !== 1) continue;
+            const chord = chordKey(way.pair[0]!);
+            const other = keys.get(chord);
+            if (other !== undefined && other !== it.label) out.push(`${row}: its key ${chord} is "${other}"'s too`);
+            else keys.set(chord, it.label);
+          }
+        }
+      }
+      if (it.items) walk(it.items, row);
+    }
+  };
+  walk(items, where);
+  return out;
+}
+
 /** Key names of a key press as the grammar writes them, where the event's own name differs. */
 const PRESSED: Record<string, string> = { Delete: "Del", Escape: "Esc", ArrowLeft: "←", ArrowRight: "→", ArrowUp: "↑", ArrowDown: "↓", PageUp: "PgUp", PageDown: "PgDn", " ": "Space" };
 
@@ -191,7 +253,13 @@ export function focusBehindMenu(el: Element | null): HTMLElement | null {
  * reader follows the active item, and gives it back to where it was. While it is open the screen's own keys
  * are off (Keys.plainKey sees the [role=menu]).
  */
-export function ContextMenu({ at, items, label, head, onClose }: { at: MenuAt; items: MenuItem[]; label: string; head?: MenuHead; onClose(): void }) {
+export function ContextMenu({ at, items, label, head, onClose }: { at: MenuAt; items: MenuItem[]; label: string; /** What it is about (every menu has one: the conventions above). */ head: MenuHead; onClose(): void }) {
+  // a menu that breaks the conventions fails the test that draws it, and is said in the console while developing
+  if (import.meta.env.MODE !== "production") {
+    const problems = menuProblems(items, label);
+    if (problems.length && import.meta.env.MODE === "test") throw new Error(`The menu "${label}" breaks the menu conventions (ContextMenu.tsx):\n${problems.join("\n")}`);
+    if (problems.length) console.warn(`The menu "${label}" breaks the menu conventions:\n${problems.join("\n")}`);
+  }
   // read at the first drawing, before the menu takes the focus
   const [from] = useState(() => (document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null));
   useEffect(() => {
