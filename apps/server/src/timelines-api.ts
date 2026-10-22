@@ -220,9 +220,18 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     await t.remove(req.params.id);
     return { ok: true };
   });
-  /** Take the last change to the timeline back. Answers with what was undone, in a few words. */
-  app.post<{ Params: { id: string } }>("/api/timelines/:id/undo", async (req) => ({ undone: await t.history.undo(req.params.id) }));
-  app.post<{ Params: { id: string } }>("/api/timelines/:id/redo", async (req) => ({ redone: await t.history.redo(req.params.id) }));
+  /**
+   * Take the last change to the timeline back. Answers with what was undone, in a few words, and what to tell of the takes
+   * rendered since that do not fit their clips at that step (`said`). Refused (409) over a clip in the queue.
+   */
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/undo", async (req) => {
+    const { label, said } = await t.history.undo(req.params.id);
+    return { undone: label, ...(said ? { said } : {}) };
+  });
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/redo", async (req) => {
+    const { label, said } = await t.history.redo(req.params.id);
+    return { redone: label, ...(said ? { said } : {}) };
+  });
   /** A copy of the clip right after it. */
   /**
    * A swap clip's Show the mask (the owner's mock, 2026-10-18): its window's tracking and masks alone, drawn over its frames,
