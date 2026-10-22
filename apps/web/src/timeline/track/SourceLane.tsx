@@ -1,4 +1,4 @@
-import { useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Eye, Film, SlidersHorizontal, Split, Trash2 } from "lucide-react";
 import { sourceWindows, windowShapeOf, type ClipValue, type SourceWindow } from "@afflatus/core";
 import { ContextMenu, useMenu } from "../../ContextMenu";
@@ -92,8 +92,11 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
   /** Its video in the viewer; the source taken away. */
   onOpen?(video: Asset): void;
   onRemove?(): void;
-  /** Where Motion transfer starts and stops in the video, the lane dragged. */
-  onStretch?(fromMs: number, toMs: number): void;
+  /**
+   * Where Motion transfer starts and stops in the video, the lane dragged: settles true once the change is read back (or
+   * saved), false when it is not made (asked first, failed, or another one asked for in its place).
+   */
+  onStretch?(fromMs: number, toMs: number): Promise<boolean> | void;
   /** The moment of the video a drag stands on (its new start, or its new end), to be shown meanwhile; null: the drag is over. */
   onPeek?(ms: number | null): void;
   /** Split at the playhead: the part before it a clip of its own, played as it is (null: the playhead is not in the stretch). */
@@ -105,7 +108,16 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
    * (where it starts) or its right end (where it stops); where it started and what it shows meanwhile.
    */
   const [held, setHeld] = useState<{ kind: "slip" | "start" | "end"; x: number; from: number; to: number; fromMs: number; toMs: number; moved: boolean } | null>(null);
+  /**
+   * The stretch released, drawn until the timeline has it (`was`: the one it had then) or it is not made: back to the old
+   * one meanwhile, the lane looked as if the drag had not been taken, and invited a second one.
+   */
+  const [sent, setSent] = useState<{ fromMs: number; toMs: number; kind: "slip" | "start" | "end"; was: { fromMs: number; toMs: number }; done: boolean } | null>(null);
   const source = timeline.source;
+  const arrived = Boolean(sent?.done && source && (source.fromMs !== sent.was.fromMs || source.toMs !== sent.was.toMs));
+  useEffect(() => {
+    if (arrived) setSent(null);
+  }, [arrived]);
   const x = (ms: number) => PAD + (ms / 1000) * pps;
   if (!source || !place) {
     return (
@@ -124,11 +136,12 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
   }
   const video = source.video;
   const length = place.lengthMs;
-  const fromMs = held?.fromMs ?? source.fromMs;
-  const toMs = held?.toMs ?? source.toMs;
+  const drawn = held ?? (sent && !arrived ? sent : null);
+  const fromMs = drawn?.fromMs ?? source.fromMs;
+  const toMs = drawn?.toMs ?? source.toMs;
   // slipped, the video slides under the stretch's place (its start sits where the stretch starts, less the stretch's start in
   // it); its ends dragged, the video stays where it is
-  const atMs = held?.kind === "slip" ? place.atMs + source.fromMs - fromMs : place.atMs;
+  const atMs = drawn?.kind === "slip" ? place.atMs + source.fromMs - fromMs : place.atMs;
   const left = x(atMs);
   const w = (length / 1000) * pps;
   const cells = Math.max(1, Math.round(w / 40));
@@ -148,7 +161,8 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
     } catch {
       // a pointer that cannot be captured is followed while it stays over the lane
     }
-    setHeld({ kind, x: e.clientX, from: source.fromMs, to: source.toMs, fromMs: source.fromMs, toMs: source.toMs, moved: false });
+    // from the stretch drawn: one released and not yet read back is where the next drag starts
+    setHeld({ kind, x: e.clientX, from: fromMs, to: toMs, fromMs, toMs, moved: false });
   };
   const move = (e: ReactPointerEvent) => {
     if (!held) return;
@@ -173,7 +187,16 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
     }
   };
   const up = () => {
-    if (held?.moved && (held.fromMs !== source.fromMs || held.toMs !== source.toMs)) onStretch?.(held.fromMs, held.toMs);
+    if (held?.moved && (held.fromMs !== held.from || held.toMs !== held.to)) {
+      const asked = onStretch?.(held.fromMs, held.toMs);
+      // drawn meanwhile; taken, until the timeline read back says it; not made, the timeline's again at once (a newer
+      // release's own drawing is left alone)
+      if (asked) {
+        const ours = { fromMs: held.fromMs, toMs: held.toMs, kind: held.kind, was: { fromMs: source.fromMs, toMs: source.toMs }, done: false };
+        setSent(ours);
+        void asked.then((taken) => setSent((now) => (now !== ours ? now : taken ? { ...ours, done: true } : null)));
+      }
+    }
     if (held?.moved) onPeek?.(null);
     else if (held && !held.moved) onSelect();
     setHeld(null);

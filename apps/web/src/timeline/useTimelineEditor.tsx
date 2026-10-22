@@ -11,6 +11,7 @@ import { rememberAspect } from "./EditorSkeleton";
 import type { ExportAsk } from "./ExportDialog";
 import { layout, moveAfter, otherShape, ZOOM } from "./model";
 import { madeFromSource, sourcePlace } from "./track/SourceLane";
+import { clipsOfRecording } from "./track/RecordingBand";
 import { sameWindowGrid } from "@afflatus/core";
 import type { PlayerHandle } from "./Player";
 import { useClipEdits } from "./useClipEdits";
@@ -220,24 +221,32 @@ export function useTimelineEditor(id: string) {
    * window opened so the question is in view.
    */
   const [stretchAsk, setStretchAsk] = useState<{ fromMs: number; toMs: number; rendered: number; windows: number } | null>(null);
-  // one trim at a time (useOneTrim): a second one sent before the first one's change is back is dropped
+  // one trim at a time (useOneTrim): one asked for before the last one's change is back waits, the last of its kind, and
+  // is run from the timeline read back, through these runs as the render after it has them
   const oneTrim = useOneTrim();
   const trimmed = (clips: string[]) => void (clips.length && setToRender({ ids: clips, render: false }));
+  const runs = useRef<{ stretch: typeof stretch; recordingTrim: typeof recordingTrim; clips: Clip[]; videoRecipes: RecipeInfo[] }>(null!);
+  /**
+   * Each run settles true once its change is read back (or saved, before Make), false when it is not made (asked first,
+   * failed, or another one asked for in its place while it waited): the lanes draw the stretch released until then.
+   */
   const stretch = {
-    pending: trimSourceMut.isPending,
+    // waiting for the trim on its way counts as under way: it is said in the Source chapter
+    pending: trimSourceMut.isPending || oneTrim.waits("source"),
     ask: stretchAsk,
-    run: (fromMs: number, toMs: number, sure = false) => {
+    run: (fromMs: number, toMs: number, sure = false): Promise<boolean> => {
       const made = t ? madeFromSource(t, videoRecipes) : [];
-      if (!t?.source || !made.length) return edit.mutate({ source: { fromMs, toMs } });
-      if (oneTrim.busy) return;
+      if (!t?.source || !made.length) return edit.mutateAsync({ source: { fromMs, toMs } }).then(() => true, () => false);
+      if (oneTrim.busy) return oneTrim.later("source", () => runs.current.stretch.run(fromMs, toMs, sure));
       // the rendered windows a trim set aside are left behind too: counted with those on the track
       const rendered = made.filter((c) => c.take).length + (t.source.parkedTakes ?? 0);
       if (!sure && rendered > 0 && Math.round(fromMs) !== t.source.fromMs) {
         setStretchAsk({ fromMs, toMs, rendered, windows: made.length });
-        return select(made[0]!.id);
+        select(made[0]!.id);
+        return Promise.resolve(false);
       }
       setStretchAsk(null);
-      oneTrim.run(trimSourceMut.mutate, { fromMs, toMs }, trimmed);
+      return oneTrim.run(trimSourceMut.mutate, { fromMs, toMs }, trimmed);
     },
     keep: () => setStretchAsk(null),
   };
@@ -249,21 +258,26 @@ export function useTimelineEditor(id: string) {
   const [recordingAsk, setRecordingAsk] = useState<{ asset: string; fromMs: number; toMs: number; rendered: number; clips: number } | null>(null);
   const recordingTrim = {
     pending: trimRecordingMut.isPending,
+    /** A trim of this recording waits for the one on its way (the source's, or another): said as under way as well. */
+    waits: (asset: string) => oneTrim.waits(`recording:${asset}`),
     ask: recordingAsk,
-    run: (asset: string, mine: Clip[], fromMs: number, toMs: number, sure = false) => {
-      if (oneTrim.busy) return;
+    run: (asset: string, mine: Clip[], fromMs: number, toMs: number, sure = false): Promise<boolean> => {
+      // its clips taken again from the timeline read back: the trim before may have made them anew
+      if (oneTrim.busy) return oneTrim.later(`recording:${asset}`, () => runs.current.recordingTrim.run(asset, clipsOfRecording(runs.current.clips, runs.current.videoRecipes, asset), fromMs, toMs, sure));
       const startMs = Math.round(Number(mine[0]?.inputs.recordingStart ?? 0) * 1000);
       const rendered = mine.filter((c) => c.take).length + (t?.recordings?.find((r) => r.asset.id === asset)?.parkedTakes ?? 0);
       // asked in the first clip's Recording chapter, opened so the question is in view (its band dragged on the Audio row)
       if (!sure && rendered > 0 && Math.abs(fromMs - startMs) > 20) {
         setRecordingAsk({ asset, fromMs, toMs, rendered, clips: mine.length });
-        return select(mine[0]!.id);
+        select(mine[0]!.id);
+        return Promise.resolve(false);
       }
       setRecordingAsk(null);
-      oneTrim.run(trimRecordingMut.mutate, { asset, fromMs, toMs }, trimmed);
+      return oneTrim.run(trimRecordingMut.mutate, { asset, fromMs, toMs }, trimmed);
     },
     keep: () => setRecordingAsk(null),
   };
+  runs.current = { stretch, recordingTrim, clips, videoRecipes };
 
   /** A voice recording made into Lip sync clips, the first one opened (nothing renders: its scene is to be written first). */
   const recording = {

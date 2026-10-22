@@ -44,6 +44,8 @@ export type ClipSource = {
   stretchAsk: { fromMs: number; rendered: number; windows: number; change(): void; keep(): void } | null;
   /** The stretch's In and Out typed (seconds of the source): a trim after Make, as the lane's drags. */
   onUses(fromMs: number, toMs: number): void;
+  /** A trim of its stretch is on its way, or waits for the one before (a drag, I / O, In / Out typed). */
+  trimming: boolean;
   /** Another form asked for on another grid, rendered windows in the way: said here, Change or Keep. */
   formAsk: { title: string; rendered: number; windows: number; change(): void; keep(): void } | null;
   /** Its changes are kept to it ("This clip"). */
@@ -103,6 +105,7 @@ export function sourceLead(s: ClipSource, clip: { inputs: Record<string, unknown
           <span className="text-ink-3">→</span>
           <NumberBox label="Out (s of the source)" value={s.source.toMs / 1000} min={s.source.fromMs / 1000 + 1} max={(s.source.video.durationMs ?? s.source.toMs) / 1000} step={0.1} unit=" s" onCommit={(v) => s.onUses(s.source.fromMs, Math.round(v * 1000))} />
         </div>
+        {s.trimming && <span className="text-xs text-ink-2">Trimming the source…</span>}
         <Slide label="Window" value={Math.min(Math.max(s.source.windowMs, s.windows.leastMs), s.windows.mostMs)} min={s.windows.leastMs} max={s.windows.mostMs} step={100} show={(ms) => `${(ms / 1000).toFixed(1)} s`} onCommit={(windowMs) => s.onCut({ windowMs })} />
         <Toggle on={s.source.snap} disabled={s.cutting} onChange={(snap) => s.onCut({ snap })} label="Cut at scene changes" note={s.source.snap ? "a window ends at a cut in the source; the next one opens a new shot" : "windows of the same length, end to end"} />
         {s.runUp && (

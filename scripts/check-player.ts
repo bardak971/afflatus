@@ -6,7 +6,8 @@
  * the video that is visible at that moment. It fails on a frame shown out of order, a flash of the clip before after the
  * hand-over, a hidden run-up frame shown, or more dropped frames than a busy machine explains. Then, in a fresh page: Space
  * pressed twice on a clip whose video has not loaded yet must leave it still (it started on its own, with its sound, once
- * its file came), and a range looped (I, O, L) must go back to In at Out, again and again, without playing on past it.
+ * its file came), and a range looped (I, O, L) must go back to In at Out, again and again, without playing on past it. Last,
+ * a selected clip's trim edges at a join must take a press there (the browser's own hit test), and a drag of one trims.
  *
  * Needs the web app built (`pnpm build`), ffmpeg, and Chrome (or CHROME=<path to a Chromium>).
  */
@@ -224,6 +225,35 @@ try {
   else if (past.length) problems.push(`range loop: ${past.length} frames shown past Out (clip ${outAt.clip} frame ${outAt.index}), as far as clip ${past.at(-1)!.clip} frame ${past.at(-1)!.index}`);
   else console.log(`player check: a range looped ${rounds} times back to In, never past Out`);
   await fresh.close();
+
+  // ---- a selected clip's trim edges at a join: the press is theirs, not the join dot's drawn over them (W-10). Hit-tested
+  // by the browser itself, which jsdom does not do: at the middle of each edge, the element on top is the edge; then the
+  // start edge of clip 2 dragged trims it (neither the join opened nor the clip moved)
+  const edges = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+  const onTop = async (clip: number, name: string) => {
+    await edges.goto(`${base}/timelines/${tl.id}?clip=${clip}`);
+    const edge = edges.getByRole("separator", { name });
+    await edge.waitFor({ timeout: 30_000 });
+    const box = (await edge.boundingBox())!;
+    const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    const top = await edges.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest("[role=separator], button")?.getAttribute("aria-label") ?? "nothing", at);
+    if (top !== name) problems.push(`clip ${clip} selected, the middle of "${name}" is taken by "${top}"`);
+    return at;
+  };
+  await onTop(1, "Drag to trim the end of the clip");
+  const at = await onTop(2, "Drag to trim the start of the clip");
+  const lengthOf2 = async () => ((await call("GET", `/api/timelines/${tl.id}`)).clips as Array<{ lengthMs: number }>)[1]!.lengthMs;
+  const was = await lengthOf2();
+  await edges.mouse.move(at.x, at.y);
+  await edges.mouse.down();
+  await edges.mouse.move(at.x + 20, at.y, { steps: 4 });
+  await edges.mouse.move(at.x + 40, at.y, { steps: 4 });
+  await edges.mouse.up();
+  await edges.waitForTimeout(1500);
+  const trimmedTo = await lengthOf2();
+  if (trimmedTo >= was) problems.push(`clip 2's start edge dragged at its middle: clip 2 still ${trimmedTo} ms long (was ${was}), not trimmed`);
+  else console.log(`player check: a selected clip's trim edges take the press at a join (clip 2 trimmed from ${was} to ${trimmedTo} ms)`);
+  await edges.close();
 
   for (const p of problems) console.error(`  ✗ ${p}`);
   failed = problems.length > 0;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import type { Clip, RecipeInfo, Timeline } from "../../src/api";
 import { layout } from "../../src/timeline/model";
 import { RecordingBands } from "../../src/timeline/track/RecordingBand";
@@ -18,7 +18,7 @@ const timeline = { id: "zz-test-tl", clips, recordings: [{ asset: sound, parked:
 
 function band() {
   const asked: string[] = [];
-  return { asked, ...draw(<RecordingBands timeline={timeline} slots={layout(clips, 40, [model])} recipes={[model]} pps={40} onTrim={(a, f, t) => asked.push(`${a} ${f}–${t}`)} onSelect={(c) => asked.push(`open ${c}`)} />) };
+  return { asked, ...draw(<RecordingBands timeline={timeline} slots={layout(clips, 40, [model])} recipes={[model]} pps={40} onTrim={(a, f, t) => void asked.push(`${a} ${f}–${t}`)} onSelect={(c) => asked.push(`open ${c}`)} />) };
 }
 
 describe("a recording on the Audio row", () => {
@@ -58,5 +58,31 @@ describe("a recording on the Audio row", () => {
     fireEvent.pointerDown(end, { button: 0, clientX: 500 });
     fireEvent.pointerUp(end, { clientX: 500 });
     expect(asked.slice(2)).toEqual(["open c1"]);
+  });
+  it("draws the stretch released until its clips read back have it, and the old one again when it is not made (W-9)", async () => {
+    const answers: Array<(taken: boolean) => void> = [];
+    const onTrim = () => new Promise<boolean>((done) => answers.push(done));
+    const bands = (cs: Clip[]) => <RecordingBands timeline={{ ...timeline, clips: cs }} slots={layout(cs, 40, [model])} recipes={[model]} pps={40} onTrim={onTrim} onSelect={() => {}} />;
+    const { container, rerender } = draw(bands(clips));
+    const pull = (by: number) => {
+      const start = container.querySelector<HTMLElement>('[data-tip^="Drag: where the recording starts"]')!;
+      fireEvent.pointerDown(start, { button: 0, clientX: 100 });
+      fireEvent.pointerMove(start, { clientX: 100 + by });
+      fireEvent.pointerUp(start, { clientX: 100 + by });
+    };
+    // 40 px a second: its start a second later, drawn so while it is sent, and taken
+    pull(40);
+    expect(screen.getByLabelText("Recording zz-test talk.wav: 0:03.0–0:12.2")).toBeTruthy();
+    await act(async () => answers[0]!(true));
+    expect(screen.getByLabelText("Recording zz-test talk.wav: 0:03.0–0:12.2")).toBeTruthy();
+    // its clips made anew from there, read back: what they say is drawn
+    const anew = [part("c3", 3.1, 4.7), part("c4", 7.8, 4.4)];
+    rerender(bands(anew));
+    expect(screen.getByLabelText("Recording zz-test talk.wav: 0:03.1–0:12.2")).toBeTruthy();
+    // one not made (asked first, or failed): its clips' stretch again at once
+    pull(40);
+    expect(screen.getByLabelText("Recording zz-test talk.wav: 0:04.1–0:12.2")).toBeTruthy();
+    await act(async () => answers[1]!(false));
+    expect(screen.getByLabelText("Recording zz-test talk.wav: 0:03.1–0:12.2")).toBeTruthy();
   });
 });

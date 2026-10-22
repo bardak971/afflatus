@@ -11,7 +11,7 @@ function foot(over: Partial<ClipSource> = {}) {
   const s: ClipSource = {
     source: { pick: null } as never, count: 7, first: false, apart: [], takesPick: true, picking: false,
     onPicking: () => {}, onClearPick: () => {}, kept: false, windows: { leastMs: 3800, mostMs: 4900 }, onCut: () => {}, cutting: false,
-    mask: { status: "none", shown: false }, onShowMask: () => {}, onMaskShown: () => {}, list: [], onSelectWindow: () => {}, runUp: null, formAsk: null, stretchAsk: null, onUses: () => {},
+    mask: { status: "none", shown: false }, onShowMask: () => {}, onMaskShown: () => {}, list: [], onSelectWindow: () => {}, runUp: null, formAsk: null, stretchAsk: null, onUses: () => {}, trimming: false,
     onKept: (on) => asked.push(on ? "this clip" : "all"), onInLine: () => asked.push("in line"), onToAll: () => asked.push("to all"),
     ...over,
   };
@@ -99,12 +99,24 @@ describe("a source's stretch in its Source chapter (the rethink's trim, step 5)"
       source: { pick: null, fromMs: 0, toMs: 14000, windowMs: 5000, snap: true, video: { name: "dance.mp4", durationMs: 20000 } } as never, count: 3, first: true, apart: [], takesPick: false, picking: false,
       onPicking: () => {}, onClearPick: () => {}, kept: false, windows: { leastMs: 3800, mostMs: 5900 }, onCut: () => {}, cutting: false,
       mask: { status: "none", shown: false }, onShowMask: () => {}, onMaskShown: () => {}, onKept: () => {}, onInLine: () => {}, onToAll: () => {},
-      list: [], onSelectWindow: () => {}, runUp: null, formAsk: null, onUses: () => {},
+      list: [], onSelectWindow: () => {}, runUp: null, formAsk: null, onUses: () => {}, trimming: false,
       stretchAsk: { fromMs: 2000, rendered: 2, windows: 3, change: () => asked.push("change"), keep: () => asked.push("keep") },
     } as ClipSource;
     draw(<>{sourceLead(s, { inputs: { sourceStart: 0, sourceSeconds: 5 } }, swap).node}</>);
     expect(screen.getByRole("alert").textContent).toMatch(/starting at 0:02\.0 shifts every window.*3 windows are made anew; 2 rendered takes go/);
     fireEvent.click(screen.getByRole("button", { name: "Change" }));
     expect(asked).toEqual(["change"]);
+  });
+
+  it("says a trim of its stretch is under way, as the Recording chapter does (W-9)", () => {
+    const swap = { id: "h3.swap", inputs: [{ id: "source", type: "clip", role: "source", window: { start: "sourceStart", seconds: "sourceSeconds" } }] } as unknown as RecipeInfo;
+    const s = {
+      source: { pick: null, fromMs: 0, toMs: 14000, windowMs: 5000, snap: true, video: { name: "dance.mp4", durationMs: 20000 } } as never, count: 3, first: true, apart: [], takesPick: false, picking: false,
+      onPicking: () => {}, onClearPick: () => {}, kept: false, windows: { leastMs: 3800, mostMs: 5900 }, onCut: () => {}, cutting: false,
+      mask: { status: "none", shown: false }, onShowMask: () => {}, onMaskShown: () => {}, onKept: () => {}, onInLine: () => {}, onToAll: () => {},
+      list: [], onSelectWindow: () => {}, runUp: null, formAsk: null, onUses: () => {}, trimming: true, stretchAsk: null,
+    } as ClipSource;
+    draw(<>{sourceLead(s, { inputs: { sourceStart: 0, sourceSeconds: 5 } }, swap).node}</>);
+    expect(screen.getByText("Trimming the source…")).toBeTruthy();
   });
 });
