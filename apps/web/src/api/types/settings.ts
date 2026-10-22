@@ -60,8 +60,11 @@ export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiK
   };
   /** Some of the notices' settings: what is sent is put over what is saved. The token and the webhook only when typed ("" takes one off). */
   notify?: { telegramToken?: string; telegramChat?: string; discordWebhook?: string; picture?: boolean; events?: Partial<Record<NotifyKind, { telegram?: boolean; discord?: boolean }>> };
-  /** The machines as the page has them, without what it is only told (a token's end). A token left out stays as it is. */
-  machines?: Array<Omit<Machine, "tokenEnd" | "local"> & { token?: string }>;
+  /**
+   * The machines as the page has them, without what it is only told (a token's end). A token left out stays as it is.
+   * `dirCleared` (the address a folder was emptied at by hand) is the server's own: the page never sends it.
+   */
+  machines?: Array<Omit<Machine, "tokenEnd" | "local"> & { token?: string; dirCleared?: string }>;
   civitaiKey?: string;
   huggingFaceToken?: string;
   runpodKey?: string;

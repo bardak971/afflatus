@@ -15,7 +15,7 @@ import { ShippedPresets, shippedPresetsDir } from "./presetFiles";
 import { DEFAULT_QUEUE_OPTIONS, Queue, type QueueOptions } from "./queue";
 import { podFetchOf } from "./queuePlan";
 import { Registry } from "./registry";
-import { readSettings, writeSettings, type Machine, type Settings } from "./settings";
+import { folderLeftEmpty, readSettings, writeSettings, type Machine, type Settings } from "./settings";
 import { comfyFolderOf } from "./modelDownload";
 import { installNodePack } from "./nodePack";
 import { Linked, RoutedStorage } from "./linked";
@@ -156,7 +156,8 @@ export async function createServices(
   const comfyFolder = (id?: string): Promise<Settings | null> => (looking ??= (async () => {
     const saved = await readSettings(db);
     const first = saved.machines[0];
-    if (!first || first.rented || saved.comfyDir.trim() || (id && first.id !== id)) return null;
+    // a folder the user emptied (its ComfyUI on another computer, or kept out of it) is left so
+    if (!first || first.rented || saved.comfyDir.trim() || folderLeftEmpty(first) || (id && first.id !== id)) return null;
     const found = await comfyFolderOf(clientOf(first).client, first.url).catch(() => null);
     if (!found) return null;
     // set by hand, or another address given, while ComfyUI was asked: that one stands

@@ -347,6 +347,39 @@ describe("the user's ComfyUI on this machine, added by its address", () => {
     }
   });
 
+  it("leaves a folder emptied by hand empty, at every start, until its address changes", async () => {
+    const { mkdirSync, writeFileSync, existsSync } = await import("node:fs");
+    const dir = mkdtempSync(join(tmpdir(), "afflatus-comfy-emptied-"));
+    const pack = join(dir, "custom_nodes", "afflatus-nodes");
+    try {
+      mkdirSync(join(dir, "custom_nodes"));
+      writeFileSync(join(dir, "main.py"), "");
+      fake = await startFakeComfy({ catalog: referenceCatalog(), models: {}, folderPaths: { custom_nodes: [join(dir, "custom_nodes")] } });
+      t = await makeApp();
+      await writeSettings(t.db, { machines: [] });
+      expect((await t.app.inject({ method: "PUT", url: "/api/settings", payload: { comfyUrl: fake.url } })).json().comfyDir).toBe(dir);
+      // emptied in Settings › ComfyUI: not looked for again, at a start (its first answer) or a save of the list
+      expect((await t.app.inject({ method: "PUT", url: "/api/settings", payload: { comfyDir: "" } })).json().comfyDir).toBe("");
+      rmSync(pack, { recursive: true, force: true });
+      expect(await t.services.comfyFolder()).toBeNull();
+      const listed = (await t.app.inject({ method: "GET", url: "/api/settings" })).json().machines;
+      expect(listed[0]).not.toHaveProperty("dirCleared");
+      expect((await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ ...listed[0], name: "zz-test" }] } })).json().comfyDir).toBe("");
+      expect(existsSync(pack)).toBe(false);
+      // the same emptied from its machine card is remembered too
+      await writeSettings(t.db, { comfyDir: dir });
+      const card = (await t.app.inject({ method: "GET", url: "/api/settings" })).json().machines[0];
+      expect((await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ ...card, dir: "" }] } })).json().comfyDir).toBe("");
+      expect(await t.services.comfyFolder()).toBeNull();
+      // another address: looked for there
+      const other = fake.url.replace("127.0.0.1", "localhost");
+      expect((await t.app.inject({ method: "PUT", url: "/api/settings", payload: { comfyUrl: other } })).json().comfyDir).toBe(dir);
+      expect(existsSync(pack)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("is not said to be on this PC for a host name that only starts with 127.", async () => {
     t = await makeApp();
     await writeSettings(t.db, { machines: [] });

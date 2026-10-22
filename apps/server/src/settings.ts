@@ -210,6 +210,12 @@ export const machineSchema = z.object({
   url: httpUrl,
   /** Its ComfyUI folder on this computer, when they share a disk (the node pack is written there); empty otherwise. */
   dir: z.string().max(400).default(""),
+  /**
+   * The address its folder was emptied at by hand (Settings): no folder is looked for there again (services.ts comfyFolder,
+   * at each start), or the node pack would be written back into a ComfyUI the user said is not on this disk. Another
+   * address, or a folder set, ends it. The server's alone: what the page sends of it is not taken (writeSettings). Empty: none.
+   */
+  dirCleared: z.string().max(2000).default(""),
   /** What the queue gives it: everything, pictures only or videos only (a clip, a sound, a finish). */
   takes: z.enum(["all", "image", "video"]).default("all"),
   /**
@@ -408,7 +414,7 @@ async function load(db: Db): Promise<Settings> {
 }
 
 /** The machine a ComfyUI address becomes when it is the first one (from `comfyUrl`, or the first launch's). */
-export const firstMachine = (url: string, dir = ""): Machine => ({ id: FIRST_MACHINE, name: "", url, dir, takes: "all", packs: "ask", families: {}, token: "" });
+export const firstMachine = (url: string, dir = ""): Machine => ({ id: FIRST_MACHINE, name: "", url, dir, dirCleared: "", takes: "all", packs: "ask", families: {}, token: "" });
 
 /**
  * The machines and the first one's address and folder said the same way: settings from before there could be several
@@ -436,6 +442,9 @@ function inStep(s: Settings, listed = true): Settings {
 export const podProxyUrl = (url: string): boolean => /^https:\/\/[a-z0-9-]+-\d+\.proxy\.runpod\.net\/*$/i.test(url.trim());
 
 /** The machines of the user's own (a ComfyUI on this PC or the LAN), the rented pods left out. */
+/** Whether a machine's folder was emptied by hand at the address it has now (writeSettings): not to be looked for. */
+export const folderLeftEmpty = (m: Machine): boolean => Boolean(m.dirCleared) && !m.dir.trim() && originOf(m.dirCleared) === originOf(m.url);
+
 export const ownMachines = (s: Pick<Settings, "machines">): Machine[] => s.machines.filter((m) => !m.rented);
 
 /**
@@ -579,6 +588,19 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
     sent.comfyUrl ??= current.comfyUrl;
     sent.comfyDir ??= moved ? "" : current.comfyDir;
   }
+  // a folder emptied by hand (a folder there before, the same ComfyUI) is remembered with its address, so that it is not looked
+  // for again; set again, or the ComfyUI moved elsewhere, it is forgotten
+  if (Array.isArray(sent.machines)) {
+    sent.machines = (sent.machines as unknown[]).map((m) => {
+      if (!m || typeof m !== "object") return m;
+      const { id, url, dir } = m as { id?: unknown; url?: unknown; dir?: unknown };
+      const was = current.machines.find((c) => c.id === id);
+      const same = (other: string) => typeof url === "string" && originOf(url) === originOf(other);
+      const emptied = !(typeof dir === "string" && dir.trim()) && was;
+      const cleared = !emptied ? "" : was.dir.trim() && same(was.url) ? url : was.dirCleared && same(was.dirCleared) ? was.dirCleared : "";
+      return { ...m, dirCleared: cleared };
+    });
+  }
   // the page sends what it changed of `notify`, and never the token nor the webhook, which it is not given: merged into what is saved
   if (sent.notify !== undefined) sent.notify = notifyMerged(current.notify, sent.notify);
   // `access` is never the page's to write here: its own routes (access-api.ts) ask for a recent sign-in or the password
@@ -639,7 +661,7 @@ export function publicSettings(s: Settings, here: (url: string) => boolean = () 
   return {
     // a machine's token stays here: the page is told whether there is one, and its end, to tell two apart. `local`: its
     // ComfyUI runs on this machine (setup-api passes modelDownload's onThisMachine), what the page says of its node pack
-    machines: s.machines.map(({ token, ...m }) => ({ ...m, tokenEnd: token ? token.slice(-4) : "", local: !m.rented && here(m.url) })),
+    machines: s.machines.map(({ token, dirCleared: _cleared, ...m }) => ({ ...m, tokenEnd: token ? token.slice(-4) : "", local: !m.rented && here(m.url) })),
     comfyUrl: s.comfyUrl,
     comfyDir: s.comfyDir,
     unloadAfterMinutes: s.unloadAfterMinutes,
