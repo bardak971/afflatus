@@ -70,7 +70,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       ] : [noTimeline];
     case "fix-all":
       return aim ? [
-        { label: `Fix all in ${aim.name}`, icon: <Wand2 size={14} />, note: "as Needs attention's Fix all", run: () => askTimeline(aim, { timeline: aim.id, do: "fix-all" }) },
+        { label: `Fix all in ${aim.name}`, icon: <Wand2 size={14} />, note: "as Needs a look's Fix all", run: () => askTimeline(aim, { timeline: aim.id, do: "fix-all" }) },
         { label: `Open ${aim.name}`, icon: <Film size={14} />, run: () => go(`/timelines/${aim.id}`) },
       ] : [noTimeline];
     case "bin-unused": {

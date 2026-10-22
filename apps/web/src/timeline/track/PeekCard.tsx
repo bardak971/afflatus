@@ -68,7 +68,7 @@ export function PeekFrame({ url, under, w, h, className }: {
 }) {
   const src = useSteadySrc(url);
   return (
-    <span className={cx("relative block shrink-0 overflow-hidden rounded-[10px] bg-stage", className)} style={{ width: w, height: h, backgroundImage: under ? `url(${under})` : undefined, backgroundSize: "contain", backgroundPosition: "center", backgroundRepeat: "no-repeat" }}>
+    <span className={cx("relative block shrink-0 overflow-hidden rounded-control bg-stage", className)} style={{ width: w, height: h, backgroundImage: under ? `url(${under})` : undefined, backgroundSize: "contain", backgroundPosition: "center", backgroundRepeat: "no-repeat" }}>
       {src && <img src={src} alt="" draggable={false} className="absolute inset-0 h-full w-full object-contain" />}
     </span>
   );
@@ -77,7 +77,7 @@ export function PeekFrame({ url, under, w, h, className }: {
 /** "Not rendered yet": the card's short stand-in for a frame that does not exist. */
 export function PeekEmpty({ children, w = 300 }: { children: ReactNode; w?: number }) {
   return (
-    <span className="flex h-[92px] items-center justify-center rounded-[10px] bg-[repeating-linear-gradient(45deg,var(--color-hover)_0_8px,var(--color-panel)_8px_16px)] text-[13px] text-ink-2" style={{ width: w }}>
+    <span className="flex h-16 items-center justify-center rounded-control bg-[repeating-linear-gradient(45deg,var(--color-hover)_0_8px,var(--color-panel)_8px_16px)] text-body text-ink-2" style={{ width: w }}>
       {children}
     </span>
   );
@@ -91,9 +91,9 @@ export function PeekFooter({ title, detail, right, mono, hint }: { title: string
         <span className="min-w-0 truncate font-semibold text-ink">{title}</span>
         {detail && <span className="shrink-0 text-ink-3">{detail}</span>}
         <span className="grow" />
-        {right && <span className={cx("shrink-0", mono ? "font-mono text-accent" : "text-[11px] text-ink-3")}>{right}</span>}
+        {right && <span className={cx("shrink-0", mono ? "font-mono text-accent" : "text-meta text-ink-3")}>{right}</span>}
       </span>
-      {hint && <span className="block truncate px-1 pt-0.5 pb-0.5 text-[11px] text-ink-3">{hint}</span>}
+      {hint && <span className="block truncate px-1 pt-0.5 pb-0.5 text-meta text-ink-3">{hint}</span>}
     </>
   );
 }
@@ -101,7 +101,8 @@ export function PeekFooter({ title, detail, right, mono, hint }: { title: string
 /**
  * A hover card over the track: drawn over everything (so that nothing cuts it off), its bottom edge at `y`
  * and its arrow pointing down at `x`, kept inside `bounds` and the window. It never takes the pointer, and it
- * rises into place unless motion is reduced. `width`: what it holds, without its padding.
+ * rises into place unless motion is reduced. `width`: what it holds, without its padding (the frame card keeps it
+ * near 320 px, so that it sits beside the clip rather than over the stage).
  */
 export function PeekCard({ x, y, width, bounds, label, children }: {
   x: number;
@@ -120,7 +121,7 @@ export function PeekCard({ x, y, width, bounds, label, children }: {
     <div
       role="tooltip"
       aria-label={label}
-      className="pointer-events-none fixed z-[70] rounded-[14px] border border-line-strong bg-panel p-2 text-ink shadow-[0_24px_60px_color-mix(in_oklab,var(--color-shade)_55%,transparent)] motion-safe:animate-peek-rise motion-reduce:animate-peek-fade"
+      className="pointer-events-none fixed z-toast rounded-card border border-line-strong bg-panel p-2 text-ink shadow-pop motion-safe:animate-peek-rise motion-reduce:animate-peek-fade"
       style={{ left, bottom: window.innerHeight - y, width: outer }}
     >
       {children}

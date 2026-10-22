@@ -30,7 +30,8 @@ interface Over {
  * track itself, so that only it draws again as the pointer moves; it hides while a button is held (the
  * playhead or a range being dragged: the viewer shows the frame then), while something is dragged, and while
  * `paused` (a pinned picture's card is up, an edge is being dragged). On a clip, the card says the clip's
- * figures on the right of the frame (ClipFacts); over the ruler, the frame alone.
+ * words too (ClipFacts: its form, its chips), beside a standing frame or under a lying one; over the ruler, the frame
+ * alone. About 320 px wide, and never up to the stage's middle.
  */
 export function FramePeek({ area, floor, slots, clips, recipes, pps, totalMs, paused }: {
   /** The track's inner surface, ruler included: what the pointer moves over. */
@@ -130,31 +131,33 @@ export function FramePeek({ area, floor, slots, clips, recipes, pps, totalMs, pa
   const still = c.kind === "still" && c.still ? c.still : null;
   const atMs = Math.max(0, Math.min(totalMs, ((over.x - PAD) / pps) * 1000));
   const bounds = floor.current?.getBoundingClientRect();
-  // a picture no taller than the room over the ruler leaves it
-  const room = over.top - PEEK.margin * 2 - PEEK.footer;
-  const box = { w: PEEK.frame.w, h: Math.max(80, Math.min(PEEK.frame.h, room)) };
+  // the card stands on the ruler and stops short of the stage's middle, where the picture being scrubbed is: a frame of
+  // its own beside the clip, not a second picture over the first (the stage is the [data-stage] just above the track)
+  const stage = [...document.querySelectorAll<HTMLElement>("[data-stage]")].map((e) => e.getBoundingClientRect()).filter((r) => r.height > 40 && r.bottom <= over.top + 1).sort((a, b) => b.bottom - a.bottom)[0];
+  const ceiling = stage ? stage.top + stage.height / 2 : 0;
+  const words = over.onClip;
+  // what the card has for its frame: its room under the ceiling, without its padding, the footer and (a lying frame)
+  // the clip's words under it
+  const room = over.top - PEEK.margin * 2 - ceiling - PEEK.chrome * 2 - PEEK.footer;
+  const asset = take ? take.asset : still;
+  const standing = Boolean(asset?.width && asset.height && asset.height > asset.width);
+  const box = standing ? { w: PEEK.side, h: Math.max(64, Math.min(200, room)) } : { w: PEEK.card, h: Math.max(64, Math.min(170, room - (words ? 72 : 0))) };
 
-  let body: ReactNode;
-  let width: number;
+  let frame: ReactNode;
   let title: string;
-  if (take || still) {
-    const asset = take ? take.asset : still!;
+  if (asset) {
     const size = fitFrame(asset.width, asset.height, box);
-    width = Math.max(size.w, 300);
-    body = <PeekFrame url={take ? url : fileUrl(still!.id)} w={size.w} h={size.h} className="mx-auto" />;
+    frame = <PeekFrame url={take ? url : fileUrl(still!.id)} w={size.w} h={size.h} className={standing ? undefined : "mx-auto"} />;
     title = take ? `clip ${s.index + 1} · take ${c.takes.findIndex((t) => t.id === take.id) + 1}` : `clip ${s.index + 1} · still`;
   } else {
     const pins = pinInputs(recipes.find((r) => r.id === c.recipe));
     const has = (id: string | undefined) => Boolean(id && typeof c.inputs[id] === "string");
     const carries = s.index > 0 && c.joined === "continue";
     const note = pinnedNote({ start: !carries && has(pins.start), end: has(pins.end), mid: has(pins.mid) });
-    width = 300;
-    body = <PeekEmpty>{c.job ? (c.job.status === "running" ? "Rendering now" : "Queued") : c.failed ? "The render failed" : "Not rendered yet"}</PeekEmpty>;
+    // the clip's words say what is happening to it: the stand-in is only the frame's place
+    frame = words ? null : <PeekEmpty w={PEEK.card}>{c.job ? (c.job.status === "running" ? "Rendering now" : "Queued") : c.failed ? "The render failed" : "Not rendered yet"}</PeekEmpty>;
     title = `clip ${s.index + 1}${note ? ` · ${note}` : c.failed ? " · render failed" : " · not rendered yet"}`;
   }
-
-  // the clip's figures beside the frame: as wide as what they hold (see ClipFacts)
-  const facts = over.onClip ? (c.kind === "video" && c.take ? PEEK.facts : PEEK.factsShort) : 0;
 
   return (
     <>
@@ -163,14 +166,13 @@ export function FramePeek({ area, floor, slots, clips, recipes, pps, totalMs, pa
           {/* where the pointer is, through the ruler and the clips; and the clip it is over */}
           <div aria-hidden className="pointer-events-none absolute top-0 z-[13] w-[1.5px] bg-accent" style={{ left: over.x - 0.75, height: ROW.top + ROW.height }} />
           <div aria-hidden className={cx("pointer-events-none absolute z-[13] rounded-lg border-2 border-accent", s.planned && "border-dashed")} style={{ left: s.left + 1, width: Math.max(8, s.width - 2), top: ROW.top, height: ROW.height }} />
-          <PeekCard x={over.clientX} y={over.top - PEEK.margin} width={width + facts} bounds={bounds ? { left: bounds.left, right: bounds.right } : undefined} label={`Frame at ${stamp(atMs)}`}>
-            <div className="flex">
-              <div className="shrink-0" style={{ width }}>
-                {body}
-                <PeekFooter title={title} right={stamp(atMs)} mono hint={over.hint} />
-              </div>
-              {facts > 0 && <ClipFacts clip={c} index={s.index} clips={clips} />}
+          <PeekCard x={over.clientX} y={over.top - PEEK.margin} width={PEEK.card} bounds={bounds ? { left: bounds.left, right: bounds.right } : undefined} label={`Frame at ${stamp(atMs)}`}>
+            {/* a standing frame beside the clip's words, a lying one over them: about 320 px wide either way */}
+            <div className={cx("flex gap-3", standing ? "items-start" : "flex-col")}>
+              {frame}
+              {words && <ClipFacts clip={c} index={s.index} clips={clips} />}
             </div>
+            <PeekFooter title={title} right={stamp(atMs)} mono hint={over.hint} />
           </PeekCard>
         </>
       )}

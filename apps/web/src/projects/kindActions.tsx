@@ -57,7 +57,7 @@ export const MENUS: Record<MenuKind, ReadonlyArray<Spec | "—">> = {
     { id: "render-missing", label: "Render missing clips", icon: Play, tip: "Queue the clips with nothing to play yet, as the editor's Render missing does." },
     { id: "finish", label: "Finish…", icon: Sparkles, tip: "The editor's Finish: its takes made again at full quality, asked first." },
     { id: "export", label: "Export…", icon: FileOutput, tip: "The editor's Export: one video of the whole timeline." },
-    { id: "fix-all", label: "Fix all", icon: Wand2, note: "what Needs attention lists", tip: "What the editor's Needs attention lists, mended as its Fix all does." },
+    { id: "fix-all", label: "Fix all", icon: Wand2, note: "what Needs a look lists", tip: "What the editor's Needs a look lists, mended as its Fix all does." },
     "—",
     RENAME,
     { id: "put", label: "Put in a folder", icon: Folder, note: "renders land there", tip: "Listed in a folder of its project; what it renders lands there.", many: true, flat: "Put in" },

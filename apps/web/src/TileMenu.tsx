@@ -2,7 +2,7 @@ import { Suspense, useRef } from "react";
 import type { Asset } from "./api";
 import { useMenu, type MenuHead, type MenuItem } from "./ContextMenu";
 import { clock } from "./format";
-import type { Place } from "./itemActions";
+import type { ActionId, Place } from "./itemActions";
 import { lazyPart, loadTileMenuBody } from "./lazyParts";
 import { tileName } from "./screens/library/tileName";
 
@@ -27,6 +27,8 @@ export interface TileMenuOptions {
   onSelect?(asset: Asset): void;
   /** Where a variation queued from here lands. */
   into?: { draft?: string; folder?: string };
+  /** Actions the place does its own way in its first section, left out of the list (a take's Remove takes its file to the bin with it). */
+  omit?: readonly ActionId[];
 }
 
 /**

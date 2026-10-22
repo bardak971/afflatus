@@ -109,7 +109,12 @@ function MachinePick({ pickKey, of, msOn, file, why, note, small }: {
         aria-label={of === "draft" ? "Generate on a machine of your choosing" : "Render on a machine of your choosing"}
         data-tip={picked ? `${of === "draft" ? "Generates" : "Its clips render"} on ${machineLabel(picked)}: click to pick another, or Auto` : `${of === "draft" ? "Generate" : "Render"} on a machine of your choosing`}
         onClick={() => setOpen(!open)}
-        className={cx("flex shrink-0 items-center justify-center rounded-r-lg border-l border-accent-ink/25 bg-accent text-accent-ink hover:brightness-95", small ? "h-10 w-9" : "h-11 w-11", open && "brightness-90")}
+        // the header's slice (small) sits beside plain buttons (the timeline's one coral button is the inspector's): edged as they are
+        className={cx(
+          "flex shrink-0 items-center justify-center",
+          small ? "h-10 w-9 rounded-r-control border border-l-0 border-line-strong text-ink-2 hover:bg-hover hover:text-ink" : "h-11 w-11 rounded-r-lg border-l border-accent-ink/25 bg-accent text-accent-ink hover:brightness-95",
+          open && (small ? "bg-hover" : "brightness-90"),
+        )}
       >
         <Server size={small ? 15 : 16} />
       </button>

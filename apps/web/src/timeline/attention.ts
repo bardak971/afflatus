@@ -203,7 +203,7 @@ export function fixWords(fix: Omit<Fix, "ms">, clips: Clip[]): string {
 }
 
 /**
- * Needs attention in one line, for the Export and Finish dialogs: "3 things need attention: clip 5 not rendered, joins at
+ * Needs a look in one line, for the Export and Finish dialogs: "3 things need a look: clip 5 not rendered, joins at
  * clips 2 and 4". The joins are said together, the other rows each in a few words.
  */
 export function attentionLine(rows: Row[], clips: Clip[]): string {
@@ -220,5 +220,5 @@ export function attentionLine(rows: Row[], clips: Clip[]): string {
     const words = clipWords(nums(r));
     said.push(r.kind === "missing" ? `${words} not rendered` : r.kind === "stale" ? `${r.ids.length === 1 ? "clip" : "clips"} before ${words} changed` : r.kind === "failed" ? `${words} failed` : `${words} in another aspect ratio`);
   }
-  return `${rows.length === 1 ? "1 thing needs" : `${rows.length} things need`} attention: ${said.join(", ")}`;
+  return `${rows.length === 1 ? "1 thing needs" : `${rows.length} things need`} a look: ${said.join(", ")}`;
 }

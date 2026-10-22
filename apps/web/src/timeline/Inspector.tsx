@@ -110,7 +110,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   const several = severalMachines(useQueue().data).length > 0;
   const picked = usePickedMachine(timelineKey(timeline.id));
   // what a render of it is called, the same in the broken-join banner and the foot: a clip with a take gets a new take
-  const renderWords = count > 1 ? `Render ${count} takes` : clip.take ? "New take" : "Render this clip";
+  const renderWords = count > 1 ? `Render ${count} takes` : clip.take ? "Render a new take" : `Render clip ${index + 1}`;
   const [picking, setPicking] = useState<"sound" | "start" | "end" | "mid" | null>(null);
   const recipe = recipes.find((r) => r.id === clip.recipe) ?? all.data?.recipes.find((r) => r.id === clip.recipe);
   const status = setup.data?.recipes.find((r) => r.id === recipe?.id);
@@ -218,11 +218,12 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
 
         {/* how it joins the clip before is on the track: the dot between them switches cut and extend; only a broken join is said here */}
         {before && !still && clip.join === "stale" && (
-          <div className="flex flex-col gap-2 rounded-lg border border-warn bg-warn-wash p-3">
-            <span className="font-semibold text-warn-ink">This clip no longer follows clip {index}</span>
+          // a look, not a failure: amber (red is for what failed or broke)
+          <div className="flex flex-col gap-2 rounded-lg border border-attention/40 bg-attention-wash p-3">
+            <span className="font-semibold text-attention-ink">This clip no longer follows clip {index}</span>
             <span className="text-xs text-ink-2">Clip {index} changed after this one was rendered, so {before.kind === "still" ? "its first frame is no longer that image" : "the motion jumps between them"}.</span>
             <span className="flex flex-wrap gap-1.5">
-              {recipe && <Button size="sm" tone="danger" disabled={Boolean(why) || busy || Boolean(clip.job)} onClick={() => onRender(count)}>{renderWords}<Estimate ms={takesTotal} /></Button>}
+              {recipe && <Button size="sm" disabled={Boolean(why) || busy || Boolean(clip.job)} onClick={() => onRender(count)}>{renderWords}<Estimate ms={takesTotal} /></Button>}
               <Button size="sm" onClick={() => onPatch({ joined: "cut" })}>Keep as a cut</Button>
             </span>
           </div>

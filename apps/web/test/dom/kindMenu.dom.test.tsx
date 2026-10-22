@@ -51,7 +51,7 @@ describe("a timeline card's menu (the kind's one list), drawn", () => {
       "Render missing clipsnone to render (off)",
       "Finish…",
       "Export…",
-      "Fix allwhat Needs attention lists",
+      "Fix allwhat Needs a look lists",
       "RenameF2",
       "Put in a folderno folder in its project (off)",
       "Move tono project yet (off)",

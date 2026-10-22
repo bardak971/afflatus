@@ -58,8 +58,8 @@ export function LookTable({ timeline, index, take, onSelectClip }: { timeline: T
   const line = (r: Row) => (
     <div key={r.label} data-tip={r.why} className="contents">
       <span className="truncate py-1 text-ink-2">{r.label}</span>
-      <span className={cx("truncate py-1 text-right font-mono tabular-nums", r.bad ? "text-warn" : "text-ink")}>{r.value}</span>
-      {r.vs.map((c, i) => <span key={i} className={cx("truncate py-1 text-right font-mono tabular-nums", c.text == null ? "text-ink-3" : c.bad ? "text-warn" : "text-ink-2", aside(i))}>{c.text ?? "—"}</span>)}
+      <span className={cx("truncate py-1 text-right font-mono tabular-nums", r.bad ? "text-attention-ink" : "text-ink")}>{r.value}</span>
+      {r.vs.map((c, i) => <span key={i} className={cx("truncate py-1 text-right font-mono tabular-nums", c.text == null ? "text-ink-3" : c.bad ? "text-attention-ink" : "text-ink-2", aside(i))}>{c.text ?? "—"}</span>)}
     </div>
   );
   return (
@@ -70,8 +70,8 @@ export function LookTable({ timeline, index, take, onSelectClip }: { timeline: T
         <Help title="Look" text={note} />
         <span className="grow" />
         {/* at most the head's width, the words cut short there: the full warning is its tip */}
-        {warning && <Chip tone="warn" className="max-w-full font-mono" tip={warning}><span className="min-w-0 truncate">{warning}</span></Chip>}
-        {m.handover != null && m.handover > DRIFT.handover && <Chip tone="warn" className="font-mono" tip="The model stepped away from its guide where the run-up ends: the join shows. Render a new take.">run-up end ×{m.handover.toFixed(1)}</Chip>}
+        {warning && <Chip tone="attention" className="max-w-full font-mono" tip={warning}><span className="min-w-0 truncate">{warning}</span></Chip>}
+        {m.handover != null && m.handover > DRIFT.handover && <Chip tone="attention" className="font-mono" tip="The model stepped away from its guide where the run-up ends: the join shows. Render a new take.">run-up end ×{m.handover.toFixed(1)}</Chip>}
         </div>
       <div className="px-3 pt-1.5 pb-1 text-xs">
         <div className={cx("grid items-center gap-x-2.5", grid)}>

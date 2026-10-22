@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { ImagePlus, ScanFace, Scissors, X } from "lucide-react";
+import { ImagePlus, MoreHorizontal, Play, ScanFace, Scissors, Trash2, X } from "lucide-react";
 import { api, thumbUrl, type Asset, type Clip, type Take } from "../../api";
-import { Button, cx, NumberBox } from "../../ui";
+import { Button, Chip, cx, IconButton, NumberBox, Segmented } from "../../ui";
 import { FieldRow } from "../../fields";
 import { RangeSlider } from "../../RangeSlider";
 import { DRAG_PICTURE, useDropZone } from "../../dragging";
@@ -13,6 +13,8 @@ import { pinMenuItems } from "../menus";
 import { flipped, MirrorMark } from "../MirrorMark";
 import { SHOWS } from "../attention";
 import { useRecipes } from "../../data";
+import { useTileMenu } from "../../TileMenu";
+import { Viewer } from "../../viewer/LazyViewer";
 
 /** A place a picture can be dropped on to become a pinned frame: one from the library, or a file from the computer, which goes into the library first. */
 function PinDrop({ className, onPick, onMenu, children }: { className?: string; onPick(id: string): void; onMenu?(e: React.MouseEvent): void; children: ReactNode }) {
@@ -26,16 +28,15 @@ function PinDrop({ className, onPick, onMenu, children }: { className?: string; 
   );
 }
 
-/** A state of a take, on its row: plays (filled), finished, smoothest. */
-function TakeChip({ tone, tip, children }: { tone: "accent" | "good" | "warn" | "neutral"; tip?: string; children: ReactNode }) {
-  return (
-    <span data-tip={tip} className={cx("flex h-[18px] shrink-0 items-center rounded-full px-[7px] text-[11px] font-bold", tone === "accent" ? "bg-accent text-accent-ink" : tone === "good" ? "bg-good/15 text-good" : tone === "warn" ? "bg-warn/15 text-warn-ink" : "bg-hover text-ink-2")}>
-      {children}
-    </span>
-  );
-}
+/** How the takes after the one that plays are listed: the newest first, the smoothest joins, the face closest to its person's. */
+type TakeSort = "newest" | "smoothest" | "face";
 
-/** A clip's takes, one per row, the one that plays marked: hovered, one is previewed in the player; clicked, it plays. Each says how its joins jump, and can be removed. */
+/**
+ * A clip's takes, one per row: the one that plays first (the heading says "take 11 of 11 plays", and its row was under ten
+ * others), then the rest in the order picked. Hovered, a take is previewed in the player; clicked, it plays. Each says
+ * its length, how its joins jump and its face figure on a meta line under its name, and its "···" (or a right-click)
+ * offers the library's actions on its video (Download, Keep, Compare…) after the take's own (Face refine, Remove).
+ */
 export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, onRemoveTake, onFacePass }: {
   clip: Clip;
   take: Take | null;
@@ -48,7 +49,7 @@ export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, on
   /** A Face refine of this take alone, as a new take (the mock's takes): only where the clip's model offers it. */
   onFacePass?(take: Take): void;
 }) {
-  // past ×3 the join shows, as Needs attention counts it
+  // past ×3 the join shows, as Needs a look counts it
   const bad = (v: number) => v > SHOWS;
   // how much each take's face is its person's (Face Match, measured after the render): the closest marked when two or more
   // were measured, to pick from, never rendered again by itself (the owner: no automatic retries; card #18)
@@ -58,18 +59,55 @@ export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, on
   const recipes = useRecipes();
   const forms = new Set(clip.takes.map((t) => t.recipe).filter(Boolean));
   const formOf = (t: Take) => (forms.size > 1 && t.recipe ? recipes.data?.recipes.find((r) => r.id === t.recipe)?.title ?? null : null);
-  // the closest face first, to pick from, once two or more were measured; each keeps its number (the order it was made in)
-  const [byFace, setByFace] = useState(false);
+  // a take's worst join, for the smoothest first; one not measured goes last
+  const worst = (t: Take) => {
+    const j = joinOf(t.id);
+    const both = [j?.in, j?.out].filter((v): v is number => v != null);
+    return both.length ? Math.max(...both) : Infinity;
+  };
+  const measured = clip.takes.filter((t) => worst(t) !== Infinity).length;
+  // a sort is offered once it would tell two takes apart; each take keeps its number (the order it was made in)
+  const sorts: Array<{ value: TakeSort; label: string }> = [
+    { value: "newest", label: "Newest" },
+    ...(measured > 1 ? [{ value: "smoothest" as const, label: "Smoothest" }] : []),
+    ...(faced.length > 1 ? [{ value: "face" as const, label: "Closest face" }] : []),
+  ];
+  const [picked, setSort] = useState<TakeSort>("newest");
+  const sort = sorts.some((s) => s.value === picked) ? picked : "newest";
   const numbered = clip.takes.map((t, i) => ({ t, i }));
-  const listed = byFace && faced.length > 1 ? [...numbered].sort((a, b) => (b.t.measure?.face ?? -2) - (a.t.measure?.face ?? -2)) : numbered;
+  const rest = numbered.filter(({ t }) => t.id !== take?.id);
+  const sorted =
+    sort === "smoothest" ? [...rest].sort((a, b) => worst(a.t) - worst(b.t) || b.i - a.i)
+    : sort === "face" ? [...rest].sort((a, b) => (b.t.measure?.face ?? -2) - (a.t.measure?.face ?? -2))
+    : [...rest].reverse();
+  const listed = [...numbered.filter(({ t }) => t.id === take?.id), ...sorted];
   const numberOf = (id: string | null) => Math.max(1, clip.takes.findIndex((x) => x.id === id) + 1);
+  // a take's video, open in the viewer: the arrows step through the clip's takes, so Compare sets two of them side by side
+  const [viewing, setViewing] = useState<Asset | null>(null);
+  const menu = useTileMenu({
+    onOpen: setViewing,
+    // the viewer's keys do not act in the inspector: none drawn in the menu
+    place: "shelf",
+    form: false,
+    // the take's Remove takes its video to the bin with it, and Undo brings both back: the library's own bin is left out
+    omit: ["bin"],
+    first: (asset) => {
+      const at = numbered.find(({ t }) => t.asset.id === asset.id);
+      if (!at) return [];
+      const { t, i } = at;
+      const trouble = takeTrouble(t, clip.takes);
+      return [
+        ...(t.id !== take?.id ? [{ label: "Play this take", icon: <Play size={14} />, run: () => onPatch({ take: t.id }) }] : []),
+        ...(onFacePass && !t.facePass && !trouble ? [{ label: "Face refine", icon: <ScanFace size={14} />, note: "as a new take", run: () => onFacePass(t) }] : []),
+        { label: `Remove take ${i + 1}`, icon: <Trash2 size={14} />, danger: true, run: () => onRemoveTake(t.id) },
+      ];
+    },
+  });
   return (
     <div className="-mx-1.5 flex flex-col gap-0.5">
-      {faced.length > 1 && (
-        <span className="flex justify-end px-1.5">
-          <button type="button" aria-pressed={byFace} onClick={() => setByFace(!byFace)} data-tip="Sort the takes by how much the face is its person's (Face Match); off, in the order they were made" className={cx("rounded-md px-1.5 py-px text-[11.5px] font-semibold", byFace ? "bg-accent-wash text-accent" : "text-ink-3 hover:bg-hover hover:text-ink")}>
-            Closest face first
-          </button>
+      {sorts.length > 1 && (
+        <span className="flex justify-end px-1.5 pb-1">
+          <Segmented<TakeSort> label="Sort the takes" size="sm" oneLine value={sort} onChange={setSort} options={sorts} />
         </span>
       )}
       {listed.map(({ t, i }) => {
@@ -78,6 +116,7 @@ export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, on
         const trouble = takeTrouble(t, clip.takes);
         const plays = t.endMs - t.startMs;
         const file = t.asset.durationMs ?? 0;
+        const trimmed = !trouble && (t.trimStartMs > 0 || t.trimEndMs > 0);
         // the thumbnail at the take's own shape, 54 px on its long side
         const w = t.asset.width ?? 0;
         const h = t.asset.height ?? 0;
@@ -85,9 +124,10 @@ export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, on
         return (
           <div
             key={t.id}
-            className={cx("group/take flex items-center rounded-[10px]", on ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : "hover:bg-hover")}
+            className={cx("group/take flex items-center rounded-control", on ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : "hover:bg-hover")}
             onMouseEnter={() => !on && onPreview(t)}
             onMouseLeave={() => onPreview(null)}
+            onContextMenu={(e) => menu.open(e, t.asset)}
           >
             <button
               type="button"
@@ -103,46 +143,45 @@ export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, on
               className="flex min-w-0 grow items-center gap-2.5 p-1.5 text-left"
             >
               <img src={thumbUrl(t.asset.id)} alt="" loading="lazy" style={thumb} className="shrink-0 rounded-md bg-raised object-cover" />
-              <span className="flex min-w-0 grow flex-col gap-[3px]">
+              <span className="flex min-w-0 grow flex-col gap-0.5">
                 <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  <span className="font-bold">Take {i + 1}</span>
-                  {on && <TakeChip tone="accent">plays</TakeChip>}
-                  {trouble && <TakeChip tone="warn" tip={trouble}>broken</TakeChip>}
+                  <span className="text-title font-bold">Take {i + 1}</span>
+                  {on && <Chip size="xs" tone="accent">plays</Chip>}
+                  {trouble && <Chip size="xs" tone="warn" tip={trouble}>broken</Chip>}
                   {t.finishedFrom && !trouble && (t.facePass
-                    ? <TakeChip tone="good" tip={`Take ${numberOf(t.finishedFrom)}'s own frames, its faces redrawn closer to the person's picture (Face refine), nothing else changed`}>face pass of take {numberOf(t.finishedFrom)}</TakeChip>
-                    : <TakeChip tone="good" tip={`The finished version of take ${numberOf(t.finishedFrom)}: the same clip, brought to its final quality (${t.asset.width} × ${t.asset.height})`}>finished</TakeChip>)}
-                  {smoothest === t.id && clip.takes.length > 1 && <TakeChip tone="neutral" tip="The smoothest joins of the takes">smoothest</TakeChip>}
-                  {closest === t.id && <TakeChip tone="neutral" tip="The face closest to its person's picture, of the takes measured">closest face</TakeChip>}
-                  {formOf(t) && <TakeChip tone="neutral" tip="The form it was rendered with: this clip's takes come from more than one">{formOf(t)}</TakeChip>}
+                    ? <Chip size="xs" tone="good" tip={`Take ${numberOf(t.finishedFrom)}'s own frames, its faces redrawn closer to the person's picture (Face refine), nothing else changed`}>face refine of take {numberOf(t.finishedFrom)}</Chip>
+                    : <Chip size="xs" tone="good" tip={`The finished version of take ${numberOf(t.finishedFrom)}: the same clip, brought to its final quality (${t.asset.width} × ${t.asset.height})`}>finished</Chip>)}
+                  {smoothest === t.id && clip.takes.length > 1 && <Chip size="xs" tip="The smoothest joins of the takes">smoothest</Chip>}
+                  {closest === t.id && <Chip size="xs" tip="The face closest to its person's picture, of the takes measured">closest face</Chip>}
+                  {formOf(t) && <Chip size="xs" tip="The form it was rendered with: this clip's takes come from more than one">{formOf(t)}</Chip>}
                 </span>
-                {t.measure?.face != null && (
-                  <span className="font-mono text-[11px] text-ink-3" data-tip={`How much the face along the take is its person's: ArcFace against the cast's photo, else the first reference picture (a Motion transfer's Picture), the median of a few frames${t.measure.faceLow != null ? `; the lowest ${t.measure.faceLow.toFixed(2)}` : ""}. Small or turned faces read lower: compare takes of one clip.`}>
-                    face {t.measure.face.toFixed(2)}
+                {/* the figures, a step under the name: how long it plays (a trimmed take says so), its joins, its face */}
+                <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 font-mono text-meta text-ink-3">
+                  <span className={cx("flex items-center gap-1", trouble && "text-warn-ink")} data-tip={trimmed && file > plays ? `Trimmed: plays ${(plays / 1000).toFixed(1)} of its ${(file / 1000).toFixed(1)} s` : undefined}>
+                    {trimmed && <Scissors size={11} aria-label="trimmed" />}
+                    {(Math.max(0, plays) / 1000).toFixed(1)} s
                   </span>
-                )}
-                {j && (j.in !== null || j.out !== null) && (
-                  <span className="font-mono text-[11px] text-ink-3" data-tip={`How much the picture jumps at each join, against the clip's own motion: ×1 moves like the clip, past ×${SHOWS} the join shows.`}>
-                    join{j.in !== null && <> in <span className={bad(j.in) ? "text-warn-ink" : "text-good"}>×{j.in}</span></>}{j.in !== null && j.out !== null && " ·"}{j.out !== null && <> out <span className={bad(j.out) ? "text-warn-ink" : "text-good"}>×{j.out}</span></>}
-                  </span>
-                )}
-              </span>
-              {/* how long it plays; a trimmed take says so, its file being longer than what plays */}
-              <span className={cx("flex shrink-0 items-center gap-1 font-mono text-[11.5px]", trouble ? "text-warn-ink" : "text-ink-2")} data-tip={!trouble && (t.trimStartMs > 0 || t.trimEndMs > 0) && file > plays ? `Trimmed: plays ${(plays / 1000).toFixed(1)} of its ${(file / 1000).toFixed(1)} s` : undefined}>
-                {!trouble && (t.trimStartMs > 0 || t.trimEndMs > 0) && <Scissors size={11} aria-label="trimmed" className="text-ink-3" />}
-                {(Math.max(0, plays) / 1000).toFixed(1)} s
+                  {j && (j.in !== null || j.out !== null) && (
+                    <span data-tip={`How much the picture jumps at each join, against the clip's own motion: ×1 moves like the clip, past ×${SHOWS} the join shows.`}>
+                      · join{j.in !== null && <> in <span className={bad(j.in) ? "text-attention-ink" : "text-good"}>×{j.in}</span></>}{j.in !== null && j.out !== null && " ·"}{j.out !== null && <> out <span className={bad(j.out) ? "text-attention-ink" : "text-good"}>×{j.out}</span></>}
+                    </span>
+                  )}
+                  {t.measure?.face != null && (
+                    <span data-tip={`How much the face along the take is its person's: ArcFace against the cast's photo, else the first reference picture (a Motion transfer's Picture), the median of a few frames${t.measure.faceLow != null ? `; the lowest ${t.measure.faceLow.toFixed(2)}` : ""}. Small or turned faces read lower: compare takes of one clip.`}>
+                      · face {t.measure.face.toFixed(2)}
+                    </span>
+                  )}
+                </span>
               </span>
             </button>
-            {onFacePass && !t.facePass && !trouble && (
-              <button type="button" aria-label={`Face pass of take ${i + 1}`} data-tip="Face pass: this take's own frames, its faces redrawn closer to the person's picture (the cast's, else the first reference picture), as a new take. Best on slow-moving shots" onClick={() => onFacePass(t)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover/take:opacity-100 hover:bg-hover hover:text-ink focus-visible:opacity-100">
-                <ScanFace size={13} />
-              </button>
-            )}
-            <button type="button" aria-label={`Remove take ${i + 1}`} data-tip="Remove this take. Its video goes to the bin with it; Undo brings both back." onClick={() => onRemoveTake(t.id)} className="mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover/take:opacity-100 hover:bg-hover hover:text-ink focus-visible:opacity-100">
-              <X size={13} />
-            </button>
+            <IconButton size={28} label={`Take ${i + 1}: more`} tip="Face refine, Download, Keep, Compare, Remove…" aria-haspopup="menu" onClick={(e) => menu.open(e, t.asset)} className="mr-1 opacity-60 group-hover/take:opacity-100 focus-visible:opacity-100">
+              <MoreHorizontal size={15} />
+            </IconButton>
           </div>
         );
       })}
+      {menu.element}
+      {viewing && <Viewer asset={viewing} items={listed.map(({ t }) => t.asset)} onOpen={setViewing} onClose={() => setViewing(null)} />}
     </div>
   );
 }

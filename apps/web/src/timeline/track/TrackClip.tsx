@@ -255,7 +255,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
                       e.stopPropagation();
                       a().render(c);
                     }}
-                    className={cx("flex h-[22px] shrink-0 items-center rounded-[7px] px-2 text-[11px] font-bold hover:brightness-110", c.failed ? "bg-warn-wash text-warn-ink" : "bg-accent text-accent-ink")}
+                    className={cx("flex h-[22px] shrink-0 items-center rounded-[7px] px-2 text-[11px] font-bold hover:brightness-110", c.failed ? "bg-warn-wash text-warn-ink" : "border border-line-strong bg-raised text-ink")}
                   >
                     {c.failed ? "Retry" : "Render"}
                   </button>
@@ -271,7 +271,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
               {/* one row high: a tag that does not fit wraps out of sight whole ("St…" and "other…" said nothing), the warning
                   first so it is the one kept; the length beside them never shrinks */}
               <span className="flex h-[18px] min-w-0 flex-wrap items-center justify-end gap-1 overflow-hidden">
-                {misfit && s.width > 100 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] whitespace-nowrap text-warn-ink" data-tip="Not the timeline's aspect ratio: it is fitted into the frame">other ratio</span>}
+                {misfit && s.width > 100 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] whitespace-nowrap text-attention-ink" data-tip="Not the timeline's aspect ratio: it is fitted into the frame">other ratio</span>}
                 {c.kind === "still" && s.width > 100 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] whitespace-nowrap text-ink-2">Still</span>}
                 {c.kind === "video" && !recipe && c.take && s.width > 96 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] whitespace-nowrap text-ink-2">Imported</span>}
                 {c.takes.length > 1 && s.width > 110 && <span className="rounded bg-ground/85 px-1.5 py-px text-[10px] whitespace-nowrap text-ink-2">take {c.takes.findIndex((x) => x.id === c.take?.id) + 1} of {c.takes.length}</span>}
@@ -280,7 +280,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
                 <span
                   aria-label={`The face drifts: ${face!.toFixed(2)} against ${before!.toFixed(2)} in clip ${s.index}`}
                   data-tip={`The face drifts from clip ${s.index}'s: ${face!.toFixed(2)} against ${before!.toFixed(2)} (Face Match, against the person's picture). Another take may hold it`}
-                  className="absolute top-1.5 right-1.5 z-[3] h-2.5 w-2.5 rounded-full bg-warn ring-2 ring-ground/70"
+                  className="absolute top-1.5 right-1.5 z-[3] h-2.5 w-2.5 rounded-full bg-attention ring-2 ring-ground/70"
                 />
               )}
             </>
@@ -370,11 +370,11 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
                 "peer absolute z-10 flex h-[22px] w-[22px] items-center justify-center rounded-full border",
                 (toggles || opens) && "hover:scale-110 hover:border-accent",
                 dropping && "scale-125 border-accent ring-2 ring-accent/40",
-                c.join === "stale" ? "border-warn bg-warn text-warn-on" : carries ? (c.join === "fresh" ? "border-accent bg-accent-wash text-accent" : "border-dashed border-accent bg-panel text-accent") : "border-line-strong bg-raised text-ink-3",
+                c.join === "stale" ? "border-attention bg-attention-wash text-attention-ink" : carries ? (c.join === "fresh" ? "border-accent bg-accent-wash text-accent" : "border-dashed border-accent bg-panel text-accent") : "border-line-strong bg-raised text-ink-3",
               )}
             >
               {c.join === "stale" ? <TriangleAlert size={11} /> : carries ? <Link2 size={11} /> : <Scissors size={10} />}
-              {differ && c.join !== "stale" && <span aria-hidden className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border border-panel bg-warn" />}
+              {differ && c.join !== "stale" && <span aria-hidden className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border border-panel bg-attention" />}
             </button>
             {/* a clip put in here: shown while the pointer is on the join (or on it), the model chosen in the column after,
                 each said beside it as seamless or a cut (the rethink's insert, page 2 of its mock) */}

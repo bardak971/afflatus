@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { Camera, Download, Link2, Maximize, Pause, Play, Redo2, Repeat, SkipBack, SkipForward, Sparkles, Undo2, Volume2, VolumeX } from "lucide-react";
+import { Camera, Download, History, Link2, Maximize, Redo2, Repeat, SkipBack, SkipForward, Sparkles, Undo2, Volume2, VolumeX } from "lucide-react";
 import type { Clip, MachineState, Timeline } from "../api";
 import { clock, est, plural } from "../format";
 import { Estimate } from "./estimate";
-import { Button, Chip, cx, Help } from "../ui";
+import { Button, Chip, cx, Help, IconButton } from "../ui";
+import { ContextMenu, useMenu } from "../ContextMenu";
+import { PlayButton } from "../mediaControls";
 import { Slider } from "../Slider";
 import { useQueue } from "../data";
 import { timelineKey } from "../draftMachine";
@@ -53,12 +55,14 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
   // rendered and planned, as the index says them ("1:37 rendered of 1:47"), the figures in mono
   const now = clock(t.durationMs);
   const planned = clock(total);
-  // a narrow header (a small window, a wide right column) says Finish and Export by their icons, their names in the
-  // tip, as Undo and Redo do; the name box and the chips give up their width first, so no button is pushed off-screen
-  const narrow = "@max-[70rem]/head:hidden";
-  const iconOnly = "@max-[70rem]/head:w-10 @max-[70rem]/head:px-0!";
+  // a narrow header (a small window, a wide right column) folds Undo and Redo into one menu first (their keys still
+  // work): Finish and Export, the two outward and costly acts, keep their words at every width; the name box and the
+  // chips give up their width before that, so no button is pushed off-screen
+  const wide = "@max-[60rem]/head:hidden";
+  const folded = "@min-[60rem]/head:hidden";
+  const history = useMenu<null>();
   return (
-    <header className="@container/head flex h-[56px] shrink-0 items-center gap-2.5 border-b border-line px-3">
+    <header className="@container/head flex h-14 shrink-0 items-center gap-2.5 border-b border-line px-3">
       <input
         aria-label="Timeline name"
         value={name ?? t.name}
@@ -81,7 +85,8 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
           </span>
         )}
       </Chip>
-      {missing.length > 0 && <Chip tone="warn" className="shrink-0">{missing.length} to render{allMs ? ` · ${est(allMs)}` : ""}</Chip>}
+      {/* to do, not wrong: neutral (red is for what failed) */}
+      {missing.length > 0 && <Chip className="shrink-0">{missing.length} to render{allMs ? ` · ${est(allMs)}` : ""}</Chip>}
       <span className="grow" />
       {saveFailed ? (
         // what was typed is still on screen and not on the server: said, with the way to send it again
@@ -97,37 +102,57 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
         </span>
       ) : null}
       {/* icons, their keys in the tip: as words they stood level with Finish and Export, which they are not */}
-      <Button className="w-10 shrink-0 px-0!" aria-label="Undo" disabled={!t.undo || undo.pending} data-tip={t.undo ? `Undo: ${t.undo}` : "Nothing to undo"} data-tip-keys="Ctrl+Z" onClick={undo.run}>
+      <IconButton size={40} tone="outline" label="Undo" tip={t.undo ? `Undo: ${t.undo}` : "Nothing to undo"} keys="Ctrl+Z" disabled={!t.undo || undo.pending} onClick={undo.run} className={wide}>
         <Undo2 size={16} />
-      </Button>
-      <Button className="-ml-1 w-10 shrink-0 px-0!" aria-label="Redo" disabled={!t.redo || redo.pending} data-tip={t.redo ? `Redo: ${t.redo}` : "Nothing to redo"} data-tip-keys="Ctrl+Shift+Z | Ctrl+Y" onClick={redo.run}>
+      </IconButton>
+      <IconButton size={40} tone="outline" label="Redo" tip={t.redo ? `Redo: ${t.redo}` : "Nothing to redo"} keys="Ctrl+Shift+Z | Ctrl+Y" disabled={!t.redo || redo.pending} onClick={redo.run} className={cx("-ml-1", wide)}>
         <Redo2 size={16} />
-      </Button>
-      {/* with several ComfyUIs, each with the slice that picks where the timeline's clips render (New take's pick) */}
+      </IconButton>
+      <IconButton size={40} tone="outline" label="Undo or redo" tip="Undo (Ctrl+Z) or redo (Ctrl+Shift+Z)" aria-haspopup="menu" disabled={(!t.undo || undo.pending) && (!t.redo || redo.pending)} onClick={(e) => history.open(e, null)} className={folded}>
+        <History size={16} />
+      </IconButton>
+      {history.menu && (
+        <ContextMenu
+          at={history.menu.at}
+          label="Undo or redo"
+          items={[
+            { label: t.undo ? `Undo: ${t.undo}` : "Nothing to undo", key: "Ctrl+Z", icon: <Undo2 size={14} />, disabled: !t.undo || undo.pending, run: undo.run },
+            { label: t.redo ? `Redo: ${t.redo}` : "Nothing to redo", key: "Ctrl+Shift+Z", icon: <Redo2 size={14} />, disabled: !t.redo || redo.pending, run: redo.run },
+          ]}
+          onClose={history.close}
+        />
+      )}
+      {/* plain, its count in the accent: the one coral button of the editor is the inspector's, which acts on what is
+          selected; with several machines, each with the slice that picks where the timeline's clips render */}
       {missing.length > 0 && (
         <span className="flex shrink-0">
-          <Button tone="primary" className={cx(several && "rounded-r-none!")} disabled={rendering} data-tip={`Renders the clips that have no take yet and redoes the ones that no longer follow the clip before them, in order.${on ? ` On ${machineLabel(on)}.` : ""}`} onClick={onRenderMissing}>
-            Render all ({missing.length})<Estimate ms={allMs} />
+          <Button className={cx(several && "rounded-r-none!")} disabled={rendering} data-tip={`Renders the clips that have no take yet and redoes the ones that no longer follow the clip before them, in order.${on ? ` On ${machineLabel(on)}.` : ""}`} onClick={onRenderMissing}>
+            Render all <Count n={missing.length} /><Estimate ms={allMs} />
           </Button>
           <RenderOn pickKey={timelineKey(t.id)} msOn={allOn} blocked={allBlocked} />
         </span>
       )}
       {picked.size > 0 && (
         <span className="flex shrink-0">
-          <Button tone="primary" className={cx(several && "rounded-r-none!")} disabled={rendering || !picked.renderable} data-tip="Renders the clips picked with Ctrl + click, together: each is queued as its own job, in order, and a clip that flows on from a picked one waits for it. Esc drops the pick." onClick={onRenderPicked}>
-            Render {picked.size} picked
+          <Button className={cx(several && "rounded-r-none!")} disabled={rendering || !picked.renderable} data-tip="Renders the clips picked with Ctrl + click, together: each is queued as its own job, in order, and a clip that flows on from a picked one waits for it. Esc drops the pick." onClick={onRenderPicked}>
+            Render picked <Count n={picked.size} />
           </Button>
           <RenderOn pickKey={timelineKey(t.id)} msOn={() => null} />
         </span>
       )}
-      <Button className={cx("shrink-0", iconOnly)} aria-label="Finish" disabled={!clips.some((c) => c.kind === "video" && c.take)} data-tip="Finish: every clip's selected take brought to its final quality by an upscale route, as a new take each. The drafts stay." onClick={onFinish}>
-        <Sparkles size={15} /> <span className={narrow}>Finish</span>
+      <Button className="shrink-0" disabled={!clips.some((c) => c.kind === "video" && c.take)} data-tip="Finish: every clip's selected take brought to its final quality by an upscale route, as a new take each. The drafts stay." onClick={onFinish}>
+        <Sparkles size={15} /> Finish…
       </Button>
-      <Button className={cx("shrink-0", iconOnly)} aria-label={t.exporting ? "Exporting…" : "Export video"} disabled={!t.durationMs} data-tip={t.exporting ? "Exporting…" : "Export video: the whole timeline as one file"} onClick={onExport}>
-        <Download size={15} /> <span className={narrow}>{t.exporting ? "Exporting…" : "Export video"}</span>
+      <Button className="shrink-0" disabled={!t.durationMs} data-tip={t.exporting ? "Exporting…" : "Export video: the whole timeline as one file"} onClick={onExport}>
+        <Download size={15} /> {t.exporting ? "Exporting…" : "Export…"}
       </Button>
     </header>
   );
+}
+
+/** How many a header button acts on, in the accent: the button stays plain, its figure says there is something to do. */
+function Count({ n }: { n: number }) {
+  return <span className="-ml-0.5 inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-accent px-1.5 font-mono text-micro font-bold text-accent-ink">{n}</span>;
 }
 
 /**
@@ -162,9 +187,8 @@ export function Transport({ t, clock, slots, cursor, total, source, playing, ran
   return (
     <div className="flex h-[54px] shrink-0 items-center gap-2 border-t border-line bg-panel px-3">
       <button type="button" aria-label="Previous clip" data-tip="Previous clip" disabled={!t.durationMs} onClick={() => onJump(-1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipBack size={15} /></button>
-      <button type="button" aria-label={playing ? "Pause" : ranged ? "Play the range" : "Play"} data-tip={ranged ? "Play the range: from the playhead inside it, else from In; stops at Out (Space)" : "Play / pause (Space)"} disabled={!t.durationMs && !source} onClick={onToggle} className={cx("flex h-9 w-9 items-center justify-center rounded-full disabled:opacity-40", ranged ? "bg-accent text-accent-ink" : "bg-ink text-ground")}>
-        {playing ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" className="ml-0.5" />}
-      </button>
+      {/* the app's one play button (the viewer's, the music's); a range set rings it, as Play then plays the range */}
+      <PlayButton on={playing} label={playing ? "Pause" : ranged ? "Play the range" : "Play"} tip={ranged ? "Play the range: from the playhead inside it, else from In; stops at Out" : "Play / pause"} disabled={!t.durationMs && !source} onClick={onToggle} className={cx(ranged && "ring-2 ring-accent/40 ring-offset-2 ring-offset-panel")} />
       <button type="button" aria-label="Next clip" data-tip="Next clip" disabled={!t.durationMs} onClick={() => onJump(1)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><SkipForward size={15} /></button>
       {ranged && (
         <button type="button" aria-label="Loop the range" aria-pressed={loopRange} data-tip={loopRange ? "Loop is on: back to In at Out (L)" : "Loop the range (L)"} onClick={onToggleLoop} className={cx("flex h-8 w-8 items-center justify-center rounded-lg", loopRange ? "bg-accent-wash text-accent" : "text-ink-2 hover:bg-hover hover:text-ink")}><Repeat size={15} /></button>

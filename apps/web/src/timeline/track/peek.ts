@@ -1,5 +1,6 @@
 import type { Asset, Clip, Take } from "../../api";
 import { seconds, spell } from "../../format";
+import { SHOWS } from "../attention";
 import { driftOf, type Drift } from "../lookDrift";
 import { fileVersion, stamp } from "../model";
 
@@ -20,9 +21,10 @@ export const PEEK = {
   footer: 62,
   /** The least room kept between a card and the edge of the window or the editor. */
   margin: 8,
-  /** The clip's figures beside the frame, when the pointer is on a clip: a take's, and the few words of one with no take. */
-  facts: 380,
-  factsShort: 220,
+  /** The frame card's width, what it holds without its padding (about 320 px with it): the frame, then the clip's form line and chips. */
+  card: 302,
+  /** A standing frame goes beside the clip's words, no wider than this; a lying one goes over them. */
+  side: 120,
 } as const;
 
 /** The gestures the ruler and the clips take: the card's last line. */
@@ -124,10 +126,10 @@ export class Lru<K, V> {
   }
 }
 
-/** A line of the clip's figures: plain, dim, a warning, or the accent (something happening now). */
+/** A line of the clip's figures: plain, dim, what failed (warn), what needs a look (attention), or the accent (something happening now). */
 interface FactLine {
   text: string;
-  tone?: "dim" | "warn" | "accent";
+  tone?: "dim" | "warn" | "attention" | "accent";
 }
 
 /**
@@ -139,7 +141,8 @@ interface FactLine {
 export interface ClipFacts {
   /** Its length in bold, then how it came to be. Null: a short card (a still, a clip not rendered). */
   head: { text: string; detail?: string } | null;
-  chips: Array<{ text: string; tone: "accent" | "neutral" }>;
+  /** attention: a join that jumps past what shows. */
+  chips: Array<{ text: string; tone: "accent" | "neutral" | "attention" }>;
   /** Against the clip before and the run's start; null when it does not continue a measured run. */
   drift: Drift | null;
   /** The dim last line: size, frame rate, a render on its way. */
@@ -172,7 +175,7 @@ export function clipFacts(clip: Clip, index: number, clips: Clip[], jump: number
     facts.head = { text: seconds(clip.lengthMs), detail: take.renderMs ? `rendered in ${spell(take.renderMs)}` : clip.recipe ? undefined : "imported" };
     if (index > 0) {
       const flows = clip.joined === "continue";
-      facts.chips.push({ text: `${joinWords(clip, take, index)}${flows && jump !== null ? ` ×${jump.toFixed(1)}` : ""}`, tone: flows ? "accent" : "neutral" });
+      facts.chips.push({ text: `${joinWords(clip, take, index)}${flows && jump !== null ? ` ×${jump.toFixed(1)}` : ""}`, tone: flows && jump !== null && jump > SHOWS ? "attention" : flows ? "accent" : "neutral" });
       // a join made in the latent: how wide its run-up came out against the latent it was guided by (1.00 = the same)
       if (take.measure?.drift) facts.chips.push({ text: `run-up ×${take.measure.drift.width.toFixed(2)}`, tone: "neutral" });
     }
@@ -193,7 +196,8 @@ export function clipFacts(clip: Clip, index: number, clips: Clip[], jump: number
     if (clip.failed && !clip.job) facts.lines.push({ text: "The last render failed", tone: "warn" });
   }
   if (!take && clip.kind === "still" && job) facts.lines.push(job);
-  if (clip.join === "stale") facts.lines.push({ text: `Join stale: clip ${index} changed since`, tone: "warn" });
-  if (clip.mirrorChanged) facts.lines.push({ text: "Mirror changed since this take", tone: "warn" });
+  // a look, not a failure: amber, as Needs a look says them
+  if (clip.join === "stale") facts.lines.push({ text: `Join stale: clip ${index} changed since`, tone: "attention" });
+  if (clip.mirrorChanged) facts.lines.push({ text: "Mirror changed since this take", tone: "attention" });
   return facts;
 }

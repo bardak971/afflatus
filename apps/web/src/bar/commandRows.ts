@@ -126,7 +126,7 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     export: [`Export ${t}`, "The export dialog opens on it"],
     "export-editor": [`Export ${t} for a video editor`, "The export dialog opens on For an editor: its clips and a project file for Resolve, Premiere or Kdenlive"],
     finish: [`Finish ${t}…`, "The Finish dialog: every take upscaled to its final quality"],
-    "fix-all": [`Fix all in ${t}`, "What Needs attention lists, mended as its Fix all"],
+    "fix-all": [`Fix all in ${t}`, "What Needs a look lists, mended as its Fix all"],
     generate: c.cmd === "generate" && c.machine ? [`Generate on ${c.machine}`, `${machineSaid(queueNow, c.machine)} · the open draft, on that machine this once`] : ["Generate", "The open draft, as its Generate button"],
     preset: [`Apply ${preset?.name ?? named}`, preset ? `Preset${preset.source === "shipped" ? " · built in" : ""} · on the open draft` : "No preset by that name"],
     "save-preset": [`Save as preset “${named}”`, "The open draft's model, form and cast"],

@@ -79,8 +79,8 @@ export function JoinPanel({ clip, index, before, recipes, onPatch, onClose, onSe
         )}
 
         {extends_ && clip.join === "stale" && (
-          <div className="flex flex-col gap-2 rounded-lg border border-warn bg-warn-wash p-3">
-            <span className="font-semibold text-warn-ink">Clip {n} no longer follows clip {index}</span>
+          <div className="flex flex-col gap-2 rounded-lg border border-attention/40 bg-attention-wash p-3">
+            <span className="font-semibold text-attention-ink">Clip {n} no longer follows clip {index}</span>
             <span className="text-xs text-ink-2">Clip {index} changed after this one was made from it. Render clip {n} again (in its panel), or keep the join as a cut.</span>
             <span className="flex gap-1.5">
               <Button size="sm" onClick={() => onSelectClip(clip.id)}>Open clip {n}</Button>
@@ -90,8 +90,8 @@ export function JoinPanel({ clip, index, before, recipes, onPatch, onClose, onSe
         )}
 
         {differ && (
-          <div className="flex flex-col gap-2 rounded-lg border border-warn bg-warn-wash p-3">
-            <span className="flex items-center gap-1.5 font-semibold text-warn-ink">
+          <div className="flex flex-col gap-2 rounded-lg border border-attention/40 bg-attention-wash p-3">
+            <span className="flex items-center gap-1.5 font-semibold text-attention-ink">
               <TriangleAlert size={14} /> Two models: the face may change here
               <Help title="Two models" text={TWO_MODELS.replace("{a}", nameOf(before)).replace("{b}", nameOf(clip))} />
             </span>
