@@ -244,8 +244,8 @@ noise = np.ones((sm.latent_frames(frames), H // 16, W // 16), np.float32)
 
 def test_the_joined_flood_settles_where_the_persons_mask_never_reaches_1_and_leaves_the_body_as_it_was():
     """A speck of the person's mask, or a small grow with a blur (no cell reaches 1), kept the joined flood changing at every
-    pass up to its cap (2 to 3 minutes a window, 2026-10-18): it now settles once nothing moves by more than SETTLED. Against
-    the flood that waits for no change at all (SETTLED 0): far fewer passes, the body the same."""
+    pass up to its cap (2 to 3 minutes a window, 2026-10-18). With each peak held it settles in a few passes, whether it
+    stops once nothing moves by more than SETTLED or waits for no change at all (SETTLED 0), to the same alpha."""
     out = with_torch(_SWAP_SCENE + r"""
 pool = F.max_pool2d
 passes = [0]
@@ -265,14 +265,61 @@ for grow, blur in ((10, 5.0), (4, 2.5)):
         passes[0] = 0
         got[settled] = (sm.difference_alpha(render, source, noise, paste, 0.06, 8, 4.0, 1), passes[0])
     (before, slow), (now, fast) = got[0.0], got[1 / 1024]
-    print(grow, blur, slow, fast, float((before - now).abs()[:, :, :120].max()), float((before - now).abs().max()))
+    print(grow, blur, slow, fast, float((before - now).abs().max()))
 """)
     for line in out.splitlines():
-        grow, blur, slow, fast, body, anywhere = line.split()
-        # the flood's cap is 4 x 192 / 4 = 192 passes; the coarser grid's, the near and the grow pools 13 more
-        assert int(slow) == 205 and int(fast) < 60, line
-        # the body, the same; the speck keeps the value it had when the flood settled, not what the cap left of it
-        assert float(body) < 1e-4 and float(anywhere) < 0.05, line
+        grow, blur, slow, fast, apart = line.split()
+        # the flood's cap is 4 x 192 / 4 = 192 passes, which it ran to before
+        assert int(slow) < 60 and int(fast) < 60, line
+        assert float(apart) < 1e-4, line
+
+
+def test_the_body_comes_out_as_the_joined_flood_made_it_before_pieces_were_kept():
+    """Where the person's mask has no piece apart, keeping the pieces changes nothing: the alpha across the body's edge,
+    along a row and down a column, is the one 0.36.6 made (taken from it), at a grow of 10, 4 with a small blur, and 30."""
+    out = with_torch(_SWAP_SCENE + r"""
+for grow, blur in ((10, 5.0), (4, 2.5), (30, 5.0)):
+    paste = sm.paste_mask(body, frames, W, H, grow, blur)
+    a = sm.difference_alpha(render, source, noise, paste, 0.06, 8, 4.0, 1)
+    print(" ".join(str(float(v)) for v in [a.sum()] + list(a[2, 72, 64:124:4]) + list(a[2, 16:40:2, 48])))
+""")
+    before = [
+        [48839.05, 1.0, 1.0, 0.9993, 0.9892, 0.93069, 0.76537, 0.50232, 0.24442, 0.083, 0.01857, 0.00256, 0.0002, 1e-05, 0.0, 0.0, 0.57413, 0.71072, 0.81802, 0.9091, 0.9515, 0.98524, 0.99303, 0.99901, 0.99958, 1.0, 1.0, 1.0],
+        [44211.17, 1.0, 1.0, 0.99839, 0.97678, 0.86342, 0.59816, 0.28573, 0.08592, 0.01503, 0.00138, 5e-05, 0.0, 0.0, 0.0, 0.0, 0.36157, 0.51628, 0.68003, 0.82304, 0.90381, 0.96852, 0.98504, 0.99775, 0.99904, 1.0, 1.0, 1.0],
+        [83551.31, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.99992, 0.99904, 0.99312, 0.96638, 0.88371, 0.70903, 0.45974, 0.22298, 0.07573, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+    ]
+    for line, want in zip(out.splitlines(), before):
+        got = [float(v) for v in line.split()]
+        assert abs(got[0] - want[0]) < 0.05, line
+        assert max(abs(g - w) for g, w in zip(got[1:], want[1:])) < 1e-4, line
+
+
+def test_a_piece_of_the_persons_mask_apart_from_the_body_is_kept_whole_whatever_the_cap_of_passes():
+    """A hand SAM found apart from the arm, its blurred mask peaking at 0.9995, came out at what the joined flood's passes
+    left of it (0.36 at the cap, 0.96 where the flood settled), and a speck peaking at 0.9 all but went: the paste mask is
+    the person, always kept (perf review M-22, the owner's call, 2026-10-22). Both are kept, the same with a quarter of the
+    passes or waiting for no change at all, and the body as it is without them."""
+    out = with_torch(_SWAP_SCENE + r"""
+paste = sm.paste_mask(body, frames, W, H, 10, 5.0)
+alone = sm.difference_alpha(render, source, noise, paste, 0.06, 8, 4.0, 1)
+r2 = torch.from_numpy(((yy - 24) ** 2 + (xx - 160) ** 2).astype(np.float32))
+paste[2:4] = torch.maximum(paste[2:4], 0.9995 * torch.exp(-r2 / (2 * 12.0**2)))
+r2 = torch.from_numpy(((yy - 104) ** 2 + (xx - 168) ** 2).astype(np.float32))
+paste[4] = torch.maximum(paste[4], 0.9 * torch.exp(-r2 / (2 * 3.0**2)))
+a = sm.difference_alpha(render, source, noise, paste, 0.06, 8, 4.0, 1)
+sm.JOIN_PASSES = 1
+fewer = sm.difference_alpha(render, source, noise, paste, 0.06, 8, 4.0, 1)
+sm.JOIN_PASSES, sm.SETTLED = 4, 0.0
+still = sm.difference_alpha(render, source, noise, paste, 0.06, 8, 4.0, 1)
+# what is further from the hand and the speck than their blur, the alpha's grow and its blur reach
+apart = torch.from_numpy(((yy - 24) ** 2 + (xx - 160) ** 2 > 64**2) & ((yy - 104) ** 2 + (xx - 168) ** 2 > 40**2)).expand(frames, H, W)
+print(float(a[2:4, 24, 160].min()), float(a[4, 104, 168]), float((a - fewer).abs().max()), float((a - still).abs().max()), float((a - alone).abs()[apart].max()))
+""")
+    hand, speck, fewer, still, body = (float(v) for v in out.split())
+    # 0.973 and 0.004 before
+    assert hand > 0.998 and speck > 0.98, out
+    assert fewer < 1e-6 and still < 1e-4, out
+    assert body < 1e-6, out
 
 
 def test_the_difference_paste_mixes_the_same_frames_in_place_of_three_copies():
