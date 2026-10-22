@@ -17,7 +17,7 @@ import { JustifiedRows, type Placed } from "../screens/studio/MediaGrid";
 import { useStudio } from "../store";
 import { useTileMenu } from "../TileMenu";
 import type { MenuItem } from "../ContextMenu";
-import { cx, Segmented } from "../ui";
+import { cx, Empty, IconButton, SearchField, SectionTitle, Segmented } from "../ui";
 import { Select } from "../Select";
 import { useFit } from "../useFit";
 import { Viewer } from "../viewer/LazyViewer";
@@ -158,17 +158,15 @@ export function MediaOverlay({ timeline, placeItems }: {
 
   const tab = (
     <aside className={cx("flex w-10 shrink-0 flex-col items-center border-r border-line py-2", open ? "bg-raised" : "bg-panel")}>
-      <button
-        type="button"
-        aria-pressed={open}
-        aria-label={open ? "Fold the media away" : "Show the media"}
-        data-tip={open ? "Fold the media away: the stage comes back" : "Media: your library over the stage. Drag onto the track or into the clip's form."}
+      <IconButton
+        pressed={open}
+        label={open ? "Fold the media away" : "Show the media"}
+        tip={open ? "Fold the media away: the stage comes back" : "Media: your library over the stage. Drag onto the track or into the clip's form."}
         onClick={() => setOpen(!open)}
-        className={cx("flex h-8 w-8 items-center justify-center rounded-lg hover:bg-hover hover:text-ink", open ? "text-accent" : "text-ink-2")}
       >
         {open ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
-      </button>
-      <span className={cx("mt-3 text-[10px] font-semibold tracking-wide uppercase [writing-mode:vertical-rl]", open ? "text-accent" : "text-ink-3")}>Media</span>
+      </IconButton>
+      <span className={cx("mt-3 text-micro font-semibold tracking-wide uppercase [writing-mode:vertical-rl]", open ? "text-accent" : "text-ink-3")}>Media</span>
     </aside>
   );
   const viewer = viewing && <Viewer asset={shown.find((a) => a.id === viewing.id) ?? viewing} items={shown} onOpen={setViewing} onClose={() => setViewing(null)} />;
@@ -195,12 +193,12 @@ export function MediaOverlay({ timeline, placeItems }: {
       return (
         <div className="relative h-full">
           <Tile fill asset={a} onOpen={() => setViewing(a)} onMenu={(e) => menu.open(e, a)} />
-          {n && <span className="pointer-events-none absolute top-1.5 left-1.5 z-10 flex h-5 items-center rounded-full bg-ground px-[7px] text-[11px] font-bold text-accent">pinned · clip {n}</span>}
+          {n && <span className="pointer-events-none absolute top-1.5 left-1.5 z-10 flex h-5 items-center rounded-full bg-ground px-[7px] text-meta font-bold text-accent">pinned · clip {n}</span>}
         </div>
       );
     },
   });
-  const head = (words: string) => <div className="mb-2 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{words}</div>;
+  const head = (words: string) => <SectionTitle className="mb-2">{words}</SectionTitle>;
   if (!open) return <>{tab}{viewer}</>;
   return (
     <>
@@ -208,7 +206,7 @@ export function MediaOverlay({ timeline, placeItems }: {
       {/* it takes Escape: one press folds it away and leaves the range, the selection and the music panel as they are */}
       <section ref={shelfRef} aria-label="Your library" data-takes-escape className="m-panel absolute inset-y-0 right-0 left-10 z-20 flex flex-col bg-ground">
         <div ref={bar} className="flex h-14 shrink-0 flex-nowrap items-center gap-2 overflow-hidden border-b border-line px-4">
-          <span className="shrink-0 text-[11px] font-bold tracking-[0.08em] text-accent uppercase">Media</span>
+          <span className="shrink-0 text-meta font-bold tracking-label text-accent uppercase">Media</span>
           {/* the place, as the Studio's breadcrumb: inside the project worked in, its tree under it */}
           <PlaceCrumbs place={place} onPlace={(p) => setStudio({ place: p })} anchor={folderButton} open={folders} onOpen={setFolders} className={fold >= 5 ? "w-[clamp(110px,9vw,140px)]!" : undefined} />
           {fold >= 2
@@ -223,20 +221,27 @@ export function MediaOverlay({ timeline, placeItems }: {
               <Search size={15} />
             </button>
           ) : (
-            <label className={cx("flex h-9 min-w-28 shrink items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent", fold >= 4 ? "w-48" : "w-64")}>
-              <Search size={14} className="shrink-0 text-ink-3" />
-              <input data-search="media" aria-label="Search the media" autoFocus={searching} onBlur={() => setSearching(false)} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search prompts and names" className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
-              {typed && <button type="button" aria-label="Clear the search" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
-            </label>
+            // as tall as the bar's switches beside it (36 px), not the kit's small height
+            <SearchField
+              data-search="media"
+              label="Search the media"
+              placeholder="Search prompts and names"
+              autoFocus={searching}
+              onBlur={() => setSearching(false)}
+              value={typed}
+              onChange={setTyped}
+              end={typed && <button type="button" aria-label="Clear the search" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
+              className={cx("h-9! min-w-28 shrink", fold >= 4 ? "w-48" : "w-64")}
+            />
           )}
           <button type="button" aria-pressed={kept} aria-label="Kept only" data-tip={kept ? "Kept only: on. Show everything again" : "Kept only"} onClick={() => setKept(!kept)} className={cx("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border", kept ? "border-accent text-accent" : "border-line text-ink-2 hover:text-ink")}>
             <Star size={14} fill={kept ? "currentColor" : "none"} />
           </button>
-          {fold < 3 && <span className="flex shrink-0 items-center gap-1.5 text-[11.5px] whitespace-nowrap text-ink-3"><Keys keys="Esc" size="sm" /> close</span>}
+          {fold < 3 && <span className="flex shrink-0 items-center gap-1.5 text-meta whitespace-nowrap text-ink-3"><Keys keys="Esc" size="sm" /> close</span>}
         </div>
         <div className="min-h-0 grow overflow-y-auto px-4 py-3.5">
           {(fetched ? assets.isSuccess : true) && !items.length && (
-            <div className="py-10 text-center text-sm text-ink-3">{scope === "timeline" ? "This timeline uses nothing of that kind yet." : "Nothing here. Change the folder, the scope or the kind."}</div>
+            <Empty title="Nothing here">{scope === "timeline" ? "This timeline uses nothing of that kind yet." : "Change the folder, the scope or the kind."}</Empty>
           )}
           {on.length > 0 && (
             <section aria-label="On this timeline" className="mb-5">

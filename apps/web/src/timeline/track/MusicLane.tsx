@@ -173,7 +173,7 @@ export function MusicLane({ timeline, slots, pps, width, selected, over, measure
             data-tip={i === 0 ? "Drag: which part of the song plays · Alt + drag its left edge: start under a later clip · click: the music under this clip" : undefined}
             style={{ left: a + 1, width: Math.max(4, b - a - 2) }}
             className={cx(
-              "absolute top-0 bottom-0 flex cursor-grab items-center gap-1 overflow-hidden rounded px-1.5 text-left text-[10px] text-accent active:cursor-grabbing",
+              "absolute top-0 bottom-0 flex cursor-grab items-center gap-1 overflow-hidden rounded px-1.5 text-left text-micro text-accent active:cursor-grabbing",
               s.muted ? "bg-accent/5 ring-1 ring-accent/20 ring-inset" : "bg-accent-wash",
               pop?.clip === s.clip && "ring-2 ring-accent ring-inset",
             )}

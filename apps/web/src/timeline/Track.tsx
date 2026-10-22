@@ -4,7 +4,7 @@ import { newTransition, TRANSITIONS, type ClipMusic, type Transition } from "@af
 import type { Asset, Clip, RecipeInfo, Timeline, TimelinePatch } from "../api";
 import { Keys } from "../Keys";
 import { useKeysHere } from "../keys/here";
-import { cx } from "../ui";
+import { cx, IconButton } from "../ui";
 import { DRAG_TRANSITION, layout, NEW_CLIP, otherShape, PAD, ZOOM, type PinWhere, type ShownPatch, type TimeRange } from "./model";
 import { STRIP_KINDS } from "./inspector/join";
 import { SWATCH } from "./transitionLook";
@@ -379,7 +379,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
           // the keys and their words; the line said in full for a screen reader. A narrow footer drops the last ones
           // whole (they wrap onto a second line that is out of sight) rather than cutting one mid-word; the empty
           // first item lets even the first of them go when there is no room for it.
-          <span className="flex h-5 min-w-0 grow flex-wrap items-center gap-x-3.5 overflow-hidden text-[11.5px] whitespace-nowrap text-ink-3">
+          <span className="flex h-5 min-w-0 grow flex-wrap items-center gap-x-3.5 overflow-hidden text-meta whitespace-nowrap text-ink-3">
             <span className="sr-only">{hint}</span>
             <span aria-hidden className="-mr-3.5 h-5" />
             {LEGEND.map((l) => <span key={l.words} aria-hidden className="flex h-5 shrink-0 items-center gap-1.5"><Keys keys={l.keys} size="sm" />{l.words}</span>)}
@@ -390,7 +390,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
         {onTransition && clips.length > 1 && (
           // the transitions, dragged onto a join (a cut's dot); the rest are in the join's own panel
           <span className="flex shrink-0 items-center gap-1 border-r border-line pr-2" aria-label="Transitions: drag one onto a join">
-            <span className="mr-0.5 text-[11px] font-semibold text-ink-3">Transitions</span>
+            <span className="mr-0.5 text-meta font-semibold text-ink-3">Transitions</span>
             {STRIP_KINDS.map((k) => (
               <span
                 key={k}
@@ -406,8 +406,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
             ))}
           </span>
         )}
-        <button type="button" aria-label="Zoom out" data-tip="Zoom out" data-tip-keys="-" onClick={() => zoomTo(Math.max(ZOOM.least, pps / ZOOM.step))} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Minus size={13} /></button>
-        <button type="button" aria-label="Zoom in" data-tip="Zoom in" data-tip-keys="=" onClick={() => zoomTo(Math.min(ZOOM.most, pps * ZOOM.step))} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Plus size={13} /></button>
+        <IconButton size={28} label="Zoom out" keys="-" onClick={() => zoomTo(Math.max(ZOOM.least, pps / ZOOM.step))}><Minus size={13} /></IconButton>
+        <IconButton size={28} label="Zoom in" keys="=" onClick={() => zoomTo(Math.min(ZOOM.most, pps * ZOOM.step))}><Plus size={13} /></IconButton>
         <button type="button" data-tip="The whole video in view" data-tip-keys="Shift+Z" onClick={fitAll} className="h-6 shrink-0 rounded-md border border-line-strong px-2 font-semibold whitespace-nowrap text-ink-2 hover:bg-hover hover:text-ink">Fit all</button>
       </div>
     </div>

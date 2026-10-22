@@ -114,14 +114,14 @@ export function TrackRuler({ clock, durationMs, slots, totalMs, playEnd, pps, xO
         data-hint={HINTS.ruler}
       >
         {marks.map((s) => (
-          <span key={s} className="pointer-events-none absolute top-0 h-full border-l border-line-strong pl-1 font-mono text-[10px] leading-[18px] text-ink-3" style={{ left: PAD + s * pps }}>
+          <span key={s} className="pointer-events-none absolute top-0 h-full border-l border-line-strong pl-1 font-mono text-micro leading-[18px] text-ink-3" style={{ left: PAD + s * pps }}>
             {stamp(s * 1000).slice(0, -2)}
           </span>
         ))}
       </div>
       {range && motion.map(({ slot: s, curve, quiet, pauses }) =>
         curve.length > 1 || pauses.length ? (
-          <svg key={s.clip.id} aria-hidden className="pointer-events-none absolute top-0 z-[11] text-accent" style={{ left: s.left, width: s.width, height: RULER }} viewBox={`0 0 ${Math.max(1, s.width)} ${RULER}`} preserveAspectRatio="none">
+          <svg key={s.clip.id} aria-hidden className="pointer-events-none absolute top-0 z-11 text-accent" style={{ left: s.left, width: s.width, height: RULER }} viewBox={`0 0 ${Math.max(1, s.width)} ${RULER}`} preserveAspectRatio="none">
             {curve.length > 1 && <path d={`M0 ${RULER} ${curve.map((v, k) => `L${((k / (curve.length - 1)) * s.width).toFixed(1)} ${(RULER - 2 - v * (RULER - 5)).toFixed(1)}`).join(" ")} L${s.width} ${RULER} Z`} fill="currentColor" opacity={0.22} />}
             {snapQuiet !== false && quiet.map((q) => <line key={q} x1={((q - s.clip.atMs) / s.clip.lengthMs) * s.width} x2={((q - s.clip.atMs) / s.clip.lengthMs) * s.width} y1={RULER - 6} y2={RULER - 1} stroke="currentColor" strokeWidth={1.5} opacity={0.7} />)}
             {/* pauses in the sound: a tick of the sound's green */}
@@ -131,7 +131,7 @@ export function TrackRuler({ clock, durationMs, slots, totalMs, playEnd, pps, xO
       )}
       {band && range && (
         <>
-          <div aria-hidden className="pointer-events-none absolute top-0 z-[12] border-x-2 border-accent bg-accent/15" style={{ left: band.a - 1, width: Math.max(2, band.b - band.a + 2), height: HEIGHT - 4 }} />
+          <div aria-hidden className="pointer-events-none absolute top-0 z-12 border-x-2 border-accent bg-accent/15" style={{ left: band.a - 1, width: Math.max(2, band.b - band.a + 2), height: HEIGHT - 4 }} />
           <span
             role="slider"
             aria-label="In"
@@ -143,7 +143,7 @@ export function TrackRuler({ clock, durationMs, slots, totalMs, playEnd, pps, xO
             onPointerMove={moveHandle}
             onPointerUp={dropHandle}
             onPointerCancel={dropHandle}
-            className="absolute top-0 z-[16] flex w-2.5 cursor-ew-resize touch-none items-center justify-center rounded-l bg-accent font-mono text-[10px] font-bold leading-none text-accent-ink"
+            className="absolute top-0 z-16 flex w-2.5 cursor-ew-resize touch-none items-center justify-center rounded-l bg-accent font-mono text-micro font-bold leading-none text-accent-ink"
             style={{ left: band.a - 10, height: RULER - 1 }}
           >
             [
@@ -159,7 +159,7 @@ export function TrackRuler({ clock, durationMs, slots, totalMs, playEnd, pps, xO
             onPointerMove={moveHandle}
             onPointerUp={dropHandle}
             onPointerCancel={dropHandle}
-            className="absolute top-0 z-[16] flex w-2.5 cursor-ew-resize touch-none items-center justify-center rounded-r bg-accent font-mono text-[10px] font-bold leading-none text-accent-ink"
+            className="absolute top-0 z-16 flex w-2.5 cursor-ew-resize touch-none items-center justify-center rounded-r bg-accent font-mono text-micro font-bold leading-none text-accent-ink"
             style={{ left: band.b, height: RULER - 1 }}
           >
             ]

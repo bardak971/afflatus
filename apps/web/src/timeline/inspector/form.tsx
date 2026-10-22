@@ -14,7 +14,7 @@ import { CardPrompt } from "../../recipeForm/Part";
 import { CastPictures } from "../../castPictures";
 import { useInputEdits } from "../../hooks";
 import { Select } from "../../Select";
-import { AutoText, Button, cx, fieldClass, NumberBox, Segmented } from "../../ui";
+import { AutoText, Button, cx, fieldClass, NumberBox, Segmented, Spinner } from "../../ui";
 import { fileVersion, type ShownPatch } from "../model";
 
 type FormProps = ComponentProps<typeof Form>;
@@ -162,12 +162,12 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-2.5 rounded-xl border border-accent/40 bg-accent-wash/30 p-3">
         <div className="flex items-center gap-2">
-          <div className="flex h-14 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-line bg-raised">{leftFrame ? <img src={leftFrame} alt="" className="h-full w-full object-cover" onError={(e) => (e.currentTarget.style.display = "none")} /> : <span className="text-[10px] text-ink-3">—</span>}</div>
+          <div className="flex h-14 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-line bg-raised">{leftFrame ? <img src={leftFrame} alt="" className="h-full w-full object-cover" onError={(e) => (e.currentTarget.style.display = "none")} /> : <span className="text-micro text-ink-3">—</span>}</div>
           <div className="flex min-w-0 grow flex-col gap-0.5 text-xs">
             <span className="font-semibold">Join</span>
             <span className="text-ink-2">{startsHow} · {endsHow}.</span>
           </div>
-          <div className="flex h-14 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-line bg-raised">{rightFrame ? <img src={rightFrame} alt="" className="h-full w-full object-cover" onError={(e) => (e.currentTarget.style.display = "none")} /> : <span className="text-[10px] text-ink-3">—</span>}</div>
+          <div className="flex h-14 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-line bg-raised">{rightFrame ? <img src={rightFrame} alt="" className="h-full w-full object-cover" onError={(e) => (e.currentTarget.style.display = "none")} /> : <span className="text-micro text-ink-3">—</span>}</div>
         </div>
         {main && (
           <label className="flex flex-col gap-1.5">
@@ -177,7 +177,7 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
         )}
         <div className="flex flex-wrap items-center gap-2 text-xs">
           {writing ? (
-            <span className="animate-pulse text-ink-2">The designer is writing what happens between…</span>
+            <span className="flex items-center gap-1.5 text-ink-2"><Spinner />The designer is writing what happens between…</span>
           ) : (
             <>
               {onWriteBetween && (nextJoined || ends) && <Button size="sm" onClick={onWriteBetween} data-tip="The designer writes the stretch from how the clip before ends to how the clip after starts, in the clip's time."><Wand2 size={13} /> {written ? "Designer: write it again" : "Designer: write it"}</Button>}

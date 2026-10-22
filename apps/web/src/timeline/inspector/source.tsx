@@ -147,7 +147,7 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
               <Button tone="plain" className="h-11 justify-start gap-2 border-accent! px-3" onClick={() => onPicking(false)}>
                 <Crosshair size={16} className="text-accent" aria-hidden />
                 <span className="grow text-left"><span className="font-semibold">Picking</span><span className="text-ink-2"> · click the person on the stage</span></span>
-                <kbd className="font-mono text-[11px] text-ink-3">Esc</kbd>
+                <kbd className="font-mono text-meta text-ink-3">Esc</kbd>
               </Button>
             ) : source.pick ? (
               <div className="flex flex-wrap items-center gap-2">
@@ -181,7 +181,7 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
       <ColumnEdge />
       <div className="flex shrink-0 items-start gap-2 border-b border-line px-4 pt-3.5 pb-3">
         <div className="flex min-w-0 grow flex-wrap items-center gap-1.5 pt-0.5">
-          <span className="mr-0.5 flex h-6 shrink-0 items-center rounded-[7px] bg-accent-wash px-2 text-xs font-bold text-accent uppercase">Source</span>
+          <span className="mr-0.5 flex h-6 shrink-0 items-center rounded-chip bg-accent-wash px-2 text-xs font-bold text-accent uppercase">Source</span>
           <span className="truncate font-semibold">{source?.video.name ?? "none yet"}</span>
         </div>
         <FoldButton />

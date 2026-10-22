@@ -308,7 +308,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
           <FieldRow label="Cast and look" note="Who is in the video, its style and a few mood words, set once for every clip: the people's reference pictures and LoRAs, and the words added to each clip's prompt. A clip given its own cast and look keeps it; changes apply from the next take.">
             <span className="flex min-w-0 items-center gap-1.5">
               {castKnown ? (
-                <span className="inline-flex h-[26px] min-w-0 items-center rounded-full bg-hover px-2.5 text-[12.5px] font-semibold text-ink" data-tip={castWords || undefined}>
+                <span className="inline-flex h-[26px] min-w-0 items-center rounded-full bg-hover px-2.5 text-body font-semibold text-ink" data-tip={castWords || undefined}>
                   <span className="truncate">{castWords || "Nobody cast, no mood"}</span>
                 </span>
               ) : (
@@ -401,7 +401,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
 function Fact({ label, value, look, tip }: { label: string; value?: string; look?: boolean; tip?: string }) {
   return (
     <span className="flex min-w-0 flex-col gap-px" data-tip={tip}>
-      <span className="text-[11.5px] text-ink-3">{label}</span>
+      <span className="text-meta text-ink-3">{label}</span>
       {value === undefined ? <span className="m-skeleton my-[3px] h-[18px] w-20" /> : <span className={cx("truncate font-mono", look ? "text-attention-ink" : "text-ink")}>{value}</span>}
     </span>
   );

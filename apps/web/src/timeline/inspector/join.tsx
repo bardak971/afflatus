@@ -51,7 +51,7 @@ export function JoinPanel({ clip, index, before, recipes, onPatch, onClose, onSe
       <ColumnEdge />
       <div className="flex shrink-0 items-start gap-2 border-b border-line px-4 pt-3.5 pb-3">
         <div className="flex min-w-0 grow flex-wrap items-center gap-1.5 pt-0.5">
-          <span className="mr-0.5 flex h-6 shrink-0 items-center rounded-[7px] bg-accent-wash px-2 text-xs font-bold text-accent uppercase">Join</span>
+          <span className="mr-0.5 flex h-6 shrink-0 items-center rounded-chip bg-accent-wash px-2 text-xs font-bold text-accent uppercase">Join</span>
           <button type="button" onClick={() => onSelectClip(before.id)} className="font-semibold hover:underline" data-tip={`Open clip ${index}`}>clip {index}</button>
           <span className="text-ink-3">→</span>
           <button type="button" onClick={() => onSelectClip(clip.id)} className="font-semibold hover:underline" data-tip={`Open clip ${n}`}>clip {n}</button>
@@ -137,7 +137,7 @@ function KindCell({ label, swatch, on, onClick }: { label: string; swatch: strin
       type="button"
       aria-pressed={on}
       onClick={onClick}
-      className={cx("flex flex-col gap-1 rounded-lg border p-1.5 text-left text-[11px] font-semibold", on ? "border-accent bg-accent-wash" : "border-line bg-raised hover:border-line-strong")}
+      className={cx("flex flex-col gap-1 rounded-lg border p-1.5 text-left text-meta font-semibold", on ? "border-accent bg-accent-wash" : "border-line bg-raised hover:border-line-strong")}
     >
       <span className="h-6 rounded" style={{ background: swatch }} />
       <span className="truncate">{label}</span>

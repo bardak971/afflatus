@@ -66,7 +66,7 @@ export function LookTable({ timeline, index, take, onSelectClip }: { timeline: T
     <div className="min-w-0 overflow-hidden rounded-lg border border-line">
       {/* the warnings go under the title when the column is too narrow for them beside it */}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-line px-3 py-2">
-        <span className="min-w-0 truncate text-[11px] font-bold tracking-[.08em] text-ink-3 uppercase">Look · take {n} of clip {index + 1}</span>
+        <span className="min-w-0 truncate text-meta font-bold tracking-label text-ink-3 uppercase">Look · take {n} of clip {index + 1}</span>
         <Help title="Look" text={note} />
         <span className="grow" />
         {/* at most the head's width, the words cut short there: the full warning is its tip */}
@@ -76,8 +76,8 @@ export function LookTable({ timeline, index, take, onSelectClip }: { timeline: T
       <div className="px-3 pt-1.5 pb-1 text-xs">
         <div className={cx("grid items-center gap-x-2.5", grid)}>
           <span className="border-b border-line pb-1" />
-          <span className="border-b border-line pb-1 text-right text-[11px] font-semibold text-ink-3">this take</span>
-          {cols.map((c, i) => <span key={c.head} data-tip={c.tip} className={cx("truncate border-b border-line pb-1 text-right text-[11px] font-semibold text-ink-3", aside(i))}>{c.head}</span>)}
+          <span className="border-b border-line pb-1 text-right text-meta font-semibold text-ink-3">this take</span>
+          {cols.map((c, i) => <span key={c.head} data-tip={c.tip} className={cx("truncate border-b border-line pb-1 text-right text-meta font-semibold text-ink-3", aside(i))}>{c.head}</span>)}
           {rows.map(line)}
           {open && more.map(line)}
         </div>
@@ -146,7 +146,7 @@ function RunChart({ clips, index, onSelectClip }: { clips: Clip[]; index: number
   return (
     <div className="flex flex-col gap-1.5 border-t border-line bg-raised/50 px-3 pt-2.5 pb-2">
       {/* the legend goes under the title when they do not fit on one line */}
-      <span className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[11px] text-ink-3">
+      <span className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-meta text-ink-3">
         <span className="grow">Along the run · {points.length} clips</span>
         <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-accent" />sharpness</span>
         <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-picture" />brightness</span>
@@ -182,7 +182,7 @@ function RunChart({ clips, index, onSelectClip }: { clips: Clip[]; index: number
           />
         ))}
       </svg>
-      <span className="text-[11px] text-ink-3">dashed: clip {start + 1} · hover a clip for its figures{onSelectClip ? " · click to go to it" : ""}</span>
+      <span className="text-meta text-ink-3">dashed: clip {start + 1} · hover a clip for its figures{onSelectClip ? " · click to go to it" : ""}</span>
     </div>
   );
 }

@@ -50,7 +50,7 @@ export function OverviewColumn({ t, clips, checks, width, picked, rendering, onE
       {/* a container: the Overview's rows lay out by the column's width, which can go down to 320 px */}
       <div className="@container/column flex min-h-0 grow flex-col gap-3 overflow-y-auto p-4">
       {/* its name is in the header's field: said here only as the start's invitation */}
-      {!clips.length && <span className="text-[17px] font-bold text-ink">Start your video</span>}
+      {!clips.length && <span className="text-page font-bold text-ink">Start your video</span>}
       {clips.length ? (
         <Overview
           timeline={t}

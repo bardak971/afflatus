@@ -1,6 +1,6 @@
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { EDITOR_COLUMN, useEditorColumn } from "../store";
-import { cx, PanelEdge } from "../ui";
+import { Chip, IconButton, PanelEdge } from "../ui";
 
 /**
  * The editor's right column, whichever panel it holds (the Overview, a clip's inspector, the music): one width for
@@ -20,15 +20,23 @@ export function ColumnEdge() {
 /** Folds the column to its strip. `words`: said beside the icon where the panel's head has the room. */
 export function FoldButton({ words = false }: { words?: boolean }) {
   const fold = useEditorColumn((s) => s.fold);
+  const tip = "Fold: the column becomes a strip on the right and the stage gets its room. ◂ on the strip brings it back.";
+  if (!words) {
+    return (
+      <IconButton size={28} label="Fold the column" tip={tip} onClick={() => fold(true)}>
+        <PanelRightClose size={15} />
+      </IconButton>
+    );
+  }
   return (
     <button
       type="button"
       aria-label="Fold the column"
-      data-tip="Fold: the column becomes a strip on the right and the stage gets its room. ◂ on the strip brings it back."
+      data-tip={tip}
       onClick={() => fold(true)}
-      className={cx("flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold text-ink-2 hover:bg-hover hover:text-ink", words ? "border border-line-strong px-2" : "w-7")}
+      className="flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-line-strong px-2 text-xs font-semibold text-ink-2 hover:bg-hover hover:text-ink"
     >
-      {words && "Fold"}
+      Fold
       <PanelRightClose size={15} />
     </button>
   );
@@ -52,8 +60,8 @@ export function FoldedStrip({ label, attention }: { label: string; attention: nu
         <span className="flex h-8 w-8 items-center justify-center rounded-lg group-hover:bg-hover group-hover:text-ink">
           <PanelRightOpen size={16} />
         </span>
-        {attention > 0 && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-attention-wash px-1.5 text-micro font-bold text-attention-ink">{attention}</span>}
-        <span className="text-[10px] font-semibold tracking-wide whitespace-nowrap text-ink-3 uppercase [writing-mode:vertical-rl] group-hover:text-ink-2">{label}</span>
+        {attention > 0 && <Chip size="xs" tone="attention">{attention}</Chip>}
+        <span className="text-micro font-semibold tracking-wide whitespace-nowrap text-ink-3 uppercase [writing-mode:vertical-rl] group-hover:text-ink-2">{label}</span>
       </button>
     </aside>
   );

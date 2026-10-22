@@ -84,7 +84,7 @@ export function EditorSkeleton({ id }: { id?: string }) {
             <div className="w-10 shrink-0 border-r border-line bg-panel" />
             <div data-stage className="flex min-h-0 min-w-0 grow items-center justify-center bg-stage p-6">
               {/* tall: as high as the stage, its width from the shape; wide: as wide as the stage allows, at most 960 px */}
-              <span style={{ aspectRatio: aspect }} className={`m-skeleton max-h-full rounded-[10px]! ${aspect < 1 ? "h-full max-w-full" : "w-full max-w-[min(100%,960px)]"}`} />
+              <span style={{ aspectRatio: aspect }} className={`m-skeleton max-h-full rounded-control! ${aspect < 1 ? "h-full max-w-full" : "w-full max-w-[min(100%,960px)]"}`} />
             </div>
           </div>
           {/* the transport (Transport): the jumps and play round the clock */}
@@ -112,9 +112,9 @@ export function EditorSkeleton({ id }: { id?: string }) {
           <div className="w-10 shrink-0 border-l border-line bg-panel" />
         ) : (
           <div style={{ width }} className="flex shrink-0 flex-col gap-3 border-l border-line bg-panel p-4">
-            <span className="m-skeleton h-24 rounded-[10px]!" />
-            <span className="m-skeleton h-32 rounded-[10px]!" />
-            <span className="m-skeleton h-20 rounded-[10px]!" />
+            <span className="m-skeleton h-24 rounded-control!" />
+            <span className="m-skeleton h-32 rounded-control!" />
+            <span className="m-skeleton h-20 rounded-control!" />
           </div>
         )}
       </div>
