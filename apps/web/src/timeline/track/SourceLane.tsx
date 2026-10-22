@@ -34,6 +34,18 @@ export function madeFromSource(t: Timeline, recipes: RecipeInfo[]): Timeline["cl
   });
 }
 
+/**
+ * The empty clip a video dropped on the source lane is made into windows in place of (and whose model it takes): one given a
+ * model that makes a source window by window, the one selected, else the first. Never a window of the source the lane has
+ * now: a new video dropped once it is made would go in the middle of the old windows, which would stay as clips no longer
+ * bound to any source.
+ */
+export function sourceDropClip(t: Timeline, recipes: RecipeInfo[], selected?: Clip | null): Clip | undefined {
+  const old = new Set(madeFromSource(t, recipes).map((c) => c.id));
+  const empty = (c: Clip) => !c.take && !c.job && !old.has(c.id) && Boolean(windowed(recipes.find((r) => r.id === c.recipe)));
+  return (selected && empty(selected) ? selected : undefined) ?? t.clips.find(empty);
+}
+
 export type SourcePlace ={ atMs: number; lengthMs: number; made: boolean; windows: SourceWindow[]; replaces: string | null };
 
 /**
@@ -195,6 +207,8 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
           }
         }}
         onPointerDown={editable ? down("slip") : undefined}
+        // the ends' moves and releases bubble up to these, the lane's own: a handle of its own as well would trim twice
+        // on one release, the second request reading the timeline before the first one's change
         onPointerMove={move}
         onPointerUp={up}
         onPointerCancel={cancel}
@@ -231,9 +245,6 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
             aria-label="Drag: where the source's stretch starts"
             data-hint={`drag: where it starts (${(fromMs / 1000).toFixed(1)} s of the source)`}
             onPointerDown={down("start")}
-            onPointerMove={move}
-            onPointerUp={up}
-            onPointerCancel={cancel}
             className="absolute inset-y-0 z-10 w-2 cursor-ew-resize rounded-l bg-accent"
             style={{ left: Math.max(0, inLane(fromMs)) }}
           />
@@ -245,9 +256,6 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
             aria-label="Drag: where Motion transfer stops in the source"
             data-hint={`drag: where Motion transfer stops (${(toMs / 1000).toFixed(1)} s of the source)`}
             onPointerDown={down("end")}
-            onPointerMove={move}
-            onPointerUp={up}
-            onPointerCancel={cancel}
             className="absolute inset-y-0 z-10 w-2 cursor-ew-resize rounded-r bg-accent"
             style={{ left: inLane(toMs) - 8 }}
           />

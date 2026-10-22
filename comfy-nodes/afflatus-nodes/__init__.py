@@ -1,6 +1,7 @@
 """Afflatus nodes for ComfyUI.
 
-Eleven nodes for continuing a MiniMax H3 clip from its own latent rather than from re-encoded pixels, and one more:
+Eleven nodes for continuing a MiniMax H3 clip from its own latent rather than from re-encoded pixels, and the nodes of
+Afflatus's other routes:
 
 - Afflatus: Save H3 Latent / Load H3 Latent — a MiniMax H3 video+audio latent as one safetensors file
   (ComfyUI's own SaveLatent cannot store the nested pair); Normalize H3 Latent — a sampled window's audio
@@ -13,8 +14,12 @@ Eleven nodes for continuing a MiniMax H3 clip from its own latent rather than fr
 - MiniMax H3 Guided Continuation Window, Latent Tail Guide, Append Continuation — the native latent-tail
   continuation by ttulttul (MIT, see LICENSE-continuation), vendored with one change: the check for a recent
   enough ComfyUI says "update ComfyUI" when the module it reads is missing, instead of a bare ImportError.
-- Afflatus: Face Match — how much a face in a picture is the person of some photos (InsightFace's ArcFace, on the CPU),
-  to rank the pictures a Motion transfer is made from; registered only when insightface is installed.
+- Afflatus: Swap Mask / Swap Mask Preview / Swap Paste by Difference — the person an H3 Swap character redraws, from SAM
+  3.1's track, and the render pasted back over the source where it differs; Swap Colour Match, retired (pack 0.31) and kept
+  deprecated so that graphs naming it load, passes the render through.
+- Afflatus: H3 Audio Lock — a clip's own sound held in an H3 latent while Face refine redraws the picture.
+- Afflatus: Face Match / Face At — how much a face in a picture is the person of some photos (InsightFace's ArcFace, on the
+  CPU), to rank the pictures a Motion transfer is made from; registered only when insightface is installed.
 - Afflatus: Follow Colours — a Motion transfer clip's colours brought to its driving video's at each moment, both
   averaged over about a second first, so that a drift inside a window is followed and windows of one source meet.
 
@@ -86,7 +91,7 @@ from .continuation_nodes import (  # noqa: E402
 )
 from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, AfflatusH3SeamLatent, AfflatusH3TailGuide, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent  # noqa: E402
 from .face_match import AfflatusFaceAt, AfflatusFaceMatch, available as face_available  # noqa: E402
-from .swap_mask import AfflatusSwapMask, AfflatusSwapMaskPreview, AfflatusSwapPaste  # noqa: E402
+from .swap_mask import AfflatusSwapMask, AfflatusSwapMaskPreview, AfflatusSwapMatch, AfflatusSwapPaste  # noqa: E402
 from .face_refine import AfflatusH3AudioLock  # noqa: E402
 from .colour_follow import AfflatusColorFollow  # noqa: E402
 
@@ -122,6 +127,8 @@ class AfflatusExtension(ComfyExtension):
             AfflatusSwapMask,
             AfflatusSwapMaskPreview,
             AfflatusSwapPaste,
+            # deprecated, passes the render through: for graphs saved before its colour match went (pack 0.31)
+            AfflatusSwapMatch,
             # the clip's sound held while Face refine redraws its faces
             AfflatusH3AudioLock,
             # a Motion transfer clip's colours brought to its driving video's, moment by moment

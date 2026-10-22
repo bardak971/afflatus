@@ -215,11 +215,20 @@ const availabilityOf = (v: unknown): Availability => (typeof v === "string" && A
  */
 export const noCapacity = (err: unknown) => err instanceof RunpodError && err.status === 400 && /no longer any instances|not enough free|no (gpus? |instances? )?(are )?available|insufficient (gpu )?capacity|out of stock/i.test(err.message);
 
-const apiBase = () => (envSaid.runpodApi()?.trim() || "https://api.runpod.io").replace(/\/+$/, "");
+/** The demo and the tests ask no site on the internet (AFFLATUS_PRETEND_SITES): RunPod's own only when its env says a pretend one. */
+const NOT_ASKED = "not sent: no site on the internet is asked here";
+
+const apiBase = () => {
+  const said = envSaid.runpodApi()?.trim();
+  if (!said && envSaid.pretendSites()) throw new Error(`${NOT_ASKED} (RUNPOD_API_URL is not set)`);
+  return (said || "https://api.runpod.io").replace(/\/+$/, "");
+};
 
 /** The address a pod's ComfyUI answers at: RunPod's proxy, unless RUNPOD_PROXY says another ({id}, {port}). */
 export function podUrl(id: string, port = COMFY_PORT): string {
-  const shape = envSaid.runpodProxy()?.trim() || "https://{id}-{port}.proxy.runpod.net";
+  const said = envSaid.runpodProxy()?.trim();
+  if (!said && envSaid.pretendSites()) throw new Error(`${NOT_ASKED} (RUNPOD_PROXY is not set)`);
+  const shape = said || "https://{id}-{port}.proxy.runpod.net";
   return shape.replaceAll("{id}", id).replaceAll("{port}", String(port));
 }
 

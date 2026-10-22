@@ -476,3 +476,33 @@ class AfflatusSwapPaste(io.ComfyNode):
         a = a[..., None].to(render.device, render.dtype)
         src = source[: render.shape[0], ..., :3].to(render.device, render.dtype)
         return io.NodeOutput(src * (1 - a) + render[..., :3] * a)
+
+
+class AfflatusSwapMatch(io.ComfyNode):
+    """The swap's render as it is: the colour match it made is gone (pack 0.31), the node kept for graphs that name it."""
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusSwapMatch",
+            display_name="Afflatus: Swap Colour Match (H3)",
+            category="Afflatus",
+            # Afflatus no longer uses it (its match washed the redrawn wall white): still registered, with the inputs it had,
+            # so that a graph saved from a 0.5.2 Swap character loads, and marked deprecated so that ComfyUI hides it from
+            # the node search. It passes the render through.
+            is_deprecated=True,
+            description="Deprecated: passes the swap's render through unchanged. It matched the render's colours to the source's on the wall around the person; kept so that graphs which name it still load.",
+            inputs=[
+                io.Image.Input("render", tooltip="The swap's decoded frames."),
+                io.Image.Input("source", tooltip="The source's frames at the swap's size (not used)."),
+                io.Mask.Input("noise_mask", tooltip="Swap Mask's noise mask (not used)."),
+                io.Mask.Input("paste_mask", tooltip="Swap Mask's paste-back mask (not used)."),
+                io.Float.Input("strength", default=1.0, min=0.0, max=1.0, step=0.05),
+                io.Int.Input("smooth", default=2, min=0, max=12),
+            ],
+            outputs=[io.Image.Output(display_name="images")],
+        )
+
+    @classmethod
+    def execute(cls, render, source, noise_mask, paste_mask, strength: float = 1.0, smooth: int = 2) -> io.NodeOutput:
+        return io.NodeOutput(render)

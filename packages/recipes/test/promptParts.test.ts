@@ -3,6 +3,7 @@ import { dryContext, parseInput, type Recipe } from "@afflatus/core";
 import { recipeById } from "../src/index";
 import { swapFromParts, SWAP_CAPTION, typedPrompt } from "../src/h3/swap";
 import { motionFromParts, motionTransferFromParts } from "../src/h3/motionTransfer";
+import { h3Video } from "../src/h3/video";
 
 /**
  * H3 prompts written from parts (card #34, the owner's mock of 2026-10-20): by rules, the prompt as sent shown and kept
@@ -50,10 +51,47 @@ describe("what a render sends", () => {
     expect(prompt({ who: "Replace the woman in <Video 1> with the man in <Picture 1>.", inSource: "the boy" })).toContain("Replace the woman in <Video 1> with the man in <Picture 1>.");
     expect(prompt({ who: "", inSource: "the boy in red" })).toContain("Swap the boy in red in <Video 1>");
   });
+  it("the fused turbo's own sentences for the file that renders, the form's Model left on its slot", () => {
+    const fused = swap.build(parseInput(swap, { ...(v.input as object), who: "", inSource: "the boy" }), dryContext({ ...v, slots: { ...v.slots, swapUnet: "minimax_h3_fused_refdelta_r1024_turbo8.safetensors" } }));
+    const said = Object.values(fused.graph as Record<string, { inputs: Record<string, unknown> }>).map((n) => String(n.inputs.prompt ?? "")).join(" | ");
+    expect(said).toContain("Keep the room of <Video 1> exactly as it is.");
+  });
   it("each form says which of its inputs is the prompt as sent", () => {
     expect(recipeById("h3.swap")!.partsInto).toBe("who");
     expect(recipeById("h3.motion")!.partsInto).toBe("description");
     // a Motion transfer window after a swap (no Picture of its own) writes its prompt as carrying on
     expect(recipeById("h3.motion")!.promptFromParts!({ afterSwap: true, look: "", happens: "he waves" } as never)).toMatch(/carries on moving as in the clip before\. He waves\.$/);
+  });
+});
+
+describe("the shot's words (card #27)", () => {
+  type Graph = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
+  const sent = (r: Recipe<any>, v: { input: object; slots?: Record<string, string>; uploads?: Record<string, string>; media?: Record<string, unknown> }, over: Record<string, unknown>) =>
+    Object.values(r.build(parseInput(r, { ...v.input, ...over }), dryContext(v as never)).graph as Graph).map((n) => String(n.inputs.prompt ?? "")).filter(Boolean).join(" | ");
+
+  it("are in the prompt as sent where the render adds them, written from the parts", () => {
+    expect(motionTransferFromParts({ look: "a white shirt", happens: "he dances", shot: "Wide" })).toBe("Wide shot. The person: a white shirt. He dances.");
+    expect(motionFromParts({ look: "", happens: "he waves", shot: "Close-up" })).toBe("Close-up. The person carries on moving as in the clip before. He waves.");
+    const motion = recipeById("h3.motion")!;
+    const v = motion.variants[0]!;
+    expect(sent(motion, v as never, { description: "", look: "a white shirt", happens: "he dances", shot: "Wide" })).toContain("Wide shot. The person: a white shirt. He dances.");
+  });
+
+  it("are never added to a prompt typed in Prompt as sent", () => {
+    const motion = recipeById("h3.motion")!;
+    const v = motion.variants[0]!;
+    expect(sent(motion, v as never, { description: "A man dances in a living room.", shot: "Wide" })).not.toContain("Wide shot.");
+    // a window after a swap (Swap motion's that carried on, card #42)
+    const w = motion.variants.find((x) => (x.input as { afterSwap?: boolean }).afterSwap)!;
+    expect(sent(motion, w as never, { description: "The man with short brown hair dances.", shot: "Medium" })).not.toContain("Medium shot.");
+    expect(sent(motion, w as never, { description: "", look: "", happens: "he waves", shot: "Medium" })).toContain("Medium shot. The person carries on moving as in the clip before. He waves.");
+  });
+
+  it("are not glued in front of a prompt already in H3's layout, sent as written", () => {
+    const v = h3Video.variants[0]!;
+    const layout = "integrated_multimodal_description: [Shot 1] A red ball rolls.\n\noverall_soundscape: N/A\n\nnon_diegetic_music: N/A";
+    expect(sent(h3Video, v as never, { description: layout, shot: "Medium" })).toContain(layout);
+    expect(sent(h3Video, v as never, { description: layout, shot: "Medium" })).not.toContain("Medium shot.");
+    expect(sent(h3Video, v as never, { description: "A red ball rolls.", shot: "Medium" })).toContain("Medium shot. A red ball rolls.");
   });
 });

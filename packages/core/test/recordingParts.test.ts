@@ -28,4 +28,11 @@ describe("a recording cut into clips", () => {
     expect(recordingParts({ fromS: 0, toS: 9, wantS: 5, ...bounds, pauses: [{ start: 4, end: 4.3 }] })).toHaveLength(2);
     expect(recordingParts({ fromS: 0, toS: 3, wantS: 5, ...bounds, pauses: [] })).toEqual([{ start: 0, seconds: 3 }]);
   });
+  it("never makes a part past the recording's end, nor past an Out trimmed before a pause (H3 Lip sync's figures)", () => {
+    // 9 to 14.5 s without a pause: one part of all of it, not one of the most a clip takes (14.83 s)
+    for (const toS of [9, 10, 12, 14.5]) expect(recordingParts({ fromS: 0, toS, wantS: 5, ...bounds, pauses: [] })).toEqual([{ start: 0, seconds: toS }]);
+    // trimmed to 10 s, the next pause at 11.2: the part ends at the Out
+    expect(recordingParts({ fromS: 0, toS: 10, wantS: 5, ...bounds, pauses: [{ start: 11, end: 11.4 }] })).toEqual([{ start: 0, seconds: 10 }]);
+    for (const p of recordingParts({ fromS: 2, toS: 21, wantS: 5, ...bounds, pauses: [{ start: 22, end: 22.4 }] })) expect(p.start + p.seconds).toBeLessThanOrEqual(21 + 1e-9);
+  });
 });

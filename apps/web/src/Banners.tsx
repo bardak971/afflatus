@@ -34,11 +34,6 @@ const foldTitle = (f: Fold, word: string) => (f.count === 1 ? `${[...f.labels][0
 const foldText = (f: Fold) => (f.count > 1 && f.labels.size === 1 ? [...f.labels][0] : f.count > 1 ? `Last: ${f.last}` : undefined);
 
 /**
- * The banners drawn: those up, and those just taken away (gone by themselves, closed, clicked) for the length of their
- * exit, each in the place it had: the ones under it move up once it has faded. Nothing waits on it, the banner is out of
- * the store at once and its copy takes no click (m-out, inert).
- */
-/**
  * A machine's failed downloads as one banner (`on`: its name as the user knows it): every failure there not read yet, the new
  * ones and those already said, so a second failure updates the banner instead of adding one; a volume's want of room has a
  * banner of its own. Null with none. `ids`: what dismissing it marks read.
@@ -61,6 +56,11 @@ export function failedOnMachine(list: readonly Download[], machine: string, on: 
   };
 }
 
+/**
+ * The banners drawn: those up, and those just taken away (gone by themselves, closed, clicked) for the length of their
+ * exit, each in the place it had: the ones under it move up once it has faded. Nothing waits on it, the banner is out of
+ * the store at once and its copy takes no click (m-out, inert).
+ */
 function useLeaving(items: Banner[]): Array<{ b: Banner; leaving: boolean }> {
   const [gone, setGone] = useState<Array<{ b: Banner; at: number }>>([]);
   const before = useRef(items);

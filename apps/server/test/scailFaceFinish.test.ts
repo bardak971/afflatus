@@ -103,6 +103,21 @@ describe.skipIf(!ffmpegThere)("Finish › Face refine on a SCAIL-2 take at 24 fp
     expect(after.take.asset.name).toMatch(/face refined$/);
   });
 
+  it("on a lone ComfyUI without its pack and no Manager to install it: it goes, and fails saying what to install, rather than wait for good", async () => {
+    const driving = await asset("video", four!);
+    const picture = await asset("image", png(192, 320));
+    const tl = await call("POST", "/api/timelines", { name: "zz-test dance no pack" });
+    const clip = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "scail.motion24" })).clip as string;
+    await call("POST", `/api/timelines/${tl.id}/render`, { clips: [{ id: clip, input: { picture, driving: { asset: driving }, drivingStart: 0, drivingSeconds: 3.05, prompt: "zz-test", seed: 1 } }] });
+    await finish(four!, 1);
+    fake.catalog = Object.fromEntries(Object.entries(fake.catalog).filter(([n]) => !n.startsWith("H3Face"))) as never;
+    (await t.services.comfy()).forgetAll();
+    const res = await call("POST", `/api/timelines/${tl.id}/finish`, { route: "face", factor: 2, redo: true });
+    const row = async () => t.db.selectFrom("jobs").select(["status", "error"]).where("id", "=", res.jobs[0]).executeTakeFirst();
+    await until(async () => (await row())?.status === "failed", 20_000);
+    expect((await row())?.error).toContain("comfyui-h3-facerefine");
+  });
+
   it("skips the 16 fps recipe, which offers no Face refine", async () => {
     const driving = await asset("video", four!);
     const picture = await asset("image", png(192, 320));

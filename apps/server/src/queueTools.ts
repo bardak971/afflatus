@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ComfyCancelled, detect, waitForOutputs, type Measured, type OutputFile } from "@afflatus/comfy";
 import { choicesOf, GraphBuilder, TOOLS_FAMILY, type BuildContext, type Ref } from "@afflatus/core";
-import { faceRefined, faceRefineSkipped, pixelUpscale, RTX_NODES, saveVideo, sharpened, UPSCALE, upscaleNodes } from "@afflatus/recipes";
+import { AUDIO_LOCK, FACE_REFINE_NODES, faceRefined, faceRefineNeeds, faceRefineSkipped, pixelUpscale, RTX_NODES, saveVideo, sharpened, UPSCALE, upscaleNodes } from "@afflatus/recipes";
 import type { Comfy } from "./comfy";
 import { slowSoundOnto } from "./cut";
 import { finishedName, nameOf } from "./autoName";
@@ -168,6 +168,8 @@ export interface ToolNeeds {
   /** The node classes it cannot run without; `anyNode`: one of these at least (RTX VSR: NVIDIA's pack or DaSiWa's). */
   nodes: string[];
   anyNode?: string[];
+  /** Face refine's files (a Finish › Face refine of a take that keeps no latent): the family it is had from, and its slots. */
+  face?: { family: string; slots: string[] };
 }
 
 /** Something a tool job did less well than asked, said on the job as a render's is (queue.ts warn). */
@@ -186,10 +188,18 @@ export async function toolNeeds(core: Pick<QueueCore, "db" | "storage">, row: Pi
   if (!usesGpu(row)) return null;
   const opts = cutOptionsOf(row)!;
   if (opts.action === "slow") return { rife: true, seedvr: false, upscaleModel: null, nodes: SLOW_NODES };
-  const video = await core.db.selectFrom("assets").select(["fps", "mime", "raw_key"]).where("id", "=", opts.asset).executeTakeFirst();
+  const video = await core.db.selectFrom("assets").select(["fps", "mime", "raw_key", "has_sound"]).where("id", "=", opts.asset).executeTakeFirst();
   if (!video) return null;
   const route = opts.route ?? "seedvr";
   const rife = interpolatedFrom(video, await rawFactsOf(core, video));
+  // Face refine (runFaceFinish): its own pack's nodes, offered for install where they lack as a render's are, the audio lock
+  // that holds the take's sound, and its family's files. It fell to SeedVR2's nodes, and asked for neither its pack nor its files
+  if (route === "face") {
+    return {
+      rife, seedvr: false, upscaleModel: null, nodes: ["LoadVideo", "GetVideoComponents", ...FACE_REFINE_NODES, ...(video.has_sound ? [AUDIO_LOCK] : []), ...(rife ? RIFE_NODES : [])],
+      ...(opts.family ? { face: { family: opts.family, slots: faceRefineNeeds({ faceRefine: true }, { own: true }) } } : {}),
+    };
+  }
   const upscale = route === "rtx" ? UPSCALE.rtx : route === "model" ? UPSCALE.model : UPSCALE.seedvr;
   return {
     rife, seedvr: route === "seedvr", upscaleModel: route === "model" ? opts.upscaleModel || "" : null,
@@ -222,6 +232,9 @@ export function usesGpu(row: Pick<JobRow, "recipe_id" | "inputs">): boolean {
   return opts?.action === "finish" || (opts?.action === "slow" && opts.engine === "rife");
 }
 
+/** Why a finish cut queued behind a Face refine (`fromJob`) cannot run: said by it, and by the queue when that job fails first. */
+export const FACE_REFINE_NOT_ENDED = "the Face refine it was to finish did not end: nothing to finish";
+
 /** A cut: ffmpeg on the computer Afflatus runs on, like an export; a finish and a RIFE slow-motion through ComfyUI. */
 export function runCut(core: QueueCore, row: JobRow): Promise<void> {
   return core.runTool(row, async (run) => {
@@ -231,7 +244,7 @@ export function runCut(core: QueueCore, row: JobRow): Promise<void> {
     if (!clips) throw new Error("timelines are not available");
     // after a job of the same clip (Face refine first): that job's video, which did not exist when this one was queued
     const made = opts.fromJob ? await core.db.selectFrom("jobs").select(["generation_id", "status"]).where("id", "=", opts.fromJob).executeTakeFirst() : null;
-    if (opts.fromJob && (!made?.generation_id || made.status !== "done")) throw new Error("the Face refine it was to finish did not end: nothing to finish");
+    if (opts.fromJob && (!made?.generation_id || made.status !== "done")) throw new Error(FACE_REFINE_NOT_ENDED);
     const assetId = made?.generation_id ? ((await core.db.selectFrom("assets").select("id").where("generation_id", "=", made.generation_id).where("kind", "=", "video").executeTakeFirst())?.id ?? opts.asset) : opts.asset;
     const video = await core.db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
     // a sound is cut too (copy, split, remove)
@@ -357,7 +370,7 @@ async function runFaceFinish(core: QueueCore, row: JobRow, run: Running, clips: 
     const options = asBuilt(catalog, (await core.packFacts?.().catch(() => null)) ?? ANY_PACKS, packsSaid(row));
     const ctx: BuildContext = { seed: Math.floor(Math.random() * 2 ** 31), slots, uploads: {}, media: {}, has: (n: string) => n in catalog, options: optionsIn(catalog), wants: options.wants };
     const values = { faceRefine: true, faceRefineDenoise: opts.faceDenoise ?? 0.35, faceRefineSteps: 4, references: [], subject: "", quick: true };
-    const why = faceRefineSkipped(values, ctx, { picture: pictureFile, own: true });
+    const why = faceRefineSkipped(values, ctx, { picture: pictureFile, own: true, audio: Boolean(sound) });
     if (why) throw new Error(why);
     const faces = faceRefined(g, ctx, values, [parts, 0], { audio: sound, picture: pictureFile, frames });
     if (!faces.pass) throw new Error("Not face-refined: its node pack (comfyui-h3-facerefine) or Afflatus's audio lock is not on this ComfyUI.");

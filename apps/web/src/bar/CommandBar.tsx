@@ -152,7 +152,7 @@ export function CommandBar() {
       {createPortal(
         <div className="fixed inset-0 z-[85]" onKeyDown={(e) => { if (e.key === "Tab" && e.target !== input.current) { e.preventDefault(); input.current?.focus(); } }}>
           {/* the page behind, dimmed and blurred: a click on it closes the bar */}
-          <div aria-hidden className="absolute inset-0 bg-ground/55 backdrop-blur-[3px] animate-[bar-fade_110ms_ease-out] motion-reduce:animate-none" onPointerDown={close} />
+          <div aria-hidden className="absolute inset-0 bg-ground/55 backdrop-blur-[3px] animate-bar-fade motion-reduce:animate-none" onPointerDown={close} />
           <div
             role="dialog"
             aria-modal="true"
@@ -161,7 +161,7 @@ export function CommandBar() {
             className={cx(
               "absolute top-[11vh] left-1/2 flex max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-[18px] border border-line-strong bg-panel/95 backdrop-blur-md",
               "shadow-[0_40px_120px_-12px_color-mix(in_srgb,var(--color-shade)_75%,transparent),0_0_0_1px_color-mix(in_srgb,var(--color-accent)_12%,transparent),0_0_70px_-8px_color-mix(in_srgb,var(--color-accent)_14%,transparent)]",
-              "origin-top animate-[bar-in_120ms_cubic-bezier(.2,.8,.2,1)] transition-[width] duration-150 ease-out motion-reduce:animate-none motion-reduce:transition-none",
+              "origin-top animate-bar-in transition-[width] duration-150 ease-out motion-reduce:animate-none motion-reduce:transition-none",
             )}
           >
             <div className="flex items-center gap-3 border-b border-line px-5 py-4">

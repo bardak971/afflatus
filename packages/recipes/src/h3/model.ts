@@ -1,6 +1,7 @@
 import { wanted, type BuildContext, type GraphBuilder, type Ref, type StartRule } from "@afflatus/core";
 import { applyLoras, livePreview } from "../shared/model";
 import { loadUnet } from "../shared/unet";
+import { UPSCALE } from "../video/upscale";
 import type { H3Video } from "./inputs";
 
 /** The sampler drafts saved before the form showed it said "Auto" with: the one that suits the steps (euler for a turbo's few, res_multistep otherwise). */
@@ -26,7 +27,7 @@ type H3Model = ReturnType<typeof modelOf>;
 /**
  * Turbo's LoRA, when Turbo is on and the clip's model is not a turbo one itself (loadH3Model): the family's file the input
  * needs (Recipe.needsWith). A reference clip on MiniMax's own reference model takes either LoRA (refTurbo, else turbo):
- * nothing is asked for it here, as one of two cannot be said.
+ * referenceNeeds asks for one when the machine has neither.
  */
 export const turboNeeds = (input: H3Video, slots: Record<string, string> = {}): string[] => {
   if (!input.fast) return [];
@@ -68,8 +69,24 @@ export const vedaNeeds = (input: H3Video, slots: Record<string, string> = {}): s
   return uses(input).reference && !modelOf(input, slots).hybrid ? ["veda"] : ["vedaT2va"];
 };
 
+/**
+ * MiniMax's reference model, for a clip it makes (Recipe.needsWith): one with reference pictures, videos or a voice on a
+ * model that is not a hybrid (a recipe whose build adds pictures of its own passes them in `input.references`, as a motion
+ * window's frame before), and with Turbo on its own turbo LoRA when the machine has neither LoRA. Optional in the family,
+ * it was asked for by no form: a fresh pod was sent the frames model such a clip never loads, and the job failed at its
+ * submit once the boot and the fetch were paid. A Finish › Face refine samples nothing and asks for neither.
+ */
+export const referenceNeeds = (input: H3Video, slots: Record<string, string> = {}): string[] => {
+  if (input.faceRefineOnly && input.upscale !== UPSCALE.latent) return [];
+  if (!uses(input).reference || modelOf(input, slots).hybrid) return [];
+  // a distilled reference model is made for few steps as it is: no LoRA on top of it (loadH3Model)
+  const distilled = namedFor.turbo.test(slots.refUnet?.split(/[\\/]/).pop() ?? "");
+  return ["refUnet", ...(input.fast && !distilled && !slots.refTurbo && !slots.turbo ? ["refTurbo"] : [])];
+};
+
 export const uses = (input: H3Video) => {
-  const reference = input.references.length > 0 || input.refVideos.length > 0 || Boolean(input.voice);
+  // (a form that does not take H3's reference videos has none in its input: Motion transfer's Veda on threw here)
+  const reference = (input.references ?? []).length > 0 || (input.refVideos ?? []).length > 0 || Boolean(input.voice);
   return {
     reference,
     start: Boolean(input.start && !input.previous),

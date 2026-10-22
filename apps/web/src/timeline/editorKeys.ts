@@ -114,6 +114,9 @@ export function playbackKey(e: KeyboardEvent, { el, typing, open, held, plain }:
       if (a.rangeRef.current) a.player.current?.seek(a.rangeRef.current.inMs);
       return true;
     }
+    // held down, the key marks once: with the source on the stage each mark is a trim, sent again with every repeat
+    // before the last one's change is back
+    if (e.repeat) return true;
     if (a.sourceMarkNow.current?.("in")) return true;
     const at = a.clock.get();
     a.setRange((r) => (r ? { inMs: at, outMs: Math.max(at, r.outMs) } : { inMs: at, outMs: a.totalRef.current }));
@@ -125,6 +128,7 @@ export function playbackKey(e: KeyboardEvent, { el, typing, open, held, plain }:
       if (a.rangeRef.current) a.player.current?.seek(a.rangeRef.current.outMs);
       return true;
     }
+    if (e.repeat) return true;
     if (a.sourceMarkNow.current?.("out")) return true;
     const at = a.clock.get();
     a.setRange((r) => (r ? { inMs: Math.min(at, r.inMs), outMs: at } : { inMs: 0, outMs: at }));

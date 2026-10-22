@@ -1,11 +1,10 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
 import { api, type DeployFile, type FileVia, type SetSearch } from "./api";
 import { gb, plural, size } from "./format";
 import { useDebounced } from "./hooks";
 import { queryKeys } from "./queryKeys";
-import { Chip, cx, fieldClass } from "./ui";
+import { Chip, SearchField } from "./ui";
 
 /** Where a model file comes from onto a pod, in a word. */
 export const VIA_SAID: Record<FileVia, string> = { hf: "HF", civitai: "Civitai", url: "web", upload: "this PC" };
@@ -39,10 +38,7 @@ export function ModelSearch({ onPick, presetNote = "" }: { onPick(pick: SearchPi
   const row = "flex items-center gap-2 px-2.5 py-1.5 text-left hover:bg-hover";
   return (
     <div className="flex flex-col gap-1">
-      <label className={cx(fieldClass, "flex h-8 items-center gap-2 px-2.5 text-[13px]")}>
-        <Search size={13} className="shrink-0 text-ink-3" />
-        <input aria-label="Add a preset, a family or any file" placeholder="Add a preset, a family or any file" value={q} onChange={(e) => setQ(e.target.value)} className="min-w-0 grow bg-transparent outline-none placeholder:text-ink-3" />
-      </label>
+      <SearchField label="Add a preset, a family or any file" value={q} onChange={setQ} />
       {found.data && searched.length > 1 && (
         <div className="flex max-h-[200px] flex-col overflow-y-auto rounded-lg border border-line text-[13px]">
           {found.data.presets.map((p) => (

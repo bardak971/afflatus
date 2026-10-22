@@ -228,7 +228,7 @@ function FileLine({ row, family, name, imported }: { row: FileRow; family: strin
  * A node pack some options of the family use, missing: an optional line like the files', installed through ComfyUI-Manager
  * and ComfyUI restarted as a workflow's missing packs are (the owner: Veda's pack was nowhere to be seen before a render failed).
  */
-function PackLine({ pack, nodes, users, machine, extra }: { pack: string; nodes: string[]; users: string[]; machine?: string; extra?: string }) {
+function PackLine({ pack, nodes, users, machine, extra, asked }: { pack: string; nodes: string[]; users: string[]; machine?: string; extra?: string; asked?: string }) {
   const install = usePackInstall({
     missing: nodes,
     packs: Object.fromEntries(nodes.map((n) => [n, pack])),
@@ -246,7 +246,7 @@ function PackLine({ pack, nodes, users, machine, extra }: { pack: string; nodes:
       <span className="flex min-w-0 flex-col gap-0.5">
         <span className="font-semibold">Node pack {pack}{extra && <span className="font-normal text-ink-3"> · faster with it</span>}</span>
         {/* one no option asks for (KJNodes, VideoHelperSuite): what it brings, used whenever it is there */}
-        <span className="text-xs text-ink-2">{extra ? `Brings ${extra}. Used whenever it is there; installed by ComfyUI-Manager, then ComfyUI restarts.` : `Brings ${nodes.join(", ")}, which some options of ${users.join(", ")} use. Installed by ComfyUI-Manager, then ComfyUI restarts.`}</span>
+        <span className="text-xs text-ink-2">{extra ? `Brings ${extra}. Used whenever it is there${asked ? `, and asked for by a render with ${asked}` : ""}; installed by ComfyUI-Manager, then ComfyUI restarts.` : `Brings ${nodes.join(", ")}, which some options of ${users.join(", ")} use. Installed by ComfyUI-Manager, then ComfyUI restarts.`}</span>
       </span>
       <span className="truncate pt-0.5 font-mono text-[11.5px] text-ink-3">custom_nodes</span>
       <span className="flex min-w-0 flex-col gap-1 text-xs">
@@ -330,13 +330,13 @@ export function FamilyBody({ family, name, help, recipes, machine, imported }: {
     for (const n of e.nodes) limited.delete(n);
     return off.length === e.nodes.length ? [<EitherLine key={`either:${e.what}`} either={e} users={users} machine={machine} />] : [];
   });
-  // packs no option asks for (KJNodes, VideoHelperSuite): a line each, with what they bring, whatever option names a node of theirs
+  // packs no form needs (KJNodes, VideoHelperSuite): a line each, with what they bring and the option that asks for one, whatever option names a node of theirs
   const extraLines = EXTRA_PACKS.flatMap((x) => {
     const nodes = nodesOfPack(x.name);
     const off = nodes.filter((n) => limited.has(n));
     const users = [...new Set(off.flatMap((n) => limited.get(n)!))];
     for (const n of nodes) limited.delete(n);
-    return off.length ? [<PackLine key={`extra:${x.name}`} pack={x.name} nodes={off} users={users} machine={machine} extra={x.uses} />] : [];
+    return off.length ? [<PackLine key={`extra:${x.name}`} pack={x.name} nodes={off} users={users} machine={machine} extra={x.uses} asked={x.asked} />] : [];
   });
   // the ones of a known pack get a line of their own with the optional files, to install from there; the rest are only said
   const packsOff = new Map<string, { nodes: string[]; users: Set<string> }>();

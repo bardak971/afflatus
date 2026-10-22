@@ -17,7 +17,7 @@ import { MusicLane } from "./track/MusicLane";
 import { RecordingBands } from "./track/RecordingBand";
 import { HEIGHT, MUSIC, ROW, SOUND, SOURCE } from "./track/rows";
 import { SourceLane, ToCome, type SourcePlace } from "./track/SourceLane";
-import { TrackClip, type TrackClipActs } from "./track/TrackClip";
+import { joinCovered, TrackClip, type TrackClipActs } from "./track/TrackClip";
 import { TrackRuler } from "./track/TrackRuler";
 import { useRangeDrag } from "./track/useRangeDrag";
 import { useStretch } from "./track/useStretch";
@@ -220,6 +220,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                   recipe={recipes.find((r) => r.id === c.recipe)}
                   misfit={otherShape(c, timeline)}
                   on={c.id === selected}
+                  edged={joinCovered(slots, s, selected)}
                   picked={Boolean(picked?.has(c.id))}
                   rendering={running === c.id}
                   stretch={stretch}

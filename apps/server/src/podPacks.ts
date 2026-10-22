@@ -1,4 +1,4 @@
-import { nodesOfPack } from "@afflatus/core";
+import { nodesOfPack, repoOfPack } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 
 /**
@@ -28,7 +28,18 @@ interface Entry extends PodPackView {
   askedAt?: number;
   /** When it failed (ms): asked for again after `againMs`, when set. */
   failedAt?: number;
+  /** Manager found it in its list of packs: that list is loaded there. */
+  resolved?: boolean;
 }
+
+/**
+ * What a pack Manager cannot find in its list says (the Comfy Registry does not offer it, or no version of it Manager takes,
+ * e.g. only a flagged one): how to have it by hand, rather than Manager's bare "Cannot resolve install target".
+ */
+const notListed = (name: string): string => {
+  const repo = repoOfPack(name);
+  return `ComfyUI-Manager did not find it in the Comfy Registry's list${repo ? `: clone ${repo} into ComfyUI's custom_nodes folder and restart ComfyUI` : ""}`;
+};
 
 export interface PodPacksDeps {
   comfyOf(machine: string): Promise<Comfy | null>;
@@ -36,6 +47,11 @@ export interface PodPacksDeps {
   busy(machine: string): boolean;
   /** ComfyUI is about to restart: what the pod was getting (in its process) is put back in line (podFiles.ts). */
   beforeRestart?(machine: string): void;
+  /**
+   * Whether a job still wants a pack (it waits, and did not say Run without for it); absent: every job a pack was asked for
+   * does. ComfyUI is not restarted for a pack installed for jobs none of which wants it any more (queuePacks.ts).
+   */
+  stillWanted?(job: string, pack: string): boolean;
 }
 
 /** Manager keeps a history per client: Afflatus's own (packs.ts). */
@@ -57,6 +73,11 @@ export class PodPacks {
   private seq = 0;
   /** How long a pack Manager cannot find yet waits before it is asked again (shorter in tests). */
   retryMs = RETRY_MS;
+  /**
+   * How many times a pack Manager cannot find is asked for in all: a pod's Manager is still loading its list of packs in
+   * its first minutes, a ComfyUI of the user's own has had it long since (asked once: its job is not held 5 min for nothing).
+   */
+  resolveTries = TRIES;
   /**
    * How long a failed pack stays failed before a job asking for it has it tried again; null: for good (a pod's jobs go
    * elsewhere). A ComfyUI of the user's own tries again after a while: its Manager's security level may have been changed.
@@ -89,15 +110,16 @@ export class PodPacks {
   }
 
   /**
-   * Packs asked for jobs none of which may run on the pod any more, not being installed yet (or installed and waiting for the
-   * restart): dropped, so that its ComfyUI is not restarted for them. One Manager is installing is left to finish.
+   * Packs asked for jobs none of which may run on the pod any more (or that said Run without for it), not being installed
+   * yet (or installed and waiting for the restart): dropped, so that its ComfyUI is not restarted for them. One Manager is
+   * installing is left to finish (and not restarted for, restartWhenIn).
    */
-  drop(machine: string, mayRun: (job: string) => boolean): boolean {
+  drop(machine: string, mayRun: (job: string, pack: string) => boolean): boolean {
     const pod = this.pods.get(machine);
     if (!pod) return false;
     let changed = false;
     for (const [name, e] of pod) {
-      if (!e.jobs.length || e.jobs.some(mayRun) || (e.state !== "next" && e.state !== "installed")) continue;
+      if (!e.jobs.length || e.jobs.some((job) => mayRun(job, name)) || (e.state !== "next" && e.state !== "installed")) continue;
       pod.delete(name);
       changed = true;
     }
@@ -117,6 +139,15 @@ export class PodPacks {
 
   jobPacks(machine: string, job: string): Entry[] {
     return [...(this.pods.get(machine)?.values() ?? [])].filter((e) => e.jobs.includes(job));
+  }
+
+  /** The packs whose install failed there and that are not to be tried again yet (againMs): what cannot come to it now. */
+  failing(machine: string): PodPackView[] {
+    const now = Date.now();
+    return this.view(machine).filter((v) => {
+      const e = this.pods.get(machine)!.get(v.name)!;
+      return e.state === "failed" && (this.againMs === null || now - (e.failedAt ?? 0) <= this.againMs);
+    });
   }
 
   view(machine: string): PodPackView[] {
@@ -198,14 +229,17 @@ export class PodPacks {
         continue;
       }
       const ok = h.result === "success" || h.status?.status_str === "success";
-      // not in Manager's list of packs yet: it is still loading it on a pod just up, asked again in a moment
-      if (!ok && /Cannot resolve install target/.test(h.result ?? "") && (e.tries ?? 0) + 1 < TRIES) {
+      const unresolved = !ok && /Cannot resolve install target/.test(h.result ?? "");
+      // not in Manager's list of packs yet: it is still loading it on a pod just up, asked again in a moment. Not once
+      // another pack was found there (Manager reads its list whole): this one is not in that list at all
+      if (unresolved && (e.tries ?? 0) + 1 < this.resolveTries && !all.some((x) => x !== e && x.resolved)) {
         Object.assign(e, { state: "next", tries: (e.tries ?? 0) + 1, notBefore: Date.now() + this.retryMs });
         delete e.task;
         changed = true;
         continue;
       }
-      Object.assign(e, ok ? { state: "installed" } : { state: "failed", failedAt: Date.now(), error: !h.result || h.result === "failed" ? "ComfyUI-Manager did not install it (its security level, or the pack's own install failed: its log says)" : h.result.slice(0, 200) });
+      if (ok) e.resolved = true;
+      Object.assign(e, ok ? { state: "installed" } : { state: "failed", failedAt: Date.now(), error: unresolved ? notListed(e.name) : !h.result || h.result === "failed" ? "ComfyUI-Manager did not install it (its security level, or the pack's own install failed: its log says)" : h.result.slice(0, 200) });
       changed = true;
     }
     return changed;
@@ -222,7 +256,9 @@ export class PodPacks {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(15_000),
         body: JSON.stringify({ ui_id: task, client_id: CLIENT, kind: "install", params: { id: e.name, version: "latest", selected_version: "latest", mode: "cache", channel: "default" } }),
       }).catch(() => null);
-      if (!res) Object.assign(e, { state: "failed", failedAt: Date.now(), error: "its ComfyUI did not answer" });
+      // no answer is not a refusal (ComfyUI busy, or restarting): asked again in a moment, as many times as a pack not found yet
+      if (!res && (e.tries ?? 0) + 1 < TRIES) Object.assign(e, { tries: (e.tries ?? 0) + 1, notBefore: Date.now() + this.retryMs });
+      else if (!res) Object.assign(e, { state: "failed", failedAt: Date.now(), error: "its ComfyUI did not answer" });
       else if (res.status === 404) Object.assign(e, { state: "failed", failedAt: Date.now(), error: "its ComfyUI has no ComfyUI-Manager" });
       else if (!res.ok) Object.assign(e, { state: "failed", failedAt: Date.now(), error: `ComfyUI-Manager refused it (${res.status})` });
       else {
@@ -240,10 +276,19 @@ export class PodPacks {
   /**
    * Every install done and some in: ComfyUI restarted to load them, never under a render. What the pod was getting is put
    * back in line first (its downloads live in ComfyUI's process, which the restart replaces). A refusal of the restart fails
-   * the packs (they would never load).
+   * the packs (they would never load). One installed for jobs none of which wants it any more (cancelled, Run without) is
+   * dropped instead: ComfyUI loads it at its next restart, whoever makes it.
    */
   private async restartWhenIn(machine: string, comfy: Comfy, all: Entry[]): Promise<boolean> {
     if (all.some((e) => e.state === "installing" || e.state === "next") || !all.some((e) => e.state === "installed") || this.d.busy(machine)) return false;
+    const unwanted = this.d.stillWanted ? all.filter((e) => e.state === "installed" && e.jobs.length && !e.jobs.some((j) => this.d.stillWanted!(j, e.name))) : [];
+    for (const e of unwanted) this.pods.get(machine)?.delete(e.name);
+    if (unwanted.length === all.filter((e) => e.state === "installed").length) return unwanted.length > 0;
+    // ComfyUI's own queue read now, not as last polled: a prompt queued from its page a moment ago is not killed. Afflatus's
+    // own state is read again after that wait, and the restart marked in the same step: the pump holds the machine from the
+    // moment a pack is in (holding), so no job of Afflatus's starts in between
+    const queue = await comfy.client.queue().catch(() => null);
+    if (!queue || queue.running.length || queue.pending.length || this.d.busy(machine)) return unwanted.length > 0;
     this.d.beforeRestart?.(machine);
     this.restarting.set(machine, Date.now());
     // the process replaces itself as it answers: a dropped connection is the restart under way

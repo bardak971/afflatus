@@ -46,6 +46,9 @@ describe("how a clip meets the one before it, by default (the join rule)", () =>
   });
   it("on frames within a family that keeps no latent: SCAIL-2's windows", () => {
     expect(joinWay(r("scail.motion"), r("scail.motion"))).toBe("frames");
+    // SCAIL-2 at 16 fps then at 24 (review H-12): the frames handed over are another rate's, met as a cut
+    expect(joinWay(r("scail.motion"), r("scail.motion24"))).toBe("cut");
+    expect(joinWay(r("scail.motion24"), r("scail.motion24"))).toBe("frames");
   });
   it("a cut when the model changes, or when nothing is before it", () => {
     expect(joinWay(r("h3.video"), r("ltx.video"))).toBe("cut");

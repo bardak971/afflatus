@@ -190,6 +190,7 @@ export class Queue {
     this.ownPacks = new OwnPacks({
       lane: (id) => this.lanes.get(id),
       manager: (comfy) => this.managerOf(comfy),
+      downloading: (comfy) => this.downloadingIn(comfy),
       changed: () => {
         this.events.emit("queue");
         void this.pump();
@@ -969,7 +970,9 @@ export class Queue {
                 break;
               }
             }
-            if (!next) continue;
+            // the awaits above gave the packs' timer its turn: a pack come in meanwhile holds the machine for its restart
+            // (checked again here, in the same step as the start, which the restart waits for: podPacks.ts restartWhenIn)
+            if (!next || this.ownPacks.holding(lane.id)) continue;
             this.startOn(lane, next);
             taken.add(next.id);
             started = true;
@@ -984,7 +987,7 @@ export class Queue {
         // what rented pods were sent for jobs that may no longer run there goes, at every pass (nothing waiting too)
         this.planner.dropUnsought(active, sent);
         // the packs asked for jobs that are gone are dropped (unless being installed), and their rows forgotten
-        this.ownPacks.keepOnly(new Set(active.filter((r) => r.status === "queued").map((r) => r.id)));
+        this.ownPacks.keepOnly(active.filter((r) => r.status === "queued"));
         // the machines that answered this pass, or that run a job now, say whether any ComfyUI is there. A paused machine is
         // asked nothing for the plan: before every ComfyUI is called away (whileOffline gives the jobs up after a while),
         // one paused that answers says it is there, its jobs waiting for its Resume, not for a ComfyUI to come back
@@ -1078,6 +1081,8 @@ export class Queue {
 
   /** Whether a ComfyUI has ComfyUI-Manager, which installs the node packs renders ask for (downloads.ts manager; set by services.ts); null: not known. */
   managerOf: (comfy: Comfy) => Promise<boolean | null> = async () => null;
+  /** Whether Afflatus downloads a file through this ComfyUI now (its process): its restart for node packs waits for it (services.ts sets it). */
+  downloadingIn: (comfy: Comfy) => boolean = () => false;
 
   /** Files are coming to a machine now (a rented pod's, their bytes moving): its idle time is held meanwhile (rented.ts). */
   fetching(machine: string): boolean {
@@ -1334,10 +1339,16 @@ export class Queue {
     return ended;
   }
 
-  /** The jobs that wait on this one can never run now: each fails (and what waits on those), whichever way this one ended. */
+  /**
+   * The jobs that wait on this one can never run now: each fails (and what waits on those), whichever way this one ended.
+   * Said as what it waited for: a finish queued behind a Face refine is no continuation of a clip.
+   */
   private async failDependents(id: string): Promise<void> {
-    const dependents = await this.db.selectFrom("jobs").select("id").where("depends_on", "=", id).where("status", "=", "queued").execute();
-    for (const d of dependents) await this.finish(d.id, "failed", { error: "the clip it continues was not rendered" }, "queued");
+    const dependents = await this.db.selectFrom("jobs").select(["id", "recipe_id", "inputs"]).where("depends_on", "=", id).where("status", "=", "queued").execute();
+    for (const d of dependents) {
+      const error = d.recipe_id === CUT_JOB && tools.cutOptionsOf(d)?.fromJob === id ? tools.FACE_REFINE_NOT_ENDED : "the clip it continues was not rendered";
+      await this.finish(d.id, "failed", { error }, "queued");
+    }
   }
 
   /** Something that went less well than asked in a job that goes on: said on the job (and in the log), not only in the log. */
@@ -1604,7 +1615,11 @@ export class Queue {
    */
   private async place(row: JobRow, generationId: string, resume: Resume | null): Promise<void> {
     if (!row.clip_id || !this.clips) return;
-    await this.clips.finished(row.clip_id, generationId, resume?.overlap, resume?.links ?? {}, row.finished_from).catch((err: Error) => this.warn(row.id, `Its take was not placed on its clip: ${err.message}`));
+    // a Face refine with a finish queued behind it, made from its video: that finish is the clip's finished take, this one
+    // only among its takes (it played for the length of the upscale, then gave way: two finished takes for one Finish)
+    const behind = row.finished_from ? await this.db.selectFrom("jobs").select(["recipe_id", "inputs"]).where("depends_on", "=", row.id).where("status", "in", ["queued", "running"]).execute() : [];
+    const between = behind.some((j) => j.recipe_id === CUT_JOB && tools.cutOptionsOf(j)?.fromJob === row.id);
+    await this.clips.finished(row.clip_id, generationId, resume?.overlap, resume?.links ?? {}, row.finished_from, between).catch((err: Error) => this.warn(row.id, `Its take was not placed on its clip: ${err.message}`));
   }
 
   /** A job whose result was filed before this process stopped: its take placed when it was not yet, and the job closed. */

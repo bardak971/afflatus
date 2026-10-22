@@ -30,8 +30,10 @@ beforeEach(async () => {
   t.services.rented.everyMs = 60_000;
 });
 afterEach(async () => {
-  vi.unstubAllEnvs();
   await t.close();
+  // the envs unstubbed last: a RunPod call still under way until the close (a hunt's round, a poll) read them
+  // again and, without them, went to RunPod itself
+  vi.unstubAllEnvs();
   await Promise.all([home, podComfy, otherComfy, runpod].map((x) => x.close().catch(() => {})));
 });
 

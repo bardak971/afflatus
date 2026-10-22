@@ -7,7 +7,6 @@ import { Dialog, DialogFoot, DialogHead } from "./Dialog";
 import { useOpenNewDraft } from "./draft";
 import { fileLabel, recipeLabel } from "./format";
 import { GetFile } from "./GetFile";
-import { Keys } from "./Keys";
 import { Select } from "./Select";
 import { useHandover } from "./store";
 import { Button, cx, ErrorNote } from "./ui";
@@ -62,7 +61,7 @@ export function PngInfo({ name, title = "PNG info", read, first, onClose, onSent
 
   const s = data?.settings;
   return (
-    <Dialog label={title} onClose={onClose} z="z-[80]" className="flex max-h-full w-full max-w-2xl flex-col rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-[peek-rise_120ms_ease-out]">
+    <Dialog label={title} onClose={onClose} z="z-[80]" className="flex max-h-full w-full max-w-2xl flex-col rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-peek-rise">
         <header className="shrink-0 border-b border-line px-5 py-3.5">
           <DialogHead icon={<ScanSearch size={16} />} title={title} sub={<span data-tip={name}>{name} · how it was made</span>} onClose={onClose} />
         </header>
@@ -114,7 +113,6 @@ export function PngInfo({ name, title = "PNG info", read, first, onClose, onSent
         {/* the foot's own margins undo this padding: it runs edge to edge under the scrolling part */}
         <footer className="shrink-0 px-5 pb-5">
           <DialogFoot>
-            <Button tone="quiet" onClick={onClose}>Close <Keys keys="Esc" size="sm" /></Button>
             {data?.workflow ? (
               <Button onClick={() => { hand({ workflow: workflowFile(name, data.workflow) }); onClose(); go("/workflows"); }}>Import embedded workflow</Button>
             ) : null}

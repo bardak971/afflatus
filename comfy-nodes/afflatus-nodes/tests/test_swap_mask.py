@@ -220,3 +220,14 @@ def test_the_difference_paste_keeps_what_h3_drew_anew_and_gives_back_the_wall_it
     assert b[2, 90, 44] > 0.95 and b[2, 90, 60] < 0.05
     assert a[2, 90, 25] > 0.95  # the person
     assert a[2, 10, 10] < 0.05 and a[2, 120, 60] < 0.05  # the wall: the source's again
+
+
+def test_the_retired_colour_match_still_loads_and_passes_the_render_through():
+    """A graph saved from a 0.5.2 Swap character names AfflatusSwapMatch: it is registered still, and changes nothing."""
+    import asyncio
+
+    from conftest import pack
+
+    assert swap_mask.AfflatusSwapMatch in asyncio.run(pack.AfflatusExtension().get_node_list())
+    render = object()
+    assert swap_mask.AfflatusSwapMatch.execute(render, object(), object(), object(), 0.6, 3).args == (render,)

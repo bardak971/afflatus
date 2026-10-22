@@ -11,7 +11,7 @@ import { changedIn, formDefaults, layoutOf, ownValues, matchesText, summariesOf,
 import { InputsPart } from "./recipeForm/InputsPart";
 import { ModelDefaults } from "./recipeForm/ModelDefaults";
 import { OutputPart } from "./recipeForm/OutputPart";
-import { CardPrompt, FormSearching, Part, TextFold, useFormAim, useParts } from "./recipeForm/Part";
+import { CardPrompt, FormSearching, Heading, Part, PART_HEAD, TextFold, useFormAim, useParts } from "./recipeForm/Part";
 import { Strip } from "./recipeForm/Strip";
 import { PackNotes, usePackNotes } from "./recipeForm/packNotes";
 import { useFormSearch } from "./recipeForm/useFormSearch";
@@ -75,7 +75,7 @@ export function Form(props: {
   /** Bring the prompt into view when the form opens on a short screen: the Create panel. A timeline clip's form stays where it is. */
   promptInView?: boolean;
 }) {
-  const written = useWrittenPrompt(props.recipe, props.stored);
+  const written = useWrittenPrompt(props.recipe, props.stored, props.given);
   const recipe = useMemo(
     () => (written ? { ...props.recipe, inputs: props.recipe.inputs.map((i) => (i.id === written.into && i.type === "prompt" ? { ...i, placeholder: written.text } : i)) } : props.recipe),
     [props.recipe, written],
@@ -83,9 +83,13 @@ export function Form(props: {
   return <FormOf {...props} recipe={recipe} />;
 }
 
-/** What the parts give the prompt as sent, asked once they stop changing (the server writes it by the recipe's own rules). */
-function useWrittenPrompt(recipe: RecipeInfo, stored: Record<string, unknown> | undefined): { into: string; text: string } | null {
-  const key = useSettled(useMemo(() => JSON.stringify(stored ?? {}), [stored]), 400);
+/**
+ * What the parts give the prompt as sent, asked once they stop changing (the server writes it by the recipe's own rules), with
+ * what the screen gives too (`given`: a timeline window's clip before, set at plan time): Swap motion's windows that carry on
+ * are written by the motion's rules, and showed the swap's caption, which the render never sends.
+ */
+export function useWrittenPrompt(recipe: RecipeInfo, stored: Record<string, unknown> | undefined, given?: Record<string, unknown>): { into: string; text: string } | null {
+  const key = useSettled(useMemo(() => JSON.stringify({ ...stored, ...given }), [stored, given]), 400);
   const asked = useQuery({
     queryKey: queryKeys.formPrompt(recipe.id, key),
     queryFn: () => api.formPrompt(recipe.id, JSON.parse(key) as Record<string, unknown>),
@@ -153,7 +157,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   // ---- the search: typed, only the settings whose name (or explanation) matches stay on the form
   const { query, setQuery, q, revealedBy } = useFormSearch(recipe);
   const layout = layoutOf(recipe, seen, q, keepEmpty);
-  const { chapters, advancedMoved, promptMoved, mainText, hit, sought, texts, frames, refs, loras, out, knobs, sampling, upscaling, encoding, rare, hidden } = layout;
+  const { chapters, advancedMoved, promptMoved, mainText, hit, sought, texts, frames, refs, loras, out, knobs, sampling, afterSampling, upscaling, encoding, rare, hidden } = layout;
   const said = summariesOf(recipe, layout, values, { madeSummary, lookSummary, frameSummary: frameExtra?.summary });
   // what a screen adds is not a setting, but it is looked for by name too ("snippets", "preset", "cast"): while
   // searching, it shows where it lives when its words match, and steps aside otherwise
@@ -244,7 +248,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   const lookWithFrames = refs.length === 0 && recipe.inputs.every((i) => i.type !== "prompt" || Boolean(i.noCast));
   const hasRefs = refs.length > 0 || (Boolean(look) && !lookWithFrames && (!q || lookHit));
   const promptHit = Boolean(mainText) && (!q || hit(mainText as InputSpec) || texts.length > 0 || helpersHit);
-  const found = Number(helpersHit) + Number(madeHit) + Number(lookHit) + knobs.length + loras.length + texts.length + (mainText && hit(mainText) ? 1 : 0) + frames.length + refs.length + sampling.length + upscaling.length + out.length + encoding.length + rare.length + hidden.length;
+  const found = Number(helpersHit) + Number(madeHit) + Number(lookHit) + knobs.length + loras.length + texts.length + (mainText && hit(mainText) ? 1 : 0) + frames.length + refs.length + sampling.length + afterSampling.length + upscaling.length + out.length + encoding.length + rare.length + hidden.length;
 
   const leads = (Array.isArray(lead) ? lead : [lead]).filter((l): l is LeadPart => Boolean(l));
   const parts = [
@@ -253,7 +257,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
     ...(promptHit && !promptMoved ? [{ id: "prompt", label: "Prompt" }] : []),
     ...(hasFrames || hasRefs ? [{ id: "inputs", label: "Inputs" }] : []),
     ...chapters.filter((ch) => (ch.id === "advanced" ? rare.length > 0 : ch.id === "prompt" ? promptHit : !q || sought(ch.items).length)).map((ch) => ({ id: ch.id, label: ch.label })),
-    ...(sampling.length ? [{ id: "sampling", label: "Sampling" }] : []),
+    ...(sampling.length || afterSampling.length ? [{ id: "sampling", label: "Sampling" }] : []),
     ...(out.length || encoding.length || upscaling.length ? [{ id: "output", label: "Output" }] : []),
     ...(rare.length && !advancedMoved ? [{ id: "advanced", label: "Advanced" }] : []),
   ];
@@ -318,10 +322,13 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
             </Part>
           )];
         }),
-        ["sampling", sampling.length > 0 && (
-          <Part key="sampling" id="sampling" title="Sampling" summary={<>{said.samplingSaid}{changedMark(sampling)}</>} needs={Boolean(q)}>
+        ["sampling", (sampling.length > 0 || afterSampling.length > 0) && (
+          <Part key="sampling" id="sampling" title="Sampling" summary={<>{said.samplingSaid}{changedMark([...sampling, ...afterSampling])}</>} needs={Boolean(q)}>
             {!q && <ModelDefaults recipe={recipe} file={file} hasSaved={hasSaved} values={values} defaults={defaults} onClear={onClear} />}
             {sampling.map(setting)}
+            {/* a picture's hires fix: the second pass, after the sampler it re-samples with */}
+            {afterSampling.length > 0 && <Heading title="After sampling" />}
+            {afterSampling.map(setting)}
           </Part>
         )],
         ["output", (
@@ -335,7 +342,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
       ], ([id]) => id).map(([, node]) => node)}
       {hidden.length > 0 && (
         <section className="flex flex-col gap-1.5 rounded-[10px] border border-line bg-raised px-3 py-2">
-          <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Not shown now</span>
+          <span className={PART_HEAD}>Not shown now</span>
           {hidden.map((i) => (
             <span key={i.id} className="text-xs text-ink-2"><span className="font-semibold text-ink">{i.label}</span> · {revealedBy(i)}</span>
           ))}

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
 import { imageParts, imagePublic } from "../src/podImage";
 import { runwayNeed } from "../src/rentedBilling";
-import { POD_IMAGES } from "../src/runpod";
+import { POD_IMAGES, podUrl, Runpod } from "../src/runpod";
 import { MEASURED_FROM, recordMeasure } from "../src/podMeasures";
 import { readSettings, updateSettings, writeSettings } from "../src/settings";
 import { costToday, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
@@ -42,8 +42,10 @@ beforeEach(async () => {
   await t.app.inject({ method: "PUT", url: "/api/settings", payload: { runpodKey: KEY } });
 });
 afterEach(async () => {
-  vi.unstubAllEnvs();
   await t.close();
+  // the envs unstubbed last: a RunPod call still under way until the close (a hunt's round, a poll) read them
+  // again and, without them, went to RunPod itself
+  vi.unstubAllEnvs();
   await Promise.all([home, runpod, ...spawned.splice(0)].map((x) => x.close().catch(() => {})));
 });
 
@@ -560,6 +562,24 @@ describe("whether an image can be pulled", () => {
       expect(asked).not.toHaveBeenCalled();
     } finally {
       asked.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe("RunPod in the demo and the tests (AFFLATUS_PRETEND_SITES)", () => {
+  it("is never asked without a pretend RunPod: its API and its proxy refused before any request", async () => {
+    vi.stubEnv("AFFLATUS_PRETEND_SITES", "1");
+    vi.stubEnv("RUNPOD_API_URL", "");
+    vi.stubEnv("RUNPOD_PROXY", "");
+    const asked = vi.fn(async () => new Response("{}", { status: 200 })) as unknown as typeof fetch;
+    try {
+      const client = new Runpod("rpa_test_key_0123456789", asked);
+      await expect(client.gpus("SECURE")).rejects.toThrow(/not sent: no site on the internet is asked here/);
+      await expect(client.balance()).rejects.toThrow(/not sent/);
+      expect(asked).not.toHaveBeenCalled();
+      expect(() => podUrl("abc")).toThrow(/RUNPOD_PROXY is not set/);
+    } finally {
       vi.unstubAllEnvs();
     }
   });

@@ -1,5 +1,5 @@
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
-import { folderOfFileInput, isMissingSlotFile, isShown, packOfNode, SOFT_SLOTS, type GraphFile, type LoraValue, type Recipe } from "@afflatus/core";
+import { folderOfFileInput, isMissingSlotFile, isShown, packOfNode, SOFT_SLOTS, TOOLS_FAMILY, type Family, type GraphFile, type LoraValue, type Recipe } from "@afflatus/core";
 import type { Loaded } from "./jobFiles";
 import type { Machine, Settings } from "./settings";
 
@@ -192,14 +192,22 @@ export function lackOn(
   return { off, files: unique, sendable, ...(knownPacks?.length ? { packs: knownPacks } : {}), ...(why ? { why } : {}) };
 }
 
+/** The slots a finish's files are had by (their downloads): the tools' own, and Face refine's of the families that offer it. */
+export const toolSlots = (registry: { family(id: string): Family | undefined; families(): Family[] }) =>
+  [...(registry.family(TOOLS_FAMILY)?.slots ?? []), ...registry.families().flatMap((f) => (f.id === TOOLS_FAMILY ? [] : f.slots.filter((s) => s.id.startsWith("face"))))];
+
 /**
  * What keeps a finish or a RIFE slow-motion off a machine (jobFiles.ts toolLoadedOn): the files it loads that the machine
  * lacks, each with where to get it when known (SeedVR2's downloads; RIFE and an upscale model come from this PC). One had
  * nowhere (no RIFE on this PC either) cannot be sent, and says so. Null when the machine has them all.
  */
-export function toolLackOn(loaded: Loaded, slots: ReadonlyArray<{ id: string; label?: string; get?: { file: string; url: string } }>): Lack | null {
-  const gap = loaded.absent.find((f) => isMissingSlotFile(f.file));
-  const files = loaded.absent.filter((f) => !isMissingSlotFile(f.file)).map((f) => withUrl({}, slots, f));
+export function toolLackOn(loaded: Loaded, slots: ReadonlyArray<{ id: string; label?: string; get?: { file: string; url: string } }>, machine?: Partial<Pick<Machine, "rented">>): Lack | null {
+  // a machine of the user's own does Face refine without its person detector and SAM (SOFT_SLOTS); RIFE is no softer here,
+  // as a finish of an interpolated take cannot be made without it
+  const soft = (slot: string | undefined) => Boolean(machine && !machine.rented) && slot !== undefined && slot !== "rife" && SOFT_SLOTS.has(slot);
+  const absent = loaded.absent.filter((f) => !soft(f.slot));
+  const gap = absent.find((f) => isMissingSlotFile(f.file));
+  const files = absent.filter((f) => !isMissingSlotFile(f.file)).map((f) => withUrl({}, slots, f));
   // the node types it lacks there, each of a pack Afflatus knows and can install (as a render's: lackOn)
   const missing = loaded.missingNodes ?? [];
   const packs = [...new Set(missing.map((n) => packOfNode(n)))];

@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { Clip } from "../src/api";
 import type { Slot } from "../src/timeline/model";
 import { clipTarget } from "../src/timeline/track/useTrackDrop";
+import { joinCovered } from "../src/timeline/track/TrackClip";
+import { sourceDropClip } from "../src/timeline/track/SourceLane";
+import type { RecipeInfo, Timeline } from "../src/api";
 import { pulledLength, pullRoom, trimOf } from "../src/timeline/track/useStretch";
 
 /** A clip of the track: a rendered video 5 s long unless told, its take playing 1 s to 6 s of a file with 0.5 s of room past each end. */
@@ -25,6 +28,9 @@ describe("what a drop on a clip does", () => {
     // a still keeps taking it as its sound
     const still = clip("s", { kind: "still" } as Partial<Clip>);
     expect(clipTarget("sound", slot(still, 1, true), 0.5, 250, [still], none)).toEqual({ kind: "sound", clip: "s" });
+    // nothing on one queued or rendering: made into Lip sync clips in its place, its render would run on with no clip to land in
+    const rendering = clip("r", { take: null, job: { id: "zz-test-job", status: "running" } } as unknown as Partial<Clip>);
+    expect(clipTarget("sound", slot(rendering, 1, true), 0.5, 250, [rendering], none)).toBeNull();
   });
   it("pins a picture as the first frame on the left half, the last on the right, a keyframe in the middle third", () => {
     const s = slot(clips[1]!, 1);
@@ -88,5 +94,35 @@ describe("a clip's edge dragged", () => {
     expect(trimOf(c, "end", 5000, 5400)).toEqual({ shownToMs: 6400 });
     expect(trimOf(c, "end", 5000, 5000)).toBeNull();
     expect(trimOf(clip("s", { kind: "still", take: null }), "end", 5000, 2000)).toEqual({ stillMs: 2000 });
+  });
+});
+
+describe("the join's + between two clips", () => {
+  const slots = clips.map((c, k) => slot(c, k));
+  it("is left out where the selected clip's edge is drawn under it: its start, or the end of the clip before", () => {
+    expect(joinCovered(slots, slots[1]!, null)).toBe(false);
+    expect(joinCovered(slots, slots[1]!, "b")).toBe(true);
+    expect(joinCovered(slots, slots[1]!, "a")).toBe(true);
+    expect(joinCovered(slots, slots[2]!, "a")).toBe(false);
+    // no edges on a clip not rendered yet, or one in the queue
+    const planned = [slots[0]!, slot(clips[1]!, 1, true)];
+    expect(joinCovered(planned, planned[1]!, "b")).toBe(false);
+    const queued = [slot(clip("a", { job: { id: "zz-test-job", status: "queued" } } as unknown as Partial<Clip>), 0), slots[1]!];
+    expect(joinCovered(queued, queued[1]!, "a")).toBe(false);
+  });
+});
+
+describe("a video dropped on the source lane", () => {
+  const swap = { id: "zz-test.swap", inputs: [{ id: "driving", type: "clip", role: "source", window: { start: "start", seconds: "seconds" } }], traits: { windows: {} } } as unknown as RecipeInfo;
+  const empty = (id: string, inputs: Record<string, unknown> = {}) => clip(id, { take: null, recipe: swap.id, inputs } as unknown as Partial<Clip>);
+  const windowOf = (id: string) => empty(id, { driving: { asset: "zz-test-old" }, start: 0, seconds: 5 });
+  it("goes in place of an empty clip given the source's model, the selected one first", () => {
+    const t = { clips: [windowOf("w1"), empty("e1"), empty("e2")], source: { asset: "zz-test-old" } } as unknown as Timeline;
+    expect(sourceDropClip(t, [swap], null)?.id).toBe("e1");
+    expect(sourceDropClip(t, [swap], t.clips[2])?.id).toBe("e2");
+  });
+  it("never in place of a window of the source the lane has now", () => {
+    const t = { clips: [windowOf("w1"), windowOf("w2")], source: { asset: "zz-test-old" } } as unknown as Timeline;
+    expect(sourceDropClip(t, [swap], t.clips[1])).toBeUndefined();
   });
 });

@@ -27,14 +27,19 @@ describe("Turbo's LoRA in the other families", () => {
     expect(qwenEdit.needsWith!({ fast: true, model: "qwen_image_edit_2511_lightning.safetensors" } as never)).toEqual([]);
   });
 
-  it("H3 asks its turbo LoRA for a model that is not a turbo one, nothing for a reference clip on MiniMax's reference model", async () => {
+  it("H3 asks its turbo LoRA for a model that is not a turbo one; a reference clip, MiniMax's reference model and its own LoRA where the machine has no turbo LoRA", async () => {
     const { h3Video } = await import("../src/h3/video");
     const { h3LipSync } = await import("../src/h3/lipsync");
     const clip = { fast: true, turboIn: "From the name", hybrid: "From the name", references: [], refVideos: [], voice: null, model: "minimax_h3_fl2va.safetensors" };
     expect(h3Video.needsWith!(clip as never)).toEqual(["turbo"]);
     expect(h3LipSync.needsWith!(clip as never)).toEqual(["turbo"]);
     expect(h3Video.needsWith!({ ...clip, model: "DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors" } as never)).toEqual([]);
-    expect(h3Video.needsWith!({ ...clip, references: [{ asset: "a", role: "person" }] } as never)).toEqual([]);
+    // the reference model is optional in the family: asked for by no form, a fresh pod was sent the frames model and failed
+    expect(h3Video.needsWith!({ ...clip, references: [{ asset: "a", role: "person" }] } as never)).toEqual(["refUnet", "refTurbo"]);
+    expect(h3Video.needsWith!({ ...clip, references: [{ asset: "a", role: "person" }] } as never, { turbo: "minimax_h3_turbo.safetensors" })).toEqual(["refUnet"]);
+    expect(h3Video.needsWith!({ ...clip, references: [{ asset: "a", role: "person" }] } as never, { refUnet: "minimax_h3_ref2va_turbo8.safetensors" })).toEqual(["refUnet"]);
+    // a hybrid follows references itself
+    expect(h3Video.needsWith!({ ...clip, model: "DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors", references: [{ asset: "a", role: "person" }] } as never)).toEqual([]);
     expect(h3Video.needsWith!({ ...clip, fast: false } as never)).toEqual([]);
   });
 });

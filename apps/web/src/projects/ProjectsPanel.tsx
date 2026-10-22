@@ -206,7 +206,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
       role="dialog"
       aria-label={scoped ? `${scopeName}: folders, timelines and drafts` : "Projects"}
       style={{ left: place.left, top: place.top, width: place.width, maxHeight: place.maxHeight }}
-      className={cx("fixed z-[66] flex flex-col rounded-2xl border border-line-strong bg-panel text-sm shadow-2xl shadow-shade/60 motion-safe:animate-[peek-rise_120ms_ease-out]", (hidden || covered) && "invisible")}
+      className={cx("fixed z-[66] flex flex-col rounded-2xl border border-line-strong bg-panel text-sm shadow-2xl shadow-shade/60 motion-safe:animate-peek-rise", (hidden || covered) && "invisible")}
     >
       {/* the notch that points at the rail's button */}
       {!scoped && <span aria-hidden className="absolute -left-[7px] h-3 w-3 rotate-45 border-b border-l border-line-strong bg-panel" style={{ top: Math.max(10, Math.min(place.arrow - 6, 40)) }} />}

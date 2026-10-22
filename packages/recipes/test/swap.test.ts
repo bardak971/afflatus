@@ -397,6 +397,23 @@ describe("MiniMax H3 · Swap character", () => {
       expect(noSam.built.warnings).toEqual([expect.stringMatching(/SAM 3\.1 is not on this ComfyUI/)]);
     });
 
+    it("keeps its paste-back on a Finish › Face refine, which samples nothing; says no false word of a missing Swap Mask on a finish", () => {
+      const finish = (over: Record<string, unknown>) => {
+        const input = parseInput(h3Swap, { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, maskOn: true, ...over });
+        const face = { faceRefineUnet: "minimax_h3_fused_refdelta_r1024_turbo8.safetensors", faceDetector: "bbox/face_yolov8m.pt" };
+        const built = h3Swap.build(input, dryContext({ slots: { ...slots, ...face }, uploads: { source: "src.mp4", "references.0": "r1.png", "self.latent": "own.safetensors" }, media: { source: part() } }));
+        return { built, graph: built.graph as Graph };
+      };
+      const refined = finish({ faceRefine: true, faceRefineOnly: true });
+      // the faces are redrawn over the take as it showed: the render pasted onto the source's part outside the person
+      const stitch = of(refined.graph, "H3FaceStitch")[0]!;
+      expect(refined.graph[(stitch.inputs.base_images as [string, number])[0]]!.class_type).toBe("ImageCompositeMasked");
+      expect(of(refined.graph, "SetLatentNoiseMask")).toEqual([]);
+      expect(refined.built.warnings ?? []).toEqual([]);
+      // the latent re-sample redraws every pixel and pastes nothing back, as it always did: no word of a pack without the mask
+      expect((finish({ upscale: "Latent: re-sampled" }).built.warnings ?? []).join(" ")).not.toMatch(/Swap Mask/);
+    });
+
     it("shows the Swap Mask the part's frames, whose faces pick the person; a first window has no window before to follow", () => {
       const { graph } = build();
       const mask = of(graph, "AfflatusSwapMask")[0]!;

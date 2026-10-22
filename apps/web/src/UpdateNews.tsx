@@ -50,7 +50,7 @@ function Restarting() {
   }, [since]);
   if (since === null) return null;
   return (
-    <div role="alertdialog" aria-modal="true" aria-label="Restarting" className="fixed inset-0 z-[100] flex items-center justify-center bg-ground/90 p-8 motion-safe:animate-[peek-fade_100ms_ease-out]">
+    <div role="alertdialog" aria-modal="true" aria-label="Restarting" className="fixed inset-0 z-[100] flex items-center justify-center bg-ground/90 p-8 motion-safe:animate-peek-fade">
       <div className="flex max-w-sm flex-col items-center gap-3 text-center">
         <RefreshCw size={22} className="animate-spin text-accent [animation-duration:1.6s] motion-reduce:animate-none" aria-hidden />
         <span className="text-base font-bold">Restarting…</span>

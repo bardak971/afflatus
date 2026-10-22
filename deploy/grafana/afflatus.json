@@ -701,7 +701,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (part) (increase(afflatus_rented_spend_usd_total[1d]))",
+          "expr": "sum by (part) (delta(afflatus_rented_spend_usd[1d]))",
           "legendFormat": "{{part}}",
           "range": true,
           "datasource": {
@@ -756,7 +756,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (gpu) (increase(afflatus_rented_gpu_spend_usd_total[1d]))",
+          "expr": "sum by (gpu) (delta(afflatus_rented_gpu_spend_usd[1d]))",
           "legendFormat": "{{gpu}}",
           "range": true,
           "datasource": {

@@ -1,9 +1,9 @@
-import { modelName, modelOf, TOOLS_FAMILY, type Recipe } from "@afflatus/core";
+import { modelName, modelOf, type Recipe } from "@afflatus/core";
 import type { Db } from "./db";
 import { paceOf } from "./forecast";
 import type { Scan } from "@afflatus/comfy";
 import type { Loaded } from "./jobFiles";
-import { lackOn, toolLackOn, type Lack } from "./machineScans";
+import { lackOn, toolLackOn, toolSlots, type Lack } from "./machineScans";
 import type { PodFiles } from "./podFiles";
 import { PACKS_MS } from "./podPacks";
 
@@ -196,7 +196,7 @@ export class Planner {
         // what the job's graph loads there, not every file of its family (a swap's pod was sent the family's video model)
         const asked = scan?.comfy.online ? scan : null;
         const loaded = asked ? await this.d.loaded(r, lane, asked) : null;
-        const lack = !asked ? null : recipe ? lackOn(recipe, input, asked, settings, machines.get(lane.id) ?? lane.machine!, familyOf, loaded) : loaded ? toolLackOn(loaded, this.d.registry.family(TOOLS_FAMILY)?.slots ?? []) : null;
+        const lack = !asked ? null : recipe ? lackOn(recipe, input, asked, settings, machines.get(lane.id) ?? lane.machine!, familyOf, loaded) : loaded ? toolLackOn(loaded, toolSlots(this.d.registry), machines.get(lane.id) ?? lane.machine!) : null;
         // a pod that lacks only files it can be sent: it can run the job once they came, their time to come part of what the
         // balance must last
         const fits = Boolean(lack?.sendable && lane.machine!.rented && this.d.podFetch && !this.d.podFetch.failed(lane.id, lack.files, lack.packs));
@@ -214,7 +214,9 @@ export class Planner {
           if (!pin || pin === lane.id) fetch[lane.id] = { files: [], packs: own.packs!, ms: PACKS_MS };
           return;
         }
-        if (own && ownCannot) {
+        // a lone one takes it all the same (below): the job goes, and its submit says what to install (queuePacks.ts mayStart),
+        // rather than wait for a pack that cannot come with no machine to go to
+        if (own && ownCannot && !alone) {
           lacks[lane.id] = { ...own, sendable: false, why: ownCannot };
           return;
         }

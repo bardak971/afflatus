@@ -190,8 +190,14 @@ export async function createServices(
   sweeper.unref();
   const swept = runSweep();
   const downloads = new Downloads(queue.events, dirs.dataDir ? join(dirs.dataDir, "downloads.json") : undefined);
-  // the node packs renders ask for are installed by each ComfyUI's Manager: one without it does without them (queuePacks.ts)
-  queue.managerOf = async (comfy) => (await downloads.manager(comfy)).found;
+  // the node packs renders ask for are installed by each ComfyUI's Manager: one without it does without them (queuePacks.ts);
+  // one that did not answer is not known to lack it (null), and its jobs wait for a real answer
+  queue.managerOf = async (comfy) => {
+    const m = await downloads.manager(comfy);
+    return m.unknown ? null : m.found;
+  };
+  // and a restart for them waits for the downloads that run in that ComfyUI's process
+  queue.downloadingIn = (comfy) => downloads.runsIn(comfy);
   const shippedPresets = new ShippedPresets(dirs.shippedPresets === undefined ? shippedPresetsDir() : dirs.shippedPresets);
   const machineOf = async (id: string) => (await machines()).find((m) => m.machine.id === id);
   let podFilesTold: NodeJS.Timeout | null = null;

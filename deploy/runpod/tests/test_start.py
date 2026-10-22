@@ -326,5 +326,54 @@ class StopDuringTheStart(unittest.TestCase):
         self.assertIn(f"python /opt/afflatus-pod/broken.py {d}/afflatus-gpu.txt", said)
 
 
+def case_sensitive(d):
+    """Whether the folder tells Pack from pack apart: Linux's does, as a pod's volume; Windows' and macOS's do not."""
+    os.makedirs(os.path.join(d, "Probe"))
+    return not os.path.exists(os.path.join(d, "probe"))
+
+
+def write(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+
+
+@unittest.skipIf(SH is None, "no POSIX sh")
+class BuiltInPacks(unittest.TestCase):
+    """The packs built into the image linked into custom_nodes over the copies a volume holds, under any case of their name,
+    and only the others' requirements installed."""
+
+    def run_part(self, d, built_in, folders):
+        d = d.replace("\\", "/")
+        packs, base = f"{d}/packs", f"{d}/base"
+        for pack in built_in:
+            write(f"{packs}/{pack}/requirements.txt", "ultralytics\n")
+        write(f"{packs}/BUILT_IN", "".join(p + "\n" for p in built_in))
+        for folder in folders:
+            write(f"{base}/custom_nodes/{folder}/requirements.txt", "ultralytics\n")
+        # the part as start.sh has it, then the requirements its install rounds would take
+        then = 'for req in "$BASE"/custom_nodes/*/requirements.txt; do if wanted "$req"; then basename "$(dirname "$req")"; fi; done'
+        write(f"{d}/start.sh", f"set -e\nBASE='{base}'\n" + part("built-in packs").replace("/opt/packs/", packs + "/") + "\n" + then + "\n")
+        done = subprocess.run([SH, f"{d}/start.sh"], capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return sorted(os.listdir(f"{base}/custom_nodes")), done.stdout.split()
+
+    def test_a_manager_copy_under_the_registry_id_goes(self):
+        # ComfyUI-Manager installs a registry pack as custom_nodes/<registry id>: comfyui-h3-facerefine. Left there, it
+        # loaded beside the built-in copy, and its requirements were installed at every boot of a pod with that volume
+        with tempfile.TemporaryDirectory() as d:
+            if not case_sensitive(d):
+                self.skipTest("a folder that does not tell the cases apart (it runs on Linux)")
+            folders, wanted = self.run_part(d, ["ComfyUI-H3-FaceRefine"], ["comfyui-h3-facerefine", "ComfyUI-Other"])
+        self.assertEqual(folders, ["ComfyUI-H3-FaceRefine", "ComfyUI-Other"])
+        self.assertEqual(wanted, ["ComfyUI-Other"])
+
+    def test_a_copy_under_the_same_name_is_replaced_and_its_requirements_skipped(self):
+        with tempfile.TemporaryDirectory() as d:
+            folders, wanted = self.run_part(d, ["ComfyUI-KJNodes"], ["ComfyUI-KJNodes", "ComfyUI-KJNodes-Extra"])
+        self.assertEqual(folders, ["ComfyUI-KJNodes", "ComfyUI-KJNodes-Extra"])
+        self.assertEqual(wanted, ["ComfyUI-KJNodes-Extra"])
+
+
 if __name__ == "__main__":
     unittest.main()

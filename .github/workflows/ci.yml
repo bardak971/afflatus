@@ -29,10 +29,10 @@ jobs:
       - run: pnpm lint
       # no two modules that import each other's values (scripts/check-cycles.ts: madge, pinned, through npx)
       - run: pnpm check:cycles
-      # nothing exported that nothing uses (knip.json); run pinned, not a dependency of the app
-      - run: npx -y knip@6.39.0 --no-progress
-      # and nothing the app exports that only tests use (a test hook says so with @internal); the scripts count as the app
-      - run: npx -y knip@6.39.0 --no-progress --production --include exports,types
+      # nothing exported that nothing uses (knip.json), and nothing the app exports that only tests use (a test hook says so
+      # with @internal; the scripts count as the app): package.json's check:knip, the same two runs as locally. Knip is run
+      # pinned through npx, not a dependency of the app
+      - run: pnpm check:knip
       - run: pnpm test
       # every recipe's every variant built and checked against the saved ComfyUI node catalog, with the graph that loads
       # its models ahead (no GPU, no ComfyUI)

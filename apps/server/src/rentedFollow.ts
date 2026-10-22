@@ -86,6 +86,10 @@ const STOP_AGAIN_MS = 2 * 60_000;
 /** How often a booting pod's boot log is read (podBoot.ts), and how long after its ComfyUI first answered it still is. */
 const BOOT_READ_MS = 10_000;
 const BOOT_TAIL_MS = 2 * 60_000;
+/** How long an image whose registry gave no layers waits before it is asked again (its pull's bytes are said without). */
+const LAYERS_AGAIN_MS = 5 * 60_000;
+/** An image's layers as its registry gave them, asked at `at`; `none`: it gave none. */
+type LayersAsked = { at: number; layers: Promise<ImageLayer[] | null>; none?: true };
 /** The log tab reads it every two seconds while it is open: read again at most this often then. */
 const BOOT_ASKED_MS = 2_000;
 /** How often a booting pod's system log is read from RunPod for its pull (podPull.ts), and kept boot logs pruned. */
@@ -103,7 +107,8 @@ export class RentedFollow extends RentedBilling {
   pullEveryMs = PULL_READ_MS;
   /** An image's layers, from its registry (a test's stand-in in place of imageLayers); asked once per image and kept. */
   imageLayersOf: (image: string) => Promise<ImageLayer[] | null> = (image) => imageLayers(image);
-  private readonly layersSeen = new Map<string, Promise<ImageLayer[] | null>>();
+  /** Each image's layers as its registry gave them; one that gave none is asked again after LAYERS_AGAIN_MS. */
+  private readonly layersSeen = new Map<string, LayersAsked>();
   /** How many days a boot log is kept (Settings › Rented GPUs; 0: none), as last read, and when kept ones were last pruned. */
   private bootLogDays = 0;
   private prunedAt = 0;
@@ -493,7 +498,7 @@ export class RentedFollow extends RentedBilling {
     }
     if (answers) s.answered = true;
     // its boot log while it boots, and a while after its first answer (ComfyUI's last lines of its start)
-    if (!s.answered || (s.answeredAt !== null && this.now() - s.answeredAt < BOOT_TAIL_MS)) void this.readBoot(m, pod, this.bootEveryMs);
+    if (this.booting(s)) void this.readBoot(m, pod, this.bootEveryMs);
     // its first answer since it was deployed: later starts count from when it runs. How long it took is kept (the Deploy
     // dialog's "up in"), and what its deploy asked for is handed to it now. A fill keeps its files until it ends: podFiles
     // keeps what a pod gets in memory only, so after a restart of Afflatus they are handed again (followFill)
@@ -694,13 +699,19 @@ export class RentedFollow extends RentedBilling {
     s.pullLines = [...s.pullLines, ...added];
     const lines = s.pullLines;
     const image = m.rented!.image || pod.image;
-    let layers = image ? this.layersSeen.get(image) : undefined;
-    if (image && !layers) {
-      layers = this.imageLayersOf(image).catch(() => null);
-      this.layersSeen.set(image, layers);
+    let seen = image ? this.layersSeen.get(image) : undefined;
+    // a registry that did not answer once is asked again a while later: kept, it took the bytes off every later deploy's
+    // pull until Afflatus restarted
+    if (image && (!seen || (seen.none && this.now() - seen.at >= LAYERS_AGAIN_MS))) {
+      const asked: LayersAsked = { at: this.now(), layers: this.imageLayersOf(image).catch(() => null) };
+      void asked.layers.then((got) => {
+        if (!got) asked.none = true;
+      });
+      seen = asked;
+      this.layersSeen.set(image, seen);
     }
     const before = s.pull;
-    s.pull = pullOf(lines, (await layers) ?? null, this.now());
+    s.pull = pullOf(lines, (await seen?.layers) ?? null, this.now());
     if (before?.phase !== s.pull.phase || before.done !== s.pull.done || before.leftMs !== s.pull.leftMs) this.events.emit("queue");
     if (s.pull.phase === "done" && !s.pullKept) {
       s.pullKept = true;
@@ -716,12 +727,22 @@ export class RentedFollow extends RentedBilling {
    * a pod that never comes up keeps what it said. Dropped after the days said there (pruneBootLogs).
    */
   private async keepBootLog(m: Machine, s: Seen): Promise<void> {
-    if (this.bootLogDays <= 0) return;
+    // only from its boot: a read after it (its log tab opened, its ComfyUI died) is the pod's last 300 lines, which no longer
+    // hold its boot's steps after a while of renders, and would replace the boot log kept
+    if (this.bootLogDays <= 0 || !this.booting(s)) return;
     const pod = this.boots.get(m.id)?.lines ?? [];
     const said = `${s.pullLines.length}:${pod.length}:${pod.at(-1)?.t ?? ""}`;
     if (said === s.bootLogKept || (!s.pullLines.length && !pod.length)) return;
     s.bootLogKept = said;
-    await this.db.updateTable("rent_sessions").set({ boot_log: JSON.stringify({ system: pullKept(s.pullLines), pod }) }).where("machine_id", "=", m.id).where("ended_at", "is", null).execute().catch(() => {});
+    // a run that came up before that (Afflatus restarted under it, its first answer read again) keeps the one it has
+    const upSince = new Date(this.now() - BOOT_TAIL_MS).toISOString();
+    await this.db.updateTable("rent_sessions").set({ boot_log: JSON.stringify({ system: pullKept(s.pullLines), pod }) }).where("machine_id", "=", m.id).where("ended_at", "is", null)
+      .where((eb) => eb.or([eb("up_at", "is", null), eb("up_at", ">=", upSince)])).execute().catch(() => {});
+  }
+
+  /** Whether its boot is under way, or just over: its boot log is read and kept until a while after its first answer. */
+  private booting(s: Seen): boolean {
+    return !s.answered || (s.answeredAt !== null && this.now() - s.answeredAt < BOOT_TAIL_MS);
   }
 
   /** The kept boot logs older than the days said (all of them at 0), dropped: at most once an hour, and at once when the days change. */

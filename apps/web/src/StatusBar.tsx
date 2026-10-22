@@ -21,7 +21,7 @@ import { useQueueOps } from "./queueOps";
 import { expiringSaid, useExpiring, useExpiringOnly, useKeepAllExpiring } from "./screens/studio/expiring";
 import { unkeptMs, useKeepFor } from "./keepFor";
 import { useLive, useStudio, useSystem } from "./store";
-import { Chip, cx } from "./ui";
+import { Chip, cx, Spinner } from "./ui";
 
 // the viewer is fetched the first time the last result is opened from here
 // the expiring chip's panel and menu: opened now and then, the strip itself is in the first load
@@ -198,7 +198,7 @@ function Running({ run }: { run: RunningJob }) {
         className={cx(pill, "min-w-0 hover:bg-hover")}
         data-tip={`${run.progress > 0 ? `${pct} % of this render` : "No step count from this phase yet"}${run.eta ? ` · ${timeLeft(run.eta)}` : ""} · running for ${ran}`}
       >
-        <span className="size-3 shrink-0 animate-spin rounded-full border-2 border-accent/30 border-t-accent motion-reduce:animate-none" />
+        <Spinner size={12} />
         <span className="min-w-16 truncate font-semibold">{what}</span>
         {/* the first thing to go when the strip is short of room */}
         {of && <span className="max-w-48 min-w-0 truncate text-ink-2 max-[1440px]:hidden">{of}</span>}

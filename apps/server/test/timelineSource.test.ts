@@ -506,6 +506,104 @@ describe("a timeline's source lane", () => {
       expect(ends(kept)[1]).toBe(end);
     });
 
+    const queued = (clipId: string, status: "queued" | "running" = "queued") =>
+      t.db.insertInto("jobs").values({ id: newId(), owner_id: "local", recipe_id: "h3.swap", label: "x", inputs: "{}", status, priority: 0, clip_id: clipId, created_at: now(), updated_at: now() } as never).execute();
+
+    it("two trims sent at once (one drag sent twice) keep the windows the first set aside, takes and all", async () => {
+      const { tl, v } = await madeSwap();
+      const ids = v.clips.map((c: { id: string }) => c.id);
+      const takes = [await takeFor(ids[2]), await takeFor(ids.at(-1))];
+      const cut = ends(v)[1]!;
+      await Promise.all([1, 2].map(() => call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: cut })));
+      const short = await view(tl.id);
+      expect(short.clips.map((c: { id: string }) => c.id)).toEqual(ids.slice(0, 2));
+      expect(short.source.parked).toHaveLength(ids.length - 2);
+      expect(short.source.parkedTakes).toBe(2);
+      // one step: the second found nothing more to do
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: 20000 });
+      const back = await view(tl.id);
+      expect(back.clips.map((c: { id: string }) => c.id)).toEqual(ids);
+      expect([back.clips[2].take?.id, back.clips.at(-1).take?.id]).toEqual(takes);
+    });
+
+    it("never sets aside or shortens a window that renders or waits in the queue: refused, with no step to undo", async () => {
+      const { tl, v } = await madeSwap();
+      const ids = v.clips.map((c: { id: string }) => c.id);
+      await queued(ids[2], "running");
+      const res = await t.app.inject({ method: "POST", url: `/api/timelines/${tl.id}/source/trim`, payload: { fromMs: 0, toMs: ends(v)[1]! } });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error ?? res.body).toMatch(/Clip 3 is rendering or in the queue/);
+      const after = await view(tl.id);
+      expect(after.clips.map((c: { id: string }) => c.id)).toEqual(ids);
+      expect(after.undo).toBe(v.undo);
+      // the end in a window that waits: never shortened, the end snaps onto its end
+      const r = await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: ends(v)[2]! - 300 });
+      expect(r.toMs).toBe(ends(v)[2]);
+      expect(ends(await view(tl.id))[2]).toBe(ends(v)[2]);
+      // nor given another form in place while it waits (its render was sent with the old one)
+      await expect(call("POST", `/api/timelines/${tl.id}/source/form`, { recipe: "h3.motion" })).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it("keeps the first window whatever the end asks: an empty one as long as a window can be, a rendered one whole", async () => {
+      const { tl, v } = await madeSwap();
+      const r = await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: 1000 });
+      const short = await view(tl.id);
+      expect(short.clips).toHaveLength(1);
+      expect(short.clips[0].id).toBe(v.clips[0].id);
+      // H3's grid: 22 frames at the least, at 24 fps
+      expect(r.toMs).toBeGreaterThan(900);
+      expect(short.source.toMs).toBe(r.toMs);
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: 20000 });
+      expect((await view(tl.id)).clips.map((c: { id: string }) => c.id)).toEqual(v.clips.map((c: { id: string }) => c.id));
+      await takeFor(v.clips[0].id);
+      const whole = await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: 1000 });
+      expect(whole.toMs).toBe(ends(v)[0]);
+      expect((await view(tl.id)).clips).toHaveLength(1);
+    });
+
+    it("drops the windows set aside when the source is made anew with another grid's model: a trim out never brings the old model's back", async () => {
+      const { tl, v } = await madeSwap();
+      await takeFor(v.clips[2].id);
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: ends(v)[1]! });
+      await call("POST", `/api/timelines/${tl.id}/source/form`, { recipe: "scail.motion" });
+      const anew = await view(tl.id);
+      expect(anew.source.parked ?? []).toEqual([]);
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: 20000 });
+      const out = await view(tl.id);
+      expect(out.clips.every((c: { recipe: string; take: unknown }) => c.recipe === "scail.motion" && !c.take)).toBe(true);
+      expect(out.clips.map((c: { id: string }) => c.id)).not.toContain(v.clips[2].id);
+    });
+
+    it("gives the windows set aside the new form with the others in place: a trim out brings them back made with it", async () => {
+      const { tl, v } = await madeSwap();
+      const take = await takeFor(v.clips[2].id);
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: ends(v)[1]! });
+      await call("POST", `/api/timelines/${tl.id}/source/form`, { recipe: "h3.motion" });
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: 20000 });
+      const out = await view(tl.id);
+      expect(out.clips.map((c: { id: string }) => c.id)).toEqual(v.clips.map((c: { id: string }) => c.id));
+      expect(out.clips.every((c: { recipe: string }) => c.recipe === "h3.motion")).toBe(true);
+      expect(out.clips[2].inputs.sourceStart).toBe(v.clips[2].inputs.sourceStart);
+      expect(out.clips[2].take?.id).toBe(take);
+    });
+
+    it("keeps a take set aside safe: its video in use, and a trim out still works once it is erased (the window back without it)", async () => {
+      const { tl, v } = await madeSwap();
+      await takeFor(v.clips[2].id);
+      const video = (await t.db.selectFrom("takes").select("asset_id").where("clip_id", "=", v.clips[2].id).executeTakeFirstOrThrow()).asset_id;
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: ends(v)[1]! });
+      const { inUse } = await import("../src/sweep");
+      expect((await inUse(t.db)).get(video)).toBe("a timeline");
+      // erased all the same (by hand, outside the app): the window comes back with no take, and the trims after it work
+      await t.db.deleteFrom("assets").where("id", "=", video).execute();
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: 20000 });
+      const out = await view(tl.id);
+      expect(out.clips.map((c: { id: string }) => c.id)).toEqual(v.clips.map((c: { id: string }) => c.id));
+      expect(out.clips[2].take).toBeFalsy();
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: ends(v)[1]! });
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: 20000 });
+    });
+
     it("shortens an empty window the end falls in, and moving the start makes every window anew (one step to undo)", async () => {
       const { tl, v } = await madeSwap();
       const start = Math.round(v.clips[1].inputs.sourceStart! * 1000);

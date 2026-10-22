@@ -181,7 +181,7 @@ function Sheet({ barKey, at, onClose }: { barKey: string; at?: KeysAsk; onClose(
     : shown.groups;
 
   return (
-    <Dialog label="Keyboard shortcuts" onClose={onClose} z="z-[90]" className="flex h-[min(760px,100%)] w-full max-w-[1140px] flex-col overflow-hidden rounded-2xl border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-[peek-rise_120ms_ease-out]">
+    <Dialog label="Keyboard shortcuts" onClose={onClose} z="z-[90]" className="flex h-[min(760px,100%)] w-full max-w-[1140px] flex-col overflow-hidden rounded-2xl border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-peek-rise">
       <div className="flex min-h-0 grow flex-col" onKeyDown={onKeys}>
         {/* the head: the search is the first thing, and has the focus */}
         <header data-keys-help className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3.5">

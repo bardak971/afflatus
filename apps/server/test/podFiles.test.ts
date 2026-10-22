@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Family } from "@afflatus/core";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { civitaiVersion } from "../src/civitai";
 import { Comfy } from "../src/comfy";
@@ -178,6 +179,27 @@ describe("a rented pod's model files", () => {
     files.want("pod", [{ file: "nowhere.safetensors", folder: "loras" }], { tier: "need", job: "j1" });
     await settle("pod", "nowhere.safetensors");
     expect(files.jobState("pod", "j1")).toMatchObject({ state: "failed", error: expect.stringContaining("no site is known") });
+  });
+
+  it("of a family's own official file come with downloads and lookups off (a new install's default), any other file does not", async () => {
+    await writeSettings(t.services.db, { downloadModels: false, civitaiLookups: false });
+    const url = `${siteUrl}/files/official.safetensors`;
+    const family = { id: "fam", slots: [{ folder: "checkpoints", get: { url, file: "official.safetensors" } }] } as unknown as Family;
+    const comfy = new Comfy(pod.url, t.services.registry);
+    const off = new PodFiles({
+      db: t.services.db, downloads: t.services.downloads,
+      comfyOf: async () => comfy, cloudOf: async () => "SECURE", alive: () => true, busy: () => false,
+      lookup: { db: t.services.db, presets: async () => [], families: () => [family], comfyDir: async () => home },
+      settings: async () => ({ civitaiKey: "", downloadModels: false, civitaiLookups: false }),
+    });
+    off.want("pod", [{ file: "official.safetensors", folder: "checkpoints" }, { file: "other.safetensors", folder: "loras", url: `${siteUrl}/files/other.safetensors` }], { tier: "need" });
+    await until(async () => {
+      await off.tick();
+      return off.view("pod").every((f) => f.state === "ready" || f.state === "failed");
+    });
+    const state = Object.fromEntries(off.view("pod").map((f) => [f.file, f.state]));
+    expect(state).toEqual({ "official.safetensors": "ready", "other.safetensors": "failed" });
+    expect(readFileSync(join(disk, "checkpoints", "official.safetensors")).equals(FILE)).toBe(true);
   });
 
   it("are ready when the pod has them already, a .gguf one too (listed by the GGUF pack, not in ComfyUI's own list)", async () => {
@@ -742,4 +764,34 @@ describe("a pod's file asked again after a failure that passes", () => {
       warn.mockRestore();
     }
   });
+});
+
+describe("a pod's file waiting its turn at the node pack", () => {
+  it("counts its fetch time from when the pack takes it, not from the wait for its line (a 429 waited out)", async () => {
+    // the pack's line full for a while, then the file taken and whole at once
+    let takenAt = Infinity;
+    const downloads = {
+      start: async () => ({ id: "d1", total: 1000 }),
+      stop: () => true,
+      get: () => (Date.now() < takenAt ? { status: "starting", waiting: "the node pack's downloads at once are under way: waiting for one to end", bytes: 0, total: 1000 } : { status: "done", bytes: 1000, total: 1000 }),
+    };
+    const comfy = new Comfy(pod.url, t.services.registry);
+    const pf = new PodFiles({
+      db: t.services.db, downloads: downloads as never,
+      comfyOf: async () => comfy, cloudOf: async () => "SECURE", alive: () => true, busy: () => false,
+      lookup: { db: t.services.db, presets: async () => [], families: () => [], comfyDir: async () => home },
+      settings: async () => ({ civitaiKey: "", downloadModels: true, civitaiLookups: true }),
+    });
+    pf.want("pod", [{ file: "late.safetensors", folder: "loras", url: `${siteUrl}/files/late.safetensors` }], { tier: "need" });
+    await pf.tick();
+    const waitFrom = Date.now();
+    await until(async () => (await pf.tick(), Date.now() - waitFrom >= 1500));
+    takenAt = Date.now();
+    // taken, and whole a moment later
+    await new Promise((r) => setTimeout(r, 50));
+    await until(async () => (await pf.tick(), Boolean(await t.services.db.selectFrom("pod_fetches").select("file").executeTakeFirst())));
+    const fetched = await t.services.db.selectFrom("pod_fetches").selectAll().executeTakeFirstOrThrow();
+    // from about when it was taken: the 1.5 s waited for the line are not in it
+    expect(Date.parse(fetched.ended_at) - Date.parse(fetched.started_at)).toBeLessThan(1000);
+  }, 15_000);
 });

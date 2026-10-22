@@ -36,6 +36,12 @@ const FRESH_MS = 20_000;
 const MAX_FAILS = 3;
 /** The waiting renders the ranking is worked out from: the first of the line say enough. */
 const RANKED_RENDERS = 40;
+/**
+ * How long a GPU RunPod refused for want of one free is passed over while another is free: its CUDA 13 hosts are said
+ * GPU-wide (runpod.ts gpus), so one free only on older hosts where the pod must go reads free at every round, and the hunt
+ * tried it alone for its whole time.
+ */
+const ASIDE_MS = 5 * 60_000;
 
 const choicesSchema = deploySchema.omit({ gpu: true });
 const askSchema = z.strictObject({
@@ -65,7 +71,12 @@ const rankSchema = z.strictObject({
   volume: z.string().max(80).default(""),
   /** The CUDA build the dialog picked (deploySchema cuda): a GPU with no host free for it ranks as out of stock. */
   cuda: z.enum(["13.0", "12.8", "either"]).default("13.0"),
+  /** The image (deploySchema template): RunPod's own has one build, and no CUDA pick applies to it. */
+  template: z.enum(["afflatus", "runpod"]).default("afflatus"),
 });
+
+/** The CUDA pick a deploy of that image applies (rentedDeploy.ts): RunPod's own image takes none, whatever the dialog says. */
+const cudaOf = (o: { template: "afflatus" | "runpod"; cuda: CudaPick }): CudaPick => (o.template === "afflatus" ? o.cuda : "either");
 
 const stateSchema = z.object({
   mode: z.enum(["value", "fast", "cheap"]),
@@ -123,6 +134,8 @@ export class Hunt {
   private pausesLooked: Promise<void> | null = null;
   private pausesAgain = false;
   private watching: Promise<void> | null = null;
+  /** GPUs RunPod refused for want of one free, by id, with when they may be tried first again while another is free. */
+  private readonly aside = new Map<string, number>();
   everyMs = EVERY_MS;
   /** How recent a read of RunPod's GPUs is taken again (0 in the tests, which change the stock between rounds). */
   freshMs = FRESH_MS;
@@ -318,7 +331,7 @@ export class Hunt {
    */
   async preview(asked: z.infer<typeof rankSchema>): Promise<{ ranking: RankedGpu[]; held: number; overhead: DeployOverhead | null }> {
     const [offers, dataCenter, rows] = await Promise.all([this.offers(asked.cloud), this.dataCenterOf(asked.volume), this.held()]);
-    return { ...(await this.rank(offers, rows, { ...asked, dataCenter })), held: rows.length };
+    return { ...(await this.rank(offers, rows, { ...asked, cuda: cudaOf(asked), dataCenter })), held: rows.length };
   }
 
   // ---------------------------------------------------------------- start, change, cancel
@@ -485,24 +498,35 @@ export class Hunt {
       st.lastError = (err as Error).message;
       return this.save();
     }
-    const { ranking } = await this.rank(offers, rows, { ...st, cuda: st.deploy.cuda });
+    const { ranking } = await this.rank(offers, rows, { ...st, cuda: cudaOf(st.deploy) });
     if (this.state !== st) return;
     this.ranking = ranking;
     this.askedAt = this.offersSeen.get(st.cloud)?.at ?? this.now();
-    const pick = firstFree(ranking);
+    // one refused just now is passed over while another is free; with none other it is tried again, as nothing is lost
+    const now = this.now();
+    const pick = firstFree(ranking.filter((g) => (this.aside.get(g.id) ?? 0) <= now)) ?? firstFree(ranking);
     if (!pick) return this.save();
+    // a deploy under way (the user's), or a pod deployed for the renders and not up yet (the user's, made before the hunt or
+    // while it ran): it is coming for these renders, and a second pod would be billed for the same ones. Asked again next round
+    if (this.s.rented.busy || (await readSettings(this.s.db)).machines.some((m) => this.s.rented.firstStarting(m))) return this.save();
+    if (this.state !== st) return;
     st.status = "deploying";
     st.deployingSince = new Date(this.now()).toISOString();
     st.before = (await readSettings(this.s.db)).machines.filter((m) => m.rented).map((m) => m.id);
     await this.save();
     let made: { id: string; dataCenter: string | null };
     try {
-      const late = await this.lateFiles(st).catch(() => []);
-      made = await this.s.rented.deploy({ ...st.deploy, files: [...st.deploy.files, ...late], gpu: pick.id, again: false });
+      // the late files worked out under the deploy's lock, as the user's are (rented-api.ts): a deploy under way from here on
+      made = await this.s.rented.deploy(async () => {
+        const late = await this.lateFiles(st).catch(() => []);
+        return { ...st.deploy, files: [...st.deploy.files, ...late], gpu: pick.id, again: false };
+      });
     } catch (err) {
       st.deployingSince = null;
+      if (refusalOf(err as Error) === "noGpu") this.aside.set(pick.id, this.now() + ASIDE_MS);
       return this.refused(st, err as Error);
     }
+    this.aside.delete(pick.id);
     Object.assign(st, { status: "up", deployingSince: null, machine: made.id, fails: 0, lastError: null, found: { gpu: pick.id, name: pick.name, price: pick.price, dataCenter: made.dataCenter, at: new Date(this.now()).toISOString() } });
     await this.save();
     console.log(`[hunt] ${pick.name} found and deployed after ${took(this.now() - started)}`);

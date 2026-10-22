@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { X } from "lucide-react";
+import { Children, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { focusBehindMenu } from "./ContextMenu";
 import { useLeave } from "./leave";
-import { cx } from "./ui";
+import { CloseButton, cx } from "./ui";
 
 /**
  * The one modal shell of the app: over everything, closed by Escape, by its Close button or by a click
@@ -125,7 +124,7 @@ export function Dialog({ label, onClose, onEscape, children, className, z = "z-4
       role="dialog"
       aria-modal="true"
       aria-label={label}
-      className={cx("fixed inset-0 flex items-center justify-center bg-ground/85 p-8 motion-safe:animate-[peek-fade_100ms_ease-out]", z)}
+      className={cx("fixed inset-0 flex items-center justify-center bg-ground/85 p-8 motion-safe:animate-peek-fade", z)}
       onPointerDown={(e) => { downOnBackdrop.current = e.target === e.currentTarget; }}
       onClick={(e) => { if (e.target === e.currentTarget && downOnBackdrop.current) closeNow.current(); }}
     >
@@ -138,12 +137,12 @@ export function Dialog({ label, onClose, onEscape, children, className, z = "z-4
 }
 
 /** The usual card of a dialog: a head (DialogHead), what it holds, a foot (DialogFoot). Wider ones change max-w only. */
-export const DIALOG = "flex w-full max-w-md flex-col gap-3.5 rounded-[18px] border border-line-strong bg-panel p-5 shadow-2xl shadow-shade/60 motion-safe:animate-[peek-rise_120ms_ease-out]";
+export const DIALOG = "flex w-full max-w-md flex-col gap-3.5 rounded-[18px] border border-line-strong bg-panel p-5 shadow-2xl shadow-shade/60 motion-safe:animate-peek-rise";
 
 /**
  * The head of a dialog: an icon in its wash (warn for a question about something that cannot be undone), the
- * title, a dim line under it (what it is about), and the way out. Its key (Esc) is in the Close button's tip: the foot's
- * Close shows it as a cap, and two caps for one key in one dialog were noise.
+ * title, a dim line under it (what it is about), and the way out. Its × is the one way out a dialog shows (with Esc, said
+ * in its tip): the foot holds no second "Close" (review 4, P11), and a "Cancel" only where closing throws a choice away.
  */
 export function DialogHead({ icon, title, sub, tone = "accent", onClose }: { icon?: ReactNode; title: string; sub?: ReactNode; tone?: "accent" | "warn"; onClose?(): void }) {
   return (
@@ -154,16 +153,19 @@ export function DialogHead({ icon, title, sub, tone = "accent", onClose }: { ico
         {sub && <span className="truncate text-xs text-ink-3">{sub}</span>}
       </span>
       {onClose && (
-        <button type="button" data-dialog-close="" aria-label="Close" data-tip="Close" data-tip-keys="Esc" onClick={onClose} className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
-          <X size={15} />
-        </button>
+        <CloseButton data-dialog-close="" keys="Esc" onClose={onClose} />
       )}
     </div>
   );
 }
 
-/** The foot of a dialog: a dim line of facts on the left, its buttons on the right (the quiet one first, the one that goes ahead last). */
-export function DialogFoot({ info, children }: { info?: ReactNode; children: ReactNode }) {
+/**
+ * The foot of a dialog: a dim line of facts on the left, its buttons on the right (the quiet one first, the one that goes
+ * ahead last). Nothing at all when it has neither: a foot whose buttons all depend on what the dialog shows (PngInfo's)
+ * is not an empty bar.
+ */
+export function DialogFoot({ info, children }: { info?: ReactNode; children?: ReactNode }) {
+  if (!info && Children.toArray(children).length === 0) return null;
   return (
     <div className="-mx-5 -mb-5 mt-1 flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3.5">
       {info && <span className="mr-auto min-w-0 truncate text-xs text-ink-3">{info}</span>}

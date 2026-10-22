@@ -104,6 +104,11 @@ export interface VideoTraits {
      */
     own?: string[];
     /**
+     * The model a source dropped on a timeline is made with when nothing else says which (no empty clip given one, no
+     * source before): the first recipe that has it, so that the timeline names no recipe of its own.
+     */
+    sourceDefault?: true;
+    /**
      * The form a window that carries on is made with when this form's source is made (H3 · Swap character: Motion
      * transfer, the person replaced never in its input; card #42), one of the same grid; each window's form changed by
      * hand after. Left out, every window takes this form.

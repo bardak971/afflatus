@@ -68,7 +68,7 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
           setName(null);
         }}
         onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-        className="h-9 w-56 min-w-24 shrink rounded-lg border border-transparent bg-transparent px-2 text-base font-semibold hover:border-line focus:border-accent focus:bg-raised"
+        className="h-9 w-56 min-w-24 shrink rounded-lg border border-transparent bg-transparent px-2 text-base font-semibold hover:border-line focus:border-accent focus:bg-raised focus:shadow-[0_0_0_3px_var(--color-accent-wash)]"
       />
       {/* short on a narrow header, it keeps its figures whole: the name gives way */}
       <Chip className="@[56rem]/head:min-w-0 @[56rem]/head:shrink!">

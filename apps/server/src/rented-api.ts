@@ -129,7 +129,9 @@ export function registerRented(app: FastifyInstance, s: Services): void {
   /** A GPU deployed, as the dialog asked: billed from now. The user's click only; refused at a spending cap. */
   app.post("/api/runpod/deploy", async (req) => {
     const ask = deploySchema.parse(req.body);
-    return s.rented.deploy({ ...ask, files: await deployFiles(s, ask), again: false });
+    // the GPU hunt's own deploy between its pick and RunPod's answer: this one would be a second pod for the same renders
+    if (s.hunt.view().hunt?.status === "deploying") throw httpError("The GPU hunt is deploying a GPU now: wait for it to end.", 409);
+    return s.rented.deploy(async () => ({ ...ask, files: await deployFiles(s, ask), again: false }));
   });
 
   /** A pod added as a machine, as it is (running or stopped): its ComfyUI's address worked out from it. Nothing is started. */

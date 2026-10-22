@@ -15,6 +15,8 @@ import { useModelName } from "./modelName";
 import { betterPlace, dropped, groupingSaves, loadsAt, modelSwitches, moved, waitingEnds } from "./order";
 import { settingHref } from "../settings/settingsIndex";
 import { DownloadTo } from "../../useGetFile";
+import { markPlace } from "../../motion";
+import { motionAllowed } from "../../useFlip";
 
 /** How many waiting jobs show before the rest fold into "and N more". */
 const SHOWN = 3;
@@ -378,8 +380,8 @@ function FilesChip({ of }: { of: NonNullable<ReturnType<typeof pinnedFiles>> }) 
   const show = () => {
     const row = of.machine && document.querySelector<HTMLElement>(`[data-machine="${CSS.escape(of.machine.id)}"]`);
     if (!row) return;
-    row.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    row.animate?.([{ boxShadow: "0 0 0 2px var(--color-accent)" }, { boxShadow: "0 0 0 0 transparent" }], { duration: 1400, easing: "ease-out" });
+    row.scrollIntoView({ block: "nearest", behavior: motionAllowed() ? "smooth" : "auto" });
+    markPlace(row, 1400);
   };
   return (
     <button type="button" onClick={(e) => { e.stopPropagation(); show(); }} data-tip={`${name} is getting them: its row says how far`} className="shrink-0 rounded-[7px] border border-accent/45 bg-accent-wash px-2 py-px text-xs font-semibold whitespace-nowrap text-accent hover:brightness-125">

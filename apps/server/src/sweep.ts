@@ -55,7 +55,11 @@ export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean; jobs?: 
   const clips = await db.selectFrom("clips").select(["still_asset_id", "sound_asset_id", "inputs"]).execute();
   add(clips.flatMap((c) => [c.still_asset_id, c.sound_asset_id]), "a timeline");
   scan(clips.map((c) => c.inputs), "a timeline");
-  add((await db.selectFrom("timelines").select("music_asset_id").execute()).map((t) => t.music_asset_id), "a timeline");
+  // a timeline's music, its source video, and the takes of the windows and Lip sync clips a trim set aside (kept whole
+  // in its source and recordings, out of the takes table): a trim out brings them back, playing those videos
+  const timelines = await db.selectFrom("timelines").select(["music_asset_id", "source", "recordings"]).execute();
+  add(timelines.map((t) => t.music_asset_id), "a timeline");
+  scan(timelines.flatMap((t) => [t.source ?? null, t.recordings ?? null]), "a timeline");
   scan((await db.selectFrom("entities").select("def").execute()).map((e) => e.def), "a person, a place, a style or a preset");
   const drafts = await db.selectFrom("drafts").select(["forms", "look"]).execute();
   scan(drafts.flatMap((d) => [d.forms, d.look]), "a draft");
