@@ -82,6 +82,14 @@ export const packOfNode = (node: string): NodePack | undefined => NODE_PACKS.fin
 /** The node types a known pack brings (its name in ComfyUI-Manager's list); empty for one not known. */
 export const nodesOfPack = (name: string): string[] => NODE_PACKS.find((p) => p.name === name)?.nodes ?? [];
 
+/**
+ * A build's throw for a node whose pack alone does not make the render run: SageAttention's patch is KJNodes', but it also
+ * needs the sageattention package in ComfyUI's Python, which no pack brings. Such a job is refused with the build's words,
+ * never given the pack to install (jobFiles.ts ownGraph): installed under Always, with a restart, the render still failed.
+ */
+export const beyondPack = (message: string): Error => Object.assign(new Error(message), { beyondPack: true as const });
+export const isBeyondPack = (err: unknown): boolean => Boolean((err as { beyondPack?: unknown } | null)?.beyondPack);
+
 /** The repository a known pack is cloned from by hand, when ComfyUI-Manager cannot install it; null for one not known. */
 export const repoOfPack = (name: string): string | null => NODE_PACKS.find((p) => p.name === name)?.repo ?? null;
 

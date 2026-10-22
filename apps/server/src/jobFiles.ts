@@ -1,5 +1,5 @@
 import { catalogKey, filesIn, type Scan } from "@afflatus/comfy";
-import { choicesOf, graphFiles, isMissingSlotFile, missingSlotFile, packOfNode, parseInput, sameFile, TOOLS_FAMILY, type Family, type GraphFile, type NodeCatalog, type Recipe, type Wanted } from "@afflatus/core";
+import { choicesOf, graphFiles, isBeyondPack, isMissingSlotFile, missingSlotFile, packOfNode, parseInput, sameFile, TOOLS_FAMILY, type Family, type GraphFile, type NodeCatalog, type Recipe, type Wanted } from "@afflatus/core";
 import { ANY_PACKS, lookAhead, skipWhy, type PackFacts, type PacksSaid } from "./jobPacks";
 import type { Comfy } from "./comfy";
 import { readJson, type JobRow, type QueueCore } from "./queueModel";
@@ -233,7 +233,10 @@ async function freshGraph(
   }
 }
 
-/** How many packs a job's graph is built again with on a machine of the user's own (ownGraph), one per build that throws. */
+/**
+ * How many times ownGraph builds a job's graph on a machine of the user's own: as the machine is, then once more with each
+ * pack a build threw for, so three packs at most.
+ */
 const OWN_TRIES = 4;
 
 /**
@@ -243,7 +246,8 @@ const OWN_TRIES = 4;
  * for last, found lacking, and named in its words (or its pack is) is one it cannot run without: a "use if present" check
  * says nothing when it fails, and a throw for a file or a value is the job's own, refused with why. Its graph then says the
  * packs it lacks there, and its Queue row offers Install and restart (jobPacks.ts); a node of no pack Afflatus can install
- * is not given, and the job is refused with the build's words.
+ * is not given, nor one whose pack alone does not make it run (core beyondPack: SageAttention), and the job is refused with
+ * the build's words.
  */
 async function ownGraph(
   core: QueueCore, row: Parameters<typeof graphOn>[1], recipe: Recipe<any>, family: Family, raw: Record<string, unknown>,
@@ -264,7 +268,7 @@ async function ownGraph(
       const words = (err as Error).message.toLowerCase();
       const pack = last.there ? undefined : packOfNode(last.node);
       const named = pack && (words.includes(last.node.toLowerCase()) || words.includes(pack.name.toLowerCase()));
-      if (!pack || pack.own || !named || tries >= OWN_TRIES) throw err;
+      if (!pack || pack.own || !named || isBeyondPack(err) || tries >= OWN_TRIES) throw err;
       for (const node of pack.nodes) given.add(node);
     }
   }

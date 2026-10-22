@@ -375,6 +375,18 @@ describe("an option's files and node packs on a pod", () => {
     expect(packsLacked(loaded)).toEqual({ soft: [], hard: ["comfyui-h3-facerefine"], unknown: [] });
   });
 
+  it("Faster attention on the machine of the user's own without KJNodes: refused naming KJNodes and the sageattention package, never given KJNodes to install (N-21)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // KJNodes brings the patch, not the sageattention package in ComfyUI's Python: installed under Always with a restart,
+    // the render then failed inside the patch
+    for (const n of nodesOfPack("comfyui-kjnodes")) delete (fake.catalog as Record<string, unknown>)[n];
+    const comfy = new Comfy(fake.url, t.services.registry);
+    const mine = { id: "mine", comfy, scan: await comfy.scan(), own: true };
+    const loaded = await loadedOn(core(), row("ltx.video", { prompt: "a red ball rolls", sage: true }), mine);
+    expect(loaded?.refused).toMatch(/KJNodes .*PathchSageAttentionKJ.* and the sageattention package/);
+    expect(packsLacked(loaded).hard).not.toContain("comfyui-kjnodes");
+  });
+
   it("a carried Motion transfer window on a machine of the user's own that throws there: its files as that machine asks them, not the reference model a pod is sent", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     // the user's other ComfyUI, without the MMH3 pack and without the reference model; this PC has the pack
