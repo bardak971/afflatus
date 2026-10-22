@@ -201,3 +201,75 @@ def test_a_flash_in_the_reference_is_not_a_cut_and_a_cut_is():
     assert stretches([frame_stats(f, 1)[0] for f in cut], hold=HOLD, noise=NOISE) == [(0, 10), (10, 13)]
     # the clip's own side splits at any step, as it did
     assert stretches([frame_stats(f, 1)[0] for f in flash]) == [(0, 10), (10, 11), (11, 21)]
+
+
+def ref_cuts(grey):
+    """Where Follow Colours cuts a driving video of one uniform colour moved by `grey` (RGB shares) frame by frame."""
+    from afflatus_nodes.colour_follow import HOLD, NOISE, stretches
+
+    means = [rgb_to_lab(np.array([0.5 + g, 0.45 + g, 0.4 + g])) for g in grey]
+    return [a for a, b in stretches(means, hold=HOLD, noise=NOISE)][1:]
+
+
+def test_a_flicker_that_starts_or_stops_inside_the_window_is_no_cut():
+    # A calm shot that starts flickering by 3 to 6 levels a frame at frame 60, 120 or 180, or a flickering one that calms
+    # down there: measured across both, the calm side set the bar near the flickering one, and its first steps were cuts
+    for sd in (0.03, 0.04, 0.06):
+        for at in (60, 120, 180):
+            for seed in range(4):
+                calm, strong = flicker(241, 0.005, 300 + seed), flicker(241, sd, 310 + seed)
+                starts = np.concatenate([calm[:at], strong[at:]])
+                stops = np.concatenate([strong[:at], calm[at:]])
+                assert ref_cuts(starts) == [], (sd, at, seed, "starts")
+                assert ref_cuts(stops) == [], (sd, at, seed, "stops")
+
+
+def test_a_steady_flicker_or_wander_of_1_to_6_levels_is_no_cut():
+    for sd in (0.01, 0.02, 0.03, 0.04, 0.06):
+        for ar in (0.0, 0.7):
+            for seed in range(3):
+                assert ref_cuts(flicker(241, sd, 320 + seed, ar)) == [], (sd, ar, seed)
+
+
+def test_a_calm_fast_cut_montage_keeps_its_cuts():
+    # Shots of 6 to 12 frames, each 8 to 10 levels from the one before: the 2 `hold` running median spans two or three of
+    # them and read their cuts as flicker, and a montage cut every 7 to 12 frames lost every cut
+    rng = np.random.default_rng(330)
+    for gap in (6, 7, 8, 10, 12, None):
+        kept = total = 0
+        for seed in range(4):
+            lengths = rng.integers(6, 13, 40) if gap is None else [gap] * 40
+            ats = [a for a in np.cumsum(lengths) if a < 241]
+            level, grey = 0.0, np.zeros(241)
+            for a in ats:
+                # 0.08 to 0.1 of RGB: 8 to 10 levels; up from below the middle, down from above it
+                level += rng.uniform(0.08, 0.1) * (1 if level <= 0 else -1)
+                grey[a:] = level
+            got = ref_cuts(grey + flicker(241, 0.005, 340 + seed))
+            kept += sum(a in got for a in ats)
+            total += len(ats)
+        assert kept >= 0.9 * total, (gap, kept, total)
+
+
+def test_a_calm_shots_cuts_near_the_ends_and_6_frames_apart_stay_cuts():
+    # 7 to 12 levels (a 6-level one is at `JUMP` itself, kept or not by the shot's grain as before)
+    for size in (0.07, 0.08, 0.12):
+        for seed in range(3):
+            calm = flicker(241, 0.005, 350 + seed)
+            for at in (1, 2, 3, 6, 235, 238, 239, 240):
+                assert ref_cuts(calm - np.where(np.arange(241) >= at, size, 0.0)) == [at], (size, at, seed)
+            for at in (3, 100, 232):
+                shot = np.where((np.arange(241) >= at) & (np.arange(241) < at + 6), size, 0.0)
+                assert ref_cuts(calm - shot) == [at, at + 6], (size, at, seed)
+
+
+def test_a_flicker_step_in_a_windows_last_frames_is_no_cut():
+    # By chance its last two frames stood out of a 4-level flicker: taken for a cut, they kept the reference's raw flicker
+    # where the next window is held to this one
+    assert ref_cuts(np.random.default_rng(78159).normal(0, 0.04, 241)) == []
+
+
+def test_a_10_level_cut_in_a_2_level_flicker_is_kept_as_often_as_before():
+    # 0.36.1 kept it 24 times in these 40; the rules for montages and for a flicker that starts must not lose more of them
+    kept = sum(ref_cuts(flicker(241, 0.02, 500 + seed) - np.where(np.arange(241) >= 120, 0.1, 0.0)) == [120] for seed in range(40))
+    assert kept >= 24, kept
