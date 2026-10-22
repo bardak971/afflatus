@@ -495,7 +495,8 @@ async function uploadJoinClip(up: Up, spec: InputSpec, value: ClipValue): Promis
   // the frames, the last frame as it was finished and the latent at once: the look and the latent need nothing of the cut
   const [frames] = await Promise.all([
     cutFrames(source, extOf(asset.mime), facts, { counts, fps: spec.fps, side: spec.role === "previous" ? "before" : "after", at, signal }).then((cut) => {
-      sent.media[spec.id] = { width: facts.width, height: facts.height, frames: cut.frames, fps: spec.fps, hasSound: facts.hasSound };
+      // merged with what the latent's join put there meanwhile (finishLatent runs beside the cut)
+      sent.media[spec.id] = { ...sent.media[spec.id], width: facts.width, height: facts.height, frames: cut.frames, fps: spec.fps, hasSound: facts.hasSound };
       return upload(cut.bytes, "mp4");
     }),
     spec.role === "previous" && (spec.look === true || (spec.look === "matched" && (await colourMatchedChain(db, asset.id)))) ? uploadLook(up, spec, asset, rawFacts ? null : source, at) : null,
