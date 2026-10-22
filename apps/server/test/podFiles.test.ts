@@ -765,3 +765,33 @@ describe("a pod's file asked again after a failure that passes", () => {
     }
   });
 });
+
+describe("a pod's file waiting its turn at the node pack", () => {
+  it("counts its fetch time from when the pack takes it, not from the wait for its line (a 429 waited out)", async () => {
+    // the pack's line full for a while, then the file taken and whole at once
+    let takenAt = Infinity;
+    const downloads = {
+      start: async () => ({ id: "d1", total: 1000 }),
+      stop: () => true,
+      get: () => (Date.now() < takenAt ? { status: "starting", waiting: "the node pack's downloads at once are under way: waiting for one to end", bytes: 0, total: 1000 } : { status: "done", bytes: 1000, total: 1000 }),
+    };
+    const comfy = new Comfy(pod.url, t.services.registry);
+    const pf = new PodFiles({
+      db: t.services.db, downloads: downloads as never,
+      comfyOf: async () => comfy, cloudOf: async () => "SECURE", alive: () => true, busy: () => false,
+      lookup: { db: t.services.db, presets: async () => [], families: () => [], comfyDir: async () => home },
+      settings: async () => ({ civitaiKey: "", downloadModels: true, civitaiLookups: true }),
+    });
+    pf.want("pod", [{ file: "late.safetensors", folder: "loras", url: `${siteUrl}/files/late.safetensors` }], { tier: "need" });
+    await pf.tick();
+    const waitFrom = Date.now();
+    await until(async () => (await pf.tick(), Date.now() - waitFrom >= 1500));
+    takenAt = Date.now();
+    // taken, and whole a moment later
+    await new Promise((r) => setTimeout(r, 50));
+    await until(async () => (await pf.tick(), Boolean(await t.services.db.selectFrom("pod_fetches").select("file").executeTakeFirst())));
+    const fetched = await t.services.db.selectFrom("pod_fetches").selectAll().executeTakeFirstOrThrow();
+    // from about when it was taken: the 1.5 s waited for the line are not in it
+    expect(Date.parse(fetched.ended_at) - Date.parse(fetched.started_at)).toBeLessThan(1000);
+  }, 15_000);
+});

@@ -749,6 +749,12 @@ export class PodFiles {
     if (!v) return this.fail(machine, e, "its download was lost: Afflatus was restarted, or it was taken off the list");
     // whole on the pod once the pack is done with it (ComfyUI listing it comes a moment after): its speed ends there
     if (v.status === "saving" || v.status === "done") e.wholeAt ??= Date.now();
+    // waiting its turn at the pack (its line full, a 429 waited out in downloads.ts): its clock starts once the pack takes
+    // it, or the wait is kept as fetch time and lowers the speed measured on that cloud (deployOverhead, the hunt's pick)
+    if (v.status === "starting" && v.waiting) {
+      e.flowingAt = Date.now();
+      e.movedAt = e.flowingAt;
+    }
     const moved = v.bytes !== e.bytes || (v.total || e.total) !== e.total;
     this.moved(e, v.bytes);
     e.bytes = v.bytes;
