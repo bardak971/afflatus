@@ -153,6 +153,16 @@ export class Monitor {
   onQueue: (remaining: number) => void = () => {};
   private opened = 0;
   private readonly now: () => number;
+  /**
+   * When its own socket last said a prompt ended (ms; 0 before one): ComfyUI's loop at work then, as surely as a request
+   * would say. Not its system broadcasts, which a monitor's own thread sends on while the loop hangs.
+   */
+  heardAt = 0;
+
+  /** Whether its own socket is open and said a prompt ended within `ms`: ComfyUI is there, with no request to ask it. */
+  heardWithin(ms: number): boolean {
+    return this.ws?.readyState === WebSocket.OPEN && this.now() - this.heardAt < ms;
+  }
 
   /** @param opts.now the clock phases and steps are timed by (a test's own) */
   constructor(private readonly client: ComfyClient, opts: { now?: () => number } = {}) {
@@ -425,6 +435,7 @@ export class Monitor {
       return;
     }
     const d = msg.data ?? {};
+    if (msg.type === "execution_success" || (msg.type === "executing" && d.node == null)) this.heardAt = this.now();
     // ComfyUI's queue changed (or the socket just opened): how many prompts it has, its own page's and other tools' too
     if (msg.type === "status") {
       const n = (d.status as { exec_info?: { queue_remaining?: unknown } } | undefined)?.exec_info?.queue_remaining;

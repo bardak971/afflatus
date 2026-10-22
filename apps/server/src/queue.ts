@@ -56,6 +56,8 @@ const LOADS_KEY = "queue.loads";
 const keyOf = (key: string, machine: string) => (machine === FIRST_MACHINE ? key : `${key}.${machine}`);
 /** At most how often a running render's step count is saved on its job, when the options do not say. */
 const STEPS_SAVE_MS = 5_000;
+/** A machine whose socket brought a message this recently is taken as answering by the queue's pass, without asking it. */
+const HEARD_MS = 3_000;
 /** How often a render's machine is read for its RAM (its peak, render_stats.ram_peak): a small read of ComfyUI's own. */
 const RAM_EVERY_MS = 10_000;
 /** How recent a read of the GPU's load must be for a silent render's GPU to be known idle: system feeds report every few seconds. */
@@ -320,8 +322,9 @@ export class Queue {
       lane.machine = machine;
       // a lane keeps the client its running job started with: a new address is taken up between jobs
       if (!lane.running || !lane.comfy) lane.comfy = comfy;
-      // its ComfyUI's queue changed (a prompt queued from its own page, one done): whose its prompts are is read again
-      if (lane.comfy?.monitor) lane.comfy.monitor.onQueue = () => void this.outside.readOutside(lane);
+      // its ComfyUI's queue changed (a prompt queued from its own page, one done): whose its prompts are is read again. An
+      // empty queue is no one's: not asked (a read of its queue after each render, between two prompts on a pod)
+      if (lane.comfy?.monitor) lane.comfy.monitor.onQueue = (n) => (n === 0 ? this.outside.noteOutside(lane, { running: 0, pending: 0 }) : void this.outside.readOutside(lane));
       return lane;
     });
     // a machine taken out of the settings: its lane goes once it is idle
@@ -1034,7 +1037,9 @@ export class Queue {
               asked.set(l.id, false);
               return false;
             }
-            l.reachable = await l.comfy!.client.status().then((st) => ((l.device = st.device), true), () => false);
+            // its socket just said a render ended: it answers, and a request to ask it again was one more round trip between
+            // two prompts, a pod's GPU idle all of it
+            l.reachable = l.device && l.comfy!.monitor.heardWithin(HEARD_MS) ? true : await l.comfy!.client.status().then((st) => ((l.device = st.device), true), () => false);
             asked.set(l.id, l.reachable);
             if (l.reachable) {
               this.dropStale(l);
