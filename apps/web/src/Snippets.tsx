@@ -134,8 +134,8 @@ export function Snippets({ style, look, onLook, text, onInsert }: {
               placeholder={`Search ${plural(all.length, "snippet")}`}
               value={query}
               onChange={setQuery}
-              end={query && <CloseButton size={24} label="Clear the search" onClose={() => setQuery("")} />}
-              className="grow pr-1"
+              onClear={() => setQuery("")}
+              className="grow"
             />
             <Button size="sm" disabled={!rollable} data-tip={rollable ? "Tick one snippet of each category at random, in place of the ones ticked now" : "Give your snippets categories: a roll ticks one of each"} onClick={() => set(rollSnippets(mine))}>
               <Dices size={13} /> Roll

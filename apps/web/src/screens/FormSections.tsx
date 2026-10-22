@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { GripVertical, Plus, X } from "lucide-react";
+import { GripVertical, Plus } from "lucide-react";
 import type { Section, Toggle } from "@afflatus/workflows";
 import { Button, CloseButton, cx, Help, Toggle as Switch } from "../ui";
 import { useFlip } from "../useFlip";
@@ -157,7 +157,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
         {chip(id, it.label, "min-w-0 grow cursor-grab truncate rounded text-left font-semibold")}
         <span className="shrink-0 text-ink-3">{it.kind}</span>
         {/* out of Tab's walk: the setting's own menu says it too (Advanced) */}
-        <button type="button" tabIndex={-1} aria-label={`Take ${it.label} out`} onClick={() => move(id, null)} className="h-6 w-6 shrink-0 rounded text-ink-3 hover:bg-raised hover:text-ink"><X size={12} className="mx-auto" /></button>
+        <CloseButton size={24} tabIndex={-1} label={`Take ${it.label} out`} onClose={() => move(id, null)} />
       </div>
     );
   };
@@ -274,7 +274,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
                         {sw.made && <Button size="sm" onClick={() => onMakeSwitch(s, sw.id)} className="shrink-0">Edit</Button>}
                       </>
                     ) : <span className="shrink-0 text-ink-3">switch</span>}
-                    <button type="button" aria-label={`Take the switch ${name} out`} onClick={() => onDropSwitch(s, item.toggle)} className="h-6 w-6 shrink-0 rounded text-ink-3 hover:bg-hover hover:text-ink"><X size={12} className="mx-auto" /></button>
+                    <CloseButton size={24} label={`Take the switch ${name} out`} onClose={() => onDropSwitch(s, item.toggle)} />
                   </div>
                   {sw && cuts(sw) && (
                     <div className="flex items-center gap-1.5 px-2 pb-1 text-meta text-warn-ink">

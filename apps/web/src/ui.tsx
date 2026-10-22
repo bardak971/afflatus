@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type Ref, type TextareaHTMLAttributes } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type ReactNode, type Ref, type TextareaHTMLAttributes } from "react";
 import { Check, Search, Trash2, X } from "lucide-react";
 import { cx } from "./cx";
 import { Progress } from "./progress/Progress";
@@ -35,24 +35,28 @@ export function ButtonLink({ tone, size, className, ...rest }: AnchorHTMLAttribu
 
 /**
  * The heights of a square button: dense (the track, rows), small, and the height of the form's bar; and 24, the least a
- * target may be (WCAG 2.5.8), for one inside something smaller than a row: the × of a chip, a pick in a file's line.
+ * target may be (WCAG 2.5.8), for one inside something smaller than a row: the × of a chip, a pick in a file's line;
+ * and 36, the height of the library's and the media bar's switches, for the buttons that sit in their row.
  */
-export type IconSize = 24 | 28 | 32 | 40;
-const ICON_BOX: Record<IconSize, string> = { 24: "size-6", 28: "size-7", 32: "size-8", 40: "size-10" };
-const ICON_GLYPH: Record<IconSize, number> = { 24: 12, 28: 14, 32: 15, 40: 17 };
+export type IconSize = 24 | 28 | 32 | 36 | 40;
+const ICON_BOX: Record<IconSize, string> = { 24: "size-6", 28: "size-7", 32: "size-8", 36: "size-9", 40: "size-10" };
+const ICON_GLYPH: Record<IconSize, number> = { 24: 12, 28: 14, 32: 15, 36: 16, 40: 17 };
 
 /**
- * A button that is an icon alone, in the kit's three sizes and one radius. Its `label` is required: it is what a screen
+ * A button that is an icon alone, in the kit's sizes and one radius. Its `label` is required: it is what a screen
  * reader says and the app's tip (`tip` when the tip says more than the name; `keys` drawn as keycaps after it).
  * `outline`: edged, for one standing on its own; `inherit`: in the colour of what it sits on (a failure's banner);
- * `pressed`: a toggle that is on.
+ * `primary`: filled in the accent, as Button's primary, for the one act of its place (the folded form's "+", a pick);
+ * `badge`: round, in the panel's colour and edged, on the corner of a picture (a reference's remove), where a square
+ * of the kit's radius would read as part of the picture;
+ * `pressed`: a toggle that is on. One that is on and cannot be changed (all picked already) is not greyed: it says so.
  */
 export function IconButton({ label, tip, keys, size = 32, tone = "ghost", pressed, className, children, ...rest }: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label" | "aria-pressed"> & {
   label: string;
   tip?: string;
   keys?: string;
   size?: IconSize;
-  tone?: "ghost" | "outline" | "inherit";
+  tone?: "ghost" | "outline" | "inherit" | "primary" | "badge";
   pressed?: boolean;
   children: ReactNode;
 }) {
@@ -65,14 +69,20 @@ export function IconButton({ label, tip, keys, size = 32, tone = "ghost", presse
       data-tip={tip ?? label}
       data-tip-keys={keys}
       className={cx(
-        "inline-flex shrink-0 items-center justify-center rounded-control transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+        "inline-flex shrink-0 items-center justify-center transition-[color,background-color,filter,opacity] disabled:cursor-not-allowed",
         ICON_BOX[size],
+        tone === "badge" ? "rounded-full border border-line" : "rounded-control",
         tone === "outline" && "border border-line-strong",
+        !pressed && "disabled:opacity-40",
         pressed
           ? "bg-accent-wash text-accent"
-          : tone === "inherit"
-            ? "hover:bg-hover disabled:hover:bg-transparent"
-            : "text-ink-2 hover:bg-hover hover:text-ink disabled:hover:bg-transparent disabled:hover:text-ink-2",
+          : tone === "primary"
+            ? "bg-accent text-accent-ink hover:brightness-110 disabled:hover:brightness-100"
+            : tone === "badge"
+              ? "bg-panel text-ink-2 hover:text-ink"
+              : tone === "inherit"
+                ? "hover:bg-hover disabled:hover:bg-transparent"
+                : "text-ink-2 hover:bg-hover hover:text-ink disabled:hover:bg-transparent disabled:hover:text-ink-2",
         className,
       )}
     >
@@ -92,34 +102,49 @@ export function CloseButton({ onClose, label = "Close", size = 32, ...rest }: Om
 
 /**
  * The one search box of the app, its focus marked on the box it sits in (the field inside draws none: styles.css).
- * `box`: a field of the kit's small height; `head`: the search line heading a panel or a popover (drafts, load a model),
- * edge to edge with a line under it, its focus an accent underline; its height and padding are the panel's (className).
+ * `box`: a field of the kit's small height (`size` 36 beside the library's and the media bar's 36 px switches);
+ * `head`: the search line heading a panel or a popover (drafts, load a model), edge to edge with a line under it, its
+ * focus an accent underline; its height and padding are the panel's (className).
+ * `onClear`: an × after the text while there is some, that empties it and gives the focus back to the field.
  * `end`: what follows the text (a keycap). `inputClassName`: the text's size, in place of the body size.
+ * `wrapperProps`: what the box itself takes beyond its classes (a place worked out on the fly, in `style`).
  */
-export function SearchField({ value, onChange, label, placeholder, look = "box", icon, end, className, inputClassName, inputRef, ...rest }: Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "className" | "size"> & {
+export function SearchField({ value, onChange, onClear, clearLabel = "Clear the search", label, placeholder, look = "box", size = 32, icon, end, className, inputClassName, inputRef, wrapperProps, ...rest }: Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "className" | "size"> & {
   value: string;
   onChange(value: string): void;
+  onClear?(): void;
+  clearLabel?: string;
   label: string;
   look?: "box" | "head";
+  size?: 32 | 36;
   icon?: ReactNode;
   end?: ReactNode;
   className?: string;
   inputClassName?: string;
   inputRef?: Ref<HTMLInputElement>;
+  wrapperProps?: Omit<HTMLAttributes<HTMLLabelElement>, "className" | "children">;
 }) {
+  const own = useRef<HTMLInputElement | null>(null);
+  // the caller's ref and the field's own (the × gives the focus back): both are handed the element
+  const bind = (el: HTMLInputElement | null) => {
+    own.current = el;
+    if (typeof inputRef === "function") inputRef(el);
+    else if (inputRef) (inputRef as { current: HTMLInputElement | null }).current = el;
+  };
   return (
     <label
+      {...wrapperProps}
       className={cx(
         "flex min-w-0 items-center text-ink",
         look === "box"
-          ? "h-8 gap-2 rounded-control border border-line bg-raised px-2.5 focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--color-accent-wash)]"
+          ? cx(size === 36 ? "h-9" : "h-8", "gap-2 rounded-control border border-line bg-raised px-2.5 focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--color-accent-wash)]", onClear && value && "pr-1")
           : "shrink-0 border-b border-line focus-within:shadow-[inset_0_-2px_0_var(--color-accent)]",
         className,
       )}
     >
       {icon ?? <Search size={14} className="shrink-0 text-ink-3" />}
       <input
-        ref={inputRef}
+        ref={bind}
         {...rest}
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -127,6 +152,19 @@ export function SearchField({ value, onChange, label, placeholder, look = "box",
         placeholder={placeholder ?? label}
         className={cx("min-w-0 grow bg-transparent outline-none placeholder:text-ink-3", inputClassName ?? "text-body")}
       />
+      {onClear && value && (
+        <CloseButton
+          size={24}
+          label={clearLabel}
+          // pressed with the pointer, the × would take the focus from the field first: a box that folds away on blur
+          // (the library's, the media bar's) would be gone before the click
+          onMouseDown={(e) => e.preventDefault()}
+          onClose={() => {
+            onClear();
+            own.current?.focus();
+          }}
+        />
+      )}
       {end}
     </label>
   );
@@ -456,30 +494,63 @@ export function Checkbox({ checked, onChange, label, children, disabled, classNa
   );
 }
 
-/** A status chip: what something is (to render, unused, exported), or where it is (a folder), then clickable. */
-export function Chip({ tone = "neutral", size = "sm", children, onClick, tip, className }: {
-  /** warn: failed or broken; attention: needs a look (a stale join, a clip before that changed); neutral: to do, not ready. */
-  tone?: "neutral" | "warn" | "attention" | "good" | "accent" | "link";
+/** The words of what is only words ("Only ", a name), for a tip; undefined when it holds anything else (an icon). */
+function plainText(node: ReactNode): string | undefined {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node) && node.every((n) => typeof n === "string" || typeof n === "number")) return node.join("");
+  return undefined;
+}
+
+/**
+ * A status chip: what something is (to render, unused, exported), or where it is (a folder), then clickable.
+ * `truncate`: a chip that may be narrower than its words (a model's name, a cast): they end in "…" at the width it is
+ * given (a max-w in className, or its column's), and the whole of them is its tip.
+ * `onRemove`: a filter that can be taken off (Only …, By …): a 24 px × after the words, in the chip's colour.
+ */
+export function Chip({ tone = "neutral", size = "sm", truncate, children, onClick, onRemove, removeLabel = "Remove", tip, className }: {
+  /**
+   * warn: failed or broken; attention: needs a look (a stale join, a clip before that changed); neutral: to do, not
+   * ready; solid: the one mark of its place filled in the accent (here, picked, main, a count on a button).
+   */
+  tone?: "neutral" | "warn" | "attention" | "good" | "accent" | "solid" | "link";
   /** xs: 18 px, for a chip on a picture or in a dense row. */
   size?: "sm" | "xs";
+  truncate?: boolean;
   children: ReactNode;
   onClick?(): void;
+  onRemove?(): void;
+  /** What the × says it does ("Show every job's lines again"). */
+  removeLabel?: string;
   tip?: string;
   className?: string;
 }) {
   const look = cx(
-    "inline-flex shrink-0 items-center rounded-full font-semibold whitespace-nowrap",
-    size === "xs" ? "h-4.5 gap-1 px-1.5 text-micro" : "h-6 gap-1.5 px-2.5 text-xs",
+    "inline-flex items-center rounded-full whitespace-nowrap",
+    truncate ? "min-w-0 max-w-full" : "shrink-0",
+    tone === "solid" ? "font-bold" : "font-semibold",
+    size === "xs" ? cx("h-4.5 gap-1 text-micro", onRemove ? "pr-0 pl-1.5" : "px-1.5") : cx("h-6 text-xs", onRemove ? "gap-1 pr-0 pl-2.5" : "gap-1.5 px-2.5"),
     tone === "neutral" && "bg-hover text-ink-2",
     tone === "warn" && "bg-warn-wash text-warn-ink",
     tone === "attention" && "bg-attention-wash text-attention-ink",
     tone === "good" && "bg-good/15 text-good",
     tone === "accent" && "bg-accent-wash text-accent",
+    tone === "solid" && "bg-accent text-accent-ink",
     tone === "link" && "border border-line-strong text-ink",
-    onClick && "hover:brightness-125",
+    onClick && !onRemove && "hover:brightness-125",
     className,
   );
-  return onClick ? <button type="button" data-tip={tip} onClick={onClick} className={look}>{children}</button> : <span data-tip={tip} className={look}>{children}</span>;
+  const said = tip ?? (truncate ? plainText(children) : undefined);
+  const words = truncate ? <span className="min-w-0 truncate">{children}</span> : children;
+  if (onRemove) {
+    return (
+      <span data-tip={onClick ? undefined : said} className={look}>
+        {onClick ? <button type="button" data-tip={said} onClick={onClick} className="flex min-w-0 items-center gap-1.5 hover:underline">{words}</button> : words}
+        {/* 24 px on an 18 px chip too: it stands out of the chip's height rather than be a smaller target */}
+        <CloseButton size={24} tone="inherit" label={removeLabel} onClose={onRemove} className={size === "xs" ? "-my-0.75" : undefined} />
+      </span>
+    );
+  }
+  return onClick ? <button type="button" data-tip={said} onClick={onClick} className={look}>{words}</button> : <span data-tip={said} className={look}>{words}</span>;
 }
 
 /**

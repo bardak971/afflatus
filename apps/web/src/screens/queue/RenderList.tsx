@@ -1,5 +1,5 @@
 import type { InfiniteData, UseInfiniteQueryResult } from "@tanstack/react-query";
-import { Clapperboard, Image as ImageIcon, X } from "lucide-react";
+import { Clapperboard, Image as ImageIcon } from "lucide-react";
 import { thumbUrl, type RenderItem, type TimesSummary } from "../../api";
 import { long, pace, took, when } from "../../format";
 import { Thumb } from "../../Thumb";
@@ -25,8 +25,8 @@ export function RenderList({ d, renders, picked, onModel, only, onOnly, onOpen }
     <div className="flex flex-wrap items-center gap-3">
       <SectionTitle>Renders · {renders.data?.pages[0]?.total ?? 0}</SectionTitle>
       {picked && (
-        <Chip tone="link" onClick={() => onModel(null)}>
-          Only {picked.name} <X size={12} />
+        <Chip tone="link" truncate onRemove={() => onModel(null)} removeLabel="Show every model's renders again" className="max-w-72">
+          Only {picked.name}
         </Chip>
       )}
       <Segmented<"all" | "trouble"> size="sm" oneLine label="Which renders" value={only} options={[{ value: "all", label: "all" }, { value: "trouble", label: "failed/cancelled" }]} onChange={onOnly} />

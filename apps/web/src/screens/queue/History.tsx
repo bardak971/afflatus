@@ -220,12 +220,13 @@ export const History = memo(function History() {
         </div>
         <SearchField
           data-search
-          className="h-9 w-60 min-w-28 shrink"
+          size={36}
+          className="w-60 min-w-28 shrink"
           label="Search the history"
           placeholder="Search names and prompts"
           value={typed}
           onChange={setTyped}
-          end={typed && <button type="button" aria-label="Clear the search" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
+          onClear={() => setTyped("")}
         />
         {/* drawn from the start (only "Any model" until the models are known): it arriving later moved the whole list down */}
         <div className="w-56">

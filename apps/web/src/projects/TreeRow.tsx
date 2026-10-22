@@ -2,7 +2,7 @@ import type { MouseEvent, ReactNode } from "react";
 import { Archive, Check, ChevronRight, CircleDashed, Eraser, Film, Folder, FolderKanban, FolderSymlink, FolderX, Inbox, List, Music, PenLine, Pin, Trash2 } from "lucide-react";
 import { thumbUrl } from "../api";
 import { size } from "../format";
-import { cx, TwoStep } from "../ui";
+import { Chip, cx, TwoStep } from "../ui";
 import { type Row } from "./tree";
 import { dateTime, shortDate } from "../format";
 import type { useTreeDrag } from "./useTreeDrag";
@@ -167,9 +167,9 @@ export function TreeRow({ r, setSize, posInSet, columns, scoped, q, isPicked, he
           </span>
         )}
         {here && !scoped && (
-          <span className="ml-2 flex shrink-0 items-center gap-1 rounded-full bg-accent px-2 py-px text-meta font-bold whitespace-nowrap text-accent-ink">
+          <Chip size="xs" tone="solid" className="ml-2">
             <Check size={11} strokeWidth={3} /> working in
-          </span>
+          </Chip>
         )}
         {!scoped && (r.kind === "project" || r.kind === "inbox") && pinned && (
           <span aria-label="Pinned to the rail" data-tip="Pinned to the rail" className="ml-2 flex shrink-0 items-center text-ink-3">

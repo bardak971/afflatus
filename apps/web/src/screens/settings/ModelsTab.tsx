@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, X } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { api, type Machine } from "../../api";
 import { useFamilies, useOfficialSizes, useRecipes, useSettings, useSetup } from "../../data";
 import { plural, size, waitsForGpu } from "../../format";
@@ -167,10 +167,11 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
           {f.id in said && (
             <Chip
               tone="link"
-              tip={machine ? "Set by hand on this machine. Click to let it follow the switch of every machine (All), then its files here." : "Set by hand. Click to let it follow its model files again: on when they are in ComfyUI, off when they are not."}
-              onClick={() => save.mutate(Object.fromEntries(Object.entries(said).filter(([id]) => id !== f.id)))}
+              tip={machine ? "Set by hand on this machine. The × lets it follow the switch of every machine (All), then its files here." : "Set by hand. The × lets it follow its model files again: on when they are in ComfyUI, off when they are not."}
+              onRemove={() => save.mutate(Object.fromEntries(Object.entries(said).filter(([id]) => id !== f.id)))}
+              removeLabel={machine ? "Follow every machine's switch again" : "Follow its model files again"}
             >
-              {isOn ? "on" : "off"} by hand <X size={12} aria-hidden />
+              {isOn ? "on" : "off"} by hand
             </Chip>
           )}
           <Toggle bare on={isOn} onChange={(next) => save.mutate({ ...said, [f.id]: next })} label={where ? `${name} on ${where}` : `${name} in the model lists`} />

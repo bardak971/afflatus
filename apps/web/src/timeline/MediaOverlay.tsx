@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PanelLeftClose, PanelLeftOpen, Search, Star, X } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Search, Star } from "lucide-react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Asset, Timeline } from "../api";
@@ -72,7 +72,8 @@ export function MediaOverlay({ timeline, placeItems }: {
   // "Esc close" hint goes (Esc still closes), 4 the search into an icon that opens it, 5 the breadcrumb narrower. At
   // 1280 px the stage is about 800 px wide, and the search was cut and the star pushed off its edge.
   const bar = useRef<HTMLDivElement>(null);
-  const fold = useFit(bar, 5);
+  // the bar is only drawn while the shelf is open: opened, it is measured from nothing (it overflowed at its first open)
+  const fold = useFit(bar, 5, open ? "open" : "");
   const [searching, setSearching] = useState(false);
   const [folders, setFolders] = useState(false);
   // the item open large: the shelf's own viewer, so that ← → go through what the shelf shows
@@ -217,12 +218,13 @@ export function MediaOverlay({ timeline, placeItems }: {
             : <Segmented<Kind> oneLine label="Kind" value={kind} onChange={setKind} options={kinds} />}
           <span className="min-w-2 grow" />
           {fold >= 4 && !searching && !typed ? (
-            <button type="button" aria-label="Search the media" data-tip="Search prompts and names" onClick={() => setSearching(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-raised text-ink-2 hover:text-ink">
+            <IconButton size={36} tone="outline" label="Search the media" tip="Search prompts and names" onClick={() => setSearching(true)}>
               <Search size={15} />
-            </button>
+            </IconButton>
           ) : (
             // as tall as the bar's switches beside it (36 px), not the kit's small height
             <SearchField
+              size={36}
               data-search="media"
               label="Search the media"
               placeholder="Search prompts and names"
@@ -230,13 +232,13 @@ export function MediaOverlay({ timeline, placeItems }: {
               onBlur={() => setSearching(false)}
               value={typed}
               onChange={setTyped}
-              end={typed && <button type="button" aria-label="Clear the search" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
-              className={cx("h-9! min-w-28 shrink", fold >= 4 ? "w-48" : "w-64")}
+              onClear={() => setTyped("")}
+              className={cx("min-w-28 shrink", fold >= 4 ? "w-48" : "w-64")}
             />
           )}
-          <button type="button" aria-pressed={kept} aria-label="Kept only" data-tip={kept ? "Kept only: on. Show everything again" : "Kept only"} onClick={() => setKept(!kept)} className={cx("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border", kept ? "border-accent text-accent" : "border-line text-ink-2 hover:text-ink")}>
+          <IconButton size={36} tone="outline" pressed={kept} label="Kept only" tip={kept ? "Kept only: on. Show everything again" : "Kept only"} onClick={() => setKept(!kept)}>
             <Star size={14} fill={kept ? "currentColor" : "none"} />
-          </button>
+          </IconButton>
           {fold < 3 && <span className="flex shrink-0 items-center gap-1.5 text-meta whitespace-nowrap text-ink-3"><Keys keys="Esc" size="sm" /> close</span>}
         </div>
         <div className="min-h-0 grow overflow-y-auto px-4 py-3.5">

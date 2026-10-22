@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDownToLine, ChevronRight, Copy, Eraser, Pause, Play, Search, X } from "lucide-react";
+import { ArrowDownToLine, ChevronRight, Copy, Eraser, Pause, Play, Search } from "lucide-react";
 import { api } from "../../api";
 import { useQueueOf } from "../studio/queueOf";
 import { logRows, type JobAt, type LogLine, type LogRow } from "./logRows";
@@ -179,8 +179,8 @@ export function ComfyLog({ online, pod = false, machine }: {
         <Button size="sm" aria-pressed={paused} onClick={() => setPaused((v) => !v)} data-tip={paused ? "Read the log again every two seconds" : "Stop reading: what is here stays put"}>{paused ? <Play size={13} /> : <Pause size={13} />} {paused ? "Resume" : "Pause"}</Button>
         <Button size="sm" onClick={clearView} data-tip="Empty this view. ComfyUI keeps its own log."><Eraser size={13} /> Clear view</Button>
         {onlyJob && (
-          <Chip tone="link" onClick={() => setOnlyJob(null)} tip="Show every job's lines again" className="max-w-72">
-            <span className="truncate">Only {onlyJob.label}</span> <X size={12} className="shrink-0" />
+          <Chip tone="link" truncate onRemove={() => setOnlyJob(null)} removeLabel="Show every job's lines again" className="max-w-72">
+            Only {onlyJob.label}
           </Chip>
         )}
         <Button size="sm" onClick={() => void copyText(shown.flatMap(raw).map((l) => `${l.t} ${l.m}`).join("\n")).catch(() => {})} data-tip="Copy the lines shown (tracebacks whole)"><Copy size={13} /> Copy</Button>
