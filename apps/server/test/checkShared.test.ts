@@ -86,6 +86,10 @@ describe("the design budget", () => {
     const dark = '<div className="bg-black" />';
     // a leading marker followed by code is not alone: the next line is counted
     expect(one("apps/web/src/x.tsx", `{/* design: why */} ${dark}\n${dark}`)["raw-colour"]).toBe(1);
+    // nor is one with code and then another comment after it: the reason ends at its own comment's close (review O-22)
+    expect(one("apps/web/src/x.tsx", `{/* design: why */} ${dark} {/* x */}\n${dark}`)["raw-colour"]).toBe(1);
+    expect(one("apps/web/src/x.tsx", `/* design: why */ const a = 1; /* x */\n${dark}`)["raw-colour"]).toBe(1);
+    expect(one("apps/web/src/x.tsx", `/* design: */ ${dark} */\n${dark}`)["raw-colour"]).toBe(2);
     // a "//design:" inside a string or a URL is text, not a comment
     expect(one("apps/web/src/x.tsx", `const u = "a//design:b"; ${dark}`)["raw-colour"]).toBe(1);
     expect(one("apps/web/src/x.tsx", `const u = 'https://x//design: b'; ${dark}`)["raw-colour"]).toBe(1);
