@@ -83,6 +83,8 @@ export interface ComfyProbe {
   error: string | null;
   /** Its folder, when it runs on this machine: Afflatus writes its node pack in by itself once it is added. */
   dir: string | null;
+  /** It runs on this machine (its folder found or not). */
+  local: boolean;
 }
 
 export interface Scan {

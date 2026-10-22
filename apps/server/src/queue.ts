@@ -105,6 +105,9 @@ export class Queue {
   /** The node packs renders ask for on the machines of the user's own: installed there, and ComfyUI restarted (queuePacks.ts). */
   readonly ownPacks: OwnPacks;
   private retry: NodeJS.Timeout | null = null;
+  /** The machines of the user's own a job waits on for files, read again when filesRetry fires (filesWait). */
+  private filesRetry: NodeJS.Timeout | null = null;
+  private readonly filesWaitOn = new Set<string>();
   private stopped = false;
   /** While an update waits for the queue (updates.ts): only these jobs may start, the rest wait for the new version. Null: any. */
   private only: ReadonlySet<string> | null = null;
@@ -174,6 +177,7 @@ export class Queue {
       heldOn: (r) => this.heldOn(r),
       allPaused: () => this.allPaused(),
       retryLater: () => this.retryLater(),
+      filesWait: (machine) => this.filesWait(machine),
       paces: () => this.forecasts.paces(),
       expected: (recipe, input, cold, job, machine) => this.expected(recipe, input, cold, job, machine),
       expectedAll: (recipe, input, cold, job) => this.forecasts.expectedAll(recipe, input, cold, job),
@@ -380,6 +384,7 @@ export class Queue {
   stop(): void {
     this.stopped = true;
     if (this.retry) clearTimeout(this.retry);
+    if (this.filesRetry) clearTimeout(this.filesRetry);
     this.ownPacks.stop();
     for (const lane of this.lanes.values()) {
       if (lane.unloadTimer) clearTimeout(lane.unloadTimer);
@@ -1046,6 +1051,28 @@ export class Queue {
         this.inflight--;
         void this.pump();
       });
+  }
+
+  /**
+   * A job waits on a machine of the user's own for files to be downloaded there: a file put in by hand or by ComfyUI-Manager's
+   * page tells the queue nothing, so that machine's model folders and node list are read again in a while (filesRetryMs, a
+   * minute) and the queue planned again, for as long as such a job waits (each pass that plans it so asks again). The node
+   * list too: the job's check before it is sent reads the file's name in its loader's choices, and a file seen in the folder
+   * but not there failed the job.
+   */
+  private filesWait(machine: string): void {
+    this.filesWaitOn.add(machine);
+    if (this.filesRetry || this.stopped) return;
+    this.filesRetry = setTimeout(() => {
+      this.filesRetry = null;
+      for (const id of this.filesWaitOn) {
+        const comfy = this.lanes.get(id)?.comfy;
+        comfy?.forgetScan();
+        comfy?.forgetCatalog();
+      }
+      this.filesWaitOn.clear();
+      void this.pump();
+    }, this.opts.filesRetryMs ?? 60_000);
   }
 
   private retryLater(): void {

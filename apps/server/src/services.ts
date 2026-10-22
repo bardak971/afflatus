@@ -272,7 +272,7 @@ export async function createServices(
   const services: Services = {
     db, dbKind, storage, linked, registry, comfy, machines, comfyOf, queue, timelines, rented, notify, access, podFiles, podOutside, downloads,
     shippedPresets,
-    officialSizes: new OfficialSizes(db, () => registry.families()),
+    officialSizes: new OfficialSizes(db, () => registry.families(), async () => (await readSettings(db)).civitaiLookups),
     updates: null as unknown as Updates,
     hashes: null as unknown as ModelHashes,
     hunt: null as unknown as Hunt,

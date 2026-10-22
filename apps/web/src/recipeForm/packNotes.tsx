@@ -11,13 +11,15 @@ import { cx } from "../ui";
 /**
  * What the form says under an option whose node pack the machine it renders on lacks (the owner, 2026-10-20): that it is
  * installed on first use, that the queue asks first, or why it cannot be and what the render does instead. The option is
- * never changed. Asked again only when a setting changes (not while text is typed), and once ComfyUI restarts.
+ * never changed. Asked again only when a setting changes (not while text is typed), and once ComfyUI restarts. `machine`:
+ * the one picked in Generate on (none: Auto, the first machine), the one the notes speak for. A request overtaken by a
+ * change is cancelled.
  */
-export function usePackNotes(recipe: RecipeInfo, values: Record<string, unknown>): FormPacks | undefined {
+export function usePackNotes(recipe: RecipeInfo, values: Record<string, unknown>, machine?: string): FormPacks | undefined {
   const key = useSettled(useMemo(() => JSON.stringify(settingsOnly(recipe, values)), [recipe, values]), 500);
   return useQuery({
-    queryKey: queryKeys.formPacks(recipe.id, key),
-    queryFn: () => api.formPacks(recipe.id, JSON.parse(key) as Record<string, unknown>),
+    queryKey: queryKeys.formPacks(recipe.id, key, machine),
+    queryFn: ({ signal }) => api.formPacks(recipe.id, JSON.parse(key) as Record<string, unknown>, machine, { signal }),
     staleTime: 30_000,
   }).data;
 }

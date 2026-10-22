@@ -3,6 +3,7 @@ import type { Db } from "./db";
 import { paceOf } from "./forecast";
 import type { Scan } from "@afflatus/comfy";
 import type { Loaded } from "./jobFiles";
+import { isOfficialFile } from "./podSources";
 import { lackOn, toolLackOn, toolSlots, type Lack } from "./machineScans";
 import type { PodFiles } from "./podFiles";
 import { PACKS_MS } from "./podPacks";
@@ -96,6 +97,8 @@ interface PlanDeps {
   heldOn(r: JobRow): string | null;
   allPaused(): boolean;
   retryLater(): void;
+  /** A job waits on this machine of the user's own for files: its model folders are read again in a while, and the queue with them. */
+  filesWait(machine: string): void;
   paces(): Promise<Map<string, number>>;
   expected(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean, job: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit"> | null, machine: string | null): Promise<number | null>;
   expectedAll(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean, job: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit"> | null): Promise<Expected>;
@@ -160,6 +163,9 @@ export class Planner {
     const settings = await readSettings(this.d.db).catch(() => null);
     if (!settings) return out;
     const machines = new Map(settings.machines.map((m) => [m.id, m]));
+    // what a Download on a waiting row can fetch: a family's official file always, any address once both are turned on
+    const families = this.d.registry.families();
+    const anyUrl = settings.downloadModels && settings.civitaiLookups;
     // a machine known to be away, or a rented pod not running, is not asked (a dead pod's address would hold the pass)
     const scans = await Promise.all(lanes.map(async (l) => ({ lane: l, scan: l.reachable === false || this.d.unavailable(l.id) ? null : await l.comfy!.scan().catch(() => null) })));
     const familyOf = (id: string) => this.d.registry.recipe(id)?.family;
@@ -220,9 +226,11 @@ export class Planner {
           lacks[lane.id] = { ...own, sendable: false, why: ownCannot };
           return;
         }
-        // a machine of the user's own that lacks only files it can download: it runs the job once they are in, the job held
-        // there meanwhile (filesThere), never downloading by itself
-        const download = !lane.machine!.rented && lack?.sendable && !lack.off && !lack.packs?.length && lack.files.length && lack.files.every((f) => f.url) ? lack : null;
+        // a machine of the user's own that lacks only files its row's Download can fetch (a family's official file, or any file
+        // with an address when downloads and lookups are on): it runs the job once they are in, the job held there meanwhile
+        // (filesThere), never downloading by itself. An imported workflow's file at its author's address, downloads off, would
+        // wait with no button: alone, that job goes, and ComfyUI's refusal says what it lacks
+        const download = !lane.machine!.rented && lack?.sendable && !lack.off && !lack.packs?.length && lack.files.length && lack.files.every((f) => f.url && (anyUrl || isOfficialFile(families, f))) ? lack : null;
         if (download) {
           waitsHere.set(lane.id, download);
           return;
@@ -250,6 +258,8 @@ export class Planner {
         }
         can.add(id);
         if (!pin || pin === id) fetch[id] = { files: lack.files, ms: 0 };
+        // its files may be put in by hand (or by ComfyUI-Manager's page), which nothing else would tell the queue of
+        this.d.filesWait(id);
       }
       // a timeline clip of a model that joins in a kept latent (H3): on a machine that has the join's nodes (the Afflatus node
       // pack), while any has them. Sent elsewhere, the clip saves no latent and the clip after it joins on frames with no word

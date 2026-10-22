@@ -35,11 +35,13 @@ const foldText = (f: Fold) => (f.count > 1 && f.labels.size === 1 ? [...f.labels
 
 /**
  * A machine's failed downloads as one banner (`on`: its name as the user knows it): every failure there not read yet, the new
- * ones and those already said, so a second failure updates the banner instead of adding one; a volume's want of room has a
- * banner of its own. Null with none. `ids`: what dismissing it marks read.
+ * ones and those already said, so a second failure updates the banner instead of adding one; a want of room on its volume
+ * (`volume`: the network volume it runs on, if any) has a banner of its own. Without a volume (a pod's own disk, a ComfyUI of
+ * the user's own), a want of room is said here like any failure, or nothing said it. Null with none. `ids`: what dismissing
+ * it marks read.
  */
-export function failedOnMachine(list: readonly Download[], machine: string, on: string): { banner: Omit<Banner, "onDismiss">; ids: string[] } | null {
-  const failed = list.filter((d) => d.machine === machine && d.status === "error" && !d.seen && !NO_ROOM.test(d.error ?? ""));
+export function failedOnMachine(list: readonly Download[], machine: string, on: string, volume: string | null = null): { banner: Omit<Banner, "onDismiss">; ids: string[] } | null {
+  const failed = list.filter((d) => d.machine === machine && d.status === "error" && !d.seen && !(volume && NO_ROOM.test(d.error ?? "")));
   if (!failed.length) return null;
   const names = failed.map((d) => d.file.split(/[\\/]/).pop() ?? d.file);
   const one = failed.length === 1;
@@ -176,7 +178,7 @@ export function Banners() {
       }
     }
     for (const machine of failedOn) {
-      const said = failedOnMachine(list, machine, machineName(queueNow.current, machine) ?? machine);
+      const said = failedOnMachine(list, machine, machineName(queueNow.current, machine) ?? machine, volumeOf(settingsNow.current?.machines, machine));
       if (said) push({ ...said.banner, onDismiss: () => void Promise.all(said.ids.map((id) => api.downloadSeen(id).catch(() => {}))) });
     }
     seenDownloads.current = new Map(list.map((d) => [d.id, d.status]));
