@@ -1,6 +1,6 @@
 import { lazy, Suspense, useContext, useEffect, useMemo, type MouseEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Pin, PinOff, RotateCcw } from "lucide-react";
-import { isShown, sameFile, type InputSpec } from "@afflatus/core";
+import { isShown, LIMITS, sameFile, type InputSpec } from "@afflatus/core";
 import { ContextMenu, groups, headLine, useMenu } from "./ContextMenu";
 import { FieldNameNote } from "./fields/FieldName";
 import { useAdvice } from "./advice";
@@ -438,7 +438,11 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
         // only what would change something: no Move up on the first pin, no Reset on a value at its default
         const items = groups(
           [
-            pinned ? { label: "Unpin", icon: <PinOff size={14} />, run: () => pins.unpin(id) } : { label: "Pin to the top", icon: <Pin size={14} />, run: () => pins.pin(id) },
+            pinned
+              ? { label: "Unpin", icon: <PinOff size={14} />, run: () => pins.unpin(id) }
+              : pins.full
+                ? { label: "Pin to the top", icon: <Pin size={14} />, disabled: true, note: `${LIMITS.pinnedFields} pinned for this model already: unpin one first` }
+                : { label: "Pin to the top", icon: <Pin size={14} />, run: () => pins.pin(id) },
             ...(pinned && k > 0 ? [{ label: "Move up", key: "Alt+↑", icon: <ArrowUp size={14} />, run: () => movePinned(id, k - 1) }] : []),
             ...(pinned && k >= 0 && k < pinnedRows.length - 1 ? [{ label: "Move down", key: "Alt+↓", icon: <ArrowDown size={14} />, run: () => movePinned(id, k + 2) }] : []),
           ],

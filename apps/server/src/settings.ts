@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { presetFileSchema } from "@afflatus/core";
+import { LIMITS, presetFileSchema } from "@afflatus/core";
 import { envSaid } from "./config";
 import type { Db } from "./db";
 import { httpError } from "./errors";
@@ -364,7 +364,7 @@ export const settingsSchema = z.object({
    * is kept here and skipped by the form; a family with no pin left is not listed.
    */
   pinnedFields: z
-    .record(z.string().min(1).max(120), z.array(z.string().min(1).max(120)).max(60).refine((ids) => new Set(ids).size === ids.length, "a field is pinned once"))
+    .record(z.string().min(1).max(120), z.array(z.string().min(1).max(120)).max(LIMITS.pinnedFields).refine((ids) => new Set(ids).size === ids.length, "a field is pinned once"))
     .refine((byFamily) => Object.keys(byFamily).length <= 200, "pins for 200 families at most")
     .default({}),
   /** Where Afflatus's notices go (Telegram, Discord) and which kinds go there (notify.ts). */
