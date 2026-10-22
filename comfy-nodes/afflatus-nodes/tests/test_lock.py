@@ -170,7 +170,7 @@ def test_a_new_token_ends_the_old_cookie(lock, mw):
 def test_a_login_lands_where_asked_and_only_on_this_server(lock, mw):
     lock.write(TOKEN, local=False)
     assert 'url=/?template=x&amp;source=afflatus"' in call(mw, Request(L.LOGIN, query={"code": lock.code(), "next": "/?template=x&source=afflatus"})).text
-    for away in ("https://evil.example/", "//evil.example/", "/\evil.example"):
+    for away in ("https://evil.example/", "//evil.example/", "/\\evil.example"):
         assert 'content="0;url=/"' in call(mw, Request(L.LOGIN, query={"code": lock.code(), "next": away})).text
 
 

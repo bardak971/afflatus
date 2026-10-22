@@ -231,3 +231,30 @@ def test_the_retired_colour_match_still_loads_and_passes_the_render_through():
     assert swap_mask.AfflatusSwapMatch in asyncio.run(pack.AfflatusExtension().get_node_list())
     render = object()
     assert swap_mask.AfflatusSwapMatch.execute(render, object(), object(), object(), 0.6, 3).args == (render,)
+
+
+def test_a_graph_saved_from_0_5_2_gets_its_swap_mask_values_back_in_their_places(monkeypatch):
+    """ComfyUI's frontend gives a saved graph's widget values back by position (required inputs first, then optional ones):
+    0.31 dropped `soft`, and a 0.5.2 graph's paste_reach, pick_x and pick_y each took the value before theirs."""
+    import inspect
+    import types
+
+    class Kind:
+        def __init__(self, widget):
+            self.widget = widget
+
+        def Input(self, name, optional=False, **_):
+            return name, optional, self.widget
+
+        def Output(self, **_):
+            return None
+
+    io = types.SimpleNamespace(Schema=lambda **kw: kw, Int=Kind(True), Float=Kind(True), Image=Kind(False), Mask=Kind(False))
+    monkeypatch.setattr(swap_mask, "io", io)
+    monkeypatch.setattr(swap_mask, "SAM3TrackData", Kind(False))
+    inputs = swap_mask.AfflatusSwapMask.define_schema()["inputs"]
+    widgets = [name for want in (False, True) for name, optional, widget in inputs if widget and optional == want]
+    # the widgets of 0.5.2's Swap Mask (pack 0.30), in its order
+    assert widgets == ["frames", "width", "height", "grow", "paste_grow", "paste_blur", "soft", "paste_reach", "pick_x", "pick_y"]
+    # and an API-format prompt that still sends it runs
+    assert "soft" in inspect.signature(swap_mask.AfflatusSwapMask.execute).parameters
