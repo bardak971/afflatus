@@ -4,7 +4,7 @@ import type { Machine, MachineState } from "../../src/api";
 import { ConfirmHost } from "../../src/Confirm";
 import { loadConfirmDialog } from "../../src/lazyParts";
 import { MachineMenuBody } from "../../src/MachineMenu";
-import { MachineCard } from "../../src/screens/settings/MachinesCard";
+import { MachineCard, SetAsideNote } from "../../src/screens/settings/MachinesCard";
 import { RentedTab } from "../../src/screens/settings/RentedCard";
 import { useRentedOps } from "../../src/rentedOps";
 import { useBanners } from "../../src/store";
@@ -136,5 +136,29 @@ describe("a refused Stop", () => {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Stop all" })));
     await waitFor(() => expect(fakeApi.calls("POST", "/machines/").length).toBe(4));
     expect(useBanners.getState().items).toHaveLength(2);
+  });
+});
+
+describe("the note of a stored machine that could not be read", () => {
+  const aside = { key: "0123456789abcdef", label: "pod-x", mended: false, fields: [], now: [], pod: true, why: "url: Invalid URL" };
+  const mended = { key: "fedcba9876543210", label: "pod-y", mended: true, fields: ["rented.idleDo"], now: ["idleDo: terminate"], pod: true, why: "" };
+
+  it("forgets an unreadable pod only once told it still bills, and says what a mended one runs on meanwhile", async () => {
+    fakeApi.on("GET /settings", { machines: [home], machinesSetAside: [aside, mended] });
+    fakeApi.on("POST /machines/set-aside/forget", ({ body }) => ((body as { anyway?: boolean }).anyway ? { ok: true } : jsonAnswer({ error: "Its pod p1 still runs on RunPod, billed." }, 409)));
+    const { user } = draw(<><SetAsideNote /><ConfirmHost /></>);
+    expect(await screen.findByText(/Meanwhile it runs on the default \(idleDo: terminate\)/)).toBeTruthy();
+    // one button, for the unreadable one only
+    expect(screen.getAllByRole("button", { name: /Forget this unreadable entry/ })).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: /Forget this unreadable entry/ }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Forget" }));
+    await waitFor(() => expect(fakeApi.calls("POST", "/machines/set-aside/forget")).toHaveLength(1));
+    expect(fakeApi.calls("POST", "/machines/set-aside/forget")[0]!.body).toEqual({ key: aside.key, anyway: false });
+    // the server's word that its pod bills, asked again before it goes
+    const again = await screen.findByRole("dialog");
+    expect(within(again).getByText(/still runs on RunPod/)).toBeTruthy();
+    await user.click(within(again).getByRole("button", { name: "Forget" }));
+    await waitFor(() => expect(fakeApi.calls("POST", "/machines/set-aside/forget")).toHaveLength(2));
+    expect(fakeApi.calls("POST", "/machines/set-aside/forget")[1]!.body).toEqual({ key: aside.key, anyway: true });
   });
 });

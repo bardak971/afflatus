@@ -234,9 +234,10 @@ export interface Settings {
   machines: Machine[];
   /**
    * The stored machines the server could not read whole (a hand edit, a setting it no longer takes): `mended`, only `fields`
-   * took their default and it is in `machines`; otherwise it is left out, its row kept, and its pod (`pod`) stopped.
+   * took their default (`now`: each as it is meanwhile) and it is in `machines`; otherwise it is left out, its row kept, and
+   * its pod (`pod`) stopped. `key`: what forgetSetAside names it by.
    */
-  machinesSetAside: Array<{ label: string; mended: boolean; fields: string[]; pod: boolean; why: string }>;
+  machinesSetAside: Array<{ key: string; label: string; mended: boolean; fields: string[]; now: string[]; pod: boolean; why: string }>;
   comfyUrl: string;
   /** ComfyUI's folder on Afflatus's computer, when they share one; empty otherwise. */
   comfyDir: string;

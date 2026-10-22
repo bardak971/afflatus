@@ -6,7 +6,7 @@ import { ChevronDown, ChevronRight, Copy, ExternalLink, Lock, LockOpen, MoreHori
 import { useOpenComfyUI } from "../../actions";
 import { ask } from "../../Confirm";
 import type { MenuItem } from "../../ContextMenu";
-import { api, type Machine, type MachineProbe, type MachineState } from "../../api";
+import { api, ApiError, type Machine, type MachineProbe, type MachineState } from "../../api";
 import { useMenu } from "../../ContextMenu";
 import { useQueue, useSettings } from "../../data";
 import { gb, plural, usd } from "../../format";
@@ -17,6 +17,7 @@ import { queryKeys } from "../../queryKeys";
 import { Button, ButtonLink, Chip, cx, ErrorNote, fieldClass, IconButton, Segmented } from "../../ui";
 import { AccessRow, useAccessActions } from "./AccessRow";
 import { useRentedOps } from "../../rentedOps";
+import { useSayFailed } from "../../sayFailed";
 import { RentRow } from "./RentedCard";
 import { RentedHead, RentedRows } from "./RentedRows";
 import { CudaChip } from "../../machineBits";
@@ -134,19 +135,44 @@ export function AddMachineCard() {
 
 /**
  * The stored machines the server could not read whole (settings.ts load), said above the cards: a hand edit, or a setting a
- * newer Afflatus no longer takes. Said only: what is set aside is kept as it was stored, and a pod in it is stopped.
+ * newer Afflatus no longer takes. What is set aside is kept as it was stored, and a pod in it is stopped, until it is
+ * forgotten here (one with a pod that may still bill only once the user is told so) or its pod added again. A mended one is
+ * said until its card is saved.
  */
 export function SetAsideNote() {
   const settings = useSettings();
+  const client = useQueryClient();
+  const sayFailed = useSayFailed({ href: "/settings/comfy", go: "Open Settings › ComfyUI" });
+  const forget = useMutation({
+    mutationFn: async (a: { key: string; label: string }) => {
+      try {
+        await api.forgetSetAside(a.key);
+      } catch (err) {
+        // its pod may still bill: forgotten only once the user has read so
+        if (!(err instanceof ApiError && err.status === 409)) throw err;
+        if (await ask({ title: `Forget ${a.label} anyway?`, text: err.message, yes: "Forget" })) await api.forgetSetAside(a.key, true);
+      }
+    },
+    onSettled: () => {
+      for (const queryKey of [queryKeys.settings(), queryKeys.queue(), queryKeys.runpodPods()]) void client.invalidateQueries({ queryKey });
+    },
+    onError: sayFailed("Could not forget the unreadable entry"),
+  });
   const aside = settings.data?.machinesSetAside ?? [];
   if (!aside.length) return null;
   return (
     <ErrorNote>
-      {aside.map((a, i) => (
-        <p key={i}>
+      {aside.map((a) => (
+        <p key={a.key}>
           {a.mended
-            ? `${a.label}: its stored ${a.fields.join(", ")} could not be read and took the default.`
-            : `${a.label} could not be read from the stored settings (${a.why}): it is left out of the list, its settings kept as they were.${a.pod ? " Its RunPod pod is stopped: nothing here can watch its idle time or count it against the caps." : ""}`}
+            ? `${a.label}: its stored ${a.fields.join(", ")} could not be read. Meanwhile it runs on the default (${a.now.join(", ")}): saved from its card, that becomes its setting.`
+            : `${a.label} could not be read from the stored settings (${a.why}): it is left out of the list, its settings kept as they were.${a.pod ? " Its RunPod pod is stopped whenever it runs, as nothing here can watch its idle time or count it against the caps; add the pod again from Rented GPUs to follow it." : ""}`}
+          {!a.mended && (
+            <>
+              {" "}
+              <Button size="sm" tone="quiet" disabled={forget.isPending} onClick={() => void ask({ title: `Forget ${a.label}?`, text: a.pod ? "Its stored settings are deleted, and its pod is no longer stopped from here." : "Its stored settings are deleted. Add the ComfyUI again to use it.", yes: "Forget" }).then((yes) => yes && forget.mutate(a))}>Forget this unreadable entry…</Button>
+            </>
+          )}
         </p>
       ))}
     </ErrorNote>

@@ -283,6 +283,8 @@ export const api = {
   searchModelSets: (q: string, o?: Asked & { many?: boolean }) => call<SetSearch>("GET", `/model-sets/search?q=${encodeURIComponent(q)}${o?.many ? "&many=1" : ""}`, undefined, o?.signal),
   /** A machine removed from Afflatus: a rented pod is left on RunPod as it is (its secret goes once the pod does). */
   removeMachine: (id: string) => call<{ ok: true }>("POST", `/machines/${encodeURIComponent(id)}/remove`, {}),
+  /** A stored machine that could not be read, forgotten: refused (409) while its pod may bill, unless `anyway`. */
+  forgetSetAside: (key: string, anyway = false) => call<{ ok: true }>("POST", "/machines/set-aside/forget", { key, anyway }),
   /** Whether each image a deploy may run can be pulled now (null: its registry did not answer). */
   runpodImages: (o?: Asked) => call<{ afflatus: boolean | null; runpod: boolean | null }>("GET", "/runpod/images", undefined, o?.signal),
   /** A pod added as a machine, as it is: nothing is started. */
