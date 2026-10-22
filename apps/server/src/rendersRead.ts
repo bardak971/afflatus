@@ -3,7 +3,7 @@ import type { Registry } from "./registry";
 import { shortGpu } from "@afflatus/core";
 import { machinePaces } from "./forecast";
 import { buildOf } from "./podImage";
-import { cellOf, DAY, dayOf, dayStart, digestedThrough, digestOf, machineDigestedThrough, groupKey, median, merge, parseDigest, real, spilled, sum, WHOLE_DAY, BUCKETS, type Cell, type Digest, type Line, type RenderRow, type Setting } from "./renderDigests";
+import { cellOf, DAY, dayOf, dayStart, digestedThrough, digestOf, machineDigestedThrough, groupKey, median, merge, parseDigest, real, spilled, sum, weighted, WHOLE_DAY, BUCKETS, type Cell, type Digest, type Line, type RenderRow, type Setting } from "./renderDigests";
 
 /**
  * The record of render times read: the "Render times" tab's summary and list of renders (`summary`, `list`), how much
@@ -65,6 +65,10 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   const { start, end, step, times } = windowOf(period, since, when);
   const index = (ms: number) => Math.floor((ms - start) / step);
   const iso = (ms: number) => new Date(ms).toISOString();
+  // a long window is worked out by days, as its digests are, and drawn in weeks (weeksOf)
+  const weeks = weeksOf(step, times.length);
+  /** A figure per day as the charts draw it: summed by week when they are drawn in weeks. */
+  const drawn = (perDay: number[]) => (weeks ? weeks.map((days) => sum(days.map((i) => perDay[i]!))) : perDay);
 
   // cut into days, the days over are read from their digests, and only the rows after them (today's) are read whole;
   // bounded at the end too: a window in the past counts nothing that came after it
@@ -113,20 +117,40 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   });
   /** The figures of each stretch, for everything or for the renders of one recipe (and one model file): worked out once each. */
   const cells = new Map<string, Array<Cell | null>>();
+  const points = new Map<string, Array<Cell | null>>();
+  const keyOf = (of?: { recipe: string; file?: string }) => (of ? `${of.file === undefined ? 0 : 1}\n${groupKey(of.recipe, of.file)}` : "");
+  /** What each stretch's cell is made of: its digest's cell, and its folded days' cells. */
+  const partsOf = (of?: { recipe: string; file?: string }) => stretch.map((s, i) => ({
+    own: !s.digest ? undefined : !of ? s.digest.whole : of.file === undefined ? s.recipes.get(of.recipe) : s.files.get(groupKey(of.recipe, of.file)),
+    old: of ? (groups[i]!.get(groupKey(of.recipe, of.file)) ?? []) : (groups[i]!.get(WHOLE_DAY) ?? []),
+  }));
   const cellsOf: CellsOf = (of) => {
-    const key = of ? `${of.file === undefined ? 0 : 1}\n${groupKey(of.recipe, of.file)}` : "";
+    const key = keyOf(of);
     const had = cells.get(key);
     if (had) return had;
-    const list = stretch.map((s, i) => {
-      const own = !s.digest ? undefined : !of ? s.digest.whole : of.file === undefined ? s.recipes.get(of.recipe) : s.files.get(groupKey(of.recipe, of.file));
-      const old = of ? (groups[i]!.get(groupKey(of.recipe, of.file)) ?? []) : (groups[i]!.get(WHOLE_DAY) ?? []);
-      // a digest's cell alone is the cell as it is: merge would give it back unchanged
-      return old.length ? merge([...(own ? [own] : []), ...old]) : (own ?? null);
-    });
+    // a digest's cell alone is the cell as it is: merge would give it back unchanged
+    const list = partsOf(of).map(({ own, old }) => (old.length ? merge([...(own ? [own] : []), ...old]) : (own ?? null)));
     cells.set(key, list);
     return list;
   };
-  const series = <T>(pick: (c: Cell) => T) => cellsOf().map((c) => (c ? pick(c) : null));
+  /**
+   * The same, per point of the charts: per stretch, or per week when the charts are drawn in weeks. A week's cell is
+   * merged from the parts of its days, not from its days' cells: its usual is then the middle of the week's renders.
+   */
+  const pointsOf: CellsOf = (of) => {
+    if (!weeks) return cellsOf(of);
+    const key = keyOf(of);
+    const had = points.get(key);
+    if (had) return had;
+    const parts = partsOf(of);
+    const list = weeks.map((days) => {
+      const all = days.flatMap((i) => [...(parts[i]!.own ? [parts[i]!.own!] : []), ...parts[i]!.old]);
+      return all.length ? merge(all) : null;
+    });
+    points.set(key, list);
+    return list;
+  };
+  const series = <T>(pick: (c: Cell) => T) => pointsOf().map((c) => (c ? pick(c) : null));
   const whole = merge(cellsOf().filter((c): c is Cell => c !== null));
   const count0 = (v: number | null) => v ?? 0;
   const digestsOf = digests.filter((d): d is Digest => d !== null);
@@ -137,6 +161,7 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   const unsentAt = times.map(() => ({ failed: 0, cancelled: 0 }));
   for (const j of unsent) { const at = unsentAt[index(Date.parse(j.finished_at))]; if (at) at[j.status] += 1; }
   const unsentCount = { failed: sum(unsentAt.map((u) => u.failed)), cancelled: sum(unsentAt.map((u) => u.cancelled)) };
+  const unsentDrawn = drawn(unsentAt.map((u) => u.failed + u.cancelled));
 
   // each recipe's lines, the newest stretch first
   const lines = new Map<string, Line[]>();
@@ -150,17 +175,19 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   // the failures that ran out of memory, for the models and the tiles
   const oom = await outOfMemory(db, [...lines.values()].flat().flatMap((l) => l.failed.map((id) => ({ id, status: "failed" as const }))));
   // the models: everything made with one recipe, and under it each model file
-  const models = modelLines(registry, lines, folded, cellsOf, oom);
+  const models = modelLines(registry, lines, folded, cellsOf, pointsOf, oom);
 
   // what rendered in each stretch, the longest first: for the pointer, and for the lanes (a recipe's name looked up once)
   const names = new Map<string, string>();
   const name = (recipe: string) => names.get(recipe) ?? names.set(recipe, nameOf(registry, recipe)).get(recipe)!;
-  const buckets = stretch.map((s) => ({
-    renders: (s.digest?.whole.renders ?? 0) + sum(s.days.filter((d) => d.recipe === WHOLE_DAY).map((d) => d.cell.renders)),
-    top: (s.digest?.top ?? []).map((r) => ({ id: r.id, name: name(r.recipe_id), model: r.model, totalMs: r.total_ms, status: r.status, assetId: r.asset_id })),
-  }));
+  const top = (s: (typeof stretch)[number]) => (s.digest?.top ?? []).map((r) => ({ id: r.id, name: name(r.recipe_id), model: r.model, totalMs: r.total_ms, status: r.status, assetId: r.asset_id }));
+  const renders = stretch.map((s) => (s.digest?.whole.renders ?? 0) + sum(s.days.filter((d) => d.recipe === WHOLE_DAY).map((d) => d.cell.renders)));
+  // a week's longest: its days' longest together, the newest day first among equals as within a day
+  const buckets = weeks
+    ? weeks.map((days) => ({ renders: sum(days.map((i) => renders[i]!)), top: [...days].reverse().flatMap((i) => top(stretch[i]!)).sort((a, b) => b.totalMs - a.totalMs).slice(0, 8) }))
+    : stretch.map((s, i) => ({ renders: renders[i]!, top: top(s) }));
 
-  const upscale = upscalePaces(registry, digests);
+  const upscale = upscalePaces(registry, digests, weeks);
   // the period before, as long, for "Δ vs prior": none for "all", nor when the record covers less than nine tenths of it
   const priorFrom = start - (end - start);
   const prior = !machine && period !== "all" && since && Date.parse(since) <= priorFrom + Math.max(step, (end - start) / 10) ? await totals(db, priorFrom, start, step === DAY, keepDays, when) : null;
@@ -180,7 +207,10 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   }
 
   return {
-    period: typeof period === "string" ? period : ("window" as const), from: start, to: end, step, times, keepDays, since, buckets,
+    period: typeof period === "string" ? period : ("window" as const), from: start, to: end,
+    /** The charts' points: the start of each stretch, or of each week (`step` 7 days) when the window is drawn in weeks. */
+    step: weeks ? WEEK : step, times: weeks ? weeks.map((_days, k) => end - (weeks.length - k) * WEEK) : times,
+    keepDays, since, buckets,
     /** The machine the figures are of; null: every machine. */
     machine,
     /** Each machine that rendered in the window: how many renders, their GPU time, and its learned pace (1 the common pace, 2 half as fast; null: nothing to compare yet). */
@@ -210,7 +240,7 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
       oom: oom.size,
     },
     prior,
-    finished: { images: series((c) => c.images).map(count0), videos: series((c) => c.videos).map(count0), bad: series((c) => c.failed + c.cancelled).map((v, i) => count0(v) + unsentAt[i]!.failed + unsentAt[i]!.cancelled), videoMs: series((c) => c.videoMs).map(count0) },
+    finished: { images: series((c) => c.images).map(count0), videos: series((c) => c.videos).map(count0), bad: series((c) => c.failed + c.cancelled).map((v, i) => count0(v) + unsentDrawn[i]!), videoMs: series((c) => c.videoMs).map(count0) },
     phases: {
       loading: series((c) => parts(c).loading).map(count0), sampling: series((c) => parts(c).sampling).map(count0),
       refining: series((c) => parts(c).refining).map(count0), finishing: series((c) => parts(c).finishing).map(count0),
@@ -280,6 +310,23 @@ export function windowOf(period: Period | Window, since: string | null, when: nu
   return { start, end, step, times: Array.from({ length: count }, (_x, i) => start + i * step) };
 }
 
+const WEEK = 7 * DAY;
+/**
+ * Past three months of days, the charts are drawn in weeks: two years of "all" were 730 points a line, 1.1 MB at a heavy
+ * user's record. A month stays in days. In an object, so that a test can draw a long window in days and hold the weeks to it.
+ */
+export const drawing = { weeksPastDays: 92 };
+/**
+ * The days of each week, when a window cut into days is drawn in weeks: counted back from its end, so that the last week
+ * ends with today and the first may have fewer days. Null: the window is drawn as it is cut.
+ */
+export function weeksOf(step: number, days: number): number[][] | null {
+  if (step !== DAY || days <= drawing.weeksPastDays) return null;
+  const count = Math.ceil(days / 7);
+  const skip = count * 7 - days;
+  return Array.from({ length: count }, (_x, k) => Array.from({ length: 7 }, (_y, d) => k * 7 + d - skip).filter((i) => i >= 0));
+}
+
 /** The figures of each stretch of a summary, for everything or for one recipe (and one of its model files). */
 type CellsOf = (of?: { recipe: string; file?: string }) => Array<Cell | null>;
 
@@ -287,12 +334,13 @@ type CellsOf = (of?: { recipe: string; file?: string }) => Array<Cell | null>;
  * A summary's line per recipe, the busiest first: its figures per stretch, its usual setting spelled out, and each of its model files.
  * `lines`: each recipe's Line in each stretch, the newest first; together they read as the renders of the whole window would.
  */
-function modelLines(registry: Registry, lines: Map<string, Line[]>, folded: Array<Tables["render_days"]>, cellsOf: CellsOf, oom: Set<string>) {
+function modelLines(registry: Registry, lines: Map<string, Line[]>, folded: Array<Tables["render_days"]>, cellsOf: CellsOf, pointsOf: CellsOf, oom: Set<string>) {
   const recipes = [...new Set([...lines.keys(), ...folded.filter((d) => d.recipe_id !== WHOLE_DAY).map((d) => d.recipe_id)])];
   return recipes.map((recipe) => {
     const own = lines.get(recipe) ?? [];
-    const cells = cellsOf({ recipe });
-    const all = merge(cells.filter((c): c is Cell => c !== null));
+    const all = merge(cellsOf({ recipe }).filter((c): c is Cell => c !== null));
+    // its lines per point of the charts; its own figures above from the stretches, however the charts are drawn
+    const cells = pointsOf({ recipe });
     const files = new Map<string, string>();
     for (const l of own) for (const [file, model] of l.files) files.set(file, model);
     for (const d of folded) if (d.recipe_id === recipe && d.model_file) files.set(d.model_file, files.get(d.model_file) ?? d.model);
@@ -338,9 +386,8 @@ function modelLines(registry: Registry, lines: Map<string, Line[]>, folded: Arra
       phases: { loading: mean(warm.load), sampling: mean(warm.sample), refining: mean(warm.refine), finishing: mean(warm.finish) },
       setting: setting ?? null,
       files: [...files].map(([file, name]) => {
-        const each = cellsOf({ recipe, file });
-        const of = merge(each.filter((c): c is Cell => c !== null));
-        return { file, name: name || file, renders: of.renders, stepMs: of.stepMs, step: each.map((c) => c?.stepMs ?? null) };
+        const of = merge(cellsOf({ recipe, file }).filter((c): c is Cell => c !== null));
+        return { file, name: name || file, renders: of.renders, stepMs: of.stepMs, step: pointsOf({ recipe, file }).map((c) => c?.stepMs ?? null) };
       }),
     };
   }).sort((a, b) => b.gpuMs - a.gpuMs);
@@ -350,19 +397,24 @@ function modelLines(registry: Registry, lines: Map<string, Line[]>, folded: Arra
  * The upscales' pace per stretch (`digests`: of each stretch's rows): a video route in minutes of work per second of video,
  * a picture tool or a hires pass in seconds per megapixel made (what a picture's own size does to it taken out).
  */
-function upscalePaces(registry: Registry, digests: Array<Digest | null>) {
+function upscalePaces(registry: Registry, digests: Array<Digest | null>, weeks: number[][] | null) {
   // the routes and tools in the order they first appear, newest first
   const newest = digests.filter((d): d is Digest => d !== null).reverse();
   const videoRoutes = [...new Set(newest.flatMap((d) => d.video))];
   const pictureTools = [...new Set(newest.flatMap((d) => d.pictures))];
-  const paceSeries = (pace: (d: Digest) => number | null) => digests.map((d) => (d ? pace(d) : null));
+  // a week's pace: the middle of its days' paces, each counted for the finished renders behind it (a day's digest keeps
+  // the pace, not the runs it was taken of)
+  const paceSeries = (pace: (d: Digest) => number | null, weight: (d: Digest) => number) => !weeks
+    ? digests.map((d) => (d ? pace(d) : null))
+    : weeks.map((days) => weighted(days.flatMap((i) => { const d = digests[i]; return d ? [[pace(d), weight(d)] as [number | null, number]] : []; })));
   const of = (paces: Array<[string, number]>, key: string) => paces.find(([recipe]) => recipe === key)?.[1] ?? null;
+  const doneOf = (key: string) => (d: Digest) => d.recipes.find(([recipe]) => recipe === key)?.[1].done ?? 0;
   return {
-    video: videoRoutes.map((key) => ({ key, name: nameOf(registry, key), points: paceSeries((d) => of(d.paces.video, key)) })),
+    video: videoRoutes.map((key) => ({ key, name: nameOf(registry, key), points: paceSeries((d) => of(d.paces.video, key), doneOf(key)) })),
     pictures: [
-      ...pictureTools.map((key) => ({ key, name: nameOf(registry, key), points: paceSeries((d) => of(d.paces.pictures, key)) })),
+      ...pictureTools.map((key) => ({ key, name: nameOf(registry, key), points: paceSeries((d) => of(d.paces.pictures, key), doneOf(key)) })),
       // the hires pass of picture renders: its own time (the passes after the first sampling) over the megapixels made
-      ...(newest.some((d) => d.hires) ? [{ key: "hires", name: "Hires fix (in picture renders)", points: paceSeries((d) => d.paces.hires) }] : []),
+      ...(newest.some((d) => d.hires) ? [{ key: "hires", name: "Hires fix (in picture renders)", points: paceSeries((d) => d.paces.hires, (d) => d.whole.images) }] : []),
     ],
   };
 }

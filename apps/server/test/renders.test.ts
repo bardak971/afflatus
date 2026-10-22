@@ -6,7 +6,7 @@ import { cellOf, digestDays, merge, type RenderRow } from "../src/renderDigests"
 import { clear, fold, recordTool } from "../src/renders";
 import { toolEnd } from "../src/queueTools";
 import { Died, Stuck } from "../src/queueModel";
-import { list, summary } from "../src/rendersRead";
+import { drawing, list, summary, weeksOf } from "../src/rendersRead";
 import { CHECKPOINT, complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 let fake: FakeComfy;
@@ -173,7 +173,9 @@ describe("renders older than they are kept become figures per model and day", ()
     // the charts still reach back: rows and folded days in one view
     const all = await summary(t.db, t.services.registry, "all", 90, NOW);
     expect(all.tiles).toMatchObject({ done: 6, images: 5, videos: 1 });
-    expect(all.times.length).toBeGreaterThanOrEqual(101);
+    // past three months, drawn in weeks
+    expect(all.step).toBe(7 * DAY);
+    expect(all.times.length).toBeGreaterThanOrEqual(15);
     expect(all.finished.images.reduce((a, b) => a + b, 0)).toBe(5);
     expect(all.models.map((m) => [m.key, m.renders])).toEqual([["wan.video", 1], ["sdxl.text-to-picture", 5]]);
   });
@@ -312,8 +314,8 @@ describe("what the tab shows", () => {
 });
 
 describe("a summary cut into days reads the days over from their digests", () => {
-  /** Two months of renders of every sort, the same each run: recipes, model files, endings, loads, spills, upscales and hires passes. */
-  const history = (): RenderRow[] => {
+  /** Two months of renders of every sort (or `days`), the same each run: recipes, model files, endings, loads, spills, upscales and hires passes. */
+  const history = (days = 62): RenderRow[] => {
     let seed = 7;
     const rand = () => ((seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648) / 2_147_483_648);
     const pick = <T>(xs: T[]) => xs[Math.floor(rand() * xs.length)]!;
@@ -324,7 +326,7 @@ describe("a summary cut into days reads the days over from their digests", () =>
       { recipe_id: "tools.upscale", family: "tools", kind: "image" as const, files: ["4x-ultra"], keys: ["scale=2"] },
     ];
     const rows: RenderRow[] = [];
-    for (let day = 0; day < 62; day++) {
+    for (let day = 0; day < days; day++) {
       for (let k = Math.floor(rand() * 9); k > 0; k--) {
         const what = pick(kinds);
         const status = pick(["done", "done", "done", "done", "failed", "cancelled"] as const);
@@ -412,6 +414,67 @@ describe("a summary cut into days reads the days over from their digests", () =>
     await clear(t.db);
     expect(await digested()).toEqual([]);
     expect(await machineDays("m1")).toEqual([]);
+  });
+
+  it("a long window is drawn in weeks: each week its days added up, and every figure besides the charts as drawn in days", async () => {
+    // seven months: folded days, digested days and today's rows
+    await put(history(210));
+    await fold(t.db, 90, NOW);
+    const weekly = await summary(t.db, t.services.registry, "all", 90, NOW);
+    drawing.weeksPastDays = Infinity;
+    const daily = await summary(t.db, t.services.registry, "all", 90, NOW).finally(() => (drawing.weeksPastDays = 92));
+    expect(daily.step).toBe(DAY);
+    const weeks = weeksOf(DAY, daily.times.length)!;
+    expect(weekly.step).toBe(7 * DAY);
+    expect(weekly.times).toHaveLength(Math.ceil(daily.times.length / 7));
+    expect(weeks).toHaveLength(weekly.times.length);
+    // whole weeks back from the end of today, the first one reaching before the first day
+    expect(weekly.times.at(-1)! + weekly.step).toBe(weekly.to);
+    expect(weekly.times.every((at, k) => at === weekly.times[0]! + k * weekly.step)).toBe(true);
+    expect(weekly.times[0]!).toBeLessThanOrEqual(daily.times[0]!);
+    expect(weeks.flat()).toEqual(daily.times.map((_x, i) => i));
+
+    // the sums: each week its days', and as much in all
+    const byWeek = (perDay: number[]) => weeks.map((days) => days.reduce((n, i) => n + perDay[i]!, 0));
+    for (const [name, w, d] of [
+      ...Object.keys(daily.finished).map((k) => [k, weekly.finished[k as keyof typeof daily.finished], daily.finished[k as keyof typeof daily.finished]] as const),
+      ...Object.keys(daily.phases).map((k) => [k, weekly.phases[k as keyof typeof daily.phases], daily.phases[k as keyof typeof daily.phases]] as const),
+      ["renders", weekly.buckets.map((b) => b.renders), daily.buckets.map((b) => b.renders)] as const,
+    ]) {
+      expect(w, name).toEqual(byWeek(d));
+      expect(w.reduce((a, b) => a + b, 0), name).toBe(d.reduce((a, b) => a + b, 0));
+    }
+    expect(weekly.finished.images.reduce((a, b) => a + b, 0)).toBeGreaterThan(100);
+    // the peaks: the week's highest day; the longest renders: the week's longest of its days'
+    expect(weekly.gpu.vram).toEqual(weeks.map((days) => { const v = days.map((i) => daily.gpu.vram[i]).filter((x): x is number => x !== null); return v.length ? Math.max(...v) : null; }));
+    expect(weekly.buckets.map((b) => b.top.map((r) => r.totalMs))).toEqual(weeks.map((days) => days.flatMap((i) => daily.buckets[i]!.top.map((r) => r.totalMs)).sort((a, b) => b - a).slice(0, 8)));
+    // a middle per week, of the week's renders: between its days' lowest and highest
+    for (const m of weekly.models) {
+      const day = daily.models.find((x) => x.key === m.key)!;
+      m.usual.forEach((v, k) => {
+        const days = weeks[k]!.map((i) => day.usual[i]).filter((x): x is number => x !== null);
+        if (v === null) return expect(days).toEqual([]);
+        expect(v).toBeGreaterThanOrEqual(Math.min(...days));
+        expect(v).toBeLessThanOrEqual(Math.max(...days));
+      });
+    }
+
+    // the rest of the answer as drawn in days: the tiles, the paces, each model's own figures
+    const rest = (s: typeof daily) => {
+      const { step: _s, times: _t, buckets: _b, finished: _f, phases: _p, wait: _w, gpu: _g, upscale, models, ...left } = s;
+      return {
+        ...left, upscale: [...upscale.video, ...upscale.pictures].map((u) => [u.key, u.name]),
+        models: models.map(({ usual: _u, slow: _sl, cold: _c, pace: _pa, files, ...m }) => ({ ...m, files: files.map(({ step: _st, ...f }) => f) })),
+      };
+    };
+    expect(rest(weekly)).toEqual(rest(daily));
+    expect(weekly.models.every((m) => m.usual.length === weekly.times.length && m.files.every((f) => f.step.length === weekly.times.length))).toBe(true);
+    expect([...weekly.upscale.video, ...weekly.upscale.pictures].every((u) => u.points.length === weekly.times.length && u.points.some((v) => v !== null))).toBe(true);
+    // three times smaller at least, the answer
+    expect(JSON.stringify(weekly).length * 3).toBeLessThan(JSON.stringify(daily).length);
+
+    // a month is still drawn in days
+    expect((await summary(t.db, t.services.registry, "month", 90, NOW)).step).toBe(DAY);
   });
 
   it("a render on record digests the days over that were not yet", async () => {

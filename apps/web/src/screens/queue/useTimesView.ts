@@ -8,6 +8,7 @@ import { UI_LOCALE } from "../../format";
 
 export const HOUR = 3_600_000;
 export const DAY = 86_400_000;
+const WEEK = 7 * DAY;
 /** The windows a click gives, each ending now; "All" reaches back to the first render. */
 export const PRESETS: Array<{ label: string; ms: number | null }> = [
   { label: "1H", ms: HOUR }, { label: "3H", ms: 3 * HOUR }, { label: "6H", ms: 6 * HOUR }, { label: "12H", ms: 12 * HOUR }, { label: "24H", ms: 24 * HOUR },
@@ -31,8 +32,19 @@ export function chartTimeLabel(spanMs: number, step: number) {
       : step < DAY ? (spanMs > 36 * HOUR ? { weekday: "short", hour: "2-digit", minute: "2-digit" } : { hour: "2-digit", minute: "2-digit" }) : { day: "numeric", month: "short" });
 }
 
-/** What a stretch of a chart is called: "5 min", "hour", "6 h", "day". */
-export const stretchOf = (step: number) => (step < HOUR ? `${Math.round(step / 60_000)} min` : step === HOUR ? "hour" : step < DAY ? `${Math.round(step / HOUR)} h` : "day");
+/**
+ * How a point of a chart is said: as its moment (chartTimeLabel), but a week (a long window's "All") by its first and
+ * last days at the crosshair, "5 Oct – 11 Oct 2026", as its figures are the whole week's. A moment that is not a point
+ * (a render in the lanes, the window's ends) is said by chartTimeLabel.
+ */
+export function chartPointLabel(spanMs: number, step: number) {
+  const moment = chartTimeLabel(spanMs, step);
+  const day = (ms: number, year: boolean) => new Date(ms).toLocaleDateString(UI_LOCALE, year ? { day: "numeric", month: "short", year: "numeric" } : { day: "numeric", month: "short" });
+  return (time: number, full?: boolean) => (full && step >= WEEK ? `${day(time, false)} – ${day(time + step - DAY, true)}` : moment(time, full));
+}
+
+/** What a stretch of a chart is called: "5 min", "hour", "6 h", "day", "week". */
+export const stretchOf = (step: number) => (step < HOUR ? `${Math.round(step / 60_000)} min` : step === HOUR ? "hour" : step < DAY ? `${Math.round(step / HOUR)} h` : step < WEEK ? "day" : "week");
 
 /** A moment as a datetime-local input writes it (local time, to the minute). */
 export const toLocalInput = (ms: number) => {
