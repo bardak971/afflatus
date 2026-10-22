@@ -185,11 +185,11 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     const sound = await recording();
     const { clips } = await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
     await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 0, toMs: 9000 });
-    // the clip set aside made to end at 13 s (as if cut shorter), so that the end out at 15 s goes past it
+    // the clip set aside made to end at 11 s (as if cut shorter), so that the end out at 15 s goes past it by a clip's least
     const row = await t.db.selectFrom("timelines").select("recordings").where("id", "=", tl.id).executeTakeFirstOrThrow();
     const parked = JSON.parse(row.recordings!) as Record<string, Array<{ clip: { inputs: string } }>>;
     const inputs = JSON.parse(parked[sound]![0]!.clip.inputs) as Record<string, number>;
-    parked[sound]![0]!.clip.inputs = JSON.stringify({ ...inputs, recordingSeconds: Math.round((13 - inputs.recordingStart!) * 100) / 100 });
+    parked[sound]![0]!.clip.inputs = JSON.stringify({ ...inputs, recordingSeconds: Math.round((11 - inputs.recordingStart!) * 100) / 100 });
     await t.db.updateTable("timelines").set({ recordings: JSON.stringify(parked) }).where("id", "=", tl.id).execute();
     const r = await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 0, toMs: 15000 });
     expect(r.clips).toHaveLength(1);
@@ -198,6 +198,47 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     expect(v.undo).toBe("the recording made longer");
     await call("POST", `/api/timelines/${tl.id}/undo`);
     expect((await view(tl.id)).clips.map((c: { id: string }) => c.id)).toEqual(clips.slice(0, 2));
+  });
+
+  const parts = (v: { clips: Array<{ inputs: Record<string, number> }> }) => v.clips.map((c) => [c.inputs.recordingStart, c.inputs.recordingSeconds]);
+
+  it("a little out past where a rendered clip set aside starts: the empty clip before made longer to meet it, it and its take kept aside", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test recording rendered aside" });
+    const sound = await recording();
+    const { clips } = await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
+    const video = newId();
+    const take = newId();
+    await t.db.insertInto("assets").values(newAssetRow({ id: video, kind: "video", origin: "uploaded", name: "t.mp4", file_key: `assets/zz/${video}`, thumb_key: null, mime: "video/mp4", bytes: 1, width: 480, height: 854, duration_ms: 5000, fps: 24, has_sound: 1, folder_id: null, generation_id: null, kept_at: now() })).execute();
+    await t.db.insertInto("takes").values({ id: take, clip_id: clips[2], asset_id: video, head_ms: 0, tail_ms: 0, trim_start_ms: 0, trim_end_ms: 0, prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, finished_from: null, created_at: now() } as never).execute();
+    await t.db.updateTable("clips").set({ take_id: take }).where("id", "=", clips[2]).execute();
+    const whole = parts(await view(tl.id));
+    await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 0, toMs: 9000 });
+    // out to 12 s: the rendered third clip (from about 10.2 s to 15) is not held yet, and no new clip goes over it
+    const r = await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 0, toMs: 12000 });
+    let v = await view(tl.id);
+    expect(v.clips.map((c: { id: string }) => c.id)).toEqual(clips.slice(0, 2));
+    expect(parts(v)[1]).toEqual(whole[1]);
+    expect(r.toMs).toBe(Math.round(whole[2]![0]! * 1000));
+    expect(v.recordings).toEqual([expect.objectContaining({ parked: 1, parkedTakes: 1 })]);
+    await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 0, toMs: 15000 });
+    v = await view(tl.id);
+    expect(v.clips.map((c: { id: string }) => c.id)).toEqual(clips);
+    expect(v.clips[2].take?.id).toBe(take);
+  });
+
+  it("a little out past its last clip makes no clip shorter than the model takes: the empty last clip takes the rest", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test recording least" });
+    const sound = await recording();
+    const { clips } = await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
+    const whole = parts(await view(tl.id));
+    // the end in to 14.5 s: the last clip (empty) shortened to it, nothing set aside
+    await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 0, toMs: 14500 });
+    expect((await view(tl.id)).recordings).toEqual([expect.objectContaining({ parked: 0 })]);
+    const r = await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 0, toMs: 15000 });
+    expect(r).toEqual({ clips: [], toMs: 15000 });
+    const v = await view(tl.id);
+    expect(v.clips.map((c: { id: string }) => c.id)).toEqual(clips);
+    expect(parts(v)[2]).toEqual(whole[2]);
   });
 
   it("refuses a video with no sound, and a sound ffmpeg cannot read, keeping no pauses for it", async () => {

@@ -540,8 +540,88 @@ describe("a timeline's source lane", () => {
       const r = await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: ends(v)[2]! - 300 });
       expect(r.toMs).toBe(ends(v)[2]);
       expect(ends(await view(tl.id))[2]).toBe(ends(v)[2]);
-      // nor given another form in place while it waits (its render was sent with the old one)
-      await expect(call("POST", `/api/timelines/${tl.id}/source/form`, { recipe: "h3.motion" })).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it("a little out after a trim that shortened an empty window: that window made longer, the windows set aside kept for the end out", async () => {
+      const { tl, v } = await madeSwap();
+      const ids = v.clips.map((c: { id: string }) => c.id);
+      const take = await takeFor(ids[2]);
+      const start = Math.round(v.clips[1].inputs.sourceStart! * 1000);
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: start + 4000 });
+      const r = await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: start + 4500 });
+      expect(r.toMs).toBe(start + 4500);
+      const small = await view(tl.id);
+      expect(small.clips.map((c: { id: string }) => c.id)).toEqual(ids.slice(0, 2));
+      expect(ends(small)[1]).toBe(start + 4500);
+      expect(small.source.parked).toHaveLength(ids.length - 2);
+      expect(small.source.parkedTakes).toBe(1);
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: 20000 });
+      const back = await view(tl.id);
+      expect(back.clips.map((c: { id: string }) => c.id)).toEqual(ids);
+      expect(ends(back)).toEqual(ends(v));
+      expect(back.clips[2].take?.id).toBe(take);
+    });
+
+    it("out while the shortened window renders: its length left under the render, the windows set aside kept, no step", async () => {
+      const { tl, v } = await madeSwap();
+      const ids = v.clips.map((c: { id: string }) => c.id);
+      const start = Math.round(v.clips[1].inputs.sourceStart! * 1000);
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: start + 4000 });
+      const short = await view(tl.id);
+      await queued(ids[1], "running");
+      const r = await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: 20000 });
+      expect(r).toEqual({ clips: [], toMs: start + 4000 });
+      const after = await view(tl.id);
+      expect(after.clips[1].inputs.sourceSeconds).toBe(short.clips[1].inputs.sourceSeconds);
+      expect(after.source.parked).toHaveLength(ids.length - 2);
+      expect(after.undo).toBe(short.undo);
+      // the render done (its job gone), the same drag gives it its length back and the windows set aside return
+      await t.db.deleteFrom("jobs").execute();
+      await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: 20000 });
+      expect((await view(tl.id)).clips.map((c: { id: string }) => c.id)).toEqual(ids);
+    });
+
+    it("a little into a window that renders: the end snaps onto its end, as into a rendered one, not refused", async () => {
+      const { tl, v } = await madeSwap();
+      const ids = v.clips.map((c: { id: string }) => c.id);
+      await queued(ids[2], "running");
+      const r = await call("POST", `/api/timelines/${tl.id}/source/trim`, { fromMs: 0, toMs: ownStart(v.clips[2]) + 300 });
+      expect(r.toMs).toBe(ends(v)[2]);
+      const after = await view(tl.id);
+      expect(after.clips.map((c: { id: string }) => c.id)).toEqual(ids.slice(0, 3));
+      expect(ends(after)[2]).toBe(ends(v)[2]);
+    });
+
+    it("cut again, each empty window's own prompt goes to the window made where it lay", async () => {
+      const { tl, v } = await madeSwap();
+      const words = ["", "He walks to the door.", "He opens it and looks out.", "He turns back.", "He sits down."];
+      for (const [k, c] of v.clips.entries()) if (k > 0) await call("PATCH", `/api/clips/${c.id}`, { inputs: { ...c.inputs, description: words[k] ?? `Part ${k}.` } });
+      const was = (await view(tl.id)).clips as Array<{ inputs: Record<string, number | string> }>;
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { windowMs: 3800 } });
+      await call("POST", `/api/timelines/${tl.id}/source/make`, { again: true });
+      const out = (await view(tl.id)).clips as Array<{ recipe: string; inputs: Record<string, number | string> }>;
+      // cut on another grid: the windows no longer match one for one
+      expect(out.map((c) => c.inputs.sourceStart)).not.toEqual(was.map((c) => c.inputs.sourceStart));
+      for (const c of out.slice(1)) {
+        const mid = Number(c.inputs.sourceStart) + Number(c.inputs.sourceSeconds) / 2;
+        const there = was.find((p) => mid >= Number(p.inputs.sourceStart) && mid < Number(p.inputs.sourceStart) + Number(p.inputs.sourceSeconds));
+        expect(c.recipe).toBe("h3.motion");
+        if (there && there !== was[0]) expect(c.inputs.description).toBe(there.inputs.description);
+      }
+      expect(new Set(out.slice(1).map((c) => c.inputs.description)).size).toBeGreaterThan(1);
+    });
+
+    it("gives another form of the grid to every window but one that renders, which keeps the form its render was sent with", async () => {
+      const { tl, v } = await madeSwap();
+      const ids = v.clips.map((c: { id: string }) => c.id);
+      await queued(ids[2], "running");
+      const r = await call("POST", `/api/timelines/${tl.id}/source/form`, { recipe: "h3.swap" });
+      expect(r.switched).toBe(true);
+      const out = await view(tl.id);
+      expect(out.clips.map((c: { id: string }) => c.id)).toEqual(ids);
+      expect(out.clips.map((c: { recipe: string }) => c.recipe)).toEqual(ids.map((_: string, k: number) => (k === 2 ? "h3.motion" : "h3.swap")));
+      expect(out.clips[2].inputs).toEqual(v.clips[2].inputs);
+      expect(out.source.recipe).toBe("h3.swap");
     });
 
     it("keeps the first window whatever the end asks: an empty one as long as a window can be, a rendered one whole", async () => {
