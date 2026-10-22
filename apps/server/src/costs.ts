@@ -386,7 +386,10 @@ export interface CostsView {
    */
   spend: { gpus: string[]; values: number[][] };
   projects: ProjectCost[];
+  /** Newest first: the newest few only, unless all were asked for (costs-api.ts SESSIONS_SENT). */
   sessions: SessionView[];
+  /** When only the newest sessions were sent: how many there are, and the longest one's length (the list's scale). */
+  sessionsAll?: { count: number; longestMs: number };
   renderCosts: RenderCostRow[];
   advice: CostAdvice[];
   home: HomeView[];

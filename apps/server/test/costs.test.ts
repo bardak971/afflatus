@@ -692,4 +692,17 @@ describe("a render's energy", () => {
     expect(res.json()).toMatchObject({ runpod: false, sessions: [], projects: [], kwh: { price: 0.25, currency: "€" }, where: { ms: { render: 0, boot: 0, fetch: 0, idle: 0, failed: 0 } } });
     expect((await get(t.app, "/api/costs")).statusCode).toBe(200);
   });
+
+  it("sends a window's newest sessions only, with how many there are and the longest, and all of them when asked", async () => {
+    const at = Date.now() - 40 * HOUR;
+    // 30 pods of 10 to 39 min, one an hour: "All" of a long record sent every one of them with each read (a megabyte a minute)
+    await t.db.insertInto("rent_sessions").values(Array.from({ length: 30 }, (_, i) => ({ id: `zz${i}`, machine_id: "rp-a", pod: "a", rate: 0.6, started_at: new Date(at + i * HOUR).toISOString(), ended_at: new Date(at + i * HOUR + (10 + i) * MIN).toISOString(), seen_at: null, gpu: "NVIDIA A40", up_at: null, idle_minutes: 10 }))).execute();
+    const first = await get(t.app, "/api/costs");
+    expect(first.json().sessions.map((s: { id: string }) => s.id)).toEqual(Array.from({ length: 12 }, (_, i) => `zz${29 - i}`));
+    expect(first.json().sessionsAll).toEqual({ count: 30, longestMs: 39 * MIN });
+    const all = (await get(t.app, "/api/costs?sessions=all")).json();
+    expect(all.sessions).toHaveLength(30);
+    expect(all.sessionsAll).toBeUndefined();
+    console.log(`[costs] bytes: newest ${first.body.length}, all ${JSON.stringify(all).length}`);
+  });
 });
