@@ -314,3 +314,47 @@ def test_a_short_clips_cut_is_kept_and_its_flicker_is_not_one():
     for n in (2, 3, 5, 8, 11):
         assert ref_cuts(np.where(np.arange(n) >= n // 2, -0.1, 0.0)) == [n // 2], n
     assert sum(bool(ref_cuts(flicker(n, 0.06, 650 + n))) for n in (5, 8, 11, 15, 20)) == 0
+
+
+def test_two_cuts_4_or_5_frames_apart_near_the_windows_ends_stay_cuts():
+    # A calm shot's insert of 4 or 5 frames, or two steps that way or back, within a window's first or last 13 frames: the
+    # short run between the cuts was no shot of its own and merged both of its neighbours, the flicker was measured across
+    # both cuts, and both were lost (0.36.3 lost 48 of these 72)
+    x = np.arange(241)
+    for seed in range(2):
+        calm = flicker(241, 0.005, 700 + seed)
+        for gap in (4, 5):
+            for at in (1, 3, 7, 241 - gap - 9, 241 - gap - 5, 241 - gap - 1):
+                steps = 0.1 * (x >= at) + 0.1 * (x >= at + gap)
+                insert = 0.12 * ((x >= at) & (x < at + gap))
+                back = 0.09 * (x >= at) - 0.1 * (x >= at + gap)
+                for name, shift in (("steps", steps), ("insert", insert), ("back", back)):
+                    assert ref_cuts(calm - shift) == [at, at + gap], (name, gap, at, seed)
+
+
+def test_a_cut_in_a_strong_flicker_6_to_10_frames_from_the_windows_ends_is_kept_as_often_as_before():
+    # A 20-level cut in a 4-level flicker: its steps that hold break into a few short runs around it, those merged the shots
+    # on both sides, and the cut was measured as flicker (0.36.2 kept 26 of these 80, 0.36.3 10, now 34)
+    x = np.arange(241)
+    kept = 0
+    for k, at in enumerate((6, 7, 8, 9, 10, 231, 232, 233, 234, 235)):
+        for seed in range(8):
+            kept += at in ref_cuts(flicker(241, 0.04, 720 + 10 * k + seed) - 0.2 * (x >= at))
+    assert kept >= 26, kept
+
+
+def test_a_held_frames_flicker_is_rarely_a_cut_and_its_cut_is_one():
+    # A driving video of 5 or 6 frames a second brought to 16 by repeating its frames, or drawn on threes, flickering by 4
+    # to 6 levels: two steps in three are exactly nothing, the grain read as none, and the flicker was split into shots of a
+    # few frames and cut (0.36.2 cut 17 of these 72 windows, 0.36.3 44, now 7)
+    x = np.arange(241)
+    cut = 0
+    for k, held in enumerate((np.floor(x * 5 / 16).astype(int), np.floor(x * 6 / 16).astype(int), (x // 3) * 3)):
+        for sd in (0.04, 0.06):
+            cut += sum(bool(ref_cuts(flicker(241, sd, 760 + 20 * k + seed)[held])) for seed in range(12))
+    assert cut <= 14, cut
+    # a calm one's cut is still one
+    held = np.floor(x * 5 / 16).astype(int)
+    for seed in range(6):
+        grey = (flicker(241, 0.005, 790 + seed) - 0.12 * (x >= 38))[held]
+        assert ref_cuts(grey) == [int(np.argmax(held >= 38))], seed

@@ -102,6 +102,11 @@ NOISE = 6.0
 # before
 GRAIN = 4.5
 
+# A frame-to-frame step this small (in levels) is a frame shown again, not a step: a driving video of 5 or 6 frames a second
+# brought to 16 by repeating its frames, or drawn on threes, steps by exactly nothing two times in three, and its grain read
+# with those steps as calm, so its flicker was split into shots of a few frames and taken for cuts
+HELD = 1e-3
+
 
 def _grain(*runs, mean=False):
     """
@@ -109,39 +114,70 @@ def _grain(*runs, mean=False):
     distance from its level), the largest of its channels: from the median step over the square root of 2, which a cut
     among the steps does not move, or with `mean` from the mean step (a steady grain's is 2 / sqrt(pi) times its spread),
     which a few frames give more surely (read off their median, a calm-looking handful let a flicker's step through, and a
-    cut inside a flicker near the window's ends was lost more often).
+    cut inside a flicker near the window's ends was lost more often). A held frame's step tells nothing and is left out
+    (see `HELD`); frames that all hold read as calm.
     """
     d = np.abs(np.concatenate([np.diff(r, axis=0) for r in runs]))
+    d = d[d.max(axis=1) > HELD]
+    if not len(d):
+        return 0.0
     return (np.mean(d, axis=0) * 0.6745 * np.sqrt(np.pi) / 2 if mean else np.median(d, axis=0) / np.sqrt(2)).max()
 
 
 def _shots(m, jump, hold):
     """
     Each frame's shot, as (first, past-the-last): the frames between steps that hold (`stretches` without `noise`) and that
-    stand out `GRAIN` times the grain of the runs on both sides of them. A frame in a run shorter than `hold`, whose grain
-    tells nothing, is in the whole clip; one at the clip's start or end is short because the clip is, and the run beside it
-    decides alone (a calm shot's cut 3 frames from the end, joined to the shot before, read as flicker there). A clip
-    shorter than 2 `hold` has no such run on both sides of a step: its runs count from half its length, a single frame as
-    calm.
+    stand out `GRAIN` times the grain of the runs on both sides of them. A run shorter than `hold` inside the clip has too
+    few steps for a grain of its own, and merges both of its neighbours into one shot; within 2 `hold` of the clip's start
+    or end, where a shot's flicker read across a cut set the bar near the end's few frames, its steps are judged instead by
+    the runs past it on both sides and by its own frame-to-frame steps, read with any short runs next to it as one: a calm
+    shot's insert of 4 or 5 frames is then a shot of its own, the few runs a cut inside a flicker breaks into split once
+    at the cut, and a flicker that held a step here and there stays one (merged, two cuts 4 or 5 frames apart near a
+    window's end were both lost, and a cut in a strong flicker 6 to 10 frames from it more often than before; judged so
+    everywhere, a wander or a fade's few frames stood as shots and were cut). A run at the clip's start or end is short
+    because the clip is, and the run beside it decides alone (a calm shot's cut 3 frames from the end, joined to the shot
+    before, read as flicker there). A clip shorter than 2 `hold` has no such run on both sides of a step: its runs count
+    from half its length, a single frame as calm. A frame in a shot shorter than `hold` is in the whole clip, but for one of
+    4 or 5 frames or at either end of a clip of 4 `hold` or more: its flicker read within 1 to 3 frames, a flash or a fast
+    strobe near the end stood as a shot and was cut, and a short clip's flicker was cut more often.
     """
     runs = stretches(m, jump, hold)
     n, need = len(m), min(hold, len(m) // 2)
 
     def grain(a, b):
         if b - a < need:
-            return 0.0 if a == 0 or b == n else np.inf
+            if a == 0 or b == n:
+                return 0.0
+            return None if a < 2 * hold or b > n - 2 * hold else np.inf
         return _grain(m[a:b]) if b - a > 1 else 0.0
 
+    # Each run's grain, None for a short one near the clip's ends; and each such one's own, read with its short neighbours
+    known, own = [grain(a, b) for a, b in runs], [0.0] * len(runs)
+    k = 0
+    while k < len(runs):
+        j = k
+        while known[j] is None:
+            j += 1
+        if j > k:
+            a, b = runs[k][0], runs[j - 1][1]
+            own[k:j] = [_grain(m[a:b], mean=True)] * (j - k)
+        k = j + 1
+
+    def past(k, by):
+        while known[k] is None:
+            k += by
+        return known[k]
+
     shots = [list(runs[0])]
-    for (a0, b0), (a, b) in zip(runs, runs[1:]):
+    for k, (a, b) in enumerate(runs[1:], 1):
         step = np.abs(np.median(m[a : a + hold], axis=0) - np.median(m[max(0, a - hold) : a], axis=0)).max()
-        if step > GRAIN * max(grain(a0, b0), grain(a, b)):
+        if step > GRAIN * max(past(k - 1, -1), past(k, 1), own[k - 1], own[k]):
             shots.append([a, b])
         else:
             shots[-1][1] = b
     out = [(0, n)] * n
     for a, b in shots:
-        if b - a >= need:
+        if b - a >= need or n >= 4 * hold and (a == 0 or b == n or b - a >= hold - 2):
             out[a:b] = [(a, b)] * (b - a)
     return out
 
@@ -170,14 +206,16 @@ def stretches(means, jump=JUMP, hold=1, noise=0.0):
             return jump
         a, b = max(0, i - 8 * hold), min(n, i + 8 * hold)
         sides = [spread(x, y) for x, y in ((a, i), (i, b)) if y - x >= hold]
-        near = [x for x in (m[max(0, i - hold) : i], m[i : i + hold]) if len(x) > 1]
+        # The frames nearest the step within its shots: a cut a few frames away read as flicker here
+        lo, hi = shot[i - 1][0], shot[i][1]
+        near = [x for x in (m[max(lo, i - hold) : i], m[i : min(hi, i + hold)]) if len(x) > 1]
         if near:
             sides.append(_grain(*near, mean=True))
         v = max([spread(a, b), *[0.75 * s for s in sides]])
         # A few frames' steps can read calm by chance: within `hold` of an end, where the next window is held to these
         # frames, the 2 `hold` nearest count as well (as they are: doubled below, a calm shot's 7-level cut on the last
         # frames was lost)
-        wide = [x for x in (m[max(0, i - 2 * hold) : i], m[i : i + 2 * hold]) if len(x) > 1] if min(i, n - i) < hold else []
+        wide = [x for x in (m[max(lo, i - 2 * hold) : i], m[i : min(hi, i + 2 * hold)]) if len(x) > 1] if min(i, n - i) < hold else []
         wide = 0.75 * _grain(*wide, mean=True) if wide else 0.0
         # Within 2 frames of either end a step has too few frames on that side to show it holds, and one taken for a cut there
         # left the window's end frames on the reference's raw flicker, where the window beside it is held to this one: it must
@@ -198,9 +236,10 @@ def stretches(means, jump=JUMP, hold=1, noise=0.0):
         if flicker is None or hold <= min(i, n - i):
             return True
         # Within `hold` of either end, every frame on the short side must lie past the middle of the step, on its own side:
-        # a calm shot's cut there holds to the end, and a flicker's few frames fall back across it
+        # a calm shot's cut there holds to the end, and a flicker's few frames fall back across it (its shot's frames: past a
+        # cut nearer the end, they are another shot's)
         c = np.argmax(np.abs(after - before))
-        short, own = (m[i:, c], after[c]) if n - i < hold else (m[:i, c], before[c])
+        short, own = (m[i : shot[i][1], c], after[c]) if n - i < hold else (m[shot[i - 1][0] : i, c], before[c])
         middle = (after[c] + before[c]) / 2
         return bool(np.all((short - middle) * (own - middle) > 0))
 
