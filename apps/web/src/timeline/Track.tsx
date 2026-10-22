@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Minus, Plus } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { Mic, Minus, Plus } from "lucide-react";
 import { newTransition, TRANSITIONS, type ClipMusic, type Transition } from "@afflatus/core";
 import type { Asset, Clip, RecipeInfo, Timeline, TimelinePatch } from "../api";
 import { Keys } from "../Keys";
@@ -19,6 +19,7 @@ import { HEIGHT, MUSIC, ROW, SOUND, SOURCE } from "./track/rows";
 import { SourceLane, ToCome, type SourcePlace } from "./track/SourceLane";
 import { joinCovered, TrackClip, type TrackClipActs } from "./track/TrackClip";
 import { TrackRuler } from "./track/TrackRuler";
+import { useClipDrag, type ClipMove } from "./track/useClipDrag";
 import { useRangeDrag } from "./track/useRangeDrag";
 import { useStretch } from "./track/useStretch";
 import { useTrackZoom, type TrackKeys } from "./track/useTrackZoom";
@@ -34,6 +35,18 @@ const PIN_AFTER_MS = 250;
  * and the music under all of it. Things are dragged onto it (useTrackDrop); a clip's edges shorten it (useStretch); the
  * range is drawn and snapped on it (useRangeDrag); it zooms and fits (useTrackZoom).
  */
+/** How wide the zone round a join is where its "+" shows (px): 20 either side of the cut. */
+const JOIN_ZONE = 40;
+
+/** The line under the track while a clip is held: where it lands if let go of now, named by the clips' numbers as they are. */
+function moveHint(m: ClipMove, now: string[]): string {
+  const n = (id: string) => now.indexOf(id) + 1;
+  const k = m.order.indexOf(m.clip);
+  if (m.order.join() === now.join()) return `Clip ${n(m.clip)}: drag it past another clip's middle to move it · Esc puts it back`;
+  const where = k === 0 ? "at the start" : k === m.order.length - 1 ? "at the end" : `between clip ${n(m.order[k - 1]!)} and clip ${n(m.order[k + 1]!)}`;
+  return `Let go to move clip ${n(m.clip)} ${where} · Esc puts it back`;
+}
+
 export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, onSource, onRecording, onRecordingTrim, sourceSelected, onSelectSource, onOpenSource, onRemoveSource, onStretchSource, onSplitSource, onPeekSource, sourcePlace, sourceMode, sourceLabel, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
@@ -60,7 +73,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onSelectMusic(): void;
   /** The playhead was moved: the moment of what plays, and where it stands on the track. */
   onSeek(playMs: number, trackMs?: number): void;
-  onMove(clip: string, after: string | null): void;
+  /** A clip moved along the track (by the pointer): put after `after`, null first. Its answer, if any, says whether it held. */
+  onMove(clip: string, after: string | null): Promise<unknown> | void;
   /** A picture or a video of the library, put between clips. */
   onInsert(asset: string, after: string | null): void;
   /** A picture pinned to a clip: it opens on it, ends on it, or passes through it at `atS` seconds. */
@@ -159,7 +173,43 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const fitMs = Math.max(totalMs, toComeMs, sourcePlace ? sourcePlace.atMs + sourcePlace.lengthMs : 0);
   const xOf = (clientX: number) => clientX - (inner.current?.getBoundingClientRect().left ?? 0);
 
-  const { over, dragging, draggedOf, hover, overClip, overJoin, drop, hint, legend, lineAt, leave } = useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic, onTransition: onTransition ? (clip, kind) => onTransition(clip, newTransition(kind)) : undefined, onSource, onRecording });
+  const { over, dragging, draggedOf, hover, overClip, overJoin, drop, hint: dropHint, legend: dropLegend, lineAt, leave } = useTrackDrop({ clips, slots, end, recipes, onUpload, onInsert, onPin, onClipSound, onMusic, onTransition: onTransition ? (clip, kind) => onTransition(clip, newTransition(kind)) : undefined, onSource, onRecording });
+
+  // ---- a clip moved along the track by the pointer, 1:1 (useClipDrag); while it is held the line under the track says where it lands
+  const clipDrag = useClipDrag({ slots, pps, xOf, scroller, onMove });
+  const moved = clipDrag.shown;
+  const hint = moved?.holding ? moveHint(moved, clips.map((c) => c.id)) : dropHint;
+  const legend = dropLegend && !moved?.holding;
+
+  // the join the pointer is near, within 20 px either side of it on the video row: its "+" shows (review 4, P6)
+  const [nearJoin, setNearJoin] = useState<string | null>(null);
+  const nearAt = (e: ReactPointerEvent) => {
+    const box = inner.current?.getBoundingClientRect();
+    const y = box ? e.clientY - box.top : -1;
+    const x = xOf(e.clientX);
+    const s = !moved && e.buttons === 0 && y >= ROW.top - 4 && y <= ROW.top + ROW.height ? slots.find((k) => k.index > 0 && Math.abs(x - k.left) <= JOIN_ZONE / 2) : undefined;
+    const id = s?.clip.id ?? null;
+    if (id !== nearJoin) setNearJoin(id);
+  };
+
+  // the part of the track in view, for the Audio row's hint: kept in sight when the clips reach past the view (at 1440 px it
+  // went under the inspector after the last clip)
+  const [view, setView] = useState({ left: 0, width: 0 });
+  const [audioHintW, setAudioHintW] = useState(0);
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const read = () => setView((v) => (v.left === el.scrollLeft && v.width === el.clientWidth ? v : { left: el.scrollLeft, width: el.clientWidth }));
+    read();
+    el.addEventListener("scroll", read, { passive: true });
+    const sized = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(read);
+    sized?.observe(el);
+    return () => {
+      el.removeEventListener("scroll", read);
+      sized?.disconnect();
+    };
+  }, []);
+  const audioHintAt = !clips.length ? PAD + 1 : view.width && audioHintW ? Math.max(PAD + 1, Math.min(end + PAD, view.left + view.width - audioHintW - 8)) : end + PAD;
 
   // ---- the range: In and Out, swept on the ruler with Shift, or dragged by their brackets; they snap to cuts, to the playhead and to quiet moments
   const { playEnd, measureOf, motion, snapRange, band, rangeMenuAt } = useRangeDrag({ slots, clips, timeline, pps, clock, snapQuiet, range, xOf, onRangeMenu });
@@ -171,16 +221,18 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   acts.current = {
     xOf, slots, totalMs, pps, range, leaveTip, restPin, overClip, overJoin, startPull, movePull, endPull, onSelect, onPick, onRange, onSeek, onMenu, onSoundMenu, onPinMenu, onStop, onJoin, onOpenJoin, onTransition, onNewClip,
     render: (c) => renderOf?.(c)?.run(),
+    clipDown: clipDrag.down, clipMove: clipDrag.move, clipUp: clipDrag.up, clipCancel: clipDrag.cancel, mount: clipDrag.mount, dragged: clipDrag.dragged,
   };
 
   return (
     <div ref={floor} data-designer-floor className="flex shrink-0 flex-col border-t border-line bg-panel select-none">
       <div className="flex">
-        <div className="relative w-[64px] shrink-0 border-r border-line text-[11px] font-semibold text-ink-2" style={{ height: HEIGHT }}>
-          <span className="absolute left-3" style={{ top: ROW.top + ROW.height / 2 - 8 }}>Video</span>
-          <span className="absolute left-3" style={{ top: SOUND.top + 1 }}>Audio</span>
-          {onSource && <span className="absolute left-3" style={{ top: SOURCE.top + 4 }}>Source</span>}
-          <span className="absolute left-3" style={{ top: MUSIC.top + 3 }}>Music</span>
+        <div className="relative w-[64px] shrink-0 border-r border-line text-meta font-semibold text-ink-2" style={{ height: HEIGHT }}>
+          {/* each lane's name on the middle of its row */}
+          <span className="absolute left-3 flex items-center" style={{ top: ROW.top, height: ROW.height }}>Video</span>
+          <span className="absolute left-3 flex items-center" style={{ top: SOUND.top, height: SOUND.height }}>Audio</span>
+          {onSource && <span className="absolute left-3 flex items-center" style={{ top: SOURCE.top, height: SOURCE.height }}>Source</span>}
+          <span className="absolute left-3 flex items-center" style={{ top: MUSIC.top, height: MUSIC.height }}>Music</span>
         </div>
         <div
           ref={scroller}
@@ -191,7 +243,14 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
           }}
           onDrop={drop}
         >
-          <div ref={inner} className="relative" style={{ width, height: HEIGHT }} onContextMenu={rangeMenuAt}>
+          <div
+            ref={inner}
+            className="relative"
+            style={{ width, height: HEIGHT }}
+            onContextMenu={rangeMenuAt}
+            onPointerMove={nearAt}
+            onPointerLeave={() => nearJoin && setNearJoin(null)}
+          >
             <TrackRuler
               clock={clock}
               durationMs={timeline.durationMs}
@@ -229,6 +288,9 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                   ownSound={measureOf(c.take?.asset.id)}
                   fileSound={c.sound === "file" ? measureOf(c.soundAsset?.id) : undefined}
                   renderMs={s.planned ? renderOf?.(c)?.ms : undefined}
+                  lift={moved?.clip === c.id ? (moved.holding ? "held" : "landing") : undefined}
+                  moving={Boolean(moved)}
+                  near={nearJoin === c.id && !moved}
                   acts={acts}
                 />
               );
@@ -248,7 +310,17 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
             {/* the voice recordings, each a band under the Lip sync clips made of it; none: where one goes */}
             <RecordingBands timeline={timeline} slots={slots} recipes={recipes} pps={pps} onTrim={onRecordingTrim} onSelect={onSelect} />
             {onRecording && !timeline.recordings?.length && (
-              <span aria-hidden style={{ left: clips.length ? end + PAD : PAD + 1, top: SOUND.top, height: SOUND.height }} className="pointer-events-none absolute flex items-center gap-1 rounded border border-dashed border-line-strong px-2 text-[11px] whitespace-nowrap text-ink-3">
+              // past the clips, or over the end of the row in view when they reach past it; a drop on it goes past the clips
+              <span
+                aria-hidden
+                ref={(el) => {
+                  if (el && el.offsetWidth !== audioHintW) setAudioHintW(el.offsetWidth);
+                }}
+                onDragOver={(e) => hover(e, draggedOf(e) === "sound" ? { kind: "recording" } : null)}
+                style={{ left: audioHintAt, top: SOUND.top, height: SOUND.height }}
+                className={cx("absolute flex items-center gap-1.5 rounded border border-dashed border-line-strong bg-panel px-2 text-body whitespace-nowrap text-ink-3", !dragging && "pointer-events-none", over?.kind === "recording" && !over.clip && "outline outline-2 outline-accent")}
+              >
+                <Mic size={13} className="shrink-0" />
                 Drop a voice recording here: Lip sync, clip by clip
               </span>
             )}
@@ -292,7 +364,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
             {lineAt !== null && <div aria-hidden className="pointer-events-none absolute z-20 w-[3px] rounded bg-accent" style={{ left: lineAt - 1.5, top: ROW.top - 2, height: ROW.height + 4 }} />}
             {sourcePlace && !sourcePlace.made && sourcePlace.windows.length > 0 && <ToCome place={sourcePlace} pps={pps} label={sourceLabel ?? "Motion transfer"} />}
             <Playhead clock={clock} slots={slots} cursorMs={cursorMs} totalMs={totalMs} pps={pps} free={sourceMode} />
-            <FramePeek area={inner} floor={floor} slots={slots} clips={clips} recipes={recipes} pps={pps} totalMs={totalMs} paused={Boolean(pinOver || stretch || dragging)} />
+            <FramePeek area={inner} floor={floor} slots={slots} clips={clips} recipes={recipes} pps={pps} totalMs={totalMs} paused={Boolean(pinOver || stretch || dragging || moved)} />
             {pinOver && (() => {
               const s = slots.find((x) => x.clip.id === pinOver.clip);
               const r = floor.current?.getBoundingClientRect();
@@ -327,7 +399,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                   e.dataTransfer.effectAllowed = "copy";
                 }}
                 data-tip={`${TRANSITIONS[k].label}: drag it onto a join`}
-                className="h-4 w-6 cursor-grab rounded-[4px] border border-line-strong"
+                className="h-6 w-7 cursor-grab rounded-key border border-line-strong"
                 style={{ background: SWATCH[k] }}
               />
             ))}

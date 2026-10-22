@@ -1,4 +1,4 @@
-import { memo, useEffect, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { memo, useEffect, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type Ref, type RefObject } from "react";
 import { Link2, Scissors, TriangleAlert, VolumeX, X } from "lucide-react";
 import { STRIP_FRAMES, stripUrl, thumbUrl, type Clip, type RecipeInfo } from "../../api";
 import { est, phaseLabel } from "../../format";
@@ -7,7 +7,7 @@ import { Bar, cx } from "../../ui";
 import { useQueueOf } from "../../screens/studio/queueOf";
 import { useRunningOf } from "../useRunning";
 import { modelsDiffer, TRANSITION_MS, TRANSITIONS, transitionSpan, type Transition } from "@afflatus/core";
-import { canExtend, DRAG_CLIP, fileVersion, PAD, pinInputs, pinMirrors, playAt, titleOf, type PinWhere, type Slot, type TimeRange } from "../model";
+import { canExtend, fileVersion, PAD, pinInputs, pinMirrors, playAt, titleOf, type PinWhere, type Slot, type TimeRange } from "../model";
 import { change, DRIFT } from "../lookDrift";
 import { SWATCH } from "../transitionLook";
 import { flipped, MirrorMark } from "../MirrorMark";
@@ -58,6 +58,14 @@ export interface TrackClipActs {
   onTransition?(clip: string, transition: Transition | null): void;
   /** Render a clip that has nothing to play yet. */
   render(clip: Clip): void;
+  /** The clip itself moved along the track by the pointer (useClipDrag): pressed, moved, let go of, taken back by the browser. */
+  clipDown(e: ReactPointerEvent<HTMLElement>, s: Slot): void;
+  clipMove(e: ReactPointerEvent): void;
+  clipUp(e: ReactPointerEvent): void;
+  clipCancel(): void;
+  /** Its wrapper, which the drag moves; and whether a click is the end of a drag (then not a click). */
+  mount(clip: string): Ref<HTMLDivElement>;
+  dragged(): boolean;
 }
 
 /**
@@ -78,8 +86,14 @@ export const joinCovered = (slots: Slot[], s: Slot, selected: string | null) =>
 /** How long a clip's film strip waits for its motion before it is asked for all the same. */
 const STRIP_WAIT_MS = 8000;
 
-export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, misfit, on, edged, picked, rendering, stretch, over, pinOn, ownSound, fileSound, renderMs, acts }: {
+export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, misfit, on, edged, picked, rendering, stretch, over, pinOn, ownSound, fileSound, renderMs, lift, moving, near, acts }: {
   s: Slot;
+  /** It is the clip moved by the pointer: held, or landing in its slot after the release. */
+  lift?: "held" | "landing";
+  /** A clip is being moved: the joins are not drawn meanwhile (each says how its clip follows the one before, which changes). */
+  moving: boolean;
+  /** The pointer is near the join before it: its "+" shows. */
+  near: boolean;
   /** A trim edge is drawn on the join before it (joinCovered): no "+" there. */
   edged: boolean;
   /** The clip before it on the track, and its model. */
@@ -151,20 +165,22 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
   };
   const heard = c.kind === "still" || s.planned ? (c.sound === "file" ? c.soundAsset?.name || "Audio file" : "") : c.sound === "file" ? c.soundAsset?.name || "Audio file" : c.sound === "muted" ? "Muted" : video?.hasSound ? "Own audio" : "Silent";
   return (
-    <div key={c.id}>
+    // its parts in one wrapper at the track's origin, laid out from its slot: a clip moved by the pointer moves them together
+    <div ref={acts.current.mount(c.id)} className={cx("absolute top-0 left-0", lift && "z-sticky")}>
       {/* a div that acts as a button, not a button: the stop button of a render sits inside it, and a button holds no button */}
       <div
         role="button"
         tabIndex={0}
-        draggable={!stretch}
-        onDragStart={(e) => {
-          a().leaveTip();
-          e.dataTransfer.setData(DRAG_CLIP, c.id);
-          e.dataTransfer.effectAllowed = "move";
-        }}
         onDragOver={(e) => a().overClip(e, s)}
         onPointerLeave={() => a().leaveTip()}
-        onPointerDown={() => a().leaveTip()}
+        onPointerDown={(e) => {
+          a().leaveTip();
+          // moved by the pointer itself, not by the browser's drag picture (review 4, P7); not while an edge is pulled
+          if (!stretch) a().clipDown(e, s);
+        }}
+        onPointerMove={(e) => a().clipMove(e)}
+        onPointerUp={(e) => a().clipUp(e)}
+        onPointerCancel={() => a().clipCancel()}
         onKeyDown={(e) => {
           // Ctrl+Enter is the editor's (it renders the selected clip)
           if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ") || e.ctrlKey || e.metaKey) return;
@@ -172,7 +188,8 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
           a().onSelect(c.id);
         }}
         onClick={(e) => {
-          const { onPick, onRange, range, onSelect, xOf, onSeek, slots, totalMs, pps } = a();
+          const { onPick, onRange, range, onSelect, xOf, onSeek, slots, totalMs, pps, dragged } = a();
+          if (dragged()) return;
           // Ctrl: the clip is picked (or dropped) for a render of several together
           if ((e.ctrlKey || e.metaKey) && onPick) {
             onPick(c.id);
@@ -200,7 +217,8 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
         aria-label={`Clip ${s.index + 1}, ${titleOf(c, recipe)}${s.planned ? ", not rendered yet" : `, ${(c.lengthMs / 1000).toFixed(1)} seconds`}`}
         style={{ left: s.left + 1, width: Math.max(8, s.width - 2), top: ROW.top, height: ROW.height }}
         className={cx(
-          "absolute overflow-hidden rounded-lg border-2 text-left",
+          "absolute touch-none overflow-hidden rounded-lg border-2 text-left",
+          lift === "held" ? "cursor-grabbing shadow-pop" : "cursor-grab",
           on ? "border-accent" : picked ? "border-accent/60" : s.planned ? (c.failed ? "border-dashed border-warn/50" : "border-dashed border-line-strong") : "border-line-strong",
           picked && "ring-2 ring-accent/40",
           s.planned && "bg-raised",
@@ -235,7 +253,8 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
                     e.stopPropagation();
                     a().onStop(c.job!.id);
                   }}
-                  className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-ink-2 hover:bg-hover hover:text-ink"
+                  // 16 px drawn in the queued box, 24 px to take (WCAG 2.5.8)
+                  className="relative flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-ink-2 before:absolute before:-inset-1 before:content-[''] hover:bg-hover hover:text-ink"
                 >
                   <X size={10} />
                 </button>
@@ -255,7 +274,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
                       e.stopPropagation();
                       a().render(c);
                     }}
-                    className={cx("flex h-[22px] shrink-0 items-center rounded-[7px] px-2 text-[11px] font-bold hover:brightness-110", c.failed ? "bg-warn-wash text-warn-ink" : "border border-line-strong bg-raised text-ink")}
+                    className={cx("flex h-6 shrink-0 items-center rounded-[7px] px-2 text-[11px] font-bold hover:brightness-110", c.failed ? "bg-warn-wash text-warn-ink" : "border border-line-strong bg-raised text-ink")}
                   >
                     {c.failed ? "Retry" : "Render"}
                   </button>
@@ -301,15 +320,15 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
       {on && !s.planned && !c.job && (
         <>
           {c.kind === "video" && (
-            <span role="separator" aria-label="Drag to trim the start of the clip" data-hint="drag: trim the start" onPointerDown={(e) => a().startPull(e, s, "start")} onPointerMove={(e) => a().movePull(e)} onPointerUp={() => a().endPull()} onPointerCancel={() => a().endPull()} className="absolute z-10 w-2.5 cursor-ew-resize rounded-l-lg bg-accent" style={{ left: s.left + 1, top: ROW.top, height: ROW.height }} />
+            <span role="separator" aria-label="Drag to trim the start of the clip" data-hint="drag: trim the start" onPointerDown={(e) => a().startPull(e, s, "start")} onPointerMove={(e) => a().movePull(e)} onPointerUp={() => a().endPull()} onPointerCancel={() => a().endPull()} className={cx(EDGE_HIT, "rounded-l-lg")} style={{ left: s.left + 1, top: ROW.top, height: ROW.height }} />
           )}
-          <span role="separator" aria-label="Drag to trim the end of the clip" data-hint={c.kind === "still" ? "drag: change the still's duration" : "drag: trim the end"} onPointerDown={(e) => a().startPull(e, s, "end")} onPointerMove={(e) => a().movePull(e)} onPointerUp={() => a().endPull()} onPointerCancel={() => a().endPull()} className="absolute z-10 w-2.5 cursor-ew-resize rounded-r-lg bg-accent" style={{ left: s.left + s.width - 11.5, top: ROW.top, height: ROW.height }} />
+          <span role="separator" aria-label="Drag to trim the end of the clip" data-hint={c.kind === "still" ? "drag: change the still's duration" : "drag: trim the end"} onPointerDown={(e) => a().startPull(e, s, "end")} onPointerMove={(e) => a().movePull(e)} onPointerUp={() => a().endPull()} onPointerCancel={() => a().endPull()} className={cx(EDGE_HIT, "rounded-r-lg")} style={{ left: s.left + s.width - 11.5, top: ROW.top, height: ROW.height }} />
         </>
       )}
 
       {/* how it starts: flowing on from the clip before, or a cut, with its transition; a click opens the join in the column
           (without that panel, it switches extend and cut, when the model can extend) */}
-      {s.index > 0 && prev && (() => {
+      {s.index > 0 && prev && !moving && (() => {
         const canCarry = canExtend(c, prev, recipe);
         const carries = c.joined === "continue" && canCarry;
         const opens = Boolean(acts.current.onOpenJoin);
@@ -355,7 +374,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
                 className={cx("absolute z-[9] rounded-md border border-white/40 shadow-sm", dropping && "outline-2 outline-accent")}
               >
                 {(["left", "right"] as const).map((side) => (
-                  <span key={side} onPointerDown={pull} onPointerMove={pullTo} onPointerUp={pullEnd} onPointerCancel={() => setPulling(null)} className={cx("absolute inset-y-0 w-1.5 cursor-ew-resize", side === "left" ? "left-0" : "right-0")} />
+                  <span key={side} onPointerDown={pull} onPointerMove={pullTo} onPointerUp={pullEnd} onPointerCancel={() => setPulling(null)} className={cx("absolute inset-y-0 w-3 cursor-ew-resize", side === "left" ? "-left-1.5" : "-right-1.5")} />
                 ))}
               </span>
             )}
@@ -365,9 +384,9 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
               onDragOver={(e) => a().overJoin(e, s)}
               data-hint={hint}
               aria-label={c.join === "stale" ? `The join before clip ${s.index + 1} no longer holds` : carries ? `The join before clip ${s.index + 1}: it extends clip ${s.index}${differ ? ", across two models" : ""}` : `The join before clip ${s.index + 1}: a cut${t ? `, ${words}` : ""}`}
-              style={{ left: s.left - 11, top: ROW.top + ROW.height / 2 - 11 }}
+              style={{ left: s.left - 12, top: ROW.top + ROW.height / 2 - 12 }}
               className={cx(
-                "peer absolute z-10 flex h-[22px] w-[22px] items-center justify-center rounded-full border",
+                "absolute z-10 flex h-6 w-6 items-center justify-center rounded-full border",
                 (toggles || opens) && "hover:scale-110 hover:border-accent",
                 dropping && "scale-125 border-accent ring-2 ring-accent/40",
                 c.join === "stale" ? "border-attention bg-attention-wash text-attention-ink" : carries ? (c.join === "fresh" ? "border-accent bg-accent-wash text-accent" : "border-dashed border-accent bg-panel text-accent") : "border-line-strong bg-raised text-ink-3",
@@ -376,16 +395,16 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
               {c.join === "stale" ? <TriangleAlert size={11} /> : carries ? <Link2 size={11} /> : <Scissors size={10} />}
               {differ && c.join !== "stale" && <span aria-hidden className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border border-panel bg-attention" />}
             </button>
-            {/* a clip put in here: shown while the pointer is on the join (or on it), the model chosen in the column after,
-                each said beside it as seamless or a cut (the rethink's insert, page 2 of its mock) */}
+            {/* a clip put in here: shown while the pointer is within 20 px of the join (Track's `near`) or on the "+", the model
+                chosen in the column after, each said beside it as seamless or a cut (the rethink's insert, page 2 of its mock) */}
             {acts.current.onNewClip && !edged && (
               <button
                 type="button"
                 aria-label={`Put a new clip between clip ${s.index} and clip ${s.index + 1}`}
                 data-hint={`A new clip between clip ${s.index} and clip ${s.index + 1}: its model is chosen in the column`}
                 onClick={() => a().onNewClip?.(prev.id)}
-                style={{ left: s.left - 9, top: ROW.top + 2 }}
-                className="absolute z-10 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-accent text-[13px] leading-none font-bold text-ground opacity-0 transition-opacity peer-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100"
+                style={{ left: s.left - 12, top: ROW.top + 1 }}
+                className={cx("absolute z-10 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-[15px] leading-none font-bold text-ground transition-opacity hover:opacity-100 focus-visible:opacity-100", near ? "opacity-100" : "opacity-0")}
               >
                 +
               </button>
@@ -437,6 +456,12 @@ function ClipBar({ clip }: { clip: string }) {
   const steps = useQueueOf((q) => (q.running?.clipId === clip ? q.running.steps : undefined)) ?? undefined;
   return <Bar value={progress * 100} steps={steps} loading={!progress} />;
 }
+
+/**
+ * A trim edge: 10 px drawn on the clip's edge, 26 px to take (8 px more on each side, over WCAG 2.5.8's 24); the join's
+ * dot, drawn after it, keeps the middle of the cut.
+ */
+const EDGE_HIT = "absolute z-10 w-2.5 cursor-ew-resize bg-accent before:absolute before:inset-y-0 before:-inset-x-2 before:content-['']";
 
 /** A pinned picture on a clip: framed in the colour of pictures, ringed in the accent while its card shows. */
 const pinLook = (on: boolean, place: string) =>

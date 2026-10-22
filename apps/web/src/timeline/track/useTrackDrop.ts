@@ -2,7 +2,7 @@ import { useState, type DragEvent } from "react";
 import type { Clip, RecipeInfo } from "../../api";
 import { DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, DRAG_VIDEO } from "../../screens/Library";
 import { TRANSITIONS, type TransitionKind } from "@afflatus/core";
-import { DRAG_CLIP, DRAG_TRANSITION, pinInputs, type Slot } from "../model";
+import { DRAG_TRANSITION, pinInputs, type Slot } from "../model";
 
 /** What is done on the track, as keys and their words: the line under it while nothing is dragged. */
 export const LEGEND: ReadonlyArray<{ keys: string; words: string }> = [
@@ -35,8 +35,11 @@ function fileKindOf(e: DragEvent): "picture" | "video" | "sound" {
   return type.startsWith("audio/") ? "sound" : type.startsWith("video/") ? "video" : "picture";
 }
 
-/** What can be dragged over the track. */
-export type Dragged = "clip" | "picture" | "video" | "sound" | "transition";
+/**
+ * What can be dragged over the track by the browser (from the library, the computer, the transitions' strip). A clip of
+ * the track itself is moved by the pointer instead (useClipDrag).
+ */
+export type Dragged = "picture" | "video" | "sound" | "transition";
 
 /**
  * What a drop on a clip would do, by what is dragged and where along the clip it is (`fx`, 0 at its left edge to 1 at its
@@ -71,14 +74,13 @@ export function clipTarget(d: Dragged, s: Slot, fx: number, width: number, clips
 }
 
 /** What is being dragged over the track, and what dropping it here would do. */
-export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic, onTransition, onSource, onRecording }: {
+export function useTrackDrop({ clips, slots, end, recipes, onUpload, onInsert, onPin, onClipSound, onMusic, onTransition, onSource, onRecording }: {
   clips: Clip[];
   slots: Slot[];
   /** Where the last clip ends, in pixels. */
   end: number;
   recipes: RecipeInfo[];
   onUpload?(file: File): Promise<{ id: string; kind: string } | null>;
-  onMove(clip: string, after: string | null): void;
   onInsert(asset: string, after: string | null): void;
   onPin(clip: Clip, where: "start" | "end" | "mid", asset: string, atS?: number): void;
   onClipSound(clip: string, asset: string): void;
@@ -98,7 +100,7 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
   // ---- what is being dragged, and what dropping it here would do
   const draggedOf = (e: DragEvent) => {
     const t = e.dataTransfer.types;
-    return t.includes(DRAG_TRANSITION) ? (onTransition ? "transition" : null) : t.includes(DRAG_CLIP) ? "clip" : t.includes(DRAG_PICTURE) ? "picture" : t.includes(DRAG_SOUND) ? "sound" : t.includes(DRAG_VIDEO) || t.includes(DRAG_TYPE) ? "video" : onUpload && t.includes("Files") ? fileKindOf(e) : null;
+    return t.includes(DRAG_TRANSITION) ? (onTransition ? "transition" : null) : t.includes(DRAG_PICTURE) ? "picture" : t.includes(DRAG_SOUND) ? "sound" : t.includes(DRAG_VIDEO) || t.includes(DRAG_TYPE) ? "video" : onUpload && t.includes("Files") ? fileKindOf(e) : null;
   };
   const hover = (e: DragEvent, what: Over | null) => {
     const d = draggedOf(e);
@@ -132,10 +134,9 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
       if (target.kind === "join" && kind in TRANSITIONS) onTransition?.(target.clip, kind);
       return;
     }
-    const moved = e.dataTransfer.getData(DRAG_CLIP);
     const asset = e.dataTransfer.getData(DRAG_TYPE);
     // a file from the computer: into the library first, then placed as the item it became
-    const file = !moved && !asset ? e.dataTransfer.files[0] : undefined;
+    const file = !asset ? e.dataTransfer.files[0] : undefined;
     if (file && onUpload) {
       void onUpload(file).then((made) => {
         if (!made) return;
@@ -154,10 +155,7 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
       return;
     }
     if (target.kind === "insert") {
-      const afterId = target.index === 0 ? null : clips[target.index - 1]!.id;
-      if (moved) {
-        if (afterId !== moved && clips[target.index]?.id !== moved) onMove(moved, afterId);
-      } else if (asset) onInsert(asset, afterId);
+      if (asset) onInsert(asset, target.index === 0 ? null : clips[target.index - 1]!.id);
     } else if (target.kind === "pin" && asset) onPin(clips.find((c) => c.id === target.clip)!, target.where, asset, target.atS);
     else if (target.kind === "sound" && asset) onClipSound(target.clip, asset);
     else if (target.kind === "music" && asset) onMusic(asset);
@@ -172,7 +170,7 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
     : !over
       ? dragging === "sound" ? "Drop it past the clips (or on a clip not rendered yet) for Lip sync clips, on a clip to replace its audio, or on the music track." : dragging === "transition" ? "Drop it on a join between two clips." : "Drop it on the timeline."
       : over.kind === "insert"
-        ? `Drop to ${dragging === "clip" ? "move it" : dragging === "picture" ? "add this image as a still" : "insert it"} ${over.index === 0 ? "at the start" : over.index >= clips.length ? "at the end" : `between clip ${over.index} and clip ${over.index + 1}`}.`
+        ? `Drop to ${dragging === "picture" ? "add this image as a still" : "insert it"} ${over.index === 0 ? "at the start" : over.index >= clips.length ? "at the end" : `between clip ${over.index} and clip ${over.index + 1}`}.`
         : over.kind === "pin"
           ? over.where === "mid" ? `Drop to make this image a keyframe of clip ${n(over.clip)} at ${over.atS} s.` : `Drop to make this image the ${over.where === "start" ? "first" : "last"} frame of clip ${n(over.clip)}.`
           : over.kind === "sound"

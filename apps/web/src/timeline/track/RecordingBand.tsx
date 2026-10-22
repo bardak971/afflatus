@@ -101,7 +101,8 @@ function Band({ recording, slots, recipes, pps, onTrim, onSelect }: {
     else if (held && !held.moved) onSelect(mine[0]!.clip.id);
     setHeld(null);
   };
-  const edge = "pointer-events-auto absolute top-0 bottom-0 w-[7px] cursor-ew-resize rounded-sm hover:bg-accent/40";
+  // an edge: 8 px lit on hover, 24 px to take (WCAG 2.5.8)
+  const edge = "pointer-events-auto absolute top-0 bottom-0 w-2 cursor-ew-resize rounded-sm before:absolute before:inset-y-0 before:-inset-x-2 before:content-[''] hover:bg-accent/40";
   return (
     <div
       aria-label={`Recording ${recording.asset.name}: ${stretch}`}
@@ -120,9 +121,9 @@ function Band({ recording, slots, recipes, pps, onTrim, onSelect }: {
         onPointerUp={up}
         onPointerCancel={() => setHeld(null)}
         onClick={onTrim ? undefined : () => onSelect(mine[0]!.clip.id)}
-        className={cx("pointer-events-auto absolute top-[2px] left-2 flex h-[14px] max-w-[calc(100%-16px)] items-center gap-1 rounded bg-panel/90 px-1 text-[10px] font-semibold text-accent", onTrim && "cursor-grab active:cursor-grabbing")}
+        className={cx("pointer-events-auto absolute top-1 left-3 flex h-6 max-w-[calc(100%-24px)] items-center gap-1 rounded bg-panel/90 px-1.5 text-micro font-semibold text-accent", onTrim && "cursor-grab active:cursor-grabbing")}
       >
-        <Mic size={9} className="shrink-0" />
+        <Mic size={11} className="shrink-0" />
         <span className="truncate">{recording.asset.name} · {stretch}{recording.parked ? ` · +${recording.parked}` : ""}</span>
       </span>
       {onTrim && <span aria-hidden data-tip="Drag: where the recording ends (clips set aside, or brought back and added at its pauses)" onPointerDown={down("end")} onPointerMove={move} onPointerUp={up} onPointerCancel={() => setHeld(null)} className={cx(edge, "-right-[4px]")} />}
