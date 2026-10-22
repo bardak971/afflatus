@@ -21,6 +21,8 @@ export const keepOf = (s: { unkeptDays: number; binDays: number }): Keep => ({ u
 
 /** An asset id as it is written inside a JSON document (a person's pictures, a preset's form, a job's inputs). */
 const ID_IN_JSON = /"([0-9a-f]{32})"/g;
+/** The same, also inside JSON kept as a string within JSON (an Undo snapshot's clip inputs and source), its quotes escaped. */
+const ID_IN_NESTED_JSON = /"([0-9a-f]{32})\\*"/g;
 
 /**
  * The assets something still needs, each with what needs it (for saying so): the take that plays in a clip,
@@ -37,8 +39,8 @@ export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean; jobs?: 
   const add = (ids: Array<string | null>, what: string) => {
     for (const id of ids) if (id && !used.has(id)) used.set(id, what);
   };
-  const scan = (texts: Array<string | null>, what: string) => {
-    for (const text of texts) for (const m of (text ?? "").matchAll(ID_IN_JSON)) if (!used.has(m[1]!)) used.set(m[1]!, what);
+  const scan = (texts: Array<string | null>, what: string, ids = ID_IN_JSON) => {
+    for (const text of texts) for (const m of (text ?? "").matchAll(ids)) if (!used.has(m[1]!)) used.set(m[1]!, what);
   };
   if (opts.takes !== false) {
     add((await db.selectFrom("clips").innerJoin("takes", "takes.id", "clips.take_id").select("takes.asset_id").execute()).map((r) => r.asset_id), "a timeline");
@@ -67,6 +69,10 @@ export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean; jobs?: 
     const jobs = await db.selectFrom("jobs").select(["inputs", "resume"]).where("status", "in", ["queued", "running"]).execute();
     scan(jobs.flatMap((j) => [j.inputs, j.resume]), "a job still to run");
   }
+  // what a timeline's Undo and Redo would put back (at most HISTORY steps each way), read last so that what uses it now
+  // says so: erased, an Undo brought its clip back without its take (the take of a window a trim out had dropped among
+  // them). Not for the callers that work the takes out on their own: every take a timeline played lately would be in use
+  if (opts.takes !== false) for (const table of ["timeline_history", "timeline_future"] as const) scan((await db.selectFrom(table).select("snapshot").execute()).map((r) => r.snapshot), "a timeline's Undo", ID_IN_NESTED_JSON);
   return used;
 }
 
