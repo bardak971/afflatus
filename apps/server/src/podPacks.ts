@@ -34,6 +34,8 @@ interface Entry extends PodPackView {
   resolved?: boolean;
   /** Taken as installed from the disk (onDisk): when it was dropped there (ms). */
   diskAt?: number;
+  /** The node types the jobs that asked for it lacked: it is loaded once ComfyUI lists them all (followRestart). */
+  lacks?: string[];
 }
 
 /**
@@ -70,6 +72,11 @@ const INSTALL_MS = 15 * 60_000;
 /** What installing and a restart are planned to take, before a pack is there (queue.ts's plan). */
 export const PACKS_MS = 4 * 60_000;
 
+/** Whether a ComfyUI's node list has a node type now. */
+const listed = (comfy: Comfy, node: string): Promise<boolean> =>
+  comfy.client.raw(`/object_info/${encodeURIComponent(node)}`, { signal: AbortSignal.timeout(15_000) })
+    .then(async (r) => (r.ok ? Boolean(((await r.json().catch(() => ({}))) as Record<string, unknown>)[node]) : false), () => false);
+
 export class PodPacks {
   private readonly pods = new Map<string, Map<string, Entry>>();
   /**
@@ -95,7 +102,8 @@ export class PodPacks {
 
   constructor(private readonly d: PodPacksDeps) {}
 
-  want(machine: string, names: string[], job?: string): boolean {
+  /** `lacks`: by pack, the node types the job lacked of it, each looked for after the restart (followRestart). */
+  want(machine: string, names: string[], job?: string, lacks: Record<string, string[]> = {}): boolean {
     let pod = this.pods.get(machine);
     if (!pod) this.pods.set(machine, (pod = new Map()));
     let changed = false;
@@ -118,6 +126,7 @@ export class PodPacks {
         e.jobs.push(job);
         changed = true;
       }
+      for (const node of lacks[name] ?? []) if (!e.lacks?.includes(node)) (e.lacks ??= []).push(node);
     }
     return changed;
   }
@@ -247,7 +256,10 @@ export class PodPacks {
     return changed;
   }
 
-  /** A restart under way: done once ComfyUI answers again with a node of each pack; failed when it does not come back. */
+  /**
+   * A restart under way: done once ComfyUI answers again with the nodes the jobs lacked of each pack (a node of it, when
+   * none was said); failed when it does not come back.
+   */
   private async followRestart(machine: string, comfy: Comfy, all: Entry[]): Promise<{ changed: boolean; loaded: boolean }> {
     const since = this.restarting.get(machine)!;
     const back = await comfy.client.status().then(() => true, () => false);
@@ -256,13 +268,28 @@ export class PodPacks {
       // the restart loaded whatever was on the disk: a dropped pack is not, from now on, one to restart for
       this.onDisk.delete(machine);
       comfy.forgetAll();
-      // loaded only when ComfyUI knows a node of the pack now: a restart that did not happen (or a pack that failed at its
-      // import) leaves it failed, never "ready" with its nodes missing
+      // loaded only when ComfyUI knows the nodes its jobs lacked now: a restart that did not happen (or a pack that failed at
+      // its import) leaves it failed, never "ready" with its nodes missing. Nor does an older copy of the pack on the disk,
+      // which Manager may leave as it is: counted loaded by its first node, it lacked the one the job needed, and the job
+      // waited for good under "installed". It is failed with how to update it, and not installed again by itself (unloaded):
+      // under Always that would restart ComfyUI again for the same copy
       for (const e of all.filter((x) => x.state === "installed")) {
-        const node = nodesOfPack(e.name)[0];
-        const has = !node || (await comfy.client.raw(`/object_info/${encodeURIComponent(node)}`, { signal: AbortSignal.timeout(15_000) })
-          .then(async (r) => (r.ok ? Boolean(((await r.json().catch(() => ({}))) as Record<string, unknown>)[node]) : false), () => false));
-        Object.assign(e, has ? { state: "ready" } : { state: "failed", failedAt: Date.now(), unloaded: true, error: "installed, but ComfyUI did not load it after its restart: its log says why; once that is fixed, restart ComfyUI by hand" });
+        const asked = e.lacks?.length ? e.lacks : nodesOfPack(e.name).slice(0, 1);
+        const lacking: string[] = [];
+        for (const node of asked) if (!(await listed(comfy, node))) lacking.push(node);
+        if (!lacking.length) {
+          e.state = "ready";
+          continue;
+        }
+        let loaded = false;
+        for (const node of nodesOfPack(e.name)) if (!lacking.includes(node) && (loaded = await listed(comfy, node))) break;
+        const repo = repoOfPack(e.name);
+        Object.assign(e, {
+          state: "failed", failedAt: Date.now(), unloaded: true,
+          error: loaded
+            ? `update ${e.name} (its version lacks ${lacking.join(", ")}): through ComfyUI-Manager, or by hand with a git pull in its folder under custom_nodes${repo ? ` (${repo})` : ""}; then restart ComfyUI`
+            : "installed, but ComfyUI did not load it after its restart: its log says why; once that is fixed, restart ComfyUI by hand",
+        });
       }
       return { changed: true, loaded: true };
     }

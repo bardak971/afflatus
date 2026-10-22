@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Family } from "@afflatus/core";
+import { nodesOfPack, type Family } from "@afflatus/core";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { civitaiVersion } from "../src/civitai";
 import { Comfy } from "../src/comfy";
@@ -506,8 +506,10 @@ describe("a rented pod's node packs", () => {
   /** A pod with ComfyUI-Manager, and the pod files of it; `busy` says whether a job runs there. */
   /** `nodes`: the node types ComfyUI has once restarted (the packs' own, when they loaded). */
   async function withManager(fail: string[] = [], late: Record<string, number> = {}, nodes = ["DetailerForEach", "FaceDetailer", "LyingSigmaSampler"]) {
-    // a pod without these packs: their nodes come only with a restart that loads them
-    const catalog = Object.fromEntries(Object.entries(referenceCatalog()).filter(([n]) => !["DetailerForEach", "FaceDetailer", "LyingSigmaSampler"].includes(n)));
+    // a pod without these packs (none of Impact's nodes: one there would be an older copy of it): their nodes come only
+    // with a restart that loads them
+    const gone = [...nodesOfPack("comfyui-impact-pack"), "LyingSigmaSampler"];
+    const catalog = Object.fromEntries(Object.entries(referenceCatalog()).filter(([n]) => !gone.includes(n)));
     const pm = await startFakeComfy({ catalog, models: { loras: [] }, manager: true, packsFail: fail, packsLate: late, afterReboot: Object.fromEntries(nodes.map((n) => [n, { input: { required: {} }, output: [], output_name: [], name: n, category: "x" }])) as never });
     pm.packVersion = "0.14.0";
     const comfy = new Comfy(pm.url, t.services.registry);
