@@ -4,7 +4,7 @@ import { betterPlace, byModel, dropped, groupingSaves, loadsAt, modelSwitches, m
 import { dayLabel, foldFailures, pinnedFailures, readableError, reasonOf, reasonsOf } from "../src/screens/queue/failures";
 import { StepClock } from "../src/screens/queue/stepRate";
 import { brushSpan } from "../src/screens/queue/useBrush";
-import { presetOf, typedWindow } from "../src/screens/queue/useTimesView";
+import { chartPointLabel, chartTimeLabel, DAY, presetOf, stretchOf, typedWindow } from "../src/screens/queue/useTimesView";
 import { windowOf } from "../src/data";
 
 describe("the charts' arithmetic", () => {
@@ -213,6 +213,17 @@ describe("the render times' window", () => {
     expect(windowOf({ preset: "All", ms: null }, 5)).toBe("all");
     expect(windowOf({ from: 1, to: 2 })).toEqual({ from: 1, to: 2 });
     expect(presetOf("nope").label).toBe("7D");
+  });
+  it("says a long window's weeks as weeks: per week, and the first and last days at the crosshair", () => {
+    expect([3_600_000, 6 * 3_600_000, DAY, 7 * DAY].map(stretchOf)).toEqual(["hour", "6 h", "day", "week"]);
+    // midday, so that the day is the same in any time zone
+    const at = Date.parse("2026-10-05T12:00:00.000Z");
+    const weeks = chartPointLabel(700 * DAY, 7 * DAY);
+    expect(weeks(at, true)).toBe("5 Oct – 11 Oct 2026");
+    expect(weeks(at)).toBe(chartTimeLabel(700 * DAY, DAY)(at));
+    // a moment (a render in the lanes, the window's ends) is a day, and a chart of days says its days
+    expect(chartTimeLabel(700 * DAY, 7 * DAY)(at, true)).toBe(chartTimeLabel(700 * DAY, DAY)(at, true));
+    expect(chartPointLabel(30 * DAY, DAY)(at, true)).toBe(chartTimeLabel(30 * DAY, DAY)(at, true));
   });
   it("applies a typed window only when it is one", () => {
     expect(typedWindow(null)).toBeNull();

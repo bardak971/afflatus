@@ -13,7 +13,7 @@ import { ModelDetail, ModelList, modelColor } from "./ModelTable";
 import { PHASES } from "./phases";
 import { RenderList } from "./RenderList";
 import { spanSaid, SummaryTiles } from "./SummaryTiles";
-import { chartTimeLabel, csvQuery, stretchOf, useTimesView } from "./useTimesView";
+import { chartPointLabel, chartTimeLabel, csvQuery, stretchOf, useTimesView } from "./useTimesView";
 import { ExportCsv } from "./ExportCsv";
 import { StaleNote, WindowBar } from "./WindowBar";
 import { scrollInside } from "../../scrollInside";
@@ -71,7 +71,9 @@ export function RenderTimes() {
   const spanMs = d.to - d.from;
   const stretch = stretchOf(d.step);
   const timeLabel = chartTimeLabel(spanMs, d.step);
-  const chart: ChartBase = { times: d.times, timeLabel, step: d.step, onBrush: zoom, detail: (i: number) => <TopList bucket={d.buckets[i]} /> };
+  // the charts' points, said as stretches (a week by its days); the lanes and the window's ends as moments
+  const pointLabel = chartPointLabel(spanMs, d.step);
+  const chart: ChartBase = { times: d.times, timeLabel: pointLabel, step: d.step, onBrush: zoom, detail: (i: number) => <TopList bucket={d.buckets[i]} /> };
   const windowSaid = `${timeLabel(d.from, true)} → ${timeLabel(d.to, true)}`;
   const pickedIndex = d.models.findIndex((m) => m.key === model);
   const picked = pickedIndex >= 0 ? d.models[pickedIndex] : undefined;
@@ -131,7 +133,7 @@ export function RenderTimes() {
           )}
 
           {anything && picked && (
-            <ModelDetail model={picked} color={modelColor(pickedIndex, tones)} times={d.times} timeLabel={timeLabel} stretch={stretch} onClose={() => setModel(null)} />
+            <ModelDetail model={picked} color={modelColor(pickedIndex, tones)} times={d.times} timeLabel={pointLabel} stretch={stretch} onClose={() => setModel(null)} />
           )}
 
           {anything && (

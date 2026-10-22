@@ -29,7 +29,7 @@ export const median = (values: number[]): number | null => {
 export const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
 export const real = (values: Array<number | null>): number[] => values.filter((v): v is number => v !== null && Number.isFinite(v));
 /** The middle of values that each stand for several renders: what the middle of all of them would about be. */
-function weighted(pairs: Array<[number | null, number]>, q = 0.5): number | null {
+export function weighted(pairs: Array<[number | null, number]>, q = 0.5): number | null {
   const known = pairs.filter((p): p is [number, number] => p[0] !== null && p[1] > 0).sort((a, b) => a[0] - b[0]);
   const total = sum(known.map((p) => p[1]));
   let seen = 0;
