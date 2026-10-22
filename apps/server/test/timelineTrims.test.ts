@@ -177,6 +177,26 @@ describe("a source's windows trimmed", () => {
     expect(out.clips.map((c: { id: string }) => c.id)).toEqual(v.clips.map((c: { id: string }) => c.id));
     expect(out.clips.map((c: { inputs: { sourceSeconds: number } }) => c.inputs.sourceSeconds)).toEqual(v.clips.map((c: { inputs: { sourceSeconds: number } }) => c.inputs.sourceSeconds));
   });
+
+  it("sets a window shortened, then rendered at that length, aside at its rendered length: the end out stops at it (T-23)", async () => {
+    const tl = await madeSwap();
+    const v = await view(tl);
+    const c2 = v.clips[2];
+    const start = c2.inputs.sourceStart as number;
+    await call("POST", `/api/timelines/${tl}/source/trim`, { fromMs: 0, toMs: Math.round((start + c2.inputs.sourceSeconds - 1) * 1000) });
+    const short = (await sourceState(tl)).clips[2]!.n;
+    expect(short).toBeLessThan(c2.inputs.sourceSeconds);
+    const take = await takeFor(c2.id);
+    await call("POST", `/api/timelines/${tl}/source/trim`, { fromMs: 0, toMs: Math.round((start + 1.5) * 1000) });
+    const aside = await sourceState(tl);
+    expect(aside.parked[0]).toMatchObject({ id: c2.id, n: short });
+    expect(aside.shortened).toBeNull();
+    await call("POST", `/api/timelines/${tl}/source/trim`, { fromMs: 0, toMs: 20000 });
+    const out = await sourceState(tl);
+    const back = out.clips.find((c) => c.id === c2.id) ?? out.parked.find((p) => p.id === c2.id);
+    expect(back?.n).toBe(short);
+    expect(allTakes(out).has(take)).toBe(true);
+  });
 });
 
 describe("a source cut again (card #42's forms per window)", () => {
@@ -240,6 +260,26 @@ describe("a recording's clips trimmed", () => {
     expect(out.clips[2]!.take).toBe(take);
     expect(out.parked).toEqual([]);
     expect(out.shortened).toBeNull();
+  });
+
+  it("sets a clip shortened, then rendered at that length, aside at its rendered length: it never comes back longer (T-23)", async () => {
+    const tl = (await call("POST", "/api/timelines", { name: "zz-test recording" })).id as string;
+    const sound = await recording();
+    await call("POST", `/api/timelines/${tl}/recording`, { asset: sound });
+    const c2 = (await recordingState(tl)).clips[2]!;
+    await call("POST", `/api/timelines/${tl}/recording/trim`, { asset: sound, fromMs: 0, toMs: Math.round((c2.s + c2.n - 0.8) * 1000) });
+    const short = (await recordingState(tl)).clips[2]!.n;
+    expect(short).toBeLessThan(c2.n);
+    const take = await takeFor(c2.id);
+    await call("POST", `/api/timelines/${tl}/recording/trim`, { asset: sound, fromMs: 0, toMs: Math.round((c2.s + 1) * 1000) });
+    const aside = await recordingState(tl);
+    expect(aside.parked[0]).toMatchObject({ id: c2.id, n: short });
+    expect(aside.shortened).toBeNull();
+    await call("POST", `/api/timelines/${tl}/recording/trim`, { asset: sound, fromMs: 0, toMs: 30000 });
+    const out = await recordingState(tl);
+    const back = out.clips.find((c) => c.id === c2.id) ?? out.parked.find((p) => p.id === c2.id);
+    expect(back?.n).toBe(short);
+    expect(new Set([...out.takes, ...out.parked.flatMap((p) => p.takes)]).has(take)).toBe(true);
   });
 });
 

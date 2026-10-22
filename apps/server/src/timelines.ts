@@ -718,13 +718,9 @@ export class Timelines {
             await tx.updateTable("clips").set({ inputs: JSON.stringify({ ...inputs, [w.seconds]: Math.round(s.ms) / 1000 }), updated_at: now() }).where("id", "=", s.id).execute();
           }
           // set aside whole, in order, before those set aside already (they lie further on); a window shortened before is
-          // set aside at its length before, as it lay among them
+          // set aside at its length before, as it lay among them, unless it was rendered since (atLengthBefore)
           const rows = await parkClips(tx, cut.away);
-          for (const row of rows) {
-            if (!shortened || row.clip.id !== shortened.clip) continue;
-            row.clip = { ...row.clip, inputs: JSON.stringify({ ...(JSON.parse(String(row.clip.inputs)) as Record<string, unknown>), [w.seconds]: shortened.seconds }) };
-            shortened = undefined;
-          }
+          shortened = atLengthBefore(rows, shortened, w.seconds);
           if (fresh) shortened = fresh;
           parked = [...rows, ...parked];
           await this.renumber(timelineId, order.filter((id) => !cut.away.includes(id)), tx);
@@ -1274,14 +1270,10 @@ export class Timelines {
           await tx.updateTable("clips").set({ inputs: JSON.stringify({ ...inputs, [w.seconds]: Math.round(s.ms) / 1000 }), updated_at: now() }).where("id", "=", s.id).execute();
         }
         // set aside whole, in order, before those set aside already (they lie further on): the end out brings them back. A
-        // clip shortened before is set aside at its length before, as it lay among them: set aside short, it no longer met
-        // the next one, and the end out dropped that one and every one after it, rendered or not
+        // clip shortened before is set aside at its length before, as it lay among them, unless it was rendered since
+        // (atLengthBefore)
         const rows = await parkClips(tx, cut.away);
-        for (const p of rows) {
-          if (!shortened || p.clip.id !== shortened.clip) continue;
-          p.clip = { ...p.clip, inputs: JSON.stringify({ ...(JSON.parse(String(p.clip.inputs)) as Record<string, unknown>), [w.seconds]: shortened.seconds }) };
-          shortened = undefined;
-        }
+        shortened = atLengthBefore(rows, shortened, w.seconds);
         if (fresh) shortened = fresh;
         await setParkedRecording(tx, timelineId, to.asset, [...rows, ...(parkedRecordings(row)[to.asset] ?? [])], shortened ?? null);
         if (cut.away.length) await this.renumber(timelineId, all.map((p) => p.clip.id).filter((id) => !cut.away.includes(id)), tx);
@@ -1843,6 +1835,21 @@ async function parkClips(tx: Tx, ids: string[]): Promise<ParkedClip[]> {
   }
   if (ids.length) await tx.deleteFrom("clips").where("id", "in", ids).execute();
   return rows;
+}
+
+/**
+ * The clip a trim in shortened before (`shortened`), set aside whole by a deeper one (among `rows`): set aside at its
+ * length before, as it lay among those set aside further on. Set aside short, it no longer met the next one, and the end
+ * out dropped that one and every one after it, rendered or not. Not when it was rendered since: its takes were made at
+ * the shorter length, which it keeps (given back, it came back longer than the take playing on it, and the clip after it
+ * was placed for a part that take does not reach), and the end out stops at it, as at any rendered clip that does not
+ * meet the next (trimOut). The record is spent either way: returns what is left of it. `seconds`: the input of its length.
+ */
+function atLengthBefore(rows: ParkedClip[], shortened: Shortened | undefined, seconds: string): Shortened | undefined {
+  const row = shortened && rows.find((p) => p.clip.id === shortened.clip);
+  if (!shortened || !row) return shortened;
+  if (!row.takes.length) row.clip = { ...row.clip, inputs: JSON.stringify({ ...(JSON.parse(String(row.clip.inputs)) as Record<string, unknown>), [seconds]: shortened.seconds }) };
+  return undefined;
 }
 
 /**
