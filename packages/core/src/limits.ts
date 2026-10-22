@@ -19,4 +19,6 @@ export const LIMITS = {
   sentPictures: { person: 3, place: 2 },
   /** Outfits of one person. */
   outfits: 30,
+  /** Fields pinned to the top of one model family's forms (Pinned fields). */
+  pinnedFields: 60,
 } as const;

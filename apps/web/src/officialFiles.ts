@@ -1,4 +1,5 @@
-import type { FamilyInfo, RecipeStatus } from "./api";
+import { sameFile } from "@afflatus/core";
+import type { FamilyInfo, RecipeInfo, RecipeStatus } from "./api";
 
 /** A family's official file, with its size when the server knows it. */
 export interface Official {
@@ -64,3 +65,16 @@ export function lacksOnlyFiles(status: Pick<RecipeStatus, "ready" | "missingNode
   };
   return status.missingSlots.every(slotComes) && status.emptyInputs.every(inputComes);
 }
+
+/**
+ * Whether a model the form picks is not in a machine's list for its input, matched as the server matches it when it builds
+ * the job (core sameFile), so that no screen says a file is missing that the render finds. An input the machine gives no
+ * list for counts as listed, unless `unlistedLacks`.
+ */
+export const picksUnlisted = (status: Pick<RecipeStatus, "options">, recipe: Pick<RecipeInfo, "inputs">, values: Record<string, unknown>, unlistedLacks = false): boolean =>
+  recipe.inputs.some((x) => {
+    const value = values[x.id];
+    if (x.type !== "model" || typeof value !== "string" || !value) return false;
+    const listed = status.options[x.id];
+    return listed ? !sameFile(listed, value) : unlistedLacks;
+  });

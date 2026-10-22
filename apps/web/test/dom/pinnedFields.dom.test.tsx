@@ -154,6 +154,33 @@ describe("pinned fields", () => {
     await waitFor(() => expect(saved().at(-1)).toEqual({ sdxl: ["steps", "cfg"] }));
   });
 
+  it("drop on the next save the ids no recipe of the family has any more, which no form could show or unpin", async () => {
+    settingsWith({ sdxl: ["gone", "cfg"], h3: ["shot", "lost"] });
+    fakeApi.on("GET /recipes", { families: [], recipes: [sdxl, h3("zz-test.h3.lipsync", "Lip sync")] });
+    const { user } = draw(<Draft recipe={sdxl} />);
+    await waitFor(() => expect(fakeApi.calls("GET", "/recipes").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getByRole("slider", { name: "Steps" })).toBeTruthy());
+    fireEvent.contextMenu(nameOf(screen.getAllByRole("slider", { name: "Steps" }).at(-1)!), { button: 2, clientX: 40, clientY: 40 });
+    await user.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: /Pin to the top/ }));
+    // only this family's list is cleaned: the H3 one is the H3 forms' to clean when they save it
+    await waitFor(() => expect(saved().at(-1)).toEqual({ h3: ["shot", "lost"], sdxl: ["cfg", "steps"] }));
+  });
+
+  it("offer no Pin once the family holds as many as the server keeps, and say why", async () => {
+    const many = Array.from({ length: 60 }, (_, n) => `f${n}`);
+    settingsWith({ sdxl: many });
+    fakeApi.on("GET /recipes", { families: [], recipes: [{ ...sdxl, inputs: [...sdxl.inputs, ...many.map((id) => ({ id, type: "text", label: id, advanced: true }))] }] });
+    draw(<Draft recipe={sdxl} />);
+    await waitFor(() => expect(fakeApi.calls("GET", "/recipes").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getByRole("slider", { name: "CFG scale" })).toBeTruthy());
+    fireEvent.contextMenu(nameOf(screen.getByRole("slider", { name: "CFG scale" })), { button: 2, clientX: 40, clientY: 40 });
+    const row = within(await screen.findByRole("menu")).getByRole("menuitem", { name: /Pin to the top/ });
+    expect((row as HTMLButtonElement).disabled).toBe(true);
+    expect(row.textContent).toContain("60 pinned for this model already");
+    fireEvent.click(row);
+    expect(saved()).toEqual([]);
+  });
+
   it("are forgotten from Settings › Interface", async () => {
     settingsWith({ sdxl: ["cfg", "steps"], h3: ["shot"] });
     const { user } = draw(<InterfaceTab />);
