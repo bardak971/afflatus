@@ -86,6 +86,22 @@ describe("a new install's settings", () => {
     await db.destroy();
   });
 
+  it("keeps the user's own pod address of an install from before the list of machines, read and after a folder is written", async () => {
+    const db = openSqlite(":memory:");
+    await migrate(db);
+    // 0.3.0 and 0.4.0 stored only `comfyUrl`: a RunPod address there is a pod of the user's own, typed in by hand
+    const pod = "https://zz-test-8188.proxy.runpod.net";
+    await db.insertInto("settings").values({ key: "comfyUrl", value: JSON.stringify(pod), updated_at: new Date().toISOString() }).execute();
+    const read = await readSettings(db);
+    expect(read.comfyUrl).toBe(pod);
+    expect(read.machines.map((m) => [m.id, m.url, m.rented])).toEqual([["m1", pod, undefined]]);
+    // what the folder found at the first answer writes (services.ts comfyFolder) keeps the address
+    const written = await writeSettings(db, { comfyDir: "/zz-test/ComfyUI" });
+    expect(written.machines.map((m) => m.url)).toEqual([pod]);
+    expect((await readSettings(db)).comfyUrl).toBe(pod);
+    await db.destroy();
+  });
+
   it("an install from before keeps its ComfyUI, its families' rule, and no first launch", async () => {
     const db = openSqlite(":memory:");
     await migrate(db);

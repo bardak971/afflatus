@@ -417,10 +417,12 @@ export const firstMachine = (url: string, dir = ""): Machine => ({ id: FIRST_MAC
  */
 function inStep(s: Settings, listed = true): Settings {
   if (!s.machines.length) {
+    // never written (0.3.0, 0.4.0): the address is the user's own ComfyUI as typed, a pod of their own on RunPod's proxy
+    // too (Afflatus rented none then, and has always kept the pods it rents in the list), so it becomes the first machine as it is
+    if (!listed) return { ...s, machines: [firstMachine(s.comfyUrl, s.comfyDir)] };
     // a pod's address kept from before only a ComfyUI of the user's own was kept so (writeSettings), its pod removed since:
     // never offered as "Your ComfyUI", ComfyUI's usual one instead
-    const kept = podProxyUrl(s.comfyUrl) ? { ...s, comfyUrl: settingsSchema.shape.comfyUrl.parse(undefined) } : s;
-    return listed ? kept : { ...kept, machines: [firstMachine(kept.comfyUrl, kept.comfyDir)] };
+    return podProxyUrl(s.comfyUrl) ? { ...s, comfyUrl: settingsSchema.shape.comfyUrl.parse(undefined) } : s;
   }
   const [first] = s.machines;
   return { ...s, comfyUrl: first!.url, comfyDir: first!.dir };
