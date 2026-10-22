@@ -370,6 +370,72 @@ describe("the costs of a window", () => {
     expect((await s4(at + 2 * 24 * HOUR)).parts).toEqual({ ...before, idle: before.idle + 60 * MIN });
   });
 
+  it("a pod whose first answer was never kept, cut by a Forget, keeps its boot as it was: its idle after the cut stays idle", async () => {
+    // s7 and s8 run from two hours before; Afflatus restarted mid-boot, so no first answer is kept, and a render 10–20 min in
+    // ends its boot at 10 min. Every render time is forgotten 40 min in
+    const from = NOW - 120 * MIN;
+    await session("s7", "rp-g", from, { up_at: null });
+    await session("s8", "rp-h", from, { up_at: null });
+    await db.insertInto("render_stats").values([render("rp-g", from + 20 * MIN, 10 * MIN), render("rp-h", from + 20 * MIN, 10 * MIN)]).execute();
+    await clear(db, from + 40 * MIN);
+    // s7 renders again 80–90 min in: its boot was not up to that render
+    await db.insertInto("render_stats").values(render("rp-g", from + 90 * MIN, 10 * MIN)).execute();
+    // s8 renders nothing more and Afflatus ends it idle: it came up, it is not a pod that never answered
+    await db.updateTable("rent_sessions").set({ ended_at: iso(NOW), end_why: "idle" }).where("id", "=", "s8").execute();
+    const v = await whole(NOW);
+    expect(v.sessions.find((x) => x.id === "s7")!.parts).toMatchObject({ boot: 10 * MIN, render: 20 * MIN, idle: 90 * MIN });
+    expect(v.sessions.find((x) => x.id === "s8")!.parts).toMatchObject({ boot: 10 * MIN, render: 10 * MIN, idle: 100 * MIN });
+  });
+
+  it("Forget just after a pod's end: the row of a render its end cut, written a moment later, still counts", async () => {
+    // s9 ended a minute before Forget while a render was under way; that render's failed row lands just after Forget
+    const from = NOW - 60 * MIN;
+    await session("s9", "rp-i", from, { ended_at: iso(NOW - MIN) });
+    await clear(db, NOW);
+    await db.insertInto("render_stats").values(render("rp-i", NOW - MIN, 20 * MIN, { status: "failed" })).execute();
+    const s9 = async (at: number) => (await whole(at)).sessions.find((x) => x.id === "s9")!;
+    expect((await s9(NOW + 2 * MIN)).parts).toMatchObject({ boot: 2 * MIN, failed: 20 * MIN, idle: 37 * MIN });
+    // kept whole a day after its end, with that render, and still after the next Forget
+    await fold(db, 0, NOW + 2 * 24 * HOUR);
+    expect(await db.selectFrom("rent_sessions").select("split_until").where("id", "=", "s9").executeTakeFirstOrThrow()).toEqual({ split_until: null });
+    await clear(db, NOW + 2 * 24 * HOUR);
+    expect((await s9(NOW + 2 * 24 * HOUR)).parts).toMatchObject({ boot: 2 * MIN, failed: 20 * MIN, idle: 37 * MIN });
+  });
+
+  it("the whole record is worked out in time linear in its rows: a year of deploys on three reused machine ids", async () => {
+    // three deploys a day for a year, each on one of three machine ids (a machine keeps its id across deploys), with four
+    // files and three renders each, none of their splits kept yet. Each session filtering every file and render of its
+    // machine read their dates sessions × rows times (millions here); counted rather than timed, so a loaded PC never fails it
+    const DAY = 24 * HOUR;
+    const sessions: Array<Record<string, unknown>> = [];
+    const files: Array<Record<string, unknown>> = [];
+    const rows: Array<ReturnType<typeof render>> = [];
+    for (let d = 365; d > 0; d--) for (let k = 0; k < 3; k++) {
+      const from = NOW - d * DAY + k * 6 * HOUR;
+      const [id, m] = [`y${d}-${k}`, `rp-y${k}`];
+      sessions.push({ id, machine_id: m, pod: id, rate: 0.6, started_at: iso(from), ended_at: iso(from + 2 * HOUR), seen_at: null, gpu: "NVIDIA A40", up_at: iso(from + 3 * MIN), idle_minutes: 10 });
+      for (let j = 0; j < 4; j++) files.push({ id: `${id}f${j}`, machine_id: m, file: `f${j}.safetensors`, folder: "x", via: "hf", bytes: 1e9, started_at: iso(from + (3 + j) * MIN), ended_at: iso(from + (4 + j) * MIN) });
+      for (let j = 0; j < 3; j++) rows.push(render(m, from + (20 + 20 * j) * MIN, 10 * MIN));
+    }
+    for (let i = 0; i < sessions.length; i += 200) await db.insertInto("rent_sessions").values(sessions.slice(i, i + 200) as never).execute();
+    for (let i = 0; i < files.length; i += 200) await db.insertInto("pod_fetches").values(files.slice(i, i + 200) as never).execute();
+    for (let i = 0; i < rows.length; i += 200) await db.insertInto("render_stats").values(rows.slice(i, i + 200)).execute();
+    const parse = Date.parse;
+    let parsed = 0;
+    Date.parse = (s: string) => (parsed++, parse(s));
+    let v: CostsView;
+    try {
+      v = await whole(NOW);
+    } finally {
+      Date.parse = parse;
+    }
+    const y = v.sessions.filter((x) => x.id.startsWith("y"));
+    expect(y).toHaveLength(1095);
+    expect(y.every((x) => x.parts.fetch === 4 * MIN && x.parts.render === 30 * MIN && x.parts.boot === 3 * MIN)).toBe(true);
+    // a few reads of each row's dates, not one per session of its machine
+    expect(parsed).toBeLessThan(30 * (sessions.length + files.length + rows.length));
+  });
+
   it("a record of 800 days: \"all\" and the gauges count from its start, the chart its last 730 days, and nothing drops out as days pass", async () => {
     await session("old", "rp-e", NOW - 800 * 24 * HOUR, { ended_at: iso(NOW - 800 * 24 * HOUR + HOUR) });
     await session("edge", "rp-e", NOW - 730 * 24 * HOUR, { ended_at: iso(NOW - 730 * 24 * HOUR + HOUR) });

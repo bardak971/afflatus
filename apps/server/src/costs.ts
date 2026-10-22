@@ -223,7 +223,11 @@ export interface FetchAdvice {
 /** The files fetched on several deploys and the volume that would have kept them; null when no file came twice. */
 export function fetchAdvice(fetched: readonly Fetched[]): FetchAdvice | null {
   const byKey = new Map<string, Fetched[]>();
-  for (const f of fetched) byKey.set(f.key, [...(byKey.get(f.key) ?? []), f]);
+  for (const f of fetched) {
+    const had = byKey.get(f.key);
+    if (had) had.push(f);
+    else byKey.set(f.key, [f]);
+  }
   const again = [...byKey.values()].filter((list) => new Set(list.map((f) => f.session)).size >= 2);
   if (!again.length) return null;
   const bytes = again.reduce((n, list) => n + list[0]!.bytes, 0);
@@ -439,32 +443,37 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
 
   // a render is a pod's only within a run of its machine (rent_sessions): an id that was a home machine's before it was a
   // pod's (the first machines were m1, m2 whatever they were) keeps its home renders at home
-  // each machine's runs read once, by machine: /metrics works this out every minute over the whole record, and each render
-  // compared every run's dates again (renders × sessions)
+  // each machine's runs read once, by machine, sorted by start with the latest end so far: /metrics works this out every
+  // minute over the whole record, and a machine id is kept across its deploys, so comparing each render with every run of
+  // its machine was renders × sessions
   const runsOf = new Map<string, Array<{ from: number; to: number }>>();
   if (rented.size) {
     for (const x of await db.selectFrom("rent_sessions").select(["machine_id", "started_at", "ended_at"]).where("machine_id", "in", [...rented]).execute()) {
       const run = { from: Date.parse(x.started_at), to: x.ended_at === null ? Infinity : Date.parse(x.ended_at) };
+      if (!Number.isFinite(run.from)) continue;
       const list = runsOf.get(x.machine_id);
       if (list) list.push(run);
       else runsOf.set(x.machine_id, [run]);
     }
   }
+  const latestEnds = new Map<string, { runs: Array<{ from: number; to: number }>; ends: number[] }>();
+  for (const [machine, runs] of runsOf) {
+    runs.sort((a, b) => a.from - b.from);
+    let latest = -Infinity;
+    latestEnds.set(machine, { runs, ends: runs.map((x) => (latest = Math.max(latest, x.to))) });
+  }
   const onPod = (r: { machine_id: string | null; created_at: string; total_ms: number }) => {
-    const runs = r.machine_id ? runsOf.get(r.machine_id) : undefined;
-    if (!runs) return false;
+    const of = r.machine_id ? latestEnds.get(r.machine_id) : undefined;
+    if (!of) return false;
     const end = Date.parse(r.created_at);
     const start = end - r.total_ms;
-    return runs.some((x) => x.from < end && x.to > start);
+    // a run started before the render's end that ends after its start: among those started before its end, the latest end
+    const n = firstOver(of.runs, (x) => x.from, end, true);
+    return n > 0 && of.ends[n - 1]! > start;
   };
   // the jobs of the renders on pods: where each belongs (its timeline or draft, their project)
   const podRenders = renders.filter(onPod);
-  const podRendersOf = new Map<string, typeof podRenders>();
-  for (const r of podRenders) {
-    const list = podRendersOf.get(r.machine_id!);
-    if (list) list.push(r);
-    else podRendersOf.set(r.machine_id!, [r]);
-  }
+  const around = aroundOf(podRenders, fetches, measures, usualBootMs, outside);
   const refs = await itemsOf(db, podRenders.map((r) => r.id));
 
   const sessions: SessionView[] = [];
@@ -482,8 +491,8 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
   for (const r of rows) {
     const from = Date.parse(r.started_at);
     const to = r.ended_at ? Date.parse(r.ended_at) : now;
-    const { mine, kept, guessed, split: live } = sessionOf(r, { renders: podRendersOf.get(r.machine_id) ?? [], fetches, measures, usualBootMs, outside }, now);
-    const split = splitOf(r, live);
+    const { mine, kept, guessed, facts } = sessionOf(r, around, now);
+    const split = splitOf(r, facts);
     if (split.estimated.length) estimatedAny = true;
     const parts = partsOf(split.spans);
     const boot = bootPartsOf(split.spans);
@@ -631,38 +640,97 @@ export function bootFactsOf(r: Pick<SessionRow, "pulled_at" | "packs_from" | "pa
   return { pulledAt: Number.isFinite(pulledAt) ? pulledAt : null, packs, failed: r.start_failed !== null };
 }
 
+/** Rows over a stretch of time, sorted by their end, with the longest stretch among them. */
+interface Timed<T> {
+  list: Array<{ row: T; from: number; to: number }>;
+  longest: number;
+}
+
+/** The index of the first of `list` (sorted by `key`) whose key is over `t`, or at it too with `orAt`. */
+function firstOver<T>(list: readonly T[], key: (x: T) => number, t: number, orAt = false): number {
+  let [lo, hi] = [0, list.length];
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    const k = key(list[mid]!);
+    if (k > t || (orAt && k === t)) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
+}
+
+/** Rows with their stretch of time read once, sorted by its end; those whose dates cannot be read are left out, as a filter on them left them out. */
+function timed<T>(rows: readonly T[], span: (r: T) => { from: number; to: number }): Timed<T> {
+  const list = rows.map((row) => ({ row, ...span(row) })).filter((x) => Number.isFinite(x.from) && Number.isFinite(x.to)).sort((a, b) => a.to - b.to);
+  return { list, longest: list.reduce((n, x) => Math.max(n, x.to - x.from), 0) };
+}
+
+/** Those that overlap `from`–`to` (ending after `from`, starting before `to`), by binary search on their end. */
+function overlapping<T>(t: Timed<T> | undefined, from: number, to: number): Timed<T>["list"] {
+  if (!t) return [];
+  const out: Timed<T>["list"] = [];
+  // past `to` + the longest stretch, each one starts at `to` or later
+  for (let i = firstOver(t.list, (x) => x.to, from); i < t.list.length && t.list[i]!.to < to + t.longest; i++) if (t.list[i]!.from < to) out.push(t.list[i]!);
+  return out;
+}
+
+type RenderOf = { machine_id: string | null; created_at: string; total_ms: number; status: string };
+type Measure = Selectable<Tables["pod_measures"]>;
+
 /**
- * One session as its pod spent it (`splitSession`), from what was kept around it: its renders (by its machine, within its
- * time), its files (pod_fetches; the sessions before 0071 have theirs from pod_measures, the bigger ones worked out from their
- * speed) and when its ComfyUI first answered.
+ * What the sessions are split from, read once: the renders and the files by machine and sorted by time, the measures by
+ * time, their dates parsed once. costs() splits every session of the whole record (/metrics every minute), a machine id is
+ * kept across its deploys, and each session filtering every render and file of its machine was sessions × rows.
  */
-function sessionOf<R extends { machine_id: string | null; created_at: string; total_ms: number; status: string }>(
-  r: SessionRow,
-  around: { renders: readonly R[]; fetches: ReadonlyArray<Selectable<Tables["pod_fetches"]>>; measures: ReadonlyArray<Selectable<Tables["pod_measures"]>>; usualBootMs: number | null; outside: OutsideBySession },
-  now: number,
-) {
+function aroundOf<R extends RenderOf>(renders: readonly R[], fetches: ReadonlyArray<Selectable<Tables["pod_fetches"]>>, measures: readonly Measure[], usualBootMs: number | null, outside: OutsideBySession) {
+  const byMachine = <T extends { machine_id: string | null }, U>(rows: readonly T[], make: (list: T[]) => U) => {
+    const groups = new Map<string | null, T[]>();
+    for (const x of rows) {
+      const list = groups.get(x.machine_id);
+      if (list) list.push(x);
+      else groups.set(x.machine_id, [x]);
+    }
+    return new Map([...groups].map(([m, list]) => [m, make(list)]));
+  };
+  return {
+    renders: byMachine(renders, (list) => timed(list, (x) => ({ from: Date.parse(x.created_at) - x.total_ms, to: Date.parse(x.created_at) }))),
+    fetches: byMachine(fetches, (list) => timed(list, (x) => ({ from: Date.parse(x.started_at), to: Date.parse(x.ended_at) }))),
+    measures: measures.map((m) => ({ m, at: Date.parse(m.at) })).filter((x) => Number.isFinite(x.at)).sort((a, b) => a.at - b.at),
+    usualBootMs,
+    outside,
+  };
+}
+
+/**
+ * One session as its pod spent it (`splitSession`'s facts), from what was kept around it: its renders (by its machine, within
+ * its time), its files (pod_fetches; the sessions before 0071 have theirs from pod_measures, the bigger ones worked out from
+ * their speed) and when its ComfyUI first answered.
+ */
+function sessionOf<R extends RenderOf>(r: SessionRow, around: ReturnType<typeof aroundOf<R>>, now: number) {
   const from = Date.parse(r.started_at);
   const to = r.ended_at ? Date.parse(r.ended_at) : now;
-  const mine = around.renders.filter((x) => x.machine_id === r.machine_id).map((x) => ({ row: x, to: Date.parse(x.created_at), from: Date.parse(x.created_at) - x.total_ms })).filter((x) => x.to > from && x.from < to);
-  const kept = around.fetches.filter((x) => x.machine_id === r.machine_id && Date.parse(x.ended_at) > from && Date.parse(x.started_at) < to);
+  const mine = overlapping(around.renders.get(r.machine_id), from, to);
+  const keptSpans = overlapping(around.fetches.get(r.machine_id), from, to);
+  const kept = keptSpans.map((x) => x.row);
   const old = r.up_at === null && !kept.length;
-  const guessed = old ? around.measures.filter((m) => m.kind !== "boot" && Date.parse(m.at) > from && Date.parse(m.at) <= to + 60_000) : [];
+  // the measures from just after its start to a minute after its end
+  const near = (orAtStart: boolean) => around.measures.slice(firstOver(around.measures, (x) => x.at, from, orAtStart), firstOver(around.measures, (x) => x.at, to + 60_000));
+  const guessed = old ? near(false).filter((x) => x.m.kind !== "boot").map((x) => x.m) : [];
   // a boot measure keeps no machine: in a session's time it is taken as that session's boot only for sessions from before 0071
   // (no idle minutes kept), which had nothing else. A later one whose first answer was not kept (Afflatus restarted mid-boot)
   // would take another pod's deploy for its own boot
-  const boot = r.idle_minutes === null ? around.measures.find((m) => m.kind === "boot" && Date.parse(m.at) >= from && Date.parse(m.at) <= to + 60_000) : undefined;
-  const upAt = r.up_at ? Date.parse(r.up_at) : boot ? Date.parse(boot.at) : null;
-  const split = splitSession({
+  const boot = r.idle_minutes === null ? near(true).find((x) => x.m.kind === "boot") : undefined;
+  const upAt = r.up_at ? Date.parse(r.up_at) : boot ? boot.at : null;
+  const facts: SessionFacts = {
     from, to, upAt, usualBootMs: around.usualBootMs,
     // ended by Afflatus, which followed it to its end, and never answered: it never came up
     neverUp: Boolean(r.ended_at && r.end_why) && upAt === null && !mine.length && !kept.length,
     renders: mine.map((x) => ({ from: x.from, to: x.to, ok: x.row.status === "done" })),
-    fetches: [...kept.map((x) => ({ from: Date.parse(x.started_at), to: Date.parse(x.ended_at) })), ...guessed.map((m) => ({ from: Date.parse(m.at) - Number(m.ms), to: Date.parse(m.at) }))],
+    fetches: [...keptSpans.map((x) => ({ from: x.from, to: x.to })), ...guessed.map((m) => ({ from: Date.parse(m.at) - Number(m.ms), to: Date.parse(m.at) }))],
     fetchesGuessed: old,
     boot: bootFactsOf(r),
     outside: around.outside.get(r.id) ?? [],
-  });
-  return { mine, kept, guessed, split };
+  };
+  return { mine, kept, guessed, facts };
 }
 
 type Split = ReturnType<typeof splitSession>;
@@ -679,13 +747,27 @@ function keptSplit(r: SessionRow): Split | null {
 }
 
 /**
- * A session's split: the one kept when it is whole; one kept up to a moment (split_until), with `live` after it; else `live`,
- * worked out from the rows there are.
+ * A session's split: the one kept when it is whole (not worked out again: costs() reads the whole record); one kept up to a
+ * moment (split_until), with the one worked out from the rows there are after it; else that one.
  */
-function splitOf(r: SessionRow, live: Split): Split {
+function splitOf(r: SessionRow, facts: SessionFacts): Split {
   const kept = keptSplit(r);
-  if (!kept) return live;
-  return r.split_until ? joinSplits(kept, live, Date.parse(r.split_until)) : kept;
+  if (!kept) return splitSession(facts);
+  if (!r.split_until) return kept;
+  const until = Date.parse(r.split_until);
+  return joinSplits(kept, splitSession(afterKept(facts, kept, until)), until);
+}
+
+/**
+ * A session's facts for its split after `until`, its boot as the kept split ended it. With no first answer kept (Afflatus
+ * restarted mid-boot), the renders forgotten or folded at `until` left its boot to end at its first work after them, or,
+ * with none and Afflatus ending it, to read all of it as boot (neverUp): its idle after `until` read as boot. Its boot ended
+ * where the kept one did, when that was before `until`; one still booting then is left to its own rules.
+ */
+function afterKept(f: SessionFacts, kept: Split, until: number): SessionFacts {
+  if (f.upAt !== null) return f;
+  const bootEnd = kept.spans.filter((s) => s.part === "boot").at(-1)?.to ?? f.from;
+  return bootEnd < until ? { ...f, upAt: bootEnd, neverUp: false } : f;
 }
 
 /**
@@ -728,7 +810,7 @@ async function splitNow(db: Db, r: SessionRow, now: number, usualBootMs: number 
   const renders = await db.selectFrom("render_stats").select(["machine_id", "created_at", "total_ms", "status"]).where("machine_id", "=", r.machine_id).where("created_at", ">=", iso(from)).where("created_at", "<=", iso(to + DAY)).execute();
   const fetches = await db.selectFrom("pod_fetches").selectAll().where("ended_at", ">=", iso(from)).where("started_at", "<=", iso(to)).execute();
   const measures = await db.selectFrom("pod_measures").selectAll().where("at", ">=", iso(from)).where("at", "<=", iso(to + 60_000)).execute();
-  return splitOf(r, sessionOf(r, { renders, fetches, measures, usualBootMs, outside: await outsideOf(db, from, to) }, now).split);
+  return splitOf(r, sessionOf(r, aroundOf(renders, fetches, measures, usualBootMs, await outsideOf(db, from, to)), now).facts);
 }
 
 /**
@@ -788,7 +870,10 @@ async function outsideOf(db: Db, from: number, to: number): Promise<OutsideBySes
   const out: OutsideBySession = new Map();
   for (const r of rows) {
     const span = { from: Date.parse(r.started_at), to: Date.parse(r.ended_at ?? r.seen_at) };
-    if (span.to > span.from) out.set(r.session_id, [...(out.get(r.session_id) ?? []), span]);
+    if (!(span.to > span.from)) continue;
+    const had = out.get(r.session_id);
+    if (had) had.push(span);
+    else out.set(r.session_id, [span]);
   }
   return out;
 }
@@ -830,8 +915,9 @@ export async function deployOverhead(db: Db, now = Date.now(), o: { volume?: boo
   const boots: number[] = [];
   const idles: number[] = [];
   const fetched: number[] = [];
+  const around = aroundOf(renders, fetches, measures, usualBootMs, outside);
   for (const r of rows) {
-    const split = splitOf(r, sessionOf(r, { renders, fetches, measures, usualBootMs, outside }, now).split);
+    const split = splitOf(r, sessionOf(r, around, now).facts);
     const parts = partsOf(split.spans);
     boots.push(parts.boot);
     idles.push(idleTail(split.spans, false));
@@ -848,7 +934,12 @@ const inside = (at: string, from: number, to: number) => {
 
 function groupBy<T>(list: readonly T[], key: (x: T) => string): Map<string, T[]> {
   const out = new Map<string, T[]>();
-  for (const x of list) out.set(key(x), [...(out.get(key(x)) ?? []), x]);
+  for (const x of list) {
+    const k = key(x);
+    const had = out.get(k);
+    if (had) had.push(x);
+    else out.set(k, [x]);
+  }
   return out;
 }
 
@@ -870,19 +961,23 @@ async function itemsOf(db: Db, ids: string[]): Promise<Map<string, { item: ItemR
   for (let i = 0; i < ids.length; i += 500) jobs.push(...(await db.selectFrom("jobs").select(["id", "draft_id", "timeline_id", "clip_id", "folder_id"]).where("id", "in", ids.slice(i, i + 500)).execute()));
   const clipIds = [...new Set(jobs.filter((j) => !j.timeline_id && j.clip_id).map((j) => j.clip_id!))];
   const clips = clipIds.length ? await db.selectFrom("clips").select(["id", "timeline_id"]).where("id", "in", clipIds).execute() : [];
-  const timelineOf = (j: (typeof jobs)[number]) => j.timeline_id ?? clips.find((c) => c.id === j.clip_id)?.timeline_id ?? null;
+  // looked up by id: the whole record's renders against every timeline, draft and folder was renders × items
+  const clipTimeline = new Map(clips.map((c) => [c.id, c.timeline_id]));
+  const timelineOf = (j: (typeof jobs)[number]) => j.timeline_id ?? (j.clip_id ? clipTimeline.get(j.clip_id) : undefined) ?? null;
   const tIds = [...new Set(jobs.map(timelineOf).filter((x): x is string => Boolean(x)))];
   const dIds = [...new Set(jobs.map((j) => j.draft_id).filter((x): x is string => Boolean(x)))];
   const fIds = [...new Set(jobs.map((j) => j.folder_id).filter((x): x is string => Boolean(x)))];
   const timelines = tIds.length ? await db.selectFrom("timelines").select(["id", "name", "project_id"]).where("id", "in", tIds).execute() : [];
   const drafts = dIds.length ? await db.selectFrom("drafts").select(["id", "name", "title", "project_id"]).where("id", "in", dIds).execute() : [];
   const folders = fIds.length ? await db.selectFrom("folders").select(["id", "project_id"]).where("id", "in", fIds).execute() : [];
+  const [timelineById, draftById, folderById] = [new Map(timelines.map((x) => [x.id, x])), new Map(drafts.map((x) => [x.id, x])), new Map(folders.map((x) => [x.id, x]))];
   for (const j of jobs) {
-    const t = timelines.find((x) => x.id === timelineOf(j));
-    const dr = !t ? drafts.find((x) => x.id === j.draft_id) : undefined;
+    const tId = timelineOf(j);
+    const t = tId ? timelineById.get(tId) : undefined;
+    const dr = !t && j.draft_id ? draftById.get(j.draft_id) : undefined;
     const item: ItemRef | null = t ? { kind: "timeline", id: t.id, name: t.name } : dr ? { kind: "draft", id: dr.id, name: dr.name || dr.title || "Untitled draft" } : null;
     // a render of neither: the project of the folder it went to
-    const project = t?.project_id ?? dr?.project_id ?? folders.find((f) => f.id === j.folder_id)?.project_id ?? null;
+    const project = t?.project_id ?? dr?.project_id ?? (j.folder_id ? folderById.get(j.folder_id)?.project_id : undefined) ?? null;
     out.set(j.id, { item, project });
   }
   return out;

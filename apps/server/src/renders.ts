@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 import type { Measured } from "@afflatus/comfy";
 import { modelOf, timeKey, TOOLS_FAMILY, type Recipe } from "@afflatus/core";
-import { freezeOld, freezeSplits, keepSplitsUntil } from "./costs";
+import { freezeOld, keepSplitsUntil } from "./costs";
 import { now, OWNER, type Db, type Tables } from "./db";
 import { RELOAD_MS, reloadAbove } from "./forecast";
 import type { JobRow, Resume } from "./queueModel";
@@ -219,9 +219,11 @@ export async function usualParts(db: Db, recipe: Recipe<any>, input: Record<stri
 /** Forget everything that was measured. */
 export async function clear(db: Db, now = Date.now()): Promise<void> {
   await db.transaction().execute(async (tx) => {
-    // every rented session's split kept first: forgotten, its renders would read as idle (costs.ts freezeSplits). A pod
-    // still running has its split kept up to now, and finished from its renders after it at its end (keepSplitsUntil)
-    await freezeSplits(tx, now);
+    // every rented session's split kept first: forgotten, its renders would read as idle (costs.ts freezeSplits). Those
+    // ended a day ago are kept whole; a pod still running, or ended since, has its split kept up to now (keepSplitsUntil),
+    // finished by the fold a day after its end: a render cut by its end has its row written a moment after, and kept whole
+    // at once, the split read that render as idle for good
+    await freezeOld(tx, now);
     await keepSplitsUntil(tx, now, now);
     await tx.deleteFrom("render_stats").execute();
     await tx.deleteFrom("render_days").execute();
