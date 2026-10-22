@@ -4,14 +4,44 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
-### Changed
-- **Afflatus's pod image 0.1.27 is a thin top on a base image.** `afflatus-pod-base` holds the OS, PyTorch with CUDA, ComfyUI 0.41.2, the built-in node packs, NVIDIA's VFX runtime and InsightFace, and is built only when one of them changes. Each pod image adds the node pack, the pod's scripts and Manager's registry list on top of it: ~1.4 MB per build instead of ~4.7 GB (CUDA 13.0) and ~6 GB (12.8). A RunPod host that already ran an Afflatus pod on the same base pulls only that top. What runs on the pod is unchanged.
+The 0.6.0 cycle: the timeline reworked around sources, recordings and joins, Face refine, two new H3 forms, node packs installed where a render runs, a first launch for installs with no ComfyUI yet, and the CUDA build of a rented pod chosen.
 
 ### Added
+- **The timeline, reworked:**
+  - **A "+" on each join** puts a new clip between the two. The clip's model list says beside each model how it would meet the clip before (seamless, a cut, carries on), and lists the windowed forms last under "From a source".
+  - **A made source can be trimmed.** On its lane, the body drag slips it (same length, another part), the left handle moves its start and the right one its end, also after Make; I and O on the stage set the source's In / Out. Windows past a shortened end are set aside with their takes and come back when the end goes out again; a moved start makes the windows anew, asked first when rendered takes would go. A source's form can be changed in place between H3's windowed forms (the takes kept), or across grids (SCAIL-2 ↔ H3, asked first).
+  - **The Source chapter** on a window clip: Frames from the clip before (Tight / Normal / Long), each window with its part of the source, and Uses In → Out.
+  - **A voice recording becomes Lip sync clips.** Dropped past the clips or on an empty clip, it is cut into clips of about 5 s at its pauses, the first carrying on from the clip before. It is drawn as one band on the Audio row (slip, start and end drags), and its clips have a Recording chapter.
+  - **The face on takes:** each take says its face figure against the person's references, the closest is marked, "Closest face first" sorts them, a dot on a clip flags a face that slid from the clip before's, and Joins and renders says "Faces that hold: X of Y" and the worst face.
+- **Face refine** on every H3 form (Output › Face refine, with its denoise and steps) and on SCAIL-2 at 24 fps: the face tracked, re-sampled towards the person's picture with its size setting the denoise, and pasted back, the clip's sound held; the next clip carries on from the refined faces. Best on slow-moving shots. Also as **Finish › Face refine**, as a **Face pass** button on a take, together with the latent re-sample, and before SeedVR2, RTX VSR or a pixel upscale (two jobs). Needs the `comfyui-h3-facerefine` node pack, installed like any other (below).
+- **H3 · Swap motion** (a person swapped into a source video window by window, the later windows pose-driven) and **H3 · Motion transfer** (a picture moved by a source video), both windowed sources on the timeline.
+- **H3 prompts written from parts:** In the source, How they look, What happens (each window its own), with the prompt as sent shown greyed while the field is empty. `@Name` in a part casts that Prompt kit person; a **Shot** choice (Any / Wide / Medium / Close-up) opens the prompt.
+- **Veda sparse attention** on all five H3 forms (Advanced), with the predictor for the model the clip samples with. Off by default.
+- **SCAIL-2 · Motion transfer (24 fps)**, on H3's frame grid, beside the 16 fps one (still the default).
+- **Node packs a render needs, installed where it runs.** An option that needs a node pack the machine lacks (Veda, H3's step cache, RTX VSR, the RCAS sharpen, Face refine) holds its job: its Queue row offers **Install and restart** or **Run without**, and a machine set to **Always** installs it by itself. ComfyUI is restarted through ComfyUI-Manager only once nothing renders there. What cannot come is done without and said on the job; a job is never refused for an option. The form says the need under the option.
+- **A first launch** for a new install: it looks for a ComfyUI on this PC, or goes on with rented GPUs only (the RunPod key and caps asked in the Queue). With no ComfyUI yet, the forms offer each family's official files, greyed with their size and a Download under the field.
+- **The CUDA build of a rented pod** (13.0 or 12.8) is chosen in Deploy and the Hunt, shown on the pod's card, the machines pill and its Queue row, and kept in Costs, Render times and the CSVs. A pod's image pull is followed live from RunPod's system log.
+- **Boot logs** of rented pods, kept N days when turned on (Settings › Rented GPUs; off by default), linked from their Costs row.
 - **/metrics: the rented GPUs' money.** What Queue › Costs works out, for a dashboard: spend by part (rendering, booting, fetching, idle, outside work, failed) and by GPU, pod runs ended by why (a crash among them), pods running, today and this month against the caps, RunPod's balance, spending an hour now and storage. The Grafana dashboard (deploy/grafana) has a **Rented GPUs** row for them. Only with a RunPod key, a rented machine or a pod session on record.
+
+### Changed
+- **New installs start with spending caps of $5 a day and $25 a month** on rented GPUs, with no ComfyUI expected and every model family on. An existing install keeps its ComfyUI, its families and its caps.
+- **A job missing an official file waits with Download instead of failing.** On a ComfyUI of your own, a job that lacks only files Afflatus knows a download for waits on that machine's row until the Download is pressed and the file is in, then runs by itself. Nothing is downloaded unasked.
+- **A rented pod gets the node packs its jobs' options use before the job** (Veda, the step cache, KJNodes for RCAS), which can mean a ComfyUI restart on the pod first; it used to run without them, silently. On your own machine the same happens under its rule (Ask by default, or Always).
+- **Deploys and the Hunt default to CUDA 13.0**, with 12.8 when asked (slower on recent cards). On 13.0, a GPU whose free hosts are all on older drivers is refused and hunted as out of stock; Deploy asks whether to take it on 12.8 this once.
+- **Renamed:** on H3 · Motion transfer, **Driving video** is now **Source video** (as the swaps say); the swaps' **Who goes in** is now **References**; **Size** is now **Resolution** on the H3 forms. Saved drafts, clips and jobs keep their settings. SCAIL-2 keeps "Driving video".
+- **Afflatus's pod image 0.1.28 is a thin top on a base image.** `afflatus-pod-base` holds the OS, PyTorch with CUDA, ComfyUI 0.41.2, the built-in node packs, NVIDIA's VFX runtime and InsightFace, and is built only when one of them changes. Each pod image adds the node pack, the pod's scripts and Manager's registry list on top of it: ~1.4 MB per build instead of several GB. A RunPod host that already ran an Afflatus pod on the same base pulls only that top, and torch's CUDA libraries come in smaller layers that pull faster.
+- **Afflatus's node pack 0.36.0** (from 0.30.0): H3's audio lock for Face refine, **Afflatus: Follow Colours** (a clip's colours followed moment by moment, cuts kept hard), Swap character's Colour match and Soft zone outside the Mask (the Mask marked experimental), and the seam decode taking the right sound tokens.
+- **Seamless joins:** a continued clip's sound is filed as ComfyUI made it (a 36 ms cut at every join, heard as a hitch, is gone), and at a seamless join the export and the player take the last 120 ms of sound from the clip after's head. The player's pre-roll of the next clip is shorter, so fewer frames drop at hand-overs.
+- **Colour match** to the first frame is carried down an H3 chain: a continuation follows the clip before's filed last frame, and the first clip follows its start picture moment by moment (H3, LTX, Wan). SCAIL-2's windows follow their source video's colours the same way, and a window that carries on crossfades over a hidden head instead of holding a frame.
+- **Join figures** read the clip before on its last frame and have a floor for still shots, so a locked-off join is no longer flagged.
+- **A finish keeps its draft's frame rate** (RIFE as the draft's file has it), and a finished take shows the figures of the video it was cut from.
+- **The join rule:** a clip put after another starts seamless when both are H3, as a window within SCAIL-2, else as a cut.
 
 ### Fixed
 - **A pod getting its files no longer shows false failures:** its node pack takes two downloads at once, and one asked meanwhile (429) is now waited for as a download waiting its turn; a download the pack lost or refused for a moment is asked again without a word while tries are left, and only the last try says it. A machine's failed downloads are one banner, updated as more fail, instead of one per file and per try.
+- **Your ComfyUI saved by its address alone** on this PC has its folder found and the node pack written in.
+- **The status bar** says "Model not here yet", with no Load, when the form's model file is not on ComfyUI yet.
 
 ## [0.5.2] - 2026-10-19
 
