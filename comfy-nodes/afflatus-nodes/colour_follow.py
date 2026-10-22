@@ -80,22 +80,44 @@ JUMP = 6.0
 # and taken for cuts its steps went into the clip unaveraged
 HOLD = 6
 
+# Times the reference's own flicker around it a cut must stand out by, as well as by `JUMP`. A strongly flickering driving
+# video (3 to 4 levels a frame, or a slower wander) holds a 6-level step for 6 frames now and then by chance, and each one
+# taken for a cut stepped the clip by 10 to 20 levels where averaging kept it under 3. The flicker is each frame's distance
+# from the median of the frames within 2 `hold` of it (a running median keeps a cut's step, so a cut nearby does not count
+# as flicker), its median over the frames within 8 `hold`: a calm shot's cut of 6 levels stays one
+NOISE = 6.0
 
-def stretches(means, jump=JUMP, hold=1):
+
+def stretches(means, jump=JUMP, hold=1, noise=0.0):
     """
     Frames as runs between their jumps, read off each frame's mean: (first, past-the-last) pairs. With `hold`, a step is a
     jump only when the `hold` frames after it are that far from the `hold` frames before it too, by their medians (a flash
-    of a frame or two does not move a median).
+    of a frame or two does not move a median). With `noise`, both must also be `noise` times the flicker around it (see
+    `NOISE`).
     """
     if not len(means):
         return [(0, 0)]
     m = np.asarray(means, dtype=np.float64).reshape(len(means), -1)
+    n = len(m)
+    flicker = None
+    if noise:
+        flicker = np.abs(m - np.array([np.median(m[max(0, j - 2 * hold) : j + 2 * hold + 1], axis=0) for j in range(n)]))
 
-    def apart(a, b):
-        return np.abs(a - b).max() > jump
+    def least(i):
+        if flicker is None:
+            return jump
+        return max(jump, noise * np.median(flicker[max(0, i - 8 * hold) : i + 8 * hold], axis=0).max())
 
-    cuts = [i for i in range(1, len(m)) if apart(m[i], m[i - 1]) and apart(np.median(m[i : i + hold], axis=0), np.median(m[max(0, i - hold) : i], axis=0))]
-    edges = [0, *cuts, len(means)]
+    def apart(a, b, by):
+        return np.abs(a - b).max() > by
+
+    def cut(i):
+        if not apart(m[i], m[i - 1], jump):
+            return False
+        by = least(i)
+        return apart(m[i], m[i - 1], by) and apart(np.median(m[i : i + hold], axis=0), np.median(m[max(0, i - hold) : i], axis=0), by)
+
+    edges = [0, *[i for i in range(1, n) if cut(i)], n]
     return [(edges[k], edges[k + 1]) for k in range(len(edges) - 1)]
 
 
@@ -121,7 +143,7 @@ def follow_params(target_stats, ref_stats, radius, scale_most=2.0):
     """
     n, m = len(target_stats), len(ref_stats)
     r_rows = [ref_stats[ref_index(i, n, m)] for i in range(n)]
-    edges = sorted({e for a, b in stretches([s[0] for s in target_stats]) + stretches([s[0] for s in r_rows], hold=HOLD) for e in (a, b)})
+    edges = sorted({e for a, b in stretches([s[0] for s in target_stats]) + stretches([s[0] for s in r_rows], hold=HOLD, noise=NOISE) for e in (a, b)})
     runs = list(zip(edges[:-1], edges[1:]))
     t_mean = smoothed_within([s[0] for s in target_stats], radius, runs)
     t_std = smoothed_within([s[1] for s in target_stats], radius, runs)
@@ -216,6 +238,8 @@ class AfflatusColorFollow(io.ComfyNode):
     def execute(cls, images, reference, radius: int = 8, strength: float = 1.0) -> io.NodeOutput:
         import torch
 
+        # Frames with an alpha channel (some loaders keep one) are taken as their colour: Lab is of three channels
+        images = images[..., :3]
         with torch.no_grad():
             scale, offset = follow_params(torch_stats(torch, images), torch_stats(torch, reference), radius)
             return io.NodeOutput(torch_follow(torch, images, scale, offset, strength))

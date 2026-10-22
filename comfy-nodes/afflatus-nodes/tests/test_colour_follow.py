@@ -132,6 +132,10 @@ out = cf.AfflatusColorFollow.execute(torch.from_numpy(images.astype(np.float32))
 assert out.dtype == torch.float32 and tuple(out.shape) == images.shape
 want = np.stack([cf.apply_follow(images[i], scale[i], offset[i], 0.8) for i in range(len(images))])
 assert np.abs(out.numpy() - want).max() < 2e-4, np.abs(out.numpy() - want).max()
+# frames with an alpha channel: followed by their colour, as the same frames without it
+rgba = np.concatenate([images, np.ones(images.shape[:3] + (1,))], axis=-1).astype(np.float32)
+out4 = cf.AfflatusColorFollow.execute(torch.from_numpy(rgba), torch.from_numpy(reference.astype(np.float32)), 2, 0.8)
+assert tuple(out4.shape) == images.shape and np.abs(out4.numpy() - out.numpy()).max() < 1e-6
 print("same")
 """
 
@@ -151,13 +155,49 @@ def test_the_nodes_torch_conversion_gives_the_numpy_figures():
     assert run.returncode == 0 and "same" in run.stdout, run.stderr[-2000:]
 
 
+def flicker(frames, sd, seed, ar=0.0):
+    """A driving video's grey flicker, frame by frame (RGB shares): white, or wandering from frame to frame by `ar`."""
+    rng = np.random.default_rng(seed)
+    out = rng.normal(0, sd, frames)
+    for i in range(1, frames):
+        out[i] = ar * out[i - 1] + np.sqrt(1 - ar * ar) * out[i]
+    return out
+
+
+def test_a_long_strongly_flickering_reference_steps_the_clip_at_no_frame():
+    # 241 frames of a steady clip against a driving video flickering by 4 levels a frame, or wandering by 3: by chance its
+    # flicker holds a 6-level step for 6 frames here and there, and each one taken for a cut stepped the clip by 10 to 20
+    # levels at once. The worst step is what shows, not the mean of them: one hard step in 240 moves a mean by little
+    target = clip([(0.5, 0.45, 0.4)] * 241)
+    for sd, ar in ((0.04, 0.0), (0.03, 0.7)):
+        for seed in range(4):
+            ref = clip([(0.5 + d, 0.45 + d, 0.4 + d) for d in flicker(241, sd, 100 + seed, ar)], seed=3)
+            worst = np.abs(np.diff(lab_mean(followed(target, ref))[:, 0])).max()
+            assert worst < 3.0, (sd, ar, seed, worst)
+
+
+def test_a_cut_stands_out_of_a_flickering_reference_and_a_calm_ones_soft_cut_stays_one():
+    from afflatus_nodes.colour_follow import HOLD, NOISE, stretches
+
+    def runs(shift, at, sd, seed):
+        grey = flicker(241, sd, seed) - np.where(np.arange(241) >= at, shift, 0.0)
+        frames = clip([(0.5 + g, 0.45 + g, 0.4 + g) for g in grey], seed=14)
+        return stretches([frame_stats(f, 1)[0] for f in frames], hold=HOLD, noise=NOISE)
+
+    for seed in range(4):
+        # 8 levels down in a calm shot, near the start and in the middle; 15 down in a shot flickering by 2 levels a frame
+        assert runs(0.08, 120, 0.005, 200 + seed) == [(0, 120), (120, 241)]
+        assert runs(0.08, 3, 0.005, 210 + seed) == [(0, 3), (3, 241)]
+        assert runs(0.15, 120, 0.02, 220 + seed) == [(0, 120), (120, 241)]
+
+
 def test_a_flash_in_the_reference_is_not_a_cut_and_a_cut_is():
-    from afflatus_nodes.colour_follow import HOLD, stretches
+    from afflatus_nodes.colour_follow import HOLD, NOISE, stretches
 
     # a frame of a flash, then the shot as it was: averaged over like a flicker, not followed into the clip
     flash = clip([(0.4, 0.4, 0.4)] * 10 + [(0.9, 0.9, 0.9)] + [(0.4, 0.4, 0.4)] * 10, seed=12)
-    assert stretches([frame_stats(f, 1)[0] for f in flash], hold=HOLD) == [(0, 21)]
+    assert stretches([frame_stats(f, 1)[0] for f in flash], hold=HOLD, noise=NOISE) == [(0, 21)]
     cut = clip([(0.4, 0.4, 0.4)] * 10 + [(0.9, 0.9, 0.9)] * 3, seed=13)
-    assert stretches([frame_stats(f, 1)[0] for f in cut], hold=HOLD) == [(0, 10), (10, 13)]
+    assert stretches([frame_stats(f, 1)[0] for f in cut], hold=HOLD, noise=NOISE) == [(0, 10), (10, 13)]
     # the clip's own side splits at any step, as it did
     assert stretches([frame_stats(f, 1)[0] for f in flash]) == [(0, 10), (10, 11), (11, 21)]

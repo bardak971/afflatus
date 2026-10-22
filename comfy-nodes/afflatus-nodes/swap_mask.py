@@ -293,6 +293,10 @@ class AfflatusSwapMask(io.ComfyNode):
                 io.Int.Input("height", default=1024, min=32, max=16384, step=32),
                 # 100: the tested mask's reach (grow 50, blockify 32, then 36 on the latent), 98 % of its tokens on the meme (§9.9)
                 io.Int.Input("grow", default=100, min=0, max=1024, tooltip="Pixels the redrawn region reaches past the person, in whole 16 px cells."),
+                # Not used since 0.31 (the soft zone went), but kept in its place: ComfyUI's frontend gives a saved graph's
+                # widget values back by position, so without it a 0.5.2 graph's paste_reach, pick_x and pick_y each took the
+                # value before theirs (pick_x then 3, refused)
+                io.Int.Input("soft", default=0, min=0, max=512, optional=True, tooltip="Not used: kept so that graphs saved before 0.31 load with the right values."),
                 io.Int.Input("paste_grow", default=10, min=0, max=256, tooltip="Pixels the kept render reaches past the person."),
                 io.Float.Input("paste_blur", default=5.0, min=0.0, max=64.0, tooltip="The paste-back edge's blur, in pixels."),
                 io.Int.Input("paste_reach", default=PASTE_REACH, min=0, max=24, optional=True, tooltip="The person of this many frames either side of each is kept too: a limb SAM loses for a moment is not pasted over."),
@@ -307,7 +311,7 @@ class AfflatusSwapMask(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, track_data, frames: int = 141, width: int = 576, height: int = 1024, grow: int = 100, paste_grow: int = 10, paste_blur: float = 5.0, images=None, previous=None, pick_x: float = -1.0, pick_y: float = -1.0, paste_reach: int = PASTE_REACH) -> io.NodeOutput:
+    def execute(cls, track_data, frames: int = 141, width: int = 576, height: int = 1024, grow: int = 100, paste_grow: int = 10, paste_blur: float = 5.0, images=None, previous=None, pick_x: float = -1.0, pick_y: float = -1.0, paste_reach: int = PASTE_REACH, soft: int = 0) -> io.NodeOutput:
         import torch
 
         tracks = person_tracks(track_data, width, height)
