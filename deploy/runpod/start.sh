@@ -115,10 +115,18 @@ step "putting in the node packs"
 rm -rf "$BASE/custom_nodes/afflatus-nodes"
 cp -r /opt/afflatus-nodes "$BASE/custom_nodes/afflatus-nodes"
 
-# the node packs built into the image (Dockerfile), at its commits: linked in, over a copy an older pod left on the volume
+# --- the built-in packs (deploy/runpod/tests/test_start.py runs this part on its own)
+# the node packs built into the image (Dockerfile), at its commits: linked in, over a copy an older pod left on the volume.
+# That copy can be under another case: ComfyUI-Manager puts a registry pack in custom_nodes/<registry id>, the folder's
+# name in lower case (comfyui-h3-facerefine for ComfyUI-H3-FaceRefine). Both would load, the one loaded last winning each
+# node, and the other's requirements would be installed at every boot, billed: every case of the name goes
 while read -r pack; do
   [ -n "$pack" ] || continue
-  rm -rf "${BASE:?}/custom_nodes/$pack"
+  lower=$(printf '%s' "$pack" | tr '[:upper:]' '[:lower:]')
+  for dir in "$BASE"/custom_nodes/*; do
+    [ -e "$dir" ] || [ -L "$dir" ] || continue
+    if [ "$(basename "$dir" | tr '[:upper:]' '[:lower:]')" = "$lower" ]; then rm -rf "${dir:?}"; fi
+  done
   ln -s "/opt/packs/$pack" "$BASE/custom_nodes/$pack"
 done < /opt/packs/BUILT_IN
 
@@ -135,9 +143,10 @@ fi
 wanted() {
   [ -f "$1" ] || return 1
   [ "$1" = "$BASE/custom_nodes/afflatus-nodes/requirements.txt" ] && return 1
-  # the built-in ones' packages are in the image already (DaSiWa's list on purpose not)
-  ! grep -qxF "$(basename "$(dirname "$1")")" /opt/packs/BUILT_IN
+  # the built-in ones' packages are in the image already (DaSiWa's list on purpose not), whatever the case of their folder
+  ! grep -qixF "$(basename "$(dirname "$1")")" /opt/packs/BUILT_IN
 }
+# --- end of the built-in packs
 n=0
 for req in "$BASE"/custom_nodes/*/requirements.txt; do
   if wanted "$req"; then n=$((n + 1)); fi
