@@ -1,30 +1,38 @@
+import { Suspense } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
-import { ErrorBoundary, screenKey } from "../../src/ErrorBoundary";
+import { act, screen } from "@testing-library/react";
+import { useLocation } from "wouter";
+import { Screens } from "../../src/App";
+import { screenKey } from "../../src/ErrorBoundary";
 import { draw } from "./render";
 
-/** A timeline's editor that fails to draw for one timeline only. */
-function Editor({ id }: { id: string }) {
-  if (id === "zz-test-a") throw new Error("zz-test: the editor failed");
-  return <p>editor of {id}</p>;
+// the timeline editor's chunk stood in for: an editor that fails to draw for one timeline only
+vi.mock("../../src/screens/TimelineEditor", () => ({
+  TimelineEditor: ({ params }: { params: { id: string } }) => {
+    if (params.id === "zz-test-a") throw new Error("zz-test: the editor failed");
+    return <p>editor of {params.id}</p>;
+  },
+}));
+
+/** App's own screens, routes and keyed boundary, on the address the router is at, as App hands it to them. */
+function Host() {
+  const [path] = useLocation();
+  return (
+    <Suspense fallback={null}>
+      <Screens path={path} firstLaunch={false} />
+    </Suspense>
+  );
 }
 
-/** The screens' boundary as App draws it, around the editor of the timeline at `path`. */
-const app = (path: string) => (
-  <ErrorBoundary key={screenKey(path)}>
-    <Editor id={path.split("/")[2]!} />
-  </ErrorBoundary>
-);
-
 describe("the screens' error boundary (W-16)", () => {
-  it("draws another timeline's editor afresh, opened straight from one that failed", () => {
+  it("draws another timeline's editor afresh, opened straight from one that failed", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const { rerender } = draw(app("/timelines/zz-test-a"));
-    expect(screen.getByRole("alert").textContent).toContain("This screen failed");
+    const { location } = draw(<Host />, { at: "/timelines/zz-test-a" });
+    expect((await screen.findByRole("alert")).textContent).toContain("This screen failed");
     // Back, Forward, or a banner's "Open the timeline": the same route, another timeline
-    rerender(app("/timelines/zz-test-b"));
+    act(() => location.navigate("/timelines/zz-test-b"));
+    expect(await screen.findByText("editor of zz-test-b")).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByText("editor of zz-test-b")).toBeTruthy();
   });
 
   it("keeps the Studio's own addresses one screen, and each workflow editor its own", () => {

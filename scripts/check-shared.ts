@@ -153,9 +153,13 @@ const KIT = /^apps\/web\/src\/ui\.tsx$/;
  * reason is required, so the budget counts only the real one-offs and each exception says where it stands and why. A
  * marker at the end of a line covers that line alone, so one cannot let a neighbour through unseen.
  */
-const MARKER = /^\/[/*]\s*design:\s*\S/;
-/** A marker alone on its line, a whole comment and nothing else (`//`, a block or JSX's `{/* … *\/}`): it speaks for the line below. */
-const MARKER_ALONE = /^\s*(?:\/\/\s*design:\s*\S.*|\{?\/\*\s*design:\s*\S.*?\*\/\}?)\s*$/;
+const MARKER = /^\/[/*]\s*design:\s*(?!\*\/)\S/;
+/**
+ * A marker alone on its line, a whole comment and nothing else (`//`, a block or JSX's `{/* … *\/}`): it speaks for the
+ * line below. A block's reason holds no `*\/`, so the reason ends at its own comment's close: a leading marker, code and
+ * then another comment is not one comment from the first `/*` to the last `*\/`.
+ */
+const MARKER_ALONE = /^\s*(?:\/\/\s*design:\s*\S.*|\{?\/\*\s*design:\s*(?!\*\/)\S(?:(?!\*\/).)*\*\/\}?)\s*$/;
 
 /**
  * The comments of a line, each from its `//` or `/*`, read past its strings: a `//design:` inside a string or a URL is
