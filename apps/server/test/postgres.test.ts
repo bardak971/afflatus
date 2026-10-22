@@ -1,20 +1,22 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { sql } from "kysely";
 import pg from "pg";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../src/app";
 import { loadConfig } from "../src/config";
+import { costs } from "../src/costs";
 import { migrate, newId, openDb, OWNER, type Db } from "../src/db";
 import { migrations } from "../src/migrations";
 import type { QueueCore } from "../src/queueModel";
 import { history } from "../src/queueView";
 import { Registry } from "../src/registry";
 import type { RenderRow } from "../src/renderDigests";
-import { fold } from "../src/renders";
+import { clear, fold } from "../src/renders";
 import { summary } from "../src/rendersRead";
 import { createServices } from "../src/services";
-import { writeSettings } from "../src/settings";
+import { readSettings, writeSettings } from "../src/settings";
 import { LocalStorage } from "../src/storage";
 import { FAST, NOWHERE } from "./helpers";
 
@@ -128,6 +130,60 @@ describe.skipIf(!url)("on Postgres", () => {
         expect((await digested()).every((d) => d >= new Date(NOW - 2 * DAY).toISOString().slice(0, 10))).toBe(true);
       } finally {
         await app.close();
+        await services.close();
+        await db.destroy().catch(() => {});
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  // The split of a pod still running, kept up to a moment (0085's split_until), written, compared and read back on
+  // Postgres: the fold's case above has only an ended session, so no non-null split_until ever ran there (review O-20).
+  it("a running pod's split is kept up to the fold's cutoff and to a Forget, Costs reads it back, and 0085 is taken back", async () => {
+    await inSchema(async (db) => {
+      await migrate(db);
+      await writeSettings(db, { comfyUrl: NOWHERE });
+      const dir = mkdtempSync(join(tmpdir(), "afflatus-test-"));
+      const services = await createServices(db, "postgres", new LocalStorage(dir), FAST, { shippedPresets: null, precompute: false });
+      await services.started;
+      try {
+        const MIN = 60_000;
+        const iso = (ms: number) => new Date(ms).toISOString();
+        // as costs.test's: s4 runs from 22:00, a render to 23:00 that day and one to 01:00 the next; the fold at 01:00 with
+        // one history day cuts at that midnight, while the pod still runs
+        const from = Date.parse("2026-10-13T22:00:00.000Z");
+        const at = Date.parse("2026-10-15T01:00:00.000Z");
+        await db.insertInto("rent_sessions").values({ id: "s4", machine_id: "rp-d", pod: "s4", rate: 0.6, started_at: iso(from), ended_at: null, seen_at: null, gpu: "NVIDIA A40", up_at: iso(from + 2 * MIN), idle_minutes: 10 } as never).execute();
+        const render = (n: number, end: number): RenderRow => ({
+          id: `r${n}`, owner_id: OWNER, recipe_id: "scail.motion", family: "scail", model: "scail", model_file: "scail.safetensors", time_key: "", kind: "video", width: 832, height: 480, duration_ms: 5000,
+          steps: 6, status: "done", whole: 1, cold: 0, waited_ms: 0, total_ms: 30 * MIN, load_ms: 0, sample_ms: 30 * MIN, refine_ms: 0, finish_ms: 0, step_ms: null, expected_ms: null, vram_peak: null, heat_peak: null,
+          asset_id: null, work: null, machine_id: "rp-d", gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, ram_peak: null, ram_total: null, created_at: iso(end),
+        });
+        await db.insertInto("render_stats").values([render(1, from + 60 * MIN), render(2, from + 180 * MIN)]).execute();
+        const parts = async (when: number) =>
+          (await costs({ db, registry: services.registry, settings: await readSettings(db), spending: null, billReadAt: null, costBetween: async () => 0, offers: async () => null }, {}, when)).sessions.find((s) => s.id === "s4")!.parts;
+        const until = async () => (await db.selectFrom("rent_sessions").select("split_until").where("id", "=", "s4").executeTakeFirstOrThrow()).split_until;
+        const before = await parts(at);
+        expect(before).toMatchObject({ render: 60 * MIN });
+        await fold(db, 1, at);
+        expect(await until()).toBe("2026-10-14T00:00:00.000Z");
+        expect(await db.selectFrom("render_stats").select("id").execute()).toEqual([{ id: "r2" }]);
+        // the kept part joined to what is left after it
+        expect(await parts(at)).toEqual(before);
+        // every render time forgotten while it still runs: kept up to then
+        await clear(db, at);
+        expect(await until()).toBe(iso(at));
+        expect(await parts(at)).toEqual(before);
+
+        // 0085 taken back drops the column and leaves the session and its 0084 split; run again, it comes back empty
+        const columns = async () => (await sql<{ column_name: string }>`select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'rent_sessions'`.execute(db)).rows.map((c) => c.column_name);
+        expect(await migrate(db, "0084_session_split")).toContain("0085_session_split_until");
+        expect(await columns()).not.toContain("split_until");
+        expect(await columns()).toContain("split");
+        expect((await db.selectFrom("rent_sessions").select("split").executeTakeFirstOrThrow()).split).not.toBeNull();
+        expect(await migrate(db)).toContain("0085_session_split_until");
+        expect(await db.selectFrom("rent_sessions").select(["id", "split_until"]).execute()).toEqual([{ id: "s4", split_until: null }]);
+      } finally {
         await services.close();
         await db.destroy().catch(() => {});
         rmSync(dir, { recursive: true, force: true });

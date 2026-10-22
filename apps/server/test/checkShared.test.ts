@@ -78,11 +78,30 @@ describe("the design budget", () => {
     expect(one("apps/web/src/x.tsx", `// design:\n${dark}`)["raw-colour"]).toBe(1);
     expect(one("apps/web/src/x.tsx", `// the letterbox\n${dark}`)["raw-colour"]).toBe(1);
     expect(unmarked("a\n// design: why\nb\nc")).toBe("a\n\n\nc");
+    // JSX's block form alone on its line, indented as the UI's files have it, speaks for the line below too
+    expect(unmarked(`    {/* design: a live dot */}\n    ${dark}\n    ${dark}`)).toBe(`\n\n    ${dark}`);
+    expect(unmarked(`/* design: why */\n${dark}`)).toBe("\n");
+  });
+  it("lets a marker with code beside it cover its own line only, and takes no marker from a string (review O-19)", () => {
+    const dark = '<div className="bg-black" />';
+    // a leading marker followed by code is not alone: the next line is counted
+    expect(one("apps/web/src/x.tsx", `{/* design: why */} ${dark}\n${dark}`)["raw-colour"]).toBe(1);
+    // a "//design:" inside a string or a URL is text, not a comment
+    expect(one("apps/web/src/x.tsx", `const u = "a//design:b"; ${dark}`)["raw-colour"]).toBe(1);
+    expect(one("apps/web/src/x.tsx", `const u = 'https://x//design: b'; ${dark}`)["raw-colour"]).toBe(1);
+    // a real comment after a string still marks its line, apostrophes in the reason included
+    expect(one("apps/web/src/x.tsx", `const c = "bg-black"; // design: the video's own "black"`)["raw-colour"]).toBe(0);
   });
   it("does not count a menu row's × icon, or the glyph handed to an IconButton, as a close of its own", () => {
     expect(one("apps/web/src/x.tsx", '{ label: "Stop", icon: <X size={14} />, danger: true }')["close-icon"]).toBe(0);
     expect(one("apps/web/src/x.tsx", '<IconButton size={24} label="Take it out" onClick={go}>{off ? <Plus /> : <X size={12} />}</IconButton>')["close-icon"]).toBe(0);
     expect(one("apps/web/src/x.tsx", '<button onClick={close}><X size={14} /></button>')["close-icon"]).toBe(1);
+    // only the IconButton's own children: an × of its own after it on the line still counts (review O-19)
+    expect(one("apps/web/src/x.tsx", '<IconButton label="a"><X /></IconButton> <button onClick={c}><X size={14} /></button>')["close-icon"]).toBe(1);
+    expect(one("apps/web/src/x.tsx", '<IconButton label="a" onClick={() => go()} /> <button onClick={c}><X size={14} /></button>')["close-icon"]).toBe(1);
+    expect(one("apps/web/src/x.tsx", '<CloseButton onClose={c} /><X /><X />')["close-icon"]).toBe(2);
+    // one that closes further down hands its children the rest of the line
+    expect(one("apps/web/src/x.tsx", '<IconButton label="a" onClick={() => go()}>{off ? <Plus /> : <X />}\n</IconButton>')["close-icon"]).toBe(0);
     // the track's 16 px stop in a queued clip's box, by its one shape in its one file
     expect(one("apps/web/src/timeline/track/TrackClip.tsx", "                  <X size={10} />")["close-icon"]).toBe(0);
     expect(one("apps/web/src/timeline/track/Other.tsx", "                  <X size={10} />")["close-icon"]).toBe(1);

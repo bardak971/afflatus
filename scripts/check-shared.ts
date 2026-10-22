@@ -122,17 +122,46 @@ const KIT = /^apps\/web\/src\/ui\.tsx$/;
  * reason is required, so the budget counts only the real one-offs and each exception says where it stands and why. A
  * marker at the end of a line covers that line alone, so one cannot let a neighbour through unseen.
  */
-const MARKER = /\/[/*]\s*design:\s*\S/;
-/** A marker alone on its line, a comment and nothing else: it speaks for the line below. */
-const MARKER_ALONE = /^\s*(?:\/\/|\{?\/\*)\s*design:\s*\S/;
+const MARKER = /^\/[/*]\s*design:\s*\S/;
+/** A marker alone on its line, a whole comment and nothing else (`//`, a block or JSX's `{/* … *\/}`): it speaks for the line below. */
+const MARKER_ALONE = /^\s*(?:\/\/\s*design:\s*\S.*|\{?\/\*\s*design:\s*\S.*?\*\/\}?)\s*$/;
 
 /**
- * The text with its marked lines blanked, so the rules do not count them (the lines keep their places).
+ * The comments of a line, each from its `//` or `/*`, read past its strings: a `//design:` inside a string or a URL is
+ * text, not a marker. A quote that opens no string (an apostrophe in JSX text) hides what follows it, so such a line
+ * goes unmarked and counted, the safe side for a budget.
+ */
+function commentsOf(line: string): string[] {
+  const found: string[] = [];
+  let quote = "";
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!;
+    if (quote) {
+      if (c === "\\") i++;
+      else if (c === quote) quote = "";
+    } else if (c === '"' || c === "'" || c === "`") quote = c;
+    else if (c === "/" && line[i + 1] === "/") {
+      found.push(line.slice(i));
+      break;
+    } else if (c === "/" && line[i + 1] === "*") {
+      const end = line.indexOf("*/", i + 2);
+      found.push(line.slice(i, end < 0 ? undefined : end + 2));
+      if (end < 0) break;
+      i = end + 1;
+    }
+  }
+  return found;
+}
+
+/**
+ * The text with its marked lines blanked, so the rules do not count them (the lines keep their places). A marker with
+ * code beside it covers its own line alone, even when it leads the line.
  * @internal exported for the test
  */
 export function unmarked(text: string): string {
   const lines = text.split("\n");
-  return lines.map((l, i) => (MARKER.test(l) || (i > 0 && MARKER_ALONE.test(lines[i - 1]!)) ? "" : l)).join("\n");
+  const marked = (l: string) => commentsOf(l).some((c) => MARKER.test(c));
+  return lines.map((l, i) => (marked(l) || (i > 0 && MARKER_ALONE.test(lines[i - 1]!)) ? "" : l)).join("\n");
 }
 
 /** The rules, in the order of the review's list (section 4.3; rule 10, the banned words, is `wordFindings`, which fails outright). */
@@ -151,15 +180,22 @@ export const DESIGN_RULES: DesignRule[] = [
     id: "close-icon",
     why: "an × of its own (<X>): use CloseButton",
     // An × that is a menu row's icon (`icon: <X …/>`, drawn by the menu beside its words) or the glyph given to an
-    // IconButton on its line is not a close of its own. The track's stop in a queued clip's box is drawn at 16 px inside
-    // the clip, under the kit's smallest size (taken at 24 through its ::before); it is let through by its one shape,
-    // the 10 px × alone on its line in TrackClip.tsx.
+    // IconButton on its line is not a close of its own: only that button's children are let through (to its close on
+    // the line, or the rest of the line when it closes further down), so an × after it on the line still counts. The
+    // track's stop in a queued clip's box is drawn at 16 px inside the clip, under the kit's smallest size (taken at 24
+    // through its ::before); it is let through by its one shape, the 10 px × alone on its line in TrackClip.tsx.
     count: (f, t) =>
       KIT.test(f)
         ? 0
         : t
             .split("\n")
-            .map((l) => l.replace(/\bicon:\s*<X\b/g, "").replace(/<(?:IconButton|CloseButton)\b.*/, ""))
+            .map((l) =>
+              l
+                .replace(/\bicon:\s*<X\b/g, "")
+                .replace(/<(IconButton|CloseButton)\b.*?<\/\1>/g, "")
+                .replace(/<(?:IconButton|CloseButton)\b(?:[^>{]|\{[^}]*\})*\/>/g, "")
+                .replace(/<(?:IconButton|CloseButton)\b.*/, ""),
+            )
             .map((l) => (f === "apps/web/src/timeline/track/TrackClip.tsx" ? l.replace(/^\s*<X size=\{10\} \/>\s*$/, "") : l))
             .reduce((n, l) => n + matches(/<X\b/g, l), 0),
   },

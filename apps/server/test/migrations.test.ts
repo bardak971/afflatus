@@ -304,3 +304,24 @@ describe("migration 0084, an ended session's split kept", () => {
     await db.destroy();
   });
 });
+
+describe("migration 0085, a running session's split kept up to a moment", () => {
+  it("leaves the sessions there were without one (null), keeps one written after; and is taken back", async () => {
+    const db = openSqlite(":memory:");
+    await migrate(db, "0084_session_split");
+    const at = new Date().toISOString();
+    await db.insertInto("rent_sessions").values({ id: "old", machine_id: "rp-a", pod: "a", rate: 0.6, started_at: at, ended_at: null, seen_at: at, gpu: "NVIDIA A40", up_at: null, idle_minutes: 3 } as never).execute();
+    expect(await migrate(db, "0085_session_split_until")).toEqual(["0085_session_split_until"]);
+    expect(await db.selectFrom("rent_sessions").select(["split", "split_until"]).executeTakeFirstOrThrow()).toEqual({ split: null, split_until: null });
+    await db.updateTable("rent_sessions").set({ split: JSON.stringify({ spans: [], estimated: [] }), split_until: at }).execute();
+    expect((await db.selectFrom("rent_sessions").select("split_until").executeTakeFirstOrThrow()).split_until).toBe(at);
+    await migrate(db, "0084_session_split");
+    const columns = (await sql<{ name: string }>`pragma table_info(rent_sessions)`.execute(db)).rows.map((c) => c.name);
+    expect(columns).not.toContain("split_until");
+    // 0084's split is left as it was, and the column comes back empty
+    expect(columns).toContain("split");
+    expect(await migrate(db, "0085_session_split_until")).toEqual(["0085_session_split_until"]);
+    expect(await db.selectFrom("rent_sessions").select(["id", "split_until"]).execute()).toEqual([{ id: "old", split_until: null }]);
+    await db.destroy();
+  });
+});
