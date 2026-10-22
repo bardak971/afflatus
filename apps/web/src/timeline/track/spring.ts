@@ -64,3 +64,20 @@ export function releaseSpeed(trail: Trail, now: number): number {
  * stopping dead. `over` is how far past it the pointer asks, `size` the thing's own size.
  */
 export const rubberband = (over: number, size: number, k = 0.55) => (over * size * k) / (size + k * Math.abs(over));
+
+/**
+ * `x` held between `lo` and `hi` as it is drawn: past a bound it goes on with resistance (§9), never more than `size` past
+ * it however far the pointer goes, rather than stopping dead; without `give` (reduced motion) it stops at the bound. A
+ * trim's edge or a lane's end drawn so reads as "nothing more here" where a hard stop read as frozen.
+ */
+export function resisted(x: number, lo: number, hi: number, size: number, give = true): number {
+  if (x < lo) return give ? lo - rubberband(lo - x, size) : lo;
+  if (x > hi) return give ? hi + rubberband(x - hi, size) : hi;
+  return x;
+}
+
+/**
+ * How far an edge may be drawn past its limit (`resisted`'s size), from the width of what it belongs to: a short clip's
+ * edge gives a little, a lane's a few seconds' worth, a minute-long one no more than a long clip's (it would fly far past).
+ */
+export const edgeGive = (widthPx: number) => Math.max(40, Math.min(240, widthPx));

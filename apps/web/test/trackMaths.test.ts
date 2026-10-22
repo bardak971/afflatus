@@ -5,7 +5,7 @@ import { clipTarget } from "../src/timeline/track/useTrackDrop";
 import { joinCovered } from "../src/timeline/track/TrackClip";
 import { sourceDropClip } from "../src/timeline/track/SourceLane";
 import type { RecipeInfo, Timeline } from "../src/api";
-import { pulledLength, pullRoom, trimOf } from "../src/timeline/track/useStretch";
+import { drawnLength, pulledLength, pullRoom, trimOf } from "../src/timeline/track/useStretch";
 
 /** A clip of the track: a rendered video 5 s long unless told, its take playing 1 s to 6 s of a file with 0.5 s of room past each end. */
 function clip(id: string, o: Partial<Clip> = {}): Clip {
@@ -85,6 +85,20 @@ describe("a clip's edge dragged", () => {
     expect(pulledLength(room, "start", 432)).toBe(4600);
     expect(pulledLength(room, "end", 5000)).toBe(6000);
     expect(pulledLength(room, "start", 9000)).toBe(400);
+  });
+
+  it("is drawn past its most or its least with resistance, while the length it gives stays at the limit", () => {
+    const room = { base: 5000, least: 400, most: 6000 };
+    // 40 px a second, a give of 100 px: within the room, drawn as it gives
+    expect(drawnLength(room, "end", 432, 40, 100)).toBe(5400);
+    // 2 s past its most (80 px): drawn 30.6 px past it, 765 ms, the length given 6 s
+    expect(pulledLength(room, "end", 3000)).toBe(6000);
+    expect(drawnLength(room, "end", 3000, 40, 100)).toBeCloseTo(6000 + (((80 * 100 * 0.55) / (100 + 0.55 * 80)) / 40) * 1000, 6);
+    // the start edge dragged right past its least: drawn shorter than it
+    expect(drawnLength(room, "start", 9000, 40, 100)).toBeLessThan(400);
+    expect(drawnLength(room, "start", 9000, 40, 100)).toBeGreaterThan(400 - 2500);
+    // under reduced motion, at the limit
+    expect(drawnLength(room, "end", 3000, 40, 100, false)).toBe(6000);
   });
 
   it("asks for the trim by what is seen, a still for its length, nothing when it is back where it was", () => {

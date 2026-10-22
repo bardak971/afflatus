@@ -1,15 +1,34 @@
 import { useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Mic } from "lucide-react";
+import { trimIn } from "@afflatus/core";
 import type { Clip, RecipeInfo, Timeline } from "../../api";
 import { clock as mmss, plural } from "../../format";
 import { cx } from "../../ui";
+import { motionAllowed } from "../../useFlip";
 import { SOUND } from "./rows";
+import { edgeGive, resisted } from "./spring";
+import { useSpringBack } from "./useSpringBack";
 import type { Slot } from "../model";
 
 /** The input a model takes a recording in, part by part (H3 · Lip sync), and where in it each clip's part starts and lasts. */
 export function recordingInput(recipe: RecipeInfo | undefined) {
   const spec = recipe?.inputs.find((i) => i.type === "audio" && i.role === "sound" && i.window);
-  return spec && spec.type === "audio" && spec.window ? { id: spec.id, start: spec.window.start, seconds: spec.window.seconds } : null;
+  // the fewest seconds a clip takes (as the server's trim reads it), under which an empty clip the end falls in is set aside
+  return spec && spec.type === "audio" && spec.window ? { id: spec.id, start: spec.window.start, seconds: spec.window.seconds, leastMs: (spec.window.fits?.min ?? 1) * 1000 } : null;
+}
+
+/**
+ * Where a recording's end, brought in to `toMs` from `curTo`, comes to rest: the server's own rule (trimIn) over its clips,
+ * so that the band draws it there while it is dragged. A rendered clip, or one in the queue, is never shortened (the end goes
+ * to its nearer end); an empty one is, down to the fewest seconds a clip takes. An end taken out rests where it is asked.
+ */
+export function recordingEndRest(clips: Clip[], input: NonNullable<ReturnType<typeof recordingInput>>, curTo: number, toMs: number): number {
+  if (toMs >= curTo - 20 || !clips.length) return toMs;
+  const parts = clips.map((c) => {
+    const start = Number(c.inputs[input.start] ?? 0) * 1000;
+    return { id: c.id, from: start, start, end: start + Number(c.inputs[input.seconds] ?? 0) * 1000, whole: Boolean(c.take || c.job), busy: Boolean(c.job) };
+  });
+  return trimIn(parts, toMs, input.leastMs).toMs;
 }
 
 /** The clips made of a recording, in their order on the timeline. */
@@ -56,13 +75,20 @@ function Band({ recording, slots, recipes, pps, onTrim, onSelect }: {
   onTrim?(asset: string, fromMs: number, toMs: number): Promise<boolean> | void;
   onSelect(clip: string): void;
 }) {
-  const [held, setHeld] = useState<{ kind: "slip" | "start" | "end"; x: number; fromMs: number; toMs: number; moved: boolean } | null>(null);
+  const [held, setHeld] = useState<{ kind: "slip" | "start" | "end"; x: number; fromMs: number; toMs: number; moved: boolean; drawFrom?: number; drawTo?: number } | null>(null);
   /**
    * The stretch released, drawn until its trim settles: back to the old one meanwhile, the band looked as if the drag had
    * not been taken, and invited a second one. Let go on the settle, taken or not (taken, its clips are read back by then):
    * waiting for its clips to change kept a trim the server took but left as it was drawn, and the next drag started from it.
    */
-  const [sent, setSent] = useState<{ fromMs: number; toMs: number; kind: "slip" | "start" | "end" } | null>(null);
+  const [sent, setSent] = useState<{ fromMs: number; toMs: number; kind: "slip" | "start" | "end"; drawTo?: number } | null>(null);
+  /**
+   * Past a limit (the recording's ends, a second at least between them) the part dragged follows the pointer with
+   * resistance, `drawFrom` / `drawTo` where it is drawn (the stretch it gives stays at the limit); an end brought in onto a
+   * rendered clip resists toward where it will rest (recordingEndRest) rather than jumping there once let go of. Let go of,
+   * or over a clip's middle, it is carried to where it goes on the spring. Slipped, the band itself gives a little.
+   */
+  const back = useSpringBack<"slip" | "start" | "end">();
   const asset = recording.asset.id;
   const mine = slots.filter((s) => {
     const input = recordingInput(recipes.find((r) => r.id === s.clip.recipe));
@@ -80,10 +106,14 @@ function Band({ recording, slots, recipes, pps, onTrim, onSelect }: {
   const base = sent ?? { fromMs, toMs };
   // drawn under its clips; while dragged its edges follow the pointer, at the track's scale
   const px = (ms: number) => (ms / 1000) * pps;
-  // slipped, the band stays where its clips are: the recording slides under it
+  // slipped, the band stays where its clips are (the recording slides under it), but for what it gives past a limit
   const edged = drawn && drawn.kind !== "slip";
-  const left = mine[0]!.left + (edged ? px(shown.fromMs - fromMs) : 0);
-  const right = mine.at(-1)!.left + mine.at(-1)!.width + (edged ? px(shown.toMs - toMs) : 0);
+  const carried = (kind: "slip" | "start" | "end") => (back.left.tag === kind ? back.left.px : 0);
+  const slipped = (held?.kind === "slip" && held.drawFrom !== undefined ? -px(held.drawFrom - held.fromMs) : 0) - carried("slip");
+  const lineFrom = held?.kind === "start" && held.drawFrom !== undefined ? held.drawFrom : shown.fromMs;
+  const lineTo = held ? (held.kind === "end" && held.drawTo !== undefined ? held.drawTo : shown.toMs) : (sent?.drawTo ?? shown.toMs);
+  const left = mine[0]!.left + (edged ? px(lineFrom - fromMs) : 0) + carried("start") + slipped;
+  const right = mine.at(-1)!.left + mine.at(-1)!.width + (edged ? px(lineTo - toMs) : 0) + carried("end") + slipped;
   const stretch = `${mmss(shown.fromMs, { decimals: 1 })}–${mmss(shown.toMs, { decimals: 1 })}`;
 
   const down = (kind: "slip" | "start" | "end") => (e: ReactPointerEvent<HTMLElement>) => {
@@ -94,33 +124,68 @@ function Band({ recording, slots, recipes, pps, onTrim, onSelect }: {
     } catch {
       // a pointer that cannot be captured is followed while it stays over the band
     }
+    back.stop();
     setHeld({ kind, x: e.clientX, fromMs: base.fromMs, toMs: base.toMs, moved: false });
   };
+  const clipsNow = mine.map((s) => s.clip);
+  /** Where an end let go of at `to` comes to rest: onto a rendered clip's nearer end. */
+  const restOf = (to: number) => (to !== base.toMs ? recordingEndRest(clipsNow, input, toMs, to) : to);
+  /** The part dragged as drawn now, in px along the track (what the spring still carries included). */
+  const edgeNow = (h: NonNullable<typeof held>) => px(h.kind === "end" ? (h.drawTo ?? h.toMs) : (h.drawFrom ?? h.fromMs)) + carried(h.kind);
   const move = (e: ReactPointerEvent) => {
     if (!held || !onTrim) return;
     const dx = e.clientX - held.x;
     if (!held.moved && Math.abs(dx) < 4) return;
     const dms = Math.round(((dx / pps) * 1000) / 100) * 100;
+    const raw = (dx / pps) * 1000;
+    const give = edgeGive(px(base.toMs - base.fromMs));
+    const free = motionAllowed();
+    // how much further than `lo`..`hi` it is drawn for a pointer asking `asked`, in ms (0 within them)
+    const past = (asked: number, lo: number, hi: number) => (resisted(px(asked), px(lo), px(hi), give, free) - px(Math.max(lo, Math.min(hi, asked)))) * (1000 / pps);
+    let next: NonNullable<typeof held>;
     if (held.kind === "slip") {
       // the recording slides under its clips: left, the same length of it taken later on
       const span = base.toMs - base.fromMs;
       const from = Math.max(0, Math.min(length - span, base.fromMs - dms));
-      setHeld({ ...held, moved: true, fromMs: from, toMs: from + span });
-    } else if (held.kind === "start") setHeld({ ...held, moved: true, fromMs: Math.max(0, Math.min(base.toMs - 1000, base.fromMs + dms)) });
-    else setHeld({ ...held, moved: true, toMs: Math.max(base.fromMs + 1000, Math.min(length, base.toMs + dms)) });
+      next = { ...held, moved: true, fromMs: from, toMs: from + span, drawFrom: from + past(base.fromMs - raw, 0, length - span) };
+    } else if (held.kind === "start") {
+      const from = Math.max(0, Math.min(base.toMs - 1000, base.fromMs + dms));
+      next = { ...held, moved: true, fromMs: from, drawFrom: from + past(base.fromMs + raw, 0, base.toMs - 1000) };
+    } else {
+      const lo = base.fromMs + 1000;
+      const to = Math.max(lo, Math.min(length, base.toMs + dms));
+      // brought in onto a rendered clip, it resists toward where it will rest (the clip's nearer end) instead
+      const rest = restOf(to);
+      const drawTo = rest === to ? to + past(base.toMs + raw, lo, length) : rest + past(Math.max(lo, Math.min(length, base.toMs + raw)), rest, rest);
+      next = { ...held, moved: true, toMs: to, drawTo };
+      // over a clip's middle, where it rests changes sides: carried across on the spring rather than jumping there
+      if (held.moved && restOf(held.toMs) !== rest) back.jump(edgeNow(held), px(drawTo), "end");
+    }
+    back.seen(edgeNow(next));
+    setHeld(next);
   };
   const up = () => {
-    if (held?.moved && (held.fromMs !== base.fromMs || held.toMs !== base.toMs)) {
-      const asked = onTrim?.(asset, held.fromMs, held.toMs);
+    if (held?.moved) {
+      let asked: Promise<boolean> | void = undefined;
+      if (held.fromMs !== base.fromMs || held.toMs !== base.toMs) asked = onTrim?.(asset, held.fromMs, held.toMs);
+      // where it is drawn from now: an end where it will rest, while the trim is on its way; else the stretch it had
+      const rest = held.kind === "end" ? restOf(held.toMs) : held.fromMs;
+      const after = asked ? rest : held.kind === "end" ? (sent?.drawTo ?? base.toMs) : base.fromMs;
+      // drawn past a limit, or short of where it will rest: carried there from where it was let go of, on the spring
+      back.jump(edgeNow(held), px(after), held.kind);
       // drawn meanwhile; settled, its clips' again, read back by then when taken (a newer release's own drawing is left
       // alone)
       if (asked) {
-        const ours = { fromMs: held.fromMs, toMs: held.toMs, kind: held.kind };
+        const ours = { fromMs: held.fromMs, toMs: held.toMs, kind: held.kind, ...(held.kind === "end" ? { drawTo: rest } : {}) };
         setSent(ours);
         void asked.then(() => setSent((now) => (now === ours ? null : now)));
       }
     }
     else if (held && !held.moved) onSelect(mine[0]!.clip.id);
+    setHeld(null);
+  };
+  const cancel = () => {
+    back.stop();
     setHeld(null);
   };
   // an edge: 8 px lit on hover, 24 px to take (WCAG 2.5.8)
@@ -131,7 +196,7 @@ function Band({ recording, slots, recipes, pps, onTrim, onSelect }: {
       style={{ left, width: Math.max(12, right - left), top: SOUND.top - 2, height: SOUND.height + 4 }}
       className={cx("pointer-events-none absolute z-10 rounded-md border-[1.5px]", held?.moved ? "border-accent" : "border-accent/60")}
     >
-      {onTrim && <span aria-hidden data-tip="Drag: where the recording starts (its clips made anew)" onPointerDown={down("start")} onPointerMove={move} onPointerUp={up} onPointerCancel={() => setHeld(null)} className={cx(edge, "-left-[4px]")} />}
+      {onTrim && <span aria-hidden data-tip="Drag: where the recording starts (its clips made anew)" onPointerDown={down("start")} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} className={cx(edge, "-left-[4px]")} />}
       <span
         role="button"
         tabIndex={0}
@@ -141,14 +206,14 @@ function Band({ recording, slots, recipes, pps, onTrim, onSelect }: {
         onPointerDown={onTrim ? down("slip") : undefined}
         onPointerMove={move}
         onPointerUp={up}
-        onPointerCancel={() => setHeld(null)}
+        onPointerCancel={cancel}
         onClick={onTrim ? undefined : () => onSelect(mine[0]!.clip.id)}
         className={cx("pointer-events-auto absolute top-1 left-3 flex h-6 max-w-[calc(100%-24px)] items-center gap-1 rounded bg-panel/90 px-1.5 text-micro font-semibold text-accent", onTrim && "cursor-grab active:cursor-grabbing")}
       >
         <Mic size={11} className="shrink-0" />
         <span className="truncate">{recording.asset.name} · {stretch}{recording.parked ? ` · +${recording.parked}` : ""}</span>
       </span>
-      {onTrim && <span aria-hidden data-tip="Drag: where the recording ends (clips set aside, or brought back and added at its pauses)" onPointerDown={down("end")} onPointerMove={move} onPointerUp={up} onPointerCancel={() => setHeld(null)} className={cx(edge, "-right-[4px]")} />}
+      {onTrim && <span aria-hidden data-tip="Drag: where the recording ends (clips set aside, or brought back and added at its pauses)" onPointerDown={down("end")} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} className={cx(edge, "-right-[4px]")} />}
     </div>
   );
 }

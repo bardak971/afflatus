@@ -1,11 +1,14 @@
-import { useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Eye, Film, SlidersHorizontal, Split, Trash2 } from "lucide-react";
-import { sourceWindows, windowShapeOf, type ClipValue, type SourceWindow } from "@afflatus/core";
+import { carriedOf, sourceWindows, trimIn, windowShapeOf, type ClipValue, type SourceWindow } from "@afflatus/core";
 import { ContextMenu, useMenu } from "../../ContextMenu";
 import { STRIP_FRAMES, stripUrl, type Asset, type Clip, type RecipeInfo, type Timeline } from "../../api";
 import { cx } from "../../ui";
+import { motionAllowed } from "../../useFlip";
 import { fileVersion, PAD, type Slot } from "../model";
 import { ROW, SOURCE } from "./rows";
+import { edgeGive, resisted } from "./spring";
+import { useSpringBack } from "./useSpringBack";
 
 /**
  * A recipe that makes a long source window by window, and the inputs a clip of it keeps its part of the source in. Its
@@ -44,6 +47,27 @@ export function sourceDropClip(t: Timeline, recipes: RecipeInfo[], selected?: Cl
   const old = new Set(madeFromSource(t, recipes).map((c) => c.id));
   const empty = (c: Clip) => !c.take && !c.job && !old.has(c.id) && Boolean(windowed(recipes.find((r) => r.id === c.recipe)));
   return (selected && empty(selected) ? selected : undefined) ?? t.clips.find(empty);
+}
+
+/**
+ * Where the source's end, brought in to `toMs` once made, comes to rest: the server's own rule (trimIn) from the windows
+ * on the timeline, so that the lane draws it there while it is dragged. A rendered window, or one in the queue, is never
+ * shortened (the end goes to its nearer end); an empty one is, down to the fewest frames a window takes. An end taken out,
+ * or a source not made yet, rests where it is asked.
+ */
+export function sourceEndRest(t: Timeline, recipes: RecipeInfo[], toMs: number): number {
+  const source = t.source;
+  const recipe = recipes.find((r) => r.id === source?.recipe);
+  const w = windowed(recipe);
+  const mine = madeFromSource(t, recipes);
+  if (!source || !w || source.clip || !mine.length || toMs >= source.toMs) return toMs;
+  const parts = mine.map((c, k) => {
+    const from = Number(c.inputs[w.start] ?? 0) * 1000;
+    // a window that carries on starts its own frames past its run-up, as the server reads it
+    const start = c.joined === "continue" && k > 0 ? from + (carriedOf(recipe, c.inputs) * 1000) / w.shape.fps : from;
+    return { id: c.id, from, start, end: from + Number(c.inputs[w.seconds] ?? 0) * 1000, whole: Boolean(c.take || c.job), busy: Boolean(c.job) };
+  });
+  return trimIn(parts, toMs, (w.shape.least / w.shape.fps) * 1000).toMs;
 }
 
 /** An end of the source's stretch: 8 px drawn, 24 px to take (WCAG 2.5.8), inside the lane where it is cut at its edge. */
@@ -108,7 +132,7 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
    * A drag under way: its body slipped (the same length, another part of the video, which slides under it), its left end
    * (where it starts) or its right end (where it stops); where it started and what it shows meanwhile.
    */
-  const [held, setHeld] = useState<{ kind: "slip" | "start" | "end"; x: number; from: number; to: number; fromMs: number; toMs: number; moved: boolean } | null>(null);
+  const [held, setHeld] = useState<{ kind: "slip" | "start" | "end"; x: number; from: number; to: number; fromMs: number; toMs: number; moved: boolean; drawFrom?: number; drawTo?: number } | null>(null);
   /**
    * The stretch released, drawn until its trim settles: back to the old one meanwhile, the lane looked as if the drag had
    * not been taken, and invited a second one. Let go on the settle itself, taken or not, rather than once the timeline
@@ -116,7 +140,16 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
    * was (an end snapped back onto a rendered window) never changed it, so that the stretch refused stayed drawn and the
    * next drag started from it.
    */
-  const [sent, setSent] = useState<{ fromMs: number; toMs: number; kind: "slip" | "start" | "end" } | null>(null);
+  const [sent, setSent] = useState<{ fromMs: number; toMs: number; kind: "slip" | "start" | "end"; drawTo?: number } | null>(null);
+  /**
+   * Past a limit (the video's ends, a second at least between them) the part dragged follows the pointer with resistance,
+   * `drawFrom` / `drawTo` where it is drawn (the stretch it gives stays at the limit); an end brought in onto a rendered
+   * window resists toward where it will rest (sourceEndRest) rather than jumping there once let go of. Let go of, or over a
+   * window's middle, it is carried to where it goes on the spring.
+   */
+  const back = useSpringBack<"slip" | "start" | "end">();
+  /** What the last render drew, and the timeline's own stretch: a trim settling reads them to carry the lane over. */
+  const live = useRef<{ lineFrom: number; lineTo: number; fromMs: number; toMs: number; sent: typeof sent } | null>(null);
   const source = timeline.source;
   const x = (ms: number) => PAD + (ms / 1000) * pps;
   if (!source || !place) {
@@ -139,9 +172,15 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
   const drawn = held ?? sent;
   const fromMs = drawn?.fromMs ?? source.fromMs;
   const toMs = drawn?.toMs ?? source.toMs;
+  // where each part is drawn: past a limit a little further, and what the spring still carries of a jump
+  const leftMs = (kind: "slip" | "start" | "end") => (back.left.tag === kind ? (back.left.px / pps) * 1000 : 0);
+  const kindNow = held?.kind ?? sent?.kind ?? back.left.tag;
+  const lineFrom = (held?.drawFrom ?? fromMs) + leftMs("slip") + leftMs("start");
+  const lineTo = (held ? (held.drawTo ?? toMs) : (sent?.drawTo ?? toMs)) + leftMs("slip") + leftMs("end");
   // slipped, the video slides under the stretch's place (its start sits where the stretch starts, less the stretch's start in
   // it); its ends dragged, the video stays where it is
-  const atMs = drawn?.kind === "slip" ? place.atMs + source.fromMs - fromMs : place.atMs;
+  const atMs = kindNow === "slip" ? place.atMs + source.fromMs - lineFrom : place.atMs;
+  live.current = { lineFrom, lineTo, fromMs: source.fromMs, toMs: source.toMs, sent };
   const left = x(atMs);
   const w = (length / 1000) * pps;
   const cells = Math.max(1, Math.round(w / 40));
@@ -162,39 +201,72 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
       // a pointer that cannot be captured is followed while it stays over the lane
     }
     // from the stretch drawn: one released and not yet read back is where the next drag starts
+    back.stop();
     setHeld({ kind, x: e.clientX, from: fromMs, to: toMs, fromMs, toMs, moved: false });
   };
+  const px = (ms: number) => (ms / 1000) * pps;
+  /** The part dragged as drawn now, in ms (what the spring still carries included). */
+  const edgeNow = (h: NonNullable<typeof held>) => (h.kind === "end" ? (h.drawTo ?? h.toMs) : (h.drawFrom ?? h.fromMs)) + leftMs(h.kind);
+  /** Where an end let go of at `to` comes to rest: onto a rendered window's nearer end, once made. */
+  const restOf = (h: NonNullable<typeof held>, to: number) => (place.made && to !== h.to ? sourceEndRest(timeline, recipes, to) : to);
   const move = (e: ReactPointerEvent) => {
     if (!held) return;
     const dx = e.clientX - held.x;
     if (!held.moved && Math.abs(dx) < 4) return;
     const dms = Math.round(((dx / pps) * 1000) / 100) * 100;
+    const raw = (dx / pps) * 1000;
+    const give = edgeGive(px(held.to - held.from));
+    const free = motionAllowed();
+    // how much further than `lo`..`hi` it is drawn for a pointer asking `asked`, in ms (0 within them)
+    const past = (asked: number, lo: number, hi: number) => (resisted(px(asked), px(lo), px(hi), give, free) - px(Math.max(lo, Math.min(hi, asked)))) * (1000 / pps);
+    let next: NonNullable<typeof held>;
     if (held.kind === "slip") {
       // the video slides under the place where the clips go, as the music's song does: left, the same length of it taken
       // later on (the rethink's slip)
       const span = held.to - held.from;
       const from = Math.max(0, Math.min(length - span, held.from - dms));
-      setHeld({ ...held, moved: true, fromMs: from, toMs: from + span });
+      const extra = past(held.from - raw, 0, length - span);
+      next = { ...held, moved: true, fromMs: from, toMs: from + span, drawFrom: from + extra, drawTo: from + span + extra };
       onPeek?.(from);
     } else if (held.kind === "start") {
       const from = Math.max(0, Math.min(held.to - 1000, held.from + dms));
-      setHeld({ ...held, moved: true, fromMs: from });
+      next = { ...held, moved: true, fromMs: from, drawFrom: from + past(held.from + raw, 0, held.to - 1000) };
       onPeek?.(from);
     } else {
-      const to = Math.max(held.from + 1000, Math.min(length, held.to + dms));
-      setHeld({ ...held, moved: true, toMs: to });
+      const lo = held.from + 1000;
+      const to = Math.max(lo, Math.min(length, held.to + dms));
+      // brought in onto a rendered window, it resists toward where it will rest (the window's nearer end) instead
+      const rest = restOf(held, to);
+      const drawTo = rest === to ? to + past(held.to + raw, lo, length) : rest + past(Math.max(lo, Math.min(length, held.to + raw)), rest, rest);
+      next = { ...held, moved: true, toMs: to, drawTo };
+      // over a window's middle, where it rests changes sides: carried across on the spring rather than jumping there
+      if (held.moved && restOf(held, held.toMs) !== rest) back.jump(px(edgeNow(held)), px(drawTo), "end");
       onPeek?.(to);
     }
+    back.seen(px(edgeNow(next)));
+    setHeld(next);
   };
   const up = () => {
-    if (held?.moved && (held.fromMs !== held.from || held.toMs !== held.to)) {
-      const asked = onStretch?.(held.fromMs, held.toMs);
+    if (held?.moved) {
+      let asked: Promise<boolean> | void = undefined;
+      if (held.fromMs !== held.from || held.toMs !== held.to) asked = onStretch?.(held.fromMs, held.toMs);
+      // where it is drawn from now: an end where it will rest, while the trim is on its way; else the stretch it had
+      const rest = held.kind === "end" ? restOf(held, held.toMs) : held.fromMs;
+      const after = asked ? rest : held.kind === "end" ? (sent?.drawTo ?? held.to) : held.from;
+      // drawn past a limit, or short of where it will rest: carried there from where it was let go of, on the spring
+      back.jump(px(edgeNow(held)), px(after), held.kind);
       // drawn meanwhile; settled, the timeline's again, read back by then when taken (a newer release's own drawing is
       // left alone)
       if (asked) {
-        const ours = { fromMs: held.fromMs, toMs: held.toMs, kind: held.kind };
+        const ours = { fromMs: held.fromMs, toMs: held.toMs, kind: held.kind, ...(held.kind === "end" ? { drawTo: rest } : {}) };
         setSent(ours);
-        void asked.then(() => setSent((now) => (now === ours ? null : now)));
+        void asked.then(() => {
+          // settled elsewhere than drawn (asked first, refused, or the server's end not the one foreseen): carried from
+          // where it is drawn to the timeline's own, rather than jumping there
+          const l = live.current;
+          if (l?.sent === ours) back.jump(px(ours.kind === "end" ? l.lineTo : l.lineFrom), px(ours.kind === "end" ? l.toMs : l.fromMs), ours.kind);
+          setSent((now) => (now === ours ? null : now));
+        });
       }
     }
     if (held?.moved) onPeek?.(null);
@@ -205,6 +277,7 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
   // the moment it was showing for the drag, where it stayed
   const cancel = () => {
     if (held?.moved) onPeek?.(null);
+    back.stop();
     setHeld(null);
   };
   const bound = place.made
@@ -254,14 +327,14 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
           })}
         </span>
         {/* the video before the stretch and after it faint, as the music's song past the clips */}
-        <span className="pointer-events-none absolute inset-y-0 left-0 bg-ground/75" style={{ width: Math.max(0, inLane(fromMs)) }} />
-        <span className="pointer-events-none absolute inset-y-0 bg-ground/75" style={{ left: inLane(toMs), right: 0 }} />
+        <span className="pointer-events-none absolute inset-y-0 left-0 bg-ground/75" style={{ width: Math.max(0, inLane(lineFrom)) }} />
+        <span className="pointer-events-none absolute inset-y-0 bg-ground/75" style={{ left: inLane(lineTo), right: 0 }} />
         {/* the stretch made into clips, lit, where its clips are */}
-        <span className={cx("pointer-events-none absolute inset-y-0 rounded border-2", selected ? "border-accent" : "border-ink-3")} style={{ left: Math.max(0, inLane(fromMs)), width: Math.max(4, inLane(toMs) - Math.max(0, inLane(fromMs))) }} />
+        <span className={cx("pointer-events-none absolute inset-y-0 rounded border-2", selected ? "border-accent" : "border-ink-3")} style={{ left: Math.max(0, inLane(lineFrom)), width: Math.max(4, inLane(lineTo) - Math.max(0, inLane(lineFrom))) }} />
         {bound.map((b) => (
           <span key={b.id} className="pointer-events-none absolute inset-y-1 rounded-sm border border-accent/70" style={{ left: inLane(b.from), width: Math.max(4, ((b.to - b.from) / 1000) * pps) }} />
         ))}
-        <span className="pointer-events-none absolute top-0.5 rounded bg-ground/85 px-1 text-micro font-semibold whitespace-nowrap" style={{ left: Math.max(2, inLane(fromMs) + 3) }}>
+        <span className="pointer-events-none absolute top-0.5 rounded bg-ground/85 px-1 text-micro font-semibold whitespace-nowrap" style={{ left: Math.max(2, inLane(lineFrom) + 3) }}>
           {held ? (held.kind === "slip" ? `${(fromMs / 1000).toFixed(1)}–${(toMs / 1000).toFixed(1)} s` : `${((held.kind === "start" ? fromMs : toMs) / 1000).toFixed(1)} s${held.kind === "end" ? ": stops here" : ": starts here"}`) : `${video.name} · from ${(fromMs / 1000).toFixed(1)} s`}
         </span>
         {/* its left end: where it starts in the video */}
@@ -272,7 +345,7 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
             data-hint={`drag: where it starts (${(fromMs / 1000).toFixed(1)} s of the source)`}
             onPointerDown={down("start")}
             className={cx(END_HIT, "rounded-l")}
-            style={{ left: Math.max(0, inLane(fromMs)) }}
+            style={{ left: Math.max(0, inLane(lineFrom)) }}
           />
         )}
         {/* its right end: where Motion transfer stops */}
@@ -283,7 +356,7 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
             data-hint={`drag: where Motion transfer stops (${(toMs / 1000).toFixed(1)} s of the source)`}
             onPointerDown={down("end")}
             className={cx(END_HIT, "rounded-r")}
-            style={{ left: inLane(toMs) - 8 }}
+            style={{ left: inLane(lineTo) - 8 }}
           />
         )}
       </div>
