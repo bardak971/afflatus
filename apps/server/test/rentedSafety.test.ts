@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
 import { podTime } from "../src/runpod";
-import { machinesSetAside, readSettings, writeSettings } from "../src/settings";
+import { machinesSetAside, readSettings, updateSettings, writeSettings } from "../src/settings";
 import { complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /**
@@ -372,6 +372,152 @@ describe("a stored machine the settings no longer take whole", () => {
     expect(stored.map((m) => m.id)).toEqual(["m1", ib]);
     expect(stored[1]).toMatchObject({ url: "not an address", rented: { pod: podB().id } });
     expect(machinesSetAside(await readSettings(t.db))).toMatchObject([{ id: ib, mended: false }]);
+  });
+
+  const storedRows = async () => JSON.parse((await t.db.selectFrom("settings").select("value").where("key", "=", "machines").executeTakeFirstOrThrow()).value) as Array<{ id: string; url: string; rented?: Record<string, unknown> }>;
+  const terminates = () => runpod.calls.filter((c) => /\/action terminate$/.test(c)).length;
+
+  it("lets a pod added again be followed: its old row, its id the part not read, no longer stops it", async () => {
+    const ib = await add(podB().id);
+    await started(ib, podB);
+    // a second row for the same pod, its id unreadable, beside the machine that follows it: never stopped for that row
+    await spoil((list) => {
+      list.push({ ...list.find((m) => m.id === ib)!, id: "RP_OLD", url: "https://old-8188.proxy.runpod.net" });
+    });
+    expect(machinesSetAside(await readSettings(t.db))).toMatchObject([{ id: "RP_OLD", mended: false, pod: podB().id }]);
+    later(3 * 60_000);
+    await t.services.rented.poll();
+    expect(podB().status).toBe("RUNNING");
+    // and the next write of the list drops it: the pod is the listed machine's
+    await writeSettings(t.db, { machines: (await readSettings(t.db)).machines });
+    expect((await storedRows()).map((m) => m.id)).toEqual(["m1", ib]);
+    expect(machinesSetAside(await readSettings(t.db))).toEqual([]);
+  });
+
+  it("drops the old row of a pod added again from Rented GPUs, whose id was the part not read", async () => {
+    const ib = await add(podB().id);
+    await spoil((list) => {
+      list.find((m) => m.id === ib)!.id = "RP_OLD";
+    });
+    expect((await post(t.app, "/api/runpod/add", { pod: podB().id })).statusCode).toBe(200);
+    expect((await storedRows()).map((m) => m.id)).toEqual(["m1", ib]);
+    await started(ib, podB);
+    later(3 * 60_000);
+    await t.services.rented.poll();
+    expect(podB().status).toBe("RUNNING");
+  });
+
+  it("only stops an unread pod the user added, even one that keeps nothing; one its row says was deployed is terminated", async () => {
+    podB().diskGb = 0;
+    const ib = await add(podB().id);
+    await started(ib, podB);
+    await spoil((list) => {
+      list.find((m) => m.id === ib)!.url = "not an address";
+    });
+    await t.services.rented.poll();
+    expect(terminates()).toBe(0);
+    expect(podB().status).toBe("EXITED");
+    // deployed by Afflatus, it keeps nothing: terminated, as a cap would
+    podA().diskGb = 0;
+    const ia = await add(podA().id);
+    await started(ia, podA);
+    await spoil((list) => {
+      const m = list.find((x) => x.id === ia)!;
+      m.url = "not an address";
+      (m.rented as Record<string, unknown>).deployed = true;
+    });
+    await t.services.rented.poll();
+    expect(podA().status).toBe("TERMINATED");
+  });
+
+  it("forgets an unreadable entry on the user's word, one with a pod only once it no longer bills or the user says so", async () => {
+    const ib = await add(podB().id);
+    await started(ib, podB);
+    await spoil((list) => {
+      list.find((m) => m.id === ib)!.url = "not an address";
+      list.push({ id: "m2", name: "", url: "192.168.1.9:8188", token: "SECRET-TOKEN-1234567890" });
+    });
+    const told = () => t.app.inject({ method: "GET", url: "/api/settings" }).then((r) => r.json().machinesSetAside as Array<{ key: string; label: string; pod: boolean }>);
+    const [pod, own] = await told();
+    expect(pod).toMatchObject({ pod: true });
+    const forget = (key: string, anyway?: boolean) => post(t.app, "/api/machines/set-aside/forget", { key, ...(anyway === undefined ? {} : { anyway }) });
+    // its pod still bills: refused until the user says so
+    const running = await forget(pod!.key);
+    expect(running.statusCode).toBe(409);
+    expect(running.json().error).toMatch(/still runs on RunPod/);
+    expect((await forget(own!.key)).statusCode).toBe(200);
+    expect(await told()).toEqual([expect.objectContaining({ key: pod!.key })]);
+    // once stopped, forgotten; its secret left to delete once the pod is gone
+    await t.services.rented.poll();
+    expect(podB().status).toBe("EXITED");
+    expect((await forget(pod!.key)).statusCode).toBe(200);
+    expect(await told()).toEqual([]);
+    expect((await storedRows()).map((m) => m.id)).toEqual(["m1"]);
+    expect((await readSettings(t.db)).leftSecrets).toEqual([expect.objectContaining({ pod: podB().id })]);
+    expect((await forget(pod!.key)).statusCode).toBe(404);
+    // a pod running, forgotten anyway: no longer stopped from here
+    const ia = await add(podA().id);
+    await started(ia, podA);
+    await spoil((list) => {
+      list.find((m) => m.id === ia)!.url = "not an address";
+    });
+    const [a] = await told();
+    expect((await forget(a!.key, true)).statusCode).toBe(200);
+    await t.services.rented.poll();
+    expect(podA().status).toBe("RUNNING");
+  });
+
+  it("keeps every ComfyUI removed removed, an unread row of the user's own beside them", async () => {
+    await spoil((list) => {
+      list.push({ id: "m2", name: "", url: "192.168.1.9:8188" });
+    });
+    await writeSettings(t.db, { machines: [] });
+    const s = await readSettings(t.db);
+    expect(s.machines).toEqual([]);
+    expect(machinesSetAside(s)).toMatchObject([{ id: "m2", mended: false }]);
+  });
+
+  it("mends a pod's lost idle action to the one that bills less, never its deploy, and says so until its card is saved", async () => {
+    const ib = await add(podB().id);
+    const ia = await add(podA().id);
+    await spoil((list) => {
+      Object.assign(list.find((m) => m.id === ib)!.rented as object, { idleDo: "delete", deployed: true });
+      Object.assign(list.find((m) => m.id === ia)!.rented as object, { idleDo: "delete" });
+    });
+    let s = await readSettings(t.db);
+    expect(s.machines.find((m) => m.id === ib)!.rented!.idleDo).toBe("terminate");
+    expect(s.machines.find((m) => m.id === ia)!.rented!.idleDo).toBe("stop");
+    const page = async () => (await t.app.inject({ method: "GET", url: "/api/settings" })).json() as { machines: Array<Record<string, unknown>>; machinesSetAside: Array<{ now: string[] }> };
+    expect((await page()).machinesSetAside).toEqual([expect.objectContaining({ mended: true, fields: ["rented.idleDo"], now: ["idleDo: terminate"] }), expect.objectContaining({ now: ["idleDo: stop"] })]);
+    // a write of the list by the server (a lock's token), or the page saving another machine: still said, stored as it was
+    await updateSettings(t.db, (c) => ({ machines: c.machines.map((m) => (m.id === "m1" ? { ...m, token: "t" } : m)) }));
+    const save = async (change: (m: Record<string, unknown>) => Record<string, unknown>) => {
+      const list = (await page()).machines.map(({ tokenEnd: _end, local: _local, ...m }) => change(m));
+      expect((await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: list } })).statusCode).toBe(200);
+    };
+    await save((m) => (m.id === "m1" ? { ...m, name: "zz-test" } : m));
+    expect((await storedRows()).find((m) => m.id === ib)!.rented!.idleDo).toBe("delete");
+    expect(machinesSetAside(await readSettings(t.db)).map((a) => a.id)).toEqual([ib, ia]);
+    // its card saved: what it showed is its setting now
+    await save((m) => (m.id === ib ? { ...m, rented: { ...(m.rented as object), idleMinutes: 20 } } : m));
+    expect((await storedRows()).find((m) => m.id === ib)!.rented).toMatchObject({ idleDo: "terminate", idleMinutes: 20, deployed: true });
+    s = await readSettings(t.db);
+    expect(machinesSetAside(s).map((a) => a.id)).toEqual([ia]);
+    // its deploy unreadable: set aside, never taken for a pod added by hand
+    await spoil((list) => {
+      (list.find((m) => m.id === ia)!.rented as Record<string, unknown>).deployed = "yes";
+    });
+    expect(machinesSetAside(await readSettings(t.db))).toEqual([expect.objectContaining({ id: ia, mended: false, why: expect.stringMatching(/^rented\.deployed: /) })]);
+  });
+
+  it("names the setting that set a row aside, not the first one it could have mended", async () => {
+    const ib = await add(podB().id);
+    await spoil((list) => {
+      const m = list.find((x) => x.id === ib)!;
+      m.takes = "sometimes";
+      delete (m.rented as Record<string, unknown>).provider;
+    });
+    expect(machinesSetAside(await readSettings(t.db))).toEqual([expect.objectContaining({ mended: false, why: expect.stringMatching(/^rented\.provider: /) })]);
   });
 });
 

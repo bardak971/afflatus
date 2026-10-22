@@ -4,7 +4,7 @@ import { stepSaid, volumePerMonth } from "@afflatus/core";
 import { bootOf } from "./podBoot";
 import { buildOf } from "./podImage";
 import { dollars } from "./notifyWords";
-import { readSettings, updateSettings, type Machine } from "./settings";
+import { forgetSetAside, machinesSetAside, readSettings, updateSettings, type Machine } from "./settings";
 import { CAP_REACHED } from "./queueModel";
 import type { RentedView, Seen } from "./rentedModel";
 import { capReached, HOUR } from "./rentedBilling";
@@ -150,6 +150,30 @@ export class Rented extends RentedDeploy {
     });
     if (!found) throw httpError("there is no ComfyUI with that id", 404);
     this.seen.delete(machine);
+    this.events.emit("setup");
+  }
+
+  /**
+   * A stored machine set aside whole (settings.ts load) forgotten on the user's word, by its key (its note's Forget). One with
+   * a pod is forgotten only once RunPod says that pod no longer bills, or when the user says so (`anyway`) after being told:
+   * once its row is gone, nothing here stops it any more.
+   */
+  async forgetSetAside(key: string, anyway: boolean): Promise<void> {
+    const settings = await readSettings(this.db);
+    const a = machinesSetAside(settings).find((x) => !x.mended && x.key === key);
+    if (!a) throw httpError("That entry is no longer stored.", 404);
+    if (a.pod && !anyway) {
+      const unknown = `Whether its pod ${a.pod} still runs on RunPod is not known`;
+      if (!settings.runpodKey) throw httpError(`${unknown} (no RunPod API key). Forgotten, it is no longer stopped from here if it runs.`, 409);
+      let status: string | null;
+      try {
+        status = (await this.client(settings.runpodKey).pod(a.pod))?.status ?? null;
+      } catch (err) {
+        throw httpError(`${unknown} (${(err as Error).message}). Forgotten, it is no longer stopped from here if it runs.`, 409);
+      }
+      if (status && BILLED.has(status)) throw httpError(`Its pod ${a.pod} still runs on RunPod, billed. Forgotten, nothing here stops it any more: stop or terminate it on RunPod.`, 409);
+    }
+    if (!(await forgetSetAside(this.db, key))) throw httpError("That entry is no longer stored.", 404);
     this.events.emit("setup");
   }
 

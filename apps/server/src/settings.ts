@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { LIMITS, presetFileSchema } from "@afflatus/core";
 import { envSaid } from "./config";
 import type { Db } from "./db";
 import { httpError } from "./errors";
 import { oneAtATime } from "./keyedLock";
+import { tokenSecret } from "./runpod";
 
 /** An address the server will talk to: http or https, nothing else (no file:, no ftp:). */
 const httpUrl = z.url({ protocol: /^https?$/ });
@@ -412,7 +414,7 @@ async function load(db: Db): Promise<Settings> {
   if (rest.llms === undefined && one && typeof one === "object" && (one as { baseUrl?: string }).baseUrl) rest.llms = [{ id: "main", ...one }];
   // a list of machines never written is an install from before there could be several (or none): its ComfyUI is the first
   // machine. One written, even empty (a new install's, seedNewInstall; every machine removed), is the list as it is
-  let listed = Array.isArray(rest.machines);
+  const listed = Array.isArray(rest.machines);
   // read machine by machine: one the schema no longer took whole set the whole list aside, and with it every rented pod
   // out of the idle stop, the caps and Costs while RunPod billed on
   const aside: MachineSetAside[] = [];
@@ -420,9 +422,8 @@ async function load(db: Db): Promise<Settings> {
     const read = readMachines(rest.machines as unknown[]);
     aside.push(...read.aside);
     rest.machines = read.machines;
-    // none read at all, a ComfyUI of the user's own among them: the address kept with them is the first machine, as before
-    // there was a list (never a pod's: it would be offered as "Your ComfyUI")
-    if (!read.machines.length && read.aside.some((a) => !(a.raw as { rented?: unknown } | null)?.rented)) listed = false;
+    // none read, rows set aside beside them, is still a list written: the address kept with it is not made the first machine
+    // again (a list emptied by hand, an unread row of the user's own left, brought back "Your ComfyUI", expected by the queue)
     for (const a of aside) console.warn(`[settings] the stored machine ${a.label} ${a.mended ? `had ${a.fields.join(", ")} set back to the default` : `could not be read and was set aside${a.pod ? ` (its pod ${a.pod} is stopped: nothing here can follow it)` : ""}`}: ${a.why}`);
   }
   const parsed = settingsSchema.safeParse(rest);
@@ -442,21 +443,34 @@ async function load(db: Db): Promise<Settings> {
  */
 export interface MachineSetAside {
   raw: unknown;
+  /** What the page names it by to forget it (forgetSetAside): its stored row's hash, the same at every read of the same row. */
+  key: string;
   /** Its id as stored (it may be the part not read); empty when it has none. */
   id: string;
   /** Its name, else its address, else its id: what the log and the page call it. */
   label: string;
   mended: boolean;
-  /** The settings of it that took their default. */
+  /** The settings of it that took their default (written back as stored, and said, until the machine is saved: written). */
   fields: string[];
   /** Its RunPod pod's id, when it is a rented machine whose pod id reads. */
   pod: string | null;
-  /** The schema's first word on it. */
+  /** The schema's word on it, the setting named: the one that set it aside, or the first one mended. */
   why: string;
 }
 
-/** A machine's settings that cannot take a default: without one of them it is not a machine. */
-const MACHINE_CORE = new Set(["id", "url", "rented", "rented.provider", "rented.pod"]);
+/**
+ * A machine's settings that cannot take a default: without one of them it is not a machine. Whether it was deployed and
+ * whether it is a fill pod neither: their default (false) changes what is done to its pod (a cap's or a watchdog's stop
+ * where it was terminated, a fill pod given renders), so a row that lost one is set aside, its pod stopped, never mended.
+ */
+const MACHINE_CORE = new Set(["id", "url", "rented", "rented.provider", "rented.pod", "rented.deployed", "rented.fill"]);
+
+/** The setting a schema issue on a stored machine is about ("takes", "rented.idleDo"). */
+type Issue = { path: PropertyKey[]; message: string };
+const machineKey = (issue: Issue): string => (issue.path[0] === "rented" && issue.path.length > 1 ? `rented.${String(issue.path[1])}` : String(issue.path[0] ?? ""));
+
+/** A schema issue said with the setting it is about. */
+const issueSaid = (issue: Issue | undefined): string => (issue ? `${machineKey(issue) || "the row"}: ${issue.message}` : "");
 
 /** The stored machines read one by one: those read (some mended), and those set aside. */
 function readMachines(rows: unknown[]): { machines: Machine[]; aside: MachineSetAside[] } {
@@ -471,15 +485,21 @@ function readMachines(rows: unknown[]): { machines: Machine[]; aside: MachineSet
     const row = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
     const rented = row.rented && typeof row.rented === "object" && !Array.isArray(row.rented) ? (row.rented as Record<string, unknown>) : null;
     const text = (v: unknown) => (typeof v === "string" ? v : "");
-    const said = { raw, id: text(row.id), label: text(row.name).trim() || text(row.url) || text(row.id) || "with no id", pod: (rented?.provider === "runpod" && text(rented.pod)) || null, why: first.error.issues[0]?.message ?? "" };
+    const said = { raw, key: createHash("sha256").update(JSON.stringify(raw) ?? "").digest("hex").slice(0, 16), id: text(row.id), label: text(row.name).trim() || text(row.url) || text(row.id) || "with no id", pod: (rented?.provider === "runpod" && text(rented.pod)) || null };
     // a setting it no longer takes is dropped, to take its default, a few times over (one dropped may show the next)
     const copy: Record<string, unknown> = { ...row, ...(rented ? { rented: { ...rented } } : {}) };
     const fields: string[] = [];
     let issues = first.error.issues;
     let mended: Machine | null = null;
+    // what is said of it: the setting that set it aside, not the first issue (one that would have been mended)
+    let why = issueSaid(issues[0]);
     for (let round = 0; round < 4 && !mended; round++) {
-      const keys = [...new Set(issues.map((i) => (i.path[0] === "rented" && i.path.length > 1 ? `rented.${String(i.path[1])}` : String(i.path[0] ?? ""))))];
-      if (keys.some((k) => !k || MACHINE_CORE.has(k))) break;
+      const keys = [...new Set(issues.map(machineKey))];
+      const fatal = issues.find((i) => !machineKey(i) || MACHINE_CORE.has(machineKey(i)));
+      if (fatal) {
+        why = issueSaid(fatal);
+        break;
+      }
       for (const k of keys) {
         if (k.startsWith("rented.")) delete (copy.rented as Record<string, unknown>)[k.slice("rented.".length)];
         else delete copy[k];
@@ -487,10 +507,16 @@ function readMachines(rows: unknown[]): { machines: Machine[]; aside: MachineSet
       }
       const again = machineSchema.safeParse(copy);
       if (again.success) mended = again.data;
-      else issues = again.error.issues;
+      else {
+        issues = again.error.issues;
+        why = issueSaid(issues[0]);
+      }
     }
+    // a pod's idle action lost takes the one that bills less where the pod is Afflatus's to end (a deployed one: terminated,
+    // as its deploy defaults to), not the schema's stop, which keeps a pod billing for its disk
+    if (mended?.rented && fields.includes("rented.idleDo")) mended.rented.idleDo = mended.rented.deployed ? "terminate" : "stop";
     if (mended) machines.push(mended);
-    aside.push({ ...said, mended: Boolean(mended), fields: mended ? fields : [] });
+    aside.push({ ...said, why, mended: Boolean(mended), fields: mended ? fields : [] });
   }
   return { machines, aside };
 }
@@ -604,9 +630,9 @@ export function updateSettings(db: Db, change: (current: Settings) => Record<str
  * machine it leaves out is kept (removed only through its own route: a pod dropped by a stale list would bill with
  * nothing watching it), and what only the server knows of one (its pod, its secret, its deploy, the ports it closed) is
  * the server's: the page sets only its idle, its end, its watchdog, whether its ports stay open and whether it makes room
- * on its disk (its card's Make room box).
+ * on its disk (its card's Make room box). `forget`: the key of a stored row set aside whole to drop (forgetSetAside).
  */
-async function written(db: Db, patch: unknown, fromPage = false): Promise<Settings> {
+async function written(db: Db, patch: unknown, fromPage = false, forget = ""): Promise<Settings> {
   // which keys were sent is read from the body itself: parsing it would fill in every default
   const sent = { ...z.record(z.string(), z.unknown()).parse(patch) };
   const unknown = Object.keys(sent).filter((k) => !KEYS.includes(k));
@@ -724,12 +750,36 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
   if (new Set(next.machines.map((m) => m.id)).size !== next.machines.length) throw httpError("two ComfyUIs have the same id");
   if (new Set(next.machines.map((m) => m.url.replace(/\/+$/, ""))).size !== next.machines.length) throw httpError("two ComfyUIs have the same address");
   // a stored machine set aside whole is written back as it was stored, never dropped by a list read without it: a pod in
-  // it bills on RunPod, and its row is what tells it is Afflatus's. One the list now has under its id is the list's
-  const unread = machinesSetAside(current).filter((a) => !a.mended && !next.machines.some((m) => m.id === a.id));
+  // it bills on RunPod, and its row is what tells it is Afflatus's. One the list now has under its id is the list's, and so
+  // is one whose pod a machine of the list follows now (the pod added again under another id: kept, its old row had the
+  // follow loop stop the pod the user renders on at every read). One forgotten on the user's word goes (forgetSetAside).
+  // A mended machine keeps the settings that took a default as they were stored (said again at the next read) until the
+  // page saves that machine changed: a default the user was never shown is not stored as their choice. A setting a write
+  // changed is the write's
+  const still = machinesSetAside(current).flatMap((a): MachineSetAside[] => {
+    if (!a.mended) return a.key === forget || next.machines.some((m) => m.id === a.id || (a.pod !== null && m.rented?.pod === a.pod)) ? [] : [a];
+    const was = current.machines.find((m) => m.id === a.id);
+    const now = next.machines.find((m) => m.id === a.id);
+    if (!was || !now || (fromPage && JSON.stringify(now) !== JSON.stringify(was))) return [];
+    const fields = a.fields.filter((f) => JSON.stringify(settingAt(now, f)) === JSON.stringify(settingAt(was, f)));
+    return fields.length ? [{ ...a, fields }] : [];
+  });
+  const unread = still.filter((a) => !a.mended);
+  const stored = (m: Machine): unknown => {
+    const a = still.find((x) => x.mended && x.id === m.id);
+    if (!a) return m;
+    const raw = a.raw as Record<string, unknown>;
+    const row: Record<string, unknown> = { ...m, ...(m.rented ? { rented: { ...m.rented } } : {}) };
+    for (const f of a.fields) {
+      if (f.startsWith("rented.")) (row.rented as Record<string, unknown>)[f.slice("rented.".length)] = (raw.rented as Record<string, unknown>)[f.slice("rented.".length)];
+      else row[f] = raw[f];
+    }
+    return row;
+  };
   const now = new Date().toISOString();
   try {
     for (const key of Object.keys(sent) as Array<keyof Settings>) {
-      const value = key === "machines" && unread.length ? JSON.stringify([...next.machines, ...unread.map((a) => a.raw)]) : JSON.stringify(next[key]);
+      const value = key === "machines" && still.length ? JSON.stringify([...next.machines.map(stored), ...unread.map((a) => a.raw)]) : JSON.stringify(next[key]);
       await db
         .insertInto("settings")
         .values({ key, value, updated_at: now })
@@ -740,8 +790,33 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
     // what was read before is stale now, whether or not every key got written
     cached.delete(db);
   }
-  // still set aside, as the next read finds them: the rows kept whole, and the mended ones too while the list was not written
-  return withAside(inStep(next), "machines" in sent ? unread : machinesSetAside(current));
+  // still set aside, as the next read finds them
+  return withAside(inStep(next), "machines" in sent ? still : machinesSetAside(current));
+}
+
+/** A machine's setting by its key as set aside ("takes", "rented.idleDo"). */
+function settingAt(m: Machine, key: string): unknown {
+  if (!key.startsWith("rented.")) return (m as Record<string, unknown>)[key];
+  return (m.rented as Record<string, unknown> | undefined)?.[key.slice("rented.".length)];
+}
+
+/**
+ * A stored machine set aside whole (load) dropped on the user's word (Settings › ComfyUI, its note's Forget): its row is
+ * deleted, and a pod's secret is left to delete once the pod is gone (sweepSecrets), as a removed machine's is. Whether its
+ * pod still bills is the caller's to ask first (rented.ts forgetSetAside). Null when no such row is stored now.
+ */
+export function forgetSetAside(db: Db, key: string): Promise<MachineSetAside | null> {
+  return oneAtATime(db, "settings", async () => {
+    const current = await readSettings(db);
+    const a = machinesSetAside(current).find((x) => !x.mended && x.key === key);
+    if (!a) return null;
+    const named = (a.raw as { rented?: { secret?: unknown } } | null)?.rented?.secret;
+    const secret = typeof named === "string" && named && named.length <= 80 ? named : a.pod ? tokenSecret(a.pod) : "";
+    // (a pod id or a secret too long to be stored is not one RunPod has: nothing to delete)
+    const left = a.pod && a.pod.length <= 80 && secret.length <= 80 ? { leftSecrets: [...current.leftSecrets.filter((l) => l.pod !== a.pod), { secret, pod: a.pod }] } : {};
+    await written(db, { machines: current.machines, ...left }, false, key);
+    return a;
+  });
 }
 
 /**
@@ -768,6 +843,16 @@ function notifyMerged(current: NotifySettings, asked: unknown): unknown {
   return { ...current, ...a, events };
 }
 
+/** A mended machine's settings that took a default, each with the value it has meanwhile ("idleDo: terminate"); a token's left unsaid. */
+function mendedNow(s: Settings, a: MachineSetAside): string[] {
+  const m = s.machines.find((x) => x.id === a.id);
+  return a.fields.map((f) => {
+    const name = f.replace(/^rented\./, "");
+    const value = m && f !== "token" ? settingAt(m, f) : undefined;
+    return value === undefined || value === "" ? name : `${name}: ${typeof value === "string" ? value : JSON.stringify(value)}`;
+  });
+}
+
 /** What the browser may see: secrets are replaced by whether they are set. */
 export function publicSettings(s: Settings, here: (url: string) => boolean = () => false) {
   const open = ({ apiKey, ...l }: Llm) => ({ ...l, hasApiKey: Boolean(apiKey) });
@@ -776,8 +861,9 @@ export function publicSettings(s: Settings, here: (url: string) => boolean = () 
     // a machine's token stays here: the page is told whether there is one, and its end, to tell two apart. `local`: its
     // ComfyUI runs on this machine (setup-api passes modelDownload's onThisMachine), what the page says of its node pack
     machines: s.machines.map(({ token, dirCleared: _cleared, ...m }) => ({ ...m, tokenEnd: token ? token.slice(-4) : "", local: !m.rented && here(m.url) })),
-    // the stored machines not read whole (load): said on Settings, never their row (it may hold a token)
-    machinesSetAside: machinesSetAside(s).map((a) => ({ label: a.label, mended: a.mended, fields: a.fields, pod: Boolean(a.pod), why: a.why })),
+    // the stored machines not read whole (load): said on Settings, never their row (it may hold a token). A mended one says
+    // what each setting that took a default is meanwhile; `key` is what its note's Forget names it by
+    machinesSetAside: machinesSetAside(s).map((a) => ({ key: a.key, label: a.label, mended: a.mended, fields: a.fields, now: a.mended ? mendedNow(s, a) : [], pod: Boolean(a.pod), why: a.why })),
     comfyUrl: s.comfyUrl,
     comfyDir: s.comfyDir,
     unloadAfterMinutes: s.unloadAfterMinutes,

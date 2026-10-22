@@ -159,6 +159,16 @@ export function registerRented(app: FastifyInstance, s: Services): void {
     return { id };
   });
 
+  /**
+   * A stored machine that could not be read, set aside (Settings › ComfyUI's note), forgotten: its row deleted. One with a
+   * pod still billed is refused (409) unless `anyway`, the user's answer once told so.
+   */
+  app.post("/api/machines/set-aside/forget", async (req) => {
+    const { key, anyway } = z.strictObject({ key: z.string().regex(/^[0-9a-f]{16}$/), anyway: z.boolean().default(false) }).parse(req.body);
+    await s.rented.forgetSetAside(key, anyway);
+    return { ok: true };
+  });
+
   /** The user's Start: refused at a spending cap. Afflatus never starts a pod otherwise. */
   app.post("/api/machines/:id/start", async (req) => s.rented.start(params.parse(req.params).id));
 

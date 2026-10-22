@@ -54,6 +54,12 @@ export const bootLimit = (m: Machine) => (m.rented?.deployed ? DEPLOYED_BOOT_LIM
 /** The RunPod secret its token is kept in. */
 export const secretOf = (m: Machine) => m.rented!.secret || tokenSecret(m.rented!.pod);
 
+/** What a cap does to a pod, by what its machine says of it (RentedFollow capAction): also what an unread row's pod gets (stopUnread). */
+export function capActionOf(r: Pick<NonNullable<Machine["rented"]>, "fill" | "deployed" | "deployedAt" | "idleDo">, pod: Pod | null): "stop" | "terminate" {
+  const keeps = Boolean(pod && (pod.networkVolume || pod.diskGb > 0));
+  return r.fill || (r.deployed && (!keeps || Boolean(r.deployedAt) || r.idleDo === "terminate")) ? "terminate" : "stop";
+}
+
 /**
  * A fill whose files moved by nothing this long (not a byte, not a file done) is cut short: a fill pod takes no render, so
  * a download stuck on it would keep it billed for ever while its ComfyUI answers.
@@ -232,8 +238,9 @@ export class RentedFollow extends RentedBilling {
     this.spentThisPoll = null;
     const settings = await readSettings(this.db);
     const rented = settings.machines.filter((m) => m.rented);
-    // a stored rented machine that could not be read (settings.ts load) is no machine here, but its pod bills on RunPod
-    const unread = machinesSetAside(settings).filter((a) => !a.mended && a.pod);
+    // a stored rented machine that could not be read (settings.ts load) is no machine here, but its pod bills on RunPod. One
+    // whose pod a machine follows now (added again under another id) is that machine's: stopped, the user's Start was undone
+    const unread = machinesSetAside(settings).filter((a) => !a.mended && a.pod && !rented.some((m) => m.rented!.pod === a.pod));
     await this.pruneBootLogs(settings.bootLogDays);
     this.filling = new Set(rented.filter((m) => m.rented!.fill).map((m) => m.id));
     for (const id of this.seen.keys()) {
@@ -308,8 +315,9 @@ export class RentedFollow extends RentedBilling {
   /**
    * The pods of stored rented machines that could not be read (settings.ts load), followed for stopping by their pod's id:
    * with no machine here, nothing watches their idle time, pings them or counts them against the caps, while RunPod bills.
-   * One running is stopped (terminated when it keeps nothing, as an idle stop does), its run kept open and seen meanwhile,
-   * so Costs and the caps count it; one not running has its run closed where it was last seen.
+   * One running is stopped (terminated only where a cap would terminate it: a fill pod, or one its row says Afflatus
+   * deployed, capActionOf; a pod the user added is only stopped), its run kept open and seen meanwhile, so Costs and the
+   * caps count it; one not running has its run closed where it was last seen.
    */
   private async stopUnread(unread: MachineSetAside[], pods: Pod[], key: string): Promise<void> {
     for (const pod of [...this.unreadStops.keys()]) if (!unread.some((a) => a.pod === pod)) this.unreadStops.delete(pod);
@@ -326,8 +334,10 @@ export class RentedFollow extends RentedBilling {
       const asked = this.unreadStops.get(pod.id);
       if (asked !== undefined && this.now() - asked < STOP_AGAIN_MS) continue;
       this.unreadStops.set(pod.id, this.now());
-      // as an idle stop does: a pod that keeps something (a volume, its own disk) is stopped, one that keeps nothing terminated
-      const action = pod.networkVolume || pod.diskGb > 0 ? "stop" : "terminate";
+      // what its row still says of it, read as stored: only a value the schema would take counts, anything else is the side
+      // that destroys nothing (a pod the user added, its setup on its container disk, is never terminated for a row unread)
+      const r = (a.raw as { rented?: Record<string, unknown> } | null)?.rented ?? {};
+      const action = capActionOf({ fill: r.fill === true, deployed: r.deployed === true, deployedAt: typeof r.deployedAt === "string" ? r.deployedAt : "", idleDo: r.idleDo === "terminate" ? "terminate" : "stop" }, pod);
       console.warn(`[rented] ${a.label}: its stored settings could not be read, and nothing here follows its pod ${pod.id}: asked to ${action}`);
       try {
         await this.client(key).act(pod.id, action);
@@ -1087,8 +1097,7 @@ export class RentedFollow extends RentedBilling {
    * removed by hand, and the network volume outlives a terminate anyway. A pod the user added is only stopped.
    */
   private capAction(m: Machine, pod: Pod | null): "stop" | "terminate" {
-    const keeps = Boolean(pod && (pod.networkVolume || pod.diskGb > 0));
-    return m.rented!.fill || (m.rented!.deployed && (!keeps || Boolean(m.rented!.deployedAt) || m.rented!.idleDo === "terminate")) ? "terminate" : "stop";
+    return capActionOf(m.rented!, pod);
   }
 
   /**
