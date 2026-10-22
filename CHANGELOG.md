@@ -39,6 +39,9 @@ The 0.6.0 cycle: the timeline reworked around sources, recordings and joins, Fac
 - **The join rule:** a clip put after another starts seamless when both are H3, as a window within SCAIL-2, else as a cut.
 
 ### Fixed
+- **A reference clip on a fresh rented pod** (a cast person, a reference picture or a voice, on H3 · Video with audio or Lip sync) is sent H3's reference model. It used to be sent the plain video model, booted and fetched for, and fail at its submit.
+- **A pod fetches a family's official files with downloads and lookups off** (the defaults), as Settings › Models says; only other files wait for those settings.
+- **Graphs saved from 0.5.2** with Swap character's Colour match load again: its node is kept, deprecated.
 - **A pod getting its files no longer shows false failures:** its node pack takes two downloads at once, and one asked meanwhile (429) is now waited for as a download waiting its turn; a download the pack lost or refused for a moment is asked again without a word while tries are left, and only the last try says it. A machine's failed downloads are one banner, updated as more fail, instead of one per file and per try.
 - **Your ComfyUI saved by its address alone** on this PC has its folder found and the node pack written in.
 - **The status bar** says "Model not here yet", with no Load, when the form's model file is not on ComfyUI yet.
