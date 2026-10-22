@@ -303,6 +303,8 @@ export interface Settings {
   bar: BarSettings;
   /** The projects pinned to the rail under the one worked in, in their order there (four at most). */
   pinnedProjects: string[];
+  /** The settings pinned to the top of the model forms, per model family (the H3 forms share "h3"): input ids, in their order. */
+  pinnedFields: Record<string, string[]>;
   /** Notices on Telegram and Discord. */
   notify: NotifySettings;
   /** The optional password. */

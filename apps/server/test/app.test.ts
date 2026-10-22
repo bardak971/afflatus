@@ -195,7 +195,7 @@ describe("settings", () => {
       unloadAfterMinutes: 0, designerLlm: "main", designerInstructions: [], designerInstruction: "", designerGuides: {},
       tagCheck: true, families: {}, allFamilies: false, firstLaunch: "done", hasCivitaiKey: true, hasHuggingFaceToken: false, hasRunpodKey: false, runpodS3User: "", hasRunpodS3Secret: false, rentCaps: { day: 0, month: 0 }, costs: { kwhPrice: null, currency: "€" }, lastDeploy: null, volumeUnusedDays: 7, bootLogDays: 0, civitaiLookups: false, updateChecks: false, afflatusUpdateChecks: true, downloadModels: false, renderHistoryDays: 90, unkeptDays: 1, binDays: 7,
       finish: { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.15, latentSteps: 2, faceDenoise: 0.45, face: false, seedvrFrames: 0, sharpen: 0 }, slotFiles: {}, acceptedPresets: [],
-      bar: { shortcut: "Ctrl+K", snippets: false, cast: false }, pinnedProjects: [],
+      bar: { shortcut: "Ctrl+K", snippets: false, cast: false }, pinnedProjects: [], pinnedFields: {},
       notify: { hasTelegramToken: false, telegramChat: "", hasDiscordWebhook: false, picture: true, events: expect.objectContaining({ renderDone: { telegram: false, discord: false }, renderFailed: { telegram: true, discord: true } }) },
       access: { hasPassword: false, passwordSetAt: null, localNoPassword: false, stayDays: 30, resetTelegram: true, hasMetricsToken: false },
     });
@@ -207,6 +207,20 @@ describe("settings", () => {
     expect((await put({ families: { ltx: true, wan: false } })).json().families).toEqual({ ltx: true, wan: false });
     expect((await put({ families: { ltx: true } })).json().families).toEqual({ ltx: true });
     expect((await put({ families: { ltx: "yes" } })).statusCode).toBe(400);
+  });
+
+  it("keep the pinned fields per model family, in their order, and forget them all", async () => {
+    // the H3 forms share the family "h3": one list of input ids for every one of them
+    const pins = { sdxl: ["cfg", "hiresDenoise", "steps"], h3: ["shot"] };
+    expect((await put({ pinnedFields: pins })).json().pinnedFields).toEqual(pins);
+    expect((await get(t.app, "/api/settings")).json().pinnedFields).toEqual(pins);
+    // a field pinned twice, or a list that is not one of ids, is refused and leaves what was kept
+    expect((await put({ pinnedFields: { sdxl: ["cfg", "cfg"] } })).statusCode).toBe(400);
+    expect((await put({ pinnedFields: { sdxl: [""] } })).statusCode).toBe(400);
+    expect((await put({ pinnedFields: { sdxl: "cfg" } })).statusCode).toBe(400);
+    expect((await get(t.app, "/api/settings")).json().pinnedFields).toEqual(pins);
+    // Settings › Interface's Forget sends none
+    expect((await put({ pinnedFields: {} })).json().pinnedFields).toEqual({});
   });
 
   it("keep what a partial update does not mention", async () => {

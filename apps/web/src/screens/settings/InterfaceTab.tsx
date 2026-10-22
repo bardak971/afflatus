@@ -1,7 +1,9 @@
 import { useCompareResult, useExplain, useHoverPlay, useNotify } from "../../store";
+import { plural } from "../../format";
+import { useForgetPinnedFields } from "../../recipeForm/pinned";
 import { ProgressPicker } from "../../progress/ProgressPicker";
 import { ThemeMode, ThemePickers } from "../../theme/Appearance";
-import { Help, Toggle } from "../../ui";
+import { Button, Help, Toggle } from "../../ui";
 import { AccessCard } from "./AccessCard";
 import { WhatCard, WhereCard } from "./NotifyCards";
 import { Block, Card, Row } from "./Rows";
@@ -13,6 +15,7 @@ export function InterfaceTab() {
   const hover = useHoverPlay();
   const compare = useCompareResult();
   const notify = useNotify();
+  const pins = useForgetPinnedFields();
   return (
     // two columns in a wide window, as the other tabs: the look on the left, the notifications on the right
     <div className={COLUMNS}>
@@ -34,6 +37,14 @@ export function InterfaceTab() {
           </Row>
           <Row setting="compare.result" label="Compare opens on original vs result" help="On a pass's result (an upscale, a Face refine, a mirror), Compare (X) puts its source beside it; on a picture something was made from, the newest result. Off: Compare pins the item and the arrow keys bring the next one of the list.">
             <Toggle bare on={compare.on} onChange={compare.set} label="Compare opens on original vs result" />
+          </Row>
+          <Row
+            setting="interface.pins"
+            label="Forget pinned fields"
+            sub={pins.fields ? `${plural(pins.fields, "field")} pinned, over ${plural(pins.families, "model family", "model families")}` : "None pinned"}
+            help="The settings pinned to the top of the model forms (right-click a setting's name: Pin to the top), kept per model family and shared by every browser. Forget takes every pin off: the forms lose their Pinned card; no value changes."
+          >
+            <Button size="sm" disabled={!pins.fields} onClick={pins.forget}>Forget</Button>
           </Row>
         </Card>
       </div>

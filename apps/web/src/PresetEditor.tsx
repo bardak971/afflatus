@@ -65,6 +65,8 @@ export function PresetEditor({ id, def, onChange }: { id?: string; def: PresetDe
       {recipe ? (
         <Form
           key={recipe.id}
+          // a preset's values, not a form renders are made from: no Pinned card
+          noPins
           recipe={recipe}
           status={status}
           stored={def.inputs}

@@ -118,9 +118,13 @@ export const PartHead = ({ children }: { children: ReactNode }) => <span classNa
  * the settings show. A part that needs something from the user (a picture that is not chosen yet) is open
  * whatever was remembered.
  */
-export function Part({ id, title, help, summary, warn, needs, head, children, startOpen }: {
+export function Part({ id, title, icon, accent, help, summary, warn, needs, head, children, startOpen }: {
   id: string;
   title: string;
+  /** A mark before the name (the Pinned card's pin). */
+  icon?: ReactNode;
+  /** The name in the accent: the Pinned card's, the one part that is the user's own. */
+  accent?: boolean;
   /** What the part is for, behind a ? right after its name. */
   help?: string;
   /** What it holds, in a few words. */
@@ -147,7 +151,7 @@ export function Part({ id, title, help, summary, warn, needs, head, children, st
       <div onClick={() => set(id, !open)} className={cx("flex cursor-pointer items-center gap-2.5 px-3 py-2.5", Boolean(head) && "pr-3")}>
         <span className="flex min-w-0 grow flex-col gap-0.5 text-left">
           <span className="flex min-w-0 items-center gap-1.5">
-            <button type="button" aria-expanded={open} aria-label={`${title}: ${open ? "fold" : "unfold"}`} className="min-w-0 text-left"><PartHead>{title}</PartHead></button>
+            <button type="button" aria-expanded={open} aria-label={`${title}: ${open ? "fold" : "unfold"}`} className={cx("flex min-w-0 items-center gap-1.5 text-left", accent && "text-accent")}>{icon}<span className={accent ? PART_HEAD.replace("text-ink-3", "text-accent") : PART_HEAD}>{title}</span></button>
             {help && <span onClick={(e) => e.stopPropagation()}><Help text={help} title={title} /></span>}
           </span>
           {!open && <span className="truncate font-semibold">{summary}</span>}

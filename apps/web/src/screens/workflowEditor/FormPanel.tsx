@@ -104,6 +104,8 @@ export function FormPanel({ m, saveError }: { m: Mapping; saveError: Error | nul
             recipe={preview.described}
             status={undefined}
             keepEmpty
+            // the form as its sections arrange it, while they are arranged: no Pinned card over them
+            noPins
             stored={m.values}
             onChange={(id, v) => m.setValues((old) => ({ ...old, [id]: v }))}
             onClear={(ids) => m.setValues((old) => Object.fromEntries(Object.entries(old).filter(([k]) => !ids.includes(k))))}

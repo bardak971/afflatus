@@ -1,5 +1,8 @@
-import { lazy, Suspense, useContext, useEffect, useMemo, type ReactNode } from "react";
+import { lazy, Suspense, useContext, useEffect, useMemo, type MouseEvent, type ReactNode } from "react";
+import { ArrowDown, ArrowUp, Pin, PinOff, RotateCcw } from "lucide-react";
 import { isShown, sameFile, type InputSpec } from "@afflatus/core";
+import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
+import { FieldNameNote } from "./fields/FieldName";
 import { useAdvice } from "./advice";
 import { api, thumbUrl, type RecipeInfo, type RecipeStatus } from "./api";
 import { useQuery } from "@tanstack/react-query";
@@ -7,13 +10,15 @@ import { useSettled } from "./hooks";
 import { queryKeys } from "./queryKeys";
 import { useModelSettings, useRecipes } from "./data";
 import { Field, sameValue } from "./fields";
-import { changedIn, formDefaults, layoutOf, ownValues, matchesText, summariesOf, thumbsOf } from "./form";
+import { changedIn, formDefaults, layoutOf, ownValues, matchesText, pinnable, pinSaid, sectionsOf, summariesOf, thumbsOf, tuckedOf, whyHidden } from "./form";
 import { InputsPart } from "./recipeForm/InputsPart";
 import { ModelDefaults } from "./recipeForm/ModelDefaults";
 import { OutputPart } from "./recipeForm/OutputPart";
 import { CardPrompt, FormSearching, Heading, Part, PART_HEAD, TextFold, useFormAim, useParts } from "./recipeForm/Part";
 import { Strip } from "./recipeForm/Strip";
 import { PackNotes, usePackNotes } from "./recipeForm/packNotes";
+import { usePinnedFields } from "./recipeForm/pinned";
+import { PinnedPart, type PinnedRow } from "./recipeForm/PinnedPart";
 import { useFormSearch } from "./recipeForm/useFormSearch";
 import { scrollInside } from "./scrollInside";
 import { plural } from "./format";
@@ -76,6 +81,8 @@ export function Form(props: {
   promptInView?: boolean;
   /** The machine picked to render it on (Generate on), by id; none: Auto. Its node packs are what the form's notes speak for. */
   machine?: string;
+  /** No Pinned card and no pin menu: a form that is not one renders are made from (a preset's values, an import's preview). */
+  noPins?: boolean;
 }) {
   const written = useWrittenPrompt(props.recipe, props.stored, props.given);
   const recipe = useMemo(
@@ -105,7 +112,7 @@ export function useWrittenPrompt(recipe: RecipeInfo, stored: Record<string, unkn
   return asked?.into && asked.text ? { into: asked.into, text: asked.text } : null;
 }
 
-function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, chapterExtra, first, keepEmpty, promptInView, machine }: {
+function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, chapterExtra, first, keepEmpty, promptInView, machine, noPins }: {
   recipe: RecipeInfo;
   status: RecipeStatus | undefined;
   /** What the draft holds for this recipe: only what was touched. */
@@ -137,6 +144,8 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   promptInView?: boolean;
   /** The machine picked to render it on (Generate on), by id; none: Auto. Its node packs are what the form's notes speak for. */
   machine?: string;
+  /** No Pinned card and no pin menu: a form that is not one renders are made from (a preset's values, an import's preview). */
+  noPins?: boolean;
 }) {
   const family = useRecipes().data?.families.find((f) => f.id === recipe.family);
   const settings = useModelSettings();
@@ -170,6 +179,37 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   const layout = layoutOf(recipe, seen, q, keepEmpty);
   const { chapters, advancedMoved, promptMoved, mainText, hit, sought, texts, frames, refs, loras, out, knobs, sampling, afterSampling, upscaling, encoding, rare, hidden } = layout;
   const said = summariesOf(recipe, layout, values, { madeSummary, lookSummary, frameSummary: frameExtra?.summary });
+
+  // ---- Pinned fields: the settings pinned for the model's family (every H3 form shares "h3"), first in the form. Each is a
+  // live copy of the one in its section; one the form does not show now stays on the card, dimmed, saying why. An id this
+  // form does not have (another H3 form's, an input a workflow lost) is skipped. While searching, the matches are where they live.
+  const pins = usePinnedFields(recipe.family);
+  const pinsOn = !noPins;
+  const tucked = useMemo(() => tuckedOf(recipe), [recipe]);
+  const sectionOfId = q ? null : sectionsOf(layout);
+  const pinnedRows: PinnedRow[] = !pinsOn || q ? [] : pins.ids.flatMap((id) => {
+    const spec = recipe.inputs.find((i) => i.id === id);
+    if (!spec || !pinnable(spec) || tucked.has(id)) return [];
+    const shown = isShown(spec, seen, recipe.inputs);
+    return [{ spec, shown, from: shown ? sectionOfId?.get(id) ?? "" : whyHidden(spec, seen, recipe.inputs) || "not shown now" }];
+  });
+  /** A pin put before the card's row at `slot` (the rows' length: after the last), as a place in the family's whole list. */
+  const movePinned = (id: string, slot: number) => {
+    const before = pinnedRows[slot]?.spec.id;
+    const last = pinnedRows[pinnedRows.length - 1]?.spec.id;
+    pins.move(id, before !== undefined ? pins.ids.indexOf(before) : last !== undefined ? pins.ids.indexOf(last) + 1 : pins.ids.length);
+  };
+  // the menu of a setting, from a right-click on its name (or on a pin's grip), or from the keyboard's menu key or Shift + F10
+  // on its control (a row's name is not something the keys reach). A text box keeps the browser's own menu (paste)
+  const fieldMenu = useMenu<string>();
+  const menuFor = (i: InputSpec, always = false) => (e: MouseEvent) => {
+    const t = e.target as Element;
+    const keyed = e.button === -1 || (e.clientX === 0 && e.clientY === 0);
+    const typing = Boolean(t.closest?.("textarea, input:not([type=range]):not([type=checkbox]):not([type=radio]), [contenteditable='true']"));
+    if (!always && !t.closest?.("[data-field-name], [data-pin-grip]") && !(keyed && !typing)) return;
+    e.stopPropagation();
+    fieldMenu.open(e, i.id);
+  };
   // what a screen adds is not a setting, but it is looked for by name too ("snippets", "preset", "cast"): while
   // searching, it shows where it lives when its words match, and steps aside otherwise
   const helpersHit = Boolean(q && helpers) && matchesText(HELPER_WORDS, q);
@@ -218,11 +258,17 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   ) : said.inputsSaid;
 
   const card = useContext(CardPrompt);
-  // (bare: true only; .map() passes its index in that place)
-  const render = (i: InputSpec, bare?: unknown) => (
-    <div key={i.id} data-input-id={i.id} className="flex flex-col gap-1 rounded-lg">
+  /**
+   * A setting's field. `copy`: its live copy on the Pinned card, saying where it lives (the section's own is the one an aim
+   * looks for by its input id); in its section, a pinned one carries a pin after its name.
+   */
+  const field = (i: InputSpec, { bare = false, copy }: { bare?: boolean; copy?: { from: string } } = {}) => {
+    const pin = pinsOn && pinnable(i);
+    return (
+    <div key={i.id} data-input-id={copy ? undefined : i.id} onContextMenu={pin ? menuFor(i) : undefined} className="flex flex-col gap-1 rounded-lg">
+      <FieldNameNote.Provider value={!pin ? null : copy ? { from: copy.from } : { pinned: pins.has(i.id) }}>
       <Field
-        bare={bare === true}
+        bare={bare}
         standard={defaults[i.id]}
         // what the screen fills in too (a timeline take's clip before): what one clip holds of a sound counts it
         spec={i} value={values[i.id]} values={seen} specs={recipe.inputs} options={status?.options[i.id]} family={family} model={inUse}
@@ -230,16 +276,20 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
         onValue={onChange}
         main={mainText?.type === "prompt" ? { text: String(values[mainText.id] ?? ""), style: mainText.style, set: (text) => onChange(mainText.id, text) } : undefined}
       />
+      </FieldNameNote.Provider>
       {i.type === "model" && isMissingModel(i.id) && <Suspense fallback={null}><MissingModel folder={i.folder} file={String(values[i.id])} /></Suspense>}
       <PackNotes of={packNotes} input={i.id} />
     </div>
-  );
-  /** A setting, with a mark and a way back when it differs from what the model starts with. */
-  const setting = (i: InputSpec) => {
+    );
+  };
+  // (bare: true only; .map() passes its index in that place)
+  const render = (i: InputSpec, bare?: unknown) => field(i, { bare: bare === true });
+  /** A setting, with a mark and a way back when it differs from what the model starts with (on the Pinned card too: `copy`). */
+  const settingOf = (i: InputSpec, copy?: { from: string }) => {
     const isChanged = !sameValue(values[i.id], defaults[i.id]);
     return (
       <div key={i.id} className={`border-l-2 pl-2.5 ${isChanged ? "border-accent" : "border-transparent"}`}>
-        {render(i)}
+        {field(i, { copy })}
         {isChanged && (
           <button type="button" onClick={() => onClear([i.id])} className="mt-1 rounded-md px-1 text-xs text-accent hover:underline">
             Changed · reset
@@ -248,6 +298,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
       </div>
     );
   };
+  const setting = (i: InputSpec) => settingOf(i);
   const changedMark = (list: InputSpec[]) => {
     const n = changedIn(list, values, defaults).length;
     return n ? <span className="text-accent"> · {n} changed</span> : null;
@@ -276,6 +327,15 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   const firstIds = first ?? recipe.first;
   const rank = (id: string) => (firstIds?.includes(id) ? firstIds.indexOf(id) : firstIds?.length ?? 0);
   const ordered = <T,>(list: T[], idOf: (x: T) => string) => (firstIds?.length ? [...list].sort((a, b) => rank(idOf(a)) - rank(idOf(b))) : list);
+  // the Pinned card comes first of the form's own chapters: after the screen's (a timeline clip's Source, its Takes), before the
+  // rest, wherever `first` puts them; in the strip too
+  const leadIds = new Set(leads.map((l) => l.id));
+  const withPinned = <T,>(list: T[], idOf: (x: T) => string, pinned: T) => {
+    if (!pinnedRows.length) return list;
+    const at = list.findIndex((x) => !leadIds.has(idOf(x)));
+    const k = at < 0 ? list.length : at;
+    return [...list.slice(0, k), pinned, ...list.slice(k)];
+  };
   // a few words the recipe builds its own prompt from (a swap's "who to replace"): no Designer or Snippets to write a scene into it
   const ownPrompt = mainText?.type === "prompt" && Boolean(mainText.noCast) && !mainText.designed;
   const promptBlock = mainText && promptHit && (
@@ -297,11 +357,11 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   return (
     // the parts the search opens and folds change at once, without the fold's motion
     <FormSearching.Provider value={Boolean(q)}>
-      <Strip parts={ordered(parts, (x) => x.id)} open={(id) => id !== "prompt" && setPart(id, true, true)} query={query} setQuery={setQuery} found={found} />
+      <Strip parts={withPinned(ordered(parts, (x) => x.id), (x) => x.id, { id: "pinned", label: "Pinned" })} open={(id) => id !== "prompt" && setPart(id, true, true)} query={query} setQuery={setQuery} found={found} />
       {q && found === 0 && <div className="px-1 text-sm text-ink-2">No setting of this form matches “{q}”.</div>}
       {/* a pack no single option pulls in: said once, above the parts */}
       <div className="flex flex-col gap-1 px-1 empty:hidden"><PackNotes of={packNotes} input={null} /></div>
-      {ordered<[string, ReactNode]>([
+      {withPinned(ordered<[string, ReactNode]>([
         ...(!q ? leads.map((l): [string, ReactNode] => [l.id, <Part key={l.id} id={l.id} title={l.title} help={l.help} summary={l.summary} startOpen>{l.node}</Part>]) : []),
         ["model", ((made && (!q || madeHit)) || knobs.length > 0 || loras.length > 0) && (
           <Part key="model" id="model" title="Model" summary={said.modelSaid || recipe.title} needs={Boolean(q)}>
@@ -350,7 +410,16 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
           />
         )],
         ["advanced", !advancedMoved && <div key="advanced-part" className="contents">{advancedPart}</div>],
-      ], ([id]) => id).map(([, node]) => node)}
+      ], ([id]) => id), ([id]) => id, ["pinned", (
+        <PinnedPart
+          key="pinned"
+          rows={pinnedRows}
+          summary={pinnedRows.map((r) => pinSaid(r.spec, values[r.spec.id])).join(" · ")}
+          draw={(spec, from) => settingOf(spec, { from })}
+          menuFor={menuFor}
+          onMove={movePinned}
+        />
+      )]).map(([, node]) => node)}
       {hidden.length > 0 && (
         <section className="flex flex-col gap-1.5 rounded-control border border-line bg-raised px-3 py-2">
           <span className={PART_HEAD}>Not shown now</span>
@@ -359,6 +428,33 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
           ))}
         </section>
       )}
+      {fieldMenu.menu && (() => {
+        const id = fieldMenu.menu.subject;
+        const spec = recipe.inputs.find((i) => i.id === id);
+        if (!spec) return null;
+        const pinned = pins.has(id);
+        const k = pinnedRows.findIndex((r) => r.spec.id === id);
+        const changed = !sameValue(values[id], defaults[id]);
+        const items: MenuItem[] = [
+          pinned ? { label: "Unpin", icon: <PinOff size={14} />, run: () => pins.unpin(id) } : { label: "Pin to the top", icon: <Pin size={14} />, run: () => pins.pin(id) },
+          ...(pinned && k >= 0 ? [
+            { label: "Move up", key: "Alt+↑", icon: <ArrowUp size={14} />, disabled: k === 0, run: () => movePinned(id, k - 1) },
+            { label: "Move down", key: "Alt+↓", icon: <ArrowDown size={14} />, disabled: k === pinnedRows.length - 1, run: () => movePinned(id, k + 2) },
+          ] : []),
+          "—",
+          // the changed mark's own reset ("Changed · reset"), from the menu
+          { label: "Reset to the model's default", icon: <RotateCcw size={14} />, disabled: !changed, run: () => onClear([id]) },
+        ];
+        return (
+          <ContextMenu
+            at={fieldMenu.menu.at}
+            label={`${spec.label}, setting`}
+            head={{ title: spec.label, sub: pinned ? `pinned · ${sectionOfId?.get(id) ?? "not shown now"}` : sectionOfId?.get(id) }}
+            items={items}
+            onClose={fieldMenu.close}
+          />
+        );
+      })()}
     </FormSearching.Provider>
   );
 }

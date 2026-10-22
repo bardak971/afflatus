@@ -200,6 +200,10 @@ export function matchesText(text: string, q: string): boolean {
   return words.every((w) => hay.includes(w) || [...hay.matchAll(/(?:^|[\s_\-./()[\]:·,])(\S)/g)].some((m) => m[1] === w[0] && fuzzyScore(w, hay.slice(m.index + m[0].length - 1)) !== null));
 }
 
+/** The two numbers that say which part of a sound (or of a source video) is used: drawn with it, not as fields of their own. */
+export const tuckedOf = (recipe: RecipeInfo): Set<string> =>
+  new Set(recipe.inputs.flatMap((i) => ((i.type === "audio" || i.type === "clip") && i.window ? [i.window.start, i.window.seconds] : [])));
+
 /**
  * Which input goes in which part of a form, with `q` (the search, trimmed) applied: the model and its
  * operation's own settings, the prompt and the other texts, the frames and the references, what comes out,
@@ -209,8 +213,7 @@ export function matchesText(text: string, q: string): boolean {
  * stay (the import screen's preview, while sections are arranged).
  */
 export function layoutOf(recipe: RecipeInfo, seen: Record<string, unknown>, q: string, keepEmpty = false) {
-  // the two numbers that say which part of a sound (or of a source video) is used are drawn with it, not as fields of their own
-  const tucked = new Set(recipe.inputs.flatMap((i) => ((i.type === "audio" || i.type === "clip") && i.window ? [i.window.start, i.window.seconds] : [])));
+  const tucked = tuckedOf(recipe);
   const shown = recipe.inputs.filter((i) => isShown(i, seen, recipe.inputs) && !tucked.has(i.id));
   // the chapters the recipe arranges itself (an imported workflow's sections): their inputs show there and nowhere else
   const chapters = (recipe.chapters ?? []).map((ch) => ({ ...ch, items: shown.filter((i) => i.chapter === ch.id) })).filter((ch) => ch.items.length || keepEmpty || ch.id === "advanced" || ch.id === "prompt");
@@ -362,3 +365,65 @@ export function summariesOf(recipe: RecipeInfo, layout: FormLayout, values: Reco
 
 /** The inputs of a list that differ from what the form starts from. */
 export const changedIn = (list: InputSpec[], values: Record<string, unknown>, defaults: Record<string, unknown>) => list.filter((i) => !sameValue(values[i.id], defaults[i.id]));
+
+/**
+ * Whether a setting can be pinned to the top of its form (Pinned fields): what is set from one render to the next (a number,
+ * a switch, a choice, the model, its LoRAs, the size, the seed). The texts have the prompt's card, the pictures, clips and
+ * sounds the Inputs card; what the form never draws (an internal input) is not a setting of its own.
+ */
+export const pinnable = (i: InputSpec): boolean =>
+  !i.internal && (i.type === "number" || i.type === "toggle" || i.type === "choice" || i.type === "model" || i.type === "loras" || i.type === "size" || i.type === "seed");
+
+/**
+ * Why a setting is not shown now, in a few words: the setting that hides it and what it is ("Hires fix is off", "Upscale is
+ * None"), the first one up the chain of what shows it. Empty when it is shown, or hidden for no reason a value gives.
+ */
+export function whyHidden(spec: InputSpec, values: Record<string, unknown>, specs: readonly InputSpec[], seen: ReadonlySet<string> = new Set()): string {
+  const w = spec.showWhen;
+  if (!w || seen.has(spec.id)) return "";
+  const id = typeof w === "string" ? w : w.input;
+  const parent = specs.find((s) => s.id === id);
+  const label = parent?.label ?? id;
+  const v = values[id];
+  const on = typeof w === "string" ? holds(v) : w.in.includes(v);
+  if (!on) {
+    if (v === true || v === false || parent?.type === "toggle") return `${label} is ${v ? "on" : "off"}`;
+    if (typeof w === "string") return `${label} is not set`;
+    return `${label} is ${fileLabel(String(v ?? ""))}`;
+  }
+  return parent ? whyHidden(parent, values, specs, new Set([...seen, spec.id])) : "";
+}
+
+/**
+ * The section each setting is drawn in, by its input id, as the form names it in its strip: what a pinned copy says it is
+ * a copy of ("· Sampling"). From the layout drawn without a search.
+ */
+export function sectionsOf(layout: FormLayout): Map<string, string> {
+  const at = new Map<string, string>();
+  const put = (list: InputSpec[], label: string) => { for (const i of list) if (!at.has(i.id)) at.set(i.id, label); };
+  for (const ch of layout.chapters) put(ch.items, ch.label);
+  put([...layout.knobs, ...layout.loras], "Model");
+  put(layout.texts, "Prompt");
+  put([...layout.frames, ...layout.refs], "Inputs");
+  put([...layout.sampling, ...layout.afterSampling], "Sampling");
+  put([...layout.out, ...layout.upscaling, ...layout.encoding], "Output");
+  put(layout.rare, "Advanced");
+  return at;
+}
+
+/** A pinned setting's value in a few words, for the Pinned card's folded line: "CFG scale 5", "Hires fix on". */
+export function pinSaid(i: InputSpec, v: unknown): string {
+  switch (i.type) {
+    case "number": return `${i.label} ${Number(v ?? i.default)}${i.unit ?? ""}`;
+    case "toggle": return `${i.label} ${v ? "on" : "off"}`;
+    case "choice":
+    case "model": return `${i.label} ${fileLabel(String(v ?? "")) || "none"}`;
+    case "seed": return Number(v ?? RANDOM_SEED) === RANDOM_SEED ? `${i.label} random` : `${i.label} ${v}`;
+    case "size": {
+      const s = v as SizeValue | undefined;
+      return s ? `${i.label} ${s.width} × ${s.height}` : i.label;
+    }
+    case "loras": return plural(Array.isArray(v) ? v.length : 0, "LoRA");
+    default: return i.label;
+  }
+}

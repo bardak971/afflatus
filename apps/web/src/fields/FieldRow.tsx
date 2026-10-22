@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useExplain } from "../store";
 import { cx, Help } from "../ui";
+import { FIELD_NAME, FieldNameExtra } from "./FieldName";
 
 /**
  * A compact setting on one row: its name on the left (with its ? or, while forms explain themselves, its
@@ -36,9 +37,11 @@ export function FieldRow({ label, note, htmlFor, stack, trail, children }: {
       {/* a long name goes on a second line rather than end in "…" (cut, "Turbo LoRA str…" said nothing). Its ? follows
           the last word, as on a stacked field (Label), held to it: beside a name that wraps, a ? of its own sat at the
           column's edge, where it read as the value's */}
-      <span className={cx("font-semibold [overflow-wrap:anywhere]", trail && !stack ? "min-w-28 grow basis-0" : "min-w-0")}>
+      <span {...FIELD_NAME} className={cx("font-semibold [overflow-wrap:anywhere]", trail && !stack ? "min-w-28 grow basis-0" : "min-w-0")}>
         {head && name(head)}
         <span className="whitespace-nowrap">{name(last)}{note && !explain && <Help text={note} title={label} className="relative -top-[1.5px] ml-1.5 align-middle" />}</span>
+        {/* in a model form: where a pinned copy lives, or the pin of one in its own section */}
+        <FieldNameExtra />
       </span>
       <div className={cx("flex min-w-0 flex-col gap-1.5", trail && !stack && "ml-auto items-end")}>{children}</div>
       {explain && note && <span className="col-span-full basis-full text-xs text-ink-2">{note}</span>}
