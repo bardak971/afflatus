@@ -1,0 +1,77 @@
+import { describe, expect, it, vi } from "vitest";
+import { screen, waitFor, within } from "@testing-library/react";
+import type { FamilyInfo, Job } from "../../src/api";
+import { ModelField } from "../../src/fields/FileSelect";
+import { WaitingList } from "../../src/screens/queue/WaitingList";
+import { fakeApi } from "./fakeApi";
+import { draw } from "./render";
+
+/**
+ * What a waiting render says it waits for, with what it can do about it: its node packs (Install and restart, Run without
+ * an option's pack), a family's official file on the user's own ComfyUI (Download, with downloads and lookups off: the
+ * press is the consent; Look again for a file put in by hand); and the form's greyed official file, offered with its Download.
+ */
+
+const OFFICIAL = { file: "zz-test-base.safetensors", url: "https://huggingface.co/zz-test/base/resolve/main/zz-test-base.safetensors" };
+const family = { id: "zz", name: "ZZ", slots: [{ id: "checkpoint", folder: "checkpoints", get: OFFICIAL }] } as unknown as FamilyInfo;
+const own = { id: "m1", name: "", url: "http://127.0.0.1:8188", dir: "", takes: "all", packs: "ask", families: {} };
+const job = (over: Partial<Job>): Job => ({ id: "j1", recipe: "zz.picture", label: "zz-test picture", status: "queued", kind: "render", estimateMs: 30_000, createdAt: new Date().toISOString(), ...over }) as unknown as Job;
+
+function serve() {
+  // downloads and lookups off, as on a new install
+  fakeApi.on("GET /settings", { machines: [own], hasRunpodKey: false, downloadModels: false, civitaiLookups: false });
+  fakeApi.on("GET /recipes", { families: [family], recipes: [] });
+  fakeApi.on("GET /downloads", { on: false, items: [], manager: { found: false }, via: "afflatus" });
+  fakeApi.on("POST /downloads", { id: "d1", file: OFFICIAL.file, folder: "checkpoints", status: "starting" });
+  fakeApi.on("POST /setup/rescan", { comfy: { online: true }, recipes: [], lists: [] });
+}
+
+describe("a waiting render's node packs", () => {
+  it("offers Install and restart, and Run without for an option's pack", async () => {
+    serve();
+    const onPacks = vi.fn();
+    const w = job({ packs: { machine: "m1", packs: [{ name: "zz-test-pack", without: "its cache" }], state: "ask" } });
+    const { user } = draw(<WaitingList waiting={[w]} running={null} onOrder={() => {}} onRemove={() => {}} onPacks={onPacks} />);
+    expect(await screen.findByText(/waits for the node pack zz-test-pack/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Install and restart" }));
+    expect(onPacks).toHaveBeenLastCalledWith("j1", "install", ["zz-test-pack"]);
+    await user.click(screen.getByRole("button", { name: "Run without its cache" }));
+    expect(onPacks).toHaveBeenLastCalledWith("j1", "without", ["zz-test-pack"]);
+  });
+
+  it("leaves Install alone when a pack cannot be done without", async () => {
+    serve();
+    const w = job({ packs: { machine: "m1", packs: [{ name: "zz-test-gguf" }], state: "ask" } });
+    draw(<WaitingList waiting={[w]} running={null} onOrder={() => {}} onRemove={() => {}} onPacks={() => {}} />);
+    expect(await screen.findByRole("button", { name: "Install and restart" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Run without/ })).toBeNull();
+  });
+});
+
+describe("a waiting render's official file on the user's own ComfyUI", () => {
+  it("offers its Download with downloads and lookups off, and Look again reads that machine's folders", async () => {
+    serve();
+    const w = job({ fetch: { m1: { files: [{ file: OFFICIAL.file, folder: "checkpoints", url: OFFICIAL.url }], ms: 0 } } } as Partial<Job>);
+    const { user } = draw(<WaitingList waiting={[w]} running={null} onOrder={() => {}} onRemove={() => {}} />);
+    expect(await screen.findByText(/Waits for 1 file on your ComfyUI/)).toBeTruthy();
+    // never a wait with no button: the family's own file is downloaded on a press
+    await user.click(await screen.findByRole("button", { name: /Download/ }));
+    await waitFor(() => expect(fakeApi.calls("POST", "/downloads").map((c) => c.body)).toContainEqual({ file: OFFICIAL.file, folder: "checkpoints", url: OFFICIAL.url, machine: "m1" }));
+    await user.click(screen.getByRole("button", { name: "Look again" }));
+    await waitFor(() => expect(fakeApi.calls("POST", "/setup/rescan").map((c) => c.path)).toEqual(["/setup/rescan?machine=m1"]));
+  });
+});
+
+describe("a model field's official files not here", () => {
+  it("lists them greyed after the user's own, and the one picked offers its Download", async () => {
+    serve();
+    fakeApi.on("GET /setup", { comfy: { online: true }, recipes: [], lists: [] });
+    fakeApi.on("GET /official-sizes", { sizes: { [OFFICIAL.url]: 7 * 2 ** 30 }, asking: false });
+    const { user } = draw(<ModelField id="ckpt" spec={{ label: "Checkpoint", folder: "checkpoints" }} value={OFFICIAL.file} options={["zz-test-mine.safetensors"]} family={family} onChange={() => {}} />);
+    expect(await screen.findByText(/1 on your ComfyUI · 1 official not here/)).toBeTruthy();
+    const under = within((await screen.findByText(/Not on your ComfyUI/)).parentElement!);
+    await waitFor(() => expect(under.getByText(/7(\.0)? GB/)).toBeTruthy());
+    await user.click(under.getByRole("button", { name: /Download/ }));
+    await waitFor(() => expect(fakeApi.calls("POST", "/downloads").map((c) => c.body)).toContainEqual({ file: OFFICIAL.file, folder: "checkpoints", url: OFFICIAL.url }));
+  });
+});
