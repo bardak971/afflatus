@@ -24,6 +24,7 @@ import { ClipHead } from "./inspector/head";
 import { LookTable } from "./inspector/look";
 import { Slide } from "./inspector/parts";
 import { Duration, PinnedFrames, TakeList } from "./inspector/takes";
+import { recordingInput, voiceOf } from "./track/RecordingBand";
 import { queryKeys } from "../queryKeys";
 import { useSayFailed } from "../sayFailed";
 
@@ -111,7 +112,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   const picked = usePickedMachine(timelineKey(timeline.id));
   // what a render of it is called, the same in the broken-join banner and the foot: a clip with a take gets a new take
   const renderWords = count > 1 ? `Render ${count} takes` : clip.take ? "Render a new take" : `Render clip ${index + 1}`;
-  const [picking, setPicking] = useState<"sound" | "start" | "end" | "mid" | null>(null);
+  const [picking, setPicking] = useState<"sound" | "voice" | "start" | "end" | "mid" | null>(null);
   const recipe = recipes.find((r) => r.id === clip.recipe) ?? all.data?.recipes.find((r) => r.id === clip.recipe);
   const status = setup.data?.recipes.find((r) => r.id === recipe?.id);
   // what Render waits for, in its role's colour (whyTone): most of it is a to-do, said in neutral
@@ -136,6 +137,9 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
     // eslint-disable-next-line react-hooks/exhaustive-deps -- pins come from the recipe
     [recipe, sourcePart],
   );
+  // a Lip sync clip without its voice: Needs a look says so at the top, with the picker its Recording field opens
+  const voiceInput = recordingInput(recipe);
+  const needsVoice = !clip.job && voiceOf(clip, recipe, stored) === null;
   const canFit = Boolean(recipe?.traits?.endAnchor && after?.take && after.joined === "continue");
   const take = clip.take;
   const loops = Boolean(ends && (ends === opens));
@@ -231,6 +235,22 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
           </div>
         )}
 
+        {needsVoice && (
+          // amber, as the timeline's own Needs a look: nothing failed, it waits for a recording
+          <section className="flex flex-col rounded-xl border border-attention/35 bg-attention-wash pb-1.5">
+            <div className="flex items-center gap-2 px-3 pt-2 pb-1">
+              <span aria-hidden className="size-2 shrink-0 rounded-full bg-attention" />
+              <SectionTitle className="grow text-attention-ink!">Needs a look · 1</SectionTitle>
+            </div>
+            <div className="flex min-h-[34px] items-center gap-1.5 px-3 py-1">
+              <span className="flex min-w-0 grow flex-wrap items-center gap-x-1.5 text-sm text-ink">
+                Needs a voice recording<span className="text-xs text-ink-3">·</span><span className="text-xs text-ink-2">clip {index + 1}</span>
+              </span>
+              <Button size="sm" onClick={() => setPicking("voice")} data-tip="The recording this clip is made around: the mouth follows it. Or drop one on the clip's Audio cell on the track">Choose a recording…</Button>
+            </div>
+          </section>
+        )}
+
         {clip.failed && !clip.job && <ErrorNote>The last render failed: {clip.failed}</ErrorNote>}
 
         {misfit && <Toggle on={clip.fill} onChange={(fill) => onPatch({ fill })} label="Fill frame (crop)" note={clip.fill ? "its edges are cropped" : "letterboxed: shown whole, with bars"} />}
@@ -304,6 +324,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
         </div>
       )}
 
+      {picking === "voice" && voiceInput && <Picker title="Recording" kind="audio" onClose={() => setPicking(null)} onPick={(asset) => { onInputs({ ...stored, [voiceInput.id]: asset }); setPicking(null); }} />}
       {picking === "sound" && <Picker title={`Audio of clip ${index + 1}`} kind="audio" onClose={() => setPicking(null)} onPick={(soundAsset) => { onPatch({ soundAsset }); setPicking(null); }} />}
       {(picking === "start" || picking === "end" || picking === "mid") && (
         <Picker

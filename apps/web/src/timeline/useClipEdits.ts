@@ -6,6 +6,7 @@ import type { useModelSettings, useRecipes, useSetup } from "../data";
 import { wholeForm } from "../form";
 import { notReady } from "../format";
 import { queryKeys } from "../queryKeys";
+import { recordingInput } from "./track/RecordingBand";
 
 /**
  * The key the source lane's form is kept under among the clips' forms: saved as they are (after the last change, as the
@@ -117,9 +118,12 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
     [recipes.data, setup.data, setup.isSuccess, comfyOnline, inputsOf, settings.data],
   );
 
-  /** The whole form of a clip as it would be sent, or why it cannot be rendered yet. */
+  /**
+   * The whole form of a clip as it would be sent, or why it cannot be rendered yet (`voice`: a Lip sync clip waiting for its
+   * voice recording, which Needs a look lists on its own row).
+   */
   const ready = useMemo(
-    () => once((c: Clip): { input?: Record<string, unknown>; why?: string } => {
+    () => once((c: Clip): { input?: Record<string, unknown>; why?: string; voice?: true } => {
       if (c.kind === "still") return { why: "A still is not rendered." };
       const recipe = recipes.data?.recipes.find((r) => r.id === c.recipe);
       if (!recipe) return { why: c.recipe ? "The model this clip was generated with is no longer here. Choose another one." : "Choose a model for this clip." };
@@ -132,6 +136,9 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
       const at = clips.findIndex((x) => x.id === c.id);
       const before = at > 0 ? clips[at - 1] : undefined;
       const carries = Boolean(before) && c.joined === "continue";
+      // a Lip sync clip waits for its voice first: said with where it goes (the clip's Audio cell on the track), a to-do
+      const voice = recordingInput(recipe);
+      if (voice && !input[voice.id]) return { why: `Drop a voice recording on clip ${at + 1}'s Audio cell, or choose one.`, voice: true };
       for (const i of recipe.inputs) {
         if (i.type === "prompt" && ((!i.optional && i.default === undefined) || i.example) && !String(input[i.id] ?? "").trim()) return { why: `Write ${i.label.toLowerCase()} first.` };
         // a clip that picks up from the last frame of the one before, or opens on the picture before it, needs no opening picture

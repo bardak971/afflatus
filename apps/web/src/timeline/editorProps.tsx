@@ -19,7 +19,7 @@ import { carriedOf, sameWindowGrid, windowBounds } from "@afflatus/core";
 import { madeFromSource, sourceDropClip, windowed } from "./track/SourceLane";
 import type { ClipSource } from "./inspector/clipSource";
 import type { ClipRecording } from "./inspector/clipRecording";
-import { clipsOfRecording } from "./track/RecordingBand";
+import { clipsOfRecording, recordingInput } from "./track/RecordingBand";
 import { failedBanner } from "../sayFailed";
 
 // What each part of the timeline editor is drawn with, from what the editor holds (useTimelineEditor): the wiring
@@ -113,6 +113,15 @@ export function transportProps(e: LoadedEditor): ComponentProps<typeof Transport
   };
 }
 
+/**
+ * A Lip sync clip's voice set from outside its form (its Audio cell on the track, its menu, its Needs a look row), as its
+ * Recording field sets it: over the form as it stands, what was typed meanwhile kept.
+ */
+function setVoice(e: LoadedEditor, clip: Clip, asset: string) {
+  const input = recordingInput(e.videoRecipes.find((r) => r.id === clip.recipe));
+  if (input) e.editInputs(clip, (was) => ({ ...was, [input.id]: asset }));
+}
+
 export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
   const { t, patch, edit, add, render, musicOpen } = e;
   return {
@@ -144,6 +153,14 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     onJoin: (clip, joined) => patch.mutate({ clip: clip.id, patch: { joined } }),
     onOpenJoin: (clip) => e.openJoin(clip.id),
     onRecording: (asset, clip) => e.recording.run(asset, clip),
+    // its Audio cell, its menu: the clip opened on its form, the recording in its Recording field
+    onVoice: (clip, asset) => {
+      setVoice(e, clip, asset);
+      e.select(clip.id);
+    },
+    // a clip not rendered yet given another model, as its Model field does for one the source did not make
+    onRecipe: (clip, recipe) => patch.mutate({ clip: clip.id, patch: { recipe } }),
+    onSourceSettings: () => e.openSource(),
     // its band on the Audio row dragged: trimmed as its Recording chapter's In and Out trim it
     onRecordingTrim: (asset, fromMs, toMs) => e.recordingTrim.run(asset, clipsOfRecording(e.clips, e.videoRecipes, asset), fromMs, toMs),
     onSource: (asset) => {
@@ -446,6 +463,10 @@ export function overviewProps(e: LoadedEditor): ComponentProps<typeof OverviewCo
     rendering: render.isPending || e.fix.isPending,
     onEdit: (p) => e.edit.mutate(p),
     onPick: (id) => e.select(id),
+    onVoice: (id, asset) => {
+      const clip = e.shown.clips.find((c) => c.id === id);
+      if (clip) setVoice(e, clip, asset);
+    },
     onMusic: () => e.setMusicOpen(true),
     onCast: () => e.setCasting(true),
     onFix: (f) => e.fix.mutate(f),

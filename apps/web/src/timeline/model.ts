@@ -11,9 +11,12 @@ export const DRAG_TRANSITION = "application/x-afflatus-transition";
 // pixels a second: down to 2 so that a long video (ten minutes on a wide screen) still fits whole (Fit all, a clip added)
 // one zoom step (the - and + buttons, - and = on the keyboard): this much closer or farther
 export const ZOOM = { least: 2, most: 110, start: 40, step: 1.3 };
-/** Space before the first clip, and the width of the "New clip" button after the last one. */
+/**
+ * Space before the first clip, and the width of the end column after the last one: "New clip" over the Audio and Source
+ * drops, which add their clips there too (the lanes mock, 2026-10-22), wide enough for their hints whole.
+ */
 export const PAD = 10;
-export const NEW_CLIP = 116;
+export const NEW_CLIP = 344;
 
 /** In and Out on the timeline, on the clock of what plays. */
 export interface TimeRange {

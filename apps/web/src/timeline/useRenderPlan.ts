@@ -56,6 +56,7 @@ export function useRenderPlan({ id, t, clips, picked, recipes, ready, formOf, kn
     // the header's own plan, so that the same clips read the same time in Needs attention and Fix all
     plan: { auto: !pickedMachine, ids: missing.map((c) => c.id), ms: plannedAll.data?.ms ?? 0 },
     why: (c: Clip) => (c.kind === "video" ? ready(c).why : undefined),
+    voiceless: (c: Clip) => c.kind === "video" && Boolean(ready(c).voice),
     // settled, not succeeded: a list that failed to come must not hold the checks back for ever
     known,
   };

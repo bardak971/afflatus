@@ -19,11 +19,13 @@ export type Act =
   | { do: "render"; clips: string[]; ms: number }
   | { do: "take"; clip: string; take: string; number: number; figure: number }
   | { do: "fill"; clips: string[] }
-  | { do: "open"; clip: string; why: string };
+  | { do: "open"; clip: string; why: string }
+  /** A Lip sync clip's voice recording, chosen from the library (the picker its Recording field opens). */
+  | { do: "voice"; clip: string };
 
 export interface Row {
   key: string;
-  kind: "missing" | "stale" | "failed" | "join" | "shape";
+  kind: "missing" | "voice" | "stale" | "failed" | "join" | "shape";
   ids: string[];
   warn: boolean;
   /** A join row's figure: the worse of the join and the run-up's end. */
@@ -50,6 +52,8 @@ export function attention(clips: Clip[], o: {
   misfit(c: Clip): boolean;
   /** Why a clip cannot be rendered yet ("Write prompt first."), when its form is still to fill. */
   why?(c: Clip): string | undefined;
+  /** A Lip sync clip that has no voice recording yet: listed on a row of its own, not with the clips to render. */
+  voiceless?(c: Clip): boolean;
 }): Row[] {
   const render = (list: Clip[]): Act | undefined => {
     const can = list.filter(o.renderable);
@@ -57,13 +61,16 @@ export function attention(clips: Clip[], o: {
   };
   const rows: Row[] = [];
   // a failed clip is listed once, as failed: Retry is its action; one with its form still to fill is listed, not rendered
-  const unrendered = clips.filter((c) => c.kind === "video" && !c.take && !c.job && !c.failed);
+  const unrendered = clips.filter((c) => c.kind === "video" && !c.take && !c.job && !c.failed && !o.voiceless?.(c));
+  // a Lip sync clip without its voice: a row each, its action the recording's picker (the lanes mock, 2026-10-22)
+  const voiceRows: Row[] = clips.filter((c) => c.kind === "video" && !c.take && !c.job && !c.failed && o.voiceless?.(c)).map((c) => ({ key: `voice:${c.id}`, kind: "voice", ids: [c.id], warn: false, act: { do: "voice", clip: c.id } }));
   if (unrendered.length) {
     // none of them can render yet: the first one's form is opened, said with what it waits for
     const waiting = o.why && unrendered.map((c) => ({ clip: c.id, why: o.why!(c) })).find((x) => x.why);
     const act = render(unrendered) ?? (waiting ? { do: "open" as const, clip: waiting.clip, why: waiting.why! } : undefined);
     rows.push({ key: "missing", kind: "missing", ids: unrendered.map((c) => c.id), warn: false, act });
   }
+  rows.unshift(...voiceRows);
   const stale = clips.filter((c) => c.join === "stale");
   if (stale.length) rows.push({ key: "stale", kind: "stale", ids: stale.map((c) => c.id), warn: true, act: render(stale) });
   const failed = clips.filter((c) => c.failed && !c.take);
@@ -91,8 +98,8 @@ export function attention(clips: Clip[], o: {
 
 /** Fix all, once two rows or more have an action: each clip rendered once, in timeline order, after the patches. */
 export function fixAll(rows: Row[], clips: Clip[], msOf: (c: Clip) => number | null): Fix | null {
-  // opening a form mends nothing by itself: it is left out of Fix all, and does not count towards showing it
-  const acts = rows.flatMap((r) => (r.act && r.act.do !== "open" ? [r.act] : []));
+  // opening a form or choosing a recording mends nothing by itself: left out of Fix all, and not counted towards showing it
+  const acts = rows.flatMap((r) => (r.act && r.act.do !== "open" && r.act.do !== "voice" ? [r.act] : []));
   if (acts.length < 2) return null;
   const patches: Fix["patches"] = [];
   const wanted = new Set<string>();
@@ -152,10 +159,10 @@ export function withPlans(rows: Row[], fix: Fix | null, plan: Plan | undefined, 
  * and the take each of its clips plays. Another take, or a new render, is another decision: the row comes back.
  * A clip with nothing rendered is never set aside: there is nothing to keep.
  */
-export const canDismiss = (r: Row) => r.kind !== "missing";
+export const canDismiss = (r: Row) => r.kind !== "missing" && r.kind !== "voice";
 export const dismissKey = (r: Row, clips: Clip[]) => `${r.kind}:${r.ids.map((id) => `${id}@${clips.find((c) => c.id === id)?.take?.id ?? "-"}`).join(",")}`;
 
-/** One row's action as Fix all runs it: its patches, then its render. Opening a form is not one: null. */
+/** One row's action as Fix all runs it: its patches, then its render. Opening a form, or a picker, is not one: null. */
 export function fixOf(a: Act): Omit<Fix, "ms"> | null {
   if (a.do === "render") return { patches: [], render: a.clips };
   if (a.do === "take") return { patches: [{ clip: a.clip, patch: { take: a.take } }], render: [] };
@@ -218,7 +225,7 @@ export function attentionLine(rows: Row[], clips: Clip[]): string {
       continue;
     }
     const words = clipWords(nums(r));
-    said.push(r.kind === "missing" ? `${words} not rendered` : r.kind === "stale" ? `${r.ids.length === 1 ? "clip" : "clips"} before ${words} changed` : r.kind === "failed" ? `${words} failed` : `${words} in another aspect ratio`);
+    said.push(r.kind === "missing" ? `${words} not rendered` : r.kind === "voice" ? `${words} needs a voice recording` : r.kind === "stale" ? `${r.ids.length === 1 ? "clip" : "clips"} before ${words} changed` : r.kind === "failed" ? `${words} failed` : `${words} in another aspect ratio`);
   }
   return `${rows.length === 1 ? "1 thing needs" : `${rows.length} things need`} a look: ${said.join(", ")}`;
 }

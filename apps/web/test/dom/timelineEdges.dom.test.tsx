@@ -166,7 +166,7 @@ describe("the range played, drawn", () => {
       setPlayingNow = setPlaying;
       const player = { current: { seek, fullscreen: () => {}, where: () => null } };
       r = useRange({ id: timeline.id, clips: timeline.clips, durationMs: 10_000, clock, player, playing, setPlaying, on: { after: () => {}, select: () => {}, note: () => {}, say: () => {}, writeBetween: () => {} } });
-      p = usePlayhead({ clock, clips: timeline.clips, player, rangeRef: r.rangeRef, loopRef: r.loopRef, playingRange: r.playingRange, setPlaying });
+      p = usePlayhead({ clock, clips: timeline.clips, endMs: 10_000, player, rangeRef: r.rangeRef, loopRef: r.loopRef, playingRange: r.playingRange, setPlaying });
       return null;
     }
     draw(<Transport />);
@@ -242,7 +242,7 @@ describe("drags on the track, drawn", () => {
     const onPeek = vi.fn();
     const onStretch = vi.fn();
     draw(
-      <SourceLane timeline={timeline} place={{ atMs: 5000, lengthMs: 20_000, made: false, windows: [], replaces: null }} recipes={[model]} pps={50} width={2000} selected={false} over={false}
+      <SourceLane timeline={timeline} place={{ atMs: 5000, lengthMs: 20_000, made: false, windows: [], replaces: null }} recipes={[model]} pps={50} selected={false} over={false}
         onDragOver={() => {}} onSelect={() => {}} onStretch={onStretch} onPeek={onPeek} />,
     );
     const lane = screen.getByRole("button", { name: "Source: zz-test.mp4" });
@@ -260,7 +260,7 @@ describe("drags on the track, drawn", () => {
     const onStretch = vi.fn(() => new Promise<boolean>((done) => answers.push(done)));
     const place = { atMs: 5000, lengthMs: 20_000, made: true, windows: [], replaces: null };
     const lane = (t: Timeline) => (
-      <SourceLane timeline={t} place={place} recipes={[model]} pps={50} width={2000} selected={false} over={false} onDragOver={() => {}} onSelect={() => {}} onStretch={onStretch} onPeek={() => {}} />
+      <SourceLane timeline={t} place={place} recipes={[model]} pps={50} selected={false} over={false} onDragOver={() => {}} onSelect={() => {}} onStretch={onStretch} onPeek={() => {}} />
     );
     const { rerender } = draw(lane(timeline));
     const pull = (by: number, id: number) => {
@@ -298,7 +298,7 @@ describe("drags on the track, drawn", () => {
     const answers: Array<(taken: boolean) => void> = [];
     const onStretch = vi.fn((_fromMs: number, _toMs: number) => new Promise<boolean>((done) => answers.push(done)));
     const place = { atMs: 5000, lengthMs: 20_000, made: true, windows: [], replaces: null };
-    draw(<SourceLane timeline={timeline} place={place} recipes={[model]} pps={50} width={2000} selected={false} over={false} onDragOver={() => {}} onSelect={() => {}} onStretch={onStretch} onPeek={() => {}} />);
+    draw(<SourceLane timeline={timeline} place={place} recipes={[model]} pps={50} selected={false} over={false} onDragOver={() => {}} onSelect={() => {}} onStretch={onStretch} onPeek={() => {}} />);
     const pull = (name: RegExp, x: number, by: number, id: number) => {
       const edge = screen.getByRole("separator", { name });
       fireEvent.pointerDown(edge, { button: 0, clientX: x, pointerId: id });
@@ -319,7 +319,7 @@ describe("drags on the track, drawn", () => {
     for (const made of [false, true]) {
       const onStretch = vi.fn();
       const { unmount } = draw(
-        <SourceLane timeline={timeline} place={{ atMs: 5000, lengthMs: 20_000, made, windows: [], replaces: null }} recipes={[model]} pps={50} width={2000} selected={false} over={false}
+        <SourceLane timeline={timeline} place={{ atMs: 5000, lengthMs: 20_000, made, windows: [], replaces: null }} recipes={[model]} pps={50} selected={false} over={false}
           onDragOver={() => {}} onSelect={() => {}} onStretch={onStretch} onPeek={() => {}} />,
       );
       // 50 px a second: the end dragged 50 px to the right stops a second later, the start 50 px to the left starts a second earlier
