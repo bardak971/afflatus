@@ -174,6 +174,16 @@ export class PodPacks {
     return [...(this.pods.get(machine)?.values() ?? [])].map(({ name, state, error, jobs, unloaded }) => ({ name, state, ...(error ? { error } : {}), jobs: [...jobs], ...(unloaded ? { unloaded } : {}) }));
   }
 
+  /**
+   * Packs loaded there once that its node list has none of now (`gone`: taken out of custom_nodes, ComfyUI restarted since):
+   * forgotten, to be asked for again as any pack it lacks. Kept "ready", a job asking for one counted it as had, and waited
+   * for good under "installed" while the machine rendered the others (queuePacks.ts).
+   */
+  unready(machine: string, gone: string[]): void {
+    const pod = this.pods.get(machine);
+    for (const name of gone) if (pod?.get(name)?.state === "ready") pod.delete(name);
+  }
+
   forget(machine: string): void {
     this.pods.delete(machine);
     this.onDisk.delete(machine);

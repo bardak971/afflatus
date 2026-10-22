@@ -30,7 +30,7 @@ export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made:
   const audio = made.sound ? made.sound(decoded) : decoded;
   // Face refine, on the frames as the clip keeps them (a swap's after its paste-back), before anything enlarges or interpolates them:
   // the faces redrawn at their own size, and RIFE then makes its in-between frames from the refined ones
-  const faces = made.clip ? faceRefined(g, ctx, input, decodedImages, { audio, vae, audioVae, clip: made.clip }) : { images: decodedImages, pass: null, loads: [] };
+  const faces = made.clip ? faceRefined(g, ctx, input, decodedImages, { audio, vae, audioVae, clip: made.clip, only: Boolean(input.faceRefineOnly) && !upscaling }) : { images: decodedImages, pass: null, loads: [] };
   const { images } = faces;
   const refined = Boolean(faces.pass);
   // the frames as the model made them, before anything changes them: a clip that carries on from this

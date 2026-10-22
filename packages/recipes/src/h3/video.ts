@@ -7,7 +7,7 @@ import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import { COLOUR_MATCH_NODES, rifeNeeds, rifeSkippedSaid } from "../shared/finish";
 import { conditionFor, type MorePicture } from "./condition";
 import { finish, H3_SAVE_LATENT } from "./finish";
-import { FACE_REFINE_OPTIONAL, FACE_REFINE_SLOTS, faceRefineNeeds, faceRefineSkipped } from "./faceRefine";
+import { FACE_REFINE_OPTIONAL, FACE_REFINE_PACK_NEEDED, FACE_REFINE_SLOTS, faceRefineNeeds, faceRefineSkipped } from "./faceRefine";
 import { h3Inputs, type H3Video } from "./inputs";
 import { isH3Layout } from "./prompt";
 import { frameFor, H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_LANDING, H3_SEAM, H3_TRIM, resolveJoin } from "./join";
@@ -302,7 +302,7 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   const vedaSaid = vedaMissing ? `Veda was on, but its predictor for ${vedaMissing === "reference" ? "the reference model" : "text and frames (T2VA)"} is not in ComfyUI's models/veda folder (Settings › Models has it): made with the full attention.` : null;
   const skipped = faceRefineSkipped(input, ctx, { audio: true });
   // a Finish › Face refine that refines nothing would be the take made again, named a face pass: it fails, with why
-  if (modelless && input.faceRefine && !made.refine) throw new Error(skipped ?? "Not face-refined: Face refine's node pack (comfyui-h3-facerefine) is not on this ComfyUI.");
+  if (modelless && input.faceRefine && !made.refine) throw new Error(skipped ?? FACE_REFINE_PACK_NEEDED);
   const said = [fine ? plainResizeSaid(input, ctx) : null, rifeSkippedSaid(input.smooth, ctx), skipped, vedaSaid].filter((x): x is string => Boolean(x));
   const refining = made.refine ? [made.refine] : [];
   return {

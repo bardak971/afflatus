@@ -139,7 +139,17 @@ describe("MiniMax H3 · Face refine", () => {
   it("fails a Finish › Face refine that cannot refine, with why: the take made again was named a face pass", () => {
     const own = { "self.latent": "own.safetensors" };
     expect(() => build({ faceRefine: true, faceRefineOnly: true, references: people }, { uploads: { ...uploads, ...own }, slots: { ...slots, faceRefineUnet: undefined as never } })).toThrow(/no fused reference turbo/);
-    expect(() => build({ faceRefine: true, faceRefineOnly: true, references: people }, { uploads: { ...uploads, ...own }, wants: () => null })).toThrow(/comfyui-h3-facerefine/);
+    expect(() => build({ faceRefine: true, faceRefineOnly: true, references: people }, { uploads: { ...uploads, ...own }, has: (cls) => cls !== "H3FaceStitch" })).toThrow(/comfyui-h3-facerefine/);
+  });
+
+  it("needs its pack on a Finish › Face refine, never asks for it as an option to do without: run without it, the finish failed (review of 0.6.0, H-21)", () => {
+    const own = { "self.latent": "own.safetensors" };
+    const asked: string[] = [];
+    const lacking = { uploads: { ...uploads, ...own }, has: (cls: string) => !cls.startsWith("H3Face"), wants: (w: { input: string }) => (asked.push(w.input), null) };
+    expect(() => build({ faceRefine: true, faceRefineOnly: true, references: people }, lacking)).toThrow(/comfyui-h3-facerefine/);
+    expect(asked).not.toContain("faceRefine");
+    // with the pack there, the pass is built
+    expect(of(build({ faceRefine: true, faceRefineOnly: true, references: people }, { uploads: { ...uploads, ...own }, wants: () => null }).graph, "H3FaceStitch")).toHaveLength(1);
   });
 
   it("says why it is done without on a pack with no audio lock, where it was left out without a word", () => {
