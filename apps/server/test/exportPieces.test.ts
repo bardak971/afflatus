@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { MATCH, type FrameMeans } from "../src/measure";
-import { EXPORT_PIECE, joinVideosInto, piecesOf, runsOf, type ExportPart, type JoinOptions } from "../src/exportJoin";
+import { cutLongRuns, EXPORT_PIECE, joinVideosInto, piecesOf, runsOf, type ExportPart, type JoinOptions } from "../src/exportJoin";
 import { majorOf } from "../src/video";
 import { FFMPEG_TIMEOUT } from "./clipKit";
 import { ffmpegThere } from "./framesKit";
@@ -43,6 +43,29 @@ describe("a timeline's pieces", () => {
       EXPORT_PIECE.parts = was;
     }
   });
+
+  it("cut a long run into stretches of about a piece, each inside a part between its fades, on a frame that is a whole sound sample", () => {
+    // 60 dissolves made one run, and ffmpeg held all 60 inputs open at once (2.2 GB at 720p)
+    const hold = { blendMs: 170, blendMode: "hold" as const };
+    const parts = Array.from({ length: 20 }, (_, i) => video(0, 2000, i > 0 ? hold : {}));
+    const was = EXPORT_PIECE.parts;
+    try {
+      EXPORT_PIECE.parts = 8;
+      const pieces = cutLongRuns(parts, piecesOf(parts, runsOf(parts)), 24);
+      expect(pieces.map((p) => p.map((s) => s.parts))).toEqual([[[0, 1, 2, 3, 4, 5, 6, 7]], [[7, 8, 9, 10, 11, 12, 13, 14]], [[14, 15, 16, 17, 18, 19]]]);
+      // each 2 s part plays 2 s on the run's clock: part 7's frames are 336 to 383, its fade in the first 5 and a spare
+      const [first, second] = pieces.map((p) => p[0]!);
+      expect(first!.to).toEqual({ frame: 363, sample: 726_000 });
+      expect(second!.from).toEqual(first!.to);
+      // a speed whose frames fall between sound samples: made whole
+      expect(cutLongRuns(parts, piecesOf(parts, runsOf(parts)), 7)).toEqual([[{ run: runsOf(parts)[0], parts: runsOf(parts)[0] }]]);
+      // fades that touch leave no part to cut in: made whole too
+      const touching = Array.from({ length: 20 }, (_, i) => video(0, 200, i > 0 ? { blendMs: 170, blendMode: "overlap" } : {}));
+      expect(cutLongRuns(touching, piecesOf(touching, runsOf(touching)), 24)).toHaveLength(1);
+    } finally {
+      EXPORT_PIECE.parts = was;
+    }
+  });
 });
 
 describe.skipIf(!ffmpegThere)("a long export made by ffmpeg", () => {
@@ -76,7 +99,9 @@ describe.skipIf(!ffmpegThere)("a long export made by ffmpeg", () => {
         const said = (await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pts_time", "-of", "csv=p=0", file], { maxBuffer: 1 << 26 })).stdout;
         const pts = said.split(/\r?\n/).filter((l) => l.trim()).map((l) => Number.parseFloat(l));
         const sound = (await run("ffmpeg", ["-loglevel", "error", "-i", file, "-map", "0:a", "-f", "md5", "-"])).stdout.trim();
-        return { pts, sound };
+        // every picture, decoded, in grey: the same pictures encoded apart differ by a little, another picture by much more
+        const frames = (await run("ffmpeg", ["-loglevel", "error", "-i", file, "-map", "0:v", "-fps_mode", "passthrough", "-vf", "format=gray", "-f", "rawvideo", "-"], { encoding: "buffer", maxBuffer: 1 << 26 })).stdout as Buffer;
+        return { pts, sound, frames };
       });
     } finally {
       EXPORT_PIECE.parts = was;
@@ -90,6 +115,18 @@ describe.skipIf(!ffmpegThere)("a long export made by ffmpeg", () => {
     // the transitions keep the clock: 60 half seconds
     expect(pts.length).toBe(60 * 12);
   }, FFMPEG_TIMEOUT);
+
+  /**
+   * Whether two exports show the same pictures, each encoded apart: every picture within a few grey levels of its
+   * counterpart on average, as the encoder leaves it. The test pattern moves: a picture a frame early or late is 30 to 90
+   * levels off, a fade's mix of the wrong frames 7 and more.
+   */
+  const samePictures = (a: Buffer, b: Buffer) => {
+    const size = 64 * 36;
+    const diff = (i: number) => { let sum = 0; for (let k = 0; k < size; k++) sum += Math.abs(a[i * size + k]! - b[i * size + k]!); return sum / size; };
+    return a.length === b.length && Array.from({ length: a.length / size }, (_, i) => diff(i)).every((d) => d < 3);
+  };
+
 
   /** Every kind of join, a picture held for a length that is no whole number of frames, a sound file, a clip with no sound. */
   const mixed = (): ExportPart[] => {
@@ -122,6 +159,34 @@ describe.skipIf(!ffmpegThere)("a long export made by ffmpeg", () => {
     const pieces = await exported(mixed(), 48, opts, 2);
     expect(pieces.pts).toEqual(whole.pts);
     expect(pieces.sound).toBe(whole.sound);
+  }, FFMPEG_TIMEOUT);
+
+  /** One run of every fade a part comes in with, a picture among them, longer than a piece: cut inside its parts. */
+  const chained = (): ExportPart[] => {
+    const fades: Array<Partial<ExportPart>> = [
+      { blendMs: 250, blendMode: "hold" },
+      { transitionIn: { kind: "dissolve", xfade: "fade", ms: 400, fadeSound: true } },
+      { blendMs: 300, blendMode: "overlap" },
+      { blendMs: 170, blendMode: "freeze" },
+      // a wipe, not the flash: its custom expression comes out otherwise from one run to the next, whole or not
+      { transitionIn: { kind: "wipe", xfade: "wipeleft", ms: 300, fadeSound: false } },
+    ];
+    return Array.from({ length: 13 }, (_, i): ExportPart => i === 6
+      ? { kind: "still", source: still, ext: "png", startMs: 0, endMs: 917, hasSound: false, sound: "muted", volume: 1, fill: true, transitionIn: { kind: "dissolve", xfade: "fade", ms: 400, fadeSound: false } }
+      : video(200 + (i % 4) * 100, 1600 + (i % 3) * 100, { source: clip, ...(i > 0 ? fades[i % fades.length] : {}) }));
+  };
+
+  it("cuts a long run of fades inside its parts, the same pictures at the same moments and the same sound as made whole", async () => {
+    expect(runsOf(chained())).toHaveLength(1);
+    // (not at the web's speed: there a timeline in pieces can end a frame short of the whole one, cut runs or not)
+    for (const [fps, opts] of [[24, { match: true, music: music(20_000) }], [48, { smoothTo: 60 }]] as const) {
+      const whole = await exported(chained(), fps, opts, 100);
+      const pieces = await exported(chained(), fps, opts, 3);
+      expect(pieces.pts).toEqual(whole.pts);
+      expect(pieces.sound).toBe(whole.sound);
+      // each piece encoded apart: the pictures compared, not the bytes
+      if (fps === 24) expect(samePictures(pieces.frames, whole.frames)).toBe(true);
+    }
   }, FFMPEG_TIMEOUT);
 
   it("matches colour from the kept means of each video, measuring the file only without them", async () => {

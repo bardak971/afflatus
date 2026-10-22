@@ -53,7 +53,7 @@ describe.skipIf(!ffmpegThere)("what the editor reads, measured in the background
   let pc: Precompute;
   let calls: string[];
   /** The media module, each measure it is asked for noted. */
-  const counted = (): Pick<TimelineMedia, "motion" | "strip" | "means" | "joins" | "missing"> => {
+  const counted = (): Pick<TimelineMedia, "motion" | "strip" | "means" | "joins" | "missing" | "measureTogether"> => {
     const real = t.services.timelines.media;
     return {
       motion: (id) => (calls.push(`motion:${id}`), real.motion(id)),
@@ -61,6 +61,7 @@ describe.skipIf(!ffmpegThere)("what the editor reads, measured in the background
       means: (a) => (calls.push(`means:${a.id}`), real.means(a)),
       joins: (id, most) => (calls.push(`joins:${id}`), real.joins(id, most)),
       missing: (a) => real.missing(a),
+      measureTogether: (a, missing) => (calls.push(`together:${a.id}`), real.measureTogether(a, missing)),
     };
   };
   const upload = async (name: string) =>
@@ -124,7 +125,9 @@ describe.skipIf(!ffmpegThere)("what the editor reads, measured in the background
     await pc.settled();
     pc.video(one.id);
     await pc.settled();
-    expect(calls.filter((c) => c.endsWith(one.id)).sort()).toEqual([`means:${one.id}`, `motion:${one.id}`, `strip:${one.id}`]);
+    // all three from one decode of it: they were three, 43 CPU-s against 18 for a 1080p 30 s import
+    expect(calls.filter((c) => c.endsWith(one.id))).toEqual([`together:${one.id}`]);
+    expect(await kept(one.id)).toEqual([true, true, true]);
     // found measured already (by the editor, or before a restart): nothing is measured again
     const again = new Precompute(t.db, counted(), { backfillAfterMs: null });
     calls = [];
@@ -132,6 +135,18 @@ describe.skipIf(!ffmpegThere)("what the editor reads, measured in the background
     await again.settled();
     expect(calls).toEqual([]);
     await again.stop();
+  }, FFMPEG_TIMEOUT);
+
+  it("makes the strip of a video past a minute by its keyframes, the rest in the one decode", async () => {
+    const { ffmpegMade } = await import("./clipKit");
+    const { filmStrip } = await import("../src/cut");
+    const long = await ffmpegMade(["-f", "lavfi", "-i", "testsrc2=size=64x36:rate=10:duration=70", "-c:v", "libx264", "-g", "100", "-pix_fmt", "yuv420p"]);
+    const one = (await t.app.inject({ method: "POST", url: "/api/assets?name=zz-test%20long.mp4", headers: { "content-type": "video/mp4" }, payload: Buffer.from(long) })).json() as { id: string; durationMs: number };
+    pc.video(one.id);
+    await pc.settled();
+    expect(calls.filter((c) => c.endsWith(one.id))).toEqual([`together:${one.id}`]);
+    const strip = await t.services.storage.get(`strips/${one.id.slice(0, 2)}/${one.id}-2.jpg`);
+    expect(Buffer.from(strip).equals(Buffer.from(await filmStrip(long, "mp4", one.durationMs)))).toBe(true);
   }, FFMPEG_TIMEOUT);
 
   it("starts nothing while a render's result is being filed", async () => {
@@ -142,7 +157,7 @@ describe.skipIf(!ffmpegThere)("what the editor reads, measured in the background
     expect(calls).toEqual([]);
     done();
     await pc.settled();
-    expect(calls).toContain(`motion:${one.id}`);
+    expect(calls).toContain(`together:${one.id}`);
   }, FFMPEG_TIMEOUT);
 
   it("runs in the pool's last lane", async () => {
@@ -151,7 +166,7 @@ describe.skipIf(!ffmpegThere)("what the editor reads, measured in the background
     const one = await upload("zz-test lane.mp4");
     own.video(one.id);
     await own.settled();
-    expect(lanes.length).toBe(3);
+    expect(lanes.length).toBe(1);
     expect(lanes.every((l) => l.last)).toBe(true);
     await own.stop();
   }, FFMPEG_TIMEOUT);

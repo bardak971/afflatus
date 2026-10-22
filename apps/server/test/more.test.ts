@@ -329,6 +329,34 @@ describe.skipIf(!clip)("the sound of a video", () => {
     expect((await get(t.app, `/api/timelines/${tl.id}`)).json()).toMatchObject({ width: 192, height: 320 });
   });
 
+  it("is taken out, removed, and a range of the video cut, the video read where it lies and the results stored from ffmpeg's files", async () => {
+    const video = (await t.app.inject({ method: "POST", url: "/api/assets?name=walk.mp4", headers: { "content-type": "video/mp4" }, payload: Buffer.from(clip!) })).json();
+    const row = await t.db.selectFrom("assets").selectAll().where("id", "=", video.id).executeTakeFirstOrThrow();
+    const storage = t.services.storage;
+    const [get, put] = [storage.get.bind(storage), storage.put.bind(storage)];
+    const read: string[] = [];
+    const held: string[] = [];
+    storage.get = async (key: string) => (read.push(key), get(key));
+    storage.put = async (key: string, bytes: Uint8Array) => (held.push(key), put(key, bytes));
+    try {
+      const sound = (await post(t.app, `/api/assets/${video.id}/sound`)).json();
+      const silent = (await post(t.app, `/api/assets/${video.id}/silent`)).json();
+      const [cut] = await t.services.timelines.range.cutRange(row, 500, 1500, "remove");
+      expect(sound).toMatchObject({ kind: "audio", hasSound: true });
+      expect(silent).toMatchObject({ kind: "video", hasSound: false });
+      expect(cut).toMatchObject({ kind: "video", origin: "cut", has_sound: 1 });
+      expect(cut!.duration_ms).toBeGreaterThan(900);
+      // a 2-minute 1080p source handed over whole held 967 MB for its sound, a removal from it 1.56 GB for its result
+      expect(read.filter((k) => k === row.file_key)).toEqual([]);
+      const made = await t.db.selectFrom("assets").select(["file_key", "bytes"]).where("id", "in", [sound.id, silent.id, cut!.id]).execute();
+      expect(held.filter((k) => made.some((m) => m.file_key === k))).toEqual([]);
+      for (const m of made) expect(m.bytes).toBe(await storage.size(m.file_key));
+    } finally {
+      storage.get = get;
+      storage.put = put;
+    }
+  });
+
   it("can be removed: a copy without it beside the video, the video untouched", async () => {
     const video = (await t.app.inject({ method: "POST", url: "/api/assets?name=walk.mp4", headers: { "content-type": "video/mp4" }, payload: Buffer.from(clip!) })).json();
     const silent = (await post(t.app, `/api/assets/${video.id}/silent`)).json();

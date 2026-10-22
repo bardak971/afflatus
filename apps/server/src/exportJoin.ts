@@ -160,11 +160,11 @@ export async function joinVideosInto<T>(parts: ExportPart[], frame: { width: num
     // every part's file on disk first: a colour match reads the part before's, which may lie in the piece before
     const files = await Promise.all(parts.map((p, i) => onDisk(dir, `part${i}.${p.ext}`, p.source)));
     const looks = await colourLooks(parts, files, Boolean(opts.match));
-    const pieces = piecesOf(parts, runsOf(parts));
+    const pieces = cutLongRuns(parts, piecesOf(parts, runsOf(parts)), fps);
     const out = join(dir, "export.mp4");
     if (pieces.length === 1) {
       const inputs = new Inputs(dir);
-      const chains = await partChains(parts, files, pieces[0]!.flat(), inputs, size, fps, looks);
+      const chains = await partChains(parts, files, pieces[0]!.flatMap((s) => s.parts), inputs, size, fps, looks);
       const { outs, total } = fadeRuns(parts, pieces[0]!, fps, chains);
       chains.push(`${outs.join("")}concat=n=${outs.length}:v=1:a=1[joined][${music ? "voices" : "a"}]`, finish);
       if (music) {
@@ -176,8 +176,9 @@ export async function joinVideosInto<T>(parts: ExportPart[], frame: { width: num
       ], run);
       return use(out);
     }
-    // A long timeline is made in pieces, one ffmpeg run each, cut where no fade or transition crosses: ffmpeg opens every
-    // input of a run at once and holds tens of megabytes for each, so its memory is a piece's, not the whole timeline's.
+    // A long timeline is made in pieces, one ffmpeg run each, cut where no fade or transition crosses (between runs, or
+    // inside a part of a long run, cutLongRuns): ffmpeg opens every input of a run at once and holds tens of megabytes for
+    // each, so its memory is a piece's, not the whole timeline's.
     // Each piece's picture is encoded as the whole would be and its sound kept exact (32-bit float, as the encoder is
     // handed it); the pieces are put end to end by the concat demuxer, the picture copied as it is and the sound encoded
     // once with the music under it. A piece ends where its concat filter ends it (its sound padded to its picture, as
@@ -192,12 +193,14 @@ export async function joinVideosInto<T>(parts: ExportPart[], frame: { width: num
     const list: string[] = [];
     for (const [k, piece] of pieces.entries()) {
       const inputs = new Inputs(dir);
-      const chains = await partChains(parts, files, piece.flat(), inputs, size, fps, looks);
+      const chains = await partChains(parts, files, piece.flatMap((s) => s.parts), inputs, size, fps, looks);
       const { outs, total: length } = fadeRuns(parts, piece, fps, chains);
       total += length;
       // the concat filter pads a run's sound with silence to its picture's end only when another run follows: a piece but
-      // the last is followed by an empty one, so that its sound ends where the whole timeline's would
-      if (k < pieces.length - 1) {
+      // the last is followed by an empty one, so that its sound ends where the whole timeline's would. Not a piece that ends
+      // inside a run (cutLongRuns): its picture and sound end on the same moment, and the run goes on there in the whole
+      // timeline, unpadded (the empty run padded it by a sample)
+      if (k < pieces.length - 1 && !piece.at(-1)!.to) {
         chains.push(`nullsrc=s=${size.W}x${size.H}:r=${fps},format=yuv420p,setsar=1,trim=end_frame=0[vend]`, "anullsrc=channel_layout=stereo:sample_rate=48000,atrim=end_sample=0[aend]");
         outs.push("[vend][aend]");
       }
@@ -263,7 +266,7 @@ export function runsOf(parts: ExportPart[]): number[][] {
   return runs;
 }
 
-/** Whole runs gathered into pieces of at least EXPORT_PIECE.parts parts (the last one may be shorter; a longer run is a piece of its own). One piece when the timeline is that short. */
+/** Whole runs gathered into pieces of at least EXPORT_PIECE.parts parts (the last one may be shorter; a longer run ends its piece, and is cut by cutLongRuns). One piece when the timeline is that short. */
 export function piecesOf(parts: ExportPart[], runs: number[][]): number[][][] {
   if (parts.length <= EXPORT_PIECE.parts) return [runs];
   const pieces: number[][][] = [[]];
@@ -358,20 +361,9 @@ async function partChains(parts: ExportPart[], files: string[], which: number[],
       ? `scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H}`
       : `scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`;
     const tune = looks[i] ?? "";
-    // the part after fades in over this one's end with a hold: this one holds its last frame (and silence) for as long
-    const next = parts[i + 1];
-    const padMs = next?.blendMs && next.kind === "video" && next.blendMode !== "overlap" ? Math.min(next.blendMs, (next.endMs - next.startMs) - FRAME_SLACK_MS) : 0;
-    // a transition on either side: this part held on its last frame for half of the one after, on its first for half of its own
-    const out = next?.transitionIn ? next.transitionIn.ms / 2 : 0;
-    const into = i > 0 && p.transitionIn ? p.transitionIn.ms / 2 : 0;
+    const { next, padMs, out, into, early, heardMs } = heldOf(parts, i, fps);
     const pad = (padMs > 0 ? `,tpad=stop_mode=clone:stop_duration=${sec(padMs)}` : "")
       + (out > 0 || into > 0 ? `,tpad=${[into > 0 ? `start_mode=clone:start_duration=${sec(into)}` : "", out > 0 ? `stop_mode=clone:stop_duration=${sec(out)}` : ""].filter(Boolean).join(":")}` : "");
-    // a freeze's picture starts a frame before its own first moment (fadeRuns): its sound starts at that moment, where the
-    // run's sound reaches it. Started with the picture, each latent join put the sound a frame later, piling up along a chain
-    const early = earlyOf(p, fps);
-    // the sound is not held with the picture when the part after carries it on (see "freeze"), nor over a transition (it
-    // runs straight on, its clock the clips'); it fades out and in over the halves when the transition asks
-    const heardMs = (next?.blendMode === "freeze" || out > 0 ? p.endMs - p.startMs : p.endMs - p.startMs + padMs) - early;
     const heard = sec(heardMs);
     const fades = [into > 0 && p.transitionIn!.fadeSound ? `afade=t=in:d=${sec(into)}` : "", out > 0 && next!.transitionIn!.fadeSound ? `afade=t=out:st=${sec(heardMs - out)}:d=${sec(out)}` : ""].filter(Boolean).map((f) => `,${f}`).join("");
     chains.push(
@@ -410,53 +402,198 @@ async function partChains(parts: ExportPart[], files: string[], which: number[],
 const earlyOf = (p: ExportPart, fps: number) => (p.blendMode === "freeze" && !p.transitionIn ? 1000 / fps : 0);
 
 /**
- * The parts that fade into the one before, crossfaded in runs (runsOf; added to `chains`); each run's picture and sound out
- * (`outs`, to be put one after the other), and how long all of it lasts.
+ * How a part is held for the parts around it (partChains), and how long its sound is heard: what its chains are made of, and
+ * what a run's clock counts (runClock).
  */
-function fadeRuns(parts: ExportPart[], runs: number[][], fps: number, chains: string[]): { outs: string[]; total: number } {
+function heldOf(parts: ExportPart[], i: number, fps: number) {
+  const p = parts[i]!;
+  // the part after fades in over this one's end with a hold: this one holds its last frame (and silence) for as long
+  const next = parts[i + 1];
+  const padMs = next?.blendMs && next.kind === "video" && next.blendMode !== "overlap" ? Math.min(next.blendMs, (next.endMs - next.startMs) - FRAME_SLACK_MS) : 0;
+  // a transition on either side: this part held on its last frame for half of the one after, on its first for half of its own
+  const out = next?.transitionIn ? next.transitionIn.ms / 2 : 0;
+  const into = i > 0 && p.transitionIn ? p.transitionIn.ms / 2 : 0;
+  // a freeze's picture starts a frame before its own first moment (fadeRuns): its sound starts at that moment, where the
+  // run's sound reaches it. Started with the picture, each latent join put the sound a frame later, piling up along a chain
+  const early = earlyOf(p, fps);
+  // the sound is not held with the picture when the part after carries it on (see "freeze"), nor over a transition (it
+  // runs straight on, its clock the clips'); it fades out and in over the halves when the transition asks
+  const heardMs = (next?.blendMode === "freeze" || out > 0 ? p.endMs - p.startMs : p.endMs - p.startMs + padMs) - early;
+  return { next, padMs, out, into, early, heardMs };
+}
+
+/**
+ * Parts that fade into each other, made as one chain of fades: a run (runsOf), or a stretch of a long one (cutLongRuns),
+ * which starts or stops (`from`, `to`) at a frame and a sound sample of its run's clock (runClock).
+ */
+export interface Stretch {
+  run: number[];
+  parts: number[];
+  from?: { frame: number; sample: number };
+  to?: { frame: number; sample: number };
+}
+
+/** The rate every part's sound is brought to: a run's clock counts its samples. */
+const RATE = 48_000;
+
+/**
+ * A run laid on its own clock, as fadeRuns joins it, a part at a time (each list by its place in the run): where its fade
+ * in starts, as xfade is told it (`offsets`, in seconds) and on the frame xfade puts it on (the nearest, halves up, as ffmpeg
+ * rescales a time), and the sample its sound starts at; how many frames and samples the fade takes (`fadeFrames` a little
+ * more); and how long the whole run lasts (`ms`).
+ */
+function runClock(parts: ExportPart[], run: number[], fps: number) {
   const lenOf = (p: ExportPart) => p.endMs - p.startMs;
-  const outs: string[] = [];
-  let total = 0;
-  for (const run of runs) {
-    let v = `v${run[0]}`;
-    let a = `a${run[0]}`;
-    let len = lenOf(parts[run[0]!]!);
-    for (const j of run.slice(1)) {
-      const t = parts[j]!.transitionIn;
-      if (t) {
-        // centred on the cut: the run so far was held half of it past its end, this part half of it before its start
-        // (partChains), so the two meet over the whole transition and the clock runs on as without it
-        const kind = t.xfade === "custom" ? `custom:expr='${FLASH_EXPR}'` : t.xfade;
-        chains.push(`[${v}][v${j}]xfade=transition=${kind}:duration=${sec(t.ms)}:offset=${sec(len - t.ms / 2)}[vx${j}]`);
-        chains.push(`[${a}][a${j}]concat=n=2:v=0:a=1[ax${j}]`);
-        len += lenOf(parts[j]!);
-        v = `vx${j}`;
-        a = `ax${j}`;
-        continue;
-      }
-      const x = Math.min(parts[j]!.blendMs!, lenOf(parts[j]!) - FRAME_SLACK_MS);
-      if (parts[j]!.blendMode === "overlap") {
+  const samples = (ms: number) => Math.round(Number(sec(ms)) * RATE);
+  const frameOf = (said: string) => Math.floor((2 * Math.round(Number(said) * 1000) * fps + 1000) / 2000);
+  const clock = { offsets: [""], frame: [0], sample: [0], fadeFrames: [0], fadeSamples: [0], ms: 0 };
+  let len = lenOf(parts[run[0]!]!);
+  let heard = samples(heldOf(parts, run[0]!, fps).heardMs);
+  for (const j of run.slice(1)) {
+    const p = parts[j]!;
+    const t = p.transitionIn;
+    let offset: number;
+    let fadeMs: number;
+    // the sound's crossfade, in samples: none where it runs straight on
+    let crossed = 0;
+    if (t) {
+      // centred on the cut: the run so far was held half of it past its end, this part half of it before its start
+      // (partChains), so the two meet over the whole transition and the clock runs on as without it
+      offset = len - t.ms / 2;
+      fadeMs = t.ms;
+      len += lenOf(p);
+    } else {
+      const x = Math.min(p.blendMs!, lenOf(p) - FRAME_SLACK_MS);
+      fadeMs = x;
+      if (p.blendMode === "overlap") {
         // the part starts x early, over the part before's last x: the fade is between the same moments, both moving
-        chains.push(`[${v}][v${j}]xfade=transition=fade:duration=${sec(x)}:offset=${sec(len - x)}[vx${j}]`);
-        chains.push(`[${a}][a${j}]acrossfade=d=${sec(x)}:c1=tri:c2=tri[ax${j}]`);
-        len = len - x + lenOf(parts[j]!);
+        offset = len - x;
+        len = len - x + lenOf(p);
+        crossed = samples(x);
       } else {
         // the part before was held for x: the fade runs over that hold, from where the part before really ends. A freeze
         // starts on that last frame itself (begun a frame later, the still showed for 3 frames; the part after starts a
         // frame early to make up for it, see timelineExport)
-        const early = earlyOf(parts[j]!, fps);
-        chains.push(`[${v}][v${j}]xfade=transition=fade:duration=${sec(x)}:offset=${sec(len - early)}[vx${j}]`);
+        const early = earlyOf(p, fps);
+        offset = len - early;
+        len = len - early + lenOf(p);
         // the sound crossfades over the hold, or (freeze) runs straight on: it was not held
+        if (p.blendMode !== "freeze") crossed = samples(x);
+      }
+    }
+    clock.offsets.push(sec(offset));
+    clock.frame.push(frameOf(sec(offset)));
+    clock.sample.push(heard - crossed);
+    clock.fadeFrames.push(Math.ceil((fadeMs * fps) / 1000) + 1);
+    clock.fadeSamples.push(crossed);
+    heard = heard - crossed + samples(heldOf(parts, j, fps).heardMs);
+  }
+  clock.ms = len;
+  return clock;
+}
+
+/**
+ * The parts that fade into the one before, crossfaded in runs (runsOf; added to `chains`), or in stretches of runs
+ * (cutLongRuns); each one's picture and sound out (`outs`, to be put one after the other), and how long all of it lasts.
+ */
+function fadeRuns(parts: ExportPart[], stretches: Stretch[], fps: number, chains: string[]): { outs: string[]; total: number } {
+  const lenOf = (p: ExportPart) => p.endMs - p.startMs;
+  const outs: string[] = [];
+  let total = 0;
+  for (const s of stretches) {
+    const clock = runClock(parts, s.run, fps);
+    const head = s.parts[0]!;
+    // a stretch from inside its run is laid from its first part's frame and sample: each fade after it on the same frame of
+    // the run as when the run is made whole, said on the frame grid
+    const base = s.from ? s.run.indexOf(head) : 0;
+    const offset = (k: number) => (s.from ? sec(((clock.frame[k]! - clock.frame[base]!) * 1000) / fps) : clock.offsets[k]!);
+    let v = `v${head}`;
+    let a = `a${head}`;
+    for (const j of s.parts.slice(1)) {
+      const k = s.run.indexOf(j);
+      const t = parts[j]!.transitionIn;
+      if (t) {
+        const kind = t.xfade === "custom" ? `custom:expr='${FLASH_EXPR}'` : t.xfade;
+        chains.push(`[${v}][v${j}]xfade=transition=${kind}:duration=${sec(t.ms)}:offset=${offset(k)}[vx${j}]`);
+        chains.push(`[${a}][a${j}]concat=n=2:v=0:a=1[ax${j}]`);
+      } else {
+        const x = Math.min(parts[j]!.blendMs!, lenOf(parts[j]!) - FRAME_SLACK_MS);
+        chains.push(`[${v}][v${j}]xfade=transition=fade:duration=${sec(x)}:offset=${offset(k)}[vx${j}]`);
         chains.push(parts[j]!.blendMode === "freeze" ? `[${a}][a${j}]concat=n=2:v=0:a=1[ax${j}]` : `[${a}][a${j}]acrossfade=d=${sec(x)}:c1=tri:c2=tri[ax${j}]`);
-        len = len - early + lenOf(parts[j]!);
       }
       v = `vx${j}`;
       a = `ax${j}`;
     }
+    if (s.from || s.to) {
+      // cut to its frames and samples of the run, by count: the stretch before ends where this one starts
+      const at = { frame: clock.frame[base]!, sample: clock.sample[base]! };
+      const bounds = (kind: "frame" | "sample") => [s.from ? `start_${kind}=${s.from[kind] - at[kind]}` : "", s.to ? `end_${kind}=${s.to[kind] - at[kind]}` : ""].filter(Boolean).join(":");
+      chains.push(`[${v}]trim=${bounds("frame")},setpts=PTS-STARTPTS[vc${head}]`, `[${a}]atrim=${bounds("sample")},asetpts=PTS-STARTPTS[ac${head}]`);
+      v = `vc${head}`;
+      a = `ac${head}`;
+      total += (s.to ? (s.to.frame * 1000) / fps : clock.ms) - (s.from ? (s.from.frame * 1000) / fps : 0);
+    } else total += clock.ms;
     outs.push(`[${v}][${a}]`);
-    total += len;
   }
   return { outs, total };
+}
+
+/**
+ * Pieces (piecesOf) with each run longer than a piece cut into stretches of about a piece each: a dissolve or a transition
+ * on every cut made one run of the whole timeline, and ffmpeg held every one of its inputs open at once (2.2 GB for 60
+ * 720p clips, 3.3 GB for 100). A run is cut inside a part, between the fade into it and the fade out of it, on a frame
+ * whose moment is a whole sound sample too; each side makes that part, the one up to the cut and the other from it, and
+ * its fades on the same frames as the whole run, so that the frames and the sound are those of the run made whole. A
+ * run with no such part (fades that touch), or at a speed whose frames fall between samples, is made whole as before.
+ */
+export function cutLongRuns(parts: ExportPart[], pieces: number[][][], fps: number): Stretch[][] {
+  const out: Stretch[][] = [];
+  for (const piece of pieces) {
+    let current: Stretch[] = [];
+    for (const run of piece) {
+      for (const s of run.length > EXPORT_PIECE.parts && Number.isInteger(fps) && RATE % fps === 0 ? cutRun(parts, run, fps) : [{ run, parts: run }]) {
+        current.push(s);
+        // a stretch cut at its end ends its piece: the next starts the next one
+        if (s.to) {
+          out.push(current);
+          current = [];
+        }
+      }
+    }
+    if (current.length) out.push(current);
+  }
+  return out;
+}
+
+/** A long run as stretches of about EXPORT_PIECE.parts parts, each cut inside the part it shares with the next (cutLongRuns). */
+function cutRun(parts: ExportPart[], run: number[], fps: number): Stretch[] {
+  const clock = runClock(parts, run, fps);
+  // where part k of the run can be cut: the middle of its own frames, between its fade in and the next part's, and on a
+  // sample that neither sound crossfade reaches
+  const cutAt = (k: number) => {
+    if (k <= 0 || k >= run.length - 1) return null;
+    const first = clock.frame[k]! + clock.fadeFrames[k]!;
+    const frame = Math.floor((first + clock.frame[k + 1]!) / 2);
+    const sample = (frame * RATE) / fps;
+    const ok = frame > first && frame < clock.frame[k + 1]! && sample >= clock.sample[k]! + clock.fadeSamples[k]! && sample <= clock.sample[k + 1]!;
+    return ok ? { frame, sample } : null;
+  };
+  const stretches: Stretch[] = [];
+  let start = 0;
+  let from: Stretch["from"];
+  while (run.length - start > EXPORT_PIECE.parts + 1) {
+    // a piece's worth on, or the nearest part before (else after) that can be cut
+    const aim = start + EXPORT_PIECE.parts - 1;
+    const tries = [...Array.from({ length: aim - start }, (_, n) => aim - n), ...Array.from({ length: Math.max(0, run.length - 2 - aim) }, (_, n) => aim + 1 + n)];
+    const k = tries.find((n) => cutAt(n));
+    if (k === undefined) break;
+    const to = cutAt(k)!;
+    stretches.push({ run, parts: run.slice(start, k + 1), ...(from ? { from } : {}), to });
+    start = k;
+    from = to;
+  }
+  stretches.push({ run, parts: run.slice(start), ...(from ? { from } : {}) });
+  return stretches;
 }
 
 /** The music as heard under the video, `[under]`: its part of the song, from where it starts, multiplied by its gain curve (ducked where people speak). */

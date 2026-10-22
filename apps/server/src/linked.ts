@@ -540,14 +540,14 @@ export class Linked {
       const to = await this.free(dir, basename(from));
       await rename(from, to).catch(async () => {
         // another disk: copied, then removed where it was
-        await writeFile(to, await readFile(from));
+        await copyFile(from, to);
         await rm(from, { force: true });
       });
       await this.db.updateTable("assets").set({ file_key: LINKED + to, name: basename(to), folder_id: folder.id }).where("id", "=", a.id).execute();
       return;
     }
     const to = await this.free(dir, await this.nameFor(a));
-    await writeFile(to, await this.storage.get(a.file_key));
+    await writeOut(this.storage, a.file_key, to);
     await this.db.updateTable("assets").set({ file_key: LINKED + to, name: basename(to), folder_id: folder.id, kept_at: a.kept_at ?? now() }).where("id", "=", a.id).execute();
     await this.storage.delete(a.file_key).catch(() => {});
   }
@@ -599,10 +599,20 @@ export class Linked {
       return;
     }
     const to = await this.free(dir, basename(a.linked_path!));
-    await writeFile(to, await this.storage.get(a.file_key));
+    await writeOut(this.storage, a.file_key, to);
     await this.db.updateTable("assets").set({ file_key: LINKED + to, name: basename(to), folder_id: folder.id, linked_path: null, deleted_at: null }).where("id", "=", a.id).execute();
     await this.storage.delete(a.file_key).catch(() => {});
   }
+}
+
+/**
+ * A stored file written out to `to` on the disk: copied there by the file system when the storage has it on this disk, else
+ * written from its bytes. Read whole into memory first, a 515 MB video moved into a linked folder held 521 MB more.
+ */
+async function writeOut(storage: Storage, key: string, to: string): Promise<void> {
+  const path = storage.localPath?.(key);
+  if (path) await copyFile(path, to);
+  else await writeFile(to, await storage.get(key));
 }
 
 /**
@@ -629,7 +639,7 @@ export async function linkedToBin(db: Db, storage: Storage, a: Pick<Asset, "id" 
     await db.updateTable("assets").set({ file_key: key, linked_path: from, deleted_at: now() }).where("id", "=", a.id).execute();
   } catch (err) {
     // the row still names the file in its folder: it goes back there
-    await writeFile(from, await storage.get(key)).catch(() => {});
+    await writeOut(storage, key, from).catch(() => {});
     await storage.delete(key).catch(() => {});
     throw err;
   }

@@ -54,7 +54,20 @@ describe.skipIf(!ffmpegThere)("a take measured once", { timeout: FFMPEG_TIMEOUT 
       expect(all!.look).toEqual(await lookOf(f, "mp4"));
       expect(all!.motion).toEqual(await measureOf(f, "mp4"));
       expect(all!.means).toEqual(await meansAlong(f, "mp4"));
-      expect(Buffer.from(all!.strip).equals(Buffer.from(await filmStrip(f, "mp4", ms)))).toBe(true);
+      expect(Buffer.from(all!.strip!).equals(Buffer.from(await filmStrip(f, "mp4", ms)))).toBe(true);
+    }
+  });
+
+  it("without the look (a video that is no render), gives the motion, loudness, frame means and film strip each pass gave", async () => {
+    for (const [f, hasSound, ms] of [[file, true, 3000], [silent, false, 2000]] as const) {
+      const light = await takeMeasures(f, "mp4", { durationMs: ms, hasSound, look: false });
+      expect(light!.look).toBeNull();
+      expect(light!.motion).toEqual(await measureOf(f, "mp4"));
+      expect(light!.means).toEqual(await meansAlong(f, "mp4"));
+      expect(Buffer.from(light!.strip!).equals(Buffer.from(await filmStrip(f, "mp4", ms)))).toBe(true);
+      // and without the strip (past a minute, made by its keyframes): the rest the same
+      const bare = await takeMeasures(f, "mp4", { durationMs: ms, hasSound, look: false, strip: false });
+      expect(bare).toEqual({ ...light, strip: null });
     }
   });
 
@@ -63,7 +76,7 @@ describe.skipIf(!ffmpegThere)("a take measured once", { timeout: FFMPEG_TIMEOUT 
     const longer = join(dir, "longer.mp4");
     writeFileSync(longer, await ffmpegMade(["-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=3", "-f", "lavfi", "-i", "sine=frequency=330:duration=3.015", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac"]));
     for (const [f, ms] of [[file, 3000], [silent, 2000], [longer, 3015]] as const) {
-      for (const strip of [await filmStrip(f, "mp4", ms), (await takeMeasures(f, "mp4", { durationMs: ms, hasSound: f !== silent }))!.strip]) {
+      for (const strip of [await filmStrip(f, "mp4", ms), (await takeMeasures(f, "mp4", { durationMs: ms, hasSound: f !== silent }))!.strip!]) {
         const { data, info } = await sharp(Buffer.from(strip)).greyscale().raw().toBuffer({ resolveWithObject: true });
         const w = info.width / 12;
         let sum = 0;

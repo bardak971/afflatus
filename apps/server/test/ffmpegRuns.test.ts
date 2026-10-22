@@ -119,3 +119,72 @@ describe("the colour along a video, for the player's colour match", () => {
     expect(reads).toBe(2);
   });
 });
+
+describe("a range of a video kept", () => {
+  /** 8 s that change every frame, a keyframe every second, a tone: a bound between keyframes has frames to get wrong. */
+  const source = () => {
+    const dir = mkdtempSync(join(tmpdir(), "afflatus-runs-"));
+    const file = join(dir, "v.mp4");
+    const res = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=64x48:rate=24:duration=8", "-f", "lavfi", "-i", "sine=frequency=330:duration=8",
+      "-vf", "noise=alls=30:allf=t", "-c:v", "libx264", "-g", "24", "-keyint_min", "24", "-sc_threshold", "0", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", file]);
+    if (res.status !== 0) throw new Error(`ffmpeg: ${String(res.stderr)}`);
+    return { dir, file };
+  };
+  /** What a file decodes to: every frame's checksum and the sound's. */
+  const decoded = (file: string) => ({
+    frames: spawnSync("ffmpeg", ["-loglevel", "error", "-i", file, "-map", "0:v", "-f", "framemd5", "-"], { encoding: "utf8" }).stdout.split(/\r?\n/).filter((l) => l && !l.startsWith("#")),
+    sound: spawnSync("ffmpeg", ["-loglevel", "error", "-i", file, "-map", "0:a", "-f", "md5", "-"], { encoding: "utf8" }).stdout.trim(),
+  });
+
+  it("is the same frames and sound read from just before it as read from the file's start", async () => {
+    const { dir, file } = source();
+    try {
+      // lossless, so that what is compared is what was cut, not what an encoder made of it
+      for (const keep of [[[3530, 5262.5]], [[4000, 6500]], [[2041.6667, 7900]], [[0, 2500], [3999, 8000]]] as Array<Array<[number, number]>>) {
+        const ours = await rangeKeep(file, "mp4", { durationMs: 8000, hasSound: true }, keep, { crf: 0 }, async (out) => decoded(out));
+        // as it was cut before: the whole file read from its start, each part trimmed out of it
+        const out = join(dir, "before.mp4");
+        const s = (ms: number) => (ms / 1000).toFixed(3);
+        const chains = keep.map(([a, b], i) => `[0:v]trim=start=${s(a)}:end=${s(b)},setpts=PTS-STARTPTS,scale=trunc(iw/2)*2:trunc(ih/2)*2[v${i}];[0:a]atrim=start=${s(a)}:end=${s(b)},asetpts=PTS-STARTPTS[a${i}]`);
+        const res = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-i", file, "-filter_complex", [...chains, `${keep.map((_, i) => `[v${i}][a${i}]`).join("")}concat=n=${keep.length}:v=1:a=1[v][a]`].join(";"),
+          "-map", "[v]", "-map", "[a]", "-c:a", "aac", "-b:a", "192k", "-c:v", "libx264", "-preset", "veryfast", "-crf", "0", "-pix_fmt", "yuv420p", "-movflags", "+faststart", out]);
+        expect(res.status).toBe(0);
+        const before = decoded(out);
+        expect(ours.frames.length, JSON.stringify(keep)).toBe(before.frames.length);
+        expect(ours.frames, JSON.stringify(keep)).toEqual(before.frames);
+        expect(ours.sound, JSON.stringify(keep)).toBe(before.sound);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("is read from a second before it and a second past it, and its keyframes looked for only there", async () => {
+    const { dir, file } = source();
+    try {
+      await rangeKeep(file, "mp4", { durationMs: 8000, hasSound: true }, [[5500, 6500]]);
+      // the stream copy is asked about its two bounds only, not the whole file's keyframes
+      const probe = runs.timeouts.find((r) => r.args.includes("-skip_frame"));
+      expect(probe?.args[probe.args.indexOf("-read_intervals") + 1]).toBe("5.450%5.550,6.450%6.550");
+      // the re-encode: from 4 s for 4 s (to 8 s), the part trimmed at 1.5 s to 2.5 s of that
+      const encode = runs.timeouts.find((r) => r.args.includes("-filter_complex"))!;
+      expect(encode.args.slice(0, encode.args.indexOf("-i")).join(" ")).toContain("-ss 4 -t 4");
+      expect(encode.args[encode.args.indexOf("-filter_complex") + 1]).toContain("[0:v]trim=start=1.500:end=2.500");
+      runs.timeouts.length = 0;
+      // a removal: the part before read from the start up to a second past it, the part after from a second before it
+      await rangeKeep(file, "mp4", { durationMs: 8000, hasSound: true }, [[0, 2500], [3999, 8000]]);
+      const removal = runs.timeouts.find((r) => r.args.includes("-filter_complex"))!.args;
+      expect(removal.filter((a) => a === "-i")).toHaveLength(3);
+      // each opening of the file, by what is said before it: the sound's from the start, its picture's packets passed over
+      const opened = removal.join(" ").split(/ -i \S+/).slice(0, -1).map((s) => s.replace(/^.*-loglevel error ?/, "").replace(/ ?-protocol_whitelist \S+/, "").trim());
+      expect(opened).toEqual(["-t 4", "-ss 2 -t 7", "-discard:v all -t 9"]);
+      runs.timeouts.length = 0;
+      // on keyframes at both ends: copied as it is, as before
+      await rangeKeep(file, "mp4", { durationMs: 8000, hasSound: true }, [[4000, 6000]]);
+      expect(runs.timeouts.some((r) => r.args.includes("copy"))).toBe(true);
+      expect(runs.timeouts.some((r) => r.args.includes("-filter_complex"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

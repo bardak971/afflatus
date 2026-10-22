@@ -1,4 +1,5 @@
 import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { toEditor } from "@afflatus/workflows";
@@ -37,22 +38,24 @@ function assetLookup(s: Services) {
   /**
    * An item made here from another one (a mirrored picture, a video's sound, the video without it): its file stored,
    * kept, in the same folder as its source, the source remembered, and the open pages told. What it is (kind, name,
-   * size, length) is the caller's.
+   * size, length) is the caller's. Its file is its bytes, or a file on the disk here (`path`, what ffmpeg wrote), copied.
    */
   const addBeside = async (
     from: Pick<Tables["assets"], "id" | "folder_id">,
-    file: { bytes: Uint8Array; ext: string; thumb: Uint8Array | null },
+    file: ({ bytes: Uint8Array } | { path: string }) & { ext: string; thumb: Uint8Array | null },
     made: Pick<Parameters<typeof newAssetRow>[0], "kind" | "origin" | "name" | "mime" | "width" | "height" | "duration_ms" | "fps" | "has_sound">,
   ) => {
     const id = newId();
     const key = `assets/${id.slice(0, 2)}/${id}.${file.ext}`;
-    await s.storage.put(key, file.bytes);
+    if ("path" in file) await s.storage.putFile(key, file.path);
+    else await s.storage.put(key, file.bytes);
+    const bytes = "path" in file ? (await stat(file.path)).size : file.bytes.length;
     if (file.thumb) await s.storage.put(thumbKey(id), file.thumb);
     const at = now();
     await s.db
       .insertInto("assets")
       .values(newAssetRow({
-        ...made, id, file_key: key, thumb_key: file.thumb ? thumbKey(id) : null, bytes: file.bytes.length,
+        ...made, id, file_key: key, thumb_key: file.thumb ? thumbKey(id) : null, bytes,
         folder_id: from.folder_id, generation_id: null, source_id: from.id, kept_at: at, created_at: at,
       }))
       .execute();
@@ -295,13 +298,13 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
   app.post<{ Params: { id: string } }>("/api/assets/:id/sound", async (req) => {
     const video = await asset(req.params.id);
     if (video.kind !== "video" || !video.has_sound) throw httpError("This video has no audio to extract.");
-    const bytes = await soundOf(await s.storage.get(video.file_key), extOf(video.mime), video.duration_ms);
     // "Big Air · c2 · t5 · audio": after the name the video goes by (worked out from where it came from when it has none)
     const source = await nameOf(s.db, video);
-    return addBeside(video, { bytes, ext: "m4a", thumb: null }, {
+    // read where it lies and stored from where ffmpeg wrote it: handed the whole video, a 2-minute 1080p one held 967 MB
+    return soundOf(await sourceOf(s.storage, video.file_key), extOf(video.mime), video.duration_ms, (path) => addBeside(video, { path, ext: "m4a", thumb: null }, {
       kind: "audio", origin: "imported", name: source ? soundName(source) : "Audio extracted from a video", mime: "audio/mp4",
       width: null, height: null, duration_ms: video.duration_ms, fps: null, has_sound: 1,
-    });
+    }));
   });
 
   /** A video without its sound: a new video beside it in the same folder, kept, its source untouched. */
@@ -309,13 +312,13 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     const video = await asset(req.params.id);
     if (video.kind !== "video" || !video.has_sound) throw httpError("This video has no sound to remove.");
     const ext = extOf(video.mime);
-    const bytes = await silentOf(await s.storage.get(video.file_key), ext, video.duration_ms);
     // the same frames: the source's thumbnail serves the copy too
     const thumb = video.thumb_key ? await s.storage.get(video.thumb_key).catch(() => null) : null;
     const source = await nameOf(s.db, video);
-    return addBeside(video, { bytes, ext, thumb }, {
+    // as the sound: read where it lies, stored from where ffmpeg wrote it
+    return silentOf(await sourceOf(s.storage, video.file_key), ext, video.duration_ms, (path) => addBeside(video, { path, ext, thumb }, {
       kind: "video", origin: "edited", name: source ? fromName(source, ", no sound") : "Video without its sound", mime: video.mime,
       width: video.width, height: video.height, duration_ms: video.duration_ms, fps: video.fps, has_sound: 0,
-    });
+    }));
   });
 }

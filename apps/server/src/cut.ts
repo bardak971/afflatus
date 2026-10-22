@@ -309,59 +309,95 @@ export async function peekAt(source: Media, ext: string, atMs: number, height = 
   }), { first: true });
 }
 
-/** The moments of a video's keyframes, in milliseconds: where a stream copy can start and end without re-encoding. */
-async function keyframesOf(file: string): Promise<number[]> {
-  const out = await must(tools.ffprobe, ["-v", "error", "-select_streams", "v:0", "-skip_frame", "nokey", "-show_entries", "frame=pts_time", "-of", "csv=p=0", file]).catch(() => "");
+/**
+ * The moments of a video's keyframes near `moments` (milliseconds): where a stream copy can start and end without
+ * re-encoding. Only a short stretch around each moment is read (ffprobe's read intervals, from the keyframe before it):
+ * read whole, a 2-minute 1080p source was read through (515 MB) before every cut of one part, to ask about two moments.
+ */
+async function keyframesNear(file: string, moments: number[]): Promise<number[]> {
+  if (!moments.length) return [];
+  const around = moments.map((ms) => `${Math.max(0, ms / 1000 - 0.05).toFixed(3)}%${(ms / 1000 + 0.05).toFixed(3)}`).join(",");
+  const out = await must(tools.ffprobe, ["-v", "error", "-select_streams", "v:0", "-skip_frame", "nokey", "-read_intervals", around, "-show_entries", "frame=pts_time", "-of", "csv=p=0", file]).catch(() => "");
   return out.split(/\r?\n/).map((l) => Number(l.split(",")[0])).filter((n) => Number.isFinite(n)).map((s) => Math.round(s * 1000));
+}
+
+/** A file a cut made, read whole: for a caller that hands its bytes on (an upload to ComfyUI). */
+const bytesOf = async (file: string) => new Uint8Array(await readFile(file));
+
+/**
+ * How the picture of a part of a video from `fromMs` to `toMs` is read for a re-encode: from a whole second at least a
+ * second before it (an input seek: ffmpeg decodes from the keyframe before that, not from the file's start) and only a
+ * second past its end. `at` gives a moment of the part on the clock of what is read, as `trim` takes it. A range at 100 s
+ * of a 2-minute 1080p source decoded the 100 s before it: 78 CPU-s against 35 from the seek, and a copy of its first
+ * minute decoded the minute after it too. The frames are the same: the seek is to a whole second, which every time base
+ * of a file counts exactly, so that every frame's moment moves by exactly as much as `trim`'s bounds do. Not the sound:
+ * AAC fills some bands with noise from a generator that runs on from the first frame decoded, so its samples come out
+ * a little otherwise from another start (see rangeKeep).
+ */
+export function readFor(fromMs: number, toMs: number): { args: string[]; at: (ms: number) => string } {
+  const from = fromMs >= 2000 ? Math.floor(fromMs / 1000) - 1 : 0;
+  const length = Math.ceil(toMs / 1000) + 1 - from;
+  // the bound said to the millisecond as before, then moved by whole seconds: the same moment, never rounded otherwise
+  const at = (ms: number) => ((Math.round(Number(sec(ms)) * 1000) - from * 1000) / 1000).toFixed(3);
+  return { args: [...(from > 0 ? ["-ss", String(from)] : []), "-t", String(length)], at };
 }
 
 /**
  * The parts of a video that are kept, one after the other, as one MP4: a range copied (one part), a range
  * removed (the part before and the part after), one piece of a split (one part). One part whose bounds
  * fall on keyframes (or the file's ends) is copied without re-encoding: instant and lossless. Anything
- * else is cut to the frame and encoded again at `crf`. The sound follows the picture.
+ * else is cut to the frame and encoded again at `crf`. The sound follows the picture. The file made is handed to `use`
+ * where it lies (stored from there, it is never held whole in memory: a 10 s removal from a 2-minute 1080p source made
+ * 1.7 GB at crf 10); left out, its bytes are answered.
  */
-export async function rangeKeep(
+export async function rangeKeep<T = Uint8Array>(
   source: Media, ext: string, facts: { durationMs: number; hasSound: boolean; soundOnly?: boolean }, keep: Array<[number, number]>,
-  opts: { crf?: number; even?: boolean; signal?: AbortSignal } = {},
-): Promise<Uint8Array> {
+  opts: { crf?: number; even?: boolean; signal?: AbortSignal } = {}, use: (file: string) => Promise<T> = bytesOf as (file: string) => Promise<T>,
+): Promise<T> {
   const parts = keep.map(([a, b]) => [Math.max(0, Math.min(a, b)), Math.min(facts.durationMs, Math.max(a, b))] as [number, number]).filter(([a, b]) => b - a >= 20);
   if (!parts.length) throw new CutError("That range is too short to keep: nothing would be left.");
   const crf = Math.max(0, Math.min(40, Math.round(opts.crf ?? 10)));
-  // every run reads the source from its start: its time limit grows with the source's length, and the job's Stop still ends it
+  // a run may read the source from its start (a sound, an early part): its time limit grows with the source's length, and the job's Stop still ends it
   const run = { timeout: forLength(facts.durationMs), signal: opts.signal };
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
-    const sec = (ms: number) => (ms / 1000).toFixed(3);
     // a sound: its parts cut to the millisecond and joined as a WAV (nothing lost to an encoder), its loudness evened out when asked (EBU R128, -16 LUFS)
     if (facts.soundOnly) {
       const wav = join(dir, "kept.wav");
       const chains = parts.map(([a, b], i) => `[0:a]atrim=start=${sec(a)}:end=${sec(b)},asetpts=PTS-STARTPTS[a${i}]`);
       const joined = `${parts.map((_, i) => `[a${i}]`).join("")}concat=n=${parts.length}:v=0:a=1${opts.even ? ",loudnorm=I=-16:TP=-1.5:LRA=11" : ""}[a]`;
       await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, "-filter_complex", [...chains, joined].join(";"), "-map", "[a]", "-ar", "48000", "-c:a", "pcm_s16le", wav], run);
-      return new Uint8Array(await readFile(wav));
+      return use(wav);
     }
     const out = join(dir, "kept.mp4");
     // one part on keyframes: a stream copy
-    if (parts.length === 1) {
+    if (parts.length === 1 && /^(mp4|mov|m4v)$/i.test(ext)) {
       const [a, b] = parts[0]!;
-      const keys = await keyframesOf(input);
-      const onKey = (ms: number) => keys.some((k) => Math.abs(k - ms) <= 2);
-      if ((a === 0 || onKey(a)) && (b >= facts.durationMs - 2 || onKey(b)) && /^(mp4|mov|m4v)$/i.test(ext)) {
+      const ends = [...(a > 0 ? [a] : []), ...(b < facts.durationMs - 2 ? [b] : [])];
+      const keys = await keyframesNear(input, ends);
+      if (ends.every((ms) => keys.some((k) => Math.abs(k - ms) <= 2))) {
         await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-ss", sec(a), "-to", sec(b), "-i", input, "-c", "copy", "-movflags", "+faststart", out], run);
-        return new Uint8Array(await readFile(out));
+        return use(out);
       }
     }
-    // cut to the frame and joined, encoded again
-    const chains = parts.map(([a, b], i) => `[0:v]trim=start=${sec(a)}:end=${sec(b)},setpts=PTS-STARTPTS,scale=trunc(iw/2)*2:trunc(ih/2)*2[v${i}]` + (facts.hasSound ? `;[0:a]atrim=start=${sec(a)}:end=${sec(b)},asetpts=PTS-STARTPTS[a${i}]` : ""));
+    // cut to the frame and joined, encoded again: each part's picture read from its own opening of the file, from just
+    // before it; the sound from one more opening, from the start as before (its decoding is cheap, and the picture's packets
+    // are passed over unread), up to a second past the last part
+    const reads = parts.map(([a, b]) => readFor(a, b));
+    const sound = parts.length;
+    const soundArgs = facts.hasSound ? ["-discard:v", "all", "-t", String(Math.ceil(Math.max(...parts.map(([, b]) => b)) / 1000) + 1), "-i", input] : [];
+    const chains = parts.map(([a, b], i) => {
+      const { at } = reads[i]!;
+      return `[${i}:v]trim=start=${at(a)}:end=${at(b)},setpts=PTS-STARTPTS,scale=trunc(iw/2)*2:trunc(ih/2)*2[v${i}]` + (facts.hasSound ? `;[${sound}:a]atrim=start=${sec(a)}:end=${sec(b)},asetpts=PTS-STARTPTS[a${i}]` : "");
+    });
     const concat = parts.map((_, i) => `[v${i}]${facts.hasSound ? `[a${i}]` : ""}`).join("") + `concat=n=${parts.length}:v=1:a=${facts.hasSound ? 1 : 0}[v]${facts.hasSound ? "[a]" : ""}`;
     await must(tools.ffmpeg, [
-      "-y", "-loglevel", "error", "-i", input,
+      "-y", "-loglevel", "error", ...reads.flatMap((r) => [...r.args, "-i", input]), ...soundArgs,
       "-filter_complex", [...chains, concat].join(";"),
       "-map", "[v]", ...(facts.hasSound ? ["-map", "[a]", "-c:a", "aac", "-b:a", "192k"] : ["-an"]),
       "-c:v", "libx264", "-preset", "veryfast", "-crf", String(crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", out,
     ], run);
-    return new Uint8Array(await readFile(out));
+    return use(out);
   });
 }
 
@@ -373,9 +409,13 @@ const slowTempo = (factor: number) => Array.from({ length: Math.round(Math.log2(
 /**
  * A range of a video slowed down by `factor`, the frames in between worked out by ffmpeg's motion
  * interpolation (the fallback when there is no RIFE on the GPU): the same frame rate, `factor` times as
- * many frames, the sound slowed with its pitch kept. Slow: minutes for a few seconds.
+ * many frames, the sound slowed with its pitch kept. Slow: minutes for a few seconds. The file is handed to `use` as
+ * rangeKeep's is.
  */
-export async function slowMotion(source: Media, ext: string, facts: { durationMs: number; fps: number | null; hasSound: boolean }, startMs: number, endMs: number, factor: number, opts: { crf?: number; signal?: AbortSignal } = {}): Promise<Uint8Array> {
+export async function slowMotion<T = Uint8Array>(
+  source: Media, ext: string, facts: { durationMs: number; fps: number | null; hasSound: boolean }, startMs: number, endMs: number, factor: number,
+  opts: { crf?: number; signal?: AbortSignal } = {}, use: (file: string) => Promise<T> = bytesOf as (file: string) => Promise<T>,
+): Promise<T> {
   const fps = Math.max(1, Math.round(facts.fps ?? 24));
   const a = Math.max(0, Math.min(startMs, endMs));
   const b = Math.min(facts.durationMs, Math.max(startMs, endMs));
@@ -390,7 +430,7 @@ export async function slowMotion(source: Media, ext: string, facts: { durationMs
       "-map", "[v]", ...(facts.hasSound ? ["-map", "[a]", "-c:a", "aac", "-b:a", "192k"] : ["-an"]),
       "-c:v", "libx264", "-preset", "veryfast", "-crf", String(opts.crf ?? 16), "-pix_fmt", "yuv420p", "-movflags", "+faststart", out,
     ], { timeout: 3 * 60 * 60_000, signal: opts.signal });
-    return new Uint8Array(await readFile(out));
+    return use(out);
   });
 }
 
@@ -411,13 +451,16 @@ export async function slowSoundOnto(slowed: Uint8Array, range: Media, factor: nu
   });
 }
 
-/** The sound of a video as a sound file of its own (AAC in an .m4a). `durationMs`: the video's length, for its time limit. */
-export async function soundOf(source: Media, ext: string, durationMs?: number | null): Promise<Uint8Array> {
+/**
+ * The sound of a video as a sound file of its own (AAC in an .m4a). `durationMs`: the video's length, for its time limit.
+ * The file is handed to `use` as rangeKeep's is.
+ */
+export async function soundOf<T = Uint8Array>(source: Media, ext: string, durationMs?: number | null, use: (file: string) => Promise<T> = bytesOf as (file: string) => Promise<T>): Promise<T> {
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "sound.m4a");
     await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, "-vn", "-c:a", "aac", "-b:a", "192k", out], { timeout: forLength(durationMs) });
-    return new Uint8Array(await readFile(out));
+    return use(out);
   });
 }
 
@@ -435,14 +478,17 @@ async function webmCopyFormat(input: string, streams?: "v"): Promise<string[]> {
   return codecs.every((c) => WEBM_CODECS.has(c)) ? ["-f", "webm"] : ["-f", "matroska"];
 }
 
-/** The same video without its sound: the picture copied as it is, nothing encoded again. `durationMs`: its length, for the time limit. */
-export async function silentOf(source: Media, ext: string, durationMs?: number | null): Promise<Uint8Array> {
+/**
+ * The same video without its sound: the picture copied as it is, nothing encoded again. `durationMs`: its length, for the
+ * time limit. The file is handed to `use` as rangeKeep's is.
+ */
+export async function silentOf<T = Uint8Array>(source: Media, ext: string, durationMs?: number | null, use: (file: string) => Promise<T> = bytesOf as (file: string) => Promise<T>): Promise<T> {
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, `silent.${ext}`);
     const format = ext === "webm" ? await webmCopyFormat(input, "v") : ["-movflags", "+faststart"];
     await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, "-map", "0:v", "-c", "copy", "-an", ...format, out], { timeout: forLength(durationMs) });
-    return new Uint8Array(await readFile(out));
+    return use(out);
   });
 }
 

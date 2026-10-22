@@ -1,6 +1,7 @@
 import { FRAME_SLACK_MS, joinFrames, latentFrameAtOrBefore, LATENT_FPS, secondsInput, type Recipe } from "@afflatus/core";
 import { fromName, nameOf } from "./autoName";
-import { CutError, rangeKeep, slowMotion } from "./cut";
+import { stat } from "node:fs/promises";
+import { CutError, rangeKeep, slowMotion, type Media } from "./cut";
 import { newId, now, OWNER, type Db } from "./db";
 import { foldersOf, type LibraryChange } from "./events";
 import { httpError } from "./errors";
@@ -9,7 +10,7 @@ import { makeThumb, thumbKey } from "./thumbs";
 import { isLinked, linkedToBin } from "./linked";
 import { sourceOf } from "./storage";
 import { inUse } from "./sweep";
-import { readVideo, videoFacts } from "./video";
+import { readVideo, readVideoFile, videoFacts } from "./video";
 import { clockOf, laidOut, landingOnGrid, lengthOf, lengthOnGrid, plays, setTrims, STILL_MS, visible, type AssetRow, type ClipRow, type Laid, type Placed, type TimelineCore } from "./timelineModel";
 import { precomputeOf } from "./precompute";
 import { windowRunUp } from "./timelineSource";
@@ -71,12 +72,13 @@ export class TimelineRange {
       ];
     // named after the video, worked out from where it came from when it has no name of its own (a take: its timeline, clip and take)
     const base = await nameOf(db, video);
-    // ffmpeg first, the files put away as they come; then every row at once, with the source binned when it was taken apart
+    // ffmpeg first, the files put away as they come (copied from where ffmpeg wrote them, never held whole); then every
+    // row at once, with the source binned when it was taken apart
     const rows: AssetRow[] = [];
     for (const piece of pieces) {
-      const out = await rangeKeep(source, ext, facts, piece.keep, opts);
       const lasts = piece.keep.reduce((sum, [from, to]) => sum + Math.max(0, Math.min(total, to) - from), 0);
-      rows.push(facts.soundOnly ? await this.cutSoundRow(video, out, fromName(base, ` · ${piece.said}`), piece.range, lasts, opts.folder) : await this.cutRow(video, out, fromName(base, ` · ${piece.said}`), piece.range, opts.folder));
+      const name = fromName(base, ` · ${piece.said}`);
+      rows.push(await rangeKeep(source, ext, facts, piece.keep, opts, (out) => (facts.soundOnly ? this.cutSoundRow(video, out, name, piece.range, lasts, opts.folder) : this.cutRow(video, out, name, piece.range, opts.folder))));
     }
     // the source goes to the bin when it was taken apart: a day to change one's mind. Not when something still uses it (a
     // timeline plays it, a draft or a person names it: the route refuses that, and this is for what came to use it since);
@@ -110,18 +112,21 @@ export class TimelineRange {
   /**
    * A video cut out of another, ready to be filed beside it (or in `folder`, the timeline's it is cut in): its file and its small
    * picture are put away here, the row (its source and the range taken, kept, not in the bin) is the caller's to insert.
+   * `out`: the file where ffmpeg wrote it (read and stored from there), or its bytes.
    */
-  private async cutRow(original: AssetRow, out: Uint8Array, name: string, range: string, folder?: string | null): Promise<AssetRow> {
+  private async cutRow(original: AssetRow, out: Media, name: string, range: string, folder?: string | null): Promise<AssetRow> {
     const { storage } = this.core;
-    const seen = await readVideo(out, "mp4");
+    const seen = typeof out === "string" ? await readVideoFile(out) : await readVideo(out, "mp4");
     const id = newId();
     const key = `assets/${id.slice(0, 2)}/${id}.mp4`;
-    await storage.put(key, out);
+    if (typeof out === "string") await storage.putFile(key, out);
+    else await storage.put(key, out);
+    const bytes = typeof out === "string" ? (await stat(out)).size : out.length;
     const thumb = seen.frame ? await makeThumb(seen.frame) : null;
     if (thumb) await storage.put(thumbKey(id), thumb);
     const at = now();
     return {
-      id, owner_id: OWNER, kind: "video", origin: "cut", name, file_key: key, thumb_key: thumb ? thumbKey(id) : null, mime: "video/mp4", bytes: out.length,
+      id, owner_id: OWNER, kind: "video", origin: "cut", name, file_key: key, thumb_key: thumb ? thumbKey(id) : null, mime: "video/mp4", bytes,
       width: seen.facts?.width ?? original.width, height: seen.facts?.height ?? original.height,
       duration_ms: seen.facts?.durationMs ?? null, fps: seen.facts?.fps ?? original.fps, has_sound: seen.facts?.hasSound ? 1 : 0,
       folder_id: folder === undefined ? original.folder_id : folder, generation_id: null, source_id: original.id, source_range: range, raw_key: null, latent_key: null, latent_frames: null, fine_latent_key: null,
@@ -129,14 +134,14 @@ export class TimelineRange {
     };
   }
 
-  /** A sound cut out of another, as cutRow: a WAV `lasts` milliseconds long, without a small picture. */
-  private async cutSoundRow(original: AssetRow, out: Uint8Array, name: string, range: string, lasts: number, folder?: string | null): Promise<AssetRow> {
+  /** A sound cut out of another, as cutRow: a WAV `lasts` milliseconds long, without a small picture, stored from the file ffmpeg wrote. */
+  private async cutSoundRow(original: AssetRow, out: string, name: string, range: string, lasts: number, folder?: string | null): Promise<AssetRow> {
     const id = newId();
     const key = `assets/${id.slice(0, 2)}/${id}.wav`;
-    await this.core.storage.put(key, out);
+    await this.core.storage.putFile(key, out);
     const at = now();
     return {
-      id, owner_id: OWNER, kind: "audio", origin: "cut", name, file_key: key, thumb_key: null, mime: "audio/wav", bytes: out.length, width: null, height: null,
+      id, owner_id: OWNER, kind: "audio", origin: "cut", name, file_key: key, thumb_key: null, mime: "audio/wav", bytes: (await stat(out)).size, width: null, height: null,
       duration_ms: Math.round(lasts), fps: null, has_sound: 1,
       folder_id: folder === undefined ? original.folder_id : folder, generation_id: null, source_id: original.id, source_range: range, raw_key: null, latent_key: null, latent_frames: null, fine_latent_key: null,
       kept_at: at, countdown_from: null, deleted_at: null, linked_path: null, created_at: at,
@@ -591,8 +596,8 @@ export class TimelineRange {
     return { bytes: await rangeKeep(source, ext, { durationMs: total, hasSound: Boolean(video.has_sound) }, [[a, b]], { crf: 10 }), fps: fps ?? 24 };
   }
 
-  /** A video made from a range of another, filed in the library next to it with its source and range. */
-  async keepCut(original: AssetRow, out: Uint8Array, name: string, startMs: number, endMs: number, folder?: string | null): Promise<AssetRow> {
+  /** A video made from a range of another (its file, or its bytes), filed in the library next to it with its source and range. */
+  async keepCut(original: AssetRow, out: Media, name: string, startMs: number, endMs: number, folder?: string | null): Promise<AssetRow> {
     const { db, events } = this.core;
     const row = await this.cutRow(original, out, name, `${Math.round(startMs)}-${Math.round(endMs)}`, folder);
     await db.insertInto("assets").values(row).execute();
@@ -609,8 +614,8 @@ export class TimelineRange {
   async slowRange(video: AssetRow, startMs: number, endMs: number, factor: 2 | 4, opts: { crf?: number; signal?: AbortSignal; folder?: string | null } = {}): Promise<AssetRow> {
     const { source, ext, total, fps } = await this.opened(video);
     if (!total) throw new CutError("This video could not be read.");
-    const out = await slowMotion(source, ext, { durationMs: total, fps, hasSound: Boolean(video.has_sound) }, startMs, endMs, factor, opts);
-    return this.keepCut(video, out, await this.slowName(video, startMs, endMs, factor), startMs, endMs, opts.folder);
+    const name = await this.slowName(video, startMs, endMs, factor);
+    return slowMotion(source, ext, { durationMs: total, fps, hasSound: Boolean(video.has_sound) }, startMs, endMs, factor, opts, (out) => this.keepCut(video, out, name, startMs, endMs, opts.folder));
   }
 
   /**

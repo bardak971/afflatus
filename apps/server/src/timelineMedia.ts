@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { frameName, nameOf } from "./autoName";
-import { CutError, filmStrip, frameAt, pausesOf, peekAt } from "./cut";
-import { colourNudge, MATCH, type FrameMeans, type Means, measureOf, meansAlong, meansWithin, MOTION_RATE, scenesOf } from "./measure";
+import { CutError, filmStrip, frameAt, KEYFRAME_STRIP_MS, pausesOf, peekAt } from "./cut";
+import { colourNudge, MATCH, type FrameMeans, type Means, measureOf, meansAlong, meansWithin, MOTION_RATE, scenesOf, takeMeasures } from "./measure";
 import { joinJump, lastFrameAt, LEAST_MOTION } from "./joinScore";
 import { newId, now } from "./db";
 import type { LibraryChange } from "./events";
@@ -133,6 +133,7 @@ export class TimelineMedia {
     const windowed = opts.fromMs !== undefined || opts.toMs !== undefined;
     const sized = opts.frames || opts.height;
     const key = sized ? stripKey(video.id, `${opts.frames ?? 0}x${opts.height ?? 0}`) : keptKey.strip(video.id);
+    if (!windowed && !sized) await this.measuring(video.id);
     const have = windowed ? null : await storage.get(key).catch(() => null);
     if (have) return have;
     const source = await this.source(video);
@@ -155,6 +156,7 @@ export class TimelineMedia {
     const asset = row?.id === assetId ? row : await this.core.assetRow(assetId);
     if (!asset || (asset.kind !== "video" && asset.kind !== "audio")) throw notFound("this video");
     const key = keptKey.motion(asset.id);
+    await this.measuring(asset.id);
     const have = await storage.get(key).catch(() => null);
     // a file cut short (a crash while it was written) is measured again, not a video broken for good
     const kept = have ? readKept<{ rate: number; values: number[]; sound?: number[] | null; speech?: number[] | null }>(have) : null;
@@ -206,6 +208,7 @@ export class TimelineMedia {
       const { storage } = this.core;
       const key = keptKey.means(asset.id);
       got = (async () => {
+        await this.measuring(asset.id);
         const have = await storage.get(key).catch(() => null);
         const kept = have ? readKept<FrameMeans>(have) : null;
         if (kept) return kept;
@@ -345,6 +348,38 @@ export class TimelineMedia {
     const keys = Object.keys(kept);
     for (const old of keys.slice(0, Math.max(0, keys.length - 48))) delete kept[old];
     await storage.put(this.joinsKey(asset), new TextEncoder().encode(JSON.stringify(kept))).catch(() => {});
+  }
+
+  /**
+   * What is missing of a video's motion, film strip and colour along it (`missing`, as missing() says), measured in one
+   * decode of it and kept where each is kept, the same figures (takeMeasures without the look). Measured one at a time, a
+   * video that is no render (an import, a cut, an export) was decoded three times: 43 CPU-s for a 1080p 30 s one against
+   * 18. A strip past a minute is made by its keyframes as before, which decodes next to nothing. False when the one run
+   * failed, or the video's length is not known: the caller measures them one at a time then.
+   */
+  measureTogether(asset: AssetRow, missing: Array<"motion" | "strip" | "means">): Promise<boolean> {
+    return this.once(`together:${asset.id}`, () => this.togetherOf(asset, missing));
+  }
+
+  private async togetherOf(asset: AssetRow, missing: Array<"motion" | "strip" | "means">): Promise<boolean> {
+    const { storage } = this.core;
+    const length = asset.duration_ms;
+    if (asset.kind !== "video" || !length) return false;
+    const source = await this.source(asset);
+    const ext = extOf(asset.mime);
+    const strip = missing.includes("strip");
+    const all = await takeMeasures(source, ext, { durationMs: length, hasSound: Boolean(asset.has_sound), look: false, strip: strip && length <= KEYFRAME_STRIP_MS }).catch(() => null);
+    if (!all) return false;
+    const json = (v: unknown) => new TextEncoder().encode(JSON.stringify(v));
+    if (missing.includes("motion")) await storage.put(keptKey.motion(asset.id), json(keptMotion(all.motion)));
+    if (missing.includes("means") && all.means.t.length) await storage.put(keptKey.means(asset.id), json(all.means));
+    if (strip) await storage.put(keptKey.strip(asset.id), all.strip ?? (await filmStrip(source, ext, length)));
+    return true;
+  }
+
+  /** A video measured all at once (measureTogether): waited for, so that what it keeps is read back rather than measured again beside it. */
+  private async measuring(assetId: string): Promise<void> {
+    await this.underWay.get(`together:${assetId}`)?.catch(() => {});
   }
 
   /** What is not kept yet of a video: its motion, its track's film strip, its colour along it (what the background measure makes, precompute.ts). */
