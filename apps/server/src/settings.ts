@@ -343,6 +343,11 @@ export const settingsSchema = z.object({
    * model and day, which stay for good. 0: each one is kept for good.
    */
   renderHistoryDays: z.number().int().min(0).max(3650).default(90),
+  /**
+   * How many days a finished job (done, failed, stopped) stays in the Queue's history once it ended, when nothing still
+   * names it (tidy.ts pruneJobs: a render row, a clip, a timeline, an item of the library); 0: every job is kept for good.
+   */
+  jobHistoryDays: z.number().int().min(0).max(3650).default(30),
   /** How many days a result nobody kept has before it goes to the bin by itself (sweep.ts); 0: it never goes on its own. */
   unkeptDays: z.union([z.literal(0), z.literal(1), z.literal(3), z.literal(7)]).default(1),
   /** How many days what is in the bin is kept before it is erased, file and all (sweep.ts); 0: until the bin is emptied by hand. */
@@ -898,6 +903,7 @@ export function publicSettings(s: Settings, here: (url: string) => boolean = () 
     afflatusUpdateChecks: s.afflatusUpdateChecks,
     downloadModels: s.downloadModels,
     renderHistoryDays: s.renderHistoryDays,
+    jobHistoryDays: s.jobHistoryDays,
     unkeptDays: s.unkeptDays,
     binDays: s.binDays,
     bar: s.bar,

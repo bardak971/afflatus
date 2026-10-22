@@ -129,6 +129,13 @@ export const SETTINGS: SettingEntry[] = [
     set: (c, v) => c.save({ binDays: Number(v) as 0 | 7 | 30 }),
     options: () => [{ value: "7", label: "A week" }, { value: "30", label: "30 days" }, { value: "0", label: "Until emptied" }],
   },
+  {
+    id: "storage.jobDays", label: "Keep finished jobs", page: "storage", words: "queue history jobs retention delete prune old done failed cancelled database days for good", scope: "Afflatus", kind: "choice",
+    about: "How long a finished job stays in the Queue's history before it is deleted. A job still used (its result in the library, on a clip, a render time) is kept. For good: none is deleted.",
+    get: (c) => (c.server ? String(c.server.jobHistoryDays) : undefined),
+    set: (c, v) => c.save({ jobHistoryDays: Number(v) }),
+    options: () => [{ value: "7", label: "A week" }, { value: "30", label: "30 days" }, { value: "90", label: "90 days" }, { value: "365", label: "A year" }, { value: "0", label: "For good" }],
+  },
   server("tagCheck", "Danbooru tag check", "prompts", "Tags written for an anime model are compared with danbooru's list: another name or a typo is pointed out under the prompt.", "typo tags anime"),
   server("civitaiLookups", "Search Hugging Face and Civitai", "models", "Missing model files, trigger words and model pages may be looked for on Hugging Face and Civitai (file hashes are sent).", "civitai lookups trigger words lora names"),
   server("downloadModels", "Download missing models", "models", "Missing model files may be fetched into ComfyUI's model folders: by Afflatus itself when it can write them, else by the Afflatus node pack or ComfyUI-Manager.", "download missing files into comfyui manager fetch node pack"),

@@ -217,8 +217,12 @@ export async function createServices(
       .then(() => sweepIdleDrafts(db, registry))
       // the times of renders older than they are kept one by one become figures per model and day
       .then(async () => fold(db, (await readSettings(db)).renderHistoryDays))
-      // the database's own tidying: old jobs' resumes cut down, the word index merged, gone machines' notes dropped (tidy.ts)
-      .then(() => tidyDb(db))
+      // the database's own tidying: old finished jobs nothing names deleted, old jobs' resumes cut down, the word index
+      // merged, gone machines' notes dropped (tidy.ts); the Queue's history is told when jobs went
+      .then(async () => {
+        const s = await readSettings(db);
+        if (await tidyDb(db, { jobDays: s.jobHistoryDays, renderDays: s.renderHistoryDays })) queue.events.emit("queue");
+      })
       .catch((err) => console.warn("[sweep]", (err as Error).message));
   // what the items made before 0075_kept_bytes keep beside their file, counted in their sizes: read once, in the background
   void fillKeptBytes(db, storage).catch((err) => console.warn("[kept bytes]", (err as Error).message));

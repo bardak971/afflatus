@@ -18,6 +18,7 @@ import { summary } from "../src/rendersRead";
 import { createServices } from "../src/services";
 import { readSettings, writeSettings } from "../src/settings";
 import { LocalStorage } from "../src/storage";
+import { pruneJobs } from "../src/tidy";
 import { FAST, NOWHERE } from "./helpers";
 
 /**
@@ -67,6 +68,16 @@ describe.skipIf(!url)("on Postgres", () => {
       const core = { db, registry } as unknown as QueueCore;
       expect((await history(core, { q: "red fox" })).items.map((i) => i.id)).toEqual(["j"]);
       expect((await history(core, { q: "RED" })).items).toHaveLength(1);
+      // old finished jobs nothing names go, through the same statements as on SQLite: a job another waits on stays
+      const old = new Date(Date.now() - 40 * 86_400_000).toISOString();
+      const row = (id: string, depends: string | null, status: "done" | "queued") => ({
+        id, owner_id: OWNER, recipe_id: "sdxl.text-to-picture", label: "zz-test", inputs: "{}", status, warm: 0, look: null, priority: 20, depends_on: depends, attempts: 1,
+        resume: null, error: null, generation_id: null, clip_id: "gone", clip_fit: 0, timeline_id: null, draft_id: null, folder_id: null, finished_from: null, created_at: old, started_at: old,
+        finished_at: status === "done" ? old : null, updated_at: old,
+      });
+      await db.insertInto("jobs").values([row("old", null, "done"), row("waited", null, "done"), row("next", "waited", "queued")]).execute();
+      expect(await pruneJobs(db, 30, 90)).toBe(1);
+      expect((await db.selectFrom("jobs").select("id").orderBy("id").execute()).map((r) => r.id)).toEqual(["j", "next", "waited"]);
       await db.destroy();
     });
   });

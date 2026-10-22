@@ -53,6 +53,7 @@ const SERVER: Record<string, string> = {
   downloadModels: "server.downloadModels",
   afflatusUpdateChecks: "about.updates",
   renderHistoryDays: "storage.renderTimes",
+  jobHistoryDays: "storage.jobDays",
   unkeptDays: "storage.unkeptDays",
   binDays: "storage.binDays",
   updateChecks: "server.updateChecks",
