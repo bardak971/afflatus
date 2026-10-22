@@ -156,6 +156,11 @@ export interface Tables {
     /** The most RAM it used and the RAM there was (GB, ComfyUI's count: a pod's container limit), 0079; null where not read. */
     ram_peak: number | null;
     ram_total: number | null;
+    /**
+     * When its job took the machine (0088), before its files went up; null on rows from before. With created_at (written once
+     * its result was filed) it is the stretch Costs counts the render for: Afflatus's own work around a prompt is not Idle.
+     */
+    started_at?: string | null;
     created_at: string;
   };
   /** The renders of one model on one day (UTC), folded: what the charts are drawn from once the rows are gone. Recipe "*" is the day as a whole. */

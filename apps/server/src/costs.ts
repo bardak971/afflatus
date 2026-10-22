@@ -428,7 +428,7 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
   const sTo = Math.max(wTo, ...rows.map((r) => (r.ended_at ? Date.parse(r.ended_at) : now)));
   const renders = await db
     .selectFrom("render_stats")
-    .select(["id", "recipe_id", "model", "model_file", "status", "total_ms", "created_at", "machine_id", "gpu", "energy_wh", "whole"])
+    .select(["id", "recipe_id", "model", "model_file", "status", "total_ms", "created_at", "machine_id", "gpu", "energy_wh", "whole", "started_at"])
     .where("created_at", ">=", iso(sFrom))
     .where("created_at", "<=", iso(sTo + DAY))
     .execute();
@@ -673,7 +673,7 @@ function overlapping<T>(t: Timed<T> | undefined, from: number, to: number): Time
   return out;
 }
 
-type RenderOf = { machine_id: string | null; created_at: string; total_ms: number; status: string };
+type RenderOf = { machine_id: string | null; created_at: string; total_ms: number; status: string; started_at?: string | null };
 type Measure = Selectable<Tables["pod_measures"]>;
 
 /**
@@ -692,7 +692,9 @@ function aroundOf<R extends RenderOf>(renders: readonly R[], fetches: ReadonlyAr
     return new Map([...groups].map(([m, list]) => [m, make(list)]));
   };
   return {
-    renders: byMachine(renders, (list) => timed(list, (x) => ({ from: Date.parse(x.created_at) - x.total_ms, to: Date.parse(x.created_at) }))),
+    // from when its job took the machine (0088) to when its result was filed: Afflatus's uploads before the prompt and its
+    // filing after are the render's, not Idle. A row from before has only its length, placed back from its row's moment
+    renders: byMachine(renders, (list) => timed(list, (x) => ({ from: x.started_at ? Date.parse(x.started_at) : Date.parse(x.created_at) - x.total_ms, to: Date.parse(x.created_at) }))),
     fetches: byMachine(fetches, (list) => timed(list, (x) => ({ from: Date.parse(x.started_at), to: Date.parse(x.ended_at) }))),
     measures: measures.map((m) => ({ m, at: Date.parse(m.at) })).filter((x) => Number.isFinite(x.at)).sort((a, b) => a.at - b.at),
     usualBootMs,
@@ -807,7 +809,7 @@ const usualBoot = async (db: Db) => median((await db.selectFrom("pod_measures").
 async function splitNow(db: Db, r: SessionRow, now: number, usualBootMs: number | null): Promise<Split> {
   const iso = (ms: number) => new Date(ms).toISOString();
   const [from, to] = [Date.parse(r.started_at), r.ended_at ? Date.parse(r.ended_at) : now];
-  const renders = await db.selectFrom("render_stats").select(["machine_id", "created_at", "total_ms", "status"]).where("machine_id", "=", r.machine_id).where("created_at", ">=", iso(from)).where("created_at", "<=", iso(to + DAY)).execute();
+  const renders = await db.selectFrom("render_stats").select(["machine_id", "created_at", "total_ms", "status", "started_at"]).where("machine_id", "=", r.machine_id).where("created_at", ">=", iso(from)).where("created_at", "<=", iso(to + DAY)).execute();
   const fetches = await db.selectFrom("pod_fetches").selectAll().where("ended_at", ">=", iso(from)).where("started_at", "<=", iso(to)).execute();
   const measures = await db.selectFrom("pod_measures").selectAll().where("at", ">=", iso(from)).where("at", "<=", iso(to + 60_000)).execute();
   return splitOf(r, sessionOf(r, aroundOf(renders, fetches, measures, usualBootMs, await outsideOf(db, from, to)), now).facts);
@@ -932,7 +934,7 @@ export async function deployOverhead(db: Db, now = Date.now(), o: { volume?: boo
   const sFrom = Math.min(...rows.map((r) => Date.parse(r.started_at)));
   const sTo = Math.max(...rows.map((r) => Date.parse(r.ended_at!)));
   const machines = [...new Set(rows.map((r) => r.machine_id))];
-  const renders = await db.selectFrom("render_stats").select(["machine_id", "created_at", "total_ms", "status"]).where("machine_id", "in", machines).where("created_at", ">=", iso(sFrom)).where("created_at", "<=", iso(sTo + DAY)).execute();
+  const renders = await db.selectFrom("render_stats").select(["machine_id", "created_at", "total_ms", "status", "started_at"]).where("machine_id", "in", machines).where("created_at", ">=", iso(sFrom)).where("created_at", "<=", iso(sTo + DAY)).execute();
   const fetches = await db.selectFrom("pod_fetches").selectAll().where("ended_at", ">=", iso(sFrom)).where("started_at", "<=", iso(sTo)).execute();
   const measures = await db.selectFrom("pod_measures").selectAll().where("at", ">=", iso(sFrom)).where("at", "<=", iso(sTo + 60_000)).execute();
   const usualBootMs = median((await db.selectFrom("pod_measures").select("ms").where("kind", "=", "boot").orderBy("at", "desc").limit(12).execute()).map((r) => Number(r.ms)));

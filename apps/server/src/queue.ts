@@ -1636,7 +1636,7 @@ export class Queue {
     const abort = new AbortController();
     /** The prompt followed from before it was sent (see the hold below): no longer followed once the job ends, however it ends. */
     let early: string | null = null;
-    const running: Running = { id: row.id, machine: lane.id, abort, promptId: resume?.promptId, gpu: true, expectedMs: resume?.timing?.expectedMs ?? null, startedAt: resume?.startedAt ?? Date.now() };
+    const running: Running = { id: row.id, machine: lane.id, abort, promptId: resume?.promptId, gpu: true, expectedMs: resume?.timing?.expectedMs ?? null, startedAt: resume?.startedAt ?? Date.now(), ...(resume ? {} : { claimedAt: Date.now() }) };
     lane.running = running;
     lane.starting = null;
     // a job starts there only once its ComfyUI answers: a going away after this one is told again
@@ -1929,7 +1929,8 @@ export class Queue {
     try {
       // what its GPU drew over its own stretch, from the power read on the way (none on a rented pod, nor without the reading)
       const energy = lane.comfy?.home ? lane.comfy.power.energy(resume.startedAt, resume.startedAt + totalMs) : null;
-      await record(this.db, row, recipe, resume, measured, status, whole, totalMs, generationId, { machine: lane.id, gpu: gpuOf(lane.device, lane.comfy?.monitor.system?.gpus ?? []), energy });
+      const claimedAt = lane.running?.id === row.id ? lane.running.claimedAt : undefined;
+      await record(this.db, row, recipe, resume, measured, status, whole, totalMs, generationId, { machine: lane.id, gpu: gpuOf(lane.device, lane.comfy?.monitor.system?.gpus ?? []), energy, claimedAt });
       // the record changed: the next forecast reads it again at once, not after the second the mark is kept; the next pass
       // plans on the forecasts kept all the same (pump)
       this.forecasts.recorded();

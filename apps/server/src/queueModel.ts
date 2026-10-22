@@ -73,6 +73,8 @@ export interface Running {
   /** What it was expected to take, and when it started on the GPU: a run at twice that with the memory full is spilling. */
   expectedMs?: number | null;
   startedAt?: number;
+  /** When a fresh job took its machine, before its files went up: its render's row keeps it (render_stats.started_at). */
+  claimedAt?: number;
   /** When ComfyUI last said something of it (a step, a node starting, a preview): a render silent for long is stuck. */
   movedAt?: number;
   /** When a system feed last read its GPU's load: with a fresh one, a silent render is known to leave its GPU idle. */

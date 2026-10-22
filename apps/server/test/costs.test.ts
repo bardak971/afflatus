@@ -523,6 +523,16 @@ describe("the costs of a window", () => {
     expect(v.renderCosts.filter((r) => r.where === "pod" && r.key === "scail.motion\nscail.safetensors").map((r) => r.renders)).toEqual([2]);
   });
 
+  it("a render kept with when its job took the pod counts from there to its row: Afflatus's uploads and filing are not Idle", async () => {
+    // rp-b's render: 8 min on ComfyUI, its job on the pod from 98 min (its files going up) to its row at 107 (filed)
+    await db.updateTable("render_stats").set({ total_ms: 8 * MIN, started_at: iso(T0 + 98 * MIN) }).where("machine_id", "=", "rp-b").execute();
+    const s2 = (await view()).sessions.find((s) => s.id === "s2")!;
+    expect(s2.parts).toEqual({ boot: 3 * MIN, fetch: 4 * MIN, render: 9 * MIN, failed: 0, outside: 0, idle: 14 * MIN });
+    // a row from before 0088 has only its length: placed back from its row, as it was
+    await db.updateTable("render_stats").set({ started_at: null }).where("machine_id", "=", "rp-b").execute();
+    expect((await view()).sessions.find((s) => s.id === "s2")!.parts).toMatchObject({ render: 8 * MIN, idle: 15 * MIN });
+  });
+
   it("a GPU not tried yet, guessed from the model's own p50 by the hunt's table of speeds, marked a guess", async () => {
     const offer = (name: string, price: number): RankOffer => ({ id: `NVIDIA ${name}`, name, memory: 48, price, availability: "HIGH", dataCenters: [] });
     const v = await view({ offers: [offer("A40", 0.6), offer("RTX 4090", 0.69)] });
