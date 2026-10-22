@@ -3,7 +3,7 @@ import { act, waitFor } from "@testing-library/react";
 import type { Clip, RecipeInfo, Timeline } from "../../src/api";
 import { inspectorProps, overviewProps, trackProps } from "../../src/timeline/editorProps";
 import { useTimelineEditor, type LoadedEditor } from "../../src/timeline/useTimelineEditor";
-import { fakeApi } from "./fakeApi";
+import { fakeApi, later } from "./fakeApi";
 import { draw } from "./render";
 
 /**
@@ -67,5 +67,46 @@ describe("a voice given to a Lip sync clip", () => {
     const { e, clip } = await editor();
     act(() => inspectorProps(e(), clip()).onInputs({ ...clip().inputs, recording: "zz-test-tone" }));
     await partSaid(e, clip);
+  });
+});
+
+describe("a voice's part worked out while the form is typed", () => {
+  it("is laid over what was typed meanwhile: the next save does not send the part from before the voice", async () => {
+    // a clip that has a voice and its part (4.7 + 5.5): the server, as Timelines.voiceAsked does, works out the part of a
+    // voice new to it whose part was sent unchanged, and keeps any other part it is sent
+    const voiced = { ...voiceless, inputs: { ...voiceless.inputs, recording: "zz-test-old", recordingStart: 4.7, recordingSeconds: 5.5 } } as unknown as Clip;
+    let tl = { id: "zz-test-voice", name: "zz-test voice", clips: [voiced], durationMs: 0, music: null, source: null, recordings: [] } as unknown as Timeline;
+    const slow = later<void>();
+    fakeApi.on("GET /timelines/:id", () => tl);
+    fakeApi.on("GET /recipes", { families: [], recipes: [lipSync] });
+    fakeApi.on("PATCH /clips/:id", async ({ body }) => {
+      const sent = (body as { inputs: Record<string, unknown> }).inputs;
+      const was = tl.clips[0]!.inputs;
+      const fresh = sent.recording !== was.recording && sent.recordingStart === was.recordingStart && sent.recordingSeconds === was.recordingSeconds;
+      // the first reading of a sound's pauses takes a while
+      if (fresh) await slow.promise;
+      const inputs = fresh ? { ...sent, recordingStart: 0, recordingSeconds: 7 } : sent;
+      tl = { ...tl, clips: tl.clips.map((c) => (c.id === "b" ? { ...c, inputs } : c)) };
+      return fresh ? { ok: true, inputs } : { ok: true };
+    });
+    let seen!: ReturnType<typeof useTimelineEditor>;
+    function Editor() {
+      seen = useTimelineEditor(tl.id);
+      return null;
+    }
+    draw(<Editor />);
+    await waitFor(() => expect(seen.t && seen.videoRecipes.length).toBeTruthy());
+    const e = () => seen as LoadedEditor;
+    const clip = () => seen.shown!.clips.find((c) => c.id === "b")!;
+
+    act(() => inspectorProps(e(), clip()).onInputs({ ...clip().inputs, recording: "zz-test-tone" }));
+    await waitFor(() => expect(fakeApi.calls("PATCH", "/clips/b")).toHaveLength(1));
+    // the scene typed while the server works the part out
+    act(() => inspectorProps(e(), clip()).onInputs({ ...clip().inputs, description: "zz-test: a person talks on" }));
+    await act(async () => slow.answer());
+    await waitFor(() => expect(fakeApi.calls("PATCH", "/clips/b")).toHaveLength(2), { timeout: 2000 });
+    expect(fakeApi.calls("PATCH", "/clips/b")[1]!.body).toMatchObject({ inputs: { recording: "zz-test-tone", description: "zz-test: a person talks on", recordingStart: 0, recordingSeconds: 7 } });
+    expect(tl.clips[0]!.inputs).toMatchObject({ recordingStart: 0, recordingSeconds: 7 });
+    await waitFor(() => expect(clip().inputs).toMatchObject({ description: "zz-test: a person talks on", recordingStart: 0, recordingSeconds: 7 }));
   });
 });
