@@ -386,9 +386,10 @@ export class Downloads {
    * Stop a download that is under way, or take a finished one off the list. Nothing is left behind: a .part is
    * removed, and ComfyUI-Manager only writes a file once it has all of it. False when there is no such download,
    * "late" when every byte was already handed over and ComfyUI is saving it, "manager" for one Manager reads
-   * from Hugging Face itself (it cannot be stopped from here).
+   * from Hugging Face itself (it cannot be stopped from here). `keepPart`: the node pack keeps its .part (0.36.6; an older one
+   * removes it), for the next download of that file on that machine to carry on from (a pod's file put back in line).
    */
-  stop(id: string): boolean | "late" | "manager" {
+  stop(id: string, keepPart = false): boolean | "late" | "manager" {
     const d = this.all.get(id);
     if (!d) {
       // one of an earlier run: taken off the list
@@ -406,8 +407,8 @@ export class Downloads {
       delete d.waiting;
       delete d.note;
       d.abort.abort();
-      // the pack is told too, and removes its .part
-      if (d.packId) void d.comfy.client.raw(`/afflatus/download/${encodeURIComponent(d.packId)}`, { method: "DELETE", signal: AbortSignal.timeout(5000) }).catch(() => {});
+      // the pack is told too, and removes its .part, or keeps it to carry on from
+      if (d.packId) void d.comfy.client.raw(`/afflatus/download/${encodeURIComponent(d.packId)}${keepPart ? "?keep=1" : ""}`, { method: "DELETE", signal: AbortSignal.timeout(5000) }).catch(() => {});
       this.pump();
     } else this.all.delete(id);
     this.tell(true);

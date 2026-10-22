@@ -374,9 +374,13 @@ export class PodFiles {
     for (const e of this.pods.get(machine)?.values() ?? []) if (e.state === "fetching") this.requeue(e);
   }
 
-  /** A file under way stopped and put back in line, as it was before it started. */
+  /**
+   * A file under way stopped and put back in line, as it was before it started. The pod's node pack keeps what it fetched of
+   * it, and its next download carries on from there: a file given its place to one a job waits for, or cut by ComfyUI's
+   * restart for node packs, was fetched again from its first byte (21 GB 60 % done: about 50 s of a billed pod).
+   */
   private requeue(e: Entry): void {
-    if (e.downloadId) this.d.downloads.stop(e.downloadId);
+    if (e.downloadId) this.d.downloads.stop(e.downloadId, true);
     e.upload?.abort();
     e.state = "next";
     e.bytes = 0;

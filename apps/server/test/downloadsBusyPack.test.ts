@@ -15,12 +15,21 @@ describe("a node pack that is busy, or forgot a download", () => {
   let busy = 0;
   let asked = 0;
   let lost = false;
+  let slow = false;
+  const deleted: string[] = [];
   const was = process.env.CIVITAI_URL;
   beforeEach(async () => {
     busy = 0;
     asked = 0;
     lost = false;
+    slow = false;
+    deleted.length = 0;
     comfy = createServer((req, res) => {
+      if (req.method === "DELETE") {
+        deleted.push(req.url ?? "");
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end("{}");
+      }
       if (req.method === "POST" && req.url === "/afflatus/download") {
         asked++;
         if (busy > 0) {
@@ -38,7 +47,7 @@ describe("a node pack that is busy, or forgot a download", () => {
           return res.end();
         }
         res.writeHead(200, { "content-type": "application/json" });
-        return res.end(JSON.stringify({ state: "done", bytes: 10 }));
+        return res.end(JSON.stringify(slow ? { state: "downloading", bytes: 4 } : { state: "done", bytes: 10 }));
       }
       res.writeHead(404);
       res.end();
@@ -64,6 +73,24 @@ describe("a node pack that is busy, or forgot a download", () => {
     return downloads;
   };
   const want = { file: "a.safetensors", folder: "loras", title: "A", source: "http://127.0.0.1:1/a.safetensors", machine: "rp-1" };
+
+  it("asks the pack to keep what it fetched when the download is put back in line, and to remove it when it is stopped", async () => {
+    slow = true;
+    const downloads = make();
+    const a = await downloads.start(stub(), "http://127.0.0.1:2", want);
+    // the pack has it (asked how it goes a few times)
+    await until(() => asked === 1);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(downloads.stop(a.id, true)).toBe(true);
+    await until(() => deleted.length === 1);
+    expect(deleted).toEqual(["/afflatus/download/p1?keep=1"]);
+    const b = await downloads.start(stub(), "http://127.0.0.1:2", want);
+    await until(() => asked === 2);
+    await new Promise((r) => setTimeout(r, 50));
+    downloads.stop(b.id);
+    await until(() => deleted.length === 2);
+    expect(deleted[1]).toBe("/afflatus/download/p1");
+  });
 
   it("waits for a busy pack's line as a download waiting its turn, never a failure", async () => {
     busy = 3;
