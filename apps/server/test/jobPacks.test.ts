@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
-import type { NodeCatalog, Wanted } from "@afflatus/core";
+import { nodesOfPack, type NodeCatalog, type Wanted } from "@afflatus/core";
+import { UPSCALE } from "@afflatus/recipes";
 import { asBuilt, lookAhead, packFacts, packsLacked, ranWithoutSaid } from "../src/jobPacks";
 import { writeSettings, readSettings } from "../src/settings";
 import { CHECKPOINT, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
@@ -70,12 +71,12 @@ afterEach(async () => {
   await fake?.close().catch(() => {});
 });
 
-async function setUp(opts: { manager?: boolean; rule?: "ask" | "always"; lacks?: string[]; models?: Record<string, string[]> } = {}) {
+async function setUp(opts: { manager?: boolean; rule?: "ask" | "always"; lacks?: string[]; models?: Record<string, string[]>; loads?: string[] } = {}) {
   const all = referenceCatalog();
   const lacks = [...DASIWA, ...(opts.lacks ?? [])];
   const catalog = Object.fromEntries(Object.entries(all).filter(([n]) => !lacks.includes(n)));
-  // the restart loads the pack's nodes as they really are
-  fake = await startFakeComfy({ catalog, models: opts.models ?? FILES, manager: opts.manager ?? true, afterReboot: Object.fromEntries(DASIWA.map((n) => [n, all[n]!])) });
+  // the restart loads the pack's nodes as they really are (`loads`: other packs' nodes it loads too)
+  fake = await startFakeComfy({ catalog, models: opts.models ?? FILES, manager: opts.manager ?? true, afterReboot: Object.fromEntries([...DASIWA, ...(opts.loads ?? [])].map((n) => [n, all[n]!])) });
   t = await makeApp({ comfyUrl: fake.url });
   if (opts.rule) {
     const s = await readSettings(t.db);
@@ -115,6 +116,21 @@ describe("a node pack a render asks for, on a ComfyUI of your own", () => {
     await until(() => fake.prompts.size === 1, 20_000);
     expect(sentNodes()).toContain("MiniMaxH3Cache");
     expect(await warningOf(id)).not.toContain("Ran without");
+  }, 40_000);
+
+  it("a pack it loaded, gone from its node list since: asked for again, never waited for under \"installed\" (review of 0.6.0, N-19)", async () => {
+    await setUp();
+    const first = (await post(t.app, "/api/jobs", { recipe: "h3.video", input: CACHED })).json().ids[0] as string;
+    await slowly(async () => (await queueOf()).waiting[0]?.packs?.state === "ask");
+    await post(t.app, `/api/jobs/${first}/packs`, { do: "install", packs: ["ComfyUI-DaSiWa-Nodes"] });
+    await until(() => fake.prompts.size === 1, 20_000);
+    expect((await post(t.app, `/api/jobs/${first}/cancel`)).statusCode).toBe(200);
+    // the pack taken out of custom_nodes and ComfyUI restarted by hand: its socket opens again, its node list is read anew
+    for (const n of DASIWA) delete (fake.catalog as Record<string, unknown>)[n];
+    fake.dropSockets();
+    await post(t.app, "/api/jobs", { recipe: "h3.video", input: CACHED });
+    await slowly(async () => (await queueOf()).waiting.some((w) => w.packs?.state === "ask"));
+    expect(fake.prompts.size).toBe(1);
   }, 40_000);
 
   it("cancelled while ComfyUI restarts for its pack: the restart is followed, and the next job renders (review 0.6.0, N-15)", async () => {
@@ -182,6 +198,38 @@ describe("a node pack a render asks for, on a ComfyUI of your own", () => {
     await until(() => fake.prompts.size === 1);
     expect(sentNodes()).not.toContain("MiniMaxH3Cache");
   });
+});
+
+describe("a node pack a render cannot run without, on the only ComfyUI of your own (review of 0.6.0, N-17)", () => {
+  // This PC lacks the pack: the job was refused "Install it in ComfyUI", never offered Install, while its form said the
+  // queue asks for it. Nor are the packs of its "use if present" routes (KJNodes, VHS) asked for, which it runs without.
+  const GGUF = "minimax_h3_fl2va-Q5_K_M.gguf";
+  const OPTIONAL = [...nodesOfPack("comfyui-kjnodes"), ...nodesOfPack("comfyui-videohelpersuite")];
+
+  async function installed(pack: string, input: Record<string, unknown>) {
+    const id = (await post(t.app, "/api/jobs", { recipe: "h3.video", input })).json().ids[0] as string;
+    await slowly(async () => (await queueOf()).waiting[0]?.packs?.state === "ask");
+    expect((await queueOf()).waiting[0]!.packs!.packs).toEqual([{ name: pack }]);
+    expect(fake.prompts.size).toBe(0);
+    expect((await post(t.app, `/api/jobs/${id}/packs`, { do: "install", packs: [pack] })).statusCode).toBe(200);
+    await until(() => fake.reboots === 1, 15_000);
+    await until(() => fake.prompts.size === 1, 20_000);
+    expect(fake.packs.map((p) => p.id)).toEqual([pack]);
+  }
+
+  it("a .gguf model without ComfyUI-GGUF: Install and restart, then it renders with the GGUF loader", async () => {
+    const GGUF_NODES = nodesOfPack("comfyui-gguf");
+    await setUp({ lacks: [...GGUF_NODES, ...OPTIONAL], loads: GGUF_NODES, models: { ...FILES, unet_gguf: [GGUF] } });
+    await installed("comfyui-gguf", { ...CACHED, cache: false, model: GGUF });
+    expect(sentNodes()).toContain("UnetLoaderGGUF");
+  }, 40_000);
+
+  it("a latent finish without the MMH3 pack: Install and restart, then it renders with its nodes", async () => {
+    const MMH3 = nodesOfPack("Comfyui-MMH3-UltimateUpscale");
+    await setUp({ lacks: [...MMH3, ...OPTIONAL], loads: MMH3, models: { ...FILES, latent_upscale_models: ["minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors"], frame_interpolation: ["rife_v4.26.safetensors"] } });
+    await installed("Comfyui-MMH3-UltimateUpscale", { ...CACHED, cache: false, upscale: UPSCALE.latent });
+    expect(sentNodes()).toContain("MMH3UltimateUpscale");
+  }, 40_000);
 });
 
 describe("a node pack a render asks for, with several machines", () => {

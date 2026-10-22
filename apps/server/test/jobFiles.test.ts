@@ -5,6 +5,7 @@ import { dryContext, graphFiles, missingSlotFile, missingSlotIn, nodesOfPack, pa
 import { h3, h3Video, ltxVideo, recipeById, UPSCALE, wanVideo } from "@afflatus/recipes";
 import { newId, now, OWNER } from "../src/db";
 import { loadedOn, offeredOn, podSlotFiles } from "../src/jobFiles";
+import { packsLacked } from "../src/jobPacks";
 import type { QueueCore } from "../src/queueModel";
 import { Comfy } from "../src/comfy";
 import { filesUsed, lackOn } from "../src/machineScans";
@@ -326,9 +327,10 @@ describe("an option's files and node packs on a pod", () => {
     }
   });
 
-  it("a latent finish on a machine of the user's own without the MMH3 pack: refused there with why, never built with every node (KJNodes and VHS were asked for as packs it had to have)", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    // this PC is the user's own machine, without the pack nor the packs its "use if present" routes would take
+  it("a latent finish on the only machine of the user's own, without the MMH3 pack: the pack is what it lacks there, never the packs of its \"use if present\" routes (N-17)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // this PC is the user's own machine, without the pack nor the packs its "use if present" routes would take (KJNodes
+    // and VHS were asked for as packs it had to have when it was built with every node; refused, it was offered no Install)
     const KJ = nodesOfPack("comfyui-kjnodes");
     const VHS = nodesOfPack("comfyui-videohelpersuite");
     expect(KJ.length && VHS.length).toBeTruthy();
@@ -336,9 +338,41 @@ describe("an option's files and node packs on a pod", () => {
     const comfy = new Comfy(fake.url, t.services.registry);
     const mine = { id: "mine", comfy, scan: await comfy.scan(), own: true };
     const loaded = await loadedOn(core(), row("h3.video", { description: "a red ball rolls", seconds: 5, upscale: UPSCALE.latent }), mine);
-    expect(loaded).toMatchObject({ files: [], refused: expect.stringContaining("Comfyui-MMH3-UltimateUpscale") });
-    expect(loaded?.missingNodes ?? []).not.toEqual(expect.arrayContaining([expect.stringMatching(new RegExp(`^(${[...KJ, ...VHS].join("|")})$`))]));
-    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/its graph cannot be built/));
+    expect(loaded?.refused).toBeUndefined();
+    expect(loaded?.missingNodes).toEqual(expect.arrayContaining(["MMH3UltimateUpscale"]));
+    expect(packsLacked(loaded)).toEqual({ soft: [], hard: ["Comfyui-MMH3-UltimateUpscale"], unknown: [] });
+  });
+
+  it("a latent finish on another ComfyUI of the user's own, without the MMH3 pack, KJNodes and VHS that this PC has: only MMH3 is asked for, and its files are its own (H-18, N-18)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const catalog = referenceCatalog() as Record<string, unknown>;
+    for (const n of [...nodesOfPack("Comfyui-MMH3-UltimateUpscale"), ...nodesOfPack("comfyui-kjnodes"), ...nodesOfPack("comfyui-videohelpersuite")]) delete catalog[n];
+    // its own video model, neither this PC's nor the family's download
+    const OWN_UNET = "minimax_h3_fl2va_fp8.safetensors";
+    const other = await startFakeComfy({ catalog: catalog as never, models: { ...HERE, diffusion_models: [OWN_UNET] } });
+    try {
+      const comfy = new Comfy(other.url, t.services.registry);
+      const loaded = await loadedOn(core(), row("h3.video", { description: "a red ball rolls", seconds: 5, upscale: UPSCALE.latent }), { id: "other", comfy, scan: await comfy.scan(), own: true });
+      expect(loaded?.refused).toBeUndefined();
+      expect(packsLacked(loaded)).toEqual({ soft: [], hard: ["Comfyui-MMH3-UltimateUpscale"], unknown: [] });
+      const files = loaded?.files.map((f) => f.file) ?? [];
+      expect(files).toContain(OWN_UNET);
+      expect(files).not.toContain(download("unet"));
+      expect(files).not.toContain(download("refUnet"));
+      expect(loaded?.absent.map((f) => f.slot)).not.toContain("unet");
+    } finally {
+      await other.close();
+    }
+  });
+
+  it("a Finish › Face refine on the machine of the user's own without Face refine's pack: a pack it cannot run without, no Run without (H-21)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const n of nodesOfPack("comfyui-h3-facerefine")) delete (fake.catalog as Record<string, unknown>)[n];
+    const comfy = new Comfy(fake.url, t.services.registry);
+    const finish = { ...(await swapRow({ swapModel: REF2VA, faceRefine: true, faceRefineOnly: true, references: [{ asset: "zz-test-person", role: "person" }] })), finished_from: "zz-test-take" };
+    const loaded = await loadedOn(core(), finish, { id: "mine", comfy, scan: await comfy.scan(), own: true });
+    expect(loaded?.refused).toBeUndefined();
+    expect(packsLacked(loaded)).toEqual({ soft: [], hard: ["comfyui-h3-facerefine"], unknown: [] });
   });
 
   it("a carried Motion transfer window on a machine of the user's own that throws there: its files as that machine asks them, not the reference model a pod is sent", async () => {

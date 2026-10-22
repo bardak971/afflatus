@@ -1,5 +1,5 @@
 import { catalogKey, filesIn, type Scan } from "@afflatus/comfy";
-import { choicesOf, graphFiles, isMissingSlotFile, missingSlotFile, parseInput, sameFile, TOOLS_FAMILY, type Family, type GraphFile, type NodeCatalog, type Recipe, type Wanted } from "@afflatus/core";
+import { choicesOf, graphFiles, isMissingSlotFile, missingSlotFile, packOfNode, parseInput, sameFile, TOOLS_FAMILY, type Family, type GraphFile, type NodeCatalog, type Recipe, type Wanted } from "@afflatus/core";
 import { ANY_PACKS, lookAhead, skipWhy, type PackFacts, type PacksSaid } from "./jobPacks";
 import type { Comfy } from "./comfy";
 import { readJson, type JobRow, type QueueCore } from "./queueModel";
@@ -172,11 +172,11 @@ export async function loadedOn(
       // built anew: what was kept for a pod to come (the Deploy dialog's files) has no graph to read its nodes from. Only
       // a pod is built again with every node: that build takes every "use if present" route (KJNodes' patches, VHS's
       // output), and on a machine of the user's own they became packs it had to have, installed unasked under Always, the
-      // render changed by them. A machine of the user's own is built as this PC's node list has it, its own files asked
-      // for (a carried Motion transfer window without the reference model asks none), and refused with why where that throws.
-      const built = on.own
-        ? graphOn(core, row, recipe, family, raw, null, freshKeys, packs, { anew: true, own: true })
-        : freshGraph(core, row, recipe, family, raw, freshKeys, packs, true);
+      // render changed by them. A machine of the user's own is built on its own node list and files, with only the pack
+      // its build threw for (ownGraph): built on this PC's instead, the PC that lacked the pack threw again and its job was
+      // refused, never offered Install, and another ComfyUI of the user's took this PC's "use if present" routes as packs
+      // to have and its files by their downloads.
+      const built = on.own ? ownGraph(core, row, recipe, family, raw, on, freshKeys, packs) : freshGraph(core, row, recipe, family, raw, freshKeys, packs, true);
       const fresh = await built.catch((e: Error) => {
         // (a failure before its build, a node list not read, is not the job's)
         if (freshKeys.key) freshWhy = e.message;
@@ -233,6 +233,43 @@ async function freshGraph(
   }
 }
 
+/** How many packs a job's graph is built again with on a machine of the user's own (ownGraph), one per build that throws. */
+const OWN_TRIES = 4;
+
+/**
+ * A job's graph on a machine of the user's own that it cannot be built on as it is: built again on that machine's node
+ * list and files, given the pack of the node its build threw for, as when that pack is installed (a .gguf model without
+ * ComfyUI-GGUF, a latent finish without the MMH3 pack); a few times, for a job lacking several. Only a node the build asked
+ * for last, found lacking, and named in its words (or its pack is) is one it cannot run without: a "use if present" check
+ * says nothing when it fails, and a throw for a file or a value is the job's own, refused with why. Its graph then says the
+ * packs it lacks there, and its Queue row offers Install and restart (jobPacks.ts); a node of no pack Afflatus can install
+ * is not given, and the job is refused with the build's words.
+ */
+async function ownGraph(
+  core: QueueCore, row: Parameters<typeof graphOn>[1], recipe: Recipe<any>, family: Family, raw: Record<string, unknown>,
+  on: { id: string; comfy: Comfy; scan: Scan; own?: boolean }, keys: { key: string }, packs: { facts?: PackFacts; said?: PacksSaid },
+): ReturnType<typeof graphOn> {
+  const catalog = await on.comfy.catalog();
+  const given = new Set<string>();
+  for (let tries = 1; ; tries++) {
+    const last = { node: "", there: true };
+    const has = (node: string) => {
+      last.node = node;
+      last.there = node in catalog || given.has(node);
+      return last.there;
+    };
+    try {
+      return await graphOn(core, row, recipe, family, raw, on, keys, packs, { anew: true, has });
+    } catch (err) {
+      const words = (err as Error).message.toLowerCase();
+      const pack = last.there ? undefined : packOfNode(last.node);
+      const named = pack && (words.includes(last.node.toLowerCase()) || words.includes(pack.name.toLowerCase()));
+      if (!pack || pack.own || !named || tries >= OWN_TRIES) throw err;
+      for (const node of pack.nodes) given.add(node);
+    }
+  }
+}
+
 /** The node types a graph uses that a node list lacks. */
 const lackedNodes = (graph: Record<string, { class_type: string }>, catalog: NodeCatalog): string[] =>
   [...new Set(Object.values(graph).map((n) => n.class_type))].filter((n) => !(n in catalog));
@@ -245,7 +282,7 @@ const lackedNodes = (graph: Record<string, { class_type: string }>, catalog: Nod
 async function graphOn(
   core: QueueCore, row: Pick<JobRow, "id" | "inputs" | "finished_from" | "clip_id" | "clip_fit" | "clip_mirror">, recipe: Recipe<any>, family: Family,
   raw: Record<string, unknown>, on: { id: string; comfy: Comfy; scan: Scan; own?: boolean } | null, keys: { key: string }, packs: { facts?: PackFacts; said?: PacksSaid } = {},
-  how: { everyNode?: boolean; anew?: boolean; own?: boolean } = {},
+  how: { everyNode?: boolean; anew?: boolean; has?: (node: string) => boolean } = {},
 ): Promise<{ kept: Loaded | null } | { graph: Record<string, { class_type: string }>; files: GraphFile[]; catalog: NodeCatalog; there: SlotStatus[] | null; wanted: Wanted[] }> {
   const comfy = on?.comfy ?? (await core.comfy());
   const catalog = await comfy.catalog();
@@ -254,8 +291,7 @@ async function graphOn(
   const here = slotsIn(await (await core.comfy()).scan().catch(() => null));
   const there = on ? (slotsIn(on.scan) ?? []) : null;
   const input = parseInput(recipe, withTexts(recipe, raw)) as Record<string, unknown>;
-  // `how.own`: built with no machine for one of the user's own, whose files it asks as there (loadedOn's fallback)
-  const slots = podSlotFiles(recipe, input, family.slots, there, here, Boolean(on?.own ?? how.own));
+  const slots = podSlotFiles(recipe, input, family.slots, there, here, Boolean(on?.own));
   // what the machine has is as its last scan read it: a file come or gone since is a new scan, and worked out anew
   // what the options are given there is part of it: a pack that cannot come, or a Run without, builds them without
   const facts = packs.facts ?? ANY_PACKS;
@@ -265,7 +301,7 @@ async function graphOn(
   const plan = row.clip_id && core.clips ? await core.clips.plan(row.clip_id, recipe, input, Boolean(row.clip_fit), row.finished_from, true, readJson<string[]>(row.clip_mirror, [])).catch(() => null) : null;
   // the options it asks for are given the node their pack brings when this ComfyUI lacks it: its graph then says the pack
   const ahead = lookAhead(catalog, facts, packs.said);
-  const built = await builtOf(core, recipe.id, plan ? plan.input : raw, { finishedFrom: row.finished_from, canvas: plan?.canvas, slots, comfy, catalog, relocate: Boolean(on), wants: ahead.wants, ...(how.everyNode ? { has: () => true } : {}) });
+  const built = await builtOf(core, recipe.id, plan ? plan.input : raw, { finishedFrom: row.finished_from, canvas: plan?.canvas, slots, comfy, catalog, relocate: Boolean(on), wants: ahead.wants, ...(how.everyNode ? { has: () => true } : how.has ? { has: how.has } : {}) });
   if (!built) throw new Error("its form could not be read");
   const folders = Object.fromEntries(family.slots.map((s) => [s.id, s.folder]));
   return { graph: built.graph, files: graphFiles(built.graph, slots, folders), catalog, there, wanted: ahead.missing };
