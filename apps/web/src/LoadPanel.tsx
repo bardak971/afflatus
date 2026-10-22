@@ -233,7 +233,7 @@ export function LoadDialog({ machine: asked, onClose }: { machine?: string; onCl
                   onClick={() => { setMachine(o.id); setAt(0); input.current?.focus(); }}
                   className={cx("flex items-center gap-1.5 rounded-chip px-2.5 py-1 whitespace-nowrap", machine === o.id ? "bg-hover font-semibold text-ink" : "text-ink-2 hover:text-ink", o.away && "opacity-60")}
                 >
-                  {o.id && <span className={cx("size-[7px] rounded-full", o.away ? "bg-warn" : "border-[1.5px] border-good")} />}
+                  {o.id && <span className={cx("size-[7px] rounded-full", o.away ? "bg-attention" : "border-[1.5px] border-good")} />}
                   {o.label}
                 </button>
               ))}

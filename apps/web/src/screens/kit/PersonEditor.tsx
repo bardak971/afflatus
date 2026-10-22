@@ -257,6 +257,7 @@ function OutfitPicture({ value, onChange, what }: { value: string | null; onChan
           <CloseButton size={24} tone="badge" label={`Remove the picture of ${what}`} onClose={() => onChange(null)} className="absolute -top-2.5 -right-2.5" />
         </>
       ) : (
+        // design: an empty picture slot that takes a drop (dashed), not an icon button
         <button type="button" aria-label={`Choose a picture of ${what}`} data-tip="A reference image of the clothes: choose one, or drop it here" onClick={() => setPicking(true)} className={cx("flex h-9 w-9 items-center justify-center rounded-lg border-[1.5px] border-dashed text-ink-3 hover:text-ink", drop.zone || "border-line-strong")}>
           {upload.isPending ? <span className="text-micro">…</span> : <Plus size={13} />}
         </button>

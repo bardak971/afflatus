@@ -146,7 +146,7 @@ export function ComfyCard() {
   return (
     <div className={COLUMNS}>
       <div className="flex min-w-0 flex-col gap-4">
-      <Card id="comfyui" title="Connection" status={comfy && <Status ok={comfy.online}>{comfy.online ? "Connected" : "Not answering"}</Status>}>
+      <Card id="comfyui" title="Connection" status={comfy && <Status ok={comfy.online} away={!comfy.online && !comfy.locked}>{comfy.online ? "Connected" : "Not answering"}</Status>}>
         <Row setting="comfy.url" label="ComfyUI URL" htmlFor="comfy-url" help="The address ComfyUI listens on (8188 unless started with --port). Test again saves it first when it changed. Testing only reads what ComfyUI has: it never starts a render or loads a model.">
           <input id="comfy-url" value={url} onChange={(e) => setUrl(e.target.value)} spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
           <Button onClick={() => test.mutate()} disabled={test.isPending}>{test.isPending ? "Connecting…" : url !== settings.data?.comfyUrl ? "Save and test" : "Test again"}</Button>

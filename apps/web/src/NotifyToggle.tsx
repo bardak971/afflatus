@@ -6,15 +6,19 @@ import { Toggle } from "./ui";
 
 const LABELS: Partial<Record<NotifyKind, string>> = { queueEmpty: "Notify when the queue is empty", renderDone: "Notify when a render finishes" };
 
-/** One kind's browser switch: turned on, it asks the browser for the right first. `onRefused`: whether the browser said no. */
-export function NotifyToggle({ kind, onRefused }: { kind: NotifyKind; onRefused(refused: boolean): void }) {
+/**
+ * One kind's browser switch: turned on, it asks the browser for the right first. `onRefused`: whether the browser said no.
+ * `bare`: the switch alone (a narrow header), its words in its tip.
+ */
+export function NotifyToggle({ kind, onRefused, bare }: { kind: NotifyKind; onRefused(refused: boolean): void; bare?: boolean }) {
   const notify = useNotify();
   const set = async (on: boolean) => {
     if (on && !(await allowNotifications())) return onRefused(true);
     onRefused(false);
     notify.set({ browser: { [kind]: on } });
   };
-  return <Toggle on={Boolean(notify.browser[kind])} onChange={(on) => void set(on)} label={LABELS[kind] ?? kind} />;
+  const label = LABELS[kind] ?? kind;
+  return <Toggle on={Boolean(notify.browser[kind])} onChange={(on) => void set(on)} label={label} bare={bare} tip={bare ? label : undefined} />;
 }
 
 /** What the switches do, behind a "?" beside them. */

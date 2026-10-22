@@ -36,11 +36,14 @@ export function Card({ title, status, sub, help, dense, id, label, setting, chil
   );
 }
 
-/** A dot and a word for a card's head or a tab: green when all is well, warn when not. */
-export function Status({ ok, children }: { ok: boolean; children?: ReactNode }) {
+/**
+ * A dot and a word for a card's head or a tab: green when all is well, warn (red) when not. `away`: not well but not
+ * broken either, a ComfyUI not answering (it often comes back by itself, restarting or a pod booting): amber.
+ */
+export function Status({ ok, away, children }: { ok: boolean; away?: boolean; children?: ReactNode }) {
   return (
-    <span className={cx("flex shrink-0 items-center gap-1.5 text-body font-semibold", ok ? "text-good" : "text-warn-ink")}>
-      <span className={cx("h-[7px] w-[7px] rounded-full", ok ? "bg-good" : "bg-warn")} />
+    <span className={cx("flex shrink-0 items-center gap-1.5 text-body font-semibold", ok ? "text-good" : away ? "text-attention-ink" : "text-warn-ink")}>
+      <span className={cx("h-[7px] w-[7px] rounded-full", ok ? "bg-good" : away ? "bg-attention" : "bg-warn")} />
       {children}
     </span>
   );

@@ -82,6 +82,7 @@ export function Progress({ value, steps, loading = false, meter = false, shape =
   return (
     <div {...aria} className={cx(track, "overflow-hidden", round, !edge && under)}>
       {loading ? (
+        // design: the one progress bar's own wait for a first figure, in its shape and tone
         <span className={cx("absolute inset-0 animate-pulse opacity-40 motion-reduce:animate-none", round, tone)} />
       ) : (
         <span data-fill className={cx("absolute inset-0", round, tone)} style={fill} />
@@ -141,6 +142,7 @@ export function ProgressRing({ value, steps, loading = false, className, styleAs
       </svg>
       {/* no figure yet from this phase: a quarter, pulsing (an svg of its own, whose opacity the compositor fades) */}
       {loading && (
+        // design: the one progress ring's own wait for a first figure
         <svg width="30" height="30" viewBox="0 0 30 30" className="absolute inset-0 animate-pulse motion-reduce:animate-none">
           <circle cx="15" cy="15" r={RING_R} fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeDasharray={RING} strokeDashoffset={RING * 0.75} transform="rotate(-90 15 15)" />
         </svg>
@@ -167,7 +169,8 @@ export function ProgressRing({ value, steps, loading = false, className, styleAs
         </>
       )}
       {alive && (
-        <span className="absolute inset-0 animate-spin [animation-duration:2.4s]">
+        // design: the ring's live mark circling while it works (it stands still with reduced motion: the ring's figure says it)
+        <span className="absolute inset-0 animate-spin [animation-duration:2.4s] motion-reduce:animate-none">
           <span className="absolute top-0 left-[13.5px] size-[3px] rounded-full bg-ink" />
         </span>
       )}

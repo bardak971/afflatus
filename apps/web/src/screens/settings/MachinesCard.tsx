@@ -59,7 +59,8 @@ function MachineFacts({ probe, state, rented }: { probe: MachineProbe | undefine
       </span>
     ),
     access?.state === "locked" && <span key="lock" className="inline-flex items-center gap-1 font-semibold text-good" data-tip={access.fixed ? (rented ? "Locked from its first second: Afflatus set its token in the pod's environment" : "Locked by its start settings (AFFLATUS_TOKEN)") : "Locked: every call needs its token, which Afflatus keeps"}><Lock size={12} strokeWidth={2.2} />Locked</span>,
-    access?.state === "open" && <span key="lock" className="inline-flex items-center gap-1 font-semibold text-warn-ink"><LockOpen size={12} strokeWidth={2.2} />Not locked</span>,
+    // not locked asks for a look (amber); locked with another token is broken: Afflatus cannot call it (red)
+    access?.state === "open" && <span key="lock" className="inline-flex items-center gap-1 font-semibold text-attention-ink"><LockOpen size={12} strokeWidth={2.2} />Not locked</span>,
     access?.state === "wrong" && <span key="lock" className="inline-flex items-center gap-1 font-semibold text-warn-ink"><Lock size={12} strokeWidth={2.2} />Locked with another token</span>,
   ].filter(Boolean);
   const noPack = probe?.online && !probe.pack && !rented;
@@ -210,7 +211,7 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
   // a rented pod's head says its own state (stopped, starting, running and its cost), with Start or Stop
   const status = rented ? <RentedHead machine={machine} state={state} ops={rentedOps} /> : !probe ? null : state?.paused
     ? <span className="text-body font-semibold text-ink-2">Ⅱ Paused</span>
-    : <Status ok={probe.online}>{probe.online ? (state?.running ? "Rendering" : state && busyOutside(state) ? <span data-tip={OUTSIDE_TIP}>Busy outside Afflatus · {outsideSaid(state)}</span> : "Answering") : "Not answering"}</Status>;
+    : <Status ok={probe.online} away={!probe.online && probe.access.state !== "wrong"}>{probe.online ? (state?.running ? "Rendering" : state && busyOutside(state) ? <span data-tip={OUTSIDE_TIP}>Busy outside Afflatus · {outsideSaid(state)}</span> : "Answering") : "Not answering"}</Status>;
   // its ComfyUI in a tab of its own, logged in by a one-time code (lock-api.ts pageUrl): once it answers (a pod, once it runs)
   const openComfy = useOpenComfyUI();
   const canOpen = rented ? state?.rented?.status === "RUNNING" && !state.rented.booting && state.rented.answers !== false : Boolean(probe?.online);
@@ -269,7 +270,9 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
         <Block>
           {test.isError && <ErrorNote>{test.error.message}</ErrorNote>}
           {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
-          {failing?.error && !state?.rented?.booting && <ErrorNote>{failing.error}</ErrorNote>}
+          {/* not answering is amber, as everywhere a machine is away: it often comes back by itself; locked against
+              Afflatus's token stays red, Afflatus cannot call it */}
+          {failing?.error && !state?.rented?.booting && <ErrorNote tone={failing.access.state === "wrong" ? "warn" : "attention"}>{failing.error}</ErrorNote>}
           {publicPlainHttp(machine.url) && <ErrorNote>A public address over plain http: anyone who finds it can run code on this ComfyUI. Reach it through Tailscale or an SSH tunnel, or put it behind a proxy that asks for a password.</ErrorNote>}
         </Block>
       )}
@@ -319,7 +322,7 @@ function MachineLine({ machine, index, probe, state, onOpen }: { machine: Machin
     >
       <ChevronRight size={13} className="text-ink-3" />
       <span className="flex min-w-0 items-baseline gap-2"><span className="truncate font-semibold">{label}</span>{index === 0 && <span className="shrink-0 text-xs text-ink-3">the first</span>}</span>
-      <span className={cx("truncate text-xs font-semibold", said === "not answering" ? "text-warn-ink" : said === "paused" || (state?.rented && state.rented.status !== "RUNNING") ? "text-ink-2" : "text-good")}>{said}</span>
+      <span className={cx("truncate text-xs font-semibold", said === "not answering" ? (probe && !probe.online && probe.access.state === "wrong" ? "text-warn-ink" : "text-attention-ink") : said === "paused" || (state?.rented && state.rented.status !== "RUNNING") ? "text-ink-2" : "text-good")}>{said}</span>
       <span className="truncate font-mono text-xs text-ink-2">{probe?.device ?? machine.url}</span>
       <span className="text-xs text-ink-2">{TAKES_SAID[machine.takes]}</span>
     </button>

@@ -1,11 +1,11 @@
 {
-  "font-size": 2,
-  "radius": 2,
+  "font-size": 0,
+  "radius": 0,
   "z-index": 0,
-  "tracking": 1,
-  "raw-colour": 3,
-  "close-icon": 15,
-  "pulse-spin": 7,
-  "icon-button": 4,
-  "animate-motion": 4
+  "tracking": 0,
+  "raw-colour": 0,
+  "close-icon": 0,
+  "pulse-spin": 0,
+  "icon-button": 0,
+  "animate-motion": 0
 }

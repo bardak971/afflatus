@@ -78,13 +78,13 @@ export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onS
   const length = asset.durationMs ? clock(asset.durationMs, { decimals: asset.kind === "video" ? 1 : 0 }) : "";
   // over a video that scrubs: the time under the pointer leads the facts
   const facts = asset.kind === "video" && at !== null && asset.durationMs ? `${((at * asset.durationMs) / 1000).toFixed(1)} s of ${length} · ${tileFacts(asset)}` : tileFacts(asset);
-  // expiring (nobody kept it): a small clock in the corner, in the warning colour in its last hours, the exact time in
+  // expiring (nobody kept it): a small clock in the corner, amber in its last hours (a look, not a fault), the exact time in
   // its tip; the status bar's expiring chip says the rest
   // (read here so that a change of the days in Settings › Storage draws the clocks again)
   const unkeptDays = useKeepFor((s) => s.unkeptDays);
   const ms = !asset.kept && !asset.inBin ? leftOf(asset, Date.now(), unkeptMs(unkeptDays)) : null;
   const clockMark = ms !== null && (
-    <span data-tip={`Expires in ${leftWords(ms)} · S keeps it`} aria-label={`Expires in ${leftWords(ms)}`} className={cx("flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-ground/60", ms < SOON_MS ? "text-warn" : "text-ink-2")}>
+    <span data-tip={`Expires in ${leftWords(ms)} · S keeps it`} aria-label={`Expires in ${leftWords(ms)}`} className={cx("flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-ground/60", ms < SOON_MS ? "text-attention" : "text-ink-2")}>
       <Clock size={11} strokeWidth={2.6} />
     </span>
   );

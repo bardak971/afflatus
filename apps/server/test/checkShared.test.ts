@@ -2,7 +2,7 @@ import { relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { budgetVerdict, DESIGN_RULES, designCounts, overBudget, sharedFindings, sources, wordFindings } from "../../../scripts/check-shared";
+import { budgetVerdict, DESIGN_RULES, designCounts, overBudget, sharedFindings, sources, unmarked, wordFindings } from "../../../scripts/check-shared";
 
 // the guard `pnpm lint` runs: what it refuses, and what it leaves alone
 describe("the shared helpers' guard", () => {
@@ -65,6 +65,27 @@ describe("the design budget", () => {
   it("counts a script animation only in a file that never asks motionAllowed", () => {
     expect(one("apps/web/src/x.ts", "el.animate([{ opacity: 0 }], 100); row.animate?.([], 1);")["animate-motion"]).toBe(2);
     expect(one("apps/web/src/x.ts", "if (motionAllowed()) el.animate([{ opacity: 0 }], 100);")["animate-motion"]).toBe(0);
+  });
+  it("lets through a line marked `design: <why>`, at its end or alone just above it, and that line only", () => {
+    const dark = '<div className="bg-black" />';
+    expect(one("apps/web/src/x.tsx", `${dark}\n${dark}`)["raw-colour"]).toBe(2);
+    // a marker alone on its line speaks for the line below
+    expect(one("apps/web/src/x.tsx", `{/* design: the letterbox is black */}\n${dark}\n${dark}`)["raw-colour"]).toBe(1);
+    expect(one("apps/web/src/x.tsx", `// design: the letterbox is black\n${dark}`)["raw-colour"]).toBe(0);
+    // at the end of a line it covers that line, not the next
+    expect(one("apps/web/src/x.ts", "a.animate(f, t); // design: the video's own\nb.animate(f, t);")["animate-motion"]).toBe(1);
+    // a marker needs its reason, and an ordinary comment is no marker
+    expect(one("apps/web/src/x.tsx", `// design:\n${dark}`)["raw-colour"]).toBe(1);
+    expect(one("apps/web/src/x.tsx", `// the letterbox\n${dark}`)["raw-colour"]).toBe(1);
+    expect(unmarked("a\n// design: why\nb\nc")).toBe("a\n\n\nc");
+  });
+  it("does not count a menu row's × icon, or the glyph handed to an IconButton, as a close of its own", () => {
+    expect(one("apps/web/src/x.tsx", '{ label: "Stop", icon: <X size={14} />, danger: true }')["close-icon"]).toBe(0);
+    expect(one("apps/web/src/x.tsx", '<IconButton size={24} label="Take it out" onClick={go}>{off ? <Plus /> : <X size={12} />}</IconButton>')["close-icon"]).toBe(0);
+    expect(one("apps/web/src/x.tsx", '<button onClick={close}><X size={14} /></button>')["close-icon"]).toBe(1);
+    // the track's 16 px stop in a queued clip's box, by its one shape in its one file
+    expect(one("apps/web/src/timeline/track/TrackClip.tsx", "                  <X size={10} />")["close-icon"]).toBe(0);
+    expect(one("apps/web/src/timeline/track/Other.tsx", "                  <X size={10} />")["close-icon"]).toBe(1);
   });
   it("fails a count that went up, and asks to lower a budget a count went under", () => {
     const budget = Object.fromEntries(DESIGN_RULES.map((r) => [r.id, 5]));

@@ -119,12 +119,13 @@ export const Player = forwardRef<PlayerHandle, {
     const made: Animation[] = [];
     const a = elOf(from);
     const b = elOf(to);
-    if (look.from && a) made.push(a.animate(look.from, timing));
-    if (look.to && b) made.push(b.animate(look.to, timing));
+    // The cut's transition is the video's own (the export draws it): it plays with reduced motion too, as the file will.
+    if (look.from && a) made.push(a.animate(look.from, timing)); // design: the video's own transition
+    if (look.to && b) made.push(b.animate(look.to, timing)); // design: the video's own transition
     if (look.veil && veil.current) {
       veil.current.style.background = look.veil.colour;
       veil.current.style.mixBlendMode = look.veil.blend ?? "normal";
-      made.push(veil.current.animate(look.veil.frames, timing));
+      made.push(veil.current.animate(look.veil.frames, timing)); // design: the video's own transition
     }
     for (const x of made) x.currentTime = Math.max(0, intoMs);
     crossing.current = made;
@@ -303,6 +304,7 @@ export const Player = forwardRef<PlayerHandle, {
         </div>
       )}
       {now && (
+        // design: the letterbox is black whatever the theme, as the video's own bars are
         <div className="relative overflow-hidden bg-black" style={{ width: w, height: h }}>
           {nudges.size > 0 && (
             <svg className="absolute h-0 w-0" aria-hidden="true">
@@ -371,6 +373,7 @@ export const Player = forwardRef<PlayerHandle, {
                 playsInline
                 onLoadedMetadata={(e) => (e.currentTarget.currentTime = preview.startMs / 1000)}
                 onClick={() => onPickPreview?.(preview)}
+                // design: the letterbox is black whatever the theme, as the video's own bars are
                 className="absolute inset-0 h-full w-full cursor-pointer bg-black object-contain"
               />
               <span className="absolute top-3 left-1/2 -translate-x-1/2 rounded-full bg-ground/85 px-3 py-1 text-xs font-semibold whitespace-nowrap">Preview · click to play this take</span>

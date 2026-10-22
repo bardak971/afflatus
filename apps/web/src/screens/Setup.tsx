@@ -7,7 +7,8 @@ import { lacksOnlyFiles } from "../officialFiles";
 import { useFamilies, useQueue, useRecipes, useSettings, useSetup, useStorage } from "../data";
 import { plural, size } from "../format";
 import { scrollInside } from "../scrollInside";
-import { Chip, cx, PageHeader, SearchField, SegmentCount, Segmented } from "../ui";
+import { Search } from "lucide-react";
+import { Chip, cx, IconButton, PageHeader, SearchField, SegmentCount, Segmented } from "../ui";
 import { AboutCard } from "./settings/AboutCard";
 import { CivitaiCard } from "./settings/CivitaiCard";
 import { ComfyCard } from "./settings/ComfyCard";
@@ -54,7 +55,7 @@ function useTabMarks(): Partial<Record<Tab, ReactNode>> {
   // no ComfyUI of the user's own expected (rented only, or none yet): no dot, nothing is offline
   const planned = Boolean(comfy && !comfy.online && comfy.planned);
   return {
-    comfyui: comfy && !planned && <span aria-label={comfy.online ? "connected" : "not answering"} className={cx("h-[7px] w-[7px] rounded-full", comfy.online ? "bg-good" : "bg-warn")} />,
+    comfyui: comfy && !planned && <span aria-label={comfy.online ? "connected" : "not answering"} className={cx("h-[7px] w-[7px] rounded-full", comfy.online ? "bg-good" : "bg-attention")} />,
     rented: lowBalance ? <Chip size="xs" tone="warn" className="font-mono">balance low</Chip>
       : unusedVolumes > 0 ? <Chip size="xs" tone="warn" className="font-mono">{plural(unusedVolumes, "volume")} unused</Chip>
       : podRunning && <span aria-label="a pod running" className="h-[7px] w-[7px] rounded-full bg-good" />,
@@ -131,6 +132,8 @@ export function Setup() {
   const [typed, setTyped] = useState("");
   // the list closes on a pick and the words stay: typing again reopens it, Esc clears them (the place is kept)
   const [picked, setPicked] = useState(false);
+  // the header folded its search to an icon, and the icon was pressed: the box lies over the header's right end
+  const [searching, setSearching] = useState(false);
   // each word typed is in the entry as typed, or as letters in order from the start of one of its words
   // ("civit" finds Civitai; "bin" does not find "github")
   const found = useMemo(() => {
@@ -152,22 +155,33 @@ export function Setup() {
     <div className="flex min-h-0 grow flex-col overflow-hidden">
       <PageHeader
         title="Settings"
-        after={
-          // in a narrow window the tabs scroll sideways and the search box gives up some width: both stay reachable
-          <div className="min-w-0 shrink overflow-x-auto [scrollbar-width:none]">
-            <Segmented<Tab> oneLine className="w-max" label="Settings" value={tab} options={tabs.map((t) => ({ value: t.id, label: marks[t.id] ? <span className="inline-flex items-center gap-1.5">{t.label}{marks[t.id]}</span> : t.label }))} onChange={open} />
-          </div>
-        }
-        actions={
-          <div className="relative w-64 min-w-40 shrink">
+        // Nine tabs do not leave room for much else at 1024 px: the search gives up width, then becomes an icon, then the
+        // plain figures on Storage and About go (a warning on a tab stays), and last the title, which the sidebar says too.
+        folds={4}
+        titleYields
+        after={(fold) => {
+          // the plain figures only: a dot or a warning chip says something to act on
+          const shown = (id: Tab) => (fold >= 3 && (id === "storage" || id === "about") ? null : marks[id]);
+          return <Segmented<Tab> oneLine className="w-max" label="Settings" value={tab} options={tabs.map((t) => ({ value: t.id, label: shown(t.id) ? <span className="inline-flex items-center gap-1.5">{t.label}{shown(t.id)}</span> : t.label }))} onChange={open} />;
+        }}
+        actions={(fold) => fold >= 2 && !searching && !typed ? (
+          <IconButton tone="outline" data-search-opener label="Find a setting" tip="Find a setting (/)" onClick={() => setSearching(true)}>
+            <Search size={15} />
+          </IconButton>
+        ) : (
+          // folded and opened: over the header's right end rather than push the tabs out of it
+          <div className={fold >= 2 ? "absolute top-1/2 right-8 z-10 w-72 -translate-y-1/2" : cx("relative", fold >= 1 ? "w-44" : "w-64")}>
             <SearchField
               inputRef={input}
               data-search
               label="Find a setting"
+              autoFocus={searching}
+              onBlur={() => setSearching(false)}
               value={typed}
               onChange={(v) => { setTyped(v); setPicked(false); }}
               onKeyDown={(e) => { if (e.key === "Escape") setTyped(""); if (e.key === "Enter" && found[0]) pick(found[0].key); }}
               onClear={() => setTyped("")}
+              className={fold >= 2 ? "shadow-lg shadow-shade/40" : undefined}
             />
             {typed.trim() && !picked && (
               <div role="listbox" aria-label="Settings found" className="absolute right-0 z-20 mt-1 flex w-80 flex-col overflow-hidden rounded-xl border border-line-strong bg-panel py-1 shadow-2xl shadow-shade/60">
@@ -181,7 +195,7 @@ export function Setup() {
               </div>
             )}
           </div>
-        }
+        )}
       />
 
       {/* cards of settings, every setting one row: one column, and two side by side in a wide window on every tab (one

@@ -42,6 +42,7 @@ function Tile({ label, value, children }: { label: string; value: ReactNode; chi
   return (
     <div className="flex min-w-0 flex-col gap-2 rounded-card border border-line bg-panel p-4">
       <span className="truncate text-meta font-semibold tracking-label text-ink-3 uppercase">{label}</span>
+      {/* design: a stat figure, meant to stand bigger than the type scale's display */}
       <span className="font-mono text-[28px] leading-tight font-bold">{value}</span>
       {children}
     </div>

@@ -5,7 +5,7 @@ import { releaseLeaveGuard, useLeaveGuard } from "../leaveGuard";
 import { markPlace } from "../motion";
 import { scrollInside } from "../scrollInside";
 import { Button, Chip } from "../ui";
-import { beforeItems } from "./workflowEditor/BeforeItRuns";
+import { beforeItems, beforeTone } from "./workflowEditor/BeforeItRuns";
 import { FormPanel } from "./workflowEditor/FormPanel";
 import { ReadPanel } from "./workflowEditor/ReadPanel";
 import { ShowPanel } from "./workflowEditor/ShowPanel";
@@ -47,6 +47,8 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
 
   // the verdict: what was found, what was not, and what to see to before it runs
   const toCheck = beforeItems(m);
+  // red only for what ComfyUI would refuse; files left to fetch are a to-do, said in neutral
+  const toCheckTone = beforeTone(m);
   const has = [
     b.model && "model file", b.prompt && "prompt", b.negative && "negative prompt", b.startImage && (video ? "first frame" : "image"), b.endImage && "last frame",
     b.sourceVideo && "source video", b.previousVideo && "previous clip", b.nextVideo && "next clip", b.sound && "sound",
@@ -69,7 +71,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
         {/* the verdict: three counts, each with its list in its tip; a click goes to where its items are in step 1 */}
         <Chip tone="good" tip={list(has)} onClick={() => jump('[data-jump="found"]')}>✓ {has.length} found<Mark items={has} /></Chip>
         {lacks.length > 0 && <Chip tone="neutral" tip={list(lacks)} onClick={() => jump("[data-jump] [data-dash]")}>– {lacks.length} not found<Mark items={lacks} /></Chip>}
-        {toCheck.length > 0 && <Chip tone="warn" tip={list(toCheck)} onClick={() => jump('[data-jump="before"]')}>⚠ {toCheck.length} before it runs<Mark items={toCheck} /></Chip>}
+        {toCheck.length > 0 && <Chip tone={toCheckTone === "broken" ? "warn" : toCheckTone === "attention" ? "attention" : "neutral"} tip={list(toCheck)} onClick={() => jump('[data-jump="before"]')}>{toCheckTone === "todo" ? "↓" : "⚠"} {toCheck.length} before it runs<Mark items={toCheck} /></Chip>}
         {/* said here only: the Model field's border marks it; a click goes there */}
         {!model.trim() && <Chip tone="warn" tip="Say which model it runs, in step 3's Model field." onClick={() => document.getElementById("wf-model")?.focus()}>Needs a model name to save</Chip>}
         <span className="mx-1 h-6 w-px bg-line" />

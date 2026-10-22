@@ -69,9 +69,11 @@ function useDrag(set: (at: number) => void) {
 
 /**
  * The round accent button that plays and pauses: the one look of play in the app (the viewer, the music, the timeline's
- * player). `label` and `tip` where it plays something more particular (the timeline's range).
+ * player). `label` and `tip` where it plays something more particular (the timeline's range); `size` 44 in the full-screen
+ * player's bar, read from across the room.
  */
-export function PlayButton({ on, onClick, label, tip, disabled, className }: { on: boolean; onClick(): void; label?: string; tip?: string; disabled?: boolean; className?: string }) {
+export function PlayButton({ on, onClick, label, tip, disabled, className, size = 36 }: { on: boolean; onClick(): void; label?: string; tip?: string; disabled?: boolean; className?: string; size?: 36 | 44 }) {
+  const glyph = size === 44 ? 18 : 14;
   return (
     <button
       type="button"
@@ -83,9 +85,9 @@ export function PlayButton({ on, onClick, label, tip, disabled, className }: { o
         e.stopPropagation();
         onClick();
       }}
-      className={cx("flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink hover:brightness-110 disabled:opacity-40 disabled:hover:brightness-100", className)}
+      className={cx("flex shrink-0", size === 44 ? "h-11 w-11" : "h-9 w-9", " items-center justify-center rounded-full bg-accent text-accent-ink hover:brightness-110 disabled:opacity-40 disabled:hover:brightness-100", className)}
     >
-      {on ? <Pause size={14} fill="currentColor" strokeWidth={0} /> : <Play size={14} fill="currentColor" strokeWidth={0} className="translate-x-px" />}
+      {on ? <Pause size={glyph} fill="currentColor" strokeWidth={0} /> : <Play size={glyph} fill="currentColor" strokeWidth={0} className="translate-x-px" />}
     </button>
   );
 }

@@ -1,7 +1,7 @@
-import type { ReactNode } from "react";
-import { Bookmark, MapPin, Plus, Puzzle, Sparkles, User } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { Bookmark, MapPin, Plus, Puzzle, Search, Sparkles, User } from "lucide-react";
 import type { Entity } from "../../api";
-import { Button, PageHeader, SearchField, SegmentCount, Segmented } from "../../ui";
+import { Button, IconButton, PageHeader, SearchField, SegmentCount, Segmented } from "../../ui";
 
 export type Tab = "person" | "place" | "style" | "snippet" | "preset";
 export const TABS: Array<{ id: Tab; title: string; add: string; icon: ReactNode }> = [
@@ -31,6 +31,9 @@ export function KitHeader({ tab, onTab, all, loading, query, onQuery, newLabel, 
   extra?: ReactNode;
 }) {
   const here = TABS.find((t) => t.id === tab)!;
+  // the header folded its search to an icon, and the icon was pressed: the box lies over the header's right end
+  const [searching, setSearching] = useState(false);
+  const adds = newLabel ?? here.add;
   return (
     <PageHeader
       title="Prompt kit"
@@ -43,21 +46,38 @@ export function KitHeader({ tab, onTab, all, loading, query, onQuery, newLabel, 
           onChange={onTab}
         />
       }
-      actions={
+      // In a narrow window the search gives up width, then becomes an icon, and last the New button keeps its "+" with its
+      // words in the tip; the kinds' tabs never go.
+      folds={3}
+      foldKey={tab}
+      actions={(fold) => (
         <>
-          <SearchField
-            data-search
-            className="w-60"
-            label={`Search your ${here.title.toLowerCase()}`}
-            placeholder={`Search ${here.title.toLowerCase()}`}
-            value={query}
-            onChange={onQuery}
-            onClear={() => onQuery("")}
-          />
+          {fold >= 2 && !searching && !query ? (
+            <IconButton tone="outline" data-search-opener label={`Search your ${here.title.toLowerCase()}`} tip={`Search ${here.title.toLowerCase()} (/)`} onClick={() => setSearching(true)}>
+              <Search size={15} />
+            </IconButton>
+          ) : (
+            <SearchField
+              data-search
+              autoFocus={searching}
+              onBlur={() => setSearching(false)}
+              // folded and opened: over the header's right end rather than push the tabs out of it
+              className={fold >= 2 ? "absolute top-1/2 right-8 z-10 w-72 -translate-y-1/2 shadow-lg shadow-shade/40" : fold >= 1 ? "w-44" : "w-60"}
+              label={`Search your ${here.title.toLowerCase()}`}
+              placeholder={`Search ${here.title.toLowerCase()}`}
+              value={query}
+              onChange={onQuery}
+              onClear={() => onQuery("")}
+            />
+          )}
           {extra}
-          <Button size="sm" tone="primary" disabled={busy} onClick={onNew} className="shrink-0"><Plus size={14} /> {newLabel ?? here.add}</Button>
+          {fold >= 3 ? (
+            <IconButton tone="primary" disabled={busy} label={adds} onClick={onNew}><Plus size={15} /></IconButton>
+          ) : (
+            <Button size="sm" tone="primary" disabled={busy} onClick={onNew} className="shrink-0"><Plus size={14} /> {adds}</Button>
+          )}
         </>
-      }
+      )}
     />
   );
 }

@@ -43,8 +43,9 @@ export function FilesLine({ g }: { g: NonNullable<ReturnType<typeof gettingFiles
 /** A ring round a machine's dot that fills as its files come in: on its idle dot, or round its filled one while it renders. */
 function FilesRing({ share, running }: { share: number | null; running: boolean }) {
   const round = 2 * Math.PI * 4;
-  // a size not known: a quarter that turns, not a share
   return (
+    // a size not known: a quarter that turns, not a share
+    // design: the files ring's own turning quarter, drawn in the machine's dot (no Spinner fits 11 px)
     <svg aria-hidden width="11" height="11" viewBox="0 0 11 11" className={cx("shrink-0", share === null && "motion-safe:animate-spin")}>
       <circle cx="5.5" cy="5.5" r="4" fill={running ? "currentColor" : "none"} strokeWidth="1.8" className={running ? "text-accent stroke-accent" : "stroke-line-strong"} />
       <circle cx="5.5" cy="5.5" r="4" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeDasharray={`${Math.max(0.6, (share ?? 0.25) * round)} ${round}`} transform="rotate(-90 5.5 5.5)" className={running ? "stroke-ink" : "stroke-accent"} />
@@ -58,9 +59,9 @@ function FilesRing({ share, running }: { share: number | null; running: boolean 
  */
 /**
  * A machine on its way up, as its dot says it in the pill, its popover and its Queue lane: the idle ring it will be,
- * pulsing. Neither the warning of one away nor the accent of one getting files.
+ * pulsing. Neither the amber of one away nor the accent of one getting files.
  */
-export const STARTING_DOT = "animate-pulse border-[1.5px] border-good";
+export const STARTING_DOT = "animate-pulse border-[1.5px] border-good"; // design: a live dot, pulsing to say "on its way up"
 
 export function Dot({ m }: { m: MachineState }) {
   // a pod RunPod was not read for yet (Afflatus just started): grey and filled, as its lane says "checking", never the
@@ -68,7 +69,7 @@ export function Dot({ m }: { m: MachineState }) {
   if (m.rented?.status === "UNKNOWN") return <span aria-hidden data-state="checking" className="size-[7px] shrink-0 rounded-full bg-ink-3" />;
   // a rented pod that is not running: a grey ring while stopped, the starting look while it starts (its first start too,
   // RunPod saying it runs while its image is pulled). It was a pulsing warning dot, which read as an error in a theme
-  // whose warning is red: the warning is for a start that failed, as for a machine away
+  // whose warning is red: the warning is for a start that failed
   if (m.rented && (m.rented.status !== "RUNNING" || m.rented.booting)) {
     // a start that failed, or a ComfyUI that died on it (terminated as a crash): the warning, not the stopped ring
     if (m.rented.boot?.failed || m.rented.stoppedBy === "crash") return <span aria-hidden data-state="failed" className="size-[7px] shrink-0 rounded-full bg-warn" />;
@@ -77,7 +78,9 @@ export function Dot({ m }: { m: MachineState }) {
       ? <span aria-hidden data-state="starting" className={cx("size-[7px] shrink-0 rounded-full", STARTING_DOT)} />
       : <span aria-hidden data-state="stopped" className="size-[7px] shrink-0 rounded-full border-[1.5px] border-ink-3" />;
   }
-  if (m.online === false) return <span aria-hidden className="size-[7px] shrink-0 rounded-full bg-warn" />;
+  // away is amber, not red (the owner, 2026-10-22): a ComfyUI not answering often comes back by itself (restarting, a
+  // pod booting), a look rather than a failure; locked against Afflatus's token stays red, Afflatus cannot call it
+  if (m.online === false) return <span aria-hidden data-state={m.locked ? "locked" : "offline"} className={cx("size-[7px] shrink-0 rounded-full", m.locked ? "bg-warn" : "bg-attention")} />;
   // its ComfyUI at work for someone else (its own page): an accent ring filled with its wash, as its Queue lane has it,
   // never the idle ring
   if (!m.running && !m.paused && busyOutside(m)) return <span aria-hidden data-state="outside" className="size-[7px] shrink-0 rounded-full border-[1.5px] border-accent bg-accent-wash" />;

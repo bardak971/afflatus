@@ -267,6 +267,7 @@ function BackToLive({ id, onClick }: { id: string; onClick(): void }) {
   if (!job) return null;
   return (
     <button type="button" onClick={onClick} data-tip="Back to the live preview of the render under way" className="mb-2 flex shrink-0 items-center gap-2 self-center rounded-lg border border-line-strong bg-panel px-2.5 py-1 text-xs hover:bg-hover">
+      {/* design: a live dot, pulsing while the render it previews goes on */}
       <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-accent" />
       <span className="font-semibold">Live preview</span>
       <span className="font-mono text-meta text-ink-2">{phaseLabel(job.phase)}{job.steps ? ` · ${job.step}/${job.steps}` : ""}</span>

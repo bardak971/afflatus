@@ -200,8 +200,10 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
             {heldOutside(w) && <span className="min-w-0 truncate text-xs text-ink-2" data-tip={`${machineLabel(heldOutside(w)!)}: ${OUTSIDE_TIP}`}>· {machineLabel(heldOutside(w)!)} busy outside Afflatus</span>}
             {filesOf(w, i) ? <FilesChip of={filesOf(w, i)!} /> : <FetchNote w={w} machines={machines} />}
             {heldForPacks(w) && <span className="min-w-0 truncate text-xs text-ink-2" data-tip={`${machineLabel(heldForPacks(w)!)} takes no job until its ComfyUI restarts to load a node pack another job asked for: a job sent meanwhile would be lost in the restart.`}>· waits: {machineLabel(heldForPacks(w)!)}'s ComfyUI restarts for a node pack</span>}
-            {noGpu && w.kind !== "export" && w.kind !== "cut" && <span className="shrink-0 text-xs text-warn-ink" data-tip="No ComfyUI of your own is added and no rented GPU is up: it starts once one is (Deploy a GPU, above).">waits for a GPU</span>}
-            {ownWait(w) && <span className="shrink-0 text-xs text-warn-ink">waits for {plural(ownWait(w)!.files.length, "file")} on {ownWait(w)!.name}</span>}
+            {/* what holds it, by colour role (review 4): amber where it waits on the user (a GPU, a pack, a machine to
+                resume), neutral while its files come by themselves; red is for a job that failed */}
+            {noGpu && w.kind !== "export" && w.kind !== "cut" && <span className="shrink-0 text-xs text-attention-ink" data-tip="No ComfyUI of your own is added and no rented GPU is up: it starts once one is (Deploy a GPU, above).">waits for a GPU</span>}
+            {ownWait(w) && <span className="shrink-0 text-xs text-ink-2">waits for {plural(ownWait(w)!.files.length, "file")} on {ownWait(w)!.name}</span>}
             {w.packs && <PacksNote wait={w.packs} machine={machines.length ? machineLabel(machines.find((m) => m.id === w.packs!.machine) ?? { name: w.packs.machine, url: "" }) : null} onPacks={onPacks && ((what, packs) => onPacks(w.id, what, packs))} />}
             {machines.length > 0 && !w.pinned && w.runsOn?.length === 0 && (
               <Link href={settingHref("models.families")} className="shrink-0">
@@ -210,7 +212,7 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
             )}
             {/* only some machines can run it and none of those takes work now (paused, away): which, and why */}
             {machines.length > 0 && !w.pinned && !w.machine && Boolean(w.runsOn?.length) && (
-              <span className="min-w-0 truncate text-xs text-warn-ink" data-tip="Only these machines have its files (with its family on), and none of them takes work now. Resume one, or pin it to another machine (Run on) to download what it lacks there.">
+              <span className="min-w-0 truncate text-xs text-attention-ink" data-tip="Only these machines have its files (with its family on), and none of them takes work now. Resume one, or pin it to another machine (Run on) to download what it lacks there.">
                 waits for {w.runsOn!.map((id) => {
                   const m = machines.find((x) => x.id === id);
                   return `${m ? machineLabel(m) : id}${m?.paused ? " (paused)" : m?.online === false ? " (offline)" : m && busyOutside(m) ? " (busy outside Afflatus)" : ""}`;
@@ -253,14 +255,16 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
 function PacksNote({ wait, machine, onPacks }: { wait: PackWait; machine: string | null; onPacks?: (what: "install" | "without", packs: string[]) => void }) {
   const names = wait.packs.map((p) => p.name);
   const said = `the node pack${names.length > 1 ? "s" : ""} ${names.join(", ")}`;
-  const on = machine ? ` on ${machine}` : "";
   const comfy = machine ? `${machine}'s ComfyUI` : "ComfyUI";
   // only what every one of its packs can be done without: a pack it cannot run without (GGUF, Impact) leaves Install only
   const without = wait.packs.every((p) => p.without) ? wait.packs.map((p) => p.without).join(" and ") : null;
   if (wait.state === "ask") {
     return (
       <>
-        <span className="min-w-0 truncate text-xs text-warn-ink" data-tip={`It asks for ${said}, which ${machine ?? "your ComfyUI"} lacks. Settings › Machines can have such packs installed without asking.`}>waits for {said}{on}</span>
+        {/* short words, the packs named in the tip: their names ran the line out under Install and restart at 1100 px */}
+        <span className="min-w-0 truncate text-xs text-attention-ink" data-tip={`It asks for ${said}, which ${machine ?? "your ComfyUI"} lacks. Settings › Machines can have such packs installed without asking.`}>
+          waits for {names.length > 1 ? `${names.length} node packs` : "a node pack"}
+        </span>
         {onPacks && (
           <button type="button" className="shrink-0 text-xs font-semibold text-accent hover:underline" data-tip={`ComfyUI-Manager installs ${names.length > 1 ? "them" : "it"}; ${comfy} then restarts once nothing renders on it, from Afflatus or from outside.`} onClick={() => onPacks("install", names)}>
             Install and restart

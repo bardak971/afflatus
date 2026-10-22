@@ -372,7 +372,8 @@ function RunpodPods() {
               {machine && r?.status === "RUNNING" && !r.booting && r.answers !== false && <Button size="sm" onClick={() => openComfy.mutate(machine.id)} disabled={openComfy.isPending}>Open ComfyUI <ExternalLink size={12} /></Button>}
               {p.added
                 ? <Link href={`/settings?machine=${encodeURIComponent(p.added)}`} className="text-body font-semibold text-ink-2 hover:text-ink">Its card ›</Link>
-                : p.comfy && <Button size="sm" tone="primary" onClick={() => add.mutate(p.id)} disabled={add.isPending}>Add</Button>}
+                : // plain: Deploy above is the card's one coral action (a pod list of three had three coral buttons)
+                  p.comfy && <Button size="sm" onClick={() => add.mutate(p.id)} disabled={add.isPending}>Add</Button>}
             </span>
           </div>
         );

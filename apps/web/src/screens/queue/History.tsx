@@ -199,6 +199,17 @@ export const History = memo(function History() {
       return next;
     });
 
+  // nothing ever finished, failed or was cancelled (a first launch): there is nothing to filter, so the filters, the search
+  // and the model pick are not drawn, and the empty history stays small under the machine's card, which leads
+  const nothingYet = items.length === 0 && !jobs.isLoading && status === "all" && !typed && !model && counts !== undefined && counts.done + counts.failed + counts.cancelled === 0;
+  if (nothingYet) {
+    return (
+      <section aria-label="History" className="shrink-0">
+        <Empty title="Nothing finished yet" />
+      </section>
+    );
+  }
+
   return (
     // the page scrolls down to it, and there it is a window's height, its list scrolling inside under its filters (which so
     // stay in sight): sized by their content, each step of a running render had the browser measure the whole list again,
@@ -293,6 +304,7 @@ function Thumb({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): 
   const first = made[0];
   const box = "relative flex h-9 w-16 @max-[420px]/history:w-12 items-center justify-center overflow-hidden rounded-chip bg-raised text-ink-3";
   if (!first || head.kind === "cut" || head.kind === "export" || first.kind === "audio") {
+    // design: the × is the cancelled job's status icon in its thumbnail, not a close
     const icon = head.kind === "export" ? <FileOutput size={15} /> : head.kind === "cut" ? <Scissors size={15} /> : head.kind === "load" ? <Loader2 size={15} /> : first?.kind === "audio" ? <Music size={15} /> : head.status === "cancelled" ? <X size={15} /> : <Play size={15} />;
     return first ? <button type="button" aria-label={`Open ${first.name || first.kind}`} onClick={() => onOpen(first.id)} className={cx(box, "hover:text-ink")}>{icon}</button> : <span className={box}>{icon}</span>;
   }
