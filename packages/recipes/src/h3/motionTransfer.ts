@@ -1,16 +1,16 @@
 import { defineRecipe, gridAtOrBefore, type BuildContext, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type Variant } from "@afflatus/core";
 import { H3_FPS, H3_GRID } from "./family";
 import { h3Inputs, type H3Video } from "./inputs";
-import { buildH3, h3Video } from "./video";
+import { buildH3, h3Video, SHOT_WORDS } from "./video";
 import { H3_CONTINUATION_NODES, H3_SEAM, H3_TRIM } from "./join";
-import { H3_STARTS, modelOf, turboNeeds, vedaNeeds } from "./model";
+import { H3_STARTS, modelOf, referenceNeeds, turboNeeds, vedaNeeds } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
 import { upscaleNeeds } from "../video/upscale";
 import { rifeNeeds } from "../shared/finish";
 import { partBounds } from "../motion/driving";
 import { SWAP_FRAMES, SWAP_RUN_UP } from "./swap";
 import { controlled, frameBefore, MOTION_CHAPTER, motionControlInputs, motionNeeds, motionNodes, poseVideo, POSE_SDPOSE, type H3Motion } from "./motion";
-import { FACE_REFINE_SLOTS } from "./faceRefine";
+import { FACE_REFINE_SLOTS, faceRefineNeeds } from "./faceRefine";
 
 /**
  * MiniMax H3 · Motion transfer (the owner's, 2026-10-18; built 2026-10-20): a picture made to move like a driving video,
@@ -37,10 +37,13 @@ const MOTION_LEAST = 90;
 const MOTION_CARRIED = 22;
 const MOTION_PART = partBounds({ fps: H3_FPS, most: SWAP_FRAMES, least: MOTION_LEAST });
 
-/** H3's inputs this form does not take: the picture is its first frame, the driving video its length and shape, its sound the video's. */
+/**
+ * H3's inputs this form does not take: the picture is its first frame, the driving video its length and shape, its sound the
+ * video's; how the person looks is the form's own `look` (H3's `subject` was a second "How they look", landing elsewhere).
+ */
 const NOT_TAKEN = new Set([
   "description", "soundscape", "music", "start", "end", "mid", "midAt", "handover", "next", "landing",
-  "refVideos", "voice", "voiceStart", "voiceSeconds", "voiceEven", "seconds", "shape",
+  "refVideos", "voice", "voiceStart", "voiceSeconds", "voiceEven", "subject", "seconds", "shape",
 ]);
 
 const inputs: InputSpec[] = [
@@ -56,7 +59,7 @@ const inputs: InputSpec[] = [
     note: "what moves, its first frame: its room, its light and its people are kept, only the motion comes from the video. In the driving video's shape: the video is cut to the picture's from the centre",
   },
   // the prompt's parts (card #34): the prompt as sent written from them while it is left empty (motionFromParts)
-  { id: "look", type: "prompt", weights: false, label: "How they look", style: "sentences", line: true, optional: true, noCast: true, designed: true, placeholder: "short brown hair, a white shirt and jeans", note: "the person of the picture, in a few words: what H3 keeps of them. Shared by a source's windows" },
+  { id: "look", type: "prompt", weights: false, label: "How they look", style: "sentences", line: true, optional: true, noCast: true, designed: true, holds: "subject", placeholder: "short brown hair, a white shirt and jeans", note: "the person of the picture, in a few words: what H3 keeps of them. Shared by a source's windows" },
   { id: "happens", type: "prompt", weights: false, label: "What happens", style: "sentences", optional: true, noCast: true, designed: true, placeholder: "He dances in the living room, turning on the spot and raising his arms.", note: "in this part, in the present tense. Each window of a source keeps its own" },
   {
     // each window keeps its own (traits.windows.own): clip 6 of a source can show something else than clip 2
@@ -85,21 +88,22 @@ function framesOf(input: H3MotionTransfer, ctx: Pick<BuildContext, "media">): nu
  * start it), its own part the window less the frames carried, the cast's pictures as references.
  */
 /**
- * Motion transfer's prompt written from its parts (card #34): how the person looks, then what happens. Empty when both are:
- * the prompt is optional, H3 then follows the picture alone.
+ * Motion transfer's prompt written from its parts (card #34): the shot's words (card #27), how the person looks, then what
+ * happens. Empty when all are: the prompt is optional, H3 then follows the picture alone.
  */
-export function motionTransferFromParts(input: Pick<H3MotionTransfer, "look" | "happens">): string {
+export function motionTransferFromParts(input: Pick<H3MotionTransfer, "look" | "happens" | "shot">): string {
   const look = (input.look ?? "").trim().replace(/\s+/g, " ").replace(/[.!\s]+$/, "");
   const happens = (input.happens ?? "").trim().replace(/\s+/g, " ");
-  const said = [look ? `The person: ${look}.` : "", happens ? `${happens.charAt(0).toUpperCase()}${happens.slice(1)}${/[.!?]$/.test(happens) ? "" : "."}` : ""];
+  const said = [SHOT_WORDS[input.shot ?? ""] ?? "", look ? `The person: ${look}.` : "", happens ? `${happens.charAt(0).toUpperCase()}${happens.slice(1)}${/[.!?]$/.test(happens) ? "" : "."}` : ""];
   return said.filter(Boolean).join(" ");
 }
 
 function asClip(input: H3MotionTransfer, frames: number, carried: number): H3Video {
   return {
     ...input,
-    // typed, the prompt is the user's; else written from the parts
-    description: input.description.trim() || motionTransferFromParts(input),
+    // typed, the prompt is the user's, sent as it is; else written from the parts, the shot's words among them (shot "Any":
+    // buildH3 adds none of its own)
+    description: input.description.trim() || motionTransferFromParts(input), shot: "Any",
     start: input.previous ? undefined : input.picture,
     end: undefined, mid: undefined, next: undefined, voice: undefined, midAt: 0,
     soundscape: "", music: "", refVideos: [], handover: false, landing: "22",
@@ -108,6 +112,13 @@ function asClip(input: H3MotionTransfer, frames: number, carried: number): H3Vid
     shape: { width: 576, height: 1024 },
   };
 }
+
+/**
+ * The window as its nodes and files are read before it is built: carrying on, the clip before's last frame is one more
+ * picture of who moves (the reference route, as the build takes it where it can).
+ */
+const asWindow = (input: H3MotionTransfer): H3Video =>
+  ({ ...asClip(input, SWAP_FRAMES, input.previous ? MOTION_CARRIED : 0), ...(input.previous ? { references: [...input.references, { asset: "frame", role: "person" as const }] } : {}) });
 
 export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
   id: "h3.motion",
@@ -130,10 +141,15 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
   chapters: [MOTION_CHAPTER],
   starts: H3_STARTS,
   presets: h3Video.presets,
-  needsWith: (input, slots) => [...turboNeeds(input, slots), ...vedaNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...motionNeeds(input)],
+  // read on the window as it is built (asWindow): a window carrying on asks for the reference model its frame before is
+  // given by (a pod never had it, and rendered the window by the frames alone), and Veda's and Turbo's files for that model
+  needsWith: (input, slots) => {
+    const clip = asWindow(input);
+    return [...turboNeeds(clip, slots), ...referenceNeeds(clip, slots), ...vedaNeeds(clip, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...motionNeeds(input), ...faceRefineNeeds(input)];
+  },
   nodes: (input) => [...new Set([
     // carrying on, the clip before's last frame is a picture of who moves: the reference route (with H3's reference model there)
-    ...h3Video.nodes({ ...asClip(input, SWAP_FRAMES, input.previous ? MOTION_CARRIED : 0), ...(input.previous ? { references: [...input.references, { asset: "frame", role: "person" }] } : {}) }), ...motionNodes(input),
+    ...h3Video.nodes(asWindow(input)), ...motionNodes(input),
     ...(input.keepSound ? ["TrimAudioDuration"] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : []),
   // (carrying on with no cast photo, the frame is the only picture: nothing loaded from a file)
   ])].filter((n) => !(n === "LoadImage" && input.previous && input.references.length === 0)),
@@ -162,6 +178,8 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
     // when H3's reference route can run here: a reference model there, or a hybrid picked (else the frames carried alone)
     const canRefer = input.references.length > 0 || Boolean(ctx.slots.refUnet) || modelOf(clip, ctx.slots).hybrid;
     const built = buildH3(clip, asStart, {
+      // how the person looks, for Face refine's prompt (its one "How they look")
+      faceLook: input.look,
       ...(input.previous && canRefer ? { pictures: (g: GraphBuilder) => frameBefore(g, ctx) } : {}),
       ...(keep ? { sound: (g, _decoded, at) => drivingSound(g, at.frames) } : {}),
       ...(keep && input.soundGuide ? {

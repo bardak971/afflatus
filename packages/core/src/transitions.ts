@@ -73,16 +73,19 @@ export function transitionSpan(t: Transition | null | undefined, joined: "contin
 export const modelsDiffer = (before: { family?: string | null } | undefined, after: { family?: string | null } | undefined) =>
   Boolean(before?.family && after?.family && before.family !== after.family);
 
-/** A model as the join rule reads it: its family and what its traits say of carrying on. */
-type JoinModel = { family?: string | null; traits?: { continues?: "clip" | "frame" | false; latentNodes?: string[] } | null };
+/** A model as the join rule reads it: its family and what its traits say of carrying on, and of its frames. */
+type JoinModel = { family?: string | null; traits?: { continues?: "clip" | "frame" | false; latentNodes?: string[]; fps?: number; frameGrid?: unknown } | null };
 
 /**
  * How a clip of `after` meets a clip of `before` when it is put after it, by default: "seamless" when both carry on in one
  * kept latent (the same family, both joining in it: H3's five forms between them), "frames" when it carries on from the
- * clip before's frames (the same family otherwise: SCAIL-2's windows), "cut" when the model changes or `after` cannot carry
- * on at all. Extend stays possible across a change of model, with its warning (modelsDiffer): this is only where it starts.
+ * clip before's frames (the same family otherwise: SCAIL-2's windows), "cut" when the model changes, its frames do (SCAIL-2 at
+ * 16 fps then at 24: the frames handed over were another rate's), or `after` cannot carry on at all. Extend stays possible
+ * across a change of model, with its warning (modelsDiffer): this is only where it starts.
  */
 export function joinWay(before: JoinModel | undefined, after: JoinModel | undefined): "seamless" | "frames" | "cut" {
   if (!before || !after?.traits?.continues || modelsDiffer(before, after)) return "cut";
+  const [x, y] = [before.traits, after.traits];
+  if (x?.fps !== undefined && y.fps !== undefined && (x.fps !== y.fps || JSON.stringify(x.frameGrid) !== JSON.stringify(y.frameGrid))) return "cut";
   return before.traits?.latentNodes?.length && after.traits.latentNodes?.length ? "seamless" : "frames";
 }

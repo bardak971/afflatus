@@ -103,6 +103,11 @@ export interface VideoTraits {
      * made on one clip stays there unless given to all, and the source's form gives them only to the windows it makes.
      */
     own?: string[];
+    /**
+     * The model a source dropped on a timeline is made with when nothing else says which (no empty clip given one, no
+     * source before): the first recipe that has it, so that the timeline names no recipe of its own.
+     */
+    sourceDefault?: true;
   };
 }
 

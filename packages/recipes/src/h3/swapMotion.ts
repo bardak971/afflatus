@@ -1,6 +1,6 @@
 import { defineRecipe, type BuildContext, type BuiltGraph, type GraphBuilder, type Ref, type Variant } from "@afflatus/core";
 import { H3_FPS } from "./family";
-import { buildH3, h3Video } from "./video";
+import { buildH3, h3Video, SHOT_WORDS } from "./video";
 import { asClip, carriedOf, framesOf, h3Swap, SWAP_FRAMES, SWAP_GUIDE, SWAP_OWN, swapFromParts, typedPrompt, type H3Swap } from "./swap";
 import { controlled, frameBefore, MOTION_CHAPTER, motionControlInputs, motionNeeds, motionNodes, poseVideo, POSE_SDPOSE, type H3Motion } from "./motion";
 
@@ -47,11 +47,13 @@ export function motionPromptFrom(swap: string): string {
  * A window that carries on, written from the parts (card #34): the person by how they look, carrying on as in the clip
  * before, then what happens in this window. Nothing of the room or the light: H3 draws what is named.
  */
-export function motionFromParts(input: Pick<H3SwapMotion, "look" | "happens">): string {
+export function motionFromParts(input: Pick<H3SwapMotion, "look" | "happens" | "shot">): string {
   const look = (input.look ?? "").trim().replace(/\s+/g, " ").replace(/[.!\s]+$/, "");
   const happens = (input.happens ?? "").trim().replace(/\s+/g, " ");
   const first = `The person${look ? `, ${look},` : ""} carries on moving as in the clip before.`;
-  return happens ? `${first} ${happens.charAt(0).toUpperCase()}${happens.slice(1)}${/[.!?]$/.test(happens) ? "" : "."}` : look ? first : SWAP_MOTION_PROMPT;
+  const said = happens ? `${first} ${happens.charAt(0).toUpperCase()}${happens.slice(1)}${/[.!?]$/.test(happens) ? "" : "."}` : look ? first : SWAP_MOTION_PROMPT;
+  // the shot's words first (card #27), as the render had them and the prompt as sent did not
+  return [SHOT_WORDS[input.shot ?? ""] ?? "", said].filter(Boolean).join(" ");
 }
 
 const SWAP_MOTION_GUIDE = `${SWAP_GUIDE}
@@ -89,7 +91,8 @@ function motionWindow(input: H3SwapMotion, ctx: BuildContext): BuiltGraph {
   let heard: Ref | null = null;
   const sourceSound = (g: GraphBuilder, n: number) =>
     (heard ??= g.out("TrimAudioDuration", { audio: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.source }) }), 1], start_index: 0, duration: n / H3_FPS }));
-  const clip = { ...asClip(input, null, frames, carried, unet, size), description: who };
+  // (the shot's words are the parts' own: a prompt typed is sent as it is)
+  const clip = { ...asClip(input, null, frames, carried, unet, size), description: who, shot: "Any" };
   const built = buildH3(clip, asRef, {
     pictures: (g) => frameBefore(g, ctx),
     ...(keep ? { sound: (g, _decoded, at) => sourceSound(g, at.frames) } : {}),
@@ -103,6 +106,7 @@ function motionWindow(input: H3SwapMotion, ctx: BuildContext): BuiltGraph {
       return { model: made.model, loads: [`model_patches/${made.file}`, ...sd] };
     },
     vedaFor: "reference",
+    faceLook: input.look,
     ...(ctx.slots.refTurbo ?? ctx.slots.turbo ? { turbo: ctx.slots.refTurbo ?? ctx.slots.turbo } : {}),
   });
   // said on the job, the window rendered all the same

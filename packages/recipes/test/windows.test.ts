@@ -55,3 +55,9 @@ describe("every window a timeline makes of a source", () => {
     }
   });
 });
+
+describe("a source dropped on a timeline with nothing to say its model", () => {
+  it("is made with the first recipe named a source's default (the swap): the timeline names no recipe of its own", () => {
+    expect(recipes.find((r: Recipe<any>) => r.traits?.windows?.sourceDefault)?.id).toBe("h3.swap");
+  });
+});

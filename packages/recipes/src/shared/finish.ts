@@ -31,7 +31,7 @@ export interface ColourMatch {
 export const COLOUR_MATCH_INPUTS: InputSpec[] = [
   {
     id: "colourMatch", type: "toggle", label: "Colour match to the first frame", default: false, showWhen: "start", advanced: true, section: "out",
-    note: "pulls the clip's colours back to the start picture's when they drift (ComfyUI's ColorTransfer, Reinhard in Lab, one transform for the whole clip so nothing pumps). Off by default: it also damps a grade or a light change the clip means to make",
+    note: "follows the start picture moment by moment (the Afflatus node pack's Follow Colours, each second of the clip brought to the picture's colours): a drift and a light change the clip means to make are both pulled back, the opening left as it is. Without the pack, ComfyUI's ColorTransfer, one transform for the whole clip. Off by default",
   },
   { id: "colourStrength", type: "number", label: "Colour match strength", min: 0.1, max: 1, step: 0.05, default: 0.75, showWhen: "colourMatch", advanced: true, section: "out" },
 ];

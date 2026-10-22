@@ -75,7 +75,7 @@ export function Form(props: {
   /** Bring the prompt into view when the form opens on a short screen: the Create panel. A timeline clip's form stays where it is. */
   promptInView?: boolean;
 }) {
-  const written = useWrittenPrompt(props.recipe, props.stored);
+  const written = useWrittenPrompt(props.recipe, props.stored, props.given);
   const recipe = useMemo(
     () => (written ? { ...props.recipe, inputs: props.recipe.inputs.map((i) => (i.id === written.into && i.type === "prompt" ? { ...i, placeholder: written.text } : i)) } : props.recipe),
     [props.recipe, written],
@@ -83,9 +83,13 @@ export function Form(props: {
   return <FormOf {...props} recipe={recipe} />;
 }
 
-/** What the parts give the prompt as sent, asked once they stop changing (the server writes it by the recipe's own rules). */
-function useWrittenPrompt(recipe: RecipeInfo, stored: Record<string, unknown> | undefined): { into: string; text: string } | null {
-  const key = useSettled(useMemo(() => JSON.stringify(stored ?? {}), [stored]), 400);
+/**
+ * What the parts give the prompt as sent, asked once they stop changing (the server writes it by the recipe's own rules), with
+ * what the screen gives too (`given`: a timeline window's clip before, set at plan time): Swap motion's windows that carry on
+ * are written by the motion's rules, and showed the swap's caption, which the render never sends.
+ */
+export function useWrittenPrompt(recipe: RecipeInfo, stored: Record<string, unknown> | undefined, given?: Record<string, unknown>): { into: string; text: string } | null {
+  const key = useSettled(useMemo(() => JSON.stringify({ ...stored, ...given }), [stored, given]), 400);
   const asked = useQuery({
     queryKey: queryKeys.formPrompt(recipe.id, key),
     queryFn: () => api.formPrompt(recipe.id, JSON.parse(key) as Record<string, unknown>),

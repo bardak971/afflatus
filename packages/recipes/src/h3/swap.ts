@@ -4,12 +4,12 @@ import { modelOf, namedFor } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
 import { upscaleNeeds } from "../video/upscale";
 import { h3Inputs, type H3Video } from "./inputs";
-import { buildH3, h3Video, SHOT_WORDS, type H3Extra } from "./video";
+import { buildH3, h3Video, refinesOnly, SHOT_WORDS, type H3Extra } from "./video";
 import { saveVideo } from "../shared/out";
 import { rifeNeeds } from "../shared/finish";
 import { partBounds } from "../motion/driving";
 import { H3_CONTINUATION_NODES, H3_LANDINGS, H3_SEAM, H3_TRIM } from "./join";
-import { FACE_REFINE_SLOTS } from "./faceRefine";
+import { FACE_REFINE_SLOTS, faceRefineNeeds } from "./faceRefine";
 
 /**
  * MiniMax H3 · Swap character: a person in a video replaced by someone of the cast, the rest of the video kept. The
@@ -376,34 +376,45 @@ function masked(file: string, sam: string, m: MaskSettings, has: (cls: string) =
   let masks: string | null = null;
   let handed: Ref | null = null;
   let shown: string | null = null;
+  // the part's frames at the clip's size, SAM's tracking and the Swap Mask: what the latent is masked by and the paste-back reads
+  const prepare = (g: GraphBuilder, at: { width: number; height: number; frames: number }) => {
+    // asked for inside the sampling phase: the tracking and the mask are processing, not steps of the bar (SAM's 107
+    // tracked frames counted as sampling steps, the bar at 4 of 4 while H3 was at 2: the owner, 2026-10-18)
+    const was = g.at;
+    g.phase("processing");
+    part = g.out("ImageScale", {
+      image: g.out("ImageFromBatch", { image: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file }) }), 0], batch_index: 0, length: at.frames }),
+      upscale_method: "lanczos", width: at.width, height: at.height, crop: "disabled",
+    });
+    const model = g.add("CheckpointLoaderSimple", { ckpt_name: sam });
+    // SAM's own words missed the man in a crowd test; "man" with 8 tracks found him, the largest (§9.9)
+    const people = g.out("CLIPTextEncode", { clip: [model, 1], text: m.track.trim() || "person" });
+    const track = g.out("SAM3_VideoTrack", { images: part, model: [model, 0], detection_threshold: m.detectionThreshold, max_objects: m.maxObjects, detect_interval: m.detectInterval, conditioning: people });
+    handed = before ? g.out("ImageScale", { image: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: before.file }) }), 0], upscale_method: "lanczos", width: at.width, height: at.height, crop: "disabled" }) : null;
+    // the render kept 30 px past the person (was 10): his edges and a hand SAM lost no longer stop at the source's
+    // pixels (the owner's Bulin 47 take, 2026-10-17, §9.11); the node pack keeps it over the frames around each, from 0.24.0
+    // paste_reach only when not the node's own 3: a pack before 0.27.0 has no such input
+    masks = g.add("AfflatusSwapMask", { track_data: track, frames: at.frames, width: at.width, height: at.height, grow: m.grow, paste_grow: m.pasteGrow, paste_blur: m.pasteBlur, ...(m.pasteReach !== 3 ? { paste_reach: m.pasteReach } : {}), images: part, ...(handed ? { previous: handed } : {}), ...(click && !handed ? { pick_x: click.x, pick_y: click.y } : {}) });
+    // Show the mask: the masks drawn over the frames they were made from, saved as a short video of their own
+    if (preview) shown = preview(g, g.out("AfflatusSwapMaskPreview", { images: part, noise_mask: [masks, 0], paste_mask: [masks, 1] }));
+    g.phase(was);
+    return { part, masks };
+  };
   return {
     extra: {
       latent: (g, at) => {
-        // asked for inside the sampling phase: the tracking and the mask are processing, not steps of the bar (SAM's 107
-        // tracked frames counted as sampling steps, the bar at 4 of 4 while H3 was at 2: the owner, 2026-10-18)
+        const { part, masks } = prepare(g, at);
         const sampling = g.at;
         g.phase("processing");
-        part = g.out("ImageScale", {
-          image: g.out("ImageFromBatch", { image: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file }) }), 0], batch_index: 0, length: at.frames }),
-          upscale_method: "lanczos", width: at.width, height: at.height, crop: "disabled",
-        });
-        const model = g.add("CheckpointLoaderSimple", { ckpt_name: sam });
-        // SAM's own words missed the man in a crowd test; "man" with 8 tracks found him, the largest (§9.9)
-        const people = g.out("CLIPTextEncode", { clip: [model, 1], text: m.track.trim() || "person" });
-        const track = g.out("SAM3_VideoTrack", { images: part, model: [model, 0], detection_threshold: m.detectionThreshold, max_objects: m.maxObjects, detect_interval: m.detectInterval, conditioning: people });
-        handed = before ? g.out("ImageScale", { image: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: before.file }) }), 0], upscale_method: "lanczos", width: at.width, height: at.height, crop: "disabled" }) : null;
-        // the render kept 30 px past the person (was 10): his edges and a hand SAM lost no longer stop at the source's
-        // pixels (the owner's Bulin 47 take, 2026-10-17, §9.11); the node pack keeps it over the frames around each, from 0.24.0
-        // paste_reach only when not the node's own 3: a pack before 0.27.0 has no such input
-        masks = g.add("AfflatusSwapMask", { track_data: track, frames: at.frames, width: at.width, height: at.height, grow: m.grow, paste_grow: m.pasteGrow, paste_blur: m.pasteBlur, ...(m.pasteReach !== 3 ? { paste_reach: m.pasteReach } : {}), images: part, ...(handed ? { previous: handed } : {}), ...(click && !handed ? { pick_x: click.x, pick_y: click.y } : {}) });
-        // Show the mask: the masks drawn over the frames they were made from, saved as a short video of their own
-        if (preview) shown = preview(g, g.out("AfflatusSwapMaskPreview", { images: part, noise_mask: [masks, 0], paste_mask: [masks, 1] }));
         const video = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: part, vae: at.vae }), mask: [masks, 0] });
         const joined = g.out("LTXVConcatAVLatent", { video_latent: video, audio_latent: [g.add("LTXVSeparateAVLatent", { av_latent: at.latent }), 1] });
         g.phase(sampling);
         return joined;
       },
-      frames: (g, images) => {
+      // a Finish › Face refine samples nothing: the part and its masks are made for the paste-back alone, so that the take's
+      // faces are redrawn over the frames it showed (the source's pixels outside the person), not its unpasted latent
+      frames: (g, images, at) => {
+        if (!part || !masks) prepare(g, at);
         if (!part || !masks) return images;
         // carrying on: the colours of the window before, its last handed-over frame against this window's frame at the same
         // moment (the last one carried), the one transform on every frame, so its own changes along the window are kept
@@ -437,7 +448,7 @@ export const h3Swap = defineRecipe<H3Swap>({
   // the prompt as sent written from the parts while it is left empty (card #34)
   partsInto: "who",
   promptFromParts: (input) => swapFromParts(input, Math.max(1, input.references?.length ?? 0)),
-  traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], faceRefine: "faceRefine", windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED, runUp: SWAP_RUN_UP, own: SWAP_OWN } },
+  traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], faceRefine: "faceRefine", windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED, runUp: SWAP_RUN_UP, own: SWAP_OWN, sourceDefault: true } },
   inputs: swapInputs,
   guide: SWAP_GUIDE,
   // a character swap's form: the model, its takes, who is replaced and how, then the rest as any form (the owner, 2026-10-18)
@@ -458,10 +469,12 @@ export const h3Swap = defineRecipe<H3Swap>({
     ...latentUpscaleNeeds(input),
     ...upscaleNeeds(input),
     ...rifeNeeds(input.smooth),
+    // Face refine's files with it on: a pod was never sent them, and a Finish › Face refine there decoded the take as it was
+    ...faceRefineNeeds(input),
     ...(input.fast && !modelOf({ ...input, model: input.swapModel ?? slots.swapUnet, turboIn: "From the name" }, slots).turbo && !slots.refTurbo && !slots.turbo ? ["refTurbo"] : []),
   ],
   // Show the mask runs the tracking and the masks alone (MASK_NODES, the preview node and the video out are optional)
-  nodes: (input) => input.maskPreview ? ["LoadVideo", "GetVideoComponents"] : [...new Set([...h3Video.nodes(asClip(input, "swap.safetensors", SWAP_FRAMES, 0, "minimax_h3_ref2va.safetensors")), "LoraLoaderModelOnly", ...(input.keepSound ? ["TrimAudioDuration"] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : [])])],
+  nodes: (input) => input.maskPreview ? ["LoadVideo", "GetVideoComponents"] : [...new Set([...h3Video.nodes(asClip(input, "swap.safetensors", SWAP_FRAMES, 0, "minimax_h3_ref2va.safetensors")), ...(refinesOnly(input) ? [] : ["LoraLoaderModelOnly"]), ...(input.keepSound ? ["TrimAudioDuration"] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : [])])],
   // the mask's nodes are not asked of a machine: one without them (an older node pack) swaps unmasked, and the job says so
   // Veda's node only serves its toggle, and without its pack the swap runs the full attention and says so on the job: an
   // optional node, so that it never stops a render and Settings › Models offers its pack among the optional ones
@@ -474,6 +487,9 @@ export const h3Swap = defineRecipe<H3Swap>({
     if (!swapLora) throw new Error("The swap needs the Character-Swap LoRA: h3_character_swap_v1.5.safetensors in ComfyUI's models/loras folder (Settings › Models has it).");
     const unet = input.swapModel ?? ctx.slots.swapUnet;
     if (!unet) throw new Error("The swap needs MiniMax H3's reference model, the one its LoRA was trained on: minimax_h3_ref2va_*.safetensors in ComfyUI's models/diffusion_models folder (Settings › Models has it).");
+    // the prompt written for the file that renders: the fused turbo's own sentences went with the form's Model only, and
+    // were left out when the model was the slot's
+    const asSent = { ...input, swapModel: unet };
     const frames = framesOf(input, ctx);
     const carried = carriedOf(input, ctx);
     const source = ctx.media.source;
@@ -494,7 +510,7 @@ export const h3Swap = defineRecipe<H3Swap>({
     const sourceSound = (g: GraphBuilder, frames: number) =>
       (heard ??= g.out("TrimAudioDuration", { audio: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.source }) }), 1], start_index: 0, duration: frames / H3_FPS }));
     const built = buildH3(asClip(input, swapLora, frames, carried, unet, size), asRef, {
-      prompt: (pictures) => swapPrompt(swapSent(input, pictures), pictures),
+      prompt: (pictures) => swapPrompt(swapSent(asSent, pictures), pictures),
       // the file's sound: the source's own over the window
       ...(keep ? { sound: (g, _decoded, at) => sourceSound(g, at.frames) } : {}),
       // and, asked for, the same sound anchored from the window's first frame, as Lip sync anchors its recording
@@ -502,13 +518,15 @@ export const h3Swap = defineRecipe<H3Swap>({
         guide: (g, at) => g.out("MiniMaxH3AddGuide", { positive: at.positive, latent: at.latent, vae: at.vae, audio_vae: at.audioVae, audio: sourceSound(g, at.frames), frame_idx: 0 }),
       } : {}),
       ...(mask?.extra ?? {}),
+      // how the one who goes in looks, for Face refine's prompt
+      faceLook: input.look,
       vedaFor: "reference",
       ...(input.denoise < 1 ? { denoise: input.denoise } : {}),
       // the reference model's own turbo LoRA, else the usual one (a distilled model takes neither)
       ...(ctx.slots.refTurbo ?? ctx.slots.turbo ? { turbo: ctx.slots.refTurbo ?? ctx.slots.turbo } : {}),
     });
     // a prompt that names neither the source nor the cast's picture still runs: H3 may then leave them out, and the job says so
-    const lacks = swapPromptLacks(swapSent(input, Math.max(1, input.references.length)), input.references.length).map((tag) => `The prompt has no ${tag}: H3 may not use ${tag === "<Video 1>" ? "the source video" : "the cast's picture"}.`);
+    const lacks = swapPromptLacks(swapSent(asSent, Math.max(1, input.references.length)), input.references.length).map((tag) => `The prompt has no ${tag}: H3 may not use ${tag === "<Video 1>" ? "the source video" : "the cast's picture"}.`);
     // Difference asked for and the pack not yet loaded: pasted by the mask, and said
     const pasted = input.maskOn && input.paste === "Difference" && !ctx.has("AfflatusSwapPaste") ? ["Paste by Difference needs the Afflatus node pack 0.29.0 (restart ComfyUI to load it): pasted by the mask."] : [];
     const notes = [...lacks, ...pasted];
@@ -525,8 +543,9 @@ export const h3Swap = defineRecipe<H3Swap>({
     }
     const said = mask?.node();
     if (said) return { ...warned, outputs: [...warned.outputs, { node: said, kind: "image", role: "note" }] };
-    // the Mask turned off: the whole frame redrawn, as asked
-    if (!input.maskOn) return warned;
+    // the Mask turned off: the whole frame redrawn, as asked. Its nodes and SAM there but no mask made: a finish by the latent
+    // re-sample, which redraws every pixel and pastes nothing back (finish.ts), not a pack without the Swap Mask
+    if (!input.maskOn || mask) return warned;
     const why = sam ? "this ComfyUI's Afflatus node pack has no Swap Mask yet (0.22.0 on; ComfyUI loads a newer pack when it restarts)" : "SAM 3.1 is not on this ComfyUI (Settings › Models has it)";
     return { ...warned, warnings: [...(warned.warnings ?? []), `Swapped without a mask, the whole frame redrawn: ${why}.`] };
   },

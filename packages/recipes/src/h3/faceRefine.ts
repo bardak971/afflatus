@@ -57,15 +57,30 @@ export function facePicture(input: Pick<H3Video, "references">, ctx: Pick<BuildC
 }
 
 /**
+ * The family's files a clip with Face refine on needs (Recipe.needsWith, and a Finish › Face refine of a take that keeps no
+ * latent): the fused reference turbo and the face detector, the person detector and SAM the pass uses when they are there
+ * (a pod is sent only what its graph loads: SAM only where its nodes are), and with `own` (a recipe that is not H3's) H3's
+ * text encoder and VAEs. Optional in the family, they were asked for by no form: on a fresh pod the pass was left out, and
+ * a Finish › Face refine was a paid decode of the take as it was.
+ */
+export function faceRefineNeeds(input: Partial<Pick<H3Video, "faceRefine">>, opts: { own?: boolean } = {}): string[] {
+  if (!input.faceRefine) return [];
+  return ["faceRefineUnet", "faceDetector", "faceSeg", "faceSam", ...(opts.own ? ["faceClip", "faceVideoVae", "faceAudioVae"] : [])];
+}
+
+/**
  * Why a clip with Face refine on is made without it, or null when it is refined (said on its job). `own`: the recipe has
  * none of H3's text encoder and VAEs of its own (SCAIL), so the pass loads them from the family's Face refine slots.
+ * `audio`: the clip's sound is held while the crops are redrawn, by the Afflatus node pack's audio lock.
  */
-export function faceRefineSkipped(input: Pick<H3Video, "faceRefine" | "references">, ctx: Pick<BuildContext, "uploads" | "slots">, opts: { picture?: string; own?: boolean } = {}): string | null {
+export function faceRefineSkipped(input: Pick<H3Video, "faceRefine" | "references">, ctx: Pick<BuildContext, "uploads" | "slots"> & Partial<Pick<BuildContext, "has">>, opts: { picture?: string; own?: boolean; audio?: boolean } = {}): string | null {
   if (!input.faceRefine) return null;
   if (!facePicture(input, ctx, opts.picture)) return "Not face-refined: the clip has no person's picture (a cast person or a reference picture).";
   if (opts.own && !(ctx.slots.faceClip && ctx.slots.faceVideoVae && ctx.slots.faceAudioVae)) return "Not face-refined: MiniMax H3's text encoder and VAEs are not on this ComfyUI (Settings › Models has them, with the model's Face refine files).";
   if (!ctx.slots.faceRefineUnet) return "Not face-refined: no fused reference turbo model on this ComfyUI (Settings › Models has it, under MiniMax H3).";
   if (!ctx.slots.faceDetector) return "Not face-refined: no face detector on this ComfyUI (face_yolov8m.pt in models/ultralytics/bbox; Settings › Models has it).";
+  // an older pack (before 0.32.0) has no audio lock: the pass was left out without a word, and the take named a face pass
+  if (opts.audio && ctx.has && !ctx.has(AUDIO_LOCK)) return "Not face-refined: this ComfyUI's Afflatus node pack has no H3 Audio Lock yet (0.32.0 on; ComfyUI loads a newer pack when it restarts).";
   return null;
 }
 
@@ -92,10 +107,10 @@ export function faceRefined(
 ): FaceRefined {
   const as: FaceRefined = { images, pass: null, loads: [] };
   const own = !at.clip;
-  if (!input.faceRefine || faceRefineSkipped(input, ctx, { picture: at.picture, own })) return as;
+  if (!input.faceRefine || faceRefineSkipped(input, ctx, { picture: at.picture, own, audio: Boolean(at.audio) })) return as;
   if (!wanted(ctx, { input: "faceRefine", nodes: [FACE_STITCH], without: "Face refine" })) return as;
   const face = facePicture(input, ctx, at.picture);
-  if (!face || (at.audio && !ctx.has(AUDIO_LOCK))) return as;
+  if (!face) return as;
   const { slots } = ctx;
   g.phase("refining");
   const clip = at.clip ?? g.out("CLIPLoader", { clip_name: slots.faceClip, type: "minimax", device: "default" });

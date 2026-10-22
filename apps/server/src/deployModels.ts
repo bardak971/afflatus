@@ -1,6 +1,6 @@
 import type { Scan } from "@afflatus/comfy";
-import { fileKey, TOOLS_FAMILY, type PresetFile } from "@afflatus/core";
-import { filesOfLoaded, filesUsed } from "./machineScans";
+import { fileKey, type PresetFile } from "@afflatus/core";
+import { filesOfLoaded, filesUsed, toolSlots } from "./machineScans";
 import type { JobRow } from "./queueModel";
 import { filesOf, parseSetDef } from "./modelSets";
 import { measuredRange, type MeasureKind, type Range } from "./podMeasures";
@@ -62,7 +62,7 @@ export async function deployFiles(s: Services, ask: Pick<DeployAsk, "set" | "fil
 export async function waitingFiles(s: Services, r: JobRow, scan: Scan | null): Promise<Array<{ file: string; folder: string; url?: string }>> {
   const loaded = await s.queue.loadedOnNew(r);
   const recipe = s.registry.recipe(r.recipe_id);
-  if (!recipe) return loaded ? filesOfLoaded(loaded, s.registry.family(TOOLS_FAMILY)?.slots ?? []) : [];
+  if (!recipe) return loaded ? filesOfLoaded(loaded, toolSlots(s.registry)) : [];
   return filesUsed(recipe, readJson<Record<string, unknown>>(r.inputs, {}), scan, s.registry.family(recipe.family)?.slots ?? [], loaded);
 }
 

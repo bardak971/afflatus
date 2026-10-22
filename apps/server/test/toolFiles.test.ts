@@ -8,8 +8,8 @@ import { missingSlotFile, type GraphFile } from "@afflatus/core";
 import { newId, now, OWNER } from "../src/db";
 import { waitingFiles } from "../src/deployModels";
 import { loadedOn } from "../src/jobFiles";
-import { toolLackOn } from "../src/machineScans";
-import { RIFE_GET } from "@afflatus/recipes";
+import { toolLackOn, toolSlots } from "../src/machineScans";
+import { FACE_REFINE_NODES, RIFE_GET, families } from "@afflatus/recipes";
 import { CUT_JOB } from "../src/timelineModel";
 import { toolNeeds } from "../src/queueTools";
 import type { QueueCore } from "../src/queueModel";
@@ -161,5 +161,35 @@ describe("toolLackOn", () => {
     expect(toolLackOn({ files: [], absent: [f(missingSlotFile("rife"), "frame_interpolation", "rife")] }, slots)).toEqual({
       off: false, sendable: false, files: [], why: "no RIFE model to send it: none in this PC's models/frame_interpolation either",
     });
+  });
+});
+
+describe("Finish › Face refine of a take that keeps no latent (SCAIL-2 at 24 fps)", () => {
+  const face = (asset: string) => cut({ asset, action: "finish", route: "face", family: "scail", picture: "zz-test-picture" });
+  const get = (id: string) => families.find((f) => f.id === "scail")!.slots.find((x) => x.id === id)!.get!;
+  const core = () => (t.services.queue as unknown as { core: QueueCore }).core;
+
+  it("sends a pod Face refine's files, H3's text encoder and VAEs among them, with their downloads: none of SeedVR2's", async () => {
+    const files = await waitingFiles(t.services, face(await take(false)) as never, null);
+    for (const id of ["faceRefineUnet", "faceDetector", "faceSeg", "faceClip", "faceVideoVae", "faceAudioVae"]) {
+      expect(files, id).toContainEqual(expect.objectContaining({ file: get(id).file, url: get(id).url }));
+    }
+    expect(files.map((f) => f.file)).not.toContain(SEEDVR);
+  });
+
+  it("asks for Face refine's pack where it lacks, never SeedVR2's nodes; a machine of the user's own does without the person detector and SAM", async () => {
+    const comfy = await t.services.comfy();
+    const catalog = await comfy.catalog();
+    fake.catalog = Object.fromEntries(Object.entries(catalog).filter(([k]) => !FACE_REFINE_NODES.includes(k) && !k.startsWith("SeedVR2"))) as never;
+    comfy.forgetAll();
+    const on = { id: "m1", comfy, scan: await comfy.scan() };
+    const loaded = (await loadedOn(core(), face(await take(false)), on))!;
+    expect(loaded.missingNodes).toEqual(FACE_REFINE_NODES);
+    const own = toolLackOn(loaded, toolSlots(t.services.registry), { rented: undefined });
+    expect(own).toMatchObject({ packs: ["comfyui-h3-facerefine"], sendable: true });
+    expect(own!.files.map((f) => f.file)).toContain(get("faceRefineUnet").file);
+    expect(own!.files.map((f) => f.file)).not.toContain(get("faceSeg").file);
+    const pod = toolLackOn(loaded, toolSlots(t.services.registry), { rented: { provider: "runpod" } as never });
+    expect(pod!.files.map((f) => f.file)).toContain(get("faceSeg").file);
   });
 });

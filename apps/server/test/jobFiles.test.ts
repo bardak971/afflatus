@@ -18,6 +18,7 @@ import { CHECKPOINT, makeApp, post, referenceCatalog, until, type TestApp } from
 
 const FUSED = "minimax_h3_fused_refdelta_r1024_turbo8_mystic07_int8_convrot.safetensors";
 const SWAP_LORA = "h3_character_swap_v1.5.safetensors";
+const REF2VA = "minimax_h3_ref2va_pruned_int8_convrot.safetensors";
 const slot = (id: string) => h3.slots.find((s) => s.id === id)!;
 const download = (id: string) => slot(id).get!.file;
 
@@ -104,9 +105,9 @@ describe("the files a pod is sent for a waiting job", () => {
     expect(files).toContainEqual({ file: "RealESRGAN_x4plus_anime_6B.pth", folder: "upscale_models" });
   });
 
-  it("fall back to the family's slots, and say so, for a job whose graph cannot be built", async () => {
+  it("fall back to the family's slots, and say so, for a job whose form cannot be read", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    // no source video: a swap cannot be built
+    // no source video: a swap's form cannot be read
     const r = row("h3.swap", { who: "the man", references: [], swapModel: FUSED });
     expect(await t.services.queue.loadedOnNew(r)).toBeNull();
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/its files are counted by its family's slots/));
@@ -114,6 +115,49 @@ describe("the files a pod is sent for a waiting job", () => {
     // the slot rule names each slot by its download too
     expect(files).toContain(download("videoVae"));
     expect(files).not.toContain("minimax_h3_video_vae_fp16.safetensors");
+  });
+
+  it("are none for a job whose graph cannot be built even for a pod that has nothing yet: kept off, in the build's words", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Show the mask with the Mask off: a swap that cannot be built anywhere. Counted by its family's slots, a fresh pod was
+    // sent them for nothing, and the job failed at its submit
+    const r = await swapRow({ maskPreview: true, maskOn: false });
+    const loaded = await t.services.queue.loadedOnNew(r);
+    expect(loaded).toEqual({ files: [], absent: [], refused: "Show the mask needs the Mask on." });
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/its graph cannot be built, even for a pod that has nothing yet/));
+    expect(filesUsed(t.services.registry.recipe("h3.swap")!, JSON.parse(r.inputs), null, h3.slots, loaded)).toEqual([]);
+    const scan = await (await t.services.comfy()).scan();
+    expect(lackOn(t.services.registry.recipe("h3.swap")!, JSON.parse(r.inputs), scan, { families: {} }, { families: {}, rented: { provider: "runpod" } as never }, () => "h3", loaded)).toMatchObject({ sendable: false, why: "it cannot be built there: Show the mask needs the Mask on." });
+    // on a machine it is built on, and once more as for a fresh pod: the same
+    const on = { id: "m1", comfy: await t.services.comfy(), scan };
+    expect(await loadedOn((t.services.queue as unknown as { core: QueueCore }).core, r, on)).toEqual({ files: [], absent: [], refused: "Show the mask needs the Mask on." });
+  });
+
+  it("are MiniMax's reference model, not the frames model, for a clip with the cast's picture (a fresh pod was sent fl2va, refused at its submit)", async () => {
+    const cast = [{ asset: "zz-test-person", role: "person" }];
+    for (const r of [
+      row("h3.video", { description: "a man waves", seconds: 5, references: cast }),
+      row("h3.lipsync", { description: "a man talks", recording: "zz-test-voice", references: cast }),
+      row("h3.motion", { picture: "zz-test-picture", driving: { asset: await video() }, references: cast }),
+    ]) {
+      const files = (await deployed(r)).map((f) => f.file);
+      expect(files, r.recipe_id).toContain(download("refUnet"));
+      expect(files, r.recipe_id).not.toContain(download("unet"));
+    }
+    // a window of Motion transfer that carries on is given the frame before as a picture: the reference model too, cast or not
+    const window = row("h3.motion", { picture: "zz-test-picture", driving: { asset: await video() }, previous: { asset: await video() }, references: [] });
+    expect((await deployed(window)).map((f) => f.file)).toContain(download("refUnet"));
+  });
+
+  it("are Face refine's own files with it on, and for a Finish › Face refine not the model and LoRA it never samples with", async () => {
+    const face = [download("faceRefineUnet"), download("faceDetector"), download("faceSeg")];
+    expect((await deployed(await swapRow({ faceRefine: true, references: [{ asset: "zz-test-person", role: "person" }] }))).map((f) => f.file)).toEqual(expect.arrayContaining(face));
+    // (the fused turbo is Face refine's own model: the swap's is another here)
+    const finish = { ...(await swapRow({ swapModel: REF2VA, faceRefine: true, faceRefineOnly: true, references: [{ asset: "zz-test-person", role: "person" }] })), finished_from: "zz-test-take" };
+    const files = (await deployed(finish)).map((f) => f.file);
+    expect(files).toEqual(expect.arrayContaining(face));
+    expect(files).not.toContain(REF2VA);
+    expect(files).not.toContain(SWAP_LORA);
   });
 });
 
