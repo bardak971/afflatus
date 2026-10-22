@@ -5,8 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { migrate, openSqlite } from "../src/db";
-import { readSettings, seedNewInstall, writeSettings } from "../src/settings";
-import { complete, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
+import { readSettings, seedNewInstall, updateSettings, writeSettings } from "../src/settings";
+import type { QueueOptions } from "../src/queue";
+import { complete, FAST, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
 /**
  * Where you render (card #20, the owner 2026-10-20): a new install starts with no ComfyUI expected, every family on, the
@@ -43,6 +44,31 @@ describe("a new install's settings", () => {
     const none = await writeSettings(db, { machines: [] });
     expect(none.machines).toEqual([]);
     expect(none.comfyUrl).toBe("http://127.0.0.1:8000");
+    await db.destroy();
+  });
+
+  it("drops the old ComfyUI's folder when the address moves to another one, and keeps it for the same one", async () => {
+    const db = openSqlite(":memory:");
+    await migrate(db);
+    await seedNewInstall(db);
+    await writeSettings(db, { comfyUrl: "http://127.0.0.1:8000", comfyDir: "/zz-test/ComfyUI" });
+    expect((await writeSettings(db, { comfyUrl: "http://127.0.0.1:8000/" })).comfyDir).toBe("/zz-test/ComfyUI");
+    const moved = await writeSettings(db, { comfyUrl: "http://127.0.0.1:8188" });
+    expect(moved.comfyDir).toBe("");
+    expect(moved.machines[0]!.dir).toBe("");
+    await db.destroy();
+  });
+
+  it("never keeps a pod's address as the one offered for the user's own ComfyUI once the pod is gone", async () => {
+    const db = openSqlite(":memory:");
+    await migrate(db);
+    await seedNewInstall(db);
+    const pod = "https://zz-test-8188.proxy.runpod.net";
+    await updateSettings(db, () => ({ machines: [{ id: "p1", url: pod, rented: { provider: "runpod", pod: "zz-test" } }] }));
+    // the pod removed: the list empty, the address the one before it, not the pod's
+    const none = await updateSettings(db, () => ({ machines: [] }));
+    expect(none.machines).toEqual([]);
+    expect(none.comfyUrl).not.toBe(pod);
     await db.destroy();
   });
 
@@ -130,6 +156,61 @@ describe("a family's official file missing on the user's own ComfyUI", () => {
     await until(async () => (await t!.db.selectFrom("jobs").select("status").where("id", "=", id).executeTakeFirstOrThrow()).status === "done");
   });
 
+  it("notices a file put in by hand, its machine's folders read again while the job waits", async () => {
+    fake = await startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: ["illustrious.safetensors"], upscale_models: [] } });
+    t = await makeApp({ comfyUrl: fake.url });
+    // a minute in use: a twentieth of a second here
+    (t.services.queue as unknown as { opts: QueueOptions }).opts = { ...FAST, filesRetryMs: 50 };
+    await t.services.queue.start();
+    const id = (await post(t.app, "/api/jobs", { recipe: RECIPE, input: { prompt: "a lighthouse at noon", checkpoint: SDXL_BASE } })).json().ids[0] as string;
+    const waiting = async () => (await t!.app.inject({ method: "GET", url: "/api/queue" })).json().waiting.find((w: { id: string }) => w.id === id);
+    await until(async () => Boolean((await waiting())?.fetch?.m1));
+    // put in by hand: nothing tells Afflatus, no rescan is pressed
+    fake.models.checkpoints!.push(SDXL_BASE);
+    const spec = fake.catalog.CheckpointLoaderSimple!.input.required!.ckpt_name as unknown[];
+    const list = Array.isArray(spec[0]) ? (spec[0] as string[]) : (spec[1] as { options: string[] }).options;
+    list.push(SDXL_BASE);
+    await until(() => fake!.prompts.size === 1);
+  });
+
+  it("does not hold a job on a lone ComfyUI for a file only its workflow's author gives an address for, downloads off", async () => {
+    fake = await startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: ["illustrious.safetensors"], upscale_models: [] } });
+    t = await makeApp({ comfyUrl: fake.url });
+    // the address an imported workflow's author gives for its checkpoint (Recipe.files), not a family's official file
+    const recipe = t.services.registry.recipe(RECIPE)! as { files?: unknown };
+    const files = recipe.files;
+    recipe.files = [{ classType: "CheckpointLoaderSimple", input: "ckpt_name", file: "zz-test-authors.safetensors", url: "https://example.com/zz-test-authors.safetensors" }];
+    try {
+      await t.services.queue.start();
+      const id = (await post(t.app, "/api/jobs", { recipe: RECIPE, input: { prompt: "a lighthouse at noon", checkpoint: "zz-test-authors.safetensors" } })).json().ids[0] as string;
+      // it goes to ComfyUI, which says what it lacks, as a lone ComfyUI always did: no wait with no Download
+      await until(async () => fake!.prompts.size === 1 || (await t!.db.selectFrom("jobs").select("status").where("id", "=", id).executeTakeFirstOrThrow()).status === "failed");
+      const waiting = (await t.app.inject({ method: "GET", url: "/api/queue" })).json().waiting.find((w: { id: string }) => w.id === id);
+      expect(waiting?.fetch?.m1).toBeUndefined();
+    } finally {
+      recipe.files = files;
+    }
+  });
+
+  it("holds that job for its Download once downloads and lookups are on", async () => {
+    fake = await startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: ["illustrious.safetensors"], upscale_models: [] } });
+    t = await makeApp({ comfyUrl: fake.url });
+    await writeSettings(t.db, { downloadModels: true, civitaiLookups: true });
+    const recipe = t.services.registry.recipe(RECIPE)! as { files?: unknown };
+    const files = recipe.files;
+    recipe.files = [{ classType: "CheckpointLoaderSimple", input: "ckpt_name", file: "zz-test-authors.safetensors", url: "https://example.com/zz-test-authors.safetensors" }];
+    try {
+      await t.services.queue.start();
+      const id = (await post(t.app, "/api/jobs", { recipe: RECIPE, input: { prompt: "a lighthouse at noon", checkpoint: "zz-test-authors.safetensors" } })).json().ids[0] as string;
+      const waiting = async () => (await t!.app.inject({ method: "GET", url: "/api/queue" })).json().waiting.find((w: { id: string }) => w.id === id);
+      await until(async () => Boolean((await waiting())?.fetch?.m1));
+      expect((await waiting()).fetch.m1.files).toEqual([expect.objectContaining({ file: "zz-test-authors.safetensors", url: "https://example.com/zz-test-authors.safetensors" })]);
+      expect(fake.prompts.size).toBe(0);
+    } finally {
+      recipe.files = files;
+    }
+  });
+
   it("is downloaded on a press even with downloads and lookups off: the press is the consent", async () => {
     t = await makeApp();
     const settings = await readSettings(t.db);
@@ -159,6 +240,37 @@ describe("finding a ComfyUI without saving it", () => {
 });
 
 describe("the user's ComfyUI on this machine, added by its address", () => {
+  it("has its base folder found on ComfyUI Desktop or with --base-directory (no main.py beside custom_nodes)", async () => {
+    const { mkdirSync, existsSync } = await import("node:fs");
+    const dir = mkdtempSync(join(tmpdir(), "afflatus-comfy-base-"));
+    try {
+      mkdirSync(join(dir, "custom_nodes"));
+      mkdirSync(join(dir, "models", "checkpoints"), { recursive: true });
+      fake = await startFakeComfy({ catalog: referenceCatalog(), models: {}, folderPaths: { checkpoints: [join(dir, "models", "checkpoints")], custom_nodes: [join(dir, "custom_nodes")] } });
+      t = await makeApp();
+      await writeSettings(t.db, { machines: [] });
+      expect((await post(t.app, "/api/setup/probe", { url: fake.url })).json()).toMatchObject({ dir, local: true });
+      const saved = (await t.app.inject({ method: "PUT", url: "/api/settings", payload: { comfyUrl: fake.url } })).json();
+      expect(saved.comfyDir).toBe(dir);
+      expect(existsSync(join(dir, "custom_nodes", "afflatus-nodes"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not take a custom_nodes folder's parent that is neither ComfyUI's folder nor a base folder", async () => {
+    const { mkdirSync } = await import("node:fs");
+    const dir = mkdtempSync(join(tmpdir(), "afflatus-comfy-odd-"));
+    try {
+      mkdirSync(join(dir, "custom_nodes"));
+      fake = await startFakeComfy({ catalog: referenceCatalog(), models: {}, folderPaths: { custom_nodes: [join(dir, "custom_nodes")] } });
+      t = await makeApp();
+      expect((await post(t.app, "/api/setup/probe", { url: fake.url })).json()).toMatchObject({ dir: null, local: true });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("has its folder found from what it says, and Afflatus's node pack written in", async () => {
     const { mkdirSync, writeFileSync, existsSync } = await import("node:fs");
     const dir = mkdtempSync(join(tmpdir(), "afflatus-comfy-"));

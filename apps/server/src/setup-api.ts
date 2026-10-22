@@ -8,7 +8,7 @@ import { ComfyClient, ComfyLocked, plannedScan } from "@afflatus/comfy";
 import { describeRecipe, listOptions, parseInput, type InputSpec } from "@afflatus/core";
 import { withMentions } from "./entities";
 import { mergeScans } from "./machineScans";
-import { comfyFolderOf } from "./modelDownload";
+import { comfyFolderOf, onThisMachine } from "./modelDownload";
 import { accessOf } from "./lock-api";
 import { installNodePack } from "./nodePack";
 import { preflight } from "./preflight";
@@ -43,10 +43,11 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
       const st = await client.status();
       // its folder, when it runs here: Afflatus then writes its node pack in by itself
       const dir = await comfyFolderOf(client, url).catch(() => null);
-      return { url, online: true as const, version: st.version, device: st.device, locked: false, error: null, dir };
+      // on this PC or not: one here whose folder was not found is told to set it, not that it is on another computer
+      return { url, online: true as const, version: st.version, device: st.device, locked: false, error: null, dir, local: onThisMachine(url) };
     } catch (e) {
       // locked against Afflatus: a ComfyUI is there, its token to paste once added
-      return { url, online: false as const, version: null, device: null, locked: e instanceof ComfyLocked, error: e instanceof Error ? e.message : String(e), dir: null };
+      return { url, online: false as const, version: null, device: null, locked: e instanceof ComfyLocked, error: e instanceof Error ? e.message : String(e), dir: null, local: onThisMachine(url) };
     }
   };
   app.post("/api/setup/probe", async (req) => probe(z.object({ url: z.string().trim().url().max(400).regex(/^https?:\/\//i, "an http(s) address") }).parse(req.body ?? {}).url.replace(/\/+$/, "")));

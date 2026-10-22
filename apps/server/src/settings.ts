@@ -529,11 +529,25 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
       list.splice(0, list.length, ...list.map(own), ...kept);
     }
     sent.machines = list;
-    // none left (every machine removed, or a rented-only start): `comfyUrl` keeps the last address, for the next one added
-    const first = list[0];
+    // none left (every machine removed, or a rented-only start): `comfyUrl` keeps the last address, for the next one added.
+    // Only a ComfyUI of the user's own is kept so: a pod's proxy address was offered, once the pod was gone, as "Your ComfyUI"
+    const first = list.find((m) => !m.rented);
     if (first) {
       sent.comfyUrl = first.url;
       sent.comfyDir = first.dir ?? "";
+    } else {
+      // with pods only, the address said (inStep) is the first pod's: the one kept is the one stored, unless that is a pod's
+      // too (written so before), then ComfyUI's usual one
+      const pods = new Set([...current.machines, ...(list as Array<{ url?: unknown; rented?: unknown }>)].filter((m) => m.rented).map((m) => m.url));
+      const row = await db.selectFrom("settings").select("value").where("key", "=", "comfyUrl").executeTakeFirst();
+      let value: unknown;
+      try {
+        value = row ? JSON.parse(row.value) : undefined;
+      } catch {
+        // not JSON: the usual one
+      }
+      const stored = httpUrl.safeParse(value);
+      sent.comfyUrl = stored.success && !pods.has(stored.data) ? stored.data : settingsSchema.shape.comfyUrl.parse(undefined);
     }
   } else if ("comfyUrl" in sent || "comfyDir" in sent) {
     // the address alone, with no ComfyUI of the user's own yet (a rented-only start, the first launch's "I have one"): it is
@@ -543,9 +557,12 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
     const first = own ? head : firstMachine(String(sent.comfyUrl ?? current.comfyUrl), String(sent.comfyDir ?? ""));
     const others = own ? rest : current.machines;
     const url = "comfyUrl" in sent ? sent.comfyUrl : first.url;
-    sent.machines = [{ ...first, ...("comfyUrl" in sent ? { url: sent.comfyUrl } : {}), ...("comfyDir" in sent ? { dir: sent.comfyDir } : {}), token: own ? keptToken(first, url) : "" }, ...others];
+    // another ComfyUI (its address moved to another origin, as the token is dropped): the old one's folder goes with it,
+    // or its node pack was written there and its models read from there; the new one's is looked for again (setup-api)
+    const moved = own && !("comfyDir" in sent) && typeof url === "string" && originOf(url) !== originOf(first.url);
+    sent.machines = [{ ...first, ...("comfyUrl" in sent ? { url: sent.comfyUrl } : {}), ...("comfyDir" in sent ? { dir: sent.comfyDir } : moved ? { dir: "" } : {}), token: own ? keptToken(first, url) : "" }, ...others];
     sent.comfyUrl ??= current.comfyUrl;
-    sent.comfyDir ??= current.comfyDir;
+    sent.comfyDir ??= moved ? "" : current.comfyDir;
   }
   // the page sends what it changed of `notify`, and never the token nor the webhook, which it is not given: merged into what is saved
   if (sent.notify !== undefined) sent.notify = notifyMerged(current.notify, sent.notify);
