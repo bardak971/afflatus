@@ -1,9 +1,9 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { FolderUp, X } from "lucide-react";
+import { FolderUp } from "lucide-react";
 import { create } from "zustand";
 import { api, type Folder } from "./api";
 import { projectForNew } from "./project";
-import { Bar } from "./ui";
+import { Bar, CloseButton } from "./ui";
 import { queryKeys } from "./queryKeys";
 import { plural } from "./format";
 
@@ -109,11 +109,11 @@ export function FolderImportNote() {
   const dismiss = useFolderImport((s) => s.dismiss);
   if (!run) return null;
   return (
-    <div role="status" className="fixed bottom-14 left-24 z-[60] flex w-80 flex-col gap-1.5 rounded-xl border border-line-strong bg-panel px-3.5 py-2.5 shadow-2xl shadow-shade/60">
+    <div role="status" className="fixed bottom-14 left-24 z-status flex w-80 flex-col gap-1.5 rounded-xl border border-line-strong bg-panel px-3.5 py-2.5 shadow-2xl shadow-shade/60">
       <div className="flex items-center gap-2">
         <FolderUp size={14} className="shrink-0 text-ink-2" />
         <span className="min-w-0 grow truncate font-semibold">{run.error ? `"${run.name}" could not be imported` : run.over ? `"${run.name}" is in your library` : `Importing "${run.name}"`}</span>
-        {run.over && <button type="button" aria-label="Close" onClick={dismiss} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={13} /></button>}
+        {run.over && <CloseButton size={24} onClose={dismiss} />}
       </div>
       {!run.over && <Bar value={run.total ? (run.done / run.total) * 100 : 0} />}
       <span className="text-xs text-ink-2">

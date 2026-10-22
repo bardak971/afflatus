@@ -15,7 +15,7 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { tone?: "primary" 
 export const buttonClass = ({ tone = "plain", size = "md", className }: { tone?: ButtonProps["tone"]; size?: ButtonProps["size"]; className?: string } = {}) =>
   cx(
     "inline-flex items-center justify-center gap-2 font-semibold whitespace-nowrap transition-[filter,background-color] disabled:cursor-not-allowed disabled:opacity-45",
-    size === "md" ? "h-10 rounded-[10px] px-4" : "h-8 rounded-lg px-3 text-xs",
+    size === "md" ? "h-10 rounded-control px-4" : "h-8 rounded-lg px-3 text-xs",
     // off, a button does not answer the mouse either: a hover that still lights it would read as half on
     tone === "primary" && "bg-accent font-bold text-accent-ink hover:brightness-110 disabled:hover:brightness-100",
     tone === "plain" && "border border-line-strong text-ink hover:bg-hover disabled:hover:bg-transparent",
@@ -33,22 +33,26 @@ export function ButtonLink({ tone, size, className, ...rest }: AnchorHTMLAttribu
   return <a {...rest} className={buttonClass({ tone, size, className })} />;
 }
 
-/** The three heights of a square button: dense (the track, rows), small, and the height of the form's bar. */
-export type IconSize = 28 | 32 | 40;
-const ICON_BOX: Record<IconSize, string> = { 28: "size-7", 32: "size-8", 40: "size-10" };
-const ICON_GLYPH: Record<IconSize, number> = { 28: 14, 32: 15, 40: 17 };
+/**
+ * The heights of a square button: dense (the track, rows), small, and the height of the form's bar; and 24, the least a
+ * target may be (WCAG 2.5.8), for one inside something smaller than a row: the × of a chip, a pick in a file's line.
+ */
+export type IconSize = 24 | 28 | 32 | 40;
+const ICON_BOX: Record<IconSize, string> = { 24: "size-6", 28: "size-7", 32: "size-8", 40: "size-10" };
+const ICON_GLYPH: Record<IconSize, number> = { 24: 12, 28: 14, 32: 15, 40: 17 };
 
 /**
  * A button that is an icon alone, in the kit's three sizes and one radius. Its `label` is required: it is what a screen
  * reader says and the app's tip (`tip` when the tip says more than the name; `keys` drawn as keycaps after it).
- * `outline`: edged, for one standing on its own; `pressed`: a toggle that is on.
+ * `outline`: edged, for one standing on its own; `inherit`: in the colour of what it sits on (a failure's banner);
+ * `pressed`: a toggle that is on.
  */
 export function IconButton({ label, tip, keys, size = 32, tone = "ghost", pressed, className, children, ...rest }: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label" | "aria-pressed"> & {
   label: string;
   tip?: string;
   keys?: string;
   size?: IconSize;
-  tone?: "ghost" | "outline";
+  tone?: "ghost" | "outline" | "inherit";
   pressed?: boolean;
   children: ReactNode;
 }) {
@@ -64,7 +68,11 @@ export function IconButton({ label, tip, keys, size = 32, tone = "ghost", presse
         "inline-flex shrink-0 items-center justify-center rounded-control transition-colors disabled:cursor-not-allowed disabled:opacity-40",
         ICON_BOX[size],
         tone === "outline" && "border border-line-strong",
-        pressed ? "bg-accent-wash text-accent" : "text-ink-2 hover:bg-hover hover:text-ink disabled:hover:bg-transparent disabled:hover:text-ink-2",
+        pressed
+          ? "bg-accent-wash text-accent"
+          : tone === "inherit"
+            ? "hover:bg-hover disabled:hover:bg-transparent"
+            : "text-ink-2 hover:bg-hover hover:text-ink disabled:hover:bg-transparent disabled:hover:text-ink-2",
         className,
       )}
     >
@@ -391,7 +399,7 @@ export function Segmented<T extends string>({ value, options, onChange, label, o
           className={cx(
             // over the pill
             "relative grow rounded-[9px] whitespace-nowrap transition-colors",
-            size === "md" ? "h-[30px] px-3 text-[12.5px]" : "h-[26px] px-2.5 text-xs",
+            size === "md" ? "h-[30px] px-3 text-body" : "h-[26px] px-2.5 text-xs",
             mono && "font-mono",
             o.value === value ? cx("font-bold text-ink", !placed && "bg-line-strong") : "font-semibold text-ink-2 hover:bg-hover hover:text-ink",
           )}
@@ -405,7 +413,7 @@ export function Segmented<T extends string>({ value, options, onChange, label, o
 
 /** The kit's text box look: a rounded box on the raised colour, an accent ring while typing, the warn colour when what is in it is wrong (aria-invalid). */
 export const fieldClass =
-  "rounded-[10px] border border-line bg-raised px-3 text-ink outline-none placeholder:text-ink-3 focus:border-accent focus:shadow-[0_0_0_3px_var(--color-accent-wash)] aria-[invalid=true]:border-warn";
+  "rounded-control border border-line bg-raised px-3 text-ink outline-none placeholder:text-ink-3 focus:border-accent focus:shadow-[0_0_0_3px_var(--color-accent-wash)] aria-[invalid=true]:border-warn";
 
 /** A box to tick: the app's own, with a third state for "some of them" (a selection that holds part of a list). */
 export function Checkbox({ checked, onChange, label, children, disabled, className }: {
@@ -434,7 +442,7 @@ export function Checkbox({ checked, onChange, label, children, disabled, classNa
       <span
         aria-hidden
         className={cx(
-          "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[6px] transition-colors",
+          "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md transition-colors",
           // unticked, the edge is all there is of the box: it takes the theme's control edge (styles.css), which a light
           // theme draws darker than its quiet lines
           on ? "bg-accent text-accent-ink" : "border-[1.5px] border-(--control-edge) group-hover/check:border-ink-2",

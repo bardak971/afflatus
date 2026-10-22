@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Clapperboard, Gauge, Link2, Pause, Play, Repeat, Scissors, Split, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Clapperboard, Gauge, Link2, Pause, Play, Repeat, Scissors, Split, ZoomIn, ZoomOut } from "lucide-react";
 import { stripUrl, type Asset } from "./api";
 import { clock, plural } from "./format";
 import { Kbd } from "./Keys";
 import { Select } from "./Select";
-import { Button, cx } from "./ui";
+import { Button, CloseButton, cx } from "./ui";
 import { useSettled } from "./hooks";
 import { frameSpan, stepFrames } from "./frameStep";
 import { stamp, STRIP_FRAMES, type Range } from "./trim/range";
@@ -39,7 +39,7 @@ export function RangeFrames({ asset, range }: { asset: Asset; range: Range }) {
     <div className="flex h-full min-h-0 w-[22%] max-w-[260px] min-w-[120px] shrink-0 flex-col justify-center gap-2" onClick={(e) => e.stopPropagation()}>
       {[{ label: "In", at: shown.startMs }, { label: "Out", at: shown.endMs }].map((f) => (
         <div key={f.label} className="flex min-h-0 flex-1 flex-col gap-1">
-          <span className="text-[11px] font-semibold text-ink-2">{f.label} <span className="font-mono font-normal">{stamp(f.at)}</span></span>
+          <span className="text-meta font-semibold text-ink-2">{f.label} <span className="font-mono font-normal">{stamp(f.at)}</span></span>
           <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-lg border border-line bg-raised">
             <img src={`/api/assets/${asset.id}/peek?at=${Math.round(f.at)}&h=480`} alt="" className="max-h-full max-w-full object-contain" />
           </div>
@@ -182,7 +182,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
         <span className="font-mono">in {stamp(range.startMs)} · out {stamp(range.endMs)} · {(length / 1000).toFixed(2)} s · {plural(frames, "frame")}</span>
         <span className="grow" />
         <span className="font-mono">{stamp(at)} / {clock(duration)}</span>
-        <button type="button" aria-label="Close Trim" data-tip="Close Trim (Esc)" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-hover hover:text-ink"><X size={14} /></button>
+        <CloseButton size={28} label="Close Trim" keys="Esc" onClose={onClose} />
       </div>
 
       {/* the whole video; under it, the part zoomed into */}
@@ -190,7 +190,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
       {zoom && (
         <div className="flex flex-col gap-1">
           {bar(zoom, "zoom", zoomSrc, true)}
-          <span className="font-mono text-[11px] text-ink-3">{stamp(zoom.startMs)} – {stamp(zoom.endMs)} · {exact ? "one tile per frame" : `${Math.round((zoom.endMs - zoom.startMs) / frameMs / zoomFrames)} frames per tile`} · wheel to zoom, Z to leave</span>
+          <span className="font-mono text-meta text-ink-3">{stamp(zoom.startMs)} – {stamp(zoom.endMs)} · {exact ? "one tile per frame" : `${Math.round((zoom.endMs - zoom.startMs) / frameMs / zoomFrames)} frames per tile`} · wheel to zoom, Z to leave</span>
         </div>
       )}
 

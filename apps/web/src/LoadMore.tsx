@@ -36,7 +36,7 @@ export function LoadMore({ more, busy, onMore, size = "md" }: { more: boolean; b
   }, [more, busy]);
   if (!more) return null;
   return (
-    <button type="button" ref={ref} onClick={onMore} disabled={busy} aria-label="More" className={cx("flex w-full justify-center text-ink-3 hover:text-ink-2", size === "sm" ? "py-2 text-[11px]" : "py-4 text-xs")}>
+    <button type="button" ref={ref} onClick={onMore} disabled={busy} aria-label="More" className={cx("flex w-full justify-center text-ink-3 hover:text-ink-2", size === "sm" ? "py-2 text-meta" : "py-4 text-xs")}>
       {busy ? "Loading…" : "more"}
     </button>
   );

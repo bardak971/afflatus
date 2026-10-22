@@ -11,8 +11,8 @@ export const VIA_SAID: Record<FileVia, string> = { hf: "HF", civitai: "Civitai",
 
 /** A file's source as a chip: a site, this PC (an upload, in the warning tone), or none known. */
 export function ViaChip({ via }: { via: FileVia | null | undefined }) {
-  if (!via) return <Chip tone="warn" className="h-5 justify-self-start px-2 text-[11px]">no source</Chip>;
-  return <Chip tone={via === "upload" ? "warn" : "neutral"} className="h-5 justify-self-start px-2 text-[11px]">{VIA_SAID[via]}</Chip>;
+  if (!via) return <Chip tone="warn" className="h-5 justify-self-start px-2 text-meta">no source</Chip>;
+  return <Chip tone={via === "upload" ? "warn" : "neutral"} className="h-5 justify-self-start px-2 text-meta">{VIA_SAID[via]}</Chip>;
 }
 
 /** What a search finds and the user picks: a preset (its files), a family (its usual files), or one file of this PC. */
@@ -40,7 +40,7 @@ export function ModelSearch({ onPick, presetNote = "" }: { onPick(pick: SearchPi
     <div className="flex flex-col gap-1">
       <SearchField label="Add a preset, a family or any file" value={q} onChange={setQ} />
       {found.data && searched.length > 1 && (
-        <div className="flex max-h-[200px] flex-col overflow-y-auto rounded-lg border border-line text-[13px]">
+        <div className="flex max-h-[200px] flex-col overflow-y-auto rounded-lg border border-line text-body">
           {found.data.presets.map((p) => (
             <button key={p.id} type="button" onClick={() => pick({ kind: "preset", hit: p })} className={row}>
               <span className="min-w-0 grow truncate">{p.name}<span className="text-ink-3"> · preset · {plural(p.files.length, "file")}{presetNote ? ` · ${presetNote}` : ""}</span></span>

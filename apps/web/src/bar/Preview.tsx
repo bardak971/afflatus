@@ -44,13 +44,13 @@ function Title({ title, sub }: { title: string; sub?: string }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <span className="truncate text-base font-bold text-ink-strong">{title}</span>
-      {sub && <span className="text-[12.5px] text-ink-2">{sub}</span>}
+      {sub && <span className="text-body text-ink-2">{sub}</span>}
     </div>
   );
 }
 
 function TextCard({ children }: { children: string }) {
-  return <div className="max-h-56 overflow-y-auto rounded-xl border border-line bg-panel p-3.5 text-[13.5px] leading-relaxed whitespace-pre-line text-ink">{children}</div>;
+  return <div className="max-h-56 overflow-y-auto rounded-xl border border-line bg-panel p-3.5 text-title leading-relaxed whitespace-pre-line text-ink">{children}</div>;
 }
 
 /** A render: its frame, or the video playing muted in a loop (from the file the library's cards play on hover). */
@@ -104,7 +104,7 @@ function TimelinePreview({ e }: { e: Extract<CommandEntry, { kind: "timeline" }>
               className="relative min-w-6 basis-0 overflow-hidden rounded-lg bg-raised"
             >
               {asset && <img src={thumbUrl(asset.id)} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover" />}
-              <span className="absolute bottom-1 left-1.5 rounded bg-stage/70 px-1 font-mono text-[10px] text-ink">c{i + 1}</span>
+              <span className="absolute bottom-1 left-1.5 rounded bg-stage/70 px-1 font-mono text-micro text-ink">c{i + 1}</span>
             </div>
           );
         })}

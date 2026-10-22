@@ -1,12 +1,12 @@
 import { Fragment, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { ChevronDown, ChevronLeft, ChevronRight, Film, Folder, FolderPlus, FolderTree, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Film, Folder, FolderPlus, FolderTree } from "lucide-react";
 import type { Asset } from "../api";
 import { openProjects } from "../bar/bridge";
 import { useFolders, useProjects, type useAsset } from "../data";
 import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { Keys } from "../Keys";
-import { cx } from "../ui";
+import { CloseButton, cx, IconButton } from "../ui";
 import { tileName } from "../screens/library/tileName";
 import { factsOf, placesOf } from "./facts";
 import type { ViewerActions } from "./useViewerActions";
@@ -25,7 +25,7 @@ function PlaceChip({ a, acts, onLeave }: { a: Asset; acts: ViewerActions; onLeav
   const all = folders.data?.items ?? [];
   const folder = a.folderId ? all.find((f) => f.id === a.folderId) : undefined;
   // a folder not read yet: a quiet chip of the same size rather than a wrong "Inbox" (no jump when it is read)
-  if (a.folderId && !folder) return <span aria-hidden className={cx(chip, "w-24 animate-pulse")}>&nbsp;</span>;
+  if (a.folderId && !folder) return <span aria-hidden className={cx(chip, "m-skeleton w-24")}>&nbsp;</span>;
   const project = folder?.projectId ? projects.data?.items.find((p) => p.id === folder.projectId) : undefined;
   const root = Boolean(project && project.folderId === folder?.id);
   // a folder inside another shows where it is, up to the project's root folder
@@ -80,7 +80,7 @@ function NameField({ value, onSave, onCancel }: { value: string; onSave(name: st
       onBlur={() => {
         if (!cancelled.current) onSave(draft.trim());
       }}
-      className="-mx-[9px] rounded-lg border border-accent bg-raised px-2 py-1 text-[19px] leading-tight font-bold text-ink placeholder:font-semibold placeholder:text-ink-3"
+      className="-mx-[9px] rounded-lg border border-accent bg-raised px-2 py-1 text-page leading-tight font-bold text-ink placeholder:font-semibold placeholder:text-ink-3"
     />
   );
 }
@@ -135,7 +135,6 @@ export function ViewerHeader({ acts, asset, detail, title, trail, crumbs = {}, o
   const own = detail.data?.id === a.id ? detail.data : undefined;
   const places = placesOf(own?.clipOf ?? (asset.id === a.id ? asset.clipOf : undefined), own?.usedIn ?? []);
   const count = at >= 0 && items && items.length > 1 ? items.length : 0;
-  const button = "flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-line-strong text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40 disabled:hover:bg-transparent";
   return (
     <div className="flex shrink-0 flex-col gap-1.5 border-b border-line px-5 pt-3.5 pb-3.5">
       <div className="flex items-center gap-2.5 text-xs text-ink-3">
@@ -143,13 +142,13 @@ export function ViewerHeader({ acts, asset, detail, title, trail, crumbs = {}, o
         {count > 0 && (
           <>
             <span data-tip={more ? "Arrow keys: previous and next item; past the last one loaded, the next page is read" : "Arrow keys: previous and next item"}>{at + 1} of {count}{more ? "+" : ""}</span>
-            <button type="button" aria-label="Previous" data-tip="Previous (←)" disabled={at <= 0} onClick={() => move(-1)} className={button}><ChevronLeft size={14} /></button>
-            <button type="button" aria-label="Next" data-tip="Next (→)" disabled={at >= count - 1 && !more} onClick={() => move(1)} className={button}><ChevronRight size={14} /></button>
+            <IconButton size={24} tone="outline" label="Previous" keys="←" disabled={at <= 0} onClick={() => move(-1)}><ChevronLeft size={14} /></IconButton>
+            <IconButton size={24} tone="outline" label="Next" keys="→" disabled={at >= count - 1 && !more} onClick={() => move(1)}><ChevronRight size={14} /></IconButton>
           </>
         )}
         <span className="grow" />
-        <button type="button" aria-label="Keyboard shortcuts" data-tip="Keyboard shortcuts (?)" onClick={() => window.dispatchEvent(new Event("afflatus:keys"))} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-sm text-ink-2 hover:bg-hover hover:text-ink">?</button>
-        <button type="button" aria-label="Close" data-tip="Close (Esc)" onClick={onClose} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={16} /></button>
+        <IconButton size={28} label="Keyboard shortcuts" keys="?" onClick={() => window.dispatchEvent(new Event("afflatus:keys"))} className="text-sm">?</IconButton>
+        <CloseButton size={28} keys="Esc" onClose={onClose} />
       </div>
 
       {naming && !a.inBin ? (
@@ -160,15 +159,15 @@ export function ViewerHeader({ acts, asset, detail, title, trail, crumbs = {}, o
           disabled={a.inBin}
           onClick={() => onNaming(true)}
           data-tip={a.inBin ? undefined : "Rename (F2): a name of your own, which the library shows and the search goes by"}
-          className="group -mx-[9px] flex min-w-0 cursor-text items-baseline gap-2 rounded-lg border border-transparent px-2 py-1 text-left text-[19px] leading-tight font-bold hover:border-line disabled:cursor-default disabled:hover:border-transparent"
+          className="group -mx-[9px] flex min-w-0 cursor-text items-baseline gap-2 rounded-lg border border-transparent px-2 py-1 text-left text-page leading-tight font-bold hover:border-line disabled:cursor-default disabled:hover:border-transparent"
         >
           {/* a name worked out from where it came from (its own says nothing) is dim, as no name is */}
           <span className={cx("min-w-0 break-words", (a.shownName || !a.name) && "text-ink-3")}>{a.shownName || a.name || title}</span>
-          {!a.inBin && <span className="shrink-0 text-[11px] font-medium text-ink-3 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"><Keys keys="F2" size="sm" /></span>}
+          {!a.inBin && <span className="shrink-0 text-meta font-medium text-ink-3 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"><Keys keys="F2" size="sm" /></span>}
         </button>
       )}
 
-      <span className="text-[12.5px] text-ink-2">
+      <span className="text-body text-ink-2">
         {/* the seed is in its cell under the prompt, once */}
         {/* each fact whole on its line ("rendered in 5 s" never breaks before its unit): the line wraps between them */}
         {factsOf(a, g, a.shownName || a.name ? title : "").split(" · ").map((f, i) => <Fragment key={i}>{i ? " · " : ""}<span className="whitespace-nowrap">{f}</span></Fragment>)}

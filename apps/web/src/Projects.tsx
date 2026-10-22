@@ -94,7 +94,7 @@ function Pins({ current }: { current: string }) {
             }}
             onDragEnd={end}
             className={cx(
-              "relative flex h-[30px] w-[30px] items-center justify-center rounded-[8px] border bg-hover text-[13px] font-extrabold transition-[border-color,box-shadow] duration-150 motion-reduce:transition-none",
+              "relative flex h-[30px] w-[30px] items-center justify-center rounded-lg border bg-hover text-body font-extrabold transition-[border-color,box-shadow] duration-150 motion-reduce:transition-none",
               on ? "border-[1.5px]" : "border-line-strong hover:border-ink-3",
               // the line a dragged pin lands on: above this square, or below the last one
               over === i && "before:absolute before:-top-[5px] before:h-0.5 before:w-7 before:rounded-full before:bg-accent",
@@ -188,12 +188,12 @@ export function ProjectSwitch() {
         aria-haspopup="dialog"
         onClick={() => setOpen((o) => !o)}
         data-tip={`Working in: ${name}${onPin ? " (its pin is outlined below)" : ""}. The library, the drafts and the timelines are those of ${inbox ? "the Inbox" : "this project"}, and what you make lands in it. Click for your projects.`}
-        className={cx("mt-2.5 flex w-[62px] shrink-0 flex-col items-center gap-1 rounded-[12px] pt-1.5 pb-[7px] text-[10.5px] font-semibold", open || (!inbox && !onPin) ? "text-ink" : "text-ink-2 hover:text-ink")}
+        className={cx("mt-2.5 flex w-[62px] shrink-0 flex-col items-center gap-1 rounded-xl pt-1.5 pb-[7px] text-micro font-semibold", open || (!inbox && !onPin) ? "text-ink" : "text-ink-2 hover:text-ink")}
       >
         {/* the name under it says it: the initial is only a picture */}
         <span
           aria-hidden
-          className={cx("flex h-[30px] w-[30px] items-center justify-center rounded-[9px] border-[1.5px] bg-hover text-[13px] font-extrabold", open && "shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_35%,transparent)]")}
+          className={cx("flex h-[30px] w-[30px] items-center justify-center rounded-control border-[1.5px] bg-hover text-body font-extrabold", open && "shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_35%,transparent)]")}
           style={{ borderColor: tone, color: tone }}
         >
           {onPin ? <FolderKanban size={15} /> : <Initial name={picked?.name ?? ""} inbox={inbox} />}

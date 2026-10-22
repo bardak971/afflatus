@@ -115,8 +115,8 @@ export function Strip({ assetId, win, kind, src, tall, compact, range, at, zoom,
         <div className="pointer-events-none absolute inset-y-0 border-y-2 border-accent" style={{ left: pct(Math.max(range.startMs, win.startMs)), width: `${Math.max(0, Math.min(100, ((Math.min(range.endMs, win.endMs) - Math.max(range.startMs, win.startMs)) / span) * 100))}%` }} />
         {/* where the video cuts between shots: a tick each; a click on one later is the same as a press there */}
         {(scenes ?? []).filter(inWin).map((ms) => (
-          <div key={ms} className="pointer-events-none absolute inset-y-0 w-px bg-amber-300/90 shadow-[0_0_0_1px_rgba(0,0,0,0.5)]" style={{ left: pct(ms) }} data-tip={`Cut at ${clock(ms)}`}>
-            <div className="absolute -top-px left-1/2 h-1.5 w-1.5 -translate-x-1/2 rotate-45 bg-amber-300" />
+          <div key={ms} className="pointer-events-none absolute inset-y-0 w-px bg-attention/90 shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-shade)_50%,transparent)]" style={{ left: pct(ms) }} data-tip={`Cut at ${clock(ms)}`}>
+            <div className="absolute -top-px left-1/2 h-1.5 w-1.5 -translate-x-1/2 rotate-45 bg-attention" />
           </div>
         ))}
         {/* the zoomed part, shown on the whole */}
@@ -124,17 +124,17 @@ export function Strip({ assetId, win, kind, src, tall, compact, range, at, zoom,
       </div>
       {inWin(range.startMs) && <div role="slider" aria-label="In" aria-valuenow={Math.round(range.startMs)} aria-valuemin={0} aria-valuemax={Math.round(range.endMs - frameMs)} aria-valuetext={stamp(range.startMs)} tabIndex={0} onPointerDown={grab("in")} onKeyDown={nudge("in")} className="absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm bg-accent" style={{ left: pct(range.startMs) }} />}
       {inWin(range.endMs) && <div role="slider" aria-label="Out" aria-valuenow={Math.round(range.endMs)} aria-valuemin={Math.round(range.startMs + frameMs)} aria-valuemax={Math.round(duration)} aria-valuetext={stamp(range.endMs)} tabIndex={0} onPointerDown={grab("out")} onKeyDown={nudge("out")} className="absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm bg-accent" style={{ left: pct(range.endMs) }} />}
-      {/* the playhead, over everything: a white line with a dark edge, and a small head on top */}
+      {/* the playhead, over everything: a white line with a dark edge, and a small head on top (the stage's ink-strong and shade: the viewer is a stage in every theme) */}
       {inWin(at) && (
-        <div className="pointer-events-none absolute -top-1 bottom-0 w-0.5 -translate-x-1/2 bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.6)]" style={{ left: pct(at) }}>
-          <div className="absolute -top-0.5 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.6)]" />
+        <div className="pointer-events-none absolute -top-1 bottom-0 w-0.5 -translate-x-1/2 bg-ink-strong shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-shade)_60%,transparent)]" style={{ left: pct(at) }}>
+          <div className="absolute -top-0.5 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-ink-strong shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-shade)_60%,transparent)]" />
         </div>
       )}
       {/* the frame under the mouse, exact */}
       {hover && hover.bar === kind && !dragging.current && (
         <div className="pointer-events-none absolute bottom-full z-10 mb-1 flex -translate-x-1/2 flex-col items-center gap-0.5" style={{ left: hover.x }}>
           {peek !== null && <img src={`/api/assets/${assetId}/peek?at=${peek}`} alt="" className="max-h-40 rounded-md border border-line-strong bg-ground shadow-lg" />}
-          <span className="rounded bg-ground/90 px-1.5 py-0.5 font-mono text-[11px] text-ink">{stamp(hover.ms)}</span>
+          <span className="rounded bg-ground/90 px-1.5 py-0.5 font-mono text-meta text-ink">{stamp(hover.ms)}</span>
         </div>
       )}
     </div>

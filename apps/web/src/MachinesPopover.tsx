@@ -32,7 +32,7 @@ export function MachinesPopover({ anchor, machines, metered, now, canDeploy, onP
   const allPaused = machines.every((m) => m.paused);
   return (
     <Popover anchor={anchor} onClose={onClose} label="Machines" width={520} height={120 + machines.length * 64 + machines.filter((m) => gettingFiles(m)).length * 40 + (canDeploy ? 44 : 0)}>
-      <div className="flex flex-col text-[12.5px]">
+      <div className="flex flex-col text-body">
         <div className="flex items-center gap-2.5 px-3.5 py-3">
           <span className="font-bold">{plural(machines.length, "machine")}</span>
           <span className="text-ink-2">{busiest(machines)}</span>
@@ -61,7 +61,7 @@ export function MachinesPopover({ anchor, machines, metered, now, canDeploy, onP
                 <span className="flex min-w-0 items-center gap-1.5"><span className="truncate"><span className="font-semibold">{machineLabel(m)}</span> <span className="text-ink-2">· {doing(m, now)}</span></span><CudaChip m={m} /></span>
                 {files && <FilesLine g={files} />}
                 {g ? (
-                  <span className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11.5px] text-ink-2">
+                  <span className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-meta text-ink-2">
                     {g.load !== undefined && <span className="inline-flex items-center gap-1.5"><Bar label="GPU" value={g.load} hot={Boolean(m.running)} />{Math.round(g.load)} %</span>}
                     <span className={cx(g.vramPercent >= 90 && "text-warn-ink")}>VRAM {gb(g.vramUsed)}/{gb(g.vramTotal)}</span>
                     {load?.ram && <span className={cx(load.ram.percent >= 90 && "text-warn-ink")}>RAM {Math.round(load.ram.percent)} %</span>}
@@ -71,9 +71,9 @@ export function MachinesPopover({ anchor, machines, metered, now, canDeploy, onP
                   </span>
                 ) : m.rented?.boot && (m.rented.booting || m.rented.status === "PROVISIONING" || m.rented.status === "STARTING") ? (
                   // a pod being deployed does not answer for minutes, as it should: its boot's line, the one its card says
-                  <BootNote machine={m.id} boot={m.rented.boot} inside className="text-[11.5px]" />
+                  <BootNote machine={m.id} boot={m.rented.boot} inside className="text-meta" />
                 ) : (
-                  <span className="text-[11.5px] text-ink-3">
+                  <span className="text-meta text-ink-3">
                     {m.rented && (m.rented.booting || m.rented.status === "PROVISIONING" || m.rented.status === "STARTING")
                       ? "ComfyUI not up yet"
                       // its ComfyUI died and the pod was terminated for it: gone, nothing billed, not a machine merely away

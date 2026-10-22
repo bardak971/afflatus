@@ -37,7 +37,7 @@ export function StageStrip({ job, className }: { job: Pick<RunningJob, "id" | "s
       {stages.map((st) => (
         <figure key={st.n} className="m-0 flex shrink-0 flex-col gap-1">
           <img src={stageUrl(job.id, st.n)} alt="" className="h-16 w-auto rounded-md bg-raised object-contain" />
-          <figcaption className="max-w-24 truncate text-[11px] text-ink-2" data-tip={st.title ?? st.node}>{st.title ?? `#${st.node}`}{st.count > 1 ? ` · ${st.count}` : ""}</figcaption>
+          <figcaption className="max-w-24 truncate text-meta text-ink-2" data-tip={st.title ?? st.node}>{st.title ?? `#${st.node}`}{st.count > 1 ? ` · ${st.count}` : ""}</figcaption>
         </figure>
       ))}
     </div>

@@ -1,5 +1,4 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
-import { Search, X } from "lucide-react";
 import { Dialog } from "./Dialog";
 import { Keys, MAC, typing } from "./Keys";
 import { keyQuery } from "./keys/grammar";
@@ -7,7 +6,7 @@ import { keysOfRow as keysWith, opened, rowId, searchKeys, wordsRe, type Found, 
 import { BAR_DEFAULT, PLACES, placeById, rowCount, type KeyRow, type PlaceId } from "./keys/table";
 import { useSettings } from "./data";
 import { scrollInside } from "./scrollInside";
-import { cx } from "./ui";
+import { CloseButton, cx, SearchField } from "./ui";
 import { plural } from "./format";
 
 /** The last place picked, for this browser tab's session, with the places that were open then. */
@@ -165,11 +164,11 @@ function Sheet({ barKey, at, onClose }: { barKey: string; at?: KeysAsk; onClose(
           pick(id);
           search.current?.focus({ preventScroll: true });
         }}
-        className={cx("flex h-[30px] shrink-0 items-center gap-2 rounded-[7px] px-2.5 text-left text-[13px]", on ? "bg-hover font-semibold text-ink" : "text-ink-2 hover:bg-hover/60 hover:text-ink")}
+        className={cx("flex h-[30px] shrink-0 items-center gap-2 rounded-chip px-2.5 text-left text-body", on ? "bg-hover font-semibold text-ink" : "text-ink-2 hover:bg-hover/60 hover:text-ink")}
       >
         <span className={cx("h-1.5 w-1.5 shrink-0 rounded-full", on ? "bg-accent" : "bg-transparent")} />
         <span className="min-w-0 grow truncate">{label}</span>
-        <span className="font-mono text-[11px] text-ink-3">{rowCount(p)}</span>
+        <span className="font-mono text-meta text-ink-3">{rowCount(p)}</span>
       </button>
     );
   };
@@ -181,30 +180,25 @@ function Sheet({ barKey, at, onClose }: { barKey: string; at?: KeysAsk; onClose(
     : shown.groups;
 
   return (
-    <Dialog label="Keyboard shortcuts" onClose={onClose} z="z-[90]" className="flex h-[min(760px,100%)] w-full max-w-[1140px] flex-col overflow-hidden rounded-2xl border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-peek-rise">
+    <Dialog label="Keyboard shortcuts" onClose={onClose} z="z-menu" className="flex h-[min(760px,100%)] w-full max-w-[1140px] flex-col overflow-hidden rounded-2xl border border-line-strong bg-panel shadow-modal motion-safe:animate-peek-rise">
       <div className="flex min-h-0 grow flex-col" onKeyDown={onKeys}>
         {/* the head: the search is the first thing, and has the focus */}
         <header data-keys-help className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3.5">
-          <h2 className="m-0 shrink-0 text-[15px] font-bold">Keyboard shortcuts</h2>
-          <label className="relative ml-3 flex min-w-0 grow items-center">
-            <Search size={14} className="pointer-events-none absolute left-3 text-ink-3" />
-            <input
-              ref={search}
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              aria-label="Search the shortcuts"
-              placeholder="A key or what it does: “split”, “Ctrl Z”, “S”"
-              spellCheck={false}
-              autoComplete="off"
-              className="h-[34px] w-full rounded-[9px] border border-line-strong bg-raised pr-3 pl-8 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-accent focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_16%,transparent)]"
-            />
-          </label>
+          <h2 className="m-0 shrink-0 text-title font-bold">Keyboard shortcuts</h2>
+          <SearchField
+            inputRef={search}
+            type="text"
+            value={query}
+            onChange={setQuery}
+            label="Search the shortcuts"
+            placeholder="A key or what it does: “split”, “Ctrl Z”, “S”"
+            spellCheck={false}
+            autoComplete="off"
+            className="ml-3 grow"
+          />
           {found && <span className="shrink-0 text-xs text-ink-3">{found.kq ? `${plural(found.keys.length, "key")} · ` : ""}{plural(found.said.length, "word")}</span>}
           <Keys keys="Esc" />
-          <button type="button" tabIndex={-1} aria-label="Close" data-tip="Close" data-tip-keys="Esc" onClick={onClose} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] text-ink-2 hover:bg-hover hover:text-ink">
-            <X size={15} />
-          </button>
+          <CloseButton size={28} tabIndex={-1} keys="Esc" onClose={onClose} />
         </header>
 
         {found ? (
@@ -213,27 +207,27 @@ function Sheet({ barKey, at, onClose }: { barKey: string; at?: KeysAsk; onClose(
           <div className="flex min-h-0 grow">
             {/* left: the places open now on top, the rest under */}
             <nav aria-label="Places" className="flex w-[230px] shrink-0 flex-col gap-px overflow-y-auto border-r border-line px-2 py-3">
-              <span className="px-2.5 pb-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Here now</span>
+              <span className="px-2.5 pb-1.5 text-meta font-bold tracking-label text-ink-3 uppercase">Here now</span>
               {here.map(nav)}
-              <span className="px-2.5 pt-3.5 pb-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Everything else</span>
+              <span className="px-2.5 pt-3.5 pb-1.5 text-meta font-bold tracking-label text-ink-3 uppercase">Everything else</span>
               {elsewhere.map(nav)}
             </nav>
             {/* right: the place's groups flowing in two columns; what it does on the left, its keys on the right */}
             <div ref={pane} tabIndex={0} aria-label={`${shown.name}: keys`} className="min-w-0 grow overflow-y-auto px-4 py-3.5 outline-none focus-visible:inset-ring-2 focus-visible:inset-ring-accent/50">
               <div className="flex items-baseline gap-2.5 px-2.5 pb-3">
-                <h3 className="m-0 text-[15px] font-bold">{shown.name}</h3>
-                <span className="truncate text-[13px] text-ink-3">{shown.about ?? "act when no text box has the focus"}</span>
+                <h3 className="m-0 text-title font-bold">{shown.name}</h3>
+                <span className="truncate text-body text-ink-3">{shown.about ?? "act when no text box has the focus"}</span>
               </div>
               <div className="columns-1 gap-[22px] lg:columns-2">
                 {groups.map((g) => (
                   <section key={g.name} className={cx("mb-3.5 break-inside-avoid", place === "viewer" && kind && g.kind && g.kind !== kind && here.includes("viewer") && "opacity-55")}>
-                    <h4 className="m-0 px-2.5 pb-1 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{g.name}</h4>
+                    <h4 className="m-0 px-2.5 pb-1 text-meta font-bold tracking-label text-ink-3 uppercase">{g.name}</h4>
                     {[...g.rows.map((row, i) => ({ row, i }))]
                       .sort((a, b) => Number(Boolean(a.row.mouse)) - Number(Boolean(b.row.mouse)))
                       .map(({ row, i }) => {
                         const id = rowId(shown, g, i);
                         return (
-                          <div key={id} data-row={id} className={cx("flex min-h-[30px] items-center gap-3 rounded-[7px] px-2.5 py-1 transition-colors hover:bg-hover/60", flash === id && "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]")}>
+                          <div key={id} data-row={id} className={cx("flex min-h-[30px] items-center gap-3 rounded-chip px-2.5 py-1 transition-colors hover:bg-hover/60", flash === id && "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]")}>
                             <Does row={row} />
                             <Keys keys={keysOfRow(row)} />
                           </div>
@@ -272,13 +266,13 @@ function Does({ row, query }: { row: KeyRow; query?: string }) {
     return (
       <>
         {text.slice(0, at)}
-        <mark className="rounded-[3px] bg-accent/20 px-px text-accent">{text.slice(at, at + m[2]!.length)}</mark>
+        <mark className="rounded-key bg-accent/20 px-px text-accent">{text.slice(at, at + m[2]!.length)}</mark>
         {text.slice(at + m[2]!.length)}
       </>
     );
   };
   return (
-    <span className={cx("min-w-0 grow text-[13px] leading-snug", row.mouse ? "text-ink-2" : "text-ink")}>
+    <span className={cx("min-w-0 grow text-body leading-snug", row.mouse ? "text-ink-2" : "text-ink")}>
       {lit(row.does)}
       {row.note && <span className="text-xs text-ink-3"> · {lit(row.note)}</span>}
     </span>
@@ -303,17 +297,17 @@ function Results({ found, active, onActive, onChoose, keysOfRow, pane, query }: 
       data-result={i}
       onMouseMove={() => onActive(i)}
       onClick={() => onChoose(f)}
-      className={cx("flex min-h-8 w-full items-center gap-3 rounded-[7px] px-3 py-1 text-left", i === active && "bg-hover")}
+      className={cx("flex min-h-8 w-full items-center gap-3 rounded-chip px-3 py-1 text-left", i === active && "bg-hover")}
     >
       <span className="flex w-[170px] shrink-0 items-center gap-1.5 truncate text-xs text-ink-3">
         <span className="truncate">{f.place.name}{f.group.kind ? ` · ${f.group.kind}` : ""}</span>
-        {f.here && <span className="shrink-0 rounded-[5px] bg-accent px-1.5 text-[10.5px] font-bold text-accent-ink">here</span>}
+        {f.here && <span className="shrink-0 rounded-key bg-accent px-1.5 text-micro font-bold text-accent-ink">here</span>}
       </span>
       <Does row={f.row} query={words ? query : undefined} />
       <Keys keys={keysOfRow(f.row)} hits={f.hits} />
     </button>
   );
-  const head = (text: string) => <h4 className="m-0 px-3 pb-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{text}</h4>;
+  const head = (text: string) => <h4 className="m-0 px-3 pb-1.5 text-meta font-bold tracking-label text-ink-3 uppercase">{text}</h4>;
   const kq = found.kq;
   return (
     <div ref={pane} tabIndex={0} aria-label="Results" className="flex min-h-0 grow flex-col gap-4 overflow-y-auto px-4 py-3 outline-none">
@@ -329,7 +323,7 @@ function Results({ found, active, onActive, onChoose, keysOfRow, pane, query }: 
           {found.said.map((f, i) => row(f, found.keys.length + i, true))}
         </div>
       )}
-      {!found.keys.length && !found.said.length && <span className="px-3 py-6 text-center text-[13px] text-ink-3">No key does that. Try another word, or a key: “S”, “Ctrl Z”.</span>}
+      {!found.keys.length && !found.said.length && <span className="px-3 py-6 text-center text-body text-ink-3">No key does that. Try another word, or a key: “S”, “Ctrl Z”.</span>}
     </div>
   );
 }

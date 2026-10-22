@@ -13,7 +13,7 @@ import { useSettled } from "./hooks";
 import { Keys } from "./Keys";
 import { queryKeys } from "./queryKeys";
 import { Select } from "./Select";
-import { Checkbox, cx, ErrorNote, SearchField, Segmented } from "./ui";
+import { Checkbox, Chip, CloseButton, cx, Empty, ErrorNote, SearchField, Segmented } from "./ui";
 
 /**
  * Find models: Civitai's and Hugging Face's models, and the user's own (presets, families, this PC's files), in a large
@@ -143,14 +143,14 @@ export function FindModels({ target }: { target: FindTarget }) {
 
   return (
     // a click beside it does not close it: Esc or its ✕ do (and what it holds is kept for the next time)
-    <div role="dialog" aria-label="Find models" data-floating="" className="fixed inset-0 z-50 grid place-items-center bg-shade/70 p-4">
-      <div ref={panel} tabIndex={-1} className="flex outline-none h-[min(94vh,1180px)] w-[min(96vw,1700px)] flex-col overflow-hidden rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60">
+    <div role="dialog" aria-label="Find models" data-floating="" className="fixed inset-0 z-50 grid place-items-center bg-ground/85 p-4">
+      <div ref={panel} tabIndex={-1} className="flex outline-none h-[min(94vh,1180px)] w-[min(96vw,1700px)] flex-col overflow-hidden rounded-dialog border border-line-strong bg-panel shadow-modal">
         <div className="flex items-center gap-3 border-b border-line px-5 py-3.5">
-          <span className="text-[17px] font-bold">Find models</span>
-          <span className="rounded-full bg-accent-wash px-2.5 py-0.5 text-xs font-semibold text-accent">for: {target.what}</span>
+          <span className="text-page font-bold">Find models</span>
+          <Chip tone="accent">for: {target.what}</Chip>
           <span className="grow" />
           <Segmented<Tab> label="Where" value={tab} options={[{ value: "yours", label: "Yours" }, { value: "civitai", label: "Civitai" }, { value: "huggingface", label: "Hugging Face" }]} onChange={(t) => { setTab(t); setOpened(null); }} />
-          <button type="button" aria-label="Close" onClick={closeFindModels} className="grid size-8 place-items-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={16} /></button>
+          <CloseButton keys="Esc" onClose={closeFindModels} />
         </div>
         {tab !== "yours" && (
           <div className="flex items-center gap-3 border-b border-line px-5 py-2.5">
@@ -166,11 +166,11 @@ export function FindModels({ target }: { target: FindTarget }) {
         )}
         <div className="grid min-h-0 flex-1 grid-cols-[230px_minmax(0,1fr)_380px]">
           {/* filters */}
-          <div className="flex min-h-0 flex-col gap-5 overflow-y-auto border-r border-line p-4 text-[13px]">
+          <div className="flex min-h-0 flex-col gap-5 overflow-y-auto border-r border-line p-4 text-body">
             {tab === "civitai" && (
               <>
                 <div className="flex flex-col gap-2">
-                  <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Type</span>
+                  <span className="text-meta font-bold tracking-label text-ink-3 uppercase">Type</span>
                   <span className="flex flex-wrap gap-1.5">
                     {(bases.data?.types ?? []).map((t) => (
                       <button key={t} type="button" aria-pressed={types.includes(t)} onClick={() => setTypes((x) => (x.includes(t) ? x.filter((y) => y !== t) : [...x, t]))} className={cx("rounded-full border px-2.5 py-0.5 text-xs", types.includes(t) ? "border-accent bg-accent-wash text-accent" : "border-line text-ink-2 hover:bg-hover")}>{TYPE_SAID[t] ?? t}</button>
@@ -178,7 +178,7 @@ export function FindModels({ target }: { target: FindTarget }) {
                   </span>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Base model · your families</span>
+                  <span className="text-meta font-bold tracking-label text-ink-3 uppercase">Base model · your families</span>
                   {familiesOn.map((f) => (
                     <span key={f.id} data-tip={`On Civitai: ${f.bases.join(", ")}`}>
                       <Checkbox checked={families.includes(f.id)} onChange={(v) => setChosenFamilies(v ? [...families, f.id] : families.filter((x) => x !== f.id))} className="text-xs"><span>{f.name}</span></Checkbox>
@@ -190,12 +190,12 @@ export function FindModels({ target }: { target: FindTarget }) {
             )}
             {tab === "huggingface" && (
               <div className="flex flex-col gap-1.5">
-                <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Made for</span>
+                <span className="text-meta font-bold tracking-label text-ink-3 uppercase">Made for</span>
                 <Checkbox checked={!hfBase} onChange={() => setHfBase("")} className="text-xs"><span>Any model</span></Checkbox>
                 {(bases.data?.families ?? []).filter((f) => f.on && f.hf.length).flatMap((f) => f.hf.map((b) => (
                   <Checkbox key={b} checked={hfBase === b} onChange={(v) => setHfBase(v ? b : "")} className="text-xs"><span>{f.name} · {b.split("/").pop()}</span></Checkbox>
                 )))}
-                <span className="mt-3 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Kind</span>
+                <span className="mt-3 text-meta font-bold tracking-label text-ink-3 uppercase">Kind</span>
                 {([["comfyui", "For ComfyUI", "single-file models, as ComfyUI loads them (Comfy-Org's repacks and others)"], ["loras", "LoRAs", ""], ["all", "Everything", "most of Hugging Face is text models"]] as const).map(([k, label, tip]) => (
                   <span key={k} data-tip={tip || undefined}><Checkbox checked={hfKind === k} onChange={() => setHfKind(k)} className="text-xs"><span>{label}</span></Checkbox></span>
                 ))}
@@ -203,7 +203,7 @@ export function FindModels({ target }: { target: FindTarget }) {
             )}
             {tab !== "yours" && (
               <div className="flex flex-col gap-1.5">
-                <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Show</span>
+                <span className="text-meta font-bold tracking-label text-ink-3 uppercase">Show</span>
                 <Checkbox checked={notMine} onChange={setNotMine} className="text-xs"><span>What I do not have</span></Checkbox>
                 {by && (
                   <button type="button" onClick={() => setBy("")} data-tip="Only this creator's models (by: in the command bar). Click to show everyone's." className="flex items-center gap-1 self-start rounded-full border border-accent bg-accent-wash px-2.5 py-0.5 text-xs text-accent">
@@ -231,7 +231,7 @@ export function FindModels({ target }: { target: FindTarget }) {
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3.5">
                   {cards.map((c) => <Card key={`${c.site}:${c.id}`} card={c} picked={cardPicked(c)} onOpen={openCard} onQuick={quickCard} />)}
                 </div>
-                {results.isSuccess && !cards.length && <p className="py-10 text-center text-sm text-ink-2">Nothing found{notMine ? " that you do not have" : ""}. Fewer words, or another base model.</p>}
+                {results.isSuccess && !cards.length && <Empty title={`Nothing found${notMine ? " that you do not have" : ""}`}>Fewer words, or another base model.</Empty>}
                 <div ref={end} className="py-4 text-center text-xs text-ink-3">{results.isFetchingNextPage ? "More…" : results.hasNextPage ? "" : cards.length ? "That is all." : ""}</div>
               </div>
             )}
@@ -256,7 +256,7 @@ export function FindModels({ target }: { target: FindTarget }) {
             }}
           />
         </div>
-        <div className="flex items-center gap-3 border-t border-line px-5 py-2 text-[11px] text-ink-3">
+        <div className="flex items-center gap-3 border-t border-line px-5 py-2 text-meta text-ink-3">
           <span>Drag a card onto Picked, or its +; open it to choose a version and its files.</span>
           <span className="grow" />
           <span className="flex items-center gap-1"><Keys keys="Esc" size="sm" /> close</span>

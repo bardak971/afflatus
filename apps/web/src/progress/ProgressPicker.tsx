@@ -39,7 +39,7 @@ function StyleTile({ id, label, tip, on, drawn, run, onPick }: { id: ProgressSty
           <ProgressRing styleAs={drawn} value={value} steps={STEPS} loading={run.loading} />
         </span>
         <span className="flex min-w-0 grow flex-col gap-2">
-          <span className="relative h-3.5 overflow-hidden rounded-[5px] bg-raised">
+          <span className="relative h-3.5 overflow-hidden rounded-key bg-raised">
             <Progress styleAs={drawn} shape="edge" value={value} steps={STEPS} loading={run.loading} />
           </span>
           <Progress styleAs={drawn} value={value} steps={STEPS} loading={run.loading} className="h-1.5" />

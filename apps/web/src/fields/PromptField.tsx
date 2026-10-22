@@ -5,7 +5,7 @@ import { api, type TagIssue } from "../api";
 import { useSettings } from "../data";
 import { Popover } from "../Popover";
 import { nudgeWeight, replaceTag } from "../promptText";
-import { AutoText, cx, Help } from "../ui";
+import { AutoText, Chip, cx, Help } from "../ui";
 import { field, Label } from "./Label";
 import { useLoraWords } from "./Loras";
 import { useSnippetKeys } from "../bar/SnippetKeys";
@@ -89,7 +89,7 @@ function TagCheck({ text, ignore, onChange }: { text: string; ignore: string[]; 
               <div className="flex flex-col gap-1">
                 <span className="text-xs font-semibold text-ink-2">Not danbooru tags: the model may mostly ignore them</span>
                 <div className="flex flex-wrap gap-1">
-                  {plain.map((i) => <span key={i.tag} className="rounded bg-raised px-1.5 py-0.5 text-xs text-ink-2">{i.tag}</span>)}
+                  {plain.map((i) => <Chip key={i.tag}>{i.tag}</Chip>)}
                 </div>
               </div>
             )}
@@ -142,7 +142,7 @@ export function PromptField({ spec, id, value, values, onChange, bare }: { spec:
           // once the new text is in the box, the tag is selected again: the next press goes on from it
           requestAnimationFrame(() => el.setSelectionRange(next.start, next.end));
         }}
-        className={cx(field, "py-2.5 leading-normal", spec.optional && !spec.example ? "text-[13px]" : "text-sm")}
+        className={cx(field, "py-2.5 leading-normal", spec.optional && !spec.example ? "text-body" : "text-sm")}
       />
       {snippetKeys.list}
       {/* the main prompt in its card, whose head has no ?: the keys it takes in a corner of its own, out of the way of

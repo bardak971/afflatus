@@ -10,7 +10,7 @@ function TextAsk({ open }: { open: Extract<Open, { kind: "text" }> }) {
   const [text, setText] = useState(open.value);
   const send = () => open.answer(text.trim());
   return (
-    <Dialog label={open.title} onClose={() => open.answer(null)} z="z-[95]" className={DIALOG}>
+    <Dialog label={open.title} onClose={() => open.answer(null)} z="z-confirm" className={DIALOG}>
       <DialogHead icon={<PenLine size={15} />} title={open.title} />
       <input
         autoFocus
@@ -41,7 +41,7 @@ export function ConfirmDialog({ open }: { open: Open }) {
     // several ways ahead, none of them undoing anything: the focus starts on the one that does nothing all the same; a
     // little wider, so that their buttons stay on one line
     return (
-      <Dialog label={open.title} onClose={() => open.answer(null)} z="z-[95]" className={DIALOG.replace("max-w-md", "max-w-lg")}>
+      <Dialog label={open.title} onClose={() => open.answer(null)} z="z-confirm" className={DIALOG.replace("max-w-md", "max-w-lg")}>
         <DialogHead icon={<CircleAlert size={16} />} tone="warn" title={open.title} />
         <p className="m-0 whitespace-pre-line text-ink-2">{open.text}</p>
         {open.links && open.links.length > 0 && (
@@ -63,7 +63,7 @@ export function ConfirmDialog({ open }: { open: Open }) {
   // over every other dialog: Escape answers the question and nothing else. The focus starts on Cancel:
   // an Enter pressed by habit does not go ahead with what cannot be undone
   return (
-    <Dialog label={open.title} onClose={() => open.answer(false)} z="z-[95]" className={DIALOG}>
+    <Dialog label={open.title} onClose={() => open.answer(false)} z="z-confirm" className={DIALOG}>
       <DialogHead icon={<CircleAlert size={16} />} tone="warn" title={open.title} />
       <p className="m-0 whitespace-pre-line text-ink-2">{open.text}</p>
       <DialogFoot>

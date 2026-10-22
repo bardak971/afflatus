@@ -176,7 +176,7 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
               >
                 <img src={thumbUrl(id)} alt="" className="h-14 w-14 object-cover" />
               </button>
-              {i === 0 && set.people.length > 1 && <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 rounded bg-accent px-1 text-[9px] font-bold text-accent-ink">main</span>}
+              {i === 0 && set.people.length > 1 && <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 rounded bg-accent px-1 text-micro font-bold text-accent-ink">main</span>}
               <button type="button" aria-label="Remove this image" onClick={() => change(keyId, { people: set.people.filter((x) => x !== id) })} className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-line bg-panel text-ink-2 hover:text-ink">
                 <X size={11} />
               </button>
@@ -193,7 +193,7 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
                 if (!e.dataTransfer.types.includes(DRAG_PICTURE)) return;
                 addPhotos(e.dataTransfer.getData(DRAG_TYPE).split(",").filter((id) => /^[0-9a-f]{32}$/.test(id)));
               }}
-              className="flex h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-md border border-dashed border-line-strong text-[10px] text-ink-2 hover:text-ink"
+              className="flex h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-md border border-dashed border-line-strong text-micro text-ink-2 hover:text-ink"
             >
               <ImagePlus size={15} />
               image
@@ -243,26 +243,26 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
                   {j.face != null && (j.copies ? (
                     <span
                       data-tip={`The person was pasted in ${j.copies === 1 ? "once more" : `${j.copies} more times`} beside the head replaced (or someone else was made them too): put last`}
-                      className="absolute bottom-1 left-1 rounded bg-warn-wash px-1.5 py-px text-[10.5px] font-bold text-warn-ink"
+                      className="absolute bottom-1 left-1 rounded bg-warn-wash px-1.5 py-px text-micro font-bold text-warn-ink"
                     >
                       pasted in ×{j.copies}
                     </span>
                   ) : (
                     <span
                       data-tip="How much the face where the frame's person stood is the person of the images (ArcFace): 0.8 and up, a close likeness; under 0.5, someone else (or a face too small or turned to read)"
-                      className={cx("absolute bottom-1 left-1 rounded px-1.5 py-px font-mono text-[10.5px] font-bold", j.face >= 0.8 ? "bg-good text-ground" : j.face >= 0.5 ? "bg-warn text-warn-on" : "bg-warn-wash text-warn-ink")}
+                      className={cx("absolute bottom-1 left-1 rounded px-1.5 py-px font-mono text-micro font-bold", j.face >= 0.8 ? "bg-good text-ground" : j.face >= 0.5 ? "bg-warn text-warn-on" : "bg-warn-wash text-warn-ink")}
                     >
                       face {j.face.toFixed(2)}{j === best ? " · best" : ""}
                     </span>
                   ))}
                 </button>
               ) : (
-                <div className="flex aspect-[9/16] w-full flex-col items-center justify-center gap-1.5 rounded-md bg-raised px-2 text-center text-[10.5px] text-ink-3">
+                <div className="flex aspect-[9/16] w-full flex-col items-center justify-center gap-1.5 rounded-md bg-raised px-2 text-center text-micro text-ink-3">
                   {j.state === "running" ? <><span>making…</span><Bar value={j.progress * 100} loading={!j.progress} /></> : j.state === "failed" ? <span className="text-warn-ink">failed: {j.why}</span> : j.state === "gone" ? <span>{j.why}</span> : <span>queued</span>}
                 </div>
               )}
               {j.state === "done" && j.picture && (current === j.picture
-                ? <span className="py-1 text-center text-[11px] font-semibold text-accent">the Picture</span>
+                ? <span className="py-1 text-center text-meta font-semibold text-accent">the Picture</span>
                 : (
                   <span className="flex gap-1">
                     <Button size="sm" className="grow" onClick={() => pick.mutate(j.picture!)} disabled={pick.isPending} data-tip="This one as the Picture: it goes into the library, the others do not">Use</Button>
@@ -277,7 +277,7 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
       {after}
       {shown.data && <Viewer asset={shown.data} onClose={() => setLooking(null)} />}
       {jobs.some((j) => j.state === "done") && !measured && (
-        <span className="flex items-center gap-1.5 text-[11px] text-ink-3">
+        <span className="flex items-center gap-1.5 text-meta text-ink-3">
           No face figures
           <Help text="The face is measured by the Afflatus node pack's Face Match, which needs insightface in ComfyUI (pip install insightface onnxruntime, then restart ComfyUI). With it, a figure is still missing when no face could be read in the images, or the face is too small." />
         </span>

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, RotateCcw, Send, Sparkles, X } from "lucide-react";
+import { ChevronDown, RotateCcw, Send, Sparkles } from "lucide-react";
 import { api, type DesignerReply, type DesignerSession, type Look, type RecipeInfo, type SettingsPatch } from "./api";
 import { useSettings } from "./data";
 import { Reply } from "./designer/Reply";
@@ -10,7 +10,7 @@ import { SystemView } from "./designer/SystemView";
 import { keep, recall } from "./designer/typed";
 import type { DesignerTurn } from "./designer/types";
 import { useLeave } from "./leave";
-import { AutoText, Button, cx, ErrorNote, Help } from "./ui";
+import { AutoText, Button, CloseButton, cx, ErrorNote, Help, IconButton } from "./ui";
 import { queryKeys } from "./queryKeys";
 
 /** What the designer said, as text again: the language model is shown its own earlier answers. */
@@ -213,7 +213,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
       className={inline ? "flex min-h-0 grow flex-col" : cx("fixed top-0 bottom-10 z-30 flex w-[420px] flex-col border-line-strong bg-panel shadow-2xl shadow-shade/60", overlay && "m-panel", side === "left" ? "left-[76px] border-r" : "right-0 border-l")}
     >
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
-        <span className="text-[11px] font-bold tracking-[.08em] text-ink-3 uppercase">Designer</span>
+        <span className="text-meta font-bold tracking-label text-ink-3 uppercase">Designer</span>
         <Help title="Designer" text={howTo} />
         <span className="grow" />
         {ready && (
@@ -223,9 +223,9 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
           </button>
         )}
         {ready && (
-          <button type="button" aria-label="Start over" data-tip="Start over: clear this conversation. What is in your form stays." disabled={!turns.length || say.isPending} onClick={() => { onTurns([]); say.reset(); }} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-ink-2"><RotateCcw size={14} /></button>
+          <IconButton label="Start over" tip="Start over: clear this conversation. What is in your form stays." disabled={!turns.length || say.isPending} onClick={() => { onTurns([]); say.reset(); }}><RotateCcw size={14} /></IconButton>
         )}
-        <button type="button" aria-label="Close the designer" data-tip="Close (Esc)" onClick={onClose} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
+        <CloseButton label="Close the designer" keys="Esc" onClose={onClose} />
       </div>
       {ready && sessionOpen && (
         <SessionBar
@@ -259,7 +259,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
         )}
         {main && !proposing && !say.isPending && (
           <div className="flex flex-col gap-1.5 rounded-xl border border-line bg-raised px-3 py-2.5">
-            <span className="text-[11px] font-bold tracking-[.08em] text-ink-3 uppercase">{main.label} · now</span>
+            <span className="text-meta font-bold tracking-label text-ink-3 uppercase">{main.label} · now</span>
             {now.trim() ? <span className="line-clamp-6 leading-normal break-words whitespace-pre-wrap">{now}</span> : <span className="text-ink-3 italic">empty</span>}
             {seen && <span className="text-xs text-ink-3">{seen}</span>}
           </div>
@@ -283,7 +283,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
           <details className="group rounded-xl border border-line">
             <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs text-ink-2 hover:text-ink">
               <ChevronDown size={12} className="shrink-0 -rotate-90 transition-transform group-open:rotate-0" />
-              <span className="shrink-0 font-bold tracking-[.08em] uppercase">Earlier · {turns.slice(0, cut).filter((t) => t.role === "user").length}</span>
+              <span className="shrink-0 font-bold tracking-label uppercase">Earlier · {turns.slice(0, cut).filter((t) => t.role === "user").length}</span>
               <span className="min-w-0 truncate">{turns.slice(0, cut).filter((t) => t.role === "user").map((t) => `“${t.content}”`).join(" · ")}</span>
             </summary>
             <div className="flex flex-col gap-3 border-t border-line p-3">{turns.slice(0, cut).map((t, i) => turnView(t, i))}</div>

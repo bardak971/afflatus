@@ -91,7 +91,7 @@ function HuntCard({ hunt, now, anchor, onClose }: { hunt: HuntSummary; now: numb
   const said = huntStrip(hunt, now);
   return (
     <Popover anchor={anchor} onClose={onClose} label="GPU hunt" width={420} height={230 + machines.length * 52}>
-      <div className="flex flex-col text-[12.5px]">
+      <div className="flex flex-col text-body">
         <div className="flex flex-col gap-2 px-3.5 py-3">
           <span className="flex items-center gap-2 font-bold">
             <span aria-hidden className="size-2 shrink-0 rounded-full bg-accent" />
@@ -101,8 +101,8 @@ function HuntCard({ hunt, now, anchor, onClose }: { hunt: HuntSummary; now: numb
           {st?.lastError && <span className="text-warn-ink">Last answer from RunPod: {st.lastError}</span>}
           {hunt.status === "hunting" && (
             <div className="flex flex-col gap-1">
-              <Progress meter value={huntDone(hunt, now)} className="h-1" radius="rounded-[3px]" label="Hunt time gone" />
-              <span className="flex justify-between font-mono text-[11px] text-ink-3">
+              <Progress meter value={huntDone(hunt, now)} className="h-1" radius="rounded-key" label="Hunt time gone" />
+              <span className="flex justify-between font-mono text-meta text-ink-3">
                 <span>{leftWords(Math.max(0, now - Date.parse(hunt.startedAt)))}</span>
                 <span>gives up at {leftWords(Date.parse(hunt.giveUpAt) - Date.parse(hunt.startedAt), true)}</span>
               </span>

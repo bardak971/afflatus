@@ -1,13 +1,13 @@
 import { useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
-import { ChevronDown, ChevronRight, Dices, Plus, Puzzle, Search, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Dices, Plus, Puzzle } from "lucide-react";
 import { fuzzyFilter, LIMITS } from "@afflatus/core";
 import type { Entity, Look } from "./api";
 import { useEntities } from "./data";
 import { Popover } from "./Popover";
 import { NewSnippet } from "./snippets/NewSnippet";
 import { rollSnippets } from "./snippets/roll";
-import { Button, cx } from "./ui";
+import { Button, CloseButton, cx, IconButton, SearchField } from "./ui";
 import { plural } from "./format";
 
 type Snippet = Extract<Entity, { kind: "snippet" }>;
@@ -94,7 +94,7 @@ export function Snippets({ style, look, onLook, text, onInsert }: {
     const on = items.filter((s) => ticked.includes(s.id)).length;
     return (
       <div key={key} className="flex flex-col gap-1.5">
-        <button type="button" aria-expanded={isOpen} onClick={() => flip(key, !isOpen)} className="flex items-center gap-1.5 rounded-md px-1 py-1 text-left text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase hover:bg-hover hover:text-ink">
+        <button type="button" aria-expanded={isOpen} onClick={() => flip(key, !isOpen)} className="flex items-center gap-1.5 rounded-md px-1 py-1 text-left text-meta font-bold tracking-label text-ink-2 uppercase hover:bg-hover hover:text-ink">
           {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
           <span className="grow">{title}</span>
           {on > 0 && <span className="text-accent normal-case">{on} ticked</span>}
@@ -120,18 +120,23 @@ export function Snippets({ style, look, onLook, text, onInsert }: {
         <Puzzle size={13} className="shrink-0" /> Snippets{tickedHere.length ? ` · ${tickedHere.length}` : ""}
       </button>
       {rollable > 0 && (
-        <button type="button" data-tip="Tick one snippet of each category at random, in place of the ones ticked now" onClick={() => set(rollSnippets(mine))} className="flex h-8 w-8 items-center justify-center rounded-lg border border-line-strong text-ink-2 hover:bg-hover hover:text-ink" aria-label="Roll: one snippet of each category at random">
+        <IconButton tone="outline" label="Roll: one snippet of each category at random" tip="Tick one snippet of each category at random, in place of the ones ticked now" onClick={() => set(rollSnippets(mine))}>
           <Dices size={14} />
-        </button>
+        </IconButton>
       )}
       {open && (
         <Popover anchor={button} onClose={() => setOpen(false)} label="Snippets" width={440} height={520} beside='aside[aria-label="Create"]'>
           <div className="flex shrink-0 items-center gap-1.5 border-b border-line p-2">
-            <span className="flex h-8 min-w-0 grow items-center gap-2 rounded-md bg-raised px-2">
-              <Search size={13} className="shrink-0 text-ink-3" />
-              <input data-search autoFocus aria-label="Search your snippets" placeholder={`Search ${plural(all.length, "snippet")}`} value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
-              {query && <button type="button" aria-label="Clear the search" onClick={() => setQuery("")} className="text-ink-2 hover:text-ink"><X size={13} /></button>}
-            </span>
+            <SearchField
+              data-search=""
+              autoFocus
+              label="Search your snippets"
+              placeholder={`Search ${plural(all.length, "snippet")}`}
+              value={query}
+              onChange={setQuery}
+              end={query && <CloseButton size={24} label="Clear the search" onClose={() => setQuery("")} />}
+              className="grow pr-1"
+            />
             <Button size="sm" disabled={!rollable} data-tip={rollable ? "Tick one snippet of each category at random, in place of the ones ticked now" : "Give your snippets categories: a roll ticks one of each"} onClick={() => set(rollSnippets(mine))}>
               <Dices size={13} /> Roll
             </Button>
@@ -185,7 +190,7 @@ export function TickedSnippets({ look, onLook }: { look: Look | null; onLook(loo
         return (
           <span key={id} data-tip={s.def.text} className="flex h-7 items-center gap-1 rounded-full border border-accent bg-accent-wash pr-1 pl-2.5 text-xs font-semibold">
             <span className="max-w-40 truncate">{s.name}</span>
-            <button type="button" aria-label={`Untick ${s.name}`} onClick={() => onLook({ ...(look ?? none), snippets: ticked.filter((x) => x !== id) })} className="flex h-5 w-5 items-center justify-center rounded-full text-ink-2 hover:bg-hover hover:text-ink"><X size={11} /></button>
+            <CloseButton size={24} label={`Untick ${s.name}`} onClose={() => onLook({ ...(look ?? none), snippets: ticked.filter((x) => x !== id) })} />
           </span>
         );
       })}

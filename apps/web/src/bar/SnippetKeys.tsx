@@ -94,7 +94,7 @@ export function useSnippetKeys({ value, onChange }: { value: string; onChange(te
           <span className="min-w-0 truncate text-xs text-ink-2">{s.text}</span>
         </button>
       ))}
-      <span className="border-t border-line px-3 pt-1.5 pb-1 text-[11px] text-ink-3">Tab or Enter puts it in · Esc closes</span>
+      <span className="border-t border-line px-3 pt-1.5 pb-1 text-meta text-ink-3">Tab or Enter puts it in · Esc closes</span>
     </div>
   ) : null;
   return { onKeyDown, onSelect, list };

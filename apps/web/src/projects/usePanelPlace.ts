@@ -46,6 +46,7 @@ export function usePanelPlace({ panel, anchor, scoped, onClose }: {
   }, [panel, anchor, onClose]);
 
   // a dialog opened from it that sits lower than it (Add to a timeline, the Viewer's): the panel steps aside until it closes
+  // (66 is the panel's own layer, z-popover in styles.css: the two change together)
   const [covered, setCovered] = useState(false);
   useEffect(() => {
     const look = () => setCovered([...document.querySelectorAll<HTMLElement>("body > [role=dialog][aria-modal=true]")].some((d) => (Number.parseInt(getComputedStyle(d).zIndex, 10) || 0) < 66));

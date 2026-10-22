@@ -82,7 +82,7 @@ export function ResultsPlace({ folder }: { folder: { name: string; path: string 
 }
 
 /** A quiet piece of the strip: grey, a wash under it on hover. Shrinks (its name truncated) when the strip is short of room. */
-export const stripGhost = "inline-flex h-7 items-center gap-1.5 rounded-[9px] px-2 whitespace-nowrap text-ink-2 hover:bg-raised";
+export const stripGhost = "inline-flex h-7 items-center gap-1.5 rounded-control px-2 whitespace-nowrap text-ink-2 hover:bg-raised";
 /** The model's light in the strip: green when it is what renders next, grey otherwise. */
 const Light = ({ on }: { on: boolean }) => <span className={cx("size-[7px] shrink-0 rounded-full", on ? "bg-good" : "bg-ink-3")} />;
 /** A model name in the strip: the first thing to go when the strip is short of room (its light and tip stay). */

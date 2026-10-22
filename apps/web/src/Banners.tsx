@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, X } from "lucide-react";
+import { AlertTriangle, Check } from "lucide-react";
 import { api, type Download, type Job } from "./api";
 import { useQueue, useSettings } from "./data";
 import { plural } from "./format";
@@ -10,7 +10,7 @@ import { moves } from "./leave";
 import { Kbd } from "./Keys";
 import { OUT_MS } from "./motion";
 import { useBanners, useHandover, useNotify, type Banner } from "./store";
-import { cx } from "./ui";
+import { CloseButton, cx } from "./ui";
 import { askViewer, passFrom } from "./viewer/ask";
 import { machineName, NO_ROOM, volumeHref, volumeOf } from "./machines";
 import { queryKeys } from "./queryKeys";
@@ -219,7 +219,7 @@ export function Banners() {
   return (
     // top centre, under the screens' headers: over the stage's or the player's empty top, never over a header's
     // controls (as it was at the very top) nor the stage's action bar and the status bar at the foot
-    <div className="pointer-events-none fixed top-16 left-1/2 z-[65] flex w-[440px] max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col gap-2">
+    <div className="pointer-events-none fixed top-16 left-1/2 z-banner flex w-[440px] max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col gap-2">
       {drawn.map(({ b, leaving }) => {
         const said = (
           <>
@@ -258,7 +258,7 @@ export function Banners() {
               {b.action.label} {b.action.key && <Kbd>{b.action.key}</Kbd>}
             </button>
           )}
-          <button type="button" aria-label="Close" onClick={() => dismiss(b.id)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md hover:bg-hover"><X size={14} /></button>
+          <CloseButton size={28} tone="inherit" onClose={() => dismiss(b.id)} />
         </div>
         );
       })}

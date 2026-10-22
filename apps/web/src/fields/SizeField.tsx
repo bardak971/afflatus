@@ -2,7 +2,7 @@ import { ArrowLeftRight } from "lucide-react";
 import { frameOf, megapixels, withinPixels, type InputSpec, type SizeValue } from "@afflatus/core";
 import { scaleOf, upscaledFrame } from "../form";
 import { Select } from "../Select";
-import { cx, NumberBox, Segmented } from "../ui";
+import { cx, IconButton, NumberBox, Segmented } from "../ui";
 import { Label } from "./Label";
 
 /** Proportions to choose from beyond the ones a recipe names, tallest to widest. */
@@ -80,9 +80,9 @@ export function SizeField({ spec, value: size, values, onChange }: { spec: Extra
       {!spec.ratioOnly && (
         <div className="flex items-center gap-2 text-ink-2">
           <NumberBox label="Width, in pixels" value={size.width} min={spec.min} max={spec.max} step={spec.grid} unit="px" onCommit={(width) => onChange(typed({ width: snap(width), height: size.height }, "width"))} />
-          <button type="button" aria-label="Swap width and height" data-tip="Swap width and height" onClick={() => onChange({ width: size.height, height: size.width })} className="flex h-8 w-8 items-center justify-center rounded-md border border-line-strong hover:bg-hover">
+          <IconButton tone="outline" label="Swap width and height" onClick={() => onChange({ width: size.height, height: size.width })}>
             <ArrowLeftRight size={14} />
-          </button>
+          </IconButton>
           <NumberBox label="Height, in pixels" value={size.height} min={spec.min} max={spec.max} step={spec.grid} unit="px" onCommit={(height) => onChange(typed({ width: size.width, height: snap(height) }, "height"))} />
           <span className="text-xs">width × height</span>
         </div>

@@ -52,7 +52,7 @@ export function SearchChips({ text, chips, input }: { text: string; chips: reado
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
       <div ref={mirror} className="flex h-full items-center text-xl font-medium whitespace-pre text-transparent">
-        {parts.map((p, i) => (p.tone ? <span key={i} className={cx("rounded-[5px]", TONE[p.tone])}>{p.text}</span> : <span key={i}>{p.text}</span>))}
+        {parts.map((p, i) => (p.tone ? <span key={i} className={cx("rounded-key", TONE[p.tone])}>{p.text}</span> : <span key={i}>{p.text}</span>))}
       </div>
     </div>
   );

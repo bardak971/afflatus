@@ -37,7 +37,7 @@ const WAYS: Array<{ via: Via; title: string; note: string; icon: ReactNode }> = 
 /** A link-like button of the card: Forgot password?, Another way. */
 function TextButton({ onClick, quiet, children }: { onClick(): void; quiet?: boolean; children: ReactNode }) {
   return (
-    <button type="button" onClick={onClick} className={cx("p-0 text-[12.5px] hover:underline", quiet ? "text-ink-2" : "text-accent")}>
+    <button type="button" onClick={onClick} className={cx("p-0 text-body hover:underline", quiet ? "text-ink-2" : "text-accent")}>
       {children}
     </button>
   );
@@ -144,11 +144,11 @@ export function SignIn({ state, onIn }: { state: SessionState; onIn(): void }) {
   const wrong = said !== null && screen === "signin";
   const sentSaid = via === "telegram" ? "Sent to your Telegram bot's chat." : "Written to Afflatus's console and to data/logs/afflatus.log on the computer it runs on.";
   return (
-    <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-[22px] overflow-y-auto bg-ground px-4 py-8">
+    <div className="fixed inset-0 z-tip flex flex-col items-center justify-center gap-[22px] overflow-y-auto bg-ground px-4 py-8">
       <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(600px 420px at 50% 38%, color-mix(in srgb, var(--color-accent) 7%, transparent), transparent 70%)" }} />
       <div className={cx("relative flex flex-col items-center gap-3", entering && "m-gate-lift")}>
-        <span className={cx("block rounded-[13px]", entering && "m-gate-pulse")}><Mark big /></span>
-        <span className="text-xl font-bold tracking-[0.01em]">Afflatus</span>
+        <span className={cx("block rounded-card", entering && "m-gate-pulse")}><Mark big /></span>
+        <span className="text-xl font-bold">Afflatus</span>
       </div>
 
       <div
@@ -161,19 +161,19 @@ export function SignIn({ state, onIn }: { state: SessionState; onIn(): void }) {
           <form onSubmit={(e) => void signIn(e)} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1">
               <h1 className="text-base font-bold">Sign in</h1>
-              <span className="text-[12.5px] text-ink-2">This Afflatus has a password.</span>
+              <span className="text-body text-ink-2">This Afflatus has a password.</span>
             </div>
             <label className="flex flex-col gap-1.5 text-xs font-semibold text-ink-2">
               Password
               <input
                 ref={field} type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus autoComplete="current-password"
                 aria-invalid={wrong} disabled={entering}
-                className={cx("h-10 text-[14px] tracking-[0.1em] transition-[border-color,box-shadow] aria-[invalid=true]:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-warn)_16%,transparent)]", fieldClass)}
+                className={cx("h-10 text-title tracking-label transition-[border-color,box-shadow] aria-[invalid=true]:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-warn)_16%,transparent)]", fieldClass)}
               />
             </label>
-            {said && <span role="alert" key={shakes} className="m-gate-said -mt-2 text-[12.5px] text-warn-ink">{said}</span>}
-            <Checkbox checked={remember} onChange={setRemember} className="text-[13px]">Remember this device for {plural(state.stayDays, "day")}</Checkbox>
-            <Button type="submit" tone="primary" disabled={busy || waitLeft > 0 || entering || !password} className={cx("h-[42px] text-[14px]", entering && "bg-good! text-ground! disabled:opacity-100!")}>
+            {said && <span role="alert" key={shakes} className="m-gate-said -mt-2 text-body text-warn-ink">{said}</span>}
+            <Checkbox checked={remember} onChange={setRemember} className="text-body">Remember this device for {plural(state.stayDays, "day")}</Checkbox>
+            <Button type="submit" tone="primary" disabled={busy || waitLeft > 0 || entering || !password} className={cx("h-[42px] text-title", entering && "bg-good! text-ground! disabled:opacity-100!")}>
               {entering && <Check size={16} strokeWidth={3} />}
               {entering ? "Signed in" : waitLeft ? `Wait ${clock(waitLeft)}` : "Sign in"}
             </Button>
@@ -187,22 +187,22 @@ export function SignIn({ state, onIn }: { state: SessionState; onIn(): void }) {
           <div className="flex flex-col gap-3.5">
             <div className="flex flex-col gap-1">
               <h1 className="text-base font-bold">Get a code to reset it</h1>
-              <span className="text-[12.5px] text-ink-2">A 10-character code, valid 10 minutes in this browser, sent where only you can read it.</span>
+              <span className="text-body text-ink-2">A 10-character code, valid 10 minutes in this browser, sent where only you can read it.</span>
             </div>
             {ways.map((w) => (
               <button
                 key={w.via} type="button" disabled={busy} onClick={() => void send(w.via)}
-                className="flex items-start gap-3 rounded-[11px] border border-line bg-raised px-3.5 py-3 text-left hover:bg-hover disabled:opacity-60"
+                className="flex items-start gap-3 rounded-control border border-line bg-raised px-3.5 py-3 text-left hover:bg-hover disabled:opacity-60"
               >
                 <span className={cx("grid h-[30px] w-[30px] shrink-0 place-items-center rounded-lg", w.via === "telegram" ? "bg-picture text-ground" : "bg-ink-3 text-ground")}>{w.icon}</span>
                 <span className="flex grow flex-col gap-[3px]">
-                  <span className="text-[13.5px] font-semibold">{w.title}</span>
+                  <span className="text-title font-semibold">{w.title}</span>
                   <span className="text-xs leading-[1.45] text-ink-2">{w.note}</span>
                 </span>
               </button>
             ))}
             {state.telegramHeld > 0 && <span className="text-xs text-ink-3">Telegram's bot or chat changed lately: codes go there again in {state.telegramHeld >= 60 ? `${Math.ceil(state.telegramHeld / 60)} h` : `${state.telegramHeld} min`}.</span>}
-            {said && <span role="alert" className="m-gate-said text-[12.5px] text-warn-ink">{said}</span>}
+            {said && <span role="alert" className="m-gate-said text-body text-warn-ink">{said}</span>}
             <span><TextButton quiet onClick={() => go("signin")}>I remember it now</TextButton></span>
           </div>
         )}
@@ -211,7 +211,7 @@ export function SignIn({ state, onIn }: { state: SessionState; onIn(): void }) {
           <form onSubmit={(e) => void reset(e)} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1">
               <h1 className="text-base font-bold">Enter the code</h1>
-              <span className="text-[12.5px] leading-[1.45] text-ink-2">{sentSaid} 10 characters, valid 10 minutes, once, in this browser.</span>
+              <span className="text-body leading-[1.45] text-ink-2">{sentSaid} 10 characters, valid 10 minutes, once, in this browser.</span>
             </div>
             <label className="flex flex-col gap-1.5 text-xs font-semibold text-ink-2">
               Code
@@ -223,12 +223,12 @@ export function SignIn({ state, onIn }: { state: SessionState; onIn(): void }) {
             </label>
             <label className="flex flex-col gap-1.5 text-xs font-semibold text-ink-2">
               New password
-              <input type="password" value={fresh} onChange={(e) => setFresh(e.target.value)} autoComplete="new-password" className={cx("h-10 text-[14px] tracking-[0.1em]", fieldClass)} />
+              <input type="password" value={fresh} onChange={(e) => setFresh(e.target.value)} autoComplete="new-password" className={cx("h-10 text-title tracking-label", fieldClass)} />
             </label>
-            <Checkbox checked={signOutOthers} onChange={setSignOutOthers} className="text-[13px]">Sign out every other device</Checkbox>
-            {said && <span role="alert" key={shakes} className="m-gate-said -mt-1 text-[12.5px] text-warn-ink">{said}</span>}
-            <Button type="submit" tone="primary" disabled={busy || waitLeft > 0} className="h-[42px] text-[14px]">{waitLeft ? `Wait ${clock(waitLeft)}` : "Set the new password"}</Button>
-            <div className="flex items-center justify-between text-[12.5px]">
+            <Checkbox checked={signOutOthers} onChange={setSignOutOthers} className="text-body">Sign out every other device</Checkbox>
+            {said && <span role="alert" key={shakes} className="m-gate-said -mt-1 text-body text-warn-ink">{said}</span>}
+            <Button type="submit" tone="primary" disabled={busy || waitLeft > 0} className="h-[42px] text-title">{waitLeft ? `Wait ${clock(waitLeft)}` : "Set the new password"}</Button>
+            <div className="flex items-center justify-between text-body">
               <TextButton quiet onClick={() => go("forgot")}>Another way</TextButton>
               {sendLeft ? <span className="text-ink-3">Send again in {sendLeft} s</span> : <TextButton onClick={() => void send(via)}>Send again</TextButton>}
             </div>
@@ -239,16 +239,16 @@ export function SignIn({ state, onIn }: { state: SessionState; onIn(): void }) {
           <div className="flex flex-col items-center gap-3 py-2 text-center">
             <span className="grid h-11 w-11 place-items-center rounded-full bg-good/15 text-good"><Check size={20} strokeWidth={2.5} /></span>
             <h1 className="text-base font-bold">Password changed</h1>
-            <span className="text-[12.5px] leading-[1.45] text-ink-2">
+            <span className="text-body leading-[1.45] text-ink-2">
               You are signed in here.{" "}
               {signOutOthers && state.telegram ? "Every other device was signed out, and Telegram was told." : signOutOthers ? "Every other device was signed out." : state.telegram ? "Telegram was told." : ""}
             </span>
-            <Button tone="primary" autoFocus disabled={entering} onClick={enter} className="h-[42px] w-full text-[14px]">Open Afflatus</Button>
+            <Button tone="primary" autoFocus disabled={entering} onClick={enter} className="h-[42px] w-full text-title">Open Afflatus</Button>
           </div>
         )}
       </div>
 
-      <span className="relative font-mono text-[11.5px] text-ink-3">Afflatus {__AFFLATUS_VERSION__}</span>
+      <span className="relative font-mono text-meta text-ink-3">Afflatus {__AFFLATUS_VERSION__}</span>
     </div>
   );
 }

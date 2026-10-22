@@ -4,7 +4,7 @@ import { Maximize, Minimize } from "lucide-react";
 import { api, fileUrl, thumbUrl } from "./api";
 import { claimPlayback, PlayButton, releasePlayback, savedVolume, SeekStrip, storeVolume, TimeReadout, VolumeControl } from "./mediaControls";
 import { barsOf, BARS } from "./screens/library/SoundWave";
-import { cx } from "./ui";
+import { cx, IconButton } from "./ui";
 import { queryKeys } from "./queryKeys";
 
 /**
@@ -166,24 +166,22 @@ export function VideoPlayer({ asset, sound, lengthMs, video: outer, controls = t
         className={cx("min-h-0 max-w-full cursor-pointer rounded-lg", full ? "max-h-full grow" : "", videoClassName)}
       />
       {(controls || barRoom) && (
-        <div aria-hidden={!controls || undefined} inert={!controls || undefined} className={cx("flex w-full min-w-0 shrink-0 items-center", !controls && "invisible", compact ? "gap-2.5" : "max-w-[640px] gap-3.5 rounded-[14px] border border-line bg-raised px-3.5 py-2")}>
+        <div aria-hidden={!controls || undefined} inert={!controls || undefined} className={cx("flex w-full min-w-0 shrink-0 items-center", !controls && "invisible", compact ? "gap-2.5" : "max-w-[640px] gap-3.5 rounded-card border border-line bg-raised px-3.5 py-2")}>
           <PlayButton on={on} onClick={toggle} />
           <SeekStrip at={at} now={now} span={length} bars={bars} playing={on} onSeek={seek} />
           <TimeReadout now={now} span={length} />
           {!silent && <VolumeControl volume={volume} muted={muted} onVolume={setVolume} onMuted={setMuted} />}
           {!compact && (
-            <button
-              type="button"
-              aria-label={full ? "Leave full screen" : "Full screen"}
-              data-tip={full ? "Leave full screen" : "Full screen"}
+            <IconButton
+              size={28}
+              label={full ? "Leave full screen" : "Full screen"}
               onClick={(e) => {
                 e.stopPropagation();
                 toggleFull();
               }}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"
             >
               {full ? <Minimize size={15} /> : <Maximize size={15} />}
-            </button>
+            </IconButton>
           )}
         </div>
       )}

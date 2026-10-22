@@ -5,7 +5,7 @@ import { useQueue } from "./data";
 import { minutesSaid, usd } from "./format";
 import { deploySaid, firstPick, giveUpOptions, MODES, renderSaid, renderWhy } from "./huntSaid";
 import { Select } from "./Select";
-import { Checkbox, cx, ErrorNote, Help, NumberBox, Segmented } from "./ui";
+import { Checkbox, Chip, cx, ErrorNote, Help, NumberBox, Segmented } from "./ui";
 
 /** The ceiling is the GPU's price, as the ranking's prices are: the disk's part depends on the disk picked, not on the GPU. */
 const WHY_CEILING = "The highest price an hour of the GPU itself, as RunPod lists it and as the table below says it. The pod's own disk adds a little to it while it runs ($0.10/GB a month); a network volume is billed apart.";
@@ -77,7 +77,7 @@ export function HuntSection({ ask, change, ranking, stepDown = [], overhead, fai
         <Segmented<HuntAsk["mode"]> label="Hunt for" value={ask.mode} options={MODES.map(({ value, label }) => ({ value, label }))} onChange={(mode) => change({ mode })} />
         <Help text={WHY_MODE} />
         <span className="grow" />
-        <span className="flex items-center gap-2 text-[13px] text-ink-2">
+        <span className="flex items-center gap-2 text-body text-ink-2">
           Up to $
           <NumberBox label="Highest GPU price an hour, USD" value={ask.ceiling} min={0.05} max={1000} step={0.01} onCommit={(ceiling) => change({ ceiling })} className="-ml-1" />
           an hour
@@ -88,7 +88,7 @@ export function HuntSection({ ask, change, ranking, stepDown = [], overhead, fai
 
       {/* one height whatever the answer, as the stock list's: the dialog does not move under the pointer */}
       <div role="table" aria-label="GPUs the hunt may deploy, ranked" className="flex h-[300px] flex-col overflow-y-auto rounded-xl border border-line">
-        <div role="row" className={cx("sticky top-0 z-10 grid items-center gap-2.5 border-b border-line bg-panel px-3 py-1.5 text-[11px] font-semibold text-ink-3", COLS)}>
+        <div role="row" className={cx("sticky top-0 z-10 grid items-center gap-2.5 border-b border-line bg-panel px-3 py-1.5 text-meta font-semibold text-ink-3", COLS)}>
           <span><Help text={WHY_TABLE} /></span>
           <span>GPU</span>
           <span className="text-right">GPU $/h</span>
@@ -99,19 +99,19 @@ export function HuntSection({ ask, change, ranking, stepDown = [], overhead, fai
         {failed && <div className="p-3"><ErrorNote>{failed}</ErrorNote></div>}
         {!failed && !ranking && <span className="px-3 py-2.5 text-xs text-ink-3">{pending ? "Asking RunPod…" : "Nothing to rank yet."}</span>}
         {rows?.map((g) => (
-          <div key={g.id} role="row" className={cx("grid items-center gap-2.5 border-b border-line/60 px-3 py-2 text-[13px] last:border-b-0", COLS, g.fit !== "yes" && "opacity-50", g === pick && "bg-accent-wash")}>
+          <div key={g.id} role="row" className={cx("grid items-center gap-2.5 border-b border-line/60 px-3 py-2 text-body last:border-b-0", COLS, g.fit !== "yes" && "opacity-50", g === pick && "bg-accent-wash")}>
             {/* over the price asked, the hunt cannot deploy it whatever its tick: shown unticked, as one left out */}
             <Checkbox checked={!ask.leftOut.includes(g.id) && g.fit !== "price"} disabled={g.fit === "price"} onChange={(on) => leave(g.id, on)} label={`Hunt for ${g.name}`} />
             <span className="flex min-w-0 items-center gap-2">
               <span className="truncate font-semibold">{g.name}</span>
-              {g.memory > 0 && <span className="shrink-0 rounded-md bg-raised px-1.5 font-mono text-[11px] text-ink-2">{g.memory} GB</span>}
-              {g === pick && <span className="shrink-0 rounded-md bg-accent px-1.5 text-[11px] font-bold text-accent-ink">first pick</span>}
+              {g.memory > 0 && <Chip size="xs" className="font-mono">{g.memory} GB</Chip>}
+              {g === pick && <span className="shrink-0 rounded-md bg-accent px-1.5 text-meta font-bold text-accent-ink">first pick</span>}
             </span>
             <span className="text-right font-mono text-xs">{usd(g.price)}</span>
             <span className="flex flex-col items-end">
               <span className={cx("text-xs", g.cost === null ? "text-ink-3" : "font-mono")}>{renderSaid(g)}</span>
-              {g.cost !== null && <span className="text-[11px] text-ink-3">{g.timeSaid}</span>}
-              {deploySaid(g) && <span className="text-[11px] text-ink-3">{deploySaid(g)}</span>}
+              {g.cost !== null && <span className="text-meta text-ink-3">{g.timeSaid}</span>}
+              {deploySaid(g) && <span className="text-meta text-ink-3">{deploySaid(g)}</span>}
             </span>
             <span className={cx("text-xs", g.fit === "yes" ? "text-good" : "text-ink-2")}>{fitsSaid(g, stepDown.includes(g.id) && !ticked.current.has(g.id))}</span>
             <span className="flex items-center gap-1.5 text-xs text-ink-2"><span className={cx("size-2 shrink-0 rounded-full", STOCK_DOT[g.stock])} />{g.stock}</span>
@@ -133,11 +133,11 @@ export function HuntSection({ ask, change, ranking, stepDown = [], overhead, fai
               role="radio"
               aria-checked={ask.hold === h.value}
               onClick={() => change({ hold: h.value })}
-              className={cx("flex items-start gap-3 rounded-[10px] border px-3.5 py-2.5 text-left", ask.hold === h.value ? "border-accent bg-accent-wash" : "border-line bg-raised hover:bg-hover")}
+              className={cx("flex items-start gap-3 rounded-control border px-3.5 py-2.5 text-left", ask.hold === h.value ? "border-accent bg-accent-wash" : "border-line bg-raised hover:bg-hover")}
             >
               <span aria-hidden className={cx("mt-0.5 size-3.5 shrink-0 rounded-full", ask.hold === h.value ? "border-4 border-accent" : "border-[1.5px] border-(--control-edge)")} />
               <span className="flex flex-col gap-0.5">
-                <span className="text-[13px] font-semibold text-ink">{h.label}</span>
+                <span className="text-body font-semibold text-ink">{h.label}</span>
                 <span className="text-xs text-ink-2">{h.note}</span>
               </span>
             </button>

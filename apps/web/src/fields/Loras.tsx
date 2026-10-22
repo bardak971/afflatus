@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, Minus, Pencil, Plus, X } from "lucide-react";
+import { Check, Copy, Minus, Pencil, Plus } from "lucide-react";
 import { baseGroup, baseLabel, lineOf, loraFit, modelFit, type InputSpec, type LoraValue } from "@afflatus/core";
 import { api, type FamilyInfo, type ModelInfo, type ModelWords } from "../api";
 import { useModelInfo, useModelWords } from "../data";
@@ -8,7 +8,7 @@ import { fileLabel } from "../format";
 import { ModelLink } from "../ModelLink";
 import { appendTo, removeFrom, wordsIn } from "../promptText";
 import { Select, type Option } from "../Select";
-import { cx, fieldClass, NumberBox } from "../ui";
+import { Chip, CloseButton, cx, fieldClass, NumberBox } from "../ui";
 import { Slider } from "../Slider";
 import { fileOption } from "./FileSelect";
 import { Label } from "./Label";
@@ -62,7 +62,7 @@ function LoraWords({ file, info, more, main }: { file: string; info: ModelInfo |
     mutationFn: (own: string) => api.setModelWords("loras", file, own.trim() || null),
     onSuccess: (r) => client.setQueryData<{ items: Record<string, ModelWords> }>(queryKeys.modelWords("loras"), (old) => ({ items: { ...(old?.items ?? {}), ...r.items } })),
   });
-  const small = "flex h-5 shrink-0 items-center gap-1 rounded px-1 text-[11px] text-ink-2 enabled:hover:bg-hover enabled:hover:text-ink disabled:opacity-35";
+  const small = "flex h-5 shrink-0 items-center gap-1 rounded px-1 text-meta text-ink-2 enabled:hover:bg-hover enabled:hover:text-ink disabled:opacity-35";
   // which of them the prompt holds already: "+" has nothing to add when all are there, "−" nothing to take when none is
   const there = main && words ? wordsIn(main.text, words, main.style) : { any: false, all: false };
   if (typing !== null) {
@@ -91,7 +91,7 @@ function LoraWords({ file, info, more, main }: { file: string; info: ModelInfo |
   }
   return (
     <div className="flex min-w-0 items-center gap-1 text-xs text-ink-2">
-      {info?.base && <span className="shrink-0 rounded bg-hover px-1.5 py-px text-[10px] font-semibold text-ink-2">{info.base}</span>}
+      {info?.base && <Chip size="xs">{info.base}</Chip>}
       <button
         type="button"
         disabled={!words}
@@ -197,9 +197,7 @@ export function Loras({ spec, value, options, family, model, onChange, main }: {
             {/* the slider covers −1 to 2; the typed box beside it goes further */}
             <Slider label={`Strength of ${fileLabel(l.file)}`} min={-1} max={2} step={0.05} zero={0} box={false} value={Math.max(-1, Math.min(2, l.weight))} onChange={(v) => set(i, v)} className="w-24 shrink-0" />
             <NumberBox label={`Strength of ${fileLabel(l.file)}, typed`} value={l.weight} min={-4} max={4} step={0.05} onCommit={(v) => set(i, v)} className="shrink-0 text-xs" />
-            <button type="button" aria-label={`Remove ${fileLabel(l.file)}`} onClick={() => onChange(value.filter((_, j) => j !== i))} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover">
-              <X size={14} />
-            </button>
+            <CloseButton size={28} label={`Remove ${fileLabel(l.file)}`} onClose={() => onChange(value.filter((_, j) => j !== i))} />
           </div>
           <LoraWords file={l.file} info={info[l.file]} more={more[nameOf(l.file)]} main={main} />
         </div>

@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { X } from "lucide-react";
 import { fileKey } from "@afflatus/core";
 import { api } from "../api";
 import { gb, plural, size } from "../format";
@@ -8,7 +7,7 @@ import { ViaChip } from "../modelFilesUi";
 import { queryKeys } from "../queryKeys";
 import { useSayFailed } from "../sayFailed";
 import { Select } from "../Select";
-import { Button, cx } from "../ui";
+import { Button, CloseButton, cx } from "../ui";
 import { getOnPc, type FindTarget, type PickedFile } from "./store";
 
 /**
@@ -78,14 +77,14 @@ export function Tray({ files, target, onRemove, onClear, onDone, dropping, onOve
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {files.map((f) => (
-          <div key={fileKey(f)} className="grid grid-cols-[minmax(0,1fr)_auto_64px_20px] items-center gap-2 border-b border-line/60 px-4 py-2 text-[12.5px]">
+          <div key={fileKey(f)} className="grid grid-cols-[minmax(0,1fr)_auto_64px_24px] items-center gap-2 border-b border-line/60 px-4 py-2 text-body">
             <span className="flex min-w-0 flex-col">
               <span className="break-all">{f.file}</span>
               <span className="truncate text-xs text-ink-3">{f.folder} · {f.from}</span>
             </span>
             <ViaChip via={f.via} />
             <span className="text-right font-mono text-xs text-ink-2">{f.size ? size(f.size) : "–"}</span>
-            <button type="button" aria-label={`Take ${f.file} off`} onClick={() => onRemove(f)} className="grid size-5 place-items-center rounded text-ink-3 hover:bg-hover hover:text-ink"><X size={12} /></button>
+            <CloseButton size={24} label={`Take ${f.file} off`} onClose={() => onRemove(f)} />
           </div>
         ))}
         {!files.length && <p className="px-4 py-6 text-center text-xs text-ink-3">Pick a model's files: its + on the card, open it, or drag it here.</p>}

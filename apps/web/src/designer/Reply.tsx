@@ -18,7 +18,7 @@ function Changed({ was, now }: { was: string; now: string }) {
           : now}
       </div>
       {marked && (
-        <button type="button" className="self-start text-[11px] text-ink-2 underline hover:text-ink" onClick={() => setPlain(!plain)}>
+        <button type="button" className="self-start text-meta text-ink-2 underline hover:text-ink" onClick={() => setPlain(!plain)}>
           {plain ? "Show diff" : "Show plain text"}
         </button>
       )}
@@ -99,10 +99,10 @@ export function Reply({ turn: t, last, busy, label, onUse, onUndo, onAnother, on
           ))}
           {changes.length > 0 && last && <Button size="sm" disabled={busy} data-tip="Ask for another version, different from this one" onClick={onAnother}><RefreshCw size={13} /> Regenerate</Button>}
           {(r?.empty || r?.repeats || short.length > 0) && last && <Button size="sm" disabled={busy} data-tip="Ask the same thing again, as if this reply had not come" onClick={onAgain}><RotateCcw size={13} /> Retry</Button>}
-          {r?.raw && <button type="button" className="text-[11px] text-ink-2 underline hover:text-ink" onClick={() => setRaw(!raw)}>{raw ? "Hide raw response" : "Raw response"}</button>}
+          {r?.raw && <button type="button" className="text-meta text-ink-2 underline hover:text-ink" onClick={() => setRaw(!raw)}>{raw ? "Hide raw response" : "Raw response"}</button>}
         </span>
       )}
-      {raw && r?.raw && <pre className="max-h-48 overflow-auto rounded-lg bg-raised px-2.5 py-2 font-mono text-[11px] leading-normal break-words whitespace-pre-wrap text-ink-2">{r.raw}</pre>}
+      {raw && r?.raw && <pre className="max-h-48 overflow-auto rounded-lg bg-raised px-2.5 py-2 font-mono text-meta leading-normal break-words whitespace-pre-wrap text-ink-2">{r.raw}</pre>}
       {last && r && r.options.length > 0 && (
         <span className="flex flex-wrap gap-1.5">
           {/* the model writes its suggestions as it likes ("even more"): they read as the composer's chips do ("More detail") */}

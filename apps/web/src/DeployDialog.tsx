@@ -21,7 +21,7 @@ import { queryKeys } from "./queryKeys";
 import { Select } from "./Select";
 import { useSayFailed } from "./sayFailed";
 import { useBanners } from "./store";
-import { Button, Checkbox, cx, ErrorNote, fieldClass, Help, Segmented } from "./ui";
+import { Button, Checkbox, Chip, cx, ErrorNote, Help, IconButton, SearchField, Segmented, Spinner } from "./ui";
 
 /** What a first deploy opens with: Afflatus's image, Secure Cloud, no volume, terminated after 10 min idle. */
 const FIRST: Omit<DeployAsk, "gpu"> = { cloud: "SECURE", template: "afflatus", volume: "", disk: 120, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15, set: "", files: [], leaveOut: [], accept: [], again: false, makeRoom: true, cuda: "13.0", cudaOnce: false };
@@ -276,7 +276,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
             pending={rank.isFetching}
             volume={changing ? (kept?.dataCenter ? { name: volumes.data?.volumes.find((v) => v.id === kept.deploy.volume)?.name ?? "its network volume", dataCenter: kept.dataCenter } : null) : volume}
             warning={changing ? null : (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[10px] bg-warn-wash px-3.5 py-2.5 text-[13px] text-warn-ink">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-control bg-warn-wash px-3.5 py-2.5 text-body text-warn-ink">
                 <CircleAlert size={16} className="shrink-0" />
                 <span className="min-w-0 grow">
                   {wantedFree
@@ -297,17 +297,14 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
           />
         ) : (
         <section className="flex flex-col gap-1.5">
-          <span className="flex items-center gap-2 text-[13px] font-semibold text-ink-2">
+          <span className="flex items-center gap-2 text-body font-semibold text-ink-2">
             GPU <span className="font-normal text-ink-3">· in stock now</span>
             {readAgo !== null && <span className="text-xs font-normal text-ink-3">read {readAgo} s ago</span>}
-            <button type="button" aria-label="Read RunPod's stock now" data-tip="Read now (every 15 s by itself)" onClick={() => void gpus.refetch()} disabled={gpus.isFetching} className="grid size-6 place-items-center rounded-md text-ink-3 hover:bg-hover hover:text-ink disabled:opacity-50">
-              <RotateCw size={12} className={cx(gpus.isFetching && "animate-spin")} />
-            </button>
+            <IconButton size={24} label="Read RunPod's stock now" tip="Read now (every 15 s by itself)" onClick={() => void gpus.refetch()} disabled={gpus.isFetching}>
+              {gpus.isFetching ? <Spinner tone="current" /> : <RotateCw size={12} />}
+            </IconButton>
             <span className="grow" />
-            <label className={cx(fieldClass, "flex h-8 w-44 items-center gap-1.5 rounded-lg px-2 text-xs font-normal focus-within:border-accent")}>
-              <Search size={13} className="shrink-0 text-ink-3" />
-              <input aria-label="Find a GPU" placeholder="Find: 5090, 48 GB…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape" && q) { e.stopPropagation(); setQ(""); } }} className="min-w-0 grow bg-transparent outline-none placeholder:text-ink-3" />
-            </label>
+            <SearchField label="Find a GPU" placeholder="Find: 5090, 48 GB…" value={q} onChange={setQ} onKeyDown={(e) => { if (e.key === "Escape" && q) { e.stopPropagation(); setQ(""); } }} className="w-44 font-normal" inputClassName="text-xs" />
             <Segmented<DeployAsk["cloud"]> size="sm" label="Cloud" value={want.cloud} options={[{ value: "SECURE", label: "Secure" }, { value: "COMMUNITY", label: "Community" }]} onChange={(cloud) => set({ cloud })} />
             <Help text={WHY_CLOUD} />
           </span>
@@ -317,7 +314,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
             {gpus.isPending && <span className="px-3 py-2.5 text-xs text-ink-3">Asking RunPod…</span>}
             {gpus.isSuccess && !offers.length && <span className="px-3 py-2.5 text-xs text-ink-2">{words.length && gpus.data?.gpus.some((g) => placesOf(g).length) ? `No GPU in stock matches “${q}”.` : `Nothing in stock ${volume ? `in ${volume.dataCenter}, where the volume is` : "on this cloud"} now. RunPod's stock moves by the minute: this list is read again every 15 s.`}</span>}
             {offers.length > 0 && (
-              <div className="sticky top-0 z-10 grid grid-cols-[minmax(0,1fr)_64px_90px_70px_76px] items-center gap-3 border-b border-line bg-panel px-3 py-1.5 text-[11px] font-semibold text-ink-3">
+              <div className="sticky top-0 z-10 grid grid-cols-[minmax(0,1fr)_64px_90px_70px_76px] items-center gap-3 border-b border-line bg-panel px-3 py-1.5 text-meta font-semibold text-ink-3">
                 {SORTS.map((c) => (
                   <span key={c.key} className={cx("flex items-center gap-1", c.className)}>
                     <button type="button" onClick={() => sortBy(c.key)} aria-label={`Sort by ${c.label}`} className={cx("hover:text-ink", sort.key === c.key && "text-ink")}>
@@ -335,11 +332,11 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
                 role="radio"
                 aria-checked={g.id === want.gpu}
                 onClick={() => set({ gpu: g.id })}
-                className={cx("grid grid-cols-[minmax(0,1fr)_64px_90px_70px_76px] items-center gap-3 border-b border-line/60 px-3 py-2 text-left text-[13px] last:border-b-0", g.id === want.gpu ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : "hover:bg-hover")}
+                className={cx("grid grid-cols-[minmax(0,1fr)_64px_90px_70px_76px] items-center gap-3 border-b border-line/60 px-3 py-2 text-left text-body last:border-b-0", g.id === want.gpu ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : "hover:bg-hover")}
               >
                 <span className="flex min-w-0 items-center gap-1.5">
                   <span className="min-w-0 truncate font-semibold">{g.name}</span>
-                  {want.template === "afflatus" && want.cuda === "either" && !g.cuda13 && <span className="shrink-0 rounded bg-raised px-1.5 py-px font-mono text-[10.5px] font-normal text-ink-2" data-tip={WHY_CU128}>12.8 only</span>}
+                  {want.template === "afflatus" && want.cuda === "either" && !g.cuda13 && <Chip size="xs" tip={WHY_CU128} className="font-mono">12.8 only</Chip>}
                 </span>
                 <span className="text-right font-mono text-xs text-ink-2">{g.memory} GB</span>
                 <span className="truncate text-xs text-ink-2">{g.places[0]!.id}</span>
@@ -350,12 +347,12 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
             {/* the GPUs RunPod has none of now, after the others: one picked turns the dialog to its hunt */}
             {outOfStock.length > 0 && (
               <>
-                <span className="border-b border-line/60 px-3 pt-3 pb-1.5 text-[11px] font-semibold text-ink-3">Not in stock now · pick one to hunt for it</span>
+                <span className="border-b border-line/60 px-3 pt-3 pb-1.5 text-meta font-semibold text-ink-3">Not in stock now · pick one to hunt for it</span>
                 {outOfStock.map((g) => (
-                  <button key={g.id} type="button" role="radio" aria-checked={false} onClick={() => set({ gpu: g.id })} className="grid grid-cols-[minmax(0,1fr)_64px_90px_70px_76px] items-center gap-3 border-b border-line/60 px-3 py-2 text-left text-[13px] text-ink-2 last:border-b-0 hover:bg-hover">
+                  <button key={g.id} type="button" role="radio" aria-checked={false} onClick={() => set({ gpu: g.id })} className="grid grid-cols-[minmax(0,1fr)_64px_90px_70px_76px] items-center gap-3 border-b border-line/60 px-3 py-2 text-left text-body text-ink-2 last:border-b-0 hover:bg-hover">
                     <span className="flex min-w-0 items-center gap-1.5">
                       <span className="min-w-0 truncate font-semibold">{g.name}</span>
-                      {only128(g) && <span className="shrink-0 rounded bg-raised px-1.5 py-px font-mono text-[10.5px] font-normal text-ink-2" data-tip={WHY_CU128}>12.8 free</span>}
+                      {only128(g) && <Chip size="xs" tip={WHY_CU128} className="font-mono">12.8 free</Chip>}
                     </span>
                     <span className="text-right font-mono text-xs">{g.memory} GB</span>
                     <span className="text-xs">{volume ? volume.dataCenter : "anywhere"}</span>
@@ -370,7 +367,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
         )}
 
         {!changing && (
-        <section className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-x-3 gap-y-3 text-[13px]">
+        <section className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-x-3 gap-y-3 text-body">
           <span className="flex items-center gap-1.5 font-semibold text-ink-2">Image <Help text={WHY_TEMPLATE} /></span>
           <Segmented<DeployAsk["template"]> size="sm" className="w-fit" label="Image" value={want.template} options={[{ value: "afflatus", label: images.data?.afflatus === false ? "Afflatus · not published" : "Afflatus · locked" }, { value: "runpod", label: "RunPod's ComfyUI · not locked" }]} onChange={(template) => set({ template })} />
 
@@ -395,7 +392,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
           </span>
 
           <span className="flex items-center gap-1.5 font-semibold text-ink-2">Make room <Help text={WHY_ROOM} /></span>
-          <Checkbox checked={want.makeRoom} onChange={(makeRoom) => set({ makeRoom })} className="text-[13px]">
+          <Checkbox checked={want.makeRoom} onChange={(makeRoom) => set({ makeRoom })} className="text-body">
             Delete the models it fetched that no job needs when a new one does not fit
           </Checkbox>
 
@@ -468,12 +465,12 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
         {/* Deploy, and on its slice what else can be done with these choices: kept as the next deploy's, without deploying */}
         <span className="flex shrink-0">
           {hunting ? (
-            <button type="button" data-tip={pickNow ? rateTip(pickNow.price) : `Up to ${usd(huntAsk.ceiling)} an hour for the GPU; its ${diskGb} GB disk adds ${usd(diskPerHour(diskGb), true)} an hour while it runs`} onClick={() => huntGo.mutate()} disabled={busy || (changing ? !kept : imageMissing || !models.ready || !diskFits || Boolean(volume?.usedBy) || held === 0)} className="flex h-10 min-w-[150px] items-center justify-center gap-2 rounded-l-lg bg-accent px-4 text-[13px] font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="button" data-tip={pickNow ? rateTip(pickNow.price) : `Up to ${usd(huntAsk.ceiling)} an hour for the GPU; its ${diskGb} GB disk adds ${usd(diskPerHour(diskGb), true)} an hour while it runs`} onClick={() => huntGo.mutate()} disabled={busy || (changing ? !kept : imageMissing || !models.ready || !diskFits || Boolean(volume?.usedBy) || held === 0)} className="flex h-10 min-w-[150px] items-center justify-center gap-2 rounded-l-lg bg-accent px-4 text-body font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
               <Search size={15} />
               {huntGo.isPending ? (changing ? "Changing…" : "Starting…") : pickNow ? `Deploy ${pickNow.name} now · ${usd(withDisk(pickNow.price))}/h` : `${changing ? "Change" : "Hunt"} · up to ${usd(huntAsk.ceiling)}/h`}
             </button>
           ) : (
-          <button type="button" data-tip={picked ? rateTip(picked.price) : undefined} onClick={() => deploy.mutate()} disabled={!picked || imageMissing || busy || !models.ready || !diskFits || Boolean(volume?.usedBy)} className="flex h-10 min-w-[150px] items-center justify-center rounded-l-lg bg-accent px-4 text-[13px] font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" data-tip={picked ? rateTip(picked.price) : undefined} onClick={() => deploy.mutate()} disabled={!picked || imageMissing || busy || !models.ready || !diskFits || Boolean(volume?.usedBy)} className="flex h-10 min-w-[150px] items-center justify-center rounded-l-lg bg-accent px-4 text-body font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
             {deploy.isPending ? "Deploying…" : picked ? `Deploy · ${usd(withDisk(picked.price))}/h` : "Deploy"}
           </button>
           )}

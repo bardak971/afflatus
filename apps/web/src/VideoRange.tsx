@@ -63,7 +63,7 @@ export function VideoRange({ asset, total, start, seconds, min, most, label, onS
           onCommit(p.start, p.seconds);
         }}
       />
-      <span className="flex justify-between gap-3 font-mono text-[10.5px] text-ink-3">
+      <span className="flex justify-between gap-3 font-mono text-micro text-ink-3">
         <span className="shrink-0">0:00</span>
         <span className="min-w-0 truncate">click: play from there · drag: a new part</span>
         <span className="shrink-0">{clock(total * 1000, { decimals: 1 })}</span>

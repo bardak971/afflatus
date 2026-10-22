@@ -72,7 +72,7 @@ function Wipe({ pinned, other, at, onAt, said }: { pinned: Asset; other: Asset; 
     const r = box.current?.getBoundingClientRect();
     if (r && r.width > 0) onAt(clamp(Math.round(((clientX - r.left) / r.width) * 1000) / 10));
   };
-  const label = "absolute bottom-2.5 max-w-[45%] truncate rounded-md bg-black/60 px-1.5 py-0.5 font-mono text-[11px] text-white";
+  const label = "absolute bottom-2.5 max-w-[45%] truncate rounded-md bg-shade/60 px-1.5 py-0.5 font-mono text-meta text-ink-strong";
   return (
     <div ref={area} className="absolute inset-0 flex items-center justify-center">
     {/* the two pictures in one box: the second drawn over the first and cut at the line */}
@@ -92,7 +92,7 @@ function Wipe({ pinned, other, at, onAt, said }: { pinned: Asset; other: Asset; 
     >
       <img src={fileUrl(pinned.id)} alt="" draggable={false} onLoad={(e) => setNatural(e.currentTarget.naturalWidth / (e.currentTarget.naturalHeight || 1))} className="absolute inset-0 h-full w-full object-contain" />
       <img src={fileUrl(other.id)} alt="" draggable={false} className="absolute inset-0 h-full w-full object-contain" style={{ clipPath: `inset(0 0 0 ${at}%)` }} />
-      <div className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-white shadow-[0_0_6px_rgba(0,0,0,.5)]" style={{ left: `${at}%` }} />
+      <div className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-ink-strong shadow-[0_0_6px_color-mix(in_srgb,var(--color-shade)_50%,transparent)]" style={{ left: `${at}%` }} />
       <div
         role="slider"
         tabIndex={0}
@@ -111,7 +111,7 @@ function Wipe({ pinned, other, at, onAt, said }: { pinned: Asset; other: Asset; 
           e.preventDefault();
           onAt(clamp(Math.round(next)));
         }}
-        className="absolute top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white text-[#151515] shadow-[0_2px_10px_rgba(0,0,0,.5)] outline-offset-2 focus-visible:outline-2 focus-visible:outline-accent"
+        className="absolute top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-ink-strong text-stage shadow-[0_2px_10px_color-mix(in_srgb,var(--color-shade)_50%,transparent)] outline-offset-2 focus-visible:outline-2 focus-visible:outline-accent"
         style={{ left: `${at}%` }}
       >
         <ChevronsLeftRight size={16} aria-hidden />

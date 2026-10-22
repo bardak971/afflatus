@@ -72,7 +72,7 @@ export function Progress({ value, steps, loading = false, meter = false, shape =
       // the mock's 2 px between ticks; past 24 of them 1 px, so that a tick of a narrow bar (a Studio tile's) stays wider than its gap
       <div {...aria} className={cx(track, "flex", n > 24 ? "gap-px" : "gap-[2px]")}>
         {Array.from({ length: n }, (_, i) => (
-          <span key={i} data-lit={i < lit || undefined} className={cx("min-w-0 grow", !edge && "rounded-[2px]", i < lit ? tone : loading && i === 0 ? "bg-ink-3" : under)} />
+          <span key={i} data-lit={i < lit || undefined} className={cx("min-w-0 grow", !edge && "rounded-xs", i < lit ? tone : loading && i === 0 ? "bg-ink-3" : under)} />
         ))}
       </div>
     );

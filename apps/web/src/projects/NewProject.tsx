@@ -22,7 +22,7 @@ export function NewProject({ onClose, onMade }: { onClose(): void; onMade(p: Pro
   });
   return (
     // over the Projects panel it is opened from
-    <Dialog label="New project" onClose={onClose} z="z-[70]" className={DIALOG}>
+    <Dialog label="New project" onClose={onClose} z="z-toast" className={DIALOG}>
       <form
         className="flex flex-col gap-3.5"
         onSubmit={(e) => {

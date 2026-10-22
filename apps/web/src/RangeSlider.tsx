@@ -141,7 +141,7 @@ export function RangeSlider({ from, to, min, max, step = 1, gap, most, snapAt, t
           )}
         />
         {held && (
-          <span aria-hidden className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 rounded-md bg-ink px-1.5 py-px font-mono text-[11px] font-medium whitespace-nowrap text-ground">
+          <span aria-hidden className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 rounded-md bg-ink px-1.5 py-px font-mono text-meta font-medium whitespace-nowrap text-ground">
             {say(v)}
           </span>
         )}

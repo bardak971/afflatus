@@ -105,7 +105,7 @@ function Sent({ title, text, folded }: { title: string; text: string; folded?: b
         <SectionTitle>{title}</SectionTitle>
         {copy}
       </div>
-      <div className="max-h-[220px] overflow-y-auto rounded-xl border border-line bg-raised p-3 text-[12.5px] leading-relaxed break-words whitespace-pre-wrap">{text}</div>
+      <div className="max-h-[220px] overflow-y-auto rounded-xl border border-line bg-raised p-3 text-body leading-relaxed break-words whitespace-pre-wrap">{text}</div>
     </div>
   );
 }
@@ -123,7 +123,7 @@ function Act({ icon, label, k, pressed, done, onClick, disabled, title, wide, mo
       aria-pressed={pressed}
       className={cx(
         // a neutral focus ring: on a button that can be on (Compare, Trim), the accent ring read as "still on" once left
-        "flex min-h-[38px] min-w-0 items-center gap-2 rounded-[10px] border px-2.5 py-1 text-left text-[13px] font-semibold hover:bg-hover focus-visible:outline-ink-3 disabled:cursor-not-allowed disabled:opacity-50",
+        "flex min-h-[38px] min-w-0 items-center gap-2 rounded-control border px-2.5 py-1 text-left text-body font-semibold hover:bg-hover focus-visible:outline-ink-3 disabled:cursor-not-allowed disabled:opacity-50",
         done ? "m-ok border-good/50 bg-good/15 text-good" : pressed ? "border-accent bg-accent-wash text-accent" : "border-line bg-raised text-ink hover:border-line-strong",
         wide && "col-span-2",
       )}
@@ -267,7 +267,7 @@ function Strip({ items, onOpen }: { items: Array<{ asset: Asset; name?: string; 
             ? <span className="flex h-[76px] w-[76px] items-center justify-center rounded-lg border border-line bg-raised text-ink-2">Audio</span>
             : <img src={thumbUrl(asset.id)} alt="" loading="lazy" className={cx("h-[76px] w-[76px] rounded-lg border object-cover hover:border-accent", kit ? "border-accent/70" : "border-line")} />}
           {name && <span className={cx("mt-0.5 truncate text-xs font-semibold", kit && "text-accent")}>{name}</span>}
-          {caption && <span className={cx("truncate text-[11px] leading-tight", name ? "text-ink-3" : "mt-0.5 text-ink-2")}>{caption}</span>}
+          {caption && <span className={cx("truncate text-meta leading-tight", name ? "text-ink-3" : "mt-0.5 text-ink-2")}>{caption}</span>}
         </button>
       ))}
     </div>
