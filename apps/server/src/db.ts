@@ -396,8 +396,10 @@ export interface Tables {
     data_center?: string | null;
     pull?: string | null;
     boot_log?: string | null;
-    /** Its split by part once it has ended (0084, JSON: { spans, estimated }, costs.ts freezeSplits): null while running, or not kept yet. */
+    /** Its split by part once it has ended (0084, JSON: { spans, estimated }, costs.ts freezeSplits), or up to split_until while it runs: null when not kept yet. */
     split?: string | null;
+    /** Its split is kept up to this moment only (0085, ISO, costs.ts keepSplitsUntil): its renders before it were deleted while it ran. Null: kept whole, or not kept. */
+    split_until?: string | null;
   };
   /** Each model file a pod got (podFiles.ts): from when its bytes started to when it was whole, the Costs tab's "Fetching files". Bytes as a number (bigint on Postgres). */
   pod_fetches: { id: string; machine_id: string; file: string; folder: string; via: string; bytes: number | string; started_at: string; ended_at: string };

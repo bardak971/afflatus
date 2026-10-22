@@ -83,6 +83,7 @@ import m0081 from "./0081-job-packs";
 import m0082 from "./0082-timeline-recordings";
 import m0083 from "./0083-swap-motion-retired";
 import m0084 from "./0084-session-split";
+import m0085 from "./0085-session-split-until";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -174,4 +175,5 @@ export const migrations: Record<string, Migration> = {
   "0082_timeline_recordings": m0082,
   "0083_swap_motion_retired": m0083,
   "0084_session_split": m0084,
+  "0085_session_split_until": m0085,
 };

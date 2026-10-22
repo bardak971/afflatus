@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 import type { Measured } from "@afflatus/comfy";
 import { modelOf, timeKey, TOOLS_FAMILY, type Recipe } from "@afflatus/core";
-import { freezeOld, freezeSplits } from "./costs";
+import { freezeOld, freezeSplits, keepSplitsUntil } from "./costs";
 import { now, OWNER, type Db, type Tables } from "./db";
 import { RELOAD_MS, reloadAbove } from "./forecast";
 import type { JobRow, Resume } from "./queueModel";
@@ -167,9 +167,12 @@ export async function toolPace(db: Db, recipe: string, machine: string | null = 
  */
 export async function fold(db: Db, keepDays: number, when = Date.now()): Promise<number> {
   return db.transaction().execute(async (tx) => {
-    // the rented sessions' splits kept before their renders become figures (costs.ts freezeSplits)
+    // the rented sessions' splits kept before their renders become figures (costs.ts freezeSplits): those ended a day ago
+    // whole, and those the cutoff has passed the start of up to it (keepSplitsUntil), a pod still running or ended since
     await freezeOld(tx, when);
-    const folded = keepDays > 0 ? await foldBefore(tx, `${dayOf(new Date(when - keepDays * DAY).toISOString())}T00:00:00.000Z`) : 0;
+    const before = `${dayOf(new Date(when - keepDays * DAY).toISOString())}T00:00:00.000Z`;
+    if (keepDays > 0) await keepSplitsUntil(tx, Date.parse(before), when);
+    const folded = keepDays > 0 ? await foldBefore(tx, before) : 0;
     await digestDays(tx, when);
     return folded;
   });
@@ -214,10 +217,12 @@ export async function usualParts(db: Db, recipe: Recipe<any>, input: Record<stri
 }
 
 /** Forget everything that was measured. */
-export async function clear(db: Db): Promise<void> {
+export async function clear(db: Db, now = Date.now()): Promise<void> {
   await db.transaction().execute(async (tx) => {
-    // every ended rented session's split kept first: forgotten, its renders would read as idle (costs.ts freezeSplits)
-    await freezeSplits(tx, Date.now());
+    // every rented session's split kept first: forgotten, its renders would read as idle (costs.ts freezeSplits). A pod
+    // still running has its split kept up to now, and finished from its renders after it at its end (keepSplitsUntil)
+    await freezeSplits(tx, now);
+    await keepSplitsUntil(tx, now, now);
     await tx.deleteFrom("render_stats").execute();
     await tx.deleteFrom("render_days").execute();
     await tx.deleteFrom("render_digests").execute();

@@ -324,6 +324,66 @@ describe("the costs of a window", () => {
     expect(after.where.ms).toEqual(before.where.ms);
   });
 
+  /** The whole record (Costs' "all", what the Grafana gauges read) as it stands at `at`. */
+  const whole = async (at: number) => costs({ db, registry, settings: await readSettings(db), spending: null, billReadAt: null, costBetween: async () => 0, offers: async () => null }, {}, at);
+  const session = (id: string, machine: string, from: number, over: Record<string, unknown> = {}) =>
+    db.insertInto("rent_sessions").values({ id, machine_id: machine, pod: id, rate: 0.6, started_at: iso(from), ended_at: null, seen_at: null, gpu: "NVIDIA A40", up_at: iso(from + 2 * MIN), idle_minutes: 10, ...over }).execute();
+
+  it("Forget every render time while a pod runs keeps its renders so far, and the one under way, once it has ended", async () => {
+    // s3 runs from an hour before: up 2 min in, a render 10–20 min in; Forget at 50 min in, while a render that started at
+    // 45 min is under way (its row written at its end, 55 min in)
+    const from = NOW - 60 * MIN;
+    await session("s3", "rp-c", from);
+    await db.insertInto("render_stats").values(render("rp-c", from + 20 * MIN, 10 * MIN)).execute();
+    await clear(db, from + 50 * MIN);
+    await db.insertInto("render_stats").values(render("rp-c", from + 55 * MIN, 10 * MIN)).execute();
+    const s3 = async (at: number) => (await whole(at)).sessions.find((x) => x.id === "s3")!;
+    expect((await s3(NOW)).parts).toMatchObject({ boot: 2 * MIN, render: 20 * MIN, idle: 38 * MIN });
+    // ended, and kept whole a day after its end: still both renders
+    await db.updateTable("rent_sessions").set({ ended_at: iso(NOW) }).where("id", "=", "s3").execute();
+    expect((await s3(NOW)).parts).toMatchObject({ boot: 2 * MIN, render: 20 * MIN, idle: 38 * MIN });
+    await fold(db, 0, NOW + 2 * 24 * HOUR);
+    const kept = await db.selectFrom("rent_sessions").select(["split", "split_until"]).where("id", "=", "s3").executeTakeFirstOrThrow();
+    expect(kept.split).not.toBeNull();
+    expect(kept.split_until).toBeNull();
+    await clear(db, NOW + 2 * 24 * HOUR);
+    expect((await s3(NOW + 2 * 24 * HOUR)).parts).toMatchObject({ boot: 2 * MIN, render: 20 * MIN, idle: 38 * MIN });
+  });
+
+  it("a fold whose cutoff passes a running session's start keeps its renders before the cutoff, and the split is finished at its end", async () => {
+    // s4 runs from 22:00 the day before NOW's; a render to 23:00 that day, one to 01:00 the next. The fold at 01:00 with one
+    // history day cuts at that midnight: the first render's row becomes figures while the pod still runs
+    const from = Date.parse("2026-10-13T22:00:00.000Z");
+    const at = Date.parse("2026-10-15T01:00:00.000Z");
+    await session("s4", "rp-d", from);
+    await db.insertInto("render_stats").values([render("rp-d", from + 60 * MIN, 30 * MIN), render("rp-d", from + 180 * MIN, 30 * MIN)]).execute();
+    const s4 = async (when: number) => (await whole(when)).sessions.find((x) => x.id === "s4")!;
+    const before = (await s4(at)).parts;
+    expect(before).toMatchObject({ render: 60 * MIN });
+    await fold(db, 1, at);
+    expect(await db.selectFrom("render_stats").select("id").where("machine_id", "=", "rp-d").execute()).toHaveLength(1);
+    expect((await s4(at)).parts).toEqual(before);
+    // it ends an hour later; folded again a day on, its split is kept whole with both renders
+    await db.updateTable("rent_sessions").set({ ended_at: iso(at + HOUR) }).where("id", "=", "s4").execute();
+    await fold(db, 1, at + 2 * 24 * HOUR);
+    expect(await db.selectFrom("rent_sessions").select("split_until").where("id", "=", "s4").executeTakeFirstOrThrow()).toEqual({ split_until: null });
+    expect((await s4(at + 2 * 24 * HOUR)).parts).toEqual({ ...before, idle: before.idle + 60 * MIN });
+  });
+
+  it("a record of 800 days: \"all\" and the gauges count from its start, the chart its last 730 days, and nothing drops out as days pass", async () => {
+    await session("old", "rp-e", NOW - 800 * 24 * HOUR, { ended_at: iso(NOW - 800 * 24 * HOUR + HOUR) });
+    await session("edge", "rp-e", NOW - 730 * 24 * HOUR, { ended_at: iso(NOW - 730 * 24 * HOUR + HOUR) });
+    const v = await whole(NOW);
+    expect(v.times).toHaveLength(730);
+    expect(v.sessions.map((x) => x.id)).toEqual(expect.arrayContaining(["old", "edge", "s1", "s2"]));
+    const total = (x: CostsView) => PARTS.reduce((n, p) => n + x.where.usd[p], 0);
+    expect(total(v)).toBeCloseTo(0.9 + 2 * 0.6, 9);
+    // two quiet days on: the same whole record, never less (Grafana's daily rise of a gauge read below zero)
+    const later = await whole(NOW + 2 * 24 * HOUR);
+    expect(total(later)).toBeCloseTo(total(v), 9);
+    expect(later.sessions).toHaveLength(v.sessions.length);
+  });
+
   it("the renders on pods by project: a timeline's clip and a draft in it, a draft in none in the Inbox", async () => {
     const v = await view();
     const dev = v.projects.find((p) => p.id === "p1")!;
