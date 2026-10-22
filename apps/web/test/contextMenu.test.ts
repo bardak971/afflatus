@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { focusBehindMenu, menuHearsKeys, menuStep } from "../src/ContextMenu";
+import { fold, focusBehindMenu, keyedRow, menuHearsKeys, menuStep, pressedKeys, type MenuItem } from "../src/ContextMenu";
 import { commandExtra } from "../src/bar/useBarData";
 import type { Item } from "../src/bar/items";
 
@@ -68,5 +68,60 @@ describe("the bar's preview of a command", () => {
   it("says nothing of a row that is not a command", () => {
     expect(commandExtra(row({ kind: "timeline" }), undefined, null)).toBeUndefined();
     expect(commandExtra(null, undefined, null)).toBeUndefined();
+  });
+});
+
+describe("a row's key in an open menu", () => {
+  const press = (key: string, mods: { shift?: boolean; ctrl?: boolean } = {}) => pressedKeys({ key, shiftKey: Boolean(mods.shift), ctrlKey: Boolean(mods.ctrl), altKey: false, metaKey: false });
+  const ran: string[] = [];
+  const row = (label: string, key?: string, more: Partial<Extract<MenuItem, object>> = {}): MenuItem => ({ label, key, run: () => ran.push(label), ...more });
+  const items: MenuItem[] = [
+    row("Open", "Enter"),
+    row("Keep", "S"),
+    "—",
+    row("Reuse · new seed", "Shift+L"),
+    row("Off", "V", { disabled: true }),
+    { label: "Passes", items: [row("Upscale 2x", "U"), row("Face refine", "F")] },
+    { label: "Off family", disabled: true, items: [row("Hidden", "H")] },
+    row("Select", "Ctrl+click"),
+    row("Move to the bin", "Del"),
+  ];
+  const hit = (pressed: string[]) => (keyedRow(items, pressed) as { label: string } | null)?.label ?? null;
+
+  it("writes a key press in the keys' grammar", () => {
+    expect(press("s")).toEqual(["S"]);
+    expect(press("L", { shift: true })).toEqual(["Shift+L"]);
+    expect(press("Backspace")).toEqual(["Backspace", "Del"]);
+    expect(press("?", { shift: true })).toEqual(["?"]);
+    expect(press("Enter", { ctrl: true })).toEqual(["Ctrl+Enter"]);
+  });
+
+  it("runs the row whose key it is, in a submenu too; never one that is off, nor the menu's own keys", () => {
+    expect(hit(press("s"))).toBe("Keep");
+    expect(hit(press("l"))).toBeNull();
+    expect(hit(press("L", { shift: true }))).toBe("Reuse · new seed");
+    expect(hit(press("u"))).toBe("Upscale 2x");
+    expect(hit(press("Backspace"))).toBe("Move to the bin");
+    // off, or in a submenu that is off
+    expect(hit(press("v"))).toBeNull();
+    expect(hit(press("h"))).toBeNull();
+    // Enter runs the row the arrows are on; a mouse move is no key
+    expect(hit(press("Enter"))).toBeNull();
+    expect(hit(["Ctrl+click"])).toBeNull();
+  });
+});
+
+describe("a family of rows as a submenu", () => {
+  const rows: MenuItem[] = [{ label: "Details", run: () => {} }, { label: "Copy the seed", run: () => {} }, { label: "Open in ComfyUI", disabled: true, note: "ComfyUI is offline", run: () => {} }];
+
+  it("folds 3 or more into one row, and leaves fewer flat", () => {
+    expect(fold("Info", null, rows)).toEqual([{ label: "Info", icon: null, disabled: false, note: undefined, items: rows }]);
+    expect(fold("Info", null, rows.slice(0, 2))).toEqual(rows.slice(0, 2));
+    expect(fold("Make a video", null, rows.slice(0, 2), 2)).toHaveLength(1);
+  });
+
+  it("is off, with its first row's reason, when none of its rows works", () => {
+    const off = rows.map((r) => (r === "—" ? r : { ...r, disabled: true, note: r.note ?? "reading…" }));
+    expect(fold("Info", null, off)[0]).toMatchObject({ disabled: true, note: "reading…" });
   });
 });

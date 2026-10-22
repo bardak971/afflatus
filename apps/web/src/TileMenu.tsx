@@ -1,6 +1,6 @@
 import { Suspense, useRef } from "react";
 import type { Asset } from "./api";
-import { useMenu, type MenuHead, type MenuItem } from "./ContextMenu";
+import { headLine, useMenu, type MenuHead, type MenuItem } from "./ContextMenu";
 import { clock } from "./format";
 import type { ActionId, Place } from "./itemActions";
 import { lazyPart, loadTileMenuBody } from "./lazyParts";
@@ -57,13 +57,15 @@ export function useTileMenu(options: TileMenuOptions) {
 
 const KIND_WORD = { image: "Picture", video: "Video", audio: "Sound" } as const;
 
-/** The head of an item's menu: its picture, its name, "Video · 0:05 · Clip 3". */
+/** The head of an item's menu: its picture, its name, "Picture · 1216×832", "Video · 0:08 · 576×1024 · Clip 3", "Sound · 2:47". */
 export function assetHead(a: Asset): MenuHead {
   const length = a.kind !== "image" && a.durationMs !== null ? <span className="font-mono">{clock(a.durationMs)}</span> : null;
+  // a sound has no frame to measure
+  const size = a.kind !== "audio" && a.width && a.height ? <span className="font-mono">{a.width}×{a.height}</span> : null;
   return {
     title: tileName(a),
     // a sound has no picture
     thumb: a.kind === "audio" ? undefined : a.id,
-    sub: <>{KIND_WORD[a.kind]}{length && <> · {length}</>}{a.clipOf && ` · Clip ${a.clipOf.clip}`}</>,
+    sub: headLine(KIND_WORD[a.kind], length, size, a.clipOf && `Clip ${a.clipOf.clip}`),
   };
 }
