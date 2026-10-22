@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { newId, OWNER } from "../src/db";
-import { BIN_MS, keepOf, sweep, UNKEPT_MS } from "../src/sweep";
+import { BIN_MS, inUse, keepOf, sweep, UNKEPT_MS } from "../src/sweep";
 import { derivedKeys } from "../src/timelineModel";
 import { get, makeApp, type TestApp } from "./helpers";
 
@@ -72,6 +72,28 @@ describe("sweep", () => {
     expect(await row(old)).toBeUndefined();
     await expect(t.services.storage.get(key)).rejects.toThrow();
     expect(await row(recent)).toBeDefined();
+  });
+});
+
+describe("sweep, and what a timeline's Undo and Redo would put back", () => {
+  it("erases no video a step of Undo or Redo names, inside its clips' inputs and its source too: an Undo brings the clip back with its take", async () => {
+    const tl = (await t.app.inject({ method: "POST", url: "/api/timelines", payload: { name: "zz-test undo" } })).json().id as string;
+    const [take, still, parked, redone, loose] = (await Promise.all([1, 2, 3, 4, 5].map(() => add({ madeAgo: 0, kept: true, binnedAgo: BIN_MS + HOUR })))) as [string, string, string, string, string];
+    // a snapshot as TimelineHistory keeps one: the row, its clips and their takes; the clip's inputs and the source as JSON strings
+    const snapshot = (takeAsset: string, inside: string) => JSON.stringify({
+      timeline: { id: tl, source: JSON.stringify({ parked: [{ clip: { inputs: JSON.stringify({ picture: inside }) }, takes: [{ asset_id: inside }] }] }) },
+      clips: [{ id: "c", inputs: JSON.stringify({ picture: inside }) }],
+      takes: [{ id: "t", clip_id: "c", asset_id: takeAsset }],
+    });
+    await t.db.insertInto("timeline_history").values({ id: newId(), timeline_id: tl, seq: 1, label: "zz-test", snapshot: snapshot(take, still), created_at: ago(0) }).execute();
+    await t.db.insertInto("timeline_future").values({ id: newId(), timeline_id: tl, seq: 1, label: "zz-test", snapshot: snapshot(redone, parked), created_at: ago(0) }).execute();
+    const used = await inUse(t.db);
+    for (const id of [take, still, parked, redone]) expect(used.get(id)).toBe("a timeline's Undo");
+    // what works the takes out on its own (the unused takes) does not read them
+    expect((await inUse(t.db, { takes: false })).has(take)).toBe(false);
+    expect(await sweep(t.db, t.services.storage)).toEqual({ binned: 0, erased: 1 });
+    expect(await row(loose)).toBeUndefined();
+    for (const id of [take, still, parked, redone]) expect(await row(id)).toBeDefined();
   });
 });
 

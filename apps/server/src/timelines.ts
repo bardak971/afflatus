@@ -1,7 +1,7 @@
 import { chatJson } from "./llm";
 import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
-import { carriedOf, joinWay, musicPlan, plural, recordingParts, sameWindowGrid, typedSeed, type ClipMusic, type InputSpec, type Transition } from "@afflatus/core";
+import { carriedOf, joinWay, musicPlan, plural, recordingParts, sameWindowGrid, typedSeed, type ClipMusic, type InputSpec, type Recipe, type Transition } from "@afflatus/core";
 import { newId, now, OWNER, type Db } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError, notFound } from "./errors";
@@ -712,9 +712,9 @@ export class Timelines {
           let fresh: typeof shortened;
           for (const s of cut.shortened) {
             const { inputs } = part(mine.find((p) => p.clip.id === s.id)!.clip, false);
-            // its length before is kept (the first, when it is shortened again), for the stretch made long again; an end
-            // that falls on its end within a rounding shortens nothing
-            if (shortened?.clip !== s.id && Number(inputs[w.seconds]) - s.ms / 1000 > 0.05) fresh = { clip: s.id, seconds: Number(inputs[w.seconds]) };
+            // its length before is kept (the first, when it is shortened again), for the stretch made long again: even an end
+            // that falls within a rounding of its end, which shortened it by a frame for good while nothing recorded it
+            if (shortened?.clip !== s.id) fresh = { clip: s.id, seconds: Number(inputs[w.seconds]) };
             await tx.updateTable("clips").set({ inputs: JSON.stringify({ ...inputs, [w.seconds]: Math.round(s.ms) / 1000 }), updated_at: now() }).where("id", "=", s.id).execute();
           }
           // set aside whole, in order, before those set aside already (they lie further on); a window shortened before is
@@ -744,7 +744,7 @@ export class Timelines {
         const r = typeof id === "string" ? this.registry.recipe(id) : undefined;
         return Boolean(r && (r.id === recipe.id || sameWindowGrid(recipe, r)));
       };
-      const rows = parked.map((row) => (ofGrid(row.clip.recipe_id) ? { ...part(row.clip, false), fits: true } : { start: 0, end: 0, fits: false }));
+      const rows = parked.map((row) => ({ ...(ofGrid(row.clip.recipe_id) ? { ...part(row.clip, false), fits: true } : { start: 0, end: 0, fits: false }), taken: row.takes.length > 0 }));
       const grow = trimOut(last && lastSpan ? { start: lastSpan.from, end: lastSpan.end, free: !last.clip.take_id && !busy.has(last.clip.id), reach } : undefined, rows, toMs, { fromMs: plan.fromMs });
       const kept = grow.keep ? parked.slice(grow.back) : [];
       // windows still set aside past the end: it rests where the windows end (never back before where it was), not on a
@@ -898,12 +898,21 @@ export class Timelines {
     const lastInputs = last ? (JSON.parse(last.clip.inputs) as Record<string, unknown>) : null;
     // a part holds its frames and half a frame more (sourceWindows): it ends its whole frames after its start
     const after = lastInputs ? Math.round((Number(lastInputs[w.start]) + Math.floor(Number(lastInputs[w.seconds]) * fps + 1e-6) / fps) * 1000) : undefined;
-    // each window dropped, where its part lies and what it kept its own (its prompt): the window made in its place takes it
+    // each window dropped, where its part lies (`from`, its own frames from `start`, past its run-up), its form and what it
+    // keeps its own, as typed on it (what the source's form has is no window's own): the window made in its place takes it
+    // (ownsOf). One given a form of its own (card #42: a swap where the motion drifts) keeps what its form before kept its
+    // own too: read from its form's list only, the Motion transfer description typed before it was a swap went
+    const source = plan.recipe ? this.registry.recipe(plan.recipe) : undefined;
+    const carry = source?.traits?.windows?.carryOn ? this.registry.recipe(source.traits.windows.carryOn) : undefined;
     const owns = mine.filter((p) => drop.includes(p.clip.id)).map((p) => {
       const inputs = JSON.parse(p.clip.inputs) as Record<string, unknown>;
       const r = p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined;
-      const start = Number(inputs[w.start]) * 1000;
-      return { from: start, to: start + Number(inputs[w.seconds]) * 1000, own: Object.fromEntries((r?.traits?.windows?.own ?? []).filter((k) => k in inputs).map((k) => [k, inputs[k]])) };
+      const opens = p.clip.joined !== "continue";
+      const given = Boolean(r && source && r.id !== (opens || !carry ? source : carry).id);
+      const keys = new Set((given ? [r, source, carry] : [r]).flatMap((x) => x?.traits?.windows?.own ?? []));
+      const from = Number(inputs[w.start]) * 1000;
+      const start = !opens && p !== mine[0] && r ? from + (carriedOf(r, inputs) * 1000) / fps : from;
+      return { from, start, to: from + Number(inputs[w.seconds]) * 1000, recipe: r, own: Object.fromEntries([...keys].filter((k) => k in inputs && inputs[k] !== plan.inputs[k]).map((k) => [k, inputs[k]])) };
     });
     return { kept: kept.length, drop, after, index: all.findIndex((p) => p.clip.id === drop[0]), form: JSON.parse(mine[0]!.clip.inputs) as Record<string, unknown>, owns };
   }
@@ -1023,21 +1032,17 @@ export class Timelines {
           order.splice(replaced, 1);
         }
         const made: string[] = [];
+        const owned = ownsOf(windows, again && "owns" in again ? again.owns : [], (1000 / recipe.traits!.fps) / 2);
         for (const [k, w] of windows.entries()) {
           // the first window replaces the person clicked on its first frame, the ones after follow it (h3.swap's pick)
           const inputs = { ...form, [driving.id]: { asset: plan.asset, ...(k === 0 && !again?.kept && plan.pick && driving.pick ? { pick: plan.pick } : {}) }, [driving.window!.start]: w.start, [driving.window!.seconds]: w.seconds, ...(seed !== null ? { seed } : {}) };
-          const carries = !w.opens && carryOn;
-          const madeWith = carries ? carryOn : recipe;
-          // cut again: the window dropped where this one's middle lies keeps its own (its prompt, what happens in it) in the
-          // new one, what both forms keep their own; the others share the form. From the form alone, every empty window's
-          // own prompt was reset to the first one's by each change of the window or the run-up
-          const mid = (w.start + w.seconds / 2) * 1000;
-          const was = again && "owns" in again ? again.owns.find((o) => mid >= o.from && mid < o.to) : undefined;
-          const keeps = new Set(madeWith.traits?.windows?.own ?? []);
-          const itsOwn = was ? Object.fromEntries(Object.entries(was.own).filter(([k]) => keeps.has(k))) : {};
+          // cut again: what the windows dropped kept their own (ownsOf); one that carries on where one lay before keeps the
+          // form it was given (card #42), when it is of the grid
+          const { own: itsOwn, form: theirs } = owned[k]!;
+          const madeWith = theirs && (theirs.id === recipe.id || sameWindowGrid(recipe, theirs)) ? theirs : !w.opens && carryOn ? carryOn : recipe;
           const clip: NewClip = {
             kind: "video", recipeId: madeWith.id, joined: w.opens ? "cut" : "continue", still: null, take: null, asset: undefined, look: null,
-            inputs: { ...(carries ? windowFormFor(recipe, carryOn, inputs, true) : inputs), ...itsOwn },
+            inputs: { ...(madeWith.id !== recipe.id ? windowFormFor(recipe, madeWith, inputs, true) : inputs), ...itsOwn },
           };
           const id = await this.planner.insertClip(timelineId, order, index + k, clip, tx);
           order.splice(index + k, 0, { clip: { id } });
@@ -1084,7 +1089,7 @@ export class Timelines {
         await this.remember(timelineId, o.label ?? `the ${plural(parts.length, "Lip sync clip")} made from the recording`, undefined, tx);
         const made = await this.recordingClipsIn(tx, timelineId, sound, parts, { gone });
         // made anew over a moved start: what a trim had set aside of it no longer fits its clips
-        if (o.replace?.length) await setParkedRecording(tx, timelineId, sound.id, []);
+        if (o.replace?.length) await setParkedRecording(tx, timelineId, sound.id, [], null);
         return made;
       });
     });
@@ -1175,7 +1180,8 @@ export class Timelines {
    * - Its end in: the clips past it set aside (an end out brings them back); an empty clip it falls in is shortened to it,
    *   or set aside when what is left is under the fewest seconds a clip takes; a rendered clip, or one in the queue, is
    *   never shortened: the end snaps to its nearer end, never back before the clip kept before it. The first clip always
-   *   stays. A clip in the queue is never set aside: refused.
+   *   stays. A clip in the queue is never set aside: refused. The clip shortened keeps its length before (under the
+   *   recordings' `shortened`), given back by the end out, or when it is set aside after all, as the source's windows do.
    * - Its end out (trimOut): the clips set aside back as they were while the stretch holds them (one not held yet stops the
    *   end there, kept aside), then new clips, cut at its pauses, after the last one, none shorter than a clip takes; one
    *   step for Undo, one transaction.
@@ -1214,12 +1220,16 @@ export class Timelines {
         // the trim), then those set aside back as they were while the stretch holds them, then new clips at its pauses past
         // them, none shorter than a clip can be (trimOut). Worked out first, then written in one transaction: one step for Undo
         const mostS = w.fits ? w.fits.frames / w.fits.fps - (w.fits.pad ?? 0) : 15;
-        const parked = parkedRecordings(await this.row(timelineId))[to.asset] ?? [];
+        const row = await this.row(timelineId);
+        const parked = parkedRecordings(row)[to.asset] ?? [];
+        let shortened = shortenedRecordings(row)[to.asset];
         const last = mine.at(-1)!;
         const lastPart = part(last.clip);
         const first = parked[0] ? part(parked[0].clip) : undefined;
-        const reach = first && !last.clip.take_id && (first.start - lastPart.start) / 1000 <= mostS ? first.start : undefined;
-        const grow = trimOut({ start: lastPart.start, end: curTo, free: !last.clip.take_id && !busy.has(last.clip.id), reach }, parked.map((row) => ({ ...part(row.clip), fits: true })), toMs, { fromMs: curFrom, leastMs: (w.fits?.min ?? 1) * 1000, mostMs: mostS * 1000 });
+        // as far as the first clip set aside starts, else (none set aside) its own length before a trim in shortened it
+        const before = shortened?.clip === last.clip.id ? lastPart.start + shortened.seconds * 1000 : undefined;
+        const reach = last.clip.take_id ? undefined : first ? ((first.start - lastPart.start) / 1000 <= mostS ? first.start : undefined) : before;
+        const grow = trimOut({ start: lastPart.start, end: curTo, free: !last.clip.take_id && !busy.has(last.clip.id), reach }, parked.map((p) => ({ ...part(p.clip), fits: true, taken: p.takes.length > 0 })), toMs, { fromMs: curFrom, leastMs: (w.fits?.min ?? 1) * 1000, mostMs: mostS * 1000 });
         const { back } = grow;
         const end = Math.round(grow.end);
         const parts = grow.more && toMs > end + 50 ? this.recordingPartsOf(spec, pauses, end / 1000, toMs / 1000) : [];
@@ -1229,7 +1239,12 @@ export class Timelines {
         const clips = await this.db.transaction().execute(async (tx) => {
           await this.remember(timelineId, "the recording made longer", undefined, tx);
           const order = all.map((p) => p.clip.id);
-          if (grow.lastEnd !== undefined) await tx.updateTable("clips").set({ inputs: JSON.stringify({ ...lastPart.inputs, [w.seconds]: Math.round(grow.lastEnd - lastPart.start) / 1000 }), updated_at: now() }).where("id", "=", last.clip.id).execute();
+          if (grow.lastEnd !== undefined) {
+            // as long as it was before (its own figure, not one rounded back from ms), or as far as the stretch goes
+            const whole = before !== undefined && grow.lastEnd >= before - 1;
+            await tx.updateTable("clips").set({ inputs: JSON.stringify({ ...lastPart.inputs, [w.seconds]: whole ? shortened!.seconds : Math.round(grow.lastEnd - lastPart.start) / 1000 }), updated_at: now() }).where("id", "=", last.clip.id).execute();
+            if (whole) shortened = undefined;
+          }
           let at = order.indexOf(last.clip.id) + 1;
           for (const row of parked.slice(0, back)) {
             await unparkClip(tx, row);
@@ -1237,7 +1252,7 @@ export class Timelines {
           }
           await this.renumber(timelineId, order, tx);
           const made = parts.length ? await this.recordingClipsIn(tx, timelineId, sound, parts, { gone: [], after }) : [];
-          await setParkedRecording(tx, timelineId, to.asset, rest);
+          await setParkedRecording(tx, timelineId, to.asset, rest, shortened ?? null);
           return made;
         });
         return { clips, toMs: parts.length ? toMs : end };
@@ -1248,16 +1263,28 @@ export class Timelines {
       if (!cut.away.length && !cut.shortened.length && Math.abs(toMs - curTo) <= 20) return { clips: [], toMs: curTo };
       await this.db.transaction().execute(async (tx) => {
         await this.remember(timelineId, "the recording made shorter", undefined, tx);
+        const row = await tx.selectFrom("timelines").selectAll().where("id", "=", timelineId).executeTakeFirstOrThrow();
+        let shortened = shortenedRecordings(row)[to.asset];
+        // the clip shortened by this trim, if any: its length before kept (the first, when it is shortened again), as the
+        // source's windows keep theirs (trimSource), once those set aside have their length back
+        let fresh: typeof shortened;
         for (const s of cut.shortened) {
           const { inputs } = part(mine.find((p) => p.clip.id === s.id)!.clip);
+          if (shortened?.clip !== s.id) fresh = { clip: s.id, seconds: Number(inputs[w.seconds]) };
           await tx.updateTable("clips").set({ inputs: JSON.stringify({ ...inputs, [w.seconds]: Math.round(s.ms) / 1000 }), updated_at: now() }).where("id", "=", s.id).execute();
         }
-        if (!cut.away.length) return;
-        // set aside whole, in order, before those set aside already (they lie further on): the end out brings them back
+        // set aside whole, in order, before those set aside already (they lie further on): the end out brings them back. A
+        // clip shortened before is set aside at its length before, as it lay among them: set aside short, it no longer met
+        // the next one, and the end out dropped that one and every one after it, rendered or not
         const rows = await parkClips(tx, cut.away);
-        const before = parkedRecordings(await tx.selectFrom("timelines").selectAll().where("id", "=", timelineId).executeTakeFirstOrThrow())[to.asset] ?? [];
-        await setParkedRecording(tx, timelineId, to.asset, [...rows, ...before]);
-        await this.renumber(timelineId, all.map((p) => p.clip.id).filter((id) => !cut.away.includes(id)), tx);
+        for (const p of rows) {
+          if (!shortened || p.clip.id !== shortened.clip) continue;
+          p.clip = { ...p.clip, inputs: JSON.stringify({ ...(JSON.parse(String(p.clip.inputs)) as Record<string, unknown>), [w.seconds]: shortened.seconds }) };
+          shortened = undefined;
+        }
+        if (fresh) shortened = fresh;
+        await setParkedRecording(tx, timelineId, to.asset, [...rows, ...(parkedRecordings(row)[to.asset] ?? [])], shortened ?? null);
+        if (cut.away.length) await this.renumber(timelineId, all.map((p) => p.clip.id).filter((id) => !cut.away.includes(id)), tx);
       });
       return { clips: [], toMs };
     });
@@ -1702,6 +1729,41 @@ function labelOf(patch: ClipPatch): string {
     : "the change of model";
 }
 
+/** A window a cut again drops, as ownsOf reads it: its part, its own frames' start, its form and what it keeps its own. */
+type DroppedWindow = { from: number; start: number; to: number; recipe?: Recipe<any>; own: Record<string, unknown> };
+
+/**
+ * What each window a cut again makes takes of the windows it drops (makeFromSource `again`), in ms. One that lies where a
+ * dropped one lay (within half a frame, `slack`) keeps all it kept its own, and when it carries on, the form it was given
+ * (a window that opens a shot is the source's form: made again with Swap character after Motion transfer, the opening is
+ * a swap). Else it takes what the dropped window whose own frames hold its middle kept its own, not its form (a form given
+ * where the motion drifted is not the user's for a window lying elsewhere). A dropped window none of them took gives the
+ * text it kept its own to the nearest new window, before or after what that one has, as they lie in time: by middles
+ * alone, a window between two middles lost its prompt, its swap's too.
+ */
+export function ownsOf(windows: Array<{ start: number; seconds: number; opens?: boolean }>, dropped: DroppedWindow[], slack: number): Array<{ own: Record<string, unknown>; form?: Recipe<any> }> {
+  const mid = (w: { start: number; seconds: number }) => (w.start + w.seconds / 2) * 1000;
+  const took = windows.map((w) => {
+    const same = dropped.findIndex((o) => Math.abs(o.from - w.start * 1000) <= slack && Math.abs(o.to - (w.start + w.seconds) * 1000) <= slack);
+    if (same >= 0) return { at: same, same: true };
+    return { at: dropped.findIndex((o) => mid(w) >= o.start && mid(w) < o.to), same: false };
+  });
+  const out = took.map(({ at, same }, k) => ({ own: at >= 0 ? { ...dropped[at]!.own } : {}, ...(same && !windows[k]!.opens ? { form: dropped[at]!.recipe } : {}) }));
+  for (const [j, o] of dropped.entries()) {
+    if (!windows.length || took.some((x) => x.at === j)) continue;
+    const typed = Object.entries(o.own).filter(([, v]) => typeof v === "string" && v.trim());
+    if (!typed.length) continue;
+    const at = (o.from + o.to) / 2;
+    const near = windows.reduce((best, w, k) => (Math.abs(mid(w) - at) < Math.abs(mid(windows[best]!) - at) ? k : best), 0);
+    const own = out[near]!.own;
+    for (const [k, v] of typed) {
+      const has = typeof own[k] === "string" ? (own[k] as string).trim() : "";
+      own[k] = !has || has.includes(v as string) ? (has || v) : at < mid(windows[near]!) ? `${v} ${has}` : `${has} ${v}`;
+    }
+  }
+  return out;
+}
+
 /** A clip set aside whole by a trim (a source's windows, a recording's clips): its row and its takes' rows, as they were. */
 type ParkedClip = { clip: Record<string, unknown>; takes: Array<Record<string, unknown>> };
 type Tx = Parameters<Parameters<ReturnType<Db["transaction"]>["execute"]>[0]>[0];
@@ -1763,27 +1825,35 @@ type GrowFrom = { start: number; end: number; free: boolean; reach?: number };
  * as far as its `reach` and the stretch go. Then the clips set aside come back in order while each starts where the one
  * before it ends and the stretch holds it whole: one it does not hold yet stops there, it and those after it kept aside
  * (`keep`), and nothing is added past them. One that does not meet the clip before is kept aside while the last clip can
- * still reach it (shortened, its length not given back yet, or in the queue: a few seconds more of stretch, or the render
- * ending, bring them together), else it never will: it and those after it go (`keep` false; Undo brings them back), as
- * does one of another model (`fits` false). Twice this rule was written out twice, and the two drifted: a gap that only
- * waited for a longer stretch dropped every window set aside, a rendered clip under new parts went with its take, and a
- * window in the queue was given its length back under its render. `more`: new clips may be added from `end` to the stretch's
- * end; with `leastMs`, never one shorter than a clip can be: the empty last clip takes what is left when it holds it
- * (`mostMs`), else the end rests where the clips end (recordingParts folds a short last part alike).
+ * still reach it (empty and shortened, its length not given back yet, or in the queue with no take yet: a few seconds more
+ * of stretch bring them together). Else it never will, as one of another model (`fits` false) never comes back: when it or
+ * one after it has a take (`taken`), the end stops there too and every one of them stays aside (a rendered window
+ * shortened by a trim in, its render landed, is never made longer under its take; Undo, or its take removed, brings them
+ * back), and only when none has one do they go (`keep` false) and new clips are made past the last one. Dropped, the
+ * shortened window's render landing lost every rendered window set aside, on the next drag out, with nothing said. Twice
+ * this rule was written out twice, and the two drifted: a gap that only waited for a longer stretch dropped every window
+ * set aside, a rendered clip under new parts went with its take, and a window in the queue was given its length back under
+ * its render. `more`: new clips may be added from `end` to the stretch's end; with `leastMs`, never one shorter than a clip
+ * can be, whichever way the clips set aside ended: the empty last clip takes what is left when it holds it (`mostMs`), else
+ * the end rests where the clips end (recordingParts folds a short last part alike).
  */
-export function trimOut(last: GrowFrom | undefined, rows: Array<{ start: number; end: number; fits: boolean }>, asked: number, o: { fromMs: number; leastMs?: number; mostMs?: number }): { lastEnd?: number; back: number; end: number; keep: boolean; more: boolean } {
+export function trimOut(last: GrowFrom | undefined, rows: Array<{ start: number; end: number; fits: boolean; taken?: boolean }>, asked: number, o: { fromMs: number; leastMs?: number; mostMs?: number }): { lastEnd?: number; back: number; end: number; keep: boolean; more: boolean } {
   let end = last ? last.end : o.fromMs;
   let lastEnd: number | undefined;
-  if (last?.free && last.reach !== undefined && last.reach > end + 50) {
+  // any length a trim in took off given back (within a rounding too: a window left a frame short stays so for good)
+  if (last?.free && last.reach !== undefined && last.reach > end + 0.5) {
     lastEnd = Math.round(Math.min(last.reach, asked));
     end = lastEnd;
   }
   let back = 0;
-  for (const row of rows) {
-    if (!row.fits) return { lastEnd, back, end, keep: false, more: true };
-    if (last && Math.abs(row.start - end) > 50) {
-      const waits = back === 0 && last.reach !== undefined && Math.abs(row.start - last.reach) <= 50;
-      return { lastEnd, back, end, keep: waits, more: !waits };
+  let keep = true;
+  for (const [k, row] of rows.entries()) {
+    const meets = row.fits && (!last || Math.abs(row.start - end) <= 50);
+    if (!meets) {
+      const waits = row.fits && back === 0 && last?.reach !== undefined && Math.abs(row.start - last.reach) <= 50;
+      if (waits || rows.slice(k).some((r) => r.taken)) return { lastEnd, back, end, keep: true, more: false };
+      keep = false;
+      break;
     }
     if (row.end > asked + 50) return { lastEnd, back, end, keep: true, more: false };
     end = row.end;
@@ -1794,9 +1864,9 @@ export function trimOut(last: GrowFrom | undefined, rows: Array<{ start: number;
       lastEnd = Math.round(asked);
       end = lastEnd;
     }
-    return { lastEnd, back, end, keep: true, more: false };
+    return { lastEnd, back, end, keep, more: false };
   }
-  return { lastEnd, back, end, keep: true, more: true };
+  return { lastEnd, back, end, keep, more: true };
 }
 
 /**
@@ -1848,11 +1918,34 @@ function parkedRecordings(t: TimelineRow): Record<string, ParkedClip[]> {
   }
 }
 
-/** What is set aside of one recording, written back (none: its entry goes). */
-async function setParkedRecording(db: Db | Tx, timelineId: string, asset: string, rows: ParkedClip[]) {
+/** A clip a trim in shortened, and its length before (in seconds), for the end out to give it back. */
+type Shortened = { clip: string; seconds: number };
+/** Where the recordings' shortened clips are kept, in the same JSON: no recording is named so (asset ids are hex). */
+const SHORTENED = "shortened";
+
+/** The clip of each of a timeline's recordings that a trim in shortened, by recording asset. */
+function shortenedRecordings(t: TimelineRow): Record<string, Shortened> {
+  try {
+    const read = (JSON.parse(t.recordings ?? "{}") as Record<string, unknown>)[SHORTENED];
+    if (!read || typeof read !== "object") return {};
+    return Object.fromEntries(Object.entries(read as Record<string, Partial<Shortened>>).filter(([, v]) => typeof v?.clip === "string" && typeof v.seconds === "number")) as Record<string, Shortened>;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * What is set aside of one recording, written back (none: its entry goes), with its clip a trim in shortened (null: none;
+ * left out: as it is).
+ */
+async function setParkedRecording(db: Db | Tx, timelineId: string, asset: string, rows: ParkedClip[], shortened?: Shortened | null) {
   const t = await db.selectFrom("timelines").selectAll().where("id", "=", timelineId).executeTakeFirstOrThrow();
-  const map = parkedRecordings(t);
+  const map: Record<string, unknown> = parkedRecordings(t);
+  const short = shortenedRecordings(t);
   if (rows.length) map[asset] = rows;
   else delete map[asset];
+  if (shortened) short[asset] = shortened;
+  else if (shortened === null) delete short[asset];
+  if (Object.keys(short).length) map[SHORTENED] = short;
   await db.updateTable("timelines").set({ recordings: Object.keys(map).length ? JSON.stringify(map) : null }).where("id", "=", timelineId).execute();
 }

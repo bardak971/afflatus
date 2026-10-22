@@ -606,9 +606,11 @@ describe("a timeline's source lane", () => {
         const mid = Number(c.inputs.sourceStart) + Number(c.inputs.sourceSeconds) / 2;
         const there = was.find((p) => mid >= Number(p.inputs.sourceStart) && mid < Number(p.inputs.sourceStart) + Number(p.inputs.sourceSeconds));
         expect(c.recipe).toBe("h3.motion");
-        if (there && there !== was[0]) expect(c.inputs.description).toBe(there.inputs.description);
+        if (there && there !== was[0]) expect(String(c.inputs.description).startsWith(String(there.inputs.description))).toBe(true);
       }
       expect(new Set(out.slice(1).map((c) => c.inputs.description)).size).toBeGreaterThan(1);
+      // a window none of the new ones has its middle in gives its prompt to the nearest, after what that one has: none lost
+      for (const said of words.slice(1, was.length)) expect(out.some((c) => String(c.inputs.description).includes(said))).toBe(true);
     });
 
     it("gives another form of the grid to every window but one that renders, which keeps the form its render was sent with", async () => {
