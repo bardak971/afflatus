@@ -77,9 +77,12 @@ export interface DownloadView {
 /**
  * A failure that passes (ComfyUI not answering for a moment, restarting, its line full): asked again later by whoever asked
  * for it. The pod's files (podFiles.ts) retry these themselves, so a download they asked for says nothing of one while they
- * still have tries left (quietPassing).
+ * still have tries left (quietPassing). The node pack's own last words count too: a source's rate limit or 5xx ("the source
+ * answered 429)"), a reset, a DNS blip, a connection closed or an SSL stream cut short, which once failed a pod's file for good
+ * on a moment's outage of Hugging Face or Civitai. A 404, an expired link with no fresh one and a full disk stay failures
+ * (podFiles.ts reads a full disk before this).
  */
-export const PASSING = /not answering|cannot be reached|no longer knows the (download|upload)|did not answer|does not answer with|\((429|5\d\d)[:)]|fetch failed|ECONN|socket|timed? ?out|aborted/i;
+export const PASSING = /not answering|cannot be reached|no longer knows the (download|upload)|did not answer|does not answer with|\((429|5\d\d)[:)]|answered (429|5\d\d)\)|fetch failed|ECONN|Errno -?\d+|reset by peer|Remote end closed|EOF occurred|socket|timed? ?out|aborted/i;
 
 /** How long a node pack whose line is full (429: its downloads at once under way) is waited for before the download is given up. */
 export const PACK_BUSY_MS = 120_000;
