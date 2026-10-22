@@ -148,10 +148,11 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     onSource: (asset) => {
       // the model the windows are made with: that of an empty clip given one that makes a source window by window (the one
       // selected, else the first; the owner picked Swap motion on a new clip, then dropped the source, and got Swap
-      // character's windows after it, 2026-10-20), its windows then in its place; else the source's model before; else the swap
+      // character's windows after it, 2026-10-20), its windows then in its place; else the source's model before; else the
+      // one the recipes name as a source's default (the swap)
       const of = (id: string | null | undefined) => e.videoRecipes.find((r) => r.id === id && windowed(r));
       const chosen = sourceDropClip(e.t, e.videoRecipes, e.current);
-      const model = of(chosen?.recipe) ?? of(e.t.source?.recipe) ?? of("h3.swap");
+      const model = of(chosen?.recipe) ?? of(e.t.source?.recipe) ?? e.videoRecipes.find((r) => r.traits?.windows?.sourceDefault && windowed(r));
       if (!model) {
         edit.mutate({ source: { asset } });
         return e.openSource();

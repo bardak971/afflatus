@@ -1,7 +1,7 @@
 import { defineRecipe, gridAtOrBefore, type BuildContext, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type Variant } from "@afflatus/core";
 import { H3_FPS, H3_GRID } from "./family";
 import { h3Inputs, type H3Video } from "./inputs";
-import { buildH3, h3Video } from "./video";
+import { buildH3, h3Video, SHOT_WORDS } from "./video";
 import { H3_CONTINUATION_NODES, H3_SEAM, H3_TRIM } from "./join";
 import { H3_STARTS, modelOf, referenceNeeds, turboNeeds, vedaNeeds } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
@@ -88,21 +88,22 @@ function framesOf(input: H3MotionTransfer, ctx: Pick<BuildContext, "media">): nu
  * start it), its own part the window less the frames carried, the cast's pictures as references.
  */
 /**
- * Motion transfer's prompt written from its parts (card #34): how the person looks, then what happens. Empty when both are:
- * the prompt is optional, H3 then follows the picture alone.
+ * Motion transfer's prompt written from its parts (card #34): the shot's words (card #27), how the person looks, then what
+ * happens. Empty when all are: the prompt is optional, H3 then follows the picture alone.
  */
-export function motionTransferFromParts(input: Pick<H3MotionTransfer, "look" | "happens">): string {
+export function motionTransferFromParts(input: Pick<H3MotionTransfer, "look" | "happens" | "shot">): string {
   const look = (input.look ?? "").trim().replace(/\s+/g, " ").replace(/[.!\s]+$/, "");
   const happens = (input.happens ?? "").trim().replace(/\s+/g, " ");
-  const said = [look ? `The person: ${look}.` : "", happens ? `${happens.charAt(0).toUpperCase()}${happens.slice(1)}${/[.!?]$/.test(happens) ? "" : "."}` : ""];
+  const said = [SHOT_WORDS[input.shot ?? ""] ?? "", look ? `The person: ${look}.` : "", happens ? `${happens.charAt(0).toUpperCase()}${happens.slice(1)}${/[.!?]$/.test(happens) ? "" : "."}` : ""];
   return said.filter(Boolean).join(" ");
 }
 
 function asClip(input: H3MotionTransfer, frames: number, carried: number): H3Video {
   return {
     ...input,
-    // typed, the prompt is the user's; else written from the parts
-    description: input.description.trim() || motionTransferFromParts(input),
+    // typed, the prompt is the user's, sent as it is; else written from the parts, the shot's words among them (shot "Any":
+    // buildH3 adds none of its own)
+    description: input.description.trim() || motionTransferFromParts(input), shot: "Any",
     start: input.previous ? undefined : input.picture,
     end: undefined, mid: undefined, next: undefined, voice: undefined, midAt: 0,
     soundscape: "", music: "", refVideos: [], handover: false, landing: "22",

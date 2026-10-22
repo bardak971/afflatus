@@ -448,7 +448,7 @@ export const h3Swap = defineRecipe<H3Swap>({
   // the prompt as sent written from the parts while it is left empty (card #34)
   partsInto: "who",
   promptFromParts: (input) => swapFromParts(input, Math.max(1, input.references?.length ?? 0)),
-  traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], faceRefine: "faceRefine", windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED, runUp: SWAP_RUN_UP, own: SWAP_OWN } },
+  traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], faceRefine: "faceRefine", windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED, runUp: SWAP_RUN_UP, own: SWAP_OWN, sourceDefault: true } },
   inputs: swapInputs,
   guide: SWAP_GUIDE,
   // a character swap's form: the model, its takes, who is replaced and how, then the rest as any form (the owner, 2026-10-18)
@@ -487,6 +487,9 @@ export const h3Swap = defineRecipe<H3Swap>({
     if (!swapLora) throw new Error("The swap needs the Character-Swap LoRA: h3_character_swap_v1.5.safetensors in ComfyUI's models/loras folder (Settings › Models has it).");
     const unet = input.swapModel ?? ctx.slots.swapUnet;
     if (!unet) throw new Error("The swap needs MiniMax H3's reference model, the one its LoRA was trained on: minimax_h3_ref2va_*.safetensors in ComfyUI's models/diffusion_models folder (Settings › Models has it).");
+    // the prompt written for the file that renders: the fused turbo's own sentences went with the form's Model only, and
+    // were left out when the model was the slot's
+    const asSent = { ...input, swapModel: unet };
     const frames = framesOf(input, ctx);
     const carried = carriedOf(input, ctx);
     const source = ctx.media.source;
@@ -507,7 +510,7 @@ export const h3Swap = defineRecipe<H3Swap>({
     const sourceSound = (g: GraphBuilder, frames: number) =>
       (heard ??= g.out("TrimAudioDuration", { audio: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.source }) }), 1], start_index: 0, duration: frames / H3_FPS }));
     const built = buildH3(asClip(input, swapLora, frames, carried, unet, size), asRef, {
-      prompt: (pictures) => swapPrompt(swapSent(input, pictures), pictures),
+      prompt: (pictures) => swapPrompt(swapSent(asSent, pictures), pictures),
       // the file's sound: the source's own over the window
       ...(keep ? { sound: (g, _decoded, at) => sourceSound(g, at.frames) } : {}),
       // and, asked for, the same sound anchored from the window's first frame, as Lip sync anchors its recording
@@ -523,7 +526,7 @@ export const h3Swap = defineRecipe<H3Swap>({
       ...(ctx.slots.refTurbo ?? ctx.slots.turbo ? { turbo: ctx.slots.refTurbo ?? ctx.slots.turbo } : {}),
     });
     // a prompt that names neither the source nor the cast's picture still runs: H3 may then leave them out, and the job says so
-    const lacks = swapPromptLacks(swapSent(input, Math.max(1, input.references.length)), input.references.length).map((tag) => `The prompt has no ${tag}: H3 may not use ${tag === "<Video 1>" ? "the source video" : "the cast's picture"}.`);
+    const lacks = swapPromptLacks(swapSent(asSent, Math.max(1, input.references.length)), input.references.length).map((tag) => `The prompt has no ${tag}: H3 may not use ${tag === "<Video 1>" ? "the source video" : "the cast's picture"}.`);
     // Difference asked for and the pack not yet loaded: pasted by the mask, and said
     const pasted = input.maskOn && input.paste === "Difference" && !ctx.has("AfflatusSwapPaste") ? ["Paste by Difference needs the Afflatus node pack 0.29.0 (restart ComfyUI to load it): pasted by the mask."] : [];
     const notes = [...lacks, ...pasted];

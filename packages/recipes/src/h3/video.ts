@@ -9,6 +9,7 @@ import { conditionFor, type MorePicture } from "./condition";
 import { finish, H3_SAVE_LATENT } from "./finish";
 import { FACE_REFINE_OPTIONAL, FACE_REFINE_SLOTS, faceRefineNeeds, faceRefineSkipped } from "./faceRefine";
 import { h3Inputs, type H3Video } from "./inputs";
+import { isH3Layout } from "./prompt";
 import { frameFor, H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_LANDING, H3_SEAM, H3_TRIM, resolveJoin } from "./join";
 import { H3_LATENT_ENLARGE_NODES, H3_LATENT_UPSCALE_NODES, latentUpscaleNeeds, latentUpscalePass, latentUpscaleRounds, plainResizeSaid } from "./latent-upscale";
 import { AUTO_SAMPLER, H3_STARTS, loadH3Model, modelOf, namedFor, referenceNeeds, turboNeeds, uses, vedaNeeds } from "./model";
@@ -204,10 +205,13 @@ export interface H3Extra {
 
 /** The words a shot opens the prompt with (card #27); none for Any. */
 export const SHOT_WORDS: Record<string, string> = { Wide: "Wide shot.", Medium: "Medium shot.", "Close-up": "Close-up." };
-/** The form with its shot's words before what happens, unless they are there already. */
+/**
+ * The form with its shot's words before what happens, unless they are there already, or the text is in H3's own layout,
+ * sent as written (the words glued in front of it were sent with it).
+ */
 export function withShot<T extends { shot?: string; description: string }>(input: T): T {
   const words = SHOT_WORDS[input.shot ?? ""];
-  return words && !input.description.trim().startsWith(words) ? { ...input, description: `${words} ${input.description}`.trim() } : input;
+  return words && !input.description.trim().startsWith(words) && !isH3Layout(input.description) ? { ...input, description: `${words} ${input.description}`.trim() } : input;
 }
 
 /** A Finish › Face refine: the take's own latent decoded as it is and only its faces redrawn, nothing of the clip sampled. */
@@ -217,7 +221,8 @@ const NO_MODEL: ReturnType<typeof loadH3Model> = { model: ["", 0], turbo: false,
 
 /** The H3 clip's graph, shared by the recipes made on it. */
 export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}): BuiltGraph {
-  // the shot's words open what happens (card #27), every H3 form alike; a recipe that writes its own prompt says it there
+  // the shot's words open what happens (card #27), every H3 form alike; a recipe that writes its own prompt from parts says
+  // them there, and leaves a typed one as it is (its clip's shot "Any")
   const input = withShot(asked);
   const { slots, media } = ctx;
   const g = new GraphBuilder();
