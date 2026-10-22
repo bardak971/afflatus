@@ -628,12 +628,14 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
     // a redo starts from the draft again, never from a finished take (an upscale of an upscale)
     const draft = (take.finishedFrom ? clip.takes.find((x) => x.id === take.finishedFrom) : undefined) ?? take;
     const from = draft.id;
-    // a redo of a clip finished with these very settings: left as it is (the mock's Finish: a second one redoes only what changed)
-    if (b.redo === "changed" && !b.take && take.finishedFrom) {
-      const before = await finishedWith(s, clip.id, draft.id);
-      const now = finishKey(b, resamplesLatent(clip.recipe ? s.registry.recipe(clip.recipe) : undefined), Boolean(clip.recipe && refinesFaces(s.registry.recipe(clip.recipe))));
-      if (before && before === now) { skipped.push({ clip: i + 1, why: "finished already with these settings" }); continue; }
-    }
+    // a redo of a clip finished with these very settings: left as it is (the mock's Finish: a second one redoes only what
+    // changed). Compared on the job it would queue, read as the done one is (finishKeyOf): built from the dialog's settings
+    // instead, a model whose finish takes its form's own settings (SCAIL-2's Face refine denoise) was redone every time
+    const before = b.redo === "changed" && !b.take && take.finishedFrom ? await finishedWith(s, clip.id, draft.id) : null;
+    const push = (job: FinishJob) => {
+      if (before && before === finishKeyOf(job)) skipped.push({ clip: i + 1, why: "finished already with these settings" });
+      else plan.push(job);
+    };
     const label = `${view.name} · clip ${i + 1} · finish`;
     // Face refine: the draft's own latent decoded as it is (nothing sampled again) and its faces redrawn, the same length and
     // frames as the draft by construction; an H3 clip only, rendered here, its latent kept
@@ -645,14 +647,14 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
       const a = draft.asset;
       // its own denoise (the form's, else the recipe's default: 0.35 on SCAIL), not the dialog's, which is H3's
       const denoise = typeof gen.inputs.faceRefineDenoise === "number" ? gen.inputs.faceRefineDenoise : defaultDenoise(refining);
-      plan.push({ kind: "cut", label, video: { width: a.width ?? null, height: a.height ?? null, durationMs: a.durationMs ?? null, fps: a.fps ?? null },
+      push({ kind: "cut", label, video: { width: a.width ?? null, height: a.height ?? null, durationMs: a.durationMs ?? null, fps: a.fps ?? null },
         cut: { asset: a.id, startMs: 0, endMs: a.durationMs ?? 0, action: "finish", route: "face", by: 1, faceDenoise: denoise, picture: typeof gen.inputs.picture === "string" ? gen.inputs.picture : undefined, family: refining.family, clip: clip.id, finishedFrom: from } });
       continue;
     }
     if (b.route === "face") {
       const why = clip.recipe && refinesFaces(s.registry.recipe(clip.recipe)) ? await keptForFinish(s, view.clips, i, draft.asset.id) : "a model that offers no Face refine: H3's and SCAIL-2 at 24 fps do";
       if (typeof why === "string") { skipped.push({ clip: i + 1, why }); continue; }
-      plan.push({ kind: "render", recipe: why.recipe, input: { ...asDrafted(why.inputs, draft.asset), seed: why.seed, upscale: "Off", faceRefine: true, faceRefineOnly: true, faceRefineDenoise: b.faceDenoise ?? 0.45 }, opts: {
+      push({ kind: "render", recipe: why.recipe, input: { ...asDrafted(why.inputs, draft.asset), seed: why.seed, upscale: "Off", faceRefine: true, faceRefineOnly: true, faceRefineDenoise: b.faceDenoise ?? 0.45 }, opts: {
         label, clip: { id: clip.id, fit: false, mirror: why.mirror }, look: clip.look ?? view.look, folder, finishedFrom: from,
       } });
       continue;
@@ -666,7 +668,7 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
       if (!kept?.latent_key) { skipped.push({ clip: i + 1, why: "its latent was not kept (rendered before Afflatus kept them, or without its node pack): finish it with SeedVR2, RTX or a model" }); continue; }
       // with Face refine asked for, on a model that offers it: its faces redrawn in the same job, after the re-sample
       const refine = b.face && refinesFaces(s.registry.recipe(gen.recipe)) ? { faceRefine: true, faceRefineDenoise: b.faceDenoise ?? 0.45 } : {};
-      plan.push({ kind: "render", recipe: gen.recipe, input: { ...asDrafted(gen.inputs, draft.asset), seed: gen.seed, upscale: "Latent: re-sampled", upscaleBy: b.factor, upscaleDenoise: b.latentDenoise ?? 0.15, upscaleSteps: b.latentSteps ?? 2, ...refine }, opts: {
+      push({ kind: "render", recipe: gen.recipe, input: { ...asDrafted(gen.inputs, draft.asset), seed: gen.seed, upscale: "Latent: re-sampled", upscaleBy: b.factor, upscaleDenoise: b.latentDenoise ?? 0.15, upscaleSteps: b.latentSteps ?? 2, ...refine }, opts: {
         // the pictures its draft flipped are flipped again: the finish re-samples the draft, made from them as they were sent
         label, clip: { id: clip.id, fit: false, mirror: gen.mirror }, look: clip.look ?? view.look, folder, finishedFrom: from,
       } });
@@ -680,14 +682,14 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
     if (b.face && clip.recipe && refinesFaces(s.registry.recipe(clip.recipe))) {
       const kept = await keptForFinish(s, view.clips, i, draft.asset.id);
       if (typeof kept !== "string") {
-        plan.push({ kind: "render", recipe: kept.recipe, input: { ...asDrafted(kept.inputs, draft.asset), seed: kept.seed, upscale: "Off", faceRefine: true, faceRefineOnly: true, faceRefineDenoise: b.faceDenoise ?? 0.45 }, opts: {
+        push({ kind: "render", recipe: kept.recipe, input: { ...asDrafted(kept.inputs, draft.asset), seed: kept.seed, upscale: "Off", faceRefine: true, faceRefineOnly: true, faceRefineDenoise: b.faceDenoise ?? 0.45 }, opts: {
           label: `${label} · Face refine`, clip: { id: clip.id, fit: false, mirror: kept.mirror }, look: clip.look ?? view.look, folder, finishedFrom: from,
         }, then: { cut: { ...cut, faceFirst: b.faceDenoise ?? 0.45 }, label } });
         continue;
       }
       skipped.push({ clip: i + 1, why: `no Face refine (${kept}): finished with ${route === "rtx" ? "RTX VSR" : route === "model" ? "the pixel model" : "SeedVR2"} alone` });
     }
-    plan.push({ kind: "cut", label, video: { width: a.width ?? null, height: a.height ?? null, durationMs: a.durationMs ?? null, fps: a.fps ?? null }, cut });
+    push({ kind: "cut", label, video: { width: a.width ?? null, height: a.height ?? null, durationMs: a.durationMs ?? null, fps: a.fps ?? null }, cut });
   }
   return { plan, skipped };
 }
@@ -709,17 +711,22 @@ const defaultDenoise = (recipe: { inputs: InputSpec[] }): number => {
 };
 
 /**
- * What a finish of a clip is, as a key two finishes compare on: the route its clip takes with these settings and what that
- * route reads of them (a model without the latent re-sample takes SeedVR2 on that route; Face refine only where its model
- * offers it).
+ * What a finish of a clip is, as a key two finishes compare on, read off the job that makes its finished take: the cut's
+ * settings (after a Face refine, that it came first and at which denoise), or the render's (a latent re-sample, a Face
+ * refine). One reading for a job queued and a job done (finishedWith), so the two cannot drift.
  */
-function finishKey(b: { route: string; factor: number; colour?: string; upscaleModel?: string; seedvrFrames?: number; sharpen?: number; latentDenoise?: number; latentSteps?: number; faceDenoise?: number; face?: boolean }, latent: boolean, faces: boolean): string {
-  const face = b.face && faces ? b.faceDenoise ?? 0.45 : null;
-  const route = b.route === "latent" && !latent ? "seedvr" : b.route;
-  if (route === "face") return JSON.stringify({ route, fd: b.faceDenoise ?? 0.45 });
-  if (route === "latent") return JSON.stringify({ route, f: b.factor, d: b.latentDenoise ?? 0.15, s: b.latentSteps ?? 2, face });
-  return JSON.stringify({ route, f: b.factor, colour: route === "seedvr" ? b.colour ?? "lab" : null, frames: route === "seedvr" ? b.seedvrFrames ?? 0 : null, model: route === "model" ? b.upscaleModel ?? "" : null, sharpen: b.sharpen ?? 0, face });
+function cutKey(c: CutOptions): string {
+  if (c.route === "face") return JSON.stringify({ route: "face", fd: c.faceDenoise ?? 0.45 });
+  const route = c.route ?? "seedvr";
+  return JSON.stringify({ route, f: c.by, colour: route === "seedvr" ? c.colour ?? "lab" : null, frames: route === "seedvr" ? c.seedvrFrames ?? 0 : null, model: route === "model" ? c.upscaleModel ?? "" : null, sharpen: c.sharpen ?? 0, face: c.faceFirst ?? null });
 }
+function renderKey(i: Record<string, unknown>): string | null {
+  if (i.faceRefineOnly) return JSON.stringify({ route: "face", fd: i.faceRefineDenoise ?? 0.45 });
+  if (i.upscale === "Latent: re-sampled") return JSON.stringify({ route: "latent", f: i.upscaleBy, d: i.upscaleDenoise ?? 0.15, s: i.upscaleSteps ?? 2, face: i.faceRefine ? i.faceRefineDenoise ?? 0.45 : null });
+  return null;
+}
+/** The key of a finish as it would be queued: a Face refine with a cut behind it is that cut's finish. */
+const finishKeyOf = (job: FinishJob): string | null => (job.kind === "cut" ? cutKey(job.cut) : job.then ? cutKey(job.then.cut) : renderKey(job.input));
 
 /**
  * The key of the finish that made a clip's finished take of `draft` (the last done for it), or null: none found, not read,
@@ -733,18 +740,14 @@ async function finishedWith(s: Services, clip: string, draft: string): Promise<s
     if (j.recipe_id === CUT_JOB) {
       const c = JSON.parse(j.inputs) as CutOptions;
       if (c.action !== "finish" || c.finishedFrom !== draft) continue;
-      if (c.route === "face") return JSON.stringify({ route: "face", fd: c.faceDenoise ?? 0.45 });
-      const route = c.route ?? "seedvr";
-      return JSON.stringify({ route, f: c.by, colour: route === "seedvr" ? c.colour ?? "lab" : null, frames: route === "seedvr" ? c.seedvrFrames ?? 0 : null, model: route === "model" ? c.upscaleModel ?? "" : null, sharpen: c.sharpen ?? 0, face: c.faceFirst ?? null });
+      return cutKey(c);
     }
     if (j.finished_from !== draft) continue;
     const i = JSON.parse(j.inputs) as Record<string, unknown>;
     // the Face refine a pixel route was queued behind is not the finish: its cut is
-    if (i.faceRefineOnly) {
-      if (jobs.some((k) => k.recipe_id === CUT_JOB && (JSON.parse(k.inputs) as CutOptions).finishedFrom === draft)) continue;
-      return JSON.stringify({ route: "face", fd: i.faceRefineDenoise ?? 0.45 });
-    }
-    if (i.upscale === "Latent: re-sampled") return JSON.stringify({ route: "latent", f: i.upscaleBy, d: i.upscaleDenoise ?? 0.15, s: i.upscaleSteps ?? 2, face: i.faceRefine ? i.faceRefineDenoise ?? 0.45 : null });
+    if (i.faceRefineOnly && jobs.some((k) => k.recipe_id === CUT_JOB && (JSON.parse(k.inputs) as CutOptions).finishedFrom === draft)) continue;
+    const key = renderKey(i);
+    if (key) return key;
   }
   return null;
 }

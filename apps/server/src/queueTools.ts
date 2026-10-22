@@ -222,6 +222,9 @@ export function usesGpu(row: Pick<JobRow, "recipe_id" | "inputs">): boolean {
   return opts?.action === "finish" || (opts?.action === "slow" && opts.engine === "rife");
 }
 
+/** Why a finish cut queued behind a Face refine (`fromJob`) cannot run: said by it, and by the queue when that job fails first. */
+export const FACE_REFINE_NOT_ENDED = "the Face refine it was to finish did not end: nothing to finish";
+
 /** A cut: ffmpeg on the computer Afflatus runs on, like an export; a finish and a RIFE slow-motion through ComfyUI. */
 export function runCut(core: QueueCore, row: JobRow): Promise<void> {
   return core.runTool(row, async (run) => {
@@ -231,7 +234,7 @@ export function runCut(core: QueueCore, row: JobRow): Promise<void> {
     if (!clips) throw new Error("timelines are not available");
     // after a job of the same clip (Face refine first): that job's video, which did not exist when this one was queued
     const made = opts.fromJob ? await core.db.selectFrom("jobs").select(["generation_id", "status"]).where("id", "=", opts.fromJob).executeTakeFirst() : null;
-    if (opts.fromJob && (!made?.generation_id || made.status !== "done")) throw new Error("the Face refine it was to finish did not end: nothing to finish");
+    if (opts.fromJob && (!made?.generation_id || made.status !== "done")) throw new Error(FACE_REFINE_NOT_ENDED);
     const assetId = made?.generation_id ? ((await core.db.selectFrom("assets").select("id").where("generation_id", "=", made.generation_id).where("kind", "=", "video").executeTakeFirst())?.id ?? opts.asset) : opts.asset;
     const video = await core.db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
     // a sound is cut too (copy, split, remove)

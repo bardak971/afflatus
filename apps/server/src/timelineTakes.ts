@@ -22,8 +22,11 @@ export class TimelineTakes {
     return g ? (JSON.parse(g.resolved) as { overlap?: Overlap & { seam?: boolean } }).overlap : undefined;
   }
 
-  /** The video as a take of the clip, which plays it. The first video of a timeline decides its frame. */
-  async add(clipId: string, asset: AssetRow, overlap: Overlap, links: TakeLinks, finishedFrom: string | null = null, db: Db = this.core.db, id = newId()) {
+  /**
+   * The video as a take of the clip, which plays it (`plays` false: one of its takes, the one playing left as it is). The
+   * first video of a timeline decides its frame.
+   */
+  async add(clipId: string, asset: AssetRow, overlap: Overlap, links: TakeLinks, finishedFrom: string | null = null, db: Db = this.core.db, id = newId(), plays = true) {
     // the finished version of a take keeps that take's overlaps and trims: it plays the same part, larger
     const from = finishedFrom ? await db.selectFrom("takes").selectAll().where("id", "=", finishedFrom).executeTakeFirst() : undefined;
     // a finish whose draft was removed meanwhile: what the draft shared with its neighbours is read from the draft's video, so
@@ -45,7 +48,7 @@ export class TimelineTakes {
         finished_from: from ? from.id : null, created_at: now(),
       })
       .execute();
-    const clip = await db.updateTable("clips").set({ take_id: id, updated_at: now() }).where("id", "=", clipId).returning("timeline_id").executeTakeFirst();
+    const clip = await db.updateTable("clips").set({ ...(plays ? { take_id: id } : {}), updated_at: now() }).where("id", "=", clipId).returning("timeline_id").executeTakeFirst();
     await this.core.keep(asset.id, db);
     // a render that has no name yet is called after its timeline, clip and take (a name given by hand stays)
     await nameTake(db, id);
@@ -75,8 +78,13 @@ export class TimelineTakes {
     }));
   }
 
-  /** A clip's job is done: its video becomes a take, and plays. The first take of a timeline decides its frame. */
-  async finished(clipId: string, generationId: string, overlap: Overlap | undefined, links: TakeLinks, finishedFrom: string | null = null): Promise<void> {
+  /**
+   * A clip's job is done: its video becomes a take, and plays. The first take of a timeline decides its frame. `between`: a
+   * Face refine with the finish made from it still to come (Face refine first, then an upscale): its video is one of the
+   * clip's takes, there to pick should that finish fail, but neither plays nor is a step of its own; the finish is the
+   * finished take, one step for Undo.
+   */
+  async finished(clipId: string, generationId: string, overlap: Overlap | undefined, links: TakeLinks, finishedFrom: string | null = null, between = false): Promise<void> {
     let timeline: string | null = null;
     // the clip was removed while it rendered: the video is in the library all the same
     await this.onClip(clipId, async (db, clip) => {
@@ -87,8 +95,8 @@ export class TimelineTakes {
       timeline = clip.timeline_id;
       const id = newId();
       // a finished take is a step of its own, which Undo takes back with the take (a render's new take is no step: Undo keeps it)
-      if (finishedFrom) await this.core.remember(clip.timeline_id, "the finished take", id, db);
-      await this.add(clipId, asset, overlap ?? { headMs: 0, tailMs: 0 }, links, finishedFrom, db, id);
+      if (finishedFrom && !between) await this.core.remember(clip.timeline_id, "the finished take", id, db);
+      await this.add(clipId, asset, overlap ?? { headMs: 0, tailMs: 0 }, links, finishedFrom, db, id, !between);
       // the take lands on the clip after a little further in than it played (on a chunk of its latent): that clip now starts there
       if (links.next && !finishedFrom) {
         const next = await db.selectFrom("takes").select(["id", "head_ms", "trim_start_ms"]).where("id", "=", links.next.take).executeTakeFirst();
