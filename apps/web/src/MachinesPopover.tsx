@@ -31,10 +31,10 @@ export function MachinesPopover({ anchor, machines, metered, now, canDeploy, onP
   const again = useDeployAgain();
   const allPaused = machines.every((m) => m.paused);
   return (
-    <Popover anchor={anchor} onClose={onClose} label="ComfyUIs" width={520} height={120 + machines.length * 64 + machines.filter((m) => gettingFiles(m)).length * 40 + (canDeploy ? 44 : 0)}>
+    <Popover anchor={anchor} onClose={onClose} label="Machines" width={520} height={120 + machines.length * 64 + machines.filter((m) => gettingFiles(m)).length * 40 + (canDeploy ? 44 : 0)}>
       <div className="flex flex-col text-[12.5px]">
         <div className="flex items-center gap-2.5 px-3.5 py-3">
-          <span className="font-bold">{plural(machines.length, "ComfyUI")}</span>
+          <span className="font-bold">{plural(machines.length, "machine")}</span>
           <span className="text-ink-2">{busiest(machines)}</span>
           <span className="grow" />
           <button type="button" className="rounded-md border border-line px-2.5 py-1 text-xs font-semibold hover:bg-hover" onClick={() => (allPaused ? ops.resume : ops.pause).mutate(undefined)}>

@@ -67,7 +67,7 @@ export function ConfirmDialog({ open }: { open: Open }) {
       <DialogHead icon={<CircleAlert size={16} />} tone="warn" title={open.title} />
       <p className="m-0 whitespace-pre-line text-ink-2">{open.text}</p>
       <DialogFoot>
-        <Button autoFocus onClick={() => open.answer(false)}>Keep <Keys keys="Esc" size="sm" /></Button>
+        <Button autoFocus onClick={() => open.answer(false)}>Cancel <Keys keys="Esc" size="sm" /></Button>
         <Button tone="danger" onClick={() => open.answer(true)}>{open.yes}</Button>
       </DialogFoot>
     </Dialog>

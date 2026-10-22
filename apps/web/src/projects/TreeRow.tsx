@@ -200,7 +200,7 @@ export function TreeRow({ r, setSize, posInSet, columns, scoped, q, isPicked, he
       {r.kind === "empty" && drag.refused?.key !== r.key ? (
         <span className="flex min-w-0 items-center" data-asking={clearAsk === r.key || undefined} onClick={(e) => e.stopPropagation()}>
           {clearAsk === r.key ? (
-            <TwoStep open stay title={`Delete the ${r.label}`} note="Delete? The open one stays." yes="Delete" cancel="Keep" onCancel={() => setClearAsk(null)} onYes={() => clearEmpty(r)} />
+            <TwoStep open stay title={`Delete the ${r.label}`} note="Delete? The open one stays." yes="Delete" onCancel={() => setClearAsk(null)} onYes={() => clearEmpty(r)} />
           ) : (
             <button
               type="button"

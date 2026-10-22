@@ -164,20 +164,20 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
 
       {/* who goes in: their photos, the first the most important */}
       <div className="flex flex-col gap-1.5">
-        <span className="flex items-center gap-1.5 text-xs text-ink-2">Who goes in <span className="text-ink-3">· 1 to 3 photos</span><Help text="Photos of one person: who they are comes from them. The face is taken as photographed (its expression, tilt and light), so the still can look pasted; once it moves, Motion transfer takes the expression and the light from the driving video. Best: a sharp, front-facing photo in even light; a strongly coloured one can tint the face. The first (main) matters most; a second from another angle helps a frame where they are turned." /></span>
+        <span className="flex items-center gap-1.5 text-xs text-ink-2">Who goes in <span className="text-ink-3">· 1 to 3 images</span><Help text="Images of one person: who they are comes from them. The face is taken as photographed (its expression, tilt and light), so the still can look pasted; once it moves, Motion transfer takes the expression and the light from the driving video. Best: a sharp, front-facing image in even light; a strongly coloured one can tint the face. The first (main) matters most; a second from another angle helps a frame where they are turned." /></span>
         <div className="flex flex-wrap items-center gap-1.5">
           {set.people.map((id, i) => (
             <span key={id} className="relative">
               <button
                 type="button"
                 onClick={() => i > 0 && change(keyId, { people: [id, ...set.people.filter((x) => x !== id)] })}
-                data-tip={i === 0 ? "The main photo: the one the face is taken from most. Click another to make it the main one" : "Click: make it the main photo"}
+                data-tip={i === 0 ? "The main image: the one the face is taken from most. Click another to make it the main one" : "Click: make it the main image"}
                 className={cx("block overflow-hidden rounded-md border-2", i === 0 ? "border-accent" : "border-transparent hover:border-line-strong")}
               >
                 <img src={thumbUrl(id)} alt="" className="h-14 w-14 object-cover" />
               </button>
               {i === 0 && set.people.length > 1 && <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 rounded bg-accent px-1 text-[9px] font-bold text-accent-ink">main</span>}
-              <button type="button" aria-label="Remove this photo" onClick={() => change(keyId, { people: set.people.filter((x) => x !== id) })} className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-line bg-panel text-ink-2 hover:text-ink">
+              <button type="button" aria-label="Remove this image" onClick={() => change(keyId, { people: set.people.filter((x) => x !== id) })} className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-line bg-panel text-ink-2 hover:text-ink">
                 <X size={11} />
               </button>
             </span>
@@ -196,11 +196,11 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
               className="flex h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-md border border-dashed border-line-strong text-[10px] text-ink-2 hover:text-ink"
             >
               <ImagePlus size={15} />
-              photo
+              image
             </button>
           )}
           {people.map((p) => p && p.kind === "person" && p.def.pictures.length > 0 && (
-            <Button key={p.id} size="sm" onClick={() => change(keyId, { people: p.def.pictures.slice(0, 3) })} data-tip={`${p.name}'s photos, from the cast, in place of these: one person goes in`}>
+            <Button key={p.id} size="sm" onClick={() => change(keyId, { people: p.def.pictures.slice(0, 3) })} data-tip={`${p.name}'s images, from the cast, in place of these: one person goes in`}>
               + {p.name}
             </Button>
           ))}
@@ -217,7 +217,7 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <span className="flex items-center gap-1.5 text-xs text-ink-2">Frame prompt <span className="text-ink-3">· optional</span><Help text="What the frame shows of them, in plain words: their expression, their mouth, where they look, what they hold, the light. Qwen copies the photo's face as photographed (a calm, closed-mouth face); said here, it takes this frame's instead. Concrete and visible works best: &quot;laughing, mouth wide open, eyes half closed, lit by red club light&quot;, not &quot;keep the expression&quot;. It goes into the instruction before what is kept." /></span>
+        <span className="flex items-center gap-1.5 text-xs text-ink-2">Frame prompt <span className="text-ink-3">· optional</span><Help text="What the frame shows of them, in plain words: their expression, their mouth, where they look, what they hold, the light. Qwen copies the image's face as photographed (a calm, closed-mouth face); said here, it takes this frame's instead. Concrete and visible works best: &quot;laughing, mouth wide open, eyes half closed, lit by red club light&quot;, not &quot;keep the expression&quot;. It goes into the instruction before what is kept." /></span>
         <AutoText value={set.scene} onChange={(e) => change(keyId, { scene: e.target.value })} rows={1} placeholder="laughing, mouth open, eyes half closed, lit by red club light" aria-label="Frame prompt" className={cx(fieldClass, "w-full resize-none px-2 py-1.5 text-xs")} />
       </div>
 
@@ -225,9 +225,9 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
 
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" tone="primary" disabled={!ready || !set.people.length || make.isPending} onClick={() => make.mutate()}>
-          {jobs.length ? <><RefreshCw size={13} /> Reroll · {ROUND} more</> : <><Sparkles size={13} /> Make {ROUND} pictures</>}
+          {jobs.length ? <><RefreshCw size={13} /> Render {ROUND} more</> : <><Sparkles size={13} /> Render {ROUND} images</>}
         </Button>
-        {!set.people.length && <span className="text-xs text-warn-ink">Add a photo of who goes in first.</span>}
+        {!set.people.length && <span className="text-xs text-warn-ink">Add an image of who goes in first.</span>}
         {!ready && <span className="text-xs text-warn-ink">Qwen Image 2.1 is not among the models (Settings › Models).</span>}
         {jobs.length > 0 && !busy && <button type="button" onClick={() => change(keyId, { jobs: [] })} className="text-xs text-ink-3 underline underline-offset-2 hover:text-ink">clear</button>}
       </div>
@@ -249,7 +249,7 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
                     </span>
                   ) : (
                     <span
-                      data-tip="How much the face where the frame's person stood is the person of the photos (ArcFace): 0.8 and up, a close likeness; under 0.5, someone else (or a face too small or turned to read)"
+                      data-tip="How much the face where the frame's person stood is the person of the images (ArcFace): 0.8 and up, a close likeness; under 0.5, someone else (or a face too small or turned to read)"
                       className={cx("absolute bottom-1 left-1 rounded px-1.5 py-px font-mono text-[10.5px] font-bold", j.face >= 0.8 ? "bg-good text-ground" : j.face >= 0.5 ? "bg-warn text-warn-on" : "bg-warn-wash text-warn-ink")}
                     >
                       face {j.face.toFixed(2)}{j === best ? " · best" : ""}
@@ -266,7 +266,7 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
                 : (
                   <span className="flex gap-1">
                     <Button size="sm" className="grow" onClick={() => pick.mutate(j.picture!)} disabled={pick.isPending} data-tip="This one as the Picture: it goes into the library, the others do not">Use</Button>
-                    <Button size="sm" aria-label="Delete this picture" data-tip="Delete it: out of here and to the bin (back from there for a week)" disabled={drop.isPending} onClick={() => drop.mutate(j)}><Trash2 size={13} /></Button>
+                    <Button size="sm" aria-label="Move to bin" data-tip="Move to bin: out of here and to the bin (back from there for a week)" disabled={drop.isPending} onClick={() => drop.mutate(j)}><Trash2 size={13} /></Button>
                   </span>
                 ))}
               {(j.state === "failed" || j.state === "gone") && <Button size="sm" onClick={() => drop.mutate(j)} data-tip="Take it out of here">Dismiss</Button>}
@@ -279,10 +279,10 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
       {jobs.some((j) => j.state === "done") && !measured && (
         <span className="flex items-center gap-1.5 text-[11px] text-ink-3">
           No face figures
-          <Help text="The face is measured by the Afflatus node pack's Face Match, which needs insightface in ComfyUI (pip install insightface onnxruntime, then restart ComfyUI). With it, a figure is still missing when no face could be read in the photos, or the face is too small." />
+          <Help text="The face is measured by the Afflatus node pack's Face Match, which needs insightface in ComfyUI (pip install insightface onnxruntime, then restart ComfyUI). With it, a figure is still missing when no face could be read in the images, or the face is too small." />
         </span>
       )}
-      {adding && <Picker title="A photo of who goes in" onClose={() => setAdding(false)} onPick={(id) => { addPhotos([id]); setAdding(false); }} />}
+      {adding && <Picker title="An image of who goes in" onClose={() => setAdding(false)} onPick={(id) => { addPhotos([id]); setAdding(false); }} />}
     </div>
   );
 }

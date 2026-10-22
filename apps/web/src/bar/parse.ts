@@ -77,6 +77,10 @@ export type Command =
   | { cmd: "preset"; name: string }
   | { cmd: "save-preset"; name: string }
   | { cmd: "undo" }
+  | { cmd: "redo" }
+  | { cmd: "delete-clip" }
+  /** The open timeline, else the open draft, under a new name. */
+  | { cmd: "rename"; name: string }
   | { cmd: "clip"; number: number }
   /** `kind` null: the cut made plain again; undefined: the words name none, or several (the bar lists those they fit). */
   | { cmd: "transition"; words: string; kind?: TransitionKind | null }
@@ -109,12 +113,12 @@ export const KIT_OF: Record<KitNew, "person" | "place" | "style" | "preset" | "s
  */
 export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; example: string; what: string; needs?: true }> = [
   { id: "render-clips", name: "Render clips…", typed: "render clips ", example: "render clips 3-5", what: "Clips of the open timeline, by their number", needs: true },
-  { id: "render-missing", name: "Render missing clips", typed: "render missing", example: "render missing", what: "The clips of the open timeline that have no take" },
-  { id: "export", name: "Export timeline", typed: "export", example: "export", what: "The open timeline as one video" },
-  { id: "export-editor", name: "Export for a video editor", typed: "export for editor", example: "export for resolve", what: "The open timeline as its clips and a project file for DaVinci Resolve, Premiere Pro or Kdenlive" },
+  { id: "render-missing", name: "Render all", typed: "render all", example: "render all", what: "The clips of the open timeline that have no take, as its Render all" },
+  { id: "export", name: "Export timeline…", typed: "export", example: "export", what: "The open timeline as one video" },
+  { id: "export-editor", name: "Export for a video editor…", typed: "export for editor", example: "export for resolve", what: "The open timeline as its clips and a project file for DaVinci Resolve, Premiere Pro or Kdenlive" },
   { id: "finish", name: "Finish timeline…", typed: "finish", example: "finish", what: "The Finish dialog on the open timeline: every take upscaled to its final quality" },
   { id: "fix-all", name: "Fix all", typed: "fix all", example: "fix all", what: "What the open timeline's Needs a look lists, mended as its Fix all does" },
-  { id: "generate", name: "Generate", typed: "generate", example: "generate", what: "The open draft, as its Generate button" },
+  { id: "generate", name: "Render the draft", typed: "render draft", example: "render draft", what: "The open draft, as its Render button" },
   { id: "seed", name: "Set seed…", typed: "seed ", example: "seed 1234", what: "Of the open draft", needs: true },
   { id: "steps", name: "Set steps…", typed: "steps ", example: "steps 30", what: "Of the open draft", needs: true },
   { id: "cfg", name: "Set CFG…", typed: "cfg ", example: "cfg 4", what: "Of the open draft", needs: true },
@@ -138,7 +142,7 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "link-folder", name: "Link folder…", typed: "link folder ", example: "link folder D:\\shoots", what: "Used in place, nothing copied" },
   { id: "pause", name: "Pause queue", typed: "pause queue", example: "pause queue", what: "What runs finishes; nothing new starts" },
   { id: "resume", name: "Resume queue", typed: "resume queue", example: "resume queue", what: "What waits starts again" },
-  { id: "machines", name: "Show the ComfyUIs", typed: "machines", example: "comfyuis", what: "With several ComfyUIs: the status bar's panel of every machine, its figures, its pause and its menu" },
+  { id: "machines", name: "Show the machines", typed: "machines", example: "comfyuis", what: "With several machines: the status bar's panel of every machine, its figures, its pause and its menu" },
   { id: "start-pod", name: "Start pod…", typed: "start pod ", example: "start pod comfy-5090", what: "A rented pod (RunPod), started: billed from then, at its rate; it stops by itself when idle", needs: true },
   { id: "stop-pod", name: "Stop pod…", typed: "stop pod ", example: "stop pod comfy-5090", what: "A rented pod, stopped: the GPU stops billing, its disk goes on", needs: true },
   { id: "stop-all-pods", name: "Stop all pods…", typed: "stop all pods", example: "stop all pods", what: "Every rented pod that runs or starts, stopped at once (asked first): their GPUs stop billing, their disks go on" },
@@ -148,15 +152,18 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "hunt-gpu", name: "Hunt a GPU…", typed: "hunt gpu", example: "hunt gpu", what: "Deploy a GPU on its hunt: RunPod asked every 30 s, the best GPU that comes free within your price deployed for the renders waiting" },
   { id: "cancel-hunt", name: "Cancel the hunt", typed: "cancel hunt", example: "cancel hunt", what: "The GPU hunt under way: nothing deployed, the home machines it paused go on" },
   { id: "open-comfy", name: "Open ComfyUI", typed: "open comfyui", example: "open comfyui on second gpu", what: "ComfyUI's own page in a new tab, the first ComfyUI or the one named; locked, the tab lands logged in" },
-  { id: "machine-log", name: "ComfyUI log of…", typed: "log ", example: "log second gpu", what: "With several ComfyUIs: that machine's console, in the Queue", needs: true },
-  { id: "machine-times", name: "Render times of…", typed: "render times ", example: "render times second gpu", what: "With several ComfyUIs: what that machine rendered and how long it took", needs: true },
-  { id: "machine-models", name: "Models on…", typed: "models on ", example: "models on second gpu", what: "With several ComfyUIs: Settings › Models, that machine's tab: what it has, its switches, downloads to it", needs: true },
-  { id: "use-only", name: "Use only…", typed: "use only ", example: "use only second gpu", what: "With several ComfyUIs: every other one paused, everything waiting goes to this one", needs: true },
+  { id: "machine-log", name: "ComfyUI log of…", typed: "log ", example: "log second gpu", what: "With several machines: that machine's console, in the Queue", needs: true },
+  { id: "machine-times", name: "Render times of…", typed: "render times ", example: "render times second gpu", what: "With several machines: what that machine rendered and how long it took", needs: true },
+  { id: "machine-models", name: "Models on…", typed: "models on ", example: "models on second gpu", what: "With several machines: Settings › Models, that machine's tab: what it has, its switches, downloads to it", needs: true },
+  { id: "use-only", name: "Use only…", typed: "use only ", example: "use only second gpu", what: "With several machines: every other one paused, everything waiting goes to this one", needs: true },
   { id: "empty-bin", name: "Empty the bin…", typed: "empty the bin", example: "empty the bin", what: "Erases what is in the bin, asked first" },
   { id: "put-back-all", name: "Put all back", typed: "put all back", example: "put all back", what: "Everything in the bin back where it was, as the bin's Put all back" },
   { id: "bin-unused", name: "Bin unused takes…", typed: "bin unused takes", example: "bin unused takes", what: "Of the open timeline, asked first" },
   { id: "clip", name: "Go to clip…", typed: "clip ", example: "clip 3", what: "In the open timeline: selected, the playhead on its start", needs: true },
   { id: "undo", name: "Undo", typed: "undo", example: "undo", what: "The open editor's last change, else the move or bin a banner offers to undo" },
+  { id: "redo", name: "Redo", typed: "redo", example: "redo", what: "What the open editor's Undo took back, else the move or bin a banner offers to redo" },
+  { id: "delete-clip", name: "Delete clip", typed: "delete clip", example: "delete clip", what: "The selected clip off the open timeline, as Del; Undo brings it back" },
+  { id: "rename", name: "Rename…", typed: "rename ", example: "rename Harbor cut", what: "The open timeline, else the open draft", needs: true },
   { id: "transition", name: "Transition…", typed: "transition ", example: "transition dissolve", what: "On the cut into the selected clip, as its join's choice in the column: dissolve, dip to black or white, flash, wipe, slide, circle, zoom; transition off makes it a plain cut", needs: true },
   { id: "slow-motion", name: "Slow motion", typed: "slow motion", example: "slow motion 4x", what: "The selected clip at half speed (or a quarter: 4x), as a new take, as its menu's Slow motion" },
   { id: "motion-windows", name: "Motion transfer in windows", typed: "motion transfer in windows", example: "motion transfer in windows", what: "The selected clip, a video brought in, put on the source lane and made into Motion transfer clips window by window, as its menu" },
@@ -164,7 +171,7 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "previous-take", name: "Previous take", typed: "previous take", example: "prev take", what: "The selected clip plays its take before, as its key in the editor" },
   { id: "next-take", name: "Next take", typed: "next take", example: "next take", what: "The selected clip plays its take after, as its key in the editor" },
   { id: "mirror-pin", name: "Mirror pinned frame", typed: "mirror pin", example: "mirror pin", what: "A pinned frame of the selected clip flipped at render time (or back: mirror pin off), as its right-click menu" },
-  { id: "cancel-waiting", name: "Cancel all waiting…", typed: "cancel waiting", example: "cancel waiting", what: "Every waiting job, asked first; the running one goes on" },
+  { id: "cancel-waiting", name: "Remove all waiting…", typed: "remove waiting", example: "remove waiting", what: "Every waiting job out of the queue, asked first; the running one goes on" },
   { id: "retry-failed", name: "Retry all failed", typed: "retry failed", example: "retry failed", what: "The failed jobs the queue lists, queued again oldest first" },
   { id: "dismiss-failed", name: "Dismiss all failed…", typed: "dismiss failed", example: "dismiss failed", what: "The failed jobs the queue lists, off the history, asked first" },
   { id: "group-queue", name: "Group by model", typed: "group by model", example: "group by model", what: "Same model together, the loaded one first" },
@@ -224,16 +231,19 @@ export function parseCommand(input: string): Command | null {
   const t = input.trim().replace(/\s+/g, " ");
   const low = t.toLowerCase();
   let m: RegExpExecArray | null;
-  // a render on one ComfyUI of several, this once: "render missing on second gpu", "render clips 3-5 on studio"
+  // a render on one machine of several, this once: "render all on second gpu", "render clips 3-5 on studio", "render draft on studio"
   if ((m = /^(render .+?) on (.+)$/i.exec(t))) {
     const head = parseCommand(m[1]!);
-    if (head && (head.cmd === "render-clips" || head.cmd === "render-missing")) return { ...head, machine: m[2]!.trim() };
+    if (head && (head.cmd === "render-clips" || head.cmd === "render-missing" || head.cmd === "generate")) return { ...head, machine: m[2]!.trim() };
   }
   if ((m = /^render (?:clips?|c) ?(.+)$/i.exec(t)) || (m = /^render ([\d][\d\s,;.\-–—to]*)$/i.exec(t))) {
     const clips = clipList(m[1]!);
     return clips ? { cmd: "render-clips", clips } : null;
   }
-  if (/^render (?:the )?missing(?: clips)?$/.test(low)) return { cmd: "render-missing" };
+  // "render missing" was its name before the editor's Render all lent it its own; both still say it
+  if (/^render (?:the )?(?:missing|all)(?: clips)?$/.test(low)) return { cmd: "render-missing" };
+  // the draft's Render button, by name
+  if (/^render (?:the )?(?:open )?draft$/.test(low)) return { cmd: "generate" };
   if (/^export(?: (?:the )?timeline)?$/.test(low)) return { cmd: "export" };
   if (/^export(?: (?:the )?timeline)? for (?:an? )?(?:video )?(?:editor|resolve|davinci|premiere|kdenlive|nle)$/.test(low)) return { cmd: "export-editor" };
   if ((m = new RegExp(`^seed (\\d{1,10})$`).exec(low))) {
@@ -277,6 +287,9 @@ export function parseCommand(input: string): Command | null {
   if (/^split(?: (?:the )?clip)?(?: at (?:the )?playhead)?$/.test(low)) return { cmd: "split" };
   if ((m = /^(?:(?:go to|select|jump to) )?clip (\d{1,4})$/.exec(low))) return Number(m[1]) >= 1 ? { cmd: "clip", number: Number(m[1]) } : null;
   if (/^undo$/.test(low)) return { cmd: "undo" };
+  if (/^redo$/.test(low)) return { cmd: "redo" };
+  if (/^(?:delete|remove) (?:the )?(?:selected )?clip$/.test(low)) return { cmd: "delete-clip" };
+  if ((m = /^rename (.+)$/i.exec(t))) return { cmd: "rename", name: m[1]!.trim().slice(0, 120) };
   if ((m = /^(?:transition|trans)(?: (.*))?$/.exec(low))) return transitionOf((m[1] ?? "").trim());
   if ((m = /^slow(?:[ -]?mo(?:tion)?)?(?: (?:x|×)?\s?([24])\s?(?:x|×)?)?$/.exec(low))) return { cmd: "slow-motion", factor: m[1] === "4" ? 4 : 2 };
   if (/^(?:motion transfer(?: in windows)?|(?:to|make) (?:the )?source(?: lane)?|source lane)$/.test(low)) return { cmd: "motion-windows" };
@@ -296,12 +309,13 @@ export function parseCommand(input: string): Command | null {
   if (/^next take$/.test(low)) return { cmd: "next-take" };
   if ((m = /^(?:mirror|flip) (?:the )?(?:pin(?:ned)?|frame|pinned frame)s?(?: (on|off))?$/.exec(low))) return { cmd: "mirror-pin", off: m[1] === "off" };
   if (/^(?:unmirror|unflip) (?:the )?(?:pin(?:ned)?|frame|pinned frame)s?$/.test(low)) return { cmd: "mirror-pin", off: true };
-  if (/^cancel (?:all )?(?:the )?waiting(?: jobs)?$/.test(low)) return { cmd: "cancel-waiting" };
+  if (/^(?:cancel|remove) (?:all )?(?:the )?waiting(?: jobs)?$/.test(low)) return { cmd: "cancel-waiting" };
   if (/^retry (?:all )?(?:the )?failed(?: jobs)?$/.test(low)) return { cmd: "retry-failed" };
   if (/^dismiss (?:all )?(?:the )?failed(?: jobs)?$/.test(low)) return { cmd: "dismiss-failed" };
   if (/^group (?:the )?(?:queue )?by model$/.test(low)) return { cmd: "group-queue" };
   if (/^(?:unload|free)(?: (?:the )?models?)?$/.test(low) || /^free (?:the )?vram$/.test(low)) return { cmd: "unload" };
   if ((m = /^unload (.+)$/i.exec(t))) return { cmd: "unload", machine: m[1]!.trim() };
+  // "generate" was the draft's button before every send to the GPU said Render: typed by habit, it still works
   if (/^gen(?:erate)?(?: (?:the )?(?:open )?draft)?$/.test(low)) return { cmd: "generate" };
   // with several ComfyUIs, on one of them this once: "generate on second gpu"
   if ((m = /^gen(?:erate)?(?: (?:the )?(?:open )?draft)? on (.+)$/i.exec(t))) return { cmd: "generate", machine: m[1]!.trim() };

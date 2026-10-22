@@ -84,7 +84,7 @@ export function SwitchDialog({ section, existing, frames, nodes, resultNode, onC
         <div className="grid grid-cols-[1fr_auto] items-end gap-3">
           <label className="flex flex-col gap-1 text-xs font-semibold text-ink-2">
             Label
-            <input autoFocus value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Hires fix, Face detailer, 4K pass…" className={cx(fieldClass, "h-9 text-sm font-normal")} />
+            <input autoFocus value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Hires fix, Face refine, 4K pass…" className={cx(fieldClass, "h-9 text-sm font-normal")} />
           </label>
           <div className="flex flex-col gap-1 text-xs font-semibold text-ink-2">
             Starts

@@ -84,7 +84,7 @@ export function MachineMenuBody({ at, machine, extra = [], onClose }: { at: Para
   if (one) return <ContextMenu at={at} label={machineLabel(one)} head={{ title: machineLabel(one), sub: machineSaid(one) }} items={[...itemsOf(one), ...(extra.length ? ["—" as const, ...extra] : []), "—", ...shared]} onClose={onClose} />;
   return (
     <ContextMenu
-      at={at} label="ComfyUIs" head={{ title: `${all.length} ComfyUIs`, sub: `${all.filter((m) => m.running).length} rendering` }} onClose={onClose}
+      at={at} label="Machines" head={{ title: `${all.length} machines`, sub: `${all.filter((m) => m.running).length} rendering` }} onClose={onClose}
       items={[...all.map((m): MenuItem => ({ label: machineLabel(m), note: machineSaid(m), items: itemsOf(m) })), "—", ...shared]}
     />
   );

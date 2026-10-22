@@ -92,7 +92,7 @@ export const History = memo(function History() {
   if (jobs.data?.pages[0]?.counts) known.current = jobs.data.pages[0].counts;
   const counts = known.current;
   const asset = useAsset(open);
-  // a finished job's menu: its own section (its draft, Requeue, out of the history), then its result's list, as every
+  // a finished job's menu: its own section (its draft, Render again, out of the history), then its result's list, as every
   // place shows an item's (itemActions.tsx); one menu for the whole history, read for the row right-clicked
   const client = useQueryClient();
   const jobActs = useJobActions();
@@ -329,7 +329,7 @@ function rowOwn(jobs: HistoryJob[], { again, dismiss, toDraft }: ReturnType<type
   const head = jobs[0]!;
   return [
     ...(head.draftId ? [{ label: "Open its draft", icon: <Pencil size={14} />, run: () => toDraft(head.draftId!) }] : []),
-    ...(head.kind === "render" ? [{ label: jobs.length > 1 ? `Requeue these ${jobs.length}` : "Requeue", icon: <RotateCcw size={14} />, note: "the same job again", disabled: again.isPending, run: () => jobs.forEach((j) => again.mutate({ id: j.id })) }] : []),
+    ...(head.kind === "render" ? [{ label: jobs.length > 1 ? `Render these ${jobs.length} again` : "Render again", icon: <RotateCcw size={14} />, note: "the same job, unchanged", disabled: again.isPending, run: () => jobs.forEach((j) => again.mutate({ id: j.id })) }] : []),
     { label: "Remove from the history", icon: <Trash2 size={14} />, danger: true, note: "what it made stays in the library", run: () => dismiss.mutate(jobs.map((j) => j.id)) },
   ];
 }
@@ -347,7 +347,7 @@ interface RowProps {
   jobs: HistoryJob[];
   acts: RowActs;
   modelOf: ReturnType<typeof useModelName>;
-  /** A requeue is on its way: the row's own Requeue waits. */
+  /** A render again is on its way: the row's own Render again waits. */
   requeueing: boolean;
   /** How the copy of its seed went, from its menu, for a moment. */
   note: { ok: boolean; text: string } | null;
@@ -383,7 +383,7 @@ const Row = memo(function Row({ jobs, acts, modelOf, requeueing, note }: RowProp
         {/* what the menu does, at hand on hover or focus (on a narrow list, in the menu only: their room is the name's) */}
         <span className="flex shrink-0 items-center gap-0.5 text-ink-3 opacity-0 group-hover:opacity-100 focus-within:opacity-100 @max-[420px]/history:hidden">
           {head.kind === "render" && (
-            <button type="button" data-tip={jobs.length > 1 ? `Requeue these ${jobs.length}` : "Requeue: the same job again"} aria-label="Requeue" disabled={requeueing} onClick={() => acts.again(jobs)} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><RotateCcw size={13} /></button>
+            <button type="button" data-tip={jobs.length > 1 ? `Render these ${jobs.length} again` : "Render again: the same job, unchanged"} aria-label="Render again" disabled={requeueing} onClick={() => acts.again(jobs)} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><RotateCcw size={13} /></button>
           )}
           {head.draftId && (
             <button type="button" data-tip="Open its draft" aria-label="Open its draft" onClick={() => acts.toDraft(head.draftId!)} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><Pencil size={13} /></button>

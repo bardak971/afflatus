@@ -182,6 +182,10 @@ describe("the timeline editor's keys: editing the clips", () => {
     const one = editor({ selected: "c1" });
     editKey(key("Delete"), place(), one.a);
     expect(one.a.remove).toHaveBeenCalledWith("c1");
+    // Backspace is Delete here as everywhere Delete works
+    const back = editor({ selected: "c2" });
+    editKey(key("Backspace"), place(), back.a);
+    expect(back.a.remove).toHaveBeenCalledWith("c2");
     const column = editor();
     editKey(key("Delete"), place(), column.a);
     expect(column.a.removeOpenNow.current).toHaveBeenCalledOnce();

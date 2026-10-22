@@ -182,7 +182,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
         <span className="font-mono">in {stamp(range.startMs)} · out {stamp(range.endMs)} · {(length / 1000).toFixed(2)} s · {plural(frames, "frame")}</span>
         <span className="grow" />
         <span className="font-mono">{stamp(at)} / {clock(duration)}</span>
-        <button type="button" aria-label="Leave Trim" data-tip="Leave Trim (Esc)" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-hover hover:text-ink"><X size={14} /></button>
+        <button type="button" aria-label="Close Trim" data-tip="Close Trim (Esc)" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-hover hover:text-ink"><X size={14} /></button>
       </div>
 
       {/* the whole video; under it, the part zoomed into */}
@@ -214,7 +214,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
           <>
             <span className="grow" />
             <div role="group" aria-label="New clip" className="flex items-center gap-1">
-              {onBetween && <Button size="sm" disabled={busy} data-tip="A new clip from the frame at in to the frame at out, on the video model used last: first frame, last frame, duration = the range." onClick={() => onBetween(range)}><Clapperboard size={13} /> Generate between</Button>}
+              {onBetween && <Button size="sm" disabled={busy} data-tip="A new clip from the frame at in to the frame at out, on the video model used last: first frame, last frame, duration = the range." onClick={() => onBetween(range)}><Clapperboard size={13} /> New clip between…</Button>}
               {onExtendHere && <Button size="sm" disabled={busy} data-tip="A new clip that starts at the playhead's moment (H3 carries the motion on from there; the others open on that frame). Extend (C) carries on from the end instead." onClick={() => onExtendHere(at)}><Link2 size={13} /> Extend from here</Button>}
             </div>
           </>

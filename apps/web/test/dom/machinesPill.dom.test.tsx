@@ -34,7 +34,7 @@ describe("the machines pill, a pod getting files", () => {
   it("says nothing of files once they are all there", async () => {
     serve([file({ state: "ready", bytes: GB })]);
     draw(<MachinesPill />);
-    await waitFor(() => expect(screen.getByText(/ComfyUIs/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/machines/)).toBeTruthy());
     expect(screen.queryByText(/files ·/)).toBeNull();
   });
 });

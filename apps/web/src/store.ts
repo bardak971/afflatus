@@ -91,10 +91,11 @@ export interface Banner {
   /** What a click does in place of going to `href` (a reload). */
   act?(): void;
   /**
-   * A button of its own beside the words (Undo, Retry): what it says, the key shown with it, what it does. `undo`: Ctrl+Z
-   * presses it while the banner is up (the newest such banner), on a screen whose own Ctrl+Z does nothing else.
+   * A button of its own beside the words (Undo, Redo, Retry): what it says, the key shown with it, what it does. `undo`:
+   * Ctrl+Z presses it while the banner is up (the newest such banner), on a screen whose own Ctrl+Z does nothing else;
+   * `redo`: Ctrl+Shift+Z and Ctrl+Y press it, in the same places.
    */
-  action?: { label: string; key?: string; undo?: boolean; run(): void };
+  action?: { label: string; key?: string; undo?: boolean; redo?: boolean; run(): void };
   /** What closing it also does (a failure marked read, so that a reload does not bring it back). */
   onDismiss?(): void;
 }

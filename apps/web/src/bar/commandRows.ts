@@ -41,6 +41,11 @@ export interface CommandCtx {
   } | null;
   bannerUndo: string | null;
   editorUndo: string | null;
+  /** What Redo would do again: the newest banner's Redo (a move or a bin undone), and the open editor's. */
+  bannerRedo?: string | null;
+  editorRedo?: string | null;
+  /** The open draft's name, for `> rename` with no timeline open. */
+  draftName?: string | null;
   binEmpty: boolean;
   binSaid: string;
   /** What the rented GPUs cost (`> spending`); null without a RunPod key, or before it is read. */
@@ -97,6 +102,9 @@ export const COMMAND_KEYS: Partial<Record<CommandId, { row: RowId; half?: 0 | 1 
   split: { row: "split" },
   "previous-take": { row: "take", half: 0 },
   "next-take": { row: "take", half: 1 },
+  undo: { row: "undo" },
+  redo: { row: "redo" },
+  "delete-clip": { row: "remove-clip" },
 };
 
 /** A command's key, said on its row. */
@@ -106,7 +114,7 @@ export function commandKeys(c: Command | { cmd: CommandId }): string | undefined
 }
 
 /** The commands offered only where they apply: a clip selected in the open editor, jobs waiting, failures, loads to save. */
-const LIVE: CommandId[] = ["split", "previous-take", "next-take", "mirror-pin", "slow-motion", "motion-windows", "cancel-waiting", "retry-failed", "dismiss-failed", "group-queue", "unload", "cancel-hunt", "stop-all-pods", "update", "go-back", "test-notify", "sign-out", "sign-out-everywhere"];
+const LIVE: CommandId[] = ["split", "delete-clip", "previous-take", "next-take", "mirror-pin", "slow-motion", "motion-windows", "cancel-waiting", "retry-failed", "dismiss-failed", "group-queue", "unload", "cancel-hunt", "stop-all-pods", "update", "go-back", "test-notify", "sign-out", "sign-out-everywhere"];
 /** What is done to the whole queue, listed after its jobs in the `!` mode. */
 export const QUEUE_BULK: CommandId[] = ["cancel-waiting", "retry-failed", "dismiss-failed", "group-queue"];
 
@@ -115,19 +123,19 @@ const said = (c: Command): string => c.cmd === "render-clips" ? `${c.clips.lengt
 
 /** A command read from what is typed, as a row: its words, what it touches and how many. */
 export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, preset?: Extract<Entity, { kind: "preset" }>): Item {
-  const { aim, queue: queueNow, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid } = x;
+  const { aim, queue: queueNow, selectedClip, bannerUndo, editorUndo, bannerRedo, editorRedo, draftName, binEmpty, binSaid } = x;
   const t = aim?.name ?? "the open timeline";
   const named = "name" in c ? c.name : "";
   const kitNew = (cmd: KitNew): [string, string] => [`New ${KIT_OF[cmd]} “${named}”`, "In the Prompt kit, opened there"];
   const mirrorWords = c.cmd === "mirror-pin" && c.off ? "Mirror off" : "Mirror pinned frame";
   const words: Record<Command["cmd"], [string, string]> = {
     "render-clips": [`${said(c)} of ${t}${"machine" in c && c.machine ? ` on ${c.machine}` : ""}`, c.cmd === "render-clips" ? `${plural(c.clips.length, "clip")} · they go to the end of the queue · Ctrl+Enter: to the top` : ""],
-    "render-missing": [`Render missing clips of ${t}${"machine" in c && c.machine ? ` on ${c.machine}` : ""}`, "Clips with no take yet, or whose join went stale · Ctrl+Enter: at the top of the queue"],
-    export: [`Export ${t}`, "The export dialog opens on it"],
-    "export-editor": [`Export ${t} for a video editor`, "The export dialog opens on For an editor: its clips and a project file for Resolve, Premiere or Kdenlive"],
+    "render-missing": [`Render all of ${t}${"machine" in c && c.machine ? ` on ${c.machine}` : ""}`, "Clips with no take yet, or whose join went stale · Ctrl+Enter: at the top of the queue"],
+    export: [`Export ${t}…`, "The export dialog opens on it"],
+    "export-editor": [`Export ${t} for a video editor…`, "The export dialog opens on For an editor: its clips and a project file for Resolve, Premiere or Kdenlive"],
     finish: [`Finish ${t}…`, "The Finish dialog: every take upscaled to its final quality"],
     "fix-all": [`Fix all in ${t}`, "What Needs a look lists, mended as its Fix all"],
-    generate: c.cmd === "generate" && c.machine ? [`Generate on ${c.machine}`, `${machineSaid(queueNow, c.machine)} · the open draft, on that machine this once`] : ["Generate", "The open draft, as its Generate button"],
+    generate: c.cmd === "generate" && c.machine ? [`Render the draft on ${c.machine}`, `${machineSaid(queueNow, c.machine)} · the open draft, on that machine this once`] : ["Render the draft", "The open draft, as its Render button"],
     preset: [`Apply ${preset?.name ?? named}`, preset ? `Preset${preset.source === "shipped" ? " · built in" : ""} · on the open draft` : "No preset by that name"],
     "save-preset": [`Save as preset “${named}”`, "The open draft's model, form and cast"],
     unload: c.cmd === "unload" && c.machine ? [`Unload ${c.machine}`, `${machineSaid(queueNow, c.machine)} · its models out of memory`] : ["Unload models", upper(unloadBlock(queueNow)) ?? "ComfyUI's models out of memory · the next render loads them again"],
@@ -150,7 +158,7 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     cfg: [`CFG ${c.cmd === "cfg" ? c.value : ""}`, "In the open draft's form"],
     size: [`Size ${c.cmd === "size" ? `${c.width}×${c.height}` : ""}`, "In the open draft's form"],
     length: [`Length ${c.cmd === "length" ? `${c.seconds} s` : ""}`, "In the open draft's form"],
-    machines: ["Show the ComfyUIs", queueNow?.machines.length ? `${queueNow.machines.length} ComfyUIs · their figures, pause and menu` : "With several ComfyUIs: each one's figures and actions"],
+    machines: ["Show the machines", queueNow?.machines.length ? `${queueNow.machines.length} machines · their figures, pause and menu` : "With several machines: each one's figures and actions"],
     "start-pod": [`Start ${c.cmd === "start-pod" ? podOf(queueNow, c.machine)?.label ?? c.machine : ""}`, c.cmd === "start-pod" ? startSaid(podOf(queueNow, c.machine)?.rented) : ""],
     "stop-pod": [`Stop ${c.cmd === "stop-pod" ? podOf(queueNow, c.machine)?.label ?? c.machine : ""}`, `${c.cmd === "stop-pod" ? machineSaid(queueNow, c.machine) : ""} · the GPU stops billing, its disk goes on`],
     "open-comfy": [c.cmd === "open-comfy" && c.machine ? `Open ComfyUI on ${c.machine}` : "Open ComfyUI", c.cmd === "open-comfy" && c.machine ? `${machineSaid(queueNow, c.machine)} · its own page, in a new tab` : "ComfyUI's own page, in a new tab"],
@@ -160,8 +168,8 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     "load-panel": [c.cmd === "load-panel" && c.machine ? `Load a model on ${c.machine}…` : "Load a model…", c.cmd === "load-panel" && c.machine ? `${machineSaid(queueNow, c.machine)} · this form's model, a draft's, or any by name` : "This form's model, a recent draft's, or any by name"],
     load: [`Load ${recipe?.title ?? (c.cmd === "load" ? c.model : "")}`, recipe ? `${recipe.family.toUpperCase()} · its models into ComfyUI, ahead of a render` : "No model by that name"],
     "new-draft": [`New draft on ${recipe?.title ?? (c.cmd === "new-draft" ? c.recipe : "")}`, recipe ? `${recipe.family.toUpperCase()} · opens in the Studio` : "No model by that name"],
-    pause: c.cmd === "pause" && c.machine ? [`Pause ${c.machine}`, `${machineSaid(queueNow, c.machine)} · it finishes what it runs, then takes nothing new`] : [queueNow?.machines.length ? "Pause all ComfyUIs" : "Pause queue", queueNow ? `${queueNow.running ? "running" : "nothing running"}, ${queueNow.waiting} waiting · what runs finishes` : "What runs finishes; nothing new starts"],
-    resume: c.cmd === "resume" && c.machine ? [`Resume ${c.machine}`, `${machineSaid(queueNow, c.machine)} · it takes work again`] : [queueNow?.machines.length ? "Resume all ComfyUIs" : "Resume queue", `${queueNow?.waiting ?? 0} waiting`],
+    pause: c.cmd === "pause" && c.machine ? [`Pause ${c.machine}`, `${machineSaid(queueNow, c.machine)} · it finishes what it runs, then takes nothing new`] : [queueNow?.machines.length ? "Pause all machines" : "Pause queue", queueNow ? `${queueNow.running ? "running" : "nothing running"}, ${queueNow.waiting} waiting · what runs finishes` : "What runs finishes; nothing new starts"],
+    resume: c.cmd === "resume" && c.machine ? [`Resume ${c.machine}`, `${machineSaid(queueNow, c.machine)} · it takes work again`] : [queueNow?.machines.length ? "Resume all machines" : "Resume queue", `${queueNow?.waiting ?? 0} waiting`],
     "use-only": [`Use only ${c.cmd === "use-only" ? c.machine : ""}`, `${c.cmd === "use-only" ? machineSaid(queueNow, c.machine) : ""} · every other ComfyUI paused: everything waiting goes to this one`],
     "empty-bin": ["Empty the bin…", binEmpty ? "The bin is empty" : `${binSaid} · asked first · cannot be undone`],
     "put-back-all": ["Put all back", binEmpty ? "The bin is empty" : `${binSaid} · each back where it was`],
@@ -176,12 +184,16 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
       selectedClip ? `Clip ${selectedClip.number}: ${mirrorWords.toLowerCase()}` : mirrorWords,
       !selectedClip ? "No clip selected in an open timeline" : selectedClip.pins?.length ? `${selectedClip.timelineName} · flipped at render time, the library picture unchanged` : "Nothing pinned on it",
     ],
-    "cancel-waiting": ["Cancel all waiting…", queueNow?.waiting ? `${queueNow.waiting} waiting · asked first · the running one goes on` : "Nothing waits"],
+    "cancel-waiting": ["Remove all waiting…", queueNow?.waiting ? `${queueNow.waiting} waiting · asked first · the running one goes on` : "Nothing waits"],
     "retry-failed": ["Retry all failed", queueNow?.failed ? `${plural(queueNow.failed, "failed job")} · the same jobs, oldest first` : "None failed"],
     "dismiss-failed": ["Dismiss all failed…", queueNow?.failed ? `${plural(queueNow.failed, "failed job")} · off the history, asked first` : "None failed"],
     "group-queue": ["Group by model", queueNow?.saves ? `saves ${plural(queueNow.saves, "load")} · same model together` : "Grouping saves no load"],
     // the editor's history while one is open (as its Ctrl+Z), else the newest banner's Undo (a move, a bin)
     undo: aim?.open ? [editorUndo ? `Undo: ${editorUndo}` : "Undo", editorUndo ? `In ${t}, as its Ctrl+Z` : `Nothing to undo in ${t}`] : [bannerUndo ? `Undo: ${bannerUndo}` : "Undo", bannerUndo ? "What the banner says was done, put back" : "Nothing to undo"],
+    // as Undo: the editor's history while one is open (as its Ctrl+Shift+Z), else the newest banner's Redo
+    redo: aim?.open ? [editorRedo ? `Redo: ${editorRedo}` : "Redo", editorRedo ? `In ${t}, as its Ctrl+Shift+Z` : `Nothing to redo in ${t}`] : [bannerRedo ? `Redo: ${bannerRedo}` : "Redo", bannerRedo ? "What was undone, done again" : "Nothing to redo"],
+    "delete-clip": [selectedClip ? `Delete clip ${selectedClip.number}` : "Delete clip", selectedClip ? `${selectedClip.timelineName} · off the timeline, as Del · Undo brings it back` : "No clip selected in an open timeline"],
+    rename: [`Rename ${aim?.open ? t : draftName ? `“${draftName}”` : "the open draft"} to “${named}”`, aim?.open ? "The open timeline" : "The open draft"],
     clip: [`Go to clip ${c.cmd === "clip" ? c.number : ""} of ${t}`, aim?.entry && c.cmd === "clip" && c.number > aim.entry.clips ? `${t} has ${plural(aim.entry.clips, "clip")}` : "Selected, the playhead on its start"],
     transition: c.cmd === "transition" && c.kind !== undefined
       ? [`${selectedClip ? `Clip ${selectedClip.number}: ` : ""}${c.kind ? `${TRANSITIONS[c.kind].label} on its cut` : "plain cut"}`, cutSaid(selectedClip)]
@@ -226,7 +238,7 @@ function channelsSaid(ch: CommandCtx["channels"]): string {
 
 /** Whether a command offered only where it applies applies now. */
 const applies = (x: CommandCtx, id: CommandId): boolean =>
-  id === "split" || id === "previous-take" || id === "next-take" ? Boolean(x.selectedClip)
+  id === "split" || id === "previous-take" || id === "next-take" || id === "delete-clip" ? Boolean(x.selectedClip)
   : id === "mirror-pin" ? Boolean(x.selectedClip?.pins?.length)
   : id === "cancel-waiting" ? Boolean(x.queue?.waiting)
   : id === "retry-failed" || id === "dismiss-failed" ? Boolean(x.queue?.failed)
@@ -267,14 +279,14 @@ function startSaid(r: RentedState | null | undefined): string {
 
 /**
  * With several ComfyUIs, each one's own rows, ready to run: Pause or Resume it, Use only it, Unload it, Load a model on it,
- * its log, its render times and its models, Generate on it, and with a timeline open, Render missing on it. Typing "pause" lists
+ * its log, its render times and its models, Render the draft on it, and with a timeline open, Render all on it. Typing "pause" lists
  * every machine that can be paused, "use only" every machine, a machine's name all it can do.
  */
 const machineRows = (x: CommandCtx): Item[] =>
   (x.queue?.machines ?? []).flatMap((m) => {
     const own = (c: Command) => {
       const row = commandRow(x, c);
-      const said = { "use-only": "use only", "load-panel": "load a model on", "machine-log": "comfyui log console", "open-comfy": "open comfyui on", "start-pod": "start pod", "stop-pod": "stop pod", "machine-times": "render times", "machine-models": "models on", generate: "generate on", "render-missing": "render missing on" } as Partial<Record<Command["cmd"], string>>;
+      const said = { "use-only": "use only", "load-panel": "load a model on", "machine-log": "comfyui log console", "open-comfy": "open comfyui on", "start-pod": "start pod", "stop-pod": "stop pod", "machine-times": "render times", "machine-models": "models on", generate: "render draft generate on", "render-missing": "render all missing on" } as Partial<Record<Command["cmd"], string>>;
       return { ...row, key: `${row.key}:${m.id}`, p: prepare(`${row.label} ${said[c.cmd] ?? c.cmd} ${m.label}`) };
     };
     // a rented pod: Start while it is stopped, Stop while it runs

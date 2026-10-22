@@ -18,7 +18,7 @@ describe("the list of a timeline, a draft, a folder and a project", () => {
   it("holds a timeline's actions in the mock's order, its work actions with them", () => {
     expect(menuOf({ kind: "timeline", clips: 9, toRender: 3, exported: true, unused: { takes: 4, bytes: 1.2e9 } })).toEqual([
       "Open", "Show in Projects", "—",
-      "Render missing clips · 3 clips", "Finish…", "Export… · exported before", "Fix all · what Needs a look lists", "—",
+      "Render all · 3 clips", "Finish…", "Export… · exported before", "Fix all · what Needs a look lists", "—",
       "Rename", "Put in a folder · renders land there", "Move to · another project", "—",
       expect.stringMatching(/^Bin unused takes… · 4 · /), "Delete… · videos stay",
     ]);
@@ -26,10 +26,10 @@ describe("the list of a timeline, a draft, a folder and a project", () => {
 
   it("keeps an action that cannot run in its place, off, with its reason", () => {
     const empty = menuOf({ kind: "timeline", clips: 0, unused: null });
-    expect(empty).toContain("Render missing clips · no clips (off)");
+    expect(empty).toContain("Render all · no clips (off)");
     expect(empty).toContain("Fix all · no clips (off)");
     expect(empty).toContain("Bin unused takes… · none (off)");
-    expect(menuOf({ kind: "timeline", toRender: 0 })).toContain("Render missing clips · none to render (off)");
+    expect(menuOf({ kind: "timeline", toRender: 0 })).toContain("Render all · none to render (off)");
     // its unused takes not read yet: neither "none" nor a count
     expect(menuOf({ kind: "timeline" })).toContain("Bin unused takes… · reading… (off)");
     // the read failed: said, not "reading…" for good
@@ -42,7 +42,7 @@ describe("the list of a timeline, a draft, a folder and a project", () => {
 
   it("lets a place only leave out, never add", () => {
     const whole = menuOf({ kind: "draft" });
-    expect(whole).toEqual(["Open", "Show in Projects", "—", "Generate again · as its Generate button", "Duplicate · a new draft with its forms", "—", "Rename", "Move to · another project", "—", "Delete… · its outputs stay"]);
+    expect(whole).toEqual(["Open", "Show in Projects", "—", "Render again · as its Render button", "Duplicate · a new draft with its forms", "—", "Rename", "Move to · another project", "—", "Delete… · its outputs stay"]);
     expect(menuOf({ kind: "draft" }, ["open"])).toEqual(whole.filter((l) => l !== "Open"));
     expect(menuOf({ kind: "draft" }, ["show"])).toEqual(whole.filter((l) => l !== "Show in Projects"));
   });
@@ -102,7 +102,7 @@ describe("the list in the command bar", () => {
   it("makes a submenu a row per target that takes it, named after the action", () => {
     const rows = toBar(kindActions({ kind: "timeline", clips: 2, unused: null }, runs, subs)).map((r) => r.label);
     expect(rows).toEqual([
-      "Open", "Show in Projects", "Render missing clips", "Finish…", "Export…", "Fix all", "Rename…",
+      "Open", "Show in Projects", "Render all", "Finish…", "Export…", "Fix all", "Rename…",
       "Put in B-roll", "Put in the project's root", "Move to Client work", "Move to the Inbox",
       "Bin unused takes…", "Delete…",
     ]);

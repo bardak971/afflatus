@@ -44,7 +44,7 @@ One ComfyUI, so one job at a time, in order (`apps/server/src/queue*.ts`). Jobs 
 - ComfyUI's memory is freed only when the next job needs another base model.
 - Jobs can wait on others (`depends_on`): "render clips 2-5" renders each clip after the one it continues.
 - Tool jobs share the same queue: trims, copies and exports (ffmpeg), slow motion and the finishing passes (RIFE, SeedVR2 and the like, on ComfyUI).
-- Every render's times are kept (`render_stats`, folded by day into `render_days`); the "how long" forecast (`forecast.ts`, one figure for the form's Output line, its Generate button, the command bar, the editor and the queue's rows) and `/metrics` read them.
+- Every render's times are kept (`render_stats`, folded by day into `render_days`); the "how long" forecast (`forecast.ts`, one figure for the form's Output line, its Render button, the command bar, the editor and the queue's rows) and `/metrics` read them.
 
 ## Storage and the database
 

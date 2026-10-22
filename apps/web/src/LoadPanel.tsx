@@ -188,7 +188,7 @@ export function LoadDialog({ machine: asked, onClose }: { machine?: string; onCl
   };
   const where = machine ? machineLabel(several.find((m) => m.id === machine) ?? { name: machine, url: "" }) : several.length ? "every machine" : "ComfyUI";
   const options = [
-    { id: undefined as string | undefined, label: "Auto", away: false, tip: "The machine that would render it first: it has its files, is free soonest, is fastest" },
+    { id: undefined as string | undefined, label: "Any machine", away: false, tip: "The machine that would render it first: it has its files, is free soonest, is fastest" },
     ...several.map((m) => ({ id: m.id as string | undefined, label: machineLabel(m), away: m.online === false, tip: m.online === false ? "Not answering" : undefined })),
   ];
 

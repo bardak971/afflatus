@@ -126,8 +126,8 @@ describe("a deployed pod's first start", () => {
     expect(busiest([row(pulling)])).toBe("1 starting");
     // the Queue's head: neither online nor offline
     const home = { ...row(pod()), id: "m1", rented: null, online: true } as MachineState;
-    expect(onlineSaid([home, row(pulling)])).toBe("1 of 2 ComfyUIs online · 1 starting");
-    expect(onlineSaid([home, { ...home, id: "m2", online: false }])).toBe("1 of 2 ComfyUIs online");
+    expect(onlineSaid([home, row(pulling)])).toBe("1 of 2 machines online · 1 starting");
+    expect(onlineSaid([home, { ...home, id: "m2", online: false }])).toBe("1 of 2 machines online");
     // a Stop pressed meanwhile says so, not its start
     expect(rentedSaid({ ...pulling, stopping: true }, now)).toMatch(/^stopping/);
     // an older server says no `boot`: as before

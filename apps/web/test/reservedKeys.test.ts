@@ -11,7 +11,7 @@ describe("the command bar's shortcut recorder", () => {
     expect(refusal(press("b", { ctrl: true }))).toBe("Ctrl+B is used by Split at the playhead (Timeline editor): pick another");
     expect(refusal(press("F2"))).toMatch(/^F2 is used by Rename/);
     expect(refusal(press("F10", { shift: true }))).toMatch(/Projects panel/);
-    expect(refusal(press("Enter", { ctrl: true }))).toMatch(/Generate/);
+    expect(refusal(press("Enter", { ctrl: true }))).toMatch(/Render/);
     expect(refusal(press("ArrowLeft", { alt: true }))).toMatch(/Move one place earlier/);
     expect(refusal(press("ArrowUp", { ctrl: true }))).toMatch(/Weight of the tag/);
     expect(refusal(press("a", { ctrl: true }))).toMatch(/Select all/);

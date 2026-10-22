@@ -1,4 +1,4 @@
-import { Bell, LogOut, Bookmark, ChevronLeft, ChevronRight, Clapperboard, CircleDollarSign, Download, Eye, FileOutput, FileUp, Film, FlipHorizontal2, FolderPlus, Gauge, Layers, Link2, MemoryStick, Pause, PenLine, Play, Plug, RotateCcw, Search, Server, Sparkles, Split, Square, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { Bell, LogOut, Bookmark, ChevronLeft, ChevronRight, Clapperboard, CircleDollarSign, Download, Eye, FileOutput, FileUp, Film, FlipHorizontal2, FolderPlus, Gauge, Layers, Link2, MemoryStick, Pause, PenLine, Play, Plug, RotateCcw, Search, Server, Sparkles, Split, Square, Trash2, Undo2, Redo2, Wand2, X } from "lucide-react";
 import { TRANSITIONS, withinPixels } from "@afflatus/core";
 import { ask } from "../../Confirm";
 import { openFindModels } from "../../findModels/store";
@@ -42,11 +42,11 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       if (!aim) return [noTimeline];
       // on one ComfyUI of several this once, by its name: the request carries it to the editor
       const m = c.machine ? machineByName(queue?.machines, c.machine) : undefined;
-      if (c.machine && !m) return [{ label: `No ComfyUI called ${c.machine}`, icon: <Play size={14} />, disabled: true, run: () => {} }];
+      if (c.machine && !m) return [{ label: `No machine called ${c.machine}`, icon: <Play size={14} />, disabled: true, run: () => {} }];
       const on = m ? { machine: m.id } : {};
       const where = m ? ` on ${machineLabel(m)}` : "";
       const ask = c.cmd === "render-clips" ? { timeline: aim.id, do: "render" as const, clips: c.clips, ...on } : { timeline: aim.id, do: "render-missing" as const, ...on };
-      const what = c.cmd === "render-clips" ? `Render clip${c.clips.length > 1 ? "s" : ""} ${c.clips.join(", ")} of ${aim.name}` : `Render missing clips of ${aim.name}`;
+      const what = c.cmd === "render-clips" ? `Render clip${c.clips.length > 1 ? "s" : ""} ${c.clips.join(", ")} of ${aim.name}` : `Render all of ${aim.name}`;
       return [
         { label: `${what}${where}`, icon: <Play size={14} />, note: "at the end of the queue", run: () => askTimeline(aim, ask) },
         atTopAction(aim, ask),
@@ -113,11 +113,11 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       return [{ label: `Set ${c.cmd === "cfg" ? "CFG" : c.cmd} to ${said}`, icon: <PenLine size={14} />, note: "in the open draft", run: set }];
     }
     case "generate": {
-      // on a machine named this once (with several ComfyUIs), as Generate's machine slice would send it
+      // on a machine named this once (with several ComfyUIs), as the Render button's machine slice would send it
       const m = c.machine ? machineByName(queue?.machines, c.machine) : undefined;
-      if (c.machine && !m) return [{ label: `No ComfyUI called ${c.machine}`, icon: <Play size={14} />, disabled: true, run: () => {} }];
+      if (c.machine && !m) return [{ label: `No machine called ${c.machine}`, icon: <Play size={14} />, disabled: true, run: () => {} }];
       return [{
-        label: m ? `Generate on ${machineLabel(m)}` : "Generate", icon: <Play size={14} />, note: m ? "the open draft, on that machine this once" : "the open draft, as its Generate button",
+        label: m ? `Render the draft on ${machineLabel(m)}` : "Render the draft", icon: <Play size={14} />, note: m ? "the open draft, on that machine this once" : "the open draft, as its Render button",
         run: () => form().then((t) => (t?.generate ? t.generate(m?.id) : noDraft())),
       }];
     }
@@ -150,13 +150,13 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       return [{ label: `Load ${recipe.title}`, icon: <MemoryStick size={14} />, note: "into ComfyUI, ahead of a render", run: () => run().catch(failed(`${recipe.title} could not be loaded`)) }];
     }
     case "machines":
-      return [{ label: "Show the ComfyUIs", icon: <Server size={14} />, note: "the status bar's panel", disabled: !queue?.machines?.length || queue.machines.length < 2, run: () => window.dispatchEvent(new Event(OPEN_MACHINES)) }];
+      return [{ label: "Show the machines", icon: <Server size={14} />, note: "the status bar's panel", disabled: !queue?.machines?.length || queue.machines.length < 2, run: () => window.dispatchEvent(new Event(OPEN_MACHINES)) }];
     case "machine-log":
     case "machine-times":
     case "machine-models": {
       // one machine's view, by its name: the page opened on it (Queue.tsx, useTimesView.ts, ModelsMachines.tsx read it)
       const m = machineByName(queue?.machines, c.machine);
-      if (!m) return [{ label: `No ComfyUI called ${c.machine}`, icon: <Server size={14} />, disabled: true, run: () => {} }];
+      if (!m) return [{ label: `No machine called ${c.machine}`, icon: <Server size={14} />, disabled: true, run: () => {} }];
       const name = machineLabel(m);
       const id = encodeURIComponent(m.id);
       if (c.cmd === "machine-log") return [{ label: `ComfyUI log of ${name}`, icon: <Server size={14} />, note: m.online === false ? "it does not answer" : "its console", run: () => go(`/queue?view=log&machine=${id}`) }];
@@ -192,7 +192,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
     case "open-comfy": {
       // the first ComfyUI, or the one named: its own page (locked, through its login: lock-api.ts pageUrl)
       const m = c.machine ? machineByName(queue?.machines, c.machine) : queue?.machines[0];
-      if (c.machine && !m) return [{ label: `No ComfyUI called ${c.machine}`, icon: <Server size={14} />, disabled: true, run: () => {} }];
+      if (c.machine && !m) return [{ label: `No machine called ${c.machine}`, icon: <Server size={14} />, disabled: true, run: () => {} }];
       // The machines not read yet (or none set up): off, rather than a guessed id that names a removed machine.
       if (!m) return [{ label: "Open ComfyUI", icon: <Server size={14} />, note: queue ? "no ComfyUI set up" : "the machines are not read yet", disabled: true, run: () => {} }];
       return [{ label: c.machine ? `Open ComfyUI on ${machineLabel(m)}` : "Open ComfyUI", icon: <Server size={14} />, note: "its own page, in a new tab", disabled: m.online === false && !m.locked, run: () => openComfy.mutate(m.id) }];
@@ -200,14 +200,14 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
     case "load-panel": {
       // the panel by the status bar (LoadPanel.tsx), on the machine named when there is one
       const m = c.machine ? machineByName(queue?.machines, c.machine) : undefined;
-      if (c.machine && !m) return [{ label: `No ComfyUI called ${c.machine}`, icon: <MemoryStick size={14} />, disabled: true, run: () => {} }];
+      if (c.machine && !m) return [{ label: `No machine called ${c.machine}`, icon: <MemoryStick size={14} />, disabled: true, run: () => {} }];
       return [{ label: m ? `Load a model on ${machineLabel(m)}…` : "Load a model…", icon: <MemoryStick size={14} />, note: "this form's, a draft's, any by name", disabled: m?.online === false, run: () => openLoadPanel(m?.id) }];
     }
     case "unload": {
       if (c.machine) {
         // one machine of several, by its name: its lane's Unload, on the same conditions
         const m = machineByName(queue?.machines, c.machine);
-        if (!m) return [{ label: `No ComfyUI called ${c.machine}`, icon: <MemoryStick size={14} />, disabled: true, run: () => {} }];
+        if (!m) return [{ label: `No machine called ${c.machine}`, icon: <MemoryStick size={14} />, disabled: true, run: () => {} }];
         const why = machineUnloadBlock(m);
         return [{ label: `Unload ${machineLabel(m)}`, icon: <MemoryStick size={14} />, disabled: Boolean(why), note: why ?? "its next render loads what it needs", run: () => ops.unload.mutate(m.id) }];
       }
@@ -282,7 +282,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       if (c.machine) {
         const m = machineByName(queue?.machines, c.machine);
         const Icon = c.cmd === "resume" ? Play : Pause;
-        if (!m) return [{ label: `No ComfyUI called ${c.machine}`, icon: <Icon size={14} />, disabled: true, run: () => {} }];
+        if (!m) return [{ label: `No machine called ${c.machine}`, icon: <Icon size={14} />, disabled: true, run: () => {} }];
         const name = machineLabel(m);
         if (c.cmd === "use-only") return [{ label: `Use only ${name}`, icon: <Play size={14} />, note: "every other ComfyUI paused", run: () => ops.useOnly.mutate(m.id) }];
         if (c.cmd === "pause") return [{ label: `Pause ${name}`, icon: <Pause size={14} />, disabled: m.paused, note: m.paused ? "already paused" : "finishes what it runs", run: () => ops.pause.mutate(m.id) }];
@@ -325,6 +325,20 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       const next = c.cmd === "next-take";
       return [{ label: `Clip ${clip.number}: ${next ? "next" : "previous"} take`, icon: next ? <ChevronRight size={14} /> : <ChevronLeft size={14} />, keys: rowKeys("take", next ? 1 : 0), run }];
     }
+    case "delete-clip": {
+      const clip = x.selectedClip;
+      if (!clip) return [{ label: "No clip selected in an open timeline", disabled: true, run: () => {} }];
+      // as Del in the editor, which is on screen: one step for its Undo
+      return [{ label: `Delete clip ${clip.number}`, icon: <Trash2 size={14} />, danger: true, note: "Undo brings it back", keys: rowKeys("remove-clip"), run: () => useTimelineRequest.getState().ask({ timeline: clip.timeline, do: "remove" }) }];
+    }
+    case "rename": {
+      // the open timeline, else the open draft, as their menus' Rename (the Projects panel's one body)
+      if (aim?.open) return [{ label: `Rename ${aim.name} to “${c.name}”`, icon: <PenLine size={14} />, run: () => tree.rename({ id: aim.id, kind: "timeline", label: aim.name }, c.name) }];
+      const draft = useFormTarget.getState().target?.draftId;
+      if (!draft) return [{ label: "No timeline or draft open", icon: <PenLine size={14} />, disabled: true, run: () => {} }];
+      const name = client.getQueryData<{ name?: string | null }>(queryKeys.drafts.one(draft))?.name ?? "the open draft";
+      return [{ label: `Rename ${name} to “${c.name}”`, icon: <PenLine size={14} />, run: () => tree.rename({ id: draft, kind: "draft", label: name }, c.name) }];
+    }
     case "mirror-pin": {
       const clip = x.selectedClip;
       if (!clip) return [{ label: "No clip selected in an open timeline", disabled: true, run: () => {} }];
@@ -343,8 +357,8 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
     case "cancel-waiting": {
       const ids = queue?.waiting.map((w) => w.id) ?? [];
       return [{
-        label: "Cancel all waiting…", icon: <Trash2 size={14} />, danger: true, disabled: !ids.length, note: ids.length ? `${ids.length} · asked first · the running one goes on` : "nothing waits",
-        run: () => x.bulk.cancelAllWaiting({ ids }).then((n) => n && good(`${plural(n, "waiting job")} cancelled`, "In the history as cancelled: Requeue brings one back.", "/queue", "Open queue")),
+        label: "Remove all waiting…", icon: <Trash2 size={14} />, danger: true, disabled: !ids.length, note: ids.length ? `${ids.length} · asked first · the running one goes on` : "nothing waits",
+        run: () => x.bulk.cancelAllWaiting({ ids }).then((n) => n && good(`${plural(n, "waiting job")} removed from the queue`, "In the history as cancelled: Render again brings one back.", "/queue", "Open queue")),
       }];
     }
     case "retry-failed": {
@@ -376,6 +390,22 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       const banner = [...useBanners.getState().items].reverse().find((b) => b.action?.undo);
       return [{
         label: banner ? `Undo: ${banner.title}` : "Nothing to undo", icon: <Undo2 size={14} />, disabled: !banner, note: banner ? "as the banner's Undo" : undefined, keys: banner ? "Ctrl+Z" : undefined,
+        run: () => {
+          if (!banner) return;
+          useBanners.getState().dismiss(banner.id);
+          banner.action!.run();
+        },
+      }];
+    }
+    case "redo": {
+      // as Undo: the open editor's history first, as Ctrl+Shift+Z there; elsewhere the newest banner's Redo (a move or a bin undone)
+      if (aim?.open) {
+        const what = client.getQueryData<{ redo?: string | null }>(queryKeys.timelines.one(aim.id))?.redo ?? null;
+        return [{ label: what ? `Redo: ${what}` : `Nothing to redo in ${aim.name}`, icon: <Redo2 size={14} />, disabled: !what, note: what ? `in ${aim.name}, as its Ctrl+Shift+Z` : undefined, keys: what ? rowKeys("redo") : undefined, run: () => useTimelineRequest.getState().ask({ timeline: aim.id, do: "redo" }) }];
+      }
+      const banner = [...useBanners.getState().items].reverse().find((b) => b.action?.redo);
+      return [{
+        label: banner ? `Redo: ${banner.text ?? banner.title}` : "Nothing to redo", icon: <Redo2 size={14} />, disabled: !banner, note: banner ? "as the banner's Redo" : undefined, keys: banner ? rowKeys("redo") : undefined,
         run: () => {
           if (!banner) return;
           useBanners.getState().dismiss(banner.id);

@@ -87,12 +87,12 @@ export function DraftResults({ draft, folder, list, title, empty }: {
               <LiveProgress id={running} />
               {waiting > 0 && <span className="text-xs text-ink-2">{waiting} more queued</span>}
               <div className="flex flex-wrap justify-center gap-2 pt-1">
-                <Button size="sm" onClick={() => stop.mutate([running])} disabled={stop.isPending} data-tip={waiting ? "Cancel this render. Nothing is saved; the next queued job starts." : "Cancel this render. Nothing is saved."}>
-                  <Square size={11} fill="currentColor" /> Cancel render
+                <Button size="sm" onClick={() => stop.mutate([running])} disabled={stop.isPending} data-tip={waiting ? "Stop this render. Nothing is saved; the next queued job starts." : "Stop this render. Nothing is saved."}>
+                  <Square size={11} fill="currentColor" /> Stop
                 </Button>
                 {waiting > 0 && (
-                  <Button size="sm" onClick={() => stop.mutate([...inLine, running])} disabled={stop.isPending} data-tip="Cancel this render and remove the queued jobs from the queue.">
-                    Cancel all {waiting + 1}
+                  <Button size="sm" onClick={() => stop.mutate([...inLine, running])} disabled={stop.isPending} data-tip="Stop this render and remove the queued jobs from the queue.">
+                    Stop all {waiting + 1}
                   </Button>
                 )}
               </div>

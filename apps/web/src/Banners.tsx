@@ -192,22 +192,27 @@ export function Banners() {
     return () => clearTimeout(t);
   }, [items, dismiss]);
 
-  // Ctrl+Z undoes what the newest banner with an Undo said was done, but where Ctrl+Z is the screen's own (the timeline
-  // editor's history, a dialog such as the mask painter) or the cursor is in a field, whose own undo it is
+  // Ctrl+Z undoes what the newest banner with an Undo said was done, and Ctrl+Shift+Z or Ctrl+Y redoes what the newest
+  // one with a Redo says was undone (the keys the timeline editor's history has), but where they are the screen's own
+  // (the editor's history, a dialog such as the mask painter) or the cursor is in a field, whose own undo it is
   const undoable = [...items].reverse().find((b) => b.action?.undo);
+  const redoable = [...items].reverse().find((b) => b.action?.redo);
   useEffect(() => {
-    if (!undoable) return;
+    if (!undoable && !redoable) return;
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "z" || e.defaultPrevented) return;
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.defaultPrevented) return;
+      const k = e.key.toLowerCase();
+      const banner = k === "z" && !e.shiftKey ? undoable : (k === "z" && e.shiftKey) || (k === "y" && !e.shiftKey) ? redoable : undefined;
+      if (!banner) return;
       const t = e.target as HTMLElement | null;
       if (t?.closest?.("input, textarea, select, [contenteditable]") || document.querySelector("[role=dialog][aria-modal=true]") || path.startsWith("/timelines/")) return;
       e.preventDefault();
-      dismiss(undoable.id);
-      undoable.action!.run();
+      dismiss(banner.id);
+      banner.action!.run();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undoable, dismiss, path]);
+  }, [undoable, redoable, dismiss, path]);
 
   const drawn = useLeaving(items);
   if (!drawn.length) return null;

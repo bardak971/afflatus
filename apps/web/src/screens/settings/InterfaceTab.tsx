@@ -32,7 +32,7 @@ export function InterfaceTab() {
           <Row setting="hover.sound" label="Play sound on hover" help="The sound of a video playing on hover, and of a sound card. Off: videos play muted and sound cards stay silent until opened.">
             <Toggle bare on={hover.sound} onChange={(sound) => hover.set({ sound })} label="Play sound on hover" />
           </Row>
-          <Row setting="compare.result" label="Compare opens on original vs result" help="On a pass's result (an upscale, a face detailer, a mirror), Compare (X) puts its source beside it; on a picture something was made from, the newest result. Off: Compare pins the item and the arrow keys bring the next one of the list.">
+          <Row setting="compare.result" label="Compare opens on original vs result" help="On a pass's result (an upscale, a Face refine, a mirror), Compare (X) puts its source beside it; on a picture something was made from, the newest result. Off: Compare pins the item and the arrow keys bring the next one of the list.">
             <Toggle bare on={compare.on} onChange={compare.set} label="Compare opens on original vs result" />
           </Row>
         </Card>

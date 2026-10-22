@@ -72,7 +72,7 @@ export function machineState(m: Pick<MachineState, "paused" | "online" | "rented
 export function onlineSaid(machines: ReadonlyArray<Parameters<typeof machineState>[0]>): string {
   const starting = machines.filter((m) => machineState(m) === "starting").length;
   const online = machines.filter((m) => m.online !== false && machineState(m) !== "starting").length;
-  return `${online} of ${machines.length} ComfyUIs online${starting ? ` · ${starting} starting` : ""}`;
+  return `${online} of ${machines.length} machines online${starting ? ` · ${starting} starting` : ""}`;
 }
 
 /** A machine as the screens name it: its own name, else its address's host and port ("127.0.0.1:8189"). */

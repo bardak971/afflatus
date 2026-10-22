@@ -121,4 +121,19 @@ describe("a swap's source, drawn (the owner, 2026-10-18: no source form, the cli
     fireEvent.click(screen.getByRole("button", { name: "Make 2 clips" }));
     expect(made).toEqual([false]);
   });
+
+  it("says Render on the button when the source has a form, since its clips are rendered as they are made", () => {
+    const made: Array<boolean | undefined> = [];
+    draw(
+      <SourcePanel
+        timeline={timeline} place={{ atMs: 0, lengthMs: 10_000, made: false, windows: [{ fromMs: 0, toMs: 5000 }, { fromMs: 4700, toMs: 10_000 }] as never, replaces: null }} recipes={[model]}
+        clock={{ get: () => 0, set: () => {}, subscribe: () => () => {} }}
+        onEdit={() => {}} onType={() => {}} typed={() => undefined}
+        onLook={() => {}} onMake={(andRender) => made.push(andRender)} making={false} made={{ left: 0, queued: 0 }} onRender={() => {}} rendering={false} onClose={() => {}}
+        picking={false} onPicking={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Render 2 clips" }));
+    expect(made).toEqual([true]);
+  });
 });

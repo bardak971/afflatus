@@ -275,7 +275,8 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
             </span>
           ) : (
             <Button tone="primary" className="h-11 text-sm" disabled={making || !recipe || Boolean(waitsFor) || !windows.length} onClick={() => onMake(!formless)}>
-              {making ? "Making…" : `Make ${plural(windows.length, "clip")}`}
+              {/* with a form the clips are rendered as they are made, so the button says Render as every send to the GPU does */}
+              {making ? "Making…" : `${formless ? "Make" : "Render"} ${plural(windows.length, "clip")}`}
             </Button>
           )}
         </div>

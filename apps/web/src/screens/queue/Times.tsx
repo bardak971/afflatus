@@ -161,7 +161,7 @@ export function RenderTimes() {
                 series={PHASES.map((p) => ({ name: p.label, values: d.phases[p.id], color: p.id === "sampling" ? tones[0] : p.color, tip: p.tip }))}
               />
               <TimeChart
-                {...chart} title="Queue wait" note="Generate → start" format={long} axisFormat={brief}
+                {...chart} title="Queue wait" note="Queued → start" format={long} axisFormat={brief}
                 series={[
                   { name: "p50", values: d.wait.usual, color: tones[0] },
                   { name: "p90", values: d.wait.slow, color: "var(--color-warn)", tip: "9 in 10 waited less" },
@@ -221,7 +221,7 @@ function UpscaleChart({ chart, upscale, tones }: { chart: ChartBase; upscale: No
       >
         {/* a choice only when both have runs: the note under the title says which one is drawn */}
         {upscale.video.length > 0 && upscale.pictures.length > 0 && (
-          <Segmented<"video" | "pictures"> size="sm" oneLine label="Upscales of" value={tab} onChange={setTab} options={[{ value: "video", label: "Video" }, { value: "pictures", label: "Pictures" }]} />
+          <Segmented<"video" | "pictures"> size="sm" oneLine label="Upscales of" value={tab} onChange={setTab} options={[{ value: "video", label: "Video" }, { value: "pictures", label: "Images" }]} />
         )}
       </TimeChart>
     </div>

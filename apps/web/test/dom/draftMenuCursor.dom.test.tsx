@@ -16,12 +16,24 @@ describe("the drafts list's cursor", () => {
     // two unused drafts before the open one: folded, they leave it second in the list shown: the fourth (the old cursor) is another draft
     const drafts = [brief("a"), brief("u1", { unused: true, title: "" }), brief("u2", { unused: true, title: "" }), brief("open"), brief("b"), brief("c")];
     const onPick = vi.fn();
-    const { user } = draw(<DraftMenu drafts={drafts} open={drafts[3]!} titleOf={(d) => d.title} onPick={onPick} onNew={() => {}} onClearUnused={async () => {}} menuOf={() => []} />);
+    const { user } = draw(<DraftMenu drafts={drafts} open={drafts[3]!} titleOf={(d) => d.title} onPick={onPick} onNew={() => {}} onClearUnused={async () => {}} onRename={() => {}} menuOf={() => []} />);
     await user.click(screen.getByRole("button", { name: /^Drafts:/ }));
     const search = await screen.findByRole("combobox", { name: "Search drafts" });
     const active = search.getAttribute("aria-activedescendant");
     expect(active && document.getElementById(active)?.textContent).toContain("zz-test open");
     await user.keyboard("{Enter}");
     expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it("renames the row the arrows are on with F2, as every other list does", async () => {
+    const drafts = [brief("open"), brief("b"), brief("c")];
+    const onRename = vi.fn();
+    const { user } = draw(<DraftMenu drafts={drafts} open={drafts[0]!} titleOf={(d) => d.title} onPick={() => {}} onNew={() => {}} onClearUnused={async () => {}} onRename={onRename} menuOf={() => []} />);
+    await user.click(screen.getByRole("button", { name: /^Drafts:/ }));
+    await screen.findByRole("combobox", { name: "Search drafts" });
+    await user.keyboard("{ArrowDown}{F2}");
+    expect(onRename).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
+    // the list closed first, so the question is in sight
+    expect(screen.queryByRole("combobox", { name: "Search drafts" })).toBeNull();
   });
 });

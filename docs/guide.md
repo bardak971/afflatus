@@ -8,7 +8,7 @@ The Studio is where pictures and videos are made and kept. On the left, the **Cr
 
 - **A draft** is one form you are working on: a model, a prompt, its settings. Drafts are saved as you type and listed in the draft menu at the top of the form. A new draft is only kept once it holds something: a prompt, a picture, a name, someone from the Prompt kit, or a render.
 - **The form** has one tab strip for every model family: Model · Prompt · Inputs · Sampling · Output · Advanced. Defaults come from ComfyUI's own templates and the models' authors, and what you change can be saved as your default for that model file.
-- **Generate** (or **Ctrl+Enter**) queues the render. The form shows how long it will take, learned from your own past renders.
+- **Render** (or **Ctrl+Enter**) queues the render. The form shows how long it will take, learned from your own past renders.
 - **The library** shows the project you are working in: everything, or one folder, as a Stage (one large item) or a grid in three sizes, filtered by kind. Search reads prompts and names.
 
 Renders start out *not kept*: keep the ones you want (the star, or **S**). What is not kept goes to the bin after a day, and the bin empties itself after a week, so the library holds what you chose. Settings → Storage sets both: 1, 3 or 7 days, or never; a week, 30 days, or until you empty it.
@@ -24,7 +24,7 @@ The **Projects** panel lists every project with its folders and drafts, what eac
 Click any item to open it large. The side panel shows everything it was made with and what can be made from it:
 
 - **Reuse** its settings with the same seed (**L**) or a new one (**Shift+L**), make a **Variation** (**V**), or turn a picture into a video (**M**).
-- **Passes:** upscale, face detailer, remove background, inpaint, outpaint, edit by instruction, mirror, and more.
+- **Passes:** upscale, Face refine, remove background, inpaint, outpaint, edit by instruction, mirror, and more.
 - **Compare** two items side by side with a wipe (**X**).
 
 The same actions are in the **right-click menu** of every tile, and in the command bar.

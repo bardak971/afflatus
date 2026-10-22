@@ -106,8 +106,8 @@ function MachinePick({ pickKey, of, msOn, file, why, note, small }: {
         type="button"
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={of === "draft" ? "Generate on a machine of your choosing" : "Render on a machine of your choosing"}
-        data-tip={picked ? `${of === "draft" ? "Generates" : "Its clips render"} on ${machineLabel(picked)}: click to pick another, or Auto` : `${of === "draft" ? "Generate" : "Render"} on a machine of your choosing`}
+        aria-label="Render on a machine of your choosing"
+        data-tip={picked ? `${of === "draft" ? "Renders" : "Its clips render"} on ${machineLabel(picked)}: click to pick another, or Any machine` : "Render on a machine of your choosing"}
         onClick={() => setOpen(!open)}
         // the header's slice (small) sits beside plain buttons (the timeline's one coral button is the inspector's): edged as they are
         className={cx(
@@ -119,10 +119,10 @@ function MachinePick({ pickKey, of, msOn, file, why, note, small }: {
         <Server size={small ? 15 : 16} />
       </button>
       {open && (
-        <Popover anchor={anchor} onClose={() => setOpen(false)} label={of === "draft" ? "Generate on" : "Render on"} width={440} height={80 + (several.length + 1) * 52}>
+        <Popover anchor={anchor} onClose={() => setOpen(false)} label="Render on" width={440} height={80 + (several.length + 1) * 52}>
           <div className="flex flex-col text-[13px]">
             <div className="flex items-baseline gap-2 px-3.5 py-2.5">
-              <span className="font-semibold">{of === "draft" ? "Generate on" : "Render on"}</span>
+              <span className="font-semibold">Render on</span>
               <span className="text-xs text-ink-3">{of === "draft" ? "this draft" : "every clip of this timeline"}</span>
             </div>
             {[null, ...several].map((m) => {
@@ -141,7 +141,7 @@ function MachinePick({ pickKey, of, msOn, file, why, note, small }: {
                 >
                   {m ? <span className={cx("size-[7px] rounded-full", m.online === false ? "bg-warn" : m.paused ? "bg-ink-3" : m.running ? "bg-accent" : "border-[1.5px] border-good")} /> : <Server size={13} className="text-accent" />}
                   <span className="min-w-0 truncate">
-                    <span className="font-semibold">{m ? machineLabel(m) : "Auto"}</span>{" "}
+                    <span className="font-semibold">{m ? machineLabel(m) : "Any machine"}</span>{" "}
                     <span className="text-xs text-ink-3">· {m ? off ?? note(m) ?? said(m, waitingOn(m.id), holds) : "the machine that ends it first"}</span>
                   </span>
                   {off === "lacks this model" ? (
@@ -153,7 +153,7 @@ function MachinePick({ pickKey, of, msOn, file, why, note, small }: {
               );
             })}
             <div className="border-t border-line px-3.5 py-2 text-[11.5px] text-ink-3">
-              Kept for this {of} until you set Auto again. <Link href={settingHref("comfy.machines")} onClick={() => setOpen(false)} className="hover:text-ink hover:underline">Machines ›</Link>
+              Kept for this {of} until you set Any machine again. <Link href={settingHref("comfy.machines")} onClick={() => setOpen(false)} className="hover:text-ink hover:underline">Machines ›</Link>
             </div>
           </div>
         </Popover>

@@ -309,7 +309,7 @@ export const sdxlFixFace = defineRecipe<SdxlFixFace>({
   id: "sdxl.fix-face",
   family: "sdxl",
   version: 1,
-  title: "Face detailer",
+  title: "Face refine",
   summary: "Like ADetailer: detects every face and inpaints it with more detail. Needs the Impact Pack nodes in ComfyUI.",
   output: "image",
   inputs: [

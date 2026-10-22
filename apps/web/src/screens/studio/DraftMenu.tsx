@@ -61,7 +61,7 @@ export function draftWords(data: { recipes: RecipeInfo[]; families: FamilyInfo[]
  * first), and on the right how many outputs it has (by model when it was tried on several) and when it was last changed. Opens from the head of the Create panel; typing narrows
  * the list, the arrow keys move in it, Enter opens. A draft with no prompt is named after its model.
  */
-export function DraftMenu({ drafts: rows, open: current, titleOf, onPick, onNew, onClearUnused, menuOf }: {
+export function DraftMenu({ drafts: rows, open: current, titleOf, onPick, onNew, onClearUnused, onRename, menuOf }: {
   drafts: DraftBrief[];
   open: DraftBrief | null;
   /** What a draft is called: its name, else the start of its prompt, else "" (named after its model here). */
@@ -69,6 +69,8 @@ export function DraftMenu({ drafts: rows, open: current, titleOf, onPick, onNew,
   onPick(id: string): void;
   onNew(): void;
   onClearUnused(): Promise<unknown>;
+  /** F2 on the row the arrows are on: renamed as its menu's Rename does. */
+  onRename(d: DraftBrief): void;
   /** A draft's right-click menu: the draft's list, as every place shows it (projects/kindActions.tsx). */
   menuOf(d: DraftBrief): MenuItem[];
 }) {
@@ -152,6 +154,12 @@ export function DraftMenu({ drafts: rows, open: current, titleOf, onPick, onNew,
     } else if (e.key === "Enter" && list[at]) {
       e.preventDefault();
       pick(list[at]!.id);
+    } else if (e.key === "F2" && list[at]) {
+      // F2 renames here as in every other list: the list closes first, so the name box or the question is in sight
+      e.preventDefault();
+      const d = list[at]!;
+      close();
+      onRename(d);
     }
   };
 
@@ -250,7 +258,6 @@ export function DraftMenu({ drafts: rows, open: current, titleOf, onPick, onNew,
                   title={`Delete the ${plural(empties, "unused draft")} (the open one stays)`}
                   note="Delete? The open one stays."
                   yes="Delete"
-                  cancel="Keep"
                   stay
                   disabled={clearing}
                   onYes={() => {

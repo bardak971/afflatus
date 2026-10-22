@@ -75,7 +75,7 @@ export function StatusBar() {
       <footer className="flex h-10 shrink-0 items-center gap-2.5 overflow-hidden border-t border-line bg-panel px-3 text-xs">
         {huntSlot && hunt ? <Suspense fallback={null}><HuntStrip hunt={hunt} slot /></Suspense> : run ? <Running run={run} /> : q?.online === false ? <Offline q={q} /> : q?.paused ? <Paused waiting={waiting} /> : noGpu ? <NoGpu waiting={waiting} hasKey={Boolean(settings?.hasRunpodKey)} /> : <Idle last={lastMade(q)} machines={q?.machines ?? []} />}
         {several.filter((m) => m.running).length > 1 && (
-          <button type="button" className="inline-flex h-6 shrink-0 items-center rounded-full border border-line px-2 text-xs hover:bg-hover" data-tip="Renders running on the other ComfyUIs: click for each machine" onClick={() => window.dispatchEvent(new Event(OPEN_MACHINES))}>
+          <button type="button" className="inline-flex h-6 shrink-0 items-center rounded-full border border-line px-2 text-xs hover:bg-hover" data-tip="Renders running on the other machines: click for each one" onClick={() => window.dispatchEvent(new Event(OPEN_MACHINES))}>
             +{several.filter((m) => m.running).length - 1}
           </button>
         )}

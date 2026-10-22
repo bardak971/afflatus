@@ -95,7 +95,7 @@ describe("the first launch", () => {
     await user.click(await screen.findByRole("button", { name: "Change" }));
     await user.click(await screen.findByRole("button", { name: "No: rented GPUs only" }));
     await screen.findByText("Render on rented GPUs only?");
-    await user.click(screen.getByRole("button", { name: /^Keep/ }));
+    await user.click(screen.getByRole("button", { name: /^Cancel/ }));
     expect(fakeApi.calls("PUT", "/settings")).toEqual([]);
     await user.click(screen.getByRole("button", { name: "No: rented GPUs only" }));
     await user.click(await screen.findByRole("button", { name: "Take it out" }));

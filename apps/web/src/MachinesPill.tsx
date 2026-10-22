@@ -86,7 +86,7 @@ export function MachinesPill() {
           ))}
           {hunted && <span aria-hidden className="m-px size-[7px] shrink-0 rounded-full border-[1.5px] border-dashed border-accent" />}
         </span>
-        <span className="shrink-0 font-semibold text-ink">{machines.length}<span className="max-[1280px]:hidden"> {machines.length === 1 ? "ComfyUI" : "ComfyUIs"}</span></span>
+        <span className="shrink-0 font-semibold text-ink">{machines.length}<span className="max-[1280px]:hidden"> {machines.length === 1 ? "ComfyUI" : "machines"}</span></span>
         {/* the files segment says what "getting files" would: the word stays only for something busier (a render) */}
         {(!fetching || machines.some((m) => m.running)) && <span className="shrink-0 text-ink-2 max-[1440px]:hidden">{hunted ? "+ 1 hunted" : busiest(machines)}</span>}
         {fetching && (

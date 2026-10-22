@@ -119,7 +119,7 @@ export function ModelField({ id, spec, value, options, family, onChange }: {
         <div className="flex flex-col gap-1 text-xs text-ink-2">
           <span className="text-ink-3">Not on your ComfyUI{picked.bytes ? ` · ${size(picked.bytes)}` : ""} · models/{spec.folder}</span>
           <GetFile file={picked.file} folder={spec.folder} url={picked.url} buttons />
-          <span>Generate queues the job: it waits until the file is there.</span>
+          <span>Render queues the job: it waits until the file is there.</span>
         </div>
       )}
       {picked && where === "pod" && <span className="text-xs text-ink-3">{picked.bytes ? `${size(picked.bytes)} · ` : ""}the pod fetches it before the job</span>}

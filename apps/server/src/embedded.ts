@@ -300,7 +300,7 @@ export function parseA1111(infotext: string): FoundSettings {
   const neg = splitLoras(negative);
   const notes: string[] = [];
   if (kv.VAE && !/automatic|none/i.test(kv.VAE)) notes.push(`It was made with the VAE "${kv.VAE}": the model's own is used here.`);
-  if (Object.keys(kv).some((k) => k.startsWith("ADetailer"))) notes.push('It had a face detailer pass: use "Face detailer" on the result.');
+  if (Object.keys(kv).some((k) => k.startsWith("ADetailer"))) notes.push('It had a face detailer pass: use "Face refine" on the result.');
   const hires = kv["Hires upscale"] || kv["Hires upscaler"];
   if (kv["Denoising strength"] && !hires) notes.push("It was made with img2img: here it is txt2img.");
 
@@ -405,7 +405,7 @@ function settingsOfGraph(graph: Graph): FoundSettings | null {
     };
   }
   if (Object.values(graph).some((n) => n.class_type === "LoadImage") && !second && Number(i.denoise ?? 1) < 1) notes.push("It was made with img2img: here it is txt2img.");
-  if (Object.values(graph).some((n) => /Detailer/.test(n.class_type))) notes.push('It had a face detailer pass: use "Face detailer" on the result.');
+  if (Object.values(graph).some((n) => /Detailer/.test(n.class_type))) notes.push('It had a face detailer pass: use "Face refine" on the result.');
   const pos = splitLoras(encoderText(i.positive));
   const neg = splitLoras(encoderText(i.negative));
   if (!pos.text) notes.push("The text it was made from could not be found in its workflow.");

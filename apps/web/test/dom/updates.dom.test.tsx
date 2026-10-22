@@ -207,7 +207,7 @@ describe("Go back", () => {
     // what keeps billing on RunPod after it, which 0.4.1 has no screen for
     expect(question.textContent).toContain("Still billed on RunPod after it, with no Rented GPUs screen in 0.4.1 to see or remove them: volume zz-test (50 GB, $3.50/month).");
     expect(fakeApi.calls("POST", "/updates/go-back")).toHaveLength(0);
-    await user.click(within(question).getByRole("button", { name: /Keep/ }));
+    await user.click(within(question).getByRole("button", { name: /Cancel/ }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Go back to 0.4.1?" })).toBeNull());
     expect(fakeApi.calls("POST", "/updates/go-back")).toHaveLength(0);
 

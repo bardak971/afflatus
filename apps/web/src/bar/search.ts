@@ -18,7 +18,7 @@ export const isFlag = (k: SearchKey) => FLAGS.has(k);
 
 /** What each key is for, in a few words: the key rows the bar offers ("lo" → lora:). */
 export const KEY_SAID: Record<SearchKey, string> = {
-  image: "Pictures", video: "Videos", sound: "Sounds", prompt: "In what was written", lora: "Made with a LoRA", model: "Made with a model",
+  image: "Images", video: "Videos", sound: "Sounds", prompt: "In what was written", lora: "Made with a LoRA", model: "Made with a model",
   draft: "Made from a draft", in: "In a project or folder", since: "Made since", sort: "In another order", bin: "In the bin", kept: "Kept (-kept: not kept)",
 };
 

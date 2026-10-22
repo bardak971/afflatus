@@ -25,8 +25,8 @@ export function LiveTile({ job, onClick, on, title, fill }: {
       </button>
       <button
         type="button"
-        aria-label="Cancel this render"
-        data-tip="Cancel this render. Nothing is saved."
+        aria-label="Stop this render"
+        data-tip="Stop this render. Nothing is saved."
         disabled={stop.isPending}
         onClick={() => stop.mutate([job.id])}
         className="absolute top-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-lg border border-line-strong bg-ground/80 text-ink hover:border-warn hover:text-warn"

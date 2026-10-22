@@ -46,7 +46,7 @@ A ComfyUI that listens on localhost only needs nothing.
 
 ## Node packs
 
-Every built-in form runs on ComfyUI's own nodes first. Some forms and options need a custom node pack on top, and only where they are used. When one is missing, Afflatus names it on the form before you press Generate, and in the queue if a render needs it, with how to install it (ComfyUI-Manager, or the repository to clone) and that ComfyUI must be restarted after.
+Every built-in form runs on ComfyUI's own nodes first. Some forms and options need a custom node pack on top, and only where they are used. When one is missing, Afflatus names it on the form before you press Render, and in the queue if a render needs it, with how to install it (ComfyUI-Manager, or the repository to clone) and that ComfyUI must be restarted after.
 
 | Pack | What it unlocks |
 |---|---|
@@ -55,7 +55,7 @@ Every built-in form runs on ComfyUI's own nodes first. Some forms and options ne
 | [Comfyui-MMH3-UltimateUpscale](https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale) | H3's latent re-sample: the "Latent: re-sampled" upscale and the H3 finish route |
 | [ComfyUI-DaSiWa-Nodes](https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes) | H3's step cache; the RTX upscaler and refiner node |
 | [Nvidia_RTX_Nodes_ComfyUI](https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI) | RTX Video Super Resolution, as an upscale and a finish route (NVIDIA cards) |
-| [ComfyUI-Impact-Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) and [Impact-Subpack](https://github.com/ltdrdata/ComfyUI-Impact-Subpack) | The face detailer |
+| [ComfyUI-Impact-Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) and [Impact-Subpack](https://github.com/ltdrdata/ComfyUI-Impact-Subpack) | Face refine (the face detailer) |
 | [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) | The live preview of a video while it renders; SageAttention and torch compile |
 | [ComfyUI-Detail-Daemon](https://github.com/Jonseed/ComfyUI-Detail-Daemon) | The detail boost option |
 | [comfyui_controlnet_aux](https://github.com/Fannovel16/comfyui_controlnet_aux) | The ControlNet guide's pose and depth preprocessors |

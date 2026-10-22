@@ -141,23 +141,35 @@ export async function changeAssets(client: QueryClient, c: AssetChange, opts: Ch
   }
 }
 
-/** A move, a bin or a put back said, with its Undo: the reverse change, each item back to where it was. */
+/**
+ * A move, a bin or a put back said, with its Undo: the reverse change, each item back to where it was. Once undone, a
+ * banner of its own offers Redo (Ctrl+Shift+Z or Ctrl+Y, as in the timeline editor): the change made again, said again
+ * with its Undo, so that the two keys walk back and forth as a history of one step does.
+ */
 function sayDone(client: QueryClient, c: AssetChange, before: Array<{ folder: string | null; ids: string[] }>, left: Seats): string | null {
   const n = itemsWord(c.ids.length);
   const id = bannerId(c.kind === "move" ? "moved" : c.kind === "bin" ? "binned" : "restored");
-  const undo = (run: () => Promise<unknown>) => ({ label: "Undo", key: "Ctrl+Z", undo: true, run: () => void run() });
+  // the undone banner says what Redo does again in its text: the command bar's Redo row reads it there
+  const undo = (said: string, run: () => Promise<unknown>) => ({
+    label: "Undo", key: "Ctrl+Z", undo: true,
+    run: () => void run().then((done) => {
+      if (done === false) return;
+      useBanners.getState().push({ id: bannerId("undone"), tone: "good", title: "Undone", text: said, action: { label: "Redo", key: "Ctrl+Shift+Z", redo: true, run: () => void changeAssets(client, c) } });
+    }),
+  });
   if (c.kind === "move") {
     const folders = client.getQueryData<{ items: Folder[] }>(queryKeys.folders())?.items;
     const projects = client.getQueryData<{ items: Project[] }>(queryKeys.projects.all())?.items;
     const back = before.filter((g) => g.folder !== c.folder);
+    const title = `Moved to ${placeName(c.folder, folders, projects)} · ${n}`;
     useBanners.getState().push({
-      id, tone: "good", title: `Moved to ${placeName(c.folder, folders, projects)} · ${n}`,
-      ...(back.length ? { action: undo(async () => { for (const g of back) await changeAssets(client, { kind: "move", ids: g.ids, folder: g.folder }, { quiet: true, back: left }); }) } : {}),
+      id, tone: "good", title,
+      ...(back.length ? { action: undo(title, async () => { for (const g of back) await changeAssets(client, { kind: "move", ids: g.ids, folder: g.folder }, { quiet: true, back: left }); }) } : {}),
     });
   } else if (c.kind === "bin") {
-    useBanners.getState().push({ id, tone: "good", title: `Moved to the bin · ${n}`, action: undo(() => changeAssets(client, { kind: "restore", ids: c.ids }, { quiet: true, back: left })) });
+    useBanners.getState().push({ id, tone: "good", title: `Moved to the bin · ${n}`, action: undo(`Moved to the bin · ${n}`, () => changeAssets(client, { kind: "restore", ids: c.ids }, { quiet: true, back: left })) });
   } else if (c.kind === "restore") {
-    useBanners.getState().push({ id, tone: "good", title: `Put back · ${n}`, action: undo(() => changeAssets(client, { kind: "bin", ids: c.ids }, { quiet: true, back: left })) });
+    useBanners.getState().push({ id, tone: "good", title: `Put back · ${n}`, action: undo(`Put back · ${n}`, () => changeAssets(client, { kind: "bin", ids: c.ids }, { quiet: true, back: left })) });
   } else return null;
   return id;
 }

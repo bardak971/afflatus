@@ -15,6 +15,11 @@
  * the new counts in (it never raises one: a budget only ever comes down). The lint does not write the file itself: the
  * budget changes only in a commit its author made, so a lint run on one branch never leaves the tree dirty, and two
  * branches that lowered it meet as a plain conflict on the numbers. `--list <rule>` prints where a rule's matches are.
+ *
+ * Rule 10 of that list, the words (review 4, P4: one word per act), does fail on a match: the web app's labels were
+ * made to say one word per act, so a retired one (Requeue, Face detailer, Generate on a button…) is refused with the word
+ * that replaced it. Only what the user reads as a label is looked at: JSX text, and the strings of `label`, `aria-label`
+ * and `data-tip`, so an id, a route or a comment keeps its old word.
  */
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -52,6 +57,51 @@ export function sharedFindings(file: string, text: string): Finding[] {
   return found;
 }
 
+/**
+ * The retired label words, each with the one that replaced it (mock section 3, the owner's picks). `test` is matched
+ * against one label's text; "Generate" only where a label starts with it (a button's words), not "Generated".
+ */
+export const BANNED_WORDS: Array<{ test: RegExp; say: string }> = [
+  { test: /^\s*Generate\b/, say: "Render" },
+  { test: /\bRequeue\b/, say: "Render again" },
+  { test: /\bRetry unchanged\b|\bRetry all \S+ unchanged\b/, say: "Render again" },
+  { test: /\bFace detailer\b|\bFace pass\b/, say: "Face refine" },
+  { test: /\bCancel (?:this )?render\b/, say: "Stop" },
+  { test: /\bCancel this one\b/, say: "Remove from queue" },
+  { test: /\bCancel all waiting\b/, say: "Remove all waiting" },
+  { test: /\bDelete this picture\b/, say: "Move to bin" },
+];
+
+/** The labels on a line of the web app: JSX text between tags, and the strings given to label, aria-label and data-tip. */
+export function labelsOf(line: string): string[] {
+  const out: string[] = [];
+  for (const m of line.matchAll(/>([^<>{}]*[A-Za-z][^<>{}]*)</g)) out.push(m[1]!);
+  // a JSX text that runs to the end of the line (the closing tag on a line of its own)
+  const tail = /^\s*([A-Z][^<>{}=;]*)$/.exec(line);
+  if (tail && !/^\s*(?:import|export|const|let|return|if|else|case|type|interface)\b/.test(line)) out.push(tail[1]!);
+  // a string given to one of them, or both of a choice between two strings (`label={on ? "A" : "B"}`)
+  for (const m of line.matchAll(/(?:\blabel|\baria-label|\bdata-tip)\s*[:=]\s*\{?\s*(?:[^"'`,}]*\?\s*)?(["'`])((?:(?!\1).)*)\1(?:\s*:\s*(["'`])((?:(?!\3).)*)\3)?/g)) {
+    out.push(m[2]!);
+    if (m[4] !== undefined) out.push(m[4]);
+  }
+  return out;
+}
+
+/** The retired words a web source file still shows as labels, line by line (rule 10). */
+export function wordFindings(file: string, text: string): Finding[] {
+  if (!designed(file)) return [];
+  const found: Finding[] = [];
+  text.split("\n").forEach((l, i) => {
+    // a comment says what the code did, in the words of its time
+    if (/^\s*(?:\/\/|\*|\/\*)/.test(l)) return;
+    for (const label of labelsOf(l)) {
+      const banned = BANNED_WORDS.find((w) => w.test.test(label));
+      if (banned) found.push({ file, line: i + 1, text: l.trim().slice(0, 140), why: `a retired label word: say "${banned.say}" (one word per act, review 4 P4)` });
+    }
+  });
+  return found;
+}
+
 /** A design rule held to a budget: how many times the web app's files do by hand what the kit or a token does. */
 interface DesignRule {
   id: string;
@@ -64,7 +114,7 @@ const matches = (re: RegExp, text: string) => text.match(re)?.length ?? 0;
 /** The kit itself, where the one spinner, the one close and the icon button are made. */
 const KIT = /^apps\/web\/src\/ui\.tsx$/;
 
-/** The rules, in the order of the review's list (section 4.3; rule 10, the banned words, comes with the words pass). */
+/** The rules, in the order of the review's list (section 4.3; rule 10, the banned words, is `wordFindings`, which fails outright). */
 export const DESIGN_RULES: DesignRule[] = [
   { id: "font-size", why: "an arbitrary font size (text-[Npx]): use the type scale (text-micro … text-display)", count: (_f, t) => matches(/\btext-\[\d+(?:\.\d+)?px\]/g, t) },
   { id: "radius", why: "an arbitrary radius (rounded-[Npx]): use rounded-key, -chip, -control, -card or -dialog", count: (_f, t) => matches(/\brounded(?:-[a-z]{1,2})?-\[\d+(?:\.\d+)?px\]/g, t) },
@@ -168,7 +218,7 @@ export function sources(root: string): string[] {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const root = fileURLToPath(new URL("..", import.meta.url));
   const files = sources(root).map((p) => ({ file: relative(root, p).replace(/\\/g, "/"), text: readFileSync(p, "utf8") }));
-  const found = files.flatMap(({ file, text }) => sharedFindings(file, text));
+  const found = files.flatMap(({ file, text }) => [...sharedFindings(file, text), ...wordFindings(file, text)]);
   for (const f of found) console.error(`${f.file}:${f.line}: ${f.why}\n    ${f.text}`);
 
   const listed = process.argv.indexOf("--list");

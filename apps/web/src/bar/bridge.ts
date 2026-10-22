@@ -23,6 +23,10 @@ export type TimelineRequest =
   | { timeline: string; do: "take"; by: -1 | 1 }
   /** The editor's Undo (Ctrl+Z); said in its note when there is nothing to undo. */
   | { timeline: string; do: "undo" }
+  /** The editor's Redo (Ctrl+Shift+Z or Ctrl+Y); said in its note when there is nothing to redo. */
+  | { timeline: string; do: "redo" }
+  /** The selected clip off the timeline, as Del; said in its note when no clip is selected. */
+  | { timeline: string; do: "remove" }
   /** Clip `clip` (counted from 1) selected and the playhead on its start, as a click on it in the track. */
   | { timeline: string; do: "select"; clip: number }
   /** The Finish dialog opened, as the editor's Finish button. */

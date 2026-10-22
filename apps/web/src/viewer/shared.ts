@@ -7,7 +7,7 @@ export const FORMATS: Record<string, string> = { "image/png": "PNG", "image/jpeg
 /** The operations that have a key, by how their recipes are named; `takes`: of those, the ones that can do it. */
 export const OPS: Record<string, { ends: string[]; label: string; takes?(r: RecipeInfo): boolean }> = {
   u: { ends: [".sharper"], label: "Upscale 2x" },
-  f: { ends: [".fix-face"], label: "Face detailer" },
+  f: { ends: [".fix-face"], label: "Face refine" },
   // the face detailer given a hand detector; Klein's redraws a face from a person's pictures and is not offered for hands
   h: { ends: [".fix-face"], label: "Hand detailer", takes: (r) => Boolean(handsOf(r)) },
   b: { ends: [REMOVE_BACKGROUND], label: "Remove background" },

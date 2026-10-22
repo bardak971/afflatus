@@ -48,7 +48,7 @@ describe("a timeline card's menu (the kind's one list), drawn", () => {
     expect(lines(menu)).toEqual([
       "OpenEnter",
       "Show in Projects",
-      "Render missing clipsnone to render (off)",
+      "Render allnone to render (off)",
       "Finish…",
       "Export…",
       "Fix allwhat Needs a look lists",
@@ -76,11 +76,11 @@ describe("a timeline card's menu (the kind's one list), drawn", () => {
     await waitFor(() => expect(fakeApi.calls("DELETE", "/timelines/")).toEqual([expect.objectContaining({ path: `/timelines/${timeline.id}` })]));
   });
 
-  it("deletes nothing when the question is answered Keep", async () => {
+  it("deletes nothing when the question is answered Cancel", async () => {
     const { user } = await cardMenu();
     await user.click(screen.getByRole("menuitem", { name: /Delete…/ }));
     const dialog = await screen.findByRole("dialog", { name: `Delete ${timeline.name}?` });
-    await user.click(within(dialog).getByRole("button", { name: /Keep/ }));
+    await user.click(within(dialog).getByRole("button", { name: /Cancel/ }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(fakeApi.calls("DELETE", "/timelines/")).toHaveLength(0);
   });

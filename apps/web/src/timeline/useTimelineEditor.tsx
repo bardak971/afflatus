@@ -326,7 +326,7 @@ export function useTimelineEditor(id: string) {
     return true;
   } });
   // what the command bar asked of this timeline: done here, as the buttons and the keys do it
-  const openExport = useBarRequests({ id, t, shown, clips, slots, missing, ready, render, undo, redo, say, setNote, setSelected, select, setFin, setCursor, player, selectedNow, splitNow, takeNow });
+  const openExport = useBarRequests({ id, t, shown, clips, slots, missing, ready, render, undo, redo, remove, say, setNote, setSelected, select, setFin, setCursor, player, selectedNow, splitNow, takeNow });
 
   // the playhead's own steps: to the clip before or after, a split at it, the selected clip's take before or after
   const { jump, splitAt, splitHere, stepTake } = useClipSteps({ clips, slots, clock, player, cursor, split, patch, select, setNote, setSaid, setPreview });

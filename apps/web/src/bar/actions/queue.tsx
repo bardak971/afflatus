@@ -19,7 +19,7 @@ export function jobActions(x: BarCtx, it: Item): Action[] {
     const seed = (job as { seed?: number | null }).seed ?? null;
     return [
       toQueue,
-      { label: "Stop this render", icon: <X size={14} />, danger: true, note: "nothing is added", run: () => api.cancel(job.id).then(() => client.invalidateQueries({ queryKey: queryKeys.queue() }), failed("Could not stop it")) },
+      { label: "Stop", icon: <X size={14} />, danger: true, note: "nothing is added", run: () => api.cancel(job.id).then(() => client.invalidateQueries({ queryKey: queryKeys.queue() }), failed("Could not stop it")) },
       ...(seed !== null ? [{ label: "Copy the seed", icon: <Copy size={14} />, note: String(seed), stay: true, run: () => copyText(String(seed)).then(() => x.onCopied(`the seed ${seed}`), () => x.onCopied("")) }] : []),
       ...toDraft,
     ];
@@ -29,7 +29,7 @@ export function jobActions(x: BarCtx, it: Item): Action[] {
     return [
       toQueue,
       { label: "Run next", icon: <ArrowUpToLine size={14} />, disabled: ids[0] === job.id, run: () => api.queueOrder(moved(ids, job.id, 0)).then((q) => client.setQueryData(queryKeys.queue(), q), failed("Could not move it")) },
-      { label: "Cancel this one", icon: <X size={14} />, danger: true, run: () => api.cancel(job.id).then(() => client.invalidateQueries({ queryKey: queryKeys.queue() }), failed("Could not cancel it")) },
+      { label: "Remove from queue", icon: <X size={14} />, danger: true, run: () => api.cancel(job.id).then(() => client.invalidateQueries({ queryKey: queryKeys.queue() }), failed("Could not remove it from the queue")) },
       ...toDraft,
     ];
   }
@@ -41,7 +41,7 @@ export function jobActions(x: BarCtx, it: Item): Action[] {
   const retry = (input?: Record<string, unknown>) => x.jobs.again.mutate({ id: job.id, input }, { onSuccess: () => { x.jobs.dismiss.mutate(job.id); good(`${job.label} queued again`, undefined, "/queue", "Open queue"); } });
   return [
     toQueue,
-    { label: "Retry unchanged", icon: <RotateCcw size={14} />, note: "the same job again", run: () => retry() },
+    { label: "Render again", icon: <RotateCcw size={14} />, note: "the same job, unchanged", run: () => retry() },
     ...(stretch ? [{ label: stretch.label, icon: <RotateCcw size={14} />, note: "less memory", run: () => retry(stretch.change) }] : []),
     ...(fix ? [{ label: fix.label, icon: <RotateCcw size={14} />, note: "less memory", run: () => retry(fix.change) }] : []),
     ...toDraft,

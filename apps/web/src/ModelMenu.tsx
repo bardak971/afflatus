@@ -36,6 +36,6 @@ export function ModelMenuBody({ at, onClose }: { at: Parameters<typeof ContextMe
     { label: "Open the Queue", icon: <ListOrdered size={14} />, run: () => go("/queue") },
   ];
   // with several, what each one holds is on their pill: the head says how many there are
-  const head = several.length ? { title: `${several.length} ComfyUIs`, sub: "what each one holds: their pill" } : { title: queue.data?.model ?? "No model loaded", sub: "what ComfyUI holds" };
+  const head = several.length ? { title: `${several.length} machines`, sub: "what each one holds: their pill" } : { title: queue.data?.model ?? "No model loaded", sub: "what ComfyUI holds" };
   return <ContextMenu at={at} label="Model" head={head} items={items} onClose={onClose} />;
 }

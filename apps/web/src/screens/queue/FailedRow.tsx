@@ -67,7 +67,7 @@ export function FailedRow({ jobs, quiet = false }: { jobs: HistoryJob[]; quiet?:
   const until = said.missing ? "fails again until the file is there" : link ? "fails again until it is fixed" : undefined;
   const menu = useMenu<true>();
   const items: MenuItem[] = [
-    ...(first ? [{ label: n > 1 ? `Retry all ${n} unchanged` : "Retry unchanged", icon: <RotateCcw size={14} />, note: until, disabled: again.isPending, run: () => retry() }] : []),
+    ...(first ? [{ label: n > 1 ? `Render all ${n} again` : "Render again", icon: <RotateCcw size={14} />, note: until, disabled: again.isPending, run: () => retry() }] : []),
     ...more.map((f) => ({ label: f.label, icon: <Wrench size={14} />, note: f.tip, disabled: again.isPending, run: f.run })),
     ...(job.draftId && !(said.missing && fixes.length) ? [{ label: "Open its draft", icon: <Pencil size={14} />, run: () => toDraft(job.draftId!) }] : []),
     { label: open ? "Hide the whole error" : "Show the whole error", icon: <FileText size={14} />, run: () => setOpen(!open) },
