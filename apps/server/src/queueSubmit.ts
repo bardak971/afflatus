@@ -172,22 +172,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   // transfer (55 % of what a window sent) went up again each time, while the pod's GPU waited. Sent again under the same
   // name when ComfyUI turns out not to have it any more (see below)
   const again: Array<() => Promise<string>> = [];
-  const picture: Up["picture"] = (bytes, ext, opts = {}) => {
-    const name = `afflatus_${createHash("sha256").update(bytes).digest("hex").slice(0, 32)}.${ext}`;
-    const key = `${opts.into ?? "temp"}/${name}`;
-    const send = () => upload(bytes, ext, { ...opts, name });
-    const kept = comfy.uploaded.get(key);
-    if (kept && Date.now() - kept.at < PICTURE_KEPT_MS) {
-      again.push(send);
-      return kept.name.catch(send);
-    }
-    const sent = send();
-    comfy.uploaded.set(key, { at: Date.now(), name: sent });
-    sent.catch(() => {
-      if (comfy.uploaded.get(key)?.name === sent) comfy.uploaded.delete(key);
-    });
-    return sent;
-  };
+  const picture: Up["picture"] = (bytes, ext, opts = {}) => pictureOnce(comfy, bytes, ext, upload, again, opts);
   const resend: Up["resend"] = [];
   const up: Up = { recipe, db, storage, comfy, input, catalog, finishedFrom: row.finished_from, mirror: plan?.mirror ?? [], sent: { uploads: {}, media: {}, warnings: [] }, signal, upload, picture, resend };
   // what the media cost beside sending them (cutting a clip's frames, reading a picture): /metrics' "cuts"
@@ -301,6 +286,39 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   // noted once ComfyUI took it: a prompt it refused loads nothing, and the next job must not think otherwise
   if (base.length && !built.light) await core.loaded(base.join("|"), mainModel(built));
   return resume;
+}
+
+/**
+ * A picture sent to a ComfyUI under a name its content gives, once (Comfy.uploaded): the same picture in every window of a
+ * motion transfer, or every take of a timeline finished with one photo, goes up once. One taken as there already is sent
+ * again under the same name by `again`, when ComfyUI refuses the prompt for want of it (resentFor).
+ */
+export function pictureOnce(comfy: Comfy, bytes: Uint8Array, ext: string, upload: Up["upload"], again: Array<() => Promise<string>>, opts: { into?: "input" } = {}): Promise<string> {
+  const name = `afflatus_${createHash("sha256").update(bytes).digest("hex").slice(0, 32)}.${ext}`;
+  const key = `${opts.into ?? "temp"}/${name}`;
+  const send = () => upload(bytes, ext, { ...opts, name });
+  const kept = comfy.uploaded.get(key);
+  if (kept && Date.now() - kept.at < PICTURE_KEPT_MS) {
+    again.push(send);
+    return kept.name.catch(send);
+  }
+  const sent = send();
+  comfy.uploaded.set(key, { at: Date.now(), name: sent });
+  sent.catch(() => {
+    if (comfy.uploaded.get(key)?.name === sent) comfy.uploaded.delete(key);
+  });
+  return sent;
+}
+
+/**
+ * Whether ComfyUI refused a prompt for a picture pictureOnce took as there already (ComfyUI started again unseen, its input
+ * folder cleaned): then those pictures were sent again under the same names, and the prompt can go once more.
+ */
+export async function resentFor(err: unknown, again: ReadonlyArray<() => Promise<string>>, signal?: AbortSignal): Promise<boolean> {
+  if (!(err instanceof ComfyError) || !again.length || !/afflatus_[0-9a-f]{32}/.test(err.message)) return false;
+  going(signal);
+  await Promise.all(again.map((send) => send()));
+  return true;
 }
 
 /**

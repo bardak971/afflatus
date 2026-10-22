@@ -103,6 +103,28 @@ describe.skipIf(!ffmpegThere)("Finish › Face refine on a SCAIL-2 take at 24 fp
     expect(after.take.asset.name).toMatch(/face refined$/);
   });
 
+  it("finds its files in the scan kept and sends its Picture once to that ComfyUI, finished again or not", async () => {
+    const driving = await asset("video", four!);
+    const picture = await asset("image", png(192, 320));
+    const tl = await call("POST", "/api/timelines", { name: "zz-test dance twice" });
+    const clip = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "scail.motion24" })).clip as string;
+    await call("POST", `/api/timelines/${tl.id}/render`, { clips: [{ id: clip, input: { picture, driving: { asset: driving }, drivingStart: 0, drivingSeconds: 3.05, prompt: "zz-test", seed: 1 } }] });
+    await finish(four!, 1);
+    // what each finish asks of ComfyUI from its job's start to its prompt: a folder listing per slot, the photo every time
+    const from = fake.calls.length;
+    await call("POST", `/api/timelines/${tl.id}/finish`, { route: "face", factor: 2, redo: true });
+    await finish(four!, 2);
+    await call("POST", `/api/timelines/${tl.id}/finish`, { route: "face", factor: 2, redo: true });
+    await finish(four!, 3);
+    const asked = fake.calls.slice(from);
+    console.log(`[face finish] two finishes: ${asked.filter((c) => c.startsWith("GET /models/")).length} folder listings, ${asked.filter((c) => c === "POST /upload/image").length} uploads, ${fake.uploads.filter((n) => n.startsWith("afflatus_")).length} under the photo's name`);
+    // listed only where the scan has no file for a slot (its optional face segmenter): 16 listings before, for two finishes
+    expect(asked.filter((c) => /^GET \/models\/(diffusion_models|text_encoders|vae)$/.test(c))).toEqual([]);
+    expect(asked.filter((c) => c.startsWith("GET /models/")).length).toBeLessThanOrEqual(4);
+    // the take's frames each time; the Picture the render sent already is not sent again (4 uploads before)
+    expect(asked.filter((c) => c === "POST /upload/image")).toHaveLength(2);
+  });
+
   it("on a lone ComfyUI without its pack and no Manager to install it: it goes, and fails saying what to install, rather than wait for good", async () => {
     const driving = await asset("video", four!);
     const picture = await asset("image", png(192, 320));

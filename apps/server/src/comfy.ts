@@ -104,6 +104,11 @@ export class Comfy {
     return result;
   }
 
+  /** The scan kept, as it stands, without making one (null when none is): what a lookup that can list a folder instead reads. */
+  scanKept(): Promise<Scan> | null {
+    return this.lastScan?.value ?? null;
+  }
+
   private scanNow(): Promise<Scan> {
     return (async () => scan(this.client, this.registry.families(), this.registry.recipes(), (await this.overrides?.()) ?? {}, (await this.infoOf?.()) ?? (() => undefined), () => this.catalog()))();
   }
