@@ -6,7 +6,7 @@ import { lazyPart, loadModelMenu } from "./lazyParts";
 import { create } from "zustand";
 import { api, type RecipeInfo } from "./api";
 import { useQueue, useRecipes, useSetup } from "./data";
-import { lacksOnlyFiles } from "./officialFiles";
+import { lacksOnlyFiles, picksUnlisted } from "./officialFiles";
 import { cx } from "./ui";
 import { queryKeys } from "./queryKeys";
 import { useSettled } from "./hooks";
@@ -220,10 +220,10 @@ function OfForm({ recipe, input, look }: OpenForm) {
   const on = several.length ? machineName(queue.data, loaded.data?.on) : null;
   const held = several.length ? null : queue.data?.model ?? null;
   // a model file the form uses that ComfyUI does not have yet (an official file picked greyed, a family file to come):
-  // there is nothing to load before its Download
+  // there is nothing to load before its Download. Matched as the field and the server match it (picksUnlisted).
   const status = setup.data?.recipes.find((r) => r.id === recipe.id);
   const family = recipes.data?.families.find((f) => f.id === recipe.family);
-  const absent = Boolean(status) && (lacksOnlyFiles(status, recipe, family) || recipe.inputs.some((i) => i.type === "model" && Boolean(whole[i.id]) && !(status!.options[i.id] ?? []).includes(String(whole[i.id]))));
+  const absent = Boolean(status) && (lacksOnlyFiles(status, recipe, family) || picksUnlisted(status!, recipe, whole, true));
   if (absent && !running && !waiting) {
     return (
       <span className={cx(stripGhost, "min-w-0 hover:bg-transparent")} data-tip="A model file this form uses is not on ComfyUI yet: its Download is under the model field, and the render waits for it. There is nothing to load before then.">

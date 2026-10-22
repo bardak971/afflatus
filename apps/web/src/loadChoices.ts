@@ -1,8 +1,9 @@
 import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { modelName } from "@afflatus/core";
+import { modelName, sameFile } from "@afflatus/core";
 import { api, type RecipeInfo, type Scan } from "./api";
 import { useDrafts, useQueue, useRecipes, useSetup } from "./data";
 import { fileLabel } from "./format";
+import { picksUnlisted } from "./officialFiles";
 import { machineLabel, severalMachines } from "./machines";
 import { failedBanner } from "./sayFailed";
 import { useBanners } from "./store";
@@ -36,11 +37,15 @@ export interface LoadChoice {
 /** How many recent drafts' models are offered. */
 const RECENT = 6;
 
-/** A model file in a machine's lists, for an operation's model input. */
+/**
+ * A model file in a machine's lists, for an operation's model input. Matched as the server matches it when it builds the job
+ * (core sameFile): a draft names its file as the machine it was made on keeps it, and another machine may keep the same file
+ * in another sub-folder or list it behind a backslash, and renders it all the same.
+ */
 export const listedOn = (scan: Scan | undefined, recipe: string, input: string | null, path: string | null): boolean | null => {
   if (!scan || !input || !path) return null;
   const status = scan.recipes.find((r) => r.id === recipe);
-  return status ? Boolean(status.options[input]?.includes(path)) : null;
+  return status ? Boolean(sameFile(status.options[input] ?? [], path)) : null;
 };
 
 /**
@@ -107,7 +112,7 @@ export function useLoadChoices(form?: LoadForm | null) {
     const i = several.findIndex((m) => m.id === machine);
     const status = setups[i]?.data?.recipes.find((r) => r.id === form.recipe.id);
     if (!status) return false;
-    return !status.ready || form.recipe.inputs.some((x) => x.type === "model" && typeof whole[x.id] === "string" && whole[x.id] && status.options[x.id] && !status.options[x.id]!.includes(whole[x.id] as string));
+    return !status.ready || picksUnlisted(status, form.recipe, whole);
   };
 
   const load = async (choice: LoadChoice & { draft?: string }, machine?: string) => {
