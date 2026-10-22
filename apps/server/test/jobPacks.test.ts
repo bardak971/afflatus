@@ -82,16 +82,10 @@ async function setUp(opts: { manager?: boolean; rule?: "ask" | "always" } = {}) 
   }
 }
 /**
- * Waits on what the queue's view says, read every 100 ms: each read builds the whole view, and read every 5 ms (until) it
- * starved the pod tests running beside these (podQueue's pod files never came in time).
+ * Waits on what the queue's view says, read every 100 ms: each read builds the whole view, and read every 5 ms (until's
+ * default) it starved the pod tests running beside these (podQueue's pod files never came in time).
  */
-async function slowly(check: () => Promise<boolean>, ms = 15_000): Promise<void> {
-  const end = Date.now() + ms;
-  while (!(await check())) {
-    if (Date.now() > end) throw new Error("timed out waiting");
-    await new Promise((r) => setTimeout(r, 100));
-  }
-}
+const slowly = (check: () => Promise<boolean>, ms = 15_000) => until(check, ms, 100);
 const queueOf = async () => (await t.app.inject({ method: "GET", url: "/api/queue" })).json() as { waiting: Array<{ id: string; packs: { state: string; packs: Array<{ name: string; without?: string }> } | null }> };
 const sentNodes = () => [...fake.prompts.values()].flatMap((g) => Object.values(g as Record<string, { class_type: string }>).map((n) => n.class_type));
 const warningOf = async (id: string) => (await t.db.selectFrom("jobs").select("warning").where("id", "=", id).executeTakeFirst())?.warning ?? "";

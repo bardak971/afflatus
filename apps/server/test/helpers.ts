@@ -74,12 +74,15 @@ export async function makeFake(without: string[] = []): Promise<FakeComfy> {
   return startFakeComfy({ catalog, models: { checkpoints: [CHECKPOINT, "other.safetensors"], upscale_models: [] } });
 }
 
-/** Wait until something that happens on a later tick is true. */
-export async function until(check: () => boolean | Promise<boolean>, ms = 10_000): Promise<void> {
+/**
+ * Wait until something that happens on a later tick is true, read every `every` ms. A check that costs a lot (a read of
+ * the queue's whole view) asks for a longer poll, so that it does not starve the tests running beside it.
+ */
+export async function until(check: () => boolean | Promise<boolean>, ms = 10_000, every = 5): Promise<void> {
   const end = Date.now() + ms;
   while (!(await check())) {
     if (Date.now() > end) throw new Error("timed out waiting");
-    await new Promise((r) => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, every));
   }
 }
 

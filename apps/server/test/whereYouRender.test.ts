@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
-import { createServer } from "node:net";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
@@ -16,15 +16,6 @@ import { complete, makeApp, post, referenceCatalog, until, type TestApp } from "
 
 const SDXL_BASE = "sd_xl_base_1.0.safetensors";
 
-const freePort = () =>
-  new Promise<number>((resolve, reject) => {
-    const s = createServer();
-    s.once("error", reject);
-    s.listen({ host: "127.0.0.1", port: 0 }, () => {
-      const { port } = s.address() as { port: number };
-      s.close(() => resolve(port));
-    });
-  });
 const RECIPE = "sdxl.text-to-picture";
 
 let t: TestApp | undefined;
@@ -68,9 +59,11 @@ describe("a new install's settings", () => {
     const { start } = await import("../src/start");
     const dir = mkdtempSync(join(tmpdir(), "afflatus-new-"));
     const quiet = { log() {}, warn() {}, error() {} };
-    const port = await freePort();
-    const started = await start({ host: "127.0.0.1", port, dataDir: dir, databaseUrl: "" }, { log: quiet as never });
+    // port 0: the system gives the server a free port as it listens, read back from it; a port found free first and bound
+    // after could be taken in between by a test running beside this one
+    const started = await start({ host: "127.0.0.1", port: 0, dataDir: dir, databaseUrl: "" }, { log: quiet as never });
     try {
+      const { port } = started.app.server.address() as AddressInfo;
       const s = await (await fetch(`http://127.0.0.1:${port}/api/settings`)).json();
       expect(s).toMatchObject({ machines: [], firstLaunch: "pending", allFamilies: true });
     } finally {
@@ -107,7 +100,9 @@ describe("with no machine at all", () => {
     await writeSettings(t.db, { machines: [] });
     await t.services.queue.start();
     const id = (await post(t.app, "/api/jobs", { recipe: RECIPE, input: { prompt: "a lighthouse at noon", checkpoint: SDXL_BASE } })).json().ids[0] as string;
-    await new Promise((r) => setTimeout(r, 300));
+    // the queue's pass over the line, begun by the enqueue, is waited for to its end: a fixed wait could look before it
+    // ran on a loaded machine, and the check would pass without testing anything
+    await t.services.queue.idle();
     const row = await t.db.selectFrom("jobs").select(["status", "error"]).where("id", "=", id).executeTakeFirstOrThrow();
     expect(row).toEqual({ status: "queued", error: null });
   });

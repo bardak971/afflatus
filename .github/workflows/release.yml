@@ -67,6 +67,22 @@ jobs:
             echo "::error::the pod's files changed since pod-v$v: tag a new pod image (pod-v*) and point runpod.ts at it"
             exit 1
           fi
+      # a pod-v* tag is not an image: its build can fail (pod-v0.1.24 failed its shellcheck and was never built), or its
+      # package be left private. Both CUDA builds are asked of GHCR the way RunPod pulls them, with no login, so a
+      # release never deploys an image that is not there for every pod
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Check the pod image is published
+        env:
+          POD_IMAGE: ghcr.io/${{ github.repository_owner }}/afflatus-pod
+        run: |
+          v=$(grep -oE 'afflatus-pod:[0-9]+\.[0-9]+\.[0-9]+' apps/server/src/runpod.ts | head -n 1 | cut -d: -f2)
+          image=$(printf '%s' "$POD_IMAGE" | tr '[:upper:]' '[:lower:]')
+          for tag in "$v" "$v-cu128"; do
+            if ! docker buildx imagetools inspect "$image:$tag" > /dev/null; then
+              echo "::error::$image:$tag is not on GHCR, or not public: see the Pod image run of pod-v$v, or set the package public"
+              exit 1
+            fi
+          done
 
   # the release staged once, for the package-lock.json it resolves: the image and the bundles install that one
   stage:
