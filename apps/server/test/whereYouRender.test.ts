@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -69,6 +69,20 @@ describe("a new install's settings", () => {
     const none = await updateSettings(db, () => ({ machines: [] }));
     expect(none.machines).toEqual([]);
     expect(none.comfyUrl).not.toBe(pod);
+    await db.destroy();
+  });
+
+  it("drops a pod's address kept from before, its pod removed since, when the settings are read", async () => {
+    const db = openSqlite(":memory:");
+    await migrate(db);
+    await seedNewInstall(db);
+    // written so by a version that kept the last machine's address, whatever it was
+    await db.deleteFrom("settings").where("key", "=", "comfyUrl").execute();
+    await db.insertInto("settings").values({ key: "comfyUrl", value: JSON.stringify("https://zz-test-8188.proxy.runpod.net"), updated_at: new Date().toISOString() }).execute();
+    await writeSettings(db, { unloadAfterMinutes: 0 });
+    const read = await readSettings(db);
+    expect(read.machines).toEqual([]);
+    expect(read.comfyUrl).toBe("http://127.0.0.1:8188");
     await db.destroy();
   });
 
@@ -173,6 +187,28 @@ describe("a family's official file missing on the user's own ComfyUI", () => {
     await until(() => fake!.prompts.size === 1);
   });
 
+  it("lists only the awaited files' folders while the job waits, ComfyUI's node list read again once one is there", async () => {
+    fake = await startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: ["illustrious.safetensors"], upscale_models: [] } });
+    t = await makeApp({ comfyUrl: fake.url });
+    (t.services.queue as unknown as { opts: QueueOptions }).opts = { ...FAST, filesRetryMs: 50 };
+    await t.services.queue.start();
+    const comfy = await t.services.comfy();
+    const catalogs = vi.spyOn(comfy.client, "catalog");
+    const id = (await post(t.app, "/api/jobs", { recipe: RECIPE, input: { prompt: "a lighthouse at noon", checkpoint: SDXL_BASE } })).json().ids[0] as string;
+    const waiting = async () => (await t!.app.inject({ method: "GET", url: "/api/queue" })).json().waiting.find((w: { id: string }) => w.id === id);
+    await until(async () => Boolean((await waiting())?.fetch?.m1));
+    const before = catalogs.mock.calls.length;
+    // many "minutes" waiting: the node list is not read again for any of them
+    await new Promise((r) => setTimeout(r, 600));
+    expect(catalogs.mock.calls.length).toBe(before);
+    fake.models.checkpoints!.push(SDXL_BASE);
+    const spec = fake.catalog.CheckpointLoaderSimple!.input.required!.ckpt_name as unknown[];
+    const list = Array.isArray(spec[0]) ? (spec[0] as string[]) : (spec[1] as { options: string[] }).options;
+    list.push(SDXL_BASE);
+    await until(() => fake!.prompts.size === 1);
+    expect(catalogs.mock.calls.length).toBeGreaterThan(before);
+  });
+
   it("does not hold a job on a lone ComfyUI for a file only its workflow's author gives an address for, downloads off", async () => {
     fake = await startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: ["illustrious.safetensors"], upscale_models: [] } });
     t = await makeApp({ comfyUrl: fake.url });
@@ -269,6 +305,37 @@ describe("the user's ComfyUI on this machine, added by its address", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("has its folder looked for again when it first answers, when it did not say it as its address was saved", async () => {
+    const { mkdirSync, writeFileSync, existsSync } = await import("node:fs");
+    const dir = mkdtempSync(join(tmpdir(), "afflatus-comfy-later-"));
+    try {
+      mkdirSync(join(dir, "custom_nodes"));
+      writeFileSync(join(dir, "main.py"), "");
+      fake = await startFakeComfy({ catalog: referenceCatalog(), models: {}, folderPaths: { custom_nodes: [join(dir, "custom_nodes")] }, hideFolderPaths: true });
+      t = await makeApp();
+      await writeSettings(t.db, { machines: [] });
+      // added while it says nothing of its folders (off, as far as that goes): no folder, but said to be on this PC
+      const saved = (await t.app.inject({ method: "PUT", url: "/api/settings", payload: { comfyUrl: fake.url } })).json();
+      expect(saved.comfyDir).toBe("");
+      expect(saved.machines[0]).toMatchObject({ url: fake.url, local: true });
+      expect((await t.app.inject({ method: "GET", url: "/api/settings" })).json().machines[0].local).toBe(true);
+      // it answers (a page reads its load): its folder found then, and the node pack written in
+      fake.hideFolderPaths = false;
+      (await t.services.comfy()).monitor.ensure();
+      await until(async () => (await readSettings(t!.db)).comfyDir === dir);
+      await until(() => existsSync(join(dir, "custom_nodes", "afflatus-nodes")));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("is not said to be on this PC for a host name that only starts with 127.", async () => {
+    t = await makeApp();
+    await writeSettings(t.db, { machines: [] });
+    const saved = (await t.app.inject({ method: "PUT", url: "/api/settings", payload: { comfyUrl: "http://127.example.net:8188" } })).json();
+    expect(saved.machines[0].local).toBe(false);
   });
 
   it("has its folder found from what it says, and Afflatus's node pack written in", async () => {

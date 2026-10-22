@@ -15,7 +15,9 @@ import { ShippedPresets, shippedPresetsDir } from "./presetFiles";
 import { DEFAULT_QUEUE_OPTIONS, Queue, type QueueOptions } from "./queue";
 import { podFetchOf } from "./queuePlan";
 import { Registry } from "./registry";
-import { readSettings, type Machine } from "./settings";
+import { readSettings, writeSettings, type Machine, type Settings } from "./settings";
+import { comfyFolderOf } from "./modelDownload";
+import { installNodePack } from "./nodePack";
 import { Linked, RoutedStorage } from "./linked";
 import { fillKeptBytes } from "./media";
 import type { Storage } from "./storage";
@@ -48,6 +50,11 @@ export interface Services {
   machines(): Promise<MachineComfy[]>;
   /** The ComfyUI of this machine id; the first one for an id that is gone. */
   comfyOf(id: string | null | undefined): Promise<Comfy>;
+  /**
+   * The first ComfyUI's folder looked for, when none is set and it runs on this machine (modelDownload.ts comfyFolderOf):
+   * found, it is saved and Afflatus's node pack written in. The settings as saved then; null when nothing was found or set.
+   */
+  comfyFolder(): Promise<Settings | null>;
   queue: Queue;
   timelines: Timelines;
   /** Model files being fetched into ComfyUI. */
@@ -114,6 +121,10 @@ export async function createServices(
       // every step's live preview kept, only while data/keep-previews exists: what the swap judge is measured on
       // (HANDOVER-swap-motion.md's sibling plan, 2026-10-19), never on in normal use
       if (dirs.dataDir) c.monitor.onStepPreview = keepPreview(join(dirs.dataDir, "keep-previews"));
+      // added while it was off, or without a Test: its folder is looked for once it answers, not only when its address is
+      // saved, so that the node pack goes in by itself (the pages read the settings again)
+      const id = m.id;
+      c.onFirstAnswer = () => void comfyFolder(id).then((saved) => saved && queue.events.emit("setup"), () => {});
       pool.set(m.id, c);
     }
     // a token set, renewed or taken off goes with the next call; an open socket stays open (the lock let it in)
@@ -141,6 +152,21 @@ export async function createServices(
     const all = await machines();
     return all.find((x) => x.machine.id === id)?.comfy ?? firstOf(all);
   };
+  let looking: Promise<Settings | null> | null = null;
+  const comfyFolder = (id?: string): Promise<Settings | null> => (looking ??= (async () => {
+    const saved = await readSettings(db);
+    const first = saved.machines[0];
+    if (!first || first.rented || saved.comfyDir.trim() || (id && first.id !== id)) return null;
+    const found = await comfyFolderOf(clientOf(first).client, first.url).catch(() => null);
+    if (!found) return null;
+    // set by hand, or another address given, while ComfyUI was asked: that one stands
+    const now = (await readSettings(db)).machines[0];
+    if (now?.id !== first.id || now.url !== first.url || now.dir.trim()) return null;
+    const written = await writeSettings(db, { comfyDir: found });
+    // ComfyUI's folder set: Afflatus's node pack goes into its custom_nodes (ComfyUI loads it at its next start)
+    await installNodePack(found).catch((err: Error) => console.warn(`[node-pack] not written: ${err.message}`));
+    return written;
+  })().finally(() => (looking = null)));
   const queue = new Queue(db, storage, machines, registry, queueOptions);
   queue.events.on("models", () => {
     info = null;
@@ -270,7 +296,7 @@ export async function createServices(
   const podFilesTimer = setInterval(() => void podFiles.tick().catch((err) => console.warn("[pod files]", (err as Error).message)), 1000);
   podFilesTimer.unref();
   const services: Services = {
-    db, dbKind, storage, linked, registry, comfy, machines, comfyOf, queue, timelines, rented, notify, access, podFiles, podOutside, downloads,
+    db, dbKind, storage, linked, registry, comfy, machines, comfyOf, comfyFolder: () => comfyFolder(), queue, timelines, rented, notify, access, podFiles, podOutside, downloads,
     shippedPresets,
     officialSizes: new OfficialSizes(db, () => registry.families(), async () => (await readSettings(db)).civitaiLookups),
     updates: null as unknown as Updates,

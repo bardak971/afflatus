@@ -247,7 +247,8 @@ export const settingsSchema = z.object({
   machines: z.array(machineSchema).max(MAX_MACHINES).default([]),
   comfyUrl: httpUrl.default("http://127.0.0.1:8188"),
   /**
-   * ComfyUI's own folder on the computer Afflatus runs on (the one with main.py), when they share a disk.
+   * ComfyUI's folder on the computer Afflatus runs on, the one that holds custom_nodes and models (main.py's, or the base
+   * folder of ComfyUI Desktop and of --base-directory), when they share a disk.
    * Lets Afflatus put a workflow where ComfyUI's page opens it straight away. Empty when ComfyUI is elsewhere.
    */
   comfyDir: z.string().max(400).default(""),
@@ -415,10 +416,22 @@ export const firstMachine = (url: string, dir = ""): Machine => ({ id: FIRST_MAC
  * written empty stays empty: no ComfyUI is expected, and nothing says one is offline.
  */
 function inStep(s: Settings, listed = true): Settings {
-  if (!s.machines.length) return listed ? s : { ...s, machines: [firstMachine(s.comfyUrl, s.comfyDir)] };
+  if (!s.machines.length) {
+    // a pod's address kept from before only a ComfyUI of the user's own was kept so (writeSettings), its pod removed since:
+    // never offered as "Your ComfyUI", ComfyUI's usual one instead
+    const kept = podProxyUrl(s.comfyUrl) ? { ...s, comfyUrl: settingsSchema.shape.comfyUrl.parse(undefined) } : s;
+    return listed ? kept : { ...kept, machines: [firstMachine(kept.comfyUrl, kept.comfyDir)] };
+  }
   const [first] = s.machines;
   return { ...s, comfyUrl: first!.url, comfyDir: first!.dir };
 }
+
+/**
+ * Whether an address has a rented pod's shape, RunPod's proxy (https://<pod>-<port>.proxy.runpod.net, runpod.ts podUrl):
+ * what tells a pod's address kept after its pod was removed, when no machine names it. RUNPOD_PROXY's stand-in shapes
+ * (the demo's, the tests') are not taken: theirs is 127.0.0.1 and a port, which a ComfyUI of the user's own can be too.
+ */
+export const podProxyUrl = (url: string): boolean => /^https:\/\/[a-z0-9-]+-\d+\.proxy\.runpod\.net\/*$/i.test(url.trim());
 
 /** The machines of the user's own (a ComfyUI on this PC or the LAN), the rented pods left out. */
 export const ownMachines = (s: Pick<Settings, "machines">): Machine[] => s.machines.filter((m) => !m.rented);
@@ -547,7 +560,7 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
         // not JSON: the usual one
       }
       const stored = httpUrl.safeParse(value);
-      sent.comfyUrl = stored.success && !pods.has(stored.data) ? stored.data : settingsSchema.shape.comfyUrl.parse(undefined);
+      sent.comfyUrl = stored.success && !pods.has(stored.data) && !podProxyUrl(stored.data) ? stored.data : settingsSchema.shape.comfyUrl.parse(undefined);
     }
   } else if ("comfyUrl" in sent || "comfyDir" in sent) {
     // the address alone, with no ComfyUI of the user's own yet (a rented-only start, the first launch's "I have one"): it is
@@ -618,12 +631,13 @@ function notifyMerged(current: NotifySettings, asked: unknown): unknown {
 }
 
 /** What the browser may see: secrets are replaced by whether they are set. */
-export function publicSettings(s: Settings) {
+export function publicSettings(s: Settings, here: (url: string) => boolean = () => false) {
   const open = ({ apiKey, ...l }: Llm) => ({ ...l, hasApiKey: Boolean(apiKey) });
   const used = llmInUse(s);
   return {
-    // a machine's token stays here: the page is told whether there is one, and its end, to tell two apart
-    machines: s.machines.map(({ token, ...m }) => ({ ...m, tokenEnd: token ? token.slice(-4) : "" })),
+    // a machine's token stays here: the page is told whether there is one, and its end, to tell two apart. `local`: its
+    // ComfyUI runs on this machine (setup-api passes modelDownload's onThisMachine), what the page says of its node pack
+    machines: s.machines.map(({ token, ...m }) => ({ ...m, tokenEnd: token ? token.slice(-4) : "", local: !m.rented && here(m.url) })),
     comfyUrl: s.comfyUrl,
     comfyDir: s.comfyDir,
     unloadAfterMinutes: s.unloadAfterMinutes,

@@ -60,14 +60,7 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
     return { found: null, tried };
   });
 
-  app.get("/api/settings", async () => publicSettings(await readSettings(s.db)));
-  /** The first ComfyUI's folder, when none is set and it runs on this machine: as it says it (modelDownload.ts comfyFolderOf). */
-  const foundFolder = async (saved: Awaited<ReturnType<typeof readSettings>>): Promise<string | null> => {
-    const first = saved.machines[0];
-    if (!first || first.rented || saved.comfyDir.trim()) return null;
-    const comfy = (await s.machines()).find((m) => m.machine.id === first.id)?.comfy;
-    return comfy ? comfyFolderOf(comfy.client, first.url).catch(() => null) : null;
-  };
+  app.get("/api/settings", async () => publicSettings(await readSettings(s.db), onThisMachine));
   app.put("/api/settings", async (req) => {
     // under the Access settings' rule (access.ts mayChange: a sign-in of the last 10 minutes, or the password in the
     // X-Afflatus-Password header): the new-device notice, which would hide a sign-in from elsewhere, and Telegram's bot and
@@ -94,15 +87,15 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
     // a family switched, on every machine or on one: what each machine may run changed (the queue looks again, the pages read it again)
     if (req.body && typeof req.body === "object" && ("families" in req.body || "machines" in req.body)) s.queue.events.emit("setup");
     // the user's ComfyUI given by its address alone (the first launch, Add): its folder found from what it says, when it
-    // runs on this machine, so that the node pack goes in by itself
+    // runs on this machine, so that the node pack goes in by itself (written in there too). Off now: looked for again once it answers
     const asked = req.body && typeof req.body === "object" && ("comfyUrl" in req.body || "machines" in req.body);
-    const found = asked && !("comfyDir" in (req.body as object)) ? await foundFolder(saved) : null;
-    if (found) saved = await writeSettings(s.db, { comfyDir: found });
+    const found = asked && !("comfyDir" in (req.body as object)) ? await s.comfyFolder() : null;
+    if (found) saved = found;
     // ComfyUI's folder set: Afflatus's node pack goes into its custom_nodes (ComfyUI loads it at its next start)
-    if (((req.body && typeof req.body === "object" && "comfyDir" in req.body) || found) && saved.comfyDir.trim()) {
+    if (req.body && typeof req.body === "object" && "comfyDir" in req.body && saved.comfyDir.trim()) {
       await installNodePack(saved.comfyDir).catch((err: Error) => console.warn(`[node-pack] not written: ${err.message}`));
     }
-    return publicSettings(saved);
+    return publicSettings(saved, onThisMachine);
   });
 
   /**

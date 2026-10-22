@@ -1,7 +1,8 @@
 import { EventEmitter } from "node:events";
-import { ComfyAway, ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, systemLoadFromStatus, waitForOutputs, type Measured } from "@afflatus/comfy";
+import { ComfyAway, ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, filesIn, systemLoadFromStatus, waitForOutputs, type Measured } from "@afflatus/comfy";
 import { expandWildcards, modelFileName, modelOf, parseInput, removedSaid, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import { Comfy, NO_COMFY_URL, type MachineComfy } from "./comfy";
+import { fileName } from "./media";
 import { newId, now, OWNER, type Db } from "./db";
 import { addedBy } from "./events";
 import { httpError } from "./errors";
@@ -105,9 +106,9 @@ export class Queue {
   /** The node packs renders ask for on the machines of the user's own: installed there, and ComfyUI restarted (queuePacks.ts). */
   readonly ownPacks: OwnPacks;
   private retry: NodeJS.Timeout | null = null;
-  /** The machines of the user's own a job waits on for files, read again when filesRetry fires (filesWait). */
+  /** The machines of the user's own a job waits on for files, and those files by folder, read again when filesRetry fires (filesWait). */
   private filesRetry: NodeJS.Timeout | null = null;
-  private readonly filesWaitOn = new Set<string>();
+  private readonly filesWaitOn = new Map<string, Map<string, Set<string>>>();
   private stopped = false;
   /** While an update waits for the queue (updates.ts): only these jobs may start, the rest wait for the new version. Null: any. */
   private only: ReadonlySet<string> | null = null;
@@ -177,7 +178,7 @@ export class Queue {
       heldOn: (r) => this.heldOn(r),
       allPaused: () => this.allPaused(),
       retryLater: () => this.retryLater(),
-      filesWait: (machine) => this.filesWait(machine),
+      filesWait: (machine, files) => this.filesWait(machine, files),
       paces: () => this.forecasts.paces(),
       expected: (recipe, input, cold, job, machine) => this.expected(recipe, input, cold, job, machine),
       expectedAll: (recipe, input, cold, job) => this.forecasts.expectedAll(recipe, input, cold, job),
@@ -1055,23 +1056,31 @@ export class Queue {
 
   /**
    * A job waits on a machine of the user's own for files to be downloaded there: a file put in by hand or by ComfyUI-Manager's
-   * page tells the queue nothing, so that machine's model folders and node list are read again in a while (filesRetryMs, a
-   * minute) and the queue planned again, for as long as such a job waits (each pass that plans it so asks again). The node
-   * list too: the job's check before it is sent reads the file's name in its loader's choices, and a file seen in the folder
-   * but not there failed the job.
+   * page tells the queue nothing, so in a while (filesRetryMs, a minute) the folders of the files awaited are listed, and the
+   * queue planned again, for as long as such a job waits (each pass that plans it so asks again). Nothing there yet: the
+   * machine's scan is left to its own minute, made again in the background as the queue asks for it, never waited for. One
+   * there: its scan and its node list are read again before the queue plans (the job's check before it is sent reads the
+   * file's name in its loader's choices, and a file seen in the folder but not there failed the job). The node list, ComfyUI's
+   * whole /object_info, is so not read every minute for as long as the job waits. A scan made stale here instead was seen to
+   * find the file before the node list did, and the job failed.
    */
-  private filesWait(machine: string): void {
-    this.filesWaitOn.add(machine);
+  private filesWait(machine: string, files: ReadonlyArray<{ file: string; folder: string }>): void {
+    const awaited = this.filesWaitOn.get(machine) ?? new Map<string, Set<string>>();
+    for (const f of files) awaited.set(f.folder, (awaited.get(f.folder) ?? new Set()).add(fileName(f.file)));
+    this.filesWaitOn.set(machine, awaited);
     if (this.filesRetry || this.stopped) return;
     this.filesRetry = setTimeout(() => {
       this.filesRetry = null;
-      for (const id of this.filesWaitOn) {
-        const comfy = this.lanes.get(id)?.comfy;
-        comfy?.forgetScan();
-        comfy?.forgetCatalog();
-      }
+      const asked = [...this.filesWaitOn];
       this.filesWaitOn.clear();
-      void this.pump();
+      void Promise.all(asked.map(async ([id, awaited]) => {
+        const comfy = this.lanes.get(id)?.comfy;
+        if (!comfy) return;
+        const there = await Promise.all([...awaited].map(async ([folder, names]) => (await filesIn(comfy.client, folder).catch(() => [] as string[])).some((f) => names.has(fileName(f)))));
+        if (!there.some(Boolean)) return;
+        comfy.forgetScan();
+        comfy.forgetCatalog();
+      })).then(() => this.pump());
     }, this.opts.filesRetryMs ?? 60_000);
   }
 

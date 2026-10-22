@@ -43,8 +43,12 @@ export class Comfy {
     // changed, a node pack just written among them, so nothing kept about it holds
     this.monitor.onOpen = (again) => {
       if (again) this.forgetAll();
+      else this.onFirstAnswer?.();
     };
   }
+
+  /** Its socket opened the first time (it answers, maybe for the first time since it was added): services.ts looks for its folder then. */
+  onFirstAnswer?: () => void;
 
   /** The files chosen by hand for the families' slots (Settings), read when a scan is made. */
   overrides?: () => Promise<Record<string, Record<string, string>>>;

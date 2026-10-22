@@ -97,8 +97,8 @@ interface PlanDeps {
   heldOn(r: JobRow): string | null;
   allPaused(): boolean;
   retryLater(): void;
-  /** A job waits on this machine of the user's own for files: its model folders are read again in a while, and the queue with them. */
-  filesWait(machine: string): void;
+  /** A job waits on this machine of the user's own for these files: its model folders are read again in a while, and the queue with them. */
+  filesWait(machine: string, files: ReadonlyArray<{ file: string; folder: string }>): void;
   paces(): Promise<Map<string, number>>;
   expected(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean, job: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit"> | null, machine: string | null): Promise<number | null>;
   expectedAll(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean, job: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit"> | null): Promise<Expected>;
@@ -259,7 +259,7 @@ export class Planner {
         can.add(id);
         if (!pin || pin === id) fetch[id] = { files: lack.files, ms: 0 };
         // its files may be put in by hand (or by ComfyUI-Manager's page), which nothing else would tell the queue of
-        this.d.filesWait(id);
+        this.d.filesWait(id, lack.files);
       }
       // a timeline clip of a model that joins in a kept latent (H3): on a machine that has the join's nodes (the Afflatus node
       // pack), while any has them. Sent elsewhere, the clip saves no latent and the clip after it joins on frames with no word

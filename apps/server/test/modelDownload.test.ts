@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chooseRoute, MANAGER_BIG, MANAGER_HF } from "../src/downloads";
-import { fetchToFile, modelRoot, placeIn, Refused, sizeText, type FetchTo } from "../src/modelDownload";
+import { fetchToFile, modelRoot, onThisMachine, placeIn, Refused, sizeText, type FetchTo } from "../src/modelDownload";
 import { until } from "./helpers";
 
 /** A file of 3 MB whose every byte depends on where it is: a piece out of place shows. It starts as a safetensors file does. */
@@ -223,6 +223,15 @@ describe("where Afflatus may write a model", () => {
     // the same paths of a ComfyUI on this machine are its own
     expect(await modelRoot({ loras: [outside] }, "loras", "http://127.0.0.1:8188", comfy)).toBe(await realpath(outside));
     expect(await modelRoot({ custom_nodes: [inside] }, "custom_nodes", "http://127.0.0.1:8188", comfy)).toBeNull();
+  });
+
+  it("counts as this machine only a loopback or own address, or localhost, never a host name that starts with 127.", () => {
+    for (const url of ["http://127.0.0.1:8188", "http://127.1.2.3:8188", "http://127.1:8188", "http://[::1]:8188", "http://localhost:8188"]) {
+      expect(onThisMachine(url), url).toBe(true);
+    }
+    for (const url of ["http://127.example.net:8188", "http://127.0.0.1.nip.io:8188", "http://192.0.2.10:8188", "not a url"]) {
+      expect(onThisMachine(url), url).toBe(false);
+    }
   });
 
   it("keeps a sub-folder inside the folder, and refuses one whose link leads out of it", async () => {
