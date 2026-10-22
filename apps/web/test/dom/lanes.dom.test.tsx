@@ -7,7 +7,7 @@ import { useNewClock, type Clock } from "../../src/timeline/clock";
 import { attention } from "../../src/timeline/attention";
 import { NEW_CLIP, PAD } from "../../src/timeline/model";
 import { Track } from "../../src/timeline/Track";
-import { endColumnAt } from "../../src/timeline/track/EndColumn";
+import { endColumnAt, STRIP } from "../../src/timeline/track/EndColumn";
 import { usePlayhead } from "../../src/timeline/usePlayhead";
 import { Inspector } from "../../src/timeline/Inspector";
 import { useTimelineEditor } from "../../src/timeline/useTimelineEditor";
@@ -67,6 +67,7 @@ describe("the end column (the lanes mock, 2026-10-22)", () => {
     const { container } = track([clip("a", 0), clip("b", 5000)]);
     const end = PAD + 2 * 200;
     const cells = ["video", "audio", "source"].map((k) => container.querySelector(`[data-end-column="${k}"]`)!);
+    expect(container.querySelector("[data-end-strip]")).toBeNull();
     for (const c of cells) {
       expect(px(c, "left")).toBe(end + PAD);
       expect(px(c, "width")).toBe(NEW_CLIP);
@@ -84,11 +85,53 @@ describe("the end column (the lanes mock, 2026-10-22)", () => {
   it("is pinned at the view's right edge only while the clips run past the view", () => {
     // the clips end in view, the column cut by the edge: it stays after them (it was pulled left over clip 2's Audio cell)
     expect(endColumnAt(900, PAD, { left: 0, width: 1000 })).toEqual({ left: 910, pinned: false });
-    expect(endColumnAt(2000, PAD, { left: 0, width: 1000 })).toEqual({ left: 1000 - NEW_CLIP - 8, pinned: true });
+    expect(endColumnAt(2000, PAD, { left: 0, width: 1000 })).toEqual({ left: 1000 - STRIP, pinned: true });
     // scrolled to the end, the clips' end in view again: after them
     expect(endColumnAt(2000, PAD, { left: 1500, width: 1000 })).toEqual({ left: 2010, pinned: false });
     // not measured yet: after the clips
     expect(endColumnAt(2000, PAD, { left: 0, width: 0 })).toEqual({ left: 2010, pinned: false });
+  });
+
+  it("is a slim strip of icons while pinned, each with its words in the tip, its drop and its menu; the full column once the clips end in view", () => {
+    // the view 400 px wide, three clips ending at 610 px: the clips run past it
+    const wide = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(400);
+    try {
+      const { container, asked } = track([clip("a", 0), clip("b", 5000), clip("c", 10_000)]);
+      const strip = container.querySelector<HTMLElement>("[data-end-strip]")!;
+      expect(strip).toBeTruthy();
+      expect(px(strip, "left")).toBe(400 - STRIP);
+      expect(px(strip, "width")).toBe(STRIP);
+      const cells = ["video", "audio", "source"].map((k) => strip.querySelector<HTMLElement>(`[data-end-column="${k}"]`)!);
+      expect(cells.map((c) => c.dataset.tip)).toEqual(["New clip", "Drop a voice recording: Lip sync, clip by clip", "Drop a long video: Motion transfer, window by window"]);
+      for (const c of cells) {
+        expect(c.textContent).toBe("");
+        expect(px(c, "width")).toBeGreaterThanOrEqual(24);
+        expect(px(c, "width")).toBeLessThan(STRIP);
+      }
+      // a recording dragged over the mic: its cell widens to say what the drop does; dropped, Lip sync clips after the last one
+      const dataTransfer = { types: [DRAG_SOUND, DRAG_TYPE], getData: (t: string) => (t === DRAG_TYPE ? "zz-test-voice" : ""), files: [], items: [] };
+      fireEvent.dragOver(cells[1]!, { dataTransfer });
+      expect(cells[1]!.textContent).toBe("Drop a voice recording: Lip sync, clip by clip");
+      expect(px(cells[1]!, "width")).toBe(NEW_CLIP);
+      fireEvent.drop(cells[1]!, { dataTransfer });
+      expect(asked).toEqual(["recording zz-test-voice"]);
+      fireEvent.contextMenu(cells[2]!);
+      expect(screen.getAllByRole("menuitem").map((m) => m.textContent?.trim())).toEqual(["Choose a video from the library…", "Open a video file…", "Motion transfer: how windows are cut…"]);
+    } finally {
+      wide.mockRestore();
+    }
+    // a view wide enough for the clips: the full column after them, no strip
+    const roomy = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(2000);
+    try {
+      const { container } = track([clip("a", 0), clip("b", 5000), clip("c", 10_000)]);
+      expect(container.querySelector("[data-end-strip]")).toBeNull();
+      const audio = container.querySelector<HTMLElement>('[data-end-column="audio"]')!;
+      expect(px(audio, "left")).toBe(PAD + 600 + PAD);
+      expect(px(audio, "width")).toBe(NEW_CLIP);
+      expect(audio.textContent).toBe("Drop a voice recording: Lip sync, clip by clip");
+    } finally {
+      roomy.mockRestore();
+    }
   });
 
   it("adds after the last clip what is dropped on its Audio and Source cells", () => {
