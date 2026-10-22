@@ -582,7 +582,8 @@ export const api = {
   binUnusedTakes: (id: string) => call<{ binned: number; bytes: number }>("POST", `/timelines/${id}/unused-takes/bin`),
   /** A new clip: empty, or from a video or a picture of the library. After `after`, first when null, last when left out. */
   addClip: (timeline: string, body: { after?: string | null; asset?: string; recipe?: string; as?: "still" | "clip"; stopAtMs?: number }) => call<{ clip: string; timeline: Timeline }>("POST", `/timelines/${timeline}/clips`, body),
-  editClip: (id: string, patch: ClipPatch) => call<{ ok: true }>("PATCH", `/clips/${id}`, patch),
+  /** `inputs`: the form as the server kept it, when it worked out some of it (a voice's part). */
+  editClip: (id: string, patch: ClipPatch) => call<{ ok: true; inputs?: Record<string, unknown> }>("PATCH", `/clips/${id}`, patch),
   deleteClip: (id: string) => call<{ ok: true }>("DELETE", `/clips/${id}`),
   /** One clip becomes two at a moment of its take (the video's own time). */
   splitClip: (id: string, atMs: number) => call<{ clip: string }>("POST", `/clips/${id}/split`, { atMs: Math.round(atMs) }),

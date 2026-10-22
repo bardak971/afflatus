@@ -272,8 +272,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     return { clip, timeline: await t.view(req.params.id) };
   });
   app.patch<{ Params: { id: string } }>("/api/clips/:id", async (req) => {
-    await t.editClip(req.params.id, clipPatch.parse(req.body));
-    return { ok: true };
+    // the form as kept when the server worked out some of it (a voice's part): the editor shows that
+    return { ok: true, ...(await t.editClip(req.params.id, clipPatch.parse(req.body))) };
   });
   app.delete<{ Params: { id: string } }>("/api/clips/:id", async (req) => {
     await t.removeClip(req.params.id);

@@ -43,7 +43,12 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
   const autosave = useKeyedAutosave<Record<string, unknown>>({
     save: async (key, inputs) => {
       const source = sourceOf(key);
-      if (!source) return void (await api.editClip(key, { inputs, ...shareOf(key) }));
+      if (!source) {
+        const kept = await api.editClip(key, { inputs, ...shareOf(key) });
+        // what the server worked out of the form (a voice's part) is shown over what was sent, so that the read back drops the edit
+        if (kept.inputs) setEdits((e) => withFilledInputs(e, key, inputs, kept.inputs!));
+        return;
+      }
       await api.editTimeline(source, { source: { inputs } });
       // read again for its Undo; the source panel keeps what is typed over what is read until it is saved
       void client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
@@ -84,6 +89,9 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
     latest.current.edits = { ...latest.current.edits, [c.id]: value };
     setEdits((e) => ({ ...e, [c.id]: value }));
     queue(c.id, value);
+    // a new voice is saved at once: the server works out its part, which the band and the Recording chapter show
+    const voice = recordingInput(recipes.data?.recipes.find((r) => r.id === c.recipe));
+    if (voice && value[voice.id] && value[voice.id] !== was[voice.id]) void flush(c.id);
   };
   /** The source lane's form typed (its panel's), saved as a clip's form is. */
   const typeSource = useCallback((timelineId: string, inputs: Record<string, unknown>) => queue(sourceKey(timelineId), inputs), [queue]);
@@ -177,6 +185,16 @@ export function settleEdits(edits: Record<string, Record<string, unknown>>, clip
 export function withServerInputs(edits: Record<string, Record<string, unknown>>, clipId: string, inputs: Record<string, unknown>, unsaved: { has(id: string): boolean }): Record<string, Record<string, unknown>> {
   if (!edits[clipId] || unsaved.has(clipId)) return edits;
   return { ...edits, [clipId]: inputs };
+}
+
+/**
+ * The edits once a clip's save was answered with the form as the server kept it (`kept`, a voice's part worked out): the
+ * edit becomes it while it is still what was `sent`. One typed since is left as it is: what the server works out may hang
+ * on what changed (another voice), and its own save is answered the same way.
+ */
+export function withFilledInputs(edits: Record<string, Record<string, unknown>>, clipId: string, sent: Record<string, unknown>, kept: Record<string, unknown>): Record<string, Record<string, unknown>> {
+  const edit = edits[clipId];
+  return edit && JSON.stringify(edit) === JSON.stringify(sent) ? { ...edits, [clipId]: kept } : edits;
 }
 
 /**

@@ -276,7 +276,8 @@ function clipRecordingOf(e: LoadedEditor, current: Clip): ClipRecording | undefi
   const asset = current.inputs[spec.id];
   if (typeof asset !== "string" || !asset) return undefined;
   const w = spec.window;
-  const mine = e.clips.filter((c) => c.recipe === current.recipe && c.inputs[spec.id] === asset);
+  // as shown, with what is typed and not read back yet (the band reads them so): a voice just given, its part worked out
+  const mine = e.shown.clips.filter((c) => c.recipe === current.recipe && c.inputs[spec.id] === asset);
   const at = (c: Clip) => Math.round(Number(c.inputs[w.start] ?? 0) * 1000);
   const end = (c: Clip) => at(c) + Math.round(Number(c.inputs[w.seconds] ?? 0) * 1000);
   const ask = e.recordingTrim.ask?.asset === asset ? e.recordingTrim.ask : null;
