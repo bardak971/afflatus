@@ -237,7 +237,7 @@ export const History = memo(function History() {
       <div className="@container/history flex min-h-0 grow basis-0 flex-col gap-1 overflow-y-auto pr-1 pb-4">
         {(days.length > 0 || jobs.isLoading) && (
           <div aria-hidden className={cx(ROW, "sticky top-0 z-10 bg-ground py-1 text-[11px] tracking-[0.06em] text-ink-3 uppercase")}>
-            <span /><span>Name</span><span className={MODEL_CELL}>Model</span><span className={cx("text-right", TOOK_CELL)}>Took</span><span className="text-right">When</span>
+            <span /><span>Name</span><span className={MODEL_CELL}>Model</span><span className={cx("text-right", TOOK_CELL)}>Took</span><span className="text-right">When</span><span />
           </div>
         )}
         {/* the first page on its way: rows as the list draws them, with the loading shine, so it lands in place */}
@@ -316,6 +316,7 @@ function PlaceholderRow() {
       <span className={cx("text-[12.5px]", MODEL_CELL)}><span className="m-skeleton inline-block h-[0.8em] w-24 align-middle" /></span>
       <span className={cx("text-right text-xs", TOOK_CELL)}><span className="m-skeleton inline-block h-[0.8em] w-10 align-middle" /></span>
       <span className="text-right text-xs"><span className="m-skeleton inline-block h-[0.8em] w-12 align-middle" /></span>
+      <span />
     </div>
   );
 }
@@ -393,6 +394,8 @@ const Row = memo(function Row({ jobs, acts, modelOf, requeueing, note }: RowProp
       <span className={cx("truncate text-[12.5px] text-ink-2", MODEL_CELL)} data-tip={modelTip(modelOf(head), head.model)}>{modelOf(head)}</span>
       <span className={cx("text-right font-mono text-xs text-ink-2", TOOK_CELL)}>{head.tookMs !== null && head.status === "done" ? took(head.tookMs) : "—"}</span>
       <span className="text-right text-xs text-ink-2">{head.finishedAt ? when(head.finishedAt) : ""}</span>
+      {/* the menu's column: a failed row's ··· (FailedRow); a finished one's actions are on hover, and its right-click */}
+      <span />
     </div>
   );
 }, sameRow);

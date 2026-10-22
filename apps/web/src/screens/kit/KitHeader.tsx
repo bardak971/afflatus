@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
-import { Bookmark, MapPin, Plus, Puzzle, Search, Sparkles, User, X } from "lucide-react";
+import { Bookmark, MapPin, Plus, Puzzle, Sparkles, User, X } from "lucide-react";
 import type { Entity } from "../../api";
-import { Button, Segmented } from "../../ui";
+import { Button, PageHeader, SearchField, SegmentCount, Segmented } from "../../ui";
 
 export type Tab = "person" | "place" | "style" | "snippet" | "preset";
 export const TABS: Array<{ id: Tab; title: string; add: string; icon: ReactNode }> = [
@@ -32,23 +32,32 @@ export function KitHeader({ tab, onTab, all, loading, query, onQuery, newLabel, 
 }) {
   const here = TABS.find((t) => t.id === tab)!;
   return (
-    <header className="flex h-[60px] shrink-0 items-center gap-4 border-b border-line px-6">
-      <h1 className="shrink-0 text-lg font-bold">Prompt kit</h1>
-      <Segmented<Tab>
-        oneLine
-        label="What to show"
-        value={tab}
-        options={TABS.map((t) => ({ value: t.id, label: <>{t.title} <span className={t.id === tab ? "font-normal text-ink-2" : "font-normal text-ink-3"}><span className="tabular-nums">{loading ? "–" : all.filter((e) => e.kind === t.id).length}</span></span></> }))}
-        onChange={onTab}
-      />
-      <span className="grow" />
-      <label className="flex h-9 w-60 min-w-0 items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
-        <Search size={14} className="shrink-0 text-ink-3" />
-        <input data-search aria-label={`Search your ${here.title.toLowerCase()}`} placeholder={`Search ${here.title.toLowerCase()}`} value={query} onChange={(e) => onQuery(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
-        {query && <button type="button" aria-label="Clear the search" onClick={() => onQuery("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
-      </label>
-      {extra}
-      <Button size="sm" tone="primary" disabled={busy} onClick={onNew} className="flex h-9 shrink-0 items-center gap-1.5"><Plus size={14} /> {newLabel ?? here.add}</Button>
-    </header>
+    <PageHeader
+      title="Prompt kit"
+      after={
+        <Segmented<Tab>
+          oneLine
+          label="What to show"
+          value={tab}
+          options={TABS.map((t) => ({ value: t.id, label: <span className="inline-flex items-center gap-1.5">{t.title}<SegmentCount>{loading ? null : all.filter((e) => e.kind === t.id).length}</SegmentCount></span> }))}
+          onChange={onTab}
+        />
+      }
+      actions={
+        <>
+          <SearchField
+            data-search
+            className="w-60"
+            label={`Search your ${here.title.toLowerCase()}`}
+            placeholder={`Search ${here.title.toLowerCase()}`}
+            value={query}
+            onChange={onQuery}
+            end={query && <button type="button" aria-label="Clear the search" onClick={() => onQuery("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
+          />
+          {extra}
+          <Button size="sm" tone="primary" disabled={busy} onClick={onNew} className="shrink-0"><Plus size={14} /> {newLabel ?? here.add}</Button>
+        </>
+      }
+    />
   );
 }

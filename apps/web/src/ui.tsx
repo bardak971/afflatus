@@ -532,18 +532,31 @@ export function SectionTitle({ level = "section", className, children }: { level
 
 /**
  * The head of a page (Queue, Settings, Prompt kit, Workflows): its title, then what switches its views (the page's
- * Segmented), then its actions on the right, at one height. The pages take it in the screens pass (review 4, P9).
- * @public
+ * Segmented), then its actions on the right, at one height, so that the title and the views are where the eye left them
+ * on the page before. Its side room is the pages' own (px-8), so the title stands over what the page lists.
  */
 export function PageHeader({ title, after, actions, className }: { title: ReactNode; after?: ReactNode; actions?: ReactNode; className?: string }) {
   return (
-    <header className={cx("flex h-14 shrink-0 items-center gap-3.5 border-b border-line px-5", className)}>
+    <header className={cx("flex h-14 shrink-0 items-center gap-3.5 border-b border-line px-8", className)}>
       <h1 className="m-0 shrink-0 text-page font-bold">{title}</h1>
       {after}
       <span className="grow" />
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </header>
   );
+}
+
+/**
+ * What a page's view holds, said in its segment after its name ("Snippets 5", "Storage 237 MB"): muted and in figures,
+ * so the name stays what is read first. A dash while it is not known, never a "0" that reads as none.
+ */
+export function SegmentCount({ children }: { children: ReactNode }) {
+  return <span className="font-mono text-micro font-normal text-ink-3 tabular-nums">{children ?? "–"}</span>;
+}
+
+/** A job at work behind a page's view (the Queue's segment while one renders): a small dot in the done colour, before its name. */
+export function LiveDot({ label }: { label: string }) {
+  return <span role="img" aria-label={label} className="inline-block size-1.5 shrink-0 rounded-full bg-good" />;
 }
 
 /**

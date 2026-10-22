@@ -201,8 +201,9 @@ describe("the history's pinned failures", () => {
     const now = new Date(2026, 9, 9, 15);
     expect(dayLabel("2026-10-09", now)).toBe("Today");
     expect(dayLabel("2026-10-08", now)).toBe("Yesterday");
-    expect(dayLabel("2026-10-01", now)).toBe("01/10");
-    expect(dayLabel("2025-12-31", now)).toBe("31/12/2025");
+    // the When column's words, not "01/10" (review 4, finding 16: three date formats in one table)
+    expect(dayLabel("2026-10-01", now)).toBe("1 Oct");
+    expect(dayLabel("2025-12-31", now)).toBe("31 Dec 2025");
   });
 });
 

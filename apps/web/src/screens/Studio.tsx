@@ -2,7 +2,8 @@ import { Suspense, useCallback, useEffect, useRef, useState, useMemo } from "rea
 import { useLocation } from "wouter";
 import { Plus } from "lucide-react";
 import { api, type Asset } from "../api";
-import { useFolders, useProjects, useTimelines } from "../data";
+import { useFolders, useProjects, useSettings, useTimelines } from "../data";
+import { Keys } from "../Keys";
 import { useProject } from "../project";
 import { useKeysHere } from "../keys/here";
 import { displayOf, useBanners, useHandover, useOpenDraft, usePanelWidth, useStudio, type Scope } from "../store";
@@ -258,6 +259,8 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
                       : place.type === "folder"
                         ? "What you generate while it is open lands in it. Or drag items onto it in the project's tree, under the breadcrumb."
                         : "Images and videos you generate appear here. Start with Create."}
+                  // the three ways in, said where the grid would be: what a first look at an empty library is for
+                  action={!filtered && place.type !== "bin" && <WaysIn />}
                 />
               )}
               {!showTimelines && items.length > 0 && !sections.length && <Empty title={groupedEmpty.title} help={groupedEmpty.body} />}
@@ -311,5 +314,19 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
       {open && <Viewer asset={items.find((a) => a.id === open.id) ?? open} items={visible} more={{ has: Boolean(assets.hasNextPage), busy: assets.isFetchingNextPage || assets.isFetchingPreviousPage, load: () => void assets.fetchNextPage() }} onOpen={setOpen} onClose={() => setOpen(null)} />}
       {gridMenu.element}
     </div>
+  );
+}
+
+/** How an empty library fills: a drop, the form's key, the command bar's key (the one set in Settings › Command bar). */
+function WaysIn() {
+  const bar = useSettings().data?.bar?.shortcut ?? "Ctrl+K";
+  return (
+    <span className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-body">
+      <span>Drop pictures or videos here</span>
+      <span className="text-ink-3">·</span>
+      <span className="inline-flex items-center gap-1.5"><Keys keys="N" size="sm" /> opens the form</span>
+      <span className="text-ink-3">·</span>
+      <span className="inline-flex items-center gap-1.5"><Keys keys={bar} size="sm" /> finds a model</span>
+    </span>
   );
 }

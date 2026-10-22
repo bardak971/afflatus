@@ -15,7 +15,7 @@ import { saveJson } from "../download";
 import { useHandover } from "../store";
 import { useWorkflowsRequest, workflowEditHref } from "../bar/bridge";
 import { settingHref } from "./settings/settingsIndex";
-import { Button, Chip, cx, ErrorNote, Help, SectionTitle } from "../ui";
+import { Button, Chip, cx, Empty, ErrorNote, Help, PageHeader, SectionTitle } from "../ui";
 import { WorkflowEditor, type Editing } from "./WorkflowEditor";
 import { WorkflowEditorSkeleton } from "./workflowEditor/EditorSkeleton";
 import { queryKeys } from "../queryKeys";
@@ -159,12 +159,15 @@ export function WorkflowImport() {
 
 const KIND = { image: "Image", video: "Video", audio: "Audio" } as const;
 
-/** What the readiness chip counts, from the setup check: the missing nodes first, as notReady says them first. */
-function missingCount(status: RecipeStatus | undefined): string {
-  if (!status || status.ready) return "";
-  if (status.missingNodes.length) return ` · ${plural(status.missingNodes.length, "node")}`;
+/**
+ * What a workflow lacks that can be fetched, counted: the node packs first, as notReady says them first, then the model
+ * files. Null when what is wrong is not a thing to get (ComfyUI not answering, a graph it would refuse).
+ */
+function toGet(status: RecipeStatus | undefined): string | null {
+  if (!status || status.ready) return null;
+  if (status.missingNodes.length) return `${plural(status.missingNodes.length, "node")} to get`;
   const files = status.missingFiles.length || status.missingSlots.length;
-  return files ? ` · ${plural(files, "file")}` : "";
+  return files ? `${plural(files, "file")} to get` : null;
 }
 
 /**
@@ -192,14 +195,16 @@ function familyStatus(list: Array<RecipeStatus | undefined>): RecipeStatus | und
 }
 
 /**
- * Ready, or not with a count, and a ? that says why, naming what is missing. One look for imported and built-in rows;
- * the way to put it right is a button of the row's own, with its other actions.
+ * Ready, or what it lacks, with a ? that says why, naming what is missing. One look for imported and built-in rows; the
+ * way to put it right is a button of the row's own, with its other actions. Files or nodes not fetched yet are a count in
+ * the neutral colour, as Settings › Models says it ("2 files to get"): nothing is broken by a model not downloaded yet.
+ * Red is kept for a workflow that cannot run as it is (`broken`: a graph ComfyUI would refuse, a mapping that cannot be built).
  */
-function Readiness({ known, why, count = "" }: { known: boolean; why: string | null; count?: string }) {
+function Readiness({ known, why, get, broken }: { known: boolean; why: string | null; get?: string | null; broken?: boolean }) {
   if (!known) return <span aria-hidden className="h-6 w-20 animate-pulse rounded-lg bg-hover" />;
   return (
-    <Chip tone={why ? "warn" : "good"} className="justify-self-start">
-      {why ? `Not ready${count}` : "Ready"}
+    <Chip tone={!why ? "good" : broken ? "warn" : "neutral"} className="justify-self-start">
+      {!why ? "Ready" : get && !broken ? get : "Not ready"}
       {why && <Help title="Not ready" text={why} />}
     </Chip>
   );
@@ -337,153 +342,166 @@ export function Workflows() {
   const menuOf = cardMenu.menu?.subject;
 
   return (
-    <div className="flex min-h-0 grow flex-col gap-5 overflow-y-auto px-8 pt-6 pb-8" {...drop}>
-      <header className="flex shrink-0 items-center gap-2.5">
-        <h1 className="text-xl font-bold">Workflows</h1>
-        <Help title="Workflows" text={"Everything Afflatus can generate images and videos with: the models built into Afflatus and the ComfyUI workflows you import. Each one appears under \"Model\" in Studio's form."} />
-        <span className="grow" />
-        <span className={cx("flex h-9 items-center gap-2 rounded-[10px] border-[1.5px] border-dashed px-3.5 text-[12.5px]", over ? "border-accent bg-accent-wash text-accent" : "border-line-strong text-ink-2")}>
-          {over ? "Drop to import" : "Drop a .json, PNG or MP4 anywhere"}
-          <Help title="How to import a workflow from ComfyUI" text={HOW_TO} />
-        </span>
-        <Button tone="primary" className="h-9" onClick={() => input.current?.click()} disabled={open.isPending}>
-          <FileUp size={15} /> {open.isPending ? "Reading…" : "Import ComfyUI workflow"}
-        </Button>
-        <input
-          ref={input}
-          type="file"
-          accept=".json,application/json,image/png,video/mp4,video/webm,.mov,.m4v,.mkv"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) open.mutate(f);
-            e.target.value = "";
-          }}
-        />
-      </header>
+    // the whole page takes a dropped file, its header too
+    <div className="flex min-h-0 grow flex-col" {...drop}>
+      <PageHeader
+        title="Workflows"
+        after={<Help title="Workflows" text={"Everything Afflatus can generate images and videos with: the models built into Afflatus and the ComfyUI workflows you import. Each one appears under \"Model\" in Studio's form."} />}
+        actions={
+          <>
+            <span className={cx("flex h-8 items-center gap-2 rounded-control border-[1.5px] border-dashed px-3.5 text-body", over ? "border-accent bg-accent-wash text-accent" : "border-line-strong text-ink-2")}>
+              {over ? "Drop to import" : "Drop a .json, PNG or MP4 anywhere"}
+              <Help title="How to import a workflow from ComfyUI" text={HOW_TO} />
+            </span>
+            <Button size="sm" tone="primary" onClick={() => input.current?.click()} disabled={open.isPending}>
+              <FileUp size={14} /> {open.isPending ? "Reading…" : "Import ComfyUI workflow"}
+            </Button>
+            <input
+              ref={input}
+              type="file"
+              accept=".json,application/json,image/png,video/mp4,video/webm,.mov,.m4v,.mkv"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) open.mutate(f);
+                e.target.value = "";
+              }}
+            />
+          </>
+        }
+      />
+      <div className="flex min-h-0 grow flex-col gap-5 overflow-y-auto px-8 pt-5 pb-8">
 
-      {error && <ErrorNote>{error}</ErrorNote>}
+        {error && <ErrorNote>{error}</ErrorNote>}
 
-      {cardMenu.menu && menuOf && (
-        <ContextMenu
-          at={cardMenu.menu.at}
-          label={`Actions on ${menuOf.title}`}
-          head={{ title: recipeLabel(menuOf.model, menuOf.title), sub: `${KIND[menuOf.output]} · ${menuOf.nodes} nodes` }}
-          // the ··· holds everything but Try it, which is a button on every row: Edit is always there, whatever buttons the row shows
-          items={fromMore ? cardItems(menuOf).slice(1) : cardItems(menuOf)}
-          onClose={cardMenu.close}
-        />
-      )}
-
-      <section className="flex flex-col gap-2">
-        <SectionTitle>Your workflows{list.data ? ` · ${list.data.items.length}` : ""}</SectionTitle>
-        {list.isPending ? (
-          <Placeholder rows={3} tall />
-        ) : list.isError && !list.data ? (
-          <ErrorNote>Could not read your workflows: {list.error.message}</ErrorNote>
-        ) : list.data?.items.length ? (
-          <div className="overflow-hidden rounded-xl border border-line bg-panel">
-            {list.data.items.map((w, i) => {
-              const recipe = recipes.data?.recipes.find((r) => r.id === w.id);
-              // a saved workflow that cannot be built says why; otherwise what the setup check says of its recipe
-              const problem = w.problem ?? why(w.id);
-              const status = setup.data?.recipes.find((r) => r.id === w.id);
-              const pictures = recipe?.inputs.filter((x) => x.type === "image").length ?? 0;
-              const controls = recipe?.inputs.filter((x) => x.advanced).length ?? 0;
-              const menuHere = Boolean(cardMenu.menu && fromMore && menuOf?.id === w.id);
-              // not ready: the fix comes first, and Try it stays (the form opens; Generate waits for the fix). Every row button is
-              // quiet: coral is the page's one main action, Import
-              const fix = comfyOnline || w.problem ? fixOf(status, w.problem) : null;
-              return (
-                <div key={w.id} className={cx("flex flex-col gap-1.5 px-4 py-3", i > 0 && "border-t border-line")} onContextMenu={(e) => { setFromMore(false); cardMenu.open(e, w); }}>
-                  <div className="grid grid-cols-[56px_minmax(0,1fr)_170px_184px] items-center gap-3.5">
-                    {/* neutral: the kind is not a state, and the accent next to "Not ready" read as an error */}
-                    <Chip className="justify-self-start">{KIND[w.output]}</Chip>
-                    {/* the name opens the editor, as a file's name opens the file */}
-                    <Link href={workflowEditHref(w.id)} className="group flex min-w-0 flex-col gap-0.5 rounded-md">
-                      <span className="truncate font-semibold group-hover:underline">{recipeLabel(w.model, w.title)}</span>
-                      <span className="truncate text-[11.5px] text-ink-3">
-                        {w.source ? `${w.source} · ` : ""}{plural(w.nodes, "node")}{pictures ? ` · ${plural(pictures, "image input")}` : ""} · {plural(controls, "control")}
-                      </span>
-                    </Link>
-                    <Readiness known={setup.isSuccess || Boolean(w.problem)} why={problem} count={w.problem ? "" : missingCount(status)} />
-                    <div className="flex items-center justify-end gap-1.5">
-                      {fix && <Button size="sm" tone="quiet" onClick={() => editIt(w.id)} data-tip={fix.tip} className="whitespace-nowrap">{fix.label}</Button>}
-                      <Button size="sm" tone="quiet" onClick={() => tryIt.mutate(w.id)} disabled={tryIt.isPending} data-tip={fix ? "Opens the form with this workflow picked, on a new draft. It renders once it is ready." : "Opens the form with this workflow picked, on a new draft."} className="whitespace-nowrap">Try it</Button>
-                      {/* the fix opens the editor already: a second button for it would say the same */}
-                      {!fix && <Button size="sm" tone="quiet" onClick={() => editIt(w.id)}>Edit</Button>}
-                      <button
-                        type="button"
-                        aria-label={`More actions on ${w.title}`}
-                        aria-haspopup="menu"
-                        aria-expanded={menuHere}
-                        data-tip="Edit, Export, Open in ComfyUI, Remove"
-                        onClick={(e) => more(e, w)}
-                        className={cx("flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink", menuHere && "bg-hover text-ink")}
-                      >
-                        <MoreHorizontal size={16} />
-                      </button>
-                    </div>
-                  </div>
-                  {opened?.id === w.id && !opened.direct && (
-                    <div className="flex items-center gap-1.5 pl-[70px] text-xs text-ink-2">
-                      Saved in ComfyUI as <span className="font-mono text-ink">{opened.path}</span>
-                      <Help
-                        title="Open it in ComfyUI"
-                        text={`In ComfyUI, open the Workflows sidebar (key W) and pick it under "afflatus".${opened.restart
-                          ? " Restart ComfyUI once: from then on it opens straight away."
-                          : settings.data && !settings.data.comfyDir
-                            ? " To have it open straight away, set the ComfyUI folder in Settings (same computer only)."
-                            : ""}`}
-                      />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          list.isSuccess && <div className="flex items-center gap-1.5 rounded-xl border border-line bg-panel px-4 py-3 text-ink-2">None yet <Help title="Your workflows" text="A workflow you build in ComfyUI can be used here like any built-in model: Import ComfyUI workflow, above." /></div>
+        {cardMenu.menu && menuOf && (
+          <ContextMenu
+            at={cardMenu.menu.at}
+            label={`Actions on ${menuOf.title}`}
+            head={{ title: recipeLabel(menuOf.model, menuOf.title), sub: `${KIND[menuOf.output]} · ${menuOf.nodes} nodes` }}
+            // the ··· holds everything but Try it, which is a button on every row: Edit is always there, whatever buttons the row shows
+            items={fromMore ? cardItems(menuOf).slice(1) : cardItems(menuOf)}
+            onClose={cardMenu.close}
+          />
         )}
-      </section>
 
-      <section className="flex flex-col gap-2">
-        <SectionTitle>Built into Afflatus{recipes.data ? ` · ${builtIn.length}` : ""}</SectionTitle>
-        {recipes.isPending ? (
-          <Placeholder rows={4} />
-        ) : (
-          builtIn.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <SectionTitle>Your workflows{list.data ? ` · ${list.data.items.length}` : ""}</SectionTitle>
+          {list.isPending ? (
+            <Placeholder rows={3} tall />
+          ) : list.isError && !list.data ? (
+            <ErrorNote>Could not read your workflows: {list.error.message}</ErrorNote>
+          ) : list.data?.items.length ? (
             <div className="overflow-hidden rounded-xl border border-line bg-panel">
-              {builtIn.map((f, i) => {
-                const mine = recipes.data?.recipes.filter((r) => r.family === f.id && !r.hidden) ?? [];
-                const slots = setup.data?.families.find((x) => x.id === f.id)?.slots ?? [];
-                const statuses = mine.map((r) => setup.data?.recipes.find((x) => x.id === r.id));
-                const status = familyStatus(statuses);
-                // one sentence for the family, every missing model file named once, as an imported workflow's are: said per
-                // operation, an edit model's operations repeated the base model's files after them
-                const said = setup.isSuccess ? notReady(status, comfyOnline, slots) : null;
-                // the model files of a built-in family are chosen and downloaded in Settings › Models
-                const fix = comfyOnline ? fixOf(status, undefined) : null;
+              {list.data.items.map((w, i) => {
+                const recipe = recipes.data?.recipes.find((r) => r.id === w.id);
+                // a saved workflow that cannot be built says why; otherwise what the setup check says of its recipe
+                const problem = w.problem ?? why(w.id);
+                const status = setup.data?.recipes.find((r) => r.id === w.id);
+                const pictures = recipe?.inputs.filter((x) => x.type === "image").length ?? 0;
+                const controls = recipe?.inputs.filter((x) => x.advanced).length ?? 0;
+                const menuHere = Boolean(cardMenu.menu && fromMore && menuOf?.id === w.id);
+                // not ready: the fix comes first, and Try it stays (the form opens; Generate waits for the fix). Every row button is
+                // quiet: coral is the page's one main action, Import
+                const fix = comfyOnline || w.problem ? fixOf(status, w.problem) : null;
                 return (
-                  <div key={f.id} className={cx("grid grid-cols-[minmax(0,1fr)_110px_170px_184px] items-center gap-3.5 px-4 py-2.5", i > 0 && "border-t border-line")}>
-                    <div className="flex min-w-0 flex-col gap-0.5">
-                      <span className="truncate font-semibold">{f.name}</span>
-                      <span className="truncate text-[11.5px] text-ink-3" data-tip={f.summary}>{f.summary}</span>
+                  <div key={w.id} className={cx("flex flex-col gap-1.5 px-4 py-3", i > 0 && "border-t border-line")} onContextMenu={(e) => { setFromMore(false); cardMenu.open(e, w); }}>
+                    <div className="grid grid-cols-[56px_minmax(0,1fr)_170px_184px] items-center gap-3.5">
+                      {/* neutral: the kind is not a state, and the accent next to "Not ready" read as an error */}
+                      <Chip className="justify-self-start">{KIND[w.output]}</Chip>
+                      {/* the name opens the editor, as a file's name opens the file */}
+                      <Link href={workflowEditHref(w.id)} className="group flex min-w-0 flex-col gap-0.5 rounded-md">
+                        <span className="truncate font-semibold group-hover:underline">{recipeLabel(w.model, w.title)}</span>
+                        <span className="truncate text-[11.5px] text-ink-3">
+                          {w.source ? `${w.source} · ` : ""}{plural(w.nodes, "node")}{pictures ? ` · ${plural(pictures, "image input")}` : ""} · {plural(controls, "control")}
+                        </span>
+                      </Link>
+                      <Readiness known={setup.isSuccess || Boolean(w.problem)} why={problem} get={w.problem ? null : toGet(status)} broken={Boolean(w.problem || status?.problems?.length)} />
+                      <div className="flex items-center justify-end gap-1.5">
+                        {fix && <Button size="sm" tone="quiet" onClick={() => editIt(w.id)} data-tip={fix.tip} className="whitespace-nowrap">{fix.label}</Button>}
+                        <Button size="sm" tone="quiet" onClick={() => tryIt.mutate(w.id)} disabled={tryIt.isPending} data-tip={fix ? "Opens the form with this workflow picked, on a new draft. It renders once it is ready." : "Opens the form with this workflow picked, on a new draft."} className="whitespace-nowrap">Try it</Button>
+                        {/* the fix opens the editor already: a second button for it would say the same */}
+                        {!fix && <Button size="sm" tone="quiet" onClick={() => editIt(w.id)}>Edit</Button>}
+                        <button
+                          type="button"
+                          aria-label={`More actions on ${w.title}`}
+                          aria-haspopup="menu"
+                          aria-expanded={menuHere}
+                          data-tip="Edit, Export, Open in ComfyUI, Remove"
+                          onClick={(e) => more(e, w)}
+                          className={cx("flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink", menuHere && "bg-hover text-ink")}
+                        >
+                          <MoreHorizontal size={16} />
+                        </button>
+                      </div>
                     </div>
-                    <span className="text-[11.5px] text-ink-2">{plural(mine.length, "operation")}</span>
-                    <Readiness known={setup.isSuccess} why={said} count={missingCount(status)} />
-                    <div className="flex items-center justify-end">
-                      {fix && said && (
-                        <Button size="sm" tone="quiet" onClick={() => navigate(settingHref("models.families"))} data-tip={`Opens Settings › Models, where ${f.name}'s ${fix.label === "Get nodes" ? "node packs are listed" : "model files are chosen and downloaded"}`} className="whitespace-nowrap">{fix.label}</Button>
-                      )}
-                    </div>
+                    {opened?.id === w.id && !opened.direct && (
+                      <div className="flex items-center gap-1.5 pl-[70px] text-xs text-ink-2">
+                        Saved in ComfyUI as <span className="font-mono text-ink">{opened.path}</span>
+                        <Help
+                          title="Open it in ComfyUI"
+                          text={`In ComfyUI, open the Workflows sidebar (key W) and pick it under "afflatus".${opened.restart
+                            ? " Restart ComfyUI once: from then on it opens straight away."
+                            : settings.data && !settings.data.comfyDir
+                              ? " To have it open straight away, set the ComfyUI folder in Settings (same computer only)."
+                              : ""}`}
+                        />
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
-          )
-        )}
-      </section>
+          ) : (
+            list.isSuccess && (
+              <Empty
+                title="No workflow of your own yet"
+                helpTitle="Your workflows"
+                help="A workflow you build in ComfyUI can be used here like any built-in model: Import ComfyUI workflow, above."
+                action="Drop a .json, PNG or MP4 anywhere on this page"
+              />
+            )
+          )}
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <SectionTitle>Built into Afflatus{recipes.data ? ` · ${builtIn.length}` : ""}</SectionTitle>
+          {recipes.isPending ? (
+            <Placeholder rows={4} />
+          ) : (
+            builtIn.length > 0 && (
+              <div className="overflow-hidden rounded-xl border border-line bg-panel">
+                {builtIn.map((f, i) => {
+                  const mine = recipes.data?.recipes.filter((r) => r.family === f.id && !r.hidden) ?? [];
+                  const slots = setup.data?.families.find((x) => x.id === f.id)?.slots ?? [];
+                  const statuses = mine.map((r) => setup.data?.recipes.find((x) => x.id === r.id));
+                  const status = familyStatus(statuses);
+                  // one sentence for the family, every missing model file named once, as an imported workflow's are: said per
+                  // operation, an edit model's operations repeated the base model's files after them
+                  const said = setup.isSuccess ? notReady(status, comfyOnline, slots) : null;
+                  // the model files of a built-in family are chosen and downloaded in Settings › Models
+                  const fix = comfyOnline ? fixOf(status, undefined) : null;
+                  return (
+                    <div key={f.id} className={cx("grid grid-cols-[minmax(0,1fr)_110px_170px_184px] items-center gap-3.5 px-4 py-2.5", i > 0 && "border-t border-line")}>
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <span className="truncate font-semibold">{f.name}</span>
+                        <span className="truncate text-[11.5px] text-ink-3" data-tip={f.summary}>{f.summary}</span>
+                      </div>
+                      <span className="text-[11.5px] text-ink-2">{plural(mine.length, "operation")}</span>
+                      <Readiness known={setup.isSuccess} why={said} get={toGet(status)} broken={Boolean(status?.problems?.length)} />
+                      <div className="flex items-center justify-end">
+                        {fix && said && (
+                          <Button size="sm" tone="quiet" onClick={() => navigate(settingHref("models.families"))} data-tip={`Opens Settings › Models, where ${f.name}'s ${fix.label === "Get nodes" ? "node packs are listed" : "model files are chosen and downloaded"}`} className="whitespace-nowrap">{fix.label}</Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          )}
+        </section>
+      </div>
     </div>
   );
 }
