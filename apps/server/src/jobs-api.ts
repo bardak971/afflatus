@@ -99,8 +99,12 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
     return { loaded, on };
   });
 
-  // the first waiting jobs whole, the others in a few figures (queueView.ts paged); the whole rows of those a page at a time
-  app.get("/api/queue", async () => paged(await s.queue.status()));
+  // the first waiting jobs whole, the others in a few figures (queueView.ts paged); the whole rows of those a page at a time.
+  // `have`: the hashes of the waiting rows the page holds, which are not sent again while they are unchanged
+  app.get("/api/queue", async (req) => {
+    const { have } = z.object({ have: z.string().max(200).optional() }).parse(req.query);
+    return paged(await s.queue.status(), undefined, new Set(have?.split(",").filter(Boolean)));
+  });
   app.get("/api/queue/waiting", async (req) => {
     const q = z.object({ offset: z.coerce.number().int().min(0).default(0), limit: z.coerce.number().int().min(1).max(500).default(100) }).parse(req.query);
     const waiting = (await s.queue.statusRecent()).waiting;

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { SqliteAdapter, sql, type Expression } from "kysely";
 import { modelName, modelOf, type JoinKind, joinKindOf } from "@afflatus/core";
 import type { Comfy } from "./comfy";
@@ -432,6 +433,10 @@ export interface LaterJob {
   machine?: string; pinned?: string; estimateMs?: number; startsInMs?: number; runsOn?: string[];
 }
 const LATER_FIGURES = ["clipId", "draftId", "machine", "pinned", "estimateMs", "startsInMs", "runsOn"] as const;
+/** The parts of the queue's answer a page holds and is sent only when they changed (paged). */
+const HELD_PARTS = ["waiting", "later"] as const;
+/** A part's hash, as paged sends it and a read's `have` names it back. */
+const hashOf = (part: unknown) => createHash("sha1").update(JSON.stringify(part)).digest("base64url").slice(0, 16);
 
 /**
  * The queue as GET /api/queue (and the routes that change it) answer it: the first WAITING_SHOWN waiting jobs whole, the
@@ -442,8 +447,13 @@ const LATER_FIGURES = ["clipId", "draftId", "machine", "pinned", "estimateMs", "
  * A rented pod's figures that move with the clock are said so that an answer read again without a change is the same
  * bytes, and its tag answers 304 (compress.ts): the idle stop as the moment it comes (`idleAt`, which the page counts
  * down to) rather than the time left, the cost so far to the cent (the page counts a running pod's from its rate).
+ *
+ * The waiting rows, whole and `later`, are most of an answer's bytes (~140 kB and ~70 kB of ~215 kB with 600 waiting), and
+ * read again on every event while a long line renders though they often did not change (the 2026-10-22 review, L-12):
+ * each goes with a hash of itself (`parts`), and the page's read names the hashes it holds (`have`, GET /api/queue?have=).
+ * A part whose hash it holds is sent empty and named in `same`, and the page puts its own copy back (web api.ts queueOf).
  */
-export function paged<S extends { waiting: W[]; machines: M[] }, W extends Pick<LaterJob, "id" | "label" | "kind" | "recipe"> & { [K in (typeof LATER_FIGURES)[number]]: LaterJob[K] | null }, M extends { rented: RentedRow | null }>(s: S, shown = WAITING_SHOWN) {
+export function paged<S extends { waiting: W[]; machines: M[] }, W extends Pick<LaterJob, "id" | "label" | "kind" | "recipe"> & { [K in (typeof LATER_FIGURES)[number]]: LaterJob[K] | null }, M extends { rented: RentedRow | null }>(s: S, shown = WAITING_SHOWN, have: ReadonlySet<string> = new Set()) {
   const later = s.waiting.slice(shown).map((w) => {
     const l: LaterJob = { id: w.id, label: w.label, kind: w.kind, recipe: w.recipe };
     for (const k of LATER_FIGURES) if (w[k] !== null && w[k] !== undefined) Object.assign(l, { [k]: w[k] });
@@ -454,5 +464,8 @@ export function paged<S extends { waiting: W[]; machines: M[] }, W extends Pick<
     const { idleLeftMs, ...rented } = m.rented;
     return { ...m, rented: { ...rented, spent: Math.round(rented.spent * 100) / 100, idleAt: idleLeftMs === null ? null : Math.round((Date.now() + idleLeftMs) / 1000) * 1000 } };
   });
-  return { ...s, machines, waiting: s.waiting.slice(0, shown), waitingCount: s.waiting.length, later };
+  const waiting = s.waiting.slice(0, shown);
+  const parts = { waiting: hashOf(waiting), later: hashOf(later) };
+  const same = HELD_PARTS.filter((p) => have.has(parts[p]));
+  return { ...s, machines, waiting: same.includes("waiting") ? [] : waiting, waitingCount: s.waiting.length, later: same.includes("later") ? [] : later, parts, same };
 }

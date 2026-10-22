@@ -222,8 +222,14 @@ export interface QueueStatus {
 }
 /** A waiting job past the first ones of the queue's answer, in a few figures, those it has none of left out (the server's queueView.ts paged). */
 export type LaterJob = Pick<Job, "id" | "label" | "kind" | "recipe"> & { [K in "clipId" | "draftId" | "machine" | "pinned" | "estimateMs" | "startsInMs" | "runsOn"]?: NonNullable<Job[K]> };
-/** The queue as GET /api/queue answers it: the first waiting jobs whole, the others in `later`; api.ts makes a QueueStatus of it. */
-export type QueueAnswer = Omit<QueueStatus, "whole"> & { waitingCount: number; later: LaterJob[] };
+/** The parts of the queue's answer sent only when they changed: each with its hash, left empty when the read named it (`have`). */
+export type QueuePart = "waiting" | "later";
+/**
+ * The queue as GET /api/queue answers it: the first waiting jobs whole, the others in `later`; api.ts makes a QueueStatus of
+ * it. `parts`: the hash of each of those two; `same`: the ones sent empty, unchanged since the hash the read named. Both
+ * are always sent; an answer without them (a test's pretend server) is taken whole.
+ */
+export type QueueAnswer = Omit<QueueStatus, "whole"> & { waitingCount: number; later: LaterJob[]; parts?: Record<QueuePart, string>; same?: QueuePart[] };
 
 /** The GPU hunt in a few figures, with the queue's status (the server's hunt.ts HuntSummary). */
 export interface HuntSummary {
