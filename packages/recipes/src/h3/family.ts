@@ -64,25 +64,25 @@ export const h3 = defineFamily({
       get: { file: "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors", url: `${HF}/loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors` },
     },
     {
-      id: "swapUnet", label: "Reference model for Swap (ref2va)", folder: "diffusion_models", detect: ["minimax_h3.*ref2va", SWAP_MODELS], optional: true, onlyFor: ["h3.swap", "h3.swapMotion"],
-      hint: "For Swap character: MiniMax's own reference model, the one the Character-Swap LoRA was trained on (a hybrid fine-tune redrew the room), in ComfyUI's models/diffusion_models folder.",
+      id: "swapUnet", label: "Reference model for Swap (ref2va)", folder: "diffusion_models", detect: ["minimax_h3.*ref2va", SWAP_MODELS], optional: true, onlyFor: ["h3.swap", "h3.motion"],
+      hint: "For Swap character (and the Motion transfer windows that carry on from a swap): MiniMax's own reference model, the one the Character-Swap LoRA was trained on (a hybrid fine-tune redrew the room), in ComfyUI's models/diffusion_models folder.",
       get: { file: "minimax_h3_ref2va_pruned_int8_convrot.safetensors", url: `${HF}/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors` },
     },
     {
       // V1.5 first, the one its author recommends for new swaps and the one that swapped the owner's Timeline 19 where V1 did
       // not (2026-10-18); V1 (pro4500) when it is the only one there
-      id: "swapLora", label: "Character-Swap LoRA", folder: "loras", detect: ["character.?swap.?v1\\.5", "character.?swap"], optional: true, onlyFor: ["h3.swap", "h3.swapMotion"],
+      id: "swapLora", label: "Character-Swap LoRA", folder: "loras", detect: ["character.?swap.?v1\\.5", "character.?swap"], optional: true, onlyFor: ["h3.swap"],
       hint: "For Swap character: akatz-ai's Character-Swap LoRA for the reference model (V1.5), in ComfyUI's models/loras folder.",
       get: { file: "h3_character_swap_v1.5.safetensors", url: "https://huggingface.co/akatz-ai/MiniMax-H3-Character-Swap-LoRA/resolve/main/h3_character_swap_v1.5.safetensors" },
     },
     {
-      id: "swapSam", label: "SAM 3 for Swap (finds the person)", folder: "checkpoints", detect: ["sam3"], optional: true, onlyFor: ["h3.swap", "h3.swapMotion"],
+      id: "swapSam", label: "SAM 3 for Swap (finds the person)", folder: "checkpoints", detect: ["sam3"], optional: true, onlyFor: ["h3.swap"],
       hint: "For Swap character: SAM 3.1 tracks the person to replace, so that only they are redrawn and the rest of the video is kept. Put sam3.1_multiplex_fp16.safetensors in ComfyUI's models/checkpoints folder.",
       get: { file: "sam3.1_multiplex_fp16.safetensors", url: "https://huggingface.co/Comfy-Org/sam3.1/resolve/main/checkpoints/sam3.1_multiplex_fp16.safetensors" },
     },
     {
       // models/veda is the Veda node pack's own folder: ComfyUI knows it once the pack is loaded
-      id: "veda", label: "Veda predictor (reference model)", folder: "veda", detect: ["r2va.*veda", "veda.*r2va"], optional: true, onlyFor: ["h3.video", "h3.lipsync", "h3.swap", "h3.swapMotion", "h3.motion"],
+      id: "veda", label: "Veda predictor (reference model)", folder: "veda", detect: ["r2va.*veda", "veda.*r2va"], optional: true, onlyFor: ["h3.video", "h3.lipsync", "h3.swap", "h3.motion"],
       hint: "Optional, for Veda sparse attention on clips made by H3's reference model (the swaps, clips with reference pictures): its predictor, in ComfyUI's models/veda folder (the veda-sparse-attention node pack makes it).",
       get: { file: "minimax_h3_r2va_veda_preview_fp8.safetensors", url: "https://huggingface.co/Veda-Sparse/Minimax-H3-R2VA-Veda-Preview/resolve/main/minimax_h3_r2va_veda_preview_fp8.safetensors" },
     },
@@ -94,17 +94,17 @@ export const h3 = defineFamily({
     },
     {
       // the motion's ControlNet (motion.ts): one checkpoint for pose, depth, edges and inpaint; 2.0, its 10 control blocks
-      id: "h3Control", label: "Fun ControlNet Union 2.0 (motion)", folder: "model_patches", detect: ["minimax.?h3.*fun.?controlnet.*union.?2", "minimax.?h3.*fun.?controlnet"], optional: true, onlyFor: ["h3.swapMotion", "h3.motion"],
-      hint: "For Swap motion and Motion transfer: alibaba-pai's Fun ControlNet Union for MiniMax H3, which holds a clip to the driving video's pose. Put minimax_h3_fun_controlnet_union_2.0_*.safetensors in ComfyUI's models/model_patches folder.",
+      id: "h3Control", label: "Fun ControlNet Union 2.0 (motion)", folder: "model_patches", detect: ["minimax.?h3.*fun.?controlnet.*union.?2", "minimax.?h3.*fun.?controlnet"], optional: true, onlyFor: ["h3.motion"],
+      hint: "For Motion transfer: alibaba-pai's Fun ControlNet Union for MiniMax H3, which holds a clip to the driving video's pose. Put minimax_h3_fun_controlnet_union_2.0_*.safetensors in ComfyUI's models/model_patches folder.",
       get: { file: "minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot.safetensors", url: `${HF}/model_patches/minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot.safetensors` },
     },
     {
-      id: "sdpose", label: "SDPose (motion, Pose from SDPose)", folder: "checkpoints", detect: ["sdpose"], optional: true, onlyFor: ["h3.swapMotion", "h3.motion"],
+      id: "sdpose", label: "SDPose (motion, Pose from SDPose)", folder: "checkpoints", detect: ["sdpose"], optional: true, onlyFor: ["h3.motion"],
       hint: "Optional, for Pose from SDPose: ComfyUI's own whole-body pose model. Put sdpose_wholebody_fp16.safetensors in ComfyUI's models/checkpoints folder.",
       get: { file: "sdpose_wholebody_fp16.safetensors", url: "https://huggingface.co/Comfy-Org/SDPose/resolve/main/checkpoints/sdpose_wholebody_fp16.safetensors" },
     },
     {
-      id: "rtdetr", label: "RT-DETR (motion, finds the people for SDPose)", folder: "diffusion_models", detect: ["rt.?detr"], optional: true, onlyFor: ["h3.swapMotion", "h3.motion"],
+      id: "rtdetr", label: "RT-DETR (motion, finds the people for SDPose)", folder: "diffusion_models", detect: ["rt.?detr"], optional: true, onlyFor: ["h3.motion"],
       hint: "Optional, for Pose from SDPose: RT-DETR finds the people SDPose draws. Put rt_detr_v4-x-hgnet_fp16.safetensors in ComfyUI's models/diffusion_models folder.",
       get: { file: "rt_detr_v4-x-hgnet_fp16.safetensors", url: "https://huggingface.co/Comfy-Org/SDPose/resolve/main/diffusion_models/rt_detr_v4-x-hgnet_fp16.safetensors" },
     },

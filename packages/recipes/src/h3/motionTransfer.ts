@@ -1,4 +1,4 @@
-import { defineRecipe, gridAtOrBefore, type BuildContext, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type Variant } from "@afflatus/core";
+import { defineRecipe, gridAtOrBefore, type BuildContext, type BuiltGraph, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type Variant } from "@afflatus/core";
 import { H3_FPS, H3_GRID } from "./family";
 import { h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video } from "./video";
@@ -8,7 +8,7 @@ import { latentUpscaleNeeds } from "./latent-upscale";
 import { upscaleNeeds } from "../video/upscale";
 import { rifeNeeds } from "../shared/finish";
 import { partBounds } from "../motion/driving";
-import { SWAP_FRAMES, SWAP_RUN_UP } from "./swap";
+import { asClip as swapClip, h3Swap, SWAP_FRAMES, SWAP_RUN_UP, type H3Swap } from "./swap";
 import { controlled, frameBefore, MOTION_CHAPTER, motionControlInputs, motionNeeds, motionNodes, poseVideo, POSE_SDPOSE, type H3Motion } from "./motion";
 import { FACE_REFINE_SLOTS } from "./faceRefine";
 
@@ -18,18 +18,66 @@ import { FACE_REFINE_SLOTS } from "./faceRefine";
  * clip as its first frame (given, or made with Make the picture from the source's frame); on a timeline's source lane each
  * window after the first carries on from the one before, every one moved by its own part's pose. The cast's pictures can
  * be added as references (H3's reference model, or a hybrid), the face then held to them along the windows.
+ *
+ * A window with no Picture of its own that carries on from the one before is the motion after a swap (card #42: H3 · Swap
+ * motion retired, each window of a source its own form): it runs as Swap motion's windows did, on the swap's model, with
+ * the cast's picture and the clip before's last frame as references. The person replaced is never in its input, so they
+ * cannot come back: a swap continued deep into a source kept her long hair on his head (Timeline 19, clip 3), where a pose
+ * carries her arms and head, not her hair.
  */
 export interface H3MotionTransfer extends H3Video, H3Motion {
   /** The prompt's parts (card #34): how the person of the picture looks, what happens in this part. */
   look: string;
   happens: string;
   picture?: string;
-  driving?: ClipValue;
-  drivingStart: number;
-  drivingSeconds: number;
+  /** The video it moves like (the swap's ids, card #42: a source's windows of either form read their part alike). */
+  source?: ClipValue;
+  sourceStart: number;
+  sourceSeconds: number;
   keepSound: boolean;
   soundGuide: boolean;
+  /** The model a window after a swap runs on (the swap's own input, shared by a source's windows): else the swapUnet slot. */
+  swapModel?: string;
+  /** Carries on from a swap (afterSwap): set where it was given this form from one. */
+  afterSwap: boolean;
 }
+
+/** The sampling a window after a swap keeps of the swap's form (windowFrom): the model's own shifts. */
+const SAMPLING = new Set(["shiftVideo", "shiftAudio"]);
+
+/**
+ * A window that carries on from a swap (card #42): set so where it was given this form from a swap (windowFrom), and
+ * carrying on from the window before. It has no Picture of its own and runs on the swap's model.
+ */
+export const afterSwap = (input: Pick<H3MotionTransfer, "previous" | "afterSwap">) => Boolean(input.afterSwap) && Boolean(input.previous);
+
+/** H3's own Model shows on a Motion transfer of its own; a window after a swap shows the swap's (SWAP_MODEL) in its place. */
+const OWN_MODEL = { input: "afterSwap", in: [false, undefined] };
+const SWAP_MODEL = {
+  // the swap's own input (its id shared): a source's swaps and the windows after them run on the one model
+  ...h3Swap.inputs.find((i) => i.id === "swapModel")!,
+  showWhen: "afterSwap",
+  note: "the swap's model: this window carries on from a swap and runs on the model it was made with, so that the join stays one model's",
+} as InputSpec;
+
+/** The prompt a window after a swap starts on when its parts say nothing: the person and the room as they are, in positive words only. */
+// Nothing of the room: H3 follows every word, and "Keep the room and the light…" drew a lamp into it (the owner, 2026-10-20).
+// H3's layout already says the setting comes from the frames carried in
+export const CARRY_ON_PROMPT = "The person carries on moving as in the clip before, with the same face, hair and clothes.";
+
+/**
+ * A window after a swap, written from the parts (card #34): the person by how they look, carrying on as in the clip
+ * before, then what happens in this window. Nothing of the room or the light: H3 draws what is named.
+ */
+export function motionFromParts(input: Pick<H3MotionTransfer, "look" | "happens">): string {
+  const look = (input.look ?? "").trim().replace(/\s+/g, " ").replace(/[.!\s]+$/, "");
+  const happens = (input.happens ?? "").trim().replace(/\s+/g, " ");
+  const first = `The person${look ? `, ${look},` : ""} carries on moving as in the clip before.`;
+  return happens ? `${first} ${happens.charAt(0).toUpperCase()}${happens.slice(1)}${/[.!?]$/.test(happens) ? "" : "."}` : look ? first : CARRY_ON_PROMPT;
+}
+
+/** The reference tags a prompt names, with the word before them ("in <Picture 1>"): H3's layout says which picture is whom. */
+const TAGS = /\s*\b(?:in|from|of)?\s*<(?:Picture|Video) \d+>/gi;
 
 /** A window of H3: the swap's, 90 to 141 frames (5.9 s at 24). */
 const MOTION_LEAST = 90;
@@ -45,15 +93,16 @@ const NOT_TAKEN = new Set([
 
 const inputs: InputSpec[] = [
   {
-    id: "driving", type: "clip", role: "source", label: "Source video", frames: [SWAP_FRAMES], fps: H3_FPS, whole: true,
-    window: { start: "drivingStart", seconds: "drivingSeconds", fits: { frames: SWAP_FRAMES, fps: H3_FPS, pad: 0, min: MOTION_LEAST / H3_FPS, grid: H3_GRID } },
+    id: "source", type: "clip", role: "source", label: "Source video", frames: [SWAP_FRAMES], fps: H3_FPS, whole: true,
+    window: { start: "sourceStart", seconds: "sourceSeconds", fits: { frames: SWAP_FRAMES, fps: H3_FPS, pad: 0, min: MOTION_LEAST / H3_FPS, grid: H3_GRID } },
     note: "how it moves: the body, the hands, the face, drawn as skeletons. One job takes 5.8 s of it; a longer video goes on a timeline's source lane, window by window",
   },
-  { id: "drivingStart", type: "number", label: "Source: start", min: 0, max: 3600, step: 0.1, default: 0, unit: " s", showWhen: "driving" },
-  { id: "drivingSeconds", type: "number", label: "Source: length", min: MOTION_PART.least, max: MOTION_PART.most, step: 0.01, default: 5.175, unit: " s", showWhen: "driving" },
+  { id: "sourceStart", type: "number", label: "Source: start", min: 0, max: 3600, step: 0.1, default: 0, unit: " s", showWhen: "source" },
+  { id: "sourceSeconds", type: "number", label: "Source: length", min: MOTION_PART.least, max: MOTION_PART.most, step: 0.01, default: 5.175, unit: " s", showWhen: "source" },
   {
-    id: "picture", type: "image", role: "source", label: "Picture",
-    note: "what moves, its first frame: its room, its light and its people are kept, only the motion comes from the video. In the driving video's shape: the video is cut to the picture's from the centre",
+    // not for a window that carries on from a swap, which has none (afterSwap): any other one needs it (build)
+    id: "picture", type: "image", role: "source", label: "Picture", opensOnly: true, showWhen: OWN_MODEL,
+    note: "what moves, its first frame: its room, its light and its people are kept, only the motion comes from the video. In the driving video's shape: the video is cut to the picture's from the centre. A window after a swap needs none: it carries on from it",
   },
   // the prompt's parts (card #34): the prompt as sent written from them while it is left empty (motionFromParts)
   { id: "look", type: "prompt", weights: false, label: "How they look", style: "sentences", line: true, optional: true, noCast: true, designed: true, placeholder: "short brown hair, a white shirt and jeans", note: "the person of the picture, in a few words: what H3 keeps of them. Shared by a source's windows" },
@@ -65,18 +114,24 @@ const inputs: InputSpec[] = [
     note: "who is in the picture and what they do in this part, in the present tense: optional, it helps H3 keep what is there. Each clip of a source keeps its own",
   },
   // H3's colour match pulls towards the first frame: here the picture
-  ...h3Inputs.filter((spec) => !NOT_TAKEN.has(spec.id)).map((spec) => (spec.showWhen === "start" ? { ...spec, showWhen: "picture" } : spec)),
+  // H3's Model is this form's own: a window after a swap shows the swap's in its place (the one it runs on)
+  ...h3Inputs.filter((spec) => !NOT_TAKEN.has(spec.id)).flatMap((spec): InputSpec[] => (spec.showWhen === "start" ? [{ ...spec, showWhen: "picture" }] : spec.id === "model" ? [{ ...spec, showWhen: OWN_MODEL }, SWAP_MODEL] : [spec])),
   { id: "keepSound", type: "toggle", label: "Keep the source's sound", default: true, advanced: true, note: "the file carries the driving video's own sound over its part; off, the sound H3 makes" },
   {
     id: "soundGuide", type: "toggle", label: "Lips follow the source's sound", default: true, advanced: true, showWhen: "keepSound",
     note: "the driving video's sound given to H3 as a guide, as Lip sync gives its recording, so that the mouth is drawn to the words heard",
   },
   ...motionControlInputs,
+  {
+    // set where a source's window comes from a swap (windowFrom, the migration of Swap motion): not a choice made up front
+    id: "afterSwap", type: "toggle", label: "Carries on from a swap", default: false, advanced: true, section: "rare",
+    note: "this window carries on from a swap, on the swap's model and with no Picture of its own; off, it is a Motion transfer of its own and needs its Picture",
+  },
 ];
 
 /** The frames of the window: the part handed over (or asked for), floored to H3's 17k + 5, 90 to 141 (the carried frames among them). */
 function framesOf(input: H3MotionTransfer, ctx: Pick<BuildContext, "media">): number {
-  const have = ctx.media.driving?.frames ?? Math.round(input.drivingSeconds * H3_FPS);
+  const have = ctx.media.source?.frames ?? Math.round(input.sourceSeconds * H3_FPS);
   return Math.max(MOTION_LEAST, gridAtOrBefore(Math.min(SWAP_FRAMES, have), H3_GRID));
 }
 
@@ -109,11 +164,88 @@ function asClip(input: H3MotionTransfer, frames: number, carried: number): H3Vid
   };
 }
 
+/**
+ * A window after a swap (afterSwap), moved by its pose: the swap's model and form, without its LoRA and its source video
+ * (no <Video 1>); the cast's picture and the clip before's last frame its references; its prompt H3's own layout around the
+ * window's words (which picture is whom said by Afflatus, any tag typed taken out); the source's sound kept as the swap
+ * keeps it. Built as H3 · Swap motion built its windows that carried on, so that its sources migrated render alike.
+ */
+function windowAfterSwap(input: H3MotionTransfer, ctx: BuildContext): BuiltGraph {
+  const unet = input.swapModel ?? ctx.slots.swapUnet;
+  if (!unet) throw new Error("A window carrying on from a swap runs on the swap's model: MiniMax H3's reference model, minimax_h3_ref2va_*.safetensors in ComfyUI's models/diffusion_models folder (Settings › Models has it).");
+  const frames = framesOf(input, ctx);
+  const carried = ctx.media.previous?.frames ?? MOTION_CARRIED;
+  const driving = ctx.media.source;
+  const keep = input.keepSound && Boolean(driving?.hasSound);
+  const size = driving?.width && driving.height ? { width: driving.width, height: driving.height } : undefined;
+  // as the swap runs: without H3's fp16 accumulation patch
+  const asRef = { ...ctx, has: (cls: string) => cls !== "ModelPatchTorchSettings" && ctx.has(cls) };
+  // typed, the prompt is the user's; else written from the parts (card #34), else the plain carrying on
+  const written = input.description.trim() || motionFromParts(input);
+  const said = written.replace(TAGS, "").replace(/\s+([.,])/g, "$1").trim();
+  let heard: Ref | null = null;
+  const drivingSound = (g: GraphBuilder, n: number) =>
+    (heard ??= g.out("TrimAudioDuration", { audio: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.source }) }), 1], start_index: 0, duration: n / H3_FPS }));
+  const clip = { ...swapClip(asSwap(input), null, frames, carried, unet, size), description: said };
+  const built = buildH3(clip, asRef, {
+    pictures: (g) => frameBefore(g, ctx),
+    ...(keep ? { sound: (g, _decoded, at) => drivingSound(g, at.frames) } : {}),
+    ...(keep && input.soundGuide ? {
+      guide: (g, at) => g.out("MiniMaxH3AddGuide", { positive: at.positive, latent: at.latent, vae: at.vae, audio_vae: at.audioVae, audio: drivingSound(g, at.frames), frame_idx: 0 }),
+    } : {}),
+    model: (g, model, at) => {
+      const pose = poseVideo(g, ctx, input, ctx.uploads.source!, at);
+      const made = controlled(g, ctx, input, model, at.vae, pose);
+      const sd = input.poseFrom === POSE_SDPOSE ? [`checkpoints/${ctx.slots.sdpose}`, `diffusion_models/${ctx.slots.rtdetr}`] : [];
+      return { model: made.model, loads: [`model_patches/${made.file}`, ...sd] };
+    },
+    vedaFor: "reference",
+    ...(ctx.slots.refTurbo ?? ctx.slots.turbo ? { turbo: ctx.slots.refTurbo ?? ctx.slots.turbo } : {}),
+  });
+  // said on the job, the window rendered all the same
+  const notes = [
+    ...(/<Video \d+>|^\s*(?:replace|swap)\b/i.test(written) ? ["This window carries on from the one before, moved by its pose: its prompt is still a swap's. Write its own: who is in it, as they look in the clip before, and what they do."] : []),
+    ...(input.references.length === 0 ? ["No picture of who goes in: the window carries on from the clip before's frames alone, and the face may drift."] : []),
+  ];
+  return notes.length ? { ...built, warnings: [...(built.warnings ?? []), ...notes] } : built;
+}
+
+/** The window as the swap's helpers read it, rendered at the swap's own default size. */
+const asSwap = (input: H3MotionTransfer) => ({ ...input, swapSize: "576p" }) as unknown as H3Swap;
+
+/**
+ * Core's ImageFromBatch: the clip before's last frame, taken as a picture where the reference route runs (known by the
+ * slots). Core's LoRA loader: a window after a swap takes it only for a turbo LoRA (a model that is not distilled, known by
+ * the file the slot gives, which nodes() does not see) or the user's LoRAs.
+ */
+const MOTION_OPTIONAL = [...(h3Video.optionalNodes ?? []), "ImageFromBatch", "LoraLoaderModelOnly"];
+
+/** The nodes of a window after a swap: H3's with no swap LoRA, the clip before's last frame a reference, the sound's, the pose's. */
+function nodesAfterSwap(input: H3MotionTransfer): string[] {
+  const optional = new Set(MOTION_OPTIONAL);
+  return [...new Set([
+    ...h3Video.nodes({ ...swapClip(asSwap(input), null, SWAP_FRAMES, MOTION_CARRIED), description: "a", references: [...input.references, { asset: "frame", role: "person" }] }),
+    ...(input.keepSound ? ["TrimAudioDuration"] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : []),
+    ...motionNodes(input),
+  // (with no cast photo, the frame is the only picture: nothing loaded from a file)
+  ])].filter((n) => !optional.has(n) && !(n === "LoadImage" && input.references.length === 0));
+}
+
 export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
   id: "h3.motion",
   // the prompt as sent written from the parts while it is left empty (card #34)
   partsInto: "description",
-  promptFromParts: (input) => motionTransferFromParts(input),
+  // (the form's placeholder is read without the clip before: a window after a swap carries on by what it is)
+  promptFromParts: (input) => (input.afterSwap ? motionFromParts(input) : motionTransferFromParts(input)),
+  // a window given this form alone, from a form whose windows that carry on are this one (Swap character's), carries on from
+  // a swap, on its model: the sampling it has not set stays the swap's own (its shifts, 12 / 3). Every window given it (the
+  // source's form changed): each a Motion transfer of its own
+  windowFrom: (from, inputs, alone) => {
+    if (!alone) return { ...inputs, afterSwap: false };
+    if (from.traits?.windows?.carryOn !== "h3.motion") return inputs;
+    const theirs = Object.fromEntries(from.inputs.filter((i) => SAMPLING.has(i.id) && "default" in i && !(i.id in inputs)).map((i) => [i.id, (i as { default: unknown }).default]));
+    return { ...theirs, ...inputs, afterSwap: true };
+  },
   family: "h3",
   version: 1,
   title: "Motion transfer",
@@ -130,23 +262,26 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
   chapters: [MOTION_CHAPTER],
   starts: H3_STARTS,
   presets: h3Video.presets,
-  needsWith: (input, slots) => [...turboNeeds(input, slots), ...vedaNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...motionNeeds(input)],
-  nodes: (input) => [...new Set([
+  // a window after a swap needs what the swap's do (its model, unless picked), less its LoRA and SAM 3
+  needsWith: (input, slots = {}) => afterSwap(input)
+    ? [...(h3Swap.needsWith?.(asSwap(input), slots) ?? []).filter((n) => n !== "swapSam"), ...motionNeeds(input), ...(input.swapModel ? [] : ["swapUnet"])]
+    : [...turboNeeds(input, slots), ...vedaNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...motionNeeds(input)],
+  nodes: (input) => afterSwap(input) ? nodesAfterSwap(input) : [...new Set([
     // carrying on, the clip before's last frame is a picture of who moves: the reference route (with H3's reference model there)
     ...h3Video.nodes({ ...asClip(input, SWAP_FRAMES, input.previous ? MOTION_CARRIED : 0), ...(input.previous ? { references: [...input.references, { asset: "frame", role: "person" }] } : {}) }), ...motionNodes(input),
     ...(input.keepSound ? ["TrimAudioDuration"] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : []),
   // (carrying on with no cast photo, the frame is the only picture: nothing loaded from a file)
   ])].filter((n) => !(n === "LoadImage" && input.previous && input.references.length === 0)),
-  // core's ImageFromBatch: the clip before's last frame, taken as a picture where the reference route runs (known by the slots)
-  optionalNodes: [...(h3Video.optionalNodes ?? []), "ImageFromBatch"],
+  optionalNodes: MOTION_OPTIONAL,
   finishing: (input) => h3Video.finishing!(asClip(input, SWAP_FRAMES, 0)),
 
   build(input, ctx) {
+    if (!input.source || !ctx.uploads.source) throw new Error("Motion transfer needs a driving video: how it moves.");
+    if (afterSwap(input)) return windowAfterSwap(input, ctx);
     if (!input.picture || !ctx.uploads.picture) throw new Error("Motion transfer needs a picture: what moves.");
-    if (!input.driving || !ctx.uploads.driving) throw new Error("Motion transfer needs a driving video: how it moves.");
     const frames = framesOf(input, ctx);
     const carried = input.previous ? ctx.media.previous?.frames ?? MOTION_CARRIED : 0;
-    const driving = ctx.media.driving;
+    const driving = ctx.media.source;
     const keep = input.keepSound && Boolean(driving?.hasSound);
     // the picture is H3's first frame: its upload and its size where H3 reads a start picture
     const asStart = {
@@ -156,7 +291,7 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
     };
     let heard: Ref | null = null;
     const drivingSound = (g: GraphBuilder, n: number) =>
-      (heard ??= g.out("TrimAudioDuration", { audio: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.driving }) }), 1], start_index: 0, duration: n / H3_FPS }));
+      (heard ??= g.out("TrimAudioDuration", { audio: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.source }) }), 1], start_index: 0, duration: n / H3_FPS }));
     const clip = asClip(input, frames, carried);
     // a window carrying on is also given the clip before's last frame as a picture of who moves (how they look by now),
     // when H3's reference route can run here: a reference model there, or a hybrid picked (else the frames carried alone)
@@ -168,7 +303,7 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
         guide: (g, at) => g.out("MiniMaxH3AddGuide", { positive: at.positive, latent: at.latent, vae: at.vae, audio_vae: at.audioVae, audio: drivingSound(g, at.frames), frame_idx: 0 }),
       } : {}),
       model: (g, model, at) => {
-        const pose = poseVideo(g, ctx, input, ctx.uploads.driving!, at);
+        const pose = poseVideo(g, ctx, input, ctx.uploads.source!, at);
         const made = controlled(g, ctx, input, model, at.vae, pose);
         const sd = input.poseFrom === POSE_SDPOSE ? [`checkpoints/${ctx.slots.sdpose}`, `diffusion_models/${ctx.slots.rtdetr}`] : [];
         return { model: made.model, loads: [`model_patches/${made.file}`, ...sd] };
@@ -189,35 +324,58 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
     return [
       {
         name: "a picture moved by the driving video's pose (DWPose), its sound kept",
-        input: { picture: "p1", driving: { asset: "v1" }, description: "A man dances in a living room." },
-        slots: all, uploads: { picture: "p.png", driving: "v.mp4" }, media: { picture, driving: part },
+        input: { picture: "p1", source: { asset: "v1" }, description: "A man dances in a living room." },
+        slots: all, uploads: { picture: "p.png", source: "v.mp4" }, media: { picture, source: part },
       },
       {
         name: "Veda's sparse attention on a moved picture",
-        input: { picture: "p1", driving: { asset: "v1" }, description: "A man dances in a living room.", veda: true, vedaGenerated: 24, vedaReference: 40, shot: "Wide" },
-        slots: { ...all, ...{ veda: "minimax_h3_r2va_veda_preview_fp8.safetensors", vedaT2va: "minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors" } }, uploads: { picture: "p.png", driving: "v.mp4" }, media: { picture, driving: part },
+        input: { picture: "p1", source: { asset: "v1" }, description: "A man dances in a living room.", veda: true, vedaGenerated: 24, vedaReference: 40, shot: "Wide" },
+        slots: { ...all, ...{ veda: "minimax_h3_r2va_veda_preview_fp8.safetensors", vedaT2va: "minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors" } }, uploads: { picture: "p.png", source: "v.mp4" }, media: { picture, source: part },
       },
       {
         name: "the cast's picture as a reference, the pose from SDPose, full steps",
-        input: { picture: "p1", driving: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], poseFrom: POSE_SDPOSE, fast: false, poseHands: false },
-        slots: all, uploads: { picture: "p.png", driving: "v.mp4", "references.0": "r1.png" }, media: { picture, driving: part },
+        input: { picture: "p1", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], poseFrom: POSE_SDPOSE, fast: false, poseHands: false },
+        slots: all, uploads: { picture: "p.png", source: "v.mp4", "references.0": "r1.png" }, media: { picture, source: part },
       },
       {
         name: "Face refine of the cast person (a Finish of it loads its own latent)",
-        input: { picture: "p1", driving: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], faceRefine: true },
-        slots: { ...all, ...FACE_REFINE_SLOTS }, uploads: { picture: "p.png", driving: "v.mp4", "references.0": "r1.png", "self.latent": "own.safetensors" }, media: { picture, driving: part },
+        input: { picture: "p1", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], faceRefine: true },
+        slots: { ...all, ...FACE_REFINE_SLOTS }, uploads: { picture: "p.png", source: "v.mp4", "references.0": "r1.png", "self.latent": "own.safetensors" }, media: { picture, source: part },
       },
       {
         // one file that is all three: no reference model, no turbo LoRA
         name: "a hybrid turbo fine-tune, the cast's picture as a reference, its colours matched to the picture, RIFE",
-        input: { picture: "p1", driving: { asset: "v1" }, model: "SomeoneH3_hybridTurboV3.safetensors", references: [{ asset: "r1", role: "person" }], colourMatch: true, smooth: true, fast: true },
-        slots: all, uploads: { picture: "p.png", driving: "v.mp4", "references.0": "r1.png" }, media: { picture, driving: part },
+        input: { picture: "p1", source: { asset: "v1" }, model: "SomeoneH3_hybridTurboV3.safetensors", references: [{ asset: "r1", role: "person" }], colourMatch: true, smooth: true, fast: true },
+        slots: all, uploads: { picture: "p.png", source: "v.mp4", "references.0": "r1.png" }, media: { picture, source: part },
       },
       {
         name: "a window that carries on from the one before, a short run-up, the sound H3 makes",
-        input: { picture: "p1", driving: { asset: "v1", at: 5 }, previous: { asset: "w1" }, context: "5", keepSound: false },
-        slots: all, uploads: { picture: "p.png", driving: "v.mp4", previous: "w.mp4" }, media: { picture, driving: { ...part, frames: 124 }, previous: { ...before, frames: 5 } },
+        input: { picture: "p1", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, context: "5", keepSound: false },
+        slots: all, uploads: { picture: "p.png", source: "v.mp4", previous: "w.mp4" }, media: { picture, source: { ...part, frames: 124 }, previous: { ...before, frames: 5 } },
       },
+      // a window after a swap (Swap motion's that carried on, card #42): the swap's model, no Picture of its own
+      ...((): Variant<H3MotionTransfer>[] => {
+        const swap = { ...all, swapUnet: "minimax_h3_fused_refdelta_r1024_turbo8_mystic07_int8_convrot.safetensors" };
+        const window = { width: 576, height: 1024, frames: 141, fps: H3_FPS, hasSound: true };
+        const description = "The man with short brown hair in <Picture 1>, in a white shirt and jeans, dances.";
+        return [
+          {
+            name: "a window after a swap: moved by its pose (DWPose), the cast's picture in, the source's sound kept",
+            input: { afterSwap: true, description, source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: true, shiftVideo: 12, shiftAudio: 3 },
+            slots: swap, uploads: { source: "v.mp4", previous: "w.mp4", "references.0": "r1.png" }, media: { source: window, previous: before },
+          },
+          {
+            name: "a window after a swap with a long run-up, its pose from SDPose, a weaker control ending early",
+            input: { afterSwap: true, description, source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, context: "39", references: [{ asset: "r1", role: "person" }], poseFrom: POSE_SDPOSE, controlStrength: 0.8, controlEnd: 0.75, poseFace: false },
+            slots: swap, uploads: { source: "v.mp4", previous: "w.mp4", "references.0": "r1.png" }, media: { source: window, previous: { ...before, frames: 39 } },
+          },
+          {
+            name: "a window after a swap with no picture of who goes in, written from its parts, from the window before's frames",
+            input: { afterSwap: true, look: "short brown hair, a white shirt and jeans", happens: "he dances", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, joinFrom: "Frames", references: [], keepSound: false },
+            slots: swap, uploads: { source: "v.mp4", previous: "w.mp4" }, media: { source: window, previous: before },
+          },
+        ];
+      })(),
     ];
   })(),
 });

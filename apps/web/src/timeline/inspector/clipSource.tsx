@@ -36,7 +36,7 @@ export type ClipSource = {
   onShowMask(): void;
   onMaskShown(on: boolean): void;
   /** Every window the source made, in order: its clip, its part, how it opens, its run-up, whether its prompt is its own, rendered. */
-  list: Array<{ id: string; number: number; startMs: number; seconds: number; opens: boolean; carried: number; own: boolean; rendered: boolean }>;
+  list: Array<{ id: string; number: number; startMs: number; seconds: number; opens: boolean; form: string; carried: number; own: boolean; rendered: boolean }>;
   onSelectWindow(id: string): void;
   /** Frames from the clip before, for every window (H3's 5 / 22 / 39): changed, the source is cut again. Null: the model has one count. */
   runUp: { counts: number[]; value: number; on(n: number): void } | null;
@@ -126,8 +126,8 @@ export function sourceLead(s: ClipSource, clip: { inputs: Record<string, unknown
 }
 
 /**
- * Every window the source made, as the mock's "each window's own": its clip, its part of the source, whether it opens on the
- * source (a cut) or carries on, its run-up, and whether its prompt is its own or window 1's. A click selects its clip.
+ * Every window the source made, as the mock's "each window's own": its clip, its part of the source, its form, whether it
+ * opens on the source (a cut) or carries on, its run-up, and whether its prompt is its own or window 1's. A click selects its clip.
  */
 function WindowList({ s }: { s: ClipSource }) {
   if (s.list.length < 2) return null;
@@ -139,7 +139,7 @@ function WindowList({ s }: { s: ClipSource }) {
           <span className="font-semibold">{x.number}</span>
           <span className="truncate">
             <span className="font-mono">{mmss(x.startMs, { decimals: 1 })}–{mmss(x.startMs + x.seconds * 1000, { decimals: 1 })}</span>
-            <span className="text-ink-2"> · {x.opens ? "opens on the source" : `carries on · ${x.carried}`}{k > 0 ? ` · ${x.own ? "its own prompt" : "window 1's prompt"}` : ""}</span>
+            <span className="text-ink-2"> · {x.form ? `${x.form} · ` : ""}{x.opens ? "opens on the source" : `carries on · ${x.carried}`}{k > 0 ? ` · ${x.own ? "its own prompt" : "window 1's prompt"}` : ""}</span>
           </span>
           <span className={x.rendered ? "text-good" : "text-ink-3"}>{x.rendered ? "rendered" : "empty"}</span>
         </button>

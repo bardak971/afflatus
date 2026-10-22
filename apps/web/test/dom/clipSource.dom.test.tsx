@@ -48,9 +48,9 @@ describe("a clip made from the source, its Source chapter (the rethink's source 
       onPicking: () => {}, onClearPick: () => {}, kept: false, windows: { leastMs: 3800, mostMs: 5900 }, onCut: () => {}, cutting: false,
       mask: { status: "none", shown: false }, onShowMask: () => {}, onMaskShown: () => {}, onKept: () => {}, onInLine: () => {}, onToAll: () => {},
       list: [
-        { id: "a", number: 2, startMs: 0, seconds: 5.2, opens: true, carried: 0, own: false, rendered: true },
-        { id: "b", number: 3, startMs: 5200, seconds: 4.4, opens: false, carried: 22, own: false, rendered: false },
-        { id: "c", number: 4, startMs: 9600, seconds: 4.4, opens: true, carried: 0, own: true, rendered: false },
+        { id: "a", number: 2, startMs: 0, seconds: 5.2, opens: true, form: "Swap character", carried: 0, own: false, rendered: true },
+        { id: "b", number: 3, startMs: 5200, seconds: 4.4, opens: false, form: "Motion transfer", carried: 22, own: false, rendered: false },
+        { id: "c", number: 4, startMs: 9600, seconds: 4.4, opens: true, form: "Swap character", carried: 0, own: true, rendered: false },
       ],
       onSelectWindow: (id: string) => asked.push(`select ${id}`),
       runUp: { counts: [5, 22, 39], value: 22, on: (n: number) => asked.push(`run-up ${n}`) },
@@ -67,6 +67,9 @@ describe("a clip made from the source, its Source chapter (the rethink's source 
     const asked = lead({});
     expect(screen.getAllByText(/opens on the source/)).toHaveLength(2);
     expect(screen.getByText(/carries on · 22 · window 1's prompt/)).toBeTruthy();
+    // each window's form (card #42: a swap where a shot opens, Motion transfer after it)
+    expect(screen.getByText(/Motion transfer · carries on/)).toBeTruthy();
+    expect(screen.getAllByText(/Swap character · opens on the source/)).toHaveLength(2);
     expect(screen.getByText(/its own prompt/)).toBeTruthy();
     fireEvent.click(screen.getByText(/carries on · 22/).closest("button")!);
     expect(asked).toEqual(["select b"]);

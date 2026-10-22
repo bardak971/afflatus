@@ -32,7 +32,8 @@ export function withTexts(recipe: Recipe<any>, raw: unknown): unknown {
   const input = { ...(raw as Record<string, unknown>) };
   for (const spec of recipe.inputs as InputSpec[]) {
     if (spec.type === "prompt" && !spec.optional && !String(input[spec.id] ?? "").trim()) input[spec.id] = "a";
-    if (spec.type === "image" && !spec.optional && (typeof input[spec.id] !== "string" || !input[spec.id])) input[spec.id] = NO_PICTURE;
+    // (one a clip that carries on goes without is left out: what it builds then, and the files it takes, are not the same)
+    if (spec.type === "image" && !spec.optional && !spec.opensOnly && (typeof input[spec.id] !== "string" || !input[spec.id])) input[spec.id] = NO_PICTURE;
   }
   return input;
 }

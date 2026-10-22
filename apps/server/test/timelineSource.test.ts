@@ -77,7 +77,7 @@ describe("a timeline's source lane", () => {
     expect((await view(tl.id)).clips).toHaveLength(0);
   });
 
-  it("makes a swap's windows on H3's grid, each carrying on from the one before", async () => {
+  it("makes a swap's windows on H3's grid, each carrying on from the one before: a swap where a shot opens, Motion transfer after it", async () => {
     const tl = await call("POST", "/api/timelines", { name: "zz-test swap source" });
     const meme = await asset("video");
     const photo = await asset("image");
@@ -88,9 +88,14 @@ describe("a timeline's source lane", () => {
     expect(made.clips).toHaveLength(5);
     const v = await view(tl.id);
     expect(v.clips.map((c: { joined: string }) => c.joined)).toEqual(["cut", "continue", "continue", "continue", "continue"]);
-    for (const c of v.clips) {
-      expect(c.recipe).toBe("h3.swap");
-      expect(c.inputs).toMatchObject({ source: { asset: meme.id }, who: "the man in the grey t-shirt" });
+    // the person replaced is never in a window that carries on (card #42: what H3 · Swap motion did by itself)
+    expect(v.clips.map((c: { recipe: string }) => c.recipe)).toEqual(["h3.swap", "h3.motion", "h3.motion", "h3.motion", "h3.motion"]);
+    for (const c of v.clips) expect(c.inputs).toMatchObject({ source: { asset: meme.id }, references: [{ asset: photo.id, role: "person" }] });
+    expect(v.clips[0].inputs.who).toBe("the man in the grey t-shirt");
+    // a motion window after a swap: no Picture of its own, the swap's shifts (it runs on the swap's model)
+    for (const c of v.clips.slice(1)) {
+      expect(c.inputs.picture).toBeUndefined();
+      expect(c.inputs).toMatchObject({ afterSwap: true, shiftVideo: 12, shiftAudio: 3 });
     }
     expect(v.clips[0].inputs.sourceStart).toBe(3);
     expect(v.clips[0].inputs.sourceSeconds).toBeCloseTo(107.5 / 24, 3);
@@ -107,6 +112,8 @@ describe("a timeline's source lane", () => {
       await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id } });
       await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, recipe: "h3.swap", inputs: { who: "the man", references: [{ asset: photo.id, role: "person" }] } } });
       await call("POST", `/api/timelines/${tl.id}/source/make`);
+      // every window a swap (the source's form given to all of them): Make alone makes the ones that carry on Motion transfer
+      await call("POST", `/api/timelines/${tl.id}/source/form`, { recipe: "h3.swap" });
       const clips = (await view(tl.id)).clips as Array<{ id: string; inputs: Record<string, unknown> }>;
       const edit = (c: { id: string; inputs: Record<string, unknown> }, over: Record<string, unknown>, share?: string) =>
         call("PATCH", `/api/clips/${c.id}`, { inputs: { ...c.inputs, ...over }, ...(share ? { share } : {}) });
@@ -254,73 +261,102 @@ describe("a timeline's source lane", () => {
     });
   });
 
-  it("makes Swap motion's windows: the first a swap with the source's prompt, those that carry on on the motion prompt", async () => {
-    const tl = await call("POST", "/api/timelines", { name: "zz-test swap motion source" });
-    const meme = await asset("video");
-    const photo = await asset("image");
-    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id } });
-    await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, recipe: "h3.swapMotion", inputs: { who: "Replace the woman in <Video 1> with the man in <Picture 1>.", references: [{ asset: photo.id, role: "person" }] } } });
-    const made = await call("POST", `/api/timelines/${tl.id}/source/make`);
-    expect(made.clips).toHaveLength(5);
-    const v = await view(tl.id);
-    expect(v.clips[0].inputs.who).toBe("Replace the woman in <Video 1> with the man in <Picture 1>.");
-    for (const c of v.clips.slice(1)) {
-      expect(c.joined).toBe("continue");
-      // clip 1's person carrying on, in H3's own words: Afflatus adds which picture is whom
-      expect(c.inputs.who).toBe("The man carries on moving as in the clip before.");
-    }
-    // the cast's picture is every window's
-    for (const c of v.clips) expect(c.inputs.references).toEqual([{ asset: photo.id, role: "person" }]);
-  });
+  describe("a form per window (card #42: H3 · Swap motion retired)", () => {
+    const WHO = "Replace the woman in <Video 1> with the man in <Picture 1>.";
+    const mixed = async (name: string) => {
+      const tl = await call("POST", "/api/timelines", { name });
+      const meme = await asset("video");
+      const photo = await asset("image");
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id } });
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, recipe: "h3.swap", inputs: { who: WHO, references: [{ asset: photo.id, role: "person" }] } } });
+      await call("POST", `/api/timelines/${tl.id}/source/make`);
+      return { tl, meme, photo, v: await view(tl.id) };
+    };
+    const recipes = (v: { clips: Array<{ recipe: string }> }) => v.clips.map((c) => c.recipe);
 
-  it("gives Swap motion's later windows clip 1's person once clip 1's prompt is written after Make, but not one written by hand", async () => {
-    const tl = await call("POST", "/api/timelines", { name: "zz-test swap motion follow" });
-    const meme = await asset("video");
-    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id, recipe: "h3.swapMotion" } });
-    await call("POST", `/api/timelines/${tl.id}/source/make`);
-    let v = await view(tl.id);
-    const plain = v.clips[1].inputs.who as string;
-    expect(v.clips.length).toBeGreaterThan(2);
-    // clip 3 written by hand
-    await call("PATCH", `/api/clips/${v.clips[2].id}`, { inputs: { ...v.clips[2].inputs, who: "The man dances on." } });
-    v = await view(tl.id);
-    await call("PATCH", `/api/clips/${v.clips[0].id}`, { inputs: { ...v.clips[0].inputs, who: "Replace the woman in <Video 1> with the man with short brown hair in <Picture 1>. He is wearing a white shirt." } });
-    v = await view(tl.id);
-    const made = "The man with short brown hair carries on moving as in the clip before. He is wearing a white shirt.";
-    expect(v.clips[1].inputs.who).toBe(made);
-    expect(v.clips[2].inputs.who).toBe("The man dances on.");
-    for (const c of v.clips.slice(3)) expect(c.inputs.who).toBe(made);
-    expect(plain).not.toBe(made);
-  });
+    it("shares the source's parts with every window whatever its form; What happens stays each window's own", async () => {
+      const { tl, photo, v } = await mixed("zz-test mixed share");
+      expect(recipes(v)).toEqual(["h3.swap", "h3.motion", "h3.motion", "h3.motion", "h3.motion"]);
+      const other = await asset("image");
+      // How they look and the references, changed on a motion window: the swap's too, and the source's form
+      await call("PATCH", `/api/clips/${v.clips[2].id}`, { inputs: { ...v.clips[2].inputs, look: "a white shirt", references: [{ asset: other.id, role: "person" }], happens: "he waves" } });
+      let now = await view(tl.id);
+      for (const c of now.clips) expect(c.inputs).toMatchObject({ look: "a white shirt", references: [{ asset: other.id, role: "person" }] });
+      expect(now.source.inputs).toMatchObject({ look: "a white shirt" });
+      expect(now.clips.map((c: { inputs: { happens?: string } }) => c.inputs.happens ?? "")).toEqual(["", "", "he waves", "", ""]);
+      // a setting of the swap's alone, changed on window 1: kept on the motion windows too, unread (it comes back with the form)
+      await call("PATCH", `/api/clips/${now.clips[0].id}`, { inputs: { ...now.clips[0].inputs, swapStrength: 1.3 } });
+      now = await view(tl.id);
+      for (const c of now.clips) expect(c.inputs.swapStrength).toBe(1.3);
+      // the motion's own setting, changed on one motion window: every motion window's
+      await call("PATCH", `/api/clips/${now.clips[1].id}`, { inputs: { ...now.clips[1].inputs, controlStrength: 0.8 } });
+      now = await view(tl.id);
+      for (const c of now.clips.slice(1)) expect(c.inputs.controlStrength).toBe(0.8);
+      expect(photo.id).not.toBe(other.id);
+    });
 
-  it("dropped for an empty clip of Swap motion, makes its windows in that clip's place", async () => {
-    const tl = await call("POST", "/api/timelines", { name: "zz-test swap motion drop" });
-    const meme = await asset("video");
-    const empty = await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "h3.swapMotion" });
-    const emptyId = (empty.id ?? empty.clip?.id ?? (await view(tl.id)).clips[0].id) as string;
-    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id, recipe: "h3.swapMotion", clip: emptyId } });
-    await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, inputs: { who: "Replace the woman in <Video 1> with the man in <Picture 1>." } } });
-    await call("POST", `/api/timelines/${tl.id}/source/make`);
-    const v = await view(tl.id);
-    expect(v.clips.map((c: { id: string }) => c.id)).not.toContain(emptyId);
-    expect(v.clips.length).toBeGreaterThan(1);
-    expect(v.clips.every((c: { recipe: string }) => c.recipe === "h3.swapMotion")).toBe(true);
-  });
+    it("gives one window another form of its grid in place: its part, its takes and the other windows kept, one Undo step", async () => {
+      const { tl, v } = await mixed("zz-test window form");
+      const video = await asset("video");
+      const take = newId();
+      await t.db.insertInto("takes").values({ id: take, clip_id: v.clips[2].id, asset_id: video.id, head_ms: 0, tail_ms: 0, trim_start_ms: 0, trim_end_ms: 0, prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, finished_from: null, created_at: now() }).execute();
+      await t.db.updateTable("clips").set({ take_id: take }).where("id", "=", v.clips[2].id).execute();
+      // a swap again where the motion drifts, the motion windows after it carrying on from it
+      await call("POST", `/api/timelines/${tl.id}/source/window`, { clip: v.clips[2].id, recipe: "h3.swap" });
+      const after = await view(tl.id);
+      expect(recipes(after)).toEqual(["h3.swap", "h3.motion", "h3.swap", "h3.motion", "h3.motion"]);
+      expect(after.clips.map((c: { id: string }) => c.id)).toEqual(v.clips.map((c: { id: string }) => c.id));
+      expect(after.clips[2].take?.id).toBe(take);
+      expect(after.clips[2].inputs.sourceStart).toBe(v.clips[2].inputs.sourceStart);
+      expect(after.clips[2].joined).toBe("continue");
+      expect(after.source.recipe).toBe("h3.swap");
+      // a window made a swap again keeps the swap's prompt it was given
+      expect(after.clips[2].inputs.who).toBe(WHO);
+      await call("POST", `/api/timelines/${tl.id}/undo`);
+      expect(recipes(await view(tl.id))).toEqual(["h3.swap", "h3.motion", "h3.motion", "h3.motion", "h3.motion"]);
+      // and the opening window made Motion transfer: it then needs a Picture of its own, as any Motion transfer that opens
+      await call("POST", `/api/timelines/${tl.id}/source/window`, { clip: v.clips[0].id, recipe: "h3.motion" });
+      expect(recipes(await view(tl.id))[0]).toBe("h3.motion");
+    });
 
-  it("is made again with another model when the source's model changes after Make: its clips not rendered made anew", async () => {
-    const tl = await call("POST", "/api/timelines", { name: "zz-test swap to swap motion" });
-    const meme = await asset("video");
-    const photo = await asset("image");
-    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id } });
-    await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, recipe: "h3.swap", inputs: { who: "Replace the woman in <Video 1> with the man in <Picture 1>.", references: [{ asset: photo.id, role: "person" }] } } });
-    await call("POST", `/api/timelines/${tl.id}/source/make`);
-    await call("PATCH", `/api/timelines/${tl.id}`, { source: { recipe: "h3.swapMotion" } });
-    await call("POST", `/api/timelines/${tl.id}/source/make`, { again: true });
-    const v = await view(tl.id);
-    expect(v.clips.every((c: { recipe: string }) => c.recipe === "h3.swapMotion")).toBe(true);
-    expect(v.clips[0].inputs.who).toBe("Replace the woman in <Video 1> with the man in <Picture 1>.");
-    for (const c of v.clips.slice(1)) expect(c.inputs.who).not.toMatch(/<Video 1>/);
-    for (const c of v.clips) expect(c.inputs.references).toEqual([{ asset: photo.id, role: "person" }]);
+    it("refuses a form of another grid for one window, and one that renders", async () => {
+      const { tl, v } = await mixed("zz-test window form refused");
+      await expect(call("POST", `/api/timelines/${tl.id}/source/window`, { clip: v.clips[1].id, recipe: "scail.motion" })).rejects.toThrow(/give it to all/);
+      await t.db.insertInto("jobs").values({ id: newId(), owner_id: "local", recipe_id: "h3.motion", label: "x", inputs: "{}", status: "running", priority: 0, clip_id: v.clips[1].id, created_at: now(), updated_at: now() } as never).execute();
+      await expect(call("POST", `/api/timelines/${tl.id}/source/window`, { clip: v.clips[1].id, recipe: "h3.swap" })).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it("dropped for an empty clip of Swap character, makes its windows in that clip's place", async () => {
+      const tl = await call("POST", "/api/timelines", { name: "zz-test swap drop" });
+      const meme = await asset("video");
+      const empty = await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "h3.swap" });
+      const emptyId = (empty.id ?? empty.clip?.id ?? (await view(tl.id)).clips[0].id) as string;
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id, recipe: "h3.swap", clip: emptyId } });
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, inputs: { who: WHO } } });
+      await call("POST", `/api/timelines/${tl.id}/source/make`);
+      const v = await view(tl.id);
+      expect(v.clips.map((c: { id: string }) => c.id)).not.toContain(emptyId);
+      expect(recipes(v)[0]).toBe("h3.swap");
+      expect(recipes(v).slice(1).every((r: string) => r === "h3.motion")).toBe(true);
+    });
+
+    it("is made again with Swap character after Motion transfer: the openings swaps, the rest Motion transfer", async () => {
+      const tl = await call("POST", "/api/timelines", { name: "zz-test motion to swap" });
+      const meme = await asset("video");
+      const photo = await asset("image");
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id } });
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, recipe: "h3.motion", inputs: { picture: photo.id, references: [{ asset: photo.id, role: "person" }] } } });
+      await call("POST", `/api/timelines/${tl.id}/source/make`);
+      expect(recipes(await view(tl.id)).every((r) => r === "h3.motion")).toBe(true);
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { recipe: "h3.swap", inputs: { who: WHO, references: [{ asset: photo.id, role: "person" }] } } });
+      await call("POST", `/api/timelines/${tl.id}/source/make`, { again: true });
+      const v = await view(tl.id);
+      expect(recipes(v)[0]).toBe("h3.swap");
+      expect(recipes(v).slice(1).every((r: string) => r === "h3.motion")).toBe(true);
+      // the motion windows after the swap have no Picture: they carry on from it, on the swap's model
+      for (const c of v.clips.slice(1)) expect(c.inputs.picture).toBeUndefined();
+      for (const c of v.clips) expect(c.inputs.references).toEqual([{ asset: photo.id, role: "person" }]);
+    });
   });
 
   describe("given another form after Make (Timelines.sourceForm)", () => {
@@ -353,26 +389,24 @@ describe("a timeline's source lane", () => {
       expect(after.source.recipe).toBe("h3.motion");
       expect(after.clips.map((c: { id: string }) => c.id)).toEqual(before.map((b: { id: string }) => b.id));
       expect(after.clips.every((c: { recipe: string }) => c.recipe === "h3.motion")).toBe(true);
-      // each window's part, moved to Motion transfer's own inputs: the driving video, its start and length
+      // each window's part as it was: Motion transfer reads it by the swap's own inputs
       after.clips.forEach((c: { inputs: Record<string, unknown> }, k: number) => {
-        expect(c.inputs.driving).toMatchObject({ asset: meme.id });
-        expect([c.inputs.drivingStart, c.inputs.drivingSeconds]).toEqual([before[k]!.start, before[k]!.seconds]);
+        expect(c.inputs.source).toMatchObject({ asset: meme.id });
+        expect([c.inputs.sourceStart, c.inputs.sourceSeconds]).toEqual([before[k]!.start, before[k]!.seconds]);
       });
       expect(after.clips[0].take?.id).toBe(take);
-      // one step: Undo brings the swap back
+      // one step: Undo brings the windows back as they were, a swap opening and Motion transfer after it
       await call("POST", `/api/timelines/${tl.id}/undo`);
-      expect((await view(tl.id)).clips.every((c: { recipe: string }) => c.recipe === "h3.swap")).toBe(true);
+      expect((await view(tl.id)).clips.map((c: { recipe: string }) => c.recipe)).toEqual(v.clips.map((c: { recipe: string }) => c.recipe));
+      expect(v.clips[0].recipe).toBe("h3.swap");
     });
 
-    it("swap to Swap motion in place: the windows that carry on take the motion prompt, window 1 keeps the swap's", async () => {
+    it("given to all its windows, whatever form each had: every one a swap, the prompt each was given kept", async () => {
       const { tl } = await madeWith("h3.swap");
-      await call("POST", `/api/timelines/${tl.id}/source/form`, { recipe: "h3.swapMotion" });
-      const v = await view(tl.id);
-      expect(v.clips[0].inputs.who).toBe(WHO);
-      for (const c of v.clips.slice(1)) if (c.joined === "continue") expect(c.inputs.who).not.toMatch(/<Video 1>/);
-      // and back: the windows that carry on take window 1's swap prompt again
       await call("POST", `/api/timelines/${tl.id}/source/form`, { recipe: "h3.swap" });
-      for (const c of (await view(tl.id)).clips) expect(c.inputs.who).toBe(WHO);
+      const v = await view(tl.id);
+      expect(v.clips.every((c: { recipe: string }) => c.recipe === "h3.swap")).toBe(true);
+      for (const c of v.clips) expect(c.inputs.who).toBe(WHO);
     });
 
     it("across grids (H3 to SCAIL-2): every window made anew, the rendered ones too, their videos left in the library", async () => {

@@ -2,8 +2,7 @@ import { describe, expect, it } from "vitest";
 import { dryContext, parseInput, type Recipe } from "@afflatus/core";
 import { recipeById } from "../src/index";
 import { swapFromParts, SWAP_CAPTION, typedPrompt } from "../src/h3/swap";
-import { motionFromParts } from "../src/h3/swapMotion";
-import { motionTransferFromParts } from "../src/h3/motionTransfer";
+import { motionFromParts, motionTransferFromParts } from "../src/h3/motionTransfer";
 
 /**
  * H3 prompts written from parts (card #34, the owner's mock of 2026-10-20): by rules, the prompt as sent shown and kept
@@ -54,6 +53,7 @@ describe("what a render sends", () => {
   it("each form says which of its inputs is the prompt as sent", () => {
     expect(recipeById("h3.swap")!.partsInto).toBe("who");
     expect(recipeById("h3.motion")!.partsInto).toBe("description");
-    expect(recipeById("h3.swapMotion")!.promptFromParts!({ ...(parseInput(recipeById("h3.swapMotion")!, { ...(v.input as object) }) as object), previous: { asset: "w1" }, look: "", happens: "he waves" } as never)).toMatch(/carries on moving as in the clip before\. He waves\.$/);
+    // a Motion transfer window after a swap (no Picture of its own) writes its prompt as carrying on
+    expect(recipeById("h3.motion")!.promptFromParts!({ afterSwap: true, look: "", happens: "he waves" } as never)).toMatch(/carries on moving as in the clip before\. He waves\.$/);
   });
 });

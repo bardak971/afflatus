@@ -24,7 +24,7 @@ function build(values: Record<string, unknown>, ctx: Partial<BuildContext> = {})
 
 describe("MiniMax H3 · Face refine", () => {
   it("is on every H3 form, off by default, in the Output chapter", () => {
-    for (const id of ["h3.video", "h3.lipsync", "h3.swap", "h3.swapMotion", "h3.motion"]) {
+    for (const id of ["h3.video", "h3.lipsync", "h3.swap", "h3.motion"]) {
       const spec = recipeById(id)!.inputs.find((i) => i.id === "faceRefine");
       expect(spec, id).toMatchObject({ type: "toggle", default: false, section: "out" });
       expect(recipeById(id)!.inputs.find((i) => i.id === "faceRefineOnly"), id).toMatchObject({ internal: true });

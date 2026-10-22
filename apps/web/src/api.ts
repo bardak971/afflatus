@@ -569,6 +569,8 @@ export const api = {
   makeFromRecording: (id: string, asset: string, clip?: string) => call<{ clips: string[] }>("POST", `/timelines/${id}/recording`, { asset, ...(clip ? { clip } : {}) }),
   /** The source given another windowed form: in place on the same grid (`switched`), else every window made anew (their ids). */
   sourceForm: (id: string, recipe: string) => call<{ switched: boolean; clips: string[] }>("POST", `/timelines/${id}/source/form`, { recipe }),
+  /** One window of the source given another form of its grid, in place: its takes kept, the other windows as they are (card #42). */
+  windowForm: (id: string, clip: string, recipe: string) => call<{ ok: true }>("POST", `/timelines/${id}/source/window`, { clip, recipe }),
   /** The source split at a moment of it (its own time): the part before, a clip playing it as it is. */
   splitSource: (id: string, atMs: number) => call<{ clip: string }>("POST", `/timelines/${id}/source/split`, { atMs: Math.round(atMs) }),
   undoTimeline: (id: string) => call<{ undone: string }>("POST", `/timelines/${id}/undo`),

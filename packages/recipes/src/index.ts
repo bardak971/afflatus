@@ -3,7 +3,6 @@ import { flux, fluxEdit, fluxFixFace, fluxOutpaint, fluxPaintOver, fluxPicture, 
 import { h3 } from "./h3/family";
 import { h3LipSync } from "./h3/lipsync";
 import { h3Swap } from "./h3/swap";
-import { h3SwapMotion } from "./h3/swapMotion";
 import { h3MotionTransfer } from "./h3/motionTransfer";
 import { h3Video } from "./h3/video";
 import { klein } from "./klein/family";
@@ -40,7 +39,6 @@ export const recipes: Recipe<any>[] = [
   h3Video,
   h3LipSync,
   h3Swap,
-  h3SwapMotion,
   h3MotionTransfer,
   wanVideo,
   scailMotion,

@@ -321,7 +321,7 @@ export function asClip(input: H3Swap, swapLora: string | null, frames: number, c
     // when its latent was not kept or this ComfyUI lacks the continuation nodes
     // The run-up as the form says (22 unless set), from the latent unless asked for its frames
     colourMatch: false, handover: false, context: input.context || String(SWAP_CARRIED), joinFrom: input.joinFrom || "Latent", landing: "22", voiceStart: 0, voiceSeconds: 15, voiceEven: false,
-    // no swap LoRA (a window of Swap motion, driven by its pose): no source video either, the person replaced never in the input
+    // no swap LoRA (a Motion transfer window after a swap, driven by its pose): no source video either, the person replaced never in the input
     refVideos: input.source && swapLora ? [{ asset: input.source.asset, role: "person" }] : [],
     loras: swapLora ? [{ file: swapLora, weight: input.swapStrength }, ...input.loras] : input.loras,
     // the clip's own part: the window less the frames it shares with the window before (buildH3 adds them back)
@@ -437,7 +437,10 @@ export const h3Swap = defineRecipe<H3Swap>({
   // the prompt as sent written from the parts while it is left empty (card #34)
   partsInto: "who",
   promptFromParts: (input) => swapFromParts(input, Math.max(1, input.references?.length ?? 0)),
-  traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], faceRefine: "faceRefine", windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED, runUp: SWAP_RUN_UP, own: SWAP_OWN } },
+  traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], faceRefine: "faceRefine",
+    // a window that carries on is Motion transfer, moved by its pose (card #42: H3 · Swap motion retired, which did this by itself)
+    windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED, runUp: SWAP_RUN_UP, own: SWAP_OWN, carryOn: "h3.motion" },
+  },
   inputs: swapInputs,
   guide: SWAP_GUIDE,
   // a character swap's form: the model, its takes, who is replaced and how, then the rest as any form (the owner, 2026-10-18)

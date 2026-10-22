@@ -47,8 +47,9 @@ function pretendClip(graph: Graph, seed: number): Uint8Array | undefined {
   const height = even(sized?.inputs.height, 480);
   const out = nodes.find((n) => /VideoCombine/.test(n.class_type));
   const fps = Math.round(Number(out?.inputs.frame_rate) || 16);
-  // the length in frames is counted at the model's own speed; smoothing doubles the speed, not the length
-  const frames = Number(nodes.find((n) => typeof n.inputs.length === "number")?.inputs.length) || 0;
+  // the length in frames is counted at the model's own speed; smoothing doubles the speed, not the length. The longest one
+  // asked: a motion window also takes one frame of the clip before (ImageFromBatch's length 1), and made 1 frame long
+  const frames = Math.max(0, ...nodes.map((n) => (typeof n.inputs.length === "number" ? n.inputs.length : 0)));
   const base = nodes.some((n) => /FrameInterpolate/.test(n.class_type)) ? fps / 2 : fps;
   const seconds = frames ? (frames / base).toFixed(3) : "4";
   const file = join(tmpdir(), `afflatus-demo-clip-${process.pid}.mp4`);
@@ -105,7 +106,7 @@ const pretendComfy = (lacks?: RegExp, first = false) => startFakeComfy({
     text_encoders: ["qwen3vl_32b_minimax_h3_demo.safetensors", "qwen_3_4b_demo.safetensors", "umt5_xxl_demo.safetensors"],
     vae: ["minimax_h3_video_vae_demo.safetensors", "minimax_h3_audio_vae_demo.safetensors", "flux2-vae-demo.safetensors", "wan_2.1_vae_demo.safetensors"],
     frame_interpolation: ["rife_demo.pth"],
-    // H3's Fun ControlNet: Swap motion's and Motion transfer's windows moved by their pose
+    // H3's Fun ControlNet: Motion transfer's windows moved by their pose
     model_patches: ["minimax_h3_fun_controlnet_union_2.0_demo.safetensors"],
   }, lacks),
   simulate: { stepMs: Number(process.env.DEMO_STEP_MS) || 220, video: pretendClip },

@@ -5,8 +5,8 @@ import type { MorePicture } from "./condition";
  * MiniMax H3 moved by a pose video: the driving video's people drawn as skeletons, frame by frame, and given to H3 by
  * alibaba-pai's Fun ControlNet Union 2.0 (ComfyUI's MiniMaxH3FunControlNetApply, a patch on the model). What the
  * picture shows comes from the picture, the reference pictures or the clip before; only the moves come from the video,
- * so a person replaced cannot come back through it (a swap takes their every frame in). Shared by H3 · Swap motion
- * (its windows after the first) and H3 · Motion transfer (every window).
+ * so a person replaced cannot come back through it (a swap takes their every frame in). Used by H3 · Motion transfer, on
+ * every window: one with a Picture of its own, or one that carries on from a swap (card #42).
  *
  * Read from ComfyUI's code and the files (HANDOVER-swap-motion.md, phase 1, 2026-10-20): the control is VAE-encoded at the
  * sampled window's own size and lands on its rows only, so the reference pictures and a carried tail pass untouched, and the

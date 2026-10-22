@@ -22,7 +22,7 @@ function built(id: string, over: Record<string, unknown>, predictors: Record<str
 
 describe("Veda on the H3 forms", () => {
   it("is offered on all five, in their speed settings, off by default", () => {
-    for (const id of ["h3.video", "h3.lipsync", "h3.swap", "h3.swapMotion", "h3.motion"]) {
+    for (const id of ["h3.video", "h3.lipsync", "h3.swap", "h3.motion"]) {
       const spec = recipeById(id)!.inputs.find((i) => i.id === "veda");
       expect(spec, id).toMatchObject({ type: "toggle", default: false });
     }

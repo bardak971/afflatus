@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { carriedOf, dryContext, parseInput, sourceWindows, windowShapeOf, type MediaFacts } from "@afflatus/core";
+import { carriedOf, dryContext, isShown, parseInput, sameWindowGrid, sourceWindows, windowShapeOf, type MediaFacts } from "@afflatus/core";
 import { h3Swap } from "../src/h3/swap";
-import { h3SwapMotion, SWAP_MOTION_PROMPT } from "../src/h3/swapMotion";
-import { h3MotionTransfer } from "../src/h3/motionTransfer";
+import { CARRY_ON_PROMPT, h3MotionTransfer } from "../src/h3/motionTransfer";
 import { H3_FPS } from "../src/h3/family";
 import { recipeById } from "../src/index";
 
@@ -18,26 +17,43 @@ const slots = {
 const part = (over: Partial<MediaFacts> = {}): MediaFacts => ({ width: 576, height: 1024, frames: 141, fps: H3_FPS, hasSound: true, ...over });
 const before = (frames = 22): MediaFacts => ({ width: 576, height: 1024, frames, fps: H3_FPS, hasSound: true, latentFrames: 141 });
 
-/** A window of Swap motion that carries on from the one before, in its latent. */
+/** A Motion transfer window after a swap (no Picture of its own) that carries on from the one before, in its latent. */
 const carryOn = (over: Record<string, unknown> = {}, frames = 22) => {
-  const input = parseInput(h3SwapMotion, { who: "The man in <Picture 1> dances.", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], ...over });
-  const built = h3SwapMotion.build(input, dryContext({
+  const input = parseInput(h3MotionTransfer, { afterSwap: true, description: "The man in <Picture 1> dances.", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], ...over });
+  const built = h3MotionTransfer.build(input, dryContext({
     slots, uploads: { source: "src.mp4", previous: "w.mp4", "previous.latent": "w.safetensors", "references.0": "r1.png" },
     media: { source: part(), previous: before(frames) },
   }));
   return { built, graph: built.graph as Graph };
 };
 
-describe("MiniMax H3 · Swap motion", () => {
-  it("is offered beside H3's others", () => {
-    expect(recipeById("h3.swapMotion")).toBe(h3SwapMotion);
-    expect(h3SwapMotion.family).toBe("h3");
+describe("MiniMax H3 · Motion transfer after a swap (H3 · Swap motion retired, card #42)", () => {
+  it("is what Swap character's windows that carry on are made with, cut alike; Swap motion is gone", () => {
+    expect(recipeById("h3.swapMotion")).toBeUndefined();
+    expect(h3Swap.traits!.windows!.carryOn).toBe("h3.motion");
+    expect(sameWindowGrid(h3Swap, h3MotionTransfer)).toBe(true);
+    // the two read their part of the source by the same inputs
+    const window = (r: { inputs: readonly { type: string; id: string }[] }) => r.inputs.find((i) => i.type === "clip" && (i as { role?: string }).role === "source");
+    expect(window(h3MotionTransfer)).toMatchObject({ id: "source", window: { start: "sourceStart", seconds: "sourceSeconds" } });
+    expect(window(h3Swap)).toMatchObject({ id: "source", window: { start: "sourceStart", seconds: "sourceSeconds" } });
   });
 
-  it("makes a window that opens a shot exactly as Swap character does", () => {
-    const values = { who: "Replace the woman in <Video 1> with the man in <Picture 1>.", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }] };
-    const ctx = () => dryContext({ slots, uploads: { source: "src.mp4", "references.0": "r1.png" }, media: { source: part() } });
-    expect(h3SwapMotion.build(parseInput(h3SwapMotion, values), ctx()).graph).toEqual(h3Swap.build(parseInput(h3Swap, values), ctx()).graph);
+  it("runs on the swap's model, as the window before: its own pick, else the swap's slot, the swap's shifts when it comes from one", () => {
+    const unet = (graph: Graph) => of(graph, "UNETLoader").map((n) => n.inputs.unet_name);
+    expect(unet(carryOn().graph)).toEqual([slots.swapUnet]);
+    expect(unet(carryOn({ swapModel: "minimax_h3_ref2va_other.safetensors" }).graph)).toEqual(["minimax_h3_ref2va_other.safetensors"]);
+    // made Motion transfer alone from a swap window: it carries on from the swap, the sampling it had not set the swap's
+    expect(h3MotionTransfer.windowFrom!(h3Swap, { look: "x" }, true)).toEqual({ shiftVideo: 12, shiftAudio: 3, look: "x", afterSwap: true });
+    expect(h3MotionTransfer.windowFrom!(h3Swap, { shiftVideo: 9 }, true)).toEqual({ shiftVideo: 9, shiftAudio: 3, afterSwap: true });
+    // every window of the source made Motion transfer: each one of its own, with its Picture
+    expect(h3MotionTransfer.windowFrom!(h3Swap, { look: "x", afterSwap: true }, false)).toEqual({ look: "x", afterSwap: false });
+    // the form shows the model it runs on: the swap's after a swap, its own otherwise
+    const shown = (values: Record<string, unknown>) => h3MotionTransfer.inputs.filter((i) => isShown(i, values, h3MotionTransfer.inputs)).map((i) => i.id);
+    expect(shown({ afterSwap: true })).toEqual(expect.arrayContaining(["swapModel"]));
+    expect(shown({ afterSwap: true })).not.toEqual(expect.arrayContaining(["model"]));
+    expect(shown({ afterSwap: true })).not.toContain("picture");
+    expect(shown({})).toEqual(expect.arrayContaining(["model", "picture"]));
+    expect(shown({})).not.toContain("swapModel");
   });
 
   it("moves a window that carries on by the pose of its part: the ControlNet on the model it samples with, no swap LoRA, no source video in", () => {
@@ -79,10 +95,9 @@ describe("MiniMax H3 · Swap motion", () => {
     expect(built.loads).toEqual(expect.arrayContaining([`checkpoints/${slots.sdpose}`, `diffusion_models/${slots.rtdetr}`]));
   });
 
-  it("says on the job a prompt that still names <Video 1>, and that the Mask is the first window's", () => {
-    const { built } = carryOn({ who: "Replace the woman in <Video 1> with the man in <Picture 1>.", maskOn: true });
-    expect(built.warnings?.join(" ")).toMatch(/still a swap's/);
-    expect(built.warnings?.join(" ")).toMatch(/Mask is the first window's/);
+  it("says on the job a prompt that still names <Video 1>, and no picture of who goes in", () => {
+    expect(carryOn({ description: "Replace the woman in <Video 1> with the man in <Picture 1>." }).built.warnings?.join(" ")).toMatch(/still a swap's/);
+    expect(carryOn({ references: [] }).built.warnings?.join(" ")).toMatch(/No picture of who goes in/);
   });
 
   it("takes the run-up the form sets: 39 frames carried, the window cut for them", () => {
@@ -90,21 +105,18 @@ describe("MiniMax H3 · Swap motion", () => {
     expect(of(graph, "MiniMaxH3GuidedContinuationWindow")[0]!.inputs).toMatchObject({ overlap_frames: 39, extension_frames: 141 - 39 });
   });
 
-  it("starts a window that carries on on clip 1's person, carrying on (Make puts it there), each window keeping its own", () => {
-    expect(h3SwapMotion.traits!.windows!.own).toEqual(["who", "happens"]);
-    const swap = "Replace the young woman dancing in <Video 1> with the man with short brown hair in <Picture 1>. Keep the man's face and hair from <Picture 1>. he has a manly build and is wearing a white shirt with jeans. Match the position, scale, pose and movement in <Video 1>. Preserve the scene. ";
-    expect(h3SwapMotion.windowCarryOn!({ who: swap })).toEqual({
-      who: "The man with short brown hair carries on moving as in the clip before. He has a manly build and is wearing a white shirt with jeans.",
-    });
-    // nobody named to take it from (the caption the form starts on): nothing carried, the window writes its own from the
-    // parts, the plain one with none (card #34)
-    expect(h3SwapMotion.windowCarryOn!({ who: "Swap the person in <Video 1> with the character in <Picture 1>." })).toEqual({});
-    expect(h3SwapMotion.promptFromParts!({ previous: { asset: "w1" }, look: "", happens: "" } as never)).toBe(SWAP_MOTION_PROMPT);
-    expect(SWAP_MOTION_PROMPT).not.toMatch(/<(Video|Picture)/);
+  it("writes its prompt from the parts as carrying on, the plain carrying on with none, each window keeping its own", () => {
+    expect(h3MotionTransfer.traits!.windows!.own).toEqual(["description", "happens"]);
+    const after = (look: string, happens: string) => h3MotionTransfer.promptFromParts!({ afterSwap: true, look, happens } as never);
+    expect(after("", "")).toBe(CARRY_ON_PROMPT);
+    expect(after("short brown hair", "he dances")).toBe("The person, short brown hair, carries on moving as in the clip before. He dances.");
+    expect(CARRY_ON_PROMPT).not.toMatch(/<(Video|Picture)/);
+    // a Motion transfer of its own (a Picture) keeps its own way of writing it
+    expect(h3MotionTransfer.promptFromParts!({ previous: { asset: "w1" }, picture: "p1", look: "short brown hair", happens: "" } as never)).toBe("The person: short brown hair.");
   });
 
   it("gives a window that carries on the clip before's last frame as a second picture of the person, its prompt H3's own layout without typed tags", () => {
-    const { graph } = carryOn({ who: "The man with short brown hair in <Picture 1> dances." });
+    const { graph } = carryOn({ description: "The man with short brown hair in <Picture 1> dances." });
     const ref = of(graph, "MiniMaxH3ReferenceToVideo")[0]!;
     expect(node(graph, ref.inputs["ref_images.ref_image_0"]).class_type).toBe("LoadImage");
     const frame = node(graph, ref.inputs["ref_images.ref_image_1"]);
@@ -117,30 +129,31 @@ describe("MiniMax H3 · Swap motion", () => {
     expect(prompt).not.toMatch(/hair in <Picture 1> dances/);
   });
 
-  it("needs the ControlNet, and SDPose's two models only when it draws the pose", () => {
-    const needs = (over: Record<string, unknown>) => h3SwapMotion.needsWith!(parseInput(h3SwapMotion, { who: "x", source: { asset: "v1" }, previous: { asset: "w1" }, ...over }), slots);
-    expect(needs({})).toContain("h3Control");
+  it("needs the ControlNet and the swap's model, and SDPose's two models only when it draws the pose", () => {
+    const needs = (over: Record<string, unknown>) => h3MotionTransfer.needsWith!(parseInput(h3MotionTransfer, { afterSwap: true, source: { asset: "v1" }, previous: { asset: "w1" }, ...over }), slots);
+    expect(needs({})).toEqual(expect.arrayContaining(["h3Control", "swapUnet"]));
     expect(needs({})).not.toContain("sdpose");
+    expect(needs({ swapModel: "m.safetensors" })).not.toContain("swapUnet");
     expect(needs({ poseFrom: "SDPose" })).toEqual(expect.arrayContaining(["sdpose", "rtdetr"]));
-    // the first window, a swap, is made without them; an empty pick of the ControlNet (its folder empty) is the slot's
-    const first = parseInput(h3SwapMotion, { who: "x", source: { asset: "v1" }, controlModel: "" });
-    expect(first.controlModel).toBeUndefined();
-    expect(h3SwapMotion.needsWith!(first, slots)).not.toContain("h3Control");
+    // the swap's LoRA and SAM 3 are the swap's own; an empty pick of the ControlNet (its folder empty) is the slot's
+    expect(needs({})).not.toContain("swapLora");
+    expect(needs({})).not.toContain("swapSam");
+    expect(parseInput(h3MotionTransfer, { source: { asset: "v1" }, controlModel: "" }).controlModel).toBeUndefined();
   });
 
   it("refuses DWPose without its pack, with the way out", () => {
-    const input = parseInput(h3SwapMotion, { who: "x", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }] });
+    const input = parseInput(h3MotionTransfer, { afterSwap: true, source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }] });
     const ctx = dryContext({ slots, uploads: { source: "src.mp4", previous: "w.mp4", "references.0": "r1.png" }, media: { source: part(), previous: before() }, has: (cls) => cls !== "DWPreprocessor" });
-    expect(() => h3SwapMotion.build(input, ctx)).toThrow(/comfyui_controlnet_aux.*SDPose/);
+    expect(() => h3MotionTransfer.build(input, ctx)).toThrow(/comfyui_controlnet_aux.*SDPose/);
   });
 });
 
 describe("MiniMax H3 · Motion transfer", () => {
   const build = (over: Record<string, unknown> = {}, media: Record<string, MediaFacts> = {}) => {
-    const input = parseInput(h3MotionTransfer, { picture: "p1", driving: { asset: "v1" }, description: "A man dances.", ...over });
+    const input = parseInput(h3MotionTransfer, { picture: "p1", source: { asset: "v1" }, description: "A man dances.", ...over });
     const built = h3MotionTransfer.build(input, dryContext({
-      slots, uploads: { picture: "p.png", driving: "d.mp4", previous: "w.mp4", "previous.latent": "w.safetensors", "references.0": "r1.png" },
-      media: { picture: { width: 832, height: 1472 }, driving: part({ width: 720, height: 1280 }), ...media },
+      slots, uploads: { picture: "p.png", source: "d.mp4", previous: "w.mp4", "previous.latent": "w.safetensors", "references.0": "r1.png" },
+      media: { picture: { width: 832, height: 1472 }, source: part({ width: 720, height: 1280 }), ...media },
     }));
     return { built, graph: built.graph as Graph };
   };
@@ -165,13 +178,15 @@ describe("MiniMax H3 · Motion transfer", () => {
     expect(node(graph, ref.inputs["ref_images.ref_image_0"]).class_type).toBe("ImageFromBatch");
     expect(of(graph, "MiniMaxH3GuidedContinuationWindow")[0]!.inputs).toMatchObject({ overlap_frames: 22, extension_frames: 141 - 22 });
     expect(of(graph, "MiniMaxH3FunControlNetApply")).toHaveLength(1);
+    // on the form's own model, not the swap's: it has a Picture of its own
+    expect(of(graph, "UNETLoader").map((n) => n.inputs.unet_name)).not.toContain(slots.swapUnet);
   });
 
-  it("waits for the Picture on a source lane (a required picture of its own), each window keeping its own prompt", () => {
+  it("waits for the Picture on a source lane: a window that opens is refused without one, one after a swap needs none", () => {
     const picture = h3MotionTransfer.inputs.find((i) => i.id === "picture");
     expect(picture).toMatchObject({ type: "image", role: "source" });
-    expect(picture && "optional" in picture ? picture.optional : undefined).toBeFalsy();
-    expect(h3MotionTransfer.traits!.windows!.own).toEqual(["description", "happens"]);
+    expect(() => build({ picture: undefined })).toThrow(/needs a picture/);
+    expect(() => carryOn()).not.toThrow();
   });
 });
 
@@ -182,6 +197,8 @@ describe("a source's windows with H3's run-up", () => {
     expect(carriedOf(h3Swap, { context: "5" })).toBe(5);
     // a count it does not take is the recipe's own
     expect(carriedOf(h3Swap, { context: "17" })).toBe(22);
+    // the same whatever a window's form: Motion transfer takes the swap's counts
+    for (const context of ["5", "22", "39", "17"]) expect(carriedOf(h3MotionTransfer, { context })).toBe(carriedOf(h3Swap, { context }));
     for (const n of [5, 22, 39]) {
       const shape = windowShapeOf(h3Swap, { context: String(n) })!;
       const windows = sourceWindows({ fromMs: 0, toMs: 20_000, windowMs: 5000, shape });
