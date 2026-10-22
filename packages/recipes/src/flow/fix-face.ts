@@ -13,7 +13,7 @@ export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
     id: `${spec.family}.fix-face`,
     family: spec.family,
     version: 1,
-    title: "Face detailer",
+    title: "Face refine",
     summary: "Like ADetailer: detects every face and inpaints it with more detail. Needs the Impact Pack nodes in ComfyUI.",
     output: "image",
     inputs: [

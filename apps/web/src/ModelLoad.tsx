@@ -253,7 +253,7 @@ function OfForm({ recipe, input, look }: OpenForm) {
       {running || waiting ? (
         <>
           <span className="truncate">{running ? "Loading model…" : "Model load queued"}</span>
-          <button type="button" className="shrink-0 font-semibold text-ink underline" disabled={stop.isPending} onClick={() => stop.mutate([(running ?? waiting)!.id])}>Cancel</button>
+          <button type="button" className="shrink-0 font-semibold text-ink underline" disabled={stop.isPending} onClick={() => stop.mutate([(running ?? waiting)!.id])}>{running ? "Stop" : "Remove from queue"}</button>
         </>
       ) : (
         <>

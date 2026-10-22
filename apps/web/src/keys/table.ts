@@ -20,7 +20,7 @@ export interface KeyRow {
 }
 
 /** The rows read by name elsewhere (`rowKeys`). */
-export type RowId = "keys" | "generate" | "split" | "take" | "render-clip";
+export type RowId = "keys" | "generate" | "split" | "take" | "render-clip" | "undo" | "redo" | "remove-clip";
 
 export interface KeyGroup {
   name: string;
@@ -59,6 +59,8 @@ export const PLACES: KeyPlace[] = [
           { keys: "Menu | Shift+F10", does: "Menu of what has the focus" },
           // Banners.tsx: the newest banner with an Undo (a move, a bin), off the timeline editor and outside dialogs
           { keys: "Ctrl+Z", does: "Undo a move or a bin", note: "while its banner shows Undo; the timeline editor keeps its own" },
+          // the same banners: once undone, the change offers Redo
+          { keys: "Ctrl+Shift+Z | Ctrl+Y", does: "Redo it", note: "while its banner shows Redo; the timeline editor keeps its own" },
         ],
       },
       {
@@ -133,7 +135,9 @@ export const PLACES: KeyPlace[] = [
         name: "Selection",
         rows: [
           { keys: "Ctrl+A", does: "Select all shown" },
-          { keys: "Del", does: "Move the ticked items to the bin", note: "in the bin: Delete now, asked first" },
+          { keys: "Del | Backspace", does: "Move the ticked items to the bin", note: "in the bin: Delete now, asked first" },
+          { keys: "S", does: "Keep / unkeep the ticked items", note: "all kept already: unkeep" },
+          { keys: "F2", does: "Rename the ticked item", note: "one ticked" },
           { keys: "Esc", does: "Clear the selection" },
           { keys: "Space | Enter", does: "Tick the item", note: "on its circle; with Shift: the range" },
         ],
@@ -186,7 +190,7 @@ export const PLACES: KeyPlace[] = [
         name: "Form",
         rows: [
           { keys: "N", does: "Open the form, or fold it to its rail", note: "Studio and the timelines list" },
-          { keys: "Ctrl+Enter", does: "Generate", note: "in a timeline: render the selected clip", id: "generate" },
+          { keys: "Ctrl+Enter", does: "Render", note: "in a timeline: the selected clip", id: "generate" },
         ],
       },
       {
@@ -194,6 +198,15 @@ export const PLACES: KeyPlace[] = [
         rows: [
           { keys: "Ctrl+↑ Ctrl+↓", does: "Weight of the tag under the cursor", note: "or the selection: (red dress:1.1)" },
           { keys: "{a|b|c}", does: "Wildcard: one option per output" },
+        ],
+      },
+      {
+        name: "Drafts list",
+        rows: [
+          { keys: "↑ ↓", does: "Walk the drafts", note: "the list open, from the draft's name" },
+          { keys: "Enter", does: "Open the draft" },
+          { keys: "F2", does: "Rename the draft", note: "the one the arrows are on" },
+          { keys: "Esc", does: "Close the list" },
         ],
       },
       {
@@ -227,7 +240,7 @@ export const PLACES: KeyPlace[] = [
           { keys: "← →", does: "Previous / next item", note: "comparing: the other one" },
           { keys: "X", does: "Compare: pin this one", note: "the arrows change the other" },
           { keys: "S", does: "Keep / unkeep" },
-          { keys: "Del", does: "Move to the bin, go to the next" },
+          { keys: "Del | Backspace", does: "Move to the bin, go to the next" },
           { keys: "D", does: "Download", note: "in the bin too" },
           { keys: "Enter", does: "Open it large", note: "on the stage under Draft" },
           { keys: "F2", does: "Rename", note: "opened large: in place; on the stage: asked" },
@@ -245,7 +258,7 @@ export const PLACES: KeyPlace[] = [
         kind: "image",
         rows: [
           { keys: "U", does: "Upscale 2x", note: "queued at once" },
-          { keys: "F", does: "Face detailer", note: "queued at once" },
+          { keys: "F", does: "Face refine", note: "queued at once" },
           { keys: "H", does: "Hand detailer", note: "queued at once, on the hand detector" },
           { keys: "B", does: "Remove background", note: "queued at once" },
           { keys: "I", does: "Inpaint…", note: "a new draft, the mask painter open" },
@@ -262,7 +275,7 @@ export const PLACES: KeyPlace[] = [
         kind: "video",
         rows: [
           { keys: "C", does: "Extend", note: "a new clip carrying on from this one" },
-          { keys: "G", does: "Save frame", note: "the one it is paused on, as a picture" },
+          { keys: "G", does: "Save frame", note: "the one it is paused on, as an image" },
           { keys: "T", does: "Trim" },
         ],
       },
@@ -295,7 +308,7 @@ export const PLACES: KeyPlace[] = [
           { keys: "I O", does: "In / Out at the playhead" },
           { keys: "L", does: "Loop the range" },
           { keys: "Z", does: "Zoom into the range", note: "again: the whole video" },
-          { keys: "G", does: "Save frame", note: "the one at the playhead, as a picture" },
+          { keys: "G", does: "Save frame", note: "the one at the playhead, as an image" },
         ],
       },
       {
@@ -306,7 +319,7 @@ export const PLACES: KeyPlace[] = [
           { keys: "Shift+← Shift+→", does: "Ten frames" },
           { keys: ", . | < >", does: "Frame back / forward", note: "no Shift" },
           { keys: "Home End", does: "Start / end" },
-          { keys: "Esc", does: "Leave Trim" },
+          { keys: "Esc", does: "Close Trim" },
         ],
       },
       {
@@ -347,14 +360,14 @@ export const PLACES: KeyPlace[] = [
           { keys: "Alt+[ Alt+]", does: "Previous / next take", id: "take" },
           { keys: "Alt+← Alt+→", does: "Move one place earlier / later" },
           { keys: "Ctrl+Enter", does: "Render the selected clip", note: "a new take", id: "render-clip" },
-          { keys: "Del", does: "Remove", note: "the picked ones too" },
+          { keys: "Del | Backspace", does: "Remove", note: "the picked ones too", id: "remove-clip" },
         ],
       },
       {
         name: "Edit",
         rows: [
-          { keys: "Ctrl+Z", does: "Undo" },
-          { keys: "Ctrl+Shift+Z | Ctrl+Y", does: "Redo" },
+          { keys: "Ctrl+Z", does: "Undo", id: "undo" },
+          { keys: "Ctrl+Shift+Z | Ctrl+Y", does: "Redo", id: "redo" },
         ],
       },
       {
@@ -453,7 +466,7 @@ export const PLACES: KeyPlace[] = [
       {
         name: "Jobs",
         rows: [
-          { keys: "Del", does: "Remove a waiting job", note: "its row focused" },
+          { keys: "Del | Backspace", does: "Remove from queue", note: "a waiting job, its row focused" },
           { keys: "Enter | Space", does: "Show / hide a failed job's error", note: "its row focused" },
         ],
       },
@@ -461,7 +474,7 @@ export const PLACES: KeyPlace[] = [
         name: "With the mouse",
         rows: [
           { keys: "drag", does: "A waiting job up or down", mouse: true },
-          { keys: "right-click", does: "Run next, remove; stop the running one; requeue a finished one", mouse: true },
+          { keys: "right-click", does: "Run next, remove from queue; stop the running one; render a finished one again", mouse: true },
         ],
       },
     ],
@@ -474,6 +487,7 @@ export const PLACES: KeyPlace[] = [
         name: "Painting",
         rows: [
           { keys: "Ctrl+Z", does: "Undo the last stroke" },
+          { keys: "Ctrl+Shift+Z | Ctrl+Y", does: "Redo it" },
           { keys: "Space", does: "Move the picture", note: "hold" },
           { keys: "Esc", does: "Close" },
         ],

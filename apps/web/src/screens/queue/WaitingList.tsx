@@ -25,7 +25,7 @@ const SHOWN = 3;
 /**
  * What the waiting jobs come to, over them: how many, about how long until they are all done (the plan's last end, the
  * machines sharing them: waitingEnds), the model switches on the way with a "Group by model" when grouping saves loads,
- * and "Cancel all waiting…".
+ * and "Remove all waiting…".
  */
 function WaitingHead({ waiting, running, endsInMs, machines }: { waiting: Job[]; running: RunningJob | null; endsInMs?: number | null; machines: MachineState[] }) {
   const bulk = useQueueBulk();
@@ -49,7 +49,7 @@ function WaitingHead({ waiting, running, endsInMs, machines }: { waiting: Job[];
         </Button>
       )}
       <span className="grow" />
-      <Button size="sm" className="h-7" disabled={busy} onClick={() => run(() => bulk.cancelAllWaiting({ ids: waiting.map((w) => w.id) }))}>Cancel all waiting…</Button>
+      <Button size="sm" className="h-7" disabled={busy} onClick={() => run(() => bulk.cancelAllWaiting({ ids: waiting.map((w) => w.id) }))}>Remove all waiting…</Button>
     </div>
   );
 }
@@ -111,7 +111,7 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
       { label: "Run next", icon: <ArrowUpToLine size={14} />, disabled: j.index === 0, run: () => onOrder(moved(ids, j.id, 0)) },
       ...(machines.length && onPin && w
         ? [{
-            label: "Run on", icon: <Server size={14} />, note: w.pinned ? machineLabel(machines.find((m) => m.id === w.pinned) ?? { name: w.pinned, url: "" }) : "any machine",
+            label: "Render on", icon: <Server size={14} />, note: w.pinned ? machineLabel(machines.find((m) => m.id === w.pinned) ?? { name: w.pinned, url: "" }) : "any machine",
             items: [
               { label: "Any machine", note: "the one that ends it soonest", checked: !w.pinned, run: () => onPin(w.id, null) },
               "—" as const,
@@ -122,8 +122,8 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
       ...(place ? [{ label: `Move after the ${modelOf(place.after).split(" · ")[0]} jobs`, icon: <ArrowDownToLine size={14} />, note: `saves ${plural(place.saves, "load")}`, run: () => onOrder(moved(ids, j.id, place.to)) }] : []),
       { label: "Group by model", icon: <Layers size={14} />, note: saves ? `saves ${plural(saves, "load")}` : undefined, disabled: !saves, run: () => void bulk.groupQueueByModel() },
       "—",
-      { label: "Cancel this one", key: "Del", icon: <X size={14} />, danger: true, run: () => onRemove(j.id) },
-      { label: "Cancel all waiting…", icon: <Trash2 size={14} />, danger: true, run: () => void bulk.cancelAllWaiting({ ids }) },
+      { label: "Remove from queue", key: "Del", icon: <X size={14} />, danger: true, run: () => onRemove(j.id) },
+      { label: "Remove all waiting…", icon: <Trash2 size={14} />, danger: true, run: () => void bulk.cancelAllWaiting({ ids }) },
     ];
   };
   /** The head of its menu: its name, its place in the line and its model. */
@@ -153,7 +153,7 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
             tabIndex={0}
             onContextMenu={(e) => menu.open(e, { id: w.id, label: w.label, index: i })}
             onKeyDown={(e) => {
-              if (e.target !== e.currentTarget || e.key !== "Delete") return;
+              if (e.target !== e.currentTarget || (e.key !== "Delete" && e.key !== "Backspace")) return;
               e.preventDefault();
               onRemove(w.id);
             }}
@@ -225,11 +225,11 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
             ))}
             {onPin && freeNow(w) && (
               <button type="button" className="shrink-0 text-xs font-semibold text-accent hover:underline" data-tip="It waits for a machine that ends it sooner; this one is free now" onClick={() => onPin(w.id, freeNow(w)!.id)}>
-                Run on {machineLabel(freeNow(w)!)} now
+                Render on {machineLabel(freeNow(w)!)} now
               </button>
             )}
             <span className="w-[70px] shrink-0 text-right font-mono text-ink-2 @max-[480px]/waiting:w-[52px]">{est(w.estimateMs) || "—"}</span>
-            <button type="button" aria-label={`Cancel ${w.label}`} data-tip="Cancel this one (Del)" onClick={() => onRemove(w.id)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-raised hover:text-ink focus-visible:opacity-100">
+            <button type="button" aria-label={`Remove ${w.label} from queue`} data-tip="Remove from queue (Del)" onClick={() => onRemove(w.id)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-raised hover:text-ink focus-visible:opacity-100">
               <X size={14} />
             </button>
           </div>

@@ -28,8 +28,8 @@ const MachineMenuBody = lazy(() => import("../../MachineMenu").then((m) => ({ de
 
 /** What a machine takes, as the card's switch says it. */
 const TAKES: Array<{ value: Machine["takes"]; label: string; tip: string }> = [
-  { value: "all", label: "Everything", tip: "Pictures, clips, finishes: whatever waits" },
-  { value: "image", label: "Pictures", tip: "Only pictures: a small card for pictures while another one renders video" },
+  { value: "all", label: "Everything", tip: "Images, clips, finishes: whatever waits" },
+  { value: "image", label: "Images", tip: "Only images: a small card for images while another one renders video" },
   { value: "video", label: "Videos", tip: "Only clips, sounds, finishes and slow motion" },
 ];
 
@@ -142,7 +142,7 @@ export function MachinesHead() {
   const said = [`${machines.filter((m) => m.running).length} rendering`, `${word("busy outside Afflatus")} busy outside Afflatus`, `${machines.filter((m) => m.paused).length} paused`, `${word("starting")} starting`, `${word("offline") + word("locked")} offline`, `${word("stopped")} stopped`].filter((x) => !x.startsWith("0 ")).join(" · ");
   return (
     <div className="flex flex-wrap items-center gap-2.5 px-1">
-      <span className="text-[14px] font-bold">{plural(machines.length, "ComfyUI")}</span>
+      <span className="text-[14px] font-bold">{plural(machines.length, "machine")}</span>
       {said && <span className="text-xs text-ink-2">{said}</span>}
       <span className="grow" />
       {queue.data?.paused
@@ -277,8 +277,8 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
         <input id={`comfy-dir-${machine.id}`} value={dir} onChange={(e) => setDir(e.target.value)} placeholder="empty when it runs elsewhere" spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
         <Button onClick={() => put({ dir: dir.trim() })} disabled={save.isPending || dir.trim() === machine.dir}>Save</Button>
       </Row>}
-      <Row label="Takes" help="What the queue gives this machine. A job pinned to it (dragged onto its lane in the Queue) runs there whatever this says.">
-        <Segmented oneLine label={`What ${label} takes`} value={machine.takes} options={TAKES} onChange={(takes) => put({ takes })} />
+      <Row label="Runs" help="What the queue gives this machine. A job pinned to it (dragged onto its lane in the Queue) runs there whatever this says.">
+        <Segmented oneLine label={`What ${label} runs`} value={machine.takes} options={TAKES} onChange={(takes) => put({ takes })} />
       </Row>
       {/* a rented pod installs what its renders need whatever this says: no switch there */}
       {!rented && <PacksRow machine={machine} label={label} put={put} />}

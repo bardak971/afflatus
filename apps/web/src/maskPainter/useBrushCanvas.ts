@@ -30,6 +30,8 @@ export function useBrushCanvas({ picture, mask, tool, brush, zoom }: { picture: 
   const [painted, setPainted] = useState(Boolean(mask));
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const history = useRef<ImageData[]>([]);
+  // what Undo took back, the latest last: Redo puts it again, a new stroke drops it (as every editor's history does)
+  const ahead = useRef<ImageData[]>([]);
   const [steps, setSteps] = useState(0);
   const last = useRef<{ x: number; y: number } | null>(null);
 
@@ -94,6 +96,7 @@ export function useBrushCanvas({ picture, mask, tool, brush, zoom }: { picture: 
   const remember = () => {
     const c = canvas.current!;
     history.current = [...history.current.slice(-(UNDO - 1)), ctxOf().getImageData(0, 0, c.width, c.height)];
+    ahead.current = [];
     setSteps(history.current.length);
   };
   const begin = (e: ReactPointerEvent) => {
@@ -116,7 +119,17 @@ export function useBrushCanvas({ picture, mask, tool, brush, zoom }: { picture: 
   const undo = () => {
     const before = history.current.pop();
     if (!before) return;
+    const c = canvas.current!;
+    ahead.current.push(ctxOf().getImageData(0, 0, c.width, c.height));
     ctxOf().putImageData(before, 0, 0);
+    setSteps(history.current.length);
+  };
+  const redo = () => {
+    const after = ahead.current.pop();
+    if (!after) return;
+    const c = canvas.current!;
+    history.current.push(ctxOf().getImageData(0, 0, c.width, c.height));
+    ctxOf().putImageData(after, 0, 0);
     setSteps(history.current.length);
   };
   const clear = () => {
@@ -151,5 +164,5 @@ export function useBrushCanvas({ picture, mask, tool, brush, zoom }: { picture: 
     if (!blob) throw new Error("the painted part could not be saved");
     return blob;
   };
-  return { canvas, img, failed, painted, cursor, setCursor, steps, begin, follow, end, undo, clear, maskPng };
+  return { canvas, img, failed, painted, cursor, setCursor, steps, begin, follow, end, undo, redo, clear, maskPng };
 }

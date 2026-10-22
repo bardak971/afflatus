@@ -446,7 +446,7 @@ export const kleinFixFace = defineRecipe<KleinFixFace>({
   id: "klein.fix-face",
   family: "klein",
   version: 1,
-  title: "Face detailer",
+  title: "Face refine",
   summary: "For photos, like ADetailer: detects the face and inpaints it sharper, from reference images of the same person so that it stays them. Needs the Impact Pack nodes.",
   output: "image",
   presets: KLEIN_PRESETS,

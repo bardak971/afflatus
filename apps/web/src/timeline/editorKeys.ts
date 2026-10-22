@@ -200,9 +200,9 @@ export function editKey(e: KeyboardEvent, { typing, open, held, plain, designing
     a.move(a.selectedNow.current, e.key === "ArrowLeft" ? -1 : 1);
     return true;
   }
-  // Delete takes the picked clips, else the selected clip, off the timeline; Undo brings them back one by one. With
+  // Delete (or Backspace) takes the picked clips, else the selected clip, off the timeline; Undo brings them back one by one. With
   // neither, the source lane open in the column goes, with the clips it made (one step for Undo)
-  if (e.key === "Delete" && !typing && !open) {
+  if ((e.key === "Delete" || e.key === "Backspace") && !typing && !open) {
     // held down, or pressed again before the last removal is back: one removal (the next was sent for a clip already
     // gone, and answered 404 in the header)
     if (e.repeat || a.removing.current) {

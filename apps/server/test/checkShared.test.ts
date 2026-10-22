@@ -2,7 +2,7 @@ import { relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { budgetVerdict, DESIGN_RULES, designCounts, overBudget, sharedFindings, sources } from "../../../scripts/check-shared";
+import { budgetVerdict, DESIGN_RULES, designCounts, overBudget, sharedFindings, sources, wordFindings } from "../../../scripts/check-shared";
 
 // the guard `pnpm lint` runs: what it refuses, and what it leaves alone
 describe("the shared helpers' guard", () => {
@@ -92,5 +92,31 @@ describe("the design budget", () => {
     expect(Object.keys(budget).sort()).toEqual(DESIGN_RULES.map((r) => r.id).sort());
     const files = sources(root).map((p) => ({ file: relative(root, p).replace(/\\/g, "/"), text: readFileSync(p, "utf8") }));
     expect(overBudget(designCounts(files), budget).up).toEqual([]);
+  });
+});
+
+// rule 10 (review 4, P4): one word per act, the retired label words refused with the one that replaced them
+describe("the retired label words", () => {
+  const said = (file: string, text: string) => wordFindings(file, text).map((f) => /say "([^"]+)"/.exec(f.why)![1]);
+  it("refuses them in JSX text and in label, aria-label and data-tip strings", () => {
+    expect(said("apps/web/src/x.tsx", '<Button onClick={go}>Generate 4 images</Button>')).toEqual(["Render"]);
+    expect(said("apps/web/src/x.tsx", '{ label: "Requeue", icon: <RotateCcw size={14} /> },')).toEqual(["Render again"]);
+    expect(said("apps/web/src/x.tsx", '{ label: n > 1 ? `Retry all ${n} unchanged` : "Retry unchanged" },')).toEqual(["Render again", "Render again"]);
+    expect(said("apps/web/src/x.tsx", '<button aria-label="Cancel this render" />')).toEqual(["Stop"]);
+    expect(said("apps/web/src/x.tsx", '<b data-tip="Face detailer: queued at once">')).toEqual(["Face refine"]);
+    expect(said("apps/web/src/x.tsx", '<Button aria-label="Delete this picture" />')).toEqual(["Move to bin"]);
+    // JSX text on a line of its own, between its tags' lines
+    expect(said("apps/web/src/x.tsx", "                  Cancel all waiting…")).toEqual(["Remove all waiting"]);
+  });
+  it("leaves ids, comments, other words and the server alone", () => {
+    expect(said("apps/web/src/x.tsx", '{ id: "generate", label: "Render again" },')).toEqual([]);
+    expect(said("apps/web/src/x.tsx", "  // Requeue was its name before")).toEqual([]);
+    expect(said("apps/web/src/x.tsx", '<span>{a.origin === "generated" ? "Generated" : "Uploaded"}</span>')).toEqual([]);
+    expect(said("apps/server/src/x.ts", 'notes.push("Face detailer");')).toEqual([]);
+  });
+  it("finds none in today's web app", () => {
+    const root = fileURLToPath(new URL("../../..", import.meta.url));
+    const files = sources(root).map((p) => ({ file: relative(root, p).replace(/\\/g, "/"), text: readFileSync(p, "utf8") }));
+    expect(files.flatMap(({ file, text }) => wordFindings(file, text))).toEqual([]);
   });
 });

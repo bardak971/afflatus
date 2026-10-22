@@ -3,8 +3,8 @@ import { FACE_DETECTOR_PREFER } from "../sdxl/common";
 
 /** The face detector, a slot of its own for the families that find faces with it (H3's Face refine too). */
 export const FACE_DETECTOR_SLOT = {
-  id: "faceDetector", label: "Face detector (face detailer)", folder: "ultralytics", detect: ["face_yolov8m", "face_yolo"], optional: true,
-  hint: "Optional, 52 MB: the YOLOv8 face detector the face detailer finds faces with, in ComfyUI's models/ultralytics/bbox folder (needs the Impact Subpack).",
+  id: "faceDetector", label: "Face detector (Face refine)", folder: "ultralytics", detect: ["face_yolov8m", "face_yolo"], optional: true,
+  hint: "Optional, 52 MB: the YOLOv8 face detector Face refine finds faces with, in ComfyUI's models/ultralytics/bbox folder (needs the Impact Subpack).",
   get: { file: "bbox/face_yolov8m.pt", url: "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt" },
 };
 
@@ -16,8 +16,8 @@ export const FACE_DETECTOR_SLOT = {
 export const DETECTOR_SLOTS = [
   FACE_DETECTOR_SLOT,
   {
-    id: "handDetector", label: "Hand detector (face detailer)", folder: "ultralytics", detect: ["hand_yolo"], optional: true,
-    hint: "Optional, 23 MB: a YOLOv8 hand detector, in ComfyUI's models/ultralytics/bbox folder. Picked as the face detailer's detection model, it fixes hands instead of faces.",
+    id: "handDetector", label: "Hand detector (Face refine)", folder: "ultralytics", detect: ["hand_yolo"], optional: true,
+    hint: "Optional, 23 MB: a YOLOv8 hand detector, in ComfyUI's models/ultralytics/bbox folder. Picked as Face refine's detection model, it fixes hands instead of faces.",
     get: { file: "bbox/hand_yolov8s.pt", url: "https://huggingface.co/Bingsu/adetailer/resolve/main/hand_yolov8s.pt" },
   },
 ];

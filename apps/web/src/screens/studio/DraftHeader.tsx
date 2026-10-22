@@ -62,11 +62,22 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
         </span>
         {/* the buttons keep their row beside the question's long line, which is the one cut short */}
         <span className="shrink-0">
-          <TwoStep title="Delete this draft" open stay yes="Delete" cancel="Keep" onCancel={() => setDeleting(false)} onYes={() => { setDeleting(false); void d.remove(draft.id).catch(failed("deleted")); }} />
+          <TwoStep title="Delete this draft" open stay yes="Delete" onCancel={() => setDeleting(false)} onYes={() => { setDeleting(false); void d.remove(draft.id).catch(failed("deleted")); }} />
         </span>
       </div>
     );
   }
+  // the open one in the header's own name box, another asked its name: from its menu's Rename and from F2 in the list
+  const renameDraft = (x: DraftBrief) => {
+    if (x.id === draft?.id) {
+      cancelledNaming.current = false;
+      setNaming(draft.name ?? "");
+      return;
+    }
+    void askText({ title: "Rename the draft", value: x.name ?? "", placeholder: "Draft name (empty: the start of the prompt)", yes: "Rename" }).then((name) => {
+      if (name !== null && name !== (x.name ?? "")) rename.mutate({ id: x.id, name });
+    });
+  };
   return (
     <div className="flex h-[60px] shrink-0 items-center gap-1.5 border-b border-line px-3">
       {naming !== null && draft ? (
@@ -108,22 +119,14 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
             onPick={(id) => void d.switchTo(id).catch(failed("opened"))}
             onNew={() => void d.startNew().catch(failed("started"))}
             onClearUnused={() => api.clearUnusedDrafts(draft?.id).then(() => client.invalidateQueries({ queryKey: queryKeys.drafts.lists() }), failed("cleared"))}
+            onRename={renameDraft}
             // the draft's list; the open one is renamed and deleted as from the header's own buttons (its name box, the
             // delete asked in the row), and a copy opens with its name box
             menuOf={(x) => toMenu(kinds.draft([{ id: x.id, name: titleOf(x) || "this draft", project: x.projectId }], {
               hide: x.id === draft?.id ? ["open"] : [],
               runs: {
                 open: () => void d.switchTo(x.id).catch(failed("opened")),
-                rename: () => {
-                  if (x.id === draft?.id) {
-                    cancelledNaming.current = false;
-                    setNaming(draft.name ?? "");
-                    return;
-                  }
-                  void askText({ title: "Rename the draft", value: x.name ?? "", placeholder: "Draft name (empty: the start of the prompt)", yes: "Rename" }).then((name) => {
-                    if (name !== null && name !== (x.name ?? "")) rename.mutate({ id: x.id, name });
-                  });
-                },
+                rename: () => renameDraft(x),
                 duplicate: () =>
                   void duplicateDraft(x.id).then((made) => {
                     client.setQueryData(queryKeys.drafts.one(made.id), made);

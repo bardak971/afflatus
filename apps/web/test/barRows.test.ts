@@ -99,7 +99,7 @@ describe("several ComfyUIs in the bar", () => {
     ];
     const rows = commandTemplates({ ...CALM, queue: { ...CALM.queue!, machines } });
     const labels = rows.map((r) => r.label);
-    expect(labels).toEqual(expect.arrayContaining(["Pause Studio PC", "Resume Second GPU", "Use only Studio PC", "Use only Second GPU", "Unload Second GPU", "Pause all ComfyUIs"]));
+    expect(labels).toEqual(expect.arrayContaining(["Pause Studio PC", "Resume Second GPU", "Use only Studio PC", "Use only Second GPU", "Unload Second GPU", "Pause all machines"]));
     // a machine that renders keeps its model: no Unload row for it
     expect(labels).not.toContain("Unload Studio PC");
     expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length);

@@ -50,8 +50,8 @@ export const ACTIONS: Record<ActionId, Spec> = {
   extend: { group: "make", label: "Extend", key: "C", kinds: ["video"], icon: ArrowRightFromLine, tip: "A new clip that carries on from the end of this one, same model and parameters." },
   motion: { group: "make", label: "Motion transfer…", key: "Shift+M", kinds: SEEN, icon: PersonStanding, tip: "A new draft of Motion transfer with this in its place: a picture is what moves, a video is how it moves (the driving video)." },
   upscale: { group: "passes", label: "Upscale 2x", key: "U", kinds: ["image"], icon: Maximize2, tip: "Upscale 2x: queued at once with the picture's generation parameters." },
-  face: { group: "passes", label: "Face detailer", key: "F", kinds: ["image"], icon: Smile, tip: "Face detailer: queued at once with the picture's generation parameters." },
-  hand: { group: "passes", label: "Hand detailer", key: "H", kinds: ["image"], icon: Hand, tip: "Hand detailer: the face detailer on the hand detector (hand_yolov8s), at denoise 0.35, crop factor 2, a prompt about hands; queued at once with the picture's generation parameters." },
+  face: { group: "passes", label: "Face refine", key: "F", kinds: ["image"], icon: Smile, tip: "Face refine: queued at once with the picture's generation parameters." },
+  hand: { group: "passes", label: "Hand detailer", key: "H", kinds: ["image"], icon: Hand, tip: "Hand detailer: Face refine on the hand detector (hand_yolov8s), at denoise 0.35, crop factor 2, a prompt about hands; queued at once with the picture's generation parameters." },
   background: { group: "passes", label: "Remove background", key: "B", kinds: ["image"], icon: Eraser, tip: "Remove background: queued at once." },
   inpaint: { group: "passes", label: "Inpaint…", key: "I", kinds: ["image"], icon: Paintbrush, tip: "Inpaint: a new draft with this picture as the source, the mask painter open." },
   edit: { group: "passes", label: "Edit…", key: "E", kinds: ["image"], icon: PenLine, tip: "Edit / img2img: a new draft in the form with this picture as the source." },
@@ -59,7 +59,7 @@ export const ACTIONS: Record<ActionId, Spec> = {
   "mirror-h": { group: "passes", label: "Mirror ↔", key: "Shift+H", kinds: ["image"], icon: FlipHorizontal2, tip: "A mirrored copy, left and right swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU." },
   "mirror-v": { group: "passes", label: "Mirror ↕", key: "Shift+V", kinds: ["image"], icon: FlipVertical2, tip: "A mirrored copy, top and bottom swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU." },
   trim: { group: "tools", label: "Trim", key: "T", kinds: ["video", "audio"], icon: Scissors, tip: "Pick an in and an out, then copy, split or remove the range (a video: save its frames, or generate between them; a sound: its loudness evened out)." },
-  "save-frame": { group: "tools", label: "Save frame", key: "G", kinds: ["video"], icon: ImageDown, tip: "Save the frame the video is paused on as a picture in your library." },
+  "save-frame": { group: "tools", label: "Save frame", key: "G", kinds: ["video"], icon: ImageDown, tip: "Save the frame the video is paused on as an image in your library." },
   "extract-audio": { group: "tools", label: "Extract audio", kinds: ["video"], icon: AudioLines, tip: "Its audio track as a file of its own in your library: for another clip, or as music." },
   "remove-sound": { group: "tools", label: "Remove sound", kinds: ["video"], icon: VolumeX, tip: "A copy of the video without its sound, beside it in your library; this one stays as it is." },
   voice: { group: "tools", label: "Use as voice sample", kinds: ["video", "audio"], icon: Mic, tip: "A new draft on a model that speaks with this voice sample." },
@@ -322,7 +322,8 @@ export function sideGroups(list: ItemAction[]): Array<{ group: GroupId; actions:
 
 /** What a key pressed in the viewer is in the grammar of the list's keys ("Shift+L", "Del", "F2", "U"). */
 export function keyOfEvent(e: { key: string; shiftKey: boolean }): string {
-  if (e.key === "Delete") return "Del";
+  // Backspace is Del wherever Del works (a Mac's keyboard has no Delete key of its own)
+  if (e.key === "Delete" || e.key === "Backspace") return "Del";
   if (e.key === "F2" || e.key === "Enter") return e.key;
   const k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
   // Shift with a letter is a key of its own (Shift+L, Shift+H): it never does what the letter alone does

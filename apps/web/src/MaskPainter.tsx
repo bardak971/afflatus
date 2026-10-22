@@ -49,14 +49,19 @@ export function MaskPainter({ picture, mask, onDone, onClose }: { picture: strin
   }, [img]);
 
   // the keys and the wheel are bound once: what they act on is read through `now` as it stands
-  const now = useRef({ onClose, undo: () => {}, zoomTo: (_zoom: number, _px?: number, _py?: number) => {}, zoom: 1 });
+  const now = useRef({ onClose, undo: () => {}, redo: () => {}, zoomTo: (_zoom: number, _px?: number, _py?: number) => {}, zoom: 1 });
   useEffect(() => {
     const typing = (e: KeyboardEvent) => e.target instanceof HTMLInputElement && e.target.type !== "range";
     const onKey = (e: KeyboardEvent) => {
       // a modal over the painter (the keyboard shortcuts) has the keys: no stroke undone, no pan behind it
       if (dialogOver(room.current)) return;
       if (e.key === "Escape") now.current.onClose();
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+      // Ctrl+Z takes the last stroke back, Ctrl+Shift+Z or Ctrl+Y puts it again (the timeline editor's keys)
+      const k = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && ((k === "z" && e.shiftKey) || k === "y")) {
+        e.preventDefault();
+        now.current.redo();
+      } else if ((e.ctrlKey || e.metaKey) && k === "z") {
         e.preventDefault();
         now.current.undo();
       }
@@ -141,6 +146,7 @@ export function MaskPainter({ picture, mask, onDone, onClose }: { picture: strin
     drag.current = null;
   };
   now.current.undo = paint.undo;
+  now.current.redo = paint.redo;
 
   const save = useMutation({
     mutationFn: async () => api.upload(new File([await paint.maskPng()], nameFor(picture), { type: "image/png" }), { mask: true }),

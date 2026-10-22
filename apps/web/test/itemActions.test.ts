@@ -40,7 +40,8 @@ describe("the item's list", () => {
 
   it("writes every key in the grammar, and lists each in the viewer's keys", () => {
     const viewer = PLACES.find((p) => p.id === "viewer")!;
-    const listed = new Set(viewer.groups.flatMap((g) => g.rows.map((r) => r.keys)));
+    // a row's keys may be several ways to the same ("Del | Backspace"): each one is listed
+    const listed = new Set(viewer.groups.flatMap((g) => g.rows.flatMap((r) => [r.keys, ...r.keys.split("|").map((k) => k.trim())])));
     for (const id of ORDER) {
       const key = ACTIONS[id].key;
       if (!key || id === "open") continue;
@@ -54,6 +55,8 @@ describe("the item's list", () => {
     expect(keyOfEvent({ key: "u", shiftKey: false })).toBe("U");
     expect(keyOfEvent({ key: "U", shiftKey: true })).toBe("Shift+U");
     expect(keyOfEvent({ key: "Delete", shiftKey: true })).toBe("Del");
+    // Backspace is Del wherever Del works
+    expect(keyOfEvent({ key: "Backspace", shiftKey: false })).toBe("Del");
     expect(keyOfEvent({ key: "?", shiftKey: true })).toBe("?");
   });
 
@@ -93,7 +96,7 @@ describe("every place shows the same list", () => {
     shelf: [{ label: "Use in clip 3", items: [] }, { label: "Place on the timeline", items: [] }, "—"],
     projects: [{ label: "Show in the Studio", run: () => {} }],
     command: [{ label: "Show in its folder", run: () => {} }],
-    queue: [{ label: "Open its draft", run: () => {} }, { label: "Requeue", run: () => {} }, { label: "Remove from the history", run: () => {} }],
+    queue: [{ label: "Open its draft", run: () => {} }, { label: "Render again", run: () => {} }, { label: "Remove from the history", run: () => {} }],
   };
   for (const kind of ["image", "video", "audio"] as const) {
     it(`a ${kind}: after its own first section, each place's menu is the list, the passes in a submenu`, () => {
@@ -105,7 +108,7 @@ describe("every place shows the same list", () => {
         expect(lines(menu).slice(head + (head ? 1 : 0)), place).toEqual(shared);
       }
       // the groups apart, in order; the passes folded for a picture
-      if (kind === "image") expect(shared.slice(0, 15)).toEqual(["Open", "Keep", "Download", "Rename…", "—", "Reuse · same seed", "Reuse · new seed", "Variation", "Image to video (i2v)", "Motion transfer…", "—", "Passes › Upscale 2x", "Passes › Face detailer", "Passes › Hand detailer", "Passes › Remove background"]);
+      if (kind === "image") expect(shared.slice(0, 15)).toEqual(["Open", "Keep", "Download", "Rename…", "—", "Reuse · same seed", "Reuse · new seed", "Variation", "Image to video (i2v)", "Motion transfer…", "—", "Passes › Upscale 2x", "Passes › Face refine", "Passes › Hand detailer", "Passes › Remove background"]);
     });
   }
 
@@ -172,7 +175,7 @@ describe("a pass just queued", () => {
   it("says Queued on its own button for a moment, the others as they were", () => {
     const list = itemActions(facts("image", { queued: { upscale: true } }), runs);
     expect(list.find((a) => a.id === "upscale")).toMatchObject({ label: "Queued", done: true, disabled: false });
-    expect(list.find((a) => a.id === "face")).toMatchObject({ label: "Face detailer" });
+    expect(list.find((a) => a.id === "face")).toMatchObject({ label: "Face refine" });
     expect(list.find((a) => a.id === "face")!.done).toBeUndefined();
   });
 

@@ -5,6 +5,7 @@ import { useAssetChange } from "../../assetChange";
 import { eraseNow } from "../../binActions";
 import { askAboutDisk } from "../../Confirm";
 import { plainKey } from "../../Keys";
+import { useItemMutations } from "../../itemMutations";
 
 /** Several items ticked, to move, keep or delete them together; with the keys that tick and untick. */
 export function useSelection({ items, listKey, binned, off }: {
@@ -53,7 +54,10 @@ export function useSelection({ items, listKey, binned, off }: {
   const binChosen = async () => {
     if (await askAboutDisk(chosen)) bulk("bin");
   };
-  // Esc unticks, Ctrl + A ticks everything shown, Del sends what is ticked to the bin (in the bin: erases it, asked first)
+  const { renameIt } = useItemMutations();
+  // Esc unticks, Ctrl + A ticks everything shown, Del (or Backspace, as everywhere Del works) sends what is ticked to the
+  // bin (in the bin: erases it, asked first); S keeps what is ticked, or unkeeps it when all of it is kept already, as the
+  // viewer's S; F2 renames the one ticked item, as the viewer's F2
   const keys = useRef<(e: KeyboardEvent) => void>(() => {});
   keys.current = (e) => {
     if (off || document.querySelector("[role=dialog][aria-modal=true]")) return;
@@ -64,7 +68,14 @@ export function useSelection({ items, listKey, binned, off }: {
     }
     if (!picked.length || !plainKey(e)) return;
     if (e.key === "Escape") setPicked([]);
-    else if (e.key === "Delete") void (binned ? eraseChosen() : binChosen());
+    else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      void (binned ? eraseChosen() : binChosen());
+    } else if ((e.key === "s" || e.key === "S") && !e.shiftKey && !binned) bulk(chosen.length && chosen.every((a) => a.kept) ? "unkeep" : "keep");
+    else if (e.key === "F2" && chosen.length === 1 && !binned) {
+      e.preventDefault();
+      void renameIt(chosen[0]!);
+    }
   };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => keys.current(e);

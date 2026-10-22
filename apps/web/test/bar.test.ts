@@ -180,6 +180,12 @@ describe("modes and commands", () => {
     expect(parseCommand("comfyuis")).toEqual({ cmd: "machines" });
     expect(parseCommand("show the machines")).toEqual({ cmd: "machines" });
     expect(parseCommand("generate on second gpu")).toEqual({ cmd: "generate", machine: "second gpu" });
+    // the Render button's words, and the editor's Render all, read as the old ones still are
+    expect(parseCommand("render draft")).toEqual({ cmd: "generate" });
+    expect(parseCommand("render the draft on second gpu")).toEqual({ cmd: "generate", machine: "second gpu" });
+    expect(parseCommand("render all")).toEqual({ cmd: "render-missing" });
+    expect(parseCommand("render all on studio")).toEqual({ cmd: "render-missing", machine: "studio" });
+    expect(parseCommand("remove waiting")).toEqual({ cmd: "cancel-waiting" });
     expect(parseCommand("generate")).toEqual({ cmd: "generate" });
     expect(parseCommand("render missing on second gpu")).toEqual({ cmd: "render-missing", machine: "second gpu" });
     expect(parseCommand("render clips 3-5 on studio")).toEqual({ cmd: "render-clips", clips: [3, 4, 5], machine: "studio" });
@@ -413,6 +419,10 @@ describe("places, the bin and the editor from the bar", () => {
     expect(parseCommand("go to clip 12")).toEqual({ cmd: "clip", number: 12 });
     expect(parseCommand("clip 0")).toBeNull();
     expect(parseCommand("undo")).toEqual({ cmd: "undo" });
+    expect(parseCommand("redo")).toEqual({ cmd: "redo" });
+    expect(parseCommand("delete clip")).toEqual({ cmd: "delete-clip" });
+    expect(parseCommand("remove the selected clip")).toEqual({ cmd: "delete-clip" });
+    expect(parseCommand("rename Harbor cut")).toEqual({ cmd: "rename", name: "Harbor cut" });
     expect(parseCommand("put all back")).toEqual({ cmd: "put-back-all" });
     expect(parseCommand("restore the bin")).toEqual({ cmd: "put-back-all" });
     expect(parseCommand("empty the bin")).toEqual({ cmd: "empty-bin" });

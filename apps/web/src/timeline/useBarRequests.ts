@@ -17,7 +17,7 @@ type Mutations = ReturnType<typeof useTimelineMutations>;
  * a take before or after, undo, a clip selected): done here, as the buttons and the keys do it, once the timeline and its
  * forms are read. The Export dialog is opened through the ref it returns, which the editor fills.
  */
-export function useBarRequests({ id, t, shown, clips, slots, missing, ready, render, undo, redo, say, setNote, setSelected, select, setFin, setCursor, player, selectedNow, splitNow, takeNow }: {
+export function useBarRequests({ id, t, shown, clips, slots, missing, ready, render, undo, redo, remove, say, setNote, setSelected, select, setFin, setCursor, player, selectedNow, splitNow, takeNow }: {
   id: string;
   t: Timeline | undefined;
   /** The timeline as it is shown (with the edits not saved yet): the forms are read once it is there. */
@@ -30,6 +30,7 @@ export function useBarRequests({ id, t, shown, clips, slots, missing, ready, ren
   render: Mutations["render"];
   undo: Mutations["undo"];
   redo: Mutations["redo"];
+  remove: Mutations["remove"];
   say(b: Banner): void;
   setNote(text: string | null, more?: string): void;
   setSelected(clip: string | null): void;
@@ -73,6 +74,20 @@ export function useBarRequests({ id, t, shown, clips, slots, missing, ready, ren
       asked?.reply(null);
       if (!t.undo) return setNote("Nothing to undo");
       if (!undo.isPending && !redo.isPending) undo.mutate();
+      return;
+    }
+    // the bar's `> redo`, as Ctrl+Shift+Z here
+    if (request.do === "redo") {
+      asked?.reply(null);
+      if (!t.redo) return setNote("Nothing to redo");
+      if (!undo.isPending && !redo.isPending) redo.mutate();
+      return;
+    }
+    // the bar's `> delete clip`, as Del on the selected clip: Undo brings it back
+    if (request.do === "remove") {
+      asked?.reply(null);
+      if (!selectedNow.current) return setNote("No clip selected");
+      if (!remove.isPending) remove.mutate(selectedNow.current);
       return;
     }
     // the bar's `> clip 3`: the clip selected and the playhead on its start, as a click on it in the track

@@ -28,7 +28,7 @@ export function frameSpan(ms: number, fps: number): { startMs: number; endMs: nu
 }
 
 /**
- * The first and the last frame of a range set with In and Out (Generate between), as moments to take them at: each
+ * The first and the last frame of a range set with In and Out (New clip between, in Trim), as moments to take them at: each
  * frame's middle. Out is where the frame after the range starts (frameSpan's end): taken there, the last frame was the
  * one after Out.
  */

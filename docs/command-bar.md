@@ -37,7 +37,7 @@ With nothing typed, the bar shows **Recent** (the last timelines, drafts, render
 | Shift | shows or hides the preview |
 | Esc | clears what is typed, then closes |
 
-A row whose action has a key in the app shows it on its right, read from the key table (`apps/web/src/keys/table.ts`): split (S or Ctrl+B), the previous and next take (Alt+[ and Alt+]), Generate (Ctrl+Enter), rendering the clip selected in the open editor (Ctrl+Enter), Keyboard shortcuts (?), and in a render's Tab list the viewer's keys (U, F, B, I, E, R, M, P, C, G, V, L, Shift+L, S, D…). A key is shown only where pressing it does that thing. The status bar has a small chip with the bar's shortcut that opens it with the mouse.
+A row whose action has a key in the app shows it on its right, read from the key table (`apps/web/src/keys/table.ts`): split (S or Ctrl+B), the previous and next take (Alt+[ and Alt+]), Render (Ctrl+Enter), rendering the clip selected in the open editor (Ctrl+Enter), Keyboard shortcuts (?), and in a render's Tab list the viewer's keys (U, F, B, I, E, R, M, P, C, G, V, L, Shift+L, S, D…). A key is shown only where pressing it does that thing. The status bar has a small chip with the bar's shortcut that opens it with the mouse.
 
 ## Modes: the first character
 
@@ -47,7 +47,7 @@ A row whose action has a key in the app shows it on its right, read from the key
 | `>` | commands, then the places to go to | `> render clips 3-5`, `> seed 1234`, `> settings` |
 | `/` | settings, switches flip in place | `/ hover` → Play videos on hover; `/ tokyo` → Dark theme |
 | `=` | the calculator | `= 7s 24fps`, `= 1152x2048` |
-| `!` | the queue | `!` → running, waiting, failed; Tab → Run next, Cancel this one, Retry… |
+| `!` | the queue | `!` → running, waiting, failed; Tab → Run next, Remove from queue, Retry… |
 | `?` | keys: the rows of the Keyboard shortcuts sheet, with its search (a key first, then words) | `? split` → Split at the playhead · Timeline editor; Enter opens the sheet on that row |
 | `@` | cast (optional, see below) | `@ada` → add to the selected clip, or the open draft |
 
@@ -90,14 +90,14 @@ With "Search Hugging Face and Civitai" on (Settings › Models); off, a pasted l
 
 ## Actions behind a result (Tab)
 
-- **A render:** the viewer's own actions: view · show in its folder · use in this draft · keep · download · variation · reuse (same seed, new seed) · PNG info · i2v · the quick passes (Upscale 2x, Face detailer, Hand detailer, Remove background) and the tools that open in a form (Inpaint, Edit, Outpaint) · mirror · Extend · save frame (the first frame) · extract audio · copy the seed · add to a timeline · open in ComfyUI · move to a project · rename · move to the bin (in the bin: put back, and "show in the bin"). Trim and Compare need the viewer on screen and are left to it.
-- **A timeline:** open · show in Projects · render missing clips · export · finish · fix all · bin unused takes · rename · move to another project · delete.
-- **A draft:** open · show in Projects · generate again · duplicate · rename · move to another project · delete.
+- **A render:** the viewer's own actions: view · show in its folder · use in this draft · keep · download · variation · reuse (same seed, new seed) · PNG info · i2v · the quick passes (Upscale 2x, Face refine, Hand detailer, Remove background) and the tools that open in a form (Inpaint, Edit, Outpaint) · mirror · Extend · save frame (the first frame) · extract audio · copy the seed · add to a timeline · open in ComfyUI · move to a project · rename · move to the bin (in the bin: put back, and "show in the bin"). Trim and Compare need the viewer on screen and are left to it.
+- **A timeline:** open · show in Projects · render all · export… · finish… · fix all · bin unused takes · rename · move to another project · delete.
+- **A draft:** open · show in Projects · render again · duplicate · rename · move to another project · delete.
 - **A project:** work in it · show in Projects · pin to the rail · new folder inside · import a folder here · rename · archive · delete. An archived one: unarchive first. The Inbox: work in it · show in Projects.
 - **A folder:** open · show in Projects · rescan (a folder of the disk) · new folder inside · import a folder here · rename · move · delete or unlink.
 - **A workflow:** Try it · Edit · Export · Open in ComfyUI · Remove.
 - **A Prompt kit entry:** open in the Prompt kit; a preset: apply in the Studio (Ctrl+Enter); a snippet: copy its text; a person: add to the selected clip or the open draft.
-- **A queue job:** running: open queue · stop this render · copy the seed; waiting: open queue · run next · cancel this one; failed: open queue · retry unchanged · retry with shorter stretches or at a smaller size (after running out of memory) · open its draft · dismiss.
+- **A queue job:** running: open queue · stop · copy the seed; waiting: open queue · run next · remove from queue; failed: open queue · render again · retry with shorter stretches or at a smaller size (after running out of memory) · open its draft · dismiss.
 
 The actions are the ones the app already has (the viewer, the Projects panel, the Queue page, the Workflows screen, the Prompt kit, the timeline editor's buttons). The bar calls the same hooks and the same routes, and names each action as the screen does; it adds no behaviour of its own.
 
@@ -105,15 +105,15 @@ The actions are the ones the app already has (the viewer, the Projects panel, th
 
 Plain words read by fixed rules, never an LLM. Each command shows what it will do before Enter: what it touches, how many, and an estimate where one exists. A command still missing its figures (named with "…") completes the bar on Enter or Tab.
 
-- On the open timeline (else the one last opened from the bar): `render clips 3-5`, `render missing`, `export`, `finish`, `fix all`, `bin unused takes`. Ctrl+Enter on a render renders and moves its jobs to the top of the queue, in their order (the queue's "Run next").
+- On the open timeline (else the one last opened from the bar): `render clips 3-5`, `render all`, `delete clip` (the selected one, as Del), `export`, `finish`, `fix all`, `bin unused takes`. Ctrl+Enter on a render renders and moves its jobs to the top of the queue, in their order (the queue's "Run next").
 - On the clip selected in the editor: `split`, `previous take`, `next take`, `mirror pin` (one row per pinned frame, as its right-click menu's Mirror ↔; `mirror pin off` turns it off). `clip 3` selects clip 3 of the open timeline and puts the playhead on its start (it opens the timeline the bar aims at first).
 - Also on the selected clip: `transition dissolve` (any of the ten kinds by its name or a word of it; `transition` alone lists them, `transition off` makes a plain cut), on the cut into the clip, as its join's choice in the column; `slow motion` or `slow motion 4x`, a new take, as its menu; `motion transfer in windows`, a video brought in put on the source lane.
-- On the open draft: `generate`, `seed 1234`, `steps 30`, `cfg 4`, `size 576x1024`, `length 5s`, `preset <name>`, `save as preset <name>`.
+- On the open draft: `render draft`, `seed 1234`, `steps 30`, `cfg 4`, `size 576x1024`, `length 5s`, `preset <name>`, `save as preset <name>`.
 - Models: `load <model>`, `unload models` (as the Queue page's button: not while a render runs), `new draft <model>`, `import workflow`.
 - Rented GPUs and money: `stop all pods` (every pod that runs or starts, asked first: their GPUs stop billing, their disks go on), `spending` or `costs` (with RunPod, today and this month against the caps, the balance and how long it lasts; Enter opens Queue › Costs, Ctrl+Enter the caps in Settings › Rented GPUs). `find models [words]` opens Find models on the words, to download onto this PC; `model updates` asks Civitai for newer versions of your models now; `picked` and `get missing files` (see Civitai and Hugging Face).
 - Making things: `new timeline [name]`, `new folder <name>` (at the top of the project you work in), `new project <name>`, `new person|place|style|preset|snippet <name>` (opened in the Prompt kit), `link folder [path]`.
-- The queue: `pause queue`, `resume queue`, `cancel waiting`, `retry failed`, `dismiss failed`, `group by model`, `empty bin`, `put all back` (both as the bin's own buttons, off while it is empty).
-- Elsewhere: `view last render`, `reconnect` (ComfyUI asked again, as Settings' Test again), `undo` (the open editor's last change, as its Ctrl+Z; elsewhere the move or bin the newest banner offers to undo).
+- The queue: `pause queue`, `resume queue`, `remove waiting`, `retry failed`, `dismiss failed`, `group by model`, `empty bin`, `put all back` (both as the bin's own buttons, off while it is empty).
+- Elsewhere: `view last render`, `reconnect` (ComfyUI asked again, as Settings' Test again), `undo` (the open editor's last change, as its Ctrl+Z; elsewhere the move or bin the newest banner offers to undo), `redo` (the same for what Undo took back, as Ctrl+Shift+Z), `rename <name>` (the open timeline, else the open draft).
 - Afflatus itself: `check for updates`, `update` (when a newer version is out, as About's Update), `go back` (to the version kept, asked first), `test notification [telegram|discord]`, `sign out` (this browser, with a password set) and `sign out everywhere` (asked first).
 
 A command that cannot be undone (empty bin, delete) asks first, as the app does elsewhere.

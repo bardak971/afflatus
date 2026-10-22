@@ -178,6 +178,12 @@ export function useBarData({ open, mode, text, line, ranks, picked, learn, found
   // what `> undo` would undo: the open editor's last change (as its header's Undo says it), else the newest banner's
   const bannerUndo = useBanners((s) => [...s.items].reverse().find((x) => x.action?.undo)?.title ?? null);
   const editorUndo = aim?.open ? client.getQueryData<{ undo?: string | null }>(queryKeys.timelines.one(aim.id))?.undo ?? null : null;
+  // and `> redo`: what the editor's Redo would do again, else the newest banner's Redo (a move or a bin undone)
+  const bannerRedo = useBanners((s) => [...s.items].reverse().find((x) => x.action?.redo)?.text ?? null);
+  const editorRedo = aim?.open ? client.getQueryData<{ redo?: string | null }>(queryKeys.timelines.one(aim.id))?.redo ?? null : null;
+  // `> rename` with no timeline open renames the open draft: its name, said on the row
+  const draftId = useFormTarget((t) => t.target?.draftId ?? null);
+  const draftName = draftId ? client.getQueryData<{ name?: string | null }>(queryKeys.drafts.one(draftId))?.name ?? null : null;
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the rows follow the kept settings' values, not the identity of their list
   const settingRows = useMemo(() => settingItems([...SETTINGS, ...PAGES], settingCtx), [settingCtx, ...kept]);
@@ -211,8 +217,8 @@ export function useBarData({ open, mode, text, line, ranks, picked, learn, found
     return formRecipe && st ? { recipe: formRecipe.title, files: st.missing.length } : null;
   }, [formRecipe, setup]);
   const commandCtx: CommandCtx = useMemo(
-    () => ({ aim, queue: queueNow ?? null, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid, spending, updates, channels: { telegram, discord }, lookups, picked: pickedFiles, missing, access: session ? { locked, session: inSession } : null }),
-    [aim, queueNow, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid, spending, updates, telegram, discord, lookups, pickedFiles, missing, session, locked, inSession],
+    () => ({ aim, queue: queueNow ?? null, selectedClip, bannerUndo, editorUndo, bannerRedo, editorRedo, draftName, binEmpty, binSaid, spending, updates, channels: { telegram, discord }, lookups, picked: pickedFiles, missing, access: session ? { locked, session: inSession } : null }),
+    [aim, queueNow, selectedClip, bannerUndo, editorUndo, bannerRedo, editorRedo, draftName, binEmpty, binSaid, spending, updates, telegram, discord, lookups, pickedFiles, missing, session, locked, inSession],
   );
   const templates = useMemo(() => commandTemplates(commandCtx), [commandCtx]);
 

@@ -160,7 +160,7 @@ export function useTreeActions() {
       // the server took it out of the rail's pins
       void client.invalidateQueries({ queryKey: queryKeys.settings() });
     },
-    rename(r: Row, name: string) {
+    rename(r: Pick<Row, "id" | "kind" | "label">, name: string) {
       const id = r.id;
       if (!id || !name || name === r.label) return Promise.resolve(false);
       return run(`${r.label} could not be renamed`, () =>

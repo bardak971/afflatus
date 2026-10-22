@@ -166,7 +166,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   const facePass = useMutation({
     mutationFn: (t: Take) => api.finishTimeline(timeline.id, { route: "face", factor: 1, clips: [clip.id], take: t.id }),
     onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.timelines.one(timeline.id) }),
-    onError: failed("The Face pass was not queued"),
+    onError: failed("The Face refine was not queued"),
   });
   const offersFace = Boolean(recipe?.traits?.faceRefine) && !clip.job;
   const takesInner = clip.takes.length > 0 ? <TakeList clip={clip} take={take} joinOf={joinOf} smoothest={smoothest} onPreview={onPreview} onPatch={onPatch} onRemoveTake={onRemoveTake} onFacePass={offersFace && !facePass.isPending ? (t) => facePass.mutate(t) : undefined} /> : null;

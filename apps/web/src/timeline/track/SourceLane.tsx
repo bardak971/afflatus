@@ -226,7 +226,7 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") onSelect();
           // focused on the lane, Delete takes it away with its clips, as with it selected
-          else if (e.key === "Delete" && onRemove) {
+          else if ((e.key === "Delete" || e.key === "Backspace") && onRemove) {
             e.preventDefault();
             e.stopPropagation();
             onRemove();

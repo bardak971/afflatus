@@ -106,7 +106,7 @@ export function ModelDetail({ model: m, color, times, timeLabel, stretch, onClos
           {s && (
             <div className="flex flex-col gap-1.5 rounded-[10px] border border-line bg-raised/40 px-3.5 py-3">
               <span className="flex items-center gap-2">
-                <span className={head}>ETA on Generate</span>
+                <span className={head}>ETA on Render</span>
                 <Help text="For the setting used most. Other settings are scaled from the model's p50, per second of video for a video." />
               </span>
               <span className="font-mono text-xs text-ink-2">

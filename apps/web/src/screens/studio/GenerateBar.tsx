@@ -14,7 +14,7 @@ import { GenerateOn, shortName, usePickedMachine } from "../../GenerateOn";
 import { inputMissing } from "./missing";
 import type { useGenerate } from "./useGenerate";
 
-/** The foot of the Create panel: what stops the form, where its results go, the batch count, and Generate with what it will take. */
+/** The foot of the Create panel: what stops the form, where its results go, the batch count, and Render with what it will take. */
 export function GenerateBar({ recipe, draft, whole, folder, blocked, waits, send, onCount }: {
   recipe: RecipeInfo | undefined;
   draft: Draft | null;
@@ -50,7 +50,7 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, waits, send
       {recipe && recipe.inputs.some((i) => i.type === "prompt" && hasWildcards(String(whole[i.id] ?? ""))) && (
         <span className="flex items-center gap-1.5 text-xs text-ink-2">
           Wildcards: one pick per {noun}
-          <Help text={`{a|b|c} in the prompt: one option is picked for each ${noun}.${count === 1 ? " Generate several to see them vary." : ""}`} />
+          <Help text={`{a|b|c} in the prompt: one option is picked for each ${noun}.${count === 1 ? " Render several to see them vary." : ""}`} />
         </span>
       )}
       {recipe && draft && !blocked && <FormModel recipe={recipe} input={whole} look={draft.look} />}
@@ -64,12 +64,12 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, waits, send
         </div>
         {/* the label gives way before the panel's edge does: the keys go first, then the estimate is cut, then the rest */}
         <div className="flex min-w-0 grow">
-          <Button tone="primary" className={cx("h-11 min-w-0 grow text-sm", several && "rounded-r-none")} disabled={!recipe || !draft || Boolean(blocked) || Boolean(missing) || send.isPending} data-tip={missing ?? "Generate"} data-tip-keys="Ctrl+Enter" onClick={() => send.mutate()}>
+          <Button tone="primary" className={cx("h-11 min-w-0 grow text-sm", several && "rounded-r-none")} disabled={!recipe || !draft || Boolean(blocked) || Boolean(missing) || send.isPending} data-tip={missing ?? "Render"} data-tip-keys="Ctrl+Enter" onClick={() => send.mutate()}>
             {send.isPending ? (
               <span className="truncate">Queuing…</span>
             ) : (
               <span className="flex min-w-0">
-                <span className="truncate">{picked ? `Generate on ${shortName(picked)}` : `Generate ${plural(count, noun)}`}</span>
+                <span className="truncate">{picked ? `Render on ${shortName(picked)}` : `Render ${plural(count, noun)}`}</span>
                 {(waits ?? about) && <span className="min-w-0 shrink-[100] truncate">&nbsp;· {waits ?? about}</span>}
               </span>
             )}

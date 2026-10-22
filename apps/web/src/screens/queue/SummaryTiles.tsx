@@ -126,7 +126,7 @@ export function SummaryTiles({ d }: { d: TimesSummary }) {
       <div className="grid grid-cols-4 overflow-hidden rounded-2xl border border-line bg-panel xl:grid-cols-7">
         <Figure label="Model load" value={pct(t.loadMs / Math.max(1, t.gpuMs))} tip={`Of the GPU time: ${long(t.loadMs)} · ${plural(t.loads, "load")}${t.loadUsualMs === null ? "" : ` · p50 ${long(t.loadUsualMs)}`}`} />
         <Figure label="ETA error" value={t.off === null ? "—" : `± ${pct(t.off)}`} tip="How far off the ETAs usually are (p50)" />
-        <Figure label="Queue wait p90" value={maybe(t.waitedSlowMs)} tip={`Generate → render start · p50 ${maybe(t.waitedUsualMs)}`} />
+        <Figure label="Queue wait p90" value={maybe(t.waitedSlowMs)} tip={`Queued → render start · p50 ${maybe(t.waitedUsualMs)}`} />
         <Figure label="VRAM peak" value={t.vramPeak === null ? "—" : `${Math.round(t.vramPeak)} %`} tip={t.vramUsual === null ? "not reported" : `p50 ${Math.round(t.vramUsual)} %`} warn={(t.vramPeak ?? 0) >= VRAM_FULL} />
         <Figure
           label="OOM" value={String(oom)} warn={oom > 0}

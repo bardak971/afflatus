@@ -23,7 +23,7 @@ const queueOf = (client: QueryClient) => client.getQueryData<QueueStatus>(queryK
 async function cancelAllWaiting(client: QueryClient, opts: { ids?: string[]; ask?: boolean } = {}): Promise<number | null> {
   const n = opts.ids?.length ?? queueOf(client)?.waiting.length ?? 0;
   if (!n) return null;
-  if (opts.ask !== false && !(await ask({ title: `Cancel ${plural(n, "waiting job")}?`, text: "The running render goes on. They go to the history as cancelled, where Requeue brings one back.", yes: n === 1 ? "Cancel it" : `Cancel all ${n}` }))) return null;
+  if (opts.ask !== false && !(await ask({ title: `Remove ${plural(n, "waiting job")} from the queue?`, text: "The running render goes on. They go to the history as cancelled, where Render again brings one back.", yes: n === 1 ? "Remove it" : `Remove all ${n}` }))) return null;
   const { cancelled } = await api.cancelWaiting(opts.ids);
   void client.invalidateQueries({ queryKey: queryKeys.queue() });
   void client.invalidateQueries({ queryKey: queryKeys.history.all() });
