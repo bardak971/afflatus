@@ -89,7 +89,7 @@ export function PlaceCrumbs({ place, onPlace, anchor, open, onOpen, className }:
     >
       {!crumbs ? (
         // the project not read yet: a quiet bar where its name goes, the same height
-        <span aria-label="Reading the project" className="mx-2 h-3 w-24 animate-pulse rounded bg-hover motion-reduce:animate-none" />
+        <span aria-label="Reading the project" className="m-skeleton mx-2 h-3 w-24 rounded" />
       ) : (
         foldCrumbs(crumbs).map((c, i, all) => {
           const last = i === all.length - 1;
@@ -115,7 +115,7 @@ export function PlaceCrumbs({ place, onPlace, anchor, open, onOpen, className }:
                   )}
                 >
                   {c.head && (
-                    <span aria-hidden className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border text-[10px] font-extrabold" style={{ borderColor: tone, color: tone }}>
+                    <span aria-hidden className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-key border text-micro font-extrabold" style={{ borderColor: tone, color: tone }}>
                       <Initial name={c.label} inbox={group === null} size={11} />
                     </span>
                   )}

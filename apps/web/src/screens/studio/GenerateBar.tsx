@@ -58,9 +58,9 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, waits, send
       {/* a container: on a narrow panel the keys leave the button (they stay in its tip) before the label is cut */}
       <div className="@container flex items-center gap-2.5">
         <div role="group" aria-label="Batch count" data-tip={`Batch count, ${BATCH.least} to ${BATCH.most}`} className="flex h-11 shrink-0 items-center gap-0.5 rounded-lg border border-line px-1.5">
-          <Button tone="quiet" size="sm" className="w-8 rounded-[3px]! px-0!" aria-label="Batch count: one fewer" disabled={count <= BATCH.least} onClick={() => onCount(count - 1)}><Minus size={14} /></Button>
+          <Button tone="quiet" size="sm" className="w-8 rounded-key! px-0!" aria-label="Batch count: one fewer" disabled={count <= BATCH.least} onClick={() => onCount(count - 1)}><Minus size={14} /></Button>
           <span aria-live="polite" className="w-6 text-center font-mono font-bold">{count}</span>
-          <Button tone="quiet" size="sm" className="w-8 rounded-[3px]! px-0!" aria-label="Batch count: one more" disabled={count >= BATCH.most} onClick={() => onCount(count + 1)}><Plus size={14} /></Button>
+          <Button tone="quiet" size="sm" className="w-8 rounded-key! px-0!" aria-label="Batch count: one more" disabled={count >= BATCH.most} onClick={() => onCount(count + 1)}><Plus size={14} /></Button>
         </div>
         {/* the label gives way before the panel's edge does: the keys go first, then the estimate is cut, then the rest */}
         <div className="flex min-w-0 grow">

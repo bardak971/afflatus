@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronLeft, LoaderCircle, Pencil, Plus, TriangleAlert, Trash2 } from "lucide-react";
+import { Check, ChevronLeft, Pencil, Plus, TriangleAlert, Trash2 } from "lucide-react";
 import { api, type Draft, type DraftBrief } from "../../api";
 import { duplicateDraft, type useDraft } from "../../draft";
 import { DraftMenu } from "./DraftMenu";
@@ -8,7 +8,7 @@ import { askText } from "../../Confirm";
 import { deleteQuestion, toMenu } from "../../projects/kindActions";
 import { useKindActions } from "../../projects/useKindActions";
 import { useBanners } from "../../store";
-import { cx, fieldClass, TwoStep } from "../../ui";
+import { cx, fieldClass, IconButton, Spinner, TwoStep } from "../../ui";
 import { queryKeys } from "../../queryKeys";
 import { failedBanner } from "../../sayFailed";
 
@@ -143,12 +143,12 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
       {/* whether what is on screen is saved: a tick in the row rather than a line of its own (a failure also says why,
           with Retry, under the header); no draft open (yet), nothing is saved and nothing said */}
       {draft && <SaveState state={d.saving} />}
-      <button type="button" aria-label="Rename this draft" data-tip="Rename this draft" disabled={!draft} onClick={() => { cancelledNaming.current = false; setNaming(draft?.name ?? ""); }} className="flex h-9 w-8 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Pencil size={13} /></button>
+      <IconButton label="Rename this draft" disabled={!draft} onClick={() => { cancelledNaming.current = false; setNaming(draft?.name ?? ""); }}><Pencil size={13} /></IconButton>
       {/* deleted as everything else is: asked first (its conversation with the designer goes with it) */}
-      <button type="button" aria-label="Delete this draft" data-tip="Delete this draft" disabled={!draft} onClick={() => setDeleting(true)} className="flex h-9 w-8 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40"><Trash2 size={13} /></button>
+      <IconButton label="Delete this draft" disabled={!draft} onClick={() => setDeleting(true)}><Trash2 size={13} /></IconButton>
       <button type="button" data-tip="New draft: an empty form. The open one stays in the drafts list." onClick={() => void d.startNew().catch(failed("started"))} className="flex h-9 shrink-0 items-center gap-1 rounded-lg border-[1.5px] border-dashed border-line-strong px-2.5 text-xs font-semibold text-ink-2 hover:text-ink"><Plus size={12} strokeWidth={2.6} /> New</button>
       {/* quiet, as the other tools of the row: folding the form away is not the panel's main action */}
-      <button type="button" aria-label="Close the form" data-tip="Close the form" data-tip-keys="N" onClick={onClose} className="flex h-9 w-8 shrink-0 items-center justify-center rounded-lg text-accent hover:bg-hover hover:brightness-125"><ChevronLeft size={18} strokeWidth={2.25} /></button>
+      <IconButton label="Close the form" keys="N" onClick={onClose} className="text-accent! hover:brightness-125"><ChevronLeft size={18} strokeWidth={2.25} /></IconButton>
     </div>
   );
 }
@@ -158,7 +158,7 @@ function SaveState({ state }: { state: ReturnType<typeof useDraft>["saving"] }) 
   const tip = state === "saved" ? "Draft saved" : state === "saving" ? "Saving…" : "Not saved";
   return (
     <span role="status" aria-label={tip} data-tip={tip} className={cx("flex h-9 w-5 shrink-0 items-center justify-center", state === "failed" ? "text-warn-ink" : "text-ink-3")}>
-      {state === "saved" ? <Check size={13} strokeWidth={2.4} /> : state === "saving" ? <LoaderCircle size={13} className="animate-spin motion-reduce:animate-none" /> : <TriangleAlert size={13} />}
+      {state === "saved" ? <Check size={13} strokeWidth={2.4} /> : state === "saving" ? <Spinner size={13} tone="current" /> : <TriangleAlert size={13} />}
     </span>
   );
 }

@@ -12,7 +12,7 @@ import { est, gb, plural, usd, when } from "../../format";
 import { Keys } from "../../Keys";
 import { queryKeys } from "../../queryKeys";
 import { Select } from "../../Select";
-import { Button, cx, ErrorNote, fieldClass } from "../../ui";
+import { Button, cx, ErrorNote, fieldClass, IconButton } from "../../ui";
 import { Block, Card } from "./Rows";
 import { VolumeFiles } from "./VolumeFiles";
 
@@ -55,7 +55,7 @@ export function VolumesCard() {
         <span className="flex items-center gap-3">
           {/* what they bill together every month, and how many bill for nothing */}
           {list.length > 0 && (
-            <span className="text-[12.5px] text-ink-2">
+            <span className="text-body text-ink-2">
               <span className="font-mono">{usd(list.reduce((n, v) => n + v.perMonth, 0))}</span>/month
               {list.some((v) => v.unused) && <> · <span className="font-semibold text-warn-ink">{list.filter((v) => v.unused).length} unused</span></>}
             </span>
@@ -79,7 +79,7 @@ export function VolumesCard() {
 /** A small rounded label, as the app's chips: a data center, a set's state, a GPU in stock. */
 function Chip({ children, tone = "plain", tip }: { children: ReactNode; tone?: "plain" | "good" | "warn"; tip?: string }) {
   return (
-    <span data-tip={tip} className={cx("inline-flex h-[22px] shrink-0 items-center gap-1 rounded-md px-2 text-[11.5px] whitespace-nowrap", tone === "good" ? "bg-good/12 text-good" : tone === "warn" ? "bg-warn-wash text-warn-ink" : "bg-raised text-ink-2")}>
+    <span data-tip={tip} className={cx("inline-flex h-[22px] shrink-0 items-center gap-1 rounded-md px-2 text-meta whitespace-nowrap", tone === "good" ? "bg-good/12 text-good" : tone === "warn" ? "bg-warn-wash text-warn-ink" : "bg-raised text-ink-2")}>
       {children}
     </span>
   );
@@ -96,31 +96,31 @@ function VolumeRow({ v, stock, onAct }: { v: NetworkVolume; stock: Array<{ name:
   const fill = v.lastFill;
   const fillWhy = fill ? fill.failed.map((f) => `${f.file}: ${f.error}`).join("\n") || undefined : undefined;
   return (
-    <div className="flex gap-3.5 border-b border-line px-[18px] py-3.5 last:border-b-0">
-      <span className={cx("relative grid size-10 shrink-0 place-items-center rounded-[10px] border", v.usedBy ? "border-good/40 bg-good/10 text-good" : v.unused ? "border-warn/40 bg-warn-wash text-warn-ink" : "border-line-strong bg-raised text-ink-2")}>
+    <div className="flex gap-3.5 border-b border-line px-gutter py-3.5 last:border-b-0">
+      <span className={cx("relative grid size-10 shrink-0 place-items-center rounded-control border", v.usedBy ? "border-good/40 bg-good/10 text-good" : v.unused ? "border-warn/40 bg-warn-wash text-warn-ink" : "border-line-strong bg-raised text-ink-2")}>
         <HardDrive size={18} />
         {v.usedBy && <span aria-hidden className="absolute -top-1 -right-1 size-2.5 animate-pulse rounded-full border-2 border-panel bg-good" />}
       </span>
       <div className="flex min-w-0 grow flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[14px] font-semibold">{v.name}</span>
-          <span className="font-mono text-[11.5px] text-ink-3">{v.id}</span>
+          <span className="text-title font-semibold">{v.name}</span>
+          <span className="font-mono text-meta text-ink-3">{v.id}</span>
           <Button size="sm" onClick={() => onAct("files")} data-tip="What it holds, with sizes and when a render last used each file: delete what you no longer need to make room"><FolderOpen size={13} /> Files</Button>
           <Chip>{v.dataCenter}</Chip>
           <Chip>{v.size} GB</Chip>
           <span className="font-mono text-xs text-ink-2">{usd(v.perMonth)}<span className="text-ink-3">/month</span></span>
           <span className="grow" />
           <Button size="sm" onClick={() => onAct("fill")} disabled={Boolean(v.usedBy)} data-tip={v.usedBy ? `In use by ${v.usedBy.name}: one pod at a time on a volume` : "A pod on the cheapest GPU there fetches a set's files onto it, then goes"}>Fill from a set…</Button>
-          <button type="button" aria-label={`More for ${v.name}`} onClick={(e) => more.open(e, true)} className="grid size-8 place-items-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
+          <IconButton label={`More for ${v.name}`} onClick={(e) => more.open(e, true)}>
             <MoreHorizontal size={16} />
-          </button>
+          </IconButton>
         </div>
 
         {/* its state: the pod on it, else unused (billed for nothing), else nothing to say */}
-        {v.usedBy && <span className="text-[12.5px] text-good">In use by <b>{v.usedBy.name}</b> · {v.usedBy.status === "RUNNING" ? "running" : "starting"}</span>}
-        {v.unused && <span className="text-[12.5px] text-warn-ink">Unused {v.usedAt ? `since ${when(v.usedAt)}` : "since Afflatus first saw it"}: {usd(v.perMonth)} a month for nothing. Delete it if you will not deploy on it soon.</span>}
+        {v.usedBy && <span className="text-body text-good">In use by <b>{v.usedBy.name}</b> · {v.usedBy.status === "RUNNING" ? "running" : "starting"}</span>}
+        {v.unused && <span className="text-body text-warn-ink">Unused {v.usedAt ? `since ${when(v.usedAt)}` : "since Afflatus first saw it"}: {usd(v.perMonth)} a month for nothing. Delete it if you will not deploy on it soon.</span>}
 
-        <div className="flex flex-wrap items-center gap-1.5 text-[12.5px]">
+        <div className="flex flex-wrap items-center gap-1.5 text-body">
           <span className="w-[92px] shrink-0 text-ink-3">Holds</span>
           {v.holds
             ? <button type="button" onClick={() => onAct("files")} className="rounded-md hover:brightness-125"><Chip tip={`As ${v.holds.seenBy} saw it ${when(v.holds.seenAt)}: open its Files`}>{plural(v.holds.count, "model file")}{v.listed && <> · {gb(v.listed.bytes)}</>}</Chip></button>
@@ -139,7 +139,7 @@ function VolumeRow({ v, stock, onAct }: { v: NetworkVolume; stock: Array<{ name:
         </div>
 
         {fill && (
-          <span className={cx("text-[12.5px]", fill.interrupted || fill.failed.length ? "text-warn-ink" : "text-ink-2")} data-tip={fillWhy}>
+          <span className={cx("text-body", fill.interrupted || fill.failed.length ? "text-warn-ink" : "text-ink-2")} data-tip={fillWhy}>
             Last fill {when(fill.at)}: {fill.interrupted
               ? `cut short, ${fill.interrupted}${fill.failed.length ? ` (${plural(fill.failed.length, "file")} not in)` : ""}: fill again`
               : fill.failed.length
@@ -149,7 +149,7 @@ function VolumeRow({ v, stock, onAct }: { v: NetworkVolume; stock: Array<{ name:
         )}
 
         {stock !== null && (
-          <div className="flex flex-wrap items-center gap-1.5 text-[12.5px]">
+          <div className="flex flex-wrap items-center gap-1.5 text-body">
             <span className="w-[92px] shrink-0 text-ink-3">In stock there</span>
             {stock.length
               ? <>{stock.slice(0, 6).map((g) => <Chip key={g.name}>{g.name} <span className="font-mono text-ink-3">{usd(g.price)}/h</span></Chip>)}{stock.length > 6 && <span className="text-ink-3">+{stock.length - 6}</span>}</>
@@ -197,7 +197,7 @@ function MakeVolume({ plan, onClose }: { plan: VolumePlan | null; onClose(): voi
   return (
     <Dialog label="Make a network volume" onClose={onClose} className={cx(DIALOG.replace("max-w-md", "max-w-[560px]"), "max-h-[calc(100vh-48px)]")}>
       <DialogHead icon={<HardDrive size={16} />} title="Make a network volume" sub="RunPod · Secure Cloud" onClose={onClose} />
-      <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-1 text-[13px]">
+      <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-1 text-body">
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-semibold text-ink-2">Name</span>
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} className={cx("h-9", fieldClass)} />
@@ -253,7 +253,7 @@ function FillVolume({ volume, onClose }: { volume: NetworkVolume; onClose(): voi
   return (
     <Dialog label="Fill a volume from a set" onClose={onClose} className={DIALOG.replace("max-w-md", "max-w-[520px]")}>
       <DialogHead icon={<HardDrive size={16} />} title={`Fill ${volume.name}`} sub={`${volume.dataCenter} · ${volume.size} GB`} onClose={onClose} />
-      <div className="flex flex-col gap-3 text-[13px]">
+      <div className="flex flex-col gap-3 text-body">
         <span className="flex items-center gap-2">
           <span className="text-xs font-semibold text-ink-2">Model set</span>
           <span className="w-[260px]"><Select size="sm" label="Model set" value={chosen} onChange={setSet} placeholder="No Model set yet" options={(sets.data?.items ?? []).map((s) => ({ value: s.id, label: s.name, note: s.bytes ? gb(s.bytes) : undefined }))} /></span>
@@ -296,7 +296,7 @@ function GrowVolume({ volume, onClose }: { volume: NetworkVolume; onClose(): voi
   return (
     <Dialog label="Grow a network volume" onClose={onClose} className={DIALOG}>
       <DialogHead icon={<HardDrive size={16} />} title={`Grow ${volume.name}`} sub={`${volume.size} GB now · ${usd(volume.perMonth)} a month`} onClose={onClose} />
-      <label className="flex items-center gap-2 text-[13px]">
+      <label className="flex items-center gap-2 text-body">
         <span className="text-xs font-semibold text-ink-2">New size</span>
         <input inputMode="numeric" aria-label="New size in GB" value={size} onChange={(e) => setSize(Math.min(4096, Number(e.target.value.replace(/\D/g, "")) || 0))} className={cx("h-8 w-[90px] font-mono text-xs", fieldClass)} />
         <span className="text-xs text-ink-3">GB · {usd(perMonth(size))} a month · it never shrinks again</span>
@@ -322,7 +322,7 @@ function DeleteVolume({ volume, onClose }: { volume: NetworkVolume; onClose(): v
   return (
     <Dialog label="Delete a network volume" onClose={onClose} className={DIALOG}>
       <DialogHead icon={<Trash2 size={16} />} tone="warn" title={`Delete ${volume.name}?`} onClose={onClose} />
-      <span className="text-[13px] text-ink-2">
+      <span className="text-body text-ink-2">
         {volume.holds ? `It holds ${plural(volume.holds.count, "model file")} (as ${volume.holds.seenBy} saw it ${when(volume.holds.seenAt)}): the next deploys fetch them again.` : "What it holds is not known: everything on it goes."}
         {" "}Its {usd(volume.perMonth)} a month stops at once. This cannot be undone.
       </span>

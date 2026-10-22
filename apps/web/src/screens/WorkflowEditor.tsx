@@ -90,7 +90,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
 function Mark({ items }: { items: string[] }) {
   return (
     <>
-      <span aria-hidden className="ml-0.5 flex h-[15px] w-[15px] items-center justify-center rounded-full bg-hover text-[10px] font-bold text-ink-2">?</span>
+      <span aria-hidden className="ml-0.5 flex h-[15px] w-[15px] items-center justify-center rounded-full bg-hover text-micro font-bold text-ink-2">?</span>
       <span className="sr-only">: {items.join(", ")}</span>
     </>
   );

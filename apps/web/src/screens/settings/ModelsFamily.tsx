@@ -10,7 +10,7 @@ import { GetFile } from "../../GetFile";
 import { useDownloads } from "../../useGetFile";
 import { Select } from "../../Select";
 import { useSayFailed } from "../../sayFailed";
-import { Button, cx, Help } from "../../ui";
+import { Button, Chip, cx, Help } from "../../ui";
 import { queryKeys } from "../../queryKeys";
 import { PackInstallActions, PackStateLine, usePackInstall } from "../PackInstall";
 
@@ -187,12 +187,12 @@ function FileLine({ row, family, name, imported }: { row: FileRow; family: strin
         <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
           <span className={cx("font-semibold", coming ? "text-ink-2" : !row.file && !row.optional && "text-warn-ink")}>{row.label}</span>
           {coming && <span className="text-xs text-ink-3">not here{bytes ? ` · ${size(bytes)}` : ""}</span>}
-          {!row.optional && !row.every && row.users.length > 0 && <span className="rounded-md bg-accent-wash px-1.5 text-[11px] font-semibold text-accent" data-tip={`Only ${row.users.join(", ")} cannot run without it`}>{row.users.join(", ")} only</span>}
+          {!row.optional && !row.every && row.users.length > 0 && <Chip size="xs" tone="accent" tip={`Only ${row.users.join(", ")} cannot run without it`}>{row.users.join(", ")} only</Chip>}
         </span>
         {/* where to put a missing one, what an optional one brings */}
         {(!row.file || row.optional) && row.hint && <span className="text-xs text-ink-2">{row.hint}</span>}
       </span>
-      <span className="truncate pt-0.5 font-mono text-[11.5px] text-ink-3">{row.folder ?? ""}</span>
+      <span className="truncate pt-0.5 font-mono text-meta text-ink-3">{row.folder ?? ""}</span>
       <span className="flex min-w-0 flex-col">
         {picker ? <SlotPicker family={family} slot={row.slot!} onAnother={() => setAnother(true)} />
           : row.file ? <span className="truncate pt-0.5 text-xs text-ink-2" data-tip={row.file}>{fileLabel(row.file)}</span>
@@ -248,7 +248,7 @@ function PackLine({ pack, nodes, users, machine, extra, asked }: { pack: string;
         {/* one no option asks for (KJNodes, VideoHelperSuite): what it brings, used whenever it is there */}
         <span className="text-xs text-ink-2">{extra ? `Brings ${extra}. Used whenever it is there${asked ? `, and asked for by a render with ${asked}` : ""}; installed by ComfyUI-Manager, then ComfyUI restarts.` : `Brings ${nodes.join(", ")}, which some options of ${users.join(", ")} use. Installed by ComfyUI-Manager, then ComfyUI restarts.`}</span>
       </span>
-      <span className="truncate pt-0.5 font-mono text-[11.5px] text-ink-3">custom_nodes</span>
+      <span className="truncate pt-0.5 font-mono text-meta text-ink-3">custom_nodes</span>
       <span className="flex min-w-0 flex-col gap-1 text-xs">
         <PackStateLine s={install.stateOf(pack)} />
         <PackInstallActions install={install} named={1} missingLeft={false} />
@@ -281,7 +281,7 @@ function EitherLine({ either, users, machine }: { either: (typeof EITHER_PACKS)[
         <span className="font-semibold">{either.what}<span className="font-normal text-ink-3"> · either one</span></span>
         <span className="text-xs text-ink-2">{either.said} ({either.packs.join(" or ")}): used by {users.join(", ")}. NVIDIA RTX cards only. A render that asks for it has DaSiWa's installed.</span>
       </span>
-      <span className="truncate pt-0.5 font-mono text-[11.5px] text-ink-3">custom_nodes</span>
+      <span className="truncate pt-0.5 font-mono text-meta text-ink-3">custom_nodes</span>
       <span className="flex min-w-0 flex-col gap-1 text-xs">
         {picked === null ? (
           <span className="flex flex-wrap items-center gap-2">
@@ -364,7 +364,7 @@ export function FamilyBody({ family, name, help, recipes, machine, imported }: {
           {needed.length > 0 && (
             <>
               <span className="flex items-center gap-2 pb-1">
-                <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Files · {needed.length} needed</span>
+                <span className="text-meta font-bold tracking-label text-ink-3 uppercase">Files · {needed.length} needed</span>
                 {/* what misses is said; nothing of them all being there (the owner: that all is fine is too much) */}
                 {!allThere && (needed.every((r) => r.file || r.get)
                   ? <span className="text-xs text-ink-3">{needed.filter((r) => !r.file).length} not here</span>
@@ -378,7 +378,7 @@ export function FamilyBody({ family, name, help, recipes, machine, imported }: {
           {(optional.length > 0 || packLines.length > 0) && (
             <>
               <span className={cx("flex items-center gap-1.5 pb-1", needed.length > 0 && "pt-3.5")}>
-                <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Optional · {[...(optional.length ? [plural(optional.length, "file")] : []), ...(packLines.length ? [plural(packLines.length, "node pack")] : [])].join(" · ")}</span>
+                <span className="text-meta font-bold tracking-label text-ink-3 uppercase">Optional · {[...(optional.length ? [plural(optional.length, "file")] : []), ...(packLines.length ? [plural(packLines.length, "node pack")] : [])].join(" · ")}</span>
                 <Help text="Everything runs without these: each brings an option or a speed-up, said on its line." />
               </span>
               {/* what can be added stays in sight; the ones there (their pickers) fold behind one line */}
@@ -400,7 +400,7 @@ export function FamilyBody({ family, name, help, recipes, machine, imported }: {
       )}
 
       <section aria-label={imported ? "Workflows" : "Operations"} className="flex flex-col">
-        <span className="pb-1 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{imported ? "Workflows" : "Operations"}</span>
+        <span className="pb-1 text-meta font-bold tracking-label text-ink-3 uppercase">{imported ? "Workflows" : "Operations"}</span>
         {recipes.map((r) => {
           const s = statuses.find((x) => x.id === r.id);
           const extra = needed.filter((row) => !row.slot && row.users.includes(r.title)).length;

@@ -7,13 +7,13 @@ import type { Flag } from "./flagRules";
 import { groupingSaves, modelSwitches } from "./order";
 import { pct } from "./SummaryTiles";
 
-const head = "text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase";
+const head = "text-meta font-bold tracking-label text-ink-3 uppercase";
 
 function Line({ warn, lead, rest, sub, action }: { warn: boolean; lead: string; rest?: string; sub: string; action?: ReactNode }) {
   return (
     <div className="grid grid-cols-[8px_minmax(0,1fr)_auto] items-start gap-2.5 border-line py-2 [&:not(:last-child)]:border-b">
-      <span className={warn ? "mt-1.5 size-2 rounded-[2px] bg-warn" : "mt-1.5 size-2 rounded-[2px] bg-ink-3"} />
-      <span className="min-w-0 text-[13px]">
+      <span className={warn ? "mt-1.5 size-2 rounded-xs bg-warn" : "mt-1.5 size-2 rounded-xs bg-ink-3"} />
+      <span className="min-w-0 text-body">
         <b className="font-semibold">{lead}</b>{rest && <span className="text-ink-2"> {rest}</span>}
         <span className="block truncate text-xs text-ink-3">{sub}</span>
       </span>

@@ -86,7 +86,7 @@ export function UpdatesCard() {
               {/* its own scroll, the head kept in view; what you have and what is newer on one line, so it fits */}
               <div className="min-h-0 overflow-y-auto rounded-xl border border-line">
                 <table className="w-full table-fixed text-sm">
-                  <thead className="sticky top-0 z-10 bg-raised text-left text-[11px] tracking-wide text-ink-2 uppercase">
+                  <thead className="sticky top-0 z-10 bg-raised text-left text-meta tracking-wide text-ink-2 uppercase">
                     <tr><th className="w-[46%] py-1.5 pr-3 pl-3.5 font-semibold">Model</th><th className="px-3 py-1.5 font-semibold">You have → newer</th><th className="w-[130px] px-3 py-1.5" /></tr>
                   </thead>
                   {groups.map((g) => (

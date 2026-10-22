@@ -54,13 +54,13 @@ export function RunningCard({ running, onStop }: { running: RunningJob | null; o
           data-tip={seen ? (large ? "Show it small again" : "Show it large, with its sound") : undefined}
           disabled={!seen}
           onClick={() => setLarge(!large)}
-          className="relative flex h-[54px] w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-raised text-[10px] text-ink-3 enabled:hover:ring-2 enabled:hover:ring-accent/50"
+          className="relative flex h-[54px] w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-raised text-micro text-ink-3 enabled:hover:ring-2 enabled:hover:ring-accent/50"
         >
           {seen && !large ? <LivePreview job={running} className="h-full w-full object-cover" /> : seen ? "shown below" : running.kind === "export" ? "no preview" : "no preview yet"}
         </button>
         <div className="flex min-w-0 grow flex-col gap-1.5">
           <span className="flex min-w-0 items-baseline gap-2.5">
-            <span className="min-w-0 shrink truncate text-[14.5px] font-bold" data-tip={running.label}>{running.label}</span>
+            <span className="min-w-0 shrink truncate text-title font-bold" data-tip={running.label}>{running.label}</span>
             <span className="min-w-0 shrink-[2] truncate text-xs text-ink-2">{running.kind === "load" ? `loading ${modelOf(running)}` : running.kind === "export" || running.kind === "cut" ? `${modelOf(running)} · no GPU needed` : modelOf(running)}</span>
           </span>
           <Bar value={running.progress * 100} steps={running.steps} loading={!running.progress} />

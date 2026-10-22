@@ -36,7 +36,7 @@ export function RenderList({ d, renders, picked, onModel, only, onOnly, onOpen }
     {renders.isError && <ErrorNote>{renders.error.message}</ErrorNote>}
     <div className="flex flex-col gap-1.5">
       {listed.map((r) => (
-        <div key={r.id} id={`render-${r.id}`} className="grid grid-cols-[44px_minmax(0,1.2fr)_minmax(0,2fr)_150px_120px] items-center gap-4 rounded-[10px] border border-line bg-panel px-3 py-2 target:border-accent">
+        <div key={r.id} id={`render-${r.id}`} className="grid grid-cols-[44px_minmax(0,1.2fr)_minmax(0,2fr)_150px_120px] items-center gap-4 rounded-control border border-line bg-panel px-3 py-2 target:border-accent">
           {r.assetId
             ? <button type="button" onClick={() => onOpen(r.assetId!)} aria-label="Open output" data-tip="Open output" className="block rounded-md bg-raised"><Thumb src={thumbUrl(r.assetId)} alt="" loading="lazy" sizes="44px" className="h-11 w-11 rounded-md object-cover" /></button>
             : <div className="flex h-11 w-11 items-center justify-center rounded-md bg-raised text-ink-3" data-tip={r.status === "done" ? "Output deleted" : "No output"}>{r.kind === "video" ? <Clapperboard size={16} /> : <ImageIcon size={16} />}</div>}
@@ -58,7 +58,7 @@ export function RenderList({ d, renders, picked, onModel, only, onOnly, onOpen }
             </span>
           </div>
           <div className="flex flex-col items-end">
-            <span className={cx("font-mono text-[15px]", r.status !== "done" && "text-warn-ink")}>{r.status === "done" ? took(r.totalMs) : r.status === "failed" ? "Failed" : "Cancelled"}</span>
+            <span className={cx("font-mono text-title", r.status !== "done" && "text-warn-ink")}>{r.status === "done" ? took(r.totalMs) : r.status === "failed" ? "Failed" : "Cancelled"}</span>
             <span className="text-xs text-ink-3">{r.status !== "done" ? `after ${took(r.totalMs)}` : r.expectedMs ? `ETA ${took(r.expectedMs)}` : "no ETA"}</span>
           </div>
           <div className="flex flex-col items-end text-xs text-ink-2">

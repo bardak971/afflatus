@@ -69,7 +69,7 @@ function S3Key() {
       setChanging(false);
     },
   });
-  const make = <a href="https://console.runpod.io/user/credentials" target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 text-[12.5px] font-semibold text-ink-2 hover:text-ink">Make one <ExternalLink size={12} /></a>;
+  const make = <a href="https://console.runpod.io/user/credentials" target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 text-body font-semibold text-ink-2 hover:text-ink">Make one <ExternalLink size={12} /></a>;
   if (has && !changing) {
     return (
       <Row setting="rented.s3" label="S3 API key" help={WHY_S3}>
@@ -102,7 +102,7 @@ export function RentRow() {
   return (
     <Row setting="comfy.runpod" label="Or a RunPod pod" help={WHY_RUNPOD}>
       <span className="grow text-xs text-ink-2">Your pods, the caps and the key</span>
-      <Link href={tabHref("rented")} className="text-[12.5px] font-semibold hover:underline">Rented GPUs ›</Link>
+      <Link href={tabHref("rented")} className="text-body font-semibold hover:underline">Rented GPUs ›</Link>
       <Button size="sm" onClick={() => openDeploy()}>Deploy a GPU…</Button>
     </Row>
   );
@@ -138,7 +138,7 @@ export function CapBox({ label, value, help, onSave }: { label: string; value: n
   // its "?" beside the label, not in it: a click on it never lands in the box
   return (
     <span className="flex items-center gap-1">
-      <label className="flex items-center gap-1.5 text-[12.5px]">
+      <label className="flex items-center gap-1.5 text-body">
         <span className="text-ink-2">{label}</span>
         <span className="text-ink-3">$</span>
         <input value={text} onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} inputMode="decimal" placeholder="none" aria-label={`Cap ${label}`} className={cx("h-8 w-[68px] font-mono text-xs", fieldClass)} />
@@ -220,7 +220,7 @@ function RunpodAccount() {
       title="RunPod account"
       help="What your rented pods cost, every pod of the account, its GPU and its disk: RunPod's own bill. RunPod writes it some hours after the fact, so the last hours are Afflatus's count (each pod's time × its rate, from its deploy), the higher of the two while a pod runs, so that a cap is never reached late. A network volume is billed apart, every month: it counts in the month cap, not the day's. The balance lasts at this pace (the pods' last 7 days and storage), and at what the account spends now while a pod runs: at zero RunPod stops every pod, and a render that would end after it is not sent to a rented pod."
       status={(
-        <span className="flex items-center gap-3 text-[12.5px]">
+        <span className="flex items-center gap-3 text-body">
           {s && s.balance !== null && (
             <span className={s.lowBalance || (s.runwayMs !== null && s.runwayMs < 3_600_000) ? "font-semibold text-warn-ink" : "text-ink-2"}>
               balance <span className="font-mono text-ink">{usd(s.balance)}</span>
@@ -320,7 +320,7 @@ function RunpodPods() {
       status={(
         <span className="flex items-center gap-3">
           {list.length > 0 && (
-            <span className="text-[12.5px] text-ink-2">
+            <span className="text-body text-ink-2">
               {running.length > 0 && <><span className="font-semibold text-good">{running.length} running</span> · <span className="font-mono">{usd(perHour)}</span>/h</>}
               {running.length > 0 && stopped > 0 && " · "}
               {stopped > 0 && `${stopped} stopped`}
@@ -355,12 +355,12 @@ function RunpodPods() {
           ends,
         ].filter(Boolean).flatMap((x, k) => (k ? [" · ", x] : [x]));
         return (
-          <div key={p.id} className={cx("flex flex-wrap items-center gap-x-3 gap-y-2 px-[18px] py-3", !p.added && !p.comfy && !loose && "opacity-60")}>
+          <div key={p.id} className={cx("flex flex-wrap items-center gap-x-3 gap-y-2 px-gutter py-3", !p.added && !p.comfy && !loose && "opacity-60")}>
             <span className="flex min-w-0 grow basis-[260px] flex-col gap-1">
               <span className="flex min-w-0 items-center gap-2">
                 <span aria-hidden className={cx("size-[7px] shrink-0 rounded-full", loose || r?.boot?.failed ? "bg-warn" : r?.booting ? STARTING_DOT : isRunning ? "bg-good" : "border-[1.5px] border-ink-3")} />
-                <span className="truncate text-[13.5px] font-semibold">{machine ? machine.name || p.name : p.name}</span>
-                {said && <span className={cx("min-w-0 truncate text-[12.5px]", loose ? "text-warn-ink" : "text-ink-3")}>· {said}</span>}
+                <span className="truncate text-title font-semibold">{machine ? machine.name || p.name : p.name}</span>
+                {said && <span className={cx("min-w-0 truncate text-body", loose ? "text-warn-ink" : "text-ink-3")}>· {said}</span>}
               </span>
               {!short && facts.length > 0 && <span className="truncate pl-[15px] text-xs text-ink-3">{facts}</span>}
               {/* a deployed pod's first start: the second line its card and the pill's popover say */}
@@ -371,7 +371,7 @@ function RunpodPods() {
               {/* its ComfyUI, logged in: once it runs and answers */}
               {machine && r?.status === "RUNNING" && !r.booting && r.answers !== false && <Button size="sm" onClick={() => openComfy.mutate(machine.id)} disabled={openComfy.isPending}>Open ComfyUI <ExternalLink size={12} /></Button>}
               {p.added
-                ? <Link href={`/settings?machine=${encodeURIComponent(p.added)}`} className="text-[12.5px] font-semibold text-ink-2 hover:text-ink">Its card ›</Link>
+                ? <Link href={`/settings?machine=${encodeURIComponent(p.added)}`} className="text-body font-semibold text-ink-2 hover:text-ink">Its card ›</Link>
                 : p.comfy && <Button size="sm" tone="primary" onClick={() => add.mutate(p.id)} disabled={add.isPending}>Add</Button>}
             </span>
           </div>
@@ -386,10 +386,10 @@ function RunpodPods() {
 /** One choice of the next deploy, as a small box: what it is, the choice, a line under it. */
 function Choice({ what, children, sub, tone }: { what: string; children: ReactNode; sub?: ReactNode; tone?: "good" | "warn" }) {
   return (
-    <span className="flex min-w-0 flex-col gap-0.5 rounded-[10px] bg-raised px-3 py-2.5">
-      <span className="text-[11.5px] font-semibold text-ink-3">{what}</span>
-      <span className={cx("truncate text-[13px] font-semibold", tone === "good" ? "text-good" : tone === "warn" ? "text-warn-ink" : "text-ink")}>{children}</span>
-      {sub && <span className="text-[11.5px] text-ink-2">{sub}</span>}
+    <span className="flex min-w-0 flex-col gap-0.5 rounded-control bg-raised px-3 py-2.5">
+      <span className="text-meta font-semibold text-ink-3">{what}</span>
+      <span className={cx("truncate text-body font-semibold", tone === "good" ? "text-good" : tone === "warn" ? "text-warn-ink" : "text-ink")}>{children}</span>
+      {sub && <span className="text-meta text-ink-2">{sub}</span>}
     </span>
   );
 }
@@ -408,7 +408,7 @@ function NextDeploy() {
     <Card title="Next deploy" setting="rented.next" help="What Deploy a GPU opens with, and what Deploy again does: the last deploy's choices, or the ones saved with “Save as next deploy”. Its models are what each waiting job needs, fetched onto the pod from Civitai or Hugging Face (or sent from this PC when no site has the file), in the order the jobs need them; a Model set adds its files ahead." status={<Button size="sm" onClick={() => openDeploy()}>Change…</Button>}>
       {!next && <Block><span className="text-xs text-ink-2">Nothing yet: the first deploy's choices are kept here.</span></Block>}
       {next && (
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2.5 px-[18px] py-3.5">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2.5 px-gutter py-3.5">
           <Choice what="GPU" sub={`${next.cloud === "SECURE" ? "Secure" : "Community"} Cloud`}>{shortGpu(next.gpu)}</Choice>
           <Choice what="Image" tone={next.template === "afflatus" ? "good" : "warn"} sub={next.template === "afflatus" ? "locked from its start" : "not locked"}>{next.template === "afflatus" ? "Afflatus" : "RunPod's ComfyUI"}</Choice>
           <Choice what="Models" sub={next.set ? `+ ${sets.data?.items.find((x) => x.id === next.set)?.name ?? "a set since deleted"} ahead` : "no set ahead"}>What each job needs</Choice>

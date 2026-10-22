@@ -8,7 +8,7 @@ import { lacksOnlyFiles } from "../officialFiles";
 import { useFamilies, useQueue, useRecipes, useSettings, useSetup, useStorage } from "../data";
 import { plural, size } from "../format";
 import { scrollInside } from "../scrollInside";
-import { cx, PageHeader, SearchField, SegmentCount, Segmented } from "../ui";
+import { Chip, cx, PageHeader, SearchField, SegmentCount, Segmented } from "../ui";
 import { AboutCard } from "./settings/AboutCard";
 import { CivitaiCard } from "./settings/CivitaiCard";
 import { ComfyCard } from "./settings/ComfyCard";
@@ -56,10 +56,10 @@ function useTabMarks(): Partial<Record<Tab, ReactNode>> {
   const planned = Boolean(comfy && !comfy.online && comfy.planned);
   return {
     comfyui: comfy && !planned && <span aria-label={comfy.online ? "connected" : "not answering"} className={cx("h-[7px] w-[7px] rounded-full", comfy.online ? "bg-good" : "bg-warn")} />,
-    rented: lowBalance ? <span className="rounded-md bg-warn-wash px-1.5 font-mono text-[10.5px] text-warn-ink">balance low</span>
-      : unusedVolumes > 0 ? <span className="rounded-md bg-warn-wash px-1.5 font-mono text-[10.5px] text-warn-ink">{plural(unusedVolumes, "volume")} unused</span>
+    rented: lowBalance ? <Chip size="xs" tone="warn" className="font-mono">balance low</Chip>
+      : unusedVolumes > 0 ? <Chip size="xs" tone="warn" className="font-mono">{plural(unusedVolumes, "volume")} unused</Chip>
       : podRunning && <span aria-label="a pod running" className="h-[7px] w-[7px] rounded-full bg-good" />,
-    models: notReady > 0 && <span className="rounded-md bg-warn-wash px-1.5 font-mono text-[10.5px] text-warn-ink">{notReady} not ready</span>,
+    models: notReady > 0 && <Chip size="xs" tone="warn" className="font-mono">{notReady} not ready</Chip>,
     storage: storage.data && <SegmentCount>{size(storage.data.total)}</SegmentCount>,
     about: health.data && <SegmentCount>{/^\d/.test(health.data.version) ? `v${health.data.version}` : health.data.version}</SegmentCount>,
   };

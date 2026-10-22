@@ -41,11 +41,11 @@ export function ModelSetsCard() {
       {sets.isSuccess && !items.length && <Block><span className="text-xs text-ink-3">None yet. A set is made here, from Deploy a GPU's ticks (Save these as a set), or brought in from a file.</span></Block>}
       {items.map((s) => (
         <div key={s.id} className="flex flex-col">
-          <button type="button" onClick={() => setOpen(open === s.id ? null : s.id)} aria-expanded={open === s.id} className="flex items-center gap-2.5 px-[18px] py-3 text-left text-[13px] hover:bg-hover">
+          <button type="button" onClick={() => setOpen(open === s.id ? null : s.id)} aria-expanded={open === s.id} className="flex items-center gap-2.5 px-gutter py-3 text-left text-body hover:bg-hover">
             {open === s.id ? <ChevronDown size={14} className="text-ink-3" /> : <ChevronRight size={14} className="text-ink-3" />}
             <span className="font-semibold">{s.name}</span>
             <span className="text-ink-3">{[s.presets.length ? plural(s.presets.length, "preset") : "", plural(s.count, "file"), s.bytes ? gb(s.bytes) : ""].filter(Boolean).join(" · ")}</span>
-            {s.presets.some((p) => p.gone) && <Chip tone="warn" className="h-5 text-[11px]">a preset is gone</Chip>}
+            {s.presets.some((p) => p.gone) && <Chip tone="warn" size="xs">a preset is gone</Chip>}
           </button>
           {open === s.id && <SetEditor set={s} onChanged={refresh} onGone={() => { setOpen(null); void refresh(); }} />}
         </div>
@@ -101,9 +101,9 @@ function SetEditor({ set, onChanged, onGone }: { set: ModelSet; onChanged(): voi
   const add = (over: { presets?: string[]; files?: PresetFile[] }) =>
     change((b) => ({ ...b, presets: [...new Set([...b.presets, ...(over.presets ?? [])])], files: [...b.files, ...(over.files ?? []).filter((f) => !b.files.some((x) => fileKey(x) === fileKey(f)))] }));
   return (
-    <div className="flex flex-col gap-3 bg-raised/40 px-[18px] pt-1 pb-4 pl-[42px]">
+    <div className="flex flex-col gap-3 bg-raised/40 px-gutter pt-1 pb-4 pl-[42px]">
       <span className="flex items-center gap-2">
-        <input aria-label="The set's name" value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name.trim() && name.trim() !== latest.current.name && change((b) => ({ ...b, name: name.trim() }))} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} className={cx(fieldClass, "h-8 w-64 px-2.5 text-[13px] font-semibold")} />
+        <input aria-label="The set's name" value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name.trim() && name.trim() !== latest.current.name && change((b) => ({ ...b, name: name.trim() }))} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} className={cx(fieldClass, "h-8 w-64 px-2.5 text-body font-semibold")} />
         <span className="grow" />
         <ButtonLink size="sm" href={`/api/model-sets/${encodeURIComponent(set.id)}/export`} download>Save as a file</ButtonLink>
         <Button size="sm" onClick={() => duplicate.mutate()} disabled={duplicate.isPending}>Duplicate</Button>
@@ -112,11 +112,11 @@ function SetEditor({ set, onChanged, onGone }: { set: ModelSet; onChanged(): voi
       {files.isPending && <span className="text-xs text-ink-3">Asking your machines what they have…</span>}
       {groups.filter((g) => g.id === "" || set.presets.some((p) => p.id === g.id)).map((g) => (
         <div key={g.id || "own"} className="flex flex-col gap-1">
-          <span className="text-[12.5px] font-semibold">{g.title}<span className="font-normal text-ink-3"> · {g.sub}</span>
+          <span className="text-body font-semibold">{g.title}<span className="font-normal text-ink-3"> · {g.sub}</span>
             {g.id && <button type="button" onClick={() => change((b) => ({ ...b, presets: b.presets.filter((id) => id !== g.id) }))} className="ml-2 text-xs font-normal text-ink-3 hover:text-ink">take it out</button>}
           </span>
           {g.files.map((f) => (
-            <div key={fileKey(f)} className={cx("grid grid-cols-[minmax(0,1fr)_64px_minmax(0,180px)_64px_20px] items-center gap-3 text-[12.5px]", f.off && "opacity-50")}>
+            <div key={fileKey(f)} className={cx("grid grid-cols-[minmax(0,1fr)_64px_minmax(0,180px)_64px_20px] items-center gap-3 text-body", f.off && "opacity-50")}>
               <span className="min-w-0 truncate">{f.file}<span className="text-ink-3"> · {f.folder}</span></span>
               <ViaChip via={f.via} />
               <span className="min-w-0 truncate text-xs text-ink-3">{machines.filter((m) => m.id in f.on).map((m) => `${machineLabel(m)} ${f.on[m.id] ? "✓" : "–"}`).join(" · ")}</span>

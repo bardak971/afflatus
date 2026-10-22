@@ -14,7 +14,7 @@ import { useCopied, useMedia, useSecond } from "../../hooks";
 import { busyOutside, machineLabel, machineState, OUTSIDE_TIP, outsideSaid, rateParts, rentedSaid } from "../../machines";
 import { useQueueOps } from "../../queueOps";
 import { queryKeys } from "../../queryKeys";
-import { Button, ButtonLink, cx, ErrorNote, fieldClass, Segmented } from "../../ui";
+import { Button, ButtonLink, Chip, cx, ErrorNote, fieldClass, IconButton, Segmented } from "../../ui";
 import { AccessRow, useAccessActions } from "./AccessRow";
 import { useRentedOps } from "../../rentedOps";
 import { RentRow } from "./RentedCard";
@@ -142,7 +142,7 @@ export function MachinesHead() {
   const said = [`${machines.filter((m) => m.running).length} rendering`, `${word("busy outside Afflatus")} busy outside Afflatus`, `${machines.filter((m) => m.paused).length} paused`, `${word("starting")} starting`, `${word("offline") + word("locked")} offline`, `${word("stopped")} stopped`].filter((x) => !x.startsWith("0 ")).join(" · ");
   return (
     <div className="flex flex-wrap items-center gap-2.5 px-1">
-      <span className="text-[14px] font-bold">{plural(machines.length, "machine")}</span>
+      <span className="text-title font-bold">{plural(machines.length, "machine")}</span>
       {said && <span className="text-xs text-ink-2">{said}</span>}
       <span className="grow" />
       {queue.data?.paused
@@ -209,7 +209,7 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
   }, [asked, machine.id]);
   // a rented pod's head says its own state (stopped, starting, running and its cost), with Start or Stop
   const status = rented ? <RentedHead machine={machine} state={state} ops={rentedOps} /> : !probe ? null : state?.paused
-    ? <span className="text-[12.5px] font-semibold text-ink-2">Ⅱ Paused</span>
+    ? <span className="text-body font-semibold text-ink-2">Ⅱ Paused</span>
     : <Status ok={probe.online}>{probe.online ? (state?.running ? "Rendering" : state && busyOutside(state) ? <span data-tip={OUTSIDE_TIP}>Busy outside Afflatus · {outsideSaid(state)}</span> : "Answering") : "Not answering"}</Status>;
   // its ComfyUI in a tab of its own, logged in by a one-time code (lock-api.ts pageUrl): once it answers (a pod, once it runs)
   const openComfy = useOpenComfyUI();
@@ -241,9 +241,9 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
             onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
             placeholder={label}
             maxLength={40}
-            className="field-sizing-content min-w-12 max-w-[320px] rounded-md border border-transparent bg-transparent px-1 -mx-1 text-[15px] font-bold text-ink outline-none placeholder:text-ink hover:border-line focus:border-accent"
+            className="field-sizing-content min-w-12 max-w-[320px] rounded-md border border-transparent bg-transparent px-1 -mx-1 text-title font-bold text-ink outline-none placeholder:text-ink hover:border-line focus:border-accent"
           />
-          {all.length > 1 && index === 0 && <span className="rounded-md bg-raised px-2 py-0.5 text-[11.5px] font-semibold text-ink-2" data-tip="The setup, the downloads and the node packs talk to it">the first</span>}
+          {all.length > 1 && index === 0 && <Chip size="xs" tip="The setup, the downloads and the node packs talk to it">the first</Chip>}
         </span>
       )}
       label={label}
@@ -252,9 +252,9 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
           {status}
           {state?.paused && <Button size="sm" onClick={() => ops.resume.mutate(machine.id)}>Resume</Button>}
           {canOpen && <Button size="sm" onClick={() => openComfy.mutate(machine.id)} disabled={openComfy.isPending} data-tip="Its ComfyUI in a new tab, logged in">Open ComfyUI <ExternalLink size={12} /></Button>}
-          <button type="button" aria-label={`${label}: menu`} className="grid size-8 place-items-center rounded-lg border border-line-strong hover:bg-hover" onClick={(e) => menu.open(e, true)}>
+          <IconButton tone="outline" label={`${label}: menu`} onClick={(e) => menu.open(e, true)}>
             <MoreHorizontal size={14} />
-          </button>
+          </IconButton>
           {menu.menu && <Suspense fallback={null}><MachineMenuBody at={menu.menu.at} machine={machine.id} extra={extra} onClose={menu.close} /></Suspense>}
         </span>
       )}
@@ -287,7 +287,7 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
       {(access.failed || removeRented.isError) && <Block>{access.failed && <ErrorNote>{access.failed.message}</ErrorNote>}{removeRented.isError && <ErrorNote>{removeRented.error.message}</ErrorNote>}</Block>}
       {/* the token's end at the foot of one of your own (a pod's foot is its address and Terminate) */}
       {!rented && probe?.tokenEnd && (
-        <div className="flex items-center gap-3 bg-raised px-[18px] py-2.5 text-xs">
+        <div className="flex items-center gap-3 bg-raised px-gutter py-2.5 text-xs">
           <span className="font-mono text-ink-3" data-tip="The token's end: the token itself stays in Afflatus">token ••••••••{probe.tokenEnd}</span>
           <button type="button" className="font-semibold text-ink-2 hover:text-ink" onClick={access.copyToken}>{access.copied ? "Copied" : "Copy"}</button>
           <span className="grow" />
@@ -315,7 +315,7 @@ function MachineLine({ machine, index, probe, state, onOpen }: { machine: Machin
       onClick={onOpen}
       aria-label={`${label}: open its settings`}
       id={`machine-${machine.id}`}
-      className="grid w-full min-w-0 grid-cols-[14px_minmax(120px,1fr)_110px_minmax(0,1fr)_120px] items-center gap-3 border-b border-line/60 px-[18px] py-2.5 text-left text-[13px] last:border-b-0 hover:bg-hover"
+      className="grid w-full min-w-0 grid-cols-[14px_minmax(120px,1fr)_110px_minmax(0,1fr)_120px] items-center gap-3 border-b border-line/60 px-gutter py-2.5 text-left text-body last:border-b-0 hover:bg-hover"
     >
       <ChevronRight size={13} className="text-ink-3" />
       <span className="flex min-w-0 items-baseline gap-2"><span className="truncate font-semibold">{label}</span>{index === 0 && <span className="shrink-0 text-xs text-ink-3">the first</span>}</span>
@@ -368,7 +368,7 @@ export function MachineCards({ machines, probes, states }: { machines: Machine[]
       {runs.map((run) => (run.open
         ? card(run.items[0]!.m, run.items[0]!.i, () => toggle(run.items[0]!.m.id))
         : (
-          <section key={run.items[0]!.m.id} className="overflow-hidden rounded-[14px] border border-line bg-panel shadow-card">
+          <section key={run.items[0]!.m.id} className="overflow-hidden rounded-card border border-line bg-panel shadow-card">
             {run.items.map(({ m, i }) => <MachineLine key={m.id} machine={m} index={i} probe={probes?.find((p) => p.id === m.id)} state={states?.find((x) => x.id === m.id)} onOpen={() => toggle(m.id)} />)}
           </section>
         )))}

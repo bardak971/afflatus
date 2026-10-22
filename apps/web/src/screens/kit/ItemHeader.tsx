@@ -1,7 +1,7 @@
-import { Check, FileDown, Link2, MoreHorizontal, Play, X } from "lucide-react";
+import { Check, FileDown, Link2, MoreHorizontal, Play } from "lucide-react";
 import type { Entity } from "../../api";
 import { savePresetFile } from "../../presetFile";
-import { Button, Chip } from "../../ui";
+import { Button, Chip, CloseButton, IconButton } from "../../ui";
 import { kitHref } from "./link";
 import { useCopied } from "../../hooks";
 
@@ -35,7 +35,7 @@ export function ItemHeader({ item, saved, failure, onRename, onRetry, onApply, o
 }) {
   return (
     <div className="flex items-center gap-3">
-      <input aria-label="Name" value={item.name} onChange={(e) => onRename(e.target.value)} className="h-11 min-w-0 grow rounded-lg border border-transparent bg-transparent -ml-2 px-2 text-[22px] font-bold hover:border-line focus:border-accent focus:bg-raised" />
+      <input aria-label="Name" value={item.name} onChange={(e) => onRename(e.target.value)} className="h-11 min-w-0 grow rounded-lg border border-transparent bg-transparent -ml-2 px-2 text-display font-bold hover:border-line focus:border-accent focus:bg-raised" />
       <Chip tone={saved === "failed" ? "warn" : saved === "saved" ? "good" : "neutral"} tip={saved === "failed" ? failure ?? undefined : undefined}>
         {saved === "saved" ? "Saved" : saved === "saving" ? "Saving…" : `Could not save${failure ? `: ${failure}` : ""}`}
         {saved === "failed" && <button type="button" onClick={onRetry} className="font-semibold underline underline-offset-2">Retry</button>}
@@ -48,8 +48,8 @@ export function ItemHeader({ item, saved, failure, onRename, onRetry, onApply, o
         </>
       )}
       {/* Delete sits in the menu, not next to ×: one misclick there lost an item, and the kit has no undo. */}
-      <button type="button" aria-label={`More actions on ${item.name}`} aria-haspopup="menu" data-tip="More: Delete…" onClick={onMenu} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><MoreHorizontal size={16} /></button>
-      <button type="button" aria-label="Close" onClick={onClose} className="ml-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
+      <IconButton label={`More actions on ${item.name}`} tip="More: Delete…" aria-haspopup="menu" onClick={onMenu}><MoreHorizontal size={16} /></IconButton>
+      <CloseButton onClose={onClose} className="ml-3" />
     </div>
   );
 }

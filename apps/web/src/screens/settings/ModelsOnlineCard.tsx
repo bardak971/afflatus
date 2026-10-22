@@ -36,12 +36,12 @@ export function ModelsOnlineCard() {
         <>
           <Row label="Hashed">
             <span className="flex min-w-0 grow flex-col gap-1.5">
-              <span className="text-[12.5px]">
+              <span className="text-body">
                 {!s.looked ? <span className="text-ink-2">Not looked at yet: a minute after Afflatus starts, or Hash now</span>
                   : !s.files ? <span className="text-ink-2">No model file in this PC's ComfyUI folders</span>
                   : <><span className="font-mono">{s.hashed} / {s.files}</span>{s.files > s.hashed ? <span className="text-ink-3"> · {s.files - s.hashed} not hashed yet</span> : <span className="text-good"> · all</span>}</>}
               </span>
-              <span className="h-[5px] max-w-[320px] overflow-hidden rounded-[3px] bg-line-strong"><span className="block h-full rounded-[3px] bg-accent" style={{ width: `${part * 100}%` }} /></span>
+              <span className="h-[5px] max-w-[320px] overflow-hidden rounded-key bg-line-strong"><span className="block h-full rounded-key bg-accent" style={{ width: `${part * 100}%` }} /></span>
               {s.hashing && <span className="truncate text-xs text-ink-3">{s.paused ? "waiting for this PC's render to end · " : ""}{s.hashing.file} · {Math.round((s.hashing.bytes / Math.max(1, s.hashing.total)) * 100)}%</span>}
             </span>
             <Button size="sm" onClick={() => run.mutate()} disabled={Boolean(s.hashing) || run.isPending}>Hash now</Button>
@@ -68,7 +68,7 @@ function Count({ n, what, sub, warn }: { n: number; what: string; sub: string; w
     <span className="flex flex-col rounded-lg border border-line bg-raised/50 px-2.5 py-1.5">
       <span className={cx("text-lg font-bold", warn && n > 0 && "text-warn-ink")}>{n}</span>
       <span className="text-xs text-ink-2">{what}</span>
-      <span className="text-[11px] text-ink-3">{sub}</span>
+      <span className="text-meta text-ink-3">{sub}</span>
     </span>
   );
 }

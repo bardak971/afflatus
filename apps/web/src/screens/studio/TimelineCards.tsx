@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Check, Film, Folder as FolderIcon, Plus, Trash2, X } from "lucide-react";
+import { Check, Film, Folder as FolderIcon, Plus, Trash2 } from "lucide-react";
 import { useTimelineOf } from "../../actions";
 import { Select } from "../../Select";
 import { api, thumbUrl, type TimelineBrief, type TimelineLeaf } from "../../api";
@@ -17,7 +17,7 @@ import { toMenu, type KindActionId } from "../../projects/kindActions";
 import { useKindActions, type TimelineSubject } from "../../projects/useKindActions";
 import { openFolderId } from "../../store";
 import { Thumb } from "../../Thumb";
-import { Button, Chip, cx, Empty, ErrorNote } from "../../ui";
+import { Button, Chip, CloseButton, cx, Empty, ErrorNote } from "../../ui";
 import type { Place } from "../Library";
 import { chipsOf, factsOf, stripOf } from "./timelineCard";
 import { queryKeys } from "../../queryKeys";
@@ -204,7 +204,7 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
             </div>
           )}
           <Button size="sm" data-tip="Delete them: the videos stay in your library (Del)" onClick={() => runOf([...picked], "delete")}><Trash2 size={13} /> Delete</Button>
-          <button type="button" aria-label="Clear selection" data-tip="Clear selection (Esc)" onClick={() => setPicked(new Set())} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>
+          <CloseButton label="Clear selection" keys="Esc" onClose={() => setPicked(new Set())} />
         </div>,
         slot,
       )}
@@ -239,7 +239,7 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
           >
             <Plus size={20} strokeWidth={2.2} />
             <span className="text-sm font-semibold">{makeOf.isPending ? "Making it…" : dropOver ? "Drop to make a timeline" : "New timeline"}</span>
-            <span className="text-[11px] text-ink-3">{ready && !timelines.length && !searched ? (place.type === "folder" ? "none in this folder yet · drop pictures and videos here" : "none yet · drop pictures and videos here") : "or drop pictures and videos here"}</span>
+            <span className="text-meta text-ink-3">{ready && !timelines.length && !searched ? (place.type === "folder" ? "none in this folder yet · drop pictures and videos here" : "none yet · drop pictures and videos here") : "or drop pictures and videos here"}</span>
           </button>
         )}
         {/* the list on its way: placeholder cards for the first two rows, at the cards' size */}
@@ -321,21 +321,21 @@ function TimelineCard({ t, leaf, size, eager, picked, anyPicked, folder, onClick
             >
               {/* the box is drawn at its clip's width from the start, raised; the picture fades in over it as it comes */}
               {f.asset && <Thumb src={thumbUrl(f.asset)} alt="" loading={eager ? "eager" : "lazy"} fetchPriority={eager ? "high" : undefined} draggable={false} className="absolute inset-0 h-full w-full object-cover" />}
-              <span data-stage className="absolute bottom-1 left-1 rounded bg-stage/70 px-1 font-mono text-[10px] leading-tight text-ink">{f.n}</span>
+              <span data-stage className="absolute bottom-1 left-1 rounded bg-stage/70 px-1 font-mono text-micro leading-tight text-ink">{f.n}</span>
             </span>
           ))}
           {!frames.length && <span className="flex grow items-center justify-center rounded-md border border-dashed border-line-strong text-ink-3"><Film size={22} /></span>}
-          {t.clips > frames.length && frames.length > 0 && <span className="flex shrink-0 items-center rounded-md bg-raised px-1.5 text-[11px] font-semibold text-ink-2" data-tip={`${t.clips - frames.length} more clips`}>+{t.clips - frames.length}</span>}
+          {t.clips > frames.length && frames.length > 0 && <Chip size="xs" tip={`${t.clips - frames.length} more clips`} className="self-center">+{t.clips - frames.length}</Chip>}
         </span>
         <span className="flex flex-col gap-1.5 px-3.5 pt-3 pb-3.5">
           <span className="flex min-w-0 items-baseline gap-2">
-            <span className="grow truncate text-[15px] font-bold">{t.name}</span>
+            <span className="grow truncate text-title font-bold">{t.name}</span>
             <span className="shrink-0 text-xs text-ink-2">{when(t.updatedAt)}</span>
           </span>
-          <span className="truncate text-[12.5px] text-ink-2">{factsOf(t, leaf)}</span>
+          <span className="truncate text-body text-ink-2">{factsOf(t, leaf)}</span>
           {/* what needs doing, the same figures as the Projects panel; the folder when the list is every folder's */}
           {(chips.length > 0 || folder !== null) && (
-            <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[11.5px] font-semibold">
+            <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-meta font-semibold">
               {chips.map((c) => <Chip key={c.label} tone={c.tone} tip={c.title}>{c.label}</Chip>)}
               {folder !== null && <span className="flex min-w-0 items-center gap-1 rounded-full bg-raised px-2.5 py-0.5 font-normal text-ink-2"><FolderIcon size={10} className="shrink-0" /><span className="truncate">{folder}</span></span>}
             </span>
@@ -351,7 +351,7 @@ function TimelineCard({ t, leaf, size, eager, picked, anyPicked, folder, onClick
         onClick={(e) => onClick(e, true)}
         onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); onTick(); } }}
         className={cx(
-          "absolute top-3.5 left-3.5 z-10 flex h-[18px] w-[18px] cursor-pointer items-center justify-center rounded-[6px] transition-colors",
+          "absolute top-3.5 left-3.5 z-10 flex h-[18px] w-[18px] cursor-pointer items-center justify-center rounded-md transition-colors",
           picked ? "bg-accent text-accent-ink" : "border-[1.5px] border-white/80 bg-ground/60",
           !picked && !anyPicked && "opacity-0 group-hover:opacity-100 focus:opacity-100",
         )}
@@ -374,10 +374,10 @@ function PlaceholderCard({ size }: { size: "S" | "M" | "L" }) {
       </span>
       <span className="flex flex-col gap-1.5 px-3.5 pt-3 pb-3.5">
         <span className="flex min-w-0 items-baseline gap-2">
-          <span className="grow text-[15px] font-bold"><span className="m-skeleton inline-block h-[0.8em] w-2/5 align-middle" /></span>
+          <span className="grow text-title font-bold"><span className="m-skeleton inline-block h-[0.8em] w-2/5 align-middle" /></span>
           <span className="shrink-0 text-xs"><span className="m-skeleton inline-block h-[0.8em] w-10 align-middle" /></span>
         </span>
-        <span className="text-[12.5px]"><span className="m-skeleton inline-block h-[0.8em] w-3/5 align-middle" /></span>
+        <span className="text-body"><span className="m-skeleton inline-block h-[0.8em] w-3/5 align-middle" /></span>
       </span>
     </div>
   );

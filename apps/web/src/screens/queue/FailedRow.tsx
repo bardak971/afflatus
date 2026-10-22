@@ -100,13 +100,13 @@ export function FailedRow({ jobs, quiet = false }: { jobs: HistoryJob[]; quiet?:
         data-tip={job.prompt || undefined}
         className={cx(ROW, "cursor-pointer rounded-xl py-2 focus-visible:outline-2 focus-visible:outline-warn", quiet ? "py-1.5 hover:bg-hover" : "bg-warn-wash inset-ring inset-ring-warn/30 hover:inset-ring-warn/55")}
       >
-        <span className={cx("h-9 w-16 rounded-[7px]", quiet && "opacity-40")} style={HATCHED} />
+        <span className={cx("h-9 w-16 rounded-chip", quiet && "opacity-40")} style={HATCHED} />
         {/* the fixes sit in the name's column, after it: they need more room than the "took" column has */}
         <span className="flex min-w-0 items-center gap-2">
           <span className="flex min-w-0 grow flex-col gap-0.5">
             <span className="flex min-w-0 items-center gap-2">
-              <span className={cx("truncate text-[13.5px]", quiet ? "font-semibold text-ink-2" : "font-bold")}>{job.label}</span>
-              {n > 1 && <Chip tone="warn" className="h-5 px-2 text-[11px]" tip={`${n} jobs failed with the same error; ··· shows them`}>×{n} · same error</Chip>}
+              <span className={cx("truncate text-title", quiet ? "font-semibold text-ink-2" : "font-bold")}>{job.label}</span>
+              {n > 1 && <Chip tone="warn" size="xs" tip={`${n} jobs failed with the same error; ··· shows them`}>×{n} · same error</Chip>}
             </span>
             <span className="truncate text-xs text-warn-ink">{said.text}</span>
           </span>
@@ -115,7 +115,7 @@ export function FailedRow({ jobs, quiet = false }: { jobs: HistoryJob[]; quiet?:
             {second && button(second, "plain")}
           </span>
         </span>
-        <span className={cx("truncate text-[12.5px] text-ink-2", MODEL_CELL)} data-tip={modelTip(modelOf(job), job.model)}>{modelOf(job)}</span>
+        <span className={cx("truncate text-body text-ink-2", MODEL_CELL)} data-tip={modelTip(modelOf(job), job.model)}>{modelOf(job)}</span>
         {/* nothing came out: no time to say, a dash as a finished row with none has */}
         <span className={cx("text-right font-mono text-xs text-ink-3", TOOK_CELL)}>—</span>
         <span className="text-right text-xs text-ink-2">{job.finishedAt ? when(job.finishedAt) : ""}</span>
@@ -133,10 +133,10 @@ export function FailedRow({ jobs, quiet = false }: { jobs: HistoryJob[]; quiet?:
         </span>
       </div>
       {open && (
-        <div className="mr-3 mb-1 ml-[90px] flex flex-col gap-2 rounded-[10px] bg-raised px-3 py-2.5 text-[12.5px] leading-normal">
+        <div className="mr-3 mb-1 ml-[90px] flex flex-col gap-2 rounded-control bg-raised px-3 py-2.5 text-body leading-normal">
           <span className="whitespace-pre-wrap select-text">{error}</span>
           {/* where in ComfyUI's code it failed, as it sent it: what its own log no longer has once it rolls over */}
-          {job.trace && <pre className="max-h-60 overflow-auto rounded-md bg-panel px-2 py-1.5 font-mono text-[11px] leading-snug whitespace-pre-wrap text-ink-2 select-text">{job.trace}</pre>}
+          {job.trace && <pre className="max-h-60 overflow-auto rounded-md bg-panel px-2 py-1.5 font-mono text-meta leading-snug whitespace-pre-wrap text-ink-2 select-text">{job.trace}</pre>}
           {job.prompt && <span className="truncate text-xs text-ink-2" data-tip={job.prompt}>{job.prompt}</span>}
         </div>
       )}

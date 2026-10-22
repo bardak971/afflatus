@@ -17,8 +17,8 @@ export function PasswordAsk({ said, busy, onConfirm, onCancel }: { said: string 
           onConfirm(password);
         }}
       >
-        <span className="grow text-[12.5px] text-ink-2">This change needs the password (no sign-in in the last 10 minutes).</span>
-        <input type="password" autoFocus autoComplete="current-password" aria-label="Password" value={password} onChange={(e) => setPassword(e.target.value)} className={cx("h-9 w-48 text-[13px]", fieldClass)} />
+        <span className="grow text-body text-ink-2">This change needs the password (no sign-in in the last 10 minutes).</span>
+        <input type="password" autoFocus autoComplete="current-password" aria-label="Password" value={password} onChange={(e) => setPassword(e.target.value)} className={cx("h-9 w-48 text-body", fieldClass)} />
         <Button size="sm" type="submit" tone="primary" disabled={!password || busy}>Confirm</Button>
         <Button size="sm" tone="quiet" onClick={onCancel}>Cancel</Button>
         {said && <span className="basis-full text-right"><ErrorNote>{said}</ErrorNote></span>}

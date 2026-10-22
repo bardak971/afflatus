@@ -15,7 +15,7 @@ import { ModelLink } from "../../ModelLink";
 import { Card, Row } from "../../Rows";
 import { Select } from "../../Select";
 import { localId } from "../../secureContext";
-import { AutoText, Button, cx, NumberBox } from "../../ui";
+import { AutoText, Button, Chip, cx, IconButton, NumberBox } from "../../ui";
 import { Slider } from "../../Slider";
 import { dropped, moved } from "../queue/order";
 import { useFlip } from "../../useFlip";
@@ -24,7 +24,7 @@ import { queryKeys } from "../../queryKeys";
 
 /** A small fact of a row: what a model takes of the person. */
 function Takes({ children, tip }: { children: string; tip: string }) {
-  return <span data-tip={tip} className="rounded-md bg-raised px-1.5 py-px text-[10.5px] whitespace-nowrap text-ink-2">{children}</span>;
+  return <Chip size="xs" tip={tip}>{children}</Chip>;
 }
 
 /**
@@ -99,7 +99,7 @@ function Pictures({ value, onChange, what, sent, face }: { value: string[]; onCh
           // the pictures a model is handed: a bar over them, as wide as they are
           <span aria-hidden className="pointer-events-none absolute -top-[19px] left-1 flex flex-col gap-1" style={{ width: first * 84 + (first - 1) * 8 }}>
             {/* on one line whatever the bar's width: over a single picture it wrapped, and the second line ran into it */}
-            <span className="text-[10.5px] leading-none font-bold whitespace-nowrap text-accent">sent to the models</span>
+            <span className="text-micro leading-none font-bold whitespace-nowrap text-accent">sent to the models</span>
             <span className="h-[3px] rounded-full bg-accent" />
           </span>
         )}
@@ -138,16 +138,16 @@ function Pictures({ value, onChange, what, sent, face }: { value: string[]; onCh
               aria-keyshortcuts={value.length > 1 ? "Alt+ArrowLeft Alt+ArrowRight" : undefined}
               onClick={() => setOpen(id)}
               onKeyDown={(e) => onKey(e, id, i)}
-              className="block cursor-zoom-in rounded-[10px]"
+              className="block cursor-zoom-in rounded-control"
             >
-              <img src={thumbUrl(id)} alt="" draggable={false} className="h-[84px] w-[84px] rounded-[10px] border border-line object-cover hover:border-accent" />
+              <img src={thumbUrl(id)} alt="" draggable={false} className="h-[84px] w-[84px] rounded-control border border-line object-cover hover:border-accent" />
             </button>
-            <span className={cx("pointer-events-none absolute bottom-1 left-1 rounded-[5px] px-1.5 text-[10.5px] font-bold", face && i === 0 ? "bg-accent text-ground" : "bg-ground/80 text-ink")}>{face && i === 0 ? "face" : i + 1}</span>
+            <span className={cx("pointer-events-none absolute bottom-1 left-1 rounded-key px-1.5 text-micro font-bold", face && i === 0 ? "bg-accent text-ground" : "bg-ground/80 text-ink")}>{face && i === 0 ? "face" : i + 1}</span>
             <button type="button" aria-label="Remove this image" onClick={() => onChange(value.filter((x) => x !== id))} className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-ground/85 text-ink-2 hover:text-ink"><X size={11} /></button>
           </div>
         ))}
         {value.length < LIMITS.pictures && (
-          <button type="button" aria-label={`Add a reference image of ${what}`} data-tip="Or drop pictures here, from the computer or the library" onClick={() => setPicking(true)} className="flex h-[84px] w-[84px] flex-col items-center justify-center gap-1 rounded-[10px] border-[1.5px] border-dashed border-line-strong text-ink-2 hover:text-ink">
+          <button type="button" aria-label={`Add a reference image of ${what}`} data-tip="Or drop pictures here, from the computer or the library" onClick={() => setPicking(true)} className="flex h-[84px] w-[84px] flex-col items-center justify-center gap-1 rounded-control border-[1.5px] border-dashed border-line-strong text-ink-2 hover:text-ink">
             <Plus size={16} />
             <span className="text-xs">{add.isPending ? "Adding…" : "Add"}</span>
           </button>
@@ -204,7 +204,7 @@ function Voice({ value, part, onChange, onPart }: {
           </AudioPlayer>
         </div>
       ) : (
-        <button type="button" {...drop.props} onClick={() => setPicking(true)} className={cx("flex h-8 min-w-0 items-center gap-2 rounded-[9px] border border-dashed px-2.5 text-[12.5px] text-ink-2 hover:text-ink", drop.zone || "border-line-strong")}>
+        <button type="button" {...drop.props} onClick={() => setPicking(true)} className={cx("flex h-8 min-w-0 items-center gap-2 rounded-control border border-dashed px-2.5 text-body text-ink-2 hover:text-ink", drop.zone || "border-line-strong")}>
           <Music size={14} className="shrink-0" />
           <span className="truncate">{upload.isPending ? "Adding…" : "Choose or drop an audio file"}</span>
         </button>
@@ -258,7 +258,7 @@ function OutfitPicture({ value, onChange, what }: { value: string | null; onChan
         </>
       ) : (
         <button type="button" aria-label={`Choose a picture of ${what}`} data-tip="A reference image of the clothes: choose one, or drop it here" onClick={() => setPicking(true)} className={cx("flex h-9 w-9 items-center justify-center rounded-lg border-[1.5px] border-dashed text-ink-3 hover:text-ink", drop.zone || "border-line-strong")}>
-          {upload.isPending ? <span className="text-[10px]">…</span> : <Plus size={13} />}
+          {upload.isPending ? <span className="text-micro">…</span> : <Plus size={13} />}
         </button>
       )}
       {picking && <Picker kit title={`A reference image of ${what}`} onClose={() => setPicking(false)} onPick={(id) => { onChange(id); setPicking(false); }} />}
@@ -280,7 +280,7 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
   return (
     <Halves>
       <div className="flex min-w-0 flex-col gap-3">
-        <Card dense title={`Reference images · ${def.pictures.length}`} status={def.pictures.length > 1 && <span className="text-[11.5px] text-ink-3">drag to reorder</span>} help={`Used by models that take reference images: the first ${LIMITS.sentPictures.person} are sent, the first being the face. Two or three angles hold a face better than one. Drop pictures on the row, from the computer or the library; drag one, or Alt + ← → on a focused one, to change the order.`}>
+        <Card dense title={`Reference images · ${def.pictures.length}`} status={def.pictures.length > 1 && <span className="text-meta text-ink-3">drag to reorder</span>} help={`Used by models that take reference images: the first ${LIMITS.sentPictures.person} are sent, the first being the face. Two or three angles hold a face better than one. Drop pictures on the row, from the computer or the library; drag one, or Alt + ← → on a focused one, to change the order.`}>
           <Pictures value={def.pictures} onChange={(pictures) => onChange({ ...def, pictures })} what={name} sent={LIMITS.sentPictures.person} face />
           <Row label="Voice sample" help="A few seconds of them speaking. Models that generate audio give the person this voice. Under it, the part they are given, in the accent: drag on the waveform for another part, its ends snap to the pauses (Alt: anywhere); a click plays from there. Optional.">
             {/* the part belongs to the sample: another sample starts from the form's own part again */}
@@ -292,7 +292,7 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
       </div>
 
       <div className="flex min-w-0 flex-col gap-3">
-        <Card dense title="LoRA per model" status={<span className="text-[11.5px] text-ink-3">optional</span>} help={`A LoRA is a file you already have: Afflatus does not train one. The chips say what each model takes of ${name}: reference images, tags or natural language, the voice sample. A model that takes neither reference images nor a LoRA gets only the prompt text.`}>
+        <Card dense title="LoRA per model" status={<span className="text-meta text-ink-3">optional</span>} help={`A LoRA is a file you already have: Afflatus does not train one. The chips say what each model takes of ${name}: reference images, tags or natural language, the voice sample. A model that takes neither reference images nor a LoRA gets only the prompt text.`}>
           {rows.map(({ family: f, ids, can }) => {
             const m = entryOf(def.models, ids) ?? { lora: null, weight: 0.8, trigger: "" };
             const set = (patch: Partial<typeof m>) => onChange({ ...def, models: withEntry(def.models, ids, { ...m, ...patch }) });
@@ -301,7 +301,7 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
             return (
               // the mock's three columns: the family, what it takes, its LoRA (and under that, the LoRA's weight and words)
               <div key={f.id} className="grid min-h-[48px] grid-cols-[150px_128px_minmax(0,1fr)] items-start gap-x-3.5 gap-y-1.5 px-4 py-2">
-                <span className="flex h-8 min-w-0 items-center truncate text-[13px] font-semibold">{f.name}</span>
+                <span className="flex h-8 min-w-0 items-center truncate text-body font-semibold">{f.name}</span>
                 <span className="flex h-8 flex-wrap content-center items-center gap-1">
                   {can.pictures && refs > 0 && <Takes tip={`${plural(refs, "reference image")} of ${name}`}>{`${plural(refs, "ref")}`}</Takes>}
                   <Takes tip={can.tags ? "Reads the tags" : "Reads the natural language"}>{can.tags ? "tags" : "NL"}</Takes>
@@ -323,7 +323,7 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
                   <div className="col-start-3 flex min-w-0 items-center gap-2">
                     <Slider label={`Weight of the LoRA of ${name} for ${f.name}`} min={-1} max={2} step={0.05} zero={0} box={false} value={Math.max(-1, Math.min(2, m.weight))} onChange={(v) => set({ weight: v })} className="w-24 shrink-0" />
                     <NumberBox label={`Weight of the LoRA of ${name} for ${f.name}, typed`} value={m.weight} min={-4} max={4} step={0.05} onCommit={(v) => set({ weight: v })} />
-                    {can.tags && <input aria-label={`Trigger words for ${f.name}`} placeholder="Trigger words" value={m.trigger} onChange={(e) => set({ trigger: e.target.value })} className={cx(field, "h-8 min-w-0 grow py-0 text-[12.5px]")} />}
+                    {can.tags && <input aria-label={`Trigger words for ${f.name}`} placeholder="Trigger words" value={m.trigger} onChange={(e) => set({ trigger: e.target.value })} className={cx(field, "h-8 min-w-0 grow py-0 text-body")} />}
                   </div>
                 )}
                 {can.lora && m.lora && (
@@ -355,10 +355,10 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
               <OutfitPicture value={o.picture} onChange={(picture) => setOutfit(o.id, { picture })} what={o.name || "the outfit"} />
               <input aria-label="Name of the outfit" value={o.name} placeholder="Outfit name" onChange={(e) => setOutfit(o.id, { name: e.target.value })} className={cx(field, "h-9 py-0 font-semibold")} />
               <div className="flex min-w-0 flex-col gap-1.5">
-                <AutoText rows={1} aria-label="The outfit as tags" value={o.tags} placeholder="Tags: white summer dress" onChange={(e) => setOutfit(o.id, { tags: e.target.value })} className={cx(field, "py-1.5 text-[12.5px]")} />
-                <AutoText rows={1} aria-label="The outfit in natural language" value={o.sentence} placeholder="Natural language: She wears a white summer dress." onChange={(e) => setOutfit(o.id, { sentence: e.target.value })} className={cx(field, "py-1.5 text-[12.5px]")} />
+                <AutoText rows={1} aria-label="The outfit as tags" value={o.tags} placeholder="Tags: white summer dress" onChange={(e) => setOutfit(o.id, { tags: e.target.value })} className={cx(field, "py-1.5 text-body")} />
+                <AutoText rows={1} aria-label="The outfit in natural language" value={o.sentence} placeholder="Natural language: She wears a white summer dress." onChange={(e) => setOutfit(o.id, { sentence: e.target.value })} className={cx(field, "py-1.5 text-body")} />
               </div>
-              <button type="button" aria-label={`Remove the outfit ${o.name}`} onClick={() => onChange({ ...def, outfits: def.outfits.filter((x) => x.id !== o.id) })} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><Trash2 size={14} /></button>
+              <IconButton label={`Remove the outfit ${o.name}`} onClick={() => onChange({ ...def, outfits: def.outfits.filter((x) => x.id !== o.id) })} className="mt-0.5"><Trash2 size={14} /></IconButton>
             </div>
           ))}
         </Card>
@@ -370,7 +370,7 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
 export function PlaceEditor({ def, name, onChange }: { def: PlaceDef; name: string; onChange(def: PlaceDef): void }) {
   return (
     <Halves>
-      <Card dense title={`Reference images · ${def.pictures.length}`} status={def.pictures.length > 1 && <span className="text-[11.5px] text-ink-3">drag to reorder</span>} help={`Used by models that take reference images: the clip happens there. The first ${LIMITS.sentPictures.place} are sent. Drop pictures on the row, from the computer or the library; drag one, or Alt + ← → on a focused one, to change the order.`}>
+      <Card dense title={`Reference images · ${def.pictures.length}`} status={def.pictures.length > 1 && <span className="text-meta text-ink-3">drag to reorder</span>} help={`Used by models that take reference images: the clip happens there. The first ${LIMITS.sentPictures.place} are sent. Drop pictures on the row, from the computer or the library; drag one, or Alt + ← → on a focused one, to change the order.`}>
         <Pictures value={def.pictures} onChange={(pictures) => onChange({ ...def, pictures })} what={name} sent={LIMITS.sentPictures.place} />
       </Card>
       <Words place tags={def.tags} sentence={def.sentence} onChange={(p) => onChange({ ...def, ...p })} />

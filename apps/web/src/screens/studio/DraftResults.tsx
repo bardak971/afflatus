@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Images, Square, X } from "lucide-react";
+import { Square, X } from "lucide-react";
 import type { Asset } from "../../api";
 import { useAssets, useFamilyName } from "../../data";
 import { clock, phaseLabel, timeLeft, when } from "../../format";
@@ -117,7 +117,7 @@ export function DraftResults({ draft, folder, list, title, empty }: {
         )}
       </div>
       <div className="flex w-[172px] shrink-0 flex-col gap-2.5 overflow-y-auto px-1 pb-4">
-        <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{draft ? "This draft" : title ?? "Here"} · {items.length}</span>
+        <span className="text-meta font-bold tracking-label text-ink-3 uppercase">{draft ? "This draft" : title ?? "Here"} · {items.length}</span>
         {running && <RunningTile id={running} on={Boolean(live)} onClick={() => setPicked("live")} />}
         {waiting > 0 && (
           <span className="flex items-center justify-between gap-1 rounded-lg border border-dashed border-line-strong py-1 pr-1 pl-2 text-xs text-ink-2">
@@ -214,7 +214,7 @@ function StripItems({ items, byModel, shown, onPick, onMenu }: { items: Asset[];
           <div key={a.id} ref={observe} data-item-id={a.id} data-head={head ? "" : undefined} className="flex flex-col gap-1.5">
           {head && <span className={cx("truncate px-1.5 text-xs font-bold text-ink", i > 0 && "pt-1.5")}>{head.model} <span className="font-normal text-ink-3">· {head.rest}</span></span>}
           {/* at its own shape (a portrait take stays portrait), with its name under it; the one shown large is marked */}
-          <div className={cx("flex flex-col gap-1.5 rounded-[12px] p-1.5", on ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : "hover:shadow-[inset_0_0_0_1px_var(--color-line-strong)]")}>
+          <div className={cx("flex flex-col gap-1.5 rounded-xl p-1.5", on ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : "hover:shadow-[inset_0_0_0_1px_var(--color-line-strong)]")}>
             <div data-strip-tile style={{ aspectRatio: shapeOf(a), width: `min(100%, ${Math.round(TILE_H * shapeOf(a))}px)` }} className="mx-auto">
               <ThumbWidth.Provider value={Math.min(room.current.width || Infinity, Math.round(TILE_H * shapeOf(a)))}>
                 <Tile fill plain asset={a} onOpen={() => onPick(a)} onMenu={(e) => onMenu(e, a)} />
@@ -222,12 +222,12 @@ function StripItems({ items, byModel, shown, onPick, onMenu }: { items: Asset[];
             </div>
             {/* what it is, under the picture: its name, then its clip and its length (or size) */}
             <span className="flex min-w-0 flex-col gap-1 px-0.5">
-              <span className="truncate text-[12.5px] font-bold" data-tip={tileName(a)}>{tileName(a)}</span>
+              <span className="truncate text-body font-bold" data-tip={tileName(a)}>{tileName(a)}</span>
               <span className="flex min-w-0 items-center gap-1.5">
                 {/* in the accent, flush with the name above it */}
-                {a.clipOf && <span className="min-w-0 truncate text-[11px] font-semibold text-accent">Clip {a.clipOf.clip}{a.clipOf.takes > 1 ? ` · take ${a.clipOf.take}` : ""}</span>}
+                {a.clipOf && <span className="min-w-0 truncate text-meta font-semibold text-accent">Clip {a.clipOf.clip}{a.clipOf.takes > 1 ? ` · take ${a.clipOf.take}` : ""}</span>}
                 <span className="grow" />
-                <span className="shrink-0 font-mono text-[11px] text-ink-2">{a.durationMs !== null && a.kind !== "image" ? clock(a.durationMs, { decimals: 1 }) : a.width && a.height ? `${a.width}×${a.height}` : ""}</span>
+                <span className="shrink-0 font-mono text-meta text-ink-2">{a.durationMs !== null && a.kind !== "image" ? clock(a.durationMs, { decimals: 1 }) : a.width && a.height ? `${a.width}×${a.height}` : ""}</span>
               </span>
             </span>
           </div>
@@ -271,7 +271,7 @@ function BackToLive({ id, onClick }: { id: string; onClick(): void }) {
     <button type="button" onClick={onClick} data-tip="Back to the live preview of the render under way" className="mb-2 flex shrink-0 items-center gap-2 self-center rounded-lg border border-line-strong bg-panel px-2.5 py-1 text-xs hover:bg-hover">
       <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-accent" />
       <span className="font-semibold">Live preview</span>
-      <span className="font-mono text-[11px] text-ink-2">{phaseLabel(job.phase)}{job.steps ? ` · ${job.step}/${job.steps}` : ""}</span>
+      <span className="font-mono text-meta text-ink-2">{phaseLabel(job.phase)}{job.steps ? ` · ${job.step}/${job.steps}` : ""}</span>
       <Keys keys="Esc" size="sm" />
     </button>
   );
@@ -293,14 +293,14 @@ function StagePlaceholder({ title }: { title: string }) {
         <div className="m-skeleton min-h-0 grow" />
       </div>
       <div className="flex w-[172px] shrink-0 flex-col gap-2.5 overflow-hidden px-1 pb-4">
-        <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{title} · <span className="font-mono">–</span></span>
+        <span className="text-meta font-bold tracking-label text-ink-3 uppercase">{title} · <span className="font-mono">–</span></span>
         {[0, 1, 2].map((i) => (
-          <div key={i} className="flex flex-col gap-1.5 rounded-[12px] p-1.5">
+          <div key={i} className="flex flex-col gap-1.5 rounded-xl p-1.5">
             <div style={{ aspectRatio: PLACEHOLDER_SHAPE, width: `min(100%, ${Math.round(TILE_H * PLACEHOLDER_SHAPE)}px)` }} className="m-skeleton mx-auto rounded-md!" />
             {/* the two lines under a result, at their own line heights */}
             <span className="flex min-w-0 flex-col gap-1 px-0.5">
-              <span className="text-[12.5px]"><span className="m-skeleton inline-block h-[0.8em] w-3/4 align-middle" /></span>
-              <span className="text-[11px]"><span className="m-skeleton inline-block h-[0.8em] w-1/3 align-middle" /></span>
+              <span className="text-body"><span className="m-skeleton inline-block h-[0.8em] w-3/4 align-middle" /></span>
+              <span className="text-meta"><span className="m-skeleton inline-block h-[0.8em] w-1/3 align-middle" /></span>
             </span>
           </div>
         ))}
@@ -325,14 +325,17 @@ function shapeOf(a: Asset): number {
 function NothingYet() {
   const set = useStudio((s) => s.set);
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 rounded-xl bg-ground">
-      <Images size={28} strokeWidth={1.5} className="text-ink-3" />
-      <span className="text-[15px] font-semibold">Nothing made in this draft yet</span>
-      <span className="flex items-center gap-1.5 text-ink-2">
-        <Keys keys="Ctrl+Enter" size="sm" /> generates
-        <span className="text-line-strong">·</span>
-        <button type="button" onClick={() => set({ scope: "all" })} className="font-semibold text-accent hover:underline">Folder</button> shows the rest
-      </span>
+    <div className="flex h-full flex-col justify-center">
+      <Empty
+        title="Nothing made in this draft yet"
+        action={
+          <span className="flex items-center gap-1.5">
+            <Keys keys="Ctrl+Enter" size="sm" /> generates
+            <span className="text-line-strong">·</span>
+            <button type="button" onClick={() => set({ scope: "all" })} className="font-semibold text-accent hover:underline">Folder</button> shows the rest
+          </span>
+        }
+      />
     </div>
   );
 }

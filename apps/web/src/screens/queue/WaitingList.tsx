@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { ArrowDownToLine, ArrowUpToLine, Layers, Loader2, Pin, Server, Trash2, X } from "lucide-react";
+import { ArrowDownToLine, ArrowUpToLine, Layers, Pin, Server, Trash2, X } from "lucide-react";
 import { api, type Job, type MachineLack, type MachineState, type PackWait, type RunningJob } from "../../api";
 import { GetFile } from "../../GetFile";
 import { busyOutside, machineLabel, machineState, NO_ROOM, noGpuYet, OUTSIDE_TIP, rentedUp, volumeHref, volumeOf } from "../../machines";
@@ -9,7 +9,7 @@ import { useSettings } from "../../data";
 import { JOB_DRAG } from "./MachineLanes";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { aboutMs, est, plural, when } from "../../format";
-import { Button, Chip, cx, SectionTitle } from "../../ui";
+import { Button, Chip, cx, SectionTitle, Spinner } from "../../ui";
 import { useQueueBulk } from "./bulk";
 import { useModelName } from "./modelName";
 import { betterPlace, dropped, groupingSaves, loadsAt, modelSwitches, moved, waitingEnds } from "./order";
@@ -176,7 +176,7 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
             }}
             data-tip={w.kind === "export" || w.kind === "cut" ? `${w.kind} · no GPU needed` : w.kind === "load" ? "loads the model, renders nothing" : `queued ${when(w.createdAt)}`}
             className={cx(
-              "group flex cursor-grab items-center gap-3.5 rounded-[10px] border-y-2 border-transparent py-px pr-1 pl-3 text-[13px] hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent",
+              "group flex cursor-grab items-center gap-3.5 rounded-control border-y-2 border-transparent py-px pr-1 pl-3 text-body hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent",
               dragged === w.id && "opacity-50",
               dragged && over === i && "border-t-accent",
               dragged && over === i + 1 && i === shown.length - 1 && "border-b-accent",
@@ -280,7 +280,7 @@ function PacksNote({ wait, machine, onPacks }: { wait: PackWait; machine: string
   const words = wait.state === "restarting" ? `restarting ${comfy}…` : wait.state === "installed" ? `installed · restarts ${comfy} once it is free${wait.waitsFor ? ` (busy with ${wait.waitsFor})` : ""}` : `installing ${names.join(", ")}…`;
   return (
     <span className="flex min-w-0 items-center gap-1 truncate text-xs text-ink-2" data-tip={words}>
-      {wait.state !== "installed" && <Loader2 size={11} className="shrink-0 motion-safe:animate-spin" />}
+      {wait.state !== "installed" && <Spinner size={11} tone="current" />}
       {words}
     </span>
   );
@@ -301,7 +301,7 @@ function OwnDownloads({ w }: { w: Job }) {
   if (!wait) return null;
   return (
     <DownloadTo.Provider value={wait.id}>
-      <div className="mb-1 ml-[44px] flex flex-col gap-1.5 rounded-[10px] border border-line bg-raised px-3 py-2 text-xs text-ink-2">
+      <div className="mb-1 ml-[44px] flex flex-col gap-1.5 rounded-control border border-line bg-raised px-3 py-2 text-xs text-ink-2">
         <span>
           Waits for {plural(wait.files.length, "file")} on {wait.name}, then runs there{wait.others ? " (or run it on a pod from its menu)" : ""}:{" "}
           <button type="button" disabled={look.isPending} onClick={() => look.mutate(wait.id)} className="font-semibold text-accent hover:underline disabled:opacity-60" data-tip="Reads its model folders again now: a file put in by hand starts the job (it is seen by itself within a minute or two).">{look.isPending ? "Looking…" : "Look again"}</button>
@@ -393,7 +393,7 @@ function FilesChip({ of }: { of: NonNullable<ReturnType<typeof pinnedFiles>> }) 
     markPlace(row, 1400);
   };
   return (
-    <button type="button" onClick={(e) => { e.stopPropagation(); show(); }} data-tip={`${name} is getting them: its row says how far`} className="shrink-0 rounded-[7px] border border-accent/45 bg-accent-wash px-2 py-px text-xs font-semibold whitespace-nowrap text-accent hover:brightness-125">
+    <button type="button" onClick={(e) => { e.stopPropagation(); show(); }} data-tip={`${name} is getting them: its row says how far`} className="shrink-0 rounded-chip border border-accent/45 bg-accent-wash px-2 py-px text-xs font-semibold whitespace-nowrap text-accent hover:brightness-125">
       waits for {plural(of.count, "file")} on {name} ↑
     </button>
   );
@@ -419,7 +419,7 @@ function PinnedLacks({ machine, id, lack }: { machine: string; id: string; lack:
   const full = volume && NO_ROOM.test(`${lack.failed ?? ""} ${lack.why ?? ""}`) ? <Link href={volumeHref(volume)} className="ml-1 font-semibold text-accent hover:underline">Open the volume</Link> : null;
   return (
     <DownloadTo.Provider value={id}>
-      <div className="mb-1 ml-[44px] flex flex-col gap-1.5 rounded-[10px] border border-line bg-raised px-3 py-2 text-xs text-ink-2">
+      <div className="mb-1 ml-[44px] flex flex-col gap-1.5 rounded-control border border-line bg-raised px-3 py-2 text-xs text-ink-2">
         {lack.balance ? (
           <span>
             Waits: the RunPod balance lasts {est(lack.balance.leftMs)} at what the account spends now, and this needs {est(lack.balance.needMs)} on {machine} (its files still to come, and room over its forecast while the pod has few renders of it), with 10 min to spare. At zero RunPod stops every pod and the render is lost: add credit on RunPod, or run it on another machine.

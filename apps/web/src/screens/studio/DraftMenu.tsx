@@ -18,8 +18,8 @@ const OUTPUT_WORD = { image: ["picture", "pictures"], video: ["take", "takes"], 
 /** A draft's cover: its newest output, or a dashed box when nothing was made from it. */
 function Cover({ d, size }: { d: DraftBrief; size: number }) {
   const style = { width: size, height: size };
-  if (d.cover) return <Thumb src={thumbUrl(d.cover)} alt="" loading="lazy" sizes={`${size}px`} style={style} className="shrink-0 rounded-[3px] bg-raised object-cover" />;
-  return <span aria-hidden style={style} className="shrink-0 rounded-[3px] border border-dashed border-line-strong" />;
+  if (d.cover) return <Thumb src={thumbUrl(d.cover)} alt="" loading="lazy" sizes={`${size}px`} style={style} className="shrink-0 rounded-key bg-raised object-cover" />;
+  return <span aria-hidden style={style} className="shrink-0 rounded-key border border-dashed border-line-strong" />;
 }
 
 /**
@@ -179,7 +179,7 @@ export function DraftMenu({ drafts: rows, open: current, titleOf, onPick, onNew,
       >
         {shownRow ? <Cover d={shownRow} size={24} /> : <Kind size={14} className="text-ink-3" />}
         <span className={cx("min-w-0 grow truncate", current && !titleOf(current) && "text-ink-2")}>{current ? nameOf(current) : "No draft yet"}</span>
-        {(shownRow?.outputs ?? 0) > 0 && <span className="shrink-0 font-mono text-[11px] font-normal text-ink-3">{shownRow!.outputs}</span>}
+        {(shownRow?.outputs ?? 0) > 0 && <span className="shrink-0 font-mono text-meta font-normal text-ink-3">{shownRow!.outputs}</span>}
         <ChevronDown size={14} className="shrink-0 text-ink-2" />
       </button>
       {shown && (
@@ -205,12 +205,12 @@ export function DraftMenu({ drafts: rows, open: current, titleOf, onPick, onNew,
             end={<Keys keys="Esc" size="sm" />}
           />
           <button type="button" onClick={() => { close(); onNew(); }} className="flex h-12 shrink-0 items-center gap-2.5 border-b border-line px-3 text-left font-semibold hover:bg-hover">
-            <span className="flex h-9 w-9 items-center justify-center rounded-[3px] border border-dashed border-line-strong text-ink-2"><Plus size={14} /></span>
+            <span className="flex h-9 w-9 items-center justify-center rounded-key border border-dashed border-line-strong text-ink-2"><Plus size={14} /></span>
             <span className="grow">New draft</span>
             <span className="text-xs font-normal text-ink-3">the open one stays in the list</span>
           </button>
           <div className="min-h-0 overflow-y-auto py-1">
-            <div className="px-3 pt-1.5 pb-1 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{query ? `${list.length} found` : "Recent"}</div>
+            <div className="px-3 pt-1.5 pb-1 text-meta font-bold tracking-label text-ink-3 uppercase">{query ? `${list.length} found` : "Recent"}</div>
             <div id={`${ids}-list`} role="listbox" aria-label="Drafts">
               {list.map((d, i) => {
                 const isOpen = d.id === current?.id;
@@ -238,7 +238,7 @@ export function DraftMenu({ drafts: rows, open: current, titleOf, onPick, onNew,
                       <span className={cx("truncate font-semibold", !named && "text-ink-2")}>{nameOf(d)}</span>
                       <span className="truncate text-xs text-ink-3">{subLine(d)}{isOpen ? " · open" : ""}</span>
                     </span>
-                    <span className="flex shrink-0 flex-col items-end gap-0.5 font-mono text-[11px]">
+                    <span className="flex shrink-0 flex-col items-end gap-0.5 font-mono text-meta">
                       <span className="text-ink-2">{countOf(d)}</span>
                       <span className="text-ink-3">{changed(d.updatedAt)}</span>
                     </span>

@@ -41,7 +41,7 @@ export function Found({ ok, role, tag, note, matters, what, children, below }: {
 }) {
   const tone = ok ? "good" : matters ? "warn" : "plain";
   return (
-    <div data-dash={ok ? undefined : ""} className="grid scroll-mt-3 grid-cols-[18px_120px_minmax(0,1fr)] items-center gap-x-2 gap-y-1.5 px-3 py-2 text-[13px] [&+&]:border-t [&+&]:border-line">
+    <div data-dash={ok ? undefined : ""} className="grid scroll-mt-3 grid-cols-[18px_120px_minmax(0,1fr)] items-center gap-x-2 gap-y-1.5 px-3 py-2 text-body [&+&]:border-t [&+&]:border-line">
       <span className={cx("flex h-[18px] w-[18px] items-center justify-center rounded-full", tone === "good" ? "bg-good/20 text-good" : tone === "warn" ? "bg-warn-wash text-warn-ink" : "bg-hover text-ink-3")}>
         {tone === "good" ? <Check size={11} strokeWidth={3} /> : tone === "warn" ? <AlertTriangle size={10} strokeWidth={2.6} /> : <Minus size={11} strokeWidth={3} />}
       </span>
@@ -65,7 +65,7 @@ export function Step({ n, title, hint }: { n: number; title: string; hint: strin
   return (
     <div className="flex items-center gap-2 pb-1">
       <span className="flex h-[22px] w-[22px] items-center justify-center rounded-full bg-ink text-xs font-extrabold text-ground">{n}</span>
-      <span className="text-[15px] font-bold">{title}</span>
+      <span className="text-title font-bold">{title}</span>
       <Help title={title} text={hint} />
     </div>
   );

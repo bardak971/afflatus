@@ -40,7 +40,7 @@ export function Lanes({ items, from, to, models, names, only, timeLabel, onZoom,
   return (
     <section className="flex min-w-0 flex-col gap-1.5 rounded-xl border border-line bg-panel p-3.5">
       <div className="flex items-baseline justify-between gap-3">
-        <h3 className="text-[13px] font-semibold">What rendered when</h3>
+        <h3 className="text-body font-semibold">What rendered when</h3>
         <span className="truncate text-xs text-ink-3" data-tip="One bar per job, as long as it took · hover: which">click: open output · drag: zoom</span>
       </div>
       <div className="grid grid-cols-[minmax(120px,180px)_minmax(0,1fr)] gap-2">
@@ -66,7 +66,7 @@ export function Lanes({ items, from, to, models, names, only, timeLabel, onZoom,
         >
           {/* each label right of its line, the last one left of the chart's right edge: drawn past it, it was cut to a "0" */}
           {Array.from({ length: ticks }, (_x, k) => from + (k / (ticks - 1)) * span).map((time, k) => (
-            <span key={k} className={cx("pointer-events-none absolute bottom-0 font-mono text-[10px] text-ink-3", k < ticks - 1 && "border-l border-line")} style={{ left: `${(k / (ticks - 1)) * 100}%`, height: "100%" }}>
+            <span key={k} className={cx("pointer-events-none absolute bottom-0 font-mono text-micro text-ink-3", k < ticks - 1 && "border-l border-line")} style={{ left: `${(k / (ticks - 1)) * 100}%`, height: "100%" }}>
               <span className={cx("absolute bottom-0.5 whitespace-nowrap", k < ticks - 1 ? "left-1" : "right-1")}>{timeLabel(time)}</span>
             </span>
           ))}

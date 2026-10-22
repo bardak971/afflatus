@@ -92,8 +92,8 @@ export function PresetList({ found, open, onSelect: select, onMenu, children }: 
   const presetBadges = (e: Extract<Entity, { kind: "preset" }>) => {
     const st = filesOf(e);
     const missing = missingOf(e);
-    if (missing > 0) return <span className="font-mono text-[11px] text-ink-3">needs {plural(missing, "file")}</span>;
-    return st && st.files.length > 0 ? <span className="font-mono text-[11px] text-good/80">ready</span> : null;
+    if (missing > 0) return <span className="font-mono text-meta text-ink-3">needs {plural(missing, "file")}</span>;
+    return st && st.files.length > 0 ? <span className="font-mono text-meta text-good/80">ready</span> : null;
   };
   // who made it and what it is picked by ("Darksidewalker · Hybrid v3 · smaller file"); without a line, its operation
   const presetLine = (e: Extract<Entity, { kind: "preset" }>) => {
@@ -128,7 +128,7 @@ export function PresetList({ found, open, onSelect: select, onMenu, children }: 
         {found.length > 0 && presetsShown.length === 0 && <div className="px-2 py-6 text-center text-xs text-ink-2">No preset matches these filters.</div>}
         {groups.map((g) => (
           <div key={g.key} className="flex flex-col gap-0.5">
-            <div className="px-2.5 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-ink-3 uppercase">{g.title}</div>
+            <div className="px-2.5 pt-2 pb-1 text-meta font-semibold tracking-wide text-ink-3 uppercase">{g.title}</div>
             {g.items.map((e) => presetRow(e as Extract<Entity, { kind: "preset" }>))}
           </div>
         ))}
