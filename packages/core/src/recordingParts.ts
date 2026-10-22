@@ -28,16 +28,9 @@ export function recordingParts(o: { fromS: number; toS: number; wantS: number; l
   const parts: RecordingPart[] = [];
   let at = fromS;
   for (let guard = 0; guard < 1000 && toS - at > 0.05; guard++) {
-    // what is left fits one clip, and a cut near the length asked would leave less than a clip after it: one part
-    if (toS - at <= mostS && toS - at - want < leastS) {
-      parts.push({ start: at, seconds: toS - at });
-      break;
-    }
-    // a pause past the end (a recording trimmed, its Out before the words go on) is no place to cut: a part made to it
-    // would render the words trimmed off, and one past the recording's end would say a length the sound has not
-    const cuts = o.pauses.map((p) => (p.start + p.end) / 2).filter((m) => m - at >= leastS && m - at <= mostS && m < toS);
-    const end = cuts.length ? cuts.reduce((best, m) => (Math.abs(m - at - want) < Math.abs(best - at - want) ? m : best)) : Math.min(at + mostS, toS);
+    const end = endOf(at, toS, want, leastS, mostS, o.pauses);
     parts.push({ start: at, seconds: end - at });
+    if (end >= toS) break;
     at = end;
   }
   // a short last part: taken by the one before when one clip holds both, else shared evenly with it
@@ -52,4 +45,26 @@ export function recordingParts(o: { fromS: number; toS: number; wantS: number; l
     }
   }
   return parts.map((p) => ({ start: round(p.start), seconds: round(p.seconds) }));
+}
+
+/**
+ * The one part of a recording a single clip takes (a voice given to one Lip sync clip): the whole of it from `fromS`, as
+ * much as one clip holds, ended in the pause nearest that most when it is longer, else at the most. Not the first of
+ * recordingParts: that one shares a short last part evenly with the part before, which suits a row of clips, but halved
+ * the single clip a voice fills (a 16 s voice without a pause gave it 8 s, where 14.83 fit).
+ */
+export function recordingPart(o: { fromS: number; toS: number; leastS: number; mostS: number; pauses: Pause[] }): RecordingPart | null {
+  if (o.toS - o.fromS <= 0.05) return null;
+  const end = endOf(o.fromS, o.toS, o.mostS, o.leastS, o.mostS, o.pauses);
+  return { start: Math.round(o.fromS * 100) / 100, seconds: Math.round((end - o.fromS) * 100) / 100 };
+}
+
+/** Where the part from `at`, about `want` long, ends (in seconds of the recording). */
+function endOf(at: number, toS: number, want: number, leastS: number, mostS: number, pauses: Pause[]): number {
+  // what is left fits one clip, and a cut near the length asked would leave less than a clip after it: one part
+  if (toS - at <= mostS && toS - at - want < leastS) return toS;
+  // a pause past the end (a recording trimmed, its Out before the words go on) is no place to cut: a part made to it
+  // would render the words trimmed off, and one past the recording's end would say a length the sound has not
+  const cuts = pauses.map((p) => (p.start + p.end) / 2).filter((m) => m - at >= leastS && m - at <= mostS && m < toS);
+  return cuts.length ? cuts.reduce((best, m) => (Math.abs(m - at - want) < Math.abs(best - at - want) ? m : best)) : Math.min(at + mostS, toS);
 }

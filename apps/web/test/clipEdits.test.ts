@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { settleEdits, withFilledInputs, withServerInputs } from "../src/timeline/useClipEdits";
+import { filledOver, settleEdits, withFilledInputs, withServerInputs } from "../src/timeline/useClipEdits";
 
 const none = new Set<string>();
 
@@ -43,9 +43,17 @@ describe("a clip's save answered with what the server worked out (a voice's part
     expect(settleEdits(edits, [{ id: "c1", inputs: kept }], none)).toEqual({});
   });
 
-  it("leaves what was typed since as it is: its own save is answered the same way", () => {
-    const typed = { c1: { description: "a talk", recording: "r2" } };
-    expect(withFilledInputs(typed, "c1", sent, kept)).toBe(typed);
+  it("lays the part worked out over what was typed since: its save would send the part from before the voice", () => {
+    // the scene typed while the voice's save was out, the form still with the old voice's part
+    const was = { ...sent, recordingStart: 4.7, recordingSeconds: 5.5 };
+    const typed = { c1: { ...was, description: "a long talk" } };
+    const answer = { ...was, recordingStart: 0, recordingSeconds: 7 };
+    expect(withFilledInputs(typed, "c1", was, answer).c1).toEqual({ ...sent, description: "a long talk", recordingStart: 0, recordingSeconds: 7 });
     expect(withFilledInputs({}, "c1", sent, kept)).toEqual({});
+  });
+
+  it("keeps what was typed over the part itself since: the newer", () => {
+    const typed = { ...sent, recordingSeconds: 3 };
+    expect(filledOver(typed, sent, kept)).toEqual({ ...sent, recordingStart: 0, recordingSeconds: 3 });
   });
 });

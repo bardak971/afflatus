@@ -45,8 +45,15 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
       const source = sourceOf(key);
       if (!source) {
         const kept = await api.editClip(key, { inputs, ...shareOf(key) });
-        // what the server worked out of the form (a voice's part) is shown over what was sent, so that the read back drops the edit
-        if (kept.inputs) setEdits((e) => withFilledInputs(e, key, inputs, kept.inputs!));
+        // what the server worked out of the form (a voice's part) is shown over what was sent, so that the read back drops
+        // the edit; laid as well over what was typed while the save was out, and over its save still waiting, else that
+        // save sent the part from before the voice, which the server keeps
+        if (kept.inputs) {
+          const typed = autosave.pending.get(key);
+          if (typed !== undefined && typed !== inputs) autosave.pending.set(key, filledOver(typed, inputs, kept.inputs));
+          latest.current.edits = withFilledInputs(latest.current.edits, key, inputs, kept.inputs);
+          setEdits((e) => withFilledInputs(e, key, inputs, kept.inputs!));
+        }
         return;
       }
       await api.editTimeline(source, { source: { inputs } });
@@ -189,12 +196,25 @@ export function withServerInputs(edits: Record<string, Record<string, unknown>>,
 
 /**
  * The edits once a clip's save was answered with the form as the server kept it (`kept`, a voice's part worked out): the
- * edit becomes it while it is still what was `sent`. One typed since is left as it is: what the server works out may hang
- * on what changed (another voice), and its own save is answered the same way.
+ * edit becomes it while it is still what was `sent`. One typed since takes what the server worked out over it (filledOver):
+ * left with the part from before the voice, its save sent that part back, and the server, the voice no longer new to it,
+ * kept it.
  */
 export function withFilledInputs(edits: Record<string, Record<string, unknown>>, clipId: string, sent: Record<string, unknown>, kept: Record<string, unknown>): Record<string, Record<string, unknown>> {
   const edit = edits[clipId];
-  return edit && JSON.stringify(edit) === JSON.stringify(sent) ? { ...edits, [clipId]: kept } : edits;
+  if (!edit) return edits;
+  return { ...edits, [clipId]: JSON.stringify(edit) === JSON.stringify(sent) ? kept : filledOver(edit, sent, kept) };
+}
+
+/**
+ * A form typed while its save was out (`edit`), with what the server worked out of the one `sent` laid over it: each input
+ * the server changed, unless it was typed over since (a length set by hand meanwhile is the newer).
+ */
+export function filledOver(edit: Record<string, unknown>, sent: Record<string, unknown>, kept: Record<string, unknown>): Record<string, unknown> {
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const next = { ...edit };
+  for (const k of Object.keys(kept)) if (!same(kept[k], sent[k]) && same(edit[k], sent[k])) next[k] = kept[k];
+  return next;
 }
 
 /**

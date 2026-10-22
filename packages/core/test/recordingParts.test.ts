@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { recordingParts } from "../src/recordingParts";
+import { recordingPart, recordingParts } from "../src/recordingParts";
 
 /** A recording cut into Lip sync clips at its pauses (the mock's "cut at its pauses", 2026-10-20). */
 describe("a recording cut into clips", () => {
@@ -34,5 +34,30 @@ describe("a recording cut into clips", () => {
     // trimmed to 10 s, the next pause at 11.2: the part ends at the Out
     expect(recordingParts({ fromS: 0, toS: 10, wantS: 5, ...bounds, pauses: [{ start: 11, end: 11.4 }] })).toEqual([{ start: 0, seconds: 10 }]);
     for (const p of recordingParts({ fromS: 2, toS: 21, wantS: 5, ...bounds, pauses: [{ start: 22, end: 22.4 }] })) expect(p.start + p.seconds).toBeLessThanOrEqual(21 + 1e-9);
+  });
+});
+
+/** The one part a voice given to a single Lip sync clip takes (Timelines.voicePart). */
+describe("a recording's part for one clip", () => {
+  const bounds = { leastS: 4, mostS: 14.83 };
+  it("is the whole recording when one clip holds it", () => {
+    expect(recordingPart({ fromS: 0, toS: 7, ...bounds, pauses: [{ start: 4.9, end: 5.1 }] })).toEqual({ start: 0, seconds: 7 });
+  });
+
+  it("a little longer than one clip holds, is as much as it holds, not half of it", () => {
+    // the even share of a short last part gave 7.45, 7.5, 8.5 s here: one clip, not a row of them, is filled
+    for (const toS of [14.9, 15, 17, 18.8]) expect(recordingPart({ fromS: 0, toS, ...bounds, pauses: [] })).toEqual({ start: 0, seconds: 14.83 });
+    expect(recordingParts({ fromS: 0, toS: 17, wantS: 5, ...bounds, pauses: [] }).map((p) => p.seconds)).not.toContain(14.83);
+  });
+
+  it("ends in the pause nearest the most it holds, even one that leaves less than a clip after it", () => {
+    // 16 s, a pause at 13: 13 s, where the parts' even share gave 8
+    expect(recordingPart({ fromS: 0, toS: 16, ...bounds, pauses: [{ start: 12.9, end: 13.1 }] })).toEqual({ start: 0, seconds: 13 });
+    expect(recordingPart({ fromS: 0, toS: 15, ...bounds, pauses: [{ start: 4.5, end: 4.7 }, { start: 10.1, end: 10.3 }] })).toEqual({ start: 0, seconds: 10.2 });
+  });
+
+  it("starts where it is asked, and is none past the end", () => {
+    expect(recordingPart({ fromS: 2, toS: 9, ...bounds, pauses: [] })).toEqual({ start: 2, seconds: 7 });
+    expect(recordingPart({ fromS: 9, toS: 9, ...bounds, pauses: [] })).toBeNull();
   });
 });
