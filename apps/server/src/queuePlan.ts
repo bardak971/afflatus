@@ -3,7 +3,7 @@ import type { Db } from "./db";
 import { paceOf } from "./forecast";
 import type { Scan } from "@afflatus/comfy";
 import type { Loaded } from "./jobFiles";
-import { isOfficialFile } from "./fetchFile";
+import { isOfficialFile } from "./podSources";
 import { lackOn, toolLackOn, toolSlots, type Lack } from "./machineScans";
 import type { PodFiles } from "./podFiles";
 import { PACKS_MS } from "./podPacks";

@@ -1,5 +1,4 @@
 import type { FastifyRequest } from "fastify";
-import type { Family } from "@afflatus/core";
 import { z } from "zod";
 import { envSaid } from "./config";
 import { civitaiSites, civitaiVersion, pretendSites } from "./civitai";
@@ -48,13 +47,6 @@ export async function downloadTarget(s: Services, settings: Settings, id: string
   if (!found) throw bad("there is no ComfyUI with that id", 404);
   return { comfy: found.comfy, dir: found.machine.dir, machine: id };
 }
-
-/**
- * A family's official file at its own address (its slot's `get`, in that slot's folder): fetched on a press whatever the
- * settings, as the press is the consent and no lookup is made. The queue holds a job for such a file's Download alone.
- */
-export const isOfficialFile = (families: ReadonlyArray<Pick<Family, "slots">>, f: { url?: string; file: string; folder: string }): boolean =>
-  Boolean(f.url) && families.some((fam) => fam.slots.some((x) => x.get?.url === f.url && x.get?.file === f.file && x.folder === f.folder));
 
 export async function beginDownload(s: Services, req: FastifyRequest, b: DownloadBody): Promise<DownloadView> {
   const settings = await readSettings(s.db);
