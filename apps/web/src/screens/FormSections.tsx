@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { GripVertical, Plus, X } from "lucide-react";
 import type { Section, Toggle } from "@afflatus/workflows";
-import { Button, cx, Help, Toggle as Switch } from "../ui";
+import { Button, CloseButton, cx, Help, Toggle as Switch } from "../ui";
 import { useFlip } from "../useFlip";
 import { ADVANCED, isGroup, isMark, placedIn, PROMPT, reordered, withNew, type Spot } from "./workflowEditor/sections";
 import { useCardMoves } from "./workflowEditor/useCardMoves";
@@ -163,7 +163,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
   };
   /** The gap at the end of a list, where a drop appends. */
   const tail = (spot: Spot, empty: string) => (
-    <div onDragOver={(e) => { if (allow(e)) setOver(spot); }} onDrop={dropAt(spot)} className={cx("min-h-6 rounded border-t-2 px-1.5 text-center text-[11px] text-ink-3", line(spot))}>
+    <div onDragOver={(e) => { if (allow(e)) setOver(spot); }} onDrop={dropAt(spot)} className={cx("min-h-6 rounded border-t-2 px-1.5 text-center text-meta text-ink-3", line(spot))}>
       {spot.index === 0 ? empty : ""}
     </div>
   );
@@ -187,7 +187,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
     >
       <div className="flex items-center gap-1.5">
         {handle(ADVANCED, "Drag to put the Advanced chapter before or after a section; press for Move up / down")}
-        <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Advanced · {loose.length}</span>
+        <span className="text-meta font-bold tracking-label text-ink-2 uppercase">Advanced · {loose.length}</span>
         <Help text="Folded in the form; holds what is in no section." />
       </div>
       {loose.length ? (
@@ -219,7 +219,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
       }}
     >
       {handle(PROMPT, "Drag to put the prompt before or after a section; press for Move up / down")}
-      <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Prompt</span>
+      <span className="text-meta font-bold tracking-label text-ink-2 uppercase">Prompt</span>
       <Help text="The main text, with Designer and Snippets; its negative prompt under it unless placed." />
     </div>
   );
@@ -245,7 +245,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
               className="h-7 min-w-0 grow rounded-md border border-transparent bg-transparent px-1.5 text-sm font-bold hover:border-line focus:border-line-strong focus:outline-none"
             />
             <Button size="sm" onClick={() => onMakeSwitch(s)} className="shrink-0" data-tip="A switch in this section: on, it shows the settings put under it; off, they fold away and the nodes you pick are bypassed"><Plus size={14} /> Switch</Button>
-            <button type="button" aria-label={`Remove the section ${s.label}`} onClick={() => remove(s)} className="h-7 w-7 shrink-0 rounded-md text-ink-2 hover:bg-hover hover:text-ink"><X size={14} className="mx-auto" /></button>
+            <CloseButton size={28} label={`Remove the section ${s.label}`} onClose={() => remove(s)} />
           </div>
           <div className="flex flex-col p-1.5">
             {s.items.map((item, index) => {
@@ -277,7 +277,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
                     <button type="button" aria-label={`Take the switch ${name} out`} onClick={() => onDropSwitch(s, item.toggle)} className="h-6 w-6 shrink-0 rounded text-ink-3 hover:bg-hover hover:text-ink"><X size={12} className="mx-auto" /></button>
                   </div>
                   {sw && cuts(sw) && (
-                    <div className="flex items-center gap-1.5 px-2 pb-1 text-[11px] text-warn-ink">
+                    <div className="flex items-center gap-1.5 px-2 pb-1 text-meta text-warn-ink">
                       off, bypasses the output node too
                       <Help text={`While it is off, nothing is saved.${sw.made ? " Edit it to leave the output out." : ""}`} />
                     </div>

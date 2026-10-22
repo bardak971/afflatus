@@ -59,7 +59,7 @@ function Spark({ values, color, bars, over }: { values: number[]; color: string;
 function Headline({ label, value, sub, subTip, delta, deltaTip, children }: { label: string; value: string; sub: string; subTip?: string; delta: number | null; deltaTip?: string; children: ReactNode }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 overflow-hidden rounded-2xl border border-line bg-panel px-4.5 pt-4 pb-2.5">
-      <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{label}</span>
+      <span className="text-meta font-bold tracking-label text-ink-3 uppercase">{label}</span>
       <span className="flex items-baseline gap-2.5">
         <span className="truncate font-mono text-[34px] leading-tight font-bold tracking-tight">{value}</span>
         {delta !== null && <span className="shrink-0 font-mono text-xs font-semibold text-ink-2" data-tip={deltaTip}>{delta > 0 ? "▲" : delta < 0 ? "▼" : "="} {Math.abs(delta)} %</span>}
@@ -74,7 +74,7 @@ function Headline({ label, value, sub, subTip, delta, deltaTip, children }: { la
 function Figure({ label, value, tip, warn }: { label: string; value: string; tip?: string; warn?: boolean }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5 border-line px-4 py-2.5 [&:not(:first-child)]:border-l" data-tip={tip}>
-      <span className="truncate text-[11px] text-ink-3">{label}</span>
+      <span className="truncate text-meta text-ink-3">{label}</span>
       <span className={cx("truncate font-mono text-base font-semibold", warn && "text-warn-ink")}>{value}</span>
     </div>
   );

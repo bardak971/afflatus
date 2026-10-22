@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, Clipboard, FileOutput, Loader2, Music, Pencil, Play, RotateCcw, Scissors, Search, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Clipboard, FileOutput, Loader2, Music, Pencil, Play, RotateCcw, Scissors, Trash2, X } from "lucide-react";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { api, type HistoryJob } from "../../api";
 import { HoverVideo } from "../../HoverVideo";
@@ -8,7 +8,7 @@ import { useAsset, useJobs, useRecipes } from "../../data";
 import { fileLabel, hourMinute, took, when } from "../../format";
 import { Select } from "../../Select";
 import { useSettled } from "../../hooks";
-import { Button, cx, Empty, Help, Segmented } from "../../ui";
+import { Button, CloseButton, cx, Empty, Help, IconButton, SearchField, Segmented, Spinner } from "../../ui";
 import { useQueueBulk } from "./bulk";
 import { useCopyNote } from "./copyNote";
 import { FailedRow } from "./FailedRow";
@@ -45,7 +45,7 @@ function PinnedFailures({ jobs, since }: { jobs: HistoryJob[]; since: number }) 
       <div className="flex min-w-0 items-center gap-2.5 rounded-xl bg-warn-wash py-1.5 pr-1.5 pl-3 inset-ring inset-ring-warn/30">
         <button type="button" aria-expanded={open} data-tip={open ? "Fold them" : "Each one with its error and its own retry"} onClick={() => setOpen(!open)} className="flex min-w-0 grow items-center gap-2.5 text-left">
           {open ? <ChevronDown size={14} className="shrink-0 text-warn-ink" /> : <ChevronRight size={14} className="shrink-0 text-warn-ink" />}
-          <span className="shrink-0 text-[13px] font-bold text-warn-ink">{jobs.length} failed since {hourMinute(since)}</span>
+          <span className="shrink-0 text-body font-bold text-warn-ink">{jobs.length} failed since {hourMinute(since)}</span>
           <span className="min-w-0 truncate text-xs text-ink-2">{reasonsOf(jobs)}</span>
         </button>
         <Button size="sm" disabled={busy} data-tip="The same jobs again, unchanged, oldest first" onClick={() => run(() => bulk.retryAllFailed(ids))}>{overAll("Retry", jobs.length)}</Button>
@@ -218,25 +218,29 @@ export const History = memo(function History() {
             ]}
           />
         </div>
-        <label className="flex h-9 w-60 min-w-28 shrink items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
-          <Search size={14} className="shrink-0 text-ink-3" />
-          <input data-search aria-label="Search the history" placeholder="Search names and prompts" value={typed} onChange={(e) => setTyped(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3" />
-          {typed && <button type="button" aria-label="Clear the search" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
-        </label>
+        <SearchField
+          data-search
+          className="h-9 w-60 min-w-28 shrink"
+          label="Search the history"
+          placeholder="Search names and prompts"
+          value={typed}
+          onChange={setTyped}
+          end={typed && <button type="button" aria-label="Clear the search" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
+        />
         {/* drawn from the start (only "Any model" until the models are known): it arriving later moved the whole list down */}
         <div className="w-56">
           <Select label="Model" value={model} onChange={setModel} options={[{ value: "", label: "Any model" }, ...models.map((m) => ({ value: m, label: fileLabel(m) }))]} className="h-9" />
         </div>
         <Help text={ORDER_HELP} />
         <span className="grow" />
-        {jobs.isFetching && <Loader2 size={14} className="animate-spin text-ink-3" />}
+        {jobs.isFetching && <Spinner size={14} tone="current" className="text-ink-3" />}
       </div>
 
       {pins && pins.pinned.length > 0 && <PinnedFailures jobs={pins.pinned} since={pins.since} />}
 
       <div className="@container/history flex min-h-0 grow basis-0 flex-col gap-1 overflow-y-auto pr-1 pb-4">
         {(days.length > 0 || jobs.isLoading) && (
-          <div aria-hidden className={cx(ROW, "sticky top-0 z-10 bg-ground py-1 text-[11px] tracking-[0.06em] text-ink-3 uppercase")}>
+          <div aria-hidden className={cx(ROW, "sticky top-0 z-10 bg-ground py-1 text-meta tracking-label text-ink-3 uppercase")}>
             <span /><span>Name</span><span className={MODEL_CELL}>Model</span><span className={cx("text-right", TOOK_CELL)}>Took</span><span className="text-right">When</span><span />
           </div>
         )}
@@ -247,7 +251,7 @@ export const History = memo(function History() {
         )}
         {days.map((d) => (
           <div key={d.key} className="flex flex-col gap-1">
-            <div className="px-3 pt-2 pb-0.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{dayLabel(d.key)}</div>
+            <div className="px-3 pt-2 pb-0.5 text-meta font-bold tracking-label text-ink-3 uppercase">{dayLabel(d.key)}</div>
             {d.failed.length > 0 && <FoldedFailures jobs={d.failed} shown={unfolded.has(d.key)} onShow={() => toggleDay(d.key)} />}
             {d.groups.map((g) => (g[0]!.status === "failed"
               ? <FailedRow key={g[0]!.id} jobs={g} quiet={status === "all"} />
@@ -286,7 +290,7 @@ function Thumb({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): 
   const head = jobs[0]!;
   const made = jobs.flatMap((j) => j.made);
   const first = made[0];
-  const box = "relative flex h-9 w-16 @max-[420px]/history:w-12 items-center justify-center overflow-hidden rounded-[7px] bg-raised text-ink-3";
+  const box = "relative flex h-9 w-16 @max-[420px]/history:w-12 items-center justify-center overflow-hidden rounded-chip bg-raised text-ink-3";
   if (!first || head.kind === "cut" || head.kind === "export" || first.kind === "audio") {
     const icon = head.kind === "export" ? <FileOutput size={15} /> : head.kind === "cut" ? <Scissors size={15} /> : head.kind === "load" ? <Loader2 size={15} /> : first?.kind === "audio" ? <Music size={15} /> : head.status === "cancelled" ? <X size={15} /> : <Play size={15} />;
     return first ? <button type="button" aria-label={`Open ${first.name || first.kind}`} onClick={() => onOpen(first.id)} className={cx(box, "hover:text-ink")}>{icon}</button> : <span className={box}>{icon}</span>;
@@ -294,7 +298,7 @@ function Thumb({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): 
   return (
     <button type="button" data-stage aria-label={`Open ${first.name || first.kind}`} onClick={() => onOpen(first.id)} className={cx(box, "hover:ring-2 hover:ring-accent/50", first.inBin && "opacity-40")}>
       <HoverVideo asset={first.id} video={first.kind === "video"} />
-      {made.length > 1 && <span className="absolute right-0.5 bottom-0.5 rounded bg-ground/80 px-1 text-[10px] leading-tight font-bold text-ink">×{made.length}</span>}
+      {made.length > 1 && <span className="absolute right-0.5 bottom-0.5 rounded bg-ground/80 px-1 text-micro leading-tight font-bold text-ink">×{made.length}</span>}
     </button>
   );
 }
@@ -308,12 +312,12 @@ function Count({ n }: { n: number | undefined }): ReactNode {
 function PlaceholderRow() {
   return (
     <div aria-hidden className={cx(ROW, "py-1.5")}>
-      <span className="m-skeleton h-9 w-16 rounded-[7px]!" />
+      <span className="m-skeleton h-9 w-16 rounded-chip!" />
       <span className="flex min-w-0 flex-col gap-0.5">
-        <span className="text-[13.5px]"><span className="m-skeleton inline-block h-[0.8em] w-2/5 align-middle" /></span>
+        <span className="text-title"><span className="m-skeleton inline-block h-[0.8em] w-2/5 align-middle" /></span>
         <span className="text-xs"><span className="m-skeleton inline-block h-[0.8em] w-3/5 align-middle" /></span>
       </span>
-      <span className={cx("text-[12.5px]", MODEL_CELL)}><span className="m-skeleton inline-block h-[0.8em] w-24 align-middle" /></span>
+      <span className={cx("text-body", MODEL_CELL)}><span className="m-skeleton inline-block h-[0.8em] w-24 align-middle" /></span>
       <span className={cx("text-right text-xs", TOOK_CELL)}><span className="m-skeleton inline-block h-[0.8em] w-10 align-middle" /></span>
       <span className="text-right text-xs"><span className="m-skeleton inline-block h-[0.8em] w-12 align-middle" /></span>
       <span />
@@ -372,7 +376,7 @@ const Row = memo(function Row({ jobs, acts, modelOf, requeueing, note }: RowProp
       <span className="flex min-w-0 items-center gap-2">
         <span className="flex min-w-0 grow flex-col gap-0.5" data-tip={tip || undefined}>
           <span className="flex min-w-0 items-baseline gap-2">
-            <span className="truncate text-[13.5px] font-semibold">{name}</span>
+            <span className="truncate text-title font-semibold">{name}</span>
             {note && <span aria-live="polite" className={cx("shrink-0 text-xs", note.ok ? "text-accent" : "text-warn-ink")}>{note.text}</span>}
           </span>
           <span className="truncate text-xs text-ink-2">
@@ -383,15 +387,15 @@ const Row = memo(function Row({ jobs, acts, modelOf, requeueing, note }: RowProp
         {/* what the menu does, at hand on hover or focus (on a narrow list, in the menu only: their room is the name's) */}
         <span className="flex shrink-0 items-center gap-0.5 text-ink-3 opacity-0 group-hover:opacity-100 focus-within:opacity-100 @max-[420px]/history:hidden">
           {head.kind === "render" && (
-            <button type="button" data-tip={jobs.length > 1 ? `Render these ${jobs.length} again` : "Render again: the same job, unchanged"} aria-label="Render again" disabled={requeueing} onClick={() => acts.again(jobs)} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><RotateCcw size={13} /></button>
+            <IconButton size={28} label="Render again" tip={jobs.length > 1 ? `Render these ${jobs.length} again` : "Render again: the same job, unchanged"} disabled={requeueing} onClick={() => acts.again(jobs)} className="hover:bg-raised"><RotateCcw size={13} /></IconButton>
           )}
           {head.draftId && (
-            <button type="button" data-tip="Open its draft" aria-label="Open its draft" onClick={() => acts.toDraft(head.draftId!)} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><Pencil size={13} /></button>
+            <IconButton size={28} label="Open its draft" onClick={() => acts.toDraft(head.draftId!)} className="hover:bg-raised"><Pencil size={13} /></IconButton>
           )}
-          <button type="button" data-tip="Remove from the history (what it made stays in the library)" aria-label="Remove from the history" onClick={() => acts.dismiss(jobs)} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><X size={13} /></button>
+          <CloseButton size={28} label="Remove from the history" tip="Remove from the history (what it made stays in the library)" onClose={() => acts.dismiss(jobs)} className="hover:bg-raised" />
         </span>
       </span>
-      <span className={cx("truncate text-[12.5px] text-ink-2", MODEL_CELL)} data-tip={modelTip(modelOf(head), head.model)}>{modelOf(head)}</span>
+      <span className={cx("truncate text-body text-ink-2", MODEL_CELL)} data-tip={modelTip(modelOf(head), head.model)}>{modelOf(head)}</span>
       <span className={cx("text-right font-mono text-xs text-ink-2", TOOK_CELL)}>{head.tookMs !== null && head.status === "done" ? took(head.tookMs) : "—"}</span>
       <span className="text-right text-xs text-ink-2">{head.finishedAt ? when(head.finishedAt) : ""}</span>
       {/* the menu's column: a failed row's ··· (FailedRow); a finished one's actions are on hover, and its right-click */}

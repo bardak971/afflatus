@@ -119,7 +119,7 @@ function AllGrid({ machines, scans, onOpen }: { machines: Machine[]; scans: Arra
           chip's width, the family's name keeping room to be read; past what fits (a narrow window) it scrolls sideways
           rather than cutting the last machines off. The names sat in the card's head before, at a fixed 128 px each: with
           9 machines at 1680 px they ran over the title, hid the families' names and cut the 9th column */}
-      <div className="overflow-x-auto px-[18px] pb-1">
+      <div className="overflow-x-auto px-gutter pb-1">
         <div className="grid items-center gap-x-1" style={{ gridTemplateColumns: `minmax(120px, 1fr) repeat(${machines.length}, minmax(52px, 128px)) 40px` }}>
           <span className="self-end py-1.5 pr-3 text-xs text-ink-3">Family</span>
           {machines.map((m) => <span key={m.id} data-tip={machineLabel(m)} className="line-clamp-2 min-w-0 self-end py-1.5 text-center text-xs leading-tight break-words text-ink-3">{machineLabel(m)}</span>)}

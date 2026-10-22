@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type SettingsPatch } from "../../api";
 import { useSettings } from "../../data";
-import { AutoText, Button, ErrorNote, Help, Toggle } from "../../ui";
+import { AutoText, Button, Chip, ErrorNote, Help, Toggle } from "../../ui";
 import { Block, Card, Fact, Row } from "./Rows";
 import { queryKeys } from "../../queryKeys";
 
@@ -36,15 +36,15 @@ function GuideEditor({ guide, own, open, onOpen, onSave }: {
   const save = useMutation({ mutationFn: (t: string) => onSave(t) });
   return (
     <div>
-      <button type="button" aria-expanded={open} onClick={onOpen} className="flex min-h-[52px] w-full items-center gap-2 px-[18px] text-left hover:bg-hover">
+      <button type="button" aria-expanded={open} onClick={onOpen} className="flex min-h-[52px] w-full items-center gap-2 px-gutter text-left hover:bg-hover">
         <span className="font-semibold">{guide.name}</span>
         <span className="text-xs text-ink-3">{guide.style === "tags" ? "tags" : "sentences"} · {guide.guide.split(/\s+/).length} words</span>
-        {yours && <span className="rounded bg-accent-wash px-1.5 py-px text-[10px] font-semibold text-accent">yours</span>}
+        {yours && <Chip size="xs" tone="accent">yours</Chip>}
         <span className="grow" />
         <span className="text-xs text-ink-2">{open ? "Close" : yours ? "Read or change" : "Read"}</span>
       </button>
       {open && (
-        <div className="flex flex-col gap-2 border-t border-line bg-raised/40 px-[18px] py-3">
+        <div className="flex flex-col gap-2 border-t border-line bg-raised/40 px-gutter py-3">
           <AutoText
             aria-label={`Prompting guide for ${guide.name}`}
             rows={8}

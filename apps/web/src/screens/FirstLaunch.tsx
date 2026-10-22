@@ -40,8 +40,8 @@ function useSave() {
 /** A question's card: its number (a tick once answered), its question, and what answers it. Dimmed while it waits for the one before. */
 function Ask({ n, done, title, waiting, children }: { n: number; done: boolean; title: string; waiting?: boolean; children: ReactNode }) {
   return (
-    <section aria-label={title} className={cx("rounded-[14px] border border-line bg-panel px-[18px] py-4 shadow-card", waiting && "pointer-events-none opacity-35")}>
-      <h2 className="flex items-center gap-2.5 text-[15px] font-bold text-ink-strong">
+    <section aria-label={title} className={cx("rounded-card border border-line bg-panel px-gutter py-4 shadow-card", waiting && "pointer-events-none opacity-35")}>
+      <h2 className="flex items-center gap-2.5 text-title font-bold text-ink-strong">
         <span className={cx("grid h-[22px] w-[22px] place-items-center rounded-full text-xs", done ? "bg-good text-ground" : "bg-raised text-ink-2")}>{done ? <Check size={13} strokeWidth={3} /> : n}</span>
         {title}
       </h2>
@@ -53,7 +53,7 @@ function Ask({ n, done, title, waiting, children }: { n: number; done: boolean; 
 /** One answer of a few, picked or not. */
 function Choice({ on, onClick, children }: { on: boolean; onClick(): void; children: ReactNode }) {
   return (
-    <button type="button" aria-pressed={on} onClick={onClick} className={cx("rounded-[11px] border px-3.5 py-2 font-bold", on ? "border-accent bg-accent-wash text-ink-strong" : "border-line-strong text-ink hover:bg-hover")}>
+    <button type="button" aria-pressed={on} onClick={onClick} className={cx("rounded-control border px-3.5 py-2 font-bold", on ? "border-accent bg-accent-wash text-ink-strong" : "border-line-strong text-ink hover:bg-hover")}>
       {children}
     </button>
   );
@@ -132,8 +132,8 @@ export function FirstLaunch() {
       <Button tone="quiet" className="absolute top-5 right-7 bg-transparent text-ink-2" onClick={end}>Skip</Button>
       <div className="flex w-[680px] max-w-full flex-col gap-4 px-6 py-10">
         <div>
-          <h1 className="text-[28px] font-bold tracking-[-0.01em] text-ink-strong">Where you render</h1>
-          <p className="mt-1 text-[14px] text-ink-2">Afflatus sends its jobs to ComfyUI: yours, rented GPUs, or both. All of it is in Settings later.</p>
+          <h1 className="text-display font-bold text-ink-strong">Where you render</h1>
+          <p className="mt-1 text-title text-ink-2">Afflatus sends its jobs to ComfyUI: yours, rented GPUs, or both. All of it is in Settings later.</p>
         </div>
 
         <Ask n={1} done={comfy === "added" || comfy === "none"} title="Your ComfyUI">
@@ -177,7 +177,7 @@ export function FirstLaunch() {
             <>
               <div className="flex flex-col gap-1.5">
                 {INSTALLS.map((i) => (
-                  <a key={i.name} href={i.href} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 rounded-[11px] bg-raised px-3.5 py-2.5 text-ink hover:bg-hover">
+                  <a key={i.name} href={i.href} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 rounded-control bg-raised px-3.5 py-2.5 text-ink hover:bg-hover">
                     <b className="text-ink-strong">{i.name}</b> {i.what}
                     <span className="ml-auto flex items-center gap-1.5 text-ink-3">{i.site} <ExternalLink size={13} /></span>
                   </a>

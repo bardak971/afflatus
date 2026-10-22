@@ -152,7 +152,7 @@ export function WhereCard() {
       {saveSecret.isError && !asking && <Block><ErrorNote>{saveSecret.error.message}</ErrorNote></Block>}
       {said && (
         <Block>
-          {said.ok ? <span className="text-[12.5px] text-good">{said.text}</span> : <ErrorNote>{said.text}</ErrorNote>}
+          {said.ok ? <span className="text-body text-good">{said.text}</span> : <ErrorNote>{said.text}</ErrorNote>}
         </Block>
       )}
     </Card>
@@ -172,10 +172,10 @@ export function WhatCard() {
     setRefused(false);
     browser.set({ browser: { [kind]: on } });
   };
-  const head = "w-[76px] shrink-0 text-center text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase";
+  const head = "w-[76px] shrink-0 text-center text-meta font-bold tracking-label text-ink-3 uppercase";
   return (
     <Card title="What" setting="notify.what">
-      <div className="flex items-center gap-2 px-[18px] pt-3 pb-1">
+      <div className="flex items-center gap-2 px-gutter pt-3 pb-1">
         <span className="grow" />
         <span className={head}>Browser</span>
         <span className={cx(head, !(n.hasTelegramToken && n.telegramChat) && "opacity-60")}>Telegram</span>
@@ -183,10 +183,10 @@ export function WhatCard() {
       </div>
       {GROUPS.map((g) => (
         <div key={g.title} className="flex flex-col py-1.5">
-          <span className="px-[18px] pt-1.5 pb-1 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{g.title}</span>
+          <span className="px-gutter pt-1.5 pb-1 text-meta font-bold tracking-label text-ink-3 uppercase">{g.title}</span>
           {g.kinds.map(({ kind, label, help }) => (
-            <div key={kind} data-setting={`notify.${kind}`} className="flex min-h-[38px] items-center gap-2 px-[18px]">
-              <span className="flex min-w-0 grow items-center gap-1.5 text-[13px]">{label}<Help title={label} text={help} /></span>
+            <div key={kind} data-setting={`notify.${kind}`} className="flex min-h-[38px] items-center gap-2 px-gutter">
+              <span className="flex min-w-0 grow items-center gap-1.5 text-body">{label}<Help title={label} text={help} /></span>
               <span className="flex w-[76px] shrink-0 justify-center"><Checkbox checked={Boolean(browser.browser[kind])} onChange={(on) => void tickBrowser(kind, on)} label={`${label}: browser`} /></span>
               <span className="flex w-[76px] shrink-0 justify-center"><Checkbox checked={n.events[kind].telegram} onChange={(telegram) => save.mutate({ events: { [kind]: { telegram } } })} label={`${label}: Telegram`} /></span>
               <span className="flex w-[76px] shrink-0 justify-center"><Checkbox checked={n.events[kind].discord} onChange={(discord) => save.mutate({ events: { [kind]: { discord } } })} label={`${label}: Discord`} /></span>

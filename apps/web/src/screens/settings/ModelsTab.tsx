@@ -7,7 +7,7 @@ import { plural, size, waitsForGpu } from "../../format";
 import { lacksOnlyFiles, officialFiles } from "../../officialFiles";
 import { machineLabel } from "../../machines";
 import { DownloadTo } from "../../useGetFile";
-import { Chip, cx, ErrorNote, Help, Toggle } from "../../ui";
+import { Button, Chip, CloseButton, cx, ErrorNote, Help, Toggle } from "../../ui";
 import { Block, Card } from "./Rows";
 import { DownloadAll, FamilyBody } from "./ModelsFamily";
 import { modelHelp } from "../../modelHelp";
@@ -49,8 +49,8 @@ function AllOnHint({ off }: { off: number }) {
   return (
     <Block className="flex-row items-center gap-3 text-ink-2">
       <span className="grow">{plural(off, "family is", "families are")} off. On, a family's forms list its files greyed, and they come when a job needs them.</span>
-      <button type="button" disabled={turn.isPending} onClick={() => turn.mutate()} className="h-8 shrink-0 rounded-lg border border-line-strong px-3 text-xs font-semibold text-ink hover:bg-hover disabled:opacity-45">Turn them all on</button>
-      <button type="button" aria-label="Close this hint" onClick={close} className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-ink-3 hover:bg-hover hover:text-ink"><X size={14} /></button>
+      <Button size="sm" disabled={turn.isPending} onClick={() => turn.mutate()} className="shrink-0">Turn them all on</Button>
+      <CloseButton size={28} label="Close this hint" onClose={close} />
     </Block>
   );
 }
@@ -132,8 +132,8 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
     const open = opened[f.id] ?? (isOn && setup.data ? !all : false);
     return (
       <div key={f.id} className="flex flex-col">
-        <div className="flex min-h-[52px] items-center gap-3 pr-[18px] hover:bg-hover">
-          <button type="button" aria-expanded={open} onClick={() => setOpened({ ...opened, [f.id]: !open })} className="flex min-h-[52px] min-w-0 grow items-center gap-3 pl-[18px] text-left">
+        <div className="flex min-h-[52px] items-center gap-3 pr-gutter hover:bg-hover">
+          <button type="button" aria-expanded={open} onClick={() => setOpened({ ...opened, [f.id]: !open })} className="flex min-h-[52px] min-w-0 grow items-center gap-3 pl-gutter text-left">
             <ChevronDown size={14} className={cx("shrink-0 text-ink-3 transition-transform", !open && "-rotate-90")} />
             <span className={cx("truncate font-semibold", !isOn && "text-ink-2")}>{name}</span>
             {modelHelp(f) && <Help inside title={name} text={modelHelp(f)!} />}
@@ -176,7 +176,7 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
           <Toggle bare on={isOn} onChange={(next) => save.mutate({ ...said, [f.id]: next })} label={where ? `${name} on ${where}` : `${name} in the model lists`} />
         </div>
         {open && (
-          <div className="border-t border-line bg-raised px-[18px] pt-3 pb-3.5">
+          <div className="border-t border-line bg-raised px-gutter pt-3 pb-3.5">
             <FamilyBody family={f.id} name={f.name} help={f.help?.what} recipes={mine} machine={machine?.id} imported={imported} />
           </div>
         )}
@@ -208,8 +208,8 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
         )}
         {on.map(row)}
         {off.length > 0 && (
-          <button type="button" aria-expanded={offOpen} onClick={() => setOffOpen(!offOpen)} className="flex min-h-[40px] items-center gap-3 bg-raised px-[18px] text-left text-xs text-ink-3 hover:bg-hover">
-            <span className="font-bold tracking-[0.08em] uppercase">{where ? "Off here" : "Off"} · {off.length}</span>
+          <button type="button" aria-expanded={offOpen} onClick={() => setOffOpen(!offOpen)} className="flex min-h-[40px] items-center gap-3 bg-raised px-gutter text-left text-xs text-ink-3 hover:bg-hover">
+            <span className="font-bold tracking-label uppercase">{where ? "Off here" : "Off"} · {off.length}</span>
             <span className="grow" />
             <span>{where ? `the queue sends ${where} none of these` : "not in the model lists"}</span>
             <ChevronDown size={14} className={cx("shrink-0 transition-transform", offOpen && "rotate-180")} />

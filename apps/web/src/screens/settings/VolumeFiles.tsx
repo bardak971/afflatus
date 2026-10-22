@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { fuzzyFilter } from "@afflatus/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { Check, RefreshCw, Trash2, X } from "lucide-react";
 import { api, type VolumeFile, type VolumeFilesView } from "../../api";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../../Dialog";
 import { gb, plural, usd, when } from "../../format";
 import { Keys } from "../../Keys";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
-import { Button, cx, ErrorNote } from "../../ui";
+import { Button, Chip, CloseButton, cx, ErrorNote, IconButton, SearchField, Spinner } from "../../ui";
 
 /** A file no render used for this long, and not put there lately, is offered for deleting first. */
 const UNUSED_DAYS = 30;
@@ -109,42 +109,44 @@ export function VolumeFiles({ volume, name, folder: askedFolder, pickUnused = fa
   const used = v?.used ?? null;
   const install = used !== null ? Math.max(0, used - modelBytes) : null;
   return (
-    <Dialog label={`Files of ${name}`} onClose={onClose} onEscape={() => !confirm && Boolean(q) && (setQ(""), true)} className="flex h-[min(720px,calc(100vh-48px))] w-full max-w-[1080px] flex-col overflow-hidden rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-peek-rise">
+    <Dialog label={`Files of ${name}`} onClose={onClose} onEscape={() => !confirm && Boolean(q) && (setQ(""), true)} className="flex h-[min(720px,calc(100vh-48px))] w-full max-w-[1080px] flex-col overflow-hidden rounded-dialog border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-peek-rise">
       {/* the keys of the list (/, Del, Ctrl+A), wherever the focus is in it */}
       <div className="flex min-h-0 grow flex-col" onKeyDown={keys}>
-        <div className="flex flex-wrap items-center gap-2.5 border-b border-line px-[18px] py-3">
-          <span className="text-[15px] font-semibold">{name}</span>
-          <span className="font-mono text-[11.5px] text-ink-3">{volume}</span>
-          {v && <span className="inline-flex h-[22px] items-center rounded-md bg-raised px-2 text-[11.5px] text-ink-2">{v.volume.dataCenter}</span>}
+        <div className="flex flex-wrap items-center gap-2.5 border-b border-line px-gutter py-3">
+          <span className="text-title font-semibold">{name}</span>
+          <span className="font-mono text-meta text-ink-3">{volume}</span>
+          {v && <Chip size="xs">{v.volume.dataCenter}</Chip>}
           {src && <span data-tip={v?.why ?? undefined} className={cx("text-xs", src.tone === "good" ? "text-good" : src.tone === "warn" ? "text-warn-ink" : "text-ink-2")}>● {src.text}</span>}
           <span className="grow" />
-          <label className="flex h-8 w-[250px] items-center gap-2 rounded-lg border border-line-strong bg-ground px-2.5 text-ink-3 focus-within:border-accent">
-            <Search size={14} aria-hidden />
-            <input ref={search} value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search the volume" placeholder="Search all folders" className="min-w-0 grow bg-transparent text-[12.5px] text-ink outline-none placeholder:text-ink-3" />
-            {q ? <button type="button" aria-label="Clear the search" onClick={() => setQ("")} className="text-ink-3 hover:text-ink"><X size={13} /></button> : <Keys keys="/" size="sm" />}
-          </label>
+          <SearchField
+            inputRef={search}
+            className="w-[250px]"
+            label="Search the volume"
+            placeholder="Search all folders"
+            value={q}
+            onChange={setQ}
+            end={q ? <button type="button" aria-label="Clear the search" onClick={() => setQ("")} className="text-ink-3 hover:text-ink"><X size={13} /></button> : <Keys keys="/" size="sm" />}
+          />
           {v && v.source !== "none" && (
             <span className="text-xs text-ink-2" data-tip={used === null ? "The models alone: ComfyUI's own files on the volume are counted once a pod runs on it (its disk is read then)." : "All of the volume in use, as the pod on it read its disk."}>
               <b className="font-mono text-ink">{gb(used ?? modelBytes)}</b> of {v.volume.size} GB · <span className="font-mono">{usd(v.volume.perMonth)}</span>/month
             </span>
           )}
-          <button type="button" aria-label="Read again" data-tip="Read again" onClick={() => void files.refetch()} disabled={files.isFetching} className="grid size-8 place-items-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-50">
-            <RefreshCw size={14} className={cx(files.isFetching && "animate-spin")} />
-          </button>
-          <button type="button" data-dialog-close="" aria-label="Close" data-tip="Close" data-tip-keys="Esc" onClick={onClose} className="grid size-8 place-items-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
-            <X size={15} />
-          </button>
+          <IconButton label="Read again" onClick={() => void files.refetch()} disabled={files.isFetching}>
+            {files.isFetching ? <Spinner size={14} tone="current" /> : <RefreshCw size={14} />}
+          </IconButton>
+          <CloseButton data-dialog-close="" keys="Esc" onClose={onClose} />
         </div>
 
         {files.isError && <div className="p-5"><ErrorNote>{files.error.message}</ErrorNote></div>}
         {files.isPending && <div className="p-5 text-xs text-ink-3">Reading the volume…</div>}
-        {v && v.source === "none" && <div className="p-5 text-[13px] text-ink-2">{v.why}</div>}
+        {v && v.source === "none" && <div className="p-5 text-body text-ink-2">{v.why}</div>}
 
         {v && v.source !== "none" && (
           <div className="flex min-h-0 grow">
             <div className="flex w-[250px] shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line bg-ground/40 p-2.5">
               {searching && (
-                <div className="flex justify-between rounded-[9px] bg-hover px-3 py-2 text-[13px] font-medium outline outline-line-strong">
+                <div className="flex justify-between rounded-control bg-hover px-3 py-2 text-body font-medium outline outline-line-strong">
                   <span>All folders</span><span className="font-mono text-xs text-ink-2">{rows.length} found</span>
                 </div>
               )}
@@ -152,33 +154,33 @@ export function VolumeFiles({ volume, name, folder: askedFolder, pickUnused = fa
                 const on = !searching && f.id === shownFolder;
                 const found = searching ? rows.filter((r) => r.folder === f.id).length : null;
                 return (
-                  <button key={f.id} type="button" onClick={() => { setQ(""); setFolder(f.id); }} aria-pressed={on} className={cx("flex flex-col gap-1.5 rounded-[9px] px-3 py-2 text-left", on ? "bg-hover outline outline-line-strong" : "hover:bg-hover/60", found === 0 && "opacity-45")}>
-                    <span className="flex justify-between gap-2 text-[13px]">
+                  <button key={f.id} type="button" onClick={() => { setQ(""); setFolder(f.id); }} aria-pressed={on} className={cx("flex flex-col gap-1.5 rounded-control px-3 py-2 text-left", on ? "bg-hover outline outline-line-strong" : "hover:bg-hover/60", found === 0 && "opacity-45")}>
+                    <span className="flex justify-between gap-2 text-body">
                       <span className={cx("truncate", on && "font-medium")}>{f.id}</span>
                       <span className="shrink-0 font-mono text-xs text-ink-2">{found !== null ? found : sized ? gb(f.bytes) : f.files.length}</span>
                     </span>
                     {sized && (
                       <span className="flex items-center gap-2">
                         <span className="h-1 grow overflow-hidden rounded-sm bg-line"><span className={cx("block h-1", on ? "bg-accent" : "bg-ink-3")} style={{ width: `${size ? Math.max(1, (f.bytes / size) * 100) : 0}%` }} /></span>
-                        <span className="w-[52px] text-right text-[11.5px] text-ink-3">{plural(f.files.length, "file")}</span>
+                        <span className="w-[52px] text-right text-meta text-ink-3">{plural(f.files.length, "file")}</span>
                       </span>
                     )}
                   </button>
                 );
               })}
               <span className="grow" />
-              <div className="mt-2 rounded-[9px] border border-dashed border-line-strong px-3 py-2.5 text-xs text-ink-3">
+              <div className="mt-2 rounded-control border border-dashed border-line-strong px-3 py-2.5 text-xs text-ink-3">
                 <div className="flex justify-between"><span>ComfyUI install</span><span className="font-mono">{install !== null ? gb(install) : "–"}</span></div>
-                <div className="mt-1 text-[11.5px]">{install !== null ? "Python, node packs, outputs. Never opened or deleted here." : "Counted once a pod runs on the volume. Never opened or deleted here."}</div>
+                <div className="mt-1 text-meta">{install !== null ? "Python, node packs, outputs. Never opened or deleted here." : "Counted once a pod runs on the volume. Never opened or deleted here."}</div>
               </div>
             </div>
 
             <div className="flex min-w-0 grow flex-col">
-              <div className="flex items-center gap-2.5 border-b border-line bg-raised/50 px-3.5 py-2.5 text-[13px]">
+              <div className="flex items-center gap-2.5 border-b border-line bg-raised/50 px-3.5 py-2.5 text-body">
                 <span className="font-semibold">{searching ? `${plural(rows.length, "file")} match “${q.trim()}”` : shownFolder}</span>
                 <span className="text-ink-3">{searching ? "best match first" : plural(rows.length, "file")}{sized && ` · ${gb(bytesOf(rows))}`}</span>
               </div>
-              <div role="row" className="grid grid-cols-[24px_minmax(0,1fr)_84px_104px_150px_56px] gap-2.5 border-b border-line px-3.5 py-2 text-[11px] tracking-wide text-ink-3 uppercase">
+              <div role="row" className="grid grid-cols-[24px_minmax(0,1fr)_84px_104px_150px_56px] gap-2.5 border-b border-line px-3.5 py-2 text-meta tracking-wide text-ink-3 uppercase">
                 <span /><span>Name</span><span className="text-right">Size</span><span>Last used</span><span>Sets</span><span className="text-right">This PC</span>
               </div>
               <div role="grid" aria-label={`Files of ${name}`} aria-multiselectable className="min-h-0 grow overflow-y-auto">
@@ -194,13 +196,13 @@ export function VolumeFiles({ volume, name, folder: askedFolder, pickUnused = fa
                       disabled={!canDelete}
                       onClick={(e) => toggle(f, e.shiftKey)}
                       data-tip={f.inUse ? "A render running on the volume needs it now: it cannot be deleted" : undefined}
-                      className={cx("grid w-full grid-cols-[24px_minmax(0,1fr)_84px_104px_150px_56px] items-center gap-2.5 border-b border-line/60 px-3.5 py-2 text-left text-[12.5px] disabled:cursor-default", on ? "bg-accent-wash" : "hover:bg-hover/50", f.inUse && "opacity-70")}
+                      className={cx("grid w-full grid-cols-[24px_minmax(0,1fr)_84px_104px_150px_56px] items-center gap-2.5 border-b border-line/60 px-3.5 py-2 text-left text-body disabled:cursor-default", on ? "bg-accent-wash" : "hover:bg-hover/50", f.inUse && "opacity-70")}
                     >
-                      <span aria-hidden className={cx("grid size-3.5 place-items-center rounded-[4px] border-[1.5px]", on ? "border-accent bg-accent text-accent-ink" : "border-ink-3", (!canDelete || f.inUse) && "opacity-40")}>{on && <Check size={10} strokeWidth={3} />}</span>
+                      <span aria-hidden className={cx("grid size-3.5 place-items-center rounded-key border-[1.5px]", on ? "border-accent bg-accent text-accent-ink" : "border-ink-3", (!canDelete || f.inUse) && "opacity-40")}>{on && <Check size={10} strokeWidth={3} />}</span>
                       <span className="truncate font-mono text-xs" data-tip={`${f.folder}/${f.name}`}>{searching && <span className="text-ink-3">{f.folder}/</span>}{f.name}</span>
                       <span className="text-right font-mono">{f.bytes !== null ? gb(f.bytes) : "–"}</span>
                       <span className={cx(f.inUse ? "text-good" : old ? "text-warn-ink" : "text-ink-2")}>{f.inUse ? "rendering now" : f.usedAt ? when(f.usedAt) : "never here"}</span>
-                      <span className="flex gap-1 overflow-hidden">{f.sets.slice(0, 2).map((s) => <span key={s.id} className="inline-flex h-5 shrink-0 items-center rounded-md bg-raised px-1.5 text-[11px] text-ink-2">{s.name}</span>)}{f.sets.length > 2 && <span className="text-[11px] text-ink-3">+{f.sets.length - 2}</span>}</span>
+                      <span className="flex gap-1 overflow-hidden">{f.sets.slice(0, 2).map((s) => <Chip key={s.id} size="xs">{s.name}</Chip>)}{f.sets.length > 2 && <span className="text-meta text-ink-3">+{f.sets.length - 2}</span>}</span>
                       <span className="text-right text-good">{f.here ? "✓" : ""}</span>
                     </button>
                   );
@@ -212,7 +214,7 @@ export function VolumeFiles({ volume, name, folder: askedFolder, pickUnused = fa
         )}
 
         {v && v.source !== "none" && (
-          <div className={cx("flex flex-wrap items-center gap-2.5 border-t border-line px-[18px] py-2.5 text-[12.5px]", selected.length ? "bg-accent-wash" : "text-ink-2")}>
+          <div className={cx("flex flex-wrap items-center gap-2.5 border-t border-line px-gutter py-2.5 text-body", selected.length ? "bg-accent-wash" : "text-ink-2")}>
             {selected.length ? (
               <>
                 <b>{plural(selected.length, "file")} selected · {gb(bytesOf(selected))}</b>
@@ -261,7 +263,7 @@ function DeleteFiles({ view, files, onDone, onClose }: { view: VolumeFilesView; 
   return (
     <Dialog label="Delete files of a volume" onClose={onClose} z="z-50" className={DIALOG.replace("max-w-md", "max-w-[600px]")}>
       <DialogHead icon={<Trash2 size={16} />} tone="warn" title={`Delete ${plural(files.length, "file")} · ${gb(bytes)}?`} sub={`From ${view.volume.name}`} onClose={onClose} />
-      <ul className="m-0 flex flex-col gap-1.5 pl-4 text-[12.5px] text-ink-2">
+      <ul className="m-0 flex flex-col gap-1.5 pl-4 text-body text-ink-2">
         <li>Gone from the volume for good: S3 keeps no bin. Frees <b className="font-mono text-ink">{gb(bytes)}</b>{used !== null && <> ({gb(Math.max(0, view.volume.size * 2 ** 30 - used + bytes))} free after)</>}. The bill stays <span className="font-mono">{usd(view.volume.perMonth)}</span>/month: a volume is billed by its size.</li>
         {sets.length > 0 && <li>{sets.map((s) => s.name).join(", ")} then {sets.length === 1 ? "lacks" : "lack"} {files.length === 1 ? "it" : "them"} here: a pod on this volume fetches {files.length === 1 ? "it" : "them"} again when a render needs {files.length === 1 ? "it" : "them"}.</li>}
         {only.length > 0 && <li>{only.length === files.length ? (files.length === 1 ? "This PC has no copy of it" : "This PC has a copy of none of them") : `This PC has no copy of ${only.length} of them`}: {only.slice(0, 3).map((f) => f.name.split("/").pop()).join(", ")}{only.length > 3 ? "…" : "."}</li>}

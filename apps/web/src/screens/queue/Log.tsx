@@ -197,7 +197,7 @@ export function ComfyLog({ online, pod = false, machine }: {
           setStuck(el.scrollHeight - el.scrollTop - el.clientHeight < 24);
           setView({ top: el.scrollTop - PAD, height: el.clientHeight });
         }}
-        className="min-h-0 grow overflow-y-auto rounded-xl border border-line bg-ground p-3 font-mono text-[11.5px] leading-[1.45]"
+        className="min-h-0 grow overflow-y-auto rounded-xl border border-line bg-ground p-3 font-mono text-meta leading-[1.45]"
       >
         {/* the rows not drawn stand as room above and below, at their heights (one line's, until drawn once) */}
         <div ref={body} style={{ paddingTop: offsets[first], paddingBottom: offsets[shown.length]! - offsets[end]! }}>
@@ -225,7 +225,7 @@ const LogBody = memo(function LogBody({ rows, open, onToggle, onOnly }: { rows: 
           <span className="flex min-w-0 items-center gap-2">
             {r.line.m}
             {r.job && r.label && (
-              <button type="button" onClick={() => onOnly({ id: r.job!, label: r.label! })} data-tip="Only this job's lines" className="truncate rounded-md bg-hover px-1.5 font-sans text-[11px] font-semibold text-ink-2 hover:text-ink">
+              <button type="button" onClick={() => onOnly({ id: r.job!, label: r.label! })} data-tip="Only this job's lines" className="truncate rounded-md bg-hover px-1.5 font-sans text-meta font-semibold text-ink-2 hover:text-ink">
                 {r.label}
               </button>
             )}

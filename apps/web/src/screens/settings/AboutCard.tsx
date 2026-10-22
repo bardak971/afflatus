@@ -106,11 +106,11 @@ function Notes({ v }: { v: UpdatesView }) {
   return (
     <>
       {r.highlights.length > 0 && (
-        <ul className="m-0 list-disc pl-[18px] text-[13px] leading-relaxed text-ink-2">
+        <ul className="m-0 list-disc pl-[18px] text-body leading-relaxed text-ink-2">
           {r.highlights.map((h) => <li key={h}>{h}</li>)}
         </ul>
       )}
-      {r.url && <a className="self-start text-[13px] font-semibold text-accent underline" href={r.url} target="_blank" rel="noreferrer">All the release notes</a>}
+      {r.url && <a className="self-start text-body font-semibold text-accent underline" href={r.url} target="_blank" rel="noreferrer">All the release notes</a>}
     </>
   );
 }
@@ -176,7 +176,7 @@ function UpdatesPart({ v, startupUnchecked }: { v: UpdatesView; startupUnchecked
         <Panel tone="news">
           <span className="font-bold">Afflatus {latest} is out</span>
           <Notes v={v} />
-          <span className="text-[13px] text-ink-2">Where your compose file is:</span>
+          <span className="text-body text-ink-2">Where your compose file is:</span>
           <Command text="docker compose pull && docker compose up -d" />
           <span className="text-xs text-ink-2">The data volume carries your library across.</span>
         </Panel>
@@ -192,7 +192,7 @@ function UpdatesPart({ v, startupUnchecked }: { v: UpdatesView; startupUnchecked
       {state === "waiting" && v.flow && (
         <Panel>
           <span className="font-bold">Updating to {v.flow.version} once the queue is done</span>
-          <span className="text-[13px] text-ink-2">{plural(v.flow.left, "render")} left. Nothing new starts meanwhile; the download is ready when they end.</span>
+          <span className="text-body text-ink-2">{plural(v.flow.left, "render")} left. Nothing new starts meanwhile; the download is ready when they end.</span>
           <Bar done={1} tone="good" />
           <span className="text-xs text-ink-2">Downloaded and checked{v.flow.total ? ` · ${size(v.flow.total)}` : ""}</span>
           {v.here && <div><Button size="sm" disabled={cancel.isPending} onClick={() => cancel.mutate()}>Not now</Button></div>}
@@ -202,23 +202,23 @@ function UpdatesPart({ v, startupUnchecked }: { v: UpdatesView; startupUnchecked
       {state === "failed" && v.flow && (
         <Panel tone="warn">
           <span className="font-bold text-warn-ink">The update to {v.flow.version} did not go through</span>
-          <span className="text-[13px] leading-relaxed">{v.flow.error}</span>
+          <span className="text-body leading-relaxed">{v.flow.error}</span>
           {v.here && <div><Button size="sm" disabled={update.isPending} onClick={() => update.mutate()}>Try again</Button></div>}
         </Panel>
       )}
       {v.fallback && (
         <Panel tone="warn">
-          <span className="text-[13px]">{v.fallback.version} did not start; back on {v.fallback.previous}.</span>
+          <span className="text-body">{v.fallback.version} did not start; back on {v.fallback.previous}.</span>
         </Panel>
       )}
       {v.last?.kind === "failed" && v.last.error && !v.fallback && (
         <Panel tone="warn">
-          <span className="text-[13px]">{v.last.error}</span>
+          <span className="text-body">{v.last.error}</span>
         </Panel>
       )}
       {v.previous && (
         <Block className="gap-2 py-3">
-          <div className="flex items-center gap-2.5 text-[13px]">
+          <div className="flex items-center gap-2.5 text-body">
             <span className="grow">Previous version</span>
             <span className="font-mono text-xs text-ink-2">{v.previous.version}, kept</span>
             <Button size="sm" disabled={!v.here || !v.previous.restoresLibrary || Boolean(v.flow && v.flow.phase !== "failed") || back.isPending} onClick={() => void goBack()}>Go back to {v.previous.version}…</Button>
@@ -260,7 +260,7 @@ function Updating({ v, cancel, cancelling }: { v: UpdatesView; cancel(): void; c
   return (
     <Panel>
       <span className="font-bold">Updating to {flow.version}</span>
-      <ol className="m-0 flex list-none flex-col gap-1.5 p-0 text-[13px]">
+      <ol className="m-0 flex list-none flex-col gap-1.5 p-0 text-body">
         {steps.map((s) => (
           <li key={s.label} data-at={s.at} className={cx("flex items-center gap-2", s.at === "done" ? "text-good" : s.at === "now" ? "text-ink" : "text-ink-3")}>
             <span aria-hidden className="w-4 text-center font-bold">{s.at === "done" ? "✓" : s.at === "now" ? "•" : "·"}</span>

@@ -163,7 +163,7 @@ export function Queue() {
         {tab === "queue" && q && (
           <div className="flex shrink-0 flex-col gap-5">
             {q.paused && (
-              <div className="flex items-center gap-2 rounded-[10px] bg-accent-wash px-3.5 py-2.5 text-sm font-semibold text-accent">
+              <div className="flex items-center gap-2 rounded-control bg-accent-wash px-3.5 py-2.5 text-sm font-semibold text-accent">
                 Paused · nothing new goes to ComfyUI
                 <Help text="The running render finishes, then nothing new goes to ComfyUI until you resume. Exports go on: they need no GPU." />
               </div>

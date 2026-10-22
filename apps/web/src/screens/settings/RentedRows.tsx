@@ -33,7 +33,7 @@ export function PodFiles({ files, packs = [] }: { files: PodFile[]; packs?: PodP
   const ready = files.filter((f) => f.state === "ready").length;
   const packSaid: Record<PodPack["state"], string> = { next: "next", installing: "installing", installed: "installed · ComfyUI restarts once nothing renders", ready: "loaded", failed: "failed" };
   return (
-    <span className="flex min-w-0 grow flex-col gap-1 text-[12.5px]">
+    <span className="flex min-w-0 grow flex-col gap-1 text-body">
       {files.length > 0 && <span className="text-xs text-ink-3">{ready} of {files.length} there</span>}
       {packs.map((p) => (
         <span key={p.name} className="flex items-center gap-2" data-tip={p.error}>
@@ -81,7 +81,7 @@ export function RentedHead({ machine, state, ops }: { machine: Machine; state: M
   const busy = ops.start.isPending || ops.stop.isPending || r.stopping;
   return (
     <span className="flex items-center gap-2">
-      <span className={cx("text-[12.5px] font-semibold", r.booting ? "text-ink-2" : running ? "text-good" : r.status === "STARTING" || r.status === "PROVISIONING" ? "text-warn-ink" : "text-ink-2")}>{rentedSaid(r, now)}</span>
+      <span className={cx("text-body font-semibold", r.booting ? "text-ink-2" : running ? "text-good" : r.status === "STARTING" || r.status === "PROVISIONING" ? "text-warn-ink" : "text-ink-2")}>{rentedSaid(r, now)}</span>
       {stopped && (
         <TwoStep
           label="Start…" title={`Start ${label}?`} yes="Start" disabled={busy || r.capped}
@@ -133,7 +133,7 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
       )}
       {r && r.status === "RUNNING" && (
         <Row label="Disk" help={WHY_DISK}>
-          <span className="flex grow flex-wrap items-center justify-end gap-3 text-[12.5px]">
+          <span className="flex grow flex-wrap items-center justify-end gap-3 text-body">
             {r.disk && <span className={cx("font-mono", diskNearlyFull(r.disk) ? "text-warn-ink" : "text-ink-2")}>{diskSaid(r.disk)} in use</span>}
             {/* on a network volume, its disk is the volume: its Files, where what is no longer used is deleted */}
             {rented.volume && <Link href={volumeHref(rented.volume)} className={cx("font-semibold hover:underline", r.disk && diskNearlyFull(r.disk) ? "text-accent" : "text-ink-2")}>Open the volume</Link>}
@@ -143,9 +143,9 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
       )}
       {/* how it stops by itself, together: idle, and the watchdog when this PC goes silent */}
       <div className="flex flex-col divide-y divide-line/60">
-        <div className="px-[18px] pt-3 pb-1 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Stops by itself</div>
+        <div className="px-gutter pt-3 pb-1 text-meta font-bold tracking-label text-ink-3 uppercase">Stops by itself</div>
         <Row label="When it is idle" help={WHY_IDLE}>
-          <span className="flex grow flex-wrap items-center justify-end gap-2 text-[12.5px]">
+          <span className="flex grow flex-wrap items-center justify-end gap-2 text-body">
             {/* in the Deploy dialog's order: "Terminate it after 10 min idle" (here it was "after 10 min · Terminate it") */}
             <span className="w-[150px] shrink-0"><Select size="sm" label="What then" value={rented.idleDo} onChange={(v) => set({ idleDo: v as RentedMachine["idleDo"] })} options={[{ value: "stop", label: "Stop it", note: "its volume kept and billed" }, { value: "terminate", label: "Terminate it", note: "nothing billed, deploy a new one next time" }]} /></span>
             <span className="text-ink-2">after</span>
@@ -161,7 +161,7 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
           <Block><span className="text-xs text-warn-ink">No volume on this pod: a stop keeps nothing (its container disk is erased), and its GPU can be taken meanwhile. Terminate costs the same and leaves nothing billed.</span></Block>
         )}
         <Row label="Watchdog" help={WHY_WATCH} sub="stops it when this PC goes silent">
-          <span className="flex grow flex-wrap items-center justify-end gap-2 text-[12.5px]">
+          <span className="flex grow flex-wrap items-center justify-end gap-2 text-body">
             <span className="text-ink-2">stops it if this PC is silent for</span>
             <span className="w-[104px] shrink-0"><Select size="sm" label="Minutes silent before the pod stops itself" value={String(rented.watchdogMinutes)} onChange={(v) => set({ watchdogMinutes: Number(v) })} options={WATCH.map((n) => ({ value: String(n), label: n === 0 ? "off" : minutesSaid(n) }))} /></span>
             {r?.status === "RUNNING" && (r.watchdog === "on"
@@ -172,7 +172,7 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
       </div>
       {r && (r.otherPorts.length > 0 || rented.closedPorts.length > 0) && (
         <Row label="Public ports" help={WHY_PORTS}>
-          <span className="flex min-w-0 grow flex-col gap-1 text-[12.5px]">
+          <span className="flex min-w-0 grow flex-col gap-1 text-body">
             <span className="font-mono text-xs text-ink-2">{[...new Set([...r.otherPorts, ...rented.closedPorts])].map(portSaid).join(" · ")}</span>
             {rented.openPorts
               ? <span className="text-xs text-warn-ink">{r.otherPorts.length ? "Open, outside the lock: anyone who finds the pod's address can try their logins." : "Put back at its next Start, then open outside the lock."}</span>
@@ -182,7 +182,7 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
         </Row>
       )}
       {/* its foot: its address, and Terminate apart from the everyday buttons (the pod and its disk go, nothing billed after) */}
-      <div className="flex flex-wrap items-center gap-3 bg-raised px-[18px] py-2.5 text-xs">
+      <div className="flex flex-wrap items-center gap-3 bg-raised px-gutter py-2.5 text-xs">
         <span className="min-w-0 truncate font-mono text-ink-3">{machine.url.replace(/^https?:\/\//, "")}</span>
         <button type="button" className="shrink-0 font-semibold text-ink-2 hover:text-ink" onClick={() => copy(machine.url)}>{copied ? "Copied" : "Copy"}</button>
         <span className="grow" />

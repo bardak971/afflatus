@@ -8,7 +8,7 @@ import type { Asset } from "../../api";
 import { useAssetFamilies, useAssetModels, useFolders, useRecipes, useProjects } from "../../data";
 import { fileLabel } from "../../format";
 import { Select } from "../../Select";
-import { Button, Checkbox, cx, Help, SectionTitle, Segmented } from "../../ui";
+import { Button, Checkbox, CloseButton, cx, Help, SectionTitle, Segmented } from "../../ui";
 import type { Place } from "../Library";
 import { displayOf, type Scope, type useStudio } from "../../store";
 import { PlaceCrumbs } from "../library/FolderPanel";
@@ -172,7 +172,7 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
             className={cx("flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold", active.length || filtersOpen ? "border-accent text-ink" : "border-line text-ink-2 hover:text-ink")}
           >
             <SlidersHorizontal size={14} /> Filters
-            {active.length > 0 && <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent px-1 text-[11px] font-bold text-accent-ink">{active.length}</span>}
+            {active.length > 0 && <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent px-1 text-meta font-bold text-accent-ink">{active.length}</span>}
           </button>}
         </>
       )}
@@ -239,7 +239,7 @@ function SelectionBar({ place, count, onSelectAll, selection, compact }: { place
           <Button size="sm" aria-label={compact ? "Bin" : undefined} data-tip={`To the bin, where they wait ${binFor() ?? "until it is emptied"} (Del)`} onClick={() => void binChosen()}><Trash2 size={13} />{!compact && " Bin"}</Button>
         </>
       )}
-      <button type="button" aria-label="Clear selection" data-tip="Clear selection (Esc)" onClick={() => setPicked([])} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>
+      <CloseButton label="Clear selection" keys="Esc" onClose={() => setPicked([])} />
     </div>
   );
 }

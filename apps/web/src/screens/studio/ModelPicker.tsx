@@ -95,7 +95,7 @@ function Operations({ group, recipe, why, pick }: { group: ModelGroup; recipe: R
     self.current?.querySelectorAll<HTMLButtonElement>("[role=radio]")[to]?.focus();
   };
   return (
-    <div ref={self} role="radiogroup" aria-label="Operation" className="flex flex-wrap gap-1 rounded-[9px] bg-raised p-[3px]">
+    <div ref={self} role="radiogroup" aria-label="Operation" className="flex flex-wrap gap-1 rounded-control bg-raised p-[3px]">
       {group.recipes.map((r, i) => {
         const on = r.id === recipe.id;
         const own = r.imported;

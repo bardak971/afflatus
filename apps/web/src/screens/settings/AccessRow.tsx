@@ -6,7 +6,7 @@ import type { MenuItem } from "../../ContextMenu";
 import { api, type MachineProbe } from "../../api";
 import { useCopied, useFlash } from "../../hooks";
 import { queryKeys } from "../../queryKeys";
-import { Button, ButtonLink, cx, ErrorNote, fieldClass, Toggle } from "../../ui";
+import { Button, ButtonLink, cx, ErrorNote, fieldClass, Spinner, Toggle } from "../../ui";
 import { Block, Row } from "./Rows";
 
 const WHY_LOCK =
@@ -102,8 +102,8 @@ export function AccessRow({ id, label, probe, url, rented = false, compact = fal
   if (checked || (lock.isPending && access.state === "open")) {
     // the checks, one under the other: what "locked" rests on
     line = (
-      <span className="flex flex-col gap-1 py-1 text-[12.5px]">
-        {CHECKS.map((c) => <span key={c} className="flex items-center gap-1.5">{checked ? <Check size={13} className="text-good" /> : <span className="size-[13px] animate-pulse rounded-full bg-accent/60" />}{c}</span>)}
+      <span className="flex flex-col gap-1 py-1 text-body">
+        {CHECKS.map((c) => <span key={c} className="flex items-center gap-1.5">{checked ? <Check size={13} className="text-good" /> : <Spinner size={13} />}{c}</span>)}
       </span>
     );
   } else if (access.state === "wrong") {
@@ -123,7 +123,7 @@ export function AccessRow({ id, label, probe, url, rented = false, compact = fal
           <Pill locked>Locked</Pill>
           {access.fixed
             ? <span className="text-xs text-ink-2">{rented ? "from its first second: Afflatus set it in the pod's environment" : "by its start settings (AFFLATUS_TOKEN)"}</span>
-            : probe.tokenEnd && <span className="font-mono text-[11.5px] text-ink-3" data-tip="The token's end: the token itself stays in Afflatus">token ••••••••{probe.tokenEnd}</span>}
+            : probe.tokenEnd && <span className="font-mono text-meta text-ink-3" data-tip="The token's end: the token itself stays in Afflatus">token ••••••••{probe.tokenEnd}</span>}
           {probe.tokenEnd && <button type="button" className="text-xs font-semibold text-ink-2 hover:text-ink" onClick={actions.copyToken}>{actions.copied ? "Copied" : "Copy"}</button>}
         </span>
         {!access.fixed && (

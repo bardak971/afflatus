@@ -201,7 +201,7 @@ function familyStatus(list: Array<RecipeStatus | undefined>): RecipeStatus | und
  * Red is kept for a workflow that cannot run as it is (`broken`: a graph ComfyUI would refuse, a mapping that cannot be built).
  */
 function Readiness({ known, why, get, broken }: { known: boolean; why: string | null; get?: string | null; broken?: boolean }) {
-  if (!known) return <span aria-hidden className="h-6 w-20 animate-pulse rounded-lg bg-hover" />;
+  if (!known) return <span aria-hidden className="m-skeleton h-6 w-20 rounded-lg" />;
   return (
     <Chip tone={!why ? "good" : broken ? "warn" : "neutral"} className="justify-self-start">
       {!why ? "Ready" : get && !broken ? get : "Not ready"}
@@ -210,19 +210,19 @@ function Readiness({ known, why, get, broken }: { known: boolean; why: string | 
   );
 }
 
-/** A card of rows still on its way: a few pulsing bars in the shape the rows will take. */
+/** A card of rows still on its way: a few placeholder bars in the shape the rows will take. */
 function Placeholder({ rows, tall }: { rows: number; tall?: boolean }) {
   return (
     <div aria-busy="true" aria-label="Loading" className="overflow-hidden rounded-xl border border-line bg-panel">
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} className={cx("flex items-center gap-3.5 px-4", tall ? "py-3.5" : "py-3", i > 0 && "border-t border-line")}>
-          {tall && <span className="h-5 w-12 animate-pulse rounded-md bg-hover" />}
+          {tall && <span className="m-skeleton h-5 w-12 rounded-md" />}
           <span className="flex grow flex-col gap-1.5">
-            <span className="h-3.5 w-56 max-w-full animate-pulse rounded bg-hover" />
-            <span className="h-2.5 w-96 max-w-full animate-pulse rounded bg-hover/70" />
+            <span className="m-skeleton h-3.5 w-56 max-w-full rounded" />
+            <span className="m-skeleton h-2.5 w-96 max-w-full rounded opacity-70" />
           </span>
-          <span className="h-6 w-20 animate-pulse rounded-lg bg-hover" />
-          {tall && <span className="h-8 w-36 animate-pulse rounded-lg bg-hover" />}
+          <span className="m-skeleton h-6 w-20 rounded-lg" />
+          {tall && <span className="m-skeleton h-8 w-36 rounded-lg" />}
         </div>
       ))}
     </div>
@@ -412,7 +412,7 @@ export function Workflows() {
                       {/* the name opens the editor, as a file's name opens the file */}
                       <Link href={workflowEditHref(w.id)} className="group flex min-w-0 flex-col gap-0.5 rounded-md">
                         <span className="truncate font-semibold group-hover:underline">{recipeLabel(w.model, w.title)}</span>
-                        <span className="truncate text-[11.5px] text-ink-3">
+                        <span className="truncate text-meta text-ink-3">
                           {w.source ? `${w.source} · ` : ""}{plural(w.nodes, "node")}{pictures ? ` · ${plural(pictures, "image input")}` : ""} · {plural(controls, "control")}
                         </span>
                       </Link>
@@ -485,9 +485,9 @@ export function Workflows() {
                     <div key={f.id} className={cx("grid grid-cols-[minmax(0,1fr)_110px_170px_184px] items-center gap-3.5 px-4 py-2.5", i > 0 && "border-t border-line")}>
                       <div className="flex min-w-0 flex-col gap-0.5">
                         <span className="truncate font-semibold">{f.name}</span>
-                        <span className="truncate text-[11.5px] text-ink-3" data-tip={f.summary}>{f.summary}</span>
+                        <span className="truncate text-meta text-ink-3" data-tip={f.summary}>{f.summary}</span>
                       </div>
-                      <span className="text-[11.5px] text-ink-2">{plural(mine.length, "operation")}</span>
+                      <span className="text-meta text-ink-2">{plural(mine.length, "operation")}</span>
                       <Readiness known={setup.isSuccess} why={said} get={toGet(status)} broken={Boolean(status?.problems?.length)} />
                       <div className="flex items-center justify-end">
                         {fix && said && (

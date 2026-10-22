@@ -47,7 +47,7 @@ export function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: 
   const keyDropped = llm.hasApiKey && !form.apiKey && originOf(form.baseUrl) !== originOf(llm.baseUrl);
   return (
     <div className={cx("flex flex-col", inUse && !only && "shadow-[inset_3px_0_0_var(--color-accent)]")}>
-      <div className="flex min-h-[52px] items-center gap-2 px-[18px] py-2">
+      <div className="flex min-h-[52px] items-center gap-2 px-gutter py-2">
         <button type="button" onClick={() => setOpen(!open)} className="flex min-w-0 grow flex-col text-left" aria-expanded={open}>
           <span className="truncate font-semibold">{form.name.trim() || form.model.trim() || "New LLM"}</span>
           <span className="truncate font-mono text-xs text-ink-2">{[form.name.trim() ? form.model : "", form.baseUrl].filter(Boolean).join(" · ") || "no base URL yet"}</span>

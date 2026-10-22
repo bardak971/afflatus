@@ -39,7 +39,7 @@ function Dot({ state }: { state: State }) {
 function StatePill({ state, word }: { state: State; word: MachineWord | "crashed" }) {
   return (
     <span data-tip={state === "outside" ? OUTSIDE_TIP : undefined} className={cx(
-      "self-start rounded-full px-2 py-px text-[11.5px] font-semibold whitespace-nowrap",
+      "self-start rounded-full px-2 py-px text-meta font-semibold whitespace-nowrap",
       state === "rendering" ? "bg-accent-wash text-accent" : state === "outside" ? "border border-accent/40 bg-accent-wash text-accent" : state === "getting" ? "border border-accent/40 text-accent" : state === "idle" ? "border border-good/40 text-good" : state === "starting" ? "border border-good/40 text-ink-2" : state === "paused" ? "bg-hover text-ink-2" : "bg-warn-wash text-warn-ink",
     )}>
       {word}
@@ -63,7 +63,7 @@ function Figures({ load, disk }: { load: SystemLoad | null | undefined; disk: Po
     disk && `disk ${diskSaid(disk)}`,
   ].filter(Boolean).join(" · ");
   return (
-    <span className="font-mono text-[11.5px] whitespace-nowrap text-ink-2" data-tip={tip}>
+    <span className="font-mono text-meta whitespace-nowrap text-ink-2" data-tip={tip}>
       {gpu.load !== undefined && `GPU ${Math.round(gpu.load)} · `}VRAM {gb(gpu.vramUsed).replace(" GB", "")}/{gb(gpu.vramTotal).replace(" GB", "")}
     </span>
   );
@@ -97,7 +97,7 @@ function JobCell({ run, figures }: { run: RunningJob; figures: React.ReactNode }
         <span className="min-w-0 shrink-[2] truncate text-xs text-ink-3">{model}</span>
       </span>
       <Bar value={run.progress * 100} steps={run.steps} loading={!run.progress} />
-      <span className="flex min-w-0 items-center gap-2 font-mono text-[11.5px] text-ink-2">
+      <span className="flex min-w-0 items-center gap-2 font-mono text-meta text-ink-2">
         {/* what is left before its figures, which give way first (whole in their tip) */}
         <span className="shrink-0">{stepSaid(run)}</span>
         {run.spilling && <span className="shrink-0 font-sans font-semibold text-warn-ink" data-tip="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory.">spilling out of VRAM</span>}
@@ -132,7 +132,7 @@ const filesHref = (m: MachineState) => settingHref(m.rented ? "rented.pods" : "m
 function Actions({ m, onStop, onMenu }: { m: MachineState; onStop(id: string): void; onMenu(e: React.MouseEvent): void }) {
   const ops = useQueueOps();
   const name = machineLabel(m);
-  const icon = "grid size-7 place-items-center rounded-[7px]";
+  const icon = "grid size-7 place-items-center rounded-chip";
   return (
     <span className="flex shrink-0 justify-end gap-1">
       {m.running && (
@@ -227,7 +227,7 @@ function MachineRow({ m, onStop, onPin }: { m: MachineState; onStop(id: string):
       // no menu on a right-click: its ⋯ has it (the owner, 2026-10-17)
       // the container its grid asks for its width (a narrow row, on a phone, leaves its figures out): an element is not its own
       className={cx(
-        "@container/row min-w-0 rounded-[11px] border bg-panel text-[13px]",
+        "@container/row min-w-0 rounded-control border bg-panel text-body",
         drop.over ? "border-accent ring-1 ring-accent" : state === "rendering" || state === "getting" ? "border-accent/30" : state === "offline" ? "border-warn/30" : "border-line",
         state === "paused" && "opacity-75",
       )}
@@ -236,7 +236,7 @@ function MachineRow({ m, onStop, onPin }: { m: MachineState; onStop(id: string):
       <div className="grid h-[66px] grid-cols-[40px_auto_minmax(0,1fr)_auto] items-center gap-3 px-2.5">
       <Thumb run={m.running} state={state} anchor={thumb} onLarge={() => setLarge(!large)} />
       <span className="flex min-w-0 flex-col gap-1">
-        <span className="max-w-[11rem] truncate text-[14px] font-semibold" data-tip={m.rented ? `${name} · rented on RunPod` : name}>{name}</span>
+        <span className="max-w-[11rem] truncate text-title font-semibold" data-tip={m.rented ? `${name} · rented on RunPod` : name}>{name}</span>
         <span className="flex items-center gap-1.5"><StatePill state={state} word={crashed ? "crashed" : word} /><CudaChip m={m} /></span>
       </span>
       {m.running ? <JobCell run={m.running} figures={figures} /> : files && state === "getting" ? (

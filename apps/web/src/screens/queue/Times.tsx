@@ -31,7 +31,7 @@ function MachineShares({ d, names, onPick }: { d: TimesSummary; names: Record<st
         <button
           key={m.id} type="button" onClick={() => onPick(m.id)}
           data-tip={m.pace !== null && Number.isFinite(fastest) ? `Learned from the same model and settings rendered on several machines: ${m.pace / fastest < 1.05 ? "the fastest" : `${(m.pace / fastest).toFixed(1)} times the fastest one's time`}. Click: this machine alone.` : "Nothing rendered on it that another machine rendered too: no pace to compare yet. Click: this machine alone."}
-          className="inline-flex items-center gap-2 rounded-[10px] border border-line bg-panel px-3 py-1.5 text-xs hover:bg-hover"
+          className="inline-flex items-center gap-2 rounded-control border border-line bg-panel px-3 py-1.5 text-xs hover:bg-hover"
         >
           <span className="font-semibold">{names[m.id] ?? m.name ?? m.id}</span>
           <span className="text-ink-2">{plural(m.renders, "render")} · {took(m.gpuMs)}</span>

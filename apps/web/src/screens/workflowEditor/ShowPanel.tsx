@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import type { Toggle } from "@afflatus/workflows";
-import { Button, Checkbox, cx, fieldClass, Help, SectionTitle } from "../../ui";
+import { Button, Checkbox, Chip, cx, fieldClass, Help, SectionTitle } from "../../ui";
 import { keyOf, plainLabel, rangeOf, Step } from "./parts";
 import type { Mapping } from "./useMapping";
 import { plural } from "../../format";
@@ -211,7 +211,7 @@ function WidgetList({ m }: { m: Mapping }) {
 
 /** Who chose a widget: its author put it forward (a group node's front, a name they gave it), or Afflatus ticked it because the author put nothing forward. */
 function Origin({ c }: { c: Mapping["found"]["candidates"][number] }) {
-  if (c.byAuthor) return <span data-tip="The workflow's author put this forward: on the front of a group node, or named by them" className="shrink-0 rounded-md bg-accent-wash px-1.5 py-px text-[10.5px] font-bold text-accent">author</span>;
-  if (c.suggested) return <span data-tip="The author put nothing forward, so Afflatus ticked the sampler's steps and cfg" className="shrink-0 rounded-md bg-hover px-1.5 py-px text-[10.5px] font-bold text-ink-2">Afflatus pick</span>;
+  if (c.byAuthor) return <Chip size="xs" tone="accent" tip="The workflow's author put this forward: on the front of a group node, or named by them">author</Chip>;
+  if (c.suggested) return <Chip size="xs" tip="The author put nothing forward, so Afflatus ticked the sampler's steps and cfg">Afflatus pick</Chip>;
   return null;
 }

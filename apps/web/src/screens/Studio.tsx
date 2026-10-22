@@ -67,11 +67,11 @@ function RunningTile({ onDraft }: { onDraft(id: string): void }) {
 function FormRail({ onOpen }: { onOpen(): void }) {
   return (
     <aside aria-label="Create (folded)" className="flex w-[46px] shrink-0 flex-col items-center gap-2.5 border-r border-line bg-panel py-3.5">
-      <button type="button" aria-label="Create: open the form" data-tip="Create: open the form (N)" onClick={onOpen} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-accent text-accent-ink shadow-[0_4px_12px_color-mix(in_srgb,var(--color-accent)_30%,transparent)] hover:brightness-110">
+      <button type="button" aria-label="Create: open the form" data-tip="Create: open the form (N)" onClick={onOpen} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-accent text-accent-ink shadow-[0_4px_12px_color-mix(in_srgb,var(--color-accent)_30%,transparent)] hover:brightness-110">
         <Plus size={16} strokeWidth={2.6} />
       </button>
       {/* read bottom to top, as a spine */}
-      <span aria-hidden className="rotate-180 text-[11px] font-bold tracking-[.1em] text-ink-2 uppercase [writing-mode:vertical-rl]">Create</span>
+      <span aria-hidden className="rotate-180 text-meta font-bold tracking-label text-ink-2 uppercase [writing-mode:vertical-rl]">Create</span>
     </aside>
   );
 }
@@ -204,13 +204,13 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
               type="button"
               onClick={() => flipStack(e.stack!)}
               data-tip={opened ? "Fold the takes of this clip back into one" : "Show every take of this clip"}
-              className="rounded-md bg-ground/85 px-1.5 py-0.5 text-[11px] font-semibold text-ink shadow hover:bg-accent hover:text-accent-ink"
+              className="rounded-md bg-ground/85 px-1.5 py-0.5 text-meta font-semibold text-ink shadow hover:bg-accent hover:text-accent-ink"
             >
               {opened ? "Fold takes" : `${e.takes.length} takes`}
             </button>
           )}
         />
-        {!opened && e.takes && <span aria-hidden className="pointer-events-none absolute inset-x-2 -bottom-1.5 -z-10 h-full rounded-[12px] border border-line-strong bg-raised" />}
+        {!opened && e.takes && <span aria-hidden className="pointer-events-none absolute inset-x-2 -bottom-1.5 -z-10 h-full rounded-xl border border-line-strong bg-raised" />}
       </div>
     );
   };

@@ -93,7 +93,7 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
   return (
     <section className="flex min-w-0 flex-col gap-1.5 rounded-xl border border-line bg-panel p-3.5">
       <div className="flex items-baseline justify-between gap-3">
-        <h3 className="text-[13px] font-semibold">{title}</h3>
+        <h3 className="text-body font-semibold">{title}</h3>
         {note && <span className="truncate text-xs text-ink-3">{note}</span>}
       </div>
       <div ref={box} className="relative" style={{ height }}>
@@ -132,11 +132,11 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
           {GRID.map((g, gi) => (
             <g key={g}>
               <line x1={L} x2={L + W} y1={y(bottom + (max - bottom) * g)} y2={y(bottom + (max - bottom) * g)} className="stroke-line" strokeWidth="1" strokeDasharray={g ? "2 4" : undefined} />
-              <text x={L - 8} y={y(bottom + (max - bottom) * g) + 3.5} textAnchor="end" className="fill-ink-3 font-mono text-[10px]">{gridLabels[gi]}</text>
+              <text x={L - 8} y={y(bottom + (max - bottom) * g) + 3.5} textAnchor="end" className="fill-ink-3 font-mono text-micro">{gridLabels[gi]}</text>
             </g>
           ))}
           {Array.from({ length: ticks }, (_x, k) => Math.round((k / (ticks - 1)) * (n - 1))).map((i, k) => (
-            <text key={i} x={x(i)} y={height - 5} textAnchor={k === 0 ? "start" : k === ticks - 1 ? "end" : "middle"} className="fill-ink-3 font-mono text-[10px]">{timeLabel(times[i]!)}</text>
+            <text key={i} x={x(i)} y={height - 5} textAnchor={k === 0 ? "start" : k === ticks - 1 ? "end" : "middle"} className="fill-ink-3 font-mono text-micro">{timeLabel(times[i]!)}</text>
           ))}
           {bars && hover !== null && <rect pointerEvents="none" x={x(hover) - band / 2} y={T} width={band} height={H} className="fill-ink-3/15" />}
           {bars && stacks.map((s, i) => (
@@ -171,7 +171,7 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
           {rule && (
             <g pointerEvents="none">
               <line x1={L} x2={L + W} y1={y(rule.value)} y2={y(rule.value)} className="stroke-ink-3" strokeWidth="1" strokeDasharray="5 4" />
-              <text x={L + W - 4} y={y(rule.value) - 4} textAnchor="end" className="fill-ink-2 text-[10.5px]">{rule.label}</text>
+              <text x={L + W - 4} y={y(rule.value) - 4} textAnchor="end" className="fill-ink-2 text-micro">{rule.label}</text>
             </g>
           )}
           {drag && Math.abs(drag.x1 - drag.x0) >= 2 && (
@@ -201,7 +201,7 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
           </div>
         )}
         {drag && Math.abs(drag.x1 - drag.x0) >= 6 && n > 1 && (
-          <span className="pointer-events-none absolute top-1 left-1/2 -translate-x-1/2 rounded-full bg-ground/85 px-2.5 py-0.5 text-[11px] text-ink-2">release to look at this window</span>
+          <span className="pointer-events-none absolute top-1 left-1/2 -translate-x-1/2 rounded-full bg-ground/85 px-2.5 py-0.5 text-meta text-ink-2">release to look at this window</span>
         )}
       </div>
       <div className="flex flex-wrap gap-x-3.5 gap-y-1">

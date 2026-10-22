@@ -215,7 +215,7 @@ export function SnippetTable({ snippets, query, only, onOnly: setOnly, fresh }: 
       )}
       {snippets.length > 0 && found.length === 0 && <Empty title="Nothing matches" />}
       {found.length > 0 && (
-        <div className="grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_148px_auto] gap-1.5 px-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">
+        <div className="grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_148px_auto] gap-1.5 px-1.5 text-meta font-bold tracking-label text-ink-3 uppercase">
           <span className="w-7" /><span className="px-2">Name</span><span className="px-2">Category</span><span className="px-2">Text</span><span>Prompt style</span><span className="w-8" />
         </div>
       )}
@@ -229,7 +229,7 @@ export function SnippetTable({ snippets, query, only, onOnly: setOnly, fresh }: 
               <span className="flex h-7 w-7 items-center justify-center pl-1.5" data-tip={`Tick every snippet of ${c || "no category"}`}>
                 <Checkbox label={`Tick every snippet of ${c || "no category"}`} checked={all} onChange={(on) => tick(rows.map((s) => s.id), on)} />
               </span>
-              <button type="button" aria-expanded={open} disabled={narrow} onClick={() => fold(c, !open)} className="flex grow items-center gap-1.5 rounded-md px-1 py-1 text-left text-xs font-bold tracking-[0.06em] text-ink-2 uppercase enabled:hover:text-ink">
+              <button type="button" aria-expanded={open} disabled={narrow} onClick={() => fold(c, !open)} className="flex grow items-center gap-1.5 rounded-md px-1 py-1 text-left text-xs font-bold tracking-label text-ink-2 uppercase enabled:hover:text-ink">
                 {!narrow && (open ? <ChevronDown size={13} /> : <ChevronRight size={13} />)}
                 {c || "No category"}
                 <span className="font-normal text-ink-3">{rows.length}</span>

@@ -64,22 +64,22 @@ function PasswordForm({ mode, done, cancel }: { mode: "set" | "change" | "off"; 
     setSaid(null);
     go.mutate();
   };
-  const box = cx("h-9 w-56 text-[13px]", fieldClass);
+  const box = cx("h-9 w-56 text-body", fieldClass);
   return (
     <form onSubmit={submit} className="flex flex-col gap-2.5">
       {mode !== "set" && (
-        <label className="flex items-center justify-between gap-3 text-[13px]">
+        <label className="flex items-center justify-between gap-3 text-body">
           Current password
           <input type="password" autoFocus autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} className={box} />
         </label>
       )}
       {mode !== "off" && (
-        <label className="flex items-center justify-between gap-3 text-[13px]">
+        <label className="flex items-center justify-between gap-3 text-body">
           {mode === "set" ? "Password" : "New password"}
           <input type="password" autoFocus={mode === "set"} autoComplete="new-password" placeholder="8 characters at least" value={fresh} onChange={(e) => setFresh(e.target.value)} className={box} />
         </label>
       )}
-      {mode === "change" && <Checkbox checked={signOutOthers} onChange={setSignOutOthers} className="self-end text-[13px]">Sign out every other device</Checkbox>}
+      {mode === "change" && <Checkbox checked={signOutOthers} onChange={setSignOutOthers} className="self-end text-body">Sign out every other device</Checkbox>}
       {said && <ErrorNote>{said}</ErrorNote>}
       <span className="flex justify-end gap-2">
         <Button size="sm" tone="quiet" onClick={cancel}>Cancel</Button>
@@ -94,11 +94,11 @@ function PasswordForm({ mode, done, cancel }: { mode: "set" | "change" | "off"; 
 /** One device signed in: its browser, when it was first seen, its address, when it was last seen, and Sign out. */
 function DeviceRow({ d, onOut, busy }: { d: SignedDevice; onOut(): void; busy: boolean }) {
   return (
-    <div className="grid grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-2.5 px-[18px] py-2 sm:grid-cols-[30px_minmax(0,1fr)_150px_110px_auto]">
+    <div className="grid grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-2.5 px-gutter py-2 sm:grid-cols-[30px_minmax(0,1fr)_150px_110px_auto]">
       <DeviceIcon name={d.name} />
       <span className="flex min-w-0 flex-col gap-0.5">
-        <span className="truncate text-[13px] font-semibold">{d.name} {d.here && <span className="text-[11.5px] text-good">this device</span>}</span>
-        <span className="text-[11.5px] text-ink-3">first seen {dayMonth(d.firstSeen)}</span>
+        <span className="truncate text-body font-semibold">{d.name} {d.here && <span className="text-meta text-good">this device</span>}</span>
+        <span className="text-meta text-ink-3">first seen {dayMonth(d.firstSeen)}</span>
       </span>
       <span className="hidden truncate font-mono text-xs text-ink-2 sm:block">{d.ip}</span>
       <span className="hidden text-xs text-ink-2 sm:block">{when(d.lastSeen)}</span>
@@ -170,12 +170,12 @@ export function AccessCard() {
       status={a.hasPassword ? <Chip tone="good"><Lock size={12} strokeWidth={2.4} />Password on</Chip> : undefined}
     >
       <Row setting="access.reach" label="Reachable from" help="The address Afflatus listens on (HOST): 127.0.0.1 is this computer only, 0.0.0.0 every network it is on. Set when Afflatus starts.">
-        <span className="text-[12.5px] text-ink-2">{listen ? reachSaid(listen) : "…"} {where && <span className="font-mono text-ink-3">· {where}</span>}</span>
+        <span className="text-body text-ink-2">{listen ? reachSaid(listen) : "…"} {where && <span className="font-mono text-ink-3">· {where}</span>}</span>
       </Row>
       {!a.hasPassword ? (
         <>
           <Row setting="access.password" label="Password" help={HELP}>
-            <span className="grow text-[12.5px] text-ink-2">none: anyone who reaches {where || "it"} can use Afflatus</span>
+            <span className="grow text-body text-ink-2">none: anyone who reaches {where || "it"} can use Afflatus</span>
             {!form && <Button size="sm" tone="primary" onClick={() => setForm("set")}>Set a password…</Button>}
           </Row>
           {formRow}
@@ -183,7 +183,7 @@ export function AccessCard() {
       ) : (
         <>
           <Row setting="access.password" label="Password" help={HELP}>
-            <span className="grow text-[12.5px] text-ink-2">{a.passwordSetAt ? `set ${dayMonth(a.passwordSetAt)}` : "set"}</span>
+            <span className="grow text-body text-ink-2">{a.passwordSetAt ? `set ${dayMonth(a.passwordSetAt)}` : "set"}</span>
             {!form && <Button size="sm" onClick={() => setForm("change")}>Change…</Button>}
             {!form && <Button size="sm" onClick={() => setForm("off")}>Turn off…</Button>}
           </Row>
@@ -207,8 +207,8 @@ export function AccessCard() {
       </Row>
       <Row setting="access.codes" label="Reset codes go to" help={CODES_HELP}>
         <span className="flex flex-col items-end gap-2">
-          {telegramSet && <Checkbox checked={a.resetTelegram} onChange={(resetTelegram) => change({ resetTelegram })} className="text-[13px]">Telegram <span className="text-xs text-ink-3">your bot's chat; in a group chat, every member sees the code</span></Checkbox>}
-          <Checkbox checked disabled onChange={() => {}} className="text-[13px]">This computer <span className="text-xs text-ink-3">its console and log file: always</span></Checkbox>
+          {telegramSet && <Checkbox checked={a.resetTelegram} onChange={(resetTelegram) => change({ resetTelegram })} className="text-body">Telegram <span className="text-xs text-ink-3">your bot's chat; in a group chat, every member sees the code</span></Checkbox>}
+          <Checkbox checked disabled onChange={() => {}} className="text-body">This computer <span className="text-xs text-ink-3">its console and log file: always</span></Checkbox>
         </span>
       </Row>
       <Row setting="access.newDevice" label="Tell me of a new device" help={NEW_HELP}>
@@ -219,11 +219,11 @@ export function AccessCard() {
         <Row setting="access.metrics" label="Metrics token" help={METRICS_HELP}>
           {token ? (
             <>
-              <code className="min-w-0 truncate rounded-md bg-raised px-2 py-1 font-mono text-[11.5px]">{token}</code>
+              <code className="min-w-0 truncate rounded-md bg-raised px-2 py-1 font-mono text-meta">{token}</code>
               <Button size="sm" onClick={() => copy(token)}>{copied ? "Copied" : "Copy"}</Button>
             </>
           ) : (
-            <span className="grow text-[12.5px] text-ink-2">{a.hasMetricsToken ? "set: Prometheus reads /metrics with it" : "none: /metrics needs a session"}</span>
+            <span className="grow text-body text-ink-2">{a.hasMetricsToken ? "set: Prometheus reads /metrics with it" : "none: /metrics needs a session"}</span>
           )}
           <Button size="sm" disabled={save.isPending} onClick={() => change({ metrics: true })}>{a.hasMetricsToken ? "Make a new one" : "Make a token"}</Button>
           {a.hasMetricsToken && <Button size="sm" tone="quiet" disabled={save.isPending} onClick={() => { setToken(null); change({ metrics: false }); }}>Take off</Button>}
@@ -232,15 +232,15 @@ export function AccessCard() {
       {asking && <PasswordAsk said={asking.said} busy={save.isPending} onConfirm={(password) => save.mutate({ patch: asking.patch, password })} onCancel={() => setAsking(null)} />}
       {a.hasPassword && (
         <div className="flex flex-col">
-          <div className="flex items-center gap-2.5 px-[18px] pt-3 pb-1.5">
-            <span className="text-[13px] font-bold">Signed in now</span>
+          <div className="flex items-center gap-2.5 px-gutter pt-3 pb-1.5">
+            <span className="text-body font-bold">Signed in now</span>
             <span className="text-xs text-ink-3">{plural(list.length, "device")}</span>
             <span className="grow" />
             {list.length > 0 && <TwoStep label="Sign out everywhere" title="Sign out every device, this one too" note="Every device, this one too" yes="Sign out everywhere" busy={out.isPending} onYes={() => out.mutate("everywhere")} />}
           </div>
           {list.map((d) => <DeviceRow key={d.id} d={d} busy={out.isPending} onOut={() => out.mutate(d)} />)}
           {session.data?.localNoPassword && !session.data.session && (
-            <span className="px-[18px] py-2 text-xs text-ink-3">This computer is in without a session: no password needed here.</span>
+            <span className="px-gutter py-2 text-xs text-ink-3">This computer is in without a session: no password needed here.</span>
           )}
         </div>
       )}

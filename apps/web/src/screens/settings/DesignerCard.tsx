@@ -31,7 +31,7 @@ function InstructionEditor({ item, fresh, inUse, open, onOpen, onSave, onRemove,
   const firstLine = item.text.split(/\r?\n/).find((l) => l.trim()) ?? "";
   if (!open && !fresh) {
     return (
-      <button type="button" aria-expanded={false} onClick={onOpen} className="flex min-h-[52px] w-full items-center gap-2 px-[18px] text-left hover:bg-hover">
+      <button type="button" aria-expanded={false} onClick={onOpen} className="flex min-h-[52px] w-full items-center gap-2 px-gutter text-left hover:bg-hover">
         <span className="shrink-0 font-semibold">{item.name || "Unnamed"}</span>
         {inUse && <Chip tone="accent" tip="A conversation with the designer that has not picked one gets this one. Each conversation keeps the one it was given.">Default</Chip>}
         <span className="min-w-0 grow truncate text-xs text-ink-3">{firstLine}</span>
@@ -40,7 +40,7 @@ function InstructionEditor({ item, fresh, inUse, open, onOpen, onSave, onRemove,
     );
   }
   return (
-    <div className="flex flex-col gap-2 bg-raised/40 px-[18px] py-3">
+    <div className="flex flex-col gap-2 bg-raised/40 px-gutter py-3">
       <div className="flex items-center gap-2">
         <input aria-label="Name of this system prompt" value={name} placeholder="A name: Photographer, Anime, Explicit…" onChange={(e) => setName(e.target.value)} className={cx("h-9 min-w-0 grow font-semibold placeholder:font-normal", fieldClass)} />
         {inUse && <Chip tone="accent" tip="A conversation with the designer that has not picked one gets this one. Each conversation keeps the one it was given.">Default</Chip>}

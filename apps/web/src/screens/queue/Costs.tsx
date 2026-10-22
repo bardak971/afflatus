@@ -24,14 +24,14 @@ import { StaleNote, WindowBar } from "./WindowBar";
  * on the chart, as Render times has it.
  */
 
-const CARD = "flex min-w-0 flex-col gap-3 rounded-[14px] border border-line bg-panel p-[18px]";
+const CARD = "flex min-w-0 flex-col gap-3 rounded-card border border-line bg-panel p-gutter";
 
 function Head({ title, note, help, children }: { title: string; note?: ReactNode; help?: string; children?: ReactNode }) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-      <h3 className="text-[15px] font-bold">{title}</h3>
+      <h3 className="text-title font-bold">{title}</h3>
       {help && <Help text={help} title={title} className="self-center" />}
-      {note && <span className="text-[12.5px] text-ink-2">{note}</span>}
+      {note && <span className="text-body text-ink-2">{note}</span>}
       {children && <span className="grow" />}
       {children}
     </div>
@@ -40,8 +40,8 @@ function Head({ title, note, help, children }: { title: string; note?: ReactNode
 
 function Tile({ label, value, children }: { label: string; value: ReactNode; children?: ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-col gap-2 rounded-[14px] border border-line bg-panel p-4">
-      <span className="truncate text-[11.5px] font-semibold tracking-[0.05em] text-ink-3 uppercase">{label}</span>
+    <div className="flex min-w-0 flex-col gap-2 rounded-card border border-line bg-panel p-4">
+      <span className="truncate text-meta font-semibold tracking-label text-ink-3 uppercase">{label}</span>
       <span className="font-mono text-[28px] leading-tight font-bold">{value}</span>
       {children}
     </div>
@@ -107,7 +107,7 @@ function WhereItWent({ d }: { d: CostsView }) {
         title="Where it went" note={`${long(all)} of pod time, ${usd(money)}`}
         help="Each pod's time from its deploy (or Start) to its end, cut into what it did: rendering, booting until its ComfyUI first answered, fetching model files, work queued in its ComfyUI from outside Afflatus (its own page, another tool), idle (waiting for work, or for its idle time to stop it), and renders that failed or were cancelled. RunPod bills all of it."
       >
-        <span className="flex items-center gap-1 text-[12.5px] text-warn-ink">
+        <span className="flex items-center gap-1 text-body text-warn-ink">
           {Math.round(nothingShare(d.where.usd) * 100)} % of it made nothing
           <Help text="All but the renders that finished and the work outside Afflatus: booting, fetching files, idle and failed renders. Some of it cannot be helped (a pod boots before it renders); What would cost less says what can." />
         </span>
@@ -121,8 +121,8 @@ function WhereItWent({ d }: { d: CostsView }) {
       </div>
       <div className="flex flex-wrap gap-x-5 gap-y-2">
         {PART_SAID.map((p) => (
-          <span key={p.part} className="flex items-center gap-2 text-[12.5px]">
-            <span className="size-2.5 shrink-0 rounded-[3px]" style={{ background: p.color }} />
+          <span key={p.part} className="flex items-center gap-2 text-body">
+            <span className="size-2.5 shrink-0 rounded-key" style={{ background: p.color }} />
             <span className="font-semibold">{p.name}</span>
             {p.part === "outside" && <Help title="Outside Afflatus" text={OUTSIDE_WHY} />}
             <span className="font-mono text-ink-2">{usd(d.where.usd[p.part])} · {long(d.where.ms[p.part])}</span>
@@ -146,7 +146,7 @@ function WhereItWent({ d }: { d: CostsView }) {
           </span>
           {boots.map((b) => (
             <span key={b.part} className="flex items-center gap-1.5">
-              <span className="size-2 shrink-0 rounded-[3px]" style={{ background: b.color }} />
+              <span className="size-2 shrink-0 rounded-key" style={{ background: b.color }} />
               <span className="text-ink-2">{b.name}</span>
               {b.part === "boot" && <Help title="Earlier boots" text="Boots from before Afflatus recorded their parts, shown whole: how much of each was pulling the image, node packs or starting ComfyUI was not kept." />}
               <span className="font-mono text-ink-2">{usd(d.where.boot.usd[b.part])} · {long(d.where.boot.ms[b.part])}</span>
@@ -184,18 +184,18 @@ function ProjectRow({ p, most }: { p: ProjectCost; most: number }) {
     <div className="flex flex-col gap-1">
       <button
         type="button" disabled={!p.items.length} onClick={() => setOpen(!open)} aria-expanded={open}
-        className="grid grid-cols-[16px_26px_minmax(0,1fr)_minmax(60px,140px)_64px] items-center gap-2.5 rounded-[10px] bg-hover/60 px-2.5 py-2 text-left enabled:hover:bg-hover"
+        className="grid grid-cols-[16px_26px_minmax(0,1fr)_minmax(60px,140px)_64px] items-center gap-2.5 rounded-control bg-hover/60 px-2.5 py-2 text-left enabled:hover:bg-hover"
       >
         <ChevronRight size={14} className={cx("text-ink-2 transition-transform", open && "rotate-90", !p.items.length && "opacity-0")} />
-        <span className="flex size-[26px] items-center justify-center rounded-[7px] border-[1.5px] text-xs font-extrabold" style={{ borderColor: tone, color: tone }}>
+        <span className="flex size-[26px] items-center justify-center rounded-chip border-[1.5px] text-xs font-extrabold" style={{ borderColor: tone, color: tone }}>
           <Initial name={p.name} inbox={p.id === null} size={13} />
         </span>
         <span className="flex min-w-0 flex-col">
-          <span className="truncate text-[13.5px] font-semibold">{p.name}</span>
+          <span className="truncate text-title font-semibold">{p.name}</span>
           <span className="truncate text-xs text-ink-2">{p.id === null && p.renders ? `in no project · ${what}` : what}</span>
         </span>
         <span className="h-1.5 overflow-hidden rounded-full bg-line"><span className="block h-full rounded-full bg-accent" style={{ width: `${most > 0 ? (p.usd / most) * 100 : 0}%` }} /></span>
-        <span className="text-right font-mono text-[13px]">{p.usd > 0 && p.usd < 0.01 ? "<$0.01" : usd(p.usd)}</span>
+        <span className="text-right font-mono text-body">{p.usd > 0 && p.usd < 0.01 ? "<$0.01" : usd(p.usd)}</span>
       </button>
       {open && (
         <div className="flex flex-col gap-0.5 pl-[52px]">
@@ -216,10 +216,10 @@ function ProjectRow({ p, most }: { p: ProjectCost; most: number }) {
             >
               <span className="text-ink-3">{i.kind === "timeline" ? <Film size={13} /> : <PenLine size={13} />}</span>
               <span className="flex min-w-0 flex-col">
-                <span className="truncate text-[13px]">{i.name}</span>
-                <span className="truncate text-[11.5px] text-ink-3">{plural(i.renders, "render")} · {i.models.join(", ")}</span>
+                <span className="truncate text-body">{i.name}</span>
+                <span className="truncate text-meta text-ink-3">{plural(i.renders, "render")} · {i.models.join(", ")}</span>
               </span>
-              <span className="text-right font-mono text-[12.5px] text-ink-2">{i.usd < 0.01 ? "<$0.01" : usd(i.usd)}</span>
+              <span className="text-right font-mono text-body text-ink-2">{i.usd < 0.01 ? "<$0.01" : usd(i.usd)}</span>
             </button>
           ))}
         </div>
@@ -253,13 +253,13 @@ function SessionRow({ s, longest, split }: { s: PodSession; longest: number; spl
     <div className="flex flex-col">
       <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="grid grid-cols-[minmax(0,230px)_minmax(0,1fr)_64px] items-center gap-3.5 rounded-lg px-1.5 py-1 text-left hover:bg-hover">
         <span className="flex min-w-0 flex-col">
-          <span className="truncate text-[13px] font-semibold">{s.gpu ?? "GPU"} <span className="font-normal text-ink-3">· ${s.rate.toFixed(2)}/h{s.cuda ? ` · CUDA ${s.cuda}` : ""}</span></span>
-          <span className="truncate text-[11.5px] text-ink-3">{dayMonth(s.from)} {hourMinute(s.from)} · {s.open ? "running now" : s.crash ? "ComfyUI died" : s.startFailed ? "its start failed" : s.why}</span>
+          <span className="truncate text-body font-semibold">{s.gpu ?? "GPU"} <span className="font-normal text-ink-3">· ${s.rate.toFixed(2)}/h{s.cuda ? ` · CUDA ${s.cuda}` : ""}</span></span>
+          <span className="truncate text-meta text-ink-3">{dayMonth(s.from)} {hourMinute(s.from)} · {s.open ? "running now" : s.crash ? "ComfyUI died" : s.startFailed ? "its start failed" : s.why}</span>
         </span>
         <span className="flex h-[18px] gap-0.5">
           {bits.map((b) => <span key={b.key} data-tip={b.tip} className="min-w-[3px] rounded" style={{ width: `${b.share * 100}%`, background: b.color }} />)}
         </span>
-        <span className="text-right font-mono text-[13px]">{usd(s.usd)}</span>
+        <span className="text-right font-mono text-body">{usd(s.usd)}</span>
       </button>
       {open && (
         <div className="mb-1 ml-1.5 flex flex-col gap-0.5 border-l border-line py-1 pl-3 text-xs">
@@ -300,7 +300,7 @@ function Sessions({ d }: { d: CostsView }) {
         <span className="text-xs text-ink-3">click: its renders</span>
       </Head>
       {shown.map((s) => <SessionRow key={s.id} s={s} longest={longest} split={split} />)}
-      <span className="flex items-center gap-3 text-[11.5px] text-ink-3">
+      <span className="flex items-center gap-3 text-meta text-ink-3">
         Bars to one scale: the longest, {long(longest)}.
         {d.sessions.length > shown.length && <Button size="sm" onClick={() => setAll(true)}>Show all {d.sessions.length}</Button>}
       </span>
@@ -320,30 +320,30 @@ function RenderCosts({ d }: { d: CostsView }) {
   return (
     <section className={CARD} aria-label="A render's cost">
       <Head title="A render's cost" note="p50 of your renders · the cheapest a model has, marked" />
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,150px)_70px_60px_72px] gap-2.5 px-2.5 text-[11px] font-semibold tracking-[0.04em] text-ink-3 uppercase">
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,150px)_70px_60px_72px] gap-2.5 px-2.5 text-meta font-semibold tracking-label text-ink-3 uppercase">
         <span>Model</span><span>On</span><span className="text-right">Time</span><span className="text-right">Renders</span><span className="text-right">Cost</span>
       </div>
       {d.renderCosts.map((r, i) => (
-        <div key={`${r.key}-${r.where}-${r.on}-${i}`} className={cx("grid grid-cols-[minmax(0,1fr)_minmax(0,150px)_70px_60px_72px] items-center gap-2.5 rounded-[10px] px-2.5 py-2", r.best ? "bg-accent-wash" : "bg-hover/50")}>
-          <span className="truncate text-[13px] font-semibold" data-tip={r.file || undefined}>
+        <div key={`${r.key}-${r.where}-${r.on}-${i}`} className={cx("grid grid-cols-[minmax(0,1fr)_minmax(0,150px)_70px_60px_72px] items-center gap-2.5 rounded-control px-2.5 py-2", r.best ? "bg-accent-wash" : "bg-hover/50")}>
+          <span className="truncate text-body font-semibold" data-tip={r.file || undefined}>
             {r.model}
             {/* one recipe on several model files: each row says its file */}
             {r.file && d.renderCosts.some((o) => o.model === r.model && o.key !== r.key) && <span className="ml-1.5 text-xs font-normal text-ink-3">{r.file}</span>}
           </span>
-          <span className="truncate text-[12.5px] text-ink-2">
+          <span className="truncate text-body text-ink-2">
             {r.on}{r.where === "guess" && <span data-tip="Not rendered on yet: its time is the GPU hunt's guess from your renders on another GPU and a rough table of speeds. A guess until it renders."> (a guess)</span>}
           </span>
-          <span className="text-right font-mono text-[12.5px]">{r.ms === null ? "—" : r.where === "guess" ? est(r.ms) : spell(r.ms)}</span>
-          <span className="text-right font-mono text-[12.5px] text-ink-2">{r.renders || "—"}</span>
+          <span className="text-right font-mono text-body">{r.ms === null ? "—" : r.where === "guess" ? est(r.ms) : spell(r.ms)}</span>
+          <span className="text-right font-mono text-body text-ink-2">{r.renders || "—"}</span>
           <span
-            className={cx("text-right font-mono text-[13px] font-semibold", r.where === "home" ? "text-warn-ink" : r.best ? "text-accent" : "")}
+            className={cx("text-right font-mono text-body font-semibold", r.where === "home" ? "text-warn-ink" : r.best ? "text-accent" : "")}
             data-tip={r.where === "home" && r.local === null ? (r.wh === null ? "Its GPU's power was never read: the Afflatus node pack 0.18.0 and newer reads it on an NVIDIA GPU." : "Set a price a kWh to see it in money.") : undefined}
           >
             {costSaid(r, d.kwh.currency)}
           </span>
         </div>
       ))}
-      <span className="text-[11.5px] text-ink-3">
+      <span className="text-meta text-ink-3">
         {price !== null
           ? `"This PC": its electricity, GPU only, at ${d.kwh.currency}${price} a kWh (Settings). Not your hardware's wear, nor the rest of the PC.`
           : `"This PC": its GPU's energy a render; set a price a kWh (This PC, below) for its cost. Not your hardware's wear, nor the rest of the PC.`}
@@ -358,13 +358,13 @@ function AdviceCard({ d }: { d: CostsView }) {
     <section className={CARD} aria-label="What would cost less">
       <Head title="What would cost less" help="Fixed rules on this window's sessions and renders: the idle at the end of sessions against a shorter idle, the boots (the image pulled onto hosts new to it, the node packs' installs), the same files fetched on several deploys against a network volume, and the cheapest GPU per model." />
       {d.advice.length ? d.advice.map((a) => (
-        <div key={a.title} className="flex gap-3 rounded-[11px] bg-hover/60 p-3">
+        <div key={a.title} className="flex gap-3 rounded-control bg-hover/60 p-3">
           <span className="mt-[5px] size-2.5 shrink-0 rounded-full" style={{ background: dot(a.kind) }} />
           <span className="flex min-w-0 grow flex-col gap-1">
-            <span className="text-[13.5px] font-semibold">{a.title}</span>
-            <span className="text-[12.5px] text-ink-2">{a.why}</span>
+            <span className="text-title font-semibold">{a.title}</span>
+            <span className="text-body text-ink-2">{a.why}</span>
           </span>
-          {a.save !== null && <span className="shrink-0 font-mono text-[13px] font-semibold text-good">−{usd(a.save)}</span>}
+          {a.save !== null && <span className="shrink-0 font-mono text-body font-semibold text-good">−{usd(a.save)}</span>}
         </div>
       )) : <span className="text-sm text-ink-3">Nothing to say for this window.</span>}
     </section>
@@ -378,8 +378,8 @@ function ThisPc({ d }: { d: CostsView }) {
     <section className={CARD} aria-label="This PC">
       {d.home.length ? d.home.map((h) => (
         <div key={h.machine} className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          <span className="text-[14px] font-bold">{h.name}{h.gpu && h.gpu !== "GPU" ? ` · ${h.gpu}` : ""} <span className="font-normal text-ink-2">· {plural(h.renders, "render")}</span></span>
-          <span className="flex items-center gap-1 text-[13px] text-ink-2">
+          <span className="text-title font-bold">{h.name}{h.gpu && h.gpu !== "GPU" ? ` · ${h.gpu}` : ""} <span className="font-normal text-ink-2">· {plural(h.renders, "render")}</span></span>
+          <span className="flex items-center gap-1 text-body text-ink-2">
             {h.read ? (
               <>
                 GPU power read while it renders: <span className="font-mono text-ink">{(h.wh / 1000).toFixed(h.wh >= 10_000 ? 1 : 2)} kWh</span>
@@ -402,7 +402,7 @@ function ThisPc({ d }: { d: CostsView }) {
       {asking && (
         <Dialog label="Price a kWh" onClose={() => setAsking(false)}>
           <DialogHead icon={<Zap size={15} />} title="Price a kWh" sub="This PC's electricity, in your own money" onClose={() => setAsking(false)} />
-          <p className="text-[13px] text-ink-2">Multiplied by the energy the GPU drew while each render ran. Empty: the energy alone.</p>
+          <p className="text-body text-ink-2">Multiplied by the energy the GPU drew while each render ran. Empty: the energy alone.</p>
           <KwhForm onDone={() => setAsking(false)} />
         </Dialog>
       )}

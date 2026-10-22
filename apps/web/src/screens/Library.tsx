@@ -131,8 +131,8 @@ export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onS
         // that never comes
         <span className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-panel px-3 text-center text-ink-2" data-tip={missingTip(asset)}>
           <FileX2 size={22} className="text-warn" />
-          <span className="text-[12.5px] font-bold text-ink">Missing on disk</span>
-          <span className="w-full truncate text-[11px]">{name}</span>
+          <span className="text-body font-bold text-ink">Missing on disk</span>
+          <span className="w-full truncate text-meta">{name}</span>
         </span>
       ) : sound ? (
         // a sound: its card, the waveform lit up to the pointer; it plays from there (Settings → Appearance allowing)
@@ -141,12 +141,12 @@ export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onS
             <span className={cx("flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full text-ground", at !== null ? "bg-accent" : "bg-ink-2")}>
               <Play size={10} fill="currentColor" strokeWidth={0} className="ml-px" />
             </span>
-            <span className="min-w-0 grow truncate text-[12.5px] font-bold">{name}</span>
-            {length && <span className="shrink-0 font-mono text-[11px] text-ink-2">{length}</span>}
+            <span className="min-w-0 grow truncate text-body font-bold">{name}</span>
+            {length && <span className="shrink-0 font-mono text-meta text-ink-2">{length}</span>}
             {clockMark}
           </span>
           <SoundWave asset={asset.id} at={at} className="relative min-h-3 grow" />
-          <span className={cx("truncate text-[11px] text-ink-2", onSelect && "pr-6")}>{tileFacts(asset)}</span>
+          <span className={cx("truncate text-meta text-ink-2", onSelect && "pr-6")}>{tileFacts(asset)}</span>
           <HoverAudio asset={asset.id} at={at} />
         </span>
       ) : asset.kind === "image" || (asset.kind === "video" && !noFrame) ? (
@@ -166,7 +166,7 @@ export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onS
       )}
       {asset.kind === "video" && !plain && (
         // its length, or while it plays on hover that it does (and whether muted); clear of the tick when the tick shows
-        <span className={cx("absolute top-2 flex max-w-[calc(100%-1rem)] items-center gap-1.5 overflow-hidden rounded-md bg-ground/75 px-1.5 py-0.5 text-[10.5px] whitespace-nowrap transition-[left] duration-100", onSelect ? (selecting ? "left-9" : "left-2 group-hover:left-9") : "left-2")}>
+        <span className={cx("absolute top-2 flex max-w-[calc(100%-1rem)] items-center gap-1.5 overflow-hidden rounded-md bg-ground/75 px-1.5 py-0.5 text-micro whitespace-nowrap transition-[left] duration-100", onSelect ? (selecting ? "left-9" : "left-2 group-hover:left-9") : "left-2")}>
           {playing ? (
             <>
               <span className="h-1.5 w-1.5 rounded-full bg-accent" />
@@ -183,11 +183,11 @@ export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onS
       {!sound && !plain && (
         // on hover: its name and a dim line of facts; out of the way while the fuller tip shows
         <span className={cx("pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-px bg-gradient-to-b from-transparent to-ground/90 px-2.5 pt-6 pb-2 text-left opacity-0 transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100", tip.tip && "!opacity-0")}>
-          <span className="truncate text-[12.5px] font-bold text-ink">{name}</span>
-          <span className="truncate text-[11px] text-ink-2">{facts}</span>
+          <span className="truncate text-body font-bold text-ink">{name}</span>
+          <span className="truncate text-meta text-ink-2">{facts}</span>
         </span>
       )}
-      {asset.kind === "video" && at !== null && <span aria-hidden className="absolute bottom-0 left-0 z-[2] h-[3px] bg-accent" style={{ width: `${at * 100}%` }} />}
+      {asset.kind === "video" && at !== null && <span aria-hidden className="absolute bottom-0 left-0 z-2 h-[3px] bg-accent" style={{ width: `${at * 100}%` }} />}
       {asset.clipOf && !sound && !plain && <ClipMark of={asset.clipOf} className="absolute right-2 bottom-2 transition-opacity group-hover:opacity-0" />}
     </button>
     {/* the corner's control and the clock sit over the tile, beside the button (a button holds no other control); clicks through the clock open the tile */}
@@ -208,7 +208,7 @@ export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onS
         }}
         className={cx(
           // a sound's card has its play dot top-left: its tick sits bottom-right
-          "absolute z-10 flex h-[18px] w-[18px] cursor-pointer items-center justify-center rounded-[6px] transition-colors",
+          "absolute z-10 flex h-[18px] w-[18px] cursor-pointer items-center justify-center rounded-md transition-colors",
           sound ? "right-2 bottom-2" : "top-2 left-2",
           selected ? "bg-accent text-accent-ink" : "border-[1.5px] border-white/80 bg-ground/60",
           !selected && !selecting && "opacity-0 group-hover:opacity-100 focus:opacity-100",
@@ -225,7 +225,7 @@ export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onS
 function ClipMark({ of, className }: { of: NonNullable<Asset["clipOf"]>; className?: string }) {
   const what = `${of.timelineName}: clip ${of.clip}${of.takes > 1 ? `, take ${of.take} of ${of.takes}` : ""}${of.playing ? " (the one playing)" : of.takes > 1 ? " (not the one playing)" : ""}${of.upscaledBy ? `, upscaled${of.upscaledBy !== 1 ? ` ×${of.upscaledBy}` : ""}` : ""}`;
   return (
-    <span data-tip={what} aria-label={what} className={cx("flex max-w-[calc(100%-1rem)] items-center gap-1 overflow-hidden rounded-md bg-ground/80 px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap", of.playing || of.takes === 1 ? "text-accent" : "text-ink-2", className)}>
+    <span data-tip={what} aria-label={what} className={cx("flex max-w-[calc(100%-1rem)] items-center gap-1 overflow-hidden rounded-md bg-ground/80 px-1.5 py-0.5 text-micro font-semibold whitespace-nowrap", of.playing || of.takes === 1 ? "text-accent" : "text-ink-2", className)}>
       <Film size={11} className="shrink-0" />
       <span className="hidden @min-[10rem]/tile:inline">Clip {of.clip}</span>
       {of.takes > 1 && <span className="hidden font-normal text-ink-2 @min-[10rem]/tile:inline">· take {of.take}/{of.takes}</span>}

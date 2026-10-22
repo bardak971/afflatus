@@ -27,9 +27,9 @@ export function NoMachine({ waiting }: { waiting: number }) {
   const caps = settings.data?.rentCaps ?? { day: 0, month: 0 };
   const saveCaps = (patch: Partial<typeof caps>) => save.mutate({ rentCaps: { ...caps, ...patch } }, { onError: sayFailed("The cap was not saved") });
   return (
-    <div className="flex flex-col gap-3 rounded-[14px] border border-line bg-panel p-3">
+    <div className="flex flex-col gap-3 rounded-card border border-line bg-panel p-3">
       <div className="flex items-center gap-3.5">
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-raised text-ink-2"><Cloud size={17} /></span>
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-control bg-raised text-ink-2"><Cloud size={17} /></span>
         <span className="flex min-w-0 grow flex-col">
           <b className="text-ink-strong">No machine yet</b>
           <span className="text-xs text-ink-3">

@@ -60,7 +60,7 @@ export function MissingFile({ f, m, hints, where }: { f: MissingFileOf; m: Mappi
   return (
     <div className="flex flex-col gap-1.5 px-3 py-2.5">
       <span className="flex min-w-0 items-center gap-1.5">
-        <span className={cx("min-w-0 truncate font-mono text-[11.5px] font-semibold", replaced && "text-ink-3 line-through")} data-tip={f.file}>{fileLabel(f.file)}</span>
+        <span className={cx("min-w-0 truncate font-mono text-meta font-semibold", replaced && "text-ink-3 line-through")} data-tip={f.file}>{fileLabel(f.file)}</span>
         <span className="shrink-0 text-xs text-ink-3">{replaced ? "replaced" : f.label}</span>
         <Help title={fileLabel(f.file)} text={replaced ? `${what} It is replaced by ${fileLabel(now)}.` : what} />
       </span>
@@ -84,7 +84,7 @@ export function MissingFile({ f, m, hints, where }: { f: MissingFileOf; m: Mappi
       </div>
       {!replaced && (
         <>
-          <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-ink-3">
+          <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-meta text-ink-3">
             {f.url && <><a className={small} href={f.url} target="_blank" rel="noreferrer">URL in the workflow</a><span aria-hidden>·</span></>}
             {!f.url && f.source && (
               <>
