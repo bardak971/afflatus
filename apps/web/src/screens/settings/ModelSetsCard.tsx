@@ -11,7 +11,7 @@ import { ModelSearch, ViaChip } from "../../modelFilesUi";
 import { queryKeys } from "../../queryKeys";
 import { Select } from "../../Select";
 import { useSayFailed } from "../../sayFailed";
-import { Button, ButtonLink, Chip, cx, fieldClass, Help, TwoStep } from "../../ui";
+import { Button, ButtonLink, Chip, cx, fieldClass, Help, IconButton, TwoStep } from "../../ui";
 import { Block, Card } from "./Rows";
 
 const WHY_SETS = "A Model set is a named list of model files, nothing else: no form, no values (presets stay the start of a form in Studio). Pick one in Deploy a GPU, and the pod gets its files after what your jobs need; or get its missing files on any of your machines here. A set holds presets by reference: a preset moved to a new version moves the set. Save one as a file to share it: it holds the names, sizes and where each comes from, never the files.";
@@ -116,12 +116,12 @@ function SetEditor({ set, onChanged, onGone }: { set: ModelSet; onChanged(): voi
             {g.id && <button type="button" onClick={() => change((b) => ({ ...b, presets: b.presets.filter((id) => id !== g.id) }))} className="ml-2 text-xs font-normal text-ink-3 hover:text-ink">take it out</button>}
           </span>
           {g.files.map((f) => (
-            <div key={fileKey(f)} className={cx("grid grid-cols-[minmax(0,1fr)_64px_minmax(0,180px)_64px_20px] items-center gap-3 text-body", f.off && "opacity-50")}>
+            <div key={fileKey(f)} className={cx("grid grid-cols-[minmax(0,1fr)_64px_minmax(0,180px)_64px_24px] items-center gap-3 text-body", f.off && "opacity-50")}>
               <span className="min-w-0 truncate">{f.file}<span className="text-ink-3"> · {f.folder}</span></span>
               <ViaChip via={f.via} />
               <span className="min-w-0 truncate text-xs text-ink-3">{machines.filter((m) => m.id in f.on).map((m) => `${machineLabel(m)} ${f.on[m.id] ? "✓" : "–"}`).join(" · ")}</span>
               <span className="text-right font-mono text-xs text-ink-3">{f.size ? size(f.size) : "–"}</span>
-              <button type="button" aria-label={f.preset ? (f.off ? `Put ${f.file} back in the set` : `Leave ${f.file} out of the set`) : `Take ${f.file} out`} data-tip={f.preset ? (f.off ? "Put it back in the set" : "Leave it out of the set (the preset keeps it)") : "Take it out of the set"} onClick={() => toggle(f)} className="grid size-5 place-items-center rounded text-ink-3 hover:bg-hover hover:text-ink">{f.off ? <Plus size={12} /> : <X size={12} />}</button>
+              <IconButton size={24} label={f.preset ? (f.off ? `Put ${f.file} back in the set` : `Leave ${f.file} out of the set`) : `Take ${f.file} out`} tip={f.preset ? (f.off ? "Put it back in the set" : "Leave it out of the set (the preset keeps it)") : "Take it out of the set"} onClick={() => toggle(f)}>{f.off ? <Plus size={12} /> : <X size={12} />}</IconButton>
             </div>
           ))}
           {!g.files.length && files.isSuccess && <span className="text-xs text-ink-3">{g.id ? "Its files are in another part of the set, or it names none." : "None: add one below."}</span>}

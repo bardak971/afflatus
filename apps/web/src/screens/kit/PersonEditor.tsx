@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Music, Plus, Trash2, X } from "lucide-react";
+import { Music, Plus, Trash2 } from "lucide-react";
 import { LIMITS } from "@afflatus/core";
 import { api, thumbUrl, type Outfit, type PersonDef, type PlaceDef } from "../../api";
 import { AudioPlayer } from "../../AudioPlayer";
@@ -15,7 +15,7 @@ import { ModelLink } from "../../ModelLink";
 import { Card, Row } from "../../Rows";
 import { Select } from "../../Select";
 import { localId } from "../../secureContext";
-import { AutoText, Button, Chip, cx, IconButton, NumberBox } from "../../ui";
+import { AutoText, Button, Chip, CloseButton, cx, IconButton, NumberBox } from "../../ui";
 import { Slider } from "../../Slider";
 import { dropped, moved } from "../queue/order";
 import { useFlip } from "../../useFlip";
@@ -143,7 +143,7 @@ function Pictures({ value, onChange, what, sent, face }: { value: string[]; onCh
               <img src={thumbUrl(id)} alt="" draggable={false} className="h-[84px] w-[84px] rounded-control border border-line object-cover hover:border-accent" />
             </button>
             <span className={cx("pointer-events-none absolute bottom-1 left-1 rounded-key px-1.5 text-micro font-bold", face && i === 0 ? "bg-accent text-ground" : "bg-ground/80 text-ink")}>{face && i === 0 ? "face" : i + 1}</span>
-            <button type="button" aria-label="Remove this image" onClick={() => onChange(value.filter((x) => x !== id))} className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-ground/85 text-ink-2 hover:text-ink"><X size={11} /></button>
+            <CloseButton size={24} tone="badge" label="Remove this image" onClose={() => onChange(value.filter((x) => x !== id))} className="absolute top-1 right-1" />
           </div>
         ))}
         {value.length < LIMITS.pictures && (
@@ -254,7 +254,7 @@ function OutfitPicture({ value, onChange, what }: { value: string | null; onChan
           <button type="button" aria-label={`Show the picture of ${what} large`} onClick={() => setOpen(true)} className={cx("block cursor-zoom-in rounded-lg border", drop.over || drop.wanted ? "border-accent" : "border-line")}>
             <img src={thumbUrl(value)} alt="" className="h-[34px] w-[34px] rounded-lg object-cover" />
           </button>
-          <button type="button" aria-label={`Remove the picture of ${what}`} onClick={() => onChange(null)} className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-ground text-ink-2 hover:text-ink"><X size={10} /></button>
+          <CloseButton size={24} tone="badge" label={`Remove the picture of ${what}`} onClose={() => onChange(null)} className="absolute -top-2.5 -right-2.5" />
         </>
       ) : (
         <button type="button" aria-label={`Choose a picture of ${what}`} data-tip="A reference image of the clothes: choose one, or drop it here" onClick={() => setPicking(true)} className={cx("flex h-9 w-9 items-center justify-center rounded-lg border-[1.5px] border-dashed text-ink-3 hover:text-ink", drop.zone || "border-line-strong")}>

@@ -148,7 +148,7 @@ export function LoadDialog({ machine: asked, onClose }: { machine?: string; onCl
         className={cx("grid grid-cols-[96px_minmax(0,1fr)_auto_auto] items-center gap-3 border-t border-line px-5 py-2.5", on && "bg-hover", r.ofForm && !on && "bg-accent-wash/30")}
         onMouseEnter={() => !off && setAt(pickable.indexOf(r))}
       >
-        <span className="justify-self-start truncate rounded-md bg-raised px-1.5 py-0.5 text-meta font-semibold text-ink-2" data-tip={r.family}>{r.family}</span>
+        <Chip size="xs" truncate className="justify-self-start">{r.family}</Chip>
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="truncate font-mono text-body text-ink" data-tip={r.path ?? r.file}>{r.file}</span>
           <span className={cx("truncate text-xs", r.ofForm ? "text-accent" : "text-ink-3")}>{r.from}</span>

@@ -9,7 +9,7 @@ import { useSettings } from "../../data";
 import { JOB_DRAG } from "./MachineLanes";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { aboutMs, est, plural, when } from "../../format";
-import { Button, Chip, cx, SectionTitle, Spinner } from "../../ui";
+import { Button, Chip, CloseButton, cx, SectionTitle, Spinner } from "../../ui";
 import { useQueueBulk } from "./bulk";
 import { useModelName } from "./modelName";
 import { betterPlace, dropped, groupingSaves, loadsAt, modelSwitches, moved, waitingEnds } from "./order";
@@ -229,9 +229,7 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
               </button>
             )}
             <span className="w-[70px] shrink-0 text-right font-mono text-ink-2 @max-[480px]/waiting:w-[52px]">{est(w.estimateMs) || "—"}</span>
-            <button type="button" aria-label={`Remove ${w.label} from queue`} data-tip="Remove from queue (Del)" onClick={() => onRemove(w.id)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-raised hover:text-ink focus-visible:opacity-100">
-              <X size={14} />
-            </button>
+            <CloseButton size={24} label={`Remove ${w.label} from queue`} tip="Remove from queue" keys="Del" onClose={() => onRemove(w.id)} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100" />
           </div>
           <OwnDownloads w={w} />
           {w.pinned && w.lacks?.[w.pinned] && !filesOf(w, i) && <PinnedLacks machine={machineLabel(machines.find((m) => m.id === w.pinned) ?? { name: w.pinned, url: "" })} id={w.pinned} lack={w.lacks[w.pinned]!} />}

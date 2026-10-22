@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { fuzzyFilter } from "@afflatus/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, RefreshCw, Trash2, X } from "lucide-react";
+import { Check, RefreshCw, Trash2 } from "lucide-react";
 import { api, type VolumeFile, type VolumeFilesView } from "../../api";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../../Dialog";
 import { gb, plural, usd, when } from "../../format";
@@ -125,7 +125,8 @@ export function VolumeFiles({ volume, name, folder: askedFolder, pickUnused = fa
             placeholder="Search all folders"
             value={q}
             onChange={setQ}
-            end={q ? <button type="button" aria-label="Clear the search" onClick={() => setQ("")} className="text-ink-3 hover:text-ink"><X size={13} /></button> : <Keys keys="/" size="sm" />}
+            onClear={() => setQ("")}
+            end={!q && <Keys keys="/" size="sm" />}
           />
           {v && v.source !== "none" && (
             <span className="text-xs text-ink-2" data-tip={used === null ? "The models alone: ComfyUI's own files on the volume are counted once a pod runs on it (its disk is read then)." : "All of the volume in use, as the pod on it read its disk."}>

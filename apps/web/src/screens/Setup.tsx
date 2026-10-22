@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useParams, useSearch } from "wouter";
-import { X } from "lucide-react";
 import { fuzzyScore } from "@afflatus/core";
 import { api, type RecipeInfo } from "../api";
 import { lacksOnlyFiles } from "../officialFiles";
@@ -168,7 +167,7 @@ export function Setup() {
               value={typed}
               onChange={(v) => { setTyped(v); setPicked(false); }}
               onKeyDown={(e) => { if (e.key === "Escape") setTyped(""); if (e.key === "Enter" && found[0]) pick(found[0].key); }}
-              end={typed && <button type="button" aria-label="Clear" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
+              onClear={() => setTyped("")}
             />
             {typed.trim() && !picked && (
               <div role="listbox" aria-label="Settings found" className="absolute right-0 z-20 mt-1 flex w-80 flex-col overflow-hidden rounded-xl border border-line-strong bg-panel py-1 shadow-2xl shadow-shade/60">

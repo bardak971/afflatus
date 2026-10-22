@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
-import { X } from "lucide-react";
 import { fileKey } from "@afflatus/core";
 import { api, type BrowseCard } from "./api";
 import { keepTabIn } from "./Dialog";
@@ -206,9 +205,9 @@ export function FindModels({ target }: { target: FindTarget }) {
                 <span className="text-meta font-bold tracking-label text-ink-3 uppercase">Show</span>
                 <Checkbox checked={notMine} onChange={setNotMine} className="text-xs"><span>What I do not have</span></Checkbox>
                 {by && (
-                  <button type="button" onClick={() => setBy("")} data-tip="Only this creator's models (by: in the command bar). Click to show everyone's." className="flex items-center gap-1 self-start rounded-full border border-accent bg-accent-wash px-2.5 py-0.5 text-xs text-accent">
-                    By {by} <X size={11} />
-                  </button>
+                  <Chip tone="accent" truncate tip="Only this creator's models (by: in the command bar)" onRemove={() => setBy("")} removeLabel="Show everyone's models" className="self-start">
+                    By {by}
+                  </Chip>
                 )}
                 {tab === "civitai" && <span data-tip="Civitai's API leaves part of its models out unless it is asked for all of them (civitai.com and civitai.red alike). Remembered in this browser."><Checkbox checked={all} onChange={setAll} className="text-xs"><span>All of Civitai</span></Checkbox></span>}
               </div>

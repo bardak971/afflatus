@@ -4,8 +4,8 @@
   "z-index": 0,
   "tracking": 1,
   "raw-colour": 3,
-  "close-icon": 32,
+  "close-icon": 15,
   "pulse-spin": 7,
-  "icon-button": 18,
+  "icon-button": 4,
   "animate-motion": 4
 }

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { ImagePlus, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
+import { ImagePlus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import { api, thumbUrl } from "./api";
 import { useAsset, useEntities, useQueue, useRecipes, useSetup } from "./data";
 import { Viewer } from "./viewer/LazyViewer";
@@ -10,7 +10,7 @@ import { DRAG_PICTURE, DRAG_TYPE } from "./dragging";
 import { clock } from "./format";
 import { Picker } from "./PictureField";
 import { useSayFailed } from "./sayFailed";
-import { AutoText, Bar, Button, cx, fieldClass, Help, Toggle } from "./ui";
+import { AutoText, Bar, Button, Chip, CloseButton, cx, fieldClass, Help, Toggle } from "./ui";
 
 /**
  * The picture a Motion transfer moves, made for the user (the owner's ask, 2026-10-14; mock "Make the picture"): who goes
@@ -176,10 +176,8 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
               >
                 <img src={thumbUrl(id)} alt="" className="h-14 w-14 object-cover" />
               </button>
-              {i === 0 && set.people.length > 1 && <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 rounded bg-accent px-1 text-micro font-bold text-accent-ink">main</span>}
-              <button type="button" aria-label="Remove this image" onClick={() => change(keyId, { people: set.people.filter((x) => x !== id) })} className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-line bg-panel text-ink-2 hover:text-ink">
-                <X size={11} />
-              </button>
+              {i === 0 && set.people.length > 1 && <Chip size="xs" tone="solid" className="absolute -bottom-2 left-1/2 -translate-x-1/2">main</Chip>}
+              <CloseButton size={24} tone="badge" label="Remove this image" onClose={() => change(keyId, { people: set.people.filter((x) => x !== id) })} className="absolute -top-2 -right-2" />
             </span>
           ))}
           {set.people.length < 3 && (

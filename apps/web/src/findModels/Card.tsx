@@ -2,7 +2,7 @@ import { memo } from "react";
 import { Check, Download, Heart, Lock, Plus } from "lucide-react";
 import type { BrowseCard } from "../api";
 import { compact, plural, shortDate, size } from "../format";
-import { Chip, cx } from "../ui";
+import { Chip, cx, IconButton } from "../ui";
 
 /** A card's picture, or for Hugging Face (which has none) a quiet panel with its owner's initial. */
 function Thumb({ card }: { card: BrowseCard }) {
@@ -39,7 +39,7 @@ export const Card = memo(function Card({ card, picked, onOpen, onQuick }: { card
         <span className="relative block h-[150px] w-full overflow-hidden">
           <Thumb card={card} />
           <span className="absolute top-2 left-2 rounded-md bg-shade/80 px-1.5 py-0.5 text-micro font-bold text-ink">{[card.type, card.fits ?? card.base].filter(Boolean).join(" · ")}</span>
-          {picked && <span className="absolute top-2 right-2 flex items-center gap-1 rounded-md bg-accent px-1.5 py-0.5 text-micro font-bold text-accent-ink"><Check size={11} /> picked</span>}
+          {picked && <Chip size="xs" tone="solid" className="absolute top-2 right-2"><Check size={11} /> picked</Chip>}
           <span className="absolute bottom-2 left-2 flex flex-wrap gap-1">
             {card.have && <span className="rounded-md bg-shade/80 px-1.5 py-0.5 text-micro font-bold text-good">on this PC</span>}
             {inSet && <span className="rounded-md bg-shade/80 px-1.5 py-0.5 text-micro font-bold text-warn-ink">in set "{inSet}"</span>}
@@ -64,15 +64,16 @@ export const Card = memo(function Card({ card, picked, onOpen, onQuick }: { card
         </span>
       </button>
       {/* on the picture's bottom right corner (150 px high), over the body's button rather than in it */}
-      <button
-        type="button"
-        aria-label={`Pick ${card.name}`}
-        data-tip="Pick its file (a version of several files opens, to choose)"
+      <IconButton
+        size={28}
+        tone="primary"
+        label={`Pick ${card.name}`}
+        tip="Pick its file (a version of several files opens, to choose)"
         onClick={() => onQuick(card)}
-        className="absolute top-[114px] right-2 grid size-7 place-items-center rounded-lg bg-accent text-accent-ink opacity-0 shadow-lg transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+        className="absolute top-[114px] right-2 opacity-0 shadow-lg group-hover:opacity-100 focus-visible:opacity-100"
       >
         <Plus size={15} />
-      </button>
+      </IconButton>
     </div>
   );
 });

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Bookmark, MapPin, Plus, Puzzle, Sparkles, User, X } from "lucide-react";
+import { Bookmark, MapPin, Plus, Puzzle, Sparkles, User } from "lucide-react";
 import type { Entity } from "../../api";
 import { Button, PageHeader, SearchField, SegmentCount, Segmented } from "../../ui";
 
@@ -52,7 +52,7 @@ export function KitHeader({ tab, onTab, all, loading, query, onQuery, newLabel, 
             placeholder={`Search ${here.title.toLowerCase()}`}
             value={query}
             onChange={onQuery}
-            end={query && <button type="button" aria-label="Clear the search" onClick={() => onQuery("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
+            onClear={() => onQuery("")}
           />
           {extra}
           <Button size="sm" tone="primary" disabled={busy} onClick={onNew} className="shrink-0"><Plus size={14} /> {newLabel ?? here.add}</Button>

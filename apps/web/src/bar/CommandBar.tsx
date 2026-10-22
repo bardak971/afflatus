@@ -5,7 +5,7 @@ import { ChevronRight, Search } from "lucide-react";
 import type { CommandEntry } from "../api";
 import { useSettings } from "../data";
 import { focusBehindMenu } from "../ContextMenu";
-import { cx } from "../ui";
+import { Chip, cx } from "../ui";
 import { Keys } from "../Keys";
 import { settingHref } from "../screens/settings/settingsIndex";
 import { BarFooter } from "./BarFooter";
@@ -26,6 +26,8 @@ import { useFlash } from "../hooks";
 
 const MODE_WORD: Partial<Record<Mode, string>> = { command: "commands", setting: "settings", calc: "calculator", queue: "queue", keys: "keys", cast: "cast" };
 const MODE_TONE: Record<Mode, string> = { all: "text-accent", command: "text-warn-ink", setting: "text-ink-2", calc: "text-good", queue: "text-good", keys: "text-ink-2", cast: "text-accent" };
+/** The mode's word after the search, as a chip in the colour of the glass before it (MODE_TONE). */
+const MODE_CHIP: Record<Mode, "accent" | "warn" | "neutral" | "good"> = { all: "accent", command: "warn", setting: "neutral", calc: "good", queue: "good", keys: "neutral", cast: "accent" };
 
 /** Why an action cannot run, in a few words: its note ("ComfyUI is offline") or its label ("No model called “zzz”"). */
 const offSaid = (a: Action) => lowerFirst(a.note ?? a.label);
@@ -200,7 +202,7 @@ export function CommandBar() {
                 style={{ outline: "none" }}
               />
               </div>
-              {MODE_WORD[mode] && !acting && <span className={cx("shrink-0 rounded-full bg-raised px-2.5 py-0.5 text-xs", MODE_TONE[mode])}>{MODE_WORD[mode]}</span>}
+              {MODE_WORD[mode] && !acting && <Chip tone={MODE_CHIP[mode]}>{MODE_WORD[mode]}</Chip>}
               {index.isFetching && !index.data && <span className="shrink-0 text-xs text-ink-3">reading…</span>}
               <Keys keys="Esc" />
             </div>

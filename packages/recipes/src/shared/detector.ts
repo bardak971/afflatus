@@ -16,8 +16,8 @@ export const FACE_DETECTOR_SLOT = {
 export const DETECTOR_SLOTS = [
   FACE_DETECTOR_SLOT,
   {
-    id: "handDetector", label: "Hand detector (Face refine)", folder: "ultralytics", detect: ["hand_yolo"], optional: true,
-    hint: "Optional, 23 MB: a YOLOv8 hand detector, in ComfyUI's models/ultralytics/bbox folder. Picked as Face refine's detection model, it fixes hands instead of faces.",
+    id: "handDetector", label: "Hand detector (Hand refine)", folder: "ultralytics", detect: ["hand_yolo"], optional: true,
+    hint: "Optional, 23 MB: a YOLOv8 hand detector, in ComfyUI's models/ultralytics/bbox folder. Hand refine finds hands with it (Face refine with this detection model).",
     get: { file: "bbox/hand_yolov8s.pt", url: "https://huggingface.co/Bingsu/adetailer/resolve/main/hand_yolov8s.pt" },
   },
 ];

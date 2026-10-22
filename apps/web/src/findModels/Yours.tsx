@@ -6,7 +6,7 @@ import { plural, size } from "../format";
 import { useSettled } from "../hooks";
 import { filesOfPick, ViaChip } from "../modelFilesUi";
 import { queryKeys } from "../queryKeys";
-import { cx, Empty, ErrorNote, SearchField } from "../ui";
+import { cx, Empty, ErrorNote, IconButton, SearchField } from "../ui";
 import type { PickedFile } from "./store";
 
 /** One of the user's own: a preset or a family's usual files, as a card; + picks all its files. */
@@ -21,9 +21,9 @@ function OwnCard({ kind, name, files, picked, onPick }: { kind: string; name: st
           <span className="line-clamp-2 text-title font-semibold break-words">{name}</span>
           <span className="text-xs text-ink-3">{kind} · {plural(files.length, "file")}{bytes ? ` · ${size(bytes)}` : ""}</span>
         </span>
-        <button type="button" aria-label={`Pick ${name}'s files`} onClick={onPick} disabled={all || !files.length} className={cx("grid size-7 shrink-0 place-items-center rounded-lg", all ? "bg-accent-wash text-accent" : "bg-accent text-accent-ink hover:brightness-110")}>
+        <IconButton size={28} tone="primary" pressed={all} label={`Pick ${name}'s files`} tip={all ? "All its files are picked" : undefined} onClick={onPick} disabled={all || !files.length}>
           {all ? <Check size={14} /> : <Plus size={15} />}
-        </button>
+        </IconButton>
       </span>
       <span className="flex flex-col gap-1">
         {files.slice(0, 4).map((f) => (
@@ -80,7 +80,7 @@ export function Yours({ words, onWords, picked, onPick }: { words: string; onWor
                   <span className="min-w-0 break-all">{f.file}<span className="text-ink-3"> · {f.folder}</span></span>
                   <ViaChip via={f.via} />
                   <span className="text-right font-mono text-xs text-ink-3">{f.size ? size(f.size) : "–"}</span>
-                  <button type="button" aria-label={`Pick ${f.file}`} disabled={on} onClick={() => pick("this PC", filesOfPick({ kind: "file", hit: f }))} className={cx("grid size-6 place-items-center rounded-md", on ? "text-accent" : "text-ink-2 hover:bg-raised hover:text-ink")}>{on ? <Check size={13} /> : <Plus size={14} />}</button>
+                  <IconButton size={24} pressed={on} label={`Pick ${f.file}`} tip={on ? "Picked" : undefined} disabled={on} onClick={() => pick("this PC", filesOfPick({ kind: "file", hit: f }))}>{on ? <Check size={13} /> : <Plus size={14} />}</IconButton>
                 </div>
               );
             })}

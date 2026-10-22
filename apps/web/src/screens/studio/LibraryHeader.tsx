@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type RefObject } from "react";
-import { Clock, Film, Search, SlidersHorizontal, Star, Trash2, Undo2, X } from "lucide-react";
+import { Clock, Film, Search, SlidersHorizontal, Star, Trash2, Undo2 } from "lucide-react";
 import { Popover } from "../../Popover";
 import { useFit } from "../../useFit";
 import { useLocation } from "wouter";
@@ -8,7 +8,7 @@ import type { Asset } from "../../api";
 import { useAssetFamilies, useAssetModels, useFolders, useRecipes, useProjects } from "../../data";
 import { fileLabel } from "../../format";
 import { Select } from "../../Select";
-import { Button, Checkbox, CloseButton, cx, Help, SectionTitle, Segmented } from "../../ui";
+import { Button, Checkbox, Chip, CloseButton, cx, Help, IconButton, SearchField, SectionTitle, Segmented } from "../../ui";
 import type { Place } from "../Library";
 import { displayOf, type Scope, type useStudio } from "../../store";
 import { PlaceCrumbs } from "../library/FolderPanel";
@@ -130,35 +130,43 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
       <div id="timeline-selection-slot" className="contents" />
       {/* the draft's stage has no search of its own: the button opens the library's, on the folder's grid, where results show */}
       {draftOnly && !showTimelines && (
-        <button
-          type="button" data-search-opener aria-label="Search the library" data-tip="Search the library (/): shows the folder's grid"
+        <IconButton
+          size={36}
+          tone="outline"
+          data-search-opener
+          label="Search the library"
+          tip="Search the library (/): shows the folder's grid"
           onClick={() => {
             const grid = displayOf(view, "all") === "Stage" ? { displays: { ...view.displays, all: view.size } } : {};
             view.set({ scope: "all", ...grid });
             setSearching(true);
           }}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-raised text-ink-2 hover:text-ink"
         >
           <Search size={15} />
-        </button>
+        </IconButton>
       )}
       {!draftOnly && (
         <>
           {fold >= 2 && !searching && !typed ? (
-            <button type="button" data-search-opener aria-label="Search the library" data-tip="Search prompts and names (/)" onClick={() => setSearching(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-raised text-ink-2 hover:text-ink">
+            <IconButton size={36} tone="outline" data-search-opener label="Search the library" tip="Search prompts and names (/)" onClick={() => setSearching(true)}>
               <Search size={15} />
-            </button>
+            </IconButton>
           ) : (
             // folded to an icon and opened: the box lies over the header's controls, just left of Filters, rather than push
             // the row past its width (the header slid sideways and cut the breadcrumb); left with words in it, it is narrower
-            <label
-              style={fold >= 2 ? { right: (filtersButton.current?.offsetWidth ?? 80) + 28 } : undefined}
-              className={cx("flex h-9 items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent", fold >= 2 ? cx("absolute top-1/2 z-10 -translate-y-1/2 shadow-lg shadow-shade/40", searching ? "w-[min(320px,55%)]" : "w-40") : "w-64 min-w-28 shrink")}
-            >
-              <Search size={14} className="shrink-0 text-ink-3" />
-              <input data-search autoFocus={searching} onBlur={() => setSearching(false)} aria-label={showTimelines ? "Search timelines" : "Search the library"} placeholder={showTimelines ? "Search timelines by name" : "Search prompts and names"} value={typed} onChange={(e) => setTyped(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
-              {typed && <button type="button" aria-label="Clear the search" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
-            </label>
+            <SearchField
+              size={36}
+              data-search
+              autoFocus={searching}
+              onBlur={() => setSearching(false)}
+              label={showTimelines ? "Search timelines" : "Search the library"}
+              placeholder={showTimelines ? "Search timelines by name" : "Search prompts and names"}
+              value={typed}
+              onChange={setTyped}
+              onClear={() => setTyped("")}
+              wrapperProps={{ style: fold >= 2 ? { right: (filtersButton.current?.offsetWidth ?? 80) + 28 } : undefined }}
+              className={fold >= 2 ? cx("absolute top-1/2 z-10 -translate-y-1/2 shadow-lg shadow-shade/40", searching ? "w-[min(320px,55%)]" : "w-40") : "w-64 min-w-28 shrink"}
+            />
           )}
           {/* ticked items: what is done with them takes the filters' place, after the kinds and the search */}
           {ticking && <SelectionBar place={place} count={count} onSelectAll={onSelectAll} selection={selection} compact={fold >= 7} />}
@@ -172,7 +180,7 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
             className={cx("flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold", active.length || filtersOpen ? "border-accent text-ink" : "border-line text-ink-2 hover:text-ink")}
           >
             <SlidersHorizontal size={14} /> Filters
-            {active.length > 0 && <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent px-1 text-meta font-bold text-accent-ink">{active.length}</span>}
+            {active.length > 0 && <Chip size="xs" tone="solid" className="min-w-4.5 justify-center font-mono">{active.length}</Chip>}
           </button>}
         </>
       )}

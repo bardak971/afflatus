@@ -7,7 +7,7 @@ import { Keys } from "../Keys";
 import { useProject } from "../project";
 import { useKeysHere } from "../keys/here";
 import { displayOf, useBanners, useHandover, useOpenDraft, usePanelWidth, useStudio, type Scope } from "../store";
-import { cx, Empty, ErrorNote } from "../ui";
+import { cx, Empty, ErrorNote, IconButton } from "../ui";
 import { Viewer } from "../viewer/LazyViewer";
 import { useTileMenu } from "../TileMenu";
 import { FolderPanel, Tile } from "./Library";
@@ -67,9 +67,9 @@ function RunningTile({ onDraft }: { onDraft(id: string): void }) {
 function FormRail({ onOpen }: { onOpen(): void }) {
   return (
     <aside aria-label="Create (folded)" className="flex w-[46px] shrink-0 flex-col items-center gap-2.5 border-r border-line bg-panel py-3.5">
-      <button type="button" aria-label="Create: open the form" data-tip="Create: open the form (N)" onClick={onOpen} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-accent text-accent-ink shadow-[0_4px_12px_color-mix(in_srgb,var(--color-accent)_30%,transparent)] hover:brightness-110">
+      <IconButton tone="primary" label="Create: open the form" keys="N" onClick={onOpen} className="shadow-[0_4px_12px_color-mix(in_srgb,var(--color-accent)_30%,transparent)]">
         <Plus size={16} strokeWidth={2.6} />
-      </button>
+      </IconButton>
       {/* read bottom to top, as a spine */}
       <span aria-hidden className="rotate-180 text-meta font-bold tracking-label text-ink-2 uppercase [writing-mode:vertical-rl]">Create</span>
     </aside>

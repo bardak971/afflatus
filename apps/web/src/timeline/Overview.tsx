@@ -308,11 +308,9 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
           <FieldRow label="Cast and look" note="Who is in the video, its style and a few mood words, set once for every clip: the people's reference pictures and LoRAs, and the words added to each clip's prompt. A clip given its own cast and look keeps it; changes apply from the next take.">
             <span className="flex min-w-0 items-center gap-1.5">
               {castKnown ? (
-                <span className="inline-flex h-[26px] min-w-0 items-center rounded-full bg-hover px-2.5 text-body font-semibold text-ink" data-tip={castWords || undefined}>
-                  <span className="truncate">{castWords || "Nobody cast, no mood"}</span>
-                </span>
+                <Chip truncate tip={castWords || undefined}>{castWords || "Nobody cast, no mood"}</Chip>
               ) : (
-                <span aria-label="Loading the cast" className="m-skeleton h-[26px] w-28 rounded-full!" />
+                <span aria-label="Loading the cast" className="m-skeleton h-6 w-28 rounded-full!" />
               )}
               <span className="grow" />
               <button type="button" onClick={onCast} className={quiet}>Change</button>

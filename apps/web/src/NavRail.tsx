@@ -6,7 +6,7 @@ import { useQueueOf } from "./screens/studio/queueOf";
 import { MARK } from "./logo";
 import { ThemeFlip } from "./theme/Appearance";
 import { ProgressRing } from "./progress/Progress";
-import { cx } from "./ui";
+import { Chip, cx } from "./ui";
 import { newsOf, useUpdates, useUpdatesSeen } from "./updates";
 
 type Entry = { href: string; label: string; icon: ReactNode };
@@ -78,8 +78,8 @@ function QueueItem({ path }: { path: string }) {
       pill={running && <ProgressRing value={Math.min(1, Math.max(0, running.progress))} steps={running.steps} loading={!(running.progress > 0)} />}
       badge={
         waiting > 0 && (
-          <span aria-hidden className="absolute top-0.5 right-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 font-mono text-micro font-extrabold text-accent-ink">
-            {waiting}
+          <span aria-hidden className="absolute top-0 right-2 flex">
+            <Chip size="xs" tone="solid" className="min-w-4.5 justify-center font-mono">{waiting}</Chip>
           </span>
         )
       }

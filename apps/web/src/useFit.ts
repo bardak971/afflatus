@@ -49,6 +49,7 @@ export function useFit(ref: RefObject<HTMLElement | null>, steps: number, resetK
       sized.disconnect();
       changed.disconnect();
     };
-  }, [ref, steps]);
+    // a new key may come with a bar that was not there before (a shelf opened): the observers then watch that one
+  }, [ref, steps, resetKey]);
   return Math.min(level, steps);
 }

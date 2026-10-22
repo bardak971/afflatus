@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Square, X } from "lucide-react";
+import { Square } from "lucide-react";
 import type { Asset } from "../../api";
 import { useAssets, useFamilyName } from "../../data";
 import { clock, phaseLabel, timeLeft, when } from "../../format";
@@ -7,7 +7,7 @@ import { Keys } from "../../Keys";
 import { useStudio } from "../../store";
 import { LivePreview, StageStrip } from "../../LivePreview";
 import { useStop } from "../../ModelLoad";
-import { Bar, Button, cx, Empty, ErrorNote } from "../../ui";
+import { Bar, Button, CloseButton, cx, Empty, ErrorNote } from "../../ui";
 import { Viewer } from "../../viewer/LazyViewer";
 import { useTileMenu } from "../../TileMenu";
 import { Tile, tileName } from "../Library";
@@ -122,9 +122,7 @@ export function DraftResults({ draft, folder, list, title, empty }: {
         {waiting > 0 && (
           <span className="flex items-center justify-between gap-1 rounded-lg border border-dashed border-line-strong py-1 pr-1 pl-2 text-xs text-ink-2">
             {waiting} queued
-            <button type="button" aria-label={`Remove the ${waiting} queued jobs from the queue`} data-tip="Remove from the queue" disabled={stop.isPending} onClick={() => stop.mutate(inLine)} className="flex h-6 w-6 items-center justify-center rounded-md hover:bg-hover hover:text-warn">
-              <X size={13} />
-            </button>
+            <CloseButton size={24} label={`Remove the ${waiting} queued jobs from the queue`} tip="Remove from the queue" disabled={stop.isPending} onClose={() => stop.mutate(inLine)} />
           </span>
         )}
         {/* the newer pages, let go past the cap (useAssets) */}

@@ -152,7 +152,7 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
 
 /** How many a header button acts on, in the accent: the button stays plain, its figure says there is something to do. */
 function Count({ n }: { n: number }) {
-  return <span className="-ml-0.5 inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-accent px-1.5 font-mono text-micro font-bold text-accent-ink">{n}</span>;
+  return <Chip size="xs" tone="solid" className="-ml-0.5 min-w-4.5 justify-center font-mono">{n}</Chip>;
 }
 
 /**

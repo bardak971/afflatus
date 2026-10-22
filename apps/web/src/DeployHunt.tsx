@@ -105,7 +105,7 @@ export function HuntSection({ ask, change, ranking, stepDown = [], overhead, fai
             <span className="flex min-w-0 items-center gap-2">
               <span className="truncate font-semibold">{g.name}</span>
               {g.memory > 0 && <Chip size="xs" className="font-mono">{g.memory} GB</Chip>}
-              {g === pick && <span className="shrink-0 rounded-md bg-accent px-1.5 text-meta font-bold text-accent-ink">first pick</span>}
+              {g === pick && <Chip size="xs" tone="solid">first pick</Chip>}
             </span>
             <span className="text-right font-mono text-xs">{usd(g.price)}</span>
             <span className="flex flex-col items-end">

@@ -6,7 +6,7 @@ import { keysOfRow as keysWith, opened, rowId, searchKeys, wordsRe, type Found, 
 import { BAR_DEFAULT, PLACES, placeById, rowCount, type KeyRow, type PlaceId } from "./keys/table";
 import { useSettings } from "./data";
 import { scrollInside } from "./scrollInside";
-import { CloseButton, cx, SearchField } from "./ui";
+import { Chip, CloseButton, cx, SearchField } from "./ui";
 import { plural } from "./format";
 
 /** The last place picked, for this browser tab's session, with the places that were open then. */
@@ -301,7 +301,7 @@ function Results({ found, active, onActive, onChoose, keysOfRow, pane, query }: 
     >
       <span className="flex w-[170px] shrink-0 items-center gap-1.5 truncate text-xs text-ink-3">
         <span className="truncate">{f.place.name}{f.group.kind ? ` · ${f.group.kind}` : ""}</span>
-        {f.here && <span className="shrink-0 rounded-key bg-accent px-1.5 text-micro font-bold text-accent-ink">here</span>}
+        {f.here && <Chip size="xs" tone="solid">here</Chip>}
       </span>
       <Does row={f.row} query={words ? query : undefined} />
       <Keys keys={keysOfRow(f.row)} hits={f.hits} />
