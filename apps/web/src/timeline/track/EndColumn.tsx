@@ -8,15 +8,17 @@ import { ROW, SOUND, SOURCE } from "./rows";
 export const STRIP = 36;
 
 /**
- * Where the end column stands: after the last clip, moving with it; while the clips run past the view, pinned at the view's
- * right edge so that its drops stay in reach, as a slim strip (it is then drawn over the clips, and at 344 px it covered
- * half the track at 1280 px zoomed in). `end`: where the clips end (px); `view`: the part of the track in view (its width 0
- * before it is measured).
+ * Where the end column stands: after the last clip, moving with it, in full where all of it fits in the view; else the
+ * slim strip (`pinned`; at 344 px the column covered half the track at 1280 px zoomed in, and Fit all, which had to leave
+ * room for all of it, gave the clips under half the track): after the last clip while it fits there, else pinned at the
+ * view's right edge so that its drops stay in reach, drawn over the clips. `end`: where the clips end (px); `view`: the
+ * part of the track in view (its width 0 before it is measured).
  */
 export function endColumnAt(end: number, pad: number, view: { left: number; width: number }): { left: number; pinned: boolean } {
   const after = end + pad;
-  if (!view.width || end <= view.left + view.width) return { left: after, pinned: false };
-  return { left: Math.max(pad, view.left + view.width - STRIP), pinned: true };
+  const right = view.left + view.width;
+  if (!view.width || after + NEW_CLIP <= right) return { left: after, pinned: false };
+  return { left: Math.max(pad, Math.min(after, right - STRIP)), pinned: true };
 }
 
 /** What each cell says: the full column's words, the strip's tips. */

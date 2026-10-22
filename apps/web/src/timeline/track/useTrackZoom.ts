@@ -1,6 +1,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 import type { Clock } from "../clock";
-import { NEW_CLIP, PAD, placeOf, ZOOM, type Slot } from "../model";
+import { PAD, placeOf, ZOOM, type Slot } from "../model";
+import { STRIP } from "./EndColumn";
 
 /** What the editor's keys reach on the track: a zoom step around the playhead, and Fit all. */
 export interface TrackKeys {
@@ -61,8 +62,10 @@ export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clo
     return () => el.removeEventListener("wheel", onWheel);
   }, [onZoom, scroller]);
 
+  // the clips take the track but for the end column's slim strip after them (endColumnAt shows the strip where the full
+  // column does not fit): room for the full 344 px column left the clips under half the track, none beside a wide inspector
   const fitAll = () => {
-    const room = (scroller.current?.clientWidth ?? 800) - NEW_CLIP - PAD * 3 - 40;
+    const room = (scroller.current?.clientWidth ?? 800) - STRIP - PAD * 3;
     if (fitMs <= 0) return;
     whole.current = true;
     onZoom(Math.max(ZOOM.least, Math.min(ZOOM.most, room / (fitMs / 1000))));
