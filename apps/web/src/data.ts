@@ -17,13 +17,18 @@ export const useRecipes = () => useQuery({ queryKey: queryKeys.recipes(), queryF
 /**
  * How large the families' official files are (address → bytes): what a greyed file says beside it. The server asks them
  * in the background with lookups on: read again every 20 s while it says it is asking, a few minutes at most, then kept
- * (with lookups off, or offline, it asks nothing and the page stops at once).
+ * (with lookups off, or offline, it asks nothing and the page stops at once). Lookups switched on: read again, the
+ * server asking from then on (it is kept under the switch, which the settings say), the sizes known so far kept meanwhile.
  */
-export const useOfficialSizes = () =>
-  useQuery({
-    queryKey: queryKeys.officialSizes(), queryFn: ({ signal }) => api.officialSizes({ signal }), staleTime: Infinity, select: (d) => d.sizes,
+export const useOfficialSizes = () => {
+  const settings = useSettings();
+  return useQuery({
+    queryKey: queryKeys.officialSizes(settings.data?.civitaiLookups ?? null), queryFn: ({ signal }) => api.officialSizes({ signal }), staleTime: Infinity, select: (d) => d.sizes,
+    // asked once the settings are read (or failed to be): not once before them and again under their switch
+    enabled: !settings.isPending, placeholderData: keepPreviousData,
     refetchInterval: (q) => (q.state.data?.asking && q.state.dataUpdateCount < SIZES_POLLS ? 20_000 : false),
   });
+};
 /** How many times the sizes are read while the server asks them: a quarter of an hour at most. */
 const SIZES_POLLS = 45;
 /** A model family's name by its id: the id itself while the recipes load, or for a family no longer installed. */

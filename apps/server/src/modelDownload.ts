@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access, constants, mkdir, open, realpath, rename, rm, stat, statfs } from "node:fs/promises";
+import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { isNetworkPath } from "./linked";
@@ -259,7 +260,11 @@ export const inside = (root: string, path: string) => {
   return !rel.startsWith("..") && !isAbsolute(rel);
 };
 
-/** Whether ComfyUI's address names this machine: then the folders it says are folders here. */
+/**
+ * Whether ComfyUI's address names this machine: then the folders it says are folders here. Only "localhost" or an
+ * IP address counts (a loopback one, or one of this machine's own): a host name such as 127.example.net resolves
+ * wherever its owner wants, so its first label proves nothing.
+ */
 export function onThisMachine(comfyUrl: string): boolean {
   let host: string;
   try {
@@ -267,7 +272,10 @@ export function onThisMachine(comfyUrl: string): boolean {
   } catch {
     return false;
   }
-  if (host === "localhost" || host === "::1" || host.startsWith("127.")) return true;
+  if (host === "localhost") return true;
+  const kind = isIP(host);
+  if (!kind) return false;
+  if ((kind === 4 && host.startsWith("127.")) || host === "::1") return true;
   return Object.values(networkInterfaces()).some((list) => list?.some((a) => a.address.toLowerCase() === host));
 }
 

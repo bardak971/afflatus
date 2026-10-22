@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import { ConfirmHost } from "../../src/Confirm";
+import { useOfficialSizes } from "../../src/data";
 import { FirstLaunch } from "../../src/screens/FirstLaunch";
 import { NoMachine } from "../../src/screens/queue/NoMachine";
 import { ComfyCard } from "../../src/screens/settings/ComfyCard";
@@ -49,6 +50,17 @@ describe("the first launch", () => {
     serveSettings(settings());
     fakeApi.on("GET /setup/find", { found: found({ dir: null, local: true }), tried: ["http://127.0.0.1:8188"] });
     draw(<FirstLaunch />);
+    expect(await screen.findByText(/On this PC, but its folder was not found/)).toBeTruthy();
+    expect(screen.queryByText(/On another computer/)).toBeNull();
+  });
+
+  it("says a ComfyUI added without Test is on this PC from what the server knows, not from this page's probe", async () => {
+    serveSettings(settings({ machines: [{ ...own, local: true }] }));
+    // off when the page opened: nothing found, no Test pressed
+    fakeApi.on("GET /setup/find", { found: null, tried: ["http://127.0.0.1:8188"] });
+    const { client, rerender } = draw(<></>);
+    await client.prefetchQuery({ queryKey: ["settings"], queryFn: () => fetch("/api/settings").then((r) => r.json()) });
+    rerender(<FirstLaunch />);
     expect(await screen.findByText(/On this PC, but its folder was not found/)).toBeTruthy();
     expect(screen.queryByText(/On another computer/)).toBeNull();
   });
@@ -145,5 +157,38 @@ describe("Settings › ComfyUI with no ComfyUI of the user's own", () => {
     pending.answer(jsonAnswer({ error: "zz-test the database is locked" }, 500));
     expect(await screen.findByText(/The settings could not be read/)).toBeTruthy();
     expect(screen.queryByText("Your ComfyUI")).toBeNull();
+  });
+});
+
+describe("Settings › ComfyUI with the settings in hand", () => {
+  it("keeps the card when the settings are read again and that read fails", async () => {
+    serveSettings(settings({ machines: [own] }));
+    const { client } = draw(<ComfyCard />);
+    expect(await screen.findAllByLabelText("ComfyUI URL")).not.toEqual([]);
+    // the server away for a moment (a restart): React Query keeps the settings it had
+    fakeApi.on("GET /settings", () => jsonAnswer({ error: "zz-test the server is restarting" }, 500));
+    await client.refetchQueries({ queryKey: ["settings"] });
+    await waitFor(() => expect(client.getQueryState(["settings"])?.status).toBe("error"));
+    expect(screen.queryByText(/The settings could not be read/)).toBeNull();
+    expect(screen.getAllByLabelText("ComfyUI URL")).not.toEqual([]);
+  });
+});
+
+describe("the official files' sizes", () => {
+  function Sizes() {
+    const sizes = useOfficialSizes();
+    return <span>{sizes.data ? Object.keys(sizes.data).length : "none"} sizes</span>;
+  }
+
+  it("are read again once lookups are turned on, the server asking only with them on", async () => {
+    serveSettings(settings({ civitaiLookups: false }));
+    fakeApi.on("GET /official-sizes", { sizes: {}, asking: false });
+    const { client } = draw(<Sizes />);
+    await screen.findByText("0 sizes");
+    await waitFor(() => expect(fakeApi.calls("GET", "/official-sizes").length).toBe(1));
+    fakeApi.on("GET /official-sizes", { sizes: { "https://huggingface.co/zz-test/a.safetensors": 1024 }, asking: false });
+    client.setQueryData(["settings"], { ...settings(), civitaiLookups: true });
+    expect(await screen.findByText("1 sizes")).toBeTruthy();
+    expect(fakeApi.calls("GET", "/official-sizes").length).toBe(2);
   });
 });

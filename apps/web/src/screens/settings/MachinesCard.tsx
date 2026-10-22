@@ -273,7 +273,7 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
           {publicPlainHttp(machine.url) && <ErrorNote>A public address over plain http: anyone who finds it can run code on this ComfyUI. Reach it through Tailscale or an SSH tunnel, or put it behind a proxy that asks for a password.</ErrorNote>}
         </Block>
       )}
-      {!rented && <Row label="Folder on this computer" htmlFor={`comfy-dir-${machine.id}`} help="Optional: this ComfyUI's own folder (the one with main.py), when it is on this computer. Leave it empty for another computer or a rented instance.">
+      {!rented && <Row label="Folder on this computer" htmlFor={`comfy-dir-${machine.id}`} help="Optional: this ComfyUI's folder, the one that holds custom_nodes and models (on ComfyUI Desktop, the base folder chosen when installing it), when it is on this computer. Leave it empty for another computer or a rented instance.">
         <input id={`comfy-dir-${machine.id}`} value={dir} onChange={(e) => setDir(e.target.value)} placeholder="empty when it runs elsewhere" spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
         <Button onClick={() => put({ dir: dir.trim() })} disabled={save.isPending || dir.trim() === machine.dir}>Save</Button>
       </Row>}
