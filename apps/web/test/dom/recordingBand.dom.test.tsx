@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { act, fireEvent, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import type { Clip, RecipeInfo, Timeline } from "../../src/api";
 import { layout } from "../../src/timeline/model";
 import { RecordingBands } from "../../src/timeline/track/RecordingBand";
@@ -108,5 +108,65 @@ describe("a recording on the Audio row", () => {
     // its start then a second later: with its clips' end, not the one refused
     pull("Drag: where the recording starts", 100, 40);
     expect(asked).toEqual(["2000–11200", "3000–12200"]);
+  });
+
+  describe("its edges at their limits", () => {
+    /** The system asking for less motion, or not: matchMedia as a browser answers it. */
+    const motion = (reduced: boolean) => vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes(reduced ? "motion: reduce" : "no-preference"), media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+    afterEach(() => vi.unstubAllGlobals());
+    const width = (container: HTMLElement) => parseFloat(container.querySelector<HTMLElement>('[aria-label^="Recording zz-test talk.wav:"]')!.style.width);
+    const drawBand = (cs: Clip[], onTrim: (a: string, f: number, t: number) => Promise<boolean> | void) =>
+      draw(<RecordingBands timeline={{ ...timeline, clips: cs }} slots={layout(cs, 40, [model])} recipes={[model]} pps={40} onTrim={onTrim} onSelect={() => {}} />);
+
+    it("draws its end past the recording's end with resistance, sends the end itself, and springs back to it", async () => {
+      motion(false);
+      const asked: string[] = [];
+      const { container } = drawBand(clips, (_a, f, t) => {
+        asked.push(`${f}–${t}`);
+        return new Promise<boolean>(() => {});
+      });
+      const end = container.querySelector<HTMLElement>('[data-tip^="Drag: where the recording ends"]')!;
+      // 40 px a second, 10.2 s drawn 408 px wide; the recording ends at 15 s (520 px)
+      expect(width(container)).toBe(408);
+      fireEvent.pointerDown(end, { button: 0, clientX: 500 });
+      // 10 s further: 7.2 s (288 px) past its end, drawn 95.4 px past it (a give of 240 px, the skill's 0.55)
+      fireEvent.pointerMove(end, { clientX: 900 });
+      expect(width(container)).toBeCloseTo(520 + (288 * 240 * 0.55) / (240 + 0.55 * 288), 1);
+      fireEvent.pointerMove(end, { clientX: 1300 });
+      const further = width(container);
+      expect(further).toBeGreaterThan(616);
+      expect(further).toBeLessThan(520 + 240);
+      fireEvent.pointerUp(end, { clientX: 1300 });
+      // the end sent is the recording's end, as before; drawn from where it was let go of, springing back to it
+      expect(asked).toEqual(["2000–15000"]);
+      expect(width(container)).toBeCloseTo(further, 1);
+      await waitFor(() => expect(width(container)).toBe(520), { timeout: 3000 });
+    });
+
+    it("stops at the limit under reduced motion, as it always did", () => {
+      motion(true);
+      const asked: string[] = [];
+      const { container } = drawBand(clips, (_a, f, t) => void asked.push(`${f}–${t}`));
+      const end = container.querySelector<HTMLElement>('[data-tip^="Drag: where the recording ends"]')!;
+      fireEvent.pointerDown(end, { button: 0, clientX: 500 });
+      fireEvent.pointerMove(end, { clientX: 900 });
+      expect(width(container)).toBe(520);
+      fireEvent.pointerUp(end, { clientX: 900 });
+      expect(asked).toEqual(["2000–15000"]);
+    });
+
+    it("resists toward a rendered clip's end rather than drawing it shortened, the end asked sent as before", () => {
+      motion(false);
+      const asked: string[] = [];
+      const rendered = [clips[0]!, { ...clips[1]!, take: { id: "zz-test-take" } } as unknown as Clip];
+      const { container } = drawBand(rendered, (_a, f, t) => void asked.push(`${f}–${t}`));
+      const end = container.querySelector<HTMLElement>('[data-tip^="Drag: where the recording ends"]')!;
+      fireEvent.pointerDown(end, { button: 0, clientX: 500 });
+      // 1.5 s in (60 px), in the second half of the rendered 6.7–12.2: it will rest at 12.2, drawn 29 px short of it
+      fireEvent.pointerMove(end, { clientX: 440 });
+      expect(width(container)).toBeCloseTo(408 - (60 * 240 * 0.55) / (240 + 0.55 * 60), 1);
+      fireEvent.pointerUp(end, { clientX: 440 });
+      expect(asked).toEqual(["2000–10700"]);
+    });
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PAD } from "../src/timeline/model";
-import { follow, releaseSpeed, rubberband, stepSpring, type Trail } from "../src/timeline/track/spring";
+import { edgeGive, follow, releaseSpeed, resisted, rubberband, stepSpring, type Trail } from "../src/timeline/track/spring";
 import { leftsOf, orderWhileDragged } from "../src/timeline/track/useClipDrag";
 
 describe("the clip drag's spring", () => {
@@ -51,6 +51,32 @@ describe("the clip drag's spring", () => {
     expect(a).toBeGreaterThan(0);
     expect(a).toBeLessThan(20);
     expect(b - a).toBeLessThan(200 - 20);
+  });
+
+  it("holds a trim's edge within its limits as drawn: past them it gives less and less, never more than its size", () => {
+    // within: where it is asked
+    expect(resisted(50, 0, 100, 80)).toBe(50);
+    // past either bound, by the skill's curve (constant 0.55): 20 px past an 80 px give is drawn 9.7 px past
+    expect(resisted(120, 0, 100, 80)).toBeCloseTo(100 + (20 * 80 * 0.55) / (80 + 0.55 * 20), 6);
+    expect(resisted(-20, 0, 100, 80)).toBeCloseTo(-(20 * 80 * 0.55) / (80 + 0.55 * 20), 6);
+    expect(resisted(120, 0, 100, 80)).toBeCloseTo(109.67, 2);
+    // the further, the less it follows, and never as far as its give, however far the pointer goes
+    const overs = [10, 50, 200, 1000, 100_000];
+    const drawn = overs.map((over) => resisted(100 + over, 0, 100, 80) - 100);
+    for (let k = 1; k < overs.length; k++) expect((drawn[k]! - drawn[k - 1]!) / (overs[k]! - overs[k - 1]!)).toBeLessThan((drawn[k - 1]! - (drawn[k - 2] ?? 0)) / (overs[k - 1]! - (overs[k - 2] ?? 0)));
+    expect(drawn.at(-1)!).toBeLessThan(80);
+    // under reduced motion it stops at the bound, as it always did
+    expect(resisted(120, 0, 100, 80, false)).toBe(100);
+    expect(resisted(-20, 0, 100, 80, false)).toBe(0);
+    // a pair of equal bounds is a point it resists toward from either side (an end onto a rendered window)
+    expect(resisted(90, 100, 100, 80)).toBeLessThan(100);
+    expect(resisted(90, 100, 100, 80)).toBeGreaterThan(90);
+  });
+
+  it("gives an edge as much as its width, from 40 px to 240", () => {
+    expect(edgeGive(10)).toBe(40);
+    expect(edgeGive(120)).toBe(120);
+    expect(edgeGive(5000)).toBe(240);
   });
 });
 

@@ -11,14 +11,20 @@ import { canExtend, fileVersion, PAD, pinInputs, pinMirrors, playAt, titleOf, ty
 import { change, DRIFT } from "../lookDrift";
 import { SWATCH } from "../transitionLook";
 import { flipped, MirrorMark } from "../MirrorMark";
+import { motionAllowed } from "../../useFlip";
 import { HINTS, type PinPlace } from "./peek";
 import { ROW, SOUND } from "./rows";
 import type { Motion } from "./useMotionMarks";
+import { edgeGive, resisted } from "./spring";
 import type { Over } from "./useTrackDrop";
+import { useSpringBack } from "./useSpringBack";
 import { Wave } from "./Wave";
 
-/** An edge being dragged: the clip, which edge, and the length it has for now. */
-export type Stretch = { clip: string; side: "start" | "end"; lengthMs: number };
+/**
+ * An edge being dragged: the clip, which edge, and the length drawn for now (past a limit, a little more: useStretch).
+ * `settling`: let go of past a limit, it springs back to it, the trim already sent.
+ */
+export type Stretch = { clip: string; side: "start" | "end"; lengthMs: number; settling?: boolean };
 
 /** What a clip on the track does when it is clicked, dragged or pressed: read at that moment, so that the clips need not draw again when only these change. */
 export interface TrackClipActs {
@@ -129,8 +135,16 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
   // clip's strip at once, and forty pictures took the browser's six connections, so the measures the tracks snap to and
   // the editor's other reads waited behind them
   const [waited, setWaited] = useState(false);
-  /** A transition's length while one of its edges is dragged. */
-  const [pulling, setPulling] = useState<number | null>(null);
+  /**
+   * A transition's length while one of its edges is dragged (`held`), the length it gives and the length drawn: past what
+   * it may be, a little more, with resistance; let go of there, drawn on until it has sprung back (`back`).
+   */
+  const [pulling, setPulling] = useState<{ ms: number; drawnMs: number; held: boolean } | null>(null);
+  const back = useSpringBack();
+  const sprung = back.left.tag === null;
+  useEffect(() => {
+    if (pulling && !pulling.held && sprung) setPulling(null);
+  }, [pulling, sprung]);
   useEffect(() => {
     if (ownSound || waited) return;
     const t = setTimeout(() => setWaited(true), STRIP_WAIT_MS);
@@ -176,7 +190,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
         onPointerDown={(e) => {
           a().leaveTip();
           // moved by the pointer itself, not by the browser's drag picture (review 4, P7); not while an edge is pulled
-          if (!stretch) a().clipDown(e, s);
+          if (!stretch || stretch.settling) a().clipDown(e, s);
         }}
         onPointerMove={(e) => a().clipMove(e)}
         onPointerUp={(e) => a().clipUp(e)}
@@ -337,24 +351,40 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
         const differ = carries && modelsDiffer(prevRecipe, recipe);
         const t = carries ? null : c.transition;
         const span = transitionSpan(t, "cut", prev.lengthMs, c.lengthMs);
-        const shownMs = pulling ?? span;
-        const pillW = t && shownMs ? Math.max(34, (shownMs / 1000) * a().pps) : 0;
+        const pps = a().pps;
+        const shownMs = pulling ? pulling.drawnMs + (back.left.px / pps) * 1000 : span;
+        const pillW = t && shownMs ? Math.max(34, (shownMs / 1000) * pps) : 0;
+        // the longest it is drawn: what plays at most between these two clips (each half within its clip), the length it
+        // gives held within TRANSITION_MS as before (a longer one plays as long as this)
+        const playsMost = (t && transitionSpan({ ...t, ms: TRANSITION_MS.most }, "cut", prev.lengthMs, c.lengthMs)) || TRANSITION_MS.most;
         const dropping = over?.kind === "join" && over.clip === c.id;
         const pull = (e: ReactPointerEvent) => {
           e.stopPropagation();
           e.currentTarget.setPointerCapture(e.pointerId);
-          setPulling(span);
+          back.stop();
+          setPulling({ ms: span, drawnMs: span, held: true });
         };
         const pullTo = (e: ReactPointerEvent) => {
-          if (pulling === null) return;
-          const ms = (Math.abs(a().xOf(e.clientX) - s.left) * 2 * 1000) / a().pps;
-          setPulling(Math.round(Math.max(TRANSITION_MS.least, Math.min(TRANSITION_MS.most, ms)) / 10) * 10);
+          if (!pulling?.held) return;
+          const asked = (Math.abs(a().xOf(e.clientX) - s.left) * 2 * 1000) / pps;
+          const ms = Math.round(Math.max(TRANSITION_MS.least, Math.min(TRANSITION_MS.most, asked)) / 10) * 10;
+          // past its least or what plays at most, its edges follow the pointer with resistance (in px of its width)
+          const px = (x: number) => (x / 1000) * pps;
+          const over = resisted(px(asked), px(TRANSITION_MS.least), px(playsMost), edgeGive(pillW), motionAllowed()) - px(Math.max(TRANSITION_MS.least, Math.min(playsMost, asked)));
+          const drawnMs = Math.min(ms, playsMost) + (over / pps) * 1000;
+          back.seen(px(drawnMs));
+          setPulling({ ms, drawnMs, held: true });
         };
         const pullEnd = () => {
-          if (pulling !== null && t && pulling !== span) a().onTransition?.(c.id, { ...t, ms: pulling });
-          setPulling(null);
+          if (!pulling?.held) return;
+          if (t && pulling.ms !== span) a().onTransition?.(c.id, { ...t, ms: pulling.ms });
+          // what it plays once set; drawn there from where it was let go of, on the spring
+          const rest = t ? transitionSpan({ ...t, ms: pulling.ms }, "cut", prev.lengthMs, c.lengthMs) : 0;
+          if (!rest || Math.abs(pulling.drawnMs - rest) < 1) return setPulling(null);
+          back.jump((pulling.drawnMs / 1000) * pps, (rest / 1000) * pps, "length");
+          setPulling({ ms: pulling.ms, drawnMs: rest, held: false });
         };
-        const words = t ? `${TRANSITIONS[t.kind].label} ${(shownMs / 1000).toFixed(2)} s` : "";
+        const words = t ? `${TRANSITIONS[t.kind].label} ${((pulling?.ms ?? span) / 1000).toFixed(2)} s` : "";
         const hint = c.join === "stale"
           ? `Clip ${s.index + 1} no longer follows clip ${s.index}`
           : carries
@@ -374,7 +404,10 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
                 className={cx("absolute z-9 rounded-md border border-white/40 shadow-sm", dropping && "outline-2 outline-accent")}
               >
                 {(["left", "right"] as const).map((side) => (
-                  <span key={side} onPointerDown={pull} onPointerMove={pullTo} onPointerUp={pullEnd} onPointerCancel={() => setPulling(null)} className={cx("absolute inset-y-0 w-3 cursor-ew-resize", side === "left" ? "-left-1.5" : "-right-1.5")} />
+                  <span key={side} onPointerDown={pull} onPointerMove={pullTo} onPointerUp={pullEnd} onPointerCancel={() => {
+                    back.stop();
+                    setPulling(null);
+                  }} className={cx("absolute inset-y-0 w-3 cursor-ew-resize", side === "left" ? "-left-1.5" : "-right-1.5")} />
                 ))}
               </span>
             )}
