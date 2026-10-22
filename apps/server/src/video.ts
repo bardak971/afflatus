@@ -125,7 +125,7 @@ export async function videoFacts(file: string): Promise<VideoFacts | null> {
 }
 
 /** The same, with why there are none when there are none (ffprobe missing, out of time, the file refused, no picture in it). */
-async function probeVideo(file: string): Promise<{ facts: VideoFacts | null; why?: string }> {
+export async function probeVideo(file: string): Promise<{ facts: VideoFacts | null; why?: string }> {
   const probed = await run(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type,width,height,avg_frame_rate:format=duration", "-of", "json", file], "utf8");
   if (probed.out === null) return { facts: null, why: probed.why };
   try {

@@ -4,7 +4,7 @@ import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, mainMo
 import { catalogKey, ComfyCancelled, ComfyError, ComfyUnreachable } from "@afflatus/comfy";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
-import { cutFrames, frameAt, partOf, rangeKeep, referenceClip, soundPart } from "./cut";
+import { cutFrames, frameAt, inTemp, onDisk, partOf, rangeKeep, referenceClip, soundPart, type Media } from "./cut";
 import type { Db, Tables } from "./db";
 import { extOf } from "./media";
 import { usualParts } from "./renders";
@@ -12,7 +12,7 @@ import { sourceOf, type Storage } from "./storage";
 import { addPart, timedPart } from "./serverMetrics";
 import { maskBox, mirrorPicture, readPicture } from "./thumbs";
 import { ffmpegPool } from "./pool";
-import { readVideo, videoFacts } from "./video";
+import { probeVideo, readVideo, videoFacts, type VideoFacts } from "./video";
 import { ANY_PACKS, asBuilt, cannotWhy, optionsIn, packsSaid, ranWithoutSaid } from "./jobPacks";
 import { CATALOG_WAIT_MS, readJson, within, type JobRow, type QueueCore, type Resume } from "./queueModel";
 import type { Registry } from "./registry";
@@ -458,14 +458,14 @@ async function uploadJoinClip(up: Up, spec: InputSpec, value: ClipValue): Promis
   // H3's latent re-sample is conditioned on the drafts, as the draft it re-samples was
   const asset = up.finishedFrom ? await draftOf(db, shown) : await renderedOf(db, shown);
   // the model's own frames when they were kept (before an upscale or interpolation changed them): a
-  // continuation guided by frames of its own kind joins without the step a changed frame leaves
-  const rawBytes = asset.raw_key ? await storage.get(asset.raw_key).catch(() => null) : null;
-  const rawRead = rawBytes ? await readVideo(rawBytes, extOf(asset.mime)).catch(() => null) : null;
-  if (asset.raw_key && !rawRead?.facts) sent.warnings.push(`The model's own frames of the ${spec.role === "previous" ? "clip before" : "clip after"} were not found: the join took its finished frames.`);
-  const bytes = rawRead?.facts ? rawBytes! : await storage.get(asset.file_key);
-  const read = rawRead?.facts || (asset.duration_ms && asset.width && asset.height) ? null : await readVideo(bytes, extOf(asset.mime));
-  const facts = rawRead?.facts
-    ? rawRead.facts
+  // continuation guided by frames of its own kind joins without the step a changed frame leaves. Its facts are clipFacts'
+  // (probed once, by path), and the frames are cut where the file is stored: every run here sits in the GPU's idle
+  const rawFacts = asset.raw_key ? await rawFactsOf(storage, asset.raw_key, asset.mime) : null;
+  if (asset.raw_key && !rawFacts) sent.warnings.push(`The model's own frames of the ${spec.role === "previous" ? "clip before" : "clip after"} were not found: the join took its finished frames.`);
+  const source = await sourceOf(storage, rawFacts ? asset.raw_key! : asset.file_key);
+  const read = rawFacts || (asset.duration_ms && asset.width && asset.height) ? null : await probed(source, extOf(asset.mime));
+  const facts = rawFacts
+    ? rawFacts
     : read
       ? read.facts
       : { durationMs: asset.duration_ms!, width: asset.width!, height: asset.height!, hasSound: Boolean(asset.has_sound) };
@@ -474,12 +474,13 @@ async function uploadJoinClip(up: Up, spec: InputSpec, value: ClipValue): Promis
   // the form may say how many frames the join takes first; shorter counts stay as fallbacks for a short clip
   const wanted = spec.framesFrom ? Number(input[spec.framesFrom]) : NaN;
   const counts = Number.isFinite(wanted) && wanted > 0 ? [wanted, ...spec.frames.filter((c) => c < wanted)] : spec.frames;
-  const cut = await cutFrames(bytes, extOf(asset.mime), facts, { counts, fps: spec.fps, side: spec.role === "previous" ? "before" : "after", at, signal });
-  sent.media[spec.id] = { width: facts.width, height: facts.height, frames: cut.frames, fps: spec.fps, hasSound: facts.hasSound };
-  // the frames, the last frame as it was finished and the latent go up at once
+  // the frames, the last frame as it was finished and the latent at once: the look and the latent need nothing of the cut
   const [frames] = await Promise.all([
-    upload(cut.bytes, "mp4"),
-    spec.role === "previous" && (spec.look === true || (spec.look === "matched" && (await colourMatchedChain(db, asset.id)))) ? uploadLook(up, spec, asset, rawRead?.facts ? null : bytes, at) : null,
+    cutFrames(source, extOf(asset.mime), facts, { counts, fps: spec.fps, side: spec.role === "previous" ? "before" : "after", at, signal }).then((cut) => {
+      sent.media[spec.id] = { width: facts.width, height: facts.height, frames: cut.frames, fps: spec.fps, hasSound: facts.hasSound };
+      return upload(cut.bytes, "mp4");
+    }),
+    spec.role === "previous" && (spec.look === true || (spec.look === "matched" && (await colourMatchedChain(db, asset.id)))) ? uploadLook(up, spec, asset, rawFacts ? null : source, at) : null,
     finishLatent(up, spec, asset, shown, { at, counts, durationMs: facts.durationMs ?? 0 }),
   ]);
   sent.uploads[spec.id] = frames;
@@ -507,11 +508,11 @@ export async function colourMatchedChain(db: Db, assetId: string): Promise<boole
  * The clip before's last frame as it was filed, under "<input>.look": half a frame of the model's before where it stops. Not
  * read, it is said, and the recipe matches as it does without one (Motion transfer: to its own driving video).
  */
-async function uploadLook(up: Up, spec: InputSpec & { type: "clip" }, asset: Pick<Tables["assets"], "file_key" | "mime" | "duration_ms">, finished: Uint8Array | null, at: number | undefined): Promise<void> {
+async function uploadLook(up: Up, spec: InputSpec & { type: "clip" }, asset: Pick<Tables["assets"], "file_key" | "mime" | "duration_ms">, finished: Media | null, at: number | undefined): Promise<void> {
   const { storage, upload, signal, sent } = up;
   try {
     going(signal);
-    const bytes = finished ?? (await storage.get(asset.file_key));
+    const bytes = finished ?? (await sourceOf(storage, asset.file_key));
     const end = at ?? asset.duration_ms ?? 0;
     const frame = await frameAt(bytes, extOf(asset.mime), Math.max(0, end - 500 / spec.fps), asset.duration_ms ?? undefined);
     sent.uploads[`${spec.id}.look`] = await upload(frame, "png");
@@ -809,8 +810,31 @@ async function referenceFacts(db: Db, id: string): Promise<MediaFacts | null> {
   return { width: Math.round((a.width * k) / 2) * 2, height: Math.round((a.height * k) / 2) * 2, frames, fps: 24, hasSound: Boolean(a.has_sound) };
 }
 
-/** The size of a render's own frames (kept beside an upscaled take), read once per file: a file kept under a key never changes. */
-const rawSizes = new Map<string, Promise<{ width: number; height: number } | null>>();
+/** The facts of a render's own frames (kept beside an upscaled take), read once per file: a file kept under a key never changes. */
+const rawFacts = new Map<string, Promise<VideoFacts | null>>();
+
+/**
+ * A video's facts by ffprobe alone, read where it is stored (bytes only for a storage with no paths): readVideo also grabs a
+ * first frame, which a join never used, and wrote the bytes out again first.
+ */
+async function probed(source: Media, ext: string): Promise<{ facts: VideoFacts | null; why?: string }> {
+  if (typeof source === "string") return probeVideo(source);
+  return inTemp(async (dir) => probeVideo(await onDisk(dir, `in.${ext}`, source)));
+}
+
+/** The facts of a render's own frames, shared by the forecast's look (clipFacts) and the join's upload (uploadJoinClip). */
+function rawFactsOf(storage: Storage, key: string, mime: string): Promise<VideoFacts | null> {
+  let got = rawFacts.get(key);
+  if (!got) {
+    // a read that failed is not kept: ffprobe out of time under load would have every later join take the finished frames
+    got = sourceOf(storage, key).then((source) => probed(source, extOf(mime))).then((r) => r.facts, () => null).then((facts) => {
+      if (!facts) rawFacts.delete(key);
+      return facts;
+    });
+    rawFacts.set(key, got);
+  }
+  return got;
+}
 
 /**
  * A clip as uploadWholeClip or uploadJoinClip sends it, without cutting or uploading anything: its size (the render's own
@@ -822,11 +846,8 @@ async function clipFacts(core: QueueCore, spec: InputSpec & { type: "clip" }, va
   if (!shown || shown.kind !== "video" || !shown.width || !shown.height) return null;
   if (spec.whole) return { width: shown.width, height: shown.height, hasSound: Boolean(shown.has_sound) };
   const asset = finishedFrom ? await draftOf(db, shown) : await renderedOf(db, shown);
-  const key = asset.raw_key;
-  if (key && !rawSizes.has(key)) {
-    rawSizes.set(key, storage.get(key).then((bytes) => readVideo(bytes, extOf(asset.mime))).then((r) => (r.facts ? { width: r.facts.width, height: r.facts.height } : null), () => null));
-  }
-  const size = (key ? await rawSizes.get(key)! : null) ?? (asset.width && asset.height ? { width: asset.width, height: asset.height } : { width: shown.width, height: shown.height });
+  const raw = asset.raw_key ? await rawFactsOf(storage, asset.raw_key, asset.mime) : null;
+  const size = (raw ? { width: raw.width, height: raw.height } : null) ?? (asset.width && asset.height ? { width: asset.width, height: asset.height } : { width: shown.width, height: shown.height });
   const length = asset.duration_ms ?? shown.duration_ms ?? 0;
   const room = spec.role === "previous" ? (value.at ?? length) : length - (value.at ?? 0);
   const wanted = spec.framesFrom ? Number(input[spec.framesFrom]) : NaN;
