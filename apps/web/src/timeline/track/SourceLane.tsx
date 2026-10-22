@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useLayoutEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Eye, SlidersHorizontal, Split, Trash2 } from "lucide-react";
 import { carriedOf, sourceWindows, trimIn, windowShapeOf, type ClipValue, type SourceWindow } from "@afflatus/core";
 import { ContextMenu, useMenu } from "../../ContextMenu";
@@ -149,6 +149,21 @@ export function SourceLane({ timeline, place, recipes, pps, selected, over, onDr
   const back = useSpringBack<"slip" | "start" | "end">();
   /** What the last render drew, and the timeline's own stretch: a trim settling reads them to carry the lane over. */
   const live = useRef<{ lineFrom: number; lineTo: number; fromMs: number; toMs: number; sent: typeof sent } | null>(null);
+  /**
+   * A trim settled, its part drawn at `drawnMs` meanwhile: carried from there to the timeline's own on the spring, measured
+   * on the render that lets go of `sent` rather than in the settle itself. The timeline read back reaches the lane with that
+   * render (the editor is drawn again on the settle), while at the settle the lane's last drawing still had the stretch from
+   * before the trim, so that a trim taken was measured off by the whole trim and sprang the wrong way first.
+   */
+  const landing = useRef<{ kind: "slip" | "start" | "end"; drawnMs: number } | null>(null);
+  useLayoutEffect(() => {
+    const g = landing.current;
+    const l = live.current;
+    if (!g || !l || l.sent) return;
+    landing.current = null;
+    const leftPx = back.left.tag === g.kind ? back.left.px : 0;
+    back.jump((g.drawnMs / 1000) * pps + leftPx, ((g.kind === "end" ? l.toMs : l.fromMs) / 1000) * pps, g.kind);
+  });
   const source = timeline.source;
   const x = (ms: number) => PAD + (ms / 1000) * pps;
   // none yet: its drop is in the end column after the last clip, where its clips go (EndColumn)
@@ -188,6 +203,7 @@ export function SourceLane({ timeline, place, recipes, pps, selected, over, onDr
     }
     // from the stretch drawn: one released and not yet read back is where the next drag starts
     back.stop();
+    landing.current = null;
     setHeld({ kind, x: e.clientX, from: fromMs, to: toMs, fromMs, toMs, moved: false });
   };
   const px = (ms: number) => (ms / 1000) * pps;
@@ -248,9 +264,8 @@ export function SourceLane({ timeline, place, recipes, pps, selected, over, onDr
         setSent(ours);
         void asked.then(() => {
           // settled elsewhere than drawn (asked first, refused, or the server's end not the one foreseen): carried from
-          // where it is drawn to the timeline's own, rather than jumping there
-          const l = live.current;
-          if (l?.sent === ours) back.jump(px(ours.kind === "end" ? l.lineTo : l.lineFrom), px(ours.kind === "end" ? l.toMs : l.fromMs), ours.kind);
+          // where it is drawn to the timeline's own, rather than jumping there (`landing`, once the lane has the timeline)
+          if (live.current?.sent === ours) landing.current = { kind: ours.kind, drawnMs: ours.kind === "end" ? (ours.drawTo ?? ours.toMs) : ours.fromMs };
           setSent((now) => (now === ours ? null : now));
         });
       }
