@@ -89,7 +89,7 @@ export function PacksRow({ machine, label, put }: { machine: Machine; label: str
 export function useSaveMachines() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (machines: Machine[]) => api.saveSettings({ machines }),
+    mutationFn: (machines: Array<Machine & { clearDir?: true }>) => api.saveSettings({ machines }),
     onSuccess: (saved) => {
       client.setQueryData(queryKeys.settings(), saved);
       for (const queryKey of [queryKeys.machines(), queryKeys.queue(), queryKeys.setup(), queryKeys.runpodPods(), queryKeys.rentedSpending()]) void client.invalidateQueries({ queryKey });
@@ -129,6 +129,27 @@ export function AddMachineCard() {
         </Block>
       )}
     </Card>
+  );
+}
+
+/**
+ * The stored machines the server could not read whole (settings.ts load), said above the cards: a hand edit, or a setting a
+ * newer Afflatus no longer takes. Said only: what is set aside is kept as it was stored, and a pod in it is stopped.
+ */
+export function SetAsideNote() {
+  const settings = useSettings();
+  const aside = settings.data?.machinesSetAside ?? [];
+  if (!aside.length) return null;
+  return (
+    <ErrorNote>
+      {aside.map((a, i) => (
+        <p key={i}>
+          {a.mended
+            ? `${a.label}: its stored ${a.fields.join(", ")} could not be read and took the default.`
+            : `${a.label} could not be read from the stored settings (${a.why}): it is left out of the list, its settings kept as they were.${a.pod ? " Its RunPod pod is stopped: nothing here can watch its idle time or count it against the caps." : ""}`}
+        </p>
+      ))}
+    </ErrorNote>
   );
 }
 
@@ -175,7 +196,7 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
   useEffect(() => setName(machine.name), [machine.name]);
   useEffect(() => setUrl(machine.url), [machine.url]);
   useEffect(() => setDir(machine.dir), [machine.dir]);
-  const put = (change: Partial<Machine>) => save.mutate(all.map((m) => (m.id === machine.id ? { ...m, ...change } : m)));
+  const put = (change: Partial<Machine> & { clearDir?: true }) => save.mutate(all.map((m) => (m.id === machine.id ? { ...m, ...change } : m)));
   // saved first when the address changed, then every machine asked again: only reads, nothing is queued or loaded
   const test = useMutation({
     mutationFn: async () => {
@@ -278,7 +299,8 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
       )}
       {!rented && <Row label="Folder on this computer" htmlFor={`comfy-dir-${machine.id}`} help="Optional: this ComfyUI's folder, the one that holds custom_nodes and models (on ComfyUI Desktop, the base folder chosen when installing it), when it is on this computer. Leave it empty for another computer or a rented instance.">
         <input id={`comfy-dir-${machine.id}`} value={dir} onChange={(e) => setDir(e.target.value)} placeholder="empty when it runs elsewhere" spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
-        <Button onClick={() => put({ dir: dir.trim() })} disabled={save.isPending || dir.trim() === machine.dir}>Save</Button>
+        {/* saved empty, it is said so: an empty folder in a list sent otherwise is taken as one read before the server found it */}
+        <Button onClick={() => put(dir.trim() ? { dir: dir.trim() } : { dir: "", clearDir: true })} disabled={save.isPending || dir.trim() === machine.dir}>Save</Button>
       </Row>}
       <Row label="Runs" help="What the queue gives this machine. A job pinned to it (dragged onto its lane in the Queue) runs there whatever this says.">
         <Segmented oneLine label={`What ${label} runs`} value={machine.takes} options={TAKES} onChange={(takes) => put({ takes })} />

@@ -498,3 +498,17 @@ describe("an optional file a job's settings use (H3's latent upscaler, 2026-10-1
     expect(h3Video.build(input, dryContext({ slots: { ...slots, latentUpscaler: download("latentUpscaler") }, uploads: { "self.latent": "l.latent" } })).warnings ?? []).toEqual([]);
   });
 });
+
+describe("lackOn without the job's graph (its build failed)", () => {
+  const recipe = { id: "zz.picture", family: "zz", inputs: [{ id: "ckpt", type: "model", label: "Checkpoint", folder: "checkpoints" }] } as never;
+  const scan = (listed: string[]): Scan => ({
+    at: "now", comfy: { online: true, url: "x", nodes: 1 } as Scan["comfy"], families: [{ id: "zz", slots: [] }],
+    recipes: [{ id: "zz.picture", ready: true, missingNodes: [], missingSlots: [], emptyInputs: [], missingFiles: [], missing: [], problems: [], limitedBy: [], options: { ckpt: listed } }],
+  });
+
+  it("takes a model the machine keeps in another sub-folder, or with the other slash, as there: as the build finds it", () => {
+    expect(lackOn(recipe, { ckpt: "SDXL/zz-test-juggernaut.safetensors" }, scan(["SDXL\\zz-test-juggernaut.safetensors"]), { families: {} }, { families: {} }, () => "zz", null)?.files ?? []).toEqual([]);
+    expect(lackOn(recipe, { ckpt: "zz-test-juggernaut.safetensors" }, scan(["Mine\\zz-test-juggernaut.safetensors"]), { families: {} }, { families: {} }, () => "zz", null)?.files ?? []).toEqual([]);
+    expect(lackOn(recipe, { ckpt: "zz-test-other.safetensors" }, scan(["SDXL\\zz-test-juggernaut.safetensors"]), { families: {} }, { families: {} }, () => "zz", null)?.files).toEqual([{ file: "zz-test-other.safetensors", folder: "checkpoints" }]);
+  });
+});

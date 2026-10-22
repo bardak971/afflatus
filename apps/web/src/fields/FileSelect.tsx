@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { sameBase } from "@afflatus/core";
+import { sameBase, sameFile } from "@afflatus/core";
 import type { FamilyInfo, ModelInfo, RecipeInfo, RecipeStatus } from "../api";
 import { useModelInfo, useModelUpdates, useOfficialSizes, useSettings, useSetup } from "../data";
 import { fileLabel, size, waitsForGpu } from "../format";
@@ -104,7 +104,8 @@ export function ModelField({ id, spec, value, options, family, onChange }: {
   const official = officialFiles(family, spec.folder, spec.slot, sizes.data);
   // with rented GPUs only, the setup's lists are the official files themselves (the server's plannedScan): none is here
   const have = where === "pod" ? (options ?? []).filter((f) => !official.some((o) => o.file === f)) : (options ?? []);
-  const absent = official.filter((o) => !have.includes(o.file));
+  // an official file kept in a sub-folder of the user's own is here, as the server finds it when it builds the job (core sameFile)
+  const absent = official.filter((o) => !sameFile(have, o.file));
   const picked = absent.find((o) => samePath(o.file, value));
   const counted = [have.length ? `${have.length} on your ComfyUI` : null, absent.length ? (where === "pod" ? "official files · fetched by the pod" : `${absent.length} official not here`) : null].filter(Boolean).join(" · ");
   return (
@@ -142,7 +143,7 @@ export function useWaitsOn(recipe: RecipeInfo | undefined, status: RecipeStatus 
     const picked = recipe.inputs.some((i) => {
       if (i.type !== "model") return false;
       const value = String(whole[i.id] ?? "");
-      return Boolean(value) && !(status.options[i.id] ?? []).includes(value) && officialFiles(family, i.folder, i.slot, sizes.data).some((o) => samePath(o.file, value));
+      return Boolean(value) && !sameFile(status.options[i.id] ?? [], value) && officialFiles(family, i.folder, i.slot, sizes.data).some((o) => samePath(o.file, value));
     });
     const slotMissing = status.missingSlots.length > 0 && status.missingSlots.every((id) => family?.slots?.find((s) => s.id === id)?.get);
     return picked || slotMissing ? "waits for the download" : null;

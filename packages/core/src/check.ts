@@ -1,6 +1,6 @@
 import { isRef, type BuiltGraph } from "./graph";
 import { looksLikeFiles } from "./inputs";
-import { isModelFile } from "./modelFiles";
+import { baseName, isModelFile } from "./modelFiles";
 
 /**
  * ComfyUI's node catalog (GET /object_info). An input is [type, options?]; a list of choices is either
@@ -39,7 +39,7 @@ export function choicesOf(spec: unknown): string[] | null {
  */
 export function sameFile(offered: string[], file: string): string | undefined {
   if (offered.includes(file)) return file;
-  const name = (f: string) => (f.split(/[\\/]/).pop() ?? f).toLowerCase();
+  const name = (f: string) => baseName(f).toLowerCase();
   const want = name(file);
   return offered.find((o) => name(o) === want);
 }

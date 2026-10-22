@@ -403,15 +403,99 @@ async function load(db: Db): Promise<Settings> {
   if (rest.llms === undefined && one && typeof one === "object" && (one as { baseUrl?: string }).baseUrl) rest.llms = [{ id: "main", ...one }];
   // a list of machines never written is an install from before there could be several (or none): its ComfyUI is the first
   // machine. One written, even empty (a new install's, seedNewInstall; every machine removed), is the list as it is
-  const listed = Array.isArray(rest.machines);
+  let listed = Array.isArray(rest.machines);
+  // read machine by machine: one the schema no longer took whole set the whole list aside, and with it every rented pod
+  // out of the idle stop, the caps and Costs while RunPod billed on
+  const aside: MachineSetAside[] = [];
+  if (listed) {
+    const read = readMachines(rest.machines as unknown[]);
+    aside.push(...read.aside);
+    rest.machines = read.machines;
+    // none read at all, a ComfyUI of the user's own among them: the address kept with them is the first machine, as before
+    // there was a list (never a pod's: it would be offered as "Your ComfyUI")
+    if (!read.machines.length && read.aside.some((a) => !(a.raw as { rented?: unknown } | null)?.rented)) listed = false;
+    for (const a of aside) console.warn(`[settings] the stored machine ${a.label} ${a.mended ? `had ${a.fields.join(", ")} set back to the default` : `could not be read and was set aside${a.pod ? ` (its pod ${a.pod} is stopped: nothing here can follow it)` : ""}`}: ${a.why}`);
+  }
   const parsed = settingsSchema.safeParse(rest);
-  if (parsed.success) return inStep(parsed.data, listed);
+  if (parsed.success) return withAside(inStep(parsed.data, listed), aside);
   // a stored value the schema no longer takes (an address without its scheme, say) falls back to its default rather than locking every setting
   const broken = new Set(parsed.error.issues.map((i) => String(i.path[0] ?? "")));
   console.warn(`[settings] stored values that are no longer valid were set aside: ${[...broken].join(", ")}`);
   for (const key of broken) delete rest[key];
-  return inStep(settingsSchema.parse(rest), listed && !broken.has("machines"));
+  return withAside(inStep(settingsSchema.parse(rest), listed && !broken.has("machines")), aside);
 }
+
+/**
+ * A stored machine the schema did not take whole (load). `mended`: only some of its settings were not, and they took their
+ * default: the machine is in the list (a pod is followed as before). Otherwise it is left out of the list, its row kept as
+ * stored (`raw`, written back with the list: writeSettings), and its pod, when its id reads, stopped by the follow loop
+ * (rentedFollow.ts): nothing here could watch its idle time nor count it against the caps.
+ */
+export interface MachineSetAside {
+  raw: unknown;
+  /** Its id as stored (it may be the part not read); empty when it has none. */
+  id: string;
+  /** Its name, else its address, else its id: what the log and the page call it. */
+  label: string;
+  mended: boolean;
+  /** The settings of it that took their default. */
+  fields: string[];
+  /** Its RunPod pod's id, when it is a rented machine whose pod id reads. */
+  pod: string | null;
+  /** The schema's first word on it. */
+  why: string;
+}
+
+/** A machine's settings that cannot take a default: without one of them it is not a machine. */
+const MACHINE_CORE = new Set(["id", "url", "rented", "rented.provider", "rented.pod"]);
+
+/** The stored machines read one by one: those read (some mended), and those set aside. */
+function readMachines(rows: unknown[]): { machines: Machine[]; aside: MachineSetAside[] } {
+  const machines: Machine[] = [];
+  const aside: MachineSetAside[] = [];
+  for (const raw of rows) {
+    const first = machineSchema.safeParse(raw);
+    if (first.success) {
+      machines.push(first.data);
+      continue;
+    }
+    const row = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+    const rented = row.rented && typeof row.rented === "object" && !Array.isArray(row.rented) ? (row.rented as Record<string, unknown>) : null;
+    const text = (v: unknown) => (typeof v === "string" ? v : "");
+    const said = { raw, id: text(row.id), label: text(row.name).trim() || text(row.url) || text(row.id) || "with no id", pod: (rented?.provider === "runpod" && text(rented.pod)) || null, why: first.error.issues[0]?.message ?? "" };
+    // a setting it no longer takes is dropped, to take its default, a few times over (one dropped may show the next)
+    const copy: Record<string, unknown> = { ...row, ...(rented ? { rented: { ...rented } } : {}) };
+    const fields: string[] = [];
+    let issues = first.error.issues;
+    let mended: Machine | null = null;
+    for (let round = 0; round < 4 && !mended; round++) {
+      const keys = [...new Set(issues.map((i) => (i.path[0] === "rented" && i.path.length > 1 ? `rented.${String(i.path[1])}` : String(i.path[0] ?? ""))))];
+      if (keys.some((k) => !k || MACHINE_CORE.has(k))) break;
+      for (const k of keys) {
+        if (k.startsWith("rented.")) delete (copy.rented as Record<string, unknown>)[k.slice("rented.".length)];
+        else delete copy[k];
+        fields.push(k);
+      }
+      const again = machineSchema.safeParse(copy);
+      if (again.success) mended = again.data;
+      else issues = again.error.issues;
+    }
+    if (mended) machines.push(mended);
+    aside.push({ ...said, mended: Boolean(mended), fields: mended ? fields : [] });
+  }
+  return { machines, aside };
+}
+
+/** What load set aside of the stored machines, by the settings read with it (machinesSetAside). */
+const asideOf = new WeakMap<Settings, MachineSetAside[]>();
+
+function withAside(s: Settings, aside: MachineSetAside[]): Settings {
+  if (aside.length) asideOf.set(s, aside);
+  return s;
+}
+
+/** The stored machines these settings were read without, whole or in part: said on the page, a pod followed for stopping. */
+export const machinesSetAside = (s: Settings): MachineSetAside[] => asideOf.get(s) ?? [];
 
 /** The machine a ComfyUI address becomes when it is the first one (from `comfyUrl`, or the first launch's). */
 export const firstMachine = (url: string, dir = ""): Machine => ({ id: FIRST_MACHINE, name: "", url, dir, dirCleared: "", takes: "all", packs: "ask", families: {}, token: "" });
@@ -533,10 +617,18 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
     sent.llms = (sent.llms as Array<{ id?: string; baseUrl?: unknown; apiKey?: string }>).map((l) => (l.apiKey === undefined ? { ...l, apiKey: keptKey(current.llms.find((c) => c.id === l.id), l.baseUrl) } : l));
   }
   delete sent.llm;
+  // the machines whose folder this write empties on purpose: the Connection card's folder saved empty (`comfyDir`), or a
+  // machine's own sent with `clearDir`. Any other empty folder is not taken as the user's word (see `dirCleared` below)
+  const byHand = new Set<unknown>();
   // the first machine and `comfyUrl` / `comfyDir` are one setting said two ways: whichever was sent, both are written
   if (Array.isArray(sent.machines)) {
     // a machine's token is not sent back by the page, which never has it: it stays, as long as the machine keeps its address
-    const list = (sent.machines as Array<{ id?: unknown; url?: unknown; dir?: unknown; token?: unknown }>).map((m) => (m && typeof m === "object" && m.token === undefined ? { ...m, token: keptToken(current.machines.find((c) => c.id === m.id), m.url) } : m));
+    const list = (sent.machines as Array<{ id?: unknown; url?: unknown; dir?: unknown; token?: unknown; clearDir?: unknown }>).map((m) => {
+      if (!m || typeof m !== "object") return m;
+      const { clearDir, ...rest } = m;
+      if (clearDir === true) byHand.add(m.id);
+      return rest.token === undefined ? { ...rest, token: keptToken(current.machines.find((c) => c.id === m.id), m.url) } : rest;
+    });
     if (fromPage) {
       const own = (m: { id?: unknown; rented?: unknown }) => {
         const was = current.machines.find((c) => c.id === m.id);
@@ -550,7 +642,15 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
         return { ...m, rented: { ...was.rented, ...pick } };
       };
       const kept = current.machines.filter((c) => c.rented && !list.some((m) => m.id === c.id));
-      list.splice(0, list.length, ...list.map(own), ...kept);
+      // a folder the page sends empty, not cleared on purpose, at the same ComfyUI, is a list read before the server found
+      // it (services.ts comfyFolder, at a start): the folder stays, or a Packs click in that moment lost it, and marked it
+      // "emptied by hand" so that it was never looked for again
+      const stale = (m: { id?: unknown; url?: unknown; dir?: unknown }) => {
+        const was = current.machines.find((c) => c.id === m.id);
+        const empty = !(typeof m.dir === "string" && m.dir.trim());
+        return was && empty && !byHand.has(m.id) && was.dir.trim() && typeof m.url === "string" && originOf(m.url) === originOf(was.url) ? { ...m, dir: was.dir } : m;
+      };
+      list.splice(0, list.length, ...list.map(own).map(stale), ...kept);
     }
     sent.machines = list;
     // none left (every machine removed, or a rented-only start): `comfyUrl` keeps the last address, for the next one added.
@@ -579,6 +679,7 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
     const [head, ...rest] = current.machines;
     const own = head && !head.rented;
     const first = own ? head : firstMachine(String(sent.comfyUrl ?? current.comfyUrl), String(sent.comfyDir ?? ""));
+    if ("comfyDir" in sent) byHand.add(first.id);
     const others = own ? rest : current.machines;
     const url = "comfyUrl" in sent ? sent.comfyUrl : first.url;
     // another ComfyUI (its address moved to another origin, as the token is dropped): the old one's folder goes with it,
@@ -588,8 +689,8 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
     sent.comfyUrl ??= current.comfyUrl;
     sent.comfyDir ??= moved ? "" : current.comfyDir;
   }
-  // a folder emptied by hand (a folder there before, the same ComfyUI) is remembered with its address, so that it is not looked
-  // for again; set again, or the ComfyUI moved elsewhere, it is forgotten
+  // a folder emptied by hand (a folder there before, the same ComfyUI, cleared on purpose by this write) is remembered with its
+  // address, so that it is not looked for again; set again, or the ComfyUI moved elsewhere, it is forgotten
   if (Array.isArray(sent.machines)) {
     sent.machines = (sent.machines as unknown[]).map((m) => {
       if (!m || typeof m !== "object") return m;
@@ -597,7 +698,7 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
       const was = current.machines.find((c) => c.id === id);
       const same = (other: string) => typeof url === "string" && originOf(url) === originOf(other);
       const emptied = !(typeof dir === "string" && dir.trim()) && was;
-      const cleared = !emptied ? "" : was.dir.trim() && same(was.url) ? url : was.dirCleared && same(was.dirCleared) ? was.dirCleared : "";
+      const cleared = !emptied ? "" : byHand.has(id) && was.dir.trim() && same(was.url) ? url : was.dirCleared && same(was.dirCleared) ? was.dirCleared : "";
       return { ...m, dirCleared: cleared };
     });
   }
@@ -613,10 +714,13 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
   if (ids.size !== next.llms.length) throw httpError("two language models have the same id");
   if (new Set(next.machines.map((m) => m.id)).size !== next.machines.length) throw httpError("two ComfyUIs have the same id");
   if (new Set(next.machines.map((m) => m.url.replace(/\/+$/, ""))).size !== next.machines.length) throw httpError("two ComfyUIs have the same address");
+  // a stored machine set aside whole is written back as it was stored, never dropped by a list read without it: a pod in
+  // it bills on RunPod, and its row is what tells it is Afflatus's. One the list now has under its id is the list's
+  const unread = machinesSetAside(current).filter((a) => !a.mended && !next.machines.some((m) => m.id === a.id));
   const now = new Date().toISOString();
   try {
     for (const key of Object.keys(sent) as Array<keyof Settings>) {
-      const value = JSON.stringify(next[key]);
+      const value = key === "machines" && unread.length ? JSON.stringify([...next.machines, ...unread.map((a) => a.raw)]) : JSON.stringify(next[key]);
       await db
         .insertInto("settings")
         .values({ key, value, updated_at: now })
@@ -627,7 +731,8 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
     // what was read before is stale now, whether or not every key got written
     cached.delete(db);
   }
-  return inStep(next);
+  // still set aside, as the next read finds them: the rows kept whole, and the mended ones too while the list was not written
+  return withAside(inStep(next), "machines" in sent ? unread : machinesSetAside(current));
 }
 
 /**
@@ -662,6 +767,8 @@ export function publicSettings(s: Settings, here: (url: string) => boolean = () 
     // a machine's token stays here: the page is told whether there is one, and its end, to tell two apart. `local`: its
     // ComfyUI runs on this machine (setup-api passes modelDownload's onThisMachine), what the page says of its node pack
     machines: s.machines.map(({ token, dirCleared: _cleared, ...m }) => ({ ...m, tokenEnd: token ? token.slice(-4) : "", local: !m.rented && here(m.url) })),
+    // the stored machines not read whole (load): said on Settings, never their row (it may hold a token)
+    machinesSetAside: machinesSetAside(s).map((a) => ({ label: a.label, mended: a.mended, fields: a.fields, pod: Boolean(a.pod), why: a.why })),
     comfyUrl: s.comfyUrl,
     comfyDir: s.comfyDir,
     unloadAfterMinutes: s.unloadAfterMinutes,

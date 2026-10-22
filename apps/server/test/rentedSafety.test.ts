@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
 import { podTime } from "../src/runpod";
-import { readSettings } from "../src/settings";
+import { machinesSetAside, readSettings, writeSettings } from "../src/settings";
 import { complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /**
@@ -313,6 +313,65 @@ describe("money safety", () => {
     expect((await again.services.queue.status()).machines.find((m) => m.id === id)?.rented?.rate).toBe(0.69 + (50 * 0.1) / 730);
     again.services.rented.stop();
     expect((await get(t.app, "/api/runpod/pods")).statusCode).toBe(200);
+  });
+});
+
+describe("a stored machine the settings no longer take whole", () => {
+  // a hand edit of the database, or a setting a newer Afflatus no longer takes: written straight into the stored row
+  const spoil = async (change: (list: Array<Record<string, unknown>>) => void) => {
+    const row = await t.db.selectFrom("settings").select("value").where("key", "=", "machines").executeTakeFirstOrThrow();
+    const list = JSON.parse(row.value) as Array<Record<string, unknown>>;
+    change(list);
+    await t.db.updateTable("settings").set({ value: JSON.stringify(list) }).where("key", "=", "machines").execute();
+    // another setting written: what was read before is read again
+    await writeSettings(t.db, { unloadAfterMinutes: 5 });
+  };
+
+  it("keeps the others followed, mends one that only lost a setting, and stops the pod of one that cannot be read, its run counted until then", async () => {
+    const ia = await add(podA().id);
+    const ib = await add(podB().id);
+    await started(ia, podA);
+    await started(ib, podB);
+    await spoil((list) => {
+      list.find((m) => m.id === ia)!.takes = "sometimes";
+      list.find((m) => m.id === ib)!.url = "not an address";
+    });
+    const s = await readSettings(t.db);
+    // every other machine is still there: the whole list was set aside, and the pods with it
+    expect(s.machines.map((m) => m.id)).toEqual(["m1", ia]);
+    expect(s.machines.find((m) => m.id === ia)!.takes).toBe("all");
+    expect(machinesSetAside(s)).toMatchObject([{ id: ia, mended: true, fields: ["takes"], pod: podA().id }, { id: ib, mended: false, pod: podB().id }]);
+    // and the page is told, without the row
+    const told = (await t.app.inject({ method: "GET", url: "/api/settings" })).json().machinesSetAside;
+    expect(told).toEqual([expect.objectContaining({ mended: true, fields: ["takes"], pod: true }), expect.objectContaining({ mended: false, pod: true })]);
+    expect(JSON.stringify(told)).not.toContain("token");
+    // the unread one's pod is stopped (it keeps a disk), its run left open while it ran, then closed
+    await t.services.rented.poll();
+    expect(podB().status).toBe("EXITED");
+    expect((await sessions()).find((r) => r.pod === podB().id)!.ended_at).toBeNull();
+    await t.services.rented.poll();
+    expect((await sessions()).find((r) => r.pod === podB().id)!.ended_at).not.toBeNull();
+    // the mended one is followed as before: its idle stop
+    expect(podA().status).toBe("RUNNING");
+    later(11 * 60_000);
+    await t.services.rented.poll();
+    expect(podA().status).toBe("EXITED");
+  });
+
+  it("is written back as it was stored with the list, never dropped by a write of the list read without it", async () => {
+    const ib = await add(podB().id);
+    await spoil((list) => {
+      list.find((m) => m.id === ib)!.url = "not an address";
+    });
+    // what comfyFolder writes at a start, and a save of the list from the page
+    await writeSettings(t.db, { comfyDir: "" });
+    const page = (await t.app.inject({ method: "GET", url: "/api/settings" })).json().machines as Array<Record<string, unknown>>;
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: page.map(({ tokenEnd: _end, local: _local, ...m }) => ({ ...m, name: "zz-test" })) } });
+    const row = await t.db.selectFrom("settings").select("value").where("key", "=", "machines").executeTakeFirstOrThrow();
+    const stored = JSON.parse(row.value) as Array<{ id: string; url: string; rented?: { pod: string } }>;
+    expect(stored.map((m) => m.id)).toEqual(["m1", ib]);
+    expect(stored[1]).toMatchObject({ url: "not an address", rented: { pod: podB().id } });
+    expect(machinesSetAside(await readSettings(t.db))).toMatchObject([{ id: ib, mended: false }]);
   });
 });
 

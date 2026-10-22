@@ -1,5 +1,5 @@
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
-import { folderOfFileInput, isMissingSlotFile, isShown, packOfNode, SOFT_SLOTS, TOOLS_FAMILY, type Family, type GraphFile, type LoraValue, type Recipe } from "@afflatus/core";
+import { folderOfFileInput, sameFile, isMissingSlotFile, isShown, packOfNode, SOFT_SLOTS, TOOLS_FAMILY, type Family, type GraphFile, type LoraValue, type Recipe } from "@afflatus/core";
 import type { Loaded } from "./jobFiles";
 import type { Machine, Settings } from "./settings";
 
@@ -161,7 +161,8 @@ export function lackOn(
   const off = !on && (machine.families[recipe.family] ?? settings.families[recipe.family]) === false;
   if (loaded) return lackOfGraph(recipe, input, scan, status, on, off, { ...loaded, absent: loaded.absent.filter((f) => !soft(f.slot)) });
   const wanted = filesAsked(recipe, input);
-  const asked = wanted.filter(({ input: id, file }) => status?.options[id] && !status.options[id]!.includes(file));
+  // matched as the build matches it (core sameFile): a file this ComfyUI keeps in another sub-folder is not lacking
+  const asked = wanted.filter(({ input: id, file }) => status?.options[id] && !sameFile(status.options[id]!, file));
   const slots = scan.families.find((f) => f.id === recipe.family)?.slots ?? [];
   // the family's files this input asks for (Turbo's LoRAs): without them it would run, but not as asked. A model left
   // out of the form is the family's file there, as the build loads it (a distilled one asks for no turbo LoRA)

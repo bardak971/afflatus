@@ -26,7 +26,7 @@ import type { PromptHistoryItem } from "../src/promptHistory";
 import type { Queue } from "../src/queue";
 import type { history, paged } from "../src/queueView";
 import type { list, TimesSummary } from "../src/rendersRead";
-import type { llmSchema, publicSettings, settingsSchema } from "../src/settings";
+import type { llmSchema, machineSchema, publicSettings, settingsSchema } from "../src/settings";
 import type { Timelines } from "../src/timelines";
 import type { clipPatch, timelinePatch } from "../src/timelines-api";
 import type { UpdatesView } from "../src/updatesModel";
@@ -149,8 +149,9 @@ describe("the web's API types match what the server answers", () => {
     takes<z.input<typeof clipPatch>, ClipPatch>().toEqualTypeOf<true>();
     takes<z.input<typeof timelinePatch>, TimelinePatch>().toEqualTypeOf<true>();
     takes<z.input<typeof saveBody>, DraftPatch>().toEqualTypeOf<true>();
-    // any setting by key (the server parses the whole after merging), and the model in use the short way
-    takes<Partial<z.input<typeof settingsSchema>> & { llm?: Partial<Omit<z.input<typeof llmSchema>, "id">> }, SettingsPatch>().toEqualTypeOf<true>();
+    // any setting by key (the server parses the whole after merging), the model in use the short way, and a machine's
+    // folder emptied on purpose (clearDir: writeSettings takes it off before the parse)
+    takes<Omit<Partial<z.input<typeof settingsSchema>>, "machines"> & { machines?: Array<z.input<typeof machineSchema> & { clearDir?: true }>; llm?: Partial<Omit<z.input<typeof llmSchema>, "id">> }, SettingsPatch>().toEqualTypeOf<true>();
   });
 
   it("settings, the command bar, downloads", () => {
