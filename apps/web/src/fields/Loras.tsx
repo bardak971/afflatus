@@ -149,6 +149,14 @@ export function useLoraWordsOf(files: string[]) {
   return { known, extra, info, more, failed, of: (file: string) => wordsOf(info[file], more[nameOf(file)]) };
 }
 
+/**
+ * The lists of choices last worked out, by what each was worked out of, for the next form that asks the same: each clip
+ * selected on a timeline draws its form anew, and every LoRA on the machine was ranked again for it (some 11 ms a
+ * clip with a thousand files). A few are kept: an H3 form has two lists (High and Low), each its own.
+ */
+const choicesSeen = new Map<string, { reads: unknown[]; choices: Option[] }>();
+const CHOICES_KEPT = 8;
+
 export function Loras({ spec, value, options, family, model, onChange, main }: {
   spec: Extract<InputSpec, { type: "loras" }>;
   value: LoraValue[];
@@ -163,6 +171,10 @@ export function Loras({ spec, value, options, family, model, onChange, main }: {
   const free = options.filter((o) => !value.some((v) => v.file === o));
   const set = (i: number, weight: number) => onChange(value.map((v, j) => (j === i ? { ...v, weight } : v)));
   const choices = useMemo(() => {
+    const key = [spec.label, family?.id ?? "", model ?? "", free.join("|")].join("\n");
+    const reads = [known.data, extra.data];
+    const seen = choicesSeen.get(key);
+    if (seen && seen.reads.every((r, i) => r === reads[i])) return seen.choices;
     const made = free.map((file, index) => ({ file, index, about: info[file], fit: family ? loraFit(family, file, info[file]) : 0, near: model ? modelFit(model, file, info[file]) : 0 }));
     // sections only when the files tell enough to make them: otherwise the list stays as ComfyUI gives it
     const sorted = made.some((m) => m.fit > 0 || m.near > 0);
@@ -178,12 +190,16 @@ export function Loras({ spec, value, options, family, model, onChange, main }: {
       `Made for another kind of ${wanted || "model"}`, "Do not say which model they are for", "Made for other models",
     ];
     if (sorted) made.sort((a, b) => rank(a) - rank(b) || (half ? Number(half.test(b.file)) - Number(half.test(a.file)) : 0) || b.near - a.near || b.fit - a.fit || a.index - b.index);
-    return made.map((m): Option => ({
+    const choices = made.map((m): Option => ({
       ...fileOption(m.file, m.about),
       detail: wordsOf(m.about, more[nameOf(m.file)]).words || undefined,
       ...(more[nameOf(m.file)] ? { search: [fileOption(m.file, m.about).search, more[nameOf(m.file)]!.own, more[nameOf(m.file)]!.found].filter(Boolean).join(" ") } : {}),
       ...(sorted ? { group: titles[rank(m)] } : {}),
     }));
+    choicesSeen.delete(key);
+    choicesSeen.set(key, { reads, choices });
+    if (choicesSeen.size > CHOICES_KEPT) choicesSeen.delete(choicesSeen.keys().next().value!);
+    return choices;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the reads the options come from; the helpers that read them are new at every render
   }, [free.join("|"), known.data, extra.data, family?.id, spec.label, model]);
   return (

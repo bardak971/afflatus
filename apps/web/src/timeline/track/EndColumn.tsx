@@ -1,4 +1,4 @@
-import type { DragEvent, MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useReducer, useRef, type DragEvent, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
 import { Film, Mic, Plus } from "lucide-react";
 import { cx, IconButton } from "../../ui";
 import { NEW_CLIP } from "../model";
@@ -45,6 +45,49 @@ type Props = {
   onRecordingMenu?(e: ReactMouseEvent): void;
   onSourceMenu?(e: ReactMouseEvent): void;
 };
+
+/**
+ * The end column where it stands in the part of the track in view. The track's scroll is heard here rather than in the
+ * Track: held there as state, every step of a sideways scroll (and of a drag's auto-scroll) drew the whole track again,
+ * its lanes and their waves, for this column alone (1.6 s of script per 5 s of scrolling at 150 clips, against 0.03 s
+ * in 0.5.2). The view is kept in a ref, and the column drawn again only when where it stands changes: never while it
+ * sits after the last clip, once a step while it is pinned at the view's right edge.
+ */
+export function EndColumnLive({ scroller, end, pad, ...props }: Omit<Props, "left" | "pinned"> & {
+  /** The track's scrolling box. */
+  scroller: RefObject<HTMLDivElement | null>;
+  /** Where the clips end (px), and the track's padding. */
+  end: number;
+  pad: number;
+}) {
+  const view = useRef({ left: 0, width: 0 });
+  const at = useRef({ end, pad });
+  at.current = { end, pad };
+  const [, redraw] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const read = () => {
+      const now = { left: el.scrollLeft, width: el.clientWidth };
+      const was = view.current;
+      if (now.left === was.left && now.width === was.width) return;
+      view.current = now;
+      const a = endColumnAt(at.current.end, at.current.pad, was);
+      const b = endColumnAt(at.current.end, at.current.pad, now);
+      if (a.left !== b.left || a.pinned !== b.pinned) redraw();
+    };
+    read();
+    el.addEventListener("scroll", read, { passive: true });
+    const sized = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(read);
+    sized?.observe(el);
+    return () => {
+      el.removeEventListener("scroll", read);
+      sized?.disconnect();
+    };
+  }, [scroller]);
+  const column = endColumnAt(end, pad, view.current);
+  return <EndColumn {...props} left={column.left} pinned={column.pinned} />;
+}
 
 /**
  * The end column (the lanes mock, 2026-10-22): the three drops that add their clips after the last one, one under the

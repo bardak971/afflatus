@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { api, type Clip, type Timeline } from "../../api";
 import type { Clock } from "../clock";
@@ -43,40 +43,21 @@ export function useMotionMarks({ slots, clips, timeline, playEnd, pps, clock, sn
     combine: measuresData,
   });
   const measureOf = (id: string | undefined) => (id ? measures[measured.indexOf(id)] : undefined);
-  /** The motion of what plays, per clip: samples along the clip's playing part, each 0..1 of the clip's own peak; its quiet moments and its pauses in the sound, on the clock of what plays. */
+  /**
+   * The motion of what plays, per clip: samples along the clip's playing part, each 0..1 of the clip's own peak; its quiet
+   * moments and its pauses in the sound, on the clock of what plays. Each clip's kept while its slot and its measure are
+   * the same (the slots that did not change are kept, Track's keptSlots): a key typed in one clip's form worked out every
+   * clip's again.
+   */
+  const seen = useRef(new WeakMap<Slot, { m: Motion | undefined; v: ClipMotion }>());
   const motion = useMemo(() => {
-    return played.map((s) => {
+    return played.map((s): ClipMotion => {
       const m = measureOf(s.clip.take!.asset.id);
-      const take = s.clip.take!;
-      if (!m) return { slot: s, curve: [] as number[], quiet: [] as number[], pauses: [] as number[] };
-      const step = 1000 / m.rate;
-      const from = Math.floor(take.startMs / step);
-      const quiet: number[] = [];
-      let curve: number[] = [];
-      if (m.values.length) {
-        const to = Math.min(m.values.length - 1, Math.ceil(take.endMs / step));
-        const raw = m.values.slice(from, to + 1);
-        // smoothed over three samples, so that one odd frame is not a dip
-        const smooth = raw.map((_v, k) => ((raw[k - 1] ?? raw[k]!) + raw[k]! + (raw[k + 1] ?? raw[k]!)) / 3);
-        const peak = Math.max(1, ...smooth);
-        const sorted = [...smooth].sort((a, b) => a - b);
-        const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
-        for (let k = 1; k < smooth.length - 1; k++) {
-          if (smooth[k]! <= smooth[k - 1]! && smooth[k]! < smooth[k + 1]! && smooth[k]! < median * 0.8) {
-            const assetMs = (from + k) * step;
-            if (assetMs > take.startMs + 100 && assetMs < take.endMs - 100) quiet.push(s.clip.atMs + (assetMs - take.startMs));
-          }
-        }
-        curve = smooth.map((v) => v / peak);
-      }
-      // pauses: stretches of at least a quarter second well under the loud parts, between sounds (not the clip's silent ends)
-      const pauses: number[] = [];
-      if (m.sound && m.sound.length && s.clip.sound === "own") {
-        const to = Math.min(m.sound.length - 1, Math.ceil(take.endMs / step));
-        const db = m.sound.slice(from, to + 1);
-        for (const p of pausesIn(db)) if (p.from > 0 && p.to < db.length) pauses.push(s.clip.atMs + ((from + (p.from + p.to) / 2) * step - take.startMs));
-      }
-      return { slot: s, curve, quiet, pauses };
+      const was = seen.current.get(s);
+      if (was && was.m === m) return was.v;
+      const v = motionAlong(s, m);
+      seen.current.set(s, { m, v });
+      return v;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- measures is the read measureOf looks into, listed instead
   }, [played, measures]);
@@ -106,4 +87,39 @@ export function useMotionMarks({ slots, clips, timeline, playEnd, pps, clock, sn
   };
 
   return { measureOf, motion, snapRange };
+}
+
+/** One clip's motion and pauses (useMotionMarks' `motion`), from its measure. */
+type ClipMotion = { slot: Slot; curve: number[]; quiet: number[]; pauses: number[] };
+function motionAlong(s: Slot, m: Motion | undefined): ClipMotion {
+  const take = s.clip.take!;
+  if (!m) return { slot: s, curve: [], quiet: [], pauses: [] };
+  const step = 1000 / m.rate;
+  const from = Math.floor(take.startMs / step);
+  const quiet: number[] = [];
+  let curve: number[] = [];
+  if (m.values.length) {
+    const to = Math.min(m.values.length - 1, Math.ceil(take.endMs / step));
+    const raw = m.values.slice(from, to + 1);
+    // smoothed over three samples, so that one odd frame is not a dip
+    const smooth = raw.map((_v, k) => ((raw[k - 1] ?? raw[k]!) + raw[k]! + (raw[k + 1] ?? raw[k]!)) / 3);
+    const peak = Math.max(1, ...smooth);
+    const sorted = [...smooth].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+    for (let k = 1; k < smooth.length - 1; k++) {
+      if (smooth[k]! <= smooth[k - 1]! && smooth[k]! < smooth[k + 1]! && smooth[k]! < median * 0.8) {
+        const assetMs = (from + k) * step;
+        if (assetMs > take.startMs + 100 && assetMs < take.endMs - 100) quiet.push(s.clip.atMs + (assetMs - take.startMs));
+      }
+    }
+    curve = smooth.map((v) => v / peak);
+  }
+  // pauses: stretches of at least a quarter second well under the loud parts, between sounds (not the clip's silent ends)
+  const pauses: number[] = [];
+  if (m.sound && m.sound.length && s.clip.sound === "own") {
+    const to = Math.min(m.sound.length - 1, Math.ceil(take.endMs / step));
+    const db = m.sound.slice(from, to + 1);
+    for (const p of pausesIn(db)) if (p.from > 0 && p.to < db.length) pauses.push(s.clip.atMs + ((from + (p.from + p.to) / 2) * step - take.startMs));
+  }
+  return { slot: s, curve, quiet, pauses };
 }

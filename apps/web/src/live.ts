@@ -8,6 +8,7 @@ import { useBanners, useLive, useNotify, useSystem } from "./store";
 import { useBar } from "./bar/store";
 import { isUnder, libraryInPlace, libraryReads, queryKeys, RENDER_KEYS, type LibraryChange } from "./queryKeys";
 import { backFromRestart, followRestart, readsAgain, useRestarting } from "./updates";
+import { timelineReader } from "./timelineReads";
 
 /** What else hears the library's changes as they come (hearLibrary): a viewer waiting for what its cut makes. */
 const libraryHeard = new Set<(change: LibraryChange) => void>();
@@ -127,6 +128,10 @@ export function useLiveEvents(): void {
       if (change) for (const heard of libraryHeard) heard(change);
     };
 
+    // the timelines, after a "timeline" event or a clip's job that ended: gathered, and not read again where a read sent
+    // since stands for the change (an edit's own read back; timelineReads.ts)
+    const readTimelines = timelineReader(client);
+
     // a job that ended, seen in the queue as it is read: the history and the render times are read again (what is told of
     // it comes from the server, as a "notice")
     let seen: Set<string> | null = null;
@@ -143,7 +148,8 @@ export function useLiveEvents(): void {
       // the history: its first page only, with the jobs that ended put in front of what is loaded (data.ts)
       if (now.ended.length) {
         void readHistoryHead(client);
-        refetch(client, [...RENDER_KEYS, ...(onTimeline ? [queryKeys.timelines.all()] : [])]);
+        refetch(client, RENDER_KEYS);
+        if (onTimeline) readTimelines();
       }
     });
 
@@ -183,7 +189,7 @@ export function useLiveEvents(): void {
       },
       models: on(queryKeys.modelInfo.all()),
       // a timeline changed: its card, and the Projects panel's tree when it is open (its clips, its size)
-      timeline: () => refetch(client, [queryKeys.timelines.all(), queryKeys.projects.trees()]),
+      timeline: () => readTimelines({ tree: true }),
       entities: on(queryKeys.entities()),
       // what the server tells of (notify.ts): a notification of this browser where its kind is ticked here, shown by one tab
       notice: (data) => {
@@ -334,6 +340,7 @@ export function useLiveEvents(): void {
       readQueue.cancel();
       readDeployModels.cancel();
       libraryRead.cancel();
+      readTimelines.cancel();
       if (indexWait) clearTimeout(indexWait);
       if (retry) clearTimeout(retry);
       if (downWait) clearTimeout(downWait);

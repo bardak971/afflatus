@@ -21,6 +21,23 @@ interface Over {
   hint: string;
   /** On the clip itself, not the ruler above it: the card says the clip's figures too. */
   onClip: boolean;
+  /** How high the card may reach, in the viewport (ceilingOver). */
+  ceiling: number;
+}
+
+/**
+ * How high the card may reach: the middle of the stage just above the track, where the picture being scrubbed is (0: no
+ * stage). Measured as the card comes up, not at each move of the pointer, and without the track's own clips, which are
+ * marked `data-stage` too for the dark stage's colours on their frames: at each move, the 138 elements of a 150-clip
+ * timeline were measured, some 3,200 layout reads a second.
+ */
+function ceilingOver(area: HTMLElement, top: number): number {
+  const stage = [...document.querySelectorAll<HTMLElement>("[data-stage]")]
+    .filter((e) => !area.contains(e))
+    .map((e) => e.getBoundingClientRect())
+    .filter((r) => r.height > 40 && r.bottom <= top + 1)
+    .sort((a, b) => b.bottom - a.bottom)[0];
+  return stage ? stage.top + stage.height / 2 : 0;
 }
 
 /**
@@ -60,13 +77,18 @@ export function FramePeek({ area, floor, slots, clips, recipes, pps, totalMs, pa
     let askedAt = 0;
     let isArmed = false;
     let latest: string | null = null;
+    /** The card's ceiling while it is up: measured again each time it comes up. */
+    let ceiling: number | null = null;
     const ask = () => {
       trail = null;
       askedAt = performance.now();
       setUrl(latest);
       if (latest) preload(latest).catch(() => {});
     };
-    const hide = () => setOver(null);
+    const hide = () => {
+      ceiling = null;
+      setOver(null);
+    };
     const reset = () => {
       if (timer) clearTimeout(timer);
       if (trail) clearTimeout(trail);
@@ -91,7 +113,8 @@ export function FramePeek({ area, floor, slots, clips, recipes, pps, totalMs, pa
       latest = take ? frameUrl(take.asset, Math.min(take.endMs - 60, take.startMs + Math.max(0, Math.min(1, (x - slot.left) / Math.max(1, slot.width))) * slot.lengthMs), fitFrame(take.asset.width, take.asset.height, PEEK.frame).h) : null;
       if (performance.now() - askedAt >= FRAME_EVERY_MS) ask();
       else trail ??= setTimeout(ask, FRAME_EVERY_MS);
-      setOver({ x, clientX: e.clientX, top: box.top, slot, hint: target?.closest<HTMLElement>("[data-hint]")?.dataset.hint ?? HINTS.ruler, onClip: y >= ROW.top });
+      ceiling ??= ceilingOver(el, box.top);
+      setOver({ x, clientX: e.clientX, top: box.top, slot, hint: target?.closest<HTMLElement>("[data-hint]")?.dataset.hint ?? HINTS.ruler, onClip: y >= ROW.top, ceiling });
       if (!isArmed && !timer) {
         timer = setTimeout(() => {
           timer = null;
@@ -132,9 +155,8 @@ export function FramePeek({ area, floor, slots, clips, recipes, pps, totalMs, pa
   const atMs = Math.max(0, Math.min(totalMs, ((over.x - PAD) / pps) * 1000));
   const bounds = floor.current?.getBoundingClientRect();
   // the card stands on the ruler and stops short of the stage's middle, where the picture being scrubbed is: a frame of
-  // its own beside the clip, not a second picture over the first (the stage is the [data-stage] just above the track)
-  const stage = [...document.querySelectorAll<HTMLElement>("[data-stage]")].map((e) => e.getBoundingClientRect()).filter((r) => r.height > 40 && r.bottom <= over.top + 1).sort((a, b) => b.bottom - a.bottom)[0];
-  const ceiling = stage ? stage.top + stage.height / 2 : 0;
+  // its own beside the clip, not a second picture over the first
+  const ceiling = over.ceiling;
   const words = over.onClip;
   // what the card has for its frame: its room under the ceiling, without its padding, the footer and (a lying frame)
   // the clip's words under it

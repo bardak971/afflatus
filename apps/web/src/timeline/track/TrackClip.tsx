@@ -18,6 +18,7 @@ import type { Motion } from "./useMotionMarks";
 import { edgeGive, resisted } from "./spring";
 import type { Over } from "./useTrackDrop";
 import { useSpringBack } from "./useSpringBack";
+import { useNearJoin, type NearJoin } from "./nearJoin";
 import { Wave } from "./Wave";
 
 /**
@@ -96,7 +97,7 @@ export const joinCovered = (slots: Slot[], s: Slot, selected: string | null) =>
 /** How long a clip's film strip waits for its motion before it is asked for all the same. */
 const STRIP_WAIT_MS = 8000;
 
-export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, misfit, on, edged, picked, rendering, stretch, over, pinOn, ownSound, fileSound, renderMs, lift, moving, near, voice, acts }: {
+export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, misfit, on, edged, picked, rendering, stretch, over, pinOn, ownSound, fileSound, renderMs, lift, moving, nearJoin, voice, acts }: {
   s: Slot;
   /**
    * A Lip sync clip's voice: the recording's name, null while it has none (said in amber on its face and in its Audio cell,
@@ -107,8 +108,8 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
   lift?: "held" | "landing";
   /** A clip is being moved: the joins are not drawn meanwhile (each says how its clip follows the one before, which changes). */
   moving: boolean;
-  /** The pointer is near the join before it: its "+" shows. */
-  near: boolean;
+  /** The join the pointer is near: before this clip, its "+" shows. */
+  nearJoin: NearJoin;
   /** A trim edge is drawn on the join before it (joinCovered): no "+" there. */
   edged: boolean;
   /** The clip before it on the track, and its model. */
@@ -135,6 +136,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
 }) {
   const a = () => acts.current;
   const c = s.clip;
+  const near = useNearJoin(nearJoin, c.id) && !moving;
   const live = rendering;
   const pins = pinInputs(recipe);
   const carries = s.index > 0 && c.joined === "continue";

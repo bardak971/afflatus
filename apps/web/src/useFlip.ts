@@ -24,9 +24,16 @@ export function motionEase(): string {
 
 type Spot = { x: number; y: number };
 
+/** Where each thing is laid out, as offsets in the layout. */
+function spots(els: Map<string, HTMLElement>): Map<string, Spot> {
+  const at = new Map<string, Spot>();
+  for (const [key, el] of els) at.set(key, { x: el.offsetLeft, y: el.offsetTop });
+  return at;
+}
+
 /**
  * Things put in a new order slide from where they were to where they now are, the others moving aside, rather than
- * jumping (FLIP: where each was is kept after every drawing; when the order changes, each one is drawn at once in
+ * jumping (FLIP: where each was is read as the new order is drawn, before the page changes; each one is drawn at once in
  * its new place, shifted back by the difference, and the shift runs out in --t-panel). `order` is what says the
  * order changed: the ids in it, joined; anything else redrawn (a name typed, a resize) moves nothing. Give each
  * thing's element `ref(key)`. Places are read as offsets in the layout, not on the screen: a list scrolled between
@@ -38,18 +45,21 @@ type Spot = { x: number; y: number };
 export function useFlip(order: readonly string[], still = false): (key: string) => (el: HTMLElement | null) => void {
   const els = useRef(new Map<string, HTMLElement>());
   const refs = useRef(new Map<string, (el: HTMLElement | null) => void>());
-  const was = useRef(new Map<string, Spot>());
   const running = useRef(new Map<HTMLElement, Animation>());
   const signature = order.join("\u0000");
   const before = useRef(signature);
+  // where each one was, read only when the order changed, while the page still shows the order before: read after every
+  // drawing, it laid the page out once more at each key typed in a form (a pinned field, a section's setting)
+  const was = useRef<{ signature: string; at: Map<string, Spot> } | null>(null);
+  if (before.current !== signature && was.current?.signature !== signature) was.current = { signature, at: spots(els.current) };
   useLayoutEffect(() => {
-    const now = new Map<string, Spot>();
-    for (const [key, el] of els.current) now.set(key, { x: el.offsetLeft, y: el.offsetTop });
     const changed = before.current !== signature;
     before.current = signature;
-    const old = was.current;
-    was.current = now;
-    if (!changed || still || !motionAllowed()) return;
+    if (!changed) return;
+    const old = was.current?.at ?? new Map<string, Spot>();
+    was.current = null;
+    if (still || !motionAllowed()) return;
+    const now = spots(els.current);
     // each one's whole move first, then a thing's own part of it (its parent's slide carries it the rest of the way)
     const moves = new Map<HTMLElement, Spot>();
     for (const [key, el] of els.current) {

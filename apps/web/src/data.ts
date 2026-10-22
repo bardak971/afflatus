@@ -6,6 +6,7 @@ import { familyOnFor } from "./machines";
 import { withFreshHead } from "./screens/queue/historyHead";
 import { useProject } from "./project";
 import { queryKeys } from "./queryKeys";
+import { readSent } from "./timelineReads";
 
 /**
  * The queries the screens share. Live events (live.ts) decide when they refetch. The lists that follow
@@ -118,7 +119,13 @@ export function useFamilies(machine?: string) {
 /** The timelines of the project the app looks at. Its key starts with "timelines", like each timeline's, so both refetch on a "timeline" event. */
 export const useTimelines = () => {
   const project = useProject((s) => s.id);
-  return useQuery({ queryKey: queryKeys.timelines.list(project), queryFn: api.timelines });
+  return useQuery({
+    queryKey: queryKeys.timelines.list(project),
+    queryFn: ({ signal, queryKey }) => {
+      readSent(queryKey);
+      return api.timelines({ signal });
+    },
+  });
 };
 export const useDrafts = (enabled = true) => {
   const project = useProject((s) => s.id);
@@ -138,7 +145,16 @@ const withDefaults = (t: Timeline): Timeline => ({
   music: t.music ? { ...t.music, fromMs: t.music.fromMs ?? 0, startClip: t.music.startClip ?? null } : t.music,
   clips: t.clips.map((c) => (c.music === undefined ? { ...c, music: null } : c)),
 });
-export const useTimeline = (id: string | undefined) => useQuery({ queryKey: queryKeys.timelines.one(id), queryFn: ({ signal }) => api.timeline(id!, { signal }), enabled: Boolean(id), select: withDefaults });
+// each read written down as it is sent: a "timeline" event heard before it needs no read of its own (timelineReads.ts)
+export const useTimeline = (id: string | undefined) => useQuery({
+  queryKey: queryKeys.timelines.one(id),
+  queryFn: ({ signal, queryKey }) => {
+    readSent(queryKey);
+    return api.timeline(id!, { signal });
+  },
+  enabled: Boolean(id),
+  select: withDefaults,
+});
 export const useEntities = () => useQuery({ queryKey: queryKeys.entities(), queryFn: api.entities });
 export const useWorkflows = () => useQuery({ queryKey: queryKeys.workflows(), queryFn: api.workflows });
 // read once per file by the server, then kept: the "models" live event says when more has arrived
