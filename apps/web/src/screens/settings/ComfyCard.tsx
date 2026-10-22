@@ -9,7 +9,7 @@ import { Block, Card, Fact, Row, Status } from "./Rows";
 import { queryKeys } from "../../queryKeys";
 import { useQueue } from "../../data";
 import { AccessRow } from "./AccessRow";
-import { AddMachineCard, MachineCards, MachinesHead, PacksRow, useMachineProbes, useSaveMachines } from "./MachinesCard";
+import { AddMachineCard, MachineCards, MachinesHead, PacksRow, SetAsideNote, useMachineProbes, useSaveMachines } from "./MachinesCard";
 import { COLUMNS } from "./wide";
 import { FirstLaunchCard, NoComfyCard } from "./NoComfyCard";
 
@@ -122,6 +122,7 @@ export function ComfyCard() {
   if (!machines.some((m) => !m.rented)) {
     return (
       <div className="flex flex-col gap-4">
+        <SetAsideNote />
         <div className={COLUMNS}>
           <div className="flex min-w-0 flex-col gap-4"><NoComfyCard /></div>
           <div className="flex min-w-0 flex-col gap-4"><FirstLaunchCard /></div>
@@ -133,6 +134,7 @@ export function ComfyCard() {
   if (several) {
     return (
       <div className="flex flex-col gap-4">
+        <SetAsideNote />
         <MachinesHead />
         <div className={COLUMNS}>
           <AddMachineCard />
@@ -146,6 +148,7 @@ export function ComfyCard() {
   return (
     <div className={COLUMNS}>
       <div className="flex min-w-0 flex-col gap-4">
+      <SetAsideNote />
       <Card id="comfyui" title="Connection" status={comfy && <Status ok={comfy.online} away={!comfy.online && !comfy.locked}>{comfy.online ? "Connected" : "Not answering"}</Status>}>
         <Row setting="comfy.url" label="ComfyUI URL" htmlFor="comfy-url" help="The address ComfyUI listens on (8188 unless started with --port). Test again saves it first when it changed. Testing only reads what ComfyUI has: it never starts a render or loads a model.">
           <input id="comfy-url" value={url} onChange={(e) => setUrl(e.target.value)} spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />

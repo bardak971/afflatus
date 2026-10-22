@@ -132,6 +132,27 @@ export function AddMachineCard() {
   );
 }
 
+/**
+ * The stored machines the server could not read whole (settings.ts load), said above the cards: a hand edit, or a setting a
+ * newer Afflatus no longer takes. Said only: what is set aside is kept as it was stored, and a pod in it is stopped.
+ */
+export function SetAsideNote() {
+  const settings = useSettings();
+  const aside = settings.data?.machinesSetAside ?? [];
+  if (!aside.length) return null;
+  return (
+    <ErrorNote>
+      {aside.map((a, i) => (
+        <p key={i}>
+          {a.mended
+            ? `${a.label}: its stored ${a.fields.join(", ")} could not be read and took the default.`
+            : `${a.label} could not be read from the stored settings (${a.why}): it is left out of the list, its settings kept as they were.${a.pod ? " Its RunPod pod is stopped: nothing here can watch its idle time or count it against the caps." : ""}`}
+        </p>
+      ))}
+    </ErrorNote>
+  );
+}
+
 /** "Pause all", above the machines' cards. */
 export function MachinesHead() {
   const queue = useQueue();

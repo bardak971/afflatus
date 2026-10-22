@@ -50,7 +50,7 @@ export type LlmPatch = Omit<LlmInfo, "hasApiKey"> & { apiKey?: string };
  * refused). As the answer says them, but for what the answer hides: the Civitai key itself, the models with their keys,
  * and `llm`, the model in use changed the short way. Held to the server's schema by test/apiTypes.test.ts.
  */
-export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiKey" | "hasHuggingFaceToken" | "hasRunpodKey" | "hasRunpodS3Secret" | "machines" | "notify" | "access">> & {
+export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiKey" | "hasHuggingFaceToken" | "hasRunpodKey" | "hasRunpodS3Secret" | "machines" | "machinesSetAside" | "notify" | "access">> & {
   /** Some of the password's settings; the password itself has its own routes (api.setPassword), never this. */
   /** Refused from the page: the Access settings go through api.accessSettings, which asks for the password. */
   access?: Partial<Omit<AccessSettings, "hasPassword" | "passwordSetAt" | "hasMetricsToken">> & {
@@ -232,6 +232,11 @@ export interface MachineAccess {
 export interface Settings {
   /** The ComfyUIs, the first first (the one the setup, downloads and node packs talk to); `comfyUrl` and `comfyDir` are the first one's. */
   machines: Machine[];
+  /**
+   * The stored machines the server could not read whole (a hand edit, a setting it no longer takes): `mended`, only `fields`
+   * took their default and it is in `machines`; otherwise it is left out, its row kept, and its pod (`pod`) stopped.
+   */
+  machinesSetAside: Array<{ label: string; mended: boolean; fields: string[]; pod: boolean; why: string }>;
   comfyUrl: string;
   /** ComfyUI's folder on Afflatus's computer, when they share one; empty otherwise. */
   comfyDir: string;
