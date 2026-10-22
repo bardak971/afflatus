@@ -7,6 +7,8 @@ import type { Machine } from "./settings";
 
 const SCAN_TTL_MS = 60_000;
 const CATALOG_TTL_MS = 10 * 60_000;
+/** How long a node list that could not be read is answered as not read (see catalog). */
+const CATALOG_FAILED_MS = 15_000;
 /** How often a machine's GPU power is read at most, whoever asks: as often as the open pages read the load. */
 const POWER_EVERY_MS = 1_800;
 /** A node pack without the power route is asked again after this (it may have been updated without ComfyUI's socket closing). */
@@ -28,7 +30,7 @@ export class Comfy {
   private lastScan: { at: number; value: Promise<Scan> } | null = null;
   /** The scan under way in the background while the last one is still answered (see scan). */
   private nextScan: Promise<Scan> | null = null;
-  private lastCatalog: { at: number; value: Promise<NodeCatalog> } | null = null;
+  private lastCatalog: { at: number; value: Promise<NodeCatalog>; failed?: true } | null = null;
   /**
    * The pictures sent to this ComfyUI under a name their content gives, by folder and content hash (queueSubmit's picture
    * upload): the same picture in every window of a motion transfer goes up once. Forgotten when ComfyUI starts again (it
@@ -110,6 +112,8 @@ export class Comfy {
   forgetScan(): void {
     this.lastScan = null;
     this.nextScan = null;
+    // nor a node list that could not be read: one found answering again (queue.ts back) is read at once
+    if (this.lastCatalog?.failed) this.lastCatalog = null;
   }
 
   /** This ComfyUI has a file it did not have: nothing learned about it holds any more. */
@@ -128,13 +132,23 @@ export class Comfy {
     this.lastCatalog = null;
   }
 
+  /**
+   * Its node list, kept CATALOG_TTL_MS. One that could not be read is kept CATALOG_FAILED_MS, as the queue retries a machine
+   * away (offlineRetryMs): forgotten at once, the next waiting job asked it again, so a ComfyUI that never answered held the
+   * Queue screen 60 s per job, minutes on end, and one that refused was asked once per job at each read (the 2026-10-22
+   * review, H-3 and M-10). Its socket opening again, a fresh scan and forgetCatalog read it at once all the same.
+   */
   async catalog(): Promise<NodeCatalog> {
-    if (!this.lastCatalog || Date.now() - this.lastCatalog.at > CATALOG_TTL_MS) {
+    const last = this.lastCatalog;
+    if (!last || Date.now() - last.at > (last.failed ? CATALOG_FAILED_MS : CATALOG_TTL_MS)) {
       const value = this.client.catalog();
-      this.lastCatalog = { at: Date.now(), value };
-      value.catch(() => (this.lastCatalog = null));
+      const read: NonNullable<Comfy["lastCatalog"]> = { at: Date.now(), value };
+      this.lastCatalog = read;
+      value.catch(() => {
+        if (this.lastCatalog === read) this.lastCatalog = { at: Date.now(), value, failed: true };
+      });
     }
-    return this.lastCatalog.value;
+    return this.lastCatalog!.value;
   }
 
   /** Whether ComfyUI answered the last `load()`: null before the first. A null load alone does not say (it may have no GPU figures). */

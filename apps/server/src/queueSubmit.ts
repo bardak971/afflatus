@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
 import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, onGrid, packOfNode, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
-import { ComfyCancelled, ComfyError, ComfyUnreachable } from "@afflatus/comfy";
+import { catalogKey, ComfyCancelled, ComfyError, ComfyUnreachable } from "@afflatus/comfy";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
 import { cutFrames, frameAt, partOf, rangeKeep, referenceClip, soundPart } from "./cut";
@@ -14,7 +14,8 @@ import { maskBox, mirrorPicture, readPicture } from "./thumbs";
 import { ffmpegPool } from "./pool";
 import { readVideo, videoFacts } from "./video";
 import { ANY_PACKS, asBuilt, cannotWhy, optionsIn, packsSaid, ranWithoutSaid } from "./jobPacks";
-import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel";
+import { CATALOG_WAIT_MS, readJson, within, type JobRow, type QueueCore, type Resume } from "./queueModel";
+import type { Registry } from "./registry";
 import type { Placed } from "./timelineModel";
 
 /** Where a timeline's clips are read (Timelines.placedOnce). */
@@ -847,11 +848,12 @@ async function clipFacts(core: QueueCore, spec: InputSpec & { type: "clip" }, va
  * are. `machines`: each one's forecast too (`on`), from the one graph built. `loads`: what each machine was last asked to
  * load (its lane's lastLoads), so that with `cold` left out each is told whether it holds the model itself: judged by the
  * first machine's, a machine holding another model was told it warm. `placed`: where a clip's timeline is read, shared by
- * the forms of one request (Timelines.placedOnce).
+ * the forms of one request (Timelines.placedOnce). `builds`: the graphs of forms (not a clip's, built on what it joins onto)
+ * kept by the caller, by form; a graph is not the record's, and the queue builds each waiting one once.
  */
 export async function forecastOf(
   core: QueueCore, recipeId: string, rawInput: unknown,
-  opts: { cold?: boolean; finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null; machine?: string | null; machines?: readonly string[]; loads?: (machine: string) => string | null; placed?: PlacedReader } = {},
+  opts: { cold?: boolean; finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null; machine?: string | null; machines?: readonly string[]; loads?: (machine: string) => string | null; placed?: PlacedReader; builds?: Map<string, Promise<BuiltGraph | null>> } = {},
 ): Promise<{ forecast: Forecast; shape: { pixels: number; frames: number }; model: string; on?: Record<string, Forecast> } | null> {
   const recipe = core.registry.recipe(recipeId);
   if (!recipe) return null;
@@ -863,9 +865,14 @@ export async function forecastOf(
   }
   const plan = opts.clip && core.clips ? await core.clips.plan(opts.clip.id, recipe, chosen, opts.clip.fit, opts.finishedFrom ?? null, true, [], opts.placed).catch(() => null) : null;
   if (plan) chosen = parseInput(recipe, withTexts(recipe, plan.input)) as Record<string, unknown>;
-  const built = await builtOf(core, recipeId, plan ? plan.input : rawInput, { finishedFrom: opts.finishedFrom ?? null, canvas: plan?.canvas }).catch(() => null);
+  // the first machine's node list, waited for CATALOG_WAIT_MS at most: one that accepts and never answers held every forecast
+  // a minute (H-3); unread, the form is not built, and is priced from its recipe's usual times
+  const catalog = await within((await core.comfy()).catalog(), CATALOG_WAIT_MS);
+  const build = () => (catalog ? builtOf(core, recipeId, plan ? plan.input : rawInput, { finishedFrom: opts.finishedFrom ?? null, canvas: plan?.canvas, catalog }).catch(() => null) : Promise.resolve(null));
+  // kept by its form and that node list: one that cannot be built on it is not built again at each pass either
+  const built = await (catalog && opts.builds && !opts.clip ? keptBuild(opts.builds, [recipeId, opts.finishedFrom ?? "", catalogKey(catalog) ?? "", JSON.stringify(rawInput)].join("\u0001"), build) : build());
   // its settings as submit files them: a file left on its default that this ComfyUI does not have is its best one (the time key)
-  if (built) chosen = settled(recipe, chosen, await (await core.comfy()).catalog());
+  if (built) chosen = settled(recipe, chosen, catalog!);
   const shape = built ? workOf(built) : null;
   const model = built ? modelFileOf(recipe, chosen, built) : (modelOf(recipe.inputs, chosen) ?? "");
   const paces = opts.machine || opts.machines?.length ? await core.paces() : undefined;
@@ -890,8 +897,26 @@ export async function forecastOf(
   return { forecast: fallback, shape: { pixels: shape?.pixels ?? 0, frames: shape?.frames ?? 1 }, model, ...(on ? { on } : {}) };
 }
 
+/** A form's graph kept under its key (its form and the node list it was built on), built or not. */
+function keptBuild(kept: Map<string, Promise<BuiltGraph | null>>, key: string, build: () => Promise<BuiltGraph | null>): Promise<BuiltGraph | null> {
+  let got = kept.get(key);
+  if (!got) kept.set(key, (got = build()));
+  return got;
+}
+
 /** The model file a render is recorded under (render_stats.model_file). */
 const modelFileOf = (recipe: Recipe<any>, chosen: Record<string, unknown>, built: BuiltGraph) => modelOf(recipe.inputs, chosen) ?? (mainModel(built) ?? "").split(" + ")[0]!.toLowerCase();
+
+/**
+ * A recipe's frames a second as the forecasts read them (forecast.ts workOfRow), one lookup per registry: the record's rows
+ * are given their work once per lookup (forecast.ts workedOf), not once per waiting job and machine.
+ */
+const fpsLookups = new WeakMap<Registry, (recipeId: string) => number | undefined>();
+function fpsOf(registry: Registry): (recipeId: string) => number | undefined {
+  let fps = fpsLookups.get(registry);
+  if (!fps) fpsLookups.set(registry, (fps = (id) => registry.recipe(id)?.traits?.fps));
+  return fps;
+}
 
 /** The forecast of a built graph from its model's past renders; `cold` null: whether its base models are not the ones held now. */
 async function forecastFrom(
@@ -900,8 +925,8 @@ async function forecastFrom(
   const shape = workOf(built);
   if (!shape.pixels) return null;
   return forecast(core.db, modelFileOf(recipe, chosen, built), shape.pixels * shape.frames, shape.steps, cold ?? coldOf(core.lastLoads, built), {
-    recipeId: recipe.id, timeKey: timeKey(recipe.inputs, chosen), family: recipe.family, fps: (id) => core.registry.recipe(id)?.traits?.fps,
-    samples: Object.values(built.phases).includes("sampling"), chunks: chunksOf(built, shape.pixels), rows: (file) => core.statRows(file), ...where,
+    recipeId: recipe.id, timeKey: timeKey(recipe.inputs, chosen), family: recipe.family, fps: fpsOf(core.registry),
+    samples: Object.values(built.phases).includes("sampling"), chunks: chunksOf(built, shape.pixels), rows: (file) => core.statRows(file), familyReads: core.familyReads, ...where,
   });
 }
 

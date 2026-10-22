@@ -67,6 +67,18 @@ const LOAD_FRESH_MS = 2 * 60_000;
 const FORECAST_SLACK_MS = 10 * 60_000;
 /** The lane of the jobs that need no ComfyUI. */
 const TOOLS = "tools";
+/**
+ * How long the Queue screen's plan waits for a machine's scan (status): one not read by then is shown as one whose scan cannot
+ * be read, and read on in the background for the next look. The scan of a ComfyUI that accepts and never answers takes its
+ * status's five seconds, at every look.
+ */
+const VIEW_SCAN_WAIT_MS = 1_500;
+/** How long a waiting page (statusRecent) is read from the last status worked out, rather than all of it again. */
+const STATUS_RECENT_MS = 2_000;
+/** How long the last pass's plan answers whether a machine has work (wants): a rented pod's idle check asks every 20 s. */
+const PLAN_KEPT_MS = 15_000;
+/** A machine found away again and again is asked at one pass in this many (see pump's answers): every minute at the retries' 15 s. */
+const AWAY_ASK_EVERY = 4;
 /** Whether a render was lost because its machine stopped answering (silent past the wait, or not reached at all), not because its ComfyUI answered without the prompt. */
 const awayErr = (err: Error) => err instanceof ComfyAway || err instanceof ComfyUnreachable;
 
@@ -139,6 +151,28 @@ export class Queue {
   diedLate: ((machine: string) => Promise<{ said: string; report: Record<string, unknown> | null } | null>) | null = null;
   /** The render a machine's ComfyUI died under (machineDied), by machine: that render's end is that death, whatever its wait saw. */
   private readonly died = new Map<string, Died>();
+  /**
+   * The last plan made (a pass, or wants), and when: the machines it gives a waiting job. Dropped at every change of the line
+   * (its "queue" event): what a pod's idle check asks every 20 s is read from it, not planned again (the 2026-10-22 review, L-8).
+   */
+  private lastPlan: { at: number; lanes: Set<string> } | null = null;
+  /** How many changes the line has seen (changed): a plan made across one is not kept. */
+  private changes = 0;
+  /** Something changed that a plan reads (a pass is asked for, the line changed): the last plan is dropped. */
+  private changed(): void {
+    this.changes++;
+    this.lastPlan = null;
+  }
+  /** A plan just made is kept for wants, unless something changed since it began (`changes`, read then). */
+  private keepPlan(changes: number, where: ReadonlyMap<string, { lane: string }>): void {
+    if (changes === this.changes) this.lastPlan = { at: Date.now(), lanes: new Set([...where.values()].map((w) => w.lane)) };
+  }
+  /** The machines found away by the passes: how many times in a row, and how many passes go before they are asked again (see pump's answers). */
+  private readonly awayFor = new Map<string, { missed: number; skip: number }>();
+  /** A render was put on the record since the last pass: the next pass plans on the forecasts kept, and the one after on the new record. */
+  private recordedSincePass = false;
+  /** The last status worked out, for the waiting pages (statusRecent). */
+  private recentStatus: { at: number; value: ReturnType<Queue["statusNow"]> } | null = null;
 
   constructor(
     private readonly db: Db,
@@ -168,6 +202,8 @@ export class Queue {
     });
     // a machine got a file, or its families were switched: a job that waited for one may go there now
     this.events.on("setup", () => void this.pump());
+    // whatever changed in the line, its last plan says nothing of it (wants)
+    this.events.on("queue", () => this.changed());
     this.forecasts = new Forecasts({
       db,
       machines: () => this.machineLanes().map((l) => l.id),
@@ -249,6 +285,7 @@ export class Queue {
       loaded: (loads, model) => this.loaded(l, loads, model),
       usual: () => this.forecasts.usual(),
       statRows: (modelFile) => this.forecasts.statRows(modelFile),
+      familyReads: this.forecasts.familyReads,
       paces: () => this.forecasts.paces(),
       expected: (recipe, input, cold, job, machine) => this.expected(recipe, input, cold, job, machine),
       loadsModel: async (recipe, input, job) => modelOf(recipe.inputs, input) ?? (await this.forecasts.expectedAll(recipe, input, false, job ?? null)).model,
@@ -744,6 +781,14 @@ export class Queue {
     return e.on.get(machine) ?? e.ms * (paceOf(await this.forecasts.paces(), machine, recipe.family) ?? 1);
   }
 
+  /**
+   * Each machine's learned pace (forecast.ts machinePaces) as the queue keeps it, read again once a minute: what the Renders
+   * summary and /metrics say too. Each read worked it out again over the whole record of render times (M-11).
+   */
+  paces(): Promise<ReadonlyMap<string, number>> {
+    return this.forecasts.paces();
+  }
+
   /** Whether the queue is paused by hand (Pause all): a queued render does not start. */
   get isPaused(): boolean {
     return this.allPaused();
@@ -870,12 +915,22 @@ export class Queue {
   }
 
   /** The line as it stands, each machine's running job and progress, and the last finished jobs. */
-  async status() {
+  status(): ReturnType<Queue["statusNow"]> {
+    const value = this.statusNow();
+    const recent = { at: Date.now(), value };
+    this.recentStatus = recent;
+    value.catch(() => {
+      if (this.recentStatus === recent) this.recentStatus = null;
+    });
+    return value;
+  }
+
+  private async statusNow() {
     const views = await this.views();
     const paused = this.allPaused();
     const lanes = await this.refresh();
     const rows = await this.db.selectFrom("jobs").selectAll().where("status", "=", "queued").orderBy("priority").orderBy("created_at").execute();
-    const able = await this.planner.ableOf(rows.filter(needsComfy));
+    const able = await this.planner.ableOf(rows.filter(needsComfy), { scanWaitMs: VIEW_SCAN_WAIT_MS });
     const planned = paused ? new Map<string, { lane: string; startsInMs: number; endsInMs: number }>() : await this.planner.forecastPlan(lanes, rows, able);
     const status = await view.status(this.core, views, paused, planned, await this.forecasts.paces(), able, (job) => this.ownPacks.waitOf(job));
     // when the waiting renders are all done, as the plan shares them between the machines (ms from now): the last end, not
@@ -884,6 +939,16 @@ export class Queue {
     const waitingEndsInMs = ends.length && ends.every(Number.isFinite) ? Math.max(...ends) : null;
     // the GPU hunt under way, for the status bar (hunt.ts); null when there is none
     return { ...status, waitingEndsInMs, hunt: this.huntOf?.(rows.filter(needsComfy).length) ?? null };
+  }
+
+  /**
+   * The status as status() last worked it out, when that was less than STATUS_RECENT_MS ago: a waiting page right after the
+   * Queue screen's read is a slice of the same line, and each worked out the whole status again (the 2026-10-22 review, M-10).
+   */
+  statusRecent(): ReturnType<Queue["statusNow"]> {
+    const recent = this.recentStatus;
+    if (recent && Date.now() - recent.at < STATUS_RECENT_MS) return recent.value;
+    return this.status();
   }
 
   /**
@@ -929,6 +994,8 @@ export class Queue {
    * job that ends makes a new pass.
    */
   private async pump(): Promise<void> {
+    // a pass is asked for: something changed, and the last plan may not hold (wants)
+    this.changed();
     if (this.stopped) return;
     if (this.dispatching) {
       this.dirty = true;
@@ -939,6 +1006,7 @@ export class Queue {
       for (;;) {
         if (this.stopped) break;
         this.dirty = false;
+        const changes = this.changes;
         const lanes = await this.refresh();
         const tools = this.lane(TOOLS);
         const active = await this.db.selectFrom("jobs").selectAll().where("status", "in", ["queued", "running"]).orderBy("priority").orderBy("created_at").execute();
@@ -949,17 +1017,32 @@ export class Queue {
           if (l.starting) taken.add(l.starting);
         }
         const free = (l: Lane) => !l.running && !l.starting;
-        /** Whether a machine's ComfyUI answers, asked once per pass and only when there is a job for it. */
+        /** Whether a machine's ComfyUI answers, asked once per pass and only when there is a job for it (`follows`: one it renders, asked at every pass). */
         const asked = new Map<string, boolean>();
-        const answers = async (l: Lane, sent = false) => {
+        const answers = async (l: Lane, sent = false, follows = false) => {
           // a machine that cannot take work now (a rented pod not running) is not asked: it is not away, it is off
           // A pod at a spending cap takes nothing new, but a render already sent there is followed: the pod stops after it
           const off = this.unavailable(l.id);
           if (off && !(sent && off === CAP_REACHED)) return false;
           if (!asked.has(l.id)) {
+            // one found away is asked at the next pass, then every other, then one in AWAY_ASK_EVERY, not at every pass: six
+            // machines away, asked at each retry (every 15 s), were most of an idle server's work (2026-10-22, L-22). A machine
+            // whose render is followed is asked each time, and one found answering otherwise (the page's poll, a pod's) at once (back)
+            const away = this.awayFor.get(l.id);
+            if (!follows && away && away.skip > 0) {
+              away.skip--;
+              asked.set(l.id, false);
+              return false;
+            }
             l.reachable = await l.comfy!.client.status().then((st) => ((l.device = st.device), true), () => false);
             asked.set(l.id, l.reachable);
-            if (l.reachable) this.dropStale(l);
+            if (l.reachable) {
+              this.dropStale(l);
+              this.awayFor.delete(l.id);
+            } else {
+              const missed = (away?.missed ?? 0) + 1;
+              this.awayFor.set(l.id, { missed, skip: Math.min(AWAY_ASK_EVERY, 2 ** (missed - 1)) - 1 });
+            }
           }
           return asked.get(l.id)!;
         };
@@ -971,7 +1054,7 @@ export class Queue {
           const lane = lanes.find((l) => l.id === (r.machine_id ?? this.firstId)) ?? lanes[0];
           // its machine taken out, and none left: it waits for one, as a queued job does
           if (!lane || !free(lane)) continue;
-          if (!(await answers(lane, Boolean(r.resume)))) {
+          if (!(await answers(lane, Boolean(r.resume), true))) {
             // its machine away since this process started: past the wait a render gets (offlineMs), it is lost as one
             // followed all along would be, and queued again, instead of holding its next clip, the exports after it and an update
             if (await this.awayUnder(r)) this.dirty = true;
@@ -989,13 +1072,23 @@ export class Queue {
         const open = lanes.filter((l) => !l.paused && l.machine);
         let where = new Map<string, { lane: string; startsInMs: number }>();
         let sent = new Map<string, Set<string>>();
+        // a render put on the record since the last pass: this pass plans on the forecasts kept (one render older), the
+        // next on the new record, so that a free machine starts its next job before every waiting job's forecast is worked
+        // out again (the 2026-10-22 review, L-29)
+        const recorded = this.recordedSincePass;
+        this.recordedSincePass = false;
+        if (recorded) this.dirty = true;
         if (!this.paused && gpuRows.length) {
           // each free machine is asked whether it answers (a busy one does); the plan is made with those that may take work
           // and one that answers, whether its ComfyUI has work of someone else's (its own page, another tool): it takes nothing then
           for (const l of open) if (free(l) && (await answers(l))) await this.outside.freshOutside(l);
-          const able = await this.planner.ableOf(gpuRows);
-          where = plan(await this.planner.schedulable(open), await this.planner.planned(gpuRows, able));
-          sent = this.planner.sendFiles(gpuRows, able, where);
+          // every machine away or off: nothing can be planned, started or sent ahead (L-22)
+          const able = lanes.some((l) => l.reachable !== false && !this.unavailable(l.id)) ? await this.planner.ableOf(gpuRows) : null;
+          if (able) {
+            where = plan(await this.planner.schedulable(open), await this.forecasts.heldIf(recorded, () => this.planner.planned(gpuRows, able)));
+            sent = this.planner.sendFiles(gpuRows, able, where);
+            this.keepPlan(changes, where);
+          }
           for (const lane of open) {
             if (!free(lane) || lane.reachable === false || outsideBusy(lane)) continue;
             // on a pod getting files, the first job planned there whose own files are all there
@@ -1006,7 +1099,7 @@ export class Queue {
             // user's own: one waiting for its packs, or for the user to say Install, lets the next one go meanwhile)
             let next: JobRow | undefined;
             for (const r of gpuRows) {
-              if (taken.has(r.id) || where.get(r.id)?.lane !== lane.id || !this.planner.filesThere(r, lane, able)) continue;
+              if (taken.has(r.id) || where.get(r.id)?.lane !== lane.id || !this.planner.filesThere(r, lane, able!)) continue;
               if (await this.ownPacks.mayStart(lane, r)) {
                 next = r;
                 break;
@@ -1338,8 +1431,14 @@ export class Queue {
     const waitingOn = new Set(active.map((r) => r.id));
     const rows = active.filter((r) => r.status === "queued" && needsComfy(r) && !(r.depends_on && waitingOn.has(r.depends_on)) && !(this.only && !this.only.has(r.id)));
     if (!rows.length) return false;
+    // the last plan, when nothing changed in the line since and it is recent: planned again for each pod's check, every 20 s,
+    // a long line was a whole pass each time (the 2026-10-22 review, L-8)
+    const kept = this.lastPlan;
+    if (kept && Date.now() - kept.at < PLAN_KEPT_MS) return kept.lanes.has(machine);
+    const changes = this.changes;
     const open = (await this.refresh()).filter((l) => !l.paused && l.machine);
     const where = plan(await this.planner.schedulable(open), await this.planner.planned(rows, await this.planner.ableOf(rows)));
+    this.keepPlan(changes, where);
     return rows.some((r) => where.get(r.id)?.lane === machine);
   }
 
@@ -1387,6 +1486,7 @@ export class Queue {
    */
   private back(lane: Lane): void {
     lane.reachable = true;
+    this.awayFor.delete(lane.id);
     this.dropStale(lane);
     this.goneSaid.delete(lane.id);
     lane.comfy?.forgetScan();
@@ -1830,8 +1930,10 @@ export class Queue {
       // what its GPU drew over its own stretch, from the power read on the way (none on a rented pod, nor without the reading)
       const energy = lane.comfy?.home ? lane.comfy.power.energy(resume.startedAt, resume.startedAt + totalMs) : null;
       await record(this.db, row, recipe, resume, measured, status, whole, totalMs, generationId, { machine: lane.id, gpu: gpuOf(lane.device, lane.comfy?.monitor.system?.gpus ?? []), energy });
-      // the record changed: the next forecast reads it again at once, not after the second the mark is kept
+      // the record changed: the next forecast reads it again at once, not after the second the mark is kept; the next pass
+      // plans on the forecasts kept all the same (pump)
       this.forecasts.recorded();
+      this.recordedSincePass = true;
     } catch (err) {
       console.warn(`[queue] the time of job ${row.id} was not put on record: ${(err as Error).message}`);
     }

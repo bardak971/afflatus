@@ -103,7 +103,7 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
   app.get("/api/queue", async () => paged(await s.queue.status()));
   app.get("/api/queue/waiting", async (req) => {
     const q = z.object({ offset: z.coerce.number().int().min(0).default(0), limit: z.coerce.number().int().min(1).max(500).default(100) }).parse(req.query);
-    const waiting = (await s.queue.status()).waiting;
+    const waiting = (await s.queue.statusRecent()).waiting;
     return { items: waiting.slice(q.offset, q.offset + q.limit), count: waiting.length };
   });
   /** The finished jobs with what they made: the queue's history, filtered and paged. */

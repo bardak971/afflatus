@@ -13,7 +13,8 @@ export function registerRenders(app: FastifyInstance, s: Services): void {
   app.get("/api/renders/summary", async (req) => {
     const q = z.object({ period: z.enum(["day", "week", "month", "all"]).default("week"), from: z.coerce.number().int().optional(), to: z.coerce.number().int().optional(), machine: z.string().min(1).max(40).optional() }).parse(req.query);
     const keep = (await readSettings(s.db)).renderHistoryDays;
-    return summary(s.db, s.registry, q.from !== undefined && q.to !== undefined && q.to > q.from ? { from: q.from, to: q.to } : q.period, keep, Date.now(), q.machine ?? null);
+    // the paces as the queue keeps them for a minute (Queue.paces), not worked out again over the whole record at each read
+    return summary(s.db, s.registry, q.from !== undefined && q.to !== undefined && q.to > q.from ? { from: q.from, to: q.to } : q.period, keep, Date.now(), q.machine ?? null, () => s.queue.paces());
   });
 
   app.get("/api/renders", async (req) => {
