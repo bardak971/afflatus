@@ -77,7 +77,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
   /** A job queued from here, its button flashing once the server took it. */
   const queue = (action: ActionId, job: Parameters<typeof queued.mutate>[0]) => queued.mutate(job, { onSuccess: () => flash(action) });
 
-  /** A pass queued at once with the picture's parameters (Upscale, Face detailer, Remove background). */
+  /** A pass queued at once with the picture's parameters (Upscale, Face refine, Hand refine, Remove background). */
   const quick = (key: string) => {
     const tool = toolFor(key);
     const action = (Object.keys(PASS_KEYS) as ActionId[]).find((id) => PASS_KEYS[id] === key);
