@@ -1,4 +1,4 @@
-import { NVIDIA_ONLY, choicesOf, isNvidia, packOfNode, type NodeCatalog, type Wanted } from "@afflatus/core";
+import { NVIDIA_ONLY, choicesOf, isNvidiaRtx, packOfNode, type NodeCatalog, type Wanted } from "@afflatus/core";
 import type { Machine } from "./settings";
 import { readJson, type JobRow } from "./queueModel";
 import type { PodPackState } from "./podPacks";
@@ -26,13 +26,14 @@ export function packOfWant(w: Pick<Wanted, "nodes">): string | null {
   return pack && !pack.own ? pack.name : null;
 }
 
-/** What a machine can be given: whether its card is an NVIDIA one, and the packs that cannot come to it, with why. */
+/** What a machine can be given: whether its card is an NVIDIA RTX one, and the packs that cannot come to it, with why. */
 export interface PackFacts {
+  /** Whether its card is an NVIDIA RTX one (RTX VSR runs on nothing else). */
   nvidia: boolean;
   cannot: ReadonlyMap<string, string>;
 }
 
-/** Nothing known against a machine: an NVIDIA card (most are), every pack may come. */
+/** Nothing known against a machine: an NVIDIA RTX card (most are), every pack may come. */
 export const ANY_PACKS: PackFacts = { nvidia: true, cannot: new Map() };
 
 /** A machine's facts from its ComfyUI's device name, its Manager, and the packs that failed there. */
@@ -40,7 +41,7 @@ export function packFacts(device: string | null, manager: boolean | null, failed
   const cannot = new Map(failed);
   // every pack, by a name no pack has: the queue reads "*" as all of them
   if (manager === false) cannot.set("*", `no ComfyUI-Manager on ${name} to install it`);
-  return { nvidia: device === null || isNvidia(device), cannot };
+  return { nvidia: device === null || isNvidiaRtx(device), cannot };
 }
 
 /** Why a pack cannot come to a machine, or null. */

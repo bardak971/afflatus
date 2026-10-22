@@ -15,9 +15,14 @@ interface NodePack {
 const NODE_PACKS: NodePack[] = [
   {
     name: "afflatus-nodes", repo: "https://github.com/bardak971/afflatus/tree/main/comfy-nodes/afflatus-nodes", own: true,
-    // AfflatusH3TailGuide is deprecated in the pack (0.11.2) and no form uses it: listed while the pack still registers it,
-    // so that an imported graph naming it is told to install this pack, as long as the pack keeps it for those graphs
-    nodes: ["AfflatusSaveH3Latent", "AfflatusLoadH3Latent", "AfflatusNormalizeH3Latent", "AfflatusTrimH3Latent", "AfflatusH3TailGuide", "AfflatusH3LatentHeadGuide", "AfflatusH3LatentLanding", "AfflatusH3SeamLatent", "MiniMaxH3GuidedContinuationWindow", "MiniMaxH3LatentTailGuide", "AfflatusFaceMatch", "AfflatusFaceAt", "AfflatusH3AudioLock"],
+    // every node the pack registers (a test reads them from its files): the deprecated ones too (AfflatusH3TailGuide,
+    // MiniMaxH3AppendContinuation, AfflatusSwapMatch), which no form uses, so that an imported graph naming one is told to
+    // install this pack, as long as the pack keeps it for those graphs
+    nodes: [
+      "AfflatusSaveH3Latent", "AfflatusLoadH3Latent", "AfflatusNormalizeH3Latent", "AfflatusTrimH3Latent", "AfflatusH3TailGuide", "AfflatusH3LatentHeadGuide", "AfflatusH3LatentLanding", "AfflatusH3SeamLatent",
+      "MiniMaxH3GuidedContinuationWindow", "MiniMaxH3LatentTailGuide", "MiniMaxH3AppendContinuation", "AfflatusFaceMatch", "AfflatusFaceAt", "AfflatusH3AudioLock",
+      "AfflatusSwapMask", "AfflatusSwapMaskPreview", "AfflatusSwapPaste", "AfflatusSwapMatch", "AfflatusColorFollow",
+    ],
   },
   { name: "Comfyui-MMH3-UltimateUpscale", repo: "https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale", nodes: ["MMH3UltimateUpscale", "MMH3LatentUpscaleWithModelParams", "MMH3LatentUpscaleParams", "MMH3TemporalSplitParams", "MMH3SpatialSplitParams"] },
   { name: "veda-sparse-attention", repo: "https://github.com/veda-sparse/Veda-on-ComfyUI", nodes: ["VedaSparseAttention"] },
@@ -46,15 +51,21 @@ export const EITHER_PACKS = [
 /** Node types that run on an NVIDIA RTX card only: a machine with another card does without them, its pack never installed for them. */
 export const NVIDIA_ONLY = ["RTXVideoSuperResolution", "DaSiWa_RTX_UpscalerRefiner"];
 
-/** Whether a ComfyUI's device (its /system_stats name) is an NVIDIA card: "cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync". */
-export const isNvidia = (device: string): boolean => /nvidia|^cuda/i.test(device);
+/**
+ * Whether a ComfyUI's device (its /system_stats name) is an NVIDIA RTX card, the only ones RTX Video Super Resolution runs
+ * on (NVIDIA's pack says "Only works on Nvidia RTX GPUs"): "cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync". By the
+ * card's name, not by "cuda": ComfyUI names an AMD card under ROCm (or ZLUDA) "cuda:0 AMD Radeon RX 7900 XTX : native",
+ * and a GTX or an older Quadro is NVIDIA's without being an RTX.
+ */
+export const isNvidiaRtx = (device: string): boolean => /nvidia/i.test(device) && /\brtx\b/i.test(device);
 
 /**
- * Packs no option asks for, used whenever they are there: faster or nicer with them, never installed for a render.
+ * Packs used whenever they are there, faster or nicer with them, that no form needs. One may still be installed for a
+ * render when an option of it asks for it (`asked`: the RCAS sharpen asks for KJNodes, as any option asks for its pack).
  * Settings › Models lists them as optional, with what they bring.
  */
-export const EXTRA_PACKS = [
-  { name: "comfyui-kjnodes", uses: "fp16 accumulation, live preview while rendering, SageAttention, RCAS sharpen after an upscale" },
+export const EXTRA_PACKS: Array<{ name: string; uses: string; asked?: string }> = [
+  { name: "comfyui-kjnodes", uses: "fp16 accumulation, live preview while rendering, SageAttention, RCAS sharpen after an upscale", asked: "the RCAS sharpen" },
   { name: "comfyui-videohelpersuite", uses: "video output (VHS Video Combine); without it, ComfyUI's own Save Video" },
 ];
 
@@ -63,6 +74,9 @@ export const packOfNode = (node: string): NodePack | undefined => NODE_PACKS.fin
 
 /** The node types a known pack brings (its name in ComfyUI-Manager's list); empty for one not known. */
 export const nodesOfPack = (name: string): string[] => NODE_PACKS.find((p) => p.name === name)?.nodes ?? [];
+
+/** The repository a known pack is cloned from by hand, when ComfyUI-Manager cannot install it; null for one not known. */
+export const repoOfPack = (name: string): string | null => NODE_PACKS.find((p) => p.name === name)?.repo ?? null;
 
 /**
  * Node types ComfyUI lacks, said as what to install: each pack once, with how to get it, then the node types no known pack
