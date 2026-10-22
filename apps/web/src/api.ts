@@ -163,8 +163,12 @@ function assetParams(opts: AssetFilter): URLSearchParams {
 
 /** A timeline as the server sends it: each clip's playing take by its id (timelines-api.ts, sent), not a second copy of it. */
 type Sent = Omit<Timeline, "clips"> & { clips: Array<Omit<Timeline["clips"][number], "take"> & { take: string | null }> };
-/** The timeline as the editor reads it: each clip's playing take found among its takes. */
-const withTakes = (t: Sent): Timeline => ({ ...t, clips: t.clips.map((c) => ({ ...c, take: c.take === null ? null : (c.takes.find((x) => x.id === c.take) ?? null) })) });
+/** The timeline as the editor reads it: each clip's playing take found among its takes. An answer without clips (a
+ * rename or a move answers with the row alone) is passed on as it is, so the callers that only read its name keep working. */
+const withTakes = (t: Sent): Timeline =>
+  Array.isArray(t?.clips)
+    ? { ...t, clips: t.clips.map((c) => ({ ...c, take: typeof c.take === "string" ? (c.takes?.find((x) => x.id === c.take) ?? null) : (c.take ?? null) })) }
+    : (t as unknown as Timeline);
 
 export const api = {
   recipes: (o?: Asked) => call<{ families: FamilyInfo[]; recipes: RecipeInfo[] }>("GET", "/recipes", undefined, o?.signal),
