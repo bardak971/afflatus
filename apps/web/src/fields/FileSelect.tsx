@@ -6,7 +6,7 @@ import { fileLabel, size, waitsForGpu } from "../format";
 import { GetFile } from "../GetFile";
 import { Select, type Option } from "../Select";
 import { Label } from "./Label";
-import { officialFiles, type Official } from "../officialFiles";
+import { officialFiles, samePath, type Official } from "../officialFiles";
 
 /**
  * A file as a choice: its name to read, beside it the model it is for and the folder it is in. It is
@@ -105,7 +105,7 @@ export function ModelField({ id, spec, value, options, family, onChange }: {
   // with rented GPUs only, the setup's lists are the official files themselves (the server's plannedScan): none is here
   const have = where === "pod" ? (options ?? []).filter((f) => !official.some((o) => o.file === f)) : (options ?? []);
   const absent = official.filter((o) => !have.includes(o.file));
-  const picked = absent.find((o) => o.file === value);
+  const picked = absent.find((o) => samePath(o.file, value));
   const counted = [have.length ? `${have.length} on your ComfyUI` : null, absent.length ? (where === "pod" ? "official files · fetched by the pod" : `${absent.length} official not here`) : null].filter(Boolean).join(" · ");
   return (
     <div className="flex flex-col gap-1.5">
@@ -142,7 +142,7 @@ export function useWaitsOn(recipe: RecipeInfo | undefined, status: RecipeStatus 
     const picked = recipe.inputs.some((i) => {
       if (i.type !== "model") return false;
       const value = String(whole[i.id] ?? "");
-      return Boolean(value) && !(status.options[i.id] ?? []).includes(value) && officialFiles(family, i.folder, i.slot, sizes.data).some((o) => o.file === value);
+      return Boolean(value) && !(status.options[i.id] ?? []).includes(value) && officialFiles(family, i.folder, i.slot, sizes.data).some((o) => samePath(o.file, value));
     });
     const slotMissing = status.missingSlots.length > 0 && status.missingSlots.every((id) => family?.slots?.find((s) => s.id === id)?.get);
     return picked || slotMissing ? "waits for the download" : null;

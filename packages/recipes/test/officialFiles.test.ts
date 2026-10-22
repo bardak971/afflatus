@@ -21,6 +21,9 @@ describe("a family's official file", () => {
     expect(isOfficialFile(families, { url: checkpoint.url, file: "other.safetensors" })).toBe(false);
     expect(isOfficialFile(families, { file: checkpoint.file })).toBe(false);
     expect(isOfficialName(families, `sub/${checkpoint.file}`)).toBe(true);
+    // ComfyUI on Windows lists a sub-folder with a backslash: the planner sent such a name to a pod, whose fetch refused it
+    expect(isOfficialFile(families, { url: checkpoint.url, file: `LTX\\${checkpoint.file}` })).toBe(true);
+    expect(isOfficialName(families, `sub\\deeper\\${checkpoint.file}`)).toBe(true);
     expect(isOfficialName(families, "zz-test-nothing.safetensors")).toBe(false);
   });
 

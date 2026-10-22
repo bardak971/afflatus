@@ -326,6 +326,35 @@ describe("an option's files and node packs on a pod", () => {
     }
   });
 
+  it("a latent finish on a machine of the user's own without the MMH3 pack: refused there with why, never built with every node (KJNodes and VHS were asked for as packs it had to have)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // this PC is the user's own machine, without the pack nor the packs its "use if present" routes would take
+    const KJ = nodesOfPack("comfyui-kjnodes");
+    const VHS = nodesOfPack("comfyui-videohelpersuite");
+    expect(KJ.length && VHS.length).toBeTruthy();
+    for (const n of [...nodesOfPack("Comfyui-MMH3-UltimateUpscale"), ...KJ, ...VHS]) delete (fake.catalog as Record<string, unknown>)[n];
+    const comfy = new Comfy(fake.url, t.services.registry);
+    const mine = { id: "mine", comfy, scan: await comfy.scan(), own: true };
+    const loaded = await loadedOn(core(), row("h3.video", { description: "a red ball rolls", seconds: 5, upscale: UPSCALE.latent }), mine);
+    expect(loaded).toMatchObject({ files: [], refused: expect.stringContaining("Comfyui-MMH3-UltimateUpscale") });
+    expect(loaded?.missingNodes ?? []).not.toEqual(expect.arrayContaining([expect.stringMatching(new RegExp(`^(${[...KJ, ...VHS].join("|")})$`))]));
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/its graph cannot be built/));
+  });
+
+  it("a carried Motion transfer window on a machine of the user's own that throws there: its files as that machine asks them, not the reference model a pod is sent", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // the user's other ComfyUI, without the MMH3 pack and without the reference model; this PC has the pack
+    const { other, on } = await pod(nodesOfPack("Comfyui-MMH3-UltimateUpscale"));
+    try {
+      const window = row("h3.motion", { picture: "zz-test-picture", source: { asset: await video() }, previous: { asset: await video() }, references: [], upscale: UPSCALE.latent });
+      const loaded = await loadedOn(core(), window, { ...on, own: true });
+      expect(loaded?.files.length).toBeGreaterThan(0);
+      expect(loaded?.files.map((f) => f.file)).not.toContain(download("refUnet"));
+    } finally {
+      await other.close();
+    }
+  });
+
   it("a node of an option the pod lacks, of no pack Afflatus knows: kept off it, with why", async () => {
     const { other, on } = await pod(["SeedVR2Preprocess"]);
     try {

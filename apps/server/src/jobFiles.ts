@@ -169,8 +169,15 @@ export async function loadedOn(
     let freshWhy: string | null = null;
     if (on && keys.key && !kept.has(keys.key)) {
       const freshKeys = { key: "" };
-      // built anew: what was kept for a pod to come (the Deploy dialog's files) has no graph to read its nodes from
-      const fresh = await freshGraph(core, row, recipe, family, raw, freshKeys, packs, true).catch((e: Error) => {
+      // built anew: what was kept for a pod to come (the Deploy dialog's files) has no graph to read its nodes from. Only
+      // a pod is built again with every node: that build takes every "use if present" route (KJNodes' patches, VHS's
+      // output), and on a machine of the user's own they became packs it had to have, installed unasked under Always, the
+      // render changed by them. A machine of the user's own is built as this PC's node list has it, its own files asked
+      // for (a carried Motion transfer window without the reference model asks none), and refused with why where that throws.
+      const built = on.own
+        ? graphOn(core, row, recipe, family, raw, null, freshKeys, packs, { anew: true, own: true })
+        : freshGraph(core, row, recipe, family, raw, freshKeys, packs, true);
+      const fresh = await built.catch((e: Error) => {
         // (a failure before its build, a node list not read, is not the job's)
         if (freshKeys.key) freshWhy = e.message;
         return null;
@@ -238,7 +245,7 @@ const lackedNodes = (graph: Record<string, { class_type: string }>, catalog: Nod
 async function graphOn(
   core: QueueCore, row: Pick<JobRow, "id" | "inputs" | "finished_from" | "clip_id" | "clip_fit" | "clip_mirror">, recipe: Recipe<any>, family: Family,
   raw: Record<string, unknown>, on: { id: string; comfy: Comfy; scan: Scan; own?: boolean } | null, keys: { key: string }, packs: { facts?: PackFacts; said?: PacksSaid } = {},
-  how: { everyNode?: boolean; anew?: boolean } = {},
+  how: { everyNode?: boolean; anew?: boolean; own?: boolean } = {},
 ): Promise<{ kept: Loaded | null } | { graph: Record<string, { class_type: string }>; files: GraphFile[]; catalog: NodeCatalog; there: SlotStatus[] | null; wanted: Wanted[] }> {
   const comfy = on?.comfy ?? (await core.comfy());
   const catalog = await comfy.catalog();
@@ -247,7 +254,8 @@ async function graphOn(
   const here = slotsIn(await (await core.comfy()).scan().catch(() => null));
   const there = on ? (slotsIn(on.scan) ?? []) : null;
   const input = parseInput(recipe, withTexts(recipe, raw)) as Record<string, unknown>;
-  const slots = podSlotFiles(recipe, input, family.slots, there, here, Boolean(on?.own));
+  // `how.own`: built with no machine for one of the user's own, whose files it asks as there (loadedOn's fallback)
+  const slots = podSlotFiles(recipe, input, family.slots, there, here, Boolean(on?.own ?? how.own));
   // what the machine has is as its last scan read it: a file come or gone since is a new scan, and worked out anew
   // what the options are given there is part of it: a pack that cannot come, or a Run without, builds them without
   const facts = packs.facts ?? ANY_PACKS;

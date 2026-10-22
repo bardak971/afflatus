@@ -199,13 +199,15 @@ describe("a rented pod's model files", () => {
     off.want("pod", [
       { file: "official.safetensors", folder: "checkpoints" }, { file: "other.safetensors", folder: "loras", url: `${siteUrl}/files/other.safetensors` },
       { file: "official.safetensors", folder: "diffusion_models", url },
+      // and in a sub-folder as ComfyUI on Windows names it, a model input picked on this PC: refused the same way
+      { file: "LTX\\official.safetensors", folder: "loras", url },
     ], { tier: "need" });
     await until(async () => {
       await off.tick();
       return off.view("pod").every((f) => f.state === "ready" || f.state === "failed");
     });
     const state = Object.fromEntries(off.view("pod").map((f) => [`${f.folder}/${f.file}`, f.state]));
-    expect(state).toEqual({ "checkpoints/official.safetensors": "ready", "loras/other.safetensors": "failed", "diffusion_models/official.safetensors": "ready" });
+    expect(state).toEqual({ "checkpoints/official.safetensors": "ready", "loras/other.safetensors": "failed", "diffusion_models/official.safetensors": "ready", "loras/LTX\\official.safetensors": "ready" });
     expect(readFileSync(join(disk, "checkpoints", "official.safetensors")).equals(FILE)).toBe(true);
     expect(readFileSync(join(disk, "diffusion_models", "official.safetensors")).equals(FILE)).toBe(true);
   });
