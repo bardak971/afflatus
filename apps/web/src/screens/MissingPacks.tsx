@@ -1,12 +1,19 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 import { api } from "../api";
 import { plural } from "../format";
+import { cx } from "../ui";
 import { PackInstallActions, PackStateLine, usePackInstall } from "./PackInstall";
 
 const link = "font-semibold text-accent underline underline-offset-2 hover:text-ink";
 /** The workflow read again: what was found, with the workflow in the form Afflatus keeps. */
 export type Inspected = Inspection & { graph: WorkflowDef["graph"]; wiring?: Wiring };
+
+/** Whether ComfyUI-Manager can install a pack of this name: a registry id or a GitHub repository, as the server's install takes them. */
+export const canInstall = (pack: string | undefined): boolean => !!pack && (!/^https?:/i.test(pack) || /^https?:\/\/(?:www\.)?github\.com\//i.test(pack));
+
+/** The missing node types no install from here brings: no pack is known for them, or Manager cannot install the one named. */
+export const notInstallable = (missing: string[], packs: Record<string, string>): string[] => missing.filter((n) => !canInstall(packs[n]));
 
 /**
  * The node types a workflow uses that this ComfyUI lacks, by the pack each comes from, with one button
@@ -14,7 +21,7 @@ export type Inspected = Inspection & { graph: WorkflowDef["graph"]; wiring?: Wir
  * wrote each node's pack) and, for the rest, from Manager's own map; a node type nobody places is
  * listed on its own with a search link. ComfyUI reads custom_nodes at start: a restart follows.
  */
-export function MissingPacks({ missing, packs, graph, wiring, editor, onInspected }: {
+export function MissingPacks({ missing, packs, graph, wiring, editor, onInspected, onFailed }: {
   missing: string[];
   packs: Record<string, string>;
   graph: WorkflowDef["graph"];
@@ -23,6 +30,8 @@ export function MissingPacks({ missing, packs, graph, wiring, editor, onInspecte
   editor?: unknown;
   /** Called with the workflow read again once ComfyUI is back after the restart. */
   onInspected(found: Inspected): void;
+  /** Told whether an install failed or was refused, for the colour of what holds the box (the editor's verdict). */
+  onFailed?(failed: boolean): void;
 }) {
   const groups = useMemo(() => {
     const by = new Map<string, string[]>();
@@ -42,9 +51,14 @@ export function MissingPacks({ missing, packs, graph, wiring, editor, onInspecte
     readAgain: async () => onInspected(await api.inspectWorkflow(editor ?? { graph, wiring })),
     again: { what: "the workflow", reopen: "reopen this workflow" },
   });
+  // A node type an install brings is a to-do, said in neutral like the Workflows list's "N nodes to get"; red is kept
+  // for what no install fixes: a node type with no pack known, a pack Manager cannot install, an install that failed.
+  const failed = install.failed > 0 || (install.started?.skipped.length ?? 0) > 0;
+  const broken = failed || notInstallable(missing, packs).length > 0;
+  useEffect(() => onFailed?.(failed), [failed, onFailed]);
 
   return (
-    <div role="alert" className="flex flex-col gap-2 rounded-lg bg-warn-wash px-3 py-2 text-warn-ink">
+    <div role={broken ? "alert" : undefined} data-tone={broken ? "broken" : "todo"} className={cx("flex flex-col gap-2 rounded-lg px-3 py-2", broken ? "bg-warn-wash text-warn-ink" : "border border-line bg-raised text-ink")}>
       <span>
         Your ComfyUI is missing {plural(missing.length, "node type")} this workflow uses{named ? `, from ${plural(named, "pack")}` : ""}. You can save it, but it cannot run until they are installed.
       </span>

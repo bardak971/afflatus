@@ -8,7 +8,7 @@ import { timelineKey } from "../draftMachine";
 import { GenerateOn, shortName, usePickedMachine } from "../GenerateOn";
 import { severalMachines } from "../machines";
 import { FormModel } from "../ModelLoad";
-import { phaseLabel, timeLeft } from "../format";
+import { phaseLabel, timeLeft, whyTone } from "../format";
 import { Picker } from "../PictureField";
 import { Bar, Button, cx, ErrorNote, Help, SectionTitle, Segmented, Toggle } from "../ui";
 import { Keys } from "../Keys";
@@ -114,6 +114,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   const [picking, setPicking] = useState<"sound" | "start" | "end" | "mid" | null>(null);
   const recipe = recipes.find((r) => r.id === clip.recipe) ?? all.data?.recipes.find((r) => r.id === clip.recipe);
   const status = setup.data?.recipes.find((r) => r.id === recipe?.id);
+  // what Render waits for, in its role's colour (whyTone): most of it is a to-do, said in neutral
+  const whyInk = !why ? "" : { broken: "text-warn-ink", attention: "text-attention-ink", todo: "text-ink-2" }[whyTone(why, status)];
   const before = index > 0 ? timeline.clips[index - 1] : undefined;
   const after = timeline.clips[index + 1];
   const still = clip.kind === "still";
@@ -223,7 +225,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
             <span className="font-semibold text-attention-ink">This clip no longer follows clip {index}</span>
             <span className="text-xs text-ink-2">Clip {index} changed after this one was rendered, so {before.kind === "still" ? "its first frame is no longer that image" : "the motion jumps between them"}.</span>
             <span className="flex flex-wrap gap-1.5">
-              {recipe && <Button size="sm" disabled={Boolean(why) || busy || Boolean(clip.job)} onClick={() => onRender(count)}>{renderWords}<Estimate ms={takesTotal} /></Button>}
+              {recipe && <Button size="sm" disabled={Boolean(why) || busy || Boolean(clip.job)} data-tip={why ?? undefined} onClick={() => onRender(count)}>{renderWords}<Estimate ms={takesTotal} /></Button>}
               <Button size="sm" onClick={() => onPatch({ joined: "cut" })}>Keep as a cut</Button>
             </span>
           </div>
@@ -272,7 +274,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
         <div className="flex shrink-0 flex-col gap-2.5 border-t border-line px-3.5 py-3">
           {error && <ErrorNote>{error}</ErrorNote>}
           {fromSource && fromSource.count > 1 && <ShareFoot s={fromSource} recipe={recipe} />}
-          {why && <div className="text-xs text-warn-ink">{why} {why.includes("ComfyUI") || why.includes("model") ? <Link href={why.includes("ComfyUI") ? "/settings" : "/settings/models"} className="font-semibold underline">Open Settings</Link> : null}</div>}
+          {why && <div className={cx("text-xs", whyInk)}>{why} {why.includes("ComfyUI") || why.includes("model") ? <Link href={why.includes("ComfyUI") ? "/settings" : "/settings/models"} className="font-semibold underline">Open Settings</Link> : null}</div>}
           {/* a pinned last frame wins over the landing (the server skips it): shown off, the stored choice kept for when the pin goes */}
           {canFit && (
             <div className="flex flex-col gap-1">
@@ -290,13 +292,13 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
             <RenderProgress clip={clip.id} onStop={onStop} />
           ) : (
             <div className="flex">
-              <Button tone="primary" className={cx("h-11 min-w-0 grow text-sm", several && "rounded-r-none")} disabled={Boolean(why) || busy} onClick={() => onRender(count)} data-tip={count > 1 ? "The first take keeps the form's seed; the others get a fresh seed each. Pick the best in Takes." : undefined}>
+              <Button tone="primary" className={cx("h-11 min-w-0 grow text-sm", several && "rounded-r-none")} disabled={Boolean(why) || busy} onClick={() => onRender(count)} data-tip={why ?? (count > 1 ? "The first take keeps the form's seed; the others get a fresh seed each. Pick the best in Takes." : undefined)}>
                 {busy ? "Sending…" : <>{picked ? `${renderWords} on ${shortName(picked)}` : renderWords}<Estimate ms={takesTotal} /></>}
                 {/* Ctrl+Enter renders one take: said only when that is what the button does */}
                 {!busy && count === 1 && <Keys keys="Ctrl+Enter" size="sm" />}
               </Button>
               {/* with several ComfyUIs, the machine this timeline's clips render on (GenerateOn.tsx) */}
-              {several && recipe && whole && <GenerateOn recipe={recipe} pickKey={timelineKey(timeline.id)} whole={whole} look={clip.look ?? timeline.look} msOn={takesTotalOn} of="timeline" />}
+              {several && recipe && whole && <GenerateOn recipe={recipe} pickKey={timelineKey(timeline.id)} whole={whole} look={clip.look ?? timeline.look} msOn={takesTotalOn} of="timeline" off={Boolean(why) || busy} />}
             </div>
           )}
         </div>

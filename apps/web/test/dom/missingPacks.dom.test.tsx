@@ -63,3 +63,33 @@ describe("Restart ComfyUI now, for the missing packs", () => {
     expect(invalidated.mock.calls.map(([f]) => f?.queryKey)).toEqual([["setup"], ["recipes"], ["machines"]]);
   });
 });
+
+describe("the missing packs' colour (card #33)", () => {
+  it("is a neutral to-do with its Install when every node type has a pack to install", async () => {
+    fakeApi.on("GET /workflows/packs", { items: [], installed: 0 });
+    draw(<MissingPacks missing={["ZzTestNode"]} packs={{ ZzTestNode: "zz-test-pack" }} graph={graph} onInspected={() => {}} />);
+    const install = await screen.findByRole("button", { name: "Install the pack with ComfyUI-Manager" });
+    const box = install.closest("[data-tone]")!;
+    expect(box.getAttribute("data-tone")).toBe("todo");
+    expect(box.className).not.toMatch(/warn/);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("is red for a node type no pack is known for", () => {
+    fakeApi.on("GET /workflows/packs", { items: [], installed: 0 });
+    draw(<MissingPacks missing={["ZzTestNode", "ZzTestOrphan"]} packs={{ ZzTestNode: "zz-test-pack" }} graph={graph} onInspected={() => {}} />);
+    expect(screen.getByRole("alert").getAttribute("data-tone")).toBe("broken");
+  });
+
+  it("turns red, and says so to the editor, once an install failed", async () => {
+    fakeApi.on("GET /workflows/packs", { items: [{ id: "zz-job", state: "failed", message: "zz-test: clone refused" }], installed: 0 });
+    fakeApi.on("POST /workflows/packs", { jobs: [{ pack: "zz-test-pack", id: "zz-job" }], unknown: [], skipped: [] });
+    const onFailed = vi.fn();
+    draw(<MissingPacks missing={["ZzTestNode"]} packs={{ ZzTestNode: "zz-test-pack" }} graph={graph} onInspected={() => {}} onFailed={onFailed} />);
+    expect(onFailed).toHaveBeenLastCalledWith(false);
+    fireEvent.click(await screen.findByRole("button", { name: "Install the pack with ComfyUI-Manager" }));
+    expect((await screen.findByRole("alert")).getAttribute("data-tone")).toBe("broken");
+    expect(screen.getByText(/^failed: zz-test: clone refused/).className).toMatch(/text-warn-ink/);
+    expect(onFailed).toHaveBeenLastCalledWith(true);
+  });
+});

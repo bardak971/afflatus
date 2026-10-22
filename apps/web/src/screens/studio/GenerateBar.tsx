@@ -75,7 +75,7 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, waits, send
             )}
             <Keys keys="Ctrl+Enter" size="sm" className="@max-[30rem]:hidden" />
           </Button>
-          {recipe && draft && several && <GenerateOn recipe={recipe} pickKey={draft.id} whole={whole} look={draft.look} msOn={totalOn} of="draft" />}
+          {recipe && draft && several && <GenerateOn recipe={recipe} pickKey={draft.id} whole={whole} look={draft.look} msOn={totalOn} of="draft" off={Boolean(blocked) || Boolean(missing)} />}
         </div>
       </div>
     </div>

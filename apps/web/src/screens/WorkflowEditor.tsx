@@ -47,7 +47,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
 
   // the verdict: what was found, what was not, and what to see to before it runs
   const toCheck = beforeItems(m);
-  // red only for what ComfyUI would refuse; files left to fetch are a to-do, said in neutral
+  // red only for what no download or install fixes; files to fetch and packs to install are a to-do, said in neutral
   const toCheckTone = beforeTone(m);
   const has = [
     b.model && "model file", b.prompt && "prompt", b.negative && "negative prompt", b.startImage && (video ? "first frame" : "image"), b.endImage && "last frame",

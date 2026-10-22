@@ -29,6 +29,8 @@ export type VideoRole = "source" | "previous" | "next" | "off";
 export function useMapping(start: Editing) {
   // read again after ComfyUI restarts with the packs it was missing
   const [found, setFound] = useState(start.inspection);
+  // whether a pack's install failed or was refused (said by the missing packs' box): the verdict turns red then
+  const [packsFailed, setPacksFailed] = useState(false);
   const [title, setTitle] = useState(start.title);
   const [model, setModel] = useState(start.model);
   // a switch made here lives in a section: one no section holds any more (its section was removed, or saved by an older form) is dropped
@@ -246,7 +248,7 @@ export function useMapping(start: Editing) {
   const dirty = replaced || title !== start.title || model !== start.model || (b !== first && JSON.stringify(b) !== JSON.stringify(first));
 
   return {
-    start, dirty, found, reread, authorDiff, followAuthor, title, setTitle, model, setModel, b, set, unset, filter, setFilter, graph, wiring, replaceFile, values, setValues, editor,
+    start, dirty, found, reread, packsFailed, setPacksFailed, authorDiff, followAuthor, title, setTitle, model, setModel, b, set, unset, filter, setFilter, graph, wiring, replaceFile, values, setValues, editor,
     textOptions, pickText, pickImage, modelFileOf, pickModel, videoRoleOf, setVideoRole, pickSound, toggleLoras, toggleControl, change, toggleSwitch,
     switchFor, setSwitchFor, saveSwitch, dropSwitch, setSections, nodeList, changeSwitch, taken, groups, switches, preview, video, noteFor, looseNotes,
   };
