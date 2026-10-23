@@ -4,7 +4,8 @@
  * ComfyUI) gets H3-shaped synthetic clips chained seamlessly (apps/server/test/framesKit.ts: each frame shows its clip and
  * index as a barcode), the real editor plays the timeline in headless Chrome, and every frame the player shows is read off
  * the video that is visible at that moment. It fails on a frame shown out of order, a flash of the clip before after the
- * hand-over, a hidden run-up frame shown, or more dropped frames than a busy machine explains. Then, in a fresh page: Space
+ * hand-over, a hidden run-up frame shown, or more dropped frames than a busy machine explains. The chain is played again under
+ * load (CPU slowed, videos starting late: see playChain), where only the order, flicker and run-up faults count. Then, in a fresh page: Space
  * pressed twice on a clip whose video has not loaded yet must leave it still (it started on its own, with its sound, once
  * its file came), and a range looped (I, O, L) must go back to In at Out, again and again, without playing on past it. Last,
  * a selected clip's trim edges at a join must take a press there (the browser's own hit test), and a drag of one trims.
@@ -36,6 +37,13 @@ const DROPS_ALLOWED = 0.1;
 const LAST_SECOND = FILE - 48;
 /** Frames a hand-over may drop, in the clip before's last second and over the change: more is the pre-roll stalling it. */
 const HANDOVER_DROPS = 5;
+/** How late every video starts in the pass under load (see playChain): past the 70 ms the player first expects (startLag). */
+const LATE_PLAY_MS = 100;
+/** Every video's play() taking effect LATE_PLAY_MS late, as a loaded machine's media pipeline does. Plain text, as WATCH. */
+const LATE_PLAY = `{
+    const play = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function () { return new Promise((done) => setTimeout(done, ${LATE_PLAY_MS})).then(() => play.call(this)); };
+  }`;
 
 const dir = mkdtempSync(join(tmpdir(), "afflatus-player-"));
 const db = openSqlite(":memory:");
@@ -113,40 +121,65 @@ try {
     await db.updateTable("takes").set({ head_ms: 917, join_kind: "seamless", prev_take_id: clips[i - 1]!.take.id, prev_at_ms: Math.round((N * 1000) / 24) }).where("id", "=", clips[i]!.take.id).execute();
   }
 
-  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
-  await page.addInitScript(WATCH);
-
-  await page.goto(`${base}/timelines/${tl.id}`);
-  await page.waitForFunction(() => document.querySelectorAll("video").length > 0, null, { timeout: 30_000 });
-  await page.waitForTimeout(1500);
-  await page.evaluate(() => (window as unknown as { __watch: () => void }).__watch());
-  await page.locator("body").press("Space");
-  // the whole chain, and a margin
-  await page.waitForTimeout(16_500);
-  const raw = await shownIn(page);
-
-  // what was seen: consecutive repeats of one frame are one frame (a repaint)
-  const seen = raw.filter((f, i) => !(i && raw[i - 1]!.clip === f.clip && raw[i - 1]!.index === f.index));
+  /**
+   * The chain played from its start in a page of its own: the frames seen, consecutive repeats of one frame as one (a
+   * repaint). `loaded` plays it as on a machine busy elsewhere (a render running, a CI runner): the page's CPU four times
+   * slower, and every video starting LATE_PLAY_MS after it is told to play. CPU throttling alone leaves the decoder (another
+   * process) as fast and passed; the late start is what a loaded machine does to the clip after, which then runs behind its
+   * start at the cut (the 0.6.0 release run showed a run-up frame so, card #48).
+   */
+  const playChain = async (loaded: boolean) => {
+    const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+    await page.addInitScript(WATCH);
+    if (loaded) {
+      await page.addInitScript(LATE_PLAY);
+      await (await page.context().newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: 4 });
+    }
+    await page.goto(`${base}/timelines/${tl.id}`);
+    await page.waitForFunction(() => document.querySelectorAll("video").length > 0, null, { timeout: 30_000 });
+    await page.waitForTimeout(1500);
+    await page.evaluate(() => (window as unknown as { __watch: () => void }).__watch());
+    await page.locator("body").press("Space");
+    // the whole chain, and a margin
+    await page.waitForTimeout(16_500);
+    const raw = await shownIn(page);
+    await page.close();
+    return raw.filter((f, i) => !(i && raw[i - 1]!.clip === f.clip && raw[i - 1]!.index === f.index));
+  };
   const problems: string[] = [];
+  /**
+   * The faults no machine may show, however slow: a frame out of order, the clip before again after the hand-over, a frame of
+   * the hidden run-up, a clip never seen. Gives the frame each hand-over landed on (the next from the frame after its run-up).
+   */
+  const orderFaults = (seen: Array<{ clip: number; index: number }>, under: string) => {
+    const landed: number[] = [];
+    for (let i = 1; i < seen.length; i++) {
+      const a = seen[i - 1]!;
+      const b = seen[i]!;
+      if (b.clip < a.clip) problems.push(`${under}clip ${a.clip} frame ${a.index} → clip ${b.clip} frame ${b.index}: the clip before shows again after the hand-over (a flicker)`);
+      else if (b.clip === a.clip && b.index <= a.index) problems.push(`${under}clip ${b.clip}: frame ${a.index} then ${b.index}, out of order (a duplicated or repeated stretch)`);
+      else if (b.clip !== a.clip) {
+        landed.push(b.index);
+        if (b.index < RUN_UP_LAST) problems.push(`${under}clip ${b.clip} starts at frame ${b.index}: a frame of its hidden run-up is shown`);
+      }
+    }
+    const clipsSeen = [...new Set(seen.map((f) => f.clip))];
+    if (clipsSeen.join() !== "1,2,3") problems.push(`${under}clips seen: ${clipsSeen.join(", ") || "none"} (expected 1, 2, 3)`);
+    return landed;
+  };
+
+  const seen = await playChain(false);
+  orderFaults(seen, "");
   let drops = 0;
   const gaps: string[] = [];
   for (let i = 1; i < seen.length; i++) {
     const a = seen[i - 1]!;
     const b = seen[i]!;
-    if (b.clip < a.clip) problems.push(`clip ${a.clip} frame ${a.index} → clip ${b.clip} frame ${b.index}: the clip before shows again after the hand-over (a flicker)`);
-    else if (b.clip === a.clip && b.index <= a.index) problems.push(`clip ${b.clip}: frame ${a.index} then ${b.index}, out of order (a duplicated or repeated stretch)`);
-    else if (b.clip === a.clip) {
+    if (b.clip === a.clip && b.index > a.index) {
       drops += b.index - a.index - 1;
       if (b.index - a.index > 1) gaps.push(`${b.clip}:${a.index + 1}${b.index - a.index > 2 ? `–${b.index - 1}` : ""}`);
-    }
-    else {
-      // a hand-over: the clip before to its last frame, the next from the frame after its hidden run-up
-      if (b.index < RUN_UP_LAST) problems.push(`clip ${b.clip} starts at frame ${b.index}: a frame of its hidden run-up is shown`);
-      drops += Math.max(0, FILE - 1 - a.index) + Math.max(0, b.index - RUN_UP_LAST);
-    }
+    } else if (b.clip > a.clip) drops += Math.max(0, FILE - 1 - a.index) + Math.max(0, b.index - RUN_UP_LAST);
   }
-  const clipsSeen = [...new Set(seen.map((f) => f.clip))];
-  if (clipsSeen.join() !== "1,2,3") problems.push(`clips seen: ${clipsSeen.join(", ") || "none"} (expected 1, 2, 3)`);
   const expected = FILE + 2 * (FILE - RUN_UP_LAST);
   // A GitHub runner (two cores, no GPU) drops about a third of the frames evenly, measured 2026-10-10 against 4% on a
   // desktop, so there the drop count is a warning; the order, flicker and run-up faults still fail everywhere.
@@ -174,6 +207,10 @@ try {
       else problems.push(`${n} frames dropped around the hand-over from clip ${clip} to ${clip + 1} (at most ${HANDOVER_DROPS}): the next clip's pre-roll stalls the one seen`);
     } else if (n) console.log(`  ${n} of the drops around the hand-over from clip ${clip} to ${clip + 1} (at most ${HANDOVER_DROPS})`);
   }
+
+  // ---- the chain again under load: drops are the machine's there, but the hand-overs must still land past the run-up
+  const landed = orderFaults(await playChain(true), "under load: ");
+  console.log(`player check, under load: the hand-overs landed on frames ${landed.join(", ") || "none"} (the run-up ends before ${RUN_UP_LAST})`);
 
   // ---- Space twice before a far clip's video has loaded: it stays still. In a fresh page, clip 3's file held back four
   // seconds; [ ] go to clip 2 (clip 3's video put on the page under it, waiting for its file), then to clip 3
