@@ -411,7 +411,8 @@ describe("MiniMax H3 · Swap character", () => {
     it("keeps its paste-back on a Finish › Face refine, which samples nothing; says no false word of a missing Swap Mask on a finish", () => {
       const finish = (over: Record<string, unknown>) => {
         const input = parseInput(h3Swap, { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, maskOn: true, ...over });
-        const face = { faceRefineUnet: "minimax_h3_fused_refdelta_r1024_turbo8.safetensors", faceDetector: "bbox/face_yolov8m.pt" };
+        // SAM's model too: without it the box paste is said (card #47), which is not what this looks at
+        const face = { faceRefineUnet: "minimax_h3_fused_refdelta_r1024_turbo8.safetensors", faceDetector: "bbox/face_yolov8m.pt", faceSam: "sam_vit_b_01ec64.pth" };
         const built = h3Swap.build(input, dryContext({ slots: { ...slots, ...face }, uploads: { source: "src.mp4", "references.0": "r1.png", "self.latent": "own.safetensors" }, media: { source: part() } }));
         return { built, graph: built.graph as Graph };
       };

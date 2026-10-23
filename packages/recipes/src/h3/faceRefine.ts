@@ -1,4 +1,4 @@
-import { wanted, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
+import { packOfNode, wanted, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
 import { loadUnet } from "../shared/unet";
 import type { H3Video } from "./inputs";
 
@@ -88,11 +88,26 @@ export function faceRefineSkipped(input: Pick<H3Video, "faceRefine" | "reference
   return null;
 }
 
-/** What Face refine made: the frames, its sampler and steps (a pass of the job's progress), and the files it loads. */
+/**
+ * Why a Face refine pastes the face back over its box rather than SAM's outline of it, said on its job as an option done
+ * without is (jobPacks ranWithoutSaid): a pod whose Impact Pack failed to install, or a ComfyUI without it or without SAM's
+ * model, made the coarser paste without a word (card #47). Null when SAM's outline is used.
+ */
+export function faceBoxSaid(ctx: Pick<BuildContext, "slots" | "has">): string | null {
+  const what = "Ran without SAM's outline (the face pasted over its box)";
+  const lacked = FACE_REFINE_MASK.find((n) => !ctx.has(n));
+  if (lacked) return `${what}: its node pack ${packOfNode(lacked)?.name ?? lacked} is missing.`;
+  if (!ctx.slots.faceSam) return `${what}: no SAM model on this ComfyUI (sam_vit_b_01ec64.pth in models/sams; Settings › Models has it).`;
+  return null;
+}
+
+/** What Face refine made: the frames, its sampler and steps (a pass of the job's progress), the files it loads, and what its job says of it. */
 export interface FaceRefined {
   images: Ref;
   pass: { node: string; steps: number } | null;
   loads: string[];
+  /** Why the face was pasted over its box (faceBoxSaid); null when SAM's outline was used, or nothing was refined. */
+  said: string | null;
 }
 
 /** The frame counts H3 samples: 17k + 5 (the pass pads to the next one, and cuts its result back). */
@@ -110,7 +125,7 @@ export function faceRefined(
   g: GraphBuilder, ctx: BuildContext, input: FaceRefineValues, images: Ref,
   at: { audio?: Ref; vae?: Ref; audioVae?: Ref; clip?: Ref; picture?: string; frames?: number; only?: boolean },
 ): FaceRefined {
-  const as: FaceRefined = { images, pass: null, loads: [] };
+  const as: FaceRefined = { images, pass: null, loads: [], said: null };
   const own = !at.clip;
   if (!input.faceRefine || faceRefineSkipped(input, ctx, { picture: at.picture, own, audio: Boolean(at.audio) })) return as;
   // a Finish › Face refine is the pass alone: its pack is one it cannot run without, never an option to do without (its
@@ -164,7 +179,8 @@ export function faceRefined(
   });
   const redrawn = g.out("VAEDecode", { samples: [sampler, 0], vae });
   // pasted over the face's own outline (SAM) when SAM is there, else over the face's box; faded out where no face is found
-  const sam = Boolean(slots.faceSam) && FACE_REFINE_MASK.every((n) => ctx.has(n))
+  const boxed = faceBoxSaid(ctx);
+  const sam = !boxed;
   const masked = sam
     ? { masks: g.out("H3FaceMaskSAM", { crops: [track, 0], sam_model: g.out("SAMLoader", { model_name: slots.faceSam, device_mode: "AUTO" }), transform: [track, 1], threshold: 0.93, dilation: 0, temporal_smooth: 5 }) }
     : {};
@@ -177,7 +193,7 @@ export function faceRefined(
     ...(own ? [`text_encoders/${slots.faceClip}`, `vae/${slots.faceVideoVae}`, `vae/${slots.faceAudioVae}`] : []),
   ];
   const out: Ref = pad ? g.out("ImageFromBatch", { image: stitched, batch_index: 0, length: at.frames! }) : stitched;
-  return { images: out, pass: { node: sampler, steps: input.faceRefineSteps }, loads };
+  return { images: out, pass: { node: sampler, steps: input.faceRefineSteps }, loads, said: boxed };
 }
 
 /** Face refine's files, for the forms' sample builds (the graph checker's variants). */

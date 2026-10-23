@@ -194,7 +194,7 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
       const withHead = head ? g.out("ImageBatch", { image1: head, image2: faces.images }) : faces.images;
       const images = matchedToDriving(g, ctx, withHead, pose, input, frame, fps);
       const saved = motionSaved(g, ctx, images, input, { frame, fps, frames: total, parts, carried: SCAIL_CARRIED, ...(head ? { head: SCAIL_CARRIED } : {}), made: faces.images, ...(sound ? { sound } : {}) });
-      const said = [rifeSkippedSaid(input.smooth, ctx), faceRefineSkipped(refineValues, ctx, { picture: ctx.uploads.picture, own: true, audio: Boolean(sound) })].filter((x): x is string => Boolean(x));
+      const said = [rifeSkippedSaid(input.smooth, ctx), faceRefineSkipped(refineValues, ctx, { picture: ctx.uploads.picture, own: true, audio: Boolean(sound) }), faces.said].filter((x): x is string => Boolean(x));
       if (faces.pass) passes.push({ ...faces.pass, frames: total });
       return {
         ...(said.length ? { warnings: said } : {}),

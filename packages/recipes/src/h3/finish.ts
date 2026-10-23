@@ -15,7 +15,7 @@ export const H3_SAVE_LATENT = ["AfflatusNormalizeH3Latent", "AfflatusSaveH3Laten
  * interpolation, the result saved (and the model's own frames beside it when they differ), and the sampled
  * latent kept for the clips that continue this one.
  */
-export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made: { finished: Ref; sampled: string; fine?: Ref | null; vae: Ref; audioVae: Ref; clip?: Ref; width: number; height: number; head?: number; sound?: (decoded: Ref) => Ref; frames?: (images: Ref) => Ref }): { outputs: BuiltGraph["outputs"]; loads: string[]; refine: { node: string; steps: number } | null } {
+export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made: { finished: Ref; sampled: string; fine?: Ref | null; vae: Ref; audioVae: Ref; clip?: Ref; width: number; height: number; head?: number; sound?: (decoded: Ref) => Ref; frames?: (images: Ref) => Ref }): { outputs: BuiltGraph["outputs"]; loads: string[]; refine: { node: string; steps: number } | null; said: string | null } {
   const { finished, sampled, fine, vae, audioVae, width, height } = made;
   const upscaling = input.upscale === UPSCALE.latent;
   g.phase("decoding");
@@ -30,7 +30,7 @@ export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made:
   const audio = made.sound ? made.sound(decoded) : decoded;
   // Face refine, on the frames as the clip keeps them (a swap's after its paste-back), before anything enlarges or interpolates them:
   // the faces redrawn at their own size, and RIFE then makes its in-between frames from the refined ones
-  const faces = made.clip ? faceRefined(g, ctx, input, decodedImages, { audio, vae, audioVae, clip: made.clip, only: Boolean(input.faceRefineOnly) && !upscaling }) : { images: decodedImages, pass: null, loads: [] };
+  const faces = made.clip ? faceRefined(g, ctx, input, decodedImages, { audio, vae, audioVae, clip: made.clip, only: Boolean(input.faceRefineOnly) && !upscaling }) : { images: decodedImages, pass: null, loads: [], said: null };
   const { images } = faces;
   const refined = Boolean(faces.pass);
   // the frames as the model made them, before anything changes them: a clip that carries on from this
@@ -61,5 +61,6 @@ export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made:
     ],
     loads: [...done.loads, ...faces.loads],
     refine: faces.pass,
+    said: faces.said,
   };
 }

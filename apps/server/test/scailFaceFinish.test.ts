@@ -140,6 +140,23 @@ describe.skipIf(!ffmpegThere)("Finish › Face refine on a SCAIL-2 take at 24 fp
     expect((await row())?.error).toContain("comfyui-h3-facerefine");
   });
 
+  it("without the Impact Pack's SAMLoader: refined, pasted over the face's box, and the job says so", async () => {
+    const driving = await asset("video", four!);
+    const picture = await asset("image", png(192, 320));
+    const tl = await call("POST", "/api/timelines", { name: "zz-test dance no sam" });
+    const clip = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "scail.motion24" })).clip as string;
+    await call("POST", `/api/timelines/${tl.id}/render`, { clips: [{ id: clip, input: { picture, driving: { asset: driving }, drivingStart: 0, drivingSeconds: 3.05, prompt: "zz-test", seed: 1 } }] });
+    await finish(four!, 1);
+    fake.catalog = Object.fromEntries(Object.entries(fake.catalog).filter(([n]) => n !== "SAMLoader")) as never;
+    (await t.services.comfy()).forgetAll();
+    const res = await call("POST", `/api/timelines/${tl.id}/finish`, { route: "face", factor: 2, redo: true });
+    const graph = await finish(four!, 2);
+    expect(Object.values(graph).filter((n) => n.class_type === "H3FaceStitch")).toHaveLength(1);
+    expect(Object.values(graph).some((n) => n.class_type === "SAMLoader" || n.class_type === "H3FaceMaskSAM")).toBe(false);
+    const job = await t.db.selectFrom("jobs").select("warning").where("id", "=", res.jobs[0]).executeTakeFirstOrThrow();
+    expect(job.warning).toContain("Ran without SAM's outline (the face pasted over its box): its node pack comfyui-impact-pack is missing.");
+  });
+
   it("skips the 16 fps recipe, which offers no Face refine", async () => {
     const driving = await asset("video", four!);
     const picture = await asset("image", png(192, 320));
