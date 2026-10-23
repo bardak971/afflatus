@@ -129,6 +129,19 @@ RUN set -e; cd /opt/packs; \
 # utils/__init__.py and checks.py)
 ENV YOLO_OFFLINE=1 YOLO_AUTOINSTALL=false
 
+# The Impact Pack, for Face refine's SAM outline (its SAMLoader; the Klein and Flux face detailers use it too), built in at
+# the commit the owner's ComfyUI runs (8.28.3): ComfyUI-Manager's install of it failed on every pod, its sam2 requirement
+# being built in pip's isolated build env, where /constraints.txt's torch cannot be had (2026-10-23, card #45). Its list is
+# installed under the constraints without sam2, which it imports only when there, for its SAM2 models alone: no Afflatus
+# route loads those. Its install.py is not run (its one work beside that list is fetching SAM, which the jobs send)
+ARG IMPACT_COMMIT=429d0159ad429e64d2b3916e6e7be9c22d025c3c
+RUN set -e; cd /opt/packs; \
+    git init -q ComfyUI-Impact-Pack && git -C ComfyUI-Impact-Pack remote add origin https://github.com/ltdrdata/ComfyUI-Impact-Pack; \
+    git -C ComfyUI-Impact-Pack fetch -q --depth 1 origin "${IMPACT_COMMIT}" && git -C ComfyUI-Impact-Pack checkout -q FETCH_HEAD; \
+    echo ComfyUI-Impact-Pack >> /opt/packs/BUILT_IN; \
+    grep -v sam2 ComfyUI-Impact-Pack/requirements.txt > /tmp/impact.txt; \
+    pip install -c /constraints.txt -r /tmp/impact.txt; rm /tmp/impact.txt
+
 # every pip run after this one holds torch to the image's build: ComfyUI-Manager's installs of node packs too (a pack's
 # requirement that pulls another torch would swap the CUDA one for one that does not run here)
 ENV PIP_CONSTRAINT=/constraints.txt
