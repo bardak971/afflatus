@@ -4,6 +4,10 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-23
+
+Fixes after 0.6.0, and Settings › Models folded on a new install.
+
 ### Changed
 - **Settings › Models starts with every family folded**, each head saying what it lacks: a family that was on with something missing opened by itself, so a new install (every family on, nothing downloaded yet) showed a page of text and download buttons.
 
@@ -437,7 +441,8 @@ The 0.6.0 cycle: the timeline reworked around sources, recordings and joins, H3 
 
 The first release: the Studio and its library, a form per model family, timelines, the prompt kit, imported workflows, the queue, the node pack, the Docker image, the Helm chart and the desktop bundles.
 
-[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/bardak971/afflatus/releases/tag/v0.6.1
 [0.6.0]: https://github.com/bardak971/afflatus/releases/tag/v0.6.0
 [0.5.2]: https://github.com/bardak971/afflatus/releases/tag/v0.5.2
 [0.5.1]: https://github.com/bardak971/afflatus/releases/tag/v0.5.1
