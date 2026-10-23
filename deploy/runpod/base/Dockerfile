@@ -112,6 +112,23 @@ RUN pip install --no-deps "nvidia-vfx @ https://pypi.nvidia.com/nvidia-vfx/nvidi
 # InsightFace's own release at its start (start.sh), into the models folder, where a volume keeps them for the next pod
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential  && pip install -c /constraints.txt insightface==0.7.3 onnxruntime==1.20.1  && apt-get purge -y build-essential && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
+# Face refine (H3's forms and SCAIL-2 at 24 fps): the pack that tracks and crops the face per frame, sets the denoise by
+# face size and pastes it back, built in at the commit Afflatus is tested against, with what it imports beside InsightFace:
+# ultralytics (its face and person detectors) and PySceneDetect, at the versions the owner's ComfyUI runs. Its models (the
+# detectors, SAM, the fused reference turbo) are sent to the pod with the jobs that load them, as any model. Ultralytics is
+# AGPL-3.0 (the owner's call, 2026-10-21). start.sh puts the pack in custom_nodes with the others (BUILT_IN)
+ARG FACEREFINE_COMMIT=d8521d14fe0d721d80cd9417fff5a559cbc21aba
+RUN set -e; cd /opt/packs; \
+    git init -q ComfyUI-H3-FaceRefine && git -C ComfyUI-H3-FaceRefine remote add origin https://github.com/Carasibana/ComfyUI-H3-FaceRefine; \
+    git -C ComfyUI-H3-FaceRefine fetch -q --depth 1 origin "${FACEREFINE_COMMIT}" && git -C ComfyUI-H3-FaceRefine checkout -q FETCH_HEAD; \
+    echo ComfyUI-H3-FaceRefine >> /opt/packs/BUILT_IN; \
+    pip install -c /constraints.txt ultralytics==8.4.163 scenedetect==0.7.2
+# Ultralytics, left to itself, sends usage events to Google Analytics on each predict (settings' sync, on by default) and
+# pip-installs a requirement it finds missing: neither from a pod. YOLO_OFFLINE makes it take itself for offline (no DNS
+# check at import, so no events and no Sentry reports), and YOLO_AUTOINSTALL=false stops its installs (ultralytics 8.4's
+# utils/__init__.py and checks.py)
+ENV YOLO_OFFLINE=1 YOLO_AUTOINSTALL=false
+
 # every pip run after this one holds torch to the image's build: ComfyUI-Manager's installs of node packs too (a pack's
 # requirement that pulls another torch would swap the CUDA one for one that does not run here)
 ENV PIP_CONSTRAINT=/constraints.txt
