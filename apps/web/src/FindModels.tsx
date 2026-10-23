@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
 import { fileKey } from "@afflatus/core";
 import { api, type BrowseCard } from "./api";
 import { keepTabIn } from "./Dialog";
@@ -7,9 +7,11 @@ import { Card } from "./findModels/Card";
 import { Opened } from "./findModels/Opened";
 import { clearPicked, closeFindModels, pickedOf, useKept, type FindTarget, type HfSort, type PickedFile } from "./findModels/store";
 import { Tray } from "./findModels/Tray";
+import { CardSkeletons, SiteFailed, SlowSaid } from "./findModels/Waiting";
 import { Yours } from "./findModels/Yours";
 import { useSettled } from "./hooks";
 import { Keys } from "./Keys";
+import { Progress } from "./progress/Progress";
 import { queryKeys } from "./queryKeys";
 import { Select } from "./Select";
 import { Checkbox, Chip, CloseButton, cx, Empty, ErrorNote, SearchField, Segmented } from "./ui";
@@ -59,6 +61,8 @@ export function FindModels({ target }: { target: FindTarget }) {
     getNextPageParam: (last) => last.next ?? undefined,
     enabled: tab === "civitai" && !isLink(q) && bases.isSuccess,
     staleTime: 5 * 60_000,
+    // another search or filter: the cards there stay, dimmed, until its first page comes (never an empty grid)
+    placeholderData: keepPreviousData,
   });
   const huggingFace = useInfiniteQuery({
     queryKey: queryKeys.browse.huggingFace({ q, hfBase, hfKind, hfSort, by }),
@@ -67,6 +71,7 @@ export function FindModels({ target }: { target: FindTarget }) {
     getNextPageParam: (last) => last.next ?? undefined,
     enabled: tab === "huggingface" && !isLink(q),
     staleTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
   });
   const results = tab === "civitai" ? civitai : huggingFace;
   const cards = useMemo(() => (results.data?.pages ?? []).flatMap((p) => p.items).filter((c) => !notMine || !c.have), [results.data, notMine]);
@@ -81,22 +86,39 @@ export function FindModels({ target }: { target: FindTarget }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- read once per link typed
   }, [q]);
   // Civitai is asked once its base models are known: their failure is said, as the search's own would be
-  const failed = results.error ?? (tab === "civitai" ? bases.error : null) ?? link.error;
-  const asking = !isLink(q) && (results.isLoading || (tab === "civitai" && bases.isPending));
+  const failed = results.error ?? (tab === "civitai" ? bases.error : null);
+  const siteName = tab === "civitai" ? "Civitai" : "Hugging Face";
+  // nothing to show yet (the first page, or the base models it waits for): skeleton cards
+  const asking = !isLink(q) && !results.data && !failed && (results.isFetching || (tab === "civitai" && bases.isPending));
+  // another search or filter asked: the last one's cards dimmed meanwhile
+  const refreshing = !isLink(q) && results.isPlaceholderData && results.isFetching;
+  // the next page failed: said at the end of the list, the cards above kept
+  const moreFailed = results.isFetchNextPageError;
+  const retry = () => {
+    if (moreFailed) void results.fetchNextPage();
+    else if (results.error) void results.refetch();
+    else void bases.refetch();
+  };
 
-  // the next page as the end of the list comes into view: watched again only when whether there is one, or one is being
-  // read, changes (made again at every drawing, it was rebuilt for every card of every page)
+  // the next page a screen before the end of the list comes into view (the server has it asked already, as soon as the
+  // page before was served): watched again only when whether there is one, or one is being read, changes (made again at
+  // every drawing, it was rebuilt for every card of every page). Not after a failed one: its Try again asks.
   const end = useRef<HTMLDivElement | null>(null);
+  const scroller = useRef<HTMLDivElement | null>(null);
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = results;
   useEffect(() => {
     const el = end.current;
-    if (!el || !hasNextPage || isFetchingNextPage) return;
+    if (!el || !hasNextPage || isFetchingNextPage || moreFailed) return;
     const seen = new IntersectionObserver((entries) => {
       if (entries.some((x) => x.isIntersecting)) void fetchNextPage();
-    }, { rootMargin: "400px" });
+    }, { root: scroller.current, rootMargin: "100% 0px" });
     seen.observe(el);
     return () => seen.disconnect();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage, tab, opened]);
+  }, [hasNextPage, isFetchingNextPage, moreFailed, fetchNextPage, tab, opened]);
+  // the next page's skeletons: the last row filled, and a row more, as many as the grid has columns
+  const grid = useRef<HTMLDivElement | null>(null);
+  const columns = () => (grid.current ? getComputedStyle(grid.current).gridTemplateColumns.split(" ").filter(Boolean).length : 4) || 4;
+  const moreSkeletons = (n: number) => ((n - (cards.length % n)) % n) + n;
 
   // Over a Dialog (the Deploy dialog's "Find more…"), the panel's data-floating turns the Dialog's own keys off: its Esc
   // and Tab are this panel's. It takes the focus when it opens and gives it back when it closes, as a Dialog does.
@@ -152,7 +174,8 @@ export function FindModels({ target }: { target: FindTarget }) {
           <CloseButton keys="Esc" onClose={closeFindModels} />
         </div>
         {tab !== "yours" && (
-          <div className="flex items-center gap-3 border-b border-line px-5 py-2.5">
+          <div className="relative flex items-center gap-3 border-b border-line px-5 py-2.5">
+            {!opened && (asking || refreshing) && <Progress value={0} loading shape="edge" label={`Asking ${siteName}`} />}
             <SearchField autoFocus value={words} onChange={setWords} label={tab === "civitai" ? "Search Civitai" : "Search Hugging Face"} placeholder={tab === "civitai" ? "Search Civitai, or paste a Civitai or Hugging Face link" : "Search Hugging Face, or paste a link"} className="grow" />
             {tab === "civitai" && (
               <>
@@ -223,15 +246,26 @@ export function FindModels({ target }: { target: FindTarget }) {
               // keyed: another card opens with its own ticks and folders, not the last one's
               <Opened key={`${opened.site}:${opened.id}`} card={opened} picked={pickedNames} onPick={(files) => { add(files); setOpened(null); }} onClose={() => setOpened(null)} />
             ) : (
-              <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                {failed && <ErrorNote>{failed.message}</ErrorNote>}
+              <div ref={scroller} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+                {failed && !moreFailed && !isLink(q) && <SiteFailed error={failed} other={tab === "civitai" ? "Hugging Face" : "Civitai"} onRetry={retry} />}
+                {link.error && <ErrorNote>{link.error.message}</ErrorNote>}
                 {link.isPending && <span className="text-xs text-ink-3">Reading the link…</span>}
-                {asking && !failed && <span className="text-xs text-ink-3">Asking {tab === "civitai" ? "Civitai" : "Hugging Face"}…</span>}
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3.5">
+                <SlowSaid site={siteName} waiting={asking || refreshing} />
+                <div
+                  ref={grid}
+                  role={asking ? "status" : undefined}
+                  aria-label={asking ? `Asking ${siteName}` : undefined}
+                  aria-busy={asking || refreshing || isFetchingNextPage || undefined}
+                  className={cx("grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3.5 transition-opacity duration-200 motion-reduce:transition-none", refreshing && "opacity-45")}
+                >
+                  {asking && <CardSkeletons count={8} />}
                   {cards.map((c) => <Card key={`${c.site}:${c.id}`} card={c} picked={cardPicked(c)} onOpen={openCard} onQuick={quickCard} />)}
+                  {isFetchingNextPage && <CardSkeletons count={moreSkeletons(columns())} />}
                 </div>
-                {results.isSuccess && !cards.length && <Empty title={`Nothing found${notMine ? " that you do not have" : ""}`}>Fewer words, or another base model.</Empty>}
-                <div ref={end} className="py-4 text-center text-xs text-ink-3">{results.isFetchingNextPage ? "More…" : results.hasNextPage ? "" : cards.length ? "That is all." : ""}</div>
+                <SlowSaid site={siteName} waiting={isFetchingNextPage} />
+                {moreFailed && failed && <SiteFailed error={failed} other={tab === "civitai" ? "Hugging Face" : "Civitai"} onRetry={retry} />}
+                {results.isSuccess && !results.isPlaceholderData && !cards.length && <Empty title={`Nothing found${notMine ? " that you do not have" : ""}`}>Fewer words, or another base model.</Empty>}
+                <div ref={end} className="pb-2 text-center text-xs text-ink-3">{!results.hasNextPage && !results.isPlaceholderData && cards.length ? "That is all." : ""}</div>
               </div>
             )}
           </div>
