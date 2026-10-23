@@ -1,5 +1,3 @@
-<!-- DRAFT for the 0.5.0 README, verified against HEAD cdf47bb3 on 2026-10-16. Still to come: run.webp and costs.webp (pod day). Delete this file before any commit. -->
-
 <p align="center"><img src="docs/media/mark.svg" alt="" width="88"></p>
 
 <h1 align="center">Afflatus</h1>
