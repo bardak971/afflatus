@@ -16,7 +16,8 @@ import { readSettings } from "./settings";
  * (its ComfyUI folder), where a pod or this computer gets it (a Civitai version, a Hugging Face address), and what the
  * user has of it already (this computer's file of the same SHA-256 or name, a Model set that holds it, a newer version
  * than theirs). Read-only: what is picked is added to a set, a deploy, or downloaded by the routes that already do it.
- * Civitai is asked with the user's key, and shows what their account shows: Afflatus adds no filter of its own.
+ * Civitai's list pages are asked without the user's key (civitaiPage says why), what is opened with it: Afflatus adds no
+ * filter of its own.
  */
 
 /** Where a file comes from, as a set file or a pod's want says it. */
@@ -250,6 +251,123 @@ async function repoFiles(repo: string, token: string, k: Known): Promise<BrowseF
   });
 }
 
+/** How long a list page asked of a site may take, both Civitai sites together: past it, the page says the site did not answer. */
+const PAGE_DEADLINE_MS = 20_000;
+/** A page taking longer than this is logged (Civitai has slow spells; the log tells them from Afflatus's own). */
+const SLOW_PAGE_MS = 3_000;
+/** How long a list page is kept: Civitai's own shared cache keeps its answers 5 minutes (s-maxage=300). */
+const PAGE_KEEP_MS = 5 * 60_000;
+/** The most pages kept, the oldest going first. */
+const PAGES_KEPT = 60;
+
+/**
+ * The sites' list pages kept a while by their address, each as the promise of its answer: the page after the one served is
+ * asked at once (`ahead`), so that it is here, or on its way, when the user scrolls to it. A page that failed is not kept:
+ * Try again asks again. What the user has (known()) is never kept: it is read for every page, in about a millisecond.
+ */
+export class PageStore<T> {
+  private pages = new Map<string, { at: number; got: Promise<T> }>();
+  constructor(private keepMs = PAGE_KEEP_MS, private most = PAGES_KEPT, private clock = () => Date.now()) {}
+  /** The page at this address: kept, coming (asked ahead), or asked now. `how` says which, for Server-Timing. */
+  get(key: string, ask: () => Promise<T>): { got: Promise<T>; how: "kept" | "asked" } {
+    const had = this.pages.get(key);
+    if (had && this.clock() - had.at < this.keepMs) return { got: had.got, how: "kept" };
+    return { got: this.put(key, ask), how: "asked" };
+  }
+  /** The page at this address asked now, unless it is kept or coming; its failure is nobody's (it is asked again when wanted). */
+  ahead(key: string, ask: () => Promise<T>): void {
+    const had = this.pages.get(key);
+    if (had && this.clock() - had.at < this.keepMs) return;
+    this.put(key, ask).catch(() => {});
+  }
+  forget(): void {
+    this.pages.clear();
+  }
+  private put(key: string, ask: () => Promise<T>): Promise<T> {
+    const got = ask();
+    this.pages.delete(key);
+    this.pages.set(key, { at: this.clock(), got });
+    got.catch(() => { if (this.pages.get(key)?.got === got) this.pages.delete(key); });
+    for (const old of this.pages.keys()) {
+      if (this.pages.size <= this.most) break;
+      this.pages.delete(old);
+    }
+    return got;
+  }
+}
+
+type CivPage = { items?: CivModel[]; metadata?: { nextCursor?: string | number } };
+type HfPage = { repos: HfRepo[]; next: string | null };
+const civitaiPages = new PageStore<CivPage | null>();
+const huggingFacePages = new PageStore<HfPage>();
+/** For the tests: forget the pages kept. @internal */
+export const forgetPages = () => {
+  civitaiPages.forget();
+  huggingFacePages.forget();
+};
+
+/**
+ * A list page of Civitai's models, asked without the user's key: Civitai's shared cache bypasses every request that carries
+ * one (3.5 to 6.5 s a page with 27 base models, on 2026-10-24), and keeps those without for 5 minutes (40 to 80 ms then),
+ * while the models listed and their cursors were the same either way. The key still goes with what is the account's own: a
+ * model opened from a link, a version's files, a download.
+ */
+const civitaiPage = (path: string) => {
+  const deadline = AbortSignal.timeout(PAGE_DEADLINE_MS);
+  return civitaiGet<CivPage>(path, "", deadline).catch((err: unknown) => {
+    throw deadline.aborted ? httpError(`Civitai did not answer in ${PAGE_DEADLINE_MS / 1000} s.`, 504) : err;
+  });
+};
+
+/**
+ * How many models a block asked of Civitai after the first page holds: Civitai's time goes by the query, hardly by its size
+ * (27 base models: 24 models in 6.2 to 6.5 s, 72 in 6.7 to 6.8, 100 in 7.3, on 2026-10-24), so one block, asked ahead,
+ * serves the next four pages. The first page stays at 24, so that opening waits no longer than it did.
+ */
+const BLOCK = 96;
+
+/**
+ * Where a page of Find models' own starts: Civitai's cursor of the block it is in ("" the first), and how far into that
+ * block (`<cursor>~<at>`). A cursor without "~" is Civitai's own, read as the start of its block.
+ */
+function blockCursor(cursor: string | undefined): { from: string; at: number } {
+  const cut = cursor?.lastIndexOf("~") ?? -1;
+  if (!cursor || cut < 0) return { from: cursor ?? "", at: 0 };
+  return { from: cursor.slice(0, cut), at: Math.max(0, Math.min(BLOCK, Number(cursor.slice(cut + 1)) || 0)) };
+}
+
+/** The block of Civitai's models from its cursor `from` for this query: kept, coming, or asked now; or only asked ahead. */
+function civitaiBlock(params: URLSearchParams, from: string, ahead?: false): { got: Promise<CivPage | null>; how: "kept" | "asked" };
+function civitaiBlock(params: URLSearchParams, from: string, ahead: true): void;
+function civitaiBlock(params: URLSearchParams, from: string, ahead = false) {
+  const asked = new URLSearchParams(params);
+  asked.set("limit", String(from ? BLOCK : PAGE));
+  if (from) asked.set("cursor", from);
+  const key = `${civitaiSites()}?${asked}`;
+  const ask = () => civitaiPage(`/api/v1/models?${asked}`);
+  if (ahead) return civitaiPages.ahead(key, ask);
+  return civitaiPages.get(key, ask);
+}
+
+/** A list page of Hugging Face's repositories, and the cursor of the next one (in its Link header). */
+const huggingFacePage = async (params: URLSearchParams, token: string): Promise<HfPage> => {
+  const deadline = AbortSignal.timeout(PAGE_DEADLINE_MS);
+  const res = await fetchPublic(`${hfSite()}/api/models?${params}`, { headers: hfHeaders(token), signal: deadline }, [hfSite()]).catch(() => null);
+  if (!res?.ok) throw httpError(deadline.aborted ? `Hugging Face did not answer in ${PAGE_DEADLINE_MS / 1000} s.` : "Hugging Face did not answer.", deadline.aborted ? 504 : 502);
+  const repos = (await res.json().catch(() => [])) as HfRepo[];
+  const next = /<[^>]*[?&]cursor=([^&>]+)[^>]*>;\s*rel="next"/.exec(res.headers.get("link") ?? "")?.[1] ?? null;
+  return { repos: Array.isArray(repos) ? repos : [], next: next ? decodeURIComponent(next) : null };
+};
+
+/** A Server-Timing entry (DevTools' Timing tab): its name, how long, and what it was. */
+const timing = (name: string, from: number, desc?: string) => `${name};dur=${Math.round(performance.now() - from)}${desc ? `;desc="${desc}"` : ""}`;
+
+/** A list page that took long, logged with whose time it was. */
+const sayIfSlow = (site: string, from: number, how: string) => {
+  const ms = performance.now() - from;
+  if (ms > SLOW_PAGE_MS) console.warn(`[browse] ${site} took ${(ms / 1000).toFixed(1)} s for a page (${how})`);
+};
+
 const csv = z.union([z.string(), z.array(z.string())]).optional().transform((v) => (v === undefined ? [] : Array.isArray(v) ? v : [v]).flatMap((x) => x.split("|")).filter(Boolean).slice(0, 20));
 
 export function registerBrowse(app: FastifyInstance, s: Services): void {
@@ -267,35 +385,49 @@ export function registerBrowse(app: FastifyInstance, s: Services): void {
   });
 
   /** Civitai's models for words and filters, a page at a time (its cursor), as cards. */
-  app.get("/api/browse/civitai", async (req) => {
+  app.get("/api/browse/civitai", async (req, reply) => {
     const q = z.object({
       q: z.string().max(200).default(""), types: csv, bases: csv, sort: z.enum(SORTS).default("Most Downloaded"), period: z.enum(PERIODS).default("AllTime"), cursor: z.string().max(400).optional(),
       all: z.enum(["1", "0"]).default("0"),
       // one creator's models only (the command bar's by:), by their Civitai name
       by: z.string().trim().max(80).regex(/^[\w.-]*$/, "a Civitai user name").default(""),
     }).parse(req.query);
-    const settings = await lookupsOn();
-    const params = new URLSearchParams({ limit: String(PAGE), sort: q.sort, period: q.period });
+    await lookupsOn();
+    const params = new URLSearchParams({ sort: q.sort, period: q.period });
     if (q.q.trim()) params.set("query", q.q.trim());
     if (q.by) params.set("username", q.by);
     for (const t of q.types) params.append("types", t);
     for (const b of q.bases) params.append("baseModels", b);
-    if (q.cursor) params.set("cursor", q.cursor);
     // Civitai's API leaves part of its models out unless asked for all of them (both its sites alike): the user's switch
     if (q.all === "1") params.set("nsfw", "true");
-    const got = await civitaiGet<{ items?: CivModel[]; metadata?: { nextCursor?: string | number } }>(`/api/v1/models?${params}`, settings.civitaiKey);
+    const { from, at } = blockCursor(q.cursor);
+    const start = performance.now();
+    const block = civitaiBlock(params, from);
+    const got = await block.got;
+    sayIfSlow("Civitai", start, block.how);
+    const site = timing("civitai", start, block.how);
+    const models = got?.items ?? [];
+    const after = got?.metadata?.nextCursor !== undefined ? String(got.metadata.nextCursor) : null;
+    // the block after this one, asked now: here, or on its way, when the list is scrolled to its end
+    if (after) civitaiBlock(params, after, true);
+    const shown = models.slice(at, at + PAGE);
+    const next = at + PAGE < models.length ? `${from}~${at + PAGE}` : after !== null ? `${after}~0` : null;
+    const read = performance.now();
     const k = await known(s);
+    const knew = timing("known", read);
+    const made = performance.now();
     // the switch off: what Civitai still sends that is for adults by its rating, name or tags is left out (a page may come
     // shorter; its cursor still goes on)
-    const items = (got?.items ?? []).filter((m) => q.all === "1" || !forAdults(m));
-    return { items: items.map((m) => civitaiCard(m, k)), next: got?.metadata?.nextCursor !== undefined ? String(got.metadata.nextCursor) : null };
+    const items = shown.filter((m) => q.all === "1" || !forAdults(m)).map((m) => civitaiCard(m, k));
+    reply.header("Server-Timing", [site, knew, timing("cards", made), timing("total", start)].join(", "));
+    return { items, next };
   });
 
   /**
    * Hugging Face's repositories for words, and "made for" one base model (its adapters: Hugging Face takes one such filter
    * at a time, several meaning all of them at once), a page at a time.
    */
-  app.get("/api/browse/huggingface", async (req) => {
+  app.get("/api/browse/huggingface", async (req, reply) => {
     const q = z.object({ q: z.string().max(200).default(""), base: z.string().max(120).refine((b) => Object.values(FAMILY_HF_BASES).flat().includes(b), "a base model the browser offers").optional(), kind: z.enum(["comfyui", "loras", "all"]).default("comfyui"), sort: z.enum(["downloads", "likes", "lastModified", "trendingScore"]).default("downloads"), cursor: z.string().max(400).optional(), by: z.string().trim().max(96).regex(/^[\w.-]*$/, "a Hugging Face user or organisation").default("") }).parse(req.query);
     const settings = await lookupsOn();
     const params = new URLSearchParams({ sort: q.sort, direction: "-1", limit: String(PAGE), full: "true" });
@@ -308,14 +440,27 @@ export function registerBrowse(app: FastifyInstance, s: Services): void {
     if (q.kind === "comfyui" && !q.base) params.append("filter", "diffusion-single-file");
     if (q.kind === "loras") params.append("filter", "lora");
     if (q.cursor) params.set("cursor", q.cursor);
-    const res = await fetchPublic(`${hfSite()}/api/models?${params}`, { headers: hfHeaders(settings.huggingFaceToken), signal: AbortSignal.timeout(20_000) }, [hfSite()]).catch(() => null);
-    if (!res?.ok) throw httpError("Hugging Face did not answer.", 502);
-    const repos = (await res.json().catch(() => [])) as HfRepo[];
-    // the next page's address is in the Link header: its cursor
-    const next = /<[^>]*[?&]cursor=([^&>]+)[^>]*>;\s*rel="next"/.exec(res.headers.get("link") ?? "")?.[1] ?? null;
+    // kept by the token too: a gated repository's listing may differ with it
+    const token = settings.huggingFaceToken;
+    const keyOf = (p: URLSearchParams) => `${hfSite()}?${p}#${token ? "token" : ""}`;
+    const start = performance.now();
+    const page = huggingFacePages.get(keyOf(params), () => huggingFacePage(params, token));
+    const { repos, next } = await page.got;
+    sayIfSlow("Hugging Face", start, page.how);
+    const site = timing("huggingface", start, page.how);
+    if (next) {
+      const after = new URLSearchParams(params);
+      after.set("cursor", next);
+      huggingFacePages.ahead(keyOf(after), () => huggingFacePage(after, token));
+    }
+    const read = performance.now();
     const k = await known(s);
+    const knew = timing("known", read);
+    const made = performance.now();
     const family = new Map(Object.entries(FAMILY_HF_BASES).flatMap(([id, bases]) => bases.map((b) => [b, s.registry.families().find((f) => f.id === id)?.name ?? id] as [string, string])));
-    return { items: (Array.isArray(repos) ? repos : []).map((r) => huggingFaceCard(r, k, family)), next: next ? decodeURIComponent(next) : null };
+    const items = repos.map((r) => huggingFaceCard(r, k, family));
+    reply.header("Server-Timing", [site, knew, timing("cards", made), timing("total", start)].join(", "));
+    return { items, next };
   });
 
   /** A Hugging Face repository opened: its model files with their sizes and SHA-256. */

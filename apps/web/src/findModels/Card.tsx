@@ -1,13 +1,46 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import { Check, Download, Heart, Lock, Plus } from "lucide-react";
 import type { BrowseCard } from "../api";
 import { compact, plural, shortDate, size } from "../format";
 import { Chip, cx, IconButton } from "../ui";
 
-/** A card's picture, or for Hugging Face (which has none) a quiet panel with its owner's initial. */
+/**
+ * A card's picture, faded in over a neutral block of its size when it comes (one that never comes leaves the block, the
+ * card usable); for Hugging Face, which has none, a quiet panel with its owner's initial.
+ */
 function Thumb({ card }: { card: BrowseCard }) {
-  if (card.thumb) return <img src={card.thumb} alt="" loading="lazy" draggable={false} className="h-full w-full object-cover" />;
+  const [shown, setShown] = useState(false);
+  if (card.thumb) {
+    return (
+      <span className="block h-full w-full bg-raised">
+        <img
+          src={card.thumb}
+          alt=""
+          loading="lazy"
+          draggable={false}
+          // a picture the browser has already is complete before onLoad could say so
+          ref={(img) => { if (img?.complete && img.naturalWidth) setShown(true); }}
+          onLoad={() => setShown(true)}
+          className={cx("h-full w-full object-cover transition-opacity duration-300 motion-reduce:transition-none", shown ? "opacity-100" : "opacity-0")}
+        />
+      </span>
+    );
+  }
   return <span aria-hidden className="grid h-full w-full place-items-center bg-raised font-mono text-3xl text-ink-3">{card.creator.slice(0, 1).toUpperCase()}</span>;
+}
+
+/** A card still coming, in the card's shape: its picture's block, its name, two lines. */
+export function CardSkeleton() {
+  return (
+    <div aria-hidden data-skeleton="" className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-line bg-panel">
+      <span className="m-skeleton block h-[150px] w-full rounded-none!" />
+      <span className="flex flex-col gap-2 px-3 py-3">
+        <span className="m-skeleton block h-3.5 w-3/5" />
+        <span className="m-skeleton block h-2.5 w-2/5" />
+        <span className="m-skeleton block h-2.5 w-1/4" />
+      </span>
+    </div>
+  );
 }
 
 /** What the card's first version weighs: its one file, or its files together. */

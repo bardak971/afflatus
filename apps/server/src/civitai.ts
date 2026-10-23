@@ -72,7 +72,7 @@ export const wordsOf = (file: string) => [...new Set(modelStem(file).toLowerCase
 
 const headers = (key: string): Record<string, string> => ({ Accept: "application/json", "User-Agent": "afflatus", ...(key ? { Authorization: `Bearer ${key}` } : {}) });
 /** Civitai's API asked: a redirect is judged hop by hop, and the key goes to the site asked only (outbound.ts). */
-const ask = (url: string, key: string) => fetchPublic(url, { headers: headers(key), signal: AbortSignal.timeout(20_000) }, civitaiSites());
+const ask = (url: string, key: string, signal?: AbortSignal) => fetchPublic(url, { headers: headers(key), signal: signal ?? AbortSignal.timeout(20_000) }, civitaiSites());
 
 /**
  * The models both sites find for a file's name, the likeliest first: the one that has a file of exactly
@@ -151,12 +151,15 @@ export async function findOnCivitai(file: string, folder: string | null, key: st
   };
 }
 
-/** One thing asked of Civitai's API, from whichever of its sites has it. Null when neither knows it. */
-export async function civitaiGet<T>(path: string, key: string): Promise<T | null> {
+/**
+ * One thing asked of Civitai's API, from whichever of its sites has it. Null when neither knows it. Given a `signal`, both
+ * sites share it (one deadline for the whole ask); without one, each site has 20 s of its own.
+ */
+export async function civitaiGet<T>(path: string, key: string, signal?: AbortSignal): Promise<T | null> {
   let failed: Error | null = null;
   for (const site of civitaiSites()) {
     try {
-      const res = await ask(`${site}${path}`, key);
+      const res = await ask(`${site}${path}`, key, signal);
       if (res.status === 404) continue;
       if (!res.ok) {
         failed = httpError(`Civitai refused (${res.status}).`, 502);

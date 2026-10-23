@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { forAdults, thumbOf } from "../src/browse";
+import { forAdults, forgetPages, PageStore, thumbOf } from "../src/browse";
 import { forgetHuggingFace } from "../src/huggingface";
 import { writeSettings } from "../src/settings";
 import { get, makeApp, post, type TestApp } from "./helpers";
@@ -15,6 +15,8 @@ const SHA_HAVE = "A".repeat(64);
 let t: TestApp;
 let site: Server;
 let asked: string[];
+/** Whether each request asked carried an Authorization header, by its address. */
+let keyed: Map<string, boolean>;
 
 const civModel = {
   id: 77, name: "Handheld Camera", type: "LORA", creator: { username: "maker" }, stats: { downloadCount: 1400, thumbsUpCount: 90 },
@@ -32,8 +34,11 @@ const civModel = {
 
 beforeEach(async () => {
   asked = [];
+  keyed = new Map();
+  forgetPages();
   site = createServer((req, res) => {
     asked.push(req.url ?? "");
+    keyed.set(req.url ?? "", Boolean(req.headers.authorization));
     res.setHeader("Content-Type", "application/json");
     if (req.url?.startsWith("/api/v1/models?")) return res.end(JSON.stringify({ items: [civModel], metadata: { nextCursor: "c2" } }));
     if (req.url === "/api/v1/models/77") return res.end(JSON.stringify(civModel));
@@ -67,7 +72,8 @@ describe("find models", () => {
     const res = await get(t.app, "/api/browse/civitai?q=handheld&types=LORA&bases=Wan%20Video%202.2%20I2V-A14B&sort=Newest&period=Month");
     expect(res.statusCode).toBe(200);
     const { items, next } = res.json();
-    expect(next).toBe("c2");
+    // Find models' own cursor: Civitai's, and where in its block
+    expect(next).toBe("c2~0");
     const asked1 = new URL(asked.find((u) => u.startsWith("/api/v1/models?"))!, "http://x").searchParams;
     expect(Object.fromEntries(asked1)).toMatchObject({ query: "handheld", types: "LORA", baseModels: "Wan Video 2.2 I2V-A14B", sort: "Newest", period: "Month", limit: "24" });
     const card = items[0];
@@ -106,7 +112,7 @@ describe("find models", () => {
     });
     const off = (await get(t.app, "/api/browse/civitai?q=x")).json();
     expect(off.items.map((c: { id: string }) => c.id)).toEqual(["77"]);
-    expect(off.next).toBe("c2");
+    expect(off.next).toBe("c2~0");
     const on = (await get(t.app, "/api/browse/civitai?q=x&all=1")).json();
     expect(on.items.map((c: { id: string }) => c.id)).toEqual(["77", "78"]);
   });
@@ -126,11 +132,12 @@ describe("find models", () => {
     expect(asked1.getAll("filter")).toEqual(["base_model:adapter:Wan-AI/Wan2.2-I2V-A14B", "lora"]);
     expect((await get(t.app, "/api/browse/huggingface?base=evil")).statusCode).toBe(400);
     // one creator's only (the command bar's by:), on both sites by their own parameter
+    // (a page asked ahead may come in between: the first pages only)
     asked = [];
     await get(t.app, "/api/browse/huggingface?q=wan&by=Comfy-Org");
-    expect(new URL(asked.find((u) => u.startsWith("/api/models?"))!, "http://x").searchParams.get("author")).toBe("Comfy-Org");
+    expect(new URL(asked.find((u) => u.startsWith("/api/models?") && u.includes("author="))!, "http://x").searchParams.get("author")).toBe("Comfy-Org");
     await get(t.app, "/api/browse/civitai?q=wan&by=maker");
-    expect(new URL(asked.find((u) => u.startsWith("/api/v1/models?"))!, "http://x").searchParams.get("username")).toBe("maker");
+    expect(new URL(asked.find((u) => u.startsWith("/api/v1/models?") && !u.includes("cursor="))!, "http://x").searchParams.get("username")).toBe("maker");
     expect((await get(t.app, "/api/browse/civitai?by=a%20b")).statusCode).toBe(400);
     expect(res.items[0]).toMatchObject({ site: "huggingface", id: "org/wan-loras", creator: "org", modelFiles: 1, thumb: null, versions: [] });
     const files = (await get(t.app, "/api/browse/huggingface/files?repo=org/wan-loras")).json().files;
@@ -146,6 +153,95 @@ describe("find models", () => {
     const file = (await post(t.app, "/api/browse/link", { link: "https://huggingface.co/org/wan-loras/blob/main/loras/a.safetensors" })).json();
     expect(file.card.versions[0].files).toHaveLength(1);
     expect((await post(t.app, "/api/browse/link", { link: "https://example.com/nothing" })).statusCode).toBe(400);
+  });
+
+  it("asks Civitai's list pages without the user's key (its shared cache bypasses keyed requests), what is opened with it", async () => {
+    await writeSettings(t.db, { civitaiKey: "k".repeat(32) });
+    await get(t.app, "/api/browse/civitai?q=handheld");
+    expect(keyed.get(asked.find((u) => u.startsWith("/api/v1/models?"))!)).toBe(false);
+    await post(t.app, "/api/browse/link", { link: "https://civitai.com/models/77" });
+    expect(keyed.get("/api/v1/models/77")).toBe(true);
+  });
+
+  it("asks the next page as soon as one is served and serves it from there; a page asked again within 5 minutes is not asked again", async () => {
+    const first = await get(t.app, "/api/browse/civitai?q=handheld");
+    expect(first.headers["server-timing"]).toMatch(/^civitai;dur=\d+;desc="asked", known;dur=\d+, cards;dur=\d+, total;dur=\d+$/);
+    await vi.waitFor(() => expect(asked.filter((u) => u.includes("cursor=c2"))).toHaveLength(1));
+    const second = await get(t.app, "/api/browse/civitai?q=handheld&cursor=c2~0");
+    expect(second.json().items).toHaveLength(1);
+    expect(second.headers["server-timing"]).toContain(`desc="kept"`);
+    await get(t.app, "/api/browse/civitai?q=handheld");
+    // page 1 once; page 2 once, ahead (its own next page is the same c2 here, already kept)
+    expect(asked.filter((u) => u.startsWith("/api/v1/models?") && !u.includes("cursor="))).toHaveLength(1);
+    expect(asked.filter((u) => u.includes("cursor=c2"))).toHaveLength(1);
+    // Hugging Face alike
+    await get(t.app, "/api/browse/huggingface?q=wan");
+    await vi.waitFor(() => expect(asked.filter((u) => u.startsWith("/api/models?") && u.includes("cursor=hf2"))).toHaveLength(1));
+    expect((await get(t.app, "/api/browse/huggingface?q=wan&cursor=hf2")).headers["server-timing"]).toMatch(/^huggingface;dur=\d+;desc="kept"/);
+    expect(asked.filter((u) => u.startsWith("/api/models?") && u.includes("cursor=hf2"))).toHaveLength(1);
+  });
+
+  it("asks Civitai the first page at 24 and then blocks of 96 ahead, each served 24 at a time from one ask", async () => {
+    site.removeAllListeners("request");
+    site.on("request", (req, res) => {
+      asked.push(req.url ?? "");
+      const p = new URL(req.url ?? "", "http://x").searchParams;
+      const from = Number(p.get("cursor") ?? 0);
+      const many = from >= 100 ? 30 : Number(p.get("limit"));
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ items: Array.from({ length: many }, (_, i) => ({ ...civModel, id: from + i, name: `zz-test ${from + i}` })), metadata: from >= 100 ? {} : { nextCursor: from + many } }));
+    });
+    const ids = (r: { json(): { items: Array<{ id: string }> } }) => r.json().items.map((c) => Number(c.id));
+    const first = await get(t.app, "/api/browse/civitai?q=x");
+    expect(ids(first)).toEqual(Array.from({ length: 24 }, (_, i) => i));
+    let next = first.json().next as string | null;
+    const seen: number[] = [];
+    while (next) {
+      const page = await get(t.app, `/api/browse/civitai?q=x&cursor=${encodeURIComponent(next)}`);
+      seen.push(...ids(page));
+      next = page.json().next;
+    }
+    // every model once, in Civitai's order: 24 to 119 (one block of 96), then the last block's 30
+    expect(seen).toEqual([...Array.from({ length: 96 }, (_, i) => 24 + i), ...Array.from({ length: 30 }, (_, i) => 120 + i)]);
+    const limits = asked.map((u) => new URL(u, "http://x").searchParams.get("limit"));
+    expect(limits).toEqual(["24", "96", "96"]);
+  });
+
+  it("keeps no failed page: asked again, it is asked of the site again", async () => {
+    let fail = true;
+    site.removeAllListeners("request");
+    site.on("request", (req, res) => {
+      asked.push(req.url ?? "");
+      res.setHeader("Content-Type", "application/json");
+      if (fail) {
+        res.statusCode = 500;
+        return res.end("{}");
+      }
+      res.end(JSON.stringify({ items: [civModel], metadata: {} }));
+    });
+    expect((await get(t.app, "/api/browse/civitai?q=down")).statusCode).toBe(502);
+    fail = false;
+    const again = await get(t.app, "/api/browse/civitai?q=down");
+    expect(again.statusCode).toBe(200);
+    expect(again.json()).toMatchObject({ items: [{ id: "77" }], next: null });
+  });
+
+  it("keeps a page for its time, the most recent ones only", async () => {
+    let now = 0;
+    const pages = new PageStore<number>(1000, 2, () => now);
+    let asks = 0;
+    const ask = () => Promise.resolve(++asks);
+    expect(await pages.get("a", ask).got).toBe(1);
+    expect(pages.get("a", ask).how).toBe("kept");
+    now = 1000;
+    expect(await pages.get("a", ask).got).toBe(2);
+    pages.ahead("b", ask);
+    pages.ahead("b", ask);
+    expect(asks).toBe(3);
+    pages.ahead("c", ask);
+    // two kept at most: the oldest (a) went
+    expect(pages.get("c", ask).how).toBe("kept");
+    expect(pages.get("a", ask).how).toBe("asked");
   });
 
   it("asks no site with lookups off", async () => {
