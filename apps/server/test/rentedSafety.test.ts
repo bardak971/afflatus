@@ -231,14 +231,20 @@ describe("money safety", () => {
     podA().status = "EXITED";
     podA().startedAt = null;
     t.services.rented.stop();
-    const again = await makeApp({ db: t.db, comfyUrl: home.url });
+    // the clock moved on before the app comes back, not after: its first read of RunPod runs as it starts, and on a slow
+    // machine (CI) it ran with the real clock first, closing the run "now", a few ms after it was last seen
     const real = Date.now;
-    again.services.rented.now = () => real() + 10 * 3_600_000;
-    await again.services.rented.poll();
-    const closed = (await sessions())[0]!;
-    // its watchdog (15 min) stopped it at the latest that long after the last "still here", give or take its checks
-    expect(Date.parse(closed.ended_at!) - Date.parse(seen)).toBe(17 * 60_000);
-    again.services.rented.stop();
+    const later = vi.spyOn(Date, "now").mockImplementation(() => real() + 10 * 3_600_000);
+    try {
+      const again = await makeApp({ db: t.db, comfyUrl: home.url });
+      await again.services.rented.poll();
+      const closed = (await sessions())[0]!;
+      // its watchdog (15 min) stopped it at the latest that long after the last "still here", give or take its checks
+      expect(Date.parse(closed.ended_at!) - Date.parse(seen)).toBe(17 * 60_000);
+      again.services.rented.stop();
+    } finally {
+      later.mockRestore();
+    }
   });
 
   it("at a cap, waits for the render running, but not past an hour", async () => {
