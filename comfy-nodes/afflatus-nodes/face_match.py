@@ -37,6 +37,9 @@ _KEY_PIXELS = 1 << 16
 # ONNX Runtime's threads for one model run. Its default, one per core, fought torch's own threads inside ComfyUI: Face Match
 # took 8 to 12 s a render there against about 1 s on its own at 4 threads (2026-10-22)
 THREADS = 4
+# ONNX Runtime's threads wait for the next run without spinning: as fast on their own (60-62 against 65-71 ms an ArcFace run),
+# 60 % less CPU, and a quarter faster beside torch's busy threads (166-183 to 128-130 ms) (2026-10-23)
+SPINNING = "session.intra_op.allow_spinning"
 
 
 def available() -> bool:
@@ -65,20 +68,32 @@ def _session_options():
 
     options = onnxruntime.SessionOptions()
     options.intra_op_num_threads = max(1, min(THREADS, os.cpu_count() or THREADS))
+    options.add_session_config_entry(SPINNING, "0")
     return options
 
 
 def _capped(app, options) -> None:
-    """Each model's session on `options`' threads. InsightFace 2 makes them with the options it is given; 0.7.3 (the pod
-    image's) drops them, so a session made on the default is made again on the same file."""
+    """Each model's session on `options`' threads, not spinning. InsightFace 2 makes them with the options it is given; 0.7.3
+    (the pod image's) drops them, so a session made on the default is made again on the same file."""
     import onnxruntime
 
     for model in app.models.values():
         session = getattr(model, "session", None)
         path = getattr(model, "model_file", None)
-        if session is None or not path or session.get_session_options().intra_op_num_threads == options.intra_op_num_threads:
+        if session is None or not path:
+            continue
+        made = session.get_session_options()
+        if made.intra_op_num_threads == options.intra_op_num_threads and _spinning(made) == "0":
             continue
         model.session = onnxruntime.InferenceSession(path, sess_options=options, providers=session.get_providers())
+
+
+def _spinning(options):
+    """The session's allow_spinning entry; None when it has none (ONNX Runtime raises for a key never set: spinning, its default)."""
+    try:
+        return options.get_session_config_entry(SPINNING)
+    except Exception:
+        return None
 
 
 def _bgr(image, index: int):

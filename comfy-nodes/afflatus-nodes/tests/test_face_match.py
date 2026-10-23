@@ -118,11 +118,23 @@ def test_a_photo_already_seen_is_not_converted_again(app, monkeypatch):
 
 def test_onnx_runtime_runs_the_models_on_a_few_threads(monkeypatch):
     """ONNX Runtime's default, a thread per core, fought torch's own inside ComfyUI (Face Match 8 to 12 s a render against about
-    1 s on its own): its sessions run on THREADS. InsightFace 2 takes the options; one that drops them (0.7.3, the pod image's)
-    has its sessions made again on them."""
+    1 s on its own): its sessions run on THREADS, without spinning between runs (as fast, 60 % less CPU, faster beside torch).
+    InsightFace 2 takes the options; one that drops them (0.7.3, the pod image's) has its sessions made again on them."""
 
     class Options:
         intra_op_num_threads = 0
+
+        def __init__(self):
+            self.entries = {}
+
+        def add_session_config_entry(self, key, value):
+            self.entries[key] = value
+
+        def get_session_config_entry(self, key):
+            # as ONNX Runtime: a key never set raises
+            if key not in self.entries:
+                raise RuntimeError(f"SessionOptions does not have configuration with key: {key}")
+            return self.entries[key]
 
     class Session:
         def __init__(self, path, sess_options=None, providers=None):
@@ -139,7 +151,11 @@ def test_onnx_runtime_runs_the_models_on_a_few_threads(monkeypatch):
     class FaceAnalysis:
         def __init__(self, name, root, allowed_modules, providers, sess_options, drops=False):
             made["options"] = sess_options
-            kept = None if drops else sess_options
+            kept = None if drops is True else sess_options
+            if drops == "entries":
+                # an InsightFace that would copy the thread count alone: its sessions spin, so they are made again too
+                kept = Options()
+                kept.intra_op_num_threads = sess_options.intra_op_num_threads
             self.models = {"detection": types.SimpleNamespace(model_file="det.onnx", session=Session("det.onnx", kept)), "recognition": types.SimpleNamespace(model_file="rec.onnx", session=Session("rec.onnx", kept))}
 
         def prepare(self, ctx_id, det_size):
@@ -154,13 +170,15 @@ def test_onnx_runtime_runs_the_models_on_a_few_threads(monkeypatch):
     monkeypatch.setitem(sys.modules, "insightface.app", app_module)
     monkeypatch.setattr(face_match.face_models, "fetch", lambda root: root)
     monkeypatch.setattr(face_match.folder_paths, "models_dir", "models", raising=False)
-    for drops in (False, True):
+    for drops in (False, True, "entries"):
         app_module.FaceAnalysis = lambda drops=drops, **kw: FaceAnalysis(drops=drops, **kw)
         monkeypatch.setattr(face_match, "_app", None)
         app = face_match._face_app()
         threads = min(face_match.THREADS, os.cpu_count() or face_match.THREADS)
         assert made["options"].intra_op_num_threads == threads and face_match.THREADS == 4
         assert {k: m.session.get_session_options().intra_op_num_threads for k, m in app.models.items()} == {"detection": threads, "recognition": threads}
+        assert made["options"].get_session_config_entry("session.intra_op.allow_spinning") == "0"
+        assert {k: m.session.get_session_options().get_session_config_entry("session.intra_op.allow_spinning") for k, m in app.models.items()} == {"detection": "0", "recognition": "0"}
         assert [m.session.path for m in app.models.values()] == ["det.onnx", "rec.onnx"]
 
 

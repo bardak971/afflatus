@@ -82,6 +82,12 @@ def _locked_without_lock(folder_paths, env=None):
 
 _lock_first()
 
+# ComfyUI kept off Windows' efficiency cores when it was started without a window (eco.py): its CPU work, Face Match's
+# among it, ran about seven times slower there
+from .eco import full_speed  # noqa: E402
+
+full_speed()
+
 from comfy_api.latest import ComfyExtension, io  # noqa: E402
 
 from .continuation_nodes import (  # noqa: E402
