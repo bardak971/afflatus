@@ -430,7 +430,7 @@ describe("a job pinned to a pod still booting", () => {
     const id = await booting();
     // files that take long to come: asked for, never there during the test
     const want = vi.fn();
-    t.services.queue.podFetch = { failed: () => null, short: async () => null, untilThere: async () => 5 * 60_000, want, drop: () => {}, holdsFor: () => false, jobState: () => "waiting", holding: () => false, moving: () => false };
+    t.services.queue.podFetch = { failed: () => null, short: async () => null, untilThere: async () => 5 * 60_000, want, drop: () => {}, holdsFor: () => false, jobState: () => "waiting", holding: () => false, moving: () => false, failingPacks: () => new Map() };
     const a = await pinned(id);
     await answers();
     await until(() => want.mock.calls.some(([m, , tier, j]) => m === id && tier === "need" && j === a));

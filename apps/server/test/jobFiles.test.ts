@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
-import { dryContext, graphFiles, missingSlotFile, missingSlotIn, nodesOfPack, parseInput, type GraphFile } from "@afflatus/core";
+import { dryContext, graphFiles, missingSlotFile, missingSlotIn, nodesOfPack, packOfNode, parseInput, type GraphFile } from "@afflatus/core";
 import { h3, h3Video, ltxVideo, recipeById, UPSCALE, wanVideo } from "@afflatus/recipes";
 import { newId, now, OWNER } from "../src/db";
 import { loadedOn, offeredOn, podSlotFiles } from "../src/jobFiles";
@@ -429,6 +429,15 @@ describe("an option's files and node packs on a pod", () => {
       const own = await loadedOn(core(), render, { ...on, own: true });
       expect(own?.missingNodes ?? []).not.toContain("SAMLoader");
       expect(own?.files.map((f) => f.file)).not.toContain(sam);
+      // a pod where SAMLoader's pack failed (Manager's install of the Impact Pack, 2026-10-23): over the box there too, as its
+      // render will, with nothing asked for that cannot come (the job waited for it, the pod idled out with it unrun)
+      const impact = packOfNode("SAMLoader")!.name;
+      const facts = { nvidia: true, cannot: new Map([[impact, "ComfyUI-Manager did not install it"]]) };
+      for (const r of [render, finish, cut]) {
+        const loaded = await loadedOn(core(), r, on, { facts });
+        expect(loaded?.files.map((f) => f.file), r.recipe_id).not.toContain(sam);
+        expect(loaded?.missingNodes ?? [], r.recipe_id).not.toContain("SAMLoader");
+      }
     } finally {
       await other.close();
     }

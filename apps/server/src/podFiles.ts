@@ -444,6 +444,11 @@ export class PodFiles {
     return this.packs.failed(machine, names);
   }
 
+  /** The node packs that failed on that pod, each with why: what cannot come to it (podPacks.ts failing), for its jobs' options. */
+  failingPacks(machine: string): Map<string, string> {
+    return new Map(this.packs.failing(machine).map((e) => [e.name, e.error ?? "its install failed"]));
+  }
+
   /** How long a node pack Manager cannot find yet waits before it is asked again (podPacks.ts; shorter in tests). */
   set packRetryMs(ms: number) {
     this.packs.retryMs = ms;

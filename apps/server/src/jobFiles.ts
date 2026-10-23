@@ -1,6 +1,6 @@
 import { catalogKey, filesIn, type Scan } from "@afflatus/comfy";
 import { choicesOf, graphFiles, isBeyondPack, isMissingSlotFile, missingSlotFile, packOfNode, parseInput, sameFile, TOOLS_FAMILY, type Family, type GraphFile, type NodeCatalog, type Recipe, type Wanted } from "@afflatus/core";
-import { ANY_PACKS, lookAhead, skipWhy, type PackFacts, type PacksSaid } from "./jobPacks";
+import { ANY_PACKS, cannotWhy, lookAhead, skipWhy, type PackFacts, type PacksSaid } from "./jobPacks";
 import type { Comfy } from "./comfy";
 import { readJson, type JobRow, type QueueCore } from "./queueModel";
 import { builtOf, withTexts } from "./queueSubmit";
@@ -358,14 +358,22 @@ async function graphOn(
   const ahead = lookAhead(catalog, facts, packs.said);
   // a pod (one to come, or a rented one) takes Face refine's paste-back over SAM's outline, its nodes counted as there: they
   // come as the pack of any node it lacks, as for a Finish › Face refine (built with every node). Read on this PC's node
-  // list, a render with Face refine (H3's, SCAIL's) fetched no SAM for a fresh pod, and pasted the face over its box
+  // list, a render with Face refine (H3's, SCAIL's) fetched no SAM for a fresh pod, and pasted the face over its box. Not
+  // where their pack failed (samNodeComes)
   const has = how.everyNode ? () => true : (how.has ?? ((n: string) => n in catalog));
-  const podHas = on?.own ? has : (n: string) => FACE_REFINE_MASK.includes(n) || has(n);
+  const podHas = on?.own ? has : (n: string) => (FACE_REFINE_MASK.includes(n) ? samNodeComes(n, catalog, facts) : has(n));
   const built = await builtOf(core, recipe.id, plan ? plan.input : raw, { finishedFrom: row.finished_from, canvas: plan?.canvas, slots, comfy, catalog, relocate: Boolean(on), wants: ahead.wants, has: podHas });
   if (!built) throw new Error("its form could not be read");
   const folders = Object.fromEntries(family.slots.map((s) => [s.id, s.folder]));
   return { graph: built.graph, files: graphFiles(built.graph, slots, folders), catalog, there, wanted: ahead.missing };
 }
+
+/**
+ * Whether one of Face refine's SAM nodes is taken as there on a pod: listed there, or its pack can come (sent as any pack
+ * a job lacks). Not when that pack failed there: the face is then pasted over its box, as its render will, rather than
+ * the job waiting for a pack that cannot come, the pod billed idle until it stopped with the job unrun (2026-10-23).
+ */
+const samNodeComes = (node: string, catalog: NodeCatalog, facts: PackFacts): boolean => node in catalog || !cannotWhy(facts, packOfNode(node)?.name ?? "");
 
 /** Where Face refine's files are read in its graph (faceRefined): the node and input each slot's file goes to. */
 const FACE_LOADERS: Record<string, [classType: string, input: string]> = {
@@ -420,8 +428,8 @@ async function toolLoadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id
     const face = needs.face;
     const slotsIn = (s: Scan | null) => s?.families.find((f) => f.id === face.family)?.slots ?? null;
     const nodes = catalog ?? (await mine.catalog().catch(() => ({}) as NodeCatalog));
-    const sam = !on?.own || FACE_REFINE_MASK.every((n) => n in nodes);
-    if (!on?.own && face.slots.includes("faceSam")) samNodes.push(...FACE_REFINE_MASK);
+    const sam = on?.own ? FACE_REFINE_MASK.every((n) => n in nodes) : FACE_REFINE_MASK.every((n) => samNodeComes(n, nodes, packs.facts ?? ANY_PACKS));
+    if (!on?.own && sam && face.slots.includes("faceSam")) samNodes.push(...FACE_REFINE_MASK);
     const slots = (core.registry.family(face.family)?.slots ?? []).filter((x) => face.slots.includes(x.id) && FACE_LOADERS[x.id] && (x.id !== "faceSam" || sam));
     const named = podSlotFiles({ needs: slots.map((x) => x.id) }, {}, slots, on ? (slotsIn(on.scan) ?? []) : null, slotsIn(mineScan));
     for (const x of slots) add(named[x.id]!, x.folder, FACE_LOADERS[x.id]![0], FACE_LOADERS[x.id]![1], x.id);

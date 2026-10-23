@@ -563,6 +563,9 @@ describe("a rented pod's node packs", () => {
       expect(pf.packsView("pod")[0]!.error).toMatch(/did not load it/);
       expect(pf.jobState("pod", "j1")?.state).toBe("failed");
       expect(pf.holding("pod")).toBe(false);
+      // what cannot come there, with why: its jobs are built without what it brings (queue.ts podPackFacts)
+      expect([...pf.failingPacks("pod").keys()]).toEqual(["comfyui-impact-pack"]);
+      expect(pf.failingPacks("pod").get("comfyui-impact-pack")).toMatch(/did not load it/);
     } finally {
       await pm.close();
     }

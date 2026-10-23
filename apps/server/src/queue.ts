@@ -32,7 +32,7 @@ import { Planner, type Able, type PodFetch } from "./queuePlan";
 import { loadedOn, type Loaded } from "./jobFiles";
 import { Outside, outsideBusy } from "./queueOutside";
 import { OwnPacks } from "./queuePacks";
-import { cannotWhy, packsSaid } from "./jobPacks";
+import { cannotWhy, packFacts, packsSaid, type PackFacts } from "./jobPacks";
 import { formPacks, type FormPackNote } from "./formPacks";
 
 // what the routes and the services name from here: the options, and the RIFE model lookup the timelines routes share with the slow-motion tool
@@ -229,8 +229,9 @@ export class Queue {
       expectedAll: (recipe, input, cold, job) => this.forecasts.expectedAll(recipe, input, cold, job),
       fitsBalance: (ms) => this.fitsBalance(ms),
       balanceNeed: (machine, recipeId, renderMs, fetchMs) => this.balanceNeed(machine, recipeId, renderMs, fetchMs),
-      // a machine of the user's own builds the options whose packs cannot come there without them, as its render will
-      loaded: async (r, lane, scan) => loadedOn(this.core, r, { id: lane.id, comfy: lane.comfy!, scan, own: !lane.machine?.rented }, lane.machine?.rented ? {} : { facts: await this.ownPacks.facts(lane), said: packsSaid(r) }),
+      // a machine builds the options whose packs cannot come there without them, as its render will: a pod those that failed
+      // there (a pod's job whose pack failed waited for it, the pod billed idle until it was stopped with the job unrun)
+      loaded: async (r, lane, scan) => loadedOn(this.core, r, { id: lane.id, comfy: lane.comfy!, scan, own: !lane.machine?.rented }, lane.machine?.rented ? { facts: this.podPackFacts(lane) } : { facts: await this.ownPacks.facts(lane), said: packsSaid(r) }),
       packsCannot: async (lane, packs) => {
         const facts = await this.ownPacks.facts(lane);
         const p = packs.find((x) => cannotWhy(facts, x));
@@ -292,7 +293,7 @@ export class Queue {
       expected: (recipe, input, cold, job, machine) => this.expected(recipe, input, cold, job, machine),
       loadsModel: async (recipe, input, job) => modelOf(recipe.inputs, input) ?? (await this.forecasts.expectedAll(recipe, input, false, job ?? null)).model,
       runTool: (row, work) => this.runTool(l, row, work),
-      packFacts: () => this.ownPacks.facts(l),
+      packFacts: async () => (l.machine?.rented ? this.podPackFacts(l) : this.ownPacks.facts(l)),
     };
     if (id !== TOOLS) l.ready = this.readLane(l);
     this.lanes.set(id, l);
@@ -1248,6 +1249,11 @@ export class Queue {
 
   /** Rented pods' files: set by services.ts. */
   podFetch: PodFetch | null = null;
+
+  /** What can come to a rented pod: its card, and the node packs that failed there (podPacks.ts, failed for good on a pod). */
+  private podPackFacts(lane: Lane): PackFacts {
+    return packFacts(lane.device, null, this.podFetch?.failingPacks(lane.id) ?? new Map(), lane.machine?.name || lane.id);
+  }
 
   /** Whether a ComfyUI has ComfyUI-Manager, which installs the node packs renders ask for (downloads.ts manager; set by services.ts); null: not known. */
   managerOf: (comfy: Comfy) => Promise<boolean | null> = async () => null;
