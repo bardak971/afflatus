@@ -22,6 +22,17 @@ describe("MiniMax H3 · Swap character", () => {
     expect(recipeById("h3.swap")).toBe(h3Swap);
   });
 
+  it("refines a take's faces alone where neither the swap LoRA nor its model is, as a pod is not sent them (2026-10-23)", () => {
+    const { swapLora: _lora, swapUnet: _unet, ...without } = slots;
+    const faces = { faceRefineUnet: "minimax_h3_fused_refdelta_r1024_turbo8.safetensors", faceDetector: "bbox/face_yolov8m.pt", faceSeg: "segm/person_yolov8m-seg.pt", faceSam: "sam_vit_b_01ec64.pth" };
+    const input = parseInput(h3Swap, { who: "the man.", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], faceRefine: true, faceRefineOnly: true, upscale: "Off" });
+    const graph = h3Swap.build(input, dryContext({ slots: { ...without, ...faces }, uploads: { source: "src.mp4", "references.0": "r1.png", "self.latent": "own.safetensors" }, media: { source: part() } })).graph as Graph;
+    expect(of(graph, "LoraLoaderModelOnly")).toHaveLength(0);
+    expect(of(graph, "UNETLoader").map((n) => n.inputs.unet_name)).toEqual([faces.faceRefineUnet]);
+    // a full swap there still says what it lacks
+    expect(() => build({}, part(), { slots: without })).toThrow(/Character-Swap LoRA/);
+  });
+
   it("carries on from the window before on a source lane in its latent, as H3's own clips: its last 22 frames the run-up, the join decoded as one piece with it", () => {
     const input = parseInput(h3Swap, { who: "the man", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: false, maskOn: true });
     const built = h3Swap.build(input, dryContext({

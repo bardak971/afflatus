@@ -486,10 +486,13 @@ export const h3Swap = defineRecipe<H3Swap>({
 
   build(input, ctx) {
     if (!input.source || !ctx.uploads.source) throw new Error("A swap needs its source video.");
-    const swapLora = input.swapLora ?? ctx.slots.swapLora;
-    if (!swapLora) throw new Error("The swap needs the Character-Swap LoRA: h3_character_swap_v1.5.safetensors in ComfyUI's models/loras folder (Settings › Models has it).");
+    // a take's Face refine alone samples nothing: neither the LoRA nor the reference model is loaded, and a pod is not sent
+    // them (model.ts), so their lack there is no reason to fail it (a pod's Face refine of a swap, 2026-10-23)
+    const only = refinesOnly(input);
+    const swapLora = input.swapLora ?? ctx.slots.swapLora ?? null;
+    if (!swapLora && !only) throw new Error("The swap needs the Character-Swap LoRA: h3_character_swap_v1.5.safetensors in ComfyUI's models/loras folder (Settings › Models has it).");
     const unet = input.swapModel ?? ctx.slots.swapUnet;
-    if (!unet) throw new Error("The swap needs MiniMax H3's reference model, the one its LoRA was trained on: minimax_h3_ref2va_*.safetensors in ComfyUI's models/diffusion_models folder (Settings › Models has it).");
+    if (!unet && !only) throw new Error("The swap needs MiniMax H3's reference model, the one its LoRA was trained on: minimax_h3_ref2va_*.safetensors in ComfyUI's models/diffusion_models folder (Settings › Models has it).");
     // the prompt written for the file that renders: the fused turbo's own sentences went with the form's Model only, and
     // were left out when the model was the slot's
     const asSent = { ...input, swapModel: unet };
