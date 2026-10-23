@@ -38,6 +38,15 @@ type Preset = Extract<Entity, { kind: "preset" }>;
  * The form that makes things, as a panel: the draft it is on, then the form in its parts, then the
  * button. What it makes is filed in `folder`, the one that is open beside it.
  */
+/**
+ * Where a draft nothing was done in goes when its model's family is switched off: the first recipe of a family that is on;
+ * null to stay (something in it, its family on, or nowhere else to go). A draft with content keeps its model, on or off.
+ */
+export function untouchedMovesTo(draft: { empty: boolean } | null | undefined, recipe: { id: string; family: string } | undefined, first: { id: string; family: string } | undefined, isOn: (family: string) => boolean): string | null {
+  if (!draft?.empty || !recipe || !first || recipe.id === first.id) return null;
+  return !isOn(recipe.family) && isOn(first.family) ? first.id : null;
+}
+
 export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; path: string | null } | null; onClose(): void }) {
   const recipes = useRecipes();
   const setup = useSetup();
@@ -53,6 +62,14 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
   const pickedOn = usePickedMachine(draft?.id);
   // a draft can be on a recipe that is gone (a workflow that was removed): fall back to the first one
   const recipe = all.find((r) => r.id === draft?.recipe) ?? first;
+  // A draft nothing was done in follows the switches: a new install's first one opens on the first family (SDXL), and
+  // switched off in Settings › Models it stayed in the model list, held by that untouched draft (the owner, 2026-10-23). One
+  // with something in it keeps the model it is on, on or off.
+  const moveTo = untouchedMovesTo(draft, recipe, first, families.isOn);
+  useEffect(() => {
+    if (moveTo) d.setRecipe(moveTo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- moved once when it is found on a family switched off; d's setter reads the latest draft
+  }, [moveTo]);
   // the open form, for the library's menus: "Use in this draft" (formTarget.ts)
   const publish = useFormTarget((st) => st.publish);
   const formValues = recipe && draft ? draft.forms[recipe.id] : undefined;
