@@ -4,6 +4,13 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Fixed
+- **Load** (a form's model loaded ahead) and the status bar's "another model" no longer refuse a form still missing its media: Lip sync without its recording, Swap character and H3 · Motion transfer without their source, SCAIL-2 without its driving video or picture said "Invalid input" there. Loading ahead now reads only what its loaders need.
+- **H3's "Prompt as sent"** no longer shows a model preset's text as if typed: with the fused turbo model, Swap character showed its preset there, hiding the prompt the parts write (the render already sent the parts' prompt). The preset no longer fills the field, the written prompt shows greyed whenever it is what goes, and its "?" says what `<Video 1>` and `<Picture 1>` are and that the parts need no tags.
+- **A hand-over on a busy machine** no longer shows a frame of the next clip's hidden run-up: when the clip after starts late (a PC rendering while it plays), the clip before holds its last frame until the next one's first frame is there.
+- **GGUF models' node pack installs again** through ComfyUI-Manager, on a rented pod and on your own ComfyUI: it was asked as "comfyui-gguf", which the Comfy Registry refuses ("not available node"); it is "ComfyUI-GGUF". A Run without or Install and restart already chosen for it still holds.
+- **Face refine says when it pasted the face over its box** instead of SAM's outline (its node pack or SAM model missing), as other options say what they ran without.
+
 ## [0.6.0] - 2026-10-23
 
 The 0.6.0 cycle: the timeline reworked around sources, recordings and joins, H3 · Swap character and H3 · Motion transfer, Face refine, node packs installed where a render runs, a first launch for installs with no ComfyUI yet, and the CUDA build of a rented pod chosen.
