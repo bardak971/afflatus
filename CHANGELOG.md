@@ -4,6 +4,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Changed
+- **Settings › Models starts with every family folded**, each head saying what it lacks: a family that was on with something missing opened by itself, so a new install (every family on, nothing downloaded yet) showed a page of text and download buttons.
+
 ### Fixed
 - **Load** (a form's model loaded ahead) and the status bar's "another model" no longer refuse a form still missing its media: Lip sync without its recording, Swap character and H3 · Motion transfer without their source, SCAIL-2 without its driving video or picture said "Invalid input" there. Loading ahead now reads only what its loaders need.
 - **H3's "Prompt as sent"** no longer shows a model preset's text as if typed: with the fused turbo model, Swap character showed its preset there, hiding the prompt the parts write (the render already sent the parts' prompt). The preset no longer fills the field, the written prompt shows greyed whenever it is what goes, and its "?" says what `<Video 1>` and `<Picture 1>` are and that the parts need no tags.

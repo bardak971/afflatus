@@ -128,8 +128,9 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
     ]);
     const coming = onlyFiles ? [...comingUrls] : [];
     const comingBytes = coming.reduce((n, u) => n + sizeOf(u), 0);
-    // a family that is on with something missing starts open; the rest start folded
-    const open = opened[f.id] ?? (isOn && setup.data ? !all : false);
+    // every family starts folded, its head saying what it lacks: opened on its own when something was missing, a new install
+    // (every family on, nothing downloaded yet) showed them all open, a page of text and download buttons (the owner, 2026-10-23)
+    const open = opened[f.id] ?? false;
     return (
       <div key={f.id} className="flex flex-col">
         <div className="flex min-h-[52px] items-center gap-3 pr-gutter hover:bg-hover">
