@@ -1,4 +1,4 @@
-import { NVIDIA_ONLY, choicesOf, isNvidiaRtx, packOfNode, type NodeCatalog, type Wanted } from "@afflatus/core";
+import { NVIDIA_ONLY, choicesOf, isNvidiaRtx, packName, packOfNode, type NodeCatalog, type Wanted } from "@afflatus/core";
 import type { Machine } from "./settings";
 import { readJson, type JobRow } from "./queueModel";
 import type { PodPackState } from "./podPacks";
@@ -18,7 +18,11 @@ export interface PacksSaid {
   without?: string[];
 }
 
-export const packsSaid = (row: Pick<JobRow, "packs">): PacksSaid => readJson<PacksSaid>(row.packs ?? null, {});
+export function packsSaid(row: Pick<JobRow, "packs">): PacksSaid {
+  const said = readJson<PacksSaid>(row.packs ?? null, {});
+  // the catalogue's spelling, so that a choice saved under a pack's older name ("comfyui-gguf") still holds for it
+  return { ...(said.install ? { install: said.install.map(packName) } : {}), ...(said.without ? { without: said.without.map(packName) } : {}) };
+}
 
 /** The pack an option's nodes are installed as: its last node's (DaSiWa's for RTX VSR); null for a node of no known pack. */
 export function packOfWant(w: Pick<Wanted, "nodes">): string | null {

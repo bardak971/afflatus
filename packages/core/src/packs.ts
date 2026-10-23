@@ -27,12 +27,14 @@ const NODE_PACKS: NodePack[] = [
   { name: "Comfyui-MMH3-UltimateUpscale", repo: "https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale", nodes: ["MMH3UltimateUpscale", "MMH3LatentUpscaleWithModelParams", "MMH3LatentUpscaleParams", "MMH3TemporalSplitParams", "MMH3SpatialSplitParams"] },
   { name: "veda-sparse-attention", repo: "https://github.com/veda-sparse/Veda-on-ComfyUI", nodes: ["VedaSparseAttention"] },
   { name: "ComfyUI-DaSiWa-Nodes", repo: "https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes", nodes: ["DaSiWa_RTX_UpscalerRefiner", "MiniMaxH3Cache"] },
-  { name: "comfyui_nvidia_rtx_nodes", repo: "https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI", nodes: ["RTXVideoSuperResolution"] },
+  { name: "comfyui_nvidia_rtx_nodes", repo: "https://github.com/Comfy-Org/ComfyUI_Nvidia_VFX_Nodes", nodes: ["RTXVideoSuperResolution"] },
   { name: "comfyui-impact-pack", repo: "https://github.com/ltdrdata/ComfyUI-Impact-Pack", nodes: ["DetailerForEach", "FaceDetailer", "BboxDetectorSEGS", "ImpactSEGSOrderedFilter", "SAMLoader"] },
   { name: "comfyui-impact-subpack", repo: "https://github.com/ltdrdata/ComfyUI-Impact-Subpack", nodes: ["UltralyticsDetectorProvider"] },
   { name: "comfyui-kjnodes", repo: "https://github.com/kijai/ComfyUI-KJNodes", nodes: ["ModelPreviewOverrideKJ", "PathchSageAttentionKJ", "ModelPatchTorchSettings", "ImageSharpenKJ"] },
   { name: "comfyui-videohelpersuite", repo: "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite", nodes: ["VHS_VideoCombine"] },
-  { name: "comfyui-gguf", repo: "https://github.com/city96/ComfyUI-GGUF", nodes: ["UnetLoaderGGUF"] },
+  // the Comfy Registry's id as written: its install URL is case-sensitive, and "comfyui-gguf" was refused ("not available
+  // node: comfyui-gguf@1.1.10") wherever Manager installed it, on a pod and on a ComfyUI of the user's own (2026-10-23)
+  { name: "ComfyUI-GGUF", repo: "https://github.com/city96/ComfyUI-GGUF", nodes: ["UnetLoaderGGUF"] },
   { name: "comfyui-detail-daemon", repo: "https://github.com/Jonseed/ComfyUI-Detail-Daemon", nodes: ["LyingSigmaSampler"] },
   // H3's Face refine: the face tracked and cropped per frame, the crops started from, the denoise by face size, the paste-back
   { name: "comfyui-h3-facerefine", repo: "https://github.com/Carasibana/ComfyUI-H3-FaceRefine", nodes: ["H3FaceTrackCrop", "H3InjectVideoLatent", "H3PerFrameDenoise", "H3FaceMaskSAM", "H3FaceStitch"] },
@@ -79,8 +81,17 @@ export const EXTRA_PACKS: Array<{ name: string; uses: string; asked?: string }> 
 /** The pack a node type comes from, when it is one the built-in forms use. */
 export const packOfNode = (node: string): NodePack | undefined => NODE_PACKS.find((p) => p.nodes.includes(node));
 
+/**
+ * A known pack by its name whatever its case: Manager's own list is case-blind, and a name stored before a rename to the
+ * Registry's spelling (a job's Install and restart or Run without, saved as "comfyui-gguf") must still find its pack.
+ */
+const packNamed = (name: string): NodePack | undefined => NODE_PACKS.find((p) => p.name.toLowerCase() === name.toLowerCase());
+
+/** A pack's name as the catalogue spells it (the Registry's id), for one known whatever its case; the name as given otherwise. */
+export const packName = (name: string): string => packNamed(name)?.name ?? name;
+
 /** The node types a known pack brings (its name in ComfyUI-Manager's list); empty for one not known. */
-export const nodesOfPack = (name: string): string[] => NODE_PACKS.find((p) => p.name === name)?.nodes ?? [];
+export const nodesOfPack = (name: string): string[] => packNamed(name)?.nodes ?? [];
 
 /**
  * A build's throw for a node whose pack alone does not make the render run: SageAttention's patch is KJNodes', but it also
@@ -91,7 +102,7 @@ export const beyondPack = (message: string): Error => Object.assign(new Error(me
 export const isBeyondPack = (err: unknown): boolean => Boolean((err as { beyondPack?: unknown } | null)?.beyondPack);
 
 /** The repository a known pack is cloned from by hand, when ComfyUI-Manager cannot install it; null for one not known. */
-export const repoOfPack = (name: string): string | null => NODE_PACKS.find((p) => p.name === name)?.repo ?? null;
+export const repoOfPack = (name: string): string | null => packNamed(name)?.repo ?? null;
 
 /**
  * Node types ComfyUI lacks, said as what to install: each pack once, with how to get it, then the node types no known pack

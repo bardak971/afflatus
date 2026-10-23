@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { nodesOfPack, type NodeCatalog, type Wanted } from "@afflatus/core";
 import { UPSCALE } from "@afflatus/recipes";
-import { asBuilt, lookAhead, packFacts, packsLacked, ranWithoutSaid } from "../src/jobPacks";
+import { asBuilt, lookAhead, packFacts, packsLacked, packsSaid, ranWithoutSaid } from "../src/jobPacks";
 import { writeSettings, readSettings } from "../src/settings";
 import { CHECKPOINT, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
@@ -48,7 +48,7 @@ describe("what a render asks for, looked at ahead", () => {
 
   it("tells an option's packs, which it can do without, from those it cannot run without", () => {
     const lacked = packsLacked({ missingNodes: ["VedaSparseAttention", "UnetLoaderGGUF", "SomeNodeNobodyHas"], wanted: [VEDA] });
-    expect(lacked).toEqual({ soft: [{ pack: "veda-sparse-attention", without: "Veda" }], hard: ["comfyui-gguf"], unknown: ["SomeNodeNobodyHas"] });
+    expect(lacked).toEqual({ soft: [{ pack: "veda-sparse-attention", without: "Veda" }], hard: ["ComfyUI-GGUF"], unknown: ["SomeNodeNobodyHas"] });
   });
 });
 
@@ -249,9 +249,9 @@ describe("a node pack a render cannot run without, on the only ComfyUI of your o
   }
 
   it("a .gguf model without ComfyUI-GGUF: Install and restart, then it renders with the GGUF loader", async () => {
-    const GGUF_NODES = nodesOfPack("comfyui-gguf");
+    const GGUF_NODES = nodesOfPack("ComfyUI-GGUF");
     await setUp({ lacks: [...GGUF_NODES, ...OPTIONAL], loads: GGUF_NODES, models: { ...FILES, unet_gguf: [GGUF] } });
-    await installed("comfyui-gguf", { ...CACHED, cache: false, model: GGUF });
+    await installed("ComfyUI-GGUF", { ...CACHED, cache: false, model: GGUF });
     expect(sentNodes()).toContain("UnetLoaderGGUF");
   }, 40_000);
 
@@ -285,4 +285,11 @@ describe("a node pack a render asks for, with several machines", () => {
     await slowly(async () => (await queueOf()).waiting.some((w) => w.packs?.state === "ask"), 15_000);
     expect(fake.prompts.size).toBe(0);
   }, 40_000);
+});
+
+describe("a job's saved choice about its packs", () => {
+  it("holds for a pack renamed to the Registry's spelling since it was saved (comfyui-gguf → ComfyUI-GGUF)", () => {
+    expect(packsSaid({ packs: JSON.stringify({ install: ["comfyui-gguf"], without: ["veda-sparse-attention"] }) })).toEqual({ install: ["ComfyUI-GGUF"], without: ["veda-sparse-attention"] });
+    expect(packsSaid({ packs: null })).toEqual({});
+  });
 });

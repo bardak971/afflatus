@@ -300,7 +300,7 @@ describe("an option's files and node packs on a pod", () => {
       const loaded = await loadedOn(core(), row("h3.video", { description: "a red ball rolls", seconds: 5, model: GGUF }), on);
       expect(loaded).toMatchObject({ missingNodes: ["UnetLoaderGGUF"] });
       expect(loaded?.absent.map((f) => f.file)).not.toContain(GGUF);
-      expect(podLack(loaded, on.scan)).toMatchObject({ sendable: true, packs: ["comfyui-gguf"] });
+      expect(podLack(loaded, on.scan)).toMatchObject({ sendable: true, packs: ["ComfyUI-GGUF"] });
     } finally {
       await other.close();
     }

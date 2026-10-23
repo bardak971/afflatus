@@ -593,12 +593,12 @@ describe("a rented pod's node packs", () => {
   }, 40_000);
 
   it("that Manager does not install fail, their job with them", async () => {
-    const { pm, pf } = await withManager(["comfyui-gguf"]);
+    const { pm, pf } = await withManager(["ComfyUI-GGUF"]);
     try {
-      pf.wantPacks("pod", ["comfyui-gguf"], "j1");
+      pf.wantPacks("pod", ["ComfyUI-GGUF"], "j1");
       await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "failed"));
-      expect(pf.jobState("pod", "j1")).toMatchObject({ state: "failed", error: expect.stringContaining("comfyui-gguf") });
-      expect(pf.failedPacks("pod", ["comfyui-gguf"])).toContain("comfyui-gguf");
+      expect(pf.jobState("pod", "j1")).toMatchObject({ state: "failed", error: expect.stringContaining("ComfyUI-GGUF") });
+      expect(pf.failedPacks("pod", ["ComfyUI-GGUF"])).toContain("ComfyUI-GGUF");
       expect(pm.reboots).toBe(0);
     } finally {
       await pm.close();

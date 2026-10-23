@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { isNvidiaRtx, missingNodesSaid, nodesOfPack, packOfNode } from "../src/packs";
+import { isNvidiaRtx, missingNodesSaid, nodesOfPack, packName, packOfNode, repoOfPack } from "../src/packs";
 
 describe("a node ComfyUI lacks", () => {
   it("is said as the pack to install, each pack once, and how", () => {
@@ -47,4 +47,32 @@ describe("an NVIDIA RTX card, by the name ComfyUI gives its device", () => {
     "NVIDIA P102-100", "NVIDIA CMP 30HX", "Tesla V100-SXM2-16GB", "Tesla P100-PCIE-16GB", "NVIDIA TITAN V", "NVIDIA TITAN Xp",
     "AMD Radeon RX 7900 XTX",
   ])("%s is not", (name) => expect(isNvidiaRtx(said(name))).toBe(false));
+});
+
+describe("a known pack's name", () => {
+  // the Comfy Registry's ids as written, read from api.comfy.org/nodes/<id> on 2026-10-23: its install URL is case-sensitive,
+  // and "comfyui-gguf" (the Registry's "ComfyUI-GGUF") was refused wherever Manager installed it
+  const REGISTRY_IDS: Record<string, string> = {
+    UnetLoaderGGUF: "ComfyUI-GGUF",
+    VedaSparseAttention: "veda-sparse-attention",
+    MiniMaxH3Cache: "ComfyUI-DaSiWa-Nodes",
+    RTXVideoSuperResolution: "comfyui_nvidia_rtx_nodes",
+    FaceDetailer: "comfyui-impact-pack",
+    UltralyticsDetectorProvider: "comfyui-impact-subpack",
+    ImageSharpenKJ: "comfyui-kjnodes",
+    VHS_VideoCombine: "comfyui-videohelpersuite",
+    LyingSigmaSampler: "comfyui-detail-daemon",
+    H3FaceTrackCrop: "comfyui-h3-facerefine",
+    DWPreprocessor: "comfyui_controlnet_aux",
+    MMH3UltimateUpscale: "Comfyui-MMH3-UltimateUpscale",
+  };
+  it("is the Comfy Registry's id as written, the case included", () => {
+    for (const [node, id] of Object.entries(REGISTRY_IDS)) expect(packOfNode(node)?.name, node).toBe(id);
+  });
+  it("is found whatever its case, so that a choice saved under an older spelling still finds its pack", () => {
+    expect(packName("comfyui-gguf")).toBe("ComfyUI-GGUF");
+    expect(nodesOfPack("comfyui-gguf")).toEqual(["UnetLoaderGGUF"]);
+    expect(repoOfPack("COMFYUI-GGUF")).toBe("https://github.com/city96/ComfyUI-GGUF");
+    expect(packName("no-such-pack")).toBe("no-such-pack");
+  });
 });

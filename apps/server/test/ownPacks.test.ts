@@ -128,14 +128,14 @@ describe("a pack Manager installed that ComfyUI did not load at its restart", ()
     const l = lane(stub.comfy, { running: {} as never });
     const own = new OwnPacks({ lane: () => l, manager: async () => true, changed: () => {} });
     own.keepOnly([{ id: "job-1", packs: null }]);
-    own.packs.want("own", ["comfyui-gguf"], "job-1");
+    own.packs.want("own", ["ComfyUI-GGUF"], "job-1");
     await settle(own.packs, "own");
     expect(own.packs.view("own")[0]!.state).toBe("installed");
     own.keepOnly([]);
     expect(own.packs.view("own")).toEqual([]);
     l.running = null;
     own.keepOnly([{ id: "job-2", packs: null }]);
-    own.packs.want("own", ["comfyui-gguf"], "job-2");
+    own.packs.want("own", ["ComfyUI-GGUF"], "job-2");
     expect(own.packs.view("own")[0]!.state).toBe("installed");
     expect(own.holding("own")).toBe(true);
     await settle(own.packs, "own");
@@ -152,12 +152,12 @@ describe("a job cancelled while ComfyUI restarts for its pack (review 0.6.0, N-1
     const l = lane(stub.comfy);
     const own = new OwnPacks({ lane: () => l, manager: async () => true, changed: () => {} });
     own.keepOnly([{ id: "job-1", packs: null }]);
-    own.packs.want("own", ["comfyui-gguf"], "job-1");
+    own.packs.want("own", ["ComfyUI-GGUF"], "job-1");
     await settle(own.packs, "own");
     expect(own.packs.restartingNow("own")).toBe(true);
     // cancelled while ComfyUI restarts: its pack is kept, the restart was made for it
     own.keepOnly([]);
-    expect(own.packs.view("own").map((e) => e.name)).toEqual(["comfyui-gguf"]);
+    expect(own.packs.view("own").map((e) => e.name)).toEqual(["ComfyUI-GGUF"]);
     vi.setSystemTime(new Date("2026-10-22T10:00:10Z"));
     await settle(own.packs, "own");
     expect(own.packs.restartingNow("own")).toBe(false);
@@ -178,7 +178,7 @@ describe("a job cancelled while ComfyUI restarts for its pack (review 0.6.0, N-1
     const l = lane(stub.comfy);
     const own = new OwnPacks({ lane: () => l, manager: async () => true, changed: () => {} });
     own.keepOnly([{ id: "job-1", packs: null }]);
-    own.packs.want("own", ["comfyui-gguf"], "job-1");
+    own.packs.want("own", ["ComfyUI-GGUF"], "job-1");
     await settle(own.packs, "own");
     expect(own.packs.restartingNow("own")).toBe(true);
     stub.down = true;
@@ -202,7 +202,7 @@ describe("a pack remembered on the disk when ComfyUI was restarted by hand since
     const l = lane(stub.comfy, { running: {} as never });
     const own = new OwnPacks({ lane: () => l, manager: async () => true, changed: () => {} });
     own.keepOnly([{ id: "job-1", packs: null }]);
-    own.packs.want("own", ["comfyui-gguf"], "job-1");
+    own.packs.want("own", ["ComfyUI-GGUF"], "job-1");
     await settle(own.packs, "own");
     own.keepOnly([]);
     l.running = null;
@@ -211,7 +211,7 @@ describe("a pack remembered on the disk when ComfyUI was restarted by hand since
     (stub.comfy as { openedAt: number }).openedAt = Date.now();
     vi.setSystemTime(new Date("2026-10-22T10:20:00Z"));
     own.keepOnly([{ id: "job-2", packs: null }]);
-    own.packs.want("own", ["comfyui-gguf"], "job-2");
+    own.packs.want("own", ["ComfyUI-GGUF"], "job-2");
     await settle(own.packs, "own");
     expect([stub.installs, stub.reboots]).toEqual([2, 1]);
     vi.setSystemTime(new Date("2026-10-22T10:20:10Z"));
@@ -226,7 +226,7 @@ describe("a machine taken out while its packs wait for its restart", () => {
     const stub = stubComfy();
     let l: Lane | undefined = lane(stub.comfy, { running: {} as never });
     const own = new OwnPacks({ lane: () => l, manager: async () => true, changed: () => {} });
-    own.packs.want("own", ["comfyui-gguf"], "job-1");
+    own.packs.want("own", ["ComfyUI-GGUF"], "job-1");
     await settle(own.packs, "own");
     expect(own.holding("own")).toBe(true);
     l = undefined;
@@ -240,10 +240,10 @@ describe("a machine taken out while its packs wait for its restart", () => {
 
 describe("Ask, pack by pack", () => {
   it("another job's install brings that pack only, never the job's others unasked", () => {
-    const names = ["ComfyUI-DaSiWa-Nodes", "comfyui-gguf"];
+    const names = ["ComfyUI-DaSiWa-Nodes", "ComfyUI-GGUF"];
     const underWay = new Set(["ComfyUI-DaSiWa-Nodes"]);
     expect(packsToWant(names, { unasked: false, said: {}, underWay })).toEqual(["ComfyUI-DaSiWa-Nodes"]);
-    expect(packsToWant(names, { unasked: false, said: { install: ["comfyui-gguf"] }, underWay })).toEqual(names);
+    expect(packsToWant(names, { unasked: false, said: { install: ["ComfyUI-GGUF"] }, underWay })).toEqual(names);
     expect(packsToWant(names, { unasked: true, said: {}, underWay: new Set() })).toEqual(names);
     expect(packsToWant(names, { unasked: false, said: {}, underWay: new Set() })).toEqual([]);
   });
@@ -290,7 +290,7 @@ describe("ComfyUI restarted for packs", () => {
     const stub = stubComfy({ queue: () => ({ running: [], pending }) });
     let starting = false;
     const packs = new PodPacks({ comfyOf: async () => stub.comfy, busy: () => starting });
-    packs.want("m", ["comfyui-gguf"], "job-1");
+    packs.want("m", ["ComfyUI-GGUF"], "job-1");
     await settle(packs, "m");
     expect(packs.view("m")[0]!.state).toBe("installed");
     expect(packs.holding("m")).toBe(true);
@@ -315,7 +315,7 @@ describe("ComfyUI restarted for packs", () => {
     const stub = stubComfy();
     const l = lane(stub.comfy);
     const own = new OwnPacks({ lane: () => l, manager: async () => true, changed: () => {}, downloading: () => downloading });
-    own.packs.want("own", ["comfyui-gguf"], "job-1");
+    own.packs.want("own", ["ComfyUI-GGUF"], "job-1");
     await settle(own.packs, "own");
     expect(stub.reboots).toBe(0);
     downloading = false;
@@ -329,7 +329,7 @@ describe("ComfyUI restarted for packs", () => {
     const l = lane(stub.comfy);
     const own = new OwnPacks({ lane: () => l, manager: async () => true, changed: () => {} });
     own.keepOnly([{ id: "job-1", packs: null }]);
-    own.packs.want("own", ["comfyui-gguf"], "job-1");
+    own.packs.want("own", ["ComfyUI-GGUF"], "job-1");
     // being installed when the job goes: left to finish, but ComfyUI is not restarted for it
     await own.packs.pass("own");
     expect(own.packs.view("own")[0]!.state).toBe("installing");
@@ -372,9 +372,9 @@ describe("a pack ComfyUI-Manager cannot find in its list", () => {
     packs.want("pod", ["comfyui-h3-facerefine"], "job-1");
     await settle(packs, "pod", 2);
     expect(packs.view("pod")[0]!.state).not.toBe("failed");
-    packs.want("pod", ["comfyui-gguf"], "job-2");
+    packs.want("pod", ["ComfyUI-GGUF"], "job-2");
     await settle(packs, "pod", 6);
-    expect(packs.view("pod").find((e) => e.name === "comfyui-gguf")!.state).toBe("installed");
+    expect(packs.view("pod").find((e) => e.name === "ComfyUI-GGUF")!.state).toBe("installed");
     expect(packs.view("pod").find((e) => e.name === "comfyui-h3-facerefine")!.state).toBe("failed");
   });
 });
@@ -413,7 +413,7 @@ describe("the time a pod spends on node packs for its jobs", () => {
     const told: Array<[string, number, number]> = [];
     const packs = new PodPacks({ comfyOf: async () => stub.comfy, busy: () => false, packsTime: (m, from, to) => told.push([m, from, to]) });
     const asked = Date.now();
-    packs.want("pod", ["comfyui-gguf"], "job-1");
+    packs.want("pod", ["ComfyUI-GGUF"], "job-1");
     await packs.pass("pod");
     vi.setSystemTime(asked + 60_000);
     await settle(packs, "pod", 3);
