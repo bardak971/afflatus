@@ -13,7 +13,7 @@
   <a href="https://github.com/bardak971/afflatus/pkgs/container/afflatus"><img alt="Docker image" src="https://img.shields.io/badge/docker-ghcr.io%2Fbardak971%2Fafflatus-ff9a73"></a>
 </p>
 
-<!-- the hero video: hero8 (2026-10-10), kept for 0.5.0; a new film is 0.6.0 -->
+<!-- the hero video: hero8 (2026-10-10), kept for 0.6.0; a new film comes in a later release -->
 https://github.com/user-attachments/assets/e217e91c-bbf2-4642-8468-3176c35368ca
 
 <p align="center"><img src="docs/media/results.webp" alt="Pictures and video frames made in Afflatus: a snowboarder under floodlights, a neon night market, a lighthouse keeper, an anime pilot, a dancer moved by a video, a face that speaks a recording" width="100%"></p>

@@ -4,7 +4,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
-The 0.6.0 cycle: the timeline reworked around sources, recordings and joins, Face refine, H3 · Motion transfer, node packs installed where a render runs, a first launch for installs with no ComfyUI yet, and the CUDA build of a rented pod chosen.
+## [0.6.0] - 2026-10-23
+
+The 0.6.0 cycle: the timeline reworked around sources, recordings and joins, H3 · Swap character and H3 · Motion transfer, Face refine, node packs installed where a render runs, a first launch for installs with no ComfyUI yet, and the CUDA build of a rented pod chosen.
 
 ### Added
 - **The timeline, reworked:**
@@ -423,7 +425,8 @@ The 0.6.0 cycle: the timeline reworked around sources, recordings and joins, Fac
 
 The first release: the Studio and its library, a form per model family, timelines, the prompt kit, imported workflows, the queue, the node pack, the Docker image, the Helm chart and the desktop bundles.
 
-[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/bardak971/afflatus/releases/tag/v0.6.0
 [0.5.2]: https://github.com/bardak971/afflatus/releases/tag/v0.5.2
 [0.5.1]: https://github.com/bardak971/afflatus/releases/tag/v0.5.1
 [0.5.0]: https://github.com/bardak971/afflatus/releases/tag/v0.5.0
