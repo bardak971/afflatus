@@ -8,6 +8,7 @@ import pytest
 np = pytest.importorskip("numpy")
 
 from afflatus_nodes import swap_mask  # noqa: E402
+from conftest import with_torch  # noqa: E402
 
 
 def box(frames, height, width, y0, y1, x0, x1, on=None):
@@ -222,32 +223,162 @@ def test_the_difference_paste_keeps_what_h3_drew_anew_and_gives_back_the_wall_it
     assert a[2, 10, 10] < 0.05 and a[2, 120, 60] < 0.05  # the wall: the source's again
 
 
-def test_a_soft_zone_fades_its_outer_band_within_grow():
-    """Soft: the core whole, the outer band fading cell by cell to nearly 0, the zone no wider than grow (2026-10-18)."""
-    person = box(9, 256, 256, 112, 144, 112, 144)
-    hard = swap_mask.noise_mask(person, 9, 256, 256, 64)
-    soft = swap_mask.noise_mask(person, 9, 256, 256, 64, soft=32)
-    assert soft.shape == hard.shape
-    assert ((soft > 0) == (hard > 0)).all()  # as wide as before
-    row = soft[1, 8, :]  # through the person, latent frame 1
-    assert row[8] == 1.0  # the person's cells
-    edge = [v for v in row if 0 < v < 1]
-    assert edge and min(edge) < 0.5 and max(edge) > 0.5  # a fade, not a step
-    assert set(np.unique(hard).tolist()) <= {0.0, 1.0}
+# A person over a wall, the render drawn anew on the body only, and a speck of their mask SAM left in one frame apart from it
+_SWAP_SCENE = r"""
+import torch.nn.functional as F
+
+sm = load("swap_mask")
+frames, H, W = 6, 128, 192
+yy, xx = np.mgrid[0:H, 0:W]
+body = np.zeros((frames, H, W), bool)
+body[:] = ((yy - 72) / 40) ** 2 + ((xx - 48) / 22) ** 2 <= 1
+person = body.copy()
+person[2, 12:14, 170:172] = True
+gen = np.random.default_rng(0)
+source = torch.from_numpy(0.4 + 0.02 * gen.standard_normal((frames, H, W, 3)).astype(np.float32))
+render = source.clone()
+render[torch.from_numpy(body)] = 0.9
+noise = np.ones((sm.latent_frames(frames), H // 16, W // 16), np.float32)
+"""
 
 
-def test_the_colour_match_moves_the_wall_to_the_source_and_leaves_the_person_their_own():
-    """Measured on the wall around the person only: the render's brighter wall comes back to the source's, and the new
-    person is shifted by the same small amount, not pulled towards the old person's colours."""
-    torch = pytest.importorskip("torch.nn") and __import__("torch")
-    frames, H, W = 3, 128, 64
-    source = torch.full((frames, H, W, 3), 0.5)
-    source[:, 60:120, 10:40] = 0.1  # the old person: dark
-    render = torch.full((frames, H, W, 3), 0.56)  # H3's wall, a little brighter
-    render[:, 60:120, 10:40] = 0.9  # the new person: light
-    noise = np.ones((swap_mask.latent_frames(frames), H // 16, W // 16), np.float32)
-    paste = torch.zeros(frames, H, W)
-    paste[:, 60:120, 10:40] = 1
-    out = swap_mask.ring_match(render, source, noise, paste)
-    assert abs(float(out[1, 10, 10, 0]) - 0.5) < 0.02  # the wall: the source's
-    assert float(out[1, 90, 25, 0]) > 0.8  # the person: still light
+def test_the_joined_flood_settles_where_the_persons_mask_never_reaches_1_and_leaves_the_body_as_it_was():
+    """A speck of the person's mask, or a small grow with a blur (no cell reaches 1), kept the joined flood changing at every
+    pass up to its cap (2 to 3 minutes a window, 2026-10-18). With each peak held it settles in a few passes, whether it
+    stops once nothing moves by more than SETTLED or waits for no change at all (SETTLED 0), to the same alpha."""
+    out = with_torch(_SWAP_SCENE + r"""
+pool = F.max_pool2d
+passes = [0]
+
+
+def counted(*args, **kwargs):
+    passes[0] += 1
+    return pool(*args, **kwargs)
+
+
+F.max_pool2d = counted
+for grow, blur in ((10, 5.0), (4, 2.5)):
+    paste = sm.paste_mask(person, frames, W, H, grow, blur)
+    got = {}
+    for settled in (0.0, 1 / 1024):
+        sm.SETTLED = settled
+        passes[0] = 0
+        got[settled] = (sm.difference_alpha(render, source, noise, paste, 0.06, 8, 4.0, 1), passes[0])
+    (before, slow), (now, fast) = got[0.0], got[1 / 1024]
+    print(grow, blur, slow, fast, float((before - now).abs().max()))
+""")
+    for line in out.splitlines():
+        grow, blur, slow, fast, apart = line.split()
+        # the flood's cap is 4 x 192 / 4 = 192 passes, which it ran to before
+        assert int(slow) < 60 and int(fast) < 60, line
+        assert float(apart) < 1e-4, line
+
+
+def test_the_body_comes_out_as_the_joined_flood_made_it_before_pieces_were_kept():
+    """Where the person's mask has no piece apart, keeping the pieces changes nothing: the alpha across the body's edge,
+    along a row and down a column, is the one 0.36.6 made (taken from it), at a grow of 10, 4 with a small blur, and 30."""
+    out = with_torch(_SWAP_SCENE + r"""
+for grow, blur in ((10, 5.0), (4, 2.5), (30, 5.0)):
+    paste = sm.paste_mask(body, frames, W, H, grow, blur)
+    a = sm.difference_alpha(render, source, noise, paste, 0.06, 8, 4.0, 1)
+    print(" ".join(str(float(v)) for v in [a.sum()] + list(a[2, 72, 64:124:4]) + list(a[2, 16:40:2, 48])))
+""")
+    before = [
+        [48839.05, 1.0, 1.0, 0.9993, 0.9892, 0.93069, 0.76537, 0.50232, 0.24442, 0.083, 0.01857, 0.00256, 0.0002, 1e-05, 0.0, 0.0, 0.57413, 0.71072, 0.81802, 0.9091, 0.9515, 0.98524, 0.99303, 0.99901, 0.99958, 1.0, 1.0, 1.0],
+        [44211.17, 1.0, 1.0, 0.99839, 0.97678, 0.86342, 0.59816, 0.28573, 0.08592, 0.01503, 0.00138, 5e-05, 0.0, 0.0, 0.0, 0.0, 0.36157, 0.51628, 0.68003, 0.82304, 0.90381, 0.96852, 0.98504, 0.99775, 0.99904, 1.0, 1.0, 1.0],
+        [83551.31, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.99992, 0.99904, 0.99312, 0.96638, 0.88371, 0.70903, 0.45974, 0.22298, 0.07573, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+    ]
+    for line, want in zip(out.splitlines(), before):
+        got = [float(v) for v in line.split()]
+        assert abs(got[0] - want[0]) < 0.05, line
+        assert max(abs(g - w) for g, w in zip(got[1:], want[1:])) < 1e-4, line
+
+
+def test_a_piece_of_the_persons_mask_apart_from_the_body_is_kept_whole_whatever_the_cap_of_passes():
+    """A hand SAM found apart from the arm, its blurred mask peaking at 0.9995, came out at what the joined flood's passes
+    left of it (0.36 at the cap, 0.96 where the flood settled), and a speck peaking at 0.9 all but went: the paste mask is
+    the person, always kept (perf review M-22, the owner's call, 2026-10-22). Both are kept, the same with a quarter of the
+    passes or waiting for no change at all, and the body as it is without them."""
+    out = with_torch(_SWAP_SCENE + r"""
+paste = sm.paste_mask(body, frames, W, H, 10, 5.0)
+alone = sm.difference_alpha(render, source, noise, paste, 0.06, 8, 4.0, 1)
+r2 = torch.from_numpy(((yy - 24) ** 2 + (xx - 160) ** 2).astype(np.float32))
+paste[2:4] = torch.maximum(paste[2:4], 0.9995 * torch.exp(-r2 / (2 * 12.0**2)))
+r2 = torch.from_numpy(((yy - 104) ** 2 + (xx - 168) ** 2).astype(np.float32))
+paste[4] = torch.maximum(paste[4], 0.9 * torch.exp(-r2 / (2 * 3.0**2)))
+a = sm.difference_alpha(render, source, noise, paste, 0.06, 8, 4.0, 1)
+sm.JOIN_PASSES = 1
+fewer = sm.difference_alpha(render, source, noise, paste, 0.06, 8, 4.0, 1)
+sm.JOIN_PASSES, sm.SETTLED = 4, 0.0
+still = sm.difference_alpha(render, source, noise, paste, 0.06, 8, 4.0, 1)
+# what is further from the hand and the speck than their blur, the alpha's grow and its blur reach
+apart = torch.from_numpy(((yy - 24) ** 2 + (xx - 160) ** 2 > 64**2) & ((yy - 104) ** 2 + (xx - 168) ** 2 > 40**2)).expand(frames, H, W)
+print(float(a[2:4, 24, 160].min()), float(a[4, 104, 168]), float((a - fewer).abs().max()), float((a - still).abs().max()), float((a - alone).abs()[apart].max()))
+""")
+    hand, speck, fewer, still, body = (float(v) for v in out.split())
+    # 0.973 and 0.004 before
+    assert hand > 0.998 and speck > 0.98, out
+    assert fewer < 1e-6 and still < 1e-4, out
+    assert body < 1e-6, out
+
+
+def test_the_difference_paste_mixes_the_same_frames_in_place_of_three_copies():
+    """The paste-back is the render over the source by the alpha, as the two weighted copies and their sum made it, holding
+    about the output and its alpha above its inputs (2.8 GB of temporaries beside a 722 MB output before, 2026-10-22)."""
+    out = with_torch(_SWAP_SCENE + r"""
+paste = sm.paste_mask(person, frames, W, H, 30, 5.0)
+a = sm.difference_alpha(render, source, noise, paste, 0.06, 8, 4.0, 1)[..., None]
+want = source[..., :3] * (1 - a) + render[..., :3] * a
+got = sm.AfflatusSwapPaste.execute(render, source, torch.from_numpy(noise), paste)
+print(float((got - want).abs().max()))
+# a 576x1024 window of 48 frames: what it holds above its inputs, against its output
+big = torch.rand(48, 1024, 576, 3)
+base = big * 0.5
+mask = torch.zeros(48, 1024, 576)
+mask[:, 300:700, 200:400] = 1
+zone = np.ones((sm.latent_frames(48), 64, 36), np.float32)
+_, extra = peak_above(lambda: sm.AfflatusSwapPaste.execute(big, base, torch.from_numpy(zone), mask))
+print(extra / (big.numel() * 4 / 2**20))
+""", needs=("torch", "psutil"))
+    same, held = (float(v) for v in out.split())
+    assert same < 1e-6
+    # the output, its alpha (a third of it) and a few frames' difference: no longer three copies of the clip
+    assert held < 2.0, held
+
+
+def test_the_retired_colour_match_still_loads_and_passes_the_render_through():
+    """A graph saved from a 0.5.2 Swap character names AfflatusSwapMatch: it is registered still, and changes nothing."""
+    import asyncio
+
+    from conftest import pack
+
+    assert swap_mask.AfflatusSwapMatch in asyncio.run(pack.AfflatusExtension().get_node_list())
+    render = object()
+    assert swap_mask.AfflatusSwapMatch.execute(render, object(), object(), object(), 0.6, 3).args == (render,)
+
+
+def test_a_graph_saved_from_0_5_2_gets_its_swap_mask_values_back_in_their_places(monkeypatch):
+    """ComfyUI's frontend gives a saved graph's widget values back by position (required inputs first, then optional ones):
+    0.31 dropped `soft`, and a 0.5.2 graph's paste_reach, pick_x and pick_y each took the value before theirs."""
+    import inspect
+    import types
+
+    class Kind:
+        def __init__(self, widget):
+            self.widget = widget
+
+        def Input(self, name, optional=False, **_):
+            return name, optional, self.widget
+
+        def Output(self, **_):
+            return None
+
+    io = types.SimpleNamespace(Schema=lambda **kw: kw, Int=Kind(True), Float=Kind(True), Image=Kind(False), Mask=Kind(False))
+    monkeypatch.setattr(swap_mask, "io", io)
+    monkeypatch.setattr(swap_mask, "SAM3TrackData", Kind(False))
+    inputs = swap_mask.AfflatusSwapMask.define_schema()["inputs"]
+    widgets = [name for want in (False, True) for name, optional, widget in inputs if widget and optional == want]
+    # the widgets of 0.5.2's Swap Mask (pack 0.30), in its order
+    assert widgets == ["frames", "width", "height", "grow", "paste_grow", "paste_blur", "soft", "paste_reach", "pick_x", "pick_y"]
+    # and an API-format prompt that still sends it runs
+    assert "soft" in inspect.signature(swap_mask.AfflatusSwapMask.execute).parameters

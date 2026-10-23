@@ -62,6 +62,11 @@ class Tensor:
     def new_zeros(self, shape):
         return Tensor(shape, None, None, self.dtype, self.device)
 
+    def movedim(self, source, destination):
+        shape = list(self.shape)
+        shape.insert(destination % len(shape), shape.pop(source))
+        return Tensor(shape, None, None, self.dtype, self.device)
+
 
 def _cat(tensors, dim=0):
     first = tensors[0]
@@ -154,7 +159,11 @@ class Folders:
 
 
 def _install_stubs():
-    torch = _module("torch", Tensor=Tensor, cat=_cat, float32="float32", bfloat16="bfloat16")
+    # ones_like / zeros_like: a fresh tensor of the same shape, its labels saying which it is
+    def filled(value):
+        return lambda t: Tensor(t.shape, [value] * t.shape[t.axis], t.axis, t.dtype, t.device)
+
+    torch = _module("torch", Tensor=Tensor, cat=_cat, float32="float32", bfloat16="bfloat16", ones_like=filled(1), zeros_like=filled(0))
     saved = {}
 
     def save_file(tensors, path, metadata=None):
@@ -195,6 +204,71 @@ def _load_pack():
 
 
 pack = _load_pack()
+
+
+# What a script run with the real torch starts with: ComfyUI's io stood in for, and `load(name)` giving one of the pack's
+# modules on its own (the pack folder is argv[1]); `peak_above(fn)`, the most memory `fn` held above what was held before it.
+_TORCH_PREAMBLE = r"""
+import importlib.util, os, sys, threading, types
+import numpy as np
+import torch
+
+class _Io(types.ModuleType):
+    ComfyNode = object
+
+    @staticmethod
+    def NodeOutput(*args, **kw):
+        return args[0] if args else kw
+
+    def __getattr__(self, name):
+        return lambda *args, **kw: None
+
+
+sys.modules["comfy_api"] = types.ModuleType("comfy_api")
+sys.modules["comfy_api.latest"] = types.SimpleNamespace(io=_Io("io"))
+
+
+def load(name):
+    spec = importlib.util.spec_from_file_location(name, os.path.join(sys.argv[1], name + ".py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def peak_above(fn):
+    import psutil
+
+    me = psutil.Process()
+    start = me.memory_info().rss
+    most = [start]
+    done = threading.Event()
+
+    def watch():
+        while not done.is_set():
+            most[0] = max(most[0], me.memory_info().rss)
+            done.wait(0.002)
+
+    watcher = threading.Thread(target=watch, daemon=True)
+    watcher.start()
+    try:
+        out = fn()
+    finally:
+        done.set()
+        watcher.join()
+    return out, (most[0] - start) / 2**20
+"""
+
+
+def with_torch(script, needs=("torch",)):
+    """Runs `script` in a fresh interpreter with the real torch (the tests' torch is a stand-in), after _TORCH_PREAMBLE: what it
+    prints. Skipped where torch (or another of `needs`) is not installed: ComfyUI's own venv runs it."""
+    import subprocess
+
+    if subprocess.run([sys.executable, "-I", "-c", "; ".join(f"import {n}" for n in needs)], capture_output=True).returncode != 0:
+        pytest.skip(f"no {', '.join(needs)} here: ComfyUI's own venv runs this")
+    run = subprocess.run([sys.executable, "-I", "-c", _TORCH_PREAMBLE + script, PACK], capture_output=True, text=True, timeout=300)
+    assert run.returncode == 0, run.stderr[-3000:]
+    return run.stdout
 
 
 @pytest.fixture

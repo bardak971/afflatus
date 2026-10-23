@@ -18,6 +18,12 @@ colour and voice at the join).
 | Afflatus: H3 Seam Latent | A continuation's new tokens after the clip before's own last ones, to decode the two as one piece: the join then matches the whole chain decoded at once. |
 | Afflatus: Face Match | How alike the faces of pictures or a clip's frames are to a person's pictures (InsightFace buffalo_l, on the CPU). Registered only when `insightface` is installed in ComfyUI's Python. |
 | Afflatus: Face At | The same for the person at a place in a frame (the one put in where someone stood), and how many copies of them it finds. Also needs `insightface`. |
+| Afflatus: Swap Mask (H3) | The person a swap replaces, from a SAM 3.1 video track (the one the window before replaced, a click, else the largest face): an H3 noise mask on the latent grid and a paste-back mask, so the swap redraws only them. |
+| Afflatus: Swap Mask Preview (H3) | Swap Mask's two masks drawn over the source frames: the cells H3 redraws in the accent colour, the paste-back band lighter. |
+| Afflatus: Swap Paste by Difference (H3) | The swap's render kept over the source where it clearly differs from it inside the redrawn zone, and over the person; elsewhere the source's own pixels. |
+| Afflatus: H3 Audio Lock | Encodes a sound into an H3 latent's audio stream and masks it from the noise: the sampler redraws the video only, with that sound beside it (Face refine). |
+| Afflatus: Follow Colours | Brings each frame's colours to a reference video's at the same moment (Lab mean and spread), both averaged over a stretch of frames first, never across a cut: a slow drift is followed, no flicker is added. |
+| Afflatus: Swap Colour Match (H3) | Passes the swap's render through unchanged. Deprecated (0.31.0): its colour match washed the redrawn wall white and was taken out of Swap character; kept for graphs that name it. |
 | MiniMax H3 Guided Continuation Window | Allocates the continuation target: a hidden overlap of the previous latent's tail plus the new frames. |
 | MiniMax H3 Latent Tail Guide | Conditions the target on the previous latent's tail, video and audio, with no VAE round trip. |
 | MiniMax H3 Append Continuation | Drops the hidden overlap and appends only the new tokens to the previous latent. Deprecated (0.11.2): Afflatus joins with Seam Latent instead; kept for graphs that name it. |

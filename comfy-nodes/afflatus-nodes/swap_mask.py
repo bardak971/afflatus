@@ -209,11 +209,8 @@ def fit_frames(mask: np.ndarray, frames: int) -> np.ndarray:
     return np.concatenate([mask, np.repeat(mask[-1:], frames - mask.shape[0], axis=0)])
 
 
-def noise_mask(person: np.ndarray | None, frames: int, width: int, height: int, grow: int, soft: int = 0) -> np.ndarray:
-    """[T_lat, height/16, width/16] float32, 1 = redrawn: from the person's [N, height, width] bool track (None: all of it).
-    `soft` px: the zone's outer band, that wide within `grow`, fades from 1 to nearly 0 cell by cell, for a sampler patched
-    by Differential Diffusion to redraw it less and less (the wall H3 hands back near the edge is then close to the
-    source's: the owner's "aura", 2026-10-18). 0: whole cells only, as before."""
+def noise_mask(person: np.ndarray | None, frames: int, width: int, height: int, grow: int) -> np.ndarray:
+    """[T_lat, height/16, width/16] float32, 1 = redrawn: from the person's [N, height, width] bool track (None: all of it)."""
     n_lat = latent_frames(frames)
     h, w = height // CELL, width // CELL
     if person is None:
@@ -221,13 +218,7 @@ def noise_mask(person: np.ndarray | None, frames: int, width: int, height: int, 
     px = fit_frames(person, frames)[:, : h * CELL, : w * CELL]
     # a cell is the person's when any of its pixels is: then grown on the cell grid, holes filled, any over each latent frame
     cells = px.reshape(frames, h, CELL, w, CELL).any(axis=(2, 4))
-    total = int(math.ceil(grow / CELL))
-    band = min(total, int(math.ceil(soft / CELL))) if soft > 0 else 0
-    # each step of the band grown from the person with the same disk as the whole zone: as wide as the hard zone
-    values = fill_holes(dilate_cells(cells, total - band)).astype(np.float32)
-    for k in range(1, band + 1):
-        layer = fill_holes(dilate_cells(cells, total - band + k))
-        values = np.maximum(values, np.where(layer, 1.0 - k / (band + 1), 0.0).astype(np.float32))
+    values = fill_holes(dilate_cells(cells, int(math.ceil(grow / CELL)))).astype(np.float32)
     lat = np.stack([values[a:b].max(axis=0) for a, b in latent_spans(n_lat)])
     near = lat.copy()
     near[1:] = np.maximum(near[1:], lat[:-1])
@@ -302,7 +293,10 @@ class AfflatusSwapMask(io.ComfyNode):
                 io.Int.Input("height", default=1024, min=32, max=16384, step=32),
                 # 100: the tested mask's reach (grow 50, blockify 32, then 36 on the latent), 98 % of its tokens on the meme (§9.9)
                 io.Int.Input("grow", default=100, min=0, max=1024, tooltip="Pixels the redrawn region reaches past the person, in whole 16 px cells."),
-                io.Int.Input("soft", default=0, min=0, max=512, optional=True, tooltip="Pixels of the zone's outer band, within grow, that fade from redrawn to kept (for a model patched by Differential Diffusion). 0: whole cells."),
+                # Not used since 0.31 (the soft zone went), but kept in its place: ComfyUI's frontend gives a saved graph's
+                # widget values back by position, so without it a 0.5.2 graph's paste_reach, pick_x and pick_y each took the
+                # value before theirs (pick_x then 3, refused)
+                io.Int.Input("soft", default=0, min=0, max=512, optional=True, tooltip="Not used: kept so that graphs saved before 0.31 load with the right values."),
                 io.Int.Input("paste_grow", default=10, min=0, max=256, tooltip="Pixels the kept render reaches past the person."),
                 io.Float.Input("paste_blur", default=5.0, min=0.0, max=64.0, tooltip="The paste-back edge's blur, in pixels."),
                 io.Int.Input("paste_reach", default=PASTE_REACH, min=0, max=24, optional=True, tooltip="The person of this many frames either side of each is kept too: a limb SAM loses for a moment is not pasted over."),
@@ -334,7 +328,7 @@ class AfflatusSwapMask(io.ComfyNode):
             note.append("No one was found where the person to replace was clicked: the one with the largest face was taken, which may be someone else.")
         elif changed is not None and how != "followed":
             note.append("The person the window before replaced was not found in this one: the one with the largest face was taken, which may be someone else.")
-        noise = torch.from_numpy(noise_mask(person, frames, width, height, grow, soft))
+        noise = torch.from_numpy(noise_mask(person, frames, width, height, grow))
         return io.NodeOutput(noise, paste_mask(person, frames, width, height, paste_grow, paste_blur, reach=paste_reach), ui={"afflatus_note": note})
 
 
@@ -400,6 +394,57 @@ def zone_cells(noise: np.ndarray, frames: int, height: int, width: int, scale: i
     return out
 
 
+# The joined flood below is settled when no value moves by more than this in a pass: a quarter of an 8-bit level
+SETTLED = 1 / 1024
+# Its cap of passes, per cell of the frame's longer side on the coarser grid
+JOIN_PASSES = 4
+# A cell of the person's paste mask reaches 1 from this: the blur's normalised kernel leaves 0.99999994 inside a small
+# grow, which is the person whole all the same
+WHOLE = 1 - 1e-6
+# Two pieces of the person's paste mask are one where cells of at least this much join them: the faint blurred edges of
+# a hand near the arm touch below it, and the hand is still a piece of its own
+PIECE_EDGE = 1 / 64
+# Pixels of the clip whose colour difference is read at once: a few 1080p frames
+_DIFF_PIXELS = 1 << 23
+
+
+def whole_pieces(person):
+    """
+    [frames, 1, h, w] torch float: the person's paste mask with each piece of it that reaches 1 nowhere (a hand SAM found
+    apart from the arm, a speck of its track, the whole person at a small grow and a wide blur) scaled to reach 1 at its
+    peak; the pieces that reach 1 as they are. The joined flood keeps a cell at its value only where its keep is 1, so
+    such a piece lost its peak squared at every pass and came out at what the cap of passes, or the pass the flood
+    settled at, left of it (0.36, then 0.96, for a hand peaking at 0.9995; a speck SAM left, gone): the paste mask is the
+    person, always kept, so they are kept whole (the owner, 2026-10-22; perf review M-22).
+    """
+    import torch
+    import torch.nn.functional as F
+
+    inside = person >= PIECE_EDGE
+    # a piece that reaches 1 nowhere has its peak below 1, so with no such peak there is nothing to scale: the usual
+    # case, where the two floods below would cost a window a dozen passes for nothing
+    if not bool(((person >= F.max_pool2d(person, 3, 1, 1)) & inside & (person < WHOLE)).any()):
+        return person
+    reached = person >= WHOLE
+    # both floods only grow, so they end, in about as many passes as a piece is wide
+    while True:
+        grown = (F.max_pool2d(reached.float(), 3, 1, 1) > 0) & inside
+        if torch.equal(grown, reached):
+            break
+        reached = grown
+    piece = inside & ~reached
+    if not bool(piece.any()):
+        return person
+    top = person * piece
+    while True:
+        grown = F.max_pool2d(top, 3, 1, 1) * piece
+        if torch.equal(grown, top):
+            break
+        top = grown
+    # a value divided by itself is exactly 1, so each piece's peak holds itself in the flood as the body's 1 does
+    return torch.where(piece, person / top.clamp_min(PIECE_EDGE), person)
+
+
 def difference_alpha(render, source, noise: np.ndarray, paste, threshold: float = 0.06, grow: int = 8, sigma: float = 4.0, reach: int = 1, scale: int = PASTE_SCALE, spread: int = 40):
     """
     [frames, H, W] torch float, where the render is kept over the source: inside the zone H3 redrew, where it differs
@@ -414,15 +459,20 @@ def difference_alpha(render, source, noise: np.ndarray, paste, threshold: float 
 
     frames, H, W = render.shape[0], render.shape[1], render.shape[2]
     s = scale if scale > 1 and H % scale == 0 and W % scale == 0 and CELL % scale == 0 else 1
-    d = (render[..., :3].float() - source[:frames, ..., :3].float()).abs().amax(-1)[:, None].cpu()
-    if s > 1:
-        d = F.avg_pool2d(d, s)
-    d = F.avg_pool2d(d, 3, 1, 1)
+    # a few frames at a time: the whole clip's colour difference in float was two copies of the clip above the output
+    # (2.8 GB beside a 722 MB output, 2026-10-22), for a figure kept only on the coarser grid
+    parts, step = [], max(1, _DIFF_PIXELS // max(1, H * W))
+    for a in range(0, frames, step):
+        b = min(frames, a + step)
+        part = (render[a:b, ..., :3].float() - source[a:b, ..., :3].float()).abs_().amax(-1)[:, None].cpu()
+        parts.append(F.avg_pool2d(part, s) if s > 1 else part)
+    d = F.avg_pool2d(torch.cat(parts), 3, 1, 1)
     keep = (d > threshold).float()
     zone = torch.from_numpy(zone_cells(noise, frames, H, W, s)).float()[:, None]
     person = paste[:frames].float().cpu()[:, None]
     if s > 1:
         person = F.max_pool2d(person, s)
+    person = whole_pieces(person)
     keep = torch.maximum(keep * zone, person)
     # only what is joined to the person: a new limb or a longer garment is, people H3 invented elsewhere in the zone are
     # not (the owner's Timeline 19 take, Grow 160: two women at the table, 2026-10-18). Grown from the person through
@@ -432,12 +482,20 @@ def difference_alpha(render, source, noise: np.ndarray, paste, threshold: float 
     for _ in range(int(round(spread / s))):
         near = F.max_pool2d(near, 3, 1, 1)
     keep = keep * near
+    # each peak of the person's mask holds its own value, as the body's 1 does: a speck SAM left beside another that
+    # reaches 1, joined to it by their faint blurred edges, fell at every pass to what the cap of passes left of it
+    peaks = person * ((person >= F.max_pool2d(person, 3, 1, 1)) & (person >= PIECE_EDGE))
     joined = person.clone()
-    for _ in range(4 * max(H, W) // s):
-        grown = F.max_pool2d(joined, 3, 1, 1) * keep
-        if torch.equal(grown, joined):
-            break
+    for _ in range(JOIN_PASSES * max(H, W) // s):
+        grown = torch.maximum(F.max_pool2d(joined, 3, 1, 1) * keep, peaks)
+        # settled once no value moves by more than SETTLED in a pass. Waiting for no change at all ran to the cap of passes
+        # on a piece of the person's mask that peaked below 1: its value lost its peak squared at every pass and never
+        # stopped changing (a speck SAM left, or a grow of 4 with a blur of 2.5, where no cell reached 1: 2 to 3 minutes a
+        # window on 2026-10-18). With its peaks held, every value now settles where its peak's path leaves it
+        moved = float((grown - joined).abs_().max())
         joined = grown
+        if moved <= SETTLED:
+            break
     keep = joined
     if reach > 0:
         keep = F.max_pool3d(keep.permute(1, 0, 2, 3)[None], (2 * reach + 1, 1, 1), 1, (reach, 0, 0))[0].permute(1, 0, 2, 3)
@@ -453,7 +511,8 @@ def difference_alpha(render, source, noise: np.ndarray, paste, threshold: float 
         keep = F.conv2d(F.pad(keep, (0, 0, r, r), mode="replicate"), k[None, None, :, None])
     if s > 1:
         keep = F.interpolate(keep, size=(H, W), mode="bilinear", align_corners=False)
-    return keep[:, 0].clamp(0, 1)
+    # in place: a second full-size copy of the alpha only to clamp it
+    return keep[:, 0].clamp_(0, 1)
 
 
 class AfflatusSwapPaste(io.ComfyNode):
@@ -485,45 +544,14 @@ class AfflatusSwapPaste(io.ComfyNode):
         a = difference_alpha(render, source, noise_mask.detach().cpu().float().numpy(), paste_mask, threshold, grow, blur, reach, spread=spread)
         a = a[..., None].to(render.device, render.dtype)
         src = source[: render.shape[0], ..., :3].to(render.device, render.dtype)
-        return io.NodeOutput(src * (1 - a) + render[..., :3] * a)
+        import torch
 
-
-def ring_match(render, source, noise: np.ndarray, paste, strength: float = 1.0, smooth: int = 2):
-    """
-    The render's colours moved to the source's, as measured on the wall around the person only (the zone H3 redrew, less
-    the person): per frame and channel, its mean and spread there made the source's, the same shift on the whole frame,
-    averaged over `smooth` frames either side so it does not flicker. A whole-frame match would pull the new person's
-    colours towards the old person's (a white shirt towards a dark jersey).
-    """
-    import torch
-
-    frames, H, W = render.shape[0], render.shape[1], render.shape[2]
-    zone = torch.from_numpy(zone_cells(noise, frames, H, W, 1)).to(render.device)
-    ring = zone & (paste[:frames].to(render.device) < 0.5)
-    r = render[..., :3].float()
-    src = source[:frames, ..., :3].float().to(render.device)
-    out = r.clone()
-    stats = []
-    for f in range(frames):
-        m = ring[f]
-        if int(m.sum()) < 64:
-            stats.append(None)
-            continue
-        a, b = r[f][m], src[f][m]
-        stats.append((a.mean(0), a.std(0) + 1e-4, b.mean(0), b.std(0) + 1e-4))
-    have = [i for i, x in enumerate(stats) if x is not None]
-    if not have:
-        return render
-    for f in range(frames):
-        near = [stats[i] for i in have if abs(i - f) <= smooth] or [stats[min(have, key=lambda i: abs(i - f))]]
-        ma, sa, mb, sb = (torch.stack([n[j] for n in near]).mean(0) for j in range(4))
-        matched = (r[f] - ma) / sa * sb + mb
-        out[f] = r[f] + strength * (matched - r[f])
-    return out.clamp(0, 1).to(render.dtype)
+        # into the output alone: the two weighted copies and their sum were three clips' worth of temporaries
+        return io.NodeOutput(torch.lerp(src, render[..., :3], a))
 
 
 class AfflatusSwapMatch(io.ComfyNode):
-    """The swap's render matched in colour to its source on the wall around the person, before it is pasted back."""
+    """The swap's render as it is: the colour match it made is gone (pack 0.31), the node kept for graphs that name it."""
 
     @classmethod
     def define_schema(cls) -> io.Schema:
@@ -531,18 +559,22 @@ class AfflatusSwapMatch(io.ComfyNode):
             node_id="AfflatusSwapMatch",
             display_name="Afflatus: Swap Colour Match (H3)",
             category="Afflatus",
-            description="The render's colours moved to the source's, measured on the wall around the person only (the zone H3 redrew, less the person), so the paste-back edge does not show a shift.",
+            # Afflatus no longer uses it (its match washed the redrawn wall white): still registered, with the inputs it had,
+            # so that a graph saved from a 0.5.2 Swap character loads, and marked deprecated so that ComfyUI hides it from
+            # the node search. It passes the render through.
+            is_deprecated=True,
+            description="Deprecated: passes the swap's render through unchanged. It matched the render's colours to the source's on the wall around the person; kept so that graphs which name it still load.",
             inputs=[
                 io.Image.Input("render", tooltip="The swap's decoded frames."),
-                io.Image.Input("source", tooltip="The source's frames at the swap's size."),
-                io.Mask.Input("noise_mask", tooltip="Swap Mask's noise mask: the zone H3 redrew."),
-                io.Mask.Input("paste_mask", tooltip="Swap Mask's paste-back mask: the person, left out of the measure."),
+                io.Image.Input("source", tooltip="The source's frames at the swap's size (not used)."),
+                io.Mask.Input("noise_mask", tooltip="Swap Mask's noise mask (not used)."),
+                io.Mask.Input("paste_mask", tooltip="Swap Mask's paste-back mask (not used)."),
                 io.Float.Input("strength", default=1.0, min=0.0, max=1.0, step=0.05),
-                io.Int.Input("smooth", default=2, min=0, max=12, tooltip="Frames either side the measure is averaged over."),
+                io.Int.Input("smooth", default=2, min=0, max=12),
             ],
             outputs=[io.Image.Output(display_name="images")],
         )
 
     @classmethod
     def execute(cls, render, source, noise_mask, paste_mask, strength: float = 1.0, smooth: int = 2) -> io.NodeOutput:
-        return io.NodeOutput(ring_match(render, source, noise_mask.detach().cpu().float().numpy(), paste_mask, strength, smooth))
+        return io.NodeOutput(render)

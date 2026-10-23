@@ -56,6 +56,20 @@ def test_seam_puts_the_clip_befores_own_last_tokens_where_the_window_overlapped(
     assert video.device == sound.device == "cuda:0"
 
 
+@pytest.mark.parametrize("before_frames", [107, 141, 73, 124])
+def test_seam_takes_as_many_sound_tokens_as_it_skips(before_frames):
+    # the window as MiniMaxH3GuidedContinuationWindow makes it: its overlap's sound counted on the clip before's clock
+    overlap = audio_t_at_frame_boundary(before_frames) - audio_t_at_frame_boundary(before_frames - 22)
+    new = audio_t_at_frame_boundary(before_frames + 119) - audio_t_at_frame_boundary(before_frames)
+    window = av(141, "window", audio=overlap + new)
+    _, sound = streams(AfflatusH3SeamLatent.execute(av(before_frames, "before"), window, 22))
+    # as long as the window's, the clip before's last tokens and then the window's own from the first one after its overlap:
+    # after a 107-frame clip the overlap is 36 tokens, and skipping audio_t(22) = 37 lost the window's first own token
+    assert sound.shape[-1] == overlap + new
+    assert sound.labels[overlap - 1] == ("before", "a", audio_t_at_frame_boundary(before_frames) - 1)
+    assert sound.labels[overlap] == ("window", "a", overlap)
+
+
 def test_seam_refuses_a_window_with_nothing_after_its_overlap():
     with pytest.raises(ValueError, match="no new frames"):
         AfflatusH3SeamLatent.execute(av(73, "before"), av(22, "window"), 22)
@@ -110,16 +124,24 @@ def test_a_saved_latent_goes_to_the_temp_folder_and_says_so(folders):
     assert not os.listdir(folders.output)
 
 
-def test_a_latent_is_loaded_only_from_the_input_or_temp_folder_and_only_a_safetensors_file(folders):
+def test_a_latent_is_loaded_only_from_the_folder_its_name_says_and_only_a_safetensors_file(folders):
     with open(os.path.join(folders.temp, "a.safetensors"), "w") as f:
         f.write("x")
     with open(os.path.join(folders.output, "b.safetensors"), "w") as f:
         f.write("x")
     with open(os.path.join(folders.temp, "c.json"), "w") as f:
         f.write("x")
+    os.makedirs(os.path.join(folders.output, "Afflatus"))
+    with open(os.path.join(folders.output, "Afflatus", "d.safetensors"), "w") as f:
+        f.write("x")
     assert AfflatusLoadH3Latent.validate_inputs("a.safetensors [temp]") is True
-    # a name that climbs out of the folder it names, or a file that is not a latent
+    # one this ComfyUI wrote into its output folder, read where it is (a continuation on the same machine, pack 0.36.5)
+    assert AfflatusLoadH3Latent.validate_inputs("b.safetensors [output]") is True
+    assert AfflatusLoadH3Latent.validate_inputs("Afflatus/d.safetensors [output]") is True
+    # a name that climbs out of the folder it names, even into another one read, or a file that is not a latent
     assert AfflatusLoadH3Latent.validate_inputs("../output/b.safetensors [temp]") is not True
+    assert AfflatusLoadH3Latent.validate_inputs("../temp/a.safetensors [output]") is not True
+    assert AfflatusLoadH3Latent.validate_inputs("../../a.safetensors [output]") is not True
     assert AfflatusLoadH3Latent.validate_inputs("c.json [temp]") is not True
     with pytest.raises(ValueError, match="not found"):
         AfflatusLoadH3Latent.execute("../output/b.safetensors [temp]")
