@@ -263,6 +263,11 @@ export interface Recipe<In = Record<string, unknown>> {
    */
   partsInto?: string;
   promptFromParts?(input: In): string;
+  /**
+   * Texts the prompt as sent (`partsInto`) may hold that the form started on rather than the user typed (a swap's LoRA
+   * caption, the fused turbo's old preset): read as empty, by the render and the form alike, the parts' text sent and shown.
+   */
+  partsStartOn?: readonly string[];
   /** Node classes this particular input needs (checked against ComfyUI before queueing). */
   nodes(input: In): string[];
   /** Node classes build() uses only when this ComfyUI has them (ctx.has): speed-ups and finishing touches. */
@@ -301,6 +306,10 @@ export interface Preset {
 export const defineFamily = (f: Family): Family => f;
 export const defineRecipe = <In>(r: Recipe<In>): Recipe<In> => r;
 
+/** Whether the prompt as sent of a form written from parts was typed: not empty, and not a text the form starts on (Recipe.partsStartOn). */
+export const typedInto = (recipe: Pick<Recipe<any>, "partsStartOn">, text: unknown): boolean =>
+  typeof text === "string" && Boolean(text.trim()) && !(recipe.partsStartOn ?? []).includes(text.trim());
+
 /** Raw inputs (from the browser, a draft, a variant) → validated values with defaults filled in. */
 export function parseInput<In>(recipe: Recipe<In>, raw: unknown): In {
   const parsed = schemaFor(recipe.inputs).parse(raw) as Record<string, unknown>;
@@ -322,6 +331,7 @@ export function describeRecipe(r: Recipe<any>) {
     id: r.id, family: r.family, ...(r.imported ? { imported: true as const } : {}), ...(r.hidden ? { hidden: true as const } : {}), version: r.version, title: r.title, summary: r.summary, output: r.output,
     inputs: r.inputs, traits: r.traits ?? null, presets: r.presets ?? [], starts: r.starts ?? [],
     ...(r.partsInto ? { partsInto: r.partsInto } : {}),
+    ...(r.partsStartOn?.length ? { partsStartOn: [...r.partsStartOn] } : {}),
     ...(r.chapters?.length ? { chapters: r.chapters } : {}),
     ...(r.first?.length ? { first: r.first } : {}),
     // the family's optional files it cannot run without (Edit's Kontext model): Settings › Models says which operations use each file

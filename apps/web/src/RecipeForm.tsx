@@ -1,6 +1,6 @@
 import { lazy, Suspense, useContext, useEffect, useMemo, type MouseEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Pin, PinOff, RotateCcw } from "lucide-react";
-import { isShown, LIMITS, sameFile, type InputSpec } from "@afflatus/core";
+import { isShown, LIMITS, sameFile, typedInto, type InputSpec } from "@afflatus/core";
 import { ContextMenu, groups, headLine, useMenu } from "./ContextMenu";
 import { FieldNameNote } from "./fields/FieldName";
 import { useAdvice } from "./advice";
@@ -154,7 +154,13 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
     () => formDefaults(recipe, withOfficial(status, recipe.inputs, family), settings.data?.items ?? [], stored),
     [recipe, status, settings.data, stored, family],
   );
-  const values = useMemo(() => ({ ...defaults, ...ownValues(recipe, stored) }), [recipe, defaults, stored]);
+  const values = useMemo(() => {
+    const all = { ...defaults, ...ownValues(recipe, stored) };
+    // a prompt as sent holding a text the form started on (a swap's caption, the fused turbo's old preset) is empty, as the
+    // render reads it: what the parts write shows there greyed, never that text as if typed (card #49)
+    const into = recipe.partsInto;
+    return into && typeof all[into] === "string" && all[into] && !typedInto(recipe, all[into]) ? { ...all, [into]: "" } : all;
+  }, [recipe, defaults, stored]);
   // the node packs the options asked for need where the form renders: said under each (packNotes.tsx)
   const packNotes = usePackNotes(recipe, values, machine);
   // what decides which settings show: the values, plus what the screen will fill in itself

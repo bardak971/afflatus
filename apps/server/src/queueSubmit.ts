@@ -24,23 +24,73 @@ import { draftOf, measuredFirst, renderedOf } from "./queueStore";
 
 /** A job on its way to ComfyUI: its form settled, its files uploaded, its graph built and checked, the prompt queued. */
 
-/** What a picture a form needs and does not have yet is held by, on a job that only loads its models. */
-export const NO_PICTURE = "afflatus:no-picture";
+/**
+ * What a picture, sound or video a form needs and does not have yet is held by, on a job that only loads its models (a
+ * video's: the asset of its value). Its words are a picture's because a load asked before 0.6.1 may still be waiting.
+ */
+export const NO_MEDIA = "afflatus:no-picture";
+
+/** Whether an input's value is the stand-in withMedia put for a picture, sound or video not chosen yet. */
+export function standsIn(spec: InputSpec, value: unknown): boolean {
+  if (spec.type === "image" || spec.type === "audio") return value === NO_MEDIA;
+  return spec.type === "clip" && Boolean(value) && (value as ClipValue).asset === NO_MEDIA;
+}
 
 /**
- * A form's values with something in every text that must be written, and in every picture it needs and has not
- * got yet (a mask not painted): to load its models, neither matters. A load without its pictures loads the model
- * files alone (see `submit`), so that Load works on a form that is still being filled in.
+ * A form's values with something in every text that must be written, and in every picture, sound or video it needs and
+ * has not got yet (withMedia): to load its models, none of them matters.
  */
 export function withTexts(recipe: Recipe<any>, raw: unknown): unknown {
-  if (!raw || typeof raw !== "object") return raw;
-  const input = { ...(raw as Record<string, unknown>) };
+  const input = withMedia(recipe, raw);
+  if (!input || typeof input !== "object") return input;
   for (const spec of recipe.inputs as InputSpec[]) {
-    if (spec.type === "prompt" && !spec.optional && !String(input[spec.id] ?? "").trim()) input[spec.id] = "a";
-    // (one a clip that carries on goes without is left out: what it builds then, and the files it takes, are not the same)
-    if (spec.type === "image" && !spec.optional && !spec.opensOnly && (typeof input[spec.id] !== "string" || !input[spec.id])) input[spec.id] = NO_PICTURE;
+    const value = (input as Record<string, unknown>)[spec.id];
+    if (spec.type === "prompt" && !spec.optional && !String(value ?? "").trim()) (input as Record<string, unknown>)[spec.id] = "a";
   }
   return input;
+}
+
+/**
+ * A form's values with a stand-in (NO_MEDIA) in every picture, sound or video it needs and has not got yet (a mask not
+ * painted, Lip sync's recording, a swap's source), so that a form still being filled in is read with its settings as
+ * the render will have them. A load without its media loads the model files alone (see `submit`): a warm graph is its
+ * loaders, which read none of them (card #50).
+ */
+export function withMedia(recipe: Recipe<any>, raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const input = { ...(raw as Record<string, unknown>) };
+  const specs = recipe.inputs as InputSpec[];
+  // a form that carries on from a clip before; one that opens needs its `opensOnly` picture as any other
+  const carries = specs.some((s) => s.type === "clip" && s.role === "previous" && input[s.id]);
+  for (const spec of specs) {
+    const value = input[spec.id];
+    // (one a clip that carries on goes without is left out: what it builds then, and the files it takes, are not the same)
+    if ((spec.type === "image" || spec.type === "audio") && !spec.optional && !(spec.type === "image" && spec.opensOnly && carries) && (typeof value !== "string" || !value)) input[spec.id] = NO_MEDIA;
+    if (spec.type === "clip" && !spec.optional && !(value && typeof value === "object" && (value as ClipValue).asset)) input[spec.id] = { asset: NO_MEDIA };
+  }
+  return input;
+}
+
+/**
+ * The uploads and facts that stand in for the media withMedia put stand-ins for: what a build reads of them (a size, a
+ * clip's frames, a sound's seconds), at the form's own figures where it has them. Never sent: a load with a stand-in is
+ * cut to its loaders, and a forecast or a "loaded?" reads only the graph's models and work.
+ */
+export function standIns(recipe: Recipe<any>, input: Record<string, unknown>): { uploads: Record<string, string>; media: Record<string, MediaFacts> } {
+  const uploads: Record<string, string> = {};
+  const media: Record<string, MediaFacts> = {};
+  for (const spec of recipe.inputs as InputSpec[]) {
+    if (!standsIn(spec, input[spec.id])) continue;
+    uploads[spec.id] = NO_MEDIA;
+    const seconds = spec.type === "audio" || spec.type === "clip" ? Number(input[spec.window?.seconds ?? ""]) : NaN;
+    if (spec.type === "clip") {
+      const wanted = spec.framesFrom ? Number(input[spec.framesFrom]) : NaN;
+      const frames = Number.isFinite(wanted) && wanted > 0 ? wanted : Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * spec.fps) + 1 : spec.frames[0] ?? 1;
+      media[spec.id] = { width: 1024, height: 1024, frames, fps: spec.fps, hasSound: true };
+    } else if (spec.type === "audio") media[spec.id] = { width: 0, height: 0, seconds: Number.isFinite(seconds) && seconds > 0 ? seconds : 5 };
+    else media[spec.id] = { width: 1024, height: 1024 };
+  }
+  return { uploads, media };
 }
 
 /** A file choice left on its default, when this ComfyUI does not have that file: the best one it has. */
@@ -181,7 +231,8 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   // fail, the first in that order is the one said
   const specs = (recipe.inputs as InputSpec[]).filter((spec) => {
     const value = input[spec.id];
-    return (spec.type === "image" && typeof value === "string" && value !== NO_PICTURE) || (spec.type === "clip" && Boolean(value)) || (spec.type === "references" && Array.isArray(value)) || (spec.type === "audio" && typeof value === "string");
+    if (standsIn(spec, value)) return false;
+    return (spec.type === "image" && typeof value === "string") || (spec.type === "clip" && Boolean(value)) || (spec.type === "references" && Array.isArray(value)) || (spec.type === "audio" && typeof value === "string");
   });
   const told = specs.map(() => [] as string[]);
   const done = await Promise.allSettled(specs.map((spec, i) => {
@@ -210,10 +261,12 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
 
   const seed = typeof input.seed === "number" && input.seed !== RANDOM_SEED ? input.seed : randomSeed();
   // a load asked before the form has its pictures: the models are loaded, without the step that would need them
-  const bare = Boolean(row.warm) && (recipe.inputs as InputSpec[]).some((s) => s.type === "image" && input[s.id] === NO_PICTURE);
+  const bare = Boolean(row.warm) && (recipe.inputs as InputSpec[]).some((s) => standsIn(s, input[s.id]));
+  // what the build reads of the media not chosen yet (a clip's frames, a sound's seconds), cut away with everything but the loaders
+  const stood = bare ? standIns(recipe, input) : null;
   const options = asBuilt(catalog, facts, packsSaid(row));
-  const whole = recipe.build(chosen, { seed, slots: slotFiles, uploads, media, canvas: plan?.canvas, has: (cls) => cls in catalog, options: optionsIn(catalog), wants: options.wants });
-  const loaders = bare ? warmGraph({ ...whole, passes: [] }) : null;
+  const whole = recipe.build(chosen, { seed, slots: slotFiles, uploads: { ...uploads, ...stood?.uploads }, media: { ...media, ...stood?.media }, canvas: plan?.canvas, has: (cls) => cls in catalog, options: optionsIn(catalog), wants: options.wants });
+  const loaders = bare ? warmGraph({ ...whole, passes: [] }, { unread: [NO_MEDIA] }) : null;
   if (bare && !loaders) throw new Error("this loads no model: there is nothing to preload");
   const built: BuiltGraph = loaders ? { ...whole, graph: loaders.graph, phases: loaders.phases, passes: [], outputs: [] } : whole;
   refuseGap(built.graph, gaps);
@@ -746,14 +799,15 @@ export async function builtOf(core: QueueCore, recipeId: string, rawInput: unkno
   const input = parseInput(recipe, withTexts(recipe, rawInput)) as Record<string, unknown>;
   const comfy = opts.comfy ?? (await core.comfy());
   const catalog = opts.catalog ?? (await comfy.catalog());
-  const uploads: Record<string, string> = {};
-  const media: Record<string, MediaFacts> = {};
+  // a picture, sound or video not chosen yet stands in at the form's own figures, never looked up in the library
+  const { uploads, media } = standIns(recipe, input);
   const standIn = (key: string, asset: string, facts: MediaFacts | null) => {
     uploads[key] = opts.names?.[asset] ?? "stand-in";
     media[key] = facts ?? { width: 1024, height: 1024 };
   };
   for (const spec of recipe.inputs as InputSpec[]) {
     const value = input[spec.id];
+    if (standsIn(spec, value)) continue;
     if ((spec.type === "image" || spec.type === "audio") && typeof value === "string") standIn(spec.id, value, spec.type === "image" ? await pictureFacts(core.db, value) : null);
     else if (spec.type === "clip" && value && typeof value === "object") standIn(spec.id, (value as ClipValue).asset, await clipFacts(core, spec, value as ClipValue, input, opts.finishedFrom ?? null));
     else if (spec.type === "references" && Array.isArray(value)) {

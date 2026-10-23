@@ -106,6 +106,13 @@ describe("a node pack a render asks for, on a ComfyUI of your own", () => {
     expect((await post(t.app, `/api/jobs/${id}/packs`, { do: "nothing", packs: ["x"] })).statusCode).toBe(400);
   });
 
+  it("a form with no media yet (Lip sync with no recording) says the pack its options need all the same (card #50)", async () => {
+    await setUp();
+    const form = await post(t.app, "/api/form/packs", { recipe: "h3.lipsync", input: { description: "a cat on a wall", fast: false, cache: true } });
+    expect(form.statusCode).toBe(200);
+    expect(form.json()).toMatchObject({ notes: [{ input: "cache", pack: "ComfyUI-DaSiWa-Nodes", state: "comes" }] });
+  });
+
   it("Install and restart: installed by Manager, ComfyUI restarted once free, then the job renders with the node", async () => {
     await setUp();
     const id = (await post(t.app, "/api/jobs", { recipe: "h3.video", input: CACHED })).json().ids[0] as string;

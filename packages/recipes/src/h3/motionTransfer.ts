@@ -1,6 +1,6 @@
 import { defineRecipe, gridAtOrBefore, type BuildContext, type BuiltGraph, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type Variant } from "@afflatus/core";
 import { H3_FPS, H3_GRID } from "./family";
-import { h3Inputs, type H3Video } from "./inputs";
+import { H3_NO_TAGS, h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video, SHOT_WORDS } from "./video";
 import { H3_CONTINUATION_NODES, H3_SEAM, H3_TRIM } from "./join";
 import { H3_STARTS, modelOf, referenceNeeds, turboNeeds, vedaNeeds } from "./model";
@@ -110,13 +110,13 @@ const inputs: InputSpec[] = [
     note: "what moves, its first frame: its room, its light and its people are kept, only the motion comes from the video. In the driving video's shape: the video is cut to the picture's from the centre. A window after a swap needs none: it carries on from it",
   },
   // the prompt's parts (card #34): the prompt as sent written from them while it is left empty (motionFromParts)
-  { id: "look", type: "prompt", weights: false, label: "How they look", style: "sentences", line: true, optional: true, noCast: true, designed: true, holds: "subject", placeholder: "short brown hair, a white shirt and jeans", note: "the person of the picture, in a few words: what H3 keeps of them. Shared by a source's windows" },
-  { id: "happens", type: "prompt", weights: false, label: "What happens", style: "sentences", optional: true, noCast: true, designed: true, placeholder: "He dances in the living room, turning on the spot and raising his arms.", note: "in this part, in the present tense. Each window of a source keeps its own" },
+  { id: "look", type: "prompt", weights: false, label: "How they look", style: "sentences", line: true, optional: true, noCast: true, designed: true, holds: "subject", placeholder: "short brown hair, a white shirt and jeans", note: `the person of the picture, in a few words: what H3 keeps of them. Shared by a source's windows. ${H3_NO_TAGS}` },
+  { id: "happens", type: "prompt", weights: false, label: "What happens", style: "sentences", optional: true, noCast: true, designed: true, placeholder: "He dances in the living room, turning on the spot and raising his arms.", note: `in this part, in the present tense. Each window of a source keeps its own. ${H3_NO_TAGS}` },
   {
     // each window keeps its own (traits.windows.own): clip 6 of a source can show something else than clip 2
     id: "description", type: "prompt", weights: false, label: "Prompt as sent", style: "sentences", optional: true, designed: true, noCast: true,
     placeholder: "The man with short brown hair, in a white shirt and jeans, dances in the living room, turning on the spot and raising his arms.",
-    note: "who is in the picture and what they do in this part, in the present tense: optional, it helps H3 keep what is there. Each clip of a source keeps its own",
+    note: `who is in the picture and what they do in this part, in the present tense: optional, it helps H3 keep what is there. Left empty, it is written from the parts above; typed, it is sent as it is and the parts wait. Each clip of a source keeps its own. ${H3_NO_TAGS} After a swap, tags typed are taken out`,
   },
   // H3's colour match pulls towards the first frame: here the picture
   // H3's Model is this form's own: a window after a swap shows the swap's in its place (the one it runs on)

@@ -8,6 +8,8 @@ export interface RecipeInfo {
   family: string;
   /** The input that is the prompt as sent, written from the form's parts while it is left empty (POST /form/prompt). */
   partsInto?: string;
+  /** Texts that field may hold that the form started on, not typed (a swap's LoRA caption): read as empty (core's typedInto). */
+  partsStartOn?: string[];
   /** Made from a workflow the user imported (Workflows), not built in. */
   imported?: true;
   /** Not offered for now (core's Recipe.hidden): what was made with it still opens. */

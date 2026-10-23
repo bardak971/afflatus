@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { dryContext, parseInput, type Recipe } from "@afflatus/core";
-import { recipeById } from "../src/index";
-import { swapFromParts, SWAP_CAPTION, typedPrompt } from "../src/h3/swap";
+import { dryContext, parseInput, typedInto, type Recipe } from "@afflatus/core";
+import { recipeById, recipes } from "../src/index";
+import { swapFromParts, swapSent, SWAP_CAPTION, typedPrompt, type H3Swap } from "../src/h3/swap";
 import { motionFromParts, motionTransferFromParts } from "../src/h3/motionTransfer";
 import { h3Video } from "../src/h3/video";
 
@@ -93,5 +93,51 @@ describe("the shot's words (card #27)", () => {
     expect(sent(h3Video, v as never, { description: layout, shot: "Medium" })).toContain(layout);
     expect(sent(h3Video, v as never, { description: layout, shot: "Medium" })).not.toContain("Medium shot.");
     expect(sent(h3Video, v as never, { description: "A red ball rolls.", shot: "Medium" })).toContain("Medium shot. A red ball rolls.");
+  });
+});
+
+/**
+ * Card #49: the fused turbo's preset wrote its prompt into "Prompt as sent", where the form showed it as typed and the parts'
+ * prompt was hidden. No preset writes a form's prompt as sent; a draft or clip that kept the preset's text renders as before.
+ */
+describe("the prompt as sent of a form written from parts", () => {
+  const FUSED = "minimax_h3_fused_refdelta_r1024_turbo8_mystic07_int8_convrot.safetensors";
+  const fromParts = recipes.filter((r) => r.partsInto);
+
+  it("is written by no preset", () => {
+    expect(fromParts.map((r) => r.id).sort()).toEqual(["h3.motion", "h3.swap"]);
+    for (const r of fromParts) for (const p of r.presets ?? []) expect(Object.keys(p.values), `${r.id}: ${p.match}`).not.toContain(r.partsInto);
+  });
+
+  it("holding a text the form started on, is the parts' prompt: what an old swap on the fused turbo sends is unchanged", () => {
+    const swap = recipeById("h3.swap")!;
+    const parts = { inSource: "teest", look: "test", happens: "test", swapModel: FUSED };
+    const written = swapFromParts(parts, 1);
+    expect(written).toBe("Swap teest in <Video 1> with the character in <Picture 1>. The character in <Picture 1>: test. Test. Keep the motion, the gestures and the lip movements of <Video 1>. Keep the room of <Video 1> exactly as it is.");
+    for (const started of swap.partsStartOn ?? []) {
+      expect(typedInto(swap, started)).toBe(false);
+      const input = parseInput(swap, { ...parts, source: { asset: "v1" }, who: started }) as H3Swap;
+      expect(swapSent(input, 1)).toBe(written);
+    }
+    expect(swap.partsStartOn).toContain(SWAP_CAPTION);
+  });
+});
+
+/** Card #49: the "?" of each text of an H3 form says that its tags are Afflatus's to write; Swap's prompt as sent says what they are. */
+describe("the tags, said in the ? of the H3 forms' texts", () => {
+  const noteOf = (recipe: string, input: string) => String((recipeById(recipe)!.inputs.find((i) => i.id === input) as { note?: string } | undefined)?.note ?? "");
+  it("on every text the user writes but a typed prompt as sent", () => {
+    const texts: Array<[string, string]> = [
+      ["h3.video", "description"], ["h3.video", "subject"], ["h3.lipsync", "description"], ["h3.lipsync", "subject"],
+      ["h3.swap", "inSource"], ["h3.swap", "look"], ["h3.swap", "happens"],
+      ["h3.motion", "look"], ["h3.motion", "happens"], ["h3.motion", "description"],
+    ];
+    for (const [recipe, input] of texts) expect(noteOf(recipe, input), `${recipe} ${input}`).toMatch(/Afflatus adds/);
+  });
+  it("Swap's prompt as sent: what <Video 1> and <Picture 1> are, and that a typed prompt goes as it is", () => {
+    const note = noteOf("h3.swap", "who");
+    expect(note).toMatch(/<Video 1> is the source's window/);
+    expect(note).toMatch(/<Picture 1> the person's picture \(the reference, or the cast person's first photo\)/);
+    expect(note).toMatch(/sent as it is/);
   });
 });
