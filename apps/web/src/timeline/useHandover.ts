@@ -10,6 +10,12 @@ import type { Clip } from "../api";
 const PREROLL_MS = 300;
 /** How early the cut to the clip after is made: a video frame at 48 a second plus the animation frame the check may be late by. */
 const CUT_EARLY_MS = 24;
+/**
+ * How long this clip may stay on its last frame for a clip after that is still behind its start: on a loaded machine it began
+ * late (its video starts slowly) and showing it at once put a frame of its hidden run-up on screen (card #48). Past this it
+ * is shown anyway, should it have stalled: a still picture is worse than one moment seen twice.
+ */
+const HOLD_MS = 300;
 
 /**
  * How the clip after fades in over `from` as the player hands over, the same as the export (joinFade in @afflatus/core):
@@ -102,6 +108,8 @@ export function useHandover(h: Handover) {
   useEffect(() => {
     if (!playing) return;
     let frameId = 0;
+    /** Since when this clip has been held on its last frame for the clip after (HOLD_MS); 0 while it is not. */
+    let heldSince = 0;
     step.current = () => {
       const c = seq[at];
       if (!c) return true;
@@ -116,10 +124,17 @@ export function useHandover(h: Handover) {
       const followEl = following?.take ? els.current.get(following.take.id) : undefined;
       // how far it is behind the moment this one shows (they show the same moments around the change)
       const behind = followEl && !followEl.paused && fadeOn.current ? startOf(following!) + (local - c.lengthMs) - followEl.currentTime * 1000 : 0;
-      // watched on its own frames (see arm): it takes over when it shows its first one, or late at the latest; else as before
+      // watched on its own frames (see arm): it takes over when it shows its first one; else at the cut once in step
       const watched = armed.current;
-      const due = handReady.current || (watched ? local >= c.lengthMs + 100 : local >= c.lengthMs - CUT_EARLY_MS && (behind <= 12 || local >= c.lengthMs + 100));
-      if (due || el?.ended) {
+      const inStep = !watched && local >= c.lengthMs - CUT_EARLY_MS && behind <= 12;
+      // this clip has nothing more of its own to show, or is late: the change is made then, unless the clip after still runs
+      // short of its start (its first frame not shown, or more than a frame behind). This one then stays on its last frame
+      // until it gets there, HOLD_MS at most: a frame read off its own clock, never a margin a loaded machine can lose
+      const over = Boolean(el?.ended) || local >= c.lengthMs + 100;
+      const short = Boolean(followEl && fadeOn.current && !followEl.paused) && (watched ? !handReady.current : behind > 12);
+      if (over && short && !heldSince) heldSince = t;
+      const due = handReady.current || inStep || (over && (!short || t - heldSince >= HOLD_MS));
+      if (due) {
         if (seq[at + 1]) {
           // a continuation dissolves in: this clip stops on its last frame and stays under it meanwhile
           const following = seq[at + 1]!;
