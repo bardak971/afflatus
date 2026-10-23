@@ -1,7 +1,7 @@
 import { EITHER_PACKS, packOfNode, parseInput, type InputSpec, type NodeCatalog, type Recipe } from "@afflatus/core";
 import { cannotWhy, lookAhead, packOfWant, type PackFacts } from "./jobPacks";
 import type { QueueCore } from "./queueModel";
-import { builtOf } from "./queueSubmit";
+import { builtOf, withMedia } from "./queueSubmit";
 
 /**
  * What a form says under an option whose node pack the machine it renders on lacks (the owner, 2026-10-20): the pack, that
@@ -52,7 +52,8 @@ export async function formPacks(
   // the nodes it cannot run without, each with the input that pulls it in when one does
   let input: Record<string, unknown>;
   try {
-    input = parseInput(recipe, raw) as Record<string, unknown>;
+    // a form without its media yet (Lip sync with no recording) is read with its settings all the same: they pull the nodes in
+    input = parseInput(recipe, withMedia(recipe, raw)) as Record<string, unknown>;
   } catch {
     return notes;
   }

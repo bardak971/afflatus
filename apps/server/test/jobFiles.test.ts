@@ -109,8 +109,8 @@ describe("the files a pod is sent for a waiting job", () => {
 
   it("fall back to the family's slots, and say so, for a job whose form cannot be read", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    // no source video: a swap's form cannot be read
-    const r = row("h3.swap", { who: "the man", references: [], swapModel: FUSED });
+    // a start before the source's: a swap's form cannot be read (one with no source video yet is: card #50)
+    const r = row("h3.swap", { source: { asset: "zz-test-source" }, sourceStart: -1, who: "the man", references: [], swapModel: FUSED });
     expect(await t.services.queue.loadedOnNew(r)).toBeNull();
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/its files are counted by its family's slots/));
     const files = filesUsed(t.services.registry.recipe("h3.swap")!, JSON.parse(r.inputs), null, h3.slots, null).map((f) => f.file);

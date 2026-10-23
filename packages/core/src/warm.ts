@@ -79,9 +79,10 @@ export const WARM_SINK = "PreviewAny";
  * as the render will need them, so the render that follows starts sampling at once.
  *
  * A graph without a sampling pass (an upscale alone) keeps its loaders only. Null when there is
- * nothing to load.
+ * nothing to load. `unread`: names standing in for media the form has not got yet (card #50): a loader fed by a node
+ * that reads one (a pose detector run on the driving video) is left out with it, as ComfyUI would refuse the name.
  */
-export function warmGraph(built: BuiltGraph): { graph: Graph; phases: BuiltGraph["phases"]; pass: { node: string; steps: number } | null } | null {
+export function warmGraph(built: BuiltGraph, opts: { unread?: readonly string[] } = {}): { graph: Graph; phases: BuiltGraph["phases"]; pass: { node: string; steps: number } | null } | null {
   const used = upstream(built.graph, built.outputs.map((o) => o.node));
   // The first pass is where sampling starts. A pass can be named by the scheduler that holds its step
   // count: the node that samples is then the nearest one that reads it and takes a latent.
@@ -92,9 +93,11 @@ export function warmGraph(built: BuiltGraph): { graph: Graph; phases: BuiltGraph
       .filter((id) => samples(id) && upstream(built.graph, [id]).has(named))
       .sort((a, z) => upstream(built.graph, [a]).size - upstream(built.graph, [z]).size)[0] ?? named
     : named;
+  const unread = opts.unread ?? [];
+  const readsUnread = (id: string) => unread.length > 0 && [...upstream(built.graph, [id])].some((n) => Object.values(built.graph[n]!.inputs).some((v) => typeof v === "string" && unread.some((u) => v.includes(u))));
   const ends = first && built.graph[first]
     ? [first]
-    : [...used].filter((id) => Object.values(built.graph[id]!.inputs).some((v) => typeof v === "string" && isModelFile(v)));
+    : [...used].filter((id) => Object.values(built.graph[id]!.inputs).some((v) => typeof v === "string" && isModelFile(v)) && !readsUnread(id));
   if (!ends.length) return null;
 
   const keep = upstream(built.graph, ends);

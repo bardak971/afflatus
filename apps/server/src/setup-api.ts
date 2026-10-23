@@ -12,6 +12,7 @@ import { comfyFolderOf, onThisMachine } from "./modelDownload";
 import { accessOf } from "./lock-api";
 import { installNodePack } from "./nodePack";
 import { preflight } from "./preflight";
+import { withMedia } from "./queueSubmit";
 import type { Services } from "./services";
 import { publicSettings, readSettings, writeSettings } from "./settings";
 
@@ -223,9 +224,10 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
     if (!recipe?.partsInto || !recipe.promptFromParts) return { into: null, text: "" };
     const input = (() => {
       try {
-        return parseInput(recipe, b.input);
+        // a form without its media yet (no source picked) is read with its settings' defaults, as the render will have them
+        return parseInput(recipe, withMedia(recipe, b.input));
       } catch {
-        // a form not whole yet (no source picked) still has its parts: read as they are (the rules take a part left out as empty)
+        // a form that does not read (a setting out of range) still has its parts: read as they are (the rules take a part left out as empty)
         return b.input;
       }
     })();
