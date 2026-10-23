@@ -83,10 +83,23 @@ describe("MiniMax H3 · Face refine", () => {
   });
 
   it("pastes over the face's box without SAM, and follows no body without the person detector", () => {
-    const { graph } = build({ faceRefine: true, references: people }, { slots: { ...slots, faceSam: undefined as never, faceSeg: undefined as never } });
+    const { built, graph } = build({ faceRefine: true, references: people }, { slots: { ...slots, faceSam: undefined as never, faceSeg: undefined as never } });
     expect(of(graph, "H3FaceStitch")[0]!.inputs.masks).toBeUndefined();
     expect(of(graph, "SAMLoader")).toHaveLength(0);
     expect(of(graph, "H3FaceTrackCrop")[0]!.inputs.fallback_detector).toBe("none");
+    // the coarser paste is said on the job (card #47)
+    expect(built.warnings).toEqual(["Ran without SAM's outline (the face pasted over its box): no SAM model on this ComfyUI (sam_vit_b_01ec64.pth in models/sams; Settings › Models has it)."]);
+  });
+
+  it("says the box paste where SAM's node pack is not there (a pod whose Impact Pack failed), the model sent or not", () => {
+    const { built, graph } = build({ faceRefine: true, references: people }, { has: (n: string) => n !== "SAMLoader" });
+    expect(of(graph, "H3FaceStitch")[0]!.inputs.masks).toBeUndefined();
+    expect(of(graph, "SAMLoader")).toHaveLength(0);
+    expect(built.loads).not.toContain(`sams/${slots.faceSam}`);
+    expect(built.warnings).toEqual(["Ran without SAM's outline (the face pasted over its box): its node pack comfyui-impact-pack is missing."]);
+    // a Finish › Face refine says it too
+    const finish = build({ faceRefine: true, faceRefineOnly: true, references: people }, { has: (n: string) => n !== "SAMLoader" });
+    expect(finish.built.warnings).toContain("Ran without SAM's outline (the face pasted over its box): its node pack comfyui-impact-pack is missing.");
   });
 
   it("is done without, and says why, with no picture, no model or no detector", () => {

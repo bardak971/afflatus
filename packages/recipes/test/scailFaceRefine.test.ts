@@ -77,6 +77,13 @@ describe("SCAIL-2 at 24 fps · Face refine", () => {
     expect(of(graph, "AfflatusH3AudioLock")).toHaveLength(0);
   });
 
+  it("says when the face is pasted over its box, SAM's node pack missing", () => {
+    const { built, graph } = build({ faceRefine: true }, { has: (n: string) => n !== "SAMLoader" });
+    expect(of(graph, "H3FaceStitch")[0]!.inputs.masks).toBeUndefined();
+    expect(built.warnings).toContain("Ran without SAM's outline (the face pasted over its box): its node pack comfyui-impact-pack is missing.");
+    expect(build({ faceRefine: true }).built.warnings ?? []).not.toContainEqual(expect.stringMatching(/SAM's outline/));
+  });
+
   it("is done without, and says why, without H3's text encoder and VAEs", () => {
     const { built, graph } = build({ faceRefine: true }, { slots: { ...slots, faceClip: undefined as never } });
     expect(of(graph, "H3FaceStitch")).toHaveLength(0);

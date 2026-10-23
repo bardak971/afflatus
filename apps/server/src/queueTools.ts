@@ -396,6 +396,7 @@ async function runFaceFinish(core: QueueCore, row: JobRow, run: Running, clips: 
     const faces = faceRefined(g, ctx, values, [parts, 0], { audio: sound, picture: pictureFile, frames });
     if (!faces.pass) throw new Error("Not face-refined: its node pack (comfyui-h3-facerefine) or Afflatus's audio lock is not on this ComfyUI.");
     for (const { w, why: without } of options.without) await warnJob(core.db, row.id, ranWithoutSaid(w, without));
+    if (faces.said) await warnJob(core.db, row.id, faces.said);
     let images = faces.images;
     if (rife) {
       // RIFE's 2n − 1 frames and the last one again: as long as the take

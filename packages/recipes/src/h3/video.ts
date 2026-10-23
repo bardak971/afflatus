@@ -303,7 +303,7 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   const skipped = faceRefineSkipped(input, ctx, { audio: true });
   // a Finish › Face refine that refines nothing would be the take made again, named a face pass: it fails, with why
   if (modelless && input.faceRefine && !made.refine) throw new Error(skipped ?? FACE_REFINE_PACK_NEEDED);
-  const said = [fine ? plainResizeSaid(input, ctx) : null, rifeSkippedSaid(input.smooth, ctx), skipped, vedaSaid].filter((x): x is string => Boolean(x));
+  const said = [fine ? plainResizeSaid(input, ctx) : null, rifeSkippedSaid(input.smooth, ctx), skipped, made.said, vedaSaid].filter((x): x is string => Boolean(x));
   const refining = made.refine ? [made.refine] : [];
   return {
     graph: g.graph,
