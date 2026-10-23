@@ -253,14 +253,17 @@ try {
   await fresh.locator("body").press("o");
   const outAt = (await shownIn(fresh)).at(-1);
   const from = (await shownIn(fresh)).length;
+  // the main thread kept busy meanwhile, as a heavy track render does (50 ms of work every 120 ms), and long enough for a dozen
+  // rounds: the Out was only said at the time reports' pace then, and the loop went 56 frames past it in 2 runs of 3 (card #55)
+  await fresh.evaluate(() => { setInterval(() => { const end = performance.now() + 50; while (performance.now() < end); }, 120); });
   await fresh.locator("body").press("l");
-  await fresh.waitForTimeout(4000);
+  await fresh.waitForTimeout(12000);
   await fresh.locator("body").press("Space");
   const looped = (await shownIn(fresh)).slice(from).filter((f, i, all) => !(i && all[i - 1]!.clip === f.clip && all[i - 1]!.index === f.index));
   const rounds = looped.filter((f, i) => i && f.clip === looped[i - 1]!.clip && f.index < looped[i - 1]!.index - 10).length;
   const past = outAt ? looped.filter((f) => f.clip > outAt.clip || (f.clip === outAt.clip && f.index > outAt.index + 6)) : [];
   if (!outAt || outAt.clip !== 2) problems.push(`range loop: Out stood on ${outAt ? `clip ${outAt.clip} frame ${outAt.index}` : "no frame seen"}, not in clip 2`);
-  else if (rounds < 2) problems.push(`range loop: back to In ${plural(rounds, "time")} in 4 s of a 0.8 s range (${looped.length} frames seen)`);
+  else if (rounds < 6) problems.push(`range loop: back to In ${plural(rounds, "time")} in 12 s of a 0.8 s range (${looped.length} frames seen)`);
   else if (past.length) problems.push(`range loop: ${past.length} frames shown past Out (clip ${outAt.clip} frame ${outAt.index}), as far as clip ${past.at(-1)!.clip} frame ${past.at(-1)!.index}`);
   else console.log(`player check: a range looped ${rounds} times back to In, never past Out`);
   await fresh.close();

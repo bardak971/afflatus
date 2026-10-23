@@ -70,6 +70,7 @@ export function playerProps(e: LoadedEditor): ComponentPropsWithoutRef<typeof Pl
     playing: e.playing,
     onPlaying: e.setPlaying,
     onTime: e.onTime,
+    stopAt: e.stopAt,
     preview: e.preview,
     live: e.liveShown,
     onStop: (job) => e.stop.mutate(job),

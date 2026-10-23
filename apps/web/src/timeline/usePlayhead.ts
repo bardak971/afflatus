@@ -68,6 +68,12 @@ export function usePlayhead({ clock, clips, endMs, player, rangeRef, loopRef, pl
       }
     }
   }, [clock, rangeRef, playingRange, loopRef, player, setPlaying]);
+  /**
+   * Where a range playing alone ends (its Out), for the player's frame loop to say the moment it gets there (card #55): the
+   * moments it says otherwise come at most 15 times a second, from a main thread that a busy track can hold back, and a loop
+   * went on 22 frames past Out before it was told; null while the whole video plays.
+   */
+  const stopAt = useCallback(() => (playingRange.current && rangeRef.current ? rangeRef.current.outMs : null), [playingRange, rangeRef]);
   // the timeline made shorter (an Undo, a clip removed or trimmed): the playhead and the time said are brought inside it,
   // rather than left standing past its end ("0:08.3 / 0:05.0", the owner's Timeline 9, 2026-10-22)
   useEffect(() => {
@@ -81,5 +87,5 @@ export function usePlayhead({ clock, clips, endMs, player, rangeRef, loopRef, pl
     const c = clips.find((x) => x.lengthMs > 0 && time >= x.atMs && time < x.atMs + x.lengthMs);
     return 1000 / Math.max(1, c?.take?.asset.fps ?? 24);
   };
-  return { volume, muted, onVolume, onMute, cursor, setCursor, onTime, frameMs };
+  return { volume, muted, onVolume, onMute, cursor, setCursor, onTime, stopAt, frameMs };
 }

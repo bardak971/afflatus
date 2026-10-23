@@ -83,6 +83,8 @@ export interface Handover {
   place(index: number, local: number, onward?: boolean): void;
   onPlaying(playing: boolean): void;
   onTime(ms: number): void;
+  /** Where the moment must be said the frame it is reached, not at the next of onTime's few a second (a range's Out). */
+  stopAt?: () => number | null;
   tuneMusic(global: number, force?: boolean): void;
   keyOf(c: Clip): string;
   startOf(c: Clip): number;
@@ -260,10 +262,13 @@ export function useHandover(h: Handover) {
       if (local > -400) {
         pos.current = { key: keyOf(c), local: Math.max(0, local), at: t };
         tuneMusic(c.atMs + Math.max(0, local));
-        // the screen around the video does not need every frame's time
-        if (t - said.current > 66) {
+        // the screen around the video does not need every frame's time; a range's Out does: said the frame it is reached
+        // (as onTime's own check, 15 ms before it), or the loop or the stop came up to 22 frames late (card #55)
+        const now = c.atMs + Math.max(0, local);
+        const out = h.stopAt?.() ?? null;
+        if (t - said.current > 66 || (out !== null && now >= out - 15)) {
           said.current = t;
-          onTime(c.atMs + Math.max(0, local));
+          onTime(now);
         }
       }
       return true;

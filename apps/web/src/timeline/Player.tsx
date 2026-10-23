@@ -37,6 +37,8 @@ export const Player = forwardRef<PlayerHandle, {
   playing: boolean;
   onPlaying(playing: boolean): void;
   onTime(ms: number): void;
+  /** Where what plays must be said the frame it gets there (a range's Out: usePlayhead stopAt); null for none. */
+  stopAt?: () => number | null;
   /** A take being looked at before it is chosen. */
   preview: Take | null;
   /** The clip that is rendering, when what is forming is to be watched here, and which clip it is. */
@@ -50,7 +52,7 @@ export const Player = forwardRef<PlayerHandle, {
   timeline?: string;
   /** The editor's transport, shown over the picture while the player fills the screen. */
   screen?: ScreenControls;
-}>(function Player({ clips, music, frame, playing, onPlaying, onTime, preview, live, onStop, timeline, master = 1, onPickPreview, screen }, ref) {
+}>(function Player({ clips, music, frame, playing, onPlaying, onTime, stopAt, preview, live, onStop, timeline, master = 1, onPickPreview, screen }, ref) {
   // what the live preview is, a picture or a clip: read on its own, so that a step of the render does not draw the player again
   const liveKind = useQueueOf((q) => (live && q.running?.clipId === live.clipId ? (q.running.previewMime?.startsWith("video/") ? "video" : "picture") : null)) ?? null;
   const masterRef = useRef(master);
@@ -276,7 +278,7 @@ export const Player = forwardRef<PlayerHandle, {
   }, [playing, nowKey, onPlaying, Boolean(music)]);
 
   // the frame loop while it plays, and the hand-over from one clip to the next (useHandover.ts)
-  const step = useHandover({ seq, at, playing, els, pos, said, masterRef, fadeOn, fadedIn, handReady, armed, thaw, crossOn, cross, setFrozen, setFading, place, onPlaying, onTime, tuneMusic, keyOf, startOf });
+  const step = useHandover({ seq, at, playing, els, pos, said, masterRef, fadeOn, fadedIn, handReady, armed, thaw, crossOn, cross, setFrozen, setFading, place, onPlaying, onTime, stopAt, tuneMusic, keyOf, startOf });
 
   // the screen: as large as fits, in the timeline's shape
   const box = useRef<HTMLDivElement>(null);
