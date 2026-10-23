@@ -1,6 +1,6 @@
 import { defineRecipe, type GraphBuilder, type InputSpec, type Ref, type Variant } from "@afflatus/core";
 import { H3_FPS, H3_MAX_FRAMES } from "./family";
-import { h3Inputs, type H3Video } from "./inputs";
+import { H3_NO_TAGS, h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video } from "./video";
 import { H3_STARTS, referenceNeeds, turboNeeds, vedaNeeds } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
@@ -64,7 +64,7 @@ const lipSyncInputs: InputSpec[] = h3Inputs.flatMap((spec): InputSpec[] => {
   if (spec.id === "seconds" || spec.id === "voice" || spec.id === "voiceStart" || spec.id === "voiceSeconds" || spec.id === "voiceEven") return [];
   if (spec.id === "description" && spec.type === "prompt") {
     return [
-      { ...spec, label: "What happens", placeholder: "A man at a café terrace, medium close-up, talking to the camera, calm and friendly.", note: "where they are and how they speak, without a dialogue line: the recording is what is said" },
+      { ...spec, label: "What happens", placeholder: "A man at a café terrace, medium close-up, talking to the camera, calm and friendly.", note: `where they are and how they speak, without a dialogue line: the recording is what is said. ${H3_NO_TAGS}` },
       ...recordingInputs,
     ];
   }

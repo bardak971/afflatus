@@ -1,9 +1,11 @@
-import { defineRecipe, gridAtOrBefore, upstream, type BuildContext, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type StartRule, type Variant } from "@afflatus/core";
+import { defineRecipe, gridAtOrBefore, typedInto, upstream, type BuildContext, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type StartRule, type Variant } from "@afflatus/core";
 import { H3_FPS, H3_GRID, H3_HYBRIDS, SWAP_MODELS } from "./family";
 import { modelOf, namedFor } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
 import { upscaleNeeds } from "../video/upscale";
 import { h3Inputs, type H3Video } from "./inputs";
+/** Said in the "?" of a swap's parts (card #49): the tags are written for them. */
+const PART_NO_TAGS = "No <Video 1> or <Picture 1> to type: Afflatus adds them";
 import { buildH3, h3Video, refinesOnly, SHOT_WORDS, type H3Extra } from "./video";
 import { saveVideo } from "../shared/out";
 import { rifeNeeds } from "../shared/finish";
@@ -145,9 +147,9 @@ export const swapInputs: InputSpec[] = [
   { id: "swapStrength", type: "number", label: "Swap LoRA strength", min: 0, max: 2, step: 0.05, default: 1, note: "its author's 1.0; 2 gave artifacts" },
   // the prompt's parts (card #34, the owner's mock of 2026-10-20): each a few words, the prompt written from them by rules
   // (swapFromParts); names mean nothing to H3, so the person in the source is said by how they look
-  { id: "inSource", type: "prompt", weights: false, label: "In the source", style: "sentences", line: true, optional: true, noCast: true, designed: true, placeholder: "the man in the grey hoodie", note: "who the source shows and is replaced, by how they look (a name means nothing to H3)" },
-  { id: "look", type: "prompt", weights: false, label: "How they look", style: "sentences", line: true, optional: true, noCast: true, designed: true, placeholder: "a black leather jacket over a white t-shirt", note: "the one who goes in: what of them the picture does not say, or says otherwise (clothes, hair). Shared by a source's windows" },
-  { id: "happens", type: "prompt", weights: false, label: "What happens", style: "sentences", optional: true, noCast: true, designed: true, placeholder: "He dances and steps toward the camera.", note: "in this clip, in the present tense. Each window of a source keeps its own" },
+  { id: "inSource", type: "prompt", weights: false, label: "In the source", style: "sentences", line: true, optional: true, noCast: true, designed: true, placeholder: "the man in the grey hoodie", note: `who the source shows and is replaced, by how they look (a name means nothing to H3). ${PART_NO_TAGS}` },
+  { id: "look", type: "prompt", weights: false, label: "How they look", style: "sentences", line: true, optional: true, noCast: true, designed: true, placeholder: "a black leather jacket over a white t-shirt", note: `the one who goes in: what of them the picture does not say, or says otherwise (clothes, hair). Shared by a source's windows. ${PART_NO_TAGS}` },
+  { id: "happens", type: "prompt", weights: false, label: "What happens", style: "sentences", optional: true, noCast: true, designed: true, placeholder: "He dances and steps toward the camera.", note: `in this clip, in the present tense. Each window of a source keeps its own. ${PART_NO_TAGS}` },
   {
     // The whole prompt, shown as it is sent (the owner, 2026-10-18: nothing hidden). It starts as the swap LoRA's caption; a
     // longer one broke 2 swaps of 3 on ref2va (2026-10-12), and the fused turbo needs the person described (§9.10), so it
@@ -156,7 +158,7 @@ export const swapInputs: InputSpec[] = [
     // the designer writes it, by the swap's own guide: from what the user says of the video and the picture (owner, 2026-10-18)
     id: "who", type: "prompt", weights: false, label: "Prompt as sent", style: "sentences", noCast: true, designed: true, optional: true,
     default: "", placeholder: SWAP_CAPTION,
-    note: "the whole prompt, as it is sent. Left empty, it is written from the parts above (the swap LoRA's caption first, as it was trained); typed, it is yours and the parts wait. The words do not choose who is replaced: the click on the stage does, else the largest face",
+    note: "the whole prompt, as it is sent. Left empty, it is written from the parts above (the swap LoRA's caption first, as it was trained); typed, it is yours and the parts wait. <Video 1> is the source's window, <Picture 1> the person's picture (the reference, or the cast person's first photo): typed with them, it is sent as it is; without them, its words are who is replaced in the caption. The words do not choose who is replaced: the click on the stage does, else the largest face",
   },
   {
     id: "source", type: "clip", role: "source", label: "Source video", frames: [SWAP_FRAMES], fps: H3_FPS, whole: true, pick: true,
@@ -259,10 +261,13 @@ const asSentence = (s: string) => {
 /** A part as words inside a sentence: no full stop at its end. */
 const asWords = (s: string) => s.trim().replace(/\s+/g, " ").replace(/[.!\s]+$/, "");
 
-/** A prompt the form starts on rather than one the user wrote: the caption, the fused turbo's preset. Read as empty. */
-const STARTED_ON = new Set([SWAP_CAPTION, SWAP_TURBO_PROMPT]);
+/**
+ * The prompts a form may hold without the user having written them: the caption, the fused turbo's preset (which wrote it
+ * into the field until 0.6.1, card #49). Read as empty, here and by the form (Recipe.partsStartOn).
+ */
+const SWAP_STARTED_ON = [SWAP_CAPTION, SWAP_TURBO_PROMPT] as const;
 /** The prompt as sent was typed (edited by hand): it is sent as it is, the parts waiting. */
-export const typedPrompt = (who: string) => Boolean(who.trim()) && !STARTED_ON.has(who.trim());
+export const typedPrompt = (who: string) => typedInto({ partsStartOn: SWAP_STARTED_ON }, who);
 
 /**
  * The swap's prompt written from its parts (card #34), by rules: the LoRA's caption first with the person the source shows
@@ -336,8 +341,10 @@ export function asClip(input: H3Swap, swapLora: string | null, frames: number, c
  * ref2va's speed, §9.10), then H3's own (DaSiWa's distilled files: Turbo, 8 steps without a LoRA).
  */
 export const SWAP_PRESETS = [
-  // the person described, nothing added: with the caption alone it took a cartoon on a TV for the person for 3 s (§9.10)
-  { match: "refdelta", values: { fast: true, turboSteps: 4, sampler: "er_sde", scheduler: "beta", shiftVideo: 12, shiftAudio: 3, who: SWAP_TURBO_PROMPT }, note: "a fused reference turbo: Turbo, 4 steps, er_sde / beta and the person described, as its swap workflow runs it" },
+  // its sampling only: the person described and its own sentences come from the parts (swapFromParts adds them for a
+  // refdelta model; with the caption alone it took a cartoon on a TV for the person for 3 s, §9.10). Written into the
+  // prompt as sent, the preset hid what the parts write (card #49)
+  { match: "refdelta", values: { fast: true, turboSteps: 4, sampler: "er_sde", scheduler: "beta", shiftVideo: 12, shiftAudio: 3 }, note: "a fused reference turbo: Turbo, 4 steps, er_sde / beta, as its swap workflow runs it" },
   ...(h3Video.presets ?? []),
 ];
 
@@ -447,6 +454,7 @@ export const h3Swap = defineRecipe<H3Swap>({
   // before (its last 5 frames pinned at the start), otherwise no join with the clips around it
   // the prompt as sent written from the parts while it is left empty (card #34)
   partsInto: "who",
+  partsStartOn: SWAP_STARTED_ON,
   promptFromParts: (input) => swapFromParts(input, Math.max(1, input.references?.length ?? 0)),
   traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], faceRefine: "faceRefine",
     // a window that carries on is Motion transfer, moved by its pose (card #42: H3 · Swap motion retired, which did this by itself)

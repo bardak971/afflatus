@@ -79,6 +79,12 @@ export interface H3Video extends ColourMatch {
 }
 
 /** The recipe's inputs, in the order the form shows them. */
+/**
+ * Said in the "?" of every H3 text the user writes but the prompt as sent (card #49): H3's tags are Afflatus's to write,
+ * around the words, in H3's own layout.
+ */
+export const H3_NO_TAGS = "No <Picture 1> or <Video 1> to type: Afflatus adds H3's tags, saying which picture is whom.";
+
 export const h3Inputs: InputSpec[] = [
   {
     id: "model", type: "model", label: "Model", folder: "diffusion_models", slot: "unet", match: ["minimax.?h3", "(^|[^a-z0-9])h3([^a-z0-9]|$)"],
@@ -87,6 +93,7 @@ export const h3Inputs: InputSpec[] = [
   {
     id: "description", type: "prompt", weights: false, label: "What happens", style: "sentences",
     placeholder: "She walks to the railing and looks out at the sea. The camera follows her slowly. (S1) says <d>[English] What a view.</d> softly.",
+    note: H3_NO_TAGS,
   },
   { id: "soundscape", type: "prompt", weights: false, label: "Sound effects", style: "sentences", optional: true, placeholder: "waves, a light wind, seagulls far away" },
   { id: "music", type: "prompt", weights: false, label: "Music", style: "sentences", optional: true, placeholder: "none" },
@@ -139,7 +146,7 @@ export const h3Inputs: InputSpec[] = [
   },
   {
     id: "subject", type: "prompt", weights: false, label: "How they look", style: "sentences", optional: true, showWhen: "references", holds: "subject",
-    placeholder: "brown hair, green eyes, freckles", note: "in a few words, to help the pictures",
+    placeholder: "brown hair, green eyes, freckles", note: `in a few words, to help the pictures. ${H3_NO_TAGS}`,
   },
   { id: "seconds", type: "number", label: "Duration", min: 4, max: 15, step: 0.5, default: 5, unit: " s", note: "the model is trained on 4 to 15 seconds. A clip that joins others is made longer by the frames it shares with them, within 15 seconds in all" },
   {
