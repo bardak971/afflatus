@@ -2,24 +2,32 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { modelIndex } from "./comfy";
 import { httpError, notFound } from "./errors";
-import { beginDownload, downloadBody, downloadTarget, type DownloadBody } from "./fetchFile";
+import type { DownloadView } from "./downloads";
+import { beginDownload, downloadBody, downloadTarget } from "./fetchFile";
 import { resolveLink } from "./fromLink";
+import { comfyFolderPaths, folderPlaces, listedFor, NOT_MODELS, samePath } from "./modelDownload";
 import type { Services } from "./services";
-import { readSettings } from "./settings";
+import { readSettings, updateSettings, type Settings } from "./settings";
+
+/** The query or body naming one ComfyUI by its id (settings.ts machines); left out: the first. */
+const onMachine = z.object({ machine: z.string().max(40).optional() });
+
+/** The downloads of one ComfyUI, by its id: one asked without a machine went to the first. */
+const mineOf = (settings: Settings, machine: string) => (d: DownloadView) => (d.machine ?? settings.machines[0]?.id) === machine;
 
 /** The downloads of model files into ComfyUI (downloads.ts, fetchFile.ts), and reading a link to a model. */
 export function registerDownloads(app: FastifyInstance, s: Services): void {
-  // what each download of this run was asked with, so that a failed or stopped one can be asked again as it was (the
-  // command bar's "Download again"); one of an earlier run is listed without it, and is downloaded again where it was found
-  const asked = new Map<string, DownloadBody>();
-  const withAgain = <T extends { id: string; status: string }>(d: T) => (asked.has(d.id) && (d.status === "error" || d.status === "stopped") ? { ...d, again: true as const } : d);
+  // the downloads still waiting their turn when Afflatus last stopped are asked again, in their order, once it is up
+  app.addHook("onReady", async () => {
+    void s.downloads.resume((ask, from) => beginDownload(s, from, downloadBody.parse(ask)));
+  });
 
   /** Model files being fetched into ComfyUI, whether that is turned on, and whether this ComfyUI can do it. */
   app.get("/api/downloads", async (req) => {
     const settings = await readSettings(s.db);
     const on = settings.downloadModels;
     // no machine at all (a rented-only start, none added yet): nothing to download into, nothing to ask
-    if (!settings.machines.length) return { on, items: s.downloads.list().map(withAgain), manager: { found: false as const }, via: "none" as const };
+    if (!settings.machines.length) return { on, items: s.downloads.list(), manager: { found: false as const }, via: "none" as const };
     // `machine`: asked of that ComfyUI (Settings › Models, its tab); the first one otherwise
     const { comfy, dir } = await downloadTarget(s, settings, z.object({ machine: z.string().max(40).optional() }).parse(req.query).machine);
     // whether ComfyUI-Manager is there is said with downloads off too: node packs are installed with it all the same. Said
@@ -27,29 +35,85 @@ export function registerDownloads(app: FastifyInstance, s: Services): void {
     const manager = await s.downloads.manager(comfy);
     // who would download: Afflatus itself (it can write ComfyUI's model folders), the node pack, ComfyUI-Manager, or nobody.
     // Said with downloads off too: a family's official file is downloaded on a press all the same (fetchFile.ts)
-    return { on, items: s.downloads.list().map(withAgain), manager, via: await s.downloads.route(comfy, dir) };
+    return { on, items: s.downloads.list(), manager, via: await s.downloads.route(comfy, dir) };
   });
 
   /** Fetch a missing model file into ComfyUI (see fetchFile.ts). Only when the user turned this on in Settings. */
   app.post("/api/downloads", async (req) => {
-    const body = downloadBody.parse(req.body);
-    const started = await beginDownload(s, req, body);
-    asked.set(started.id, body);
-    return started;
+    return beginDownload(s, req, downloadBody.parse(req.body));
   });
 
   /** A failed or stopped download asked for again as it was first asked: its line is taken off, a new one starts. */
   app.post<{ Params: { id: string } }>("/api/downloads/:id/again", async (req) => {
-    const body = asked.get(req.params.id);
     const was = s.downloads.list().find((d) => d.id === req.params.id);
     if (!was) throw notFound("that download");
     if (was.status !== "error" && was.status !== "stopped") throw httpError("That download has not failed or been stopped.", 409);
-    if (!body) throw httpError("Afflatus was restarted since: download it again from where it was found.", 409);
-    const started = await beginDownload(s, req, body);
-    asked.delete(req.params.id);
-    asked.set(started.id, body);
+    const kept = s.downloads.askOf(req.params.id);
+    if (!kept) throw httpError("It was not asked from a page of Afflatus: download it again from where it was found.", 409);
+    const started = await beginDownload(s, req, downloadBody.parse(kept.ask));
     s.downloads.stop(req.params.id);
     return started;
+  });
+
+  /** A waiting download moved in its machine's line: before another waiting one, or to the end (`before` null). */
+  app.post<{ Params: { id: string } }>("/api/downloads/:id/move", async (req) => {
+    const { before } = z.strictObject({ before: z.string().max(80).nullable() }).parse(req.body);
+    if (!s.downloads.move(req.params.id, before)) throw httpError("Only a download still waiting its turn moves, before another one waiting on the same ComfyUI.", 409);
+    return { ok: true };
+  });
+
+  /** Every download still waiting its turn taken out of the line: one ComfyUI's (`machine`), or all of them. */
+  app.post("/api/downloads/cancel-waiting", async (req) => {
+    const { machine } = onMachine.strict().parse(req.body ?? {});
+    const settings = await readSettings(s.db);
+    return { cancelled: s.downloads.cancelWaiting(machine ? mineOf(settings, machine) : undefined) };
+  });
+
+  /** The finished downloads taken off the list (done, failed, stopped): one ComfyUI's (`machine`), or all of them. */
+  app.post("/api/downloads/clear", async (req) => {
+    const { machine } = onMachine.strict().parse(req.body ?? {});
+    const settings = await readSettings(s.db);
+    return { cleared: s.downloads.clearDone(machine ? mineOf(settings, machine) : undefined) };
+  });
+
+  /**
+   * Where each model folder's downloads go on a ComfyUI (card #59): the paths ComfyUI reads it from, ComfyUI's own
+   * models/<folder> first, whether each can be written from here (ComfyUI on this machine), the one chosen, and the one a
+   * download takes now. Empty for a ComfyUI that does not say its folders.
+   */
+  app.get("/api/downloads/places", async (req) => {
+    const settings = await readSettings(s.db);
+    if (!settings.machines.length) return { machine: null, folders: {} };
+    const { comfy, dir, machine } = await downloadTarget(s, settings, onMachine.parse(req.query).machine);
+    const id = machine ?? settings.machines[0]!.id;
+    const paths = await comfyFolderPaths(comfy.client);
+    return { machine: id, folders: paths ? await folderPlaces(paths, comfy.client.baseUrl, dir, settings.downloadPlaces[id] ?? {}) : {} };
+  });
+
+  /** The place chosen for a model folder's downloads on a ComfyUI, or forgotten (`path` null): only one ComfyUI lists for it. */
+  app.put("/api/downloads/places", async (req) => {
+    const { machine, folder, path } = z.strictObject({ machine: z.string().max(40).optional(), folder: z.string().min(1).max(120), path: z.string().max(1000).nullable() }).parse(req.body);
+    if (NOT_MODELS.has(folder)) throw httpError("that is not a models folder");
+    const settings = await readSettings(s.db);
+    if (!settings.machines.length) throw httpError("There is no ComfyUI to download into: add yours in Settings › ComfyUI.", 409);
+    const { comfy, machine: asked } = await downloadTarget(s, settings, machine);
+    const id = asked ?? settings.machines[0]!.id;
+    let keep: string | null = null;
+    if (path !== null) {
+      const paths = await comfyFolderPaths(comfy.client);
+      if (!paths) throw httpError("This ComfyUI does not say where it reads its models from: it is too old to choose a place.", 409);
+      keep = listedFor(paths, folder).find((p) => samePath(p, path)) ?? null;
+      if (!keep) throw httpError(`ComfyUI does not read ${folder} from ${path}.`);
+    }
+    await updateSettings(s.db, (current) => {
+      const mine = { ...(current.downloadPlaces[id] ?? {}) };
+      if (keep) mine[folder] = keep;
+      else delete mine[folder];
+      const all = { ...current.downloadPlaces, [id]: mine };
+      if (!Object.keys(mine).length) delete all[id];
+      return { downloadPlaces: all };
+    });
+    return { ok: true };
   });
 
   /**

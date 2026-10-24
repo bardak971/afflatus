@@ -7,7 +7,7 @@ import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chooseRoute, MANAGER_BIG, MANAGER_HF } from "../src/downloads";
-import { fetchToFile, modelRoot, onThisMachine, placeIn, Refused, sizeText, type FetchTo } from "../src/modelDownload";
+import { fetchToFile, folderPlaces, modelRoot, onThisMachine, placeIn, placesOf, Refused, sizeText, type FetchTo } from "../src/modelDownload";
 import { until } from "./helpers";
 
 /** A file of 3 MB whose every byte depends on where it is: a piece out of place shows. It starts as a safetensors file does. */
@@ -209,6 +209,45 @@ describe("where Afflatus may write a model", () => {
     expect(await modelRoot(listed, "loras", "http://192.0.2.10:8188", "")).toBeNull();
     // a path on a network share is never written
     expect(await modelRoot({ loras: ["\\\\nas\\models\\loras"] }, "loras", "http://127.0.0.1:8188", "")).toBeNull();
+  });
+
+  it("takes ComfyUI's own models/<folder> first, though ComfyUI lists its older name and another app's folder first (card #59)", async () => {
+    // the owner's ComfyUI as it answered on 2026-10-24: unet before diffusion_models, A1111's folders (extra_model_paths.yaml) first
+    const comfy = join(dir, "ComfyUI");
+    const a1111 = join(dir, "sd.webui", "models");
+    for (const d of ["models/unet", "models/diffusion_models", "models/checkpoints", "models/loras", "custom_nodes"]) mkdirSync(join(comfy, d), { recursive: true });
+    for (const d of ["Stable-diffusion", "Lora", "LyCORIS"]) mkdirSync(join(a1111, d), { recursive: true });
+    const listed = {
+      custom_nodes: [join(comfy, "custom_nodes")],
+      diffusion_models: [join(comfy, "models", "unet"), join(comfy, "models", "diffusion_models"), join(dir, "Krea2")],
+      checkpoints: [join(a1111, "Stable-diffusion"), join(comfy, "models", "checkpoints")],
+      loras: [join(a1111, "Lora"), join(a1111, "LyCORIS"), join(comfy, "models", "loras")],
+    };
+    const local = "http://127.0.0.1:8188";
+    expect(await modelRoot(listed, "diffusion_models", local, "")).toBe(await realpath(join(comfy, "models", "diffusion_models")));
+    expect(await modelRoot(listed, "checkpoints", local, "")).toBe(await realpath(join(comfy, "models", "checkpoints")));
+    expect(await modelRoot(listed, "loras", local, "")).toBe(await realpath(join(comfy, "models", "loras")));
+    // the order the menu offers them in, each said short under ComfyUI's folder
+    expect(placesOf(listed.loras, "loras", comfy).map((p) => [p.kind, p.shown])).toEqual([["own", join("models", "loras")], ["other", join(a1111, "Lora")], ["other", join(a1111, "LyCORIS")]]);
+    expect(placesOf(listed.diffusion_models, "diffusion_models", comfy).map((p) => p.kind)).toEqual(["own", "older", "other"]);
+    // its own folder not there: the older name, then the others
+    rmSync(join(comfy, "models", "diffusion_models"), { recursive: true });
+    expect(await modelRoot(listed, "diffusion_models", local, "")).toBe(await realpath(join(comfy, "models", "unet")));
+    // the place chosen, while ComfyUI lists it; never one it does not
+    expect(await modelRoot(listed, "loras", local, "", join(a1111, "Lora"))).toBe(await realpath(join(a1111, "Lora")));
+    expect(await modelRoot(listed, "loras", local, "", join(dir, "elsewhere"))).toBe(await realpath(join(comfy, "models", "loras")));
+    // what the page is told: each place, whether it can be written, the one chosen and where a download goes
+    const told = await folderPlaces(listed, local, "", { loras: join(a1111, "Lora") });
+    expect(told.loras).toMatchObject({ chosen: join(a1111, "Lora"), goes: join(a1111, "Lora") });
+    expect(told.diffusion_models!.goes).toBe(join("models", "unet"));
+    expect(told.diffusion_models!.places.map((p) => p.ok)).toEqual([false, true, false]);
+    expect(told.custom_nodes).toBeUndefined();
+  });
+
+  it("reads a pod's Linux paths as Linux paths, and a models/<folder> as ComfyUI's own when its folder is not said", () => {
+    const pod = ["/workspace/extra/loras", "/workspace/ComfyUI/models/loras"];
+    expect(placesOf(pod, "loras", "/workspace/ComfyUI").map((p) => [p.kind, p.shown])).toEqual([["own", "models/loras"], ["other", "/workspace/extra/loras"]]);
+    expect(placesOf(pod, "loras", null).map((p) => p.kind)).toEqual(["own", "other"]);
   });
 
   it("takes a ComfyUI on another machine's paths only inside the folder set in Settings, and never custom_nodes", async () => {

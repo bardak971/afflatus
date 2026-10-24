@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { api, type SettingsPatch } from "../../api";
 import { useSettings } from "../../data";
-import { DownloadRow, useDownloads } from "../../GetFile";
+import { useDownloads } from "../../GetFile";
 import { MANAGER_CAUTION, NO_ROUTE } from "../../useGetFile";
 import { Button, buttonClass, cx, ErrorNote, fieldClass, Toggle } from "../../ui";
 import { Block, Card, Row, Status } from "./Rows";
@@ -51,11 +51,6 @@ export function CivitaiCard() {
         <Row tone="warn" label="Nothing can download" help={`${NO_ROUTE} ${MANAGER_HOWTO}`}>
           <Link href="/settings" className={buttonClass({ tone: "danger", size: "sm" })}>Test again in ComfyUI</Link>
         </Row>
-      )}
-      {(downloads.data?.items.length ?? 0) > 0 && (
-        <Block className="gap-1.5">
-          {downloads.data!.items.map((d) => <DownloadRow key={d.id} d={d} named />)}
-        </Block>
       )}
       <Row
         setting="server.civitaiLookups"

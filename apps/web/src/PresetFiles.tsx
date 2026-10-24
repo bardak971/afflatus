@@ -130,7 +130,8 @@ export function PresetFiles({ id, def, fetch, inHead = false }: { id: string; de
         </div>
       )}
       {fetchAll.isError && <ErrorNote>{fetchAll.error.message}</ErrorNote>}
-      {downloads.data?.items.filter((d) => files.some((f) => fileKey(f.folder, f.file) === fileKey(d.folder, d.file)) && d.status !== "done").map((d) => <DownloadRow key={d.id} d={d} named />)}
+      {/* each file's row says its own download once it can download (its GetFile): listed here only before that */}
+      {!(fetching && accepted) && downloads.data?.items.filter((d) => files.some((f) => fileKey(f.folder, f.file) === fileKey(d.folder, d.file)) && d.status !== "done").map((d) => <DownloadRow key={d.id} d={d} named />)}
       {licence && def.licence && (
         <Dialog label="Licence of the preset's files" onClose={() => setLicence(false)} className={cx(DIALOG, "max-w-[520px]")}>
             <DialogHead icon={<ScrollText size={16} />} title="Before the files are fetched" sub={`Licence of the preset's files · ${def.licence.name}`} onClose={() => setLicence(false)} />

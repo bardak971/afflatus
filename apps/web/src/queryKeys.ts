@@ -30,6 +30,8 @@ export const queryKeys = {
   storage: () => ["storage"] as const,
   /** The downloads, and who would download into the first ComfyUI or the one named (under it: read again together). */
   downloads: (machine?: string) => (machine ? (["downloads", machine] as const) : (["downloads"] as const)),
+  /** Where each model folder's downloads go on a ComfyUI (card #59): read again when a place is chosen, not on every download's step. */
+  downloadPlaces: (machine?: string) => (machine ? (["download-places", machine] as const) : (["download-places"] as const)),
   presetFiles: () => ["preset-files"] as const,
   backupPlan: () => ["backup-plan"] as const,
   /** The ComfyUI log, of the first machine or of the one named. */

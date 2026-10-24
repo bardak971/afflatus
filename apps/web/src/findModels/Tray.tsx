@@ -8,6 +8,8 @@ import { queryKeys } from "../queryKeys";
 import { useSayFailed } from "../sayFailed";
 import { Select } from "../Select";
 import { Button, CloseButton, cx } from "../ui";
+import { FileState, GoesTo } from "../DownloadsLine";
+import { useDownloads } from "../useGetFile";
 import { getOnPc, type FindTarget, type PickedFile } from "./store";
 
 /**
@@ -27,9 +29,14 @@ export function Tray({ files, target, onRemove, onClear, onDone, dropping, onOve
 }) {
   const client = useQueryClient();
   const sayFailed = useSayFailed({ id: "find-models" });
-  const bytes = files.reduce((n, f) => n + (f.size ?? 0), 0);
-  const estimate = files.length ? target.estimate?.(files) ?? null : null;
-  const add = useMutation({ mutationFn: async () => target.add(files), onSuccess: onDone, onError: sayFailed("Not added") });
+  // onto this PC, each file's download says how it goes in its row (In line · 3rd, Downloading, Here): a file coming or
+  // here already is not asked for twice, and Picked stays open on them (card #60)
+  const downloads = useDownloads().data?.items ?? [];
+  const mine = (f: PickedFile) => downloads.find((d) => d.file === f.file && d.folder === f.folder && !d.machine && d.status !== "error" && d.status !== "stopped");
+  const toGet = target.pc ? files.filter((f) => !mine(f)) : files;
+  const bytes = toGet.reduce((n, f) => n + (f.size ?? 0), 0);
+  const estimate = toGet.length ? target.estimate?.(toGet) ?? null : null;
+  const add = useMutation({ mutationFn: async () => target.add(toGet), onSuccess: () => (target.pc ? void client.invalidateQueries({ queryKey: queryKeys.downloads() }) : onDone()), onError: sayFailed("Not added") });
   // the files into a Model set as its own files (the set saved as it is, plus these)
   const sets = useQuery({ queryKey: queryKeys.modelSets.all(), queryFn: ({ signal }) => api.modelSets({ signal }), staleTime: 30_000 });
   const [toSet, setToSet] = useState("");
@@ -80,9 +87,9 @@ export function Tray({ files, target, onRemove, onClear, onDone, dropping, onOve
           <div key={fileKey(f)} className="grid grid-cols-[minmax(0,1fr)_auto_64px_24px] items-center gap-2 border-b border-line/60 px-4 py-2 text-body">
             <span className="flex min-w-0 flex-col">
               <span className="break-all">{f.file}</span>
-              <span className="truncate text-xs text-ink-3">{f.folder} · {f.from}</span>
+              <span className="flex min-w-0 items-center gap-1.5 truncate text-xs text-ink-3">{f.folder} · {f.from}{target.pc && !mine(f) && <GoesTo folder={f.folder} />}</span>
             </span>
-            <ViaChip via={f.via} />
+            {target.pc && mine(f) ? <FileState d={mine(f)} /> : <ViaChip via={f.via} />}
             <span className="text-right font-mono text-xs text-ink-2">{f.size ? size(f.size) : "–"}</span>
             <CloseButton size={24} label={`Take ${f.file} off`} onClose={() => onRemove(f)} />
           </div>
@@ -92,7 +99,7 @@ export function Tray({ files, target, onRemove, onClear, onDone, dropping, onOve
       <div className="flex flex-col gap-2 border-t border-line px-4 py-3 text-xs">
         <span className="flex justify-between"><span className="text-ink-3">to fetch</span><span className="font-mono">{gb(bytes)}</span></span>
         {estimate && <span className="flex justify-between gap-3"><span className="text-ink-3">time and price</span><span className="text-right font-mono">{estimate}</span></span>}
-        <Button tone="primary" disabled={!files.length || add.isPending} onClick={() => add.mutate()} className="justify-center">{target.action}{files.length ? ` · ${files.length}` : ""}</Button>
+        <Button tone="primary" disabled={!toGet.length || add.isPending} onClick={() => add.mutate()} className="justify-center">{target.action}{toGet.length ? ` · ${toGet.length}` : ""}</Button>
         <span className="flex items-center gap-2">
           <span className="w-[150px]"><Select size="sm" label="Add to a Model set" value={toSet} placeholder="Add to a set…" disabled={!files.length || intoSet.isPending} onChange={(id) => { setToSet(id); intoSet.mutate(id); }} options={(sets.data?.items ?? []).map((s) => ({ value: s.id, label: s.name, note: plural(s.count, "file") }))} /></span>
           {!target.pc && <Button size="sm" tone="quiet" disabled={!files.length || download.isPending} onClick={() => download.mutate()}>Get on this PC</Button>}

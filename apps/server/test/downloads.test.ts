@@ -428,6 +428,32 @@ describe("who downloads", () => {
     await until(() => readdirSync(join(disk, "loras")).length === 0);
   });
 
+  it("lands in ComfyUI's own models/<folder> though another app's folder is listed first, and in the place chosen once chosen (card #59)", async () => {
+    const comfy = join(disk, "ComfyUI");
+    const a1111 = join(disk, "a1111", "Lora");
+    for (const d of [join(comfy, "models", "loras"), join(comfy, "custom_nodes"), a1111]) mkdirSync(d, { recursive: true });
+    await start(true, { folderPaths: { custom_nodes: [join(comfy, "custom_nodes")], loras: [a1111, join(comfy, "models", "loras")] } });
+    await on();
+    const first = (await post(t.app, "/api/downloads", { file: "one.safetensors", folder: "loras", url: `${siteUrl}/files/plain.safetensors` })).json();
+    await done(first.id);
+    expect(readFileSync(join(comfy, "models", "loras", "one.safetensors")).equals(FILE)).toBe(true);
+    expect((await list()).items.find((d: { id: string }) => d.id === first.id)).toMatchObject({ status: "done", shown: join("models", "loras") });
+    // the page is told the places, ComfyUI's own first, and where a download goes
+    const places = (await get(t.app, "/api/downloads/places")).json();
+    expect(places.folders.loras).toMatchObject({ goes: join("models", "loras"), places: [{ kind: "own", ok: true }, { kind: "other", path: a1111, ok: true }] });
+    // only a place ComfyUI lists is kept
+    const refused = await t.app.inject({ method: "PUT", url: "/api/downloads/places", payload: { folder: "loras", path: join(disk, "elsewhere") } });
+    expect(refused.statusCode).toBe(400);
+    expect((await t.app.inject({ method: "PUT", url: "/api/downloads/places", payload: { folder: "loras", path: a1111 } })).statusCode).toBe(200);
+    expect((await get(t.app, "/api/downloads/places")).json().folders.loras).toMatchObject({ chosen: a1111, goes: a1111 });
+    const second = (await post(t.app, "/api/downloads", { file: "two.safetensors", folder: "loras", url: `${siteUrl}/files/plain.safetensors` })).json();
+    await done(second.id);
+    expect(readFileSync(join(a1111, "two.safetensors")).equals(FILE)).toBe(true);
+    // forgotten: ComfyUI's own again
+    await t.app.inject({ method: "PUT", url: "/api/downloads/places", payload: { folder: "loras", path: null } });
+    expect((await get(t.app, "/api/settings")).json().downloadPlaces).toEqual({});
+  });
+
   it("refuses up front a file the disk has no room for", async () => {
     await start(true, { folderPaths: paths() });
     await on();

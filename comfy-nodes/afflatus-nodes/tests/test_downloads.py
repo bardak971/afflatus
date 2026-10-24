@@ -519,3 +519,38 @@ def test_a_stop_asked_to_keep_its_part_keeps_it_and_one_still_written_is_never_t
     gone.stop()
     run(gone)
     assert gone.state == "stopped" and not os.path.exists(gone.part)
+
+
+def test_a_download_goes_to_comfyuis_own_folder_first_then_the_place_chosen(tmp_path):
+    """ComfyUI lists the older name and extra_model_paths.yaml's folders first (an A1111 install's Lora): a download went
+    there, where nobody looked for it (Afflatus card #59). ComfyUI's own models/<folder> comes first now, and the place
+    asked for (`dir`) only when ComfyUI lists it for the folder."""
+    models = tmp_path / "comfy" / "models"
+    a1111 = tmp_path / "a1111" / "Lora"
+    for d in (models / "loras", models / "unet", models / "diffusion_models", a1111, tmp_path / "comfy" / "custom_nodes"):
+        d.mkdir(parents=True)
+
+    class Paths:
+        models_dir = str(models)
+        folder_names_and_paths = {
+            "loras": ([str(a1111), str(models / "loras")], set()),
+            "diffusion_models": ([str(models / "unet"), str(models / "diffusion_models")], set()),
+            "custom_nodes": ([str(tmp_path / "comfy" / "custom_nodes")], set()),
+        }
+
+        def get_folder_paths(self, name):
+            return self.folder_names_and_paths[name][0]
+
+    real = lambda p: os.path.realpath(str(p))  # noqa: E731
+    assert downloads.model_dir("loras", Paths()) == real(models / "loras")
+    assert downloads.model_dir("diffusion_models", Paths()) == real(models / "diffusion_models")
+    # the place chosen, when ComfyUI lists it
+    assert downloads.model_dir("loras", Paths(), str(a1111)) == real(a1111)
+    root, _ = target("loras", "x.safetensors", Paths(), str(a1111))
+    assert root == real(a1111)
+    # a path ComfyUI does not list for the folder is never taken
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    assert downloads.model_dir("loras", Paths(), str(elsewhere)) == real(models / "loras")
+    # its own folder gone: the older name, then the others in ComfyUI's order
+    assert downloads.ordered("diffusion_models", [str(a1111), str(models / "unet")], str(models)) == [str(models / "unet"), str(a1111)]

@@ -87,7 +87,7 @@ export function linkActions(x: BarCtx, card: BrowseCard, version: string, file: 
 
 /** A download in `!`: shown, stopped, dismissed, or asked again as it was first asked. */
 export function downloadActions(x: BarCtx, d: Download): Action[] {
-  const show: Action = { label: "Show the downloads", icon: <DownloadIcon size={14} />, note: "Settings › Models", run: () => x.go(settingHref("server.downloadModels")) };
+  const show: Action = { label: "Show the downloads", icon: <DownloadIcon size={14} />, note: "Settings › Models", run: () => x.go(settingHref("models.downloads")) };
   const done = () => void x.client.invalidateQueries({ queryKey: queryKeys.downloads() });
   const dismiss: Action = { label: "Dismiss", icon: <X size={14} />, stay: true, run: () => api.stopDownload(d.id).then(done, x.failed("Could not take it off the list")) };
   if (d.status === "starting" || d.status === "downloading") {

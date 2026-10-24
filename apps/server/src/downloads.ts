@@ -10,7 +10,7 @@ import { civitaiSites } from "./civitai";
 import type { Comfy } from "./comfy";
 import { httpError } from "./errors";
 import { fileName } from "./media";
-import { assertRoom, BAD_NAME, comfyFolderPaths, fetchToFile, freeBytes, modelRoot, NOT_MODELS, placeIn, REFUSED, Refused } from "./modelDownload";
+import { assertRoom, BAD_NAME, comfyBase, comfyFolderPaths, fetchToFile, freeBytes, modelRoot, NOT_MODELS, placeIn, REFUSED, Refused, shownPlace } from "./modelDownload";
 import { olderThan } from "./version";
 import { assertPublicUrl, cannotReach, fetchFailure, fetchPublic } from "./outbound";
 import { renameOver } from "./storage";
@@ -70,8 +70,16 @@ export interface DownloadView {
   quiet?: boolean;
   /** The ComfyUI it goes to (settings.ts machines, by id), when it was asked for one. */
   machine?: string;
-  /** Failed or stopped and askable again as first asked: set by the route that lists them (downloads-api.ts), never here. */
+  /** Failed or stopped, and askable again as it was first asked (the command bar's "Download again", the Downloads card's Try again). */
   again?: true;
+  /** Waiting or under way: its place in its machine's line, the ones under way counted first (1 and 2 run, 3 is next). */
+  turn?: number;
+  /** Where it goes (under way) or went (done), in a few words: "models\loras" under ComfyUI's folder, else the whole path. */
+  shown?: string;
+  /** How fast it comes now, in bytes a second, evened out; absent while nothing is measured. */
+  rate?: number;
+  /** When it ended (done, failed or stopped), in ms since 1970: the Downloads card's "Done today · 14:02". */
+  at?: number;
 }
 
 /**
@@ -91,6 +99,17 @@ export const PACK_BUSY_MS = 120_000;
 export const NO_DIRECT = "Its source gives no download link of its own, and a rented GPU cannot reach Afflatus to be sent the file through it.";
 
 interface Download extends DownloadView {
+  /** Its place among the waiting ones: the lowest starts first (move()). */
+  order: number;
+  /** What it was asked with (fetchFile.ts's body) and the address the page asked from: asked again with them (again, a restart). */
+  ask?: unknown;
+  from?: string;
+  /** The last reading of its bytes, for `rate`. */
+  sample?: { bytes: number; at: number };
+  /** The node pack's: the place chosen for its folder, asked of the pack (PACK_PLACE). */
+  place?: string;
+  /** ComfyUI's own folder as it says it: where `shown` is worked out from. */
+  base?: string;
   /** Its asker reads the ComfyUI's files again itself once it is there (a pod's files, podFiles.ts landed): not done here too. */
   filesRead?: true;
   token: string;
@@ -125,8 +144,11 @@ interface Download extends DownloadView {
   resumedFrom?: number;
 }
 
-/** What the state file keeps of a download: enough to list it again, and the .part to remove of one cut short. */
-type Kept = DownloadView & { finishedAt?: number; part?: string };
+/**
+ * What the state file keeps of a download: enough to list it again, the .part to remove of one cut short, and what it was
+ * asked with: one still waiting its turn (`queued`) is asked again at the next start, in its place in the line.
+ */
+type Kept = DownloadView & { finishedAt?: number; part?: string; order?: number; ask?: unknown; from?: string; queued?: true };
 const INTERRUPTED = "Interrupted: Afflatus was stopped or restarted while it was downloading. Press Download again.";
 
 /** The folders ComfyUI-Manager knows by a type name; any other folder is given to it as a path under models/. */
@@ -154,6 +176,8 @@ export function sameToken(given: unknown, want: string): boolean {
   const hash = (text: string) => createHash("sha256").update(text, "utf8").digest();
   return typeof given === "string" && want.length > 0 && timingSafeEqual(hash(given), hash(want));
 }
+/** The first node pack that puts a download in ComfyUI's own models/<folder> first, and in the place asked (`dir`) when it lists it. */
+export const PACK_PLACE = "0.36.9";
 /** The first node pack that downloads from a source's own signed link, and takes a fresh one when it expires. */
 export const PACK_SIGNED = "0.12.0";
 /** The hosts a signed download link of Hugging Face or Civitai is on: the pack takes no other (downloads.py DIRECT_HOSTS). */
@@ -231,8 +255,14 @@ export function chooseRoute(o: { root: string | null; pack: boolean; source: str
 
 const unreachable = (err: unknown) => /fetch failed|ECONNREFUSED|did not answer/i.test((err as Error).message);
 const running = (d: DownloadView) => d.status === "starting" || d.status === "downloading";
-/** Whether a finished download is still listed at `now`: an hour after it ended, a day for a failure nobody read. */
-const stillListed = (d: DownloadView & { finishedAt?: number }, now: number) => !d.finishedAt || now - d.finishedAt < (d.status === "error" && !d.seen ? KEEP_UNSEEN_MS : KEEP_MS);
+/** Whether a time is on today's date, here. */
+const today = (at: number, now: number) => new Date(at).toDateString() === new Date(now).toDateString();
+/**
+ * Whether a finished download is still listed at `now`: an hour after it ended, a day for a failure nobody read, and one
+ * done the whole of the day it was done (the Downloads card's "Done today", where each landed).
+ */
+const stillListed = (d: DownloadView & { finishedAt?: number }, now: number) =>
+  !d.finishedAt || now - d.finishedAt < (d.status === "error" && !d.seen ? KEEP_UNSEEN_MS : KEEP_MS) || (d.status === "done" && today(d.finishedAt, now));
 
 export class Downloads {
   private readonly all = new Map<string, Download>();
@@ -243,6 +273,10 @@ export class Downloads {
   /** The writes of the state file, one after the other: two at once would interleave. */
   private writing: Promise<void> = Promise.resolve();
   private lastTold = 0;
+  /** The next waiting download's place in the line. */
+  private nextOrder = 1;
+  /** Those still waiting their turn when Afflatus last stopped, in their order: asked again once resume() is given how. */
+  private toResume: Kept[] = [];
   /** How long Manager has to come and fetch before the download is given up (shorter in tests). */
   startsWithinMs = STARTS_WITHIN_MS;
   /** How often ComfyUI is asked whether the file is listed, once all of it was sent. */
@@ -271,13 +305,17 @@ export class Downloads {
     try {
       const kept = JSON.parse(await readFile(this.stateFile, "utf8")) as Kept[];
       const now = Date.now();
+      // still waiting its turn, and asked through the page (its body kept): asked again in its place, not said interrupted
+      const waiting = (k: Kept) => Boolean(k && k.queued && k.status === "starting" && k.ask !== undefined && typeof k.from === "string");
+      this.toResume = kept.filter(waiting).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      for (const k of this.toResume) this.nextOrder = Math.max(this.nextOrder, (k.order ?? 0) + 1);
       for (const k of kept) if (k && (k.status === "starting" || k.status === "downloading") && typeof k.part === "string" && k.part.endsWith(".part")) await rm(k.part, { force: true }).catch(() => {});
       this.past = kept
-        .filter((k) => k && typeof k.id === "string")
+        .filter((k) => k && typeof k.id === "string" && !this.toResume.includes(k))
         // "saving": every byte was handed to ComfyUI or is in its folder already, and it lists it whether Afflatus runs or not
         .map((k) => (k.status === "saving" ? { ...k, status: "done" as const, finishedAt: now } : k))
         .map((k) => (k.status === "starting" || k.status === "downloading" ? { ...k, status: "error" as const, error: INTERRUPTED, finishedAt: now, waiting: undefined, note: undefined } : k))
-        .map(({ part: _p, ...k }) => k)
+        .map(({ part: _p, queued: _q, order: _o, ...k }) => k)
         .filter((k) => stillListed(k, now));
       if (this.past.some((k) => k.error === INTERRUPTED)) this.tell(true);
     } catch {
@@ -287,16 +325,51 @@ export class Downloads {
 
   /** What the browser is told of a download: never its source, its key or its one-time address. */
   private view(d: Download): DownloadView {
-    const { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine, quiet } = d;
-    const all: DownloadView = { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine, quiet };
+    this.measure(d);
+    const { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine, quiet, shown } = d;
+    const turn = status === "starting" || status === "downloading" ? d.turn : undefined;
+    const rate = status === "downloading" && d.rate ? Math.round(d.rate) : undefined;
+    const again = (status === "error" || status === "stopped") && d.ask !== undefined ? (true as const) : undefined;
+    const all: DownloadView = { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine, quiet, shown, turn, rate, again, at: d.finishedAt };
     for (const k of Object.keys(all) as Array<keyof DownloadView>) if (all[k] === undefined) delete all[k];
     return all;
+  }
+
+  /**
+   * How fast a download comes, from one reading of its bytes to the next a second or more later, evened out: a slow site
+   * then reads as slow, not as stuck. What the line's time left is worked out from.
+   */
+  private measure(d: Download): void {
+    const now = Date.now();
+    if (d.status !== "downloading") {
+      delete d.sample;
+      delete d.rate;
+      return;
+    }
+    if (!d.sample || d.bytes < d.sample.bytes) {
+      d.sample = { bytes: d.bytes, at: now };
+      return;
+    }
+    const seconds = (now - d.sample.at) / 1000;
+    if (seconds < 1) return;
+    const just = (d.bytes - d.sample.bytes) / seconds;
+    d.rate = d.rate ? d.rate * 0.6 + just * 0.4 : just;
+    d.sample = { bytes: d.bytes, at: now };
   }
 
   /** The list as it stands, written for the next run. Never awaited: a failure to write changes nothing here. */
   private persist(): void {
     if (!this.stateFile) return;
-    const kept: Kept[] = [...this.past, ...[...this.all.values()].map((d) => ({ ...this.view(d), ...(d.finishedAt ? { finishedAt: d.finishedAt } : {}), ...(d.dest ? { part: `${d.dest}.part` } : {}) }))];
+    const kept: Kept[] = [...this.past, ...this.toResume, ...[...this.all.values()].map((d) => {
+      const { turn: _t, rate: _r, again: _a, at: _at, ...view } = this.view(d);
+      return {
+        ...view, order: d.order,
+        ...(d.ask !== undefined ? { ask: d.ask, from: d.from } : {}),
+        ...(d.status === "starting" && !d.begun ? { queued: true as const } : {}),
+        ...(d.finishedAt ? { finishedAt: d.finishedAt } : {}),
+        ...(d.dest ? { part: `${d.dest}.part` } : {}),
+      };
+    })];
     const file = this.stateFile;
     // written beside it, then put in its place: a stop in the middle of a write leaves the last whole list, never half of one
     this.writing = this.writing
@@ -367,7 +440,11 @@ export class Downloads {
     const now = Date.now();
     for (const [id, d] of this.all) if (!stillListed(d, now)) this.all.delete(id);
     this.past = this.past.filter((k) => stillListed(k, now));
-    const strip = ({ finishedAt: _f, ...view }: Kept): DownloadView => view;
+    const strip = ({ finishedAt, ask, from: _from, order: _o, queued: _q, ...view }: Kept): DownloadView => ({
+      ...view,
+      ...(finishedAt ? { at: finishedAt } : {}),
+      ...((view.status === "error" || view.status === "stopped") && ask !== undefined ? { again: true as const } : {}),
+    });
     return [...[...this.all.values()].reverse().map((d) => this.view(d)), ...this.past.slice().reverse().map(strip)].filter((d) => !d.quiet);
   }
 
@@ -478,7 +555,14 @@ export class Downloads {
    * address the pack or Manager fetches); `comfyDir` is ComfyUI's folder from the Settings, read for a ComfyUI
    * too old to say its folders.
    */
-  async start(comfy: Comfy, self: string, want: { file: string; folder: string; title: string; source: string; headers?: Record<string, string>; total?: number; comfyDir?: string; machine?: string; directOnly?: boolean; quietPassing?: boolean; filesRead?: boolean }): Promise<DownloadView> {
+  async start(comfy: Comfy, self: string, want: {
+    file: string; folder: string; title: string; source: string; headers?: Record<string, string>; total?: number; comfyDir?: string; machine?: string;
+    directOnly?: boolean; quietPassing?: boolean; filesRead?: boolean;
+    /** The place chosen for its folder (settings.ts downloadPlaces): one of the paths ComfyUI lists for it. */
+    place?: string;
+    /** What it was asked with through the page (fetchFile.ts), kept to ask it again: a restart while it waits, a Try again. */
+    ask?: unknown;
+  }): Promise<DownloadView> {
     const name = want.file.split(/[\\/]/).pop() ?? "";
     const sub = want.file.split(/[\\/]/).slice(0, -1).filter(Boolean).join("/");
     if (!isModelFile(name) || want.file.split(/[\\/]/).some((p) => BAD_NAME.test(p))) throw httpError(`"${name}" is not a model file Afflatus can download.`);
@@ -493,12 +577,17 @@ export class Downloads {
     const headers = want.headers ?? {};
     // a rented GPU is sent its files by its node pack alone (directOnly), whatever folders it says: a pod answering on this
     // machine (the demo's pretend ones, a proxy) took the "Afflatus writes it here" route, which it then refused
-    const root = want.directOnly ? null : await modelRoot(await comfyFolderPaths(comfy.client), want.folder, comfy.client.baseUrl, want.comfyDir ?? "");
+    const paths = await comfyFolderPaths(comfy.client);
+    const root = want.directOnly ? null : await modelRoot(paths, want.folder, comfy.client.baseUrl, want.comfyDir ?? "", want.place);
     const route = chooseRoute({ root, pack: !root && (await this.packCan(comfy)), source: want.source, headers, total: want.total ?? 0 });
+    const base = comfyBase(paths, want.comfyDir ?? "");
     const d: Download = {
-      id: randomUUID(), token: randomBytes(24).toString("hex"), comfy, source: want.source, headers,
+      id: randomUUID(), token: randomBytes(24).toString("hex"), comfy, source: want.source, headers, order: this.nextOrder++,
       file: want.file, folder: want.folder, title: want.title, bytes: 0, total: want.total ?? 0, status: "starting", abort: new AbortController(), via: route.via,
       ...(want.machine ? { machine: want.machine } : {}),
+      ...(want.ask !== undefined ? { ask: want.ask, from: self } : {}),
+      ...(want.place && route.via === "pack" ? { place: want.place } : {}),
+      ...(base ? { base } : {}),
       ...(want.directOnly ? { directOnly: true } : {}),
       ...(want.quietPassing ? { quietPassing: true } : {}),
       ...(want.filesRead ? { filesRead: true as const } : {}),
@@ -513,6 +602,7 @@ export class Downloads {
         if (want.total) await assertRoom(dirname(dest), want.total, this.free);
         d.dest = dest;
         d.into = dirname(dest);
+        d.shown = shownPlace(d.into, d.base ?? null);
       } catch (err) {
         throw err instanceof Refused ? httpError(err.message) : err;
       }
@@ -592,13 +682,13 @@ export class Downloads {
 
   /**
    * Start what waits, AT_ONCE of Afflatus's own downloads and the pack's at a time on each ComfyUI, in the order they
-   * were asked for; the others say what they wait behind. Each machine has its own line: a rented pod's files do not
-   * wait behind this computer's.
+   * were asked for unless one was moved (move()); the others say what they wait behind, and each its place in the line
+   * (`turn`). Each machine has its own line: a rented pod's files do not wait behind this computer's.
    */
   private pump(): void {
     const ours = [...this.all.values()].filter((d) => d.via !== "manager");
     let changed = false;
-    for (const d of ours.filter((o) => !o.begun && o.status === "starting")) {
+    for (const d of ours.filter((o) => !o.begun && o.status === "starting").sort((a, b) => a.order - b.order)) {
       const under = ours.filter((o) => o.comfy === d.comfy && o.begun && running(o));
       if (under.length < AT_ONCE) {
         d.begun = true;
@@ -612,7 +702,85 @@ export class Downloads {
       if (d.waiting !== behind) changed = true;
       d.waiting = behind;
     }
+    // each one's place in its machine's line: those under way first (in the order they began), then the waiting ones
+    for (const comfy of new Set(ours.map((o) => o.comfy))) {
+      const line = ours.filter((o) => o.comfy === comfy && running(o)).sort((a, b) => Number(Boolean(b.begun)) - Number(Boolean(a.begun)) || a.order - b.order);
+      line.forEach((o, i) => {
+        if (o.turn !== i + 1) changed = true;
+        o.turn = i + 1;
+      });
+    }
     if (changed) this.tell(true);
+  }
+
+  /** The waiting ones of the same machine as `d`, in their order. */
+  private lineOf(d: Download): Download[] {
+    return [...this.all.values()].filter((o) => o.comfy === d.comfy && o.via !== "manager" && o.status === "starting" && !o.begun).sort((a, b) => a.order - b.order);
+  }
+
+  /**
+   * A waiting download moved in its machine's line: before `before` (another waiting one of that machine), or to the end
+   * when it is null. Its place is kept in the state file, so a restart keeps the line as it was left. False when either is
+   * not waiting (under way already, done, gone, or on another machine).
+   */
+  move(id: string, before: string | null): boolean {
+    const d = this.all.get(id);
+    if (!d || d.via === "manager" || d.status !== "starting" || d.begun) return false;
+    const line = this.lineOf(d).filter((o) => o !== d);
+    const at = before === null ? line.length : line.findIndex((o) => o.id === before);
+    if (at < 0) return false;
+    line.splice(at, 0, d);
+    // the orders the line had, given out again in its new order: the others keep their place relative to each other
+    const orders = [...line.map((o) => o.order)].sort((a, b) => a - b);
+    line.forEach((o, i) => (o.order = orders[i]!));
+    this.pump();
+    this.tell(true);
+    return true;
+  }
+
+  /** Every download still waiting its turn taken out of the line (those `mine` takes: one machine's, or all): how many went. */
+  cancelWaiting(mine: (d: DownloadView) => boolean = () => true): number {
+    const waiting = [...this.all.values()].filter((d) => d.status === "starting" && !d.begun && d.via !== "manager" && mine(d));
+    for (const d of waiting) this.stop(d.id);
+    return waiting.length;
+  }
+
+  /** The finished ones taken off the list (on one machine, as cancelWaiting): what was done, and what failed or was stopped. */
+  clearDone(mine: (d: DownloadView) => boolean = () => true): number {
+    const ended = (d: DownloadView) => d.status === "done" || d.status === "error" || d.status === "stopped";
+    const gone = [...this.all.values()].filter((d) => ended(d) && mine(d));
+    for (const d of gone) this.all.delete(d.id);
+    const was = this.past.length;
+    this.past = this.past.filter((k) => !(ended(k) && mine(k)));
+    const count = gone.length + was - this.past.length;
+    if (count) this.tell(true);
+    return count;
+  }
+
+  /** What a download was asked with through the page, and from where: to ask it again as it was (Try again). */
+  askOf(id: string): { ask: unknown; from: string } | null {
+    const d = this.all.get(id) ?? this.past.find((k) => k.id === id);
+    return d && d.ask !== undefined && d.from ? { ask: d.ask, from: d.from } : null;
+  }
+
+  /**
+   * The downloads still waiting their turn when Afflatus last stopped, asked again in their order with `again` (fetchFile.ts
+   * beginDownload, from the API's registration). One that cannot be asked again (ComfyUI not answering, the file there
+   * meanwhile) is listed failed with why, and keeps what it was asked with for its Try again.
+   */
+  async resume(again: (ask: unknown, from: string) => Promise<unknown>): Promise<void> {
+    await this.restored;
+    const waiting = this.toResume;
+    this.toResume = [];
+    for (const k of waiting) {
+      try {
+        await again(k.ask, k.from!);
+      } catch (err) {
+        const { part: _p, queued: _q, order: _o, ...rest } = k;
+        this.past.push({ ...rest, status: "error", error: `Not asked again after the restart: ${(err as Error).message}`, finishedAt: Date.now() });
+      }
+    }
+    this.tell(true);
   }
 
   /** Afflatus downloads it itself, into the folder ComfyUI reads (modelDownload.ts). */
@@ -662,7 +830,9 @@ export class Downloads {
       const signed = version && !olderThan(version, PACK_SIGNED) ? await this.signer(d.source, d.headers).catch(() => null) : null;
       d.signed = Boolean(signed);
       if (!signed && d.directOnly) throw new Error(NO_DIRECT);
-      const body = JSON.stringify({ url: signed ?? this.oneTime(d.self!, d), folder: d.folder, filename: d.file.replace(/\\/g, "/"), total: d.total });
+      // the place chosen for the folder, to a pack that takes one (an older one keeps to ComfyUI's first path)
+      const dir = d.place && version && !olderThan(version, PACK_PLACE) ? { dir: d.place } : {};
+      const body = JSON.stringify({ url: signed ?? this.oneTime(d.self!, d), folder: d.folder, filename: d.file.replace(/\\/g, "/"), total: d.total, ...dir });
       const ask = () => d.comfy.client.raw("/afflatus/download", { method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(15_000), body });
       let res = await ask();
       // its line full (429: the pack takes so many at once): one just stopped there may not have heard its stop yet. Waited
@@ -679,9 +849,11 @@ export class Downloads {
       }
       delete d.waiting;
       if (!res.ok) throw new Error(`The Afflatus node pack refused the download (${res.status}: ${(await res.text()).slice(0, 200)})`);
-      const got = (await res.json()) as { id: string; path?: string };
+      const got = (await res.json()) as { id: string; path?: string; root?: string };
       d.packId = got.id;
       if (got.path) d.into = got.path.replace(/[\\/][^\\/]*$/, "");
+      // the model folder it goes in (0.36.9 says it; an older pack, the file's own folder)
+      if (got.root || d.into) d.shown = shownPlace(got.root ?? d.into!, d.base ?? null);
       // from the source's own link nothing passes through Afflatus (serve() says "downloading" for the one-time address)
       if (d.signed && d.status === "starting") d.status = "downloading";
       if (!running(d)) {

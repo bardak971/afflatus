@@ -2,10 +2,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download as DownloadIcon } from "lucide-react";
 import { api, type Download } from "./api";
+import { FileState, GoesTo } from "./DownloadsLine";
 import { useQueue } from "./data";
 import { about, fileLabel, siteName, size } from "./format";
 import { machineName, severalMachines } from "./machines";
 import { Bar, buttonClass, CloseButton, cx } from "./ui";
+import { coming } from "./downloadLine";
 import { count, useDownloads, useGetFile, type Find } from "./useGetFile";
 import { queryKeys } from "./queryKeys";
 
@@ -159,27 +161,33 @@ export function GetFile({ file, folder, url, civitai, pick, hints, auto, buttons
   if (!lookups && !fetching) return null;
   const main = buttons ? buttonClass({ tone: "primary", size: "sm", className: "gap-1.5" }) : cx(link, "flex items-center gap-1 disabled:opacity-60");
   const other = buttons ? buttonClass({ size: "sm" }) : link;
+  // its download coming or done: its state stands where its Download was (In line · 3rd, Downloading, Here), never a
+  // second Download (card #60); a failed or stopped one shows its Download again, with why under it
+  const state = mine && mine.status !== "error" && mine.status !== "stopped" ? mine : undefined;
 
   return (
     <span className="flex flex-col gap-1.5 pt-1">
       <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {fetching && url && (
+        {state && <FileState d={state} />}
+        {fetching && url && !state && (
           <button type="button" disabled={busy || noRoute} data-tip={why} onClick={() => download({ url })} className={main}>
             <DownloadIcon size={13} /> {buttons ? "Download" : "Download into ComfyUI"}
           </button>
         )}
-        {fetching && civitai && !url && (
+        {fetching && civitai && !url && !state && (
           <button type="button" disabled={busy || noRoute} data-tip={why} onClick={() => download({ civitai })} className={main}>
             <DownloadIcon size={13} /> {buttons ? "Download" : "Download into ComfyUI"}
           </button>
         )}
+        {fetching && folder && !state && <GoesTo folder={folder} />}
         {lookups && (
           <button type="button" onClick={search} disabled={find.isPending} className={other} data-tip="Asks Hugging Face for a file of exactly this name, and Civitai for models with a close name.">{find.isPending ? "Searching…" : buttons ? "Other files…" : "Search"}</button>
         )}
       </span>
       {fetching && caution && !mine && (url || civitai) && <span className="text-xs text-warn-ink">{caution}</span>}
       {start.isError && <span>{start.error.message}</span>}
-      {mine && <DownloadRow d={mine} />}
+      {mine && !state && <DownloadRow d={mine} />}
+      {state?.note && coming(state) && <span className={cx("text-xs", /may fail/.test(state.note) ? "text-warn-ink" : "text-ink-3")}>{state.note}</span>}
       {find.isError && <span>{find.error.message}</span>}
       {find.data && find.data.exact.length > 0 && (
         <>

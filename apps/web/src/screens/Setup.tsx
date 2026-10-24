@@ -25,6 +25,7 @@ import { RentedTab } from "./settings/RentedCard";
 import { INDEX, MOVED, settingHref, spotOf, tabHref, TABS, type Tab } from "./settings/settingsIndex";
 import { queryKeys } from "../queryKeys";
 import { ModelSetsCard } from "./settings/ModelSetsCard";
+import { DownloadsCard } from "../DownloadsLine";
 import { ModelsOnlineCard } from "./settings/ModelsOnlineCard";
 import { COLUMNS } from "./settings/wide";
 
@@ -208,7 +209,7 @@ export function Setup() {
           {tab === "models" && (
             <ModelsByMachine
               left={<><CivitaiCard /><LinkCard /><UpdatesCard /></>}
-              right={<><ModelsOnlineCard /><ModelSetsCard /></>}
+              right={(machine) => <><ModelsOnlineCard /><ModelSetsCard /><DownloadsCard machine={machine} /></>}
             />
           )}
           {tab === "designer" && <DesignerCard />}

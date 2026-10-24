@@ -139,17 +139,44 @@ def known(folder, folder_paths):
     return True
 
 
-def model_dir(folder, folder_paths):
+# a folder's other name in ComfyUI's models directory: a download into one goes to the other second
+OTHER_NAME = {"diffusion_models": "unet", "unet": "diffusion_models", "text_encoders": "clip", "clip": "text_encoders"}
+
+
+def _same(a, b):
+    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def ordered(folder, paths, models_dir):
     """
-    The directory a model folder's downloads go into: the first of ComfyUI's paths for it that exists and can be written,
-    as its real path. When none exists yet (a fresh network volume holds an empty models folder: ComfyUI started on it
-    with --base-directory has made none of its folders), the first is made, where its parent can be written. A folder
-    ComfyUI does not know yet is made known first (known).
+    ComfyUI's paths for a model folder in the order downloads go into them: its own models/<folder> first, then the
+    folder's other name there (unet, clip), then the others in ComfyUI's order. ComfyUI lists the older name and
+    extra_model_paths.yaml's folders first, and a download landed where nobody looked for it (Afflatus card #59).
+    """
+    if not models_dir:
+        return list(paths)
+    own = [p for p in paths if _same(p, os.path.join(models_dir, folder))]
+    other = OTHER_NAME.get(folder)
+    older = [p for p in paths if other and _same(p, os.path.join(models_dir, other)) and p not in own]
+    return own + older + [p for p in paths if p not in own and p not in older]
+
+
+def model_dir(folder, folder_paths, chosen=None):
+    """
+    The directory a model folder's downloads go into: `chosen` when ComfyUI lists it for the folder and it can be written,
+    else the first of ComfyUI's paths for it, in `ordered`'s order, that exists and can be written, as its real path.
+    When none exists yet (a fresh network volume holds an empty models folder: ComfyUI started on it with --base-directory
+    has made none of its folders), the first is made, where its parent can be written. A folder ComfyUI does not know yet
+    is made known first (known).
     """
     if not known(folder, folder_paths):
         return None
     code = _code_dirs(folder_paths)
-    paths = list(folder_paths.get_folder_paths(folder))
+    paths = ordered(folder, list(folder_paths.get_folder_paths(folder)), getattr(folder_paths, "models_dir", None))
+    if isinstance(chosen, str) and chosen:
+        # only a path ComfyUI itself lists for the folder: never one the request names on its own
+        picked = [p for p in paths if _same(p, chosen)]
+        paths = picked + [p for p in paths if p not in picked]
     for path in paths:
         if os.path.isdir(path) and os.access(path, os.W_OK):
             real = os.path.realpath(path)
@@ -171,14 +198,14 @@ def model_dir(folder, folder_paths):
     return None
 
 
-def target(folder, filename, folder_paths):
+def target(folder, filename, folder_paths, chosen=None):
     """Where `filename` (a model file's name, with sub-folders when it has some) goes in `folder`. Raises Refused for anything else."""
     if not isinstance(filename, str) or not filename or len(filename) > 400:
         raise Refused("a filename is needed")
     parts = re.split(r"[\\/]", filename)
     if any(p in ("", ".", "..") or BAD_NAME.search(p) for p in parts) or not MODEL_FILE.search(parts[-1]):
         raise Refused(f"{filename} is not a model file's name")
-    root = model_dir(folder, folder_paths)
+    root = model_dir(folder, folder_paths, chosen)
     if root is None:
         raise Refused(f"{folder} is not a model folder ComfyUI can write here")
     path = os.path.realpath(os.path.join(root, *parts))
@@ -578,7 +605,7 @@ def register(routes, web, folder_paths):
         if not relay_ok(body.get("url")) and not direct_ok(body.get("url")):
             return web.Response(status=400, text="only Afflatus's one-time download addresses, and Hugging Face's and Civitai's own download links, are fetched")
         try:
-            root, path = target(body.get("folder"), body.get("filename"), folder_paths)
+            root, path = target(body.get("folder"), body.get("filename"), folder_paths, body.get("dir"))
         except Refused as e:
             return web.Response(status=400, text=str(e))
         forget()
@@ -597,7 +624,7 @@ def register(routes, web, folder_paths):
         job.busy_parts = lambda: {j.part for j in jobs.values() if j is not job and j.alive}
         jobs[job.id] = job
         threading.Thread(target=run, args=(job,), name=f"afflatus-download-{job.id[:8]}", daemon=True).start()
-        return web.json_response({"id": job.id, "path": path})
+        return web.json_response({"id": job.id, "path": path, "root": root})
 
     @routes.get("/afflatus/download/{id}")
     async def _afflatus_download_state(request):

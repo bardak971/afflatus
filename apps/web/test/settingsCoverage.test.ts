@@ -51,6 +51,7 @@ const SERVER: Record<string, string> = {
   acceptedPresets: "internal: a preset's licence, accepted where the preset is applied",
   civitaiLookups: "server.civitaiLookups",
   downloadModels: "server.downloadModels",
+  downloadPlaces: "models.downloads",
   afflatusUpdateChecks: "about.updates",
   renderHistoryDays: "storage.renderTimes",
   jobHistoryDays: "storage.jobDays",

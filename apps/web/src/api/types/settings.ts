@@ -290,6 +290,8 @@ export interface Settings {
   civitaiLookups: boolean;
   /** Missing model files may be fetched into ComfyUI's model folders (by Afflatus, its node pack, or ComfyUI-Manager). */
   downloadModels: boolean;
+  /** Where a model folder's downloads go, by machine id then folder, when one was chosen (Settings › Models). */
+  downloadPlaces: Record<string, Record<string, string>>;
   /** How many days the time of each render is kept one by one; 0 for good. Older ones become daily figures. */
   renderHistoryDays: number;
   /** How many days a finished job nothing still names stays in the Queue's history; 0 for good. */

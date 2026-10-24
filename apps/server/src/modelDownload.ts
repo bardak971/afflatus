@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import { access, constants, mkdir, open, realpath, rename, rm, stat, statfs } from "node:fs/promises";
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
-import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { basename, dirname, isAbsolute, join, posix, relative, win32 } from "node:path";
 import { isNetworkPath } from "./linked";
 import { modelDirs } from "./modelFiles";
 import { cannotReach, failCode, fetchFailure, fetchPublic } from "./outbound";
@@ -310,14 +310,132 @@ export async function comfyFolderPaths(client: Pick<ComfyClient, "raw">): Promis
   }
 }
 
+/** Where a place of a model folder is, for ComfyUI: its own `models/<folder>`, its folder's older name, or any other it reads. */
+export type PlaceKind = "own" | "older" | "other";
+
+/** One of the paths ComfyUI reads a model folder from, as the page is told it. */
+export interface Place {
+  /** The path as ComfyUI says it: what a choice is kept as. */
+  path: string;
+  kind: PlaceKind;
+  /** In a few words: "models\loras" under ComfyUI's folder, the whole path for any other. */
+  shown: string;
+}
+
+/** The path functions of the system a path was written on: a pod's are Linux paths, whatever this machine is. */
+const pathsOf = (p: string) => (/^[A-Za-z]:[\\/]|^\\\\|\\/.test(p) ? win32 : posix);
+
+/** A path to compare with another: resolved, and without case on Windows, whose disks ignore it. */
+const sameKey = (p: string) => {
+  const sys = pathsOf(p);
+  const resolved = sys.resolve(p).replace(/[\\/]+$/, "");
+  return sys === win32 ? resolved.toLowerCase() : resolved;
+};
+
 /**
- * The directory Afflatus downloads a model folder's files into, when it can write there itself: the first
- * of the paths ComfyUI reads that folder from (as ComfyUI-Manager would pick) that exists here and can be
- * written, as its real path. Only a path ComfyUI listed (or, from an older ComfyUI, one of the folder set in
- * Settings) is ever taken, inside that folder when ComfyUI is not on this machine; never one on a network share
- * (see isNetworkPath), never custom_nodes or configs. Null when there is none: the download then goes through ComfyUI.
+ * ComfyUI's own folder, from what it says: its custom_nodes' parent (ComfyUI's main.py folder, or the base folder it was
+ * started on); else the folder set in Settings. Null when neither says.
  */
-export async function modelRoot(paths: Record<string, string[]> | null, folder: string, comfyUrl: string, comfyDir: string): Promise<string | null> {
+export function comfyBase(paths: Record<string, string[]> | null, comfyDir: string): string | null {
+  const nodes = paths?.custom_nodes?.[0];
+  if (nodes && pathsOf(nodes).basename(nodes).toLowerCase() === "custom_nodes") return pathsOf(nodes).dirname(nodes);
+  return comfyDir.trim() || null;
+}
+
+/**
+ * The paths ComfyUI reads a model folder from, in the order Afflatus downloads into them (card #59): ComfyUI's own
+ * `models/<folder>` first, then its folder's older name there (`unet`, `clip`), then the others in ComfyUI's order. ComfyUI
+ * lists the older name and extra_model_paths.yaml's folders first: a download landed in models\unet, or in an A1111
+ * install's Lora folder, where nobody looked for it. Without ComfyUI's folder known, a `models/<name>` path stands for its own.
+ */
+export function placesOf(listed: string[], folder: string, base: string | null): Place[] {
+  // the folder's other name (a download asked under "unet" takes models\diffusion_models second)
+  const older = OTHER_NAME[folder] ?? null;
+  const named = (p: string, name: string) => {
+    const sys = pathsOf(p);
+    if (base) return sameKey(p) === sameKey(sys.join(base, "models", name));
+    const parts = p.split(/[\\/]+/).filter(Boolean);
+    return parts.at(-1)?.toLowerCase() === name.toLowerCase() && parts.at(-2)?.toLowerCase() === "models";
+  };
+  const seen = new Set<string>();
+  const all: Place[] = [];
+  for (const p of listed) {
+    if (!p || seen.has(sameKey(p))) continue;
+    seen.add(sameKey(p));
+    all.push({ path: p, kind: named(p, folder) ? "own" : older && named(p, older) ? "older" : "other", shown: shownPlace(p, base) });
+  }
+  const rank: Record<PlaceKind, number> = { own: 0, older: 1, other: 2 };
+  // a stable sort: ComfyUI's own order kept within each kind
+  return all.map((p, i) => ({ p, i })).sort((a, b) => rank[a.p.kind] - rank[b.p.kind] || a.i - b.i).map(({ p }) => p);
+}
+
+/** A model folder's path in a few words: "models\loras" under ComfyUI's folder, the whole path anywhere else. */
+export function shownPlace(p: string, base: string | null): string {
+  if (!base) return p;
+  const sys = pathsOf(p);
+  const rel = sys.relative(base, p);
+  return rel && !rel.startsWith("..") && !sys.isAbsolute(rel) ? rel : p;
+}
+
+/** Whether two paths name the same folder (case aside on Windows). */
+export const samePath = (a: string, b: string) => sameKey(a) === sameKey(b);
+
+/** Whether Afflatus could write a model folder here: there, a folder, writable, and not on a network share. */
+async function writable(p: string): Promise<boolean> {
+  if (!p || isNetworkPath(p) || !isAbsolute(p)) return false;
+  try {
+    const real = await realpath(p);
+    if (!(await stat(real)).isDirectory()) return false;
+    await access(real, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** What the page is told of a model folder's places: each with whether it can be written here, the one chosen, and where a download goes now. */
+export interface FolderPlaces {
+  places: Array<Place & { ok?: boolean }>;
+  /** The path chosen in Settings › Models, while ComfyUI still lists it. */
+  chosen?: string;
+  /** Where a download goes now, in a few words (a place's `shown`). */
+  goes?: string;
+}
+
+/**
+ * Every model folder's places on a ComfyUI (placesOf), for the page: on this machine, whether each can be written and where
+ * a download goes (the chosen one when it can be written, else the first that can, as modelRoot picks); on another, where
+ * the node pack puts it (the chosen one, else ComfyUI's own models/<folder>), which only it can check.
+ */
+export async function folderPlaces(paths: Record<string, string[]>, comfyUrl: string, comfyDir: string, chosen: Record<string, string>): Promise<Record<string, FolderPlaces>> {
+  const base = comfyBase(paths, comfyDir);
+  const local = onThisMachine(comfyUrl);
+  const out: Record<string, FolderPlaces> = {};
+  for (const folder of Object.keys(paths).sort()) {
+    if (NOT_MODELS.has(folder)) continue;
+    const places: FolderPlaces["places"] = placesOf(listedFor(paths, folder), folder, base);
+    if (!places.length) continue;
+    if (local) for (const p of places) p.ok = await writable(p.path);
+    const pick = chosen[folder] ? places.find((p) => samePath(p.path, chosen[folder]!)) : undefined;
+    const goes = (pick && pick.ok !== false ? pick : undefined) ?? places.find((p) => p.ok !== false);
+    out[folder] = { places, ...(pick ? { chosen: pick.path } : {}), ...(goes ? { goes: goes.shown } : {}) };
+  }
+  return out;
+}
+
+/** The paths ComfyUI lists for a folder, under its older name when it has none under this one. */
+export const listedFor = (paths: Record<string, string[]>, folder: string): string[] =>
+  paths[folder] ?? (OTHER_NAME[folder] ? paths[OTHER_NAME[folder]!] : undefined) ?? [];
+
+/**
+ * The directory Afflatus downloads a model folder's files into, when it can write there itself: the place chosen for that
+ * folder (`chosen`, Settings › Models, when ComfyUI still reads it), else the first in placesOf's order (ComfyUI's own
+ * `models/<folder>` first) that exists here and can be written, as its real path. Only a path ComfyUI listed (or, from an
+ * older ComfyUI, one of the folder set in Settings) is ever taken, inside that folder when ComfyUI is not on this machine;
+ * never one on a network share (see isNetworkPath), never custom_nodes or configs. Null when there is none: the download
+ * then goes through ComfyUI.
+ */
+export async function modelRoot(paths: Record<string, string[]> | null, folder: string, comfyUrl: string, comfyDir: string, chosen?: string): Promise<string | null> {
   const dir = comfyDir.trim();
   // ComfyUI's paths are its machine's: they are this machine's only when it runs here, or when its folder was set here
   const local = onThisMachine(comfyUrl);
@@ -327,7 +445,10 @@ export async function modelRoot(paths: Record<string, string[]> | null, folder: 
   // wherever that ComfyUI's answer points
   const within = local || !paths ? null : await realpath(dir).catch(() => null);
   if (!local && paths && !within) return null;
-  const listed = paths ? paths[folder] ?? (OTHER_NAME[folder] ? paths[OTHER_NAME[folder]!] : undefined) ?? [] : await modelDirs(dir, folder);
+  const ordered = placesOf(paths ? listedFor(paths, folder) : await modelDirs(dir, folder), folder, comfyBase(paths, dir)).map((p) => p.path);
+  // the place chosen comes first, as long as ComfyUI still reads it: never a path it does not list
+  const pick = chosen ? ordered.find((p) => sameKey(p) === sameKey(chosen)) : undefined;
+  const listed = pick ? [pick, ...ordered.filter((p) => p !== pick)] : ordered;
   for (const p of listed) {
     if (!p || isNetworkPath(p) || !isAbsolute(p)) continue;
     try {
