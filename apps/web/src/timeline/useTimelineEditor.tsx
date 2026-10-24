@@ -343,15 +343,16 @@ export function useTimelineEditor(id: string) {
   };
   /**
    * What a recording's clips share given to all of them (its panel), after what was typed in them is saved: under way from
-   * that save on, for its fields to keep what was typed until it is in the clips' forms.
+   * that save on, for its fields to keep what was typed until it is in the clips' forms. Counted: with two shares out, the
+   * first one's end is not the end of sharing, the second's field would else be reset to the first one's text.
    */
-  const [sharing, setSharing] = useState(false);
+  const [sharing, setSharing] = useState(0);
   const recordingShared = {
-    pending: sharing || recordingFormMut.isPending,
+    pending: sharing > 0 || recordingFormMut.isPending,
     run: (asset: string, inputs: Record<string, unknown>) => {
-      setSharing(true);
+      setSharing((n) => n + 1);
       // a failure is the mutation's own, said with the editor's others (latestFailure)
-      void save().then(() => recordingFormMut.mutateAsync({ asset, inputs })).catch(() => {}).finally(() => setSharing(false));
+      void save().then(() => recordingFormMut.mutateAsync({ asset, inputs })).catch(() => {}).finally(() => setSharing((n) => n - 1));
     },
   };
 

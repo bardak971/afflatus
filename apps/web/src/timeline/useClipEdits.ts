@@ -77,18 +77,23 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
     if (!t) return;
     setEdits((e) => settleEdits(e, t.clips, unsaved));
   }, [t, unsaved]);
-  /**
-   * The server was given a clip's inputs by another way than the form's save (a render moving the seed on): the edit over
-   * the clip becomes them, so that the read back that carries them drops it. Left as it was, it no longer matched what the
-   * server has, and stayed over the clip all session: the old seed shown and sent with every render after.
-   */
-  const savedElsewhere = useCallback((clipId: string, inputs: Record<string, unknown>) => {
-    setEdits((e) => withServerInputs(e, clipId, inputs, unsaved));
-  }, [unsaved]);
   // the forms and the clips as they stand now: a change that lands after an await (a file uploaded onto a pin, a loop's
   // frame saved) is made over the form as it is then, not over the one it began with, which put back what was typed meanwhile
   const latest = useRef({ edits, clips });
   latest.current = { edits, clips };
+  /**
+   * The server was given a clip's inputs by another way than the form's save (a render moving the seed on, the recording's
+   * panel sharing a field): the edit over the clip becomes them, so that the read back that carries them drops it. Left as
+   * it was, it no longer matched what the server has, and stayed over the clip all session: the old seed shown and sent with
+   * every render after. A clip typed in and not saved yet takes what the server changed over what was typed (filledOver,
+   * from the clip as it was read before), in its waiting save too: else that save wrote the old shared text back.
+   */
+  const savedElsewhere = useCallback((clipId: string, inputs: Record<string, unknown>) => {
+    const before = latest.current.clips.find((x) => x.id === clipId)?.inputs;
+    const typed = unsaved.get(clipId);
+    if (typed !== undefined && before) unsaved.set(clipId, filledOver(typed, before, inputs));
+    setEdits((e) => withServerInputs(e, clipId, inputs, unsaved, before));
+  }, [unsaved]);
   /** A clip's form changed: to these inputs, or to what `next` makes of its inputs as they stand at this moment. */
   const editInputs = (c: Clip, next: Record<string, unknown> | ((was: Record<string, unknown>) => Record<string, unknown>)) => {
     const was = latest.current.edits[c.id] ?? latest.current.clips.find((x) => x.id === c.id)?.inputs ?? c.inputs;
@@ -189,11 +194,14 @@ export function settleEdits(edits: Record<string, Record<string, unknown>>, clip
 
 /**
  * The edits once the server was given a clip's inputs by another way than the form's save: a saved edit over that clip
- * becomes them. One typed since and not saved yet is the newer: it stays, and its save sends it.
+ * becomes them. One typed since and not saved yet is the newer: it stays, and its save sends it; with the clip as the
+ * server had it `before`, what the server changed is laid over it, unless typed over since (filledOver).
  */
-export function withServerInputs(edits: Record<string, Record<string, unknown>>, clipId: string, inputs: Record<string, unknown>, unsaved: { has(id: string): boolean }): Record<string, Record<string, unknown>> {
-  if (!edits[clipId] || unsaved.has(clipId)) return edits;
-  return { ...edits, [clipId]: inputs };
+export function withServerInputs(edits: Record<string, Record<string, unknown>>, clipId: string, inputs: Record<string, unknown>, unsaved: { has(id: string): boolean }, before?: Record<string, unknown>): Record<string, Record<string, unknown>> {
+  const edit = edits[clipId];
+  if (!edit) return edits;
+  if (!unsaved.has(clipId)) return { ...edits, [clipId]: inputs };
+  return before ? { ...edits, [clipId]: filledOver(edit, before, inputs) } : edits;
 }
 
 /**

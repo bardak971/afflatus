@@ -286,7 +286,8 @@ export async function chooseFfmpeg(o: LookIn & { fresh?: boolean; tryOne?: (c: C
   }
   // none passed: the first is said with its failure (theirs, when FFMPEG is set), the others with theirs
   if (!used && refused.length) used = refused.shift()!;
-  // written whole or not at all: Check again and Get ffmpeg's own check can write it at the same time
+  // written whole or not at all, each write through a file of its own: Check again and Get ffmpeg's own check can write it
+  // at the same time, the last one renamed is what is kept
   if (keeps) await writeAtomic(keptFile(o.dataDir), JSON.stringify(keep, null, 1)).catch(() => {});
   return { used, refused, pinned };
 }

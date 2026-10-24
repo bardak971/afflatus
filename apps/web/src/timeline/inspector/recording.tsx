@@ -237,13 +237,18 @@ function ClipRows({ place, clock, onSelectClip }: { place: RecordingPlace; clock
 /** One setting the clips share: typed here, given to all of them when it is left (blur), if it changed. */
 function SharedField({ field, count, sharing, onCommit }: { field: RecordingPanelProps["shared"][number]; count: number; sharing: boolean; onCommit(value: string): void }) {
   const [text, setText] = useState<string | null>(null);
-  // given to all: what was typed stays shown until it is in their forms, never the old text a moment
-  const [sent, setSent] = useState(false);
+  // given to all: what was typed stays shown until it is in their forms, never the old text a moment. Only the text last
+  // sent is let go, once every share is back and the clips carry it: typed again meanwhile, the newer text stays (its own
+  // blur shares it); a share that failed leaves it shown, as typed, for the next blur to send again
+  const [sent, setSent] = useState<string | null>(null);
+  const value = field.value ?? "";
   useEffect(() => {
-    if (sharing || !sent) return;
-    setSent(false);
+    if (sharing || sent === null) return;
+    if (text !== sent) return setSent(null);
+    if (value !== sent) return;
+    setSent(null);
     setText(null);
-  }, [sharing, sent]);
+  }, [sharing, sent, text, value]);
   const shown = text ?? field.value ?? "";
   return (
     <label className="flex flex-col gap-1">
@@ -256,7 +261,7 @@ function SharedField({ field, count, sharing, onCommit }: { field: RecordingPane
         onBlur={() => {
           if (text !== null && text !== (field.value ?? "")) {
             onCommit(text);
-            setSent(true);
+            setSent(text);
           } else setText(null);
         }}
         className={fieldClass}

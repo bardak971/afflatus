@@ -1,6 +1,6 @@
 import { envSaid } from "./config";
 import { httpError, notFound } from "./errors";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { said } from "./forecast";
 import { allowedHosts, fromThisComputer, hostAllowed } from "./hostCheck";
 import { z } from "zod";
@@ -21,15 +21,18 @@ import { publicSettings, readSettings, writeSettings } from "./settings";
 /** Afflatus itself and its ComfyUI: whether it is alive, what it can make, the settings, the setup scan, the log, and advice on a form. */
 
 export function registerSetup(app: FastifyInstance, s: Services, version: string): void {
-  /** Alive, the version, the database, and the start-up checks (the tools, the Node, the data folder) as they were last run. */
-  const health = (checks: typeof preflight.last) => ({ ok: true, version, database: s.dbKind, checks: checks?.checks ?? [], checkedAt: checks?.at ?? null });
+  /**
+   * Alive, the version, the database, and the start-up checks (the tools, the Node, the data folder) as they were last run.
+   * `here`: the request comes from this computer, so the page offers Get ffmpeg only where its POST is not refused.
+   */
+  const health = (checks: typeof preflight.last, req: FastifyRequest) => ({ ok: true, version, database: s.dbKind, checks: checks?.checks ?? [], checkedAt: checks?.at ?? null, here: fromThisComputer(req) });
   // a probe asks by a name of its own (a pod's address) and is answered whatever the Host (hostCheck.ts ANY_HOST); so is a page
   // that pointed a name of its own at this machine, which is told only that the server is alive, not what it found on the machine
   const hosts = allowedHosts();
   // locked by a password (access.ts) and not signed in, only that it is alive too: the checks name the computer's folders
-  app.get("/api/health", async (req) => (hostAllowed(req.headers.host, hosts) && (req.access.open || req.access.session) ? health(preflight.last) : { ok: true, version }));
+  app.get("/api/health", async (req) => (hostAllowed(req.headers.host, hosts) && (req.access.open || req.access.session) ? health(preflight.last, req) : { ok: true, version }));
   /** The start-up checks run again, now (Settings → About → Check again): every ffmpeg tried anew, none of the kept results used. */
-  app.post("/api/health/check", async () => health(await preflight.run(undefined, { fresh: true })));
+  app.post("/api/health/check", async (req) => health(await preflight.run(undefined, { fresh: true }), req));
 
   /** Get ffmpeg (ffmpegGet.ts): how it is going. */
   app.get("/api/ffmpeg/get", async () => ffmpegGetter.view);

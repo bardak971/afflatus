@@ -234,8 +234,64 @@ describe("a recording on the timeline opened like the source (card #61)", () => 
       act(() => look.blur());
       await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-rec/recording/form")).toHaveLength(1));
       expect(look.value).toBe("zz-test round glasses");
+      // answered, but the clips read back without it (a share that did not take): what was typed stays, for the next blur
       shared.answer({ ok: true, clips: [] });
-      await waitFor(() => expect(look.value).toBe(""));
+      await waitFor(() => expect(fakeApi.calls("GET", "/timelines/zz-test-rec").length).toBeGreaterThan(2));
+      await act(() => new Promise((done) => setTimeout(done, 50)));
+      expect(look.value).toBe("zz-test round glasses");
+    });
+
+    it("keeps what is typed again while a share is out, through two shares in a row", async () => {
+      // the server as a stand-in, each share answered when the test says
+      const kept = new Map(timeline.clips.map((c) => [c.id, { ...c.inputs } as Record<string, unknown>]));
+      const now = () => ({ ...timeline, clips: timeline.clips.map((c) => ({ ...c, inputs: { ...kept.get(c.id)! } })) }) as unknown as Timeline;
+      const answers: Array<() => void> = [];
+      fakeApi.on("PATCH /clips/:id", ({ params }) => ({ id: params.id }));
+      fakeApi.on("POST /timelines/:id/recording/form", ({ body }) => {
+        const { inputs } = body as { inputs: Record<string, unknown> };
+        const shared = later<unknown>();
+        answers.push(() => {
+          const clips = ["zz-test-a", "zz-test-b", "zz-test-c"].map((id) => {
+            kept.set(id, { ...kept.get(id)!, ...inputs });
+            return { id, inputs: { ...kept.get(id)! } };
+          });
+          shared.answer({ ok: true, clips });
+        });
+        return shared.promise;
+      });
+      const { band, user } = await editor();
+      fakeApi.on("GET /timelines/:id", () => now());
+      click(band);
+      const look = within(panel()!).getByLabelText("How they look") as HTMLTextAreaElement;
+      const reads = () => fakeApi.calls("GET", "/timelines/zz-test-rec").length;
+      // shared once, then typed again and shared again, both out
+      await user.type(look, "zz-test glasses");
+      act(() => look.blur());
+      await waitFor(() => expect(answers).toHaveLength(1));
+      await user.type(look, " and a hat");
+      act(() => look.blur());
+      await waitFor(() => expect(answers).toHaveLength(2));
+      // the first one back and read back: the field keeps the newer text, the second still out
+      let before = reads();
+      act(() => answers[0]!());
+      await waitFor(() => expect(reads()).toBeGreaterThan(before));
+      await act(() => new Promise((done) => setTimeout(done, 50)));
+      expect(look.value).toBe("zz-test glasses and a hat");
+      before = reads();
+      act(() => answers[1]!());
+      await waitFor(() => expect(reads()).toBeGreaterThan(before));
+      expect(look.value).toBe("zz-test glasses and a hat");
+      // typed again while a third is out (not left yet): its answer does not wipe what is being typed
+      await user.type(look, ", red");
+      act(() => look.blur());
+      await waitFor(() => expect(answers).toHaveLength(3));
+      await user.type(look, " and blue");
+      before = reads();
+      act(() => answers[2]!());
+      await waitFor(() => expect(reads()).toBeGreaterThan(before));
+      await act(() => new Promise((done) => setTimeout(done, 50)));
+      expect(look.value).toBe("zz-test glasses and a hat, red and blue");
+      expect(fakeApi.calls("POST", "/timelines/zz-test-rec/recording/form").map((c) => (c.body as { inputs: { subject: string } }).inputs.subject)).toEqual(["zz-test glasses", "zz-test glasses and a hat", "zz-test glasses and a hat, red"]);
     });
 
     it("gives what they share to a clip typed in just before, whose next save keeps it", async () => {
@@ -272,6 +328,42 @@ describe("a recording on the timeline opened like the source (card #61)", () => 
       await user.click(within(panel()!).getByRole("button", { name: /^Clip 2,/ }));
       await user.type(screen.getByLabelText("What happens"), "!");
       await waitFor(() => expect(kept.get("zz-test-a")!.description).toBe("zz-test talks and laughs!"), { timeout: 3000 });
+      expect(kept.get("zz-test-a")!.subject).toBe("zz-test round glasses");
+    });
+
+    it("gives what they share to a clip typed in while the share is out, whose waiting save does not put the old text back", async () => {
+      const kept = new Map(timeline.clips.map((c) => [c.id, { ...c.inputs } as Record<string, unknown>]));
+      const now = () => ({ ...timeline, clips: timeline.clips.map((c) => ({ ...c, inputs: { ...kept.get(c.id)! } })) }) as unknown as Timeline;
+      fakeApi.on("PATCH /clips/:id", ({ params, body }) => {
+        const b = body as { inputs?: Record<string, unknown> };
+        if (b.inputs) kept.set(params.id!, { ...b.inputs });
+        return { id: params.id };
+      });
+      let answer = () => {};
+      fakeApi.on("POST /timelines/:id/recording/form", ({ body }) => {
+        const { inputs } = body as { inputs: Record<string, unknown> };
+        const shared = later<unknown>();
+        answer = () => {
+          const clips = ["zz-test-a", "zz-test-b", "zz-test-c"].map((id) => {
+            kept.set(id, { ...kept.get(id)!, ...inputs });
+            return { id, inputs: { ...kept.get(id)! } };
+          });
+          shared.answer({ ok: true, clips });
+        };
+        return shared.promise;
+      });
+      const { band, user } = await editor();
+      fakeApi.on("GET /timelines/:id", () => now());
+      click(band);
+      const look = within(panel()!).getByLabelText("How they look");
+      await user.type(look, "zz-test round glasses");
+      act(() => look.blur());
+      await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-rec/recording/form")).toHaveLength(1));
+      // clip 2 typed in while the share is out, its save waiting; then the share comes back
+      await user.click(within(panel()!).getByRole("button", { name: /^Clip 2,/ }));
+      await user.type(await screen.findByLabelText("What happens"), " and laughs");
+      act(() => answer());
+      await waitFor(() => expect(kept.get("zz-test-a")!.description).toBe("zz-test talks and laughs"), { timeout: 3000 });
       expect(kept.get("zz-test-a")!.subject).toBe("zz-test round glasses");
     });
   });

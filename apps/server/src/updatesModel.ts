@@ -1,4 +1,5 @@
-import { mkdir, open, rename } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, open, rename, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { envSaid, VERSION } from "./config";
 import { RELEASE_KEY } from "./releaseKey";
@@ -38,18 +39,25 @@ export function platformName(platform = process.platform): string {
  * A small file written whole or not at all (versions/current, data/updates/last.json and the like): a temporary file,
  * flushed to the disk, then renamed over the old one. A disk that fills up halfway leaves the old file as it was, never an
  * empty one; and whoever reads it meanwhile (the next start, the launcher, the page) finds the old file or the new, never
- * one still being written, which a slow or busy disk makes easy to catch.
+ * one still being written, which a slow or busy disk makes easy to catch. Each write has a temporary file of its own: two
+ * at once (Check again and Get ffmpeg's own check) wrote into the one name, and what was renamed could be both mixed.
  */
 export async function writeAtomic(path: string, text: string): Promise<void> {
-  const tmp = `${path}.tmp`;
-  const file = await open(tmp, "w");
+  const tmp = `${path}.${randomUUID().slice(0, 8)}.tmp`;
   try {
-    await file.writeFile(text);
-    await file.sync();
-  } finally {
-    await file.close();
+    const file = await open(tmp, "w");
+    try {
+      await file.writeFile(text);
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    await renameSoon(tmp, path);
+  } catch (err) {
+    // not left behind under a name no later write takes again
+    await rm(tmp, { force: true }).catch(() => {});
+    throw err;
   }
-  await renameSoon(tmp, path);
 }
 
 /** A rename tried again for a few seconds: on Windows a folder whose files were just closed can stay locked a moment. */

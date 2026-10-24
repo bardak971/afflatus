@@ -68,7 +68,7 @@ export const Card = memo(function Card({ card, picked, onOpen, onQuick }: { card
       className={cx("group relative flex min-w-0 flex-col overflow-hidden rounded-xl border bg-panel transition-colors [contain-intrinsic-size:auto_236px] [content-visibility:auto]", picked ? "border-accent shadow-[0_0_0_1px_var(--color-accent)]" : "border-line hover:border-line-strong")}
     >
       {/* the focus ring drawn inside: the card's rounded clip would cut one drawn outside */}
-      <button type="button" onClick={() => onOpen(card)} className="flex min-w-0 flex-col rounded-xl text-left focus-visible:outline-offset-[-2px]">
+      <button type="button" onClick={() => onOpen(card)} className="flex min-w-0 flex-col rounded-xl text-left focus-visible:outline-offset-[-2px]!">
         <span className="relative block h-[150px] w-full overflow-hidden">
           <Thumb card={card} />
           <span className="absolute top-2 left-2 rounded-md bg-shade/80 px-1.5 py-0.5 text-micro font-bold text-ink">{[card.type, card.fits ?? card.base].filter(Boolean).join(" · ")}</span>
