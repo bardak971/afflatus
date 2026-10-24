@@ -173,6 +173,7 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     // its band clicked: the recording on the stage and in the column, as the source lane opens
     recordingOpen: e.recordingOpen,
     stageEndMs: e.recordingAt ? stageEndOf(e) : null,
+    onView: e.recordingAt ? e.trackView.set : undefined,
     onOpenRecording: (asset) => e.openRecording(asset),
     onSource: (asset) => {
       // the model the windows are made with: that of an empty clip given one that makes a source window by window (the one

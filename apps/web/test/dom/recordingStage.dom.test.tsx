@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, renderHook, screen, waitFor, within } from "@testing-library/react";
 import type { Asset, RecipeInfo, Timeline } from "../../src/api";
 import type { PlayerHandle } from "../../src/timeline/Player";
-import { RecordingStage } from "../../src/timeline/RecordingStage";
+import { barsIn, RecordingStage, stretchOf } from "../../src/timeline/RecordingStage";
+import { newViewStore } from "../../src/timeline/track/useTrackView";
 import { TimelineEditor } from "../../src/screens/TimelineEditor";
 import { useEditorPanels } from "../../src/timeline/useEditorPanels";
 import { recordingPlace } from "../../src/timeline/recordingPlace";
@@ -423,6 +424,47 @@ describe("a recording's place under its clips", () => {
       // clip 4 laid 1 s later: the moment heard plays there now, the playhead follows
       redraw(at([[0, 5000], [5000, 4700], [9700, 6700], [16_400, 4800]]));
       expect(onTime).toHaveBeenCalledWith(16_400);
+    });
+
+    it("shows the stretch the track shows: all of it when the track shows all its clips, the same stretch when zoomed", () => {
+      const p = at(tail);
+      // nothing said yet, or every clip of it in view (Fit all): the whole recording, as before
+      expect(stretchOf(p, null)).toEqual({ fromMs: 0, toMs: 15000 });
+      expect(stretchOf(p, { fromMs: -500, toMs: 22_000 })).toEqual({ fromMs: 0, toMs: 15000 });
+      // the track zoomed on clip 3 (9.7 to 15.4 s of the track): its part of the recording, 4.7 to 10.2 s
+      expect(stretchOf(p, { fromMs: 9700, toMs: 15_400 })).toEqual({ fromMs: 4700, toMs: 10_200 });
+      // zoomed in further than 2 s: 2 s around the middle
+      expect(stretchOf(p, { fromMs: 11_000, toMs: 11_500 })).toEqual({ fromMs: 5250, toMs: 7250 });
+    });
+
+    it("zoomed with the track: only the parts in view, In and Out said at the side they lie beyond", () => {
+      const store = newViewStore();
+      const ref = createRef<PlayerHandle>();
+      const props = { recording: sound as unknown as Asset, playing: false, onPlaying: () => {}, onTime: () => {}, startAt: 0 };
+      const drawn = draw(<RecordingStage ref={ref} {...props} place={at(tail)} view={store} />);
+      const parts = () => [...drawn.container.querySelectorAll("[data-part]")].map((e) => e.getAttribute("data-part"));
+      const beyond = () => [...drawn.container.querySelectorAll("[data-beyond]")].map((e) => e.textContent);
+      expect(parts()).toEqual(["2", "3", "4"]);
+      expect(beyond()).toEqual([]);
+      act(() => store.set({ fromMs: 9700, toMs: 15_400 }));
+      expect(parts()).toEqual(["3"]);
+      expect(beyond()).toEqual(["◂ In 0:00.0", "Out 0:15.0 ▸"]);
+      // the part fills the stage it is shown on
+      const shown = drawn.container.querySelector<HTMLElement>("[data-part='3']")!;
+      expect([shown.style.left, shown.style.width]).toEqual(["0%", "100%"]);
+      // Fit all: the whole recording again
+      act(() => store.set({ fromMs: 0, toMs: 20_000 }));
+      expect(parts()).toEqual(["2", "3", "4"]);
+    });
+
+    it("draws the bars of the stretch shown, as tall as the whole recording's loudest makes them", () => {
+      const sound = Array.from({ length: 150 }, (_, k) => (k < 50 ? -6 : -30));
+      const top = Math.max(...sound.map((db) => (db + 60) / 60));
+      // 8 s at 10 measures a second: 80 bars, one a measure, all of the quieter stretch measured against the loudest
+      const wave = barsIn(sound, 10, top, { fromMs: 6000, toMs: 14_000 })!;
+      expect(wave.bars).toHaveLength(80);
+      expect([wave.fromMs, wave.toMs]).toEqual([6000, 14_000]);
+      expect(wave.bars.every((v) => Math.abs(v - 30 / 54) < 1e-9)).toBe(true);
     });
 
     it("draws a recording with no length at its start, never NaN %", () => {

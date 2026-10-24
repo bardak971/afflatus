@@ -1,15 +1,17 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, fileUrl, type Asset } from "../api";
 import { clock } from "../format";
 import { queryKeys } from "../queryKeys";
-import { barsOf } from "../screens/library/SoundWave";
 import { cx } from "../ui";
 import type { PlayerHandle } from "./Player";
 import { partAt, type RecordingPlace } from "./recordingPlace";
+import { useViewOf, type TrackView, type ViewStore } from "./track/useTrackView";
 
-/** How many bars the stage's waveform has: about one every 5 px of a wide stage. */
+/** How many bars the stage's waveform has at most: about one every 5 px of a wide stage (fewer on a short stretch: one a measure). */
 const BARS = 180;
+/** The shortest stretch the stage shows, however far the track is zoomed in. */
+const LEAST_MS = 2000;
 /** A pause the recording was cut at: its middle within this of where a part ends. */
 const AT_A_CUT_MS = 150;
 
@@ -32,7 +34,9 @@ export const RecordingStage = forwardRef<PlayerHandle, {
   /** Where the playhead stood when the stage turned to the recording, in the track's own time. */
   startAt: number;
   master?: number;
-}>(function RecordingStage({ recording, place, playing, onPlaying, onTime, stopAt, startAt, master = 1 }, ref) {
+  /** The stretch the track shows: the stage shows the same stretch of the recording (all of it when the track shows all its clips). */
+  view?: ViewStore;
+}>(function RecordingStage({ recording, place, playing, onPlaying, onTime, stopAt, startAt, master = 1, view }, ref) {
   const el = useRef<HTMLAudioElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const [local, setLocal] = useState(() => place.toRecording(startAt));
@@ -105,9 +109,17 @@ export const RecordingStage = forwardRef<PlayerHandle, {
 
   const motion = useQuery({ queryKey: queryKeys.motion(recording.id), queryFn: () => api.motion(recording.id), staleTime: Infinity, retry: 0 });
   const pauses = useQuery({ queryKey: queryKeys.pauses(recording.id), queryFn: () => api.pauses(recording.id), staleTime: Infinity, retry: 0 });
-  const bars = barsOf(motion.data?.sound, BARS);
-  // no length (old clips with no recordingSeconds, the recording's own not read yet): everything at the start, never NaN%
-  const share = (ms: number) => `${length > 0 ? (Math.max(0, Math.min(length, ms)) / length) * 100 : 0}%`;
+  // the stretch shown: as the track is zoomed and scrolled, the same stretch of the recording
+  const shown = stretchOf(place, useViewOf(view));
+  const span = shown.toMs - shown.fromMs;
+  const top = useMemo(() => loudestOf(motion.data?.sound), [motion.data?.sound]);
+  const wave = barsIn(motion.data?.sound, motion.data?.rate ?? 0, top, shown);
+  // where a moment of the recording is across the stretch shown, unclamped: what lies outside it is cut off at the stage's
+  // sides. No length (old clips with no recordingSeconds, the recording's own not read yet): everything at the start, never NaN%
+  const ratio = (ms: number) => (span > 0 ? (ms - shown.fromMs) / span : 0);
+  const share = (ms: number) => `${ratio(ms) * 100}%`;
+  const shareIn = (ms: number) => `${Math.max(0, Math.min(1, ratio(ms))) * 100}%`;
+  const sizeOf = (ms: number) => `${span > 0 ? (ms / span) * 100 : 0}%`;
   // the pauses it was cut at: where a part ends and the next one starts; the others are pauses it was not cut at
   const cuts = place.parts.slice(0, -1).map((p) => p.endMs);
   const marks = [
@@ -133,12 +145,12 @@ export const RecordingStage = forwardRef<PlayerHandle, {
     }
   }, [takeAt, playing, take?.id]); // eslint-disable-line react-hooks/exhaustive-deps -- the picture's own time is read from it
 
-  // a click or a drag on the waveform: the playhead there
-  const wave = useRef<HTMLDivElement>(null);
+  // a click or a drag on the waveform: the playhead there, in the stretch shown
+  const surface = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   const at = (e: ReactPointerEvent) => {
-    const r = wave.current!.getBoundingClientRect();
-    return r.width ? ((e.clientX - r.left) / r.width) * length : 0;
+    const r = surface.current!.getBoundingClientRect();
+    return r.width ? shown.fromMs + ((e.clientX - r.left) / r.width) * span : 0;
   };
   const down = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -150,7 +162,7 @@ export const RecordingStage = forwardRef<PlayerHandle, {
     setDragging(true);
     put(at(e));
   };
-  const ticks = Array.from({ length: 6 }, (_, k) => (length * k) / 5);
+  const ticks = Array.from({ length: 6 }, (_, k) => shown.fromMs + (span * k) / 5);
   const number = (p: NonNullable<typeof under>) => p.clip.takes.findIndex((x) => x.id === take?.id) + 1;
 
   return (
@@ -179,34 +191,43 @@ export const RecordingStage = forwardRef<PlayerHandle, {
       </div>
       <span className="absolute top-3 right-4 z-10 max-w-[40%] truncate rounded-chip bg-ground/80 px-2 py-1 font-mono text-xs text-ink-2">{recording.name}</span>
 
-      <div className="relative mx-9 mt-24 mb-6 min-h-24 grow basis-0">
-        {bars ? (
-          <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" viewBox={`0 0 ${BARS * 3} 100`} preserveAspectRatio="none">
-            <path d={bars.map((v, i) => `M${i * 3} ${(1 - v) * 50}h2v${v * 100}h-2z`).join("")} className="fill-ink-3" />
+      {/* cut off at the stage's sides (what lies outside the stretch shown), not above or below: the marks reach past the waveform */}
+      <div className="relative mx-9 mt-24 mb-6 min-h-24 grow basis-0" style={{ clipPath: "inset(-2.75rem 0 -1.5rem 0)" }}>
+        {wave ? (
+          <svg
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 h-full"
+            style={{ left: share(wave.fromMs), width: sizeOf(wave.toMs - wave.fromMs) }}
+            viewBox={`0 0 ${Math.max(1, wave.bars.length) * 3} 100`}
+            preserveAspectRatio="none"
+          >
+            <path d={wave.bars.map((v, i) => `M${i * 3} ${(1 - v) * 50}h2v${v * 100}h-2z`).join("")} className="fill-ink-3" />
           </svg>
         ) : (
           // not measured yet, or nothing to measure: a quiet line where the waveform goes
           <span aria-hidden className="absolute inset-x-0 top-1/2 h-px bg-line-strong" />
         )}
         {/* outside In and Out: dimmed, as the source shows its whole video */}
-        <span aria-hidden className="pointer-events-none absolute -inset-y-8 left-0 bg-stage/65" style={{ width: share(place.fromMs) }} />
-        <span aria-hidden className="pointer-events-none absolute -inset-y-8 right-0 bg-stage/65" style={{ left: share(place.toMs) }} />
-        {place.parts.map((p) => {
+        <span aria-hidden className="pointer-events-none absolute -inset-y-8 left-0 bg-stage/65" style={{ width: shareIn(place.fromMs) }} />
+        <span aria-hidden className="pointer-events-none absolute -inset-y-8 right-0 bg-stage/65" style={{ left: shareIn(place.toMs) }} />
+        {place.parts.filter((p) => p.endMs > shown.fromMs && p.startMs < shown.toMs).map((p) => {
           const here = p === now;
+          // a part begun before the stretch shown: its name where it comes into view, not off the stage's side
+          const into = p.startMs < shown.fromMs && p.endMs > p.startMs ? (shown.fromMs - p.startMs) / (p.endMs - p.startMs) : 0;
           return (
             <div
               key={p.clip.id}
               data-part={p.number}
               className={cx("pointer-events-none absolute -top-7 -bottom-3.5 border-l", here ? "border-accent bg-accent/10" : "border-line-strong")}
-              style={{ left: share(p.startMs), width: share(p.endMs - p.startMs) }}
+              style={{ left: share(p.startMs), width: sizeOf(p.endMs - p.startMs) }}
             >
-              <span className={cx("absolute top-0 left-1.5 text-xs whitespace-nowrap", here ? "font-semibold text-accent" : "text-ink-2")}>
+              <span className={cx("absolute top-0 text-xs whitespace-nowrap", here ? "font-semibold text-accent" : "text-ink-2")} style={{ left: `calc(${into * 100}% + 0.375rem)` }}>
                 Clip {p.number} · {((p.endMs - p.startMs) / 1000).toFixed(1)} s{here && playing ? " · playing" : ""}
               </span>
             </div>
           );
         })}
-        {marks.map((m) => (
+        {marks.filter((m) => m.ms >= shown.fromMs && m.ms <= shown.toMs).map((m) => (
           <span
             key={`${m.used}:${m.ms}`}
             data-pause={m.used ? "used" : "unused"}
@@ -215,16 +236,28 @@ export const RecordingStage = forwardRef<PlayerHandle, {
             style={{ left: share(m.ms) }}
           />
         ))}
-        {[{ ms: place.fromMs, label: "In" }, { ms: place.toMs, label: "Out" }].map((x) => (
-          <span key={x.label} aria-hidden className="pointer-events-none absolute -top-10 -bottom-5 w-0.5 bg-good" style={{ left: share(x.ms) }}>
-            {/* Out's words on its left, inside the stage: at the recording's end they ran past its edge */}
-            <span className={cx("absolute bottom-0 text-micro font-bold whitespace-nowrap text-good", x.label === "In" ? "left-1.5" : "right-1.5")}>{x.label} {clock(x.ms, { decimals: 1 })}</span>
-          </span>
-        ))}
+        {[{ ms: place.fromMs, label: "In" }, { ms: place.toMs, label: "Out" }].map((x) => {
+          const words = `${x.label} ${clock(x.ms, { decimals: 1 })}`;
+          // out of the stretch shown: said at the side it lies beyond, with an arrow, so it never just goes
+          if (x.ms < shown.fromMs || x.ms > shown.toMs) {
+            const left = x.ms < shown.fromMs;
+            return (
+              <span key={x.label} data-beyond={x.label} aria-hidden className={cx("pointer-events-none absolute -bottom-5 text-micro font-bold whitespace-nowrap text-good", left ? "left-0" : "right-0")}>
+                {left ? `◂ ${words}` : `${words} ▸`}
+              </span>
+            );
+          }
+          return (
+            <span key={x.label} aria-hidden className="pointer-events-none absolute -top-10 -bottom-5 w-0.5 bg-good" style={{ left: share(x.ms) }}>
+              {/* Out's words on its left, inside the stage: at the recording's end they ran past its edge */}
+              <span className={cx("absolute bottom-0 text-micro font-bold whitespace-nowrap text-good", x.label === "In" ? "left-1.5" : "right-1.5")}>{words}</span>
+            </span>
+          );
+        })}
         <span aria-hidden className="pointer-events-none absolute -inset-y-10 w-0.5 bg-ink-strong" style={{ left: share(local) }} />
         {/* last, over the marks drawn under it (each lets the pointer through) */}
         <div
-          ref={wave}
+          ref={surface}
           role="slider"
           tabIndex={-1}
           aria-label="The recording: click or drag to move the playhead"
@@ -240,9 +273,55 @@ export const RecordingStage = forwardRef<PlayerHandle, {
         />
       </div>
       <div aria-hidden className="mx-9 flex justify-between font-mono text-micro text-ink-3">
-        {ticks.map((ms) => <span key={ms}>{clock(ms)}</span>)}
+        {ticks.map((ms) => <span key={ms}>{clock(ms, span < 20_000 ? { decimals: 1 } : undefined)}</span>)}
       </div>
       <span className="py-2 text-center text-xs text-ink-3">Click or drag: the playhead · I / O: In and Out · ◆ the pauses it was cut at (faint: pauses not used)</span>
     </div>
   );
 });
+
+/**
+ * The stretch of the recording the stage shows: what the track shows of it, at least LEAST_MS; all of it when the track
+ * shows every one of its clips (Fit all), or says nothing yet.
+ */
+export function stretchOf(place: RecordingPlace, view: TrackView | null): { fromMs: number; toMs: number } {
+  const all = { fromMs: 0, toMs: place.lengthMs };
+  if (!view || place.lengthMs <= 0) return all;
+  let fromMs = place.toRecording(view.fromMs);
+  let toMs = place.toRecording(view.toMs);
+  if (fromMs <= place.fromMs && toMs >= place.toMs) return all;
+  if (toMs - fromMs < LEAST_MS) {
+    const mid = (fromMs + toMs) / 2;
+    fromMs = Math.max(0, Math.min(place.lengthMs - LEAST_MS, mid - LEAST_MS / 2));
+    toMs = Math.min(place.lengthMs, fromMs + LEAST_MS);
+  }
+  return { fromMs, toMs };
+}
+
+/** How loud the whole sound gets (0 to 1): the bars of any stretch of it are measured against it, so zooming in keeps their heights. */
+function loudestOf(sound: number[] | null | undefined): number {
+  let top = 0;
+  for (const db of sound ?? []) top = Math.max(top, levelOf(db));
+  return top;
+}
+const levelOf = (db: number) => Math.max(0, Math.min(1, (db + 60) / 60));
+
+/**
+ * The waveform's bars over a stretch of the sound (its loudness, `rate` values a second, in dB): at most BARS, one a measure
+ * on a short stretch; and the stretch they cover, on the measures' own grid. Null when there is nothing to draw.
+ */
+export function barsIn(sound: number[] | null | undefined, rate: number, top: number, stretch: { fromMs: number; toMs: number }): { bars: number[]; fromMs: number; toMs: number } | null {
+  if (!sound || sound.length < 2 || rate <= 0) return null;
+  const a = Math.max(0, Math.floor((stretch.fromMs / 1000) * rate));
+  const b = Math.min(sound.length, Math.max(a + 1, Math.ceil((stretch.toMs / 1000) * rate)));
+  const n = Math.min(BARS, b - a);
+  const bars: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const from = a + Math.floor((i * (b - a)) / n);
+    const to = Math.max(from + 1, a + Math.floor(((i + 1) * (b - a)) / n));
+    let peak = 0;
+    for (let j = from; j < to; j++) peak = Math.max(peak, levelOf(sound[j]!));
+    bars.push(top > 0 ? Math.max(0.06, peak / top) : 0.06);
+  }
+  return { bars, fromMs: (a / rate) * 1000, toMs: (b / rate) * 1000 };
+}

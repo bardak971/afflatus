@@ -26,6 +26,7 @@ import { useClipDrag, type ClipMove } from "./track/useClipDrag";
 import { useRangeDrag } from "./track/useRangeDrag";
 import { useStretch } from "./track/useStretch";
 import { useTrackZoom, type TrackKeys } from "./track/useTrackZoom";
+import { useTrackView, type TrackView } from "./track/useTrackView";
 import { LEGEND, useTrackDrop } from "./track/useTrackDrop";
 import { useMediaOpen } from "./mediaOpen";
 
@@ -51,7 +52,7 @@ function moveHint(m: ClipMove, now: string[]): string {
   return `Let go to move clip ${n(m.clip)} ${where} · Esc puts it back`;
 }
 
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, onSource, onRecording, onVoice, onRecipe, onSourceSettings, onRecordingTrim, recordingOpen, onOpenRecording, stageEndMs = null, sourceSelected, onSelectSource, onOpenSource, onRemoveSource, onStretchSource, onSplitSource, onPeekSource, sourcePlace, sourceMode, sourceLabel, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, onSource, onRecording, onVoice, onRecipe, onSourceSettings, onRecordingTrim, recordingOpen, onOpenRecording, stageEndMs = null, onView, sourceSelected, onSelectSource, onOpenSource, onRemoveSource, onStretchSource, onSplitSource, onPeekSource, sourcePlace, sourceMode, sourceLabel, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -123,6 +124,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onOpenRecording?(asset: string): void;
   /** The stage plays a recording (in the track's own time, up to here): the playhead stands where it is heard, clips or not. */
   stageEndMs?: number | null;
+  /** The stretch of the timeline the track shows, said as its scroll, zoom or width changes (the recording's stage follows it). */
+  onView?(view: TrackView): void;
   sourceSelected?: boolean;
   onSelectSource?(): void;
   /** The source's video in the viewer; the source taken away. */
@@ -232,6 +235,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   // ---- the range: In and Out, swept on the ruler with Shift, or dragged by their brackets; they snap to cuts, to the playhead and to quiet moments
   const { playEnd, measureOf, motion, snapRange, band, rangeMenuAt } = useRangeDrag({ slots, clips, timeline, pps, clock, snapQuiet, range, xOf, onRangeMenu });
 
+  useTrackView(scroller, pps, onView);
   const { zoomTo, fitAll } = useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clock, cursorMs, timelineId: timeline.id, clipCount: clips.length, keys });
 
   /** A Lip sync clip's voice as its face says it: the recording's name, null while it has none; undefined for any other clip. */
