@@ -539,22 +539,23 @@ export function partOf(start: number, seconds: number, total: number | null): { 
 /**
  * A part of a sound (or of a video's sound) as a sound of its own: from `start` seconds, `seconds` long.
  * The start is where it was asked, as long as two seconds are left after it; the part ends where the
- * sound ends when that comes first. `even` evens out its loudness: the whole sound brought toward -16 LUFS (EBU R128) by
- * one gain (evenGain), the same for every part of it: a voice recorded quietly (the owner's sample sat at -37 dB) guided H3
- * weakly, and each part evened out on its own came out at its own level (a song's quiet opening raised 6 dB more than the
- * part after it: the volume stepped at every join of its clips). `after` hands over that many seconds more, for a
+ * sound ends when that comes first. `even` evens out its loudness, toward -16 LUFS (EBU R128) by one gain (evenGain): a voice
+ * recorded quietly (the owner's sample sat at -37 dB) guided H3 weakly. Measured on the part (a voice sample: one part for one
+ * clip, brought to that level whatever the rest of its file holds), or on the whole sound (`evenWhole`, a recording cut into
+ * clips: each part evened out on its own came out at its own level, a song's quiet opening raised 6 dB more than the part
+ * after it, and the volume stepped at every join of its clips). `after` hands over that many seconds more, for a
  * clip that outlasts the part: the sound's own pause after the part (its room tone), faded out in its last 0.15 s
  * before the sound speaks again (at once when the part was ended mid-word), then silence, `after` seconds in all.
  * `goesOn`: the next clip carries the sound on from where this clip stops, so the `after` seconds are the sound itself, not
  * faded out (a song never pauses: faded, every join of its clips fell silent, then sang that tail again).
  */
-export async function soundPart(source: Media, ext: string, opts: { start: number; seconds: number; durationMs?: number | null; even?: boolean; after?: number; goesOn?: boolean }): Promise<Uint8Array> {
+export async function soundPart(source: Media, ext: string, opts: { start: number; seconds: number; durationMs?: number | null; even?: boolean; evenWhole?: boolean; after?: number; goesOn?: boolean }): Promise<Uint8Array> {
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "part.wav");
     const { start, seconds } = partOf(opts.start, opts.seconds, opts.durationMs ? opts.durationMs / 1000 : null);
     const after = Math.max(0, opts.after ?? 0);
-    const filters = opts.even ? [`volume=${(await evenGain(input)).toFixed(2)}dB`] : [];
+    const filters = opts.even ? [`volume=${(await evenGain(input, opts.evenWhole ? undefined : { start, seconds })).toFixed(2)}dB`] : [];
     if (after > 0 && opts.goesOn) filters.push(`apad=whole_dur=${(seconds + after).toFixed(3)}`);
     else if (after > 0) {
       const quiet = await quietAfter(input, start, seconds, after);
@@ -603,12 +604,13 @@ async function reportOf(args: string[], whole = false): Promise<string> {
 const EVEN = { lufs: -16, peak: -1.5, most: 30 };
 
 /**
- * The gain (dB) that brings a whole sound toward EVEN's loudness without its loudest peak going past EVEN's, measured once
- * over all of it (EBU R128: integrated loudness and true peak), so each part of it cut for a clip gets the same. 0 when it
- * cannot be read: the part as it is, rather than none.
+ * The gain (dB) that brings a sound toward EVEN's loudness without its loudest peak going past EVEN's (EBU R128: integrated
+ * loudness and true peak), measured over `part` of it (seconds), or over all of it: then each part of it cut for a clip gets
+ * the same. 0 when it cannot be read: the part as it is, rather than none.
  */
-async function evenGain(input: string): Promise<number> {
-  const said = await reportOf(["-i", input, "-vn", "-af", "ebur128=peak=true:framelog=quiet"]);
+async function evenGain(input: string, part?: { start: number; seconds: number }): Promise<number> {
+  const span = part ? ["-ss", part.start.toFixed(6), "-t", part.seconds.toFixed(6)] : [];
+  const said = await reportOf([...span, "-i", input, "-vn", "-af", "ebur128=peak=true:framelog=quiet"]);
   const lufs = Number(/I:\s*(-?[\d.]+) LUFS/.exec(said)?.[1] ?? NaN);
   const peak = Number(/Peak:\s*(-?[\d.]+) dBFS/.exec(said)?.[1] ?? NaN);
   if (!Number.isFinite(lufs) || lufs <= -70) return 0;

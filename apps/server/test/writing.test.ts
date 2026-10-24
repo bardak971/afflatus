@@ -213,17 +213,25 @@ describe.skipIf(!hasFfmpeg)("a part of a sound", () => {
     expect(peak(even)).toBeGreaterThan(peak(plain) * 5);
     expect(secondsOf(even)).toBeCloseTo(4, 1);
 
-    // a song whose opening is 20 dB quieter than what follows: each part evened out by the one gain of the whole sound, so
-    // the two clips meet at the level the song has there (each evened out on its own, the volume stepped at their join)
+    // a song whose opening is 20 dB quieter than what follows, cut into clips (evenWhole): each part evened out by the one gain
+    // of the whole sound, so the two clips meet at the level the song has there (each evened out on its own, the volume
+    // stepped at their join)
     const song = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=330:duration=8", "-af", "volume='if(lt(t,4),0.05,0.5)':eval=frame", "-f", "wav", "pipe:1"], { maxBuffer: 64 * 1024 * 1024 });
     const whole = new Uint8Array(song.stdout);
-    const opening = await soundPart(whole, "wav", { start: 0, seconds: 4, durationMs: 8_000, even: true });
-    const rest = await soundPart(whole, "wav", { start: 4, seconds: 4, durationMs: 8_000, even: true });
+    const opening = await soundPart(whole, "wav", { start: 0, seconds: 4, durationMs: 8_000, even: true, evenWhole: true });
+    const rest = await soundPart(whole, "wav", { start: 4, seconds: 4, durationMs: 8_000, even: true, evenWhole: true });
     expect(peak(rest) / peak(opening)).toBeGreaterThan(8);
     expect(peak(rest) / peak(opening)).toBeLessThan(12);
     // the louder part brought near -16 LUFS: a sine's peak sits 3 dB over its loudness, so about 0.2 of full scale
     expect(peak(rest)).toBeGreaterThan(0.12);
     expect(peak(rest)).toBeLessThan(0.4);
+
+    // a voice sample (one part for one clip) is brought to the level by its own part, whatever the rest of its file holds:
+    // the quiet opening of that file, which the whole file's gain left as quiet as it was, comes up near -16 LUFS too
+    const sample = await soundPart(whole, "wav", { start: 0, seconds: 4, durationMs: 8_000, even: true });
+    expect(peak(sample)).toBeGreaterThan(0.12);
+    expect(peak(sample)).toBeLessThan(0.4);
+    expect(peak(sample)).toBeGreaterThan(peak(opening) * 5);
   });
 
   it("hands over what comes after the part: its pause as it is, speech faded out, then silence", async () => {
