@@ -346,6 +346,11 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     expect(Number(second.input.recordingStart) + Number(second.input.recordingSeconds)).toBeCloseTo(16, 3);
     // its head (the frames it shares with clip 1) filed with what clip 1 sang there, handed over before its part
     expect(second.input.recordingLeadIn).toBe(true);
+    // an H3 render interpolated to 48 a second: 209 model frames (8.708 s on its grid), its file a frame shorter (8.688 s).
+    // The track plays it on the grid: the next part starts at 8.708, where the song stops playing, not at the file's end
+    await t.db.updateTable("assets").set({ duration_ms: 8688, fps: 48, latent_frames: 209 }).where("id", "=", "zz-v1").execute();
+    second = await planOf(1);
+    expect(second.input.recordingStart).toBeCloseTo(8.708, 3);
     // the clip's own form is left as the cut made it
     expect((await view(tl.id)).clips[1].inputs).toMatchObject({ recordingStart: 8, recordingSeconds: 8 });
   });
