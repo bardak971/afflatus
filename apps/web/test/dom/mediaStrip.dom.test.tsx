@@ -77,5 +77,7 @@ describe("the timeline's Media strip, found without being told (card #67)", () =
     fireEvent.keyDown(window, { key: "Escape" });
     expect(shelf()).toBeNull();
     expect(strip().textContent).toBe("Media3");
+    // said in its name as well, not only drawn under the word
+    expect(strip().getAttribute("aria-label")).toBe("Show the media, 3 items");
   });
 });

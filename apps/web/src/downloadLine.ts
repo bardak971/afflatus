@@ -6,14 +6,14 @@ import type { Download } from "./api";
  * the Downloads card in Settings › Models and each file's own state (FileState), so that they never say two things.
  */
 
-/** "1st", "2nd", "3rd", "11th", "22nd". */
-export const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th")}`;
-
 /** Still coming: waiting its turn, under way, or whole and being listed by ComfyUI. */
 export const coming = (d: Download) => d.status === "starting" || d.status === "downloading" || d.status === "saving";
 
-/** Waiting its turn: asked for, not begun (the server says what it waits behind). */
-export const inLine = (d: Download) => d.status === "starting" && Boolean(d.waiting);
+/**
+ * Waiting its turn: asked for, not begun (the server says what it waits behind). One begun that waits on its node pack (its
+ * line full) is under way, not in the line: the server does not move it, and dragging it said "Not moved".
+ */
+export const inLine = (d: Download) => d.status === "starting" && Boolean(d.waiting) && !d.begun;
 
 /** What is left of a file to fetch, in bytes; 0 when its size is not known. */
 const leftOf = (d: Download) => (d.total > 0 ? Math.max(0, d.total - d.bytes) : 0);

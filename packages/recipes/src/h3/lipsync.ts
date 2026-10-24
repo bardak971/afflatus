@@ -1,4 +1,4 @@
-import { defineRecipe, type GraphBuilder, type InputSpec, type Ref, type Variant } from "@afflatus/core";
+import { defineRecipe, leadInCovers, type GraphBuilder, type InputSpec, type Ref, type Variant } from "@afflatus/core";
 import { H3_FPS, H3_MAX_FRAMES } from "./family";
 import { H3_NO_TAGS, h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video } from "./video";
@@ -125,8 +125,9 @@ export const h3LipSync = defineRecipe<H3LipSync>({
       sound: (g, decoded, at) => {
         const before = (at.head + lead) / H3_FPS;
         // the clip before sang the recording up to the part: the head is filed with it too, the whole clip one stretch of the
-        // recording. The model's guess there was heard at the join, where one frame of the head shows (a song's, 2026-10-24)
-        if (before > 0 && pre >= before - 1e-6) return g.out("TrimAudioDuration", { audio: whole(g), start_index: pre - before, duration: at.frames / H3_FPS });
+        // recording. The model's guess there was heard at the join, where one frame of the head shows (a song's, 2026-10-24).
+        // The timeline asks for it by the same sum (leadInCovers), so that a take it says is sung was made so
+        if (leadInCovers(pre, at.head + lead, H3_FPS)) return g.out("TrimAudioDuration", { audio: whole(g), start_index: pre - before, duration: at.frames / H3_FPS });
         const sound = loaded(g, at);
         return before > 0 ? g.out("AudioConcat", { audio1: g.out("TrimAudioDuration", { audio: decoded, start_index: 0, duration: before }), audio2: sound, direction: "after" }) : sound;
       },

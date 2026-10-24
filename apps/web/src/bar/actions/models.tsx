@@ -286,14 +286,23 @@ export const whereQuery = (folder: string, file: string, machine?: string) => ({
  * The path is never sent: Show in folder names the file and which of its places, the server finds it.
  */
 export function whereActions(x: BarCtx, w: WhereAsk): Action[] {
+  // a folder whose place could not be read (the server's answer failed) is passed over, said once none of the others has it:
+  // read as "being read", the row waited for good
+  let unread = false;
   for (const folder of w.folders) {
-    const d = x.client.getQueryData<FileWhere>(queryKeys.modelFileWhere(folder, w.file, w.machine));
+    const state = x.client.getQueryState<FileWhere>(queryKeys.modelFileWhere(folder, w.file, w.machine));
+    const d = state?.data;
+    if (!d && state?.status === "error") {
+      unread = true;
+      continue;
+    }
     if (!d) return [{ label: "Show in folder", icon: <FolderOpen size={14} />, disabled: true, note: "its place on disk being read", run: () => {} }];
     if (!d.places.length) continue;
     return d.places.map((p, at) => (d.reveal
       ? { label: "Show in folder", icon: <FolderOpen size={14} />, note: p.path, run: () => api.revealModelFile({ folder, file: w.file, at, ...(w.machine ? { machine: w.machine } : {}) }).catch(x.failed("Could not show it in its folder")) }
       : { label: "Copy path", icon: <Copy size={14} />, note: p.path, stay: true, run: () => copyText(p.path).then(() => x.onCopied("the path"), () => x.onCopied("")) }));
   }
+  if (unread) return [{ label: "Show in folder", icon: <FolderOpen size={14} />, disabled: true, note: "its place on disk could not be read", run: () => {} }];
   // found in none of its folders: the page copies its folder and name; a model, whose folder is not known, has nothing to copy
   if (w.folders.length > 1) return [];
   const said = `${w.folders[0]}/${w.file}`;

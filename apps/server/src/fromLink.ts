@@ -1,4 +1,4 @@
-import { isModelFile } from "@afflatus/core";
+import { isModelFile, USUAL_FOLDERS } from "@afflatus/core";
 import { civitaiGet, civitaiSites, pretendSites } from "./civitai";
 import { httpError } from "./errors";
 import { assertPublicUrl, fetchPublic } from "./outbound";
@@ -42,8 +42,11 @@ const FOLDER_OF_KIND: Record<string, string> = {
 };
 /** Families whose "checkpoints" are the diffusion model alone: ComfyUI loads those from diffusion_models. */
 const ALONE = /flux|wan\b|wan ?\d|krea|minimax|(^|[^a-z0-9])h3([^a-z0-9]|$)|qwen|hunyuan|ltx|chroma|z.?image|lumina|hidream|cosmos|aura/i;
-/** ComfyUI's folder names, as they appear in the path of a file on Hugging Face. */
-const KNOWN_FOLDERS = ["checkpoints", "diffusion_models", "unet", "loras", "vae", "text_encoders", "clip", "clip_vision", "upscale_models", "controlnet", "embeddings", "model_patches", "audio_encoders"];
+/**
+ * ComfyUI's folder names, as they appear in the path of a file on Hugging Face: the usual ones (latent_upscale_models left
+ * out, as it was before they were shared) and the older names ComfyUI still reads, unet and clip.
+ */
+const KNOWN_FOLDERS: readonly string[] = [...USUAL_FOLDERS.filter((f) => f !== "latent_upscale_models"), "unet", "clip"];
 
 type ApiFile = { name?: string; sizeKB?: number; type?: string; metadata?: { fp?: string | null; size?: string | null; format?: string | null } };
 type ApiVersion = { id: number; name?: string; baseModel?: string; modelId?: number; model?: { name?: string; type?: string }; files?: ApiFile[] };

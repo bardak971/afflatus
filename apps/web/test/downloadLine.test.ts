@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { Download } from "../src/api";
-import { linesOf, ordinal, startsIn } from "../src/downloadLine";
+import { inLine, linesOf, startsIn } from "../src/downloadLine";
 
 const GB = 2 ** 30;
 const dl = (id: string, over: Partial<Download> = {}): Download => ({ id, file: `${id}.safetensors`, folder: "loras", title: id, bytes: 0, total: GB, status: "starting", ...over });
 
 describe("the downloads' line", () => {
-  it("says a place in the line as people do", () => {
-    expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 101].map(ordinal)).toEqual(["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "23rd", "101st"]);
+  it("keeps one begun out of the line while its node pack's line is full: it cannot be moved, so it is not dragged", () => {
+    const busy = dl("p", { status: "starting", begun: true, turn: 1, waiting: "the node pack's downloads at once are under way: waiting for one to end" });
+    expect(inLine(busy)).toBe(false);
+    expect(inLine(dl("q", { waiting: "behind p", turn: 2 }))).toBe(true);
+    const [line] = linesOf([busy, dl("q", { waiting: "behind p", turn: 2 })], "m1");
+    expect(line!.under.map((d) => d.id)).toEqual(["p"]);
+    expect(line!.next.map((d) => d.id)).toEqual(["q"]);
   });
 
   it("splits each ComfyUI's downloads into under way, next in its order, done today and failed, the first ComfyUI first", () => {

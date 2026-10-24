@@ -143,6 +143,27 @@ describe.skipIf(!ffmpegThere)("the timeline, frame by frame", { timeout: FFMPEG_
     expect(Math.abs(waveShift(out, 846 + 100, heard) - before)).toBeLessThan(1000 / 48000 + 1e-9);
   });
 
+  it("hands a song over early into a finish made by a cut (SeedVR2, RTX, a model) of a take whose head was filed with it", async () => {
+    // the first clip sings the song to 60 ms before its end, silent there as H3 leaves it; the second sings it from its first
+    // frame, its head filed with it (its draft's render had recordingLeadIn). Its finish was made by a cut: no render of its own
+    const ends = (k: number) => k * (5146 - 896) / 1000;
+    const song = (k: number) => `if(${k === 0 ? "lt(t,5.086)" : "1"},0.5*sin(2*PI*440*(t+${ends(k)})),0)`;
+    const sung = await Promise.all([1, 2].map((c, k) => synthMade(c, FILE, 48, undefined, song(k))));
+    const { id, clips } = await chain(sung, N);
+    await t.db.updateTable("clips").set({ recipe_id: "h3.lipsync" }).where("id", "in", clips.map((c) => c.id)).execute();
+    const draft = await t.db.selectFrom("takes").selectAll().where("id", "=", clips[1]!.take.id).executeTakeFirstOrThrow();
+    await t.db.insertInto("generations").values({ id: "zz-sung-draft", owner_id: "local", recipe_id: "h3.lipsync", recipe_version: 1, family: "h3", inputs: JSON.stringify({ recordingLeadIn: true }), resolved: "{}", gen_ms: 1, draft_id: null, created_at: now() } as never).execute();
+    await t.db.updateTable("assets").set({ generation_id: "zz-sung-draft" }).where("id", "=", draft.asset_id).execute();
+    const big = await upload(sung[1]!, "c2-finished.mp4");
+    await t.db.updateTable("assets").set({ latent_frames: N, source_id: draft.asset_id, generation_id: null }).where("id", "=", big.id).execute();
+    const finished = newId();
+    await t.db.insertInto("takes").values({ ...draft, id: finished, asset_id: big.id, finished_from: draft.id, created_at: now() }).execute();
+    await t.db.updateTable("clips").set({ take_id: finished }).where("id", "=", clips[1]!.id).execute();
+    expect((await view(id)).clips[1].take).toMatchObject({ finishedFrom: draft.id, laidSound: true, headSung: true });
+    // read as a guess, the sound stayed with the first clip to its end: its 60 ms of silence were heard at the join
+    expect(silentMs(await exportOf(id), 5146 - 200, 5146 + 100), "silence at the join").toBeLessThanOrEqual(3);
+  });
+
   it("crossfades a SCAIL-2 window over its head (the clip before's own last moments made again), both moving, the clock unmoved", async () => {
     // two windows at 32 a second: the second's first 9 frames (281 ms) are its head, hidden; the join fades over its last 170 ms
     const a = await upload(synth(4, 153, 32), "w1.mp4");

@@ -16,7 +16,8 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    # ubuntu-24.04, not -latest: its apt ffmpeg (6.1.1) passes the start-up check; a newer image's (7.1) is refused and miscounts run-ups
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -53,7 +54,8 @@ jobs:
   # the timeline player frame by frame in headless Chrome (the runner has Chrome): H3-shaped synthetic clips with their frame
   # index burned in, played in the real editor; fails on a frame out of order, a flicker at a hand-over, a hidden run-up shown
   player:
-    runs-on: ubuntu-latest
+    # ubuntu-24.04, not -latest: its apt ffmpeg (6.1.1) passes the start-up check; a newer image's (7.1) is refused and miscounts run-ups
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4

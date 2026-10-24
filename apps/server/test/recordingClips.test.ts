@@ -325,7 +325,7 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     // the recording goes on in the next clip for the first two, not for the last
     expect((await planOf(0)).input.recordingGoesOn).toBe(true);
     expect((await planOf(1)).input.recordingGoesOn).toBe(true);
-    expect((await planOf(2)).input.recordingGoesOn).toBeUndefined();
+    expect((await planOf(2)).input.recordingGoesOn).toBe(false);
 
     // clip 1 rendered 8.687 s long (its pad and the frame grid), first without the recording going on: clip 2 as it was cut
     const made = { recording: sound, recordingStart: 0, recordingSeconds: 8, speechAt: 0 };
@@ -338,7 +338,7 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     await t.services.timelines.takes.add(clips[0]!.id, asset, { headMs: 0, tailMs: 0 }, {});
     let second = await planOf(1);
     expect([second.input.recordingStart, second.input.recordingSeconds]).toEqual([8, 8]);
-    expect(second.input.recordingLeadIn).toBeUndefined();
+    expect(second.input.recordingLeadIn).toBe(false);
     // made with the recording going on: its tail sang 8 to 8.687, so clip 2 starts there and still ends at 16
     await t.db.updateTable("generations").set({ inputs: JSON.stringify({ ...made, recordingGoesOn: true }) }).where("id", "=", "zz-g1").execute();
     second = await planOf(1);
@@ -353,6 +353,49 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     expect(second.input.recordingStart).toBeCloseTo(8.708, 3);
     // the clip's own form is left as the cut made it
     expect((await view(tl.id)).clips[1].inputs).toMatchObject({ recordingStart: 8, recordingSeconds: 8 });
+  });
+
+  it("of a song, planned for a finish, a lone clip, the moment before the words: what a clip is told of the run is its own", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test song run" });
+    const sound = await recording([tone(24)], 24000);
+    await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
+    await call("POST", `/api/timelines/${tl.id}/recording/cut`, { asset: sound, seconds: 8, snap: true });
+    const clips = (await view(tl.id)).clips as Array<{ id: string; inputs: Record<string, unknown> }>;
+    const recipe = t.services.registry.recipe("h3.lipsync")!;
+    const planOf = (k: number, raw: Record<string, unknown> = clips[k]!.inputs, finishedFrom: string | null = null) => t.services.timelines.plan(clips[k]!.id, recipe, raw, false, finishedFrom, true);
+
+    // a form reused from a clip of the song (its render's inputs, whole) on the last clip: neither true is kept
+    const last = await planOf(2, { ...clips[2]!.inputs, recordingGoesOn: true, recordingLeadIn: true });
+    expect([last.input.recordingGoesOn, last.input.recordingLeadIn]).toEqual([false, false]);
+
+    // clip 1's draft rendered with the song going on, then finished by a cut (SeedVR2, RTX, a model: no render of its own)
+    const made = { recording: sound, recordingStart: 0, recordingSeconds: 8, speechAt: 0, recordingGoesOn: true };
+    await t.db.insertInto("generations").values({ id: "zz-g-run", owner_id: OWNER, recipe_id: "h3.lipsync", recipe_version: 1, family: "h3", inputs: JSON.stringify(made), resolved: "{}", gen_ms: 1, draft_id: null, created_at: now() } as never).execute();
+    const video = (id: string, generation: string | null, source: string | null) => t.db.insertInto("assets").values(newAssetRow({
+      id, kind: "video", origin: generation ? "generated" : "edited", name: `zz-test song ${id}`, file_key: `assets/zz/${id}`, thumb_key: null, mime: "video/mp4", bytes: 1000,
+      width: 576, height: 1024, duration_ms: 8687, fps: 24, has_sound: 1, folder_id: null, generation_id: generation, kept_at: now(), source_id: source,
+    })).execute();
+    await video("zz-v-draft", "zz-g-run", null);
+    await video("zz-v-big", null, "zz-v-draft");
+    const row = (id: string) => t.db.selectFrom("assets").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
+    await t.services.timelines.takes.add(clips[0]!.id, await row("zz-v-draft"), { headMs: 0, tailMs: 0 }, {}, null, t.db, "zz-t-draft");
+    await t.services.timelines.takes.add(clips[0]!.id, await row("zz-v-big"), { headMs: 0, tailMs: 0 }, {}, "zz-t-draft", t.db, "zz-t-big");
+    // the next clip still starts where the draft's song stops, its head sung: read off the finish, it sang 8 to 8.687 again
+    const second = await planOf(1);
+    expect(second.input.recordingStart).toBeCloseTo(8.687, 3);
+    expect(second.input.recordingLeadIn).toBe(true);
+
+    // its words a moment in (1.5 s): the 2 s handed over before the part no longer cover that and its head (22 frames), the
+    // graph sounds them of the model's guess, and the take must not say its head is sung
+    const later = await planOf(1, { ...clips[1]!.inputs, speechAt: 1.5 });
+    expect(later.input.recordingStart).toBeCloseTo(8.687, 3);
+    expect(later.input.recordingLeadIn).toBe(false);
+
+    // a finish of clip 2's draft, re-sampled from its latent: the draft's part as it was sent, not planned again (its sound and
+    // length are the draft's; planned again from the part it was sent, it no longer met clip 1's and lost its sung head)
+    const drafted = { ...clips[1]!.inputs, recordingStart: 8.687, recordingSeconds: 7.313, recordingGoesOn: true, recordingLeadIn: true };
+    const finish = await planOf(1, drafted, "zz-some-draft-take");
+    expect([finish.input.recordingStart, finish.input.recordingSeconds, finish.input.recordingGoesOn, finish.input.recordingLeadIn]).toEqual([8.687, 7.313, true, true]);
   });
 
   it("says its pauses, as it is cut at them", async () => {

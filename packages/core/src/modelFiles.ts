@@ -15,6 +15,16 @@ export const MODEL_EXT = endsIn(MODEL_EXTS);
 export const isModelFile = (name: string) => MODEL_EXT.test(name);
 
 /**
+ * ComfyUI's usual model folders, in the order they are offered: where a file with no folder of its own can go while
+ * ComfyUI does not say its own, and the folders hashed, searched and listed on a pod (those less embeddings). Written by
+ * hand five times, server and web, the lists could drift apart as a folder was added to some of them only.
+ */
+export const USUAL_FOLDERS = ["checkpoints", "diffusion_models", "loras", "vae", "text_encoders", "clip_vision", "upscale_models", "latent_upscale_models", "controlnet", "model_patches", "audio_encoders", "embeddings"] as const;
+
+/** The usual folders whose files are full models (embeddings left out): the ones hashed, searched and read on a pod. */
+export const FULL_MODEL_FOLDERS: readonly string[] = USUAL_FOLDERS.filter((f) => f !== "embeddings");
+
+/**
  * A model file's name without its sub-folder, split on either slash: ComfyUI on Windows lists "SDXL\\x.safetensors". The
  * tests below that ask for the bare name all split here, so none can drop the backslash again: the official test did once,
  * and a pod was sent a file its fetch then refused, billed while it waited (2026-10-22).

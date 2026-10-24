@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { RecipeStatus } from "../src/api";
-import { about, aboutMs, brief, clock, dateTime, dayMonth, dayOf, daysBack, elapsed, hourMinute, localDay, plural, shortDate, fileLabel, leftWords, long, notReady, pace, phaseLabel, problemSaid, recipeLabel, seconds, siteName, size, slotsSaid, sourceOf, spell, took, when } from "../src/format";
+import { about, aboutMs, brief, clock, dateTime, dayMonth, dayOf, daysBack, elapsed, hourMinute, localDay, plural, shortDate, fileLabel, leftWords, long, notReady, ordinal, pace, phaseLabel, problemSaid, recipeLabel, seconds, siteName, size, slotsSaid, sourceOf, spell, took, when } from "../src/format";
+
+describe("a place in a line", () => {
+  it("is said as people say it, 21st and 111th too (the queue's waiting jobs once said 21th)", () => {
+    expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 101, 111].map(ordinal)).toEqual(["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "23rd", "101st", "111th"]);
+  });
+});
 
 describe("minutes and seconds", () => {
   it("rounds a length to the second", () => {

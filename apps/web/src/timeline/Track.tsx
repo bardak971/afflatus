@@ -188,7 +188,10 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const sourceEnd = sourcePlace ? PAD + ((sourcePlace.atMs + sourcePlace.lengthMs) / 1000) * pps : 0;
   const end = Math.max(clipsEnd, toCome);
   const totalMs = Math.max(slots.length ? slots.at(-1)!.startMs + slots.at(-1)!.lengthMs : 0, sourceMode && sourcePlace ? sourcePlace.atMs + sourcePlace.lengthMs : 0, stageEndMs ?? 0);
-  const width = Math.max(end, sourceEnd) + NEW_CLIP + PAD * 2 + 40;
+  // the recording on the stage runs on past its clips' parts (to its own end): the track is drawn out to it, as to the
+  // source's, or the playhead played past Out ran beyond the track's drawn end
+  const stageEnd = stageEndMs !== null ? PAD + (stageEndMs / 1000) * pps : 0;
+  const width = Math.max(end, sourceEnd, stageEnd) + NEW_CLIP + PAD * 2 + 40;
   // what Fit all shows: the clips, the source under them and the windows still to make, its panel open or not
   const toComeMs = sourcePlace && !sourcePlace.made && !sourcePlace.replaces && sourcePlace.windows.length ? sourcePlace.atMs + sourcePlace.windows.at(-1)!.toMs : 0;
   const fitMs = Math.max(totalMs, toComeMs, sourcePlace ? sourcePlace.atMs + sourcePlace.lengthMs : 0);

@@ -31,7 +31,7 @@ RUN node scripts/release/stage.mjs ${AFFLATUS_LOCK:+--lock "$AFFLATUS_LOCK"}
 
 # ffmpeg and ffprobe: the build the Windows and Linux bundles carry (scripts/release/bundle.mjs's FFMPEG_TAG, BtbN's
 # GPL 9.0 build, with libx264), the one for the image's platform, checked against the SHA-256 its release lists in
-# checksums.sha256 (ffmpegGet.test.ts holds the amd64 one in step with Get ffmpeg's). Not Debian's: bookworm's 5.1 is
+# checksums.sha256 (ffmpegGet.test.ts holds both sums to scripts/release/checksums.json, and the amd64 one in step with Get ffmpeg's). Not Debian's: bookworm's 5.1 is
 # below the 6.1 the start-up check asks (apps/server/src/ffmpegCheck.ts), and trixie's 7.1 miscounts a join's run-up.
 # It only downloads and unpacks, so it runs on the build's own platform (no emulation for arm64).
 FROM --platform=$BUILDPLATFORM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS ffmpeg

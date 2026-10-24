@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, fileUrl, type Asset } from "../api";
 import { clock } from "../format";
@@ -43,9 +43,11 @@ export const RecordingStage = forwardRef<PlayerHandle, {
   const placeNow = useRef(place);
   placeNow.current = place;
   const length = place.lengthMs;
-  /** The recording put at a moment of it (ms of the recording), the playhead with it. */
+  /** The recording put at a moment of it (ms of the recording), the playhead with it. Never before the moment heard at the
+   * track's start: with its first clip opening the timeline and In trimmed in, what lies before In plays before 0 on the
+   * track, and the playhead put there said 0:00 while the stage said the moment clicked. */
   const put = (ms: number) => {
-    const at = Math.max(0, Math.min(placeNow.current.lengthMs, ms));
+    const at = Math.max(earliestOf(placeNow.current), Math.min(placeNow.current.lengthMs, ms));
     if (el.current) el.current.currentTime = at / 1000;
     setLocal(at);
     onTime(placeNow.current.toTrack(at));
@@ -82,7 +84,9 @@ export const RecordingStage = forwardRef<PlayerHandle, {
       a.pause();
       return;
     }
-    if (a.currentTime * 1000 >= length - 40) a.currentTime = 0;
+    // played again from the end: from the first moment heard on the track, not the recording's 0 (before the track's start
+    // when the first clip opens the timeline and In is trimmed in)
+    if (a.currentTime * 1000 >= length - 40) a.currentTime = earliestOf(placeNow.current) / 1000;
     void a.play().catch(() => onPlaying(false));
     let id = 0;
     let said = 0;
@@ -113,7 +117,10 @@ export const RecordingStage = forwardRef<PlayerHandle, {
   const shown = stretchOf(place, useViewOf(view));
   const span = shown.toMs - shown.fromMs;
   const top = useMemo(() => loudestOf(motion.data?.sound), [motion.data?.sound]);
-  const wave = barsIn(motion.data?.sound, motion.data?.rate ?? 0, top, shown);
+  // kept between frames: while it plays the stage draws again on every frame (the moment heard), the bars only when the
+  // stretch shown or the loudness change
+  const wave = useMemo(() => barsIn(motion.data?.sound, motion.data?.rate ?? 0, top, shown), [motion.data?.sound, motion.data?.rate, top, shown.fromMs, shown.toMs]); // eslint-disable-line react-hooks/exhaustive-deps -- the stretch by its two ends, made anew on every draw
+  const path = useMemo(() => wave?.bars.map((v, i) => `M${i * 3} ${(1 - v) * 50}h2v${v * 100}h-2z`).join("") ?? "", [wave]);
   // where a moment of the recording is across the stretch shown, unclamped: what lies outside it is cut off at the stage's
   // sides. No length (old clips with no recordingSeconds, the recording's own not read yet): everything at the start, never NaN%
   const ratio = (ms: number) => (span > 0 ? (ms - shown.fromMs) / span : 0);
@@ -121,11 +128,13 @@ export const RecordingStage = forwardRef<PlayerHandle, {
   const shareIn = (ms: number) => `${Math.max(0, Math.min(1, ratio(ms))) * 100}%`;
   const sizeOf = (ms: number) => `${span > 0 ? (ms / span) * 100 : 0}%`;
   // the pauses it was cut at: where a part ends and the next one starts; the others are pauses it was not cut at
-  const cuts = place.parts.slice(0, -1).map((p) => p.endMs);
-  const marks = [
-    ...cuts.map((ms) => ({ ms, used: true })),
-    ...(pauses.data?.pauses ?? []).map((p) => ((p.start + p.end) / 2) * 1000).filter((ms) => ms < length && !cuts.some((c) => Math.abs(c - ms) < AT_A_CUT_MS)).map((ms) => ({ ms, used: false })),
-  ];
+  const marks = useMemo(() => {
+    const cuts = place.parts.slice(0, -1).map((p) => p.endMs);
+    return [
+      ...cuts.map((ms) => ({ ms, used: true })),
+      ...(pauses.data?.pauses ?? []).map((p) => ((p.start + p.end) / 2) * 1000).filter((ms) => ms < length && !cuts.some((c) => Math.abs(c - ms) < AT_A_CUT_MS)).map((ms) => ({ ms, used: false })),
+    ];
+  }, [place, pauses.data, length]);
   const now = partAt(place, local);
   // the clip under the playhead and its take, if it has one: its picture behind the waveform, in step with the sound
   const trackNow = place.toTrack(local);
@@ -161,6 +170,16 @@ export const RecordingStage = forwardRef<PlayerHandle, {
     }
     setDragging(true);
     put(at(e));
+  };
+  // the keys of the timeline's other playhead slider (the full screen's): a second, five with Shift, Home and End. Kept
+  // from the editor's own keys, which step a frame
+  const keys = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const by = e.shiftKey ? 5000 : 1000;
+    const next = e.key === "ArrowRight" || e.key === "ArrowUp" ? local + by : e.key === "ArrowLeft" || e.key === "ArrowDown" ? local - by : e.key === "Home" ? 0 : e.key === "End" ? length : null;
+    if (next === null || e.ctrlKey || e.metaKey || e.altKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    put(next);
   };
   const ticks = Array.from({ length: 6 }, (_, k) => shown.fromMs + (span * k) / 5);
   const number = (p: NonNullable<typeof under>) => p.clip.takes.findIndex((x) => x.id === take?.id) + 1;
@@ -201,7 +220,7 @@ export const RecordingStage = forwardRef<PlayerHandle, {
             viewBox={`0 0 ${Math.max(1, wave.bars.length) * 3} 100`}
             preserveAspectRatio="none"
           >
-            <path d={wave.bars.map((v, i) => `M${i * 3} ${(1 - v) * 50}h2v${v * 100}h-2z`).join("")} className="fill-ink-3" />
+            <path d={path} className="fill-ink-3" />
           </svg>
         ) : (
           // not measured yet, or nothing to measure: a quiet line where the waveform goes
@@ -259,12 +278,13 @@ export const RecordingStage = forwardRef<PlayerHandle, {
         <div
           ref={surface}
           role="slider"
-          tabIndex={-1}
+          tabIndex={0}
           aria-label="The recording: click or drag to move the playhead"
-          aria-valuemin={0}
+          aria-valuemin={Math.round(earliestOf(place))}
           aria-valuemax={Math.round(length)}
           aria-valuenow={Math.round(local)}
           aria-valuetext={clock(local, { decimals: 1 })}
+          onKeyDown={keys}
           onPointerDown={down}
           onPointerMove={(e) => dragging && put(at(e))}
           onPointerUp={() => setDragging(false)}
@@ -279,6 +299,11 @@ export const RecordingStage = forwardRef<PlayerHandle, {
     </div>
   );
 });
+
+/** The first moment of the recording heard at or after the track's start (0 of the track): the stage's playhead goes no earlier. */
+export function earliestOf(place: RecordingPlace): number {
+  return place.toTrack(0) >= 0 ? 0 : place.toRecording(0);
+}
 
 /**
  * The stretch of the recording the stage shows: what the track shows of it, at least LEAST_MS; all of it when the track

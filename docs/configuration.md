@@ -16,7 +16,7 @@ Set them before starting: in the console on Windows (`set PORT=8730` in cmd, `$e
 | `TRUST_PROXY` | empty | Addresses of reverse proxies on other machines (comma-separated IPs) whose `X-Forwarded-Proto` is believed: behind a TLS proxy there, the sign-in cookie is then marked Secure. A proxy on the same machine is believed without it |
 | `LINK_ROOTS` | empty | The only folders that may be linked into the library (and what is inside them), separated as `PATH` is (`;` on Windows, `:` elsewhere). Set it whenever Afflatus is reachable from other machines: without it, linking is refused once `HOST` is not loopback. System folders are never linked, whatever is set |
 | `DATABASE_URL` | empty | A `postgres://` address instead of SQLite. SQLite is the supported one; Postgres is written and its migrations run in CI, but it is not yet used day to day |
-| `FFMPEG`, `FFPROBE` | the bundled ones, or the `PATH` | The tools' paths |
+| `FFMPEG`, `FFPROBE` | the first that passes the start-up check: a bundle's own, the `PATH`'s, Get ffmpeg's in `data/bin`, ComfyUI's imageio-ffmpeg | The tools' paths. One you set is the only one tried, never swapped for another |
 | `AFFLATUS_SQLITE_WORKER` | empty | `1` runs SQLite's statements in a worker thread instead of the server's own: a long read no longer holds the other requests, but a route of many small statements gets slower while ffmpeg takes every core. Off by default |
 | `PRESETS_DIR` | the install's `presets/` folder | Where the shipped presets are read from |
 | `RUNPOD_API_URL` | `https://api.runpod.io` | RunPod's API, for rented machines: a stand-in RunPod (the demo's `DEMO_RUNPOD=1`, the tests) |

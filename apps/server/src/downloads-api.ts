@@ -30,7 +30,7 @@ export function registerDownloads(app: FastifyInstance, s: Services): void {
     // no machine at all (a rented-only start, none added yet): nothing to download into, nothing to ask
     if (!settings.machines.length) return { on, items: s.downloads.list(), manager: { found: false as const }, via: "none" as const };
     // `machine`: asked of that ComfyUI (Settings › Models, its tab); the first one otherwise
-    const { comfy, dir } = await downloadTarget(s, settings, z.object({ machine: z.string().max(40).optional() }).parse(req.query).machine);
+    const { comfy, dir } = await downloadTarget(s, settings, onMachine.strict().parse(req.query).machine);
     // whether ComfyUI-Manager is there is said with downloads off too: node packs are installed with it all the same. Said
     // "not found" then, a pod's Models tab greyed its Install button, the Manager running there (2026-10-18)
     const manager = await s.downloads.manager(comfy);
@@ -85,7 +85,7 @@ export function registerDownloads(app: FastifyInstance, s: Services): void {
   app.get("/api/downloads/places", async (req) => {
     const settings = await readSettings(s.db);
     if (!settings.machines.length) return { machine: null, folders: {} };
-    const { comfy, dir, machine } = await downloadTarget(s, settings, onMachine.parse(req.query).machine);
+    const { comfy, dir, machine } = await downloadTarget(s, settings, onMachine.strict().parse(req.query).machine);
     const id = machine ?? settings.machines[0]!.id;
     const paths = await comfyFolderPaths(comfy.client);
     return { machine: id, folders: paths ? await folderPlaces(paths, comfy.client.baseUrl, dir, settings.downloadPlaces[id] ?? {}, await s.downloads.others(comfy)) : {} };

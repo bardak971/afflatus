@@ -1,5 +1,5 @@
 import type { BrowseCard, CommandEntry, Download, Entity, UpdateRow, Job, PromptHistoryItem, QueueStatus, RecipeInfo, RunningJob } from "../api";
-import { aboutMs, clock, plural, size, timeLeft, when } from "../format";
+import { aboutMs, clock, ordinal, plural, size, timeLeft, when } from "../format";
 import { calc, type CalcCard, type Grid } from "./calc";
 import { commandRow, liveRow, QUEUE_BULK, type CommandCtx } from "./commandRows";
 import { highlight, prepare, search, type Prepared } from "./match";
@@ -408,7 +408,7 @@ export function rowsFor(mode: Mode, d: RowsData): Section[] {
       const qd = d.queue;
       const jobs: Item[] = [];
       if (qd?.running) jobs.push({ key: `job:${qd.running.id}`, kind: "job", label: qd.running.label, group: "Queue", verb: "open", p: prepare(qd.running.label), job: { job: qd.running, state: "running" }, meta: `running · ${qd.running.steps ? `step ${qd.running.step} of ${qd.running.steps}` : `${Math.round(qd.running.progress * 100)} %`}${qd.running.eta ? ` · ${timeLeft(qd.running.eta)}` : ""}` });
-      qd?.waiting.forEach((w, i) => jobs.push({ key: `job:${w.id}`, kind: "job", label: w.label, group: "Queue", verb: "open", p: prepare(w.label), job: { job: w, state: "waiting", position: i + 1 }, meta: `waiting · ${i === 0 ? "next" : `${i + 1}${["st", "nd", "rd"][i] ?? "th"}`}${w.estimateMs ? ` · ${aboutMs(w.estimateMs)}` : ""} · Tab → to the top` }));
+      qd?.waiting.forEach((w, i) => jobs.push({ key: `job:${w.id}`, kind: "job", label: w.label, group: "Queue", verb: "open", p: prepare(w.label), job: { job: w, state: "waiting", position: i + 1 }, meta: `waiting · ${i === 0 ? "next" : ordinal(i + 1)}${w.estimateMs ? ` · ${aboutMs(w.estimateMs)}` : ""} · Tab → to the top` }));
       for (const f of qd?.recent.filter((j) => j.status === "failed") ?? []) jobs.push({ key: `job:${f.id}`, kind: "job", label: f.label, group: "Queue", verb: "open", p: prepare(f.label), job: { job: f, state: "failed" }, meta: `failed${f.finishedAt ? ` ${new Date(f.finishedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}${f.error ? ` · ${f.error.slice(0, 80)}` : ""} · Ctrl+Enter retries` });
       const found = q ? search(jobs, q, LIMIT).map((x) => x.item) : jobs;
       // what is done to the whole queue, after its jobs (Enter on the first row opens one, never cancels them all)

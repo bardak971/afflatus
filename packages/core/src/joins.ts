@@ -110,3 +110,16 @@ export const latentFrameAtOrBefore = (frame: number) => gridAtOrBefore(frame, LA
 
 /** The first frame of one of a latent's 17-frame chunks at or after `frame`: where a landing on it is made in the latent, on time. */
 export const chunkAtOrAfter = (frame: number) => chunkStartAtOrAfter(frame, LATENT_GRID);
+
+/** Seconds of a recording handed over before a clip's part, at most, for its head (a sound window's `leadIn`): more than H3's 917 ms run-up. */
+export const LEAD_IN_S = 2;
+
+/** How much of a recording is handed over before a part that starts `start` seconds into it, when its head is filed with it. */
+export const leadInBefore = (start: number) => Math.max(0, Math.min(LEAD_IN_S, start));
+
+/**
+ * Whether the `pre` seconds of a recording handed over before a clip's part cover its head and the moment before its words
+ * (`frames` in all, at `fps`). Only then does the graph sound them of the recording (Lip sync's sound), so only then may a
+ * timeline say the head is sung (the window's `leadIn`): said with less, the player handed over early into the model's guess.
+ */
+export const leadInCovers = (pre: number, frames: number, fps: number) => frames > 0 && pre >= frames / fps - 1e-6;

@@ -9,6 +9,7 @@ import { duckCurve } from "./duck";
 import { assetView, extOf, newAssetRow } from "./media";
 import { sourceOf } from "./storage";
 import { folderOfTimeline } from "./timelineFolder";
+import { generationOfTake } from "./timelinePlan";
 import { fewAtATime } from "./timelineMedia";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideoFile } from "./video";
@@ -61,11 +62,13 @@ export class TimelineExport {
 
   /**
    * Whether a take's head sounds of the model's guess (core soundHandover's `guessedHead`): its sound a recording laid after
-   * its head (Lip sync), rendered without the lead-in its render's form would say (sungHead).
+   * its head (Lip sync), rendered without the lead-in its render's form would say (sungHead). A finish made by a cut reads its
+   * draft's render: the same frames and sound.
    */
-  private async guessedHead(x: Taken, recipeId: string | null): Promise<boolean> {
-    const made = x.asset.generation_id ? await this.core.db.selectFrom("generations").select(["recipe_id", "inputs"]).where("id", "=", x.asset.generation_id).executeTakeFirst() : undefined;
-    const inputs = this.core.registry.recipe(made?.recipe_id ?? recipeId ?? "")?.inputs ?? [];
+  private async guessedHead(x: Taken, p: Placed): Promise<boolean> {
+    const genId = generationOfTake(x, p.takes);
+    const made = genId ? await this.core.db.selectFrom("generations").select(["recipe_id", "inputs"]).where("id", "=", genId).executeTakeFirst() : undefined;
+    const inputs = this.core.registry.recipe(made?.recipe_id ?? p.clip.recipe_id ?? "")?.inputs ?? [];
     return laysSound(inputs) && !sungHead(inputs, made ? (JSON.parse(made.inputs) as Record<string, unknown>) : {});
   }
 
@@ -140,7 +143,7 @@ export class TimelineExport {
       bothOwnSound: p.clip.sound === "own" && Boolean(x.asset.has_sound) && before?.sound === "own" && Boolean(before.hasSound),
       shownFromMs: visible(x).start,
       beforeMs: before ? before.endMs - before.startMs : 0,
-      guessedHead: seam ? await this.guessedHead(x, p.clip.recipe_id) : false,
+      guessedHead: seam ? await this.guessedHead(x, p) : false,
     });
     return {
       kind: "video", source: await sourceOf(storage, x.asset.file_key), ext: extOf(x.asset.mime), ...(x.asset.fps ? { fps: x.asset.fps } : {}),

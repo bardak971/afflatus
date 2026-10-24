@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useQuery, type QueryClient } from "@tanstack/react-query";
 import { create } from "zustand";
+import { USUAL_FOLDERS } from "@afflatus/core";
 import { api, type BrowseCard, type BrowseFile, type DeployFile } from "../api";
 import { queryKeys } from "../queryKeys";
 
@@ -48,7 +49,7 @@ export const pickedOf = (f: BrowseFile, card: BrowseCard, version: string, folde
 });
 
 /** The ComfyUI folders a file without one can be put in, until the server says its ComfyUI's own (and when it does not answer). */
-export const FOLDERS = ["checkpoints", "diffusion_models", "loras", "vae", "text_encoders", "clip_vision", "upscale_models", "latent_upscale_models", "controlnet", "model_patches", "audio_encoders", "embeddings"];
+export const FOLDERS: string[] = [...USUAL_FOLDERS];
 
 const foldersQuery = (machine?: string) => ({ queryKey: queryKeys.browse.folders(machine), queryFn: ({ signal }: { signal: AbortSignal }) => api.browseFolders(machine, { signal }).then((r) => r.folders), staleTime: 60_000 });
 /** The folders a picked file can go in: this PC's ComfyUI's own with the usual and the families' (frame_interpolation for RIFE). */

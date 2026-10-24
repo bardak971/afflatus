@@ -3,7 +3,8 @@
  * beside a helper that does it, the patterns the 2026-10-11 review found copied a few dozen times:
  *   - a plural made inline (`=== 1 ? "" : "s"`, or "es"): format's `plural` (core's, for the server and the packages);
  *   - a failure banner made inline (`tone: "bad"` with an error's `.message`): sayFailed.ts's `useSayFailed` or `failedBanner`;
- *   - a list of model-file extensions in a pattern: core's modelFiles.ts (`MODEL_EXT`, `isModelFile`, `modelStem`).
+ *   - a list of model-file extensions in a pattern: core's modelFiles.ts (`MODEL_EXT`, `isModelFile`, `modelStem`);
+ *   - a list of ComfyUI's usual model folders: core's modelFiles.ts (`USUAL_FOLDERS`, `FULL_MODEL_FOLDERS`).
  * Only the sources are read (apps/<name>/src, packages/<name>/src, and the scripts that `pnpm check:*` and the rest run),
  * not the tests. `pnpm lint` from the repository root.
  *
@@ -49,6 +50,13 @@ const RULES: Array<{ test: RegExp; why: string; except?: RegExp }> = [
   { test: /tone: "bad"[^\n]*\.message\b|\.message\b[^\n]*tone: "bad"/, why: "a failure banner made inline: use useSayFailed or failedBanner (sayFailed.ts)", except: /apps[\\/]web[\\/]src[\\/]sayFailed\.ts$/ },
   // three extensions or more in one alternation: a model-file list (a pair such as safetensors|sft is a single format)
   { test: new RegExp(`\\b${EXT}(?:\\|${EXT}){2,}\\b`), why: "a list of model-file extensions: use MODEL_EXT, isModelFile or modelStem (core's modelFiles.ts)", except: /packages[\\/]core[\\/]src[\\/]modelFiles\.ts$/ },
+  // the usual folders' list as it begins, in any quotes: written by hand five times (server and web), the lists drifted
+  // apart. A few folders named for a purpose of their own (those a model comes with, a demo's) are no such list
+  {
+    test: /["'`]checkpoints["'`],\s*["'`]diffusion_models["'`],\s*(?:["'`]unet["'`],\s*)?["'`]loras["'`],\s*["'`]vae["'`],\s*["'`]text_encoders["'`]/,
+    why: "a list of the usual model folders: use USUAL_FOLDERS or FULL_MODEL_FOLDERS (core's modelFiles.ts)",
+    except: /packages[\\/]core[\\/]src[\\/]modelFiles\.ts$/,
+  },
 ];
 
 /** What a source file writes by hand that a helper does, line by line. `file` is its path from the repository root. */

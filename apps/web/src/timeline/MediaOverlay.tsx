@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Images, Search, Star } from "lucide-react";
 import type { Asset, Timeline } from "../api";
 import { useAssets, useFolders } from "../data";
-import { clock } from "../format";
+import { clock, plural } from "../format";
 import { useSettled } from "../hooks";
 import { Keys } from "../Keys";
 import { useKeysHere } from "../keys/here";
@@ -161,13 +161,14 @@ export function MediaOverlay({ timeline, placeItems }: {
     ? items.length
     : scope === "folder" && place.type === "folder" && !narrowed ? folderList?.find((f) => f.id === place.id)?.count : undefined;
 
-  // the whole strip is the button (Nicolas never thought of clicking a 28 px glyph in a margin): a media icon, the word,
+  // the whole strip is the button (a tester never thought of clicking a 28 px glyph in a margin): a media icon, the word,
   // the count, one hover over all of it. Grey at rest; open, it takes the rail's active look.
   const tab = (
     <button
       type="button"
       aria-pressed={open}
-      aria-label={open ? "Fold the media away" : "Show the media"}
+      // the count in the name too: a screen reader read the strip's name alone, not the figure under the word
+      aria-label={open ? "Fold the media away" : count ? `Show the media, ${plural(count, "item")}` : "Show the media"}
       data-tip={open ? "Fold the media away: the stage comes back" : "Media: your library over the stage. Drag onto the track or into the clip's form."}
       onClick={() => setOpen(!open)}
       className={cx(

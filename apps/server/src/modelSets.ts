@@ -3,7 +3,7 @@ import { stat } from "node:fs/promises";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { filesIn } from "@afflatus/comfy";
-import { fileKey, fuzzyFilter, presetFileSchema, type PresetFile } from "@afflatus/core";
+import { fileKey, fuzzyFilter, FULL_MODEL_FOLDERS, presetFileSchema, type PresetFile } from "@afflatus/core";
 import { now, OWNER } from "./db";
 import { httpError, notFound } from "./errors";
 import { beginDownload } from "./fetchFile";
@@ -21,7 +21,7 @@ import { readSettings } from "./settings";
  */
 
 /** The model folders the search looks through on this computer's ComfyUI, and that a volume's pod lists (rentedVolumes.ts). */
-export const SEARCHED_FOLDERS = ["checkpoints", "diffusion_models", "loras", "vae", "text_encoders", "clip_vision", "upscale_models", "latent_upscale_models", "controlnet", "model_patches", "audio_encoders"];
+export const SEARCHED_FOLDERS = FULL_MODEL_FOLDERS;
 
 /** A file left out of a set's preset, by its folder and name (core fileKey). */
 const keyOf = (folder: string, file: string) => fileKey({ folder, file });

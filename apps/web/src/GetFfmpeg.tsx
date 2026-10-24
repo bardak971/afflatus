@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type HealthCheck } from "./api";
 import { size } from "./format";
@@ -10,6 +10,29 @@ import { Button, ErrorNote } from "./ui";
 const BUSY = new Set(["downloading", "unpacking", "checking"]);
 /** Said in place of the button to a page on another computer (the banner too). */
 export const ELSEWHERE = "Get ffmpeg from the PC Afflatus runs on.";
+
+/**
+ * Get ffmpeg followed wherever it was started (About's button, the banner's, the bar's), mounted once by the app: its view
+ * read every second while it runs, and the checks read again once it is done or failed. Followed only by About's button,
+ * the checks (read once, kept for good) still said ffmpeg failed in the banner and the bar after a Get begun elsewhere.
+ */
+export function useFollowFfmpegGet() {
+  const client = useQueryClient();
+  const busy = (phase: string | undefined) => BUSY.has(phase ?? "");
+  const phase = useQuery({
+    queryKey: queryKeys.ffmpegGet(),
+    queryFn: ({ signal }) => api.ffmpegGet({ signal }),
+    // nothing asked until a Get is under way (its start writes the view): the page never asks when there is nothing to get
+    enabled: (q) => busy(q.state.data?.phase),
+    refetchInterval: (q) => (busy(q.state.data?.phase) ? 1000 : false),
+  }).data?.phase;
+  const before = useRef(phase);
+  useEffect(() => {
+    const was = before.current;
+    before.current = phase;
+    if (phase !== was && (phase === "done" || phase === "failed")) void client.invalidateQueries({ queryKey: queryKeys.health() });
+  }, [phase, client]);
+}
 
 /**
  * Get ffmpeg (ffmpegGet.ts), where the ffmpeg check offers it: on Windows and Linux, a button that downloads the bundles'

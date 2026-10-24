@@ -167,5 +167,9 @@ describe("a video the workflow works on", () => {
     expect(roles("Prev clip")).toEqual(["previous"]);
     expect(roles("Previous shot")).toEqual(["previous"]);
     expect(roles("Preview")).toEqual(["source"]);
+    // run into the next word, or a number: the clip before all the same
+    for (const name of ["prev_clip", "prev_video", "PrevVideo", "prev1"]) expect(roles(name), name).toEqual(["previous"]);
+    expect(roles("Preview video")).toEqual(["source"]);
+    expect(roles("Prevent flicker")).toEqual(["source"]);
   });
 });

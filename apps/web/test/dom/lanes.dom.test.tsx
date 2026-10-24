@@ -316,3 +316,12 @@ describe("the playhead after the timeline gets shorter", () => {
     expect(p.cursor).toBe(5000);
   });
 });
+
+describe("the track with a recording on the stage", () => {
+  it("is drawn out to where the recording ends, past its clips: the playhead played past Out stays on the track", () => {
+    // two clips (10 s) of a 60 s recording: the stage plays it on to its end
+    const { container } = track([clip("a", 0), clip("b", 5000)], { stageEndMs: 60_000 });
+    const inner = [...container.querySelectorAll<HTMLElement>("div.relative")].find((d) => d.style.height && d.style.width)!;
+    expect(px(inner, "width")).toBe(PAD + 60 * 40 + NEW_CLIP + PAD * 2 + 40);
+  });
+});

@@ -306,6 +306,13 @@ describe("find models", () => {
     }
   });
 
+  it("refuses a query with more than it takes, as the bodies are, before any site is asked", async () => {
+    for (const url of ["/api/browse/folders?machine=m1&path=x", "/api/browse/civitai?q=x&nsfw=1", "/api/browse/huggingface?q=wan&author=x", "/api/browse/huggingface/files?repo=org/wan-loras&rev=main", "/api/downloads?machine=m1&x=1", "/api/downloads/places?x=1"]) {
+      expect((await get(t.app, url)).statusCode, url).toBe(400);
+    }
+    expect(asked).toEqual([]);
+  });
+
   it("asks no site with lookups off", async () => {
     await writeSettings(t.db, { civitaiLookups: false });
     expect((await get(t.app, "/api/browse/civitai")).statusCode).toBe(409);

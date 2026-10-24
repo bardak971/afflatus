@@ -108,9 +108,12 @@ export async function inTemp<T>(work: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
-/** How many pictures a video holds, each one decoded and counted by ffprobe (`probe`: the one in use, unless one is being tried). */
-export const countFrames = async (file: string, probe = tools.ffprobe) =>
-  Number((await must(probe, ["-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", file])).trim()) || 0;
+/**
+ * How many pictures a video holds, each one decoded and counted by ffprobe (`probe`: the one in use, unless one is being tried).
+ * `opts` bounds the run: the start-up check counts a 22-frame clip and gives a hanging ffprobe seconds, not a job's two minutes.
+ */
+export const countFrames = async (file: string, probe = tools.ffprobe, opts: { timeout?: number; signal?: AbortSignal } = {}) =>
+  Number((await must(probe, ["-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", file], opts)).trim()) || 0;
 
 /**
  * The run that cuts the frames a join carries on from (cutFrames): `count` frames from `start`, at `fps`, with their sound when
@@ -548,14 +551,19 @@ export function partOf(start: number, seconds: number, total: number | null): { 
  * before the sound speaks again (at once when the part was ended mid-word), then silence, `after` seconds in all.
  * `goesOn`: the next clip carries the sound on from where this clip stops, so the `after` seconds are the sound itself, not
  * faded out (a song never pauses: faded, every join of its clips fell silent, then sang that tail again).
+ * `evenKey` names the sound given as bytes (its asset), so that its whole gain is measured once (wholeGain); `unmeasured` is
+ * told when its loudness could not be measured, the part then left at its own level.
  */
-export async function soundPart(source: Media, ext: string, opts: { start: number; seconds: number; durationMs?: number | null; even?: boolean; evenWhole?: boolean; after?: number; goesOn?: boolean }): Promise<Uint8Array> {
+export async function soundPart(source: Media, ext: string, opts: { start: number; seconds: number; durationMs?: number | null; even?: boolean; evenWhole?: boolean; after?: number; goesOn?: boolean; evenKey?: string; unmeasured?: () => void }): Promise<Uint8Array> {
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "part.wav");
     const { start, seconds } = partOf(opts.start, opts.seconds, opts.durationMs ? opts.durationMs / 1000 : null);
     const after = Math.max(0, opts.after ?? 0);
-    const filters = opts.even ? [`volume=${(await evenGain(input, opts.evenWhole ? undefined : { start, seconds })).toFixed(2)}dB`] : [];
+    const gain = !opts.even ? 0 : opts.evenWhole ? await wholeGain(input, source, opts.evenKey) : await evenGain(input, { start, seconds });
+    // unmeasured, the part keeps its own level: said, for a clip of a recording then sounds louder or quieter than the others
+    if (gain === null) opts.unmeasured?.();
+    const filters = opts.even ? [`volume=${(gain ?? 0).toFixed(2)}dB`] : [];
     if (after > 0 && opts.goesOn) filters.push(`apad=whole_dur=${(seconds + after).toFixed(3)}`);
     else if (after > 0) {
       const quiet = await quietAfter(input, start, seconds, after);
@@ -606,16 +614,40 @@ const EVEN = { lufs: -16, peak: -1.5, most: 30 };
 /**
  * The gain (dB) that brings a sound toward EVEN's loudness without its loudest peak going past EVEN's (EBU R128: integrated
  * loudness and true peak), measured over `part` of it (seconds), or over all of it: then each part of it cut for a clip gets
- * the same. 0 when it cannot be read: the part as it is, rather than none.
+ * the same. Null when it cannot be read (a failed or timed-out run, no figure said): the part as it is, rather than none. A
+ * sound with nothing above silence: 0.
  */
-async function evenGain(input: string, part?: { start: number; seconds: number }): Promise<number> {
+async function evenGain(input: string, part?: { start: number; seconds: number }): Promise<number | null> {
   const span = part ? ["-ss", part.start.toFixed(6), "-t", part.seconds.toFixed(6)] : [];
-  const said = await reportOf([...span, "-i", input, "-vn", "-af", "ebur128=peak=true:framelog=quiet"]);
-  const lufs = Number(/I:\s*(-?[\d.]+) LUFS/.exec(said)?.[1] ?? NaN);
-  const peak = Number(/Peak:\s*(-?[\d.]+) dBFS/.exec(said)?.[1] ?? NaN);
-  if (!Number.isFinite(lufs) || lufs <= -70) return 0;
+  const said = await reportOf([...span, "-i", input, "-vn", "-af", "ebur128=peak=true:framelog=quiet"], true).catch(() => null);
+  const lufs = Number((said !== null && /I:\s*(-?[\d.]+) LUFS/.exec(said)?.[1]) || NaN);
+  const peak = Number((said !== null && /Peak:\s*(-?[\d.]+) dBFS/.exec(said)?.[1]) || NaN);
+  if (!Number.isFinite(lufs)) return null;
+  if (lufs <= -70) return 0;
   const gain = Math.min(EVEN.lufs - lufs, Number.isFinite(peak) ? EVEN.peak - peak : Infinity);
   return Math.max(-EVEN.most, Math.min(EVEN.most, gain));
+}
+
+/**
+ * Whole sounds' gains (evenGain over all of a recording), by the file and its size and time, or the asset its bytes are of:
+ * each clip of a recording cut into 30 decoded all of it again, true peak included, for the same figure. A failed measure is
+ * not kept, so the next clip tries again. The last hundred.
+ */
+const wholeGains = new Map<string, Promise<number | null>>();
+
+/** evenGain over all of `source` (written to `input`), measured once per sound (wholeGains); not kept when it is not named. */
+async function wholeGain(input: string, source: Media, evenKey?: string): Promise<number | null> {
+  const key = typeof source === "string"
+    ? await stat(source).then((st) => `${source}:${st.size}:${st.mtimeMs}`, () => null)
+    : evenKey ? `${evenKey}:${source.byteLength}` : null;
+  if (key === null) return evenGain(input);
+  const have = wholeGains.get(key);
+  if (have) return have;
+  const measuring = evenGain(input);
+  wholeGains.set(key, measuring);
+  if (wholeGains.size > 100) wholeGains.delete(wholeGains.keys().next().value!);
+  if ((await measuring) === null) wholeGains.delete(key);
+  return measuring;
 }
 
 /**

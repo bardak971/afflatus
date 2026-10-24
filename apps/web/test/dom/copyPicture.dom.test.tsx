@@ -6,6 +6,7 @@ import { canCopyPicture, copyPicture } from "../../src/secureContext";
 import { useBanners } from "../../src/store";
 import type { ViewerActions } from "../../src/viewer/useViewerActions";
 import { ViewerMedia } from "../../src/viewer/ViewerMedia";
+import { Viewer } from "../../src/Viewer";
 import { fakeApi } from "./fakeApi";
 import { draw } from "./render";
 
@@ -104,5 +105,21 @@ describe("the viewer over the screen", () => {
     expect(img.hasAttribute("data-tip")).toBe(false);
     fireEvent.click(img);
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe("Ctrl+C in the viewer", () => {
+  it("copies once while the key is held, not once a repeat with a banner each", async () => {
+    fakeApi.on("GET /assets/:id/file", png);
+    draw(<Viewer asset={picture} items={[picture]} onOpen={() => {}} onClose={() => {}} />);
+    fakeClipboard();
+    const held = { key: "c", ctrlKey: true };
+    fireEvent.keyDown(window, held);
+    fireEvent.keyDown(window, { ...held, repeat: true });
+    fireEvent.keyDown(window, { ...held, repeat: true });
+    await waitFor(() => expect(written).toHaveLength(1));
+    await act(() => new Promise((done) => setTimeout(done, 50)));
+    expect(written).toHaveLength(1);
+    expect(useBanners.getState().items.filter((b) => b.title === "Picture copied")).toHaveLength(1);
   });
 });

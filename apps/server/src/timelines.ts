@@ -18,7 +18,7 @@ import { TimelineMedia } from "./timelineMedia";
 import { clipColumns, takeColumns, TimelineHistory } from "./timelineHistory";
 import { TimelineRange } from "./timelineRange";
 import { takeView, TimelineViews } from "./timelineViews";
-import { ownInputIds, recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
+import { generationOfTake, ownInputIds, recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
 import { clipsOfSource, patchedSource, planWindows, sourceOfRow, windowFormFor, windowRunUp, type SourcePatch, type SourcePlan } from "./timelineSource";
 import { TimelineTakes } from "./timelineTakes";
 import { unusedSize, unusedTakes } from "./timelineUnused";
@@ -402,8 +402,10 @@ export class Timelines {
     };
     const viewOf = (takes: Taken[], clipRecipe: string | null) => (x: Taken) => {
       const r = renderOf(x, takes);
-      // its own render's form: a finish's, made from a draft, is the draft's frames and sound
-      const own = x.asset.generation_id ? rendered.get(x.asset.generation_id) : undefined;
+      // its own render's form: a finish's, made from a draft, is the draft's frames and sound (a finish made by a cut, no
+      // render of its own, reads the draft's: else its head was said guessed, and the sound no longer handed over into it)
+      const made = generationOfTake(x, takes);
+      const own = made ? rendered.get(made) : undefined;
       return takeView(x, r, laid(r?.recipe ?? clipRecipe, own?.inputs));
     };
     let at = 0;

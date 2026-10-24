@@ -236,6 +236,8 @@ export interface Download {
   rate?: number;
   /** When it ended, in ms since 1970. */
   at?: number;
+  /** Taken from the line, though still "starting" (a node pack whose line is full): no longer waiting its turn, nor moved. */
+  begun?: boolean;
 }
 /** Where a model file is on disk (card #64): each place it is, when ComfyUI runs on Afflatus's machine. */
 export interface FileWhere {
