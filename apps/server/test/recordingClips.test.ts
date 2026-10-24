@@ -264,6 +264,57 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     await expect(t.services.storage.get(`pauses/${broken.slice(0, 2)}/${broken}.json`)).rejects.toThrow();
     expect((await view(tl.id)).clips).toHaveLength(0);
   });
+  it("cut again from its panel: at another length, in its pauses or not, kept for its trims; one step for Undo each", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test recording cut" });
+    const sound = await recording();
+    await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
+    const parts = (v: { clips: Array<{ inputs: Record<string, number> }> }) => v.clips.map((c) => [c.inputs.recordingStart, c.inputs.recordingSeconds]);
+    let v = await view(tl.id);
+    expect(v.recordings).toEqual([expect.objectContaining({ seconds: 5, snap: true })]);
+    await call("PATCH", `/api/clips/${v.clips[0].id}`, { inputs: { ...v.clips[0].inputs, description: "zz-test a woman talks to the camera" } });
+    // about 7 s, in its pauses (4.7 and 10.2): 4.7 is the nearer, and what is left after it fits one clip
+    await call("POST", `/api/timelines/${tl.id}/recording/cut`, { asset: sound, seconds: 7, snap: true });
+    v = await view(tl.id);
+    expect(parts(v).map(([a, b]) => [a, Math.round((a! + b!) * 10) / 10])).toEqual([[0, 4.7], [4.7, 15]]);
+    expect(v.clips[0].inputs.description).toBe("zz-test a woman talks to the camera");
+    expect(v.recordings[0]).toEqual(expect.objectContaining({ seconds: 7, snap: true }));
+    // 6 s, its pauses passed by
+    await call("POST", `/api/timelines/${tl.id}/recording/cut`, { asset: sound, seconds: 6, snap: false });
+    v = await view(tl.id);
+    expect(parts(v)).toEqual([[0, 6], [6, 9]]);
+    expect(v.recordings[0]).toEqual(expect.objectContaining({ seconds: 6, snap: false }));
+    // its start moved: made anew as it is cut now, not at its pauses
+    await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 1000, toMs: 15000 });
+    expect(parts(await view(tl.id))).toEqual([[1, 6], [7, 8]]);
+    // each step undone: the cut before comes back with its clips
+    await call("POST", `/api/timelines/${tl.id}/undo`);
+    await call("POST", `/api/timelines/${tl.id}/undo`);
+    v = await view(tl.id);
+    expect(v.clips).toHaveLength(2);
+    expect(v.recordings[0]).toEqual(expect.objectContaining({ seconds: 7, snap: true }));
+  });
+
+  it("gives what its clips share to all of them at once, one step for Undo; never their parts of it", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test recording shared" });
+    const sound = await recording();
+    await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
+    const before = await view(tl.id);
+    await call("POST", `/api/timelines/${tl.id}/recording/form`, { asset: sound, inputs: { description: "zz-test a man at a desk, talking", recordingStart: 3 } });
+    const v = await view(tl.id);
+    expect(v.clips.map((c: { inputs: Record<string, unknown> }) => c.inputs.description)).toEqual(Array(3).fill("zz-test a man at a desk, talking"));
+    expect(v.clips.map((c: { inputs: Record<string, unknown> }) => c.inputs.recordingStart)).toEqual(before.clips.map((c: { inputs: Record<string, unknown> }) => c.inputs.recordingStart));
+    await call("POST", `/api/timelines/${tl.id}/undo`);
+    expect((await view(tl.id)).clips.map((c: { inputs: Record<string, unknown> }) => c.inputs.description)).toEqual(before.clips.map((c: { inputs: Record<string, unknown> }) => c.inputs.description));
+    // nothing it can share: refused
+    const res = await t.app.inject({ method: "POST", url: `/api/timelines/${tl.id}/recording/form`, payload: { asset: sound, inputs: { recordingSeconds: 3 } } });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("says its pauses, as it is cut at them", async () => {
+    const sound = await recording();
+    const { pauses } = (await get(t.app, `/api/assets/${sound}/pauses`)).json() as { pauses: Array<{ start: number; end: number }> };
+    expect(pauses.map((p) => Math.round(((p.start + p.end) / 2) * 10) / 10)).toEqual([4.7, 10.2]);
+  });
 });
 
 describe.skipIf(!ffmpegThere)("a voice given to a Lip sync clip by its form", { timeout: FFMPEG_TIMEOUT }, () => {

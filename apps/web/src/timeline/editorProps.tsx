@@ -14,11 +14,12 @@ import { PIN_WORDS, pinInputs, pinMirrorOf } from "./model";
 import { pinMenuItems, placeItems, type ClipMenuActions } from "./menus";
 import type { ContextMenu } from "../ContextMenu";
 import type { LoadedEditor } from "./useTimelineEditor";
-import { plural } from "../format";
+import { plural, recipeLabel } from "../format";
 import { carriedOf, sameWindowGrid, windowBounds } from "@afflatus/core";
 import { madeFromSource, sourceDropClip, windowed } from "./track/SourceLane";
 import type { ClipSource } from "./inspector/clipSource";
 import type { ClipRecording } from "./inspector/clipRecording";
+import type { RecordingPanelProps } from "./inspector/recording";
 import { clipsOfRecording, recordingInput } from "./track/RecordingBand";
 import { failedBanner } from "../sayFailed";
 
@@ -80,8 +81,10 @@ export function playerProps(e: LoadedEditor): ComponentPropsWithoutRef<typeof Pl
   };
 }
 
-/** How long the transport runs: the clips, or the source as far as it reaches when the stage plays it. */
-const runOf = (e: LoadedEditor) => (e.sourceOpen && e.place ? Math.max(e.total, e.place.atMs + e.place.lengthMs) : e.total);
+/** How long the transport runs: the clips, or the source or the recording as far as it reaches when the stage plays it. */
+const runOf = (e: LoadedEditor) => Math.max(e.total, stageEndOf(e) ?? 0);
+/** Where what the stage plays in place of the clips (the source, a recording) ends on the track; null when it plays the clips. */
+const stageEndOf = (e: LoadedEditor) => (e.sourceOpen && e.place ? e.place.atMs + e.place.lengthMs : e.recordingAt ? e.recordingAt.toTrack(e.recordingAt.lengthMs) : null);
 
 export function transportProps(e: LoadedEditor): ComponentProps<typeof Transport> {
   const { player } = e;
@@ -91,7 +94,7 @@ export function transportProps(e: LoadedEditor): ComponentProps<typeof Transport
     slots: e.slots,
     cursor: e.cursor,
     total: runOf(e),
-    source: e.sourceOpen ? e.place : null,
+    source: e.sourceOpen ? e.place : e.recordingAt ? { atMs: e.recordingAt.toTrack(0), lengthMs: e.recordingAt.lengthMs, label: "Recording", at: e.recordingAt.toRecording } : null,
     playing: e.playing,
     ranged: Boolean(e.range && !e.emptyRange),
     loopRange: e.loopRange,
@@ -141,11 +144,15 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     renderOf: (c) => (c.kind === "video" && !c.job && e.ready(c).input && !render.isPending ? { run: () => render.mutate({ clips: [c] }), ms: e.takes(c) } : null),
     busy: add.isPending,
     onSelect: (clipId) => e.select(clipId),
-    onSelectMusic: () => e.setMusicOpen(true),
+    // the music's panel in place of a recording open (the source's keeps the column, as it did)
+    onSelectMusic: () => {
+      e.setRecordingOpen(null);
+      e.setMusicOpen(true);
+    },
     cursorMs: e.cursor,
     onSeek: (ms, trackMs) => {
-      // the stage plays the source: the playhead stands in the track's own time
-      e.player.current?.seek(e.sourceOpen && trackMs !== undefined ? trackMs : ms);
+      // the stage plays the source or a recording: the playhead stands in the track's own time
+      e.player.current?.seek((e.sourceOpen || e.recordingAt) && trackMs !== undefined ? trackMs : ms);
       // after the seek, which says where the player is: the playhead stays exactly where it was put
       if (trackMs !== undefined) e.setCursor(trackMs);
     },
@@ -164,6 +171,10 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     onSourceSettings: () => e.openSource(),
     // its band on the Audio row dragged: trimmed as its Recording chapter's In and Out trim it
     onRecordingTrim: (asset, fromMs, toMs) => e.recordingTrim.run(asset, clipsOfRecording(e.clips, e.videoRecipes, asset), fromMs, toMs),
+    // its band clicked: the recording on the stage and in the column, as the source lane opens
+    recordingOpen: e.recordingOpen,
+    stageEndMs: e.recordingAt ? stageEndOf(e) : null,
+    onOpenRecording: (asset) => e.openRecording(asset),
     onSource: (asset) => {
       // the model the windows are made with: that of an empty clip given one that makes a source window by window (the one
       // selected, else the first; the owner picked Swap motion on a new clip, then dropped the source, and got Swap
@@ -290,6 +301,64 @@ function clipRecordingOf(e: LoadedEditor, current: Clip): ClipRecording | undefi
     onUses: (fromMs, toMs) => e.recordingTrim.run(asset, mine, fromMs, toMs),
     ask: ask ? { fromMs: ask.fromMs, rendered: ask.rendered, clips: ask.clips, change: () => e.recordingTrim.run(asset, mine, ask.fromMs, ask.toMs, true), keep: e.recordingTrim.keep } : null,
     trimming: e.recordingTrim.pending || e.recordingTrim.waits(asset),
+  };
+}
+
+/**
+ * The recording open in the column, as its panel takes it (inspector/recording.tsx): the edits go through the paths the
+ * band and a clip's Recording chapter use (the recording trim), the cut and the shared settings through their own, its
+ * first clip's join through the clip's patch, its clips with nothing to play rendered as Render all renders them.
+ */
+export function recordingPanelProps(e: LoadedEditor, place: NonNullable<LoadedEditor["recordingAt"]>): RecordingPanelProps | null {
+  const recording = e.t.recordings?.find((r) => r.asset.id === e.recordingOpen);
+  const first = place.parts[0]!.clip;
+  const recipe = e.videoRecipes.find((r) => r.id === first.recipe);
+  const input = recordingInput(recipe);
+  if (!recording || !recipe || !input) return null;
+  const asset = recording.asset.id;
+  const mine = place.parts.map((p) => p.clip);
+  const ids = new Set(mine.map((c) => c.id));
+  const left = e.missing.filter((c) => ids.has(c.id));
+  const trimAsk = e.recordingTrim.ask?.asset === asset ? e.recordingTrim.ask : null;
+  const cutAsk = e.recordingCut.ask?.asset === asset ? e.recordingCut.ask : null;
+  const seconds = recording.seconds ?? 5;
+  const snap = recording.snap ?? true;
+  // what the clips share: the scene and how they look, as each clip's form holds it now (what was typed with it)
+  const shared = recipe.inputs
+    .filter((i) => i.type === "prompt" && (!i.optional || i.holds === "subject"))
+    .map((i) => {
+      const values = mine.map((c) => String(e.inputsOf(c)[i.id] ?? ""));
+      return { id: i.id, label: i.label, value: values.every((v) => v === values[0]) ? values[0]! : null, placeholder: i.type === "prompt" ? i.placeholder : undefined };
+    });
+  const at = e.clips.indexOf(first);
+  return {
+    timelineId: e.t.id,
+    recording: recording.asset,
+    place,
+    model: recipeLabel(e.recipes.data?.families.find((f) => f.id === recipe.family)?.name, recipe.title),
+    clock: e.clock,
+    onClose: () => e.setRecordingOpen(null),
+    onUses: (fromMs, toMs) => void e.recordingTrim.run(asset, mine, fromMs, toMs),
+    trimAsk: trimAsk ? { fromMs: trimAsk.fromMs, rendered: trimAsk.rendered, clips: trimAsk.clips, change: () => void e.recordingTrim.run(asset, mine, trimAsk.fromMs, trimAsk.toMs, true), keep: e.recordingTrim.keep } : null,
+    trimming: e.recordingTrim.pending || e.recordingTrim.waits(asset),
+    cut: {
+      seconds,
+      snap,
+      leastMs: input.leastMs,
+      mostMs: input.mostMs,
+      run: (s, on) => e.recordingCut.run(asset, s, on),
+      ask: cutAsk ? { rendered: cutAsk.rendered, clips: cutAsk.clips, change: () => e.recordingCut.run(asset, cutAsk.seconds, cutAsk.snap, true), keep: e.recordingCut.keep } : null,
+      pending: e.recordingCut.pending,
+    },
+    onSelectClip: (id) => e.select(id),
+    opens: { before: at > 0 ? at : null, joined: first.joined, onJoined: (joined) => e.patch.mutate({ clip: first.id, patch: { joined } }) },
+    shared,
+    onShared: (inputs) => e.recordingShared.run(asset, inputs),
+    render: (() => {
+      // with nothing to play and not sent: those that cannot render yet are said, with the first one's reason
+      const waiting = mine.filter((c) => !c.take && !c.job && !left.includes(c));
+      return { left: left.length, queued: mine.filter((c) => c.job).length, waiting: waiting.length, why: left.length ? null : (waiting.map((c) => e.ready(c).why).find(Boolean) ?? null), run: () => e.render.mutate({ clips: left }), rendering: e.render.isPending };
+    })(),
   };
 }
 

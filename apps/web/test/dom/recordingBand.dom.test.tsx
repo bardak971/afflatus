@@ -40,6 +40,20 @@ describe("a recording on the Audio row", () => {
     expect(asked.at(-1)).toBe("zz-test-talk 3000–13200");
   });
 
+  it("opens its own recording on a click when the editor opens recordings, outlined while open; several bands, each its own", () => {
+    const other = { id: "zz-test-other", name: "zz-test other.wav", kind: "audio", durationMs: 9000 };
+    const more = [...clips, { ...part("c3", 0, 4.5), id: "c3", atMs: 13_000, inputs: { recording: other.id, recordingStart: 0, recordingSeconds: 4.5 } } as unknown as Clip];
+    const opened: string[] = [];
+    const two = { ...timeline, clips: more, recordings: [{ asset: sound, parked: 0 }, { asset: other, parked: 0 }] } as unknown as Timeline;
+    draw(<RecordingBands timeline={two} slots={layout(more, 40, [model])} recipes={[model]} pps={40} onSelect={(c) => opened.push(`clip ${c}`)} onOpen={(a) => opened.push(a)} open={other.id} />);
+    const second = screen.getByRole("button", { name: /^Recording zz-test other\.wav/ });
+    fireEvent.click(second);
+    fireEvent.click(screen.getByRole("button", { name: /^Recording zz-test talk\.wav/ }));
+    expect(opened).toEqual([other.id, sound.id]);
+    expect(second.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: /^Recording zz-test talk\.wav/ }).getAttribute("aria-pressed")).toBe("false");
+  });
+
   it("moves its start by its left edge and its end by its right one, one trim a release", () => {
     const { asked, container } = band();
     const start = container.querySelector<HTMLElement>('[data-tip^="Drag: where the recording starts"]')!;

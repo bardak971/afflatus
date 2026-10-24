@@ -156,6 +156,8 @@ export const queryKeys = {
   /** A file's motion and loudness, measured once. */
   motion: (asset: string | null | undefined) => ["motion", asset] as const,
   scenes: (asset: string) => ["scenes", asset] as const,
+  /** A sound's pauses, as a recording is cut at them. */
+  pauses: (asset: string) => ["pauses", asset] as const,
   /** What a form would take, from the record of render times: under "advice", read again when a render ends. */
   /** What a form says under its options whose node packs the machine lacks: read again once ComfyUI restarts (the setup's key). */
   formPacks: (recipe: string | undefined, values: string, machine?: string) => ["setup", "formPacks", recipe, values, machine ?? null] as const,

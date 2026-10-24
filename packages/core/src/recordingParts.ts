@@ -19,16 +19,17 @@ export interface RecordingPart {
  * The parts `fromS` to `toS` of a recording is cut into, each about `wantS` long and within `leastS` to `mostS`. A part ends
  * in the middle of the pause nearest its asked end, among the pauses that keep it within its bounds; with none there, at its
  * most (a monologue without a breath is cut mid-word, as little as it can be). A last part shorter than the least is taken by
- * the part before when one clip holds both, else the two share what is left evenly.
+ * the part before when one clip holds both, else the two share what is left evenly. `snap` false (the recording's panel,
+ * Snap to pauses off): every part the length asked, wherever the words are.
  */
-export function recordingParts(o: { fromS: number; toS: number; wantS: number; leastS: number; mostS: number; pauses: Pause[] }): RecordingPart[] {
+export function recordingParts(o: { fromS: number; toS: number; wantS: number; leastS: number; mostS: number; pauses: Pause[]; snap?: boolean }): RecordingPart[] {
   const { fromS, toS, leastS, mostS } = o;
   const want = Math.min(Math.max(o.wantS, leastS), mostS);
   const round = (s: number) => Math.round(s * 100) / 100;
   const parts: RecordingPart[] = [];
   let at = fromS;
   for (let guard = 0; guard < 1000 && toS - at > 0.05; guard++) {
-    const end = endOf(at, toS, want, leastS, mostS, o.pauses);
+    const end = o.snap === false ? evenEnd(at, toS, want, leastS, mostS) : endOf(at, toS, want, leastS, mostS, o.pauses);
     parts.push({ start: at, seconds: end - at });
     if (end >= toS) break;
     at = end;
@@ -57,6 +58,11 @@ export function recordingPart(o: { fromS: number; toS: number; leastS: number; m
   if (o.toS - o.fromS <= 0.05) return null;
   const end = endOf(o.fromS, o.toS, o.mostS, o.leastS, o.mostS, o.pauses);
   return { start: Math.round(o.fromS * 100) / 100, seconds: Math.round((end - o.fromS) * 100) / 100 };
+}
+
+/** Where the part from `at` ends when it is not snapped to a pause: `want` later, or the end when what is left fits one clip. */
+function evenEnd(at: number, toS: number, want: number, leastS: number, mostS: number): number {
+  return toS - at <= mostS && toS - at - want < leastS ? toS : Math.min(at + want, toS);
 }
 
 /** Where the part from `at`, about `want` long, ends (in seconds of the recording). */

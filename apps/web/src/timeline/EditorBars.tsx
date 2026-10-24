@@ -12,7 +12,7 @@ import { timelineKey } from "../draftMachine";
 import { RenderOn, usePickedMachine } from "../GenerateOn";
 import { machineLabel, severalMachines } from "../machines";
 import type { Clock } from "./clock";
-import { Readout } from "./Readout";
+import { Readout, type StagePlays } from "./Readout";
 import type { Slot } from "./model";
 
 /**
@@ -165,8 +165,8 @@ export function Transport({ t, clock, slots, cursor, total, source, playing, ran
   t: Timeline;
   clock: Clock;
   slots: Slot[];
-  /** The stage plays the source lane (where it lies on the track): the readout speaks of it. */
-  source?: { atMs: number; lengthMs: number } | null;
+  /** The stage plays the source lane or a recording (where it lies on the track): the readout speaks of it. */
+  source?: StagePlays | null;
   cursor: number | null;
   total: number;
   playing: boolean;

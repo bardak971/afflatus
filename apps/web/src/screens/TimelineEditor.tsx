@@ -6,6 +6,8 @@ import { Inspector } from "../timeline/Inspector";
 import { JoinPanel } from "../timeline/inspector/join";
 import { SourcePanel } from "../timeline/inspector/source";
 import { SourceStage } from "../timeline/SourceStage";
+import { RecordingStage } from "../timeline/RecordingStage";
+import { RecordingPanel } from "../timeline/inspector/recording";
 import { madeFromSource } from "../timeline/track/SourceLane";
 import { MusicPanel } from "../timeline/inspector/music";
 import { Player } from "../timeline/Player";
@@ -23,7 +25,7 @@ import { clipMenuItems } from "../timeline/menus";
 import { FoldedColumn, OverviewColumn } from "../timeline/EditorColumns";
 import { RangeBar } from "../timeline/RangeBar";
 import { SoundMenus } from "../timeline/SoundMenus";
-import { clipActs, exportProps, pinMenuProps, finishProps, headerProps, inspectorProps, overviewProps, placeItemsOf, playerProps, soundMenusProps, trackProps, transportProps } from "../timeline/editorProps";
+import { clipActs, exportProps, pinMenuProps, finishProps, headerProps, inspectorProps, overviewProps, placeItemsOf, playerProps, recordingPanelProps, soundMenusProps, trackProps, transportProps } from "../timeline/editorProps";
 import { useTimelineEditor } from "../timeline/useTimelineEditor";
 
 /**
@@ -63,6 +65,9 @@ function Editor({ id }: { id: string }) {
   // the selected clip's Show the mask, drawn over its window of the source while it is on
   const maskVideo = current && e.masks[current.id]?.shown ? e.maskOfCurrent.data?.video : null;
   const maskOverlay = current && maskVideo ? { src: fileUrl(maskVideo.id), startMs: Number(current.inputs.sourceStart ?? 0) * 1000, lengthMs: maskVideo.durationMs ?? Number(current.inputs.sourceSeconds ?? 0) * 1000 } : null;
+  // the recording open (its band clicked): its stage and its panel, as the source's
+  const recordingShown = e.recordingAt ? t.recordings?.find((r) => r.asset.id === e.recordingOpen) ?? null : null;
+  const recordingPanel = e.recordingAt && recordingShown ? recordingPanelProps(e, e.recordingAt) : null;
   return (
     <div className="flex min-w-0 grow flex-col">
       <TimelineHeader {...headerProps(e)} />
@@ -102,6 +107,19 @@ function Editor({ id }: { id: string }) {
                 onPickEnd={() => e.setWhoPicking(false)}
                 overlay={maskOverlay}
               />
+            ) : e.recordingAt && recordingShown ? (
+              <RecordingStage
+                key={recordingShown.asset.id}
+                ref={e.player}
+                recording={recordingShown.asset}
+                place={e.recordingAt}
+                playing={e.playing}
+                onPlaying={e.setPlaying}
+                onTime={e.onTime}
+                stopAt={e.stopAt}
+                startAt={e.cursor ?? e.clock.get()}
+                master={e.muted ? 0 : e.volume}
+              />
             ) : (
               <Player ref={e.player} {...playerProps(e)} />
             )}
@@ -118,7 +136,7 @@ function Editor({ id }: { id: string }) {
           <FoldedColumn
             timeline={t}
             clips={clips}
-            label={musicOpen && t.music ? "Music" : current ? `${current.kind === "still" ? "Still" : "Clip"} ${clips.indexOf(current) + 1}` : "Overview"}
+            label={recordingPanel ? "Recording" : musicOpen && t.music ? "Music" : current ? `${current.kind === "still" ? "Still" : "Clip"} ${clips.indexOf(current) + 1}` : "Overview"}
             {...e.checks}
           />
         ) : e.sourceOpen && !(e.place?.made && current) ? (
@@ -140,6 +158,8 @@ function Editor({ id }: { id: string }) {
             picking={e.whoPicking}
             onPicking={e.setWhoPicking}
           />
+        ) : recordingPanel ? (
+          <RecordingPanel key={recordingPanel.recording.id} {...recordingPanel} />
         ) : musicOpen && t.music ? (
           <MusicPanel timeline={t} onEdit={(p) => e.edit.mutate(p)} onClose={() => e.setMusicOpen(false)} />
         ) : current && e.joinOpen === current.id && clips.indexOf(current) > 0 ? (
