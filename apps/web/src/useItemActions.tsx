@@ -10,6 +10,7 @@ import { useSettings, useSetup, type useAsset } from "./data";
 import { saveAsset } from "./download";
 import { itemActions, PASS_KEYS, sentPrompt, type ActionId, type ItemFacts, type Runs } from "./itemActions";
 import { useItemMutations, useTimelineSubmenu } from "./itemMutations";
+import { canCopyPicture } from "./secureContext";
 import { useBanners } from "./store";
 import { handsOf, OPS } from "./viewer/shared";
 import { useMediaExtract } from "./viewer/useMediaExtract";
@@ -168,6 +169,8 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     "extract-audio": () => media.takeSound.mutate(undefined, said("Could not extract the audio")),
     "remove-sound": () => media.silence.mutate(undefined, said("Could not remove the sound")),
     voice: () => follow.mutate(undefined, said("Could not open it in a form")),
+    // where the page has no clipboard for pictures (its LAN address over http) Copy the picture has no run, and is not drawn
+    ...(a.kind === "image" && canCopyPicture() ? { "copy-image": () => mutations.copyImage(a) } : {}),
     "copy-seed": () => seed !== null && mutations.copySeed(seed),
     "copy-prompt": () => prompt && mutations.copyPrompt(prompt),
     comfy: () => mutations.openInComfy.mutate(a),

@@ -4,14 +4,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Film, Folder, FolderKanban, Inbox, Music, Plus, Search } from "lucide-react";
 import { useAddTo, useLast, useOpenInComfy, useStartTimeline } from "./actions";
 import { AddToTimeline } from "./AddToTimeline";
-import { api, type Asset, type TimelineBrief } from "./api";
+import { api, fileUrl, type Asset, type TimelineBrief } from "./api";
 import { useAssetChange } from "./assetChange";
 import { askText } from "./Confirm";
 import type { MenuItem } from "./ContextMenu";
 import { useFolders, useProjects, useTimelines } from "./data";
 import { plural, when } from "./format";
 import { tree } from "./screens/library/tree";
-import { copyText } from "./secureContext";
+import { copyPicture, copyText } from "./secureContext";
 import { failedBanner, useSayFailed } from "./sayFailed";
 import { useBanners } from "./store";
 import { queryKeys } from "./queryKeys";
@@ -95,7 +95,12 @@ export function useItemMutations() {
     () => say({ id: `prompt:${Date.now()}`, tone: "good", title: "Prompt copied" }),
     (err: Error) => failed("Could not copy the prompt")(err),
   );
-  return { rename, renameIt, keep, bin, restore, moves, moveTo, newFolderFor, openInComfy, copySeed, copyPrompt, failed };
+  /** The picture itself on the clipboard, said in a banner as the seed is. */
+  const copyImage = (asset: Pick<Asset, "id">) => void copyPicture(fileUrl(asset.id)).then(
+    () => say({ id: `picture:${Date.now()}`, tone: "good", title: "Picture copied" }),
+    (err: Error) => failed("Could not copy the picture")(err),
+  );
+  return { rename, renameIt, keep, bin, restore, moves, moveTo, newFolderFor, openInComfy, copySeed, copyPrompt, copyImage, failed };
 }
 
 /**

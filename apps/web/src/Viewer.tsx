@@ -4,7 +4,7 @@ import type { Range } from "./Trim";
 import { api, type Asset } from "./api";
 import { useAsset } from "./data";
 import { dialogOver } from "./Dialog";
-import { Kbd, plainKey } from "./Keys";
+import { Kbd, plainKey, typing } from "./Keys";
 import { useLeave } from "./leave";
 import { Button, cx } from "./ui";
 import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
@@ -177,6 +177,16 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
       if (!open) onClose();
       return;
     }
+    // Ctrl+C copies the picture, unless the keys are another's: text selected (its own copy), a field, an open menu
+    // (it runs its row on the key itself), the keys sheet
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "c") {
+      if (info || typing(e) || document.getSelection()?.toString() || document.querySelector("[role=listbox], [role=menu], [data-keys-help]")) return;
+      const action = actionOfKey(list, place, keyOfEvent(e));
+      if (!action) return;
+      action.run!();
+      e.preventDefault();
+      return;
+    }
     if (info || !plainKey(e, { over: "[data-keys-help]" })) return;
     // Enter on a button, a link or a row that has the focus is theirs (it presses them), not Open's
     if (e.key === "Enter" && (e.target as HTMLElement | null)?.closest?.("button, a, [role=button], [role=option], [role=slider], [role=menuitem], summary")) return;
@@ -231,6 +241,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
       overlay={overlay}
       onDetails={onDetails}
       onClose={onClose}
+      onCopy={actionOfKey(list, place, "Ctrl+C")?.run}
     />
   );
   if (inline) {

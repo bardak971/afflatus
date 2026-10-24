@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { MenuItem } from "../src/ContextMenu";
-import { ACTIONS, actionIds, itemActions, keyOfEvent, keysShown, ORDER, PASSES, placeMenu, sentPrompt, sideGroups, sideSlot, stageBar, toMenu, type ActionId, type ItemFacts, type Kind, type Place, type Runs } from "../src/itemActions";
+import { ACTIONS, actionIds, actionOfKey, itemActions, keyOfEvent, keysShown, ORDER, PASSES, placeMenu, sentPrompt, sideGroups, sideSlot, stageBar, toMenu, type ActionId, type ItemFacts, type Kind, type Place, type Runs } from "../src/itemActions";
 import { parseKeys } from "../src/keys/grammar";
 import { PLACES } from "../src/keys/table";
 
@@ -27,7 +27,7 @@ const top = (items: MenuItem[]): string[] => items.flatMap((it) => (it === "—"
 
 describe("the item's list", () => {
   it("holds each media type's actions in the spec's order", () => {
-    expect(actionIds("image")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "i2v", "motion", "upscale", "face", "hand", "background", "inpaint", "edit", "outpaint", "mirror-h", "mirror-v", "compare", "details", "copy-seed", "copy-prompt", "comfy", "timeline", "move", "send", "bin"]);
+    expect(actionIds("image")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "i2v", "motion", "upscale", "face", "hand", "background", "inpaint", "edit", "outpaint", "mirror-h", "mirror-v", "compare", "details", "copy-image", "copy-seed", "copy-prompt", "comfy", "timeline", "move", "send", "bin"]);
     expect(actionIds("video")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "extend", "motion", "trim", "save-frame", "extract-audio", "remove-sound", "voice", "compare", "details", "copy-seed", "copy-prompt", "comfy", "timeline", "move", "send", "bin"]);
     expect(actionIds("audio")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "trim", "voice", "details", "copy-seed", "copy-prompt", "comfy", "timeline", "move", "bin"]);
   });
@@ -62,6 +62,9 @@ describe("the item's list", () => {
     // Backspace is Del wherever Del works
     expect(keyOfEvent({ key: "Backspace", shiftKey: false })).toBe("Del");
     expect(keyOfEvent({ key: "?", shiftKey: true })).toBe("?");
+    // Ctrl (Cmd) with a letter is its own key, never the letter alone: Ctrl+C copies the picture, C extends a video
+    expect(keyOfEvent({ key: "c", shiftKey: false, ctrlKey: true })).toBe("Ctrl+C");
+    expect(keyOfEvent({ key: "c", shiftKey: false, metaKey: true })).toBe("Ctrl+C");
   });
 
   it("keeps an action the user can make work in its place, off, with the reason; leaves out what never can", () => {
@@ -247,6 +250,33 @@ describe("Copy the prompt", () => {
   });
 });
 
+describe("Copy the picture", () => {
+  it("is a picture's, in Info beside the seed and the prompt, on Ctrl+C", () => {
+    const list = itemActions(facts("image"), runs);
+    const ids = list.map((a) => a.id);
+    expect(ids.indexOf("copy-image")).toBe(ids.indexOf("copy-seed") - 1);
+    expect(list.find((a) => a.id === "copy-image")).toMatchObject({ label: "Copy the picture", key: "Ctrl+C", sub: "info", disabled: false });
+    expect(actionIds("video")).not.toContain("copy-image");
+    expect(actionIds("audio")).not.toContain("copy-image");
+    // a file made elsewhere is a picture all the same
+    expect(itemActions(facts("image", { madeHere: false, generated: false, seed: null, prompt: null, madeElsewhere: true }), runs).map((a) => a.id)).toContain("copy-image");
+  });
+
+  it("is not drawn where the page cannot copy a picture (no run is given there)", () => {
+    const { "copy-image": _, ...without } = runs;
+    expect(itemActions(facts("image"), without).map((a) => a.id)).not.toContain("copy-image");
+  });
+
+  it("runs on Ctrl+C in the viewer, not on C", () => {
+    let copied = 0;
+    const list = itemActions(facts("image"), { ...runs, "copy-image": () => copied++ });
+    expect(actionOfKey(list, "viewer", keyOfEvent({ key: "c", shiftKey: false, ctrlKey: true }))?.id).toBe("copy-image");
+    expect(actionOfKey(list, "viewer", keyOfEvent({ key: "c", shiftKey: false }))).toBeUndefined();
+    actionOfKey(list, "viewer", "Ctrl+C")!.run!();
+    expect(copied).toBe(1);
+  });
+});
+
 describe("the viewer's side", () => {
   it("shows the buttons in the list's groups, Download last in Look", () => {
     const run = () => {};
@@ -256,7 +286,7 @@ describe("the viewer's side", () => {
       passes: { upscale: "u" }, voice: false, comfyOnline: true, compare: true, timelines: [], moves: [],
     }, all));
     expect(groups.map((g) => g.group)).toEqual(["make", "passes", "look"]);
-    expect(groups.at(-1)!.actions.map((a) => a.id)).toEqual(["compare", "details", "download"]);
+    expect(groups.at(-1)!.actions.map((a) => a.id)).toEqual(["compare", "details", "copy-image", "download"]);
   });
 });
 
