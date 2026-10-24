@@ -1,6 +1,8 @@
 import { useCallback } from "react";
+import { useQuery, type QueryClient } from "@tanstack/react-query";
 import { create } from "zustand";
 import { api, type BrowseCard, type BrowseFile, type DeployFile } from "../api";
+import { queryKeys } from "../queryKeys";
 
 /**
  * Find models (FindModels.tsx), opened over everything from where files are picked: the Deploy dialog ("Find more…"), a
@@ -45,8 +47,14 @@ export const pickedOf = (f: BrowseFile, card: BrowseCard, version: string, folde
   ...(f.source.kind === "civitai" ? { civitai: { version: f.source.version, pick: f.source.pick, page: `${card.page}?modelVersionId=${f.source.version}` } } : { url: f.source.url }),
 });
 
-/** The ComfyUI folders a file without one can be put in. */
+/** The ComfyUI folders a file without one can be put in, until the server says its ComfyUI's own (and when it does not answer). */
 export const FOLDERS = ["checkpoints", "diffusion_models", "loras", "vae", "text_encoders", "clip_vision", "upscale_models", "latent_upscale_models", "controlnet", "model_patches", "audio_encoders", "embeddings"];
+
+const foldersQuery = (machine?: string) => ({ queryKey: queryKeys.browse.folders(machine), queryFn: ({ signal }: { signal: AbortSignal }) => api.browseFolders(machine, { signal }).then((r) => r.folders), staleTime: 60_000 });
+/** The folders a picked file can go in: this PC's ComfyUI's own with the usual and the families' (frame_interpolation for RIFE). */
+export const useFolders = (machine?: string): string[] => useQuery(foldersQuery(machine)).data ?? FOLDERS;
+/** The same, asked once for a question (the command bar's "Which folder?"): the usual ones when the server does not answer. */
+export const foldersFor = (client: QueryClient, machine?: string): Promise<string[]> => client.fetchQuery(foldersQuery(machine)).catch(() => FOLDERS);
 
 /**
  * Picked files downloaded onto this PC's ComfyUI as the usual downloads (Settings › Models shows them), all asked for at

@@ -6,7 +6,7 @@ import { compact, plural, shortDate, size } from "../format";
 import { queryKeys } from "../queryKeys";
 import { Select } from "../Select";
 import { Button, Checkbox, Chip, CloseButton, cx, ErrorNote } from "../ui";
-import { FOLDERS, pickedOf, type PickedFile } from "./store";
+import { pickedOf, useFolders, type PickedFile } from "./store";
 
 /** What the user has of a file, in a few words: "on this PC", "in set Video". */
 const haveSaid = (f: BrowseFile) => f.have.map((h) => (h.kind === "pc" ? "on this PC" : `in set ${h.name}`)).join(" · ");
@@ -28,6 +28,9 @@ export function Opened({ card, picked, onPick, onClose }: { card: BrowseCard; pi
   const folderOf = (f: BrowseFile) => folders[f.name] ?? f.folder ?? "";
   const chosen = (version?.files ?? []).filter((f) => on.has(f.name));
   const lacksFolder = chosen.some((f) => !folderOf(f));
+  const folderList = useFolders();
+  // a guess ComfyUI does not list (a custom node not installed yet) stays a choice
+  const foldersOf = (f: BrowseFile) => (folderOf(f) && !folderList.includes(folderOf(f)) ? [folderOf(f), ...folderList] : folderList);
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
       {/* closed, the results are back as they were */}
@@ -70,7 +73,7 @@ export function Opened({ card, picked, onPick, onClose }: { card: BrowseCard; pi
                     </span>
                   </Checkbox>
                   {/* "none" is the "Which folder?" option: kept as no folder, never a folder of that name */}
-                  <span data-tip={f.why}><Select size="sm" label={`Folder of ${f.name}`} value={folderOf(f) || "none"} onChange={(v) => setFolders((x) => ({ ...x, [f.name]: v === "none" ? "" : v }))} placeholder="Which folder?" options={[...(folderOf(f) ? [] : [{ value: "none", label: "Which folder?" }]), ...FOLDERS.map((x) => ({ value: x, label: x }))]} /></span>
+                  <span data-tip={f.why}><Select size="sm" label={`Folder of ${f.name}`} value={folderOf(f) || "none"} onChange={(v) => setFolders((x) => ({ ...x, [f.name]: v === "none" ? "" : v }))} placeholder="Which folder?" options={[...(folderOf(f) ? [] : [{ value: "none", label: "Which folder?" }]), ...foldersOf(f).map((x) => ({ value: x, label: x }))]} /></span>
                   <span className="text-right font-mono text-xs text-ink-2">{f.bytes ? size(f.bytes) : "–"}</span>
                 </div>
               ))}

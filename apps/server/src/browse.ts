@@ -4,8 +4,10 @@ import { isModelFile } from "@afflatus/core";
 import { civitaiGet, civitaiSites } from "./civitai";
 import { envSaid } from "./config";
 import { httpError } from "./errors";
-import { folderFor, folderOfPath } from "./fromLink";
+import { folderFor, folderOfHfFile, folderOfSlots, slotPlaces, type SlotPlace } from "./fromLink";
 import { fileName } from "./media";
+import { downloadTarget } from "./fetchFile";
+import { NOT_MODELS } from "./modelDownload";
 import { setsWithFiles } from "./modelSets";
 import { fetchPublic } from "./outbound";
 import type { Services } from "./services";
@@ -151,7 +153,15 @@ interface Known {
   inSets: Map<string, string[]>;
   versions: Map<number, { versionId: number; versionName: string; latest: string | null }>;
   bases: Map<string, string>;
+  /** The families' slots, which recognise a file their folder is not otherwise known for (RIFE: frame_interpolation). */
+  places: SlotPlace[];
 }
+
+/** The built-in families' slots as the folder guess reads them (an imported workflow's slots are its own files). */
+export const familyPlaces = (s: Pick<Services, "registry">): SlotPlace[] => slotPlaces(s.registry.families().filter((f) => !f.imported));
+
+/** The folders a file without one can be put in when ComfyUI does not answer: the usual ones. */
+const USUAL_FOLDERS = ["checkpoints", "diffusion_models", "loras", "vae", "text_encoders", "clip_vision", "upscale_models", "latent_upscale_models", "controlnet", "model_patches", "audio_encoders", "embeddings"];
 
 async function known(s: Services): Promise<Known> {
   const [hashes, sets, updates, settings] = await Promise.all([
@@ -171,7 +181,7 @@ async function known(s: Services): Promise<Known> {
     if (settings.families[f.id] === false) continue;
     for (const b of FAMILY_BASES[f.id] ?? []) if (!bases.has(b)) bases.set(b, f.name);
   }
-  return { bySha, byName, inSets, versions, bases };
+  return { bySha, byName, inSets, versions, bases, places: familyPlaces(s) };
 }
 
 const haveOf = (k: Known, name: string, sha: string | null): Have[] => {
@@ -187,7 +197,9 @@ export function civitaiCard(m: CivModel, k: Known): BrowseCard {
   const versions = (m.modelVersions ?? []).map((v): BrowseVersion => ({
     id: String(v.id), name: v.name ?? String(v.id), base: v.baseModel ?? "", publishedAt: v.publishedAt ?? null, trainedWords: (v.trainedWords ?? []).slice(0, 20),
     files: (v.files ?? []).filter((f) => isModelFile(f.name ?? "")).map((f) => {
-      const place = folderFor(type, v.baseModel ?? "", m.name);
+      // a kind Civitai gives no folder for ("Other"): the file may still be one of a family's
+      const kind = folderFor(type, v.baseModel ?? "", m.name);
+      const place = kind.folder ? kind : folderOfSlots(f.name!, k.places) ?? kind;
       const sha = f.hashes?.SHA256?.toUpperCase() ?? null;
       return {
         name: f.name!, bytes: Math.round((f.sizeKB ?? 0) * 1024), sha256: sha,
@@ -235,6 +247,9 @@ function huggingFaceCard(r: HfRepo, k: Known, family: Map<string, string>): Brow
   };
 }
 
+/** A folder guess as a file's fields: its why only when it has one. */
+const placed = (p: { folder: string | null; why?: string }) => ({ folder: p.folder, ...(p.why ? { why: p.why } : {}) });
+
 /** A repository's model files with their sizes and SHA-256 (its tree), each with its folder by its path and what the user has. */
 async function repoFiles(repo: string, token: string, k: Known): Promise<BrowseFile[]> {
   const res = await fetchPublic(`${hfSite()}/api/models/${repo}/tree/main?recursive=true`, { headers: hfHeaders(token), signal: AbortSignal.timeout(20_000) }, [hfSite()]).catch(() => null);
@@ -245,7 +260,7 @@ async function repoFiles(repo: string, token: string, k: Known): Promise<BrowseF
     const sha = t.lfs?.oid?.toUpperCase() ?? null;
     return {
       name, bytes: t.lfs?.size ?? t.size ?? 0, note: t.path!.includes("/") ? t.path!.split("/").slice(0, -1).join("/") : "", sha256: sha,
-      folder: folderOfPath(t.path!) ?? (/lora/i.test(t.path!) ? "loras" : null),
+      ...placed(folderOfHfFile(t.path!, k.places)),
       source: { kind: "url", url: `https://huggingface.co/${repo}/resolve/main/${t.path!.split("/").map(encodeURIComponent).join("/")}` }, have: haveOf(k, name, sha),
     };
   });
@@ -461,6 +476,21 @@ export function registerBrowse(app: FastifyInstance, s: Services): void {
     const items = repos.map((r) => huggingFaceCard(r, k, family));
     reply.header("Server-Timing", [site, knew, timing("cards", made), timing("total", start)].join(", "));
     return { items, next };
+  });
+
+  /**
+   * The folders a picked file can be put in: its ComfyUI's own (a custom node's frame_interpolation, sams,
+   * ultralytics_bbox), this PC's or the machine named (a pod a file is downloaded onto), with the usual ones and those the
+   * families' slots name (a deploy's pod has them before it exists), sorted. The usual ones and the slots' alone when that
+   * ComfyUI does not answer.
+   */
+  app.get("/api/browse/folders", async (req) => {
+    const { machine } = z.object({ machine: z.string().max(40).optional() }).parse(req.query);
+    const comfy = await downloadTarget(s, await readSettings(s.db), machine).then((t) => t.comfy, () => null);
+    const theirs = comfy ? await comfy.client.folders().catch(() => [] as string[]) : [];
+    const folders = new Set([...theirs, ...USUAL_FOLDERS, ...familyPlaces(s).map((p) => p.folder)]);
+    for (const no of NOT_MODELS) folders.delete(no);
+    return { folders: [...folders].sort(), comfy: theirs.length > 0 };
   });
 
   /** A Hugging Face repository opened: its model files with their sizes and SHA-256. */
