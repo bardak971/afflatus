@@ -6,6 +6,7 @@ import { EITHER_PACKS, EXTRA_PACKS, folderOfFileInput, nodesOfPack, packOfNode }
 import { api, type RecipeInfo, type RecipeStatus, type Scan } from "../../api";
 import { useOfficialSizes, useSettings, useSetup } from "../../data";
 import { fileLabel, plural, problemSaid, size } from "../../format";
+import { FileWhere } from "../../FileWhere";
 import { GetFile } from "../../GetFile";
 import { useDownloads } from "../../useGetFile";
 import { Select } from "../../Select";
@@ -169,7 +170,7 @@ function SlotPicker({ family, slot, onAnother }: { family: string; slot: Slot; o
 }
 
 /** A file's line: there (its file, or its picker), or missing (where to put it, and its download and search, or its bar while it comes). */
-function FileLine({ row, family, name, imported }: { row: FileRow; family: string; name: string; imported?: boolean }) {
+function FileLine({ row, family, name, imported, machine }: { row: FileRow; family: string; name: string; imported?: boolean; machine?: string }) {
   const picker = row.slot && row.file;
   const [another, setAnother] = useState(false);
   const find = encodeURIComponent(row.label);
@@ -191,6 +192,8 @@ function FileLine({ row, family, name, imported }: { row: FileRow; family: strin
         </span>
         {/* where to put a missing one, what an optional one brings */}
         {(!row.file || row.optional) && row.hint && <span className="text-xs text-ink-2">{row.hint}</span>}
+        {/* the file there: where it is on disk (card #64) */}
+        {row.file && row.folder && <FileWhere folder={row.folder} file={row.file} machine={machine} />}
       </span>
       <span className="truncate pt-0.5 font-mono text-meta text-ink-3">{row.folder ?? ""}</span>
       <span className="flex min-w-0 flex-col">
@@ -354,7 +357,7 @@ export function FamilyBody({ family, name, help, recipes, machine, imported }: {
   }
   const offIn = [...new Set([...loose.values()].flat())];
   const packLines = [...eitherLines, ...[...packsOff].map(([pack, p]) => <PackLine key={`pack:${pack}`} pack={pack} nodes={p.nodes} users={[...p.users]} machine={machine} />), ...extraLines];
-  const line = (row: FileRow) => <FileLine key={row.key} row={row} family={family} name={name} imported={imported} />;
+  const line = (row: FileRow) => <FileLine key={row.key} row={row} family={family} name={name} imported={imported} machine={machine} />;
   return (
     <div className="flex flex-col gap-4">
       {help && <span className="text-xs text-ink-2">{help}</span>}

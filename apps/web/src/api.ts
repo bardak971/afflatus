@@ -11,7 +11,7 @@ import { signedOut } from "./access/signedOut";
 import type { GoBackCheck, UpdatesView } from "./api/types/updates";
 import type { CostsView } from "./api/types/costs";
 import type { CommandEntry, CommandEstimate, CommandIndex, PromptHistoryItem } from "./api/types/bar";
-import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ComfyProbe, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, FolderPlaces, HuggingFaceFind, CivitaiFind, DeployModels, ModelSet, SetFile, SetSearch, BrowseBases, BrowseCard, BrowseFile, BrowsePage, HashStatus } from "./api/types/models";
+import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ComfyProbe, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, FileWhere, FolderPlaces, HuggingFaceFind, CivitaiFind, DeployModels, ModelSet, SetFile, SetSearch, BrowseBases, BrowseCard, BrowseFile, BrowsePage, HashStatus } from "./api/types/models";
 
 /** Shapes of the server's answers. Kept next to the calls so a change on one side is noticed on the other. */
 export * from "./api/types/queue";
@@ -419,6 +419,10 @@ export const api = {
   clearDownloads: (machine?: string) => call<{ cleared: number }>("POST", "/downloads/clear", machine ? { machine } : {}),
   /** Where each model folder's downloads go on a ComfyUI (the first, or the one named), by folder name. */
   downloadPlaces: (o?: Asked, machine?: string) => call<{ machine: string | null; folders: Record<string, FolderPlaces> }>("GET", `/downloads/places${machineParam(machine)}`, undefined, o?.signal),
+  /** Where a model file is on disk (card #64), on a ComfyUI (the first, or the one named), and whether Show in folder can open it. */
+  modelFileWhere: (f: { folder: string; file: string; machine?: string }, o?: Asked) => call<FileWhere>("GET", `/model-files/where?${new URLSearchParams({ folder: f.folder, file: f.file, ...(f.machine ? { machine: f.machine } : {}) })}`, undefined, o?.signal),
+  /** Show in folder: this computer's file manager opened on one of a model file's places (`at`, in /where's order). The path is never sent. */
+  revealModelFile: (body: { folder: string; file: string; machine?: string; at: number }) => call<{ ok: true }>("POST", "/model-files/reveal", body),
   /** The place chosen for a model folder's downloads on a ComfyUI, or forgotten (null): ComfyUI's own models/<folder> again. */
   setDownloadPlace: (body: { machine?: string; folder: string; path: string | null }) => call<{ ok: true }>("PUT", "/downloads/places", body),
   /** A failed download's banner was dismissed: not announced again, on any page or device. */

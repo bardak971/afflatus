@@ -6,6 +6,7 @@ import { api, type Download } from "./api";
 import { ContextMenu, menuAt } from "./ContextMenu";
 import { useQueue, useSettings } from "./data";
 import { coming, inLine, lineOfFile, linesOf, msFor, ordinal, startsIn, type Line } from "./downloadLine";
+import { FileWhere } from "./FileWhere";
 import { est, fileLabel, size } from "./format";
 import { useNow } from "./hooks";
 import { machineName } from "./machines";
@@ -164,6 +165,8 @@ export function LineList({ line, full, head }: { line: Line; full?: boolean; hea
           <div className="flex min-w-0 flex-col">
             <span className="truncate text-body" data-tip={d.file}>{nameOf(d)}</span>
             <span className="truncate text-xs text-ink-3">Here · {d.shown ?? d.folder}{d.at ? ` · ${new Date(d.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}</span>
+            {/* the file on disk, with Show in folder or Copy (card #64) */}
+            <FileWhere folder={d.folder} file={d.file} machine={d.machine} />
           </div>
           <span className="text-right font-mono text-xs text-ink-2">{d.total ? size(d.total) : ""}</span>
           <span />
