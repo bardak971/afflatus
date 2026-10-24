@@ -4,13 +4,22 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-10-24
+
+Ctrl+V pastes pictures, videos and sounds where you are; removing a clip of a recording or of the source cuts its part out, asked first; a selected clip's join opens on a click.
+
+### Added
+- **Ctrl+V pastes a picture, a video or a sound where you are:** into the open picker (Keyframe, Reference images, a voice…), picked for that slot as From your computer does; onto a media slot with the keyboard focus (as a drop there); into the folder the library shows (the Studio, the timeline's Media strip); else into the project's library, with a banner to open it. A screenshot, a copied picture, or a file copied in Explorer (Chrome, Edge) all paste; a text field keeps its own paste. A kind the place cannot take is refused in words; several files each go in; a picture already kept in that folder is used rather than added twice. Nothing is pasted under a dialog that is not a picker.
+
 ### Changed
-- **Removing a clip of a recording or of the source cuts its part out**, as a ripple delete in a video editor, and says so first in a question with the clip's numbers (where the recording or source jumps, which clip now starts after a cut, a take made carrying on from the removed clip). The first clip moves In past it; the last moves Out before it (set aside, back when Out is moved out). A clip from the middle is set aside with its takes: the band or the Source lane marks where ("cut · 4.8 s set aside", a click brings it back), the stages show the stretch the clips jump over, the clip after it becomes a cut and the song's hand-over is off there. Before, the clip was deleted and the song or the source's motion jumped without a word. Several clips picked are removed in one step for Undo.
+- **Removing a clip of a recording or of the source cuts its part out**, as a ripple delete in a video editor, and says so first in a question with the clip's numbers (where the recording or source jumps, which clip now starts after a cut, a take made carrying on from the removed clip). The first clip moves In past it; the last moves Out before it (set aside, back when Out is moved out). A clip from the middle is set aside with its takes: the band or the Source lane marks where ("cut · 4.8 s set aside", a click brings it back), the stages show the stretch the clips jump over, the clip after it becomes a cut and the song's hand-over is off there. Before, the clip was deleted and the song or the source's motion jumped without a word. Several clips picked are removed in one step for Undo. In / Out's Remove range (and Regenerate range) treat a recording's or a source's clips the same way, asked first.
+- **A selected clip's join opens on a click:** its trim edge is drawn over the join's dot, so the dot could not be clicked while the clip was selected; a click there now opens the join and a drag still trims (the tip says both).
 
 ### Fixed
 - **Speech starts at inside a song run** no longer plays those words twice: a Lip sync clip carrying the recording on from the clip before adds no moment before the words. The setting is shown greyed there, the reason in its "?".
 - **Docker:** no Get ffmpeg in the image (every request reaches it from the bridge, so it was always refused while the page said to press it on the PC Afflatus runs on); a failing ffmpeg says the image's ffmpeg is the one used.
 - **Esc after typing in a box of the recording's or the source's panel** (In, Out) gives up the typing and leaves the box; the next Esc closes the panel, as it does elsewhere.
+- **No ring left on a clip or a join after Esc:** the focus a click gave stays on the track itself, drawn without a ring.
 - **Reference images' "?"** on Video with audio, Lip sync and Motion transfer says that every "A person" picture is the same person, seen another way, and to pin a keyframe that shows both for two people.
 
 ## [0.6.2] - 2026-10-24
@@ -482,7 +491,8 @@ The 0.6.0 cycle: the timeline reworked around sources, recordings and joins, H3 
 
 The first release: the Studio and its library, a form per model family, timelines, the prompt kit, imported workflows, the queue, the node pack, the Docker image, the Helm chart and the desktop bundles.
 
-[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/bardak971/afflatus/releases/tag/v0.6.3
 [0.6.2]: https://github.com/bardak971/afflatus/releases/tag/v0.6.2
 [0.6.1]: https://github.com/bardak971/afflatus/releases/tag/v0.6.1
 [0.6.0]: https://github.com/bardak971/afflatus/releases/tag/v0.6.0
