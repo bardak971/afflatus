@@ -12,6 +12,7 @@ import type { ExportAsk } from "./ExportDialog";
 import { layout, moveAfter, otherShape, ZOOM } from "./model";
 import { madeFromSource, sourcePlace } from "./track/SourceLane";
 import { clipsOfRecording } from "./track/RecordingBand";
+import { recordingPlace } from "./recordingPlace";
 import { sameWindowGrid } from "@afflatus/core";
 import type { PlayerHandle } from "./Player";
 import { useClipEdits } from "./useClipEdits";
@@ -46,7 +47,10 @@ export function useTimelineEditor(id: string) {
   const panelWidth = useEditorColumn((st) => st.width);
   const folded = useEditorColumn((st) => st.folded);
 
-  const { selected, setSelected, picked, setPicked, musicOpen, setMusicOpen, joinOpen, setJoinOpen, sourceOpen, setSourceOpen, select, openSource, openJoin } = useEditorPanels();
+  const { selected, setSelected, picked, setPicked, musicOpen, setMusicOpen, joinOpen, setJoinOpen, sourceOpen, setSourceOpen, recordingOpen, setRecordingOpen, select, openSource, openRecording, openJoin } = useEditorPanels();
+  /** The recording open, for what is asked or made after a render of this one (a trim's question, its clips made anew). */
+  const recordingOpenNow = useRef(recordingOpen);
+  recordingOpenNow.current = recordingOpen;
   const [playing, setPlaying] = useState(false);
   // the moment of what plays: not state, so that a tick redraws the track and the readout, not the whole editor
   const clock = useNewClock();
@@ -114,6 +118,16 @@ export function useTimelineEditor(id: string) {
   /** Where the source lies on the track (the track's own time), the clips Make will add, whether they are made. */
   const place = useMemo(() => (t ? sourcePlace(t, slots, videoRecipes) : null), [t, slots, videoRecipes]);
   const total = slots.length ? slots.at(-1)!.startMs + slots.at(-1)!.lengthMs : 0;
+  /** The recording open on the stage: its clips' parts, and where each moment of it plays on the track. */
+  const openedRecording = t?.recordings?.find((r) => r.asset.id === recordingOpen) ?? null;
+  const recordingAt = useMemo(
+    () => (openedRecording ? recordingPlace(slots, videoRecipes, openedRecording.asset.id, openedRecording.asset.durationMs) : null),
+    [slots, videoRecipes, openedRecording],
+  );
+  // the recording open taken off the timeline (an Undo, its clips removed, another tab): the clips' player again
+  useEffect(() => {
+    if (recordingOpen && t && !recordingAt) setRecordingOpen(null);
+  }, [recordingOpen, t, recordingAt, setRecordingOpen]);
 
   const { dropEdits, saveFailed, save, turn, inputsOf, editInputs, savedElsewhere, typeSource, sourceTyped, shown, formOf, ready, keptToClip, keepToClip } = useClipEdits({ timeline: t, clips, recipes, setup, settings, comfyOnline });
   /** What a clip says happens, in a few words, for the designer: its main text, or what it is. */
@@ -137,7 +151,7 @@ export function useTimelineEditor(id: string) {
     timeline: t, clipsNow, recipes: recipes.data?.recipes ?? [], edits: { save, turn, ready, inputsOf, editInputs, dropEdits, savedElsewhere, sourceTyped }, firstRecipe,
     on: { note: setNote, select, unpick: () => setPicked(new Set()), writing: setWriting, open: setOpened, stepping: () => oneTrim.drop() },
   });
-  const { after, readBack, render, patch, fix, edit, makeSource: makeSourceMut, cutSource: cutSourceMut, sourceForm: sourceFormMut, recording: recordingMut, trimSource: trimSourceMut, trimRecording: trimRecordingMut, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
+  const { after, readBack, render, patch, fix, edit, makeSource: makeSourceMut, cutSource: cutSourceMut, sourceForm: sourceFormMut, recording: recordingMut, cutRecording: cutRecordingMut, recordingForm: recordingFormMut, trimSource: trimSourceMut, trimRecording: trimRecordingMut, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
   const pickedNow = useRef(picked);
   pickedNow.current = picked;
   /** The source taken away with the clips it made, rendered or not (one step for Undo), its panel closed. */
@@ -193,7 +207,8 @@ export function useTimelineEditor(id: string) {
     }
     setToRender(null);
     setSourceOpen(false);
-    if (!toRender.render) return void (made[0] && select(made[0].id));
+    // made anew from the recording's own panel (its trim, its cut): the panel stays, its clips listed there
+    if (!toRender.render) return void (made[0] && !recordingOpenNow.current && select(made[0].id));
     // only what can be rendered now: a model whose files or nodes are missing is said, the clips wait with their Render
     const why = made.map((c) => ready(c).why).find(Boolean);
     const now = made.filter((c) => ready(c).input);
@@ -294,10 +309,11 @@ export function useTimelineEditor(id: string) {
       if (oneTrim.busy) return oneTrim.later(`recording:${asset}`, () => runs.current.recordingTrim.run(asset, clipsOfRecording(runs.current.clips, runs.current.videoRecipes, asset), fromMs, toMs, sure));
       const startMs = Math.round(Number(mine[0]?.inputs.recordingStart ?? 0) * 1000);
       const rendered = mine.filter((c) => c.take).length + (t?.recordings?.find((r) => r.asset.id === asset)?.parkedTakes ?? 0);
-      // asked in the first clip's Recording chapter, opened so the question is in view (its band dragged on the Audio row)
+      // asked in the first clip's Recording chapter, opened so the question is in view (its band dragged on the Audio row);
+      // in the recording's own panel when it is open
       if (!sure && rendered > 0 && Math.abs(fromMs - startMs) > 20) {
         setRecordingAsk({ asset, fromMs, toMs, rendered, clips: mine.length });
-        select(mine[0]!.id);
+        if (recordingOpenNow.current !== asset) select(mine[0]!.id);
         return Promise.resolve(false);
       }
       setRecordingAsk(null);
@@ -306,6 +322,30 @@ export function useTimelineEditor(id: string) {
     keep: () => setRecordingAsk(null),
   };
   runs.current = { stretch, recordingTrim, clips, videoRecipes };
+
+  /**
+   * A recording's clips cut again from its panel (Clip length, Snap to pauses): asked first when that leaves rendered takes
+   * behind (`ask`: Change or Keep), as its moved start is. What was typed in its clips is saved first: they are made anew
+   * with their forms as the server has them.
+   */
+  const [cutAsk, setCutAsk] = useState<{ asset: string; seconds: number; snap: boolean; rendered: number; clips: number } | null>(null);
+  const recordingCut = {
+    pending: cutRecordingMut.isPending,
+    ask: cutAsk,
+    run: (asset: string, seconds: number, snap: boolean, sure = false) => {
+      const mine = clipsOfRecording(clips, videoRecipes, asset);
+      const rendered = mine.filter((c) => c.take).length + (t?.recordings?.find((r) => r.asset.id === asset)?.parkedTakes ?? 0);
+      if (!sure && rendered > 0) return setCutAsk({ asset, seconds, snap, rendered, clips: mine.length });
+      setCutAsk(null);
+      void save().then(() => cutRecordingMut.mutate({ asset, seconds, snap }, { onSuccess: (r) => trimmed(r.clips) }));
+    },
+    keep: () => setCutAsk(null),
+  };
+  /** What a recording's clips share given to all of them (its panel), after what was typed in them is saved. */
+  const recordingShared = {
+    pending: recordingFormMut.isPending,
+    run: (asset: string, inputs: Record<string, unknown>) => void save().then(() => recordingFormMut.mutate({ asset, inputs })),
+  };
 
   /** A voice recording made into Lip sync clips, the first one opened (nothing renders: its scene is to be written first). */
   const recording = {
@@ -331,15 +371,27 @@ export function useTimelineEditor(id: string) {
   // the selected clip, told to the command bar (useSelectedClipBridge.ts)
   useSelectedClipBridge({ id, t, clips, current, recipes: recipes.data?.recipes, patch, inputsOf, rangeAct, edit, openSource });
 
-  const { volume, muted, onVolume, onMute, cursor, setCursor, onTime, stopAt, frameMs } = usePlayhead({ clock, clips, endMs: t ? (sourceOpen && place ? Math.max(total, place.atMs + place.lengthMs) : total) : null, player, rangeRef, loopRef, playingRange, setPlaying });
+  const { volume, muted, onVolume, onMute, cursor, setCursor, onTime, stopAt, frameMs } = usePlayhead({ clock, clips, endMs: t ? (sourceOpen && place ? Math.max(total, place.atMs + place.lengthMs) : recordingAt ? Math.max(total, recordingAt.toTrack(recordingAt.lengthMs)) : total) : null, player, rangeRef, loopRef, playingRange, setPlaying });
   // a key held down sends one undo at a time: the next only once the last is back
   const stepping = undo.isPending || redo.isPending;
   // the keys' refs for what is set below: Ctrl+Enter renders, [ and ] jump, S and Ctrl+B split, Alt+[ and Alt+] step the take; - and =, Shift+Z: the track's zoom (filled by the track)
-  const { selectedNow, renderNow, jumpNow, splitNow, takeNow, trackKeys } = useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, removing: remove.isPending || removeMany.isPending, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameMs, selected: current?.id ?? null, setSelected, setPicked, musicOpen: musicOpen || sourceOpen, closeMusic: () => { setMusicOpen(false); setSourceOpen(false); }, removeOpen: () => {
+  const { selectedNow, renderNow, jumpNow, splitNow, takeNow, trackKeys } = useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, removing: remove.isPending || removeMany.isPending, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameMs, selected: current?.id ?? null, setSelected, setPicked, musicOpen: musicOpen || sourceOpen || Boolean(recordingOpen), closeMusic: () => { setMusicOpen(false); setSourceOpen(false); setRecordingOpen(null); }, removeOpen: () => {
     if (!sourceOpen || !t?.source) return false;
     removeSource();
     return true;
   }, sourceMark: (which) => {
+    // the recording on the stage: I and O set its In and Out at the moment of it heard there, as its band's edges do
+    if (recordingOpen && recordingAt) {
+      const at = Math.round(recordingAt.toRecording(cursor ?? clock.get()));
+      const fromMs = which === "in" ? at : recordingAt.fromMs;
+      const toMs = which === "out" ? at : recordingAt.toMs;
+      if (toMs - fromMs < 1000) {
+        setNote(which === "in" ? "In has to be a second or more before the recording's Out." : "Out has to be a second or more after the recording's In.");
+        return true;
+      }
+      void recordingTrim.run(recordingOpen, recordingAt.parts.map((p) => p.clip), fromMs, toMs);
+      return true;
+    }
     // the source on the stage (it plays in the track's own time): I and O set its stretch's In and Out at the playhead,
     // as dragging its lane's ends does (after Make, a trim: its start moved is asked first when it leaves rendered takes)
     if (!sourceOpen || !t?.source || !place) return false;
@@ -421,7 +473,7 @@ export function useTimelineEditor(id: string) {
 
   return {
     id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, current,
-    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, removeSource, makeSource, cutSource, sourceForm, recording, stretch, recordingTrim, splitSource, masks, setMasks, maskOfCurrent, place, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
+    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, recordingOpen, setRecordingOpen, openRecording, recordingAt, recordingCut, recordingShared, removeSource, makeSource, cutSource, sourceForm, recording, stretch, recordingTrim, splitSource, masks, setMasks, maskOfCurrent, place, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, typeSource, sourceTyped, inputsOf, editInputs, formOf, ready, keptToClip, keepToClip, sayOf, say, m, range, setRange, loopRange, snapQuiet,

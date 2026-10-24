@@ -212,6 +212,13 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   app.post<{ Params: { id: string } }>("/api/timelines/:id/source/trim", async (req) => t.trimSource(req.params.id, z.strictObject({ fromMs: z.number().min(0), toMs: z.number().min(0) }).parse(req.body)));
   // a recording's Lip sync clips trimmed: its end in (clips go) or out (clips added at its pauses), its start moved (made anew)
   app.post<{ Params: { id: string } }>("/api/timelines/:id/recording/trim", async (req) => t.trimRecording(req.params.id, z.strictObject({ asset: z.string().min(1), fromMs: z.number().min(0), toMs: z.number().min(0) }).parse(req.body)));
+  // a recording's clips cut again at another length, in its pauses or not (its panel: Timelines.cutRecording)
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/recording/cut", async (req) => t.cutRecording(req.params.id, z.strictObject({ asset: z.string().min(1), seconds: z.number().min(1).max(60), snap: z.boolean() }).parse(req.body)));
+  // what a recording's clips share, given to all of them at once (its panel's Shared by its clips: Timelines.recordingForm)
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/recording/form", async (req) => {
+    await t.recordingForm(req.params.id, z.strictObject({ asset: z.string().min(1), inputs: z.record(z.string(), z.unknown()) }).parse(req.body));
+    return { ok: true };
+  });
   // a voice recording made into Lip sync clips cut at its pauses, in place of an empty clip or at the end (Timelines.makeFromRecording)
   app.post<{ Params: { id: string } }>("/api/timelines/:id/recording", async (req) => ({ clips: await t.makeFromRecording(req.params.id, z.strictObject({ asset: z.string().min(1), clip: z.string().optional(), seconds: z.number().min(1).max(60).optional() }).parse(req.body)) }));
   // the source given another windowed form: in place on the same grid (its windows and takes kept), else made anew (Timelines.sourceForm)
@@ -480,6 +487,11 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   /** How much moves along a video, ten samples a second: the curve under the ruler, and the quiet moments In and Out snap to. */
   app.get<{ Params: { id: string } }>("/api/assets/:id/motion", async (req, reply) => {
     return cached(req, reply).send(await t.media.motion(req.params.id));
+  });
+
+  /** The pauses of a sound, in seconds (ffmpeg's silencedetect, read once and kept): where a recording is cut into Lip sync clips, marked on its stage. */
+  app.get<{ Params: { id: string } }>("/api/assets/:id/pauses", async (req, reply) => {
+    return cached(req, reply).send(await t.media.pauses(req.params.id));
   });
 
   /** Where a video cuts between shots (ffmpeg's scene change), as moments: marks on the trim bar, "Extract every scene". */

@@ -1075,14 +1075,14 @@ export class Timelines {
    * A clip in the queue is never replaced (dropped on, or made anew over a moved start): refused, as its render would land
    * on no clip.
    */
-  async makeFromRecording(timelineId: string, o: { asset: string; clip?: string; seconds?: number; fromS?: number; toS?: number; replace?: string[]; label?: string }): Promise<string[]> {
+  async makeFromRecording(timelineId: string, o: { asset: string; clip?: string; seconds?: number; snap?: boolean; fromS?: number; toS?: number; replace?: string[]; label?: string; keepCut?: boolean }): Promise<string[]> {
     const { spec } = this.recordingModel();
     const sound = await this.assetRow(o.asset);
     if (!sound || (sound.kind !== "audio" && sound.kind !== "video") || !sound.duration_ms) throw httpError("A recording has to be a sound (or a video's sound) of the library.");
     if (sound.kind === "video" && !sound.has_sound) throw httpError("That video has no sound: a recording has to be a sound, or a video with sound.");
     const { pauses } = await this.pausesOf(sound);
     // `fromS` to `toS`: the stretch of the recording its clips are made of (a recording trimmed: trimRecording), all of it by default
-    const parts = this.recordingPartsOf(spec.window.fits, pauses, o.fromS ?? 0, o.toS ?? sound.duration_ms / 1000, o.seconds);
+    const parts = this.recordingPartsOf(spec.window.fits, pauses, o.fromS ?? 0, o.toS ?? sound.duration_ms / 1000, o.seconds, o.snap);
     if (!parts.length) throw httpError("The recording is too short for a clip.");
     const ids = await this.history.oneAtATime(timelineId, async () => {
       await this.row(timelineId);
@@ -1096,6 +1096,8 @@ export class Timelines {
         const made = await this.recordingClipsIn(tx, timelineId, sound, parts, { gone });
         // made anew over a moved start: what a trim had set aside of it no longer fits its clips
         if (o.replace?.length) await setParkedRecording(tx, timelineId, sound.id, [], null);
+        // cut again at another length (the recording's panel): kept for its trims, which cut what they add the same way
+        if (o.keepCut) await setRecordingCut(tx, timelineId, sound.id, { seconds: o.seconds ?? DEFAULT_CUT.seconds, snap: o.snap ?? true });
         return made;
       });
     });
@@ -1110,9 +1112,9 @@ export class Timelines {
     });
   }
 
-  /** The parts `fromS` to `toS` of a recording is cut into for the Lip sync model's clips (recordingParts), about `seconds` each. */
-  private recordingPartsOf(fits: VoiceWindow["fits"], pauses: Array<{ start: number; end: number }>, fromS: number, toS: number, seconds = 5) {
-    return recordingParts({ fromS, toS, wantS: seconds, ...this.clipBounds(fits), pauses });
+  /** The parts `fromS` to `toS` of a recording is cut into for the Lip sync model's clips (recordingParts), about `seconds` each, at its pauses unless `snap` is false. */
+  private recordingPartsOf(fits: VoiceWindow["fits"], pauses: Array<{ start: number; end: number }>, fromS: number, toS: number, seconds = DEFAULT_CUT.seconds, snap = true) {
+    return recordingParts({ fromS, toS, wantS: seconds, ...this.clipBounds(fits), pauses, snap });
   }
 
   /** The fewest and most seconds of a recording one Lip sync clip takes. */
@@ -1158,7 +1160,10 @@ export class Timelines {
     return made;
   }
 
-  /** A timeline's recordings and what of each a trim set aside (`parkedTakes`: of those, the rendered), as the editor draws them on the Audio row. */
+  /**
+   * A timeline's recordings and what of each a trim set aside (`parkedTakes`: of those, the rendered), as the editor draws
+   * them on the Audio row; and how each is cut into clips (`seconds` about, `snap` to its pauses), as its panel shows it.
+   */
   private async recordingsView(t: TimelineRow, all: Placed[]) {
     let spec: { id: string } | undefined;
     let recipe: string | undefined;
@@ -1170,10 +1175,11 @@ export class Timelines {
       return [];
     }
     const parked = parkedRecordings(t);
+    const cuts = recordingCuts(t);
     const used = all.filter((p) => p.clip.recipe_id === recipe).map((p) => (JSON.parse(p.clip.inputs) as Record<string, unknown>)[spec!.id]);
     const ids = [...new Set([...used, ...Object.keys(parked)].filter((x): x is string => typeof x === "string" && Boolean(x)))];
     const rows = ids.length ? await this.db.selectFrom("assets").selectAll().where("id", "in", ids).execute() : [];
-    return rows.filter((a) => used.includes(a.id)).map((a) => ({ asset: assetView(a), parked: parked[a.id]?.length ?? 0, parkedTakes: (parked[a.id] ?? []).filter((row) => row.clip.take_id).length }));
+    return rows.filter((a) => used.includes(a.id)).map((a) => ({ asset: assetView(a), parked: parked[a.id]?.length ?? 0, parkedTakes: (parked[a.id] ?? []).filter((row) => row.clip.take_id).length, ...cutOf(cuts, a.id) }));
   }
 
   /**
@@ -1265,8 +1271,10 @@ export class Timelines {
       const fromMs = Math.max(0, Math.min(length - 1000, Math.round(to.fromMs)));
       let toMs = Math.max(fromMs + 1000, Math.min(length, Math.round(to.toMs)));
       const busy = await this.busyOf(mine.map((p) => p.clip.id));
+      // cut as its panel set it: the parts a trim adds or makes anew are of the same length, snapped or not
+      const cutAs = cutOf(recordingCuts(await this.row(timelineId)), to.asset);
       if (Math.abs(fromMs - curFrom) > 20) {
-        const clips = await this.makeFromRecording(timelineId, { asset: to.asset, fromS: fromMs / 1000, toS: toMs / 1000, replace: mine.map((p) => p.clip.id), label: "the recording's start moved" });
+        const clips = await this.makeFromRecording(timelineId, { asset: to.asset, fromS: fromMs / 1000, toS: toMs / 1000, seconds: cutAs.seconds, snap: cutAs.snap, replace: mine.map((p) => p.clip.id), label: "the recording's start moved" });
         return { clips, toMs };
       }
       if (Math.abs(toMs - curTo) <= 20) return { clips: [], toMs: curTo };
@@ -1287,7 +1295,7 @@ export class Timelines {
         const grow = trimOut({ start: lastPart.start, end: curTo, free: !last.clip.take_id && !busy.has(last.clip.id), reach }, parked.map((p) => ({ ...part(p.clip), fits: true, taken: p.takes.length > 0 })), toMs, { fromMs: curFrom, leastMs: (w.fits?.min ?? 1) * 1000, mostMs: mostS * 1000 });
         const { back } = grow;
         const end = Math.round(grow.end);
-        const parts = grow.more && toMs > end + 50 ? this.recordingPartsOf(w.fits, pauses, end / 1000, toMs / 1000) : [];
+        const parts = grow.more && toMs > end + 50 ? this.recordingPartsOf(w.fits, pauses, end / 1000, toMs / 1000, cutAs.seconds, cutAs.snap) : [];
         if (grow.lastEnd === undefined && !back && !parts.length) return { clips: [], toMs: curTo };
         const after = back ? String(parked[back - 1]!.clip.id) : last.clip.id;
         const rest = grow.keep ? parked.slice(back) : [];
@@ -1341,6 +1349,63 @@ export class Timelines {
     });
     await this.touch(timelineId);
     return out;
+  }
+
+  /**
+   * A recording's clips cut again (its panel's Clip length and Snap to pauses): made anew over the stretch they use, about
+   * `seconds` each, ended in its pauses or not, as a moved start makes them (the editor asks first when that leaves
+   * rendered takes behind); the cut kept, so its trims cut what they add the same way. One step for Undo.
+   */
+  async cutRecording(timelineId: string, o: { asset: string; seconds: number; snap: boolean }): Promise<{ clips: string[] }> {
+    const { spec } = this.recordingModel();
+    const w = spec.window;
+    const { leastS, mostS } = this.clipBounds(w.fits);
+    const seconds = Math.min(Math.max(o.seconds, leastS), mostS);
+    const clips = await this.history.oneAtATime(timelineId, async () => {
+      const mine = await this.recordingClipsOf(timelineId, o.asset);
+      const part = (inputs: Record<string, unknown>) => ({ start: Number(inputs[w.start]), end: Number(inputs[w.start]) + Number(inputs[w.seconds]) });
+      const fromS = part(mine[0]!.inputs).start;
+      const toS = part(mine.at(-1)!.inputs).end;
+      return this.makeFromRecording(timelineId, { asset: o.asset, fromS, toS, seconds, snap: o.snap, replace: mine.map((c) => c.id), label: "the recording cut again", keepCut: true });
+    });
+    return { clips };
+  }
+
+  /**
+   * What a recording's clips share, given to all of them at once (its panel's Shared by its clips): any setting of the Lip
+   * sync form but the recording itself, each clip's part of it and its seed; null takes it away. One step for Undo. Their
+   * takes stay; their next ones are made with it.
+   */
+  async recordingForm(timelineId: string, o: { asset: string; inputs: Record<string, unknown> }): Promise<void> {
+    const { recipe, spec } = this.recordingModel();
+    const w = spec.window;
+    const shared = new Set(recipe.inputs.filter((i) => i.type !== "clip" && i.id !== spec.id && i.id !== w.start && i.id !== w.seconds && i.id !== "seed").map((i) => i.id));
+    const given = Object.entries(o.inputs).filter(([k]) => shared.has(k));
+    if (!given.length) throw httpError("Nothing the recording's clips can share was given.");
+    await this.history.oneAtATime(timelineId, async () => {
+      const mine = await this.recordingClipsOf(timelineId, o.asset);
+      const changed = mine.flatMap((c) => {
+        const next = { ...c.inputs };
+        for (const [k, v] of given) if (v === null || v === undefined) delete next[k]; else next[k] = v;
+        return JSON.stringify(next) === JSON.stringify(c.inputs) ? [] : [{ id: c.id, next }];
+      });
+      if (!changed.length) return;
+      await this.db.transaction().execute(async (tx) => {
+        await this.remember(timelineId, "the recording's clips changed together", undefined, tx);
+        for (const c of changed) await tx.updateTable("clips").set({ inputs: JSON.stringify(c.next), updated_at: now() }).where("id", "=", c.id).execute();
+      });
+    });
+    await this.touch(timelineId);
+  }
+
+  /** A recording's Lip sync clips on a timeline, in order, with their forms read; none is refused. */
+  private async recordingClipsOf(timelineId: string, asset: string) {
+    const { recipe, spec } = this.recordingModel();
+    const mine = (await this.placed(timelineId))
+      .map((p) => ({ id: p.clip.id, recipe: p.clip.recipe_id, inputs: JSON.parse(p.clip.inputs) as Record<string, unknown> }))
+      .filter((c) => c.recipe === recipe.id && c.inputs[spec.id] === asset);
+    if (!mine.length) throw httpError("No clip of this timeline is made of that recording.");
+    return mine;
   }
 
   /** The timeline goes, with what Undo and Redo remembered of it; the videos of its takes stay in the library. */
@@ -2007,10 +2072,48 @@ async function setParkedRecording(db: Db | Tx, timelineId: string, asset: string
   const t = await db.selectFrom("timelines").selectAll().where("id", "=", timelineId).executeTakeFirstOrThrow();
   const map: Record<string, unknown> = parkedRecordings(t);
   const short = shortenedRecordings(t);
+  const cuts = recordingCuts(t);
   if (rows.length) map[asset] = rows;
   else delete map[asset];
   if (shortened) short[asset] = shortened;
   else if (shortened === null) delete short[asset];
   if (Object.keys(short).length) map[SHORTENED] = short;
+  if (Object.keys(cuts).length) map[CUTS] = cuts;
   await db.updateTable("timelines").set({ recordings: Object.keys(map).length ? JSON.stringify(map) : null }).where("id", "=", timelineId).execute();
+}
+
+/** How a recording is cut into clips, as its panel sets it: about `seconds` a clip, ended in its pauses when `snap`. */
+type RecordingCut = { seconds: number; snap: boolean };
+/** A recording cut as it is dropped: about 5 s a clip, in its pauses. */
+const DEFAULT_CUT: RecordingCut = { seconds: 5, snap: true };
+/** Where the recordings' cuts are kept, in the same JSON as what a trim set aside (asset ids are hex: none is named so). */
+const CUTS = "cut";
+
+/** Each recording's cut set in its panel, by recording asset (those cut as dropped have none). */
+function recordingCuts(t: TimelineRow): Record<string, RecordingCut> {
+  try {
+    const read = (JSON.parse(t.recordings ?? "{}") as Record<string, unknown>)[CUTS];
+    if (!read || typeof read !== "object") return {};
+    return Object.fromEntries(Object.entries(read as Record<string, Partial<RecordingCut>>).filter(([, v]) => typeof v?.seconds === "number" && typeof v.snap === "boolean")) as Record<string, RecordingCut>;
+  } catch {
+    return {};
+  }
+}
+
+/** One recording's cut: as its panel set it, else as it was dropped. */
+function cutOf(cuts: Record<string, RecordingCut>, asset: string): RecordingCut {
+  return cuts[asset] ?? DEFAULT_CUT;
+}
+
+/** One recording's cut written back, beside what a trim set aside of the recordings (left as it is). */
+async function setRecordingCut(db: Db | Tx, timelineId: string, asset: string, cut: RecordingCut) {
+  const t = await db.selectFrom("timelines").selectAll().where("id", "=", timelineId).executeTakeFirstOrThrow();
+  let map: Record<string, unknown> = {};
+  try {
+    map = (JSON.parse(t.recordings ?? "{}") as Record<string, unknown>) ?? {};
+  } catch {
+    // unreadable: written anew with the cut alone
+  }
+  map[CUTS] = { ...recordingCuts(t), [asset]: cut };
+  await db.updateTable("timelines").set({ recordings: JSON.stringify(map) }).where("id", "=", timelineId).execute();
 }

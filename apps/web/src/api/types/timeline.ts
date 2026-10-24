@@ -131,8 +131,11 @@ export interface Timeline {
   exportFailed: string | null;
   /** Its source lane: a long video made into clips window by window; null = none. */
   source: TimelineSource | null;
-  /** Its voice recordings, each made into Lip sync clips (drawn under them on the Audio row), how many of its clips a trim set aside, and of those the rendered. */
-  recordings?: Array<{ asset: Asset; parked: number; parkedTakes?: number }>;
+  /**
+   * Its voice recordings, each made into Lip sync clips (drawn under them on the Audio row), how many of its clips a trim set
+   * aside, and of those the rendered; how it is cut into them (about `seconds` a clip, in its pauses when `snap`).
+   */
+  recordings?: Array<{ asset: Asset; parked: number; parkedTakes?: number; seconds?: number; snap?: boolean }>;
 }
 /**
  * A timeline's source lane: the video, where its own start sits on the timeline (`atMs`, below 0 when it starts before the

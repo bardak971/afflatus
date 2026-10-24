@@ -1,0 +1,255 @@
+import { useState } from "react";
+import type { Asset, Clip } from "../../api";
+import { timelineKey } from "../../draftMachine";
+import { clock as mmss, plural } from "../../format";
+import { RenderOn } from "../../GenerateOn";
+import { severalMachines } from "../../machines";
+import { useQueue } from "../../data";
+import { AutoText, Button, cx, fieldClass, Help, NumberBox, Segmented, Toggle } from "../../ui";
+import { useClock, type Clock } from "../clock";
+import { ColumnEdge, FoldButton, useColumnWidth } from "../column";
+import type { RecordingPlace } from "../recordingPlace";
+import { CloseButton, Slide } from "./parts";
+
+/** A recording open in the column, as the editor hands it over (editorProps' recordingPanelProps). */
+export type RecordingPanelProps = {
+  timelineId: string;
+  recording: Asset;
+  place: RecordingPlace;
+  /** The model its clips are made with, as the app names it. */
+  model: string;
+  /** The timeline's clock: the clip under the playhead is lit in the list. */
+  clock: Clock;
+  onClose(): void;
+  /** In and Out typed (ms of the recording): a trim, as its band's edges and I / O on the stage. */
+  onUses(fromMs: number, toMs: number): void;
+  /** Its start moved, rendered clips in the way: Change or Keep. */
+  trimAsk: { fromMs: number; rendered: number; clips: number; change(): void; keep(): void } | null;
+  trimming: boolean;
+  /** How it is cut into clips: about `seconds` each, in its pauses when `snap`; changed, its clips are made anew. */
+  cut: {
+    seconds: number;
+    snap: boolean;
+    leastMs: number;
+    mostMs: number;
+    run(seconds: number, snap: boolean): void;
+    ask: { rendered: number; clips: number; change(): void; keep(): void } | null;
+    pending: boolean;
+  };
+  onSelectClip(id: string): void;
+  /** How its first clip opens: carrying on from the clip before (its number; null: none before it), or on a picture, a cut. */
+  opens: { before: number | null; joined: "continue" | "cut"; onJoined(joined: "continue" | "cut"): void };
+  /** The settings its clips can share, each with the value they all have (null: not the same in every clip). */
+  shared: Array<{ id: string; label: string; value: string | null; placeholder?: string }>;
+  onShared(inputs: Record<string, unknown>): void;
+  /**
+   * Its clips with nothing to play sent to render, as the source's panel sends its own; `waiting`: those with nothing to
+   * play that cannot render yet, and why (the first one's reason).
+   */
+  render: { left: number; queued: number; waiting: number; why: string | null; run(): void; rendering: boolean };
+};
+
+/**
+ * A recording open in the column (its band on the Audio row clicked), as the source lane opens its own panel: what model
+ * its clips are made with, the stretch of it they use (In → Out), how it is cut into them (Clip length, Snap to pauses),
+ * its clips with their parts and takes, how the first one opens, what they share, and Render N clips at the foot. A clip's
+ * own Recording chapter stays as it is; the edits here go through the same paths.
+ */
+export function RecordingPanel(p: RecordingPanelProps) {
+  const panelWidth = useColumnWidth();
+  const several = severalMachines(useQueue().data).length > 0;
+  const { recording, place, cut } = p;
+  const first = place.parts[0]!;
+  const last = place.parts.at(-1)!;
+  const numbers = first.number === last.number ? `clip ${first.number}` : `clips ${first.number}–${last.number}`;
+  const usesMs = place.toMs - place.fromMs;
+  const leastMs = Math.ceil(cut.leastMs / 100) * 100;
+  const mostMs = Math.max(leastMs, Math.floor(cut.mostMs / 100) * 100);
+  const lengths = place.parts.map((x) => ((x.endMs - x.startMs) / 1000).toFixed(1));
+
+  return (
+    <aside data-designer-stays aria-label={`Recording ${recording.name}`} style={{ width: panelWidth }} className="relative flex shrink-0 flex-col border-l border-line bg-panel">
+      <ColumnEdge />
+      <div className="flex shrink-0 items-start gap-2 border-b border-line px-4 pt-3.5 pb-3">
+        <div className="flex min-w-0 grow flex-wrap items-center gap-1.5 pt-0.5">
+          <span className="mr-0.5 flex h-6 shrink-0 items-center rounded-chip bg-accent-wash px-2 text-xs font-bold text-accent uppercase">Recording</span>
+          <span className="truncate font-semibold">{recording.name}</span>
+          <span className="text-xs text-ink-3">{(place.lengthMs / 1000).toFixed(1)} s · under {numbers}</span>
+        </div>
+        <FoldButton />
+        <span className="ml-1.5 flex shrink-0 border-l border-line pl-1.5"><CloseButton onClose={p.onClose} /></span>
+      </div>
+
+      <div className="flex min-h-0 grow flex-col overflow-y-auto">
+        <Section title="Model" help="The model its clips are made with. A recording has one today: each clip is made around its part of it, the mouth following the words.">
+          <Segmented<string> label="Model" size="sm" oneLine value="model" onChange={() => {}} options={[{ value: "model", label: p.model }]} />
+        </Section>
+
+        <Section title="Uses" note="In → Out">
+          {p.trimAsk && (
+            <Ask
+              title={`The recording starting at ${mmss(p.trimAsk.fromMs, { decimals: 1 })} cuts its clips again:`}
+              says={`its ${plural(p.trimAsk.clips, "clip")} are made anew; ${plural(p.trimAsk.rendered, "rendered take")} go to the library (Undo brings them back). To keep them, trim its end instead.`}
+              change={p.trimAsk.change}
+              keep={p.trimAsk.keep}
+            />
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <NumberBox label="In (s of the recording)" value={place.fromMs / 1000} min={0} max={Math.max(0, place.toMs / 1000 - 1)} step={0.1} unit=" s" onCommit={(v) => p.onUses(Math.round(v * 1000), place.toMs)} />
+            <span className="text-ink-3">→</span>
+            <NumberBox label="Out (s of the recording)" value={place.toMs / 1000} min={place.fromMs / 1000 + 1} max={place.lengthMs / 1000} step={0.1} unit=" s" onCommit={(v) => p.onUses(place.fromMs, Math.round(v * 1000))} />
+            <span className="text-xs text-ink-2">· {(usesMs / 1000).toFixed(1)} s</span>
+          </div>
+          {p.trimming && <span className="text-xs text-ink-2">Trimming the recording…</span>}
+        </Section>
+
+        <Section title="Clips" help="How the stretch is cut into Lip sync clips. Changed, its clips are made anew over the same stretch.">
+          {cut.ask && (
+            <Ask
+              title="Cutting it again makes its clips anew:"
+              says={`its ${plural(cut.ask.clips, "clip")} are made anew; ${plural(cut.ask.rendered, "rendered take")} go to the library (Undo brings them back).`}
+              change={cut.ask.change}
+              keep={cut.ask.keep}
+            />
+          )}
+          <Slide label="Clip length" value={Math.min(Math.max(cut.seconds * 1000, leastMs), mostMs)} min={leastMs} max={mostMs} step={100} show={(ms) => `about ${(ms / 1000).toFixed(1)} s`} onCommit={(ms) => cut.run(ms / 1000, cut.snap)} />
+          <Toggle
+            on={cut.snap}
+            disabled={cut.pending}
+            onChange={(snap) => cut.run(cut.seconds, snap)}
+            label="Snap to pauses"
+            note={cut.snap ? `each clip ends in the pause nearest that length, never inside a word: ${lengths.join(", ")} s here` : `every clip that length, wherever the words are: ${lengths.join(", ")} s here`}
+          />
+          {cut.pending && <span className="text-xs text-ink-2">Cutting the recording again…</span>}
+        </Section>
+
+        <Section title="Its clips" note={String(place.parts.length)}>
+          <ClipRows place={place} clock={p.clock} onSelectClip={p.onSelectClip} />
+        </Section>
+
+        <Section title="Opens from" help="How its first clip starts: carrying on from the clip before it (a seamless join), or on its own from a picture, a cut.">
+          {p.opens.before === null ? (
+            <span className="text-xs text-ink-2">It opens the timeline: clip {first.number} starts from its own first frame (a picture in its form) or from nothing.</span>
+          ) : (
+            <Segmented<"continue" | "cut">
+              label="Opens from"
+              size="sm"
+              value={p.opens.joined}
+              onChange={p.opens.onJoined}
+              options={[{ value: "continue", label: `Clip ${p.opens.before} · seamless` }, { value: "cut", label: "A picture · a cut" }]}
+            />
+          )}
+          {p.opens.joined === "cut" && p.opens.before !== null && (
+            <span className="text-xs text-ink-2">
+              The picture is clip {first.number}'s first frame: <button type="button" className="underline" onClick={() => p.onSelectClip(first.clip.id)}>open clip {first.number}</button> to set it.
+            </span>
+          )}
+        </Section>
+
+        {p.shared.length > 0 && (
+          <Section title="Shared by its clips" help="What every clip of the recording is made with. Typed here, it goes to all of them at once (one step to undo); a clip changed on its own keeps it until this is typed again.">
+            {p.shared.map((f) => (
+              <SharedField key={f.id} field={f} count={place.parts.length} onCommit={(value) => p.onShared({ [f.id]: value || null })} />
+            ))}
+          </Section>
+        )}
+      </div>
+
+      <div className="flex shrink-0 flex-col gap-2 border-t border-line px-3.5 py-3">
+        {p.render.why && <span className="text-xs text-warn-ink">{p.render.why}</span>}
+        <span className="flex">
+          <Button tone="primary" className={cx("h-11 grow text-sm", several && p.render.left > 0 && "rounded-r-none!")} disabled={p.render.rendering || p.render.left === 0} onClick={p.render.run}>
+            {p.render.rendering ? "Sending…" : p.render.left > 0 ? `Render ${plural(p.render.left, "clip")}` : p.render.queued > 0 ? `Rendering · ${p.render.queued} in the queue` : p.render.waiting > 0 ? `Render ${plural(p.render.waiting, "clip")}` : "Every clip rendered"}
+          </Button>
+          {p.render.left > 0 && <RenderOn pickKey={timelineKey(p.timelineId)} msOn={() => null} />}
+        </span>
+      </div>
+    </aside>
+  );
+}
+
+function Section({ title, note, help, children }: { title: string; note?: string; help?: string; children: React.ReactNode }) {
+  return (
+    <section aria-label={title} className="flex flex-col gap-2.5 border-b border-line px-4 py-3">
+      <h4 className="flex items-center justify-between text-meta font-semibold tracking-wide text-ink-3 uppercase">
+        {title}
+        {note && <span className="font-normal tracking-normal normal-case">{note}</span>}
+        {help && <Help text={help} title={title} />}
+      </h4>
+      {children}
+    </section>
+  );
+}
+
+/** A change that leaves rendered takes behind, asked first: Change or Keep it. */
+function Ask({ title, says, change, keep }: { title: string; says: string; change(): void; keep(): void }) {
+  return (
+    <div role="alert" className="flex flex-col gap-2 rounded-lg border border-warn/50 bg-warn-wash/40 p-2.5">
+      <span className="text-xs"><span className="font-semibold">{title}</span> <span className="text-ink-2">{says}</span></span>
+      <span className="flex gap-1.5">
+        <Button size="sm" tone="primary" onClick={change}>Change</Button>
+        <Button size="sm" onClick={keep}>Keep it</Button>
+      </span>
+    </div>
+  );
+}
+
+/** What a clip shows in the list: in the queue, rendering, its take playing, or empty. */
+function stateOf(c: Clip): { said: string; good: boolean } {
+  if (c.job) return { said: c.job.status === "running" ? "rendering" : "in the queue", good: false };
+  if (c.take) return { said: `take ${c.takes.findIndex((x) => x.id === c.take!.id) + 1}`, good: true };
+  return { said: "empty", good: false };
+}
+
+/**
+ * Its clips, each with its part of the recording and whether it has a take; the one under the playhead lit. Reads the
+ * clock on its own: only the list redraws as the recording plays. A click opens that clip.
+ */
+function ClipRows({ place, clock, onSelectClip }: { place: RecordingPlace; clock: Clock; onSelectClip(id: string): void }) {
+  const now = useClock(clock);
+  const under = place.parts.find((x) => now >= x.clipFromMs && now < x.clipToMs);
+  return (
+    <div className="flex flex-col">
+      {place.parts.map((x) => {
+        const s = stateOf(x.clip);
+        const here = x === under;
+        return (
+          <button
+            key={x.clip.id}
+            type="button"
+            aria-current={here || undefined}
+            aria-label={`Clip ${x.number}, ${mmss(x.startMs, { decimals: 1 })}–${mmss(x.endMs, { decimals: 1 })}, ${s.said}`}
+            onClick={() => onSelectClip(x.clip.id)}
+            className="grid grid-cols-[3.5rem_1fr_auto] items-baseline gap-x-2 border-t border-line py-1.5 text-left text-sm first:border-t-0 hover:bg-hover"
+          >
+            <span className={cx("font-semibold", here ? "text-accent" : "text-ink-strong")}>Clip {x.number}</span>
+            <span className={cx("font-mono text-xs", here ? "text-accent" : "text-ink-2")}>{mmss(x.startMs, { decimals: 1 })}–{mmss(x.endMs, { decimals: 1 })}</span>
+            <span className={cx("text-xs", s.good ? "text-good" : "text-ink-3")}>{s.said}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** One setting the clips share: typed here, given to all of them when it is left (blur), if it changed. */
+function SharedField({ field, count, onCommit }: { field: RecordingPanelProps["shared"][number]; count: number; onCommit(value: string): void }) {
+  const [text, setText] = useState<string | null>(null);
+  const shown = text ?? field.value ?? "";
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs text-ink-2">{field.label}</span>
+      <AutoText
+        value={shown}
+        aria-label={field.label}
+        placeholder={field.value === null ? `Each clip has its own: typed here, it goes to all ${count}` : field.placeholder}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          if (text !== null && text !== (field.value ?? "")) onCommit(text);
+          setText(null);
+        }}
+        className={fieldClass}
+      />
+    </label>
+  );
+}

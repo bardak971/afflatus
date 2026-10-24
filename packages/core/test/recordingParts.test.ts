@@ -61,3 +61,18 @@ describe("a recording's part for one clip", () => {
     expect(recordingPart({ fromS: 9, toS: 9, ...bounds, pauses: [] })).toBeNull();
   });
 });
+
+/** Snap to pauses off (the recording's panel): the parts the length asked, the pauses passed by. */
+describe("a recording cut without its pauses", () => {
+  const bounds = { leastS: 4, mostS: 14.83 };
+  const pauses = [{ start: 4.5, end: 4.9 }, { start: 10, end: 10.4 }];
+  it("is cut every length asked, the last part taking what is left", () => {
+    expect(recordingParts({ fromS: 0, toS: 15, wantS: 6, ...bounds, pauses, snap: false })).toEqual([{ start: 0, seconds: 6 }, { start: 6, seconds: 9 }]);
+    expect(recordingParts({ fromS: 1, toS: 21, wantS: 5, ...bounds, pauses, snap: false }).map((p) => p.seconds)).toEqual([5, 5, 5, 5]);
+    expect(recordingParts({ fromS: 0, toS: 13, wantS: 5, ...bounds, pauses, snap: false })).toEqual([{ start: 0, seconds: 5 }, { start: 5, seconds: 8 }]);
+  });
+
+  it("snapped, as before: in the pauses", () => {
+    expect(recordingParts({ fromS: 0, toS: 15, wantS: 5, ...bounds, pauses }).map((p) => p.start)).toEqual([0, 4.7, 10.2]);
+  });
+});
