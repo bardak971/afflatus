@@ -17,10 +17,10 @@ export interface RecordingPart {
 
 /**
  * The parts `fromS` to `toS` of a recording is cut into, each about `wantS` long and within `leastS` to `mostS`. A part ends
- * in the middle of the pause nearest its asked end, among the pauses that keep it within its bounds; with none there, at its
- * most (a monologue without a breath is cut mid-word, as little as it can be). A last part shorter than the least is taken by
- * the part before when one clip holds both, else the two share what is left evenly. `snap` false (the recording's panel,
- * Snap to pauses off): every part the length asked, wherever the words are.
+ * in the middle of the pause nearest its asked end, among the pauses that keep it within its bounds; with none there, at the
+ * length asked (a song's music never pauses: cut at the most, its parts were all 14.8 s whatever length was asked). A last
+ * part shorter than the least is taken by the part before when one clip holds both, else the two share what is left evenly.
+ * `snap` false (the recording's panel, Snap to pauses off): every part the length asked, wherever the words are.
  */
 export function recordingParts(o: { fromS: number; toS: number; wantS: number; leastS: number; mostS: number; pauses: Pause[]; snap?: boolean }): RecordingPart[] {
   const { fromS, toS, leastS, mostS } = o;
@@ -72,5 +72,6 @@ function endOf(at: number, toS: number, want: number, leastS: number, mostS: num
   // a pause past the end (a recording trimmed, its Out before the words go on) is no place to cut: a part made to it
   // would render the words trimmed off, and one past the recording's end would say a length the sound has not
   const cuts = pauses.map((p) => (p.start + p.end) / 2).filter((m) => m - at >= leastS && m - at <= mostS && m < toS);
-  return cuts.length ? cuts.reduce((best, m) => (Math.abs(m - at - want) < Math.abs(best - at - want) ? m : best)) : Math.min(at + mostS, toS);
+  // no pause within reach: the length asked, as with Snap to pauses off (a single clip's part asks for the most: recordingPart)
+  return cuts.length ? cuts.reduce((best, m) => (Math.abs(m - at - want) < Math.abs(best - at - want) ? m : best)) : Math.min(at + want, toS);
 }
