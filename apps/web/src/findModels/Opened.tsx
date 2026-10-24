@@ -61,11 +61,12 @@ export function Opened({ card, picked, onPick, onClose }: { card: BrowseCard; pi
           {repo.isPending && card.site === "huggingface" && !card.versions.length && <span className="text-xs text-ink-3">Reading its files…</span>}
           {repo.isError && <ErrorNote>{repo.error.message}</ErrorNote>}
           {version && (
-            <div className="flex flex-col rounded-xl border border-line">
+            // narrow (a laptop's width, beside Picked), a file's folder and size go under its name: beside it, the name had 15 px
+            <div className="@container/files flex flex-col rounded-xl border border-line">
               {version.files.map((f) => (
-                <div key={f.name} className="grid grid-cols-[minmax(0,1fr)_150px_80px] items-center gap-3 border-b border-line/60 px-3 py-2 text-body last:border-b-0">
+                <div key={f.name} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 border-b border-line/60 px-3 py-2 text-body last:border-b-0 @lg/files:grid-cols-[minmax(0,1fr)_150px_80px]">
                   {/* the box on the name's first line, not in the middle of the name and its note */}
-                  <Checkbox checked={on.has(f.name)} onChange={(v) => setTicked(() => { const n = new Set(on); if (v) n.add(f.name); else n.delete(f.name); return n; })} className="min-w-0 items-start! [&>span:first-child]:mt-px">
+                  <Checkbox checked={on.has(f.name)} onChange={(v) => setTicked(() => { const n = new Set(on); if (v) n.add(f.name); else n.delete(f.name); return n; })} className="col-span-2 min-w-0 items-start! @lg/files:col-span-1 [&>span:first-child]:mt-px">
                     <span className="flex min-w-0 flex-col">
                       {/* the whole name: versions of one model often differ only at its end */}
                       <span className="break-all">{f.name}</span>
@@ -73,7 +74,7 @@ export function Opened({ card, picked, onPick, onClose }: { card: BrowseCard; pi
                     </span>
                   </Checkbox>
                   {/* "none" is the "Which folder?" option: kept as no folder, never a folder of that name */}
-                  <span data-tip={f.why}><Select size="sm" label={`Folder of ${f.name}`} value={folderOf(f) || "none"} onChange={(v) => setFolders((x) => ({ ...x, [f.name]: v === "none" ? "" : v }))} placeholder="Which folder?" options={[...(folderOf(f) ? [] : [{ value: "none", label: "Which folder?" }]), ...foldersOf(f).map((x) => ({ value: x, label: x }))]} /></span>
+                  <span data-tip={f.why} className="min-w-0 pl-7 @lg/files:pl-0"><Select size="sm" label={`Folder of ${f.name}`} value={folderOf(f) || "none"} onChange={(v) => setFolders((x) => ({ ...x, [f.name]: v === "none" ? "" : v }))} placeholder="Which folder?" options={[...(folderOf(f) ? [] : [{ value: "none", label: "Which folder?" }]), ...foldersOf(f).map((x) => ({ value: x, label: x }))]} /></span>
                   <span className="text-right font-mono text-xs text-ink-2">{f.bytes ? size(f.bytes) : "–"}</span>
                 </div>
               ))}
