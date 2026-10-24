@@ -40,7 +40,8 @@ describe("the downloads' state file", () => {
     writeFileSync(file, JSON.stringify([
       { id: "a", file: "big.safetensors", folder: "checkpoints", title: "Big", bytes: 1000, total: 5000, status: "downloading" },
       { id: "b", file: "done.safetensors", folder: "vae", title: "Done", bytes: 10, total: 10, status: "done", finishedAt: now - 60_000 },
-      { id: "c", file: "old.safetensors", folder: "vae", title: "Old", bytes: 10, total: 10, status: "done", finishedAt: now - 3 * 60 * 60_000 },
+      // done on another day: a finished one is listed the day it was done (the Downloads card's "Done today")
+      { id: "c", file: "old.safetensors", folder: "vae", title: "Old", bytes: 10, total: 10, status: "done", finishedAt: now - 26 * 60 * 60_000 },
     ]));
     const events = new EventEmitter();
     let told = 0;
@@ -104,14 +105,14 @@ describe("the downloads' state file", () => {
     await until(() => readdirSync(dir).join() === "downloads.json");
   });
 
-  it("keeps a failure nobody read for a day, where a read one or a finished one goes after an hour", async () => {
+  it("keeps a failure nobody read for a day, where a read one goes after an hour and a finished one with its day", async () => {
     const file = join(dir, "downloads.json");
     const now = Date.now();
     const hours = (n: number) => now - n * 60 * 60_000;
     writeFileSync(file, JSON.stringify([
       { id: "unread", file: "a.safetensors", folder: "loras", title: "A", bytes: 0, total: 0, status: "error", error: "cut", finishedAt: hours(3) },
       { id: "read", file: "b.safetensors", folder: "loras", title: "B", bytes: 0, total: 0, status: "error", error: "cut", seen: true, finishedAt: hours(3) },
-      { id: "done", file: "c.safetensors", folder: "loras", title: "C", bytes: 1, total: 1, status: "done", finishedAt: hours(3) },
+      { id: "done", file: "c.safetensors", folder: "loras", title: "C", bytes: 1, total: 1, status: "done", finishedAt: hours(26) },
       { id: "too-old", file: "d.safetensors", folder: "loras", title: "D", bytes: 0, total: 0, status: "error", error: "cut", finishedAt: hours(25) },
     ]));
     const downloads = open(new EventEmitter(), file);

@@ -339,6 +339,11 @@ export const settingsSchema = z.object({
   /** Missing model files may be fetched into ComfyUI, through ComfyUI-Manager. Off: Afflatus never asks ComfyUI to download anything. */
   downloadModels: z.boolean().default(false),
   /**
+   * Where a model folder's downloads go when ComfyUI reads it from several places (card #59), by machine id then folder
+   * name: one of the paths ComfyUI lists for it, as it says it. A folder not named takes ComfyUI's own models/<folder>.
+   */
+  downloadPlaces: z.record(z.string().max(40), z.record(z.string().max(120), z.string().max(1000))).default({}),
+  /**
    * How many days the time of each render is kept one by one. Older ones are folded into figures per
    * model and day, which stay for good. 0: each one is kept for good.
    */
@@ -902,6 +907,7 @@ export function publicSettings(s: Settings, here: (url: string) => boolean = () 
     updateChecks: s.updateChecks,
     afflatusUpdateChecks: s.afflatusUpdateChecks,
     downloadModels: s.downloadModels,
+    downloadPlaces: s.downloadPlaces,
     renderHistoryDays: s.renderHistoryDays,
     jobHistoryDays: s.jobHistoryDays,
     unkeptDays: s.unkeptDays,

@@ -29,9 +29,12 @@ function cellOf(scan: Scan | undefined, machine: Machine, said: Record<string, b
  * card as that machine has it, its switches, downloads to it). With one ComfyUI, the Models card alone, as before.
  */
 export function ModelsByMachine({ left, right }: {
-  /** The tab's other cards, under the models in the first column and in the second: the machine picker is above both. */
+  /**
+   * The tab's other cards, under the models in the first column and in the second: the machine picker is above both. The
+   * second's may follow the machine picked (the Downloads card: that machine's), undefined on All or with one ComfyUI.
+   */
   left?: ReactNode;
-  right?: ReactNode;
+  right?: ReactNode | ((machine: string | undefined) => ReactNode);
 }) {
   const settings = useSettings();
   const recipes = useRecipes();
@@ -44,10 +47,10 @@ export function ModelsByMachine({ left, right }: {
   }, [askedMachine]);
   const scans = useQueries({ queries: machines.map((m) => ({ queryKey: queryKeys.setup(m.id), queryFn: ({ signal }: { signal: AbortSignal }) => api.setup({ signal }, m.id), staleTime: 60_000, enabled: machines.length > 1 })) });
   // the picker spans the tab, the two columns under it: inside the first, it put the models below the second's top
-  const columns = (models: ReactNode) => (
+  const columns = (models: ReactNode, machine?: string) => (
     <div className={COLUMNS}>
       <div className="flex flex-col gap-4">{models}{left}</div>
-      <div className="flex flex-col gap-4">{right}</div>
+      <div className="flex flex-col gap-4">{typeof right === "function" ? right(machine) : right}</div>
     </div>
   );
   if (machines.length < 2) return columns(<ModelsCard />);
@@ -76,7 +79,7 @@ export function ModelsByMachine({ left, right }: {
         )}
         <Help text="All: every model family against every machine; its switch is the family everywhere. A machine's tab: what that ComfyUI has, its own switches (the queue sends it only the families on there), and downloads go to it." />
       </div>
-      {columns(picked ? <ModelsCard key={picked.id} machine={picked} /> : <AllGrid machines={machines} scans={scans.map((q) => q.data)} onOpen={setTab} />)}
+      {columns(picked ? <ModelsCard key={picked.id} machine={picked} /> : <AllGrid machines={machines} scans={scans.map((q) => q.data)} onOpen={setTab} />, picked?.id)}
     </>
   );
 }

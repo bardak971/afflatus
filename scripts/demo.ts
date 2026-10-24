@@ -74,13 +74,22 @@ catalog.UNETLoader!.input.required!.unet_name = [["minimax_h3_fl2va_demo.safeten
 
 // the pretend ComfyUI's model folders on disk, in the demo's data folder: "Download" in the demo writes there, as
 // Afflatus does into a ComfyUI on the same machine (DEMO_MANAGER=1 leaves them out: the download then goes through Manager)
-const demoModels = join(root, "data-demo", "comfy-models");
-const folderPaths = process.env.DEMO_MANAGER === "1" ? undefined : Object.fromEntries(
-  ["checkpoints", "loras", "vae", "diffusion_models", "text_encoders", "upscale_models"].map((f) => {
-    mkdirSync(join(demoModels, f), { recursive: true });
-    return [f, [join(demoModels, f)]];
-  }),
-);
+// They are listed as a real ComfyUI lists them (card #59): the older name first (unet before diffusion_models), and another
+// app's folder shared through extra_model_paths.yaml before ComfyUI's own (an A1111's Lora), so that Download's place and
+// its menu show; ComfyUI's own folder is the custom_nodes' parent.
+const demoComfy = join(root, "data-demo", "comfy");
+const demoModels = join(demoComfy, "models");
+const demoOther = join(root, "data-demo", "other-app", "models");
+const listedAs: Record<string, string[]> = {
+  diffusion_models: [join(demoModels, "unet"), join(demoModels, "diffusion_models")],
+  loras: [join(demoOther, "Lora"), join(demoModels, "loras")],
+  checkpoints: [join(demoOther, "Stable-diffusion"), join(demoModels, "checkpoints")],
+};
+const folderPaths = process.env.DEMO_MANAGER === "1" ? undefined : {
+  custom_nodes: [join(demoComfy, "custom_nodes")],
+  ...Object.fromEntries(["checkpoints", "loras", "vae", "diffusion_models", "text_encoders", "upscale_models"].map((f) => [f, listedAs[f] ?? [join(demoModels, f)]])),
+};
+for (const dirs of Object.values(folderPaths ?? {})) for (const d of dirs) mkdirSync(d, { recursive: true });
 
 /** The model files of a pretend ComfyUI, less those `lacks` names (a pattern on the file name). */
 const lacking = (models: Record<string, string[]>, lacks?: RegExp) => (lacks ? Object.fromEntries(Object.entries(models).map(([k, v]) => [k, v.filter((f) => !lacks.test(f))])) : models);

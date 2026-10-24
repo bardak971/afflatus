@@ -14,6 +14,7 @@ import { CloseButton, cx } from "./ui";
 import { askViewer, passFrom } from "./viewer/ask";
 import { machineName, NO_ROOM, volumeHref, volumeOf } from "./machines";
 import { queryKeys } from "./queryKeys";
+import { settingHref } from "./screens/settings/settingsIndex";
 
 /**
  * A finished render is only announced where its result does not show up by itself (the Queue lists it as it ends). The
@@ -166,7 +167,7 @@ export function Banners() {
       const name = d.file.split(/[\\/]/).pop() ?? d.file;
       // on a machine of its own (a rented pod, another ComfyUI): said there, and its card opened, where its files are listed
       const on = d.machine ? machineName(queueNow.current, d.machine) : null;
-      if (d.status === "done") push({ id: `download:${d.id}`, tone: "good", title: on ? `${name} on ${on}` : `${name} installed in ComfyUI`, ...(on ? { href: `/settings?machine=${encodeURIComponent(d.machine!)}`, go: `Open ${on}` } : { href: "/settings/models", go: "Open settings" }) });
+      if (d.status === "done") push({ id: `download:${d.id}`, tone: "good", title: on ? `${name} on ${on}` : `${name} installed in ComfyUI`, ...(d.shown ? { text: `Here · ${d.shown}` } : {}), ...(on ? { href: `/settings?machine=${encodeURIComponent(d.machine!)}`, go: `Open ${on}` } : { href: settingHref("models.downloads"), go: "Open the downloads" }) });
       if (d.status === "error") {
         const volume = NO_ROOM.test(d.error ?? "") ? volumeOf(settingsNow.current?.machines, d.machine) : null;
         if (!volume && d.machine) {

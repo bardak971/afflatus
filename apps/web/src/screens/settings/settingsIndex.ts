@@ -55,6 +55,7 @@ export const INDEX: SettingSpot[] = [
   { tab: "models", label: "Hugging Face token", key: "models.huggingFaceToken", near: "server.civitaiLookups", words: "hf token gated access key" },
   { tab: "models", label: "Search Hugging Face and Civitai", key: "server.civitaiLookups", words: "civitai lookups search trigger words model pages lora names missing" },
   { tab: "models", label: "Download missing models", key: "server.downloadModels", words: "download missing files into comfyui manager" },
+  { tab: "models", label: "Downloads", key: "models.downloads", near: "models.sets", words: "downloads line queue waiting order reorder cancel done failed try again where folder place disk unet loras extra_model_paths a1111" },
   { tab: "models", label: "Model sets", key: "models.sets", words: "set list of model files pod deploy rented gpu share friend new pc bundle pack import export" },
   { tab: "models", label: "Download a model from a URL", key: "models.link", near: "server.downloadModels", words: "link hugging face civitai get" },
   { tab: "models", label: "Newer versions on Civitai", key: "models.updates", also: ["server.updateChecks"], words: "newer versions of your models update check once a day lora checkpoint version" },

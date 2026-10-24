@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Clock, Download } from "lucide-react";
+import { Clock } from "lucide-react";
 import { useMenu } from "./ContextMenu";
 import { Link, useLocation } from "wouter";
 import { Progress } from "./progress/Progress";
@@ -8,12 +8,12 @@ import { api, type Job, type MachineState, type QueueStatus, type RunningJob } f
 import { useAsset, useProjects, useQueue, useSettings } from "./data";
 import { Keys } from "./Keys";
 import { BAR_DEFAULT } from "./keys/barDefault";
-import { useDownloads } from "./useGetFile";
+import { DownloadsChip } from "./DownloadsLine";
 import { elapsed, gb, phaseLabel, timeLeft, when } from "./format";
 import { StripModel, StripPlace, stripGhost } from "./ModelLoad";
 import { LoadPanelHost } from "./loadPanelHost";
 import { MachinesPill, OPEN_MACHINES } from "./MachinesPill";
-import { busyOutside, machineLabel, machineName, noGpuYet, OUTSIDE_TIP, outsideSaid, severalMachines } from "./machines";
+import { busyOutside, machineLabel, noGpuYet, OUTSIDE_TIP, outsideSaid, severalMachines } from "./machines";
 import { openDeploy } from "./deploy";
 import { lazyPart, loadExpiringPanel, loadHuntStrip } from "./lazyParts";
 import { useProject } from "./project";
@@ -59,7 +59,6 @@ export function StatusBar() {
     return () => clearInterval(t);
   }, [run?.id]); // eslint-disable-line react-hooks/exhaustive-deps -- a new clock per job, not per read of the queue
   // a model being fetched into ComfyUI goes on whatever screen is open: it is said here, with the way to it
-  const fetching = (useDownloads().data?.items ?? []).filter((d) => d.status === "starting" || d.status === "downloading" || d.status === "saving");
   const waiting = q?.waiting.length ?? 0;
   const liveDown = useLive((s) => s.down);
   const settings = useSettings().data;
@@ -85,15 +84,7 @@ export function StatusBar() {
         )}
         {hunt && !huntSlot && <Suspense fallback={null}><HuntStrip hunt={hunt} slot={false} /></Suspense>}
         <Expiring />
-        {fetching.length > 0 && (
-          <Link href="/settings/models" className={cx(stripGhost, "min-w-0")} data-tip="A model file is being downloaded into ComfyUI. It goes on if this page is closed. Open Settings to see it or cancel it.">
-            <Download size={13} className="shrink-0" />
-            <span className="truncate">{fetching.length === 1 ? fetching[0]!.file.split(/[\\/]/).pop() : `${fetching.length} files`}</span>
-            {/* with several ComfyUIs, which one it goes to */}
-            {fetching.length === 1 && several.length > 0 && fetching[0]!.machine && <span className="shrink-0 text-ink-2">→ {machineName(q, fetching[0]!.machine)}</span>}
-            {fetching.length === 1 && fetching[0]!.total > 0 && <span className="font-mono whitespace-pre">{pad(Math.floor((fetching[0]!.bytes / fetching[0]!.total) * 100))} %</span>}
-          </Link>
-        )}
+        <DownloadsChip />
         {/* the server's events stopped coming (a restart, a proxy between): what is shown may be old until they are back */}
         {liveDown && <Chip tone="warn" tip="The connection that brings live updates from the server dropped. It is being opened again; what is shown here may be out of date until then, and is read again once it is back.">live updates lost · reconnecting</Chip>}
         <span className="grow" />

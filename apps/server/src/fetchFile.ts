@@ -33,7 +33,7 @@ export const downloadBody = z.strictObject({
 export type DownloadBody = z.infer<typeof downloadBody>;
 
 /** The address ComfyUI will fetch from: the one this page was opened at, unless one is set. */
-function selfUrl(req: FastifyRequest): string {
+export function selfUrl(req: FastifyRequest): string {
   return envSaid.publicUrl()?.trim() || `${req.protocol}://${req.headers.host}`;
 }
 
@@ -48,7 +48,11 @@ export async function downloadTarget(s: Services, settings: Settings, id: string
   return { comfy: found.comfy, dir: found.machine.dir, machine: id };
 }
 
-export async function beginDownload(s: Services, req: FastifyRequest, b: DownloadBody): Promise<DownloadView> {
+/**
+ * `from`: the request it was asked with, or the address it was asked from then (a download asked again after a restart).
+ * What it was asked with is kept with it: a restart while it waits asks it again, and a failed one has a Try again.
+ */
+export async function beginDownload(s: Services, from: FastifyRequest | string, b: DownloadBody): Promise<DownloadView> {
   const settings = await readSettings(s.db);
   // a family's official file, its Download pressed (a form, a Queue row, Settings › Models): the press is the consent, and the
   // address is the family's own, not a lookup. Anything else needs downloads and lookups turned on
@@ -58,12 +62,15 @@ export async function beginDownload(s: Services, req: FastifyRequest, b: Downloa
   if (!official && !settings.civitaiLookups) throw bad("Looking up models online is turned off. Turn on “Search Hugging Face and Civitai” in Settings › Models to fetch model files.");
   if (!b.civitai === !b.url) throw bad("a source is needed: a Civitai version or a URL");
   const { comfy, dir, machine } = await downloadTarget(s, settings, b.machine);
-  const self = selfUrl(req);
+  const self = typeof from === "string" ? from : selfUrl(from);
   const local = (host: string) => /^(localhost|127\.|\[::1\]|::1)/.test(host);
   if (!envSaid.publicUrl() && local(new URL(self).hostname) && !local(new URL(comfy.url).hostname)) {
     throw bad("ComfyUI runs on another machine and cannot reach Afflatus at this URL. Open Afflatus by its network URL, or set PUBLIC_URL to it.");
   }
   const name = b.file.split(/[\\/]/).pop()!;
+  // the place chosen for this folder on this machine (Settings › Models), and what it was asked with
+  const place = settings.downloadPlaces[machine ?? settings.machines[0]?.id ?? ""]?.[b.folder];
+  const kept = { ask: b, ...(place ? { place } : {}) };
   const keepPage = async (saved: string) => {
     if (!b.page || !/^[\w-]{1,64}$/.test(b.folder)) return;
     const key = { folder: b.folder, name: fileName(saved) };
@@ -77,7 +84,7 @@ export async function beginDownload(s: Services, req: FastifyRequest, b: Downloa
     assertPublicUrl(b.url, civitaiSites());
     // a gated model's file needs an account that accepted its terms: the user's Hugging Face token, to Hugging Face alone
     const hf = settings.huggingFaceToken && /^https:\/\/(huggingface\.co|hf\.co)\//i.test(b.url) ? { Authorization: `Bearer ${settings.huggingFaceToken}` } : undefined;
-    const started = await s.downloads.start(comfy, self, { file: b.file, folder: b.folder, title: name, source: b.url, ...(hf ? { headers: hf } : {}), comfyDir: dir, machine });
+    const started = await s.downloads.start(comfy, self, { file: b.file, folder: b.folder, title: name, source: b.url, ...(hf ? { headers: hf } : {}), comfyDir: dir, machine, ...kept });
     await keepPage(started.file);
     return started;
   }
@@ -89,6 +96,6 @@ export async function beginDownload(s: Services, req: FastifyRequest, b: Downloa
   return s.downloads.start(comfy, self, {
     file: saveAs, folder: b.folder, title: found.title || name,
     source: found.file.downloadUrl, headers: settings.civitaiKey ? { Authorization: `Bearer ${settings.civitaiKey}` } : undefined,
-    total: Math.round((found.file.sizeKB ?? 0) * 1024), comfyDir: dir, machine,
+    total: Math.round((found.file.sizeKB ?? 0) * 1024), comfyDir: dir, machine, ...kept,
   });
 }

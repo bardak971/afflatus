@@ -226,8 +226,32 @@ export interface Download {
   seen?: boolean;
   /** The ComfyUI it goes to, by id, when one was asked for (several ComfyUIs). */
   machine?: string;
-  /** Failed or stopped, and askable again as it was asked (this run of Afflatus): `api.downloadAgain`. */
+  /** Failed or stopped, and askable again as it was asked through a page (across restarts too): `api.downloadAgain`. */
   again?: true;
+  /** Waiting or under way: its place in its ComfyUI's line, those under way counted first (1 and 2 run, 3 is next). */
+  turn?: number;
+  /** Where it goes (under way) or went (done), in a few words: "models\loras" under ComfyUI's folder, else the whole path. */
+  shown?: string;
+  /** How fast it comes now, in bytes a second (evened out by the server); absent while nothing is measured. */
+  rate?: number;
+  /** When it ended, in ms since 1970. */
+  at?: number;
+}
+/** One of the paths ComfyUI reads a model folder from (card #59). */
+export interface DownloadPlace {
+  path: string;
+  /** ComfyUI's own models/<folder>, its folder's other name there (unet, clip), or another folder ComfyUI reads (extra_model_paths.yaml). */
+  kind: "own" | "older" | "other";
+  /** In a few words: "models\loras" under ComfyUI's folder, the whole path for any other. */
+  shown: string;
+  /** Whether Afflatus can write it (ComfyUI on this machine); absent for a ComfyUI elsewhere, whose node pack checks. */
+  ok?: boolean;
+}
+/** Where a model folder's downloads go on a ComfyUI: its places, the one chosen (Settings), and where a download goes now. */
+export interface FolderPlaces {
+  places: DownloadPlace[];
+  chosen?: string;
+  goes?: string;
 }
 /** Who downloads model files into this ComfyUI ("none": nothing can). */
 export type DownloadVia = "afflatus" | "pack" | "manager";
