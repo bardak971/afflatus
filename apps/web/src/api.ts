@@ -431,6 +431,8 @@ export const api = {
     return call<BrowsePage>("GET", `/browse/huggingface?${p}`, undefined, o?.signal);
   },
   browseRepoFiles: (repo: string, o?: Asked) => call<{ files: BrowseFile[] }>("GET", `/browse/huggingface/files?repo=${encodeURIComponent(repo)}`, undefined, o?.signal),
+  /** The folders a picked file can go in: its ComfyUI's own (this PC's, or the machine's), the usual ones and the families'. */
+  browseFolders: (machine?: string, o?: Asked) => call<{ folders: string[]; comfy: boolean }>("GET", `/browse/folders${machine ? `?machine=${encodeURIComponent(machine)}` : ""}`, undefined, o?.signal),
   /** How far the hashing of this PC's model files is, and which site has each; Hash now. */
   modelHashes: (o?: Asked) => call<HashStatus>("GET", "/models/hashes", undefined, o?.signal),
   hashModels: () => call<HashStatus>("POST", "/models/hashes/run", {}),

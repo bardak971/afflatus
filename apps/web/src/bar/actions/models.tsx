@@ -1,7 +1,7 @@
 import { Copy, Download as DownloadIcon, ExternalLink, ListPlus, RotateCcw, Search, Server, Square, User, X } from "lucide-react";
 import { api, type BrowseCard, type BrowseFile, type Download, type UpdateRow } from "../../api";
 import { ask, askChoice } from "../../Confirm";
-import { addPicked, clearPicked, dropPicked, FOLDERS, getOnPc, openFindModels, openFindModelsOn, pickedNow, pickedOf, type FindTarget } from "../../findModels/store";
+import { addPicked, clearPicked, dropPicked, foldersFor, getOnPc, openFindModels, openFindModelsOn, pickedNow, pickedOf, type FindTarget } from "../../findModels/store";
 import { plural } from "../../format";
 import { toFind, type BrowseAsk } from "../browseSearch";
 import { retype } from "./retype";
@@ -37,7 +37,7 @@ const others = (x: BarCtx): Array<Where & { online: boolean | null }> =>
 async function download(x: BarCtx, card: BrowseCard, version: string, f: BrowseFile, to: Where) {
   const folder = f.folder ?? (await askChoice({
     title: `Which folder does ${f.name} go in?`, text: "Its source does not say what kind of model it is: the ComfyUI folder it is read from.",
-    choices: FOLDERS.map((v) => ({ value: v, label: v })), no: "Cancel",
+    choices: (await foldersFor(x.client, to.id)).map((v) => ({ value: v, label: v })), no: "Cancel",
   }));
   if (!folder) return;
   const yes = await ask({
@@ -166,7 +166,7 @@ export function cardActions(x: BarCtx, card: BrowseCard, ask: BrowseAsk): Action
         const got = await fileOf(x, card);
         if (!got) return;
         const v = got.card.versions.find((y) => y.id === got.version)!;
-        const folder = got.f.folder ?? (await askChoice({ title: `Which folder does ${got.f.name} go in?`, text: "Its source does not say what kind of model it is.", choices: FOLDERS.map((y) => ({ value: y, label: y })), no: "Cancel" }));
+        const folder = got.f.folder ?? (await askChoice({ title: `Which folder does ${got.f.name} go in?`, text: "Its source does not say what kind of model it is.", choices: (await foldersFor(x.client)).map((y) => ({ value: y, label: y })), no: "Cancel" }));
         if (!folder) return;
         x.flash(addPicked(pickedOf(got.f, got.card, v.name, folder)) ? `${got.f.name} picked · > picked gets them` : `${got.f.name} was picked already`);
       },

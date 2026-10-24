@@ -67,15 +67,75 @@ export function folderOfPath(path: string): string | null {
   return folder === "unet" ? "diffusion_models" : folder === "clip" ? "text_encoders" : folder;
 }
 
-export async function resolveLink(link: string, key: string): Promise<LinkFound> {
+/** One of the families' files as the folder guess knows it: the patterns its slot finds it by, and its ComfyUI folder. */
+export interface SlotPlace {
+  folder: string;
+  detect: RegExp[];
+  /** The slot, as the guess's why names it ("MiniMax H3's Frame interpolation model (RIFE)"). */
+  said: string;
+}
+
+/** A name no slot is made for: a pattern that matches it matches anything. */
+const ANY_NAME = "zz-0.safetensors";
+
+type SlotLike = { label: string; folder: string; detect: readonly string[]; get?: { file: string } };
+
+/**
+ * The families' slots as places a file can be recognised for. A slot whose usual file sits in a sub-folder of its own
+ * (Impact's bbox/ and segm/ detectors under models/ultralytics) goes by the name ComfyUI gives that sub-folder
+ * (ultralytics_bbox), which a download resolves to its path; a picked file has no sub-folder of its own to carry.
+ */
+export function slotPlaces(families: ReadonlyArray<{ name: string; slots: readonly SlotLike[] }>): SlotPlace[] {
+  return families.flatMap((f) => f.slots.flatMap((slot) => {
+    const sub = slot.get?.file.split("/").slice(0, -1).join("_");
+    const detect = slot.detect.flatMap((source) => {
+      try {
+        // a pattern any name matches (SDXL's checkpoint is any file in checkpoints) recognises nothing
+        const re = new RegExp(source, "i");
+        return re.test(ANY_NAME) ? [] : [re];
+      } catch {
+        return [];
+      }
+    });
+    return detect.length ? [{ folder: sub ? `${slot.folder}_${sub}` : slot.folder, detect, said: `${f.name}'s ${slot.label}` }] : [];
+  }));
+}
+
+/**
+ * The folder a file goes in when a family's slot recognises it by its name: only when every slot that does agrees on
+ * one folder (a name two slots claim for two folders says nothing), with why.
+ */
+export function folderOfSlots(name: string, places: readonly SlotPlace[]): { folder: string; why: string } | null {
+  const file = name.split(/[\\/]/).pop() ?? name;
+  const hits = places.filter((p) => p.detect.some((re) => re.test(file)));
+  const folder = hits[0]?.folder;
+  if (!folder || hits.some((h) => h.folder !== folder)) return null;
+  return { folder, why: `Its name is ${hits[0]!.said}'s, which ComfyUI loads from ${folder}.` };
+}
+
+/**
+ * The folder a file on Hugging Face goes in: the folder names in its path first (the repository's own layout), the
+ * families' folders among them (FILM in frame_interpolation/); then a LoRA by its path, then the families' slots (a RIFE
+ * kept at a repository's root). The slots come after the LoRA test: their patterns are made for the files in one folder,
+ * and "flux1" alone would send a Flux LoRA to diffusion_models.
+ */
+export function folderOfHfFile(path: string, places: readonly SlotPlace[]): { folder: string | null; why?: string } {
+  const theirs = new Set(places.map((p) => p.folder));
+  const byPath = folderOfPath(path) ?? path.split("/").slice(0, -1).reverse().find((part) => theirs.has(part.toLowerCase()))?.toLowerCase();
+  if (byPath) return { folder: byPath };
+  if (/lora/i.test(path)) return { folder: "loras" };
+  return folderOfSlots(path, places) ?? { folder: null };
+}
+
+export async function resolveLink(link: string, key: string, places: readonly SlotPlace[] = []): Promise<LinkFound> {
   let at: URL;
   try {
     at = new URL(link.trim());
   } catch {
     throw bad("That is not an address. Paste the address of a model's page on Civitai, or of a file on Hugging Face.");
   }
-  if (/(^|\.)civitai\.(com|red)$/i.test(at.hostname)) return fromCivitai(at, key);
-  if (/(^|\.)huggingface\.co$/i.test(at.hostname) || /(^|\.)hf\.co$/i.test(at.hostname)) return fromHuggingFace(at);
+  if (/(^|\.)civitai\.(com|red)$/i.test(at.hostname)) return fromCivitai(at, key, places);
+  if (/(^|\.)huggingface\.co$/i.test(at.hostname) || /(^|\.)hf\.co$/i.test(at.hostname)) return fromHuggingFace(at, places);
   const name = decodeURIComponent(at.pathname.split("/").pop() ?? "");
   if (at.protocol === "https:" && isModelFile(name)) {
     // a file anywhere: anywhere on the internet, not inside this network
@@ -85,7 +145,7 @@ export async function resolveLink(link: string, key: string): Promise<LinkFound>
   throw bad("Afflatus can fetch from a Civitai model page, a file on Hugging Face, or an https address that ends in a model file's name.");
 }
 
-async function fromCivitai(at: URL, key: string): Promise<LinkFound> {
+async function fromCivitai(at: URL, key: string, places: readonly SlotPlace[]): Promise<LinkFound> {
   const versionId = Number(at.searchParams.get("modelVersionId") ?? /\/(?:model-versions|api\/download\/models)\/(\d+)/.exec(at.pathname)?.[1] ?? 0);
   const modelId = Number(/\/models\/(\d+)/.exec(at.pathname)?.[1] ?? 0);
   if (!versionId && !modelId) throw bad("That Civitai address does not name a model. Open the model's page and copy its address.");
@@ -102,26 +162,29 @@ async function fromCivitai(at: URL, key: string): Promise<LinkFound> {
     note: [f.metadata?.fp, f.metadata?.size, f.metadata?.format && f.metadata.format !== "SafeTensor" ? f.metadata.format : ""].filter(Boolean).join(" · "),
   }));
   if (!files.length) throw httpError("That version has no model file to download.", 404);
+  // a kind Civitai gives no folder for ("Other"): its one file may still be a family's
   const place = folderFor(kind, base, name);
+  const bySlot = !place.folder && files.length === 1 ? folderOfSlots(files[0]!.name, places) : null;
+  const { folder, why } = bySlot ?? place;
   return {
     source: "civitai", title: [name, version.name].filter(Boolean).join(" · "), about: [kind, base].filter(Boolean).join(" · "),
     page: `https://civitai.com/models/${model?.id ?? version.modelId ?? modelId}?modelVersionId=${version.id}`,
     version: version.id, versions: (model?.modelVersions ?? []).map((v) => ({ id: v.id, name: v.name ?? String(v.id) })),
-    files, folder: place.folder, ...(place.why ? { why: place.why } : {}),
+    files, folder, ...(why ? { why } : {}),
   };
 }
 
-async function fromHuggingFace(at: URL): Promise<LinkFound> {
+async function fromHuggingFace(at: URL, places: readonly SlotPlace[]): Promise<LinkFound> {
   // /<owner>/<repo>/resolve|blob/<revision>/<path to the file>
   const m = /^\/([^/]+)\/([^/]+)\/(?:resolve|blob)\/([^/]+)\/(.+)$/.exec(at.pathname);
   const name = decodeURIComponent(m?.[4]?.split("/").pop() ?? "");
   if (!m || !isModelFile(name)) throw bad("On Hugging Face, open the file itself (in \"Files and versions\") and copy its address: it ends in the file's name.");
   const [, owner, repo, revision, path] = m;
   const url = `https://huggingface.co/${owner}/${repo}/resolve/${revision}/${path}`;
-  const folder = folderOfPath(decodeURIComponent(path!));
+  const place = folderOfHfFile(decodeURIComponent(path!), places);
   return {
     source: "huggingface", title: name, about: `${owner}/${repo}`, page: `https://huggingface.co/${owner}/${repo}/blob/${revision}/${path}`, url,
-    files: [{ name, bytes: await sizeOf(url), note: "" }], folder,
+    files: [{ name, bytes: await sizeOf(url), note: "" }], folder: place.folder, ...(place.why ? { why: place.why } : {}),
   };
 }
 

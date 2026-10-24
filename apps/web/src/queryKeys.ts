@@ -61,6 +61,8 @@ export const queryKeys = {
     civitai: (q: object) => ["browse", "civitai", q] as const,
     huggingFace: (q: object) => ["browse", "huggingface", q] as const,
     repo: (repo: string) => ["browse", "repo", repo] as const,
+    /** The folders a picked file can go in, on this PC's ComfyUI or a machine's. */
+    folders: (machine?: string) => ["browse", "folders", machine ?? ""] as const,
     /** A link to a model read into its card (the command bar's pasted link). */
     link: (link: string) => ["browse", "link", link] as const,
   },

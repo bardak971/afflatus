@@ -3,6 +3,7 @@ import { z } from "zod";
 import { modelIndex } from "./comfy";
 import { httpError, notFound } from "./errors";
 import { beginDownload, downloadBody, downloadTarget, type DownloadBody } from "./fetchFile";
+import { familyPlaces } from "./browse";
 import { resolveLink } from "./fromLink";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
@@ -62,7 +63,7 @@ export function registerDownloads(app: FastifyInstance, s: Services): void {
     if (!settings.downloadModels) throw httpError("Downloading into ComfyUI is turned off. Turn it on in Settings.");
     // "Lookups off" means Afflatus never contacts Civitai or Hugging Face: a link is read on those sites
     if (!settings.civitaiLookups) throw httpError("Looking up models online is turned off. Turn on “Search Hugging Face and Civitai” in Settings › Models to read a link.");
-    const found = await resolveLink(link, settings.civitaiKey);
+    const found = await resolveLink(link, settings.civitaiKey, familyPlaces(s));
     const index = await modelIndex(await s.comfy());
     const have = Object.fromEntries(found.files.flatMap((f) => {
       const where = index.find(f.name)[0];

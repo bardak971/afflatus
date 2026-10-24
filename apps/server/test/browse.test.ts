@@ -2,6 +2,8 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forAdults, forgetPages, PageStore, thumbOf } from "../src/browse";
+import { startFakeComfy } from "@afflatus/comfy/testing";
+import { folderOfHfFile, folderOfSlots, slotPlaces } from "../src/fromLink";
 import { forgetHuggingFace } from "../src/huggingface";
 import { writeSettings } from "../src/settings";
 import { get, makeApp, post, type TestApp } from "./helpers";
@@ -46,6 +48,8 @@ beforeEach(async () => {
       res.setHeader("Link", `<http://x/api/models?cursor=hf2>; rel="next"`);
       return res.end(JSON.stringify([{ id: "org/wan-loras", downloads: 50, likes: 3, gated: false, tags: ["lora", "base_model:adapter:Wan-AI/Wan2.2-I2V-A14B"], siblings: [{ rfilename: "a.safetensors" }, { rfilename: "README.md" }] }]));
     }
+    // a RIFE kept at its repository's root: no folder name in its path
+    if (req.url?.startsWith("/api/models/sisniha/frame_interpolation/tree/main")) return res.end(JSON.stringify([{ type: "file", path: "rife_v4.26.safetensors", size: 134, lfs: { oid: "d".repeat(64), size: 21_000_000 } }]));
     if (req.url?.startsWith("/api/models/org/wan-loras/tree/main")) return res.end(JSON.stringify([{ type: "file", path: "loras/a.safetensors", size: 134, lfs: { oid: "c".repeat(64), size: 200_000_000 } }, { type: "file", path: "README.md", size: 10 }]));
     res.statusCode = 404;
     res.end("{}");
@@ -244,6 +248,37 @@ describe("find models", () => {
     expect(pages.get("a", ask).how).toBe("asked");
   });
 
+  it("places a file its path says nothing of by the families' slots: RIFE at a repository's root goes in frame_interpolation", async () => {
+    const files = (await get(t.app, "/api/browse/huggingface/files?repo=sisniha/frame_interpolation")).json().files;
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatchObject({ name: "rife_v4.26.safetensors", folder: "frame_interpolation" });
+    expect(files[0].why).toMatch(/RIFE.*frame_interpolation/);
+    // a link to the file, pasted where a download is asked for, is placed the same way
+    await writeSettings(t.db, { downloadModels: true });
+    const linked = (await post(t.app, "/api/downloads/resolve", { link: "https://huggingface.co/sisniha/frame_interpolation/blob/main/rife_v4.26.safetensors" })).json();
+    expect(linked.folder).toBe("frame_interpolation");
+  });
+
+  it("offers ComfyUI's own folders to put a file in, with the usual ones and the families'; the usual and the families' when ComfyUI does not answer", async () => {
+    const without = (await get(t.app, "/api/browse/folders")).json();
+    expect(without.comfy).toBe(false);
+    expect(without.folders).toEqual(expect.arrayContaining(["checkpoints", "loras", "frame_interpolation", "ultralytics_bbox"]));
+    expect(without.folders).toEqual([...without.folders].sort());
+    const fake = await startFakeComfy({ models: { checkpoints: [], frame_interpolation: [], somepack_models: [], custom_nodes: [] } });
+    const t2 = await makeApp({ comfyUrl: fake.url });
+    try {
+      const withIt = (await get(t2.app, "/api/browse/folders")).json();
+      expect(withIt.comfy).toBe(true);
+      // a folder only that ComfyUI knows (a custom node's) can be chosen; ComfyUI's custom_nodes is no models folder
+      expect(withIt.folders).toEqual(expect.arrayContaining(["somepack_models", "frame_interpolation", "loras", "embeddings"]));
+      expect(withIt.folders).not.toContain("custom_nodes");
+      expect((await get(t2.app, "/api/browse/folders?machine=nope")).json().comfy).toBe(false);
+    } finally {
+      await t2.close();
+      await fake.close();
+    }
+  });
+
   it("asks no site with lookups off", async () => {
     await writeSettings(t.db, { civitaiLookups: false });
     expect((await get(t.app, "/api/browse/civitai")).statusCode).toBe(409);
@@ -254,5 +289,38 @@ describe("find models", () => {
     expect(thumbOf({ url: "https://image.civitai.com/k/u/original=true/9.jpeg", type: "image" })).toBe("https://image.civitai.com/k/u/width=450/9.jpeg");
     expect(thumbOf({ url: "https://image.civitai.com/k/u/width=1080/9.mp4", type: "video" })).toBe("https://image.civitai.com/k/u/anim=false,transcode=true,width=450/9.mp4");
     expect(thumbOf(undefined)).toBeNull();
+  });
+});
+
+describe("a file's folder by the families' slots", () => {
+  const places = slotPlaces([
+    { name: "MiniMax H3", slots: [
+      { label: "Frame interpolation model (RIFE)", folder: "frame_interpolation", detect: ["rife"] },
+      { label: "Face detector", folder: "ultralytics", detect: ["face_yolo"], get: { file: "bbox/face_yolov8m.pt" } },
+      { label: "Video model", folder: "diffusion_models", detect: ["^(?!.*lora).*flux.?1"] },
+      { label: "Bad pattern", folder: "vae", detect: ["("] },
+      { label: "Checkpoint", folder: "checkpoints", detect: ["."] },
+    ] },
+    { name: "Other", slots: [{ label: "Text encoder", folder: "text_encoders", detect: ["clip_l"] }, { label: "Vision", folder: "clip_vision", detect: ["clip_l"] }] },
+  ]);
+
+  it("takes the folder every slot that knows the name agrees on, with why; none when two slots claim it for two folders", () => {
+    expect(folderOfSlots("rife49.pth", places)).toEqual({ folder: "frame_interpolation", why: expect.stringContaining("MiniMax H3's Frame interpolation model (RIFE)") });
+    expect(folderOfSlots("clip_l.safetensors", places)).toBeNull();
+    expect(folderOfSlots("nothing.safetensors", places)).toBeNull();
+  });
+
+  it("puts a slot's file kept in a sub-folder in the folder ComfyUI names for it (ultralytics_bbox), and skips a broken pattern or one any name matches", () => {
+    expect(folderOfSlots("face_yolov8s.pt", places)?.folder).toBe("ultralytics_bbox");
+    expect(places.some((p) => p.folder === "vae" || p.folder === "checkpoints")).toBe(false);
+  });
+
+  it("reads a Hugging Face file's path first, then a LoRA by its path, then the slots", () => {
+    expect(folderOfHfFile("split_files/vae/rife.safetensors", places)).toEqual({ folder: "vae" });
+    // a family's folder in the path (sisniha/frame_interpolation keeps FILM beside RIFE in frame_interpolation/)
+    expect(folderOfHfFile("frame_interpolation/film_net_fp16.safetensors", places)).toEqual({ folder: "frame_interpolation" });
+    expect(folderOfHfFile("flux1_style_lora.safetensors", places)).toEqual({ folder: "loras" });
+    expect(folderOfHfFile("flux1-dev.safetensors", places).folder).toBe("diffusion_models");
+    expect(folderOfHfFile("misc/thing.safetensors", places)).toEqual({ folder: null });
   });
 });
