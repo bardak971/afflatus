@@ -53,7 +53,7 @@ const recordingInputs: InputSpec[] = [
   },
   {
     id: "evenLoudness", type: "toggle", label: "Even out the loudness", default: true, showWhen: "recording", advanced: true,
-    note: "the part is brought to a usual speaking level (-16 LUFS, measured as EBU R128) before it is used: a quiet take guides the mouth weakly",
+    note: "the recording is brought to a usual speaking level (-16 LUFS, EBU R128) by one gain for all of it, the same in every clip: a quiet take guides the mouth weakly",
   },
   // set by a timeline when the next clip's part carries on from this one's end (a song): the clip's tail is the recording
   // itself, sung, not faded out, and the next clip picks up where it stops (TimelinePlan.recordingRun)

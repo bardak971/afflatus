@@ -252,7 +252,8 @@ interface AudioInput extends Base {
   /**
    * Only a part of the sound is used: the ids of the two number inputs that say where it starts and how
    * long it is, in seconds. The recipe is handed that part alone. The form shows them with the sound.
-   * `even`: the id of a toggle that evens out the part's loudness as it is cut (a quiet take guides a model weakly).
+   * `even`: the id of a toggle that evens out the sound's loudness as the part is cut, one gain for the whole sound (a quiet
+   * take guides a model weakly; the parts of one sound stay as loud as each other).
    * `after`: seconds of the sound handed over after the part, for a clip that outlasts the part to end on: the sound's
    * own pause when there is one, else the part's end faded out in 0.15 s, then silence (the server's soundPart).
    * `goesOn`: the id of an internal toggle a timeline sets when the next clip's part carries on where this one's ends: the
