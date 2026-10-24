@@ -67,7 +67,7 @@ beforeEach(async () => {
     if (req.url === "/bytes" || req.url === "/plain") return send(res, at, at > 0);
     // another service's answer, a zip, under a model's name
     if (req.url === "/zip") {
-      const zip = Buffer.from("PK not a model at all");
+      const zip = Buffer.from("PK\x03\x04 not a model at all");
       res.writeHead(200, { "content-type": "application/zip", "content-length": zip.length });
       return res.end(zip);
     }

@@ -159,4 +159,13 @@ describe("a video the workflow works on", () => {
     const built = recipe.build(parseInput(recipe, { sourceVideo: { asset: "a" }, vid_2: { asset: "b" } }), dryContext({ uploads: { sourceVideo: "a.mp4 [temp]", vid_2: "b.mp4 [temp]" } }));
     expect([built.graph["1"]!.inputs.video, built.graph["2"]!.inputs.video]).toEqual(["a.mp4 [temp]", "b.mp4 [temp]"]);
   });
+
+  it("reads \"prev\" as the clip before, a word of its own, and \"Preview\" as a video to work on", () => {
+    const loader = (title: string) => ({ class_type: "VHS_LoadVideo", inputs: { video: "a.mp4", force_rate: 0, custom_width: 0, custom_height: 0, frame_load_cap: 0, skip_first_frames: 0, select_every_nth: 1 }, ...titled(title) });
+    const roles = (title: string) => inspect({ "1": loader(title), "2": { class_type: "VHS_VideoCombine", inputs: { images: ["1", 0], frame_rate: 16, loop_count: 0, filename_prefix: "up", format: "video/h264-mp4", pingpong: false, save_output: true } } }, catalog).videos.map((v) => v.role);
+    expect(roles("prev")).toEqual(["previous"]);
+    expect(roles("Prev clip")).toEqual(["previous"]);
+    expect(roles("Previous shot")).toEqual(["previous"]);
+    expect(roles("Preview")).toEqual(["source"]);
+  });
 });
