@@ -2,6 +2,7 @@ import { lazy, Suspense, type RefObject } from "react";
 import { useKeysHere } from "../keys/here";
 import type { Range } from "../Trim";
 import { fileUrl, type Asset } from "../api";
+import { cx } from "../cx";
 import { DRAG_HAS_SOUND, DRAG_TYPE, dragKind } from "../dragging";
 import type { ViewerActions } from "./useViewerActions";
 import { AudioPlayer } from "../AudioPlayer";
@@ -23,9 +24,9 @@ const dragOf = (a: Asset) => (e: React.DragEvent) => {
 
 /**
  * The item itself, large: a picture, a video with Trim under it, or a sound (in Trim: over its waveform). In place, the picture is a
- * button that opens the details; over the screen, a click beside the item closes the viewer.
+ * button that opens the details; over the screen, a click on the picture copies it and a click beside the item closes the viewer.
  */
-export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, onTrimRange: setTrimRange, onMenu, overlay, onDetails, onClose }: {
+export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, onTrimRange: setTrimRange, onMenu, overlay, onDetails, onClose, onCopy }: {
   acts: ViewerActions;
   player: RefObject<HTMLVideoElement | null>;
   trim: boolean;
@@ -40,6 +41,8 @@ export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, on
   onDetails?(): void;
   /** Over the screen: a click beside the item. */
   onClose?(): void;
+  /** Over the screen: a click on the picture, which copies it (none: the page cannot copy a picture). */
+  onCopy?(): void;
 }) {
   // the keys sheet's "Here now": the viewer's keys for this kind of item, and Trim's while it is open
   useKeysHere("viewer", true, { kind: acts.a.kind, over: overlay });
@@ -50,7 +53,10 @@ export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, on
   return (
     <div className={overlay ? "flex min-w-0 grow flex-col items-center justify-center gap-3 p-6" : "flex min-h-0 grow flex-col items-center justify-center gap-2"} onClick={overlay ? onClose : undefined}>
       {a.kind === "image" && (overlay
-        ? <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} draggable onDragStart={dragOf(a)} onContextMenu={onMenu} className="max-h-full max-w-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />
+        ? <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} draggable onDragStart={dragOf(a)} onContextMenu={onMenu} data-tip={onCopy ? "Click to copy the picture (Ctrl+C)" : undefined} className={cx("max-h-full max-w-full rounded-lg object-contain", onCopy && "cursor-copy")} onClick={(e) => {
+            e.stopPropagation();
+            onCopy?.();
+          }} />
         : (
           <button type="button" onClick={onDetails} aria-label="Details: generation parameters, lineage and every action" data-tip="Details: generation parameters, lineage and every action" className="flex h-full max-w-full items-center justify-center">
             <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} draggable onDragStart={dragOf(a)} onContextMenu={onMenu} className="max-h-full max-w-full rounded-lg object-contain" />

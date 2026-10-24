@@ -24,6 +24,10 @@
  * Rule 11, the menus (the conventions at the top of apps/web/src/ContextMenu.tsx), fails on a match too: a label's
  * ellipsis written as three dots, a menu row greyed with no note saying why, a submenu's row with an ellipsis
  * (`menuFindings`). What only a drawn menu shows is checked where menus are drawn, by ContextMenu's `menuProblems`.
+ *
+ * Rule 12, the bytes (card #54), fails on a match and reads the tests too: a control character in a source, where a
+ * script that wrote a pattern turned its word-boundary escape into the backspace byte. A pattern so written still
+ * compiles and matches less (inspect.ts read a loader named "prev" as a source video), and a test's check never fired.
  */
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -58,6 +62,22 @@ export function sharedFindings(file: string, text: string): Finding[] {
       if (rule.test.test(l)) found.push({ file, line: i + 1, text: l.trim().slice(0, 140), why: rule.why });
     });
   }
+  return found;
+}
+
+/** Any C0 control character but a tab and the two line ends, and DEL: what no source of ours holds as a byte. */
+const CONTROL = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+
+/** The control characters a file holds as bytes (`CONTROL`), each said by its code, the line shown with them escaped. */
+export function controlFindings(file: string, text: string): Finding[] {
+  const found: Finding[] = [];
+  text.split("\n").forEach((l, i) => {
+    const hex = (c: string) => c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0");
+    const codes = [...new Set(l.match(CONTROL) ?? [])].map((c) => `U+00${hex(c)}`);
+    if (!codes.length) return;
+    const shown = l.trim().replace(CONTROL, (c) => `\\x${hex(c)}`).slice(0, 140);
+    found.push({ file, line: i + 1, text: shown, why: `a control character (${codes.join(", ")}) written as a byte: a script turned an escape into it (U+0008 was a word boundary); write the escape` });
+  });
   return found;
 }
 
@@ -296,26 +316,28 @@ export function budgetVerdict(counts: Record<string, number>, budget: Record<str
 /**
  * The source files the guard reads: TypeScript under apps/<name>/src, packages/<name>/src and scripts/. The scripts are
  * read because an inline plural slipped into check-graphs.ts while they were left out; their .mjs run on bare Node,
- * cannot import core, and are not read.
+ * cannot import core, and are not read. `tests`: the tests too (apps/<name>/test, packages/<name>/test), for the bytes.
  * @internal exported for the test
  */
-export function sources(root: string): string[] {
+export function sources(root: string, { tests = false }: { tests?: boolean } = {}): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const p = join(dir, e.name);
       if (e.isDirectory()) {
         if (e.name !== "node_modules" && e.name !== "dist") walk(p);
-      } else if (/\.(ts|tsx|mts)$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) out.push(p);
+      } else if (/\.(ts|tsx|mts)$/.test(e.name) && (tests || !/\.test\.tsx?$/.test(e.name))) out.push(p);
     }
   };
   for (const top of ["apps", "packages"]) {
     for (const e of readdirSync(join(root, top), { withFileTypes: true })) {
       if (!e.isDirectory()) continue;
-      try {
-        walk(join(root, top, e.name, "src"));
-      } catch {
-        // a package without src (none today)
+      for (const under of tests ? ["src", "test"] : ["src"]) {
+        try {
+          walk(join(root, top, e.name, under));
+        } catch {
+          // a package without src (none today), or without tests
+        }
       }
     }
   }
@@ -327,6 +349,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const root = fileURLToPath(new URL("..", import.meta.url));
   const files = sources(root).map((p) => ({ file: relative(root, p).replace(/\\/g, "/"), text: readFileSync(p, "utf8") }));
   const found = files.flatMap(({ file, text }) => [...sharedFindings(file, text), ...wordFindings(file, text), ...menuFindings(file, text)]);
+  // the bytes, in the tests too: card #54's backspace was in a test as well, whose check then never fired
+  for (const p of sources(root, { tests: true })) found.push(...controlFindings(relative(root, p).replace(/\\/g, "/"), readFileSync(p, "utf8")));
   for (const f of found) console.error(`${f.file}:${f.line}: ${f.why}\n    ${f.text}`);
 
   const listed = process.argv.indexOf("--list");

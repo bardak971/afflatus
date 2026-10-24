@@ -259,6 +259,7 @@ export const PLACES: KeyPlace[] = [
         name: "Image",
         kind: "image",
         rows: [
+          { keys: "Ctrl+C", does: "Copy the picture", note: "as a PNG; opened large, a click on it too; not over a LAN address in http" },
           { keys: "U", does: "Upscale 2x", note: "queued at once" },
           { keys: "F", does: "Face refine", note: "queued at once" },
           { keys: "H", does: "Hand refine", note: "queued at once, on the hand detector" },

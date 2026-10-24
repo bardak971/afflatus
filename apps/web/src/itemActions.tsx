@@ -1,4 +1,4 @@
-import { Send, ArrowRightFromLine, AudioLines, Clapperboard, ClipboardCopy, Columns2, Copy, Download, Eraser, ExternalLink, Eye, Film, FlipHorizontal2, FlipVertical2, FolderKanban, Hand, ImageDown, Info, Maximize2, Mic, Paintbrush, Pencil, PenLine, PersonStanding, Scissors, Shuffle, SlidersHorizontal, Smile, SquareDashed, Star, Trash2, Undo2, VolumeX, Wand2, Wrench, type LucideIcon } from "lucide-react";
+import { Send, ArrowRightFromLine, AudioLines, Clapperboard, ClipboardCopy, Columns2, Copy, Download, Eraser, ExternalLink, Eye, Film, FlipHorizontal2, FlipVertical2, FolderKanban, Hand, Image as Picture, ImageDown, Info, Maximize2, Mic, Paintbrush, Pencil, PenLine, PersonStanding, Scissors, Shuffle, SlidersHorizontal, Smile, SquareDashed, Star, Trash2, Undo2, VolumeX, Wand2, Wrench, type LucideIcon } from "lucide-react";
 import { fold, type MenuItem } from "./ContextMenu";
 
 /**
@@ -17,7 +17,7 @@ export type ActionId =
   | "reuse-same" | "reuse-new" | "variation" | "i2v" | "extend" | "motion"
   | "upscale" | "face" | "hand" | "background" | "inpaint" | "edit" | "outpaint" | "mirror-h" | "mirror-v"
   | "trim" | "save-frame" | "extract-audio" | "remove-sound" | "voice"
-  | "compare" | "details" | "copy-seed" | "copy-prompt" | "comfy"
+  | "compare" | "details" | "copy-image" | "copy-seed" | "copy-prompt" | "comfy"
   | "timeline" | "move" | "send"
   | "bin" | "erase";
 
@@ -73,6 +73,7 @@ export const ACTIONS: Record<ActionId, Spec> = {
   voice: { group: "tools", sub: "tools", label: "Use as voice sample", kinds: ["video", "audio"], icon: Mic, tip: "A new draft on a model that speaks with this voice sample." },
   compare: { group: "look", sub: "info", label: "Compare", key: "X", kinds: SEEN, icon: Columns2, tip: "Pin this one and move to another with the arrow keys: side by side, videos in step, two pictures also with a wipe." },
   details: { group: "look", sub: "info", label: "Details", key: "P", kinds: ALL, icon: Info, tip: "The generation parameters: those it was made with, or for a file made elsewhere the ones written in it (PNG info)." },
+  "copy-image": { group: "look", sub: "info", label: "Copy the picture", key: "Ctrl+C", kinds: ["image"], icon: Picture, tip: "The picture itself on the clipboard, as a PNG, to paste into another app. Opened large, a click on the picture copies it too." },
   "copy-seed": { group: "look", sub: "info", label: "Copy the seed", kinds: ALL, icon: Copy, tip: "The seed it was rendered with, on the clipboard." },
   "copy-prompt": { group: "look", sub: "info", label: "Copy the prompt", key: "Shift+C", kinds: ALL, icon: ClipboardCopy, tip: "The prompt it was rendered with, as sent, on the clipboard; a form written in parts (H3) gives each part under its name." },
   comfy: { group: "look", sub: "info", label: "Open in ComfyUI", kinds: ALL, icon: ExternalLink, tip: "Its graph, built again from these parameters, in ComfyUI's editor." },
@@ -393,7 +394,7 @@ export const sideSlot = (id: ActionId): SideSlot => {
   const group = ACTIONS[id].group;
   if (group === "make" || group === "passes" || group === "tools") return "buttons";
   switch (id) {
-    case "compare": case "details": case "download": case "send": return "buttons";
+    case "compare": case "details": case "copy-image": case "download": case "send": return "buttons";
     case "keep": return "status";
     case "rename": return "name";
     case "copy-seed": return "seed";
@@ -421,8 +422,10 @@ export function sideGroups(list: ItemAction[]): Array<{ group: GroupId; actions:
   return out;
 }
 
-/** What a key pressed in the viewer is in the grammar of the list's keys ("Shift+L", "Del", "F2", "U"). */
-export function keyOfEvent(e: { key: string; shiftKey: boolean }): string {
+/** What a key pressed in the viewer is in the grammar of the list's keys ("Shift+L", "Del", "F2", "U", "Ctrl+C"). */
+export function keyOfEvent(e: { key: string; shiftKey: boolean; ctrlKey?: boolean; metaKey?: boolean }): string {
+  // Ctrl (Cmd on a Mac) with a letter is a key of its own as Shift is: Ctrl+C copies the picture, C extends a video
+  if ((e.ctrlKey || e.metaKey) && e.key.length === 1) return `Ctrl+${e.key.toUpperCase()}`;
   // Backspace is Del wherever Del works (a Mac's keyboard has no Delete key of its own)
   if (e.key === "Delete" || e.key === "Backspace") return "Del";
   if (e.key === "F2" || e.key === "Enter") return e.key;

@@ -2,7 +2,7 @@ import { relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { budgetVerdict, DESIGN_RULES, designCounts, menuFindings, overBudget, sharedFindings, sources, unmarked, wordFindings } from "../../../scripts/check-shared";
+import { budgetVerdict, controlFindings, DESIGN_RULES, designCounts, menuFindings, overBudget, sharedFindings, sources, unmarked, wordFindings } from "../../../scripts/check-shared";
 
 // the guard `pnpm lint` runs: what it refuses, and what it leaves alone
 describe("the shared helpers' guard", () => {
@@ -191,3 +191,33 @@ describe("the menu conventions, read in the source", () => {
     expect(files.flatMap(({ file, text }) => menuFindings(file, text))).toEqual([]);
   });
 });
+
+// card #54: a word-boundary escape a script turned into the backspace byte, in inspect.ts and in a test. The bytes and
+// the backslashes are made by their codes here, so that no tool writing this file can turn one into the other.
+describe("the bytes", () => {
+  const byte = (code: number) => String.fromCharCode(code);
+  const bs = byte(92);
+
+  it("refuses a control character written as a byte, said by its code and shown escaped", () => {
+    const found = controlFindings("packages/workflows/src/inspect.ts", `const a = 1;\n  return /previous|prev${byte(8)}|before/i.test(given);`);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ line: 2, text: `return /previous|prev${bs}x08|before/i.test(given);` });
+    expect(found[0]!.why).toContain("U+0008");
+    expect(controlFindings("x.ts", `Buffer.from("PK${byte(3)}${byte(4)}")`)[0]!.why).toContain("U+0003, U+0004");
+  });
+
+  it("leaves tabs, line ends and the escapes themselves alone", () => {
+    expect(controlFindings("x.ts", `${byte(9)}const re = /prev${bs}b|x${bs}x08/;${byte(13)}${byte(10)}const s = "${bs}x03";${byte(10)}`)).toEqual([]);
+  });
+
+  it("reads the tests too, where the other backspace was", () => {
+    const root = fileURLToPath(new URL("../../..", import.meta.url));
+    const read = sources(root, { tests: true }).map((p) => relative(root, p).replace(/\\/g, "/"));
+    expect(read).toContain("packages/recipes/test/swap.test.ts");
+    expect(read).toContain("apps/web/test/dom/copyPicture.dom.test.tsx");
+    expect(read).toContain("packages/workflows/src/inspect.ts");
+    // and the lint's own reading stays the sources alone
+    expect(sources(root).some((p) => /\.test\.tsx?$/.test(p))).toBe(false);
+  });
+});
+
