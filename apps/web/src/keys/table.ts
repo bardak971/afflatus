@@ -57,6 +57,8 @@ export const PLACES: KeyPlace[] = [
           { keys: "?", does: "Keyboard shortcuts", id: "keys" },
           { keys: "Esc", does: "Close what is open on top" },
           { keys: "Menu | Shift+F10", does: "Menu of what has the focus" },
+          // paste.ts: the open picker, the slot with the focus, the library shown, else the project's library
+          { keys: "Ctrl+V", does: "Paste images, videos, audio files", note: "into the open picker, the focused slot, the library shown, else the project's library; text boxes keep their own paste" },
           // Banners.tsx: the newest banner with an Undo (a move, a bin), off the timeline editor and outside dialogs
           { keys: "Ctrl+Z", does: "Undo a move or a bin", note: "while its banner shows Undo; the timeline editor keeps its own" },
           // the same banners: once undone, the change offers Redo

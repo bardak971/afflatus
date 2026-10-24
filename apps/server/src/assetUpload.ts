@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { createReadStream } from "node:fs";
 import { open as openFile, readFile, rm } from "node:fs/promises";
 import { z } from "zod";
 import type { AssetLookup } from "./assets-api";
@@ -8,6 +9,7 @@ import type { LibraryChange } from "./events";
 import { httpError } from "./errors";
 import { assetView, extOf, looksLikePicture, newAssetRow } from "./media";
 import { rootFolderOf } from "./projects";
+import { fileDigest, findSame, pictureDigest } from "./sameContent";
 import type { Services } from "./services";
 import { makeThumb, readPicture, thumbKey } from "./thumbs";
 import { isUpload } from "./uploadBody";
@@ -16,14 +18,15 @@ import { firstFrame } from "./video";
 /** A file brought into the library from the user's computer. */
 
 /** What an upload's address may say. A name given twice comes as a list, which is refused here rather than used as a name. */
-const uploadQuery = z.object({ name: z.string().optional(), as: z.string().optional(), folder: z.string().optional(), project: z.string().optional() });
+/** `same=use`: a file the library already holds (sameContent.ts) is answered with that item, `found: true`, and not added again. */
+const uploadQuery = z.object({ name: z.string().optional(), as: z.string().optional(), folder: z.string().optional(), project: z.string().optional(), same: z.literal("use").optional() });
 
 export function registerAssetUpload(app: FastifyInstance, s: Services, { asset }: AssetLookup): void {
   /**
    * A picture, a video or a sound from the user's computer, sent as the request body. It is theirs, so
    * it is kept from the start and never goes to the bin on its own.
    */
-  app.post<{ Querystring: { name?: string; as?: string; folder?: string; project?: string } }>("/api/assets", async (req) => {
+  app.post<{ Querystring: { name?: string; as?: string; folder?: string; project?: string; same?: "use" } }>("/api/assets", async (req) => {
     uploadQuery.parse(req.query);
     const up = isUpload(req.body) ? req.body : null;
     const unreadable = () => httpError("This file is not an image, a video or an audio file Afflatus can read. Images: PNG, JPEG, WebP. Video and audio are read with ffmpeg, which has to be installed where Afflatus runs.");
@@ -45,6 +48,14 @@ export function registerAssetUpload(app: FastifyInstance, s: Services, { asset }
     const kit = req.query.as === "kit";
     if (kit && !picture && media?.kind !== "audio") throw httpError("a file of the Prompt kit has to be a picture or a sound");
     if (mask && !picture) throw httpError("the mask has to be an image");
+    // what it holds, kept on the item: a picture's always (it is read whole already), a video's or a sound's when it is
+    // asked to be found (it is read once more for it). Found in the library: that item as it is, and nothing added
+    const reuse = req.query.same === "use" && !mask && !kit;
+    const digest = bytes ? await pictureDigest(bytes) : reuse ? await fileDigest(createReadStream(up.path)) : null;
+    if (reuse && digest) {
+      const same = await findSame(s.db, s.storage, { kind: picture ? "image" : media!.kind, digest, width: picture?.width, height: picture?.height, bytes: up.bytes });
+      if (same) return { ...assetView(await asset(same)), found: true };
+    }
     const id = newId();
     const mime = picture?.mime ?? media!.mime;
     // into the folder named (a whole folder brought in from the computer: the folder made for each file; a drop: the folder open), else the project's root
@@ -69,7 +80,7 @@ export function registerAssetUpload(app: FastifyInstance, s: Services, { asset }
           id, kind: picture ? "image" : media!.kind, origin: mask ? "mask" : kit ? "kit" : "uploaded", name: onDisk?.name ?? String(req.query.name ?? "").slice(0, 200), file_key: key,
           thumb_key: thumb ? thumbKey(id) : null, mime, bytes: onDisk?.bytes ?? up.bytes, width: picture?.width ?? facts?.width ?? null, height: picture?.height ?? facts?.height ?? null,
           duration_ms: media?.durationMs ?? null, fps: facts?.fps ?? null, has_sound: media?.kind === "audio" || facts?.hasSound ? 1 : 0,
-          folder_id: into?.id ?? null, generation_id: null, kept_at: at, linked_path: null, created_at: onDisk?.created_at ?? at,
+          folder_id: into?.id ?? null, generation_id: null, kept_at: at, linked_path: null, created_at: onDisk?.created_at ?? at, digest,
         }))
         .execute();
     } catch (err) {

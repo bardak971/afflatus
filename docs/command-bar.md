@@ -37,6 +37,8 @@ With nothing typed, the bar shows **Recent** (the last timelines, drafts, render
 | Shift | shows or hides the preview |
 | Esc | clears what is typed, then closes |
 
+Outside the bar, **Ctrl+V** pastes images, videos and audio files from the clipboard (a screenshot, a copied image, files copied in Explorer or Finder) where you are: the open picker (added and picked), the media slot with the focus (as a drop on it), the library shown (into its folder), else the project's library. A file the library already holds is used, not added twice. Text boxes keep the browser's own paste.
+
 A row whose action has a key in the app shows it on its right, read from the key table (`apps/web/src/keys/table.ts`): split (S or Ctrl+B), the previous and next take (Alt+[ and Alt+]), Render (Ctrl+Enter), rendering the clip selected in the open editor (Ctrl+Enter), Keyboard shortcuts (?), and in a render's Tab list the viewer's keys (U, F, B, I, E, R, M, P, C, G, V, L, Shift+L, S, D…). A key is shown only where pressing it does that thing. The status bar has a small chip with the bar's shortcut that opens it with the mouse.
 
 ## Modes: the first character

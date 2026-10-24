@@ -17,6 +17,7 @@ import { MusicLane } from "./track/MusicLane";
 import { ownSoundModel, RecordingBands, voiceOf } from "./track/RecordingBand";
 import { EndColumnLive } from "./track/EndColumn";
 import { useLaneMenus } from "./track/LaneMenus";
+import { useTrackPaste } from "./track/useTrackPaste";
 import { HEIGHT, MUSIC, ROW, SOUND, SOURCE } from "./track/rows";
 import { SourceLane, ToCome, type SourcePlace } from "./track/SourceLane";
 import { nearJoin } from "./track/nearJoin";
@@ -85,7 +86,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   /** A picture pinned to a clip: it opens on it, ends on it, or passes through it at `atS` seconds. */
   onPin(clip: Clip, where: "start" | "end" | "mid", asset: string, atS?: number): void;
   /** A file dropped from the computer: put into the library, giving what it became (null when it could not be). */
-  onUpload?(file: File): Promise<{ id: string; kind: string } | null>;
+  /** `reuse`: a file the library holds already is that item (a paste). */
+  onUpload?(file: File, reuse?: boolean): Promise<{ id: string; kind: string } | null>;
   onClipSound(clip: string, asset: string): void;
   onMusic(asset: string): void;
   onTrim(clip: Clip, patch: ShownPatch): void;
@@ -202,6 +204,9 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
     if (c) onVoice(c, asset);
   } : undefined;
   const { over, dragging, draggedOf, hover, overClip, overJoin, drop, hint: dropHint, legend: dropLegend, lineAt, leave } = useTrackDrop({ clips, slots, end, recipes, onUpload, onInsert, onPin, onClipSound, onMusic, onTransition: onTransition ? (clip, kind) => onTransition(clip, newTransition(kind)) : undefined, onSource, onRecording, onVoice: voiceTo });
+
+  // ---- Ctrl+V on a drop cell holding the focus: as a drop there
+  useTrackPaste({ area: scroller, onUpload, onSource, onRecording: onRecording ? (asset) => onRecording(asset) : undefined, onMusic, onClipSound, onVoice: voiceTo });
 
   // ---- right-click on a lane that holds nothing yet, and on a Lip sync clip's Audio cell while it has no voice
   const lanes = useLaneMenus({

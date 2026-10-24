@@ -17,7 +17,7 @@ Renders start out *not kept*: keep the ones you want (the star, or **S**). What 
 
 Projects group drafts, timelines and folders. The project you work in is chosen at the top left; what you make lands in it, and the library, the drafts and the timelines all show that project. The **Inbox** holds what belongs to no project.
 
-The **Projects** panel lists every project with its folders and drafts, what each holds, when it was started and its size on disk. Pin the projects you use most to the rail on the left. A folder can also be **linked** to a directory on disk: its files show up in the library where they are, without being copied, and an item filed into it is written there as a file with a readable name.
+The **Projects** panel lists every project with its folders and drafts, what each holds, when it was started and its size on disk. Pin the projects you use most to the rail on the left. **Ctrl+V** pastes a screenshot, a copied image or copied video and audio files where you are: into an open picker or the slot with the focus, else into the library shown, else the project's. A folder can also be **linked** to a directory on disk: its files show up in the library where they are, without being copied, and an item filed into it is written there as a file with a readable name.
 
 ## A picture or a video, up close
 

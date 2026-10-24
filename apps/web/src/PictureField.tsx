@@ -22,22 +22,44 @@ import { firstPart, SoundRange, useSoundMarks } from "./SoundRange";
 import { VideoRange } from "./VideoRange";
 import { VideoPlayer } from "./VideoPlayer";
 import { queryKeys } from "./queryKeys";
+import { sortPasted, usePasteTarget } from "./paste";
 
 /**
- * Send a picture from this computer to the library, then hand it over: to the `onDone` of the moment it was sent, not of
- * the moment it arrives. A form switched to another draft meanwhile hands its new `onDone` over, and the picture landed
- * in that other draft.
+ * Send files from this computer to the library, one after another, then hand them over: to the `onDone` of the moment
+ * they were sent, not of the moment they arrive. A form switched to another draft meanwhile hands its new `onDone` over,
+ * and the picture landed in that other draft. One that fails does not stop the others: those that came are handed over,
+ * the failure said. `reuse`: a file the library already holds is that item (a paste).
  */
-function useUpload(onDone: (asset: Asset) => void, kit = false) {
+function useUpload(onDone: (assets: Asset[]) => void, kit = false) {
   const client = useQueryClient();
+  // "Adding 2 of 3…" while several go
+  const [step, setStep] = useState<{ at: number; of: number } | null>(null);
   const m = useMutation({
-    mutationFn: (v: { file: File; done(asset: Asset): void }) => (kit ? api.upload(v.file, { kit: true }) : api.upload(v.file, { project: projectForNew() })),
-    onSuccess: (asset, v) => {
+    mutationFn: async (v: { files: File[]; reuse: boolean; done(assets: Asset[]): void }) => {
+      const assets: Asset[] = [];
+      let failed: Error | null = null;
+      for (const [i, file] of v.files.entries()) {
+        if (v.files.length > 1) setStep({ at: i + 1, of: v.files.length });
+        try {
+          assets.push(await (kit ? api.upload(file, { kit: true }) : api.upload(file, { project: projectForNew(), reuse: v.reuse })));
+        } catch (err) {
+          failed ??= err instanceof Error ? new Error(v.files.length > 1 ? `${file.name}: ${err.message}` : err.message) : new Error(String(err));
+        }
+      }
+      return { assets, failed };
+    },
+    onSettled: () => setStep(null),
+    onSuccess: ({ assets }, v) => {
       void client.invalidateQueries({ queryKey: queryKeys.assets.all() });
-      v.done(asset);
+      if (assets.length) v.done(assets);
     },
   });
-  return { isPending: m.isPending, error: m.error, mutate: (file: File) => m.mutate({ file, done: onDone }) };
+  return {
+    isPending: m.isPending,
+    error: m.error ?? m.data?.failed ?? null,
+    adding: step ? `Adding ${step.at} of ${step.of}…` : "Adding…",
+    mutate: (files: File[], reuse = false) => m.mutate({ files, reuse, done: onDone }),
+  };
 }
 
 const WORD = { image: "image", video: "video", audio: "audio file" } as const;
@@ -52,7 +74,18 @@ function DropSays({ children }: { children: string }) {
 }
 
 /** Every picture (or every video, or every sound) in the library, to pick one from; or bring one in from the computer. */
-export function Picker({ title, kind = "image", kit, onPick, onClose }: { title: string; kind?: "image" | "video" | "audio"; /** For the Prompt kit: a file from the computer is kept with the person or place, not put in the library. */ kit?: boolean; onPick(id: string): void; onClose(): void }) {
+export function Picker({ title, kind = "image", kit, room = 1, onPick, onPicks, onClose }: {
+  title: string;
+  kind?: "image" | "video" | "audio";
+  /** For the Prompt kit: a file from the computer is kept with the person or place, not put in the library. */
+  kit?: boolean;
+  /** How many files pasted at once it takes (a references field with room for several); one unless said. */
+  room?: number;
+  onPick(id: string): void;
+  /** Several files pasted at once, in place of `onPick`. */
+  onPicks?(ids: string[]): void;
+  onClose(): void;
+}) {
   // found by prompt and name; within the project the switcher looks at, or everything
   const [typed, setTyped] = useState("");
   const q = useSettled(typed.trim());
@@ -65,12 +98,25 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
   const videos = useAssets({ kind: "video", q: q || undefined, all: all || undefined }, kind === "audio", true);
   const sounding = kind === "audio" ? (videos.data?.pages.flatMap((p) => p.items) ?? []).filter((a) => a.hasSound) : [];
   const file = useRef<HTMLInputElement>(null);
-  const upload = useUpload((a) => onPick(a.id), kit);
+  const upload = useUpload((a) => (onPicks && a.length > 1 ? onPicks(a.map((x) => x.id)) : onPick(a[0]!.id)), kit);
+  // Ctrl+V: the files pasted are added and picked as From your computer's (the first of the clipboard, or as many as there
+  // is room for), a file the library holds already picked as it is; one of another kind is refused in words
+  const head = useRef<HTMLElement>(null);
+  const [wrong, setWrong] = useState<string | null>(null);
+  usePasteTarget({
+    level: "picker",
+    el: () => head.current?.closest<HTMLElement>("[role=dialog]") ?? null,
+    take: (files) => {
+      const { taken, said } = sortPasted(files, kind, title, room);
+      setWrong(said);
+      if (taken.length && !upload.isPending) upload.mutate(taken, true);
+    },
+  });
 
   return (
     <Dialog label={title} onClose={onClose} z="z-50" className="flex max-h-full w-full max-w-4xl flex-col rounded-dialog border border-line-strong bg-panel shadow-modal motion-safe:animate-peek-rise">
         {/* the head, with the search and the ways to bring one in between it and the way out */}
-        <header className="flex shrink-0 items-center gap-2.5 border-b border-line px-5 py-3.5">
+        <header ref={head} className="flex shrink-0 items-center gap-2.5 border-b border-line px-5 py-3.5">
           <span className="min-w-0 grow">
             <DialogHead icon={kind === "audio" ? <Music size={16} /> : kind === "video" ? <Film size={16} /> : <ImagePlus size={16} />} title={title} sub="Pick one from your library, or bring one in" />
           </span>
@@ -85,7 +131,7 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
             />
           )}
           <Button onClick={() => file.current?.click()} disabled={upload.isPending}>
-            <Upload size={15} /> {upload.isPending ? "Adding…" : "From your computer"}
+            <Upload size={15} /> {upload.isPending ? upload.adding : "From your computer"}
           </Button>
           <input
             ref={file}
@@ -94,7 +140,8 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
-              if (f) upload.mutate(f);
+              setWrong(null);
+              if (f) upload.mutate([f]);
               e.target.value = "";
             }}
           />
@@ -102,11 +149,12 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
           <CloseButton keys="Esc" onClose={onClose} />
         </header>
         <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto p-5">
+          {wrong && <ErrorNote>{wrong}</ErrorNote>}
           {upload.error && <ErrorNote>{upload.error.message}</ErrorNote>}
           {assets.isError && <ErrorNote>{assets.error.message}</ErrorNote>}
           <LoadMore more={Boolean(assets.hasPreviousPage)} busy={assets.isFetchingPreviousPage || assets.isFetchingNextPage} onMore={() => void assets.fetchPreviousPage()} />
           {assets.isSuccess && !items.length && !sounding.length && (
-            <Empty title={q ? "Nothing matches" : `No ${WORD[kind]}s yet`} help={q ? undefined : `Bring one in with "From your computer"${kind === "audio" ? "." : ", or make one in Studio."}`} />
+            <Empty title={q ? "Nothing matches" : `No ${WORD[kind]}s yet`} help={q ? undefined : `Bring one in with "From your computer" or Ctrl+V${kind === "audio" ? "." : ", or make one in Studio."}`} />
           )}
           {kind === "audio" && (
             <div className="flex flex-col gap-1.5">
@@ -176,7 +224,7 @@ export function refusedFile(file: { name: string; type: string }, kind: keyof ty
  * explanation, and the Picker. Each field gives only what it shows once filled. Three of the four slots had their own copy
  * of this and never said that an upload was on its way, or that it was refused.
  */
-function Slot({ label, note, aside, kind, drags, kit, onAsset, filled, empty, children }: {
+function Slot({ label, note, aside, kind, drags, kit, room = 1, onAsset, onAssets, filled, empty, children }: {
   label: string;
   note?: string;
   /** Beside the name, always seen: "optional", "1 of 6". */
@@ -187,8 +235,12 @@ function Slot({ label, note, aside, kind, drags, kit, onAsset, filled, empty, ch
   drags: string[];
   /** For the Prompt kit: a file from the computer is kept with the person or place, not put in the library. */
   kit?: boolean;
+  /** How many files pasted at once it takes: what is left of a references field's room. One unless said. */
+  room?: number;
   /** A library item for it: picked, dropped, or a file brought in. */
   onAsset(id: string): void;
+  /** Several at once (files pasted, picked in its Picker), in place of `onAsset`. */
+  onAssets?(ids: string[]): void;
   /** What it holds, drawn in its box (a drop on it replaces it); `pick` opens the Picker. Left out: it holds nothing. */
   filled?: { className: string; body(pick: () => void): ReactNode };
   /** The place to choose or drop one while it can take one: its icon, its words, what a drop says, and its height. */
@@ -199,7 +251,7 @@ function Slot({ label, note, aside, kind, drags, kit, onAsset, filled, empty, ch
   const explain = useExplain((st) => st.on);
   const [picking, setPicking] = useState(false);
   const pick = () => setPicking(true);
-  const upload = useUpload((a) => onAsset(a.id), kit);
+  const upload = useUpload((a) => (onAssets && a.length > 1 ? onAssets(a.map((x) => x.id)) : onAsset(a[0]!.id)), kit);
   // a file of another kind is refused here, in words, rather than left without a sign
   const [wrong, setWrong] = useState<string | null>(null);
   const drop = useDropZone(drags, (id) => {
@@ -208,11 +260,23 @@ function Slot({ label, note, aside, kind, drags, kit, onAsset, filled, empty, ch
   }, (file) => {
     const refused = refusedFile(file, kind);
     setWrong(refused);
-    if (!refused) upload.mutate(file);
+    if (!refused) upload.mutate([file]);
+  });
+  // Ctrl+V while the focus is in it (its empty box, its Change or Remove): as a drop of those files, and a file the
+  // library holds already used as it is. With its Picker open, the Picker takes them
+  const root = useRef<HTMLDivElement>(null);
+  usePasteTarget(picking ? null : {
+    level: "slot",
+    el: () => root.current,
+    take: (files) => {
+      const { taken, said } = sortPasted(files, kind, label, room);
+      setWrong(said);
+      if (taken.length && !upload.isPending) upload.mutate(taken, true);
+    },
   });
   const failed = wrong ?? upload.error?.message;
   return (
-    <div className="flex flex-col gap-1.5">
+    <div ref={root} className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
         <span className="flex items-center gap-1.5"><span className="font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
         {aside && <span className="text-xs text-ink-2">{aside}</span>}
@@ -221,7 +285,7 @@ function Slot({ label, note, aside, kind, drags, kit, onAsset, filled, empty, ch
       {filled ? (
         <div {...drop.props} className={cx("relative rounded-lg border bg-raised p-2", filled.className, LEAN_MOTION, drop.lean || "border-line")}>
           {filled.body(pick)}
-          {drop.over ? empty && <DropSays>{empty.says}</DropSays> : upload.isPending && <DropSays>Adding…</DropSays>}
+          {drop.over ? empty && <DropSays>{empty.says}</DropSays> : upload.isPending && <DropSays>{upload.adding}</DropSays>}
         </div>
       ) : empty ? (
         <button
@@ -232,7 +296,7 @@ function Slot({ label, note, aside, kind, drags, kit, onAsset, filled, empty, ch
           className={cx("flex items-center justify-center rounded-lg border-[1.5px] text-ink-2 hover:text-ink", empty.tall ? "h-[72px] gap-2.5" : "h-10 gap-2", LEAN_MOTION, drop.lean || "border-dashed border-line-strong")}
         >
           {empty.icon}
-          <span>{upload.isPending ? "Adding…" : drop.over ? empty.says : empty.text}</span>
+          <span>{upload.isPending ? upload.adding : drop.over ? empty.says : empty.text}</span>
         </button>
       ) : null}
       {failed && <ErrorNote>{failed}</ErrorNote>}
@@ -242,11 +306,19 @@ function Slot({ label, note, aside, kind, drags, kit, onAsset, filled, empty, ch
           title={label}
           kind={kind}
           kit={kit}
+          room={room}
           onClose={() => setPicking(false)}
+          // what was refused before is not said under what was picked since
           onPick={(id) => {
+            setWrong(null);
             onAsset(id);
             setPicking(false);
           }}
+          onPicks={onAssets && ((ids) => {
+            setWrong(null);
+            onAssets(ids);
+            setPicking(false);
+          })}
         />
       )}
     </div>
@@ -426,12 +498,17 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
   const [open, setOpen] = useState<string | null>(null);
   const shown = useAsset(open);
   // a file from the computer goes into the library and is added here
-  const add = (asset: string) => !value.some((v) => v.asset === asset) && value.length < max && onChange([...value, { asset, role: roles[0]! }]);
+  const add = (asset: string) => addAll([asset]);
+  // several at once (pasted): those not in it yet, as many as there is room for
+  const addAll = (assets: string[]) => {
+    const fresh = [...new Set(assets)].filter((a) => !value.some((v) => v.asset === a)).slice(0, Math.max(0, max - value.length));
+    if (fresh.length) onChange([...value, ...fresh.map((asset) => ({ asset, role: roles[0]! }))]);
+  };
   // a reference added after the field was drawn (dropped, picked) fades in; those it opened with are simply there
   const first = useRef(new Set(value.map((v) => v.asset)));
   return (
     <Slot
-      label={label} note={note} aside={`${value.length + cast.length} of ${max}`} kind={video ? "video" : "image"} drags={[video ? DRAG_VIDEO : DRAG_PICTURE]} onAsset={add}
+      label={label} note={note} aside={`${value.length + cast.length} of ${max}`} kind={video ? "video" : "image"} drags={[video ? DRAG_VIDEO : DRAG_PICTURE]} onAsset={add} onAssets={addAll} room={max - value.length}
       empty={value.length < max ? {
         icon: <ImagePlus size={15} />,
         text: video ? "Add a reference video, or drop one here" : "Add a reference image, or drop one here",

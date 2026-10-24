@@ -28,6 +28,7 @@ import { useStudioAddress } from "./studio/useStudioAddress";
 import { lazyPart, loadCreatePanel, loadTimelineCards } from "../lazyParts";
 import { binFor } from "../keepFor";
 import { failedBanner } from "../sayFailed";
+import { usePasteIntoLibrary } from "../PasteHere";
 
 // the form and the timeline cards are chunks of their own (lazyParts.ts): the library is drawn without them, and the
 // form, when the app opens on it ("/create"), is asked for at once rather than once the screen is drawn
@@ -152,6 +153,8 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   // the project's tree: under the breadcrumb, which also opens by itself while something is dragged, to drop it on a folder
   const folderButton = useRef<HTMLDivElement>(null);
   const { foldersOpen, setFoldersOpen } = useFolderDrag(showTimelines);
+  // Ctrl+V with the media shown: into the folder open, else the project's root (the bin and the timelines take none)
+  usePasteIntoLibrary(!showTimelines && place.type !== "bin", place.type === "folder" ? place.id : null, place.type === "folder" ? placeName : projectId === "none" ? "Inbox" : worked?.name ?? "Project");
 
   // the grid in sections (grouping.ts); the stacks of takes shown opened
   const [openStacks, setOpenStacks] = useState<Set<string>>(new Set());

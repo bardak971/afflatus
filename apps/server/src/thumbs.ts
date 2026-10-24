@@ -80,6 +80,22 @@ export async function readPicture(bytes: Uint8Array): Promise<{ mime: string; wi
 }
 
 /**
+ * A picture's pixels as they are seen (turned upright, with an alpha channel) and its size, for a digest of what it shows
+ * whatever file holds it: a PNG drawn again by the browser for the clipboard is other bytes, the same pixels. Null when it
+ * cannot be read (not a picture, no image library).
+ */
+export async function picturePixels(bytes: Uint8Array): Promise<{ width: number; height: number; data: Uint8Array } | null> {
+  const lib = await sharp();
+  if (!lib) return null;
+  try {
+    const { data, info } = await lib(bytes).rotate().ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    return { width: info.width, height: info.height, data: new Uint8Array(data.buffer, data.byteOffset, data.byteLength) };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Of a painted mask (white = the part to redo): its size, and the part that was painted with room
  * around it, because what is drawn there has to fit what is next to it. `box` is null when nothing is painted.
  */

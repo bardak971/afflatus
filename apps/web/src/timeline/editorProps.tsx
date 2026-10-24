@@ -238,8 +238,8 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
       e.openJoin(clip);
     },
     onInsert: (asset, afterId) => add.mutate({ after: afterId, asset }),
-    onUpload: (file) =>
-      api.upload(file, { folder: t.folderId ?? undefined, project: t.projectId ?? null })
+    onUpload: (file, reuse) =>
+      api.upload(file, { folder: t.folderId ?? undefined, project: t.projectId ?? null, reuse })
         .then((a) => ({ id: a.id, kind: a.kind }))
         .catch((err: unknown) => {
           e.say(failedBanner({ id: "upload" }, `${file.name} could not be added`, err));

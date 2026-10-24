@@ -117,6 +117,7 @@ export function EndColumn(props: Props) {
         <button
           type="button"
           data-end-column="audio"
+          data-paste="recording"
           aria-label={LABELS.audio}
           onDragOver={onRecordingOver}
           onClick={onRecordingMenu}
@@ -132,6 +133,7 @@ export function EndColumn(props: Props) {
         <button
           type="button"
           data-end-column="source"
+          data-paste="source"
           aria-label={LABELS.source}
           onDragOver={onSourceOver}
           onClick={onSourceMenu}
@@ -167,13 +169,13 @@ function EndStrip({ left, busy, overRecording, overSource, onNewClip, onRecordin
         <Plus size={15} />
       </IconButton>
       {onRecordingOver && (
-        <IconButton size={28} tone="outline" label={LABELS.audio} tip={WORDS.audio} onDragOver={onRecordingOver} onClick={onRecordingMenu} onContextMenu={onRecordingMenu} data-end-column="audio" {...cell(SOUND, overRecording)}>
+        <IconButton size={28} tone="outline" label={LABELS.audio} tip={WORDS.audio} onDragOver={onRecordingOver} onClick={onRecordingMenu} onContextMenu={onRecordingMenu} data-end-column="audio" data-paste="recording" {...cell(SOUND, overRecording)}>
           <Mic size={13} className="shrink-0" />
           {overRecording && <span className="truncate text-body">{WORDS.audio}</span>}
         </IconButton>
       )}
       {onSourceOver && (
-        <IconButton size={28} tone="outline" label={LABELS.source} tip={WORDS.source} onDragOver={onSourceOver} onClick={onSourceMenu} onContextMenu={onSourceMenu} data-end-column="source" {...cell(SOURCE, overSource)}>
+        <IconButton size={28} tone="outline" label={LABELS.source} tip={WORDS.source} onDragOver={onSourceOver} onClick={onSourceMenu} onContextMenu={onSourceMenu} data-end-column="source" data-paste="source" {...cell(SOURCE, overSource)}>
           <Film size={13} className="shrink-0" />
           {overSource && <span className="truncate text-body">{WORDS.source}</span>}
         </IconButton>

@@ -482,6 +482,8 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
           }}
           aria-label={`Audio of clip ${s.index + 1}: no voice yet. Drop the voice for clip ${s.index + 1} here`}
           data-voice-cell={c.id}
+          data-paste="voice"
+          data-paste-clip={c.id}
           style={{ left: s.left + 1, width: Math.max(8, s.width - 2), top: SOUND.top, height: SOUND.height }}
           className={cx(
             "absolute flex items-center gap-1.5 overflow-hidden rounded border border-dashed border-attention/60 bg-attention-wash px-1.5 text-left text-body whitespace-nowrap text-attention-ink",
@@ -503,6 +505,8 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
             onSoundMenu(c, e);
           }}
           aria-label={`Audio of clip ${s.index + 1}: ${heard || "none yet"}`}
+          data-paste="sound"
+          data-paste-clip={c.id}
           style={{ left: s.left + 1, width: Math.max(8, s.width - 2), top: SOUND.top, height: SOUND.height }}
           className={cx(
             "absolute flex items-center gap-1 overflow-hidden rounded px-1.5 text-micro",
