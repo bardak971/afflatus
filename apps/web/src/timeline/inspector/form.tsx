@@ -16,6 +16,7 @@ import { useInputEdits } from "../../hooks";
 import { Select } from "../../Select";
 import { AutoText, Button, cx, fieldClass, NumberBox, Segmented, Spinner } from "../../ui";
 import { fileVersion, type ShownPatch } from "../model";
+import { inRunSaid, recordingInput, runFrom } from "../track/RecordingBand";
 
 type FormProps = ComponentProps<typeof Form>;
 
@@ -56,6 +57,9 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
   const all = useRecipes();
   const entities = useEntities();
   const edit = useInputEdits(stored, onInputs);
+  // inside a run of its recording (a song cut into clips end to end), Speech starts at does not apply: greyed, why in its "?"
+  const runBefore = runFrom(timeline.clips, recipes, clip, { ...clip.inputs, ...stored });
+  const off = runBefore ? Object.fromEntries((recordingInput(recipe)?.lead ?? []).map((id) => [id, inRunSaid(runBefore)])) : undefined;
   // the machine picked for the timeline's renders: the form's node pack notes speak for it
   const pickedOn = usePickedMachine(timelineKey(timeline.id));
   // how each model would meet the clip before, said beside it before it is picked (the join rule, joinWay): a still or no clip
@@ -140,6 +144,7 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
         look={cast}
         lookSummary={lookWords(clip.look ?? timeline.look, entities.data?.items ?? []) + (clip.look === null && timeline.look ? " (from the timeline)" : "")}
         lead={lead}
+        off={off}
         frameExtra={frameExtra}
         chapterExtra={chapterExtra}
         helpers={

@@ -106,6 +106,7 @@ function Editor({ id }: { id: string }) {
                 }}
                 onPickEnd={() => e.setWhoPicking(false)}
                 overlay={maskOverlay}
+                removed={t.source.removed}
               />
             ) : e.recordingAt && recordingShown ? (
               <RecordingStage
@@ -120,6 +121,7 @@ function Editor({ id }: { id: string }) {
                 startAt={e.cursor ?? e.clock.get()}
                 master={e.muted ? 0 : e.volume}
                 view={e.trackView}
+                removed={recordingShown.removed}
               />
             ) : (
               <Player ref={e.player} {...playerProps(e)} />

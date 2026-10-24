@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
-import { fileUrl, type Asset } from "../api";
+import { fileUrl, type Asset, type RemovedPart } from "../api";
 import { clock } from "../format";
 import type { PlayerHandle } from "./Player";
 
@@ -37,7 +37,9 @@ export const SourceStage = forwardRef<PlayerHandle, {
    * from `startMs` of the source, `lengthMs` long. Muted: the sound stays the source's.
    */
   overlay?: { src: string; startMs: number; lengthMs: number } | null;
-}>(function SourceStage({ video, atMs, fromMs, toMs, frame, playing, onPlaying, onTime, startAt, master = 1, peekMs = null, pick = null, picking = false, onPick, onPickEnd, overlay = null }, ref) {
+  /** The stretches cut out of its middle by removing their windows (card #75): the clips jump over them, the badge says so. */
+  removed?: RemovedPart[];
+}>(function SourceStage({ video, atMs, fromMs, toMs, frame, playing, onPlaying, onTime, startAt, master = 1, peekMs = null, pick = null, picking = false, onPick, onPickEnd, overlay = null, removed = [] }, ref) {
   const el = useRef<HTMLVideoElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const [local, setLocal] = useState(Math.max(0, startAt - atMs));
@@ -146,6 +148,7 @@ export const SourceStage = forwardRef<PlayerHandle, {
   const ratio = shape.width / shape.height;
   const w = Math.min(room.w, room.h * ratio);
   const inside = local >= fromMs && local <= toMs;
+  const cutOut = removed.find((r) => local >= r.fromMs && local < r.toMs);
   // the video's own picture within the frame (object-contain): the click and the mark are shares of it, not of the frame
   const vr = video.width && video.height ? video.width / video.height : ratio;
   const fh = ratio ? w / ratio : 0;
@@ -208,7 +211,11 @@ export const SourceStage = forwardRef<PlayerHandle, {
       ) : (
         <span className="absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-ground/85 px-3 py-1 text-xs font-semibold whitespace-nowrap">
           Source · {clock(local, { decimals: 1 })} of {clock(length)}
-          <span className={inside ? "text-accent" : "text-ink-3"}>{inside ? "· in the stretch" : local < fromMs ? "· before the stretch" : "· past the stretch"}</span>
+          {cutOut ? (
+            <span data-removed="" className="text-warn-ink">· cut out, {clock(cutOut.fromMs, { decimals: 1 })}–{clock(cutOut.toMs, { decimals: 1 })} set aside: the clips jump over it</span>
+          ) : (
+            <span className={inside ? "text-accent" : "text-ink-3"}>{inside ? "· in the stretch" : local < fromMs ? "· before the stretch" : "· past the stretch"}</span>
+          )}
         </span>
       )}
     </div>

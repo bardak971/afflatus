@@ -10,6 +10,8 @@ import { pinInputs, type ShownPatch } from "./model";
 import { sourceKey, type useClipEdits } from "./useClipEdits";
 import { queryKeys } from "../queryKeys";
 import { latestFailure } from "../sayFailed";
+import { ask } from "../Confirm";
+import { removalAsk } from "./removalWords";
 
 /** A new clip as the server takes it; `stopAtMs`: the clip it goes after stops being seen there first, in the same step. */
 type NewClip = Parameters<typeof api.addClip>[1];
@@ -156,10 +158,16 @@ export function useTimelineMutations(id: string, o: {
   });
   // what was typed over a clip is saved before it is removed, in the forms' turn: its save sent after the removal was
   // answered 404 (and Undo brings the clip back with what was typed)
-  const removeClip = async (clip: string) => {
-    await save(clip);
-    await turn(() => api.deleteClip(clip));
+  // a clip of a recording or of the source cuts its part out of it (Timelines.removeClips): what that does is said first,
+  // and nothing goes unless it is gone ahead with. Several picked go in one call, one step for Undo (each was one)
+  const removeClips = async (ids: string[]): Promise<boolean> => {
+    const asked = o.timeline ? removalAsk(o.timeline, o.recipes, ids) : null;
+    if (asked && !(await ask(asked))) return false;
+    for (const clip of ids) await save(clip);
+    await turn(() => (ids.length === 1 ? api.deleteClip(ids[0]!) : api.removeClips(id, ids)));
+    return true;
   };
+  const removeClip = (clip: string) => removeClips([clip]);
   // pending until the timeline is read again without them: Delete pressed again meanwhile sent the removal of a clip
   // already gone (editorKeys.ts waits for it)
   const readAgain = () => {
@@ -167,8 +175,10 @@ export function useTimelineMutations(id: string, o: {
     return refresh();
   };
   const remove = useMutation({ mutationFn: removeClip, onSuccess: readAgain });
-  // the clips picked with Ctrl + click, removed one after the other (each comes back with Undo)
-  const removeMany = useMutation({ mutationFn: async (ids: string[]) => { for (const id of ids) await removeClip(id); }, onSuccess: () => { o.on.unpick(); return readAgain(); } });
+  // the clips picked with Ctrl + click, removed in one step (Undo brings them all back); still picked when not gone ahead with
+  const removeMany = useMutation({ mutationFn: removeClips, onSuccess: (done) => { if (done) o.on.unpick(); return readAgain(); } });
+  /** A part cut out of the middle of a recording or the source brought back, by the clip after it (its mark's Bring back). */
+  const bringBack = useMutation({ mutationFn: (before: string) => api.bringBack(id, before), onSuccess: readAgain });
   const split = useMutation({ mutationFn: (v: { clip: string; atMs: number }) => api.splitClip(v.clip, v.atMs), onSuccess: after });
   // the designer writing a clip put between two others: its texts go into the form unless something was typed there meanwhile
   const writeBetween = useMutation({
@@ -264,6 +274,6 @@ export function useTimelineMutations(id: string, o: {
   });
   // the latest that failed, not the first of the list: an old error does not hide a new one
   // (with when it was asked, `errorAt`, for the editor to weigh it against its own range actions')
-  const { error, at: errorAt } = latestFailure([plan, loop, render, fix, patch, edit, makeSource, cutSource, sourceForm, windowForm, recording, cutRecording, recordingForm, trimSource, trimRecording, splitSource, add, remove, removeMany, removeTake, stop, undo, redo, exportIt, frame, split, duplicate]);
-  return { after, readBack, render, patch, fix, edit, makeSource, cutSource, sourceForm, windowForm, recording, cutRecording, recordingForm, trimSource, trimRecording, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error, errorAt };
+  const { error, at: errorAt } = latestFailure([plan, loop, render, fix, patch, edit, makeSource, cutSource, sourceForm, windowForm, recording, cutRecording, recordingForm, trimSource, trimRecording, splitSource, add, remove, removeMany, bringBack, removeTake, stop, undo, redo, exportIt, frame, split, duplicate]);
+  return { after, readBack, render, patch, fix, edit, makeSource, cutSource, sourceForm, windowForm, recording, cutRecording, recordingForm, trimSource, trimRecording, splitSource, add, remove, removeMany, bringBack, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error, errorAt };
 }

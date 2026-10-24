@@ -1,11 +1,12 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, fileUrl, type Asset } from "../api";
+import { api, fileUrl, type Asset, type RemovedPart } from "../api";
 import { clock } from "../format";
 import { queryKeys } from "../queryKeys";
 import { cx } from "../ui";
 import type { PlayerHandle } from "./Player";
 import { partAt, type RecordingPlace } from "./recordingPlace";
+import { removedSaid } from "./track/RemovedMark";
 import { useViewOf, type TrackView, type ViewStore } from "./track/useTrackView";
 
 /** How many bars the stage's waveform has at most: about one every 5 px of a wide stage (fewer on a short stretch: one a measure). */
@@ -36,7 +37,9 @@ export const RecordingStage = forwardRef<PlayerHandle, {
   master?: number;
   /** The stretch the track shows: the stage shows the same stretch of the recording (all of it when the track shows all its clips). */
   view?: ViewStore;
-}>(function RecordingStage({ recording, place, playing, onPlaying, onTime, stopAt, startAt, master = 1, view }, ref) {
+  /** The parts cut out of its middle by removing their clips (card #75): drawn where the track jumps over them. */
+  removed?: RemovedPart[];
+}>(function RecordingStage({ recording, place, playing, onPlaying, onTime, stopAt, startAt, master = 1, view, removed = [] }, ref) {
   const el = useRef<HTMLAudioElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const [local, setLocal] = useState(() => place.toRecording(startAt));
@@ -246,6 +249,17 @@ export const RecordingStage = forwardRef<PlayerHandle, {
             </div>
           );
         })}
+        {/* a part cut out of the middle: the clips jump over it, the recording with them */}
+        {removed.filter((r) => r.toMs > shown.fromMs && r.fromMs < shown.toMs).map((r) => (
+          <div
+            key={r.before}
+            data-removed=""
+            className="pointer-events-none absolute -top-7 -bottom-3.5 border-x border-warn bg-[repeating-linear-gradient(135deg,transparent_0_5px,color-mix(in_srgb,var(--color-warn)_30%,transparent)_5px_7px)]"
+            style={{ left: share(r.fromMs), width: sizeOf(r.toMs - r.fromMs) }}
+          >
+            <span className="absolute top-0 left-1.5 text-xs font-semibold whitespace-nowrap text-warn-ink">{removedSaid(r)}</span>
+          </div>
+        ))}
         {marks.filter((m) => m.ms >= shown.fromMs && m.ms <= shown.toMs).map((m) => (
           <span
             key={`${m.used}:${m.ms}`}

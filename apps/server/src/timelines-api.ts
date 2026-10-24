@@ -294,6 +294,17 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     await t.removeClip(req.params.id);
     return { ok: true };
   });
+  // several clips of a timeline removed in one step (those picked); a recording's or the source's cut their part out
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/clips/remove", async (req) => {
+    const { ids } = z.strictObject({ ids: z.array(z.string().min(1)).min(1).max(1000) }).parse(req.body);
+    await t.removeClips(req.params.id, ids);
+    return { ok: true };
+  });
+  // a part cut out of the middle of a recording or the source by removing its clips brought back (Timelines.bringBack)
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/removed/back", async (req) => {
+    await t.bringBack(req.params.id, z.strictObject({ before: z.string().min(1) }).parse(req.body).before);
+    return { ok: true };
+  });
   app.delete<{ Params: { id: string } }>("/api/takes/:id", async (req) => {
     await t.removeTake(req.params.id);
     return { ok: true };

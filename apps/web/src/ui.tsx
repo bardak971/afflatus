@@ -212,8 +212,15 @@ export function NumberBox({ value, min, max, step = 1, unit, label, id, onCommit
   className?: string;
 }) {
   const [text, setText] = useState<string | null>(null);
+  // Escape gives up what was typed and leaves the box (its blur then commits nothing): kept in it, the editor's own Escape
+  // never came (a box being typed in keeps it), and the recording's or the source's panel could not be closed (card #75)
+  const dropped = useRef(false);
   const decimals = (String(step).split(".")[1] ?? "").length;
   const commit = () => {
+    if (dropped.current) {
+      dropped.current = false;
+      return;
+    }
     if (text === null) return;
     const typed = Number(text.replace(",", ".").trim());
     setText(null);
@@ -233,7 +240,11 @@ export function NumberBox({ value, min, max, step = 1, unit, label, id, onCommit
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === "Enter") e.currentTarget.blur();
-          if (e.key === "Escape") setText(null);
+          if (e.key === "Escape") {
+            dropped.current = true;
+            setText(null);
+            e.currentTarget.blur();
+          }
         }}
         className="h-[30px] w-[60px] rounded-lg border border-line bg-raised px-1.5 text-center text-ink outline-none focus:border-accent focus:shadow-[0_0_0_3px_var(--color-accent-wash)]"
       />

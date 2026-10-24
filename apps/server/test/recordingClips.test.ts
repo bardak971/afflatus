@@ -385,11 +385,14 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     expect(second.input.recordingStart).toBeCloseTo(8.687, 3);
     expect(second.input.recordingLeadIn).toBe(true);
 
-    // its words a moment in (1.5 s): the 2 s handed over before the part no longer cover that and its head (22 frames), the
-    // graph sounds them of the model's guess, and the take must not say its head is sung
+    // its words set a moment in (Speech starts at 1.5 s): inside the run that moment does not apply (card #75, review S4). The
+    // clip before sang the song up to the part, and those 1.5 s, filed with the recording before it, sang its words twice
     const later = await planOf(1, { ...clips[1]!.inputs, speechAt: 1.5 });
     expect(later.input.recordingStart).toBeCloseTo(8.687, 3);
-    expect(later.input.recordingLeadIn).toBe(false);
+    expect(later.input.speechAt).toBe(0);
+    expect(later.input.recordingLeadIn).toBe(true);
+    // the first clip of the song, carrying on from nothing of it, keeps its own
+    expect((await planOf(0, { ...clips[0]!.inputs, speechAt: 1.5 })).input.speechAt).toBe(1.5);
 
     // a finish of clip 2's draft, re-sampled from its latent: the draft's part as it was sent, not planned again (its sound and
     // length are the draft's; planned again from the part it was sent, it no longer met clip 1's and lost its sung head)

@@ -10,6 +10,11 @@ const PROGRESS_EVERY_MS = 250;
 
 export type InstallKind = "bundle" | "docker" | "sources";
 
+/** How Afflatus was installed, as its launcher or image says it (AFFLATUS_INSTALL); anything else is the sources. */
+export function installKind(said = envSaid.install()?.trim()): InstallKind {
+  return said === "bundle" || said === "docker" ? said : "sources";
+}
+
 // ---------------------------------------------------------------- versions
 
 export interface Release {
@@ -199,8 +204,7 @@ export class UpdatesCore {
 
   constructor(protected readonly o: UpdatesOptions) {
     this.version = o.version ?? VERSION;
-    const said = o.install ?? envSaid.install()?.trim();
-    this.install = said === "bundle" || said === "docker" ? said : "sources";
+    this.install = installKind(o.install ?? envSaid.install()?.trim());
     const root = o.root !== undefined ? o.root : envSaid.root()?.trim() || null;
     this.root = root ? resolve(root) : null;
     this.key = o.key ?? RELEASE_KEY;

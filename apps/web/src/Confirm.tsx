@@ -12,6 +12,8 @@ interface Question {
   text: string;
   /** What the button that goes ahead says. */
   yes: string;
+  /** The plain explanation, behind a "?" by the title (the text says it in the app's own words). */
+  help?: string;
 }
 /** A name or a line of text asked for: answered with what was typed, or null when closed. */
 interface TextQuestion {

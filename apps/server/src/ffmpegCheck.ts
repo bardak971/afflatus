@@ -3,7 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { delimiter, dirname, join, relative, resolve } from "node:path";
 import { environment } from "./config";
 import { countFrames, cutArgs, ffRun, inTemp } from "./cut";
-import { writeAtomic } from "./updatesModel";
+import { installKind, writeAtomic, type InstallKind } from "./updatesModel";
 
 /**
  * Which ffmpeg Afflatus uses, and whether it can do what Afflatus asks of it. Running is not enough: an old ffmpeg on the PATH
@@ -359,17 +359,24 @@ export function getterOn(platform = process.platform, arch = process.arch): "dow
 
 export const BREW_LINE = "brew install ffmpeg";
 
-/** The ffmpeg and ffprobe checks as Settings › About and the banners say them (preflight.ts's Check). */
-export function wordsOf(choice: Choice, platform = process.platform): {
+/**
+ * The ffmpeg and ffprobe checks as Settings › About and the banners say them (preflight.ts's Check). In the Docker image no
+ * Get ffmpeg is offered: every request reaches it from the bridge, never from this computer, so Get was always refused while
+ * the page said to press it on the PC Afflatus runs on (review F7, card #75); the image's own ffmpeg is what it uses.
+ */
+export function wordsOf(choice: Choice, platform = process.platform, install: InstallKind = installKind()): {
   ffmpeg: { ok: boolean; detail: string; fix: string; note?: string; get?: "download" | "brew" };
   ffprobe: { ok: boolean; detail: string; fix: string };
 } {
   const u = choice.used;
-  const get = choice.pinned ? null : getterOn(platform);
+  const docker = install === "docker";
+  const get = choice.pinned || docker ? null : getterOn(platform);
   const how = get === "brew" ? `Run ${BREW_LINE}` : get === "download" ? "Get ffmpeg downloads one into Afflatus's data folder; or install it" : "Install it";
   const fix = choice.pinned
     ? `FFMPEG is set to ${u?.ffmpeg ?? "?"}: point it to ffmpeg ${FFMPEG_LEAST} or newer, or take it out so that Afflatus finds one.`
-    : `${how} (${FFMPEG_LEAST} or newer, with libx264) and have it on the PATH, or set FFMPEG to its path.`;
+    : docker
+      ? `Afflatus uses the image's ffmpeg: pull the image again (docker compose pull), or set FFMPEG to another one (${FFMPEG_LEAST} or newer, with libx264) inside the container.`
+      : `${how} (${FFMPEG_LEAST} or newer, with libx264) and have it on the PATH, or set FFMPEG to its path.`;
   if (!u) {
     return {
       ffmpeg: { ok: false, detail: "not found on this computer", fix, ...(get ? { get } : {}) },

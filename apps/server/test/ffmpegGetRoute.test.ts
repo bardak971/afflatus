@@ -33,6 +33,21 @@ describe("POST /api/ffmpeg/get", () => {
     expect(start).toHaveBeenCalledOnce();
   });
 
+  it("is refused in the Docker image, whose own ffmpeg is the one it uses (card #75)", async () => {
+    t = await makeApp();
+    lastCheck(false);
+    vi.stubEnv("AFFLATUS_INSTALL", "docker");
+    try {
+      const start = vi.spyOn(ffmpegGetter, "start").mockReturnValue(ffmpegGetter.view);
+      const res = await t.app.inject({ method: "POST", url: "/api/ffmpeg/get" });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toMatch(/uses the image's ffmpeg/);
+      expect(start).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("is refused when the ffmpeg in use passed the checks", async () => {
     t = await makeApp();
     lastCheck(true);

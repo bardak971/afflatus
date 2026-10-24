@@ -127,7 +127,9 @@ export const h3Inputs: InputSpec[] = [
   },
   {
     id: "references", type: "references", label: "Reference images", max: H3_REFERENCES, roles: [...REFERENCE_ROLES],
-    note: "pictures of a person, a place, clothes, an object or a look: they are followed, they are not frames of the clip",
+    // every "A person" picture is written into H3's layout as one character (prompt.ts): two different people blend into
+    // one face, so the "?" says so (the owner, card #75). Shared by every H3 form that takes these pictures
+    note: "pictures of a person, a place, clothes, an object or a look: they are followed, they are not frames of the clip. Every \"A person\" picture is the same person, seen another way. For two people, pin a keyframe that shows both",
   },
   {
     id: "refVideos", type: "references", media: "video", label: "Reference videos", max: H3_REFERENCE_VIDEOS, roles: ["person"],

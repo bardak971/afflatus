@@ -4,6 +4,15 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Changed
+- **Removing a clip of a recording or of the source cuts its part out**, as a ripple delete in a video editor, and says so first in a question with the clip's numbers (where the recording or source jumps, which clip now starts after a cut, a take made carrying on from the removed clip). The first clip moves In past it; the last moves Out before it (set aside, back when Out is moved out). A clip from the middle is set aside with its takes: the band or the Source lane marks where ("cut · 4.8 s set aside", a click brings it back), the stages show the stretch the clips jump over, the clip after it becomes a cut and the song's hand-over is off there. Before, the clip was deleted and the song or the source's motion jumped without a word. Several clips picked are removed in one step for Undo.
+
+### Fixed
+- **Speech starts at inside a song run** no longer plays those words twice: a Lip sync clip carrying the recording on from the clip before adds no moment before the words. The setting is shown greyed there, the reason in its "?".
+- **Docker:** no Get ffmpeg in the image (every request reaches it from the bridge, so it was always refused while the page said to press it on the PC Afflatus runs on); a failing ffmpeg says the image's ffmpeg is the one used.
+- **Esc after typing in a box of the recording's or the source's panel** (In, Out) gives up the typing and leaves the box; the next Esc closes the panel, as it does elsewhere.
+- **Reference images' "?"** on Video with audio, Lip sync and Motion transfer says that every "A person" picture is the same person, seen another way, and to pin a keyframe that shows both for two people.
+
 ## [0.6.2] - 2026-10-24
 
 Downloads that land where you expect and a downloads line, a recording on the timeline opened like the source, Lip sync over a song, Find models quicker with each file's place on disk, and ffmpeg checked at start (the bundles and the Docker image now carry a build with libx264).

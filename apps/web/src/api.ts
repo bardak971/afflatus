@@ -644,6 +644,10 @@ export const api = {
   /** `inputs`: the form as the server kept it, when it worked out some of it (a voice's part). */
   editClip: (id: string, patch: ClipPatch) => call<{ ok: true; inputs?: Record<string, unknown> }>("PATCH", `/clips/${id}`, patch),
   deleteClip: (id: string) => call<{ ok: true }>("DELETE", `/clips/${id}`),
+  /** Several clips of a timeline removed in one step (those picked); a recording's or the source's cut their part out. */
+  removeClips: (timeline: string, ids: string[]) => call<{ ok: true }>("POST", `/timelines/${timeline}/clips/remove`, { ids }),
+  /** A part cut out of the middle of a recording or the source brought back, by the clip after it. */
+  bringBack: (timeline: string, before: string) => call<{ ok: true }>("POST", `/timelines/${timeline}/removed/back`, { before }),
   /** One clip becomes two at a moment of its take (the video's own time). */
   splitClip: (id: string, atMs: number) => call<{ clip: string }>("POST", `/clips/${id}/split`, { atMs: Math.round(atMs) }),
   /**

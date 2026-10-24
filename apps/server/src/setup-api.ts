@@ -17,6 +17,7 @@ import { said as ffmpegSaid } from "./ffmpegCheck";
 import { withMedia } from "./queueSubmit";
 import type { Services } from "./services";
 import { publicSettings, readSettings, writeSettings } from "./settings";
+import { installKind } from "./updatesModel";
 
 /** Afflatus itself and its ComfyUI: whether it is alive, what it can make, the settings, the setup scan, the log, and advice on a form. */
 
@@ -43,6 +44,8 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
    * passed: the page hides the button then, a request made anyway would only download one more.
    */
   app.post("/api/ffmpeg/get", async (req) => {
+    // the image's own ffmpeg is the one it uses (wordsOf offers no Get there): its requests all come from the bridge
+    if (installKind() === "docker") throw httpError("In the Docker image Afflatus uses the image's ffmpeg: pull the image again for a newer one.", 409);
     if (!fromThisComputer(req)) throw httpError("Get ffmpeg is done on the computer Afflatus runs on, not from another one.", 403);
     if (envSaid.ffmpeg()?.trim()) throw httpError("FFMPEG is set: Afflatus uses that ffmpeg and no other. Point FFMPEG to a newer one, or take it out.", 409);
     const used = preflight.last?.ffmpeg.used;

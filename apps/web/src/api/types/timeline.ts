@@ -139,7 +139,19 @@ export interface Timeline {
    * Its voice recordings, each made into Lip sync clips (drawn under them on the Audio row), how many of its clips a trim set
    * aside, and of those the rendered; how it is cut into them (about `seconds` a clip, in its pauses when `snap`).
    */
-  recordings?: Array<{ asset: Asset; parked: number; parkedTakes?: number; seconds?: number; snap?: boolean }>;
+  recordings?: Array<{ asset: Asset; parked: number; parkedTakes?: number; seconds?: number; snap?: boolean; removed?: RemovedPart[] }>;
+}
+/**
+ * A stretch cut out of the middle of a recording or the source by removing its clips (card #75): set aside with its clips
+ * and takes, kept with the clip after it (`before`, a cut since), `fromMs` to `toMs` of the recording or source; it comes
+ * back with Undo or its mark's Bring back.
+ */
+export interface RemovedPart {
+  before: string;
+  fromMs: number;
+  toMs: number;
+  clips: number;
+  takes: number;
 }
 /**
  * A timeline's source lane: the video, where its own start sits on the timeline (`atMs`, below 0 when it starts before the
@@ -164,9 +176,11 @@ export interface TimelineSource {
   apart?: Record<string, string[]>;
   /** How many of the windows a trim set aside are rendered: moving the start leaves them behind too. */
   parkedTakes?: number;
+  /** The stretches cut out of its middle by removing their windows. */
+  removed?: RemovedPart[];
 }
 /** A change to the source lane: a new video, or its settings. */
-export type SourcePatch = Partial<Omit<TimelineSource, "video" | "apart" | "parkedTakes">>;
+export type SourcePatch = Partial<Omit<TimelineSource, "video" | "apart" | "parkedTakes" | "removed">>;
 /** How a clip regenerated in a range meets its neighbours: with their video as context (the motion carries across), on a frame, or nothing there. */
 export interface RangeContext {
   start: "clip" | "frame" | "none";
