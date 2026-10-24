@@ -32,6 +32,8 @@ export interface Take {
   recipe: string | null;
   /** Made by a Face refine alone (a Face pass of the take it finishes): the same frames, its faces redrawn. */
   facePass?: boolean;
+  /** Its sound is a recording laid after its head (Lip sync): the sound never hands over to its head early (core soundHandover). */
+  laidSound?: boolean;
 }
 /** How a take's own part looks, measured on its real frames when it was rendered (the server's lookOf). Older takes carry the first two only. */
 export interface Measure {

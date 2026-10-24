@@ -24,12 +24,12 @@ const NOT_IN_GRAPH: Record<string, string> = {
 };
 
 /**
- * The inputs a media input's part is cut by on the server: its window's start, length, loudness and whether the sound goes on
- * after it, the frames a joined clip gives.
+ * The inputs a media input's part is cut by on the server: its window's start, length, loudness, whether the sound goes on
+ * after it and whether it is handed over with what comes before it, the frames a joined clip gives.
  */
 const serverRead = (r: Recipe<any>) =>
   new Set(r.inputs.flatMap((i) => [
-    ...("window" in i && i.window ? [i.window.start, i.window.seconds, ...("even" in i.window && i.window.even ? [i.window.even] : []), ...("goesOn" in i.window && i.window.goesOn ? [i.window.goesOn] : [])] : []),
+    ...("window" in i && i.window ? [i.window.start, i.window.seconds, ...("even" in i.window && i.window.even ? [i.window.even] : []), ...("goesOn" in i.window && i.window.goesOn ? [i.window.goesOn] : []), ...("leadIn" in i.window && i.window.leadIn ? [i.window.leadIn] : [])] : []),
     ...("framesFrom" in i && i.framesFrom ? [i.framesFrom] : []),
   ]));
 

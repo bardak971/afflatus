@@ -338,11 +338,14 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     await t.services.timelines.takes.add(clips[0]!.id, asset, { headMs: 0, tailMs: 0 }, {});
     let second = await planOf(1);
     expect([second.input.recordingStart, second.input.recordingSeconds]).toEqual([8, 8]);
+    expect(second.input.recordingLeadIn).toBeUndefined();
     // made with the recording going on: its tail sang 8 to 8.687, so clip 2 starts there and still ends at 16
     await t.db.updateTable("generations").set({ inputs: JSON.stringify({ ...made, recordingGoesOn: true }) }).where("id", "=", "zz-g1").execute();
     second = await planOf(1);
     expect(second.input.recordingStart).toBeCloseTo(8.687, 3);
     expect(Number(second.input.recordingStart) + Number(second.input.recordingSeconds)).toBeCloseTo(16, 3);
+    // its head (the frames it shares with clip 1) filed with what clip 1 sang there, handed over before its part
+    expect(second.input.recordingLeadIn).toBe(true);
     // the clip's own form is left as the cut made it
     expect((await view(tl.id)).clips[1].inputs).toMatchObject({ recordingStart: 8, recordingSeconds: 8 });
   });

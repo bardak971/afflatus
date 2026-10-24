@@ -106,6 +106,20 @@ describe.skipIf(!ffmpegThere)("the timeline, frame by frame", { timeout: FFMPEG_
     for (const join of [5146, 5146 + 4958]) expect(silentMs(out, join - 200, join + 100), `silence at the join at ${join} ms`).toBeLessThanOrEqual(3);
   });
 
+  it("keeps a Lip sync join's sound with the clip before to its end: the clip after's head is the model's guess, never heard", async () => {
+    // a song along two Lip sync clips: the first sings it to its last moment (the recording handed on after its part); the
+    // second's head is filed with it from the frame of it that shows (896 ms, recordingLeadIn), silent before (never heard)
+    const ends = (k: number) => k * (5146 - 896) / 1000;
+    const song = (k: number) => `if(${k === 0 ? "1" : "gte(t,0.896)"},0.5*sin(2*PI*440*(t+${ends(k)})),0)`;
+    const sung = await Promise.all([1, 2].map((c, k) => synthMade(c, FILE, 48, undefined, song(k))));
+    const { id, clips } = await chain(sung, N);
+    await t.db.updateTable("clips").set({ recipe_id: "h3.lipsync" }).where("id", "in", clips.map((c) => c.id)).execute();
+    expect((await view(id)).clips[1].take.laidSound).toBe(true);
+    const out = await exportOf(id);
+    // handed over 120 ms early, the guess's silence was heard just before the join
+    expect(silentMs(out, 5146 - 200, 5146 + 100), "silence before the join").toBeLessThanOrEqual(3);
+  });
+
   it("crossfades a SCAIL-2 window over its head (the clip before's own last moments made again), both moving, the clock unmoved", async () => {
     // two windows at 32 a second: the second's first 9 frames (281 ms) are its head, hidden; the join fades over its last 170 ms
     const a = await upload(synth(4, 153, 32), "w1.mp4");

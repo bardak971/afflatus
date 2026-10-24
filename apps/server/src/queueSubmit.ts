@@ -684,15 +684,20 @@ async function uploadSound({ db, storage, upload, input, signal, sent }: Up, spe
   const even = Boolean(spec.window.even && input[spec.window.even]);
   const after = spec.window.after ?? 0;
   const goesOn = Boolean(spec.window.goesOn && input[spec.window.goesOn]);
-  const part = await soundPart(whole, extOf(asset.mime), { ...asked, durationMs: asset.duration_ms, even, after, goesOn }).catch((err) => {
+  // sung up to the part by the clip before (its `leadIn`): the seconds before the part handed over too, for the clip's head
+  const pre = spec.window.leadIn && input[spec.window.leadIn] ? Math.max(0, Math.min(LEAD_IN_S, asked.start)) : 0;
+  const part = await soundPart(whole, extOf(asset.mime), { start: asked.start - pre, seconds: asked.seconds + pre, durationMs: asset.duration_ms, even, after, goesOn }).catch((err) => {
     sent.warnings.push(`The part of the ${spec.label.toLowerCase()} could not be cut (${(err as Error).message}): the whole sound was used.`);
     return null;
   });
   sent.uploads[spec.id] = part ? await upload(part, "wav") : await upload(await sendable(storage, asset.file_key), extOf(asset.mime));
   // how long the part really is (a sound that ends before the part asked for gives less): a recipe that follows it, a lip sync, is made that long
   const seconds = part ? partOf(asked.start, asked.seconds, asset.duration_ms ? asset.duration_ms / 1000 : null).seconds : asset.duration_ms ? asset.duration_ms / 1000 : undefined;
-  if (seconds) sent.media[spec.id] = { width: 0, height: 0, seconds, ...(part && after ? { after } : {}) };
+  if (seconds) sent.media[spec.id] = { width: 0, height: 0, seconds, ...(part && after ? { after } : {}), ...(part && pre ? { before: pre } : {}) };
 }
+
+/** Seconds of a sound handed over before its part, at most, for a clip's head (the window's `leadIn`): more than its 917 ms run-up. */
+const LEAD_IN_S = 2;
 
 /** A part painted on one picture cannot be put on another one. */
 function checkMasks(recipe: Recipe<any>, media: Record<string, MediaFacts>): void {
