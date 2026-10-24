@@ -8,10 +8,11 @@ import { ComfyClient, ComfyLocked, plannedScan } from "@afflatus/comfy";
 import { describeRecipe, listOptions, parseInput, type InputSpec } from "@afflatus/core";
 import { withMentions } from "./entities";
 import { mergeScans } from "./machineScans";
-import { comfyFolderOf, onThisMachine } from "./modelDownload";
+import { comfyFolderOf, onThisMachine, Refused } from "./modelDownload";
 import { accessOf } from "./lock-api";
 import { installNodePack } from "./nodePack";
 import { preflight } from "./preflight";
+import { ffmpegGetter } from "./ffmpegGet";
 import { withMedia } from "./queueSubmit";
 import type { Services } from "./services";
 import { publicSettings, readSettings, writeSettings } from "./settings";
@@ -26,8 +27,28 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
   const hosts = allowedHosts();
   // locked by a password (access.ts) and not signed in, only that it is alive too: the checks name the computer's folders
   app.get("/api/health", async (req) => (hostAllowed(req.headers.host, hosts) && (req.access.open || req.access.session) ? health(preflight.last) : { ok: true, version }));
-  /** The start-up checks run again, now (Settings → About → Check again). */
-  app.post("/api/health/check", async () => health(await preflight.run()));
+  /** The start-up checks run again, now (Settings → About → Check again): every ffmpeg tried anew, none of the kept results used. */
+  app.post("/api/health/check", async () => health(await preflight.run(undefined, { fresh: true })));
+
+  /** Get ffmpeg (ffmpegGet.ts): how it is going. */
+  app.get("/api/ffmpeg/get", async () => ffmpegGetter.view);
+  /**
+   * Get ffmpeg started: BtbN's build downloaded into the data folder, then the checks run again, which find it and use it. Not
+   * when FFMPEG is set: theirs is never swapped for another, the check says to change it.
+   */
+  app.post("/api/ffmpeg/get", async () => {
+    if (envSaid.ffmpeg()?.trim()) throw httpError("FFMPEG is set: Afflatus uses that ffmpeg and no other. Point FFMPEG to a newer one, or take it out.", 409);
+    try {
+      return ffmpegGetter.start(preflight.dataDir, async () => {
+        const p = await preflight.run(undefined, { fresh: true });
+        const used = p.ffmpeg.used;
+        return used?.ok && used.where === "got" ? null : `${p.checks.find((c) => c.id === "ffmpeg")?.detail ?? "ffmpeg was not checked"}`;
+      });
+    } catch (err) {
+      if (err instanceof Refused) throw httpError(err.message, 400);
+      throw err;
+    }
+  });
 
   /** Everything the composer can make things with, and the form of each. */
   app.get("/api/recipes", async () => ({ families: s.registry.families(), recipes: s.registry.recipes().map(describeRecipe) }));

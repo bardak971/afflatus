@@ -7,6 +7,7 @@ import { ask } from "../Confirm";
 import { useSettings } from "../data";
 import { queryKeys } from "../queryKeys";
 import { useSayFailed } from "../sayFailed";
+import { GetFfmpeg } from "../GetFfmpeg";
 import { Button, Chip, cx, ErrorNote, fieldClass } from "../ui";
 import { INSTALLS } from "./settings/NoComfyCard";
 import { CAP_DAY_WHY, CAP_MONTH_WHY, CapBox } from "./settings/RentedCard";
@@ -87,6 +88,8 @@ export function FirstLaunch() {
   const save = useSave();
   const sayFailed = useSayFailed({ id: "first-launch" });
   const find = useQuery({ queryKey: ["first-launch", "find"], queryFn: () => api.findComfy(), staleTime: Infinity, retry: false });
+  const health = useQuery({ queryKey: queryKeys.health(), queryFn: () => api.health(), staleTime: Infinity });
+  const ffmpeg = health.data?.checks.find((c) => c.id === "ffmpeg");
   const own = (settings.data?.machines ?? []).filter((m) => !m.rented);
   const [comfy, setComfy] = useState<Comfy>(own.length ? "added" : "looking");
   const [rent, setRent] = useState<"ask" | "yes" | "no">(settings.data?.hasRunpodKey ? "yes" : "ask");
@@ -135,6 +138,14 @@ export function FirstLaunch() {
           <h1 className="text-display font-bold text-ink-strong">Where you render</h1>
           <p className="mt-1 text-title text-ink-2">Afflatus sends its jobs to ComfyUI: yours, rented GPUs, or both. All of it is in Settings later.</p>
         </div>
+
+        {/* no ffmpeg that passes the start-up check: one line, and the way to one (ffmpegCheck.ts) */}
+        {ffmpeg && !ffmpeg.ok && (
+          <div role="status" className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-raised px-3.5 py-3">
+            <span className="text-ink">ffmpeg {ffmpeg.detail}: trims, joins and exports need it.</span>
+            <GetFfmpeg check={ffmpeg} />
+          </div>
+        )}
 
         <Ask n={1} done={comfy === "added" || comfy === "none"} title="Your ComfyUI">
           {comfy === "looking" && <span>Looking for ComfyUI at 127.0.0.1:8188 and :8000…</span>}

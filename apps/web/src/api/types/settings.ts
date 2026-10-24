@@ -7,8 +7,28 @@ export interface Health {
   ok: true;
   version: string;
   database: string;
-  checks: Array<{ id: "node" | "ffmpeg" | "ffprobe" | "data"; label: string; ok: boolean; detail: string; without: string; fix: string }>;
+  checks: HealthCheck[];
   checkedAt: string | null;
+}
+/** One of the start-up checks (preflight.ts). */
+export interface HealthCheck {
+  id: "node" | "ffmpeg" | "ffprobe" | "data";
+  label: string;
+  ok: boolean;
+  detail: string;
+  without: string;
+  fix: string;
+  /** Said though it passed: another ffmpeg than the PATH's is used, and why. */
+  note?: string;
+  /** What the page offers to put it right: Get ffmpeg's download, or Homebrew's line to copy. */
+  get?: "download" | "brew";
+}
+/** Get ffmpeg (ffmpegGet.ts): how it is going. */
+export interface FfmpegGetView {
+  phase: "idle" | "downloading" | "unpacking" | "checking" | "done" | "failed";
+  bytes: number;
+  total: number;
+  error: string | null;
 }
 /** One language model the designer can write with. Its key never comes back: only whether one is saved. */
 export interface LlmInfo {

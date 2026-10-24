@@ -1,5 +1,5 @@
 // Packs a release for one platform out of release/app (see stage.mjs): a portable Node runtime, ffmpeg and
-// ffprobe where a build can be redistributed (the LGPL builds for Windows and Linux; on macOS the start
+// ffprobe where a build can be redistributed (BtbN's GPL builds for Windows and Linux; on macOS the start
 // script points at Homebrew), the launchers, and the archive the GitHub release carries.
 //
 // The archive holds one folder, Afflatus/, laid out the way an install updates itself (HANDOVER-updater.md):
@@ -36,8 +36,10 @@ import { fileURLToPath } from "node:url";
  */
 const NODE_VERSION = "v24.21.0";
 /**
- * The ffmpeg the Windows and Linux bundles carry: the 9.0 release-branch build (LGPL) of one dated BtbN autobuild, not
- * the rolling "latest". A tag from https://github.com/BtbN/FFmpeg-Builds/releases, of the form
+ * The ffmpeg the Windows and Linux bundles carry: the 9.0 release-branch build (GPL) of one dated BtbN autobuild, not
+ * the rolling "latest". The GPL build, not the LGPL one: Afflatus encodes with libx264, which the LGPL builds leave out
+ * (the bundles up to 0.6.1 carried the LGPL one, and every cut, join and export said "Unknown encoder 'libx264'"). GPL-3.0 goes
+ * with Afflatus's AGPL-3.0; the build's own LICENSE.txt is copied beside it. A tag from https://github.com/BtbN/FFmpeg-Builds/releases, of the form
  * autobuild-YYYY-MM-DD-HH-MM; the script refuses to run while this is empty, and --ffmpeg names one for a run. A month's
  * last build: BtbN prunes the daily ones after about two weeks and keeps those (a daily pinned here was gone before the
  * release it was for). Its archives' SHA-256 are in checksums.json too.
@@ -199,19 +201,19 @@ rmSync(join(bundle, "node", "bin", "npm"), { force: true });
 rmSync(join(bundle, "node", "bin", "npx"), { force: true });
 rmSync(join(bundle, "node", "bin", "corepack"), { force: true });
 
-// 3. ffmpeg and ffprobe: one dated BtbN LGPL build (redistributable); macOS has none, the launcher says what to install
+// 3. ffmpeg and ffprobe: one dated BtbN GPL build (redistributable, its licence beside it); macOS has none, the launcher says what to install
 mkdirSync(join(bundle, "bin"), { recursive: true });
 if (platform !== "darwin-arm64") {
   if (!ffmpegTag) throw new Error("no ffmpeg build is named: set FFMPEG_TAG in scripts/release/bundle.mjs to a dated BtbN release tag (autobuild-YYYY-MM-DD-HH-MM, from https://github.com/BtbN/FFmpeg-Builds/releases), or pass --ffmpeg <tag>. The rolling \"latest\" build is not used: a release carries one known ffmpeg.");
   if (!/^autobuild-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}$/.test(ffmpegTag)) throw new Error(`${ffmpegTag} is not a BtbN autobuild tag (autobuild-YYYY-MM-DD-HH-MM)`);
-  console.log(`[bundle] ffmpeg (LGPL, BtbN ${ffmpegTag})`);
+  console.log(`[bundle] ffmpeg (GPL, BtbN ${ffmpegTag})`);
   // the release's files are listed through the API: a build's name carries its git revision, so it cannot be spelled out here
   const release = await (await get(`https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/${ffmpegTag}`, { headers: { Accept: "application/vnd.github+json", ...headers } })).json();
   const assets = release.assets ?? [];
   // the 9.0 release branch (n9.0.x), not the master nightly: a release ships an ffmpeg that is itself a release
-  const wanted = platform === "win-x64" ? /^ffmpeg-n9\.0[\w.-]*-win64-lgpl-9\.0\.zip$/ : /^ffmpeg-n9\.0[\w.-]*-linux64-lgpl-9\.0\.tar\.xz$/;
+  const wanted = platform === "win-x64" ? /^ffmpeg-n9\.0[\w.-]*-win64-gpl-9\.0\.zip$/ : /^ffmpeg-n9\.0[\w.-]*-linux64-gpl-9\.0\.tar\.xz$/;
   const asset = assets.find((a) => wanted.test(a.name));
-  if (!asset) throw new Error(`BtbN release ${ffmpegTag} has no 9.0 LGPL build for ${platform} among: ${assets.map((a) => a.name).join(", ") || "nothing"}`);
+  if (!asset) throw new Error(`BtbN release ${ffmpegTag} has no 9.0 GPL build for ${platform} among: ${assets.map((a) => a.name).join(", ") || "nothing"}`);
   // the checksum: the release's own list when it has one; else the one written down here the first time (--record)
   const sumsFile = join(here, "checksums.json");
   const sums = JSON.parse(readFileSync(sumsFile, "utf8"));
@@ -298,7 +300,7 @@ writeFileSync(join(top, "README.txt"), [
   "Afflatus updates itself: Settings > About says when a release is out and installs it. The releases it has are in",
   "versions/: the one it runs, and the one before it to go back to.",
   "Coming from 0.3.0: with both closed, move the old folder's data folder in here (in place of this one's, if it has one), then start this.",
-  platform === "darwin-arm64" ? "ffmpeg is needed for trims, exports and video previews: brew install ffmpeg" : `ffmpeg and ffprobe (LGPL builds by BtbN) are in versions/${folder}/bin/, with their build named in VERSIONS.txt there.`,
+  platform === "darwin-arm64" ? "ffmpeg is needed for trims, exports and video previews: brew install ffmpeg" : `ffmpeg and ffprobe (GPL builds by BtbN) are in versions/${folder}/bin/, with their build named in VERSIONS.txt there.`,
   "",
   "Afflatus is free software under the AGPL-3.0: https://github.com/bardak971/afflatus",
   `The other people's code it ships, and their licences, are listed in versions/${folder}/app/THIRD_PARTY_NOTICES.txt.`,

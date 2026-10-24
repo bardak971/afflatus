@@ -6,7 +6,7 @@ import type { Advice, DeployOverhead, FillPlan, FormPacks, GpuOffer, HuntAsk, Hu
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
-import type { DeployAsk, Health, FinishRedo, FinishSettings, MachineProbe, SessionState, Settings, SettingsPatch, SignedDevices } from "./api/types/settings";
+import type { DeployAsk, FfmpegGetView, Health, FinishRedo, FinishSettings, MachineProbe, SessionState, Settings, SettingsPatch, SignedDevices } from "./api/types/settings";
 import { signedOut } from "./access/signedOut";
 import type { GoBackCheck, UpdatesView } from "./api/types/updates";
 import type { CostsView } from "./api/types/costs";
@@ -208,6 +208,9 @@ export const api = {
   health: (o?: Asked) => call<Health>("GET", "/health", undefined, o?.signal),
   /** The tools Afflatus needs looked for again, now. */
   checkHealth: () => call<Health>("POST", "/health/check"),
+  /** Get ffmpeg: how it is going, and started (BtbN's build into the data folder, then the checks again). */
+  ffmpegGet: (o?: Asked) => call<FfmpegGetView>("GET", "/ffmpeg/get", undefined, o?.signal),
+  getFfmpeg: () => call<FfmpegGetView>("POST", "/ffmpeg/get"),
   settings: (o?: Asked) => call<Settings>("GET", "/settings", undefined, o?.signal),
   saveSettings: (patch: SettingsPatch) => call<Settings>("PUT", "/settings", patch),
   /** The same with the password typed again, for a change the server holds behind it (Telegram's bot and chat, the new-device notice; access.ts mayChange). */

@@ -16,6 +16,7 @@ import { nodesOfPack, type Graph, type NodeCatalog } from "@afflatus/core";
 import { buildApp } from "../apps/server/src/app";
 import { migrate, openSqlite, takeOver } from "../apps/server/src/db";
 import { createServices } from "../apps/server/src/services";
+import { preflight } from "../apps/server/src/preflight";
 import { AfflatusUpdates } from "../apps/server/src/updates";
 import { seedRenderTimes } from "./demo-times";
 import { seedHistory } from "./demo-history";
@@ -325,6 +326,8 @@ await seedHistory(db);
 // a week of pretend pod sessions for Queue › Costs, with the pretend RunPod
 if (pretendRunpod) await seedCosts(db);
 // the data folder named, as a real start does: the password's reset codes and sign-ins go to its logs/afflatus.log
+// the start-up checks as a real start runs them (start.ts): the tools, the Node, this data folder; ffmpeg chosen and said in About
+await preflight.run(dataDir);
 const services = await createServices(db, "sqlite", new LocalStorage(join(dataDir, "files")), undefined, { dataDir });
 // WEB_DIR: another build of the web app than the one `pnpm start` serves
 const dist = process.env.WEB_DIR ? join(root, process.env.WEB_DIR) : join(root, "apps/web/dist");

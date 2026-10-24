@@ -8,7 +8,7 @@
 #
 # Both stages start from one exact node:24-bookworm-slim, pinned by the digest of its multi-arch index. To
 # move it, `docker buildx imagetools inspect node:24-bookworm-slim` prints the new one (its Digest line).
-# The ffmpeg is Debian's own package, a GPL build (the desktop bundles carry an LGPL one).
+# The ffmpeg is Debian's own package, a GPL build (the desktop bundles carry BtbN's GPL one).
 
 FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS build
 WORKDIR /src

@@ -2,6 +2,8 @@
   "about": "SHA-256 of the archives bundle.mjs downloads: checked when their release carries no checksum file of its own (BtbN's ffmpeg autobuilds without a checksums.sha256), and held against the release's list when it has one. Keyed by the archive's file name; written by `node scripts/release/bundle.mjs --record` the first time a tag is used, checked on every run after.",
   "sha256": {
     "ffmpeg-n9.0.2-17-g2a571b6068-win64-lgpl-9.0.zip": "6b264b9e6019103f601d98c292bd332fd87acf1c5e941ddff4fb71760fe63432",
-    "ffmpeg-n9.0.2-17-g2a571b6068-linux64-lgpl-9.0.tar.xz": "2d41cbea0ca1a15029b638330740f78d6f5aeb062355bf425433fc938705350a"
+    "ffmpeg-n9.0.2-17-g2a571b6068-linux64-lgpl-9.0.tar.xz": "2d41cbea0ca1a15029b638330740f78d6f5aeb062355bf425433fc938705350a",
+    "ffmpeg-n9.0.2-17-g2a571b6068-win64-gpl-9.0.zip": "a0e45723c72141975f51d8666302e614711745f3102b704ca3f82c897a58d278",
+    "ffmpeg-n9.0.2-17-g2a571b6068-linux64-gpl-9.0.tar.xz": "68ee646831adaae2495618346f3bba94ff207ff83bbd34d643e7004730d66269"
   }
 }
