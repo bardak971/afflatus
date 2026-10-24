@@ -48,7 +48,7 @@ export function downloadRows(list: readonly Download[], machineName: (id: string
     const label = d.title || d.file;
     // the file beside its folder when the title does not say it: two versions of one model read apart
     const meta = [d.status === "downloading" ? part : says(d), label === d.file ? d.folder : `${d.folder} › ${d.file}`, on].filter(Boolean).join(" · ");
-    return { key: `download:${d.id}`, kind: "command", label, meta, group: "Downloads", verb: downloading(d) ? "show" : d.again ? "download again" : "dismiss", p: prepare(`${label} ${d.file}`), value: { kind: "download", d } };
+    return { key: `download:${d.id}`, kind: "command", label, meta, group: "Downloads", verb: downloading(d) ? "show" : d.again ? "try again" : "dismiss", p: prepare(`${label} ${d.file}`), value: { kind: "download", d } };
   });
 }
 

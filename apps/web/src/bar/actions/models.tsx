@@ -1,5 +1,5 @@
-import { Copy, Download as DownloadIcon, ExternalLink, ListPlus, RotateCcw, Search, Server, Square, User, X } from "lucide-react";
-import { api, type BrowseCard, type BrowseFile, type Download, type UpdateRow } from "../../api";
+import { Copy, Download as DownloadIcon, ExternalLink, FolderOpen, ListPlus, RotateCcw, Search, Server, Square, User, X } from "lucide-react";
+import { api, type BrowseCard, type BrowseFile, type Download, type FileWhere, type UpdateRow } from "../../api";
 import { ask, askChoice } from "../../Confirm";
 import { addPicked, clearPicked, dropPicked, foldersFor, getOnPc, openFindModels, openFindModelsOn, pickedNow, pickedOf, type FindTarget } from "../../findModels/store";
 import { plural } from "../../format";
@@ -10,6 +10,8 @@ import { machineLabel } from "../../machines";
 import { queryKeys } from "../../queryKeys";
 import { settingHref } from "../../screens/settings/settingsIndex";
 import { copyText } from "../../secureContext";
+import type { SearchValue } from "../items";
+import { inLine } from "../../downloadLine";
 import type { Action, BarCtx } from "./ctx";
 /**
  * What the bar does with Civitai and Hugging Face: a pasted link's file downloaded onto this PC or another ComfyUI, a
@@ -85,23 +87,25 @@ export function linkActions(x: BarCtx, card: BrowseCard, version: string, file: 
   ];
 }
 
-/** A download in `!`: shown, stopped, dismissed, or asked again as it was first asked. */
+/** A download in `!`: shown, cancelled (taken out of the line while it waits), dismissed, tried again as it was first asked; done, its place on disk. */
 export function downloadActions(x: BarCtx, d: Download): Action[] {
   const show: Action = { label: "Show the downloads", icon: <DownloadIcon size={14} />, note: "Settings › Models", run: () => x.go(settingHref("models.downloads")) };
   const done = () => void x.client.invalidateQueries({ queryKey: queryKeys.downloads() });
   const dismiss: Action = { label: "Dismiss", icon: <X size={14} />, stay: true, run: () => api.stopDownload(d.id).then(done, x.failed("Could not take it off the list")) };
   if (d.status === "starting" || d.status === "downloading") {
-    return [show, { label: "Stop this download", icon: <Square size={14} />, danger: true, note: "nothing is kept of it", stay: true, run: () => api.stopDownload(d.id).then(done, x.failed("Could not stop it")) }];
+    // the line's own words: a file waiting its turn is taken out of the line, one under way cancelled
+    const out = inLine(d) ? "Take it out of the line" : "Cancel this download";
+    return [show, { label: out, icon: <Square size={14} />, danger: true, note: inLine(d) ? `waiting its turn, ${d.waiting}` : "nothing is kept of it", stay: true, run: () => api.stopDownload(d.id).then(done, x.failed("Not cancelled")) }];
   }
   if (d.status === "error" || d.status === "stopped") {
     return [
       d.again
-        ? { label: "Download again", icon: <RotateCcw size={14} />, note: "as it was asked", stay: true, run: () => api.downloadAgain(d.id).then(done, x.failed(`Could not download ${d.file} again`)) }
-        : { label: "Download again", icon: <RotateCcw size={14} />, disabled: true, note: "Afflatus restarted since: from where it was found", run: () => {} },
+        ? { label: "Try again", icon: <RotateCcw size={14} />, note: "as it was asked", stay: true, run: () => api.downloadAgain(d.id).then(done, x.failed("Not started again")) }
+        : { label: "Try again", icon: <RotateCcw size={14} />, disabled: true, note: "Afflatus restarted since: from where it was found", run: () => {} },
       dismiss, show,
     ];
   }
-  return d.status === "done" ? [dismiss, show] : [show];
+  return d.status === "done" ? [dismiss, ...whereActions(x, whereAsk({ kind: "download", d })!), show] : [show];
 }
 
 /** A model of yours with a newer version on Civitai: that version fetched (asked, as the Settings card's Get it), its page. */
@@ -253,4 +257,45 @@ export function missingActions(x: BarCtx): Action[] {
     },
     { label: "Show them in Settings › Models", icon: <Search size={14} />, run: () => x.go(settingHref("server.downloadModels")) },
   ];
+}
+
+/** A model file whose place on disk the bar offers (FileWhere's): the folders it may be in, tried in order, and its ComfyUI. */
+export type WhereAsk = { folders: string[]; file: string; machine?: string };
+
+/** The model folders a model value of the render search may be read from, as its page is looked for. */
+export const MODEL_FOLDERS = ["checkpoints", "diffusion_models", "unet"];
+
+/** The file a row stands for, whose place Show in folder or Copy path gives: a LoRA, a model, a download that is done. */
+export function whereAsk(v: SearchValue | undefined): WhereAsk | null {
+  if (v?.kind === "lora") return { folders: ["loras"], file: v.file };
+  if (v?.kind === "model") return { folders: MODEL_FOLDERS, file: v.file };
+  if (v?.kind === "download" && v.d.status === "done") return { folders: [v.d.folder], file: v.d.file, ...(v.d.machine ? { machine: v.d.machine } : {}) };
+  return null;
+}
+
+/** Where a file is, as FileWhere reads it: read once by useBarActions for the row the bar is on, kept in the same cache. */
+export const whereQuery = (folder: string, file: string, machine?: string) => ({
+  queryKey: queryKeys.modelFileWhere(folder, file, machine),
+  queryFn: ({ signal }: { signal: AbortSignal }) => api.modelFileWhere({ folder, file, ...(machine ? { machine } : {}) }, { signal }),
+  staleTime: 60_000,
+});
+
+/**
+ * A model file's place on disk (card #64), as FileWhere offers it: Show in folder for each place when the bar is open on the
+ * computer Afflatus runs on, else Copy path; a ComfyUI on another machine has no path, its folder and name are copied then.
+ * The path is never sent: Show in folder names the file and which of its places, the server finds it.
+ */
+export function whereActions(x: BarCtx, w: WhereAsk): Action[] {
+  for (const folder of w.folders) {
+    const d = x.client.getQueryData<FileWhere>(queryKeys.modelFileWhere(folder, w.file, w.machine));
+    if (!d) return [{ label: "Show in folder", icon: <FolderOpen size={14} />, disabled: true, note: "its place on disk being read", run: () => {} }];
+    if (!d.places.length) continue;
+    return d.places.map((p, at) => (d.reveal
+      ? { label: "Show in folder", icon: <FolderOpen size={14} />, note: p.path, run: () => api.revealModelFile({ folder, file: w.file, at, ...(w.machine ? { machine: w.machine } : {}) }).catch(x.failed("Could not show it in its folder")) }
+      : { label: "Copy path", icon: <Copy size={14} />, note: p.path, stay: true, run: () => copyText(p.path).then(() => x.onCopied("the path"), () => x.onCopied("")) }));
+  }
+  // found in none of its folders: the page copies its folder and name; a model, whose folder is not known, has nothing to copy
+  if (w.folders.length > 1) return [];
+  const said = `${w.folders[0]}/${w.file}`;
+  return [{ label: "Copy path", icon: <Copy size={14} />, note: said, stay: true, run: () => copyText(said).then(() => x.onCopied("the path"), () => x.onCopied("")) }];
 }

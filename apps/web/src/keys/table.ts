@@ -349,7 +349,7 @@ export const PLACES: KeyPlace[] = [
       {
         name: "Range",
         rows: [
-          { keys: "I O", does: "In / Out at the playhead", note: "alone, In reaches to the end" },
+          { keys: "I O", does: "In / Out at the playhead", note: "alone, In reaches to the end; with the source or a recording on the stage, its In / Out" },
           { keys: "Shift+I Shift+O", does: "Go to In / Out" },
           { keys: "L", does: "Loop the range" },
           { keys: "Esc", does: "Clear the picks and the range", note: "then the clip's panel, then the music's" },
@@ -403,7 +403,7 @@ export const PLACES: KeyPlace[] = [
   {
     id: "media",
     name: "Media library",
-    about: "the library over a timeline's stage, from the Media tab",
+    about: "the library over a timeline's stage, from the Media strip",
     groups: [
       { name: "Library", rows: [{ keys: "Esc", does: "Fold the library away" }] },
       {

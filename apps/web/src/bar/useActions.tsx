@@ -1,5 +1,5 @@
 import { lazy, Suspense, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { ArrowUpToLine, Copy, Keyboard, Navigation, RotateCcw, Settings2, Square } from "lucide-react";
 import { useOpenComfyUI, useOpenInComfy } from "../actions";
@@ -34,6 +34,7 @@ import type { Item } from "./items";
 import { pageLabel, type SettingCtx } from "./settingsRegistry";
 import { commandActions } from "./actions/commands";
 import { searchValueActions } from "./actions/search";
+import { whereAsk, whereQuery } from "./actions/models";
 import type { Action, BarCtx, FolderEntry, RenderTimeline, TimelineAim, TimelineEntry } from "./actions/ctx";
 import { historyActions, kitActions, personActions } from "./actions/kit";
 import { jobActions } from "./actions/queue";
@@ -49,9 +50,11 @@ const Viewer = lazy(() => import("../Viewer").then((m) => ({ default: m.Viewer }
  * and the Workflows screen's buttons (through bridge.ts), the Prompt kit's calls and the open form. The bar adds no
  * behaviour of its own. The hooks are read here; each kind's actions are in actions/ (commands, renders, tree, queue, kit).
  */
-export function useBarActions({ subject, aim, settingCtx, onCopied, flash }: {
+export function useBarActions({ subject, about, aim, settingCtx, onCopied, flash }: {
   /** The render that is selected, read in full (its generation): the viewer's actions are for it. */
   subject: Asset | null;
+  /** The row the bar is on, or whose actions are listed: a model file's place on disk is read for it ahead of Tab. */
+  about?: Item | null;
   aim: TimelineAim | null;
   settingCtx: SettingCtx;
   onCopied(text: string): void;
@@ -82,6 +85,9 @@ export function useBarActions({ subject, aim, settingCtx, onCopied, flash }: {
   const selectedClip = useSelectedClip((c) => c.clip);
   const draftOpen = useOpenDraft((d) => Boolean(d.id));
   const [viewing, setViewing] = useState<Asset | null>(null);
+  // a LoRA, a model or a finished download: where its file is (Show in folder, Copy path), read as FileWhere reads it
+  const where = whereAsk(about?.value);
+  useQueries({ queries: (where?.folders ?? []).map((f) => whereQuery(f, where!.file, where!.machine)) });
 
   // the selected render's actions are the item's list (itemActions.tsx), worked out for it alone (for nothing while
   // none is selected); Trim and Details open the viewer with them, what they make opens in the viewer

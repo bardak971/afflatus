@@ -52,6 +52,10 @@ export interface CommandCtx {
   spending?: RentedSpending | null;
   /** Afflatus's own updates (Settings › About): Check, Update and Go back. */
   updates?: UpdatesView | null;
+  /** The start-up checks (Settings › About › On this computer): those that failed, and Get ffmpeg's offer, from this PC or not. */
+  tools?: { failed: string[]; get?: "download" | "brew"; here?: boolean } | null;
+  /** The model files waiting their turn in the downloads line (`> remove waiting downloads`). */
+  downloadsWaiting?: number;
   /** Telegram and Discord set up, for `> test notification`. */
   channels?: { telegram: boolean; discord: boolean };
   /** Find models searches online only with Search Hugging Face and Civitai on. */
@@ -114,9 +118,9 @@ export function commandKeys(c: Command | { cmd: CommandId }): string | undefined
 }
 
 /** The commands offered only where they apply: a clip selected in the open editor, jobs waiting, failures, loads to save. */
-const LIVE: CommandId[] = ["split", "delete-clip", "previous-take", "next-take", "mirror-pin", "slow-motion", "motion-windows", "cancel-waiting", "retry-failed", "dismiss-failed", "group-queue", "unload", "cancel-hunt", "stop-all-pods", "update", "go-back", "test-notify", "sign-out", "sign-out-everywhere"];
+const LIVE: CommandId[] = ["split", "delete-clip", "previous-take", "next-take", "mirror-pin", "slow-motion", "motion-windows", "cancel-waiting", "retry-failed", "dismiss-failed", "group-queue", "unload", "cancel-hunt", "stop-all-pods", "cancel-downloads", "get-ffmpeg", "update", "go-back", "test-notify", "sign-out", "sign-out-everywhere"];
 /** What is done to the whole queue, listed after its jobs in the `!` mode. */
-export const QUEUE_BULK: CommandId[] = ["cancel-waiting", "retry-failed", "dismiss-failed", "group-queue"];
+export const QUEUE_BULK: CommandId[] = ["cancel-waiting", "retry-failed", "dismiss-failed", "group-queue", "cancel-downloads"];
 
 /** "Render clips 3–5": a run of three or more clips said as a range. */
 const said = (c: Command): string => c.cmd === "render-clips" ? `${c.clips.length > 1 ? "Render clips" : "Render clip"} ${c.clips.length > 2 && c.clips.at(-1)! - c.clips[0]! === c.clips.length - 1 ? `${c.clips[0]}–${c.clips.at(-1)}` : c.clips.join(", ")}` : "";
@@ -216,6 +220,9 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     "go-back": x.updates?.previous
       ? [`Go back to ${x.updates.previous.version}…`, x.updates.here ? "Its library as it was at the update · asked first · Afflatus restarts" : "Only on the computer Afflatus runs on"]
       : ["Go back to the previous version…", "No previous version kept"],
+    "check-tools": ["Check this computer again", x.tools?.failed.length ? `${x.tools.failed.join(", ")} failed · tried again now, as About's Check again` : "ffmpeg, ffprobe, Node and the data folder tried again now, as About's Check again"],
+    "get-ffmpeg": [x.tools?.get === "brew" ? "Get ffmpeg: brew install ffmpeg" : "Get ffmpeg", x.tools?.get === "brew" ? "Homebrew's line, copied to paste in a terminal" : x.tools?.here === false ? "Get ffmpeg from the PC Afflatus runs on" : "BtbN's GPL build into Afflatus's data folder, followed in Settings › About"],
+    "cancel-downloads": ["Remove all waiting downloads", x.downloadsWaiting ? `${plural(x.downloadsWaiting, "file")} waiting their turn · those under way go on` : "Nothing waits in the downloads line"],
     "test-notify": [`Send a test notification${c.cmd === "test-notify" && c.channel ? ` to ${c.channel === "telegram" ? "Telegram" : "Discord"}` : ""}`, channelsSaid(x.channels)],
   };
   const [label, meta] = words[c.cmd];
@@ -241,6 +248,9 @@ const applies = (x: CommandCtx, id: CommandId): boolean =>
   id === "split" || id === "previous-take" || id === "next-take" || id === "delete-clip" ? Boolean(x.selectedClip)
   : id === "mirror-pin" ? Boolean(x.selectedClip?.pins?.length)
   : id === "cancel-waiting" ? Boolean(x.queue?.waiting)
+  : id === "cancel-downloads" ? Boolean(x.downloadsWaiting)
+  // only where About offers it: the ffmpeg check failed with a way to put it right
+  : id === "get-ffmpeg" ? Boolean(x.tools?.get)
   : id === "retry-failed" || id === "dismiss-failed" ? Boolean(x.queue?.failed)
   : id === "group-queue" ? Boolean(x.queue?.saves)
   : id === "unload" ? Boolean(x.queue?.online)

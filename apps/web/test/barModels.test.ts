@@ -38,7 +38,7 @@ describe("Civitai and Hugging Face in the bar", () => {
     ], (id) => (id === "pod" ? "RunPod 4090" : null));
     expect(rows.map((r) => [r.label, r.meta, r.verb])).toEqual([
       ["Soft light · v2", "25 % of 48 MB · loras › a.safetensors · RunPod 4090", "show"],
-      ["a.safetensors", "Cancelled. Nothing was kept of it. · loras", "download again"],
+      ["a.safetensors", "Cancelled. Nothing was kept of it. · loras", "try again"],
     ]);
   });
 
