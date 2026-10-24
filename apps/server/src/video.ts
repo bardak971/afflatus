@@ -12,6 +12,21 @@ import { envSaid } from "./config";
 export const tools = { ffmpeg: envSaid.ffmpeg()?.trim() || "ffmpeg", ffprobe: envSaid.ffprobe()?.trim() || "ffprobe" };
 
 /**
+ * The ffmpeg in use as the person reads it, with its version and where it was found ("ffmpeg 9.0.2 (PATH)"): set by the start-up
+ * check (ffmpegCheck.ts), which may choose another than the PATH's; until then, its path.
+ */
+export const toolsSaid = { ffmpeg: null as string | null };
+export const ffmpegSaid = () => toolsSaid.ffmpeg ?? `ffmpeg (${tools.ffmpeg})`;
+
+/** Another ffmpeg chosen (ffmpegCheck.ts): it is used from now on, and its version asked again. */
+export function chooseTools(ffmpeg: string, ffprobe: string, said: string | null): void {
+  if (tools.ffmpeg !== ffmpeg) major = null;
+  tools.ffmpeg = ffmpeg;
+  tools.ffprobe = ffprobe;
+  toolsSaid.ffmpeg = said;
+}
+
+/**
  * A run's arguments with every input it reads limited to files and pipes. A file from a stranger can be a
  * playlist naming other addresses (a web address on the LAN, a service on this machine) that ffmpeg would
  * otherwise go and read; the option comes before each `-i` of ffmpeg, and first for ffprobe, whose input

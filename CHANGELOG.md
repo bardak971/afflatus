@@ -4,6 +4,14 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+- **ffmpeg is tried as Afflatus uses it at start**, not only run: its version (6.1 or newer), libx264 and aac, and a test cut of a join's run-up at 24 and 16 fps, its frames counted. ffmpeg 7.0 and 7.1 run but miscount those frames (7.1 cuts 21 for 22, 7.0.2 34), which failed joins with "The frames to join onto could not be cut from that clip"; they are refused. When the one on the PATH fails, Afflatus uses the first that passes among Get ffmpeg's and ComfyUI's own (imageio-ffmpeg, when ComfyUI's folder is set), and Settings › About says so. `FFMPEG` set by you is never swapped: its failure is said instead.
+- **Get ffmpeg** (Windows, Linux) in Settings › About, the banner and the first launch, when no ffmpeg passes: the bundles' build, downloaded into the data folder (`data/bin`), its SHA-256 checked, used at once without a restart. On macOS, the `brew install ffmpeg` line with Copy.
+
+### Fixed
+- **The Windows and Linux bundles carry BtbN's GPL ffmpeg**, with libx264: the LGPL build they carried until now has none, so every trim, join and export in a bundle failed with "Unknown encoder 'libx264'".
+- **A join whose frames could not be cut names the ffmpeg**, its version and the count it gave ("ffmpeg 7.1 (ComfyUI's) cut 21 where 22 were asked"), and points to Settings › About.
+
 ## [0.6.1] - 2026-10-23
 
 Fixes after 0.6.0, and Settings › Models folded on a new install.

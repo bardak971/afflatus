@@ -80,7 +80,7 @@ export function systemTar(): string {
 }
 
 /** A program run to its end: its exit code (null when it could not be run or was stopped) and the end of what it said. */
-function runProgram(cmd: string, args: string[], opts: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs: number; signal?: AbortSignal }): Promise<{ code: number | null; said: string }> {
+export function runProgram(cmd: string, args: string[], opts: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs: number; signal?: AbortSignal }): Promise<{ code: number | null; said: string }> {
   return new Promise((done) => {
     execFile(cmd, args, { cwd: opts.cwd, env: opts.env, timeout: opts.timeoutMs, signal: opts.signal, windowsHide: true, maxBuffer: 4 * 1024 * 1024, encoding: "utf8" }, (err, stdout, stderr) => {
       const said = `${stderr}\n${stdout}`.trim().split(/\r?\n/).filter(Boolean).slice(-3).join(" ").slice(0, 400);

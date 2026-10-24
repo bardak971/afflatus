@@ -85,7 +85,7 @@ Without it the library and the designer work; trims, exports, joins, slow motion
 
 ## Running from the sources instead
 
-See [develop.md](develop.md). It needs Node 22.16 or newer and ffmpeg on the PATH.
+See [develop.md](develop.md). It needs Node 22.16 or newer and ffmpeg 6.1 or newer with libx264 (not 7.0 or 7.1, which miscount a join's frames) on the PATH; when none is found, Settings › About's Get ffmpeg downloads the bundles' one into the data folder.
 
 ## Next
 

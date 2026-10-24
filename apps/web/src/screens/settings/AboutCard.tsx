@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type SettingsPatch, type UpdatesView } from "../../api";
 import { useSetup } from "../../data";
@@ -8,6 +8,7 @@ import { Progress } from "../../progress/Progress";
 import { Button, cx, ErrorNote, Help, Toggle } from "../../ui";
 import { aboutState, askGoBack, followRestart, newsOf, stepsOf, useUpdates, useUpdatesSeen, versionNote } from "../../updates";
 import { Block, Card, Row, Status } from "./Rows";
+import { GetFfmpeg } from "../../GetFfmpeg";
 import { queryKeys } from "../../queryKeys";
 import { COLUMNS } from "./wide";
 
@@ -59,10 +60,19 @@ export function AboutCard() {
           status={<Button size="sm" onClick={() => recheck.mutate()} disabled={recheck.isPending}>{recheck.isPending ? "Checking…" : checks.length ? "Check again" : "Check now"}</Button>}
         >
           {checks.map((c) => (
-            <Row key={c.id} label={c.label} tone={c.ok ? undefined : "warn"} help={c.ok ? undefined : `${c.without} ${c.fix}`}>
-              <span className="min-w-0 truncate font-mono text-xs text-ink-2">{c.detail}</span>
-              <Status ok={c.ok}>{c.ok ? "OK" : "Failed"}</Status>
-            </Row>
+            <Fragment key={c.id}>
+              <Row label={c.label} tone={c.ok ? undefined : "warn"} help={c.ok ? undefined : `${c.without} ${c.fix}`}>
+                <span className="min-w-0 truncate font-mono text-xs text-ink-2" data-tip={c.detail}>{c.detail}</span>
+                <Status ok={c.ok}>{c.ok ? "OK" : "Failed"}</Status>
+              </Row>
+              {/* another ffmpeg than the PATH's used, and why; or the way to one that works */}
+              {(c.note || c.get) && (
+                <Block className="flex flex-col gap-2 text-xs text-ink-3">
+                  {c.note && <span>{c.note}</span>}
+                  <GetFfmpeg check={c} />
+                </Block>
+              )}
+            </Fragment>
           ))}
           {health.isSuccess && !checks.length && <Block className="text-xs text-ink-3">Not checked yet: the server started before these checks existed.</Block>}
           {recheck.isError && <Block><ErrorNote>{recheck.error.message}</ErrorNote></Block>}

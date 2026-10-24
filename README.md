@@ -138,7 +138,7 @@ You need ComfyUI running somewhere (a clone, the portable build or the desktop a
 | macOS, Apple Silicon ¹ | `tar xzf afflatus-<version>-darwin-arm64.tar.gz`, run `Afflatus/afflatus.sh`; `brew install ffmpeg` once |
 | Docker | `docker run -p 127.0.0.1:8720:8720 -v afflatus-data:/data ghcr.io/bardak971/afflatus:latest`, or the [compose.yaml](compose.yaml) ([guide](docs/install-docker.md)) |
 | Kubernetes | the Helm chart in [chart/](chart) ([guide](docs/install-cluster.md)) |
-| From the sources | Node 22.16+ and ffmpeg: `corepack pnpm install && corepack pnpm build && corepack pnpm start` |
+| From the sources | Node 22.16+ and ffmpeg 6.1+ (not 7.0 or 7.1): `corepack pnpm install && corepack pnpm build && corepack pnpm start` |
 
 ¹ Built by the release workflow but not yet started on a real machine. Reports welcome.
 
@@ -192,4 +192,4 @@ Afflatus is under [AGPL-3.0](LICENSE); its node pack for ComfyUI in [comfy-nodes
 - The authors of the node packs listed in [ComfyUI setup](docs/comfyui-setup.md#node-packs), Kijai for the lightx2v LoRA the motion-transfer form runs on, and [InsightFace](https://github.com/deepinsight/insightface), whose models (non-commercial research) give the face figures.
 - Carasibana's [ComfyUI-H3-FaceRefine](https://github.com/Carasibana/ComfyUI-H3-FaceRefine), which Face refine runs on, and ltdrdata's [ComfyUI-Impact-Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) for its face outline; akatz-ai's [Character-Swap LoRA](https://huggingface.co/akatz-ai/MiniMax-H3-Character-Swap-LoRA) for MiniMax H3, which Swap character runs on; alibaba-pai's Fun ControlNet Union for MiniMax H3 and the DWPose skeletons of [comfyui_controlnet_aux](https://github.com/Fannovel16/comfyui_controlnet_aux), which hold Motion transfer to its source; and [Veda](https://github.com/veda-sparse/Veda-on-ComfyUI)'s sparse attention.
 - [Darksidewalker](https://civitai.com/user/Darksidewalker) (DaSiWa), whose fine-tunes of MiniMax H3, Krea 2, LTX 2.3 and Wan 2.2 ship as presets with his recommended settings, and whose [ComfyUI-DaSiWa-Nodes](https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes) Afflatus uses.
-- The ffmpeg builds in the Windows and Linux bundles are the LGPL builds by [BtbN](https://github.com/BtbN/FFmpeg-Builds). Every release carries `THIRD_PARTY_NOTICES.txt`.
+- The ffmpeg builds in the Windows and Linux bundles are the GPL builds by [BtbN](https://github.com/BtbN/FFmpeg-Builds). Every release carries `THIRD_PARTY_NOTICES.txt`.

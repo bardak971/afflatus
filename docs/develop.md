@@ -2,7 +2,9 @@
 
 ## Run it from the sources
 
-Needs Node 22.16 or newer (24 is what the releases ship) and ffmpeg on the PATH. pnpm comes through corepack.
+Needs Node 22.16 or newer (24 is what the releases ship) and ffmpeg 6.1 or newer with libx264, on the PATH or named by `FFMPEG` and `FFPROBE`. pnpm comes through corepack.
+
+At start, Afflatus tries the ffmpeg it finds as it uses it (its version, libx264 and aac, and a test cut of a join's run-up, its frames counted): ffmpeg 7.0 and 7.1 run but miscount those frames, and are refused. When the PATH's fails, it looks further and uses the first that passes, saying so in Settings › About: the one Get ffmpeg put in the data folder (`data/bin`), then the one in ComfyUI's Python (imageio-ffmpeg, when ComfyUI's folder is set). `FFMPEG` set is never swapped for another: its failure is said instead. Get ffmpeg (Windows, Linux) downloads the bundles' build into `data/bin`; on macOS, `brew install ffmpeg`.
 
 ```
 corepack pnpm install
@@ -71,4 +73,4 @@ What a bundle carries is pinned at the top of `bundle.mjs`: `NODE_VERSION`, one 
 
 ## Licence
 
-AGPL-3.0. The node pack is MIT and vendors the MIT nodes of ttulttul's ComfyUI-Minimax-H3-Continuation, with two small changes (a guarded import, Append Continuation marked deprecated); the ffmpeg builds in the Windows and Linux bundles are BtbN's LGPL builds.
+AGPL-3.0. The node pack is MIT and vendors the MIT nodes of ttulttul's ComfyUI-Minimax-H3-Continuation, with two small changes (a guarded import, Append Continuation marked deprecated); the ffmpeg builds in the Windows and Linux bundles are BtbN's GPL builds (with libx264, which Afflatus encodes with).

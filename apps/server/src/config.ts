@@ -65,6 +65,8 @@ export const envSaid = {
   /** ffmpeg and ffprobe, when they are not on the PATH. */
   ffmpeg: () => process.env.FFMPEG,
   ffprobe: () => process.env.FFPROBE,
+  /** Where Get ffmpeg downloads BtbN's build from (GitHub's releases, unless set): a stand-in site in the tests. */
+  ffmpegGetUrl: () => process.env.FFMPEG_GET_URL,
   /** The address of Afflatus's latest release (GitHub's, unless set): a stand-in site in the tests, or a mirror. */
   updatesUrl: () => process.env.UPDATES_URL,
   /** How Afflatus was installed: "bundle" (set by the release's launcher), "docker" (by the image); anything else is the sources. */

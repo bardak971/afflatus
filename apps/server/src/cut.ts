@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { FRAME_SLACK_MS } from "@afflatus/core";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { factsOf, ffmpegMajor, localInputs, tools, type ProbeInfo, type VideoFacts } from "./video";
+import { factsOf, ffmpegMajor, ffmpegSaid, localInputs, tools, type ProbeInfo, type VideoFacts } from "./video";
 import { ffmpegPool } from "./pool";
 import { aiVideoArgs } from "./aiMark";
 
@@ -108,8 +108,23 @@ export async function inTemp<T>(work: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
-const countFrames = async (file: string) =>
-  Number((await must(tools.ffprobe, ["-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", file])).trim()) || 0;
+/** How many pictures a video holds, each one decoded and counted by ffprobe (`probe`: the one in use, unless one is being tried). */
+export const countFrames = async (file: string, probe = tools.ffprobe) =>
+  Number((await must(probe, ["-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", file])).trim()) || 0;
+
+/**
+ * The run that cuts the frames a join carries on from (cutFrames): `count` frames from `start`, at `fps`, with their sound when
+ * there is some, encoded as a join's run-up is. The start-up check (ffmpegCheck.ts) runs this same one on a clip of its own.
+ */
+export function cutArgs(input: string, out: string, o: { fps: number; start: number; count: number; hasSound: boolean }): string[] {
+  const { fps, start, count } = o;
+  return [
+    "-y", "-loglevel", "error", "-i", input,
+    "-vf", `fps=${fps},trim=start_frame=${start}:end_frame=${start + count},setpts=PTS-STARTPTS,scale=trunc(iw/2)*2:trunc(ih/2)*2`,
+    ...(o.hasSound ? ["-af", `atrim=start=${start / fps}:end=${(start + count) / fps},asetpts=PTS-STARTPTS`, "-c:a", "aac", "-b:a", "192k"] : ["-an"]),
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "10", "-pix_fmt", "yuv420p", out,
+  ];
+}
 
 export interface ProbedMedia {
   kind: "video" | "audio";
@@ -217,17 +232,14 @@ export async function cutFrames(
     // cut comes out short, the frames before a moment are taken one frame earlier. The frames after one keep their start,
     // the moment the clip after is landed on (its latent is cut there too, finishLatent): the next count is cut instead
     for (let attempt = 0; ; attempt++) {
-      const from = start / fps;
-      const to = (start + count) / fps;
-      await must(tools.ffmpeg, [
-        "-y", "-loglevel", "error", "-i", input,
-        "-vf", `fps=${fps},trim=start_frame=${start}:end_frame=${start + count},setpts=PTS-STARTPTS,scale=trunc(iw/2)*2:trunc(ih/2)*2`,
-        ...(facts.hasSound ? ["-af", `atrim=start=${from}:end=${to},asetpts=PTS-STARTPTS`, "-c:a", "aac", "-b:a", "192k"] : ["-an"]),
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "10", "-pix_fmt", "yuv420p", out,
-      ], { signal: want.signal });
-      if ((await countFrames(out)) === count) break;
+      await must(tools.ffmpeg, cutArgs(input, out, { fps, start, count, hasSound: facts.hasSound }), { signal: want.signal });
+      const got = await countFrames(out);
+      if (got === count) break;
       const fewer = want.side === "after" ? counts.find((c) => c < count) : undefined;
-      if (attempt >= 2 || (want.side === "after" ? !fewer : start === 0)) throw new CutError("The frames to join onto could not be cut from that clip.");
+      // the ffmpeg that cut them is named, with what it gave: an old one miscounts (Nicolas's, 2026-10-24), a newer one does not
+      if (attempt >= 2 || (want.side === "after" ? !fewer : start === 0)) {
+        throw new CutError(`The frames to join onto could not be cut from that clip: ${ffmpegSaid()} cut ${got} where ${count} were asked. A newer ffmpeg may cut them: see Settings › About.`);
+      }
       if (fewer) count = fewer;
       else start--;
     }

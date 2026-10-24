@@ -12,6 +12,7 @@ import { createServices, type Services } from "./services";
 import { readSettings, seedNewInstall } from "./settings";
 import { resetAccess } from "./access";
 import { installNodePack } from "./nodePack";
+import { onThisMachine } from "./modelDownload";
 import { LocalStorage } from "./storage";
 import { preflight, runPreflight } from "./preflight";
 import { AfflatusUpdates, RESTART_CODE } from "./updates";
@@ -179,6 +180,13 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<St
         if (put?.changed) log.log(`[node-pack] written to ${put.path}: restart ComfyUI to load it`);
       }
     }
+    // ComfyUI's own ffmpeg is one of those tried (ffmpegCheck.ts), in the folders the settings name on this computer: known only
+    // now, so the check runs again when the first one found no ffmpeg that passes
+    preflight.comfyDirs = async () => {
+      const st = await readSettings(db);
+      return [st.comfyDir, ...st.machines.filter((m) => onThisMachine(m.url)).map((m) => m.dir)].filter((d) => d.trim());
+    };
+    if (!checked.checks.find((c) => c.id === "ffmpeg")?.ok && (await preflight.comfyDirs()).length) await preflight.run();
     // the queue's state is read before the first request comes in: a job asked for at once must find a queue paused before the
     // restart paused. It starts taking jobs once this process has the port (another Afflatus on it may be running them)
     await services.queue.load();

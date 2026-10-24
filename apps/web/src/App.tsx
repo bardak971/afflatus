@@ -40,23 +40,33 @@ import { useKeepForSync } from "./keepFor";
 import { queryKeys } from "./queryKeys";
 import { useSettings } from "./data";
 
-/** A tool Afflatus needs is missing on the computer it runs on: said once per browser session, with the way to Settings → About. */
+/**
+ * A tool Afflatus needs is missing on the computer it runs on: said once per browser session, with the way to Settings → About
+ * (and Get ffmpeg's button when it can download one). Another ffmpeg than the PATH's used in its place is said too, once.
+ */
 function useMissingTools() {
   const health = useQuery({ queryKey: queryKeys.health(), queryFn: () => api.health(), staleTime: Infinity });
   const push = useBanners((s) => s.push);
+  const client = useQueryClient();
   useEffect(() => {
     for (const c of health.data?.checks ?? []) {
-      if (c.ok) continue;
-      const key = `afflatus.check.${c.id}`;
+      if (c.ok && !c.note) continue;
+      const key = `afflatus.check.${c.id}${c.ok ? ".note" : ""}`;
       try {
         if (sessionStorage.getItem(key)) continue;
         sessionStorage.setItem(key, "1");
       } catch {
         // no session storage: said every time
       }
-      push({ id: `check-${c.id}`, tone: "bad", title: `${c.label}: ${c.detail}`, text: `${c.without} ${c.fix}`, href: "/settings/about", go: "Open About in Settings" });
+      if (c.ok) {
+        push({ id: `check-${c.id}`, tone: "good", title: `${c.label}: ${c.detail}`, text: c.note, href: "/settings/about", go: "Open About in Settings" });
+        continue;
+      }
+      // started here, followed in About, where the banner leads
+      const get = c.get === "download" ? { label: "Get ffmpeg", run: () => void api.getFfmpeg().then((v) => client.setQueryData(queryKeys.ffmpegGet(), v), () => {}) } : undefined;
+      push({ id: `check-${c.id}`, tone: "bad", title: `${c.label}: ${c.detail}`, text: `${c.without} ${c.fix}`, href: "/settings/about", go: "Open About in Settings", ...(get ? { action: get } : {}) });
     }
-  }, [health.data, push]);
+  }, [health.data, push, client]);
 }
 
 /** The Studio's own addresses: where the first launch's page stands in for it. */
