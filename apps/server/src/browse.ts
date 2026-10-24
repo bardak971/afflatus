@@ -23,7 +23,11 @@ import { readSettings } from "./settings";
  */
 
 /** Where a file comes from, as a set file or a pod's want says it. */
-export type BrowseSource = { kind: "civitai"; version: number; pick: string } | { kind: "url"; url: string };
+/**
+ * Where a found file is fetched from. A Civitai file by its name as the list showed it, and by its SHA-256 and Civitai's id
+ * for it when the list gives them: Civitai's version page may call the same file by another name.
+ */
+export type BrowseSource = { kind: "civitai"; version: number; pick: string; fileId?: number; sha256?: string } | { kind: "url"; url: string };
 
 /** What the user has of a file already. */
 export type Have = { kind: "pc"; folder: string; file: string } | { kind: "set"; name: string };
@@ -114,7 +118,7 @@ const TYPES = ["LORA", "LoCon", "DoRA", "Checkpoint", "VAE", "TextEncoder", "Ups
 const PAGE = 24;
 
 type CivImage = { url?: string; type?: string };
-type CivFile = { name?: string; sizeKB?: number; type?: string; primary?: boolean; metadata?: { fp?: string | null; size?: string | null; format?: string | null } | null; hashes?: { SHA256?: string } };
+type CivFile = { id?: number; name?: string; sizeKB?: number; type?: string; primary?: boolean; metadata?: { fp?: string | null; size?: string | null; format?: string | null } | null; hashes?: { SHA256?: string } };
 type CivVersion = { id: number; name?: string; baseModel?: string; publishedAt?: string; trainedWords?: string[]; files?: CivFile[]; images?: CivImage[] };
 type CivModel = {
   id: number; name: string; type?: string; creator?: { username?: string }; stats?: { downloadCount?: number; thumbsUpCount?: number };
@@ -203,7 +207,7 @@ export function civitaiCard(m: CivModel, k: Known): BrowseCard {
         name: f.name!, bytes: Math.round((f.sizeKB ?? 0) * 1024), sha256: sha,
         note: [f.metadata?.fp, f.metadata?.size, f.metadata?.format && f.metadata.format !== "SafeTensor" ? f.metadata.format : ""].filter(Boolean).join(" · "),
         folder: place.folder, ...(place.why ? { why: place.why } : {}),
-        source: { kind: "civitai", version: v.id, pick: f.name! }, have: haveOf(k, f.name!, sha),
+        source: { kind: "civitai", version: v.id, pick: f.name!, ...(f.id ? { fileId: f.id } : {}), ...(sha ? { sha256: sha } : {}) }, have: haveOf(k, f.name!, sha),
       };
     }),
   }));
@@ -329,7 +333,7 @@ export function civitaiKept(page: CivPage | null): CivPage | null {
       allowCommercialUse: m.allowCommercialUse, allowNoCredit: m.allowNoCredit, allowDerivatives: m.allowDerivatives, nsfw: m.nsfw, tags: m.tags,
       modelVersions: (m.modelVersions ?? []).map((v, i) => ({
         id: v.id, name: v.name, baseModel: v.baseModel, publishedAt: v.publishedAt, trainedWords: v.trainedWords?.slice(0, 20),
-        files: (v.files ?? []).map((f) => ({ name: f.name, sizeKB: f.sizeKB, type: f.type, primary: f.primary, metadata: f.metadata && { fp: f.metadata.fp, size: f.metadata.size, format: f.metadata.format }, hashes: { SHA256: f.hashes?.SHA256 } })),
+        files: (v.files ?? []).map((f) => ({ id: f.id, name: f.name, sizeKB: f.sizeKB, type: f.type, primary: f.primary, metadata: f.metadata && { fp: f.metadata.fp, size: f.metadata.size, format: f.metadata.format }, hashes: { SHA256: f.hashes?.SHA256 } })),
         images: i === 0 && pic ? [{ url: pic.url, type: pic.type }] : [],
       })),
     };

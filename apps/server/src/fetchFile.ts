@@ -23,8 +23,10 @@ export const downloadBody = z.strictObject({
   // left empty for a Civitai version: the file keeps the name Civitai gives it
   file: z.string().max(400).default(""), folder: z.string().min(1).max(120),
   civitai: z.number().int().positive().optional(), url: z.string().url().max(2000).optional(),
-  // of a Civitai version with several files: the one to fetch, by the name Civitai gives it
+  // of a Civitai version with several files: the one to fetch, by the name Civitai gives it where it was seen, and by its
+  // SHA-256 and Civitai's id for it when known (Civitai's search and its version page name the same file differently)
   pick: z.string().max(400).optional(),
+  sha256: z.string().regex(/^[0-9a-fA-F]{64}$/).optional(), fileId: z.number().int().positive().optional(),
   // the page it comes from, kept for the file: its name then leads there
   page: z.strictObject({ url: webUrl, title: z.string().max(300) }).optional(),
   // the ComfyUI it goes to, by its id (settings.ts machines); left out: the first
@@ -44,7 +46,7 @@ export async function downloadTarget(s: Services, settings: Settings, id: string
     return { comfy: await s.comfy(), dir: settings.comfyDir };
   }
   const found = (await s.machines()).find((m) => m.machine.id === id);
-  if (!found) throw bad("there is no ComfyUI with that id", 404);
+  if (!found) throw bad("That ComfyUI is no longer in Settings › ComfyUI: pick another one to download into.", 409);
   return { comfy: found.comfy, dir: found.machine.dir, machine: id };
 }
 
@@ -88,10 +90,14 @@ export async function beginDownload(s: Services, from: FastifyRequest | string, 
     await keepPage(started.file);
     return started;
   }
-  const found = await civitaiVersion(b.civitai!, b.pick ?? name, settings.civitaiKey);
-  if (!found?.file.downloadUrl) throw bad("Civitai lists no file to download for that version.", 404);
-  if (b.pick && found.file.name?.toLowerCase() !== b.pick.toLowerCase()) throw bad(`That version has no file called ${b.pick}.`, 404);
-  const saveAs = b.file || (found.file.name ?? "model.safetensors").replace(/[\\/:*?"<>|]/g, "_");
+  // 409, not 404: the route is there, it is Civitai's answer that changed (a 404 reads as a missing route in the console)
+  const gone = `Civitai no longer lists ${b.pick ?? "that file"} for this version: open it again in Find models.`;
+  const found = await civitaiVersion(b.civitai!, b.pick ?? name, settings.civitaiKey, { sha256: b.sha256, fileId: b.fileId });
+  if (!found?.file.downloadUrl) throw bad(b.pick || b.sha256 || b.fileId ? gone : "Civitai lists no file to download for that version: open it again in Find models.", 409);
+  // a file asked by its name alone is that very file, not only the closest name
+  if (b.pick && found.by === "near") throw bad(gone, 409);
+  // under the name the user saw it by: "on this PC", presets and forms know it by that name, not the version page's
+  const saveAs = b.file || (b.pick ?? found.file.name ?? "model.safetensors").replace(/[\\/:*?"<>|]/g, "_");
   await keepPage(saveAs);
   return s.downloads.start(comfy, self, {
     file: saveAs, folder: b.folder, title: found.title || name,

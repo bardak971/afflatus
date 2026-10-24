@@ -16,8 +16,11 @@ export interface PresetFile {
   folder: string;
   /** Fetched from an address (Hugging Face)… */
   url?: string;
-  /** …or from Civitai: the version, the file's own name there when the version has several, and its page. */
-  civitai?: { version: number; pick?: string; page?: string };
+  /**
+   * …or from Civitai: the version, the file's own name there when the version has several, and its page; its SHA-256 and
+   * Civitai's id for it when known, which find it whatever Civitai calls it on the version's page.
+   */
+  civitai?: { version: number; pick?: string; page?: string; sha256?: string; fileId?: number };
   /** Where it was had, when nothing above fetches it: the user is sent there. */
   page?: string;
   /** Bytes, when known. */
@@ -62,7 +65,10 @@ export const presetFileSchema = z.strictObject({
   // a ComfyUI model folder's name ("loras", "diffusion_models"): letters, digits, dashes and underscores only
   folder: z.string().min(1).max(120).regex(/^[\w-]+$/, "a model folder's name"),
   url: webUrl.optional(),
-  civitai: z.strictObject({ version: z.number().int().positive(), pick: z.string().max(400).optional(), page: webUrl.optional() }).optional(),
+  civitai: z.strictObject({
+    version: z.number().int().positive(), pick: z.string().max(400).optional(), page: webUrl.optional(),
+    sha256: z.string().regex(/^[0-9a-fA-F]{64}$/).optional(), fileId: z.number().int().positive().optional(),
+  }).optional(),
   page: webUrl.optional(),
   size: z.number().int().nonnegative().optional(),
   note: z.string().max(400).optional(),

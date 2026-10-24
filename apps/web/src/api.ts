@@ -455,7 +455,7 @@ export const api = {
   hashModels: () => call<HashStatus>("POST", "/models/hashes/run", {}),
   browseLink: (link: string) => call<{ card: BrowseCard }>("POST", "/browse/link", { link }),
   downloadAgain: (id: string) => call<Download>("POST", `/downloads/${encodeURIComponent(id)}/again`),
-  startDownload: (body: { file: string; folder: string; page?: ModelPage; machine?: string } & ({ civitai: number; pick?: string } | { url: string })) => call<Download>("POST", "/downloads", body),
+  startDownload: (body: { file: string; folder: string; page?: ModelPage; machine?: string } & ({ civitai: number; pick?: string; sha256?: string; fileId?: number } | { url: string })) => call<Download>("POST", "/downloads", body),
   /** What a pasted link leads to: its files, the folder it most likely belongs in, ComfyUI's folders, and what ComfyUI has already. */
   resolveLink: (link: string) => call<LinkFound>("POST", "/downloads/resolve", { link }),
   storage: (o?: Asked) => call<Storage>("GET", "/storage", undefined, o?.signal),

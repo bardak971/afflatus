@@ -36,7 +36,7 @@ export const KINDS: Record<string, string[]> = {
   ultralytics: ["Detection"], sams: ["Other"],
 };
 
-export type ApiFile = { name?: string; sizeKB?: number; type?: string; primary?: boolean; downloadUrl?: string; hashes?: { SHA256?: string } };
+export type ApiFile = { id?: number; name?: string; sizeKB?: number; type?: string; primary?: boolean; downloadUrl?: string; hashes?: { SHA256?: string } };
 export type ApiVersion = { id?: number; name?: string; baseModel?: string; trainedWords?: string[]; files?: ApiFile[]; model?: { name?: string } };
 export type ApiModel = { id: number; name: string; type?: string; modelVersions?: ApiVersion[] };
 
@@ -54,6 +54,12 @@ export interface CivitaiFound {
   versionId: number | null;
   file: string;
   bytes: number;
+  /**
+   * The file's SHA-256 and Civitai's id for it, when the search gives them: a download asks for the file by these, since
+   * Civitai's version page may call it by another name than its search does.
+   */
+  sha256?: string;
+  fileId?: number;
   /** One of its versions has a file of exactly the name asked for. */
   exact: boolean;
   /** It is the kind of model the folder holds. A workflow or a pose found by the same words is not. */
@@ -136,6 +142,7 @@ export async function findOnCivitai(file: string, folder: string | null, key: st
         url: `${envSaid.civitaiUrl() ? "https://civitai.com" : site}/models/${m.id}`,
         version: version?.name ?? "", base: version?.baseModel ?? "", words: (version?.trainedWords ?? []).slice(0, 12),
         versionId: version?.id ?? null, file: picked?.name ?? "", bytes: Math.round((picked?.sizeKB ?? 0) * 1024),
+        ...(picked?.hashes?.SHA256 ? { sha256: picked.hashes.SHA256.toUpperCase() } : {}), ...(picked?.id ? { fileId: picked.id } : {}),
         exact: Boolean(exactIn), fits: fitsOf(m), hits: version ? hitsOf(version) : [], of: words.length,
       });
     }
@@ -174,12 +181,17 @@ export async function civitaiGet<T>(path: string, key: string, signal?: AbortSig
   return null;
 }
 
+/** The file of a version a download means, as precisely as the caller knows it: its bytes' SHA-256, Civitai's id for it. */
+export type FileWanted = { sha256?: string; fileId?: number };
+
 /**
- * One version by its number, from whichever site has it, with the file a download of it fetches. Given the SHA-256 of the
- * file wanted (a version found by this computer's copy's hash), the version's file with that hash: a version holds several
- * files of the model (fp16, fp8, pruned), and the one of these very bytes is the one meant, whatever it is called here.
+ * One version by its number, from whichever site has it, with the file a download of it fetches. A version holds several
+ * files of the model (fp16, fp8, pruned): the one meant is found by its SHA-256 when given (a version found by this
+ * computer's copy's hash, a file picked in Find models), else by Civitai's id for it, else by its name. Civitai does not
+ * name a file alike everywhere (its search calls a file `…_int8.safetensors` that its version page calls `…_3263048.safetensors`),
+ * so the name is only the last resort. `by` says how it was found: "near" is only the closest name, not that file.
  */
-export async function civitaiVersion(id: number, wanted: string, key: string, sha256?: string): Promise<{ title: string; file: ApiFile } | null> {
+export async function civitaiVersion(id: number, wanted: string, key: string, exact: FileWanted = {}): Promise<{ title: string; file: ApiFile; by: "sha256" | "id" | "name" | "near" } | null> {
   let failed: Error | null = null;
   for (const site of civitaiSites()) {
     let res: Response;
@@ -195,18 +207,25 @@ export async function civitaiVersion(id: number, wanted: string, key: string, sh
       continue;
     }
     const v = (await res.json()) as ApiVersion;
+    const title = [v.model?.name, v.name].filter(Boolean).join(" · ");
     const files = (v.files ?? []).filter((f) => f.downloadUrl && MODEL_EXT.test(f.name ?? ""));
+    const { sha256, fileId } = exact;
     if (sha256 && files.some((f) => f.hashes?.SHA256)) {
       // the version lists its files' hashes: the file of these bytes, else none (another of its files is other bytes)
       const same = files.find((f) => f.hashes?.SHA256?.toUpperCase() === sha256.toUpperCase());
-      return same ? { title: [v.model?.name, v.name].filter(Boolean).join(" · "), file: same } : null;
+      return same ? { title, file: same, by: "sha256" } : null;
+    }
+    if (fileId && files.some((f) => f.id)) {
+      const same = files.find((f) => f.id === fileId);
+      return same ? { title, file: same, by: "id" } : null;
     }
     // the file of that very name when the version has it, else the one the lookup showed: the closest name, its main file on a tie
+    const named = files.find((f) => f.name?.toLowerCase() === wanted.toLowerCase());
+    if (named) return { title, file: named, by: "name" };
     const words = wordsOf(wanted);
     const near = (f: ApiFile) => words.filter((w) => squash(f.name ?? "").includes(squash(w))).length + (f.primary ? 0.5 : 0);
-    const file = files.find((f) => f.name?.toLowerCase() === wanted.toLowerCase()) ?? [...files].sort((a, b) => near(b) - near(a))[0];
-    if (!file) return null;
-    return { title: [v.model?.name, v.name].filter(Boolean).join(" · "), file };
+    const file = [...files].sort((a, b) => near(b) - near(a))[0];
+    return file ? { title, file, by: "near" } : null;
   }
   if (failed) throw failed;
   return null;

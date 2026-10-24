@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
 import { useSettings } from "../../data";
-import { getOnPc, openFindModels } from "../../findModels/store";
+import { openFindModels, thisPcTarget } from "../../findModels/store";
 import { queryKeys } from "../../queryKeys";
 import { Button, cx, ErrorNote } from "../../ui";
 import { Block, Card, Row } from "./Rows";
@@ -26,10 +26,7 @@ export function ModelsOnlineCard() {
   const lookups = Boolean(settings.data?.civitaiLookups);
   const part = s && s.files ? s.hashed / s.files : 0;
   return (
-    <Card title="Your models online" setting="models.online" help={WHY} status={<Button size="sm" disabled={!lookups} onClick={() => openFindModels({ what: "this PC", action: "Get on this PC", pc: true, add: async (files) => {
-      await getOnPc(files);
-      void client.invalidateQueries({ queryKey: queryKeys.downloads() });
-    } })} data-tip={lookups ? "Civitai, Hugging Face and yours, to download onto this PC" : "Turn on Search Hugging Face and Civitai (Missing models) first"}>Find models…</Button>}>
+    <Card title="Your models online" setting="models.online" help={WHY} status={<Button size="sm" disabled={!lookups} onClick={() => openFindModels(thisPcTarget(client))} data-tip={lookups ? "Civitai, Hugging Face and yours, to download onto this PC" : "Turn on Search Hugging Face and Civitai (Missing models) first"}>Find models…</Button>}>
       {s?.noFolder ? (
         <Block><span className="text-xs text-ink-2">No ComfyUI folder on this PC (Settings › ComfyUI): nothing to hash here.</span></Block>
       ) : s && (

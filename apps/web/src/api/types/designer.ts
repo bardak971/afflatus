@@ -158,7 +158,8 @@ export interface PresetFile {
   file: string;
   folder: string;
   url?: string;
-  civitai?: { version: number; pick?: string; page?: string };
+  /** `sha256`, `fileId`: the file whatever Civitai calls it on its version page (card #80). */
+  civitai?: { version: number; pick?: string; page?: string; sha256?: string; fileId?: number };
   page?: string;
   size?: number;
   note?: string;

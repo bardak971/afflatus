@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download as DownloadIcon } from "lucide-react";
 import { api, type Download } from "./api";
+import { civitaiExact } from "./findModels/store";
 import { FileState, GoesTo } from "./DownloadsLine";
 import { useQueue } from "./data";
 import { about, fileLabel, siteName, size } from "./format";
@@ -218,7 +219,7 @@ export function GetFile({ file, folder, url, civitai, pick, hints, auto, buttons
               type="button"
               disabled={busy}
               data-tip={civitaiTip(m, file)}
-              onClick={() => download({ civitai: m.versionId! })}
+              onClick={() => download({ civitai: m.versionId!, ...civitaiExact(m) })}
               className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-line-strong px-2.5 font-semibold hover:bg-hover disabled:opacity-60"
             >
               <DownloadIcon size={13} /> {m.exact ? "Download" : "Download as this filename"}
