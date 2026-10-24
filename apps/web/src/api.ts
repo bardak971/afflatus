@@ -561,10 +561,10 @@ export const api = {
   moveAssets: (ids: string[], folderId: string | null) => call<{ moved: number }>("POST", "/assets/move", { ids, folderId }),
   renameAsset: (id: string, name: string) => call<Asset>("PATCH", `/assets/${id}`, { name }),
   /** A picture, a video or a sound from this computer, into the library. The file is the request body. */
-  upload: async (file: File, opts: { /** The painted part of a picture: kept, but not shown in the library. */ mask?: boolean; /** A picture for a person or a place of the Prompt kit: kept with them, not shown in the library. */ kit?: boolean; /** The folder it goes into. */ folder?: string; /** Without a folder: the project whose root folder it goes into. */ project?: string | null } = {}) => {
+  upload: async (file: File, opts: { /** The painted part of a picture: kept, but not shown in the library. */ mask?: boolean; /** A picture for a person or a place of the Prompt kit: kept with them, not shown in the library. */ kit?: boolean; /** The folder it goes into. */ folder?: string; /** Without a folder: the project whose root folder it goes into. */ project?: string | null; /** A file the library already holds is answered with that item (`found`), not added again: a paste. */ reuse?: boolean } = {}) => {
     if (!/^(image|video|audio)\//.test(file.type)) throw new ApiError("This file is not a picture, a video or a sound.");
-    const res = await send(`/api/assets?name=${encodeURIComponent(file.name)}${opts.mask ? "&as=mask" : opts.kit ? "&as=kit" : ""}${opts.folder ? `&folder=${encodeURIComponent(opts.folder)}` : ""}${opts.project ? `&project=${encodeURIComponent(opts.project)}` : ""}`, { method: "POST", headers: { "Content-Type": file.type }, body: file });
-    return answer<Asset>(res);
+    const res = await send(`/api/assets?name=${encodeURIComponent(file.name)}${opts.mask ? "&as=mask" : opts.kit ? "&as=kit" : ""}${opts.folder ? `&folder=${encodeURIComponent(opts.folder)}` : ""}${opts.project ? `&project=${encodeURIComponent(opts.project)}` : ""}${opts.reuse ? "&same=use" : ""}`, { method: "POST", headers: { "Content-Type": file.type }, body: file });
+    return answer<Asset & { found?: true }>(res);
   },
   workflows: (o?: Asked) => call<{ items: WorkflowBrief[] }>("GET", "/workflows", undefined, o?.signal),
   workflow: (id: string, o?: Asked) => call<WorkflowDef>("GET", `/workflows/${id}`, undefined, o?.signal),

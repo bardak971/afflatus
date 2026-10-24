@@ -6,6 +6,7 @@ import { Banners } from "./Banners";
 import { useSearchKey } from "./Keys";
 import { TabProgress } from "./TabProgress";
 import { DropTray } from "./DropTray";
+import { PasteHere } from "./PasteHere";
 import { useLiveEvents } from "./live";
 import { Studio } from "./screens/Studio";
 import { ConfirmHost } from "./Confirm";
@@ -157,6 +158,7 @@ export function App() {
       </div>
       <StatusBar />
       <DropTray />
+      <PasteHere />
       <Banners />
       <FolderImportNote />
       <BarHost />

@@ -88,6 +88,7 @@ import m0086 from "./0086-jobs-to-run";
 import m0087 from "./0087-render-stats-family";
 import m0088 from "./0088-render-started";
 import m0089 from "./0089-pod-packs";
+import m0090 from "./0090-asset-digest";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -184,4 +185,5 @@ export const migrations: Record<string, Migration> = {
   "0087_render_stats_family": m0087,
   "0088_render_started": m0088,
   "0089_pod_packs": m0089,
+  "0090_asset_digest": m0090,
 };

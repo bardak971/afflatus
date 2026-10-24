@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Images, Search, Star } from "lucide-react";
 import type { Asset, Timeline } from "../api";
-import { useAssets, useFolders } from "../data";
+import { useAssets, useFolders, useProjects } from "../data";
 import { clock, plural } from "../format";
 import { useSettled } from "../hooks";
 import { Keys } from "../Keys";
@@ -20,6 +20,8 @@ import { Select } from "../Select";
 import { useFit } from "../useFit";
 import { Viewer } from "../viewer/LazyViewer";
 import { useMediaOpen } from "./mediaOpen";
+import { usePasteIntoLibrary } from "../PasteHere";
+import { useProject } from "../project";
 
 /** The rows' height: the Studio's justified rows, a little lower (the stage's room). The caption under a tile of this timeline. */
 const ROW = 150;
@@ -156,6 +158,13 @@ export function MediaOverlay({ timeline, placeItems }: {
   // when that is all of it (this timeline's, or every page read), else the folder's own count from the folder list the
   // editor reads anyway (only while nothing narrows the shelf). Nothing rather than the length of the first page.
   const folderList = useFolders().data?.items;
+  // Ctrl+V while it is open: into the folder it shows, else where the timeline's own uploads go (its folder, else the
+  // project's root)
+  const pasteFolder = place.type === "folder" ? place.id : timeline.folderId;
+  const projectId = useProject((s) => s.id);
+  const projects = useProjects();
+  const projectName = projectId === "none" ? "Inbox" : projects.data?.items.find((p) => p.id === projectId)?.name ?? "your project";
+  usePasteIntoLibrary(open, pasteFolder, folderList?.find((f) => f.id === pasteFolder)?.name ?? (pasteFolder ? "the folder" : projectName));
   const narrowed = kind !== "all" || kept || Boolean(q);
   const count = !fetched || (assets.data && !assets.hasNextPage)
     ? items.length
