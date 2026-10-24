@@ -146,7 +146,6 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     onSelect: (clipId) => e.select(clipId),
     // the music's panel in place of a recording open (the source's keeps the column, as it did)
     onSelectMusic: () => {
-      e.setRecordingOpen(null);
       e.setMusicOpen(true);
     },
     cursorMs: e.cursor,
@@ -354,6 +353,7 @@ export function recordingPanelProps(e: LoadedEditor, place: NonNullable<LoadedEd
     opens: { before: at > 0 ? at : null, joined: first.joined, onJoined: (joined) => e.patch.mutate({ clip: first.id, patch: { joined } }) },
     shared,
     onShared: (inputs) => e.recordingShared.run(asset, inputs),
+    sharing: e.recordingShared.pending,
     render: (() => {
       // with nothing to play and not sent: those that cannot render yet are said, with the first one's reason
       const waiting = mine.filter((c) => !c.take && !c.job && !left.includes(c));

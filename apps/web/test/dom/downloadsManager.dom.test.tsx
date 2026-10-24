@@ -44,6 +44,12 @@ describe("a file's Download, once clicked", () => {
     const { unmount } = draw(<GetFile file="seed.safetensors" folder="loras" url="https://example.test/seed.safetensors" buttons />);
     expect(await screen.findByText("Downloading 38 %")).toBeTruthy();
     unmount();
+    // the time left in the shared words (leftWords), as every other "left" in the app
+    fakeApi.reset();
+    serve([dl("seed", { status: "downloading", turn: 1, bytes: 0.38 * GB, rate: (0.62 * GB) / 40 })]);
+    const second = draw(<GetFile file="seed.safetensors" folder="loras" url="https://example.test/seed.safetensors" buttons />);
+    expect(await screen.findByText("Downloading 38 % · 1 min")).toBeTruthy();
+    second.unmount();
     fakeApi.reset();
     serve([dl("te", { status: "done", shown: "models\\text_encoders", at: Date.now() })]);
     draw(<GetFile file="te.safetensors" folder="loras" url="https://example.test/te.safetensors" buttons />);
@@ -60,6 +66,13 @@ describe("a file's Download, once clicked", () => {
     expect(menu.getByText("extra_model_paths.yaml")).toBeTruthy();
     await user.click(menu.getByText("D:\\sd.webui\\models\\Lora"));
     await waitFor(() => expect(fakeApi.calls("PUT", "/downloads/places")[0]?.body).toEqual({ folder: "loras", path: "D:\\sd.webui\\models\\Lora" }));
+  });
+
+  it("says where it goes, with no menu, when the way downloads go cannot be told a place (ComfyUI-Manager, an older node pack)", async () => {
+    serve([], { loras: { ...loras, fixed: true, goes: "D:\\sd.webui\\models\\Lora" } });
+    draw(<GetFile file="new.safetensors" folder="loras" url="https://example.test/new.safetensors" buttons />);
+    expect(await screen.findByText("→ D:\\sd.webui\\models\\Lora")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /→/ })).toBeNull();
   });
 });
 

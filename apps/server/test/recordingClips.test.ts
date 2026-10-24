@@ -299,8 +299,10 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     const sound = await recording();
     await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
     const before = await view(tl.id);
-    await call("POST", `/api/timelines/${tl.id}/recording/form`, { asset: sound, inputs: { description: "zz-test a man at a desk, talking", recordingStart: 3 } });
+    const given = await call("POST", `/api/timelines/${tl.id}/recording/form`, { asset: sound, inputs: { description: "zz-test a man at a desk, talking", recordingStart: 3 } });
     const v = await view(tl.id);
+    // the forms as written, for the editor's edits over those clips to become them
+    expect(given.clips).toEqual(v.clips.map((c: { id: string; inputs: Record<string, unknown> }) => ({ id: c.id, inputs: c.inputs })));
     expect(v.clips.map((c: { inputs: Record<string, unknown> }) => c.inputs.description)).toEqual(Array(3).fill("zz-test a man at a desk, talking"));
     expect(v.clips.map((c: { inputs: Record<string, unknown> }) => c.inputs.recordingStart)).toEqual(before.clips.map((c: { inputs: Record<string, unknown> }) => c.inputs.recordingStart));
     await call("POST", `/api/timelines/${tl.id}/undo`);

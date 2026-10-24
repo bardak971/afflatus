@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeComfy, type FakeComfy, type FakeInit } from "@afflatus/comfy/testing";
 import { wan } from "../../../packages/workflows/test/fixtures";
 import { get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
-import { directOk, signedLink } from "../src/downloads";
+import { EventEmitter } from "node:events";
+import { Downloads, directOk, signedLink } from "../src/downloads";
 
 /** A pretend Civitai (and file host): one model version with one file, 300 000 bytes long, which starts as a safetensors file does. */
 const FILE = Buffer.alloc(300_000, 7);
@@ -534,6 +535,47 @@ describe("who downloads", () => {
     const relayed = (await post(t.app, "/api/downloads", { file: "b.safetensors", folder: "loras", url: `${siteUrl}/files/plain.safetensors` })).json();
     expect(relayed).toMatchObject({ via: "manager", status: "starting" });
     expect(fake.installAsked.at(-1)!.url).toMatch(/\/api\/downloads\/fetch\//);
+  });
+
+  it("is told the folder, so Manager writes models/<folder> as the page says, and the page is offered no place it would not keep (card #59)", async () => {
+    // ComfyUI on another disk, its folders not writable from here; the A1111 folder listed first, as the owner's ComfyUI lists it
+    const comfy = join(disk, "elsewhere", "ComfyUI");
+    const a1111 = join(disk, "elsewhere", "a1111", "Lora");
+    await start("refuses", { folderPaths: { custom_nodes: [join(comfy, "custom_nodes")], loras: [a1111, join(comfy, "models", "loras")] } });
+    fake.packVersion = "0.10.0";
+    await on();
+    const places = async () => (await get(t.app, "/api/downloads/places")).json().folders.loras;
+    expect(await places()).toMatchObject({ fixed: true, goes: join("models", "loras"), places: [{ kind: "own" }, { kind: "other", path: a1111 }] });
+    await post(t.app, "/api/downloads", { file: "b.safetensors", folder: "loras", url: `${siteUrl}/files/plain.safetensors` });
+    expect(fake.installAsked.at(-1)).toMatchObject({ save_path: "loras", filename: "b.safetensors" });
+    // a node pack older than PACK_PLACE keeps to ComfyUI's first path whatever was chosen: said, not offered
+    fake.packVersion = "0.36.8";
+    expect(await places()).toMatchObject({ fixed: true, goes: a1111 });
+    // one that takes the chosen place: offered, ComfyUI's own first
+    fake.packVersion = "0.36.9";
+    const told = await places();
+    expect(told).toMatchObject({ goes: join("models", "loras") });
+    expect(told.fixed).toBeUndefined();
+  });
+
+  it("is not asked of Manager a second time after a restart: handed to it, it is said interrupted, never put back in line", async () => {
+    await start("refuses");
+    fake.packVersion = "0.10.0";
+    await on();
+    const file = join(disk, "downloads.json");
+    (t.services.downloads as unknown as { stateFile: string }).stateFile = file;
+    const d = (await post(t.app, "/api/downloads", { file: "b.safetensors", folder: "loras", url: `${siteUrl}/files/plain.safetensors` })).json();
+    expect(d).toMatchObject({ via: "manager", status: "starting" });
+    await t.services.downloads.flushed();
+    expect(JSON.parse(readFileSync(file, "utf8")).find((k: { id: string }) => k.id === d.id)).not.toHaveProperty("queued");
+    // the next run: nothing asked again, the one Manager has said interrupted
+    const next = new Downloads(new EventEmitter(), file);
+    await next.restored;
+    const again = vi.fn(async () => {});
+    await next.resume(again);
+    expect(again).not.toHaveBeenCalled();
+    expect(next.list().find((x) => x.id === d.id)).toMatchObject({ status: "error", error: expect.stringMatching(/Interrupted/) });
+    await next.flushed();
   });
 });
 

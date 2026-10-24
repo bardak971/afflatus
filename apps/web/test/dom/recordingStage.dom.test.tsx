@@ -1,11 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { createRef } from "react";
+import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, renderHook, screen, waitFor, within } from "@testing-library/react";
-import type { RecipeInfo, Timeline } from "../../src/api";
+import type { Asset, RecipeInfo, Timeline } from "../../src/api";
+import type { PlayerHandle } from "../../src/timeline/Player";
+import { RecordingStage } from "../../src/timeline/RecordingStage";
 import { TimelineEditor } from "../../src/screens/TimelineEditor";
 import { useEditorPanels } from "../../src/timeline/useEditorPanels";
 import { recordingPlace } from "../../src/timeline/recordingPlace";
 import type { Slot } from "../../src/timeline/model";
-import { fakeApi } from "./fakeApi";
+import { fakeApi, later } from "./fakeApi";
 import { draw } from "./render";
 
 /** H3's Video with audio and Lip sync as the editor reads them: a recording laid on Lip sync's sound part by part. */
@@ -92,6 +95,17 @@ describe("a recording on the timeline opened like the source (card #61)", () => 
     act(() => result.current.openRecording(sound.id));
     act(() => result.current.select("zz-test-a"));
     expect([result.current.selected, result.current.recordingOpen]).toEqual(["zz-test-a", null]);
+  });
+
+  it("is closed when the music opens, by any of its ways (a drop on its lane, Show music, the Overview's button)", () => {
+    const { result } = renderHook(() => useEditorPanels());
+    act(() => result.current.openRecording(sound.id));
+    act(() => result.current.setMusicOpen(true));
+    expect([result.current.musicOpen, result.current.recordingOpen]).toEqual([true, null]);
+    // the source's panel keeps the column, as it did
+    act(() => result.current.openSource());
+    act(() => result.current.setMusicOpen(true));
+    expect([result.current.musicOpen, result.current.sourceOpen]).toEqual([true, true]);
   });
 
   it("sets its Out with O at the moment of it heard on the stage", async () => {
@@ -200,6 +214,66 @@ describe("a recording on the timeline opened like the source (card #61)", () => 
       act(() => look.blur());
       await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-rec/recording/form").map((c) => c.body)).toEqual([{ asset: sound.id, inputs: { subject: "zz-test round glasses" } }]));
     });
+
+    it("holds Clip length while it is cut again, and keeps what was typed to share until it is in the clips' forms", async () => {
+      const cut = later<unknown>();
+      const shared = later<unknown>();
+      fakeApi.on("POST /timelines/:id/recording/cut", () => cut.promise);
+      fakeApi.on("POST /timelines/:id/recording/form", () => shared.promise);
+      fakeApi.on("PATCH /clips/:id", ({ params }) => ({ id: params.id }));
+      const { band, user } = await editor({ ...timeline, clips: timeline.clips.map((c) => ({ ...c, take: null, takes: [] })) } as unknown as Timeline);
+      click(band);
+      const p = within(panel()!);
+      await user.click(p.getByRole("switch", { name: /Snap to pauses/ }));
+      await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-rec/recording/cut")).toHaveLength(1));
+      expect(p.getByRole("slider", { name: "Clip length" }).closest("[aria-disabled]")).toBeTruthy();
+      cut.answer({ clips: ["zz-test-a", "zz-test-b", "zz-test-c"] });
+      await waitFor(() => expect(p.getByRole("slider", { name: "Clip length" }).closest("[aria-disabled]")).toBeNull());
+      const look = p.getByLabelText("How they look") as HTMLTextAreaElement;
+      await user.type(look, "zz-test round glasses");
+      act(() => look.blur());
+      await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-rec/recording/form")).toHaveLength(1));
+      expect(look.value).toBe("zz-test round glasses");
+      shared.answer({ ok: true, clips: [] });
+      await waitFor(() => expect(look.value).toBe(""));
+    });
+
+    it("gives what they share to a clip typed in just before, whose next save keeps it", async () => {
+      // the server as a stand-in: the clips' forms as saved, the shared one written in all of them
+      const kept = new Map(timeline.clips.map((c) => [c.id, { ...c.inputs } as Record<string, unknown>]));
+      const now = () => ({ ...timeline, clips: timeline.clips.map((c) => ({ ...c, inputs: { ...kept.get(c.id)! } })) }) as unknown as Timeline;
+      fakeApi.on("PATCH /clips/:id", ({ params, body }) => {
+        const b = body as { inputs?: Record<string, unknown> };
+        if (b.inputs) kept.set(params.id!, { ...b.inputs });
+        return { id: params.id };
+      });
+      fakeApi.on("POST /timelines/:id/recording/form", ({ body }) => {
+        const { inputs } = body as { inputs: Record<string, unknown> };
+        const clips = ["zz-test-a", "zz-test-b", "zz-test-c"].map((id) => {
+          kept.set(id, { ...kept.get(id)!, ...inputs });
+          return { id, inputs: { ...kept.get(id)! } };
+        });
+        return { ok: true, clips };
+      });
+      const { band, user } = await editor();
+      fakeApi.on("GET /timelines/:id", () => now());
+      // clip 2's scene typed, then the recording's panel: How they look
+      click(band);
+      await user.click(within(panel()!).getByRole("button", { name: /^Clip 2,/ }));
+      const scene = await screen.findByLabelText("What happens");
+      await user.type(scene, " and laughs");
+      click(band);
+      const look = within(panel()!).getByLabelText("How they look");
+      await user.type(look, "zz-test round glasses");
+      act(() => look.blur());
+      await waitFor(() => expect(kept.get("zz-test-a")).toMatchObject({ description: "zz-test talks and laughs", subject: "zz-test round glasses" }));
+      await waitFor(() => expect(fakeApi.calls("GET", "/timelines/zz-test-rec").length).toBeGreaterThan(2));
+      // clip 2 opened again and typed in: its save keeps the shared text, never the form from before it
+      await user.click(within(panel()!).getByRole("button", { name: /^Clip 2,/ }));
+      await user.type(screen.getByLabelText("What happens"), "!");
+      await waitFor(() => expect(kept.get("zz-test-a")!.description).toBe("zz-test talks and laughs!"), { timeout: 3000 });
+      expect(kept.get("zz-test-a")!.subject).toBe("zz-test round glasses");
+    });
   });
 });
 
@@ -233,5 +307,38 @@ describe("a recording's place under its clips", () => {
     const p = recordingPlace(slotsOf(later, laid), [video, lipSync], sound.id, 15000)!;
     expect(p.parts[1]!.trackMs).toBe(10200);
     expect(p.toTrack(4700)).toBe(10200);
+  });
+
+  describe("on the stage", () => {
+    const at = (cs: Array<[number, number]>, lengthMs: number | null = 15000) => recordingPlace(slotsOf(timeline.clips, cs), [video, lipSync], sound.id, lengthMs)!;
+    const tail: Array<[number, number]> = [[0, 5000], [5000, 4700], [9700, 5700], [15_400, 4800]];
+    function stageOf(first: ReturnType<typeof at>) {
+      const onTime = vi.fn();
+      const ref = createRef<PlayerHandle>();
+      const props = { recording: sound as unknown as Asset, playing: false, onPlaying: () => {}, onTime, startAt: 0 };
+      const drawn = draw(<RecordingStage ref={ref} {...props} place={first} />);
+      return { onTime, ref, redraw: (place: ReturnType<typeof at>) => drawn.rerender(<RecordingStage ref={ref} {...props} place={place} />), drawn };
+    }
+
+    it("leaves the playhead where it was put when the timeline is read again (a take landing), and follows the parts that moved", () => {
+      const { onTime, ref, redraw } = stageOf(at(tail));
+      // put in clip 3's tail: the moment heard is the end of its part, the playhead stays where it was put (editorProps onSeek)
+      act(() => ref.current!.seek(15_300));
+      onTime.mockClear();
+      // read again, nothing moved: the playhead is left alone
+      redraw(at(tail));
+      expect(onTime).not.toHaveBeenCalled();
+      // clip 4 laid 1 s later: the moment heard plays there now, the playhead follows
+      redraw(at([[0, 5000], [5000, 4700], [9700, 6700], [16_400, 4800]]));
+      expect(onTime).toHaveBeenCalledWith(16_400);
+    });
+
+    it("draws a recording with no length at its start, never NaN %", () => {
+      const none = { ...at(tail), lengthMs: 0 };
+      const { drawn } = stageOf(none);
+      // the playhead's line: at 0 %, where NaN % was dropped by the browser and left it with no place at all
+      const line = drawn.container.querySelector<HTMLElement>(".bg-ink-strong.w-0\\.5")!;
+      expect(line.style.left).toBe("0%");
+    });
   });
 });

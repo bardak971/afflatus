@@ -1,8 +1,9 @@
 import { existsSync, statSync } from "node:fs";
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { delimiter, dirname, join } from "node:path";
 import { environment } from "./config";
 import { countFrames, cutArgs, ffRun, inTemp } from "./cut";
+import { writeAtomic } from "./updatesModel";
 
 /**
  * Which ffmpeg Afflatus uses, and whether it can do what Afflatus asks of it. Running is not enough: an old ffmpeg on the PATH
@@ -238,6 +239,25 @@ function stamp(file: string): string {
 const keptFile = (dataDir: string) => join(dataDir, "ffmpeg-check.json");
 
 /**
+ * What the check asks, put in each kept result's key: a later release that raises the minimum or changes the test cut tries
+ * again an ffmpeg kept as "ok" by this one, rather than trusting a pass to a test it never took.
+ */
+const CHECK_ID = `${FFMPEG_LEAST}/${TEST.seconds}s${TEST.sourceFps}:${TEST.count}@${TEST.rates.join("+")}`;
+
+/**
+ * The results kept from an earlier start. The file can be empty or cut short (a crash, a full disk): read as nothing kept, so
+ * the start tries the candidates again rather than failing on it.
+ */
+async function readKept(dataDir: string): Promise<Record<string, Tried>> {
+  try {
+    const kept: unknown = JSON.parse(await readFile(keptFile(dataDir), "utf8"));
+    return kept && typeof kept === "object" && !Array.isArray(kept) ? (kept as Record<string, Tried>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
  * The ffmpeg to use: the candidates tried in order until one passes. A result kept from an earlier start is used again while
  * its two files have not changed (a new ffmpeg on the PATH, FFMPEG pointed elsewhere, a Get ffmpeg: tried anew); `fresh`
  * (Settings › About's Check again) tries them all again.
@@ -249,12 +269,12 @@ export async function chooseFfmpeg(o: LookIn & { fresh?: boolean; tryOne?: (c: C
   const tryOne = o.tryOne ?? tryTools;
   // no data folder named (a check asked before the start named one): nothing kept, nothing read, rather than files in the working folder
   const keeps = !!o.dataDir.trim();
-  const kept: Record<string, Tried> = o.fresh || !keeps ? {} : await readFile(keptFile(o.dataDir), "utf8").then((t) => JSON.parse(t) as Record<string, Tried>, () => ({}));
+  const kept: Record<string, Tried> = o.fresh || !keeps ? {} : await readKept(o.dataDir);
   const keep: Record<string, Tried> = {};
   const refused: Tried[] = [];
   let used: Tried | null = null;
   for (const c of list) {
-    const key = `${stamp(c.ffmpeg)}>${stamp(c.ffprobe)}`;
+    const key = `${CHECK_ID}>${stamp(c.ffmpeg)}>${stamp(c.ffprobe)}`;
     const before = kept[key];
     const t = before && before.ffmpeg === c.ffmpeg && before.where === c.where ? before : await tryOne(c);
     keep[key] = t;
@@ -266,7 +286,8 @@ export async function chooseFfmpeg(o: LookIn & { fresh?: boolean; tryOne?: (c: C
   }
   // none passed: the first is said with its failure (theirs, when FFMPEG is set), the others with theirs
   if (!used && refused.length) used = refused.shift()!;
-  if (keeps) await writeFile(keptFile(o.dataDir), JSON.stringify(keep, null, 1)).catch(() => {});
+  // written whole or not at all: Check again and Get ffmpeg's own check can write it at the same time
+  if (keeps) await writeAtomic(keptFile(o.dataDir), JSON.stringify(keep, null, 1)).catch(() => {});
   return { used, refused, pinned };
 }
 

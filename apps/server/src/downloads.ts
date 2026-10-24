@@ -10,7 +10,7 @@ import { civitaiSites } from "./civitai";
 import type { Comfy } from "./comfy";
 import { httpError } from "./errors";
 import { fileName } from "./media";
-import { assertRoom, BAD_NAME, comfyBase, comfyFolderPaths, fetchToFile, freeBytes, modelRoot, NOT_MODELS, placeIn, REFUSED, Refused, shownPlace } from "./modelDownload";
+import { assertRoom, BAD_NAME, comfyBase, comfyFolderPaths, fetchToFile, freeBytes, modelRoot, NOT_MODELS, type OtherRoute, placeIn, REFUSED, Refused, shownPlace } from "./modelDownload";
 import { olderThan } from "./version";
 import { assertPublicUrl, cannotReach, fetchFailure, fetchPublic } from "./outbound";
 import { renameOver } from "./storage";
@@ -365,7 +365,9 @@ export class Downloads {
       return {
         ...view, order: d.order,
         ...(d.ask !== undefined ? { ask: d.ask, from: d.from } : {}),
-        ...(d.status === "starting" && !d.begun ? { queued: true as const } : {}),
+        // waiting its turn here, asked again after a restart; never one handed to ComfyUI-Manager, which has it in its own
+        // queue already (it is "starting" until Manager comes for the bytes): asked again, Manager was given it twice
+        ...(d.status === "starting" && !d.begun && d.via !== "manager" ? { queued: true as const } : {}),
         ...(d.finishedAt ? { finishedAt: d.finishedAt } : {}),
         ...(d.dest ? { part: `${d.dest}.part` } : {}),
       };
@@ -531,6 +533,16 @@ export class Downloads {
     return version !== null && !olderThan(version, PACK_DOWNLOADS);
   }
 
+  /**
+   * Who downloads into this ComfyUI where Afflatus cannot write itself, for the places the page is told (folderPlaces):
+   * the node pack (an older one keeps to ComfyUI's first path), else ComfyUI-Manager, else nobody.
+   */
+  async others(comfy: Comfy): Promise<OtherRoute> {
+    const version = await comfy.client.packVersion().catch(() => null);
+    if (version !== null && !olderThan(version, PACK_DOWNLOADS)) return olderThan(version, PACK_PLACE) ? "old-pack" : "pack";
+    return (await this.manager(comfy)).found ? "manager" : "none";
+  }
+
   private routeSeen: { key: string; at: number; value: Via | "none" } | null = null;
 
   /**
@@ -628,8 +640,9 @@ export class Downloads {
     try {
       const res = await post("/v2/manager/queue/install_model", {
         client_id: "afflatus", ui_id: d.id, name: d.title, type: type ?? "etc", base: "",
-        // a folder Manager knows goes where ComfyUI keeps that kind (which may be another disk); a sub-folder or any other folder is a path under models/
-        save_path: type && !sub ? "default" : [d.folder, sub].filter(Boolean).join("/"),
+        // always a path under ComfyUI's models folder, as the page says it: "default" is the first path ComfyUI lists for the
+        // kind, its older name (models/unet) or another app's folder from extra_model_paths.yaml (card #59)
+        save_path: [d.folder, sub].filter(Boolean).join("/"),
         url: route.direct ?? this.oneTime(self, d),
         filename: name,
       });

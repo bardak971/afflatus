@@ -88,7 +88,7 @@ export function registerDownloads(app: FastifyInstance, s: Services): void {
     const { comfy, dir, machine } = await downloadTarget(s, settings, onMachine.parse(req.query).machine);
     const id = machine ?? settings.machines[0]!.id;
     const paths = await comfyFolderPaths(comfy.client);
-    return { machine: id, folders: paths ? await folderPlaces(paths, comfy.client.baseUrl, dir, settings.downloadPlaces[id] ?? {}) : {} };
+    return { machine: id, folders: paths ? await folderPlaces(paths, comfy.client.baseUrl, dir, settings.downloadPlaces[id] ?? {}, await s.downloads.others(comfy)) : {} };
   });
 
   /** The place chosen for a model folder's downloads on a ComfyUI, or forgotten (`path` null): only one ComfyUI lists for it. */
@@ -96,11 +96,12 @@ export function registerDownloads(app: FastifyInstance, s: Services): void {
     const { machine, folder, path } = z.strictObject({ machine: z.string().max(40).optional(), folder: z.string().min(1).max(120), path: z.string().max(1000).nullable() }).parse(req.body);
     if (NOT_MODELS.has(folder)) throw httpError("that is not a models folder");
     const settings = await readSettings(s.db);
-    if (!settings.machines.length) throw httpError("There is no ComfyUI to download into: add yours in Settings › ComfyUI.", 409);
-    const { comfy, machine: asked } = await downloadTarget(s, settings, machine);
-    const id = asked ?? settings.machines[0]!.id;
+    const id = machine ?? settings.machines[0]?.id;
+    if (!id) throw httpError("There is no ComfyUI to download into: add yours in Settings › ComfyUI.", 409);
     let keep: string | null = null;
+    // forgetting needs no ComfyUI: the machine may be gone (a terminated pod), its choice still listed in the Downloads card
     if (path !== null) {
+      const { comfy } = await downloadTarget(s, settings, machine);
       const paths = await comfyFolderPaths(comfy.client);
       if (!paths) throw httpError("This ComfyUI does not say where it reads its models from: it is too old to choose a place.", 409);
       keep = listedFor(paths, folder).find((p) => samePath(p, path)) ?? null;

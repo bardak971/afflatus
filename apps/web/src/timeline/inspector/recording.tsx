@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Asset, Clip } from "../../api";
 import { timelineKey } from "../../draftMachine";
 import { clock as mmss, plural } from "../../format";
@@ -42,6 +42,8 @@ export type RecordingPanelProps = {
   /** The settings its clips can share, each with the value they all have (null: not the same in every clip). */
   shared: Array<{ id: string; label: string; value: string | null; placeholder?: string }>;
   onShared(inputs: Record<string, unknown>): void;
+  /** What they share on its way to all of them: the fields keep what was typed until it is in their forms. */
+  sharing: boolean;
   /**
    * Its clips with nothing to play sent to render, as the source's panel sends its own; `waiting`: those with nothing to
    * play that cannot render yet, and why (the first one's reason).
@@ -112,7 +114,7 @@ export function RecordingPanel(p: RecordingPanelProps) {
               keep={cut.ask.keep}
             />
           )}
-          <Slide label="Clip length" value={Math.min(Math.max(cut.seconds * 1000, leastMs), mostMs)} min={leastMs} max={mostMs} step={100} show={(ms) => `about ${(ms / 1000).toFixed(1)} s`} onCommit={(ms) => cut.run(ms / 1000, cut.snap)} />
+          <Slide label="Clip length" value={Math.min(Math.max(cut.seconds * 1000, leastMs), mostMs)} min={leastMs} max={mostMs} step={100} show={(ms) => `about ${(ms / 1000).toFixed(1)} s`} onCommit={(ms) => cut.run(ms / 1000, cut.snap)} disabled={cut.pending} />
           <Toggle
             on={cut.snap}
             disabled={cut.pending}
@@ -149,7 +151,7 @@ export function RecordingPanel(p: RecordingPanelProps) {
         {p.shared.length > 0 && (
           <Section title="Shared by its clips" help="What every clip of the recording is made with. Typed here, it goes to all of them at once (one step to undo); a clip changed on its own keeps it until this is typed again.">
             {p.shared.map((f) => (
-              <SharedField key={f.id} field={f} count={place.parts.length} onCommit={(value) => p.onShared({ [f.id]: value || null })} />
+              <SharedField key={f.id} field={f} count={place.parts.length} sharing={p.sharing} onCommit={(value) => p.onShared({ [f.id]: value || null })} />
             ))}
           </Section>
         )}
@@ -233,8 +235,15 @@ function ClipRows({ place, clock, onSelectClip }: { place: RecordingPlace; clock
 }
 
 /** One setting the clips share: typed here, given to all of them when it is left (blur), if it changed. */
-function SharedField({ field, count, onCommit }: { field: RecordingPanelProps["shared"][number]; count: number; onCommit(value: string): void }) {
+function SharedField({ field, count, sharing, onCommit }: { field: RecordingPanelProps["shared"][number]; count: number; sharing: boolean; onCommit(value: string): void }) {
   const [text, setText] = useState<string | null>(null);
+  // given to all: what was typed stays shown until it is in their forms, never the old text a moment
+  const [sent, setSent] = useState(false);
+  useEffect(() => {
+    if (sharing || !sent) return;
+    setSent(false);
+    setText(null);
+  }, [sharing, sent]);
   const shown = text ?? field.value ?? "";
   return (
     <label className="flex flex-col gap-1">
@@ -245,8 +254,10 @@ function SharedField({ field, count, onCommit }: { field: RecordingPanelProps["s
         placeholder={field.value === null ? `Each clip has its own: typed here, it goes to all ${count}` : field.placeholder}
         onChange={(e) => setText(e.target.value)}
         onBlur={() => {
-          if (text !== null && text !== (field.value ?? "")) onCommit(text);
-          setText(null);
+          if (text !== null && text !== (field.value ?? "")) {
+            onCommit(text);
+            setSent(true);
+          } else setText(null);
         }}
         className={fieldClass}
       />

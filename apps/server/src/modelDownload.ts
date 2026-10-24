@@ -400,25 +400,47 @@ export interface FolderPlaces {
   chosen?: string;
   /** Where a download goes now, in a few words (a place's `shown`). */
   goes?: string;
+  /** The way downloads take here cannot be told a place (ComfyUI-Manager, an older node pack): `goes` says where they land, no choice offered. */
+  fixed?: true;
 }
 
 /**
- * Every model folder's places on a ComfyUI (placesOf), for the page: on this machine, whether each can be written and where
- * a download goes (the chosen one when it can be written, else the first that can, as modelRoot picks); on another, where
- * the node pack puts it (the chosen one, else ComfyUI's own models/<folder>), which only it can check.
+ * Who downloads into a ComfyUI when Afflatus cannot write its folders itself, as folderPlaces needs it: a node pack that
+ * takes the place chosen (PACK_PLACE or newer), an older one, which keeps to the first path ComfyUI lists that it can write,
+ * ComfyUI-Manager, which writes under ComfyUI's models folder, or nobody.
  */
-export async function folderPlaces(paths: Record<string, string[]>, comfyUrl: string, comfyDir: string, chosen: Record<string, string>): Promise<Record<string, FolderPlaces>> {
+export type OtherRoute = "pack" | "old-pack" | "manager" | "none";
+
+/**
+ * Every model folder's places on a ComfyUI (placesOf), for the page: on this machine, whether each can be written and where
+ * a download goes (the chosen one when it can be written, else the first that can, as modelRoot picks). Where Afflatus
+ * cannot write (another machine, or nothing writable here), where `others` puts it: the node pack the chosen one, else
+ * ComfyUI's own models/<folder>, which only it can check; an older pack ComfyUI's first path for the folder whatever was
+ * chosen, and ComfyUI-Manager models/<folder>, so neither is offered a choice it would not keep (Manager was told "default"
+ * and wrote into the first path ComfyUI lists, an A1111 folder, while the page said models/<folder> and offered the menu).
+ */
+export async function folderPlaces(paths: Record<string, string[]>, comfyUrl: string, comfyDir: string, chosen: Record<string, string>, others: OtherRoute): Promise<Record<string, FolderPlaces>> {
   const base = comfyBase(paths, comfyDir);
   const local = onThisMachine(comfyUrl);
   const out: Record<string, FolderPlaces> = {};
   for (const folder of Object.keys(paths).sort()) {
     if (NOT_MODELS.has(folder)) continue;
-    const places: FolderPlaces["places"] = placesOf(listedFor(paths, folder), folder, base);
+    const listed = listedFor(paths, folder);
+    const places: FolderPlaces["places"] = placesOf(listed, folder, base);
     if (!places.length) continue;
     if (local) for (const p of places) p.ok = await writable(p.path);
     const pick = chosen[folder] ? places.find((p) => samePath(p.path, chosen[folder]!)) : undefined;
-    const goes = (pick && pick.ok !== false ? pick : undefined) ?? places.find((p) => p.ok !== false);
-    out[folder] = { places, ...(pick ? { chosen: pick.path } : {}), ...(goes ? { goes: goes.shown } : {}) };
+    // Afflatus writes it itself: the chosen place when it can be written, else the first that can (modelRoot)
+    const here = local ? ((pick?.ok ? pick : undefined) ?? places.find((p) => p.ok)) : undefined;
+    if (here || others === "pack") {
+      const goes = here ?? pick ?? places[0];
+      out[folder] = { places, ...(pick ? { chosen: pick.path } : {}), ...(goes ? { goes: goes.shown } : {}) };
+      continue;
+    }
+    // ComfyUI-Manager: under ComfyUI's own models folder, when it is known; an older pack: ComfyUI's first path for it
+    const goes = others === "manager" ? (base ? shownPlace(pathsOf(base).join(base, "models", folder), base) : undefined)
+      : others === "old-pack" && listed[0] ? shownPlace(listed[0], base) : undefined;
+    out[folder] = { places, fixed: true, ...(pick ? { chosen: pick.path } : {}), ...(goes ? { goes } : {}) };
   }
   return out;
 }

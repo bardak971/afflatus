@@ -59,9 +59,15 @@ export const RecordingStage = forwardRef<PlayerHandle, {
   useEffect(() => {
     onTime(place.toTrack(local));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once, as the stage turns to the recording
-  // its clips made anew (a trim, a cut): the playhead follows the moment heard to where it now plays
+  // its clips made anew (a trim, a cut): the playhead follows the moment heard to where it now plays. Only when that moved:
+  // the place is made anew on every read of the timeline (a take landing), and following it then took the playhead back
+  // from where it was put, in a clip's tail, to the end of its part
+  const placeBefore = useRef(place);
   useEffect(() => {
-    if (!playing) onTime(place.toTrack(local));
+    const before = placeBefore.current;
+    placeBefore.current = place;
+    const moved = place.toTrack(local);
+    if (!playing && before !== place && Math.abs(moved - before.toTrack(local)) > 0.5) onTime(moved);
   }, [place]); // eslint-disable-line react-hooks/exhaustive-deps -- when the parts move under it
   // played with the transport: the waveform's head on every frame, the playhead as the Player says it (at most 15 times a
   // second, but the frame a range's Out is reached: card #55)
@@ -100,7 +106,8 @@ export const RecordingStage = forwardRef<PlayerHandle, {
   const motion = useQuery({ queryKey: queryKeys.motion(recording.id), queryFn: () => api.motion(recording.id), staleTime: Infinity, retry: 0 });
   const pauses = useQuery({ queryKey: queryKeys.pauses(recording.id), queryFn: () => api.pauses(recording.id), staleTime: Infinity, retry: 0 });
   const bars = barsOf(motion.data?.sound, BARS);
-  const share = (ms: number) => `${(Math.max(0, Math.min(length, ms)) / length) * 100}%`;
+  // no length (old clips with no recordingSeconds, the recording's own not read yet): everything at the start, never NaN%
+  const share = (ms: number) => `${length > 0 ? (Math.max(0, Math.min(length, ms)) / length) * 100 : 0}%`;
   // the pauses it was cut at: where a part ends and the next one starts; the others are pauses it was not cut at
   const cuts = place.parts.slice(0, -1).map((p) => p.endMs);
   const marks = [

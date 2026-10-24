@@ -341,10 +341,18 @@ export function useTimelineEditor(id: string) {
     },
     keep: () => setCutAsk(null),
   };
-  /** What a recording's clips share given to all of them (its panel), after what was typed in them is saved. */
+  /**
+   * What a recording's clips share given to all of them (its panel), after what was typed in them is saved: under way from
+   * that save on, for its fields to keep what was typed until it is in the clips' forms.
+   */
+  const [sharing, setSharing] = useState(false);
   const recordingShared = {
-    pending: recordingFormMut.isPending,
-    run: (asset: string, inputs: Record<string, unknown>) => void save().then(() => recordingFormMut.mutate({ asset, inputs })),
+    pending: sharing || recordingFormMut.isPending,
+    run: (asset: string, inputs: Record<string, unknown>) => {
+      setSharing(true);
+      // a failure is the mutation's own, said with the editor's others (latestFailure)
+      void save().then(() => recordingFormMut.mutateAsync({ asset, inputs })).catch(() => {}).finally(() => setSharing(false));
+    },
   };
 
   /** A voice recording made into Lip sync clips, the first one opened (nothing renders: its scene is to be written first). */

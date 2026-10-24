@@ -129,7 +129,15 @@ export function useTimelineMutations(id: string, o: {
   /** A recording's clips cut again from its panel, at another length or without its pauses (Timelines.cutRecording). */
   const cutRecording = useMutation({ mutationFn: (v: { asset: string; seconds: number; snap: boolean }) => api.cutRecording(id, v.asset, v.seconds, v.snap), onSuccess: readBack });
   /** What a recording's clips share, given to all of them (Timelines.recordingForm). */
-  const recordingForm = useMutation({ mutationFn: (v: { asset: string; inputs: Record<string, unknown> }) => api.recordingForm(id, v.asset, v.inputs), onSuccess: readBack });
+  const recordingForm = useMutation({
+    mutationFn: (v: { asset: string; inputs: Record<string, unknown> }) => api.recordingForm(id, v.asset, v.inputs),
+    onSuccess: (r) => {
+      // the clips' own edits become what the server wrote in them: left as they were, a clip typed in kept the old shared
+      // text in its form, and its next save or render put it back over the panel's change
+      for (const c of r.clips ?? []) savedElsewhere(c.id, c.inputs);
+      return readBack();
+    },
+  });
   /** A voice recording made into Lip sync clips (their ids, the first opened once the timeline is read again). */
   const recording = useMutation({ mutationFn: (v: { asset: string; clip?: string }) => api.makeFromRecording(id, v.asset, v.clip), onSuccess: after });
   /** The source given another windowed form: its windows and takes kept on the same grid, else made anew (Timelines.sourceForm). */
