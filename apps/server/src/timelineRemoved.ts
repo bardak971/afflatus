@@ -52,6 +52,13 @@ export function removalOf(run: string[], gone: ReadonlySet<string>): Removal {
   return { whole: false, lead: run.slice(0, first), tail: run.slice(last + 1), middles };
 }
 
+/**
+ * The clip after a cut rendered since it was made one (`row`: that clip; `part`: the cut): its take was made as a cut, of
+ * its part as it is now, so it keeps its join and form (as Bring back keeps them), and the part no longer lies end to end
+ * with it.
+ */
+export const renderedSince = (row: ParkedClip, part: RemovedPart): boolean => (row.clip.take_id ?? null) !== (part.take ?? null);
+
 /** A clip set aside back to the join and form it had before a cut made it the clip after one (`part`: that cut). */
 export function asItWas(row: ParkedClip, part: RemovedPart): ParkedClip {
   return { ...row, clip: { ...row.clip, joined: part.joined, ...(part.inputs !== undefined ? { inputs: part.inputs } : {}) } };
@@ -61,13 +68,18 @@ export function asItWas(row: ParkedClip, part: RemovedPart): ParkedClip {
  * The removed parts of a run once `ids` (its clips, in order) are set aside or go: a part kept with one of them is taken out
  * of the list, and its clips put back among `rows` (those set aside now, in order), each just before the clip it was kept
  * with, that clip back as it was; so what is set aside lies end to end again, as a trim out brings it back (trimOut stops
- * at a clip that does not meet the one before). `rows` is null when they go (the In moved past them): the parts go too.
+ * at a clip that does not meet the one before). A part whose clip after was rendered since stays a removed part, kept with
+ * that clip set aside: folded in, that clip would come back with a take made as a cut under the join and part it had before
+ * (or, kept as a cut, stop the trim out at the gap before it). Brought back with it, the part is marked again, to bring back
+ * on its own. `rows` is null when they go (the In moved past them): the parts go too.
  */
 export function foldParts(parts: RemovedPart[], ids: string[], rows: ParkedClip[] | null): { parts: RemovedPart[]; rows: ParkedClip[] } {
   const going = new Set(ids);
-  const folded = parts.filter((p) => going.has(p.before));
-  const left = parts.filter((p) => !going.has(p.before));
-  if (!rows) return { parts: left, rows: [] };
+  if (!rows) return { parts: parts.filter((p) => !going.has(p.before)), rows: [] };
+  const rowOf = (id: string) => rows.find((r) => r.clip.id === id);
+  const folds = (p: RemovedPart) => going.has(p.before) && !renderedSince(rowOf(p.before) ?? { clip: { take_id: p.take ?? null }, takes: [] }, p);
+  const folded = parts.filter(folds);
+  const left = parts.filter((p) => !folds(p));
   const out: ParkedClip[] = [];
   for (const row of rows) {
     const part = folded.find((p) => p.before === row.clip.id);

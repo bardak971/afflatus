@@ -165,6 +165,10 @@ input:not([type="checkbox"], [type="radio"], [type="range"]):focus-visible,
 textarea:focus-visible {
   outline: none;
 }
+/* the track holds the focus Escape takes off a clip or a join (leaveTrackFocus): it is no control, so no ring around it */
+[data-track]:focus {
+  outline: none;
+}
 /* a two-knob slider's knob (RangeSlider) marks its own focus, a ring around the dot: no square around it as well */
 [data-knob]:focus-visible {
   outline: none;

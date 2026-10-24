@@ -7,12 +7,15 @@ import { picturePixels } from "./thumbs";
 /**
  * A file brought in that the library already holds, found by what it holds rather than by its name or its bytes alone:
  * a picture copied with Copy the picture comes back from the clipboard as a PNG the browser drew again (other bytes, the
- * same pixels), a video or a sound as the very same file. Items take their digest (0090_asset_digest) when they are
- * uploaded; an older one works its own out the first time a file of its size comes in, and keeps it.
+ * same pixels), a video or a sound as the very same file. Only a file asked to be found (a paste) takes its digest
+ * (0090_asset_digest): working a picture's out decodes it whole, which a folder of 2 000 photos brought in must not pay.
+ * A picture is found by a digest kept already, never by reading older pictures again (renders have none, and decoding a
+ * hundred of them on a paste would take the threads the thumbnails need); an older video or sound of the very same
+ * bytes works its own out, as only a file of that exact size is read.
  */
 
-/** How many older items without a digest one lookup works out at most, newest first: a picture is read whole for it. */
-const LOOKED_AT = 100;
+/** How many older videos or sounds without a digest one lookup works out at most, newest first. */
+const LOOKED_AT = 20;
 
 /** Items that are not in the library (a painted mask, a Prompt kit's picture) are never what a file is found to be. */
 const HIDDEN = ["mask", "kit"] as const;
@@ -44,18 +47,21 @@ async function digestOf(db: Db, storage: Storage, row: Row): Promise<string | nu
 }
 
 /**
- * The library item that holds what a file holds, or null. `size`: a picture's width and height, else the file's bytes,
- * which an item must share to be worked out at all.
+ * The library item that holds what a file holds, or null. Only an item kept and already in the folder the file goes to
+ * (`folder`, null for no folder) is the file: one not kept would take a paste with it to the bin, and one elsewhere (another
+ * folder, another project) would leave the folder pasted into without it. `bytes`: the file's, which an older video or
+ * sound must share to be worked out at all.
  */
-export async function findSame(db: Db, storage: Storage, wanted: { kind: Tables["assets"]["kind"]; digest: string; width?: number | null; height?: number | null; bytes: number }): Promise<string | null> {
-  const known = await db.selectFrom("assets").select("id")
-    .where("digest", "=", wanted.digest).where("kind", "=", wanted.kind).where("deleted_at", "is", null).where("origin", "not in", HIDDEN)
-    .orderBy("created_at", "desc").executeTakeFirst();
+export async function findSame(db: Db, storage: Storage, wanted: { kind: Tables["assets"]["kind"]; digest: string; bytes: number; folder: string | null }): Promise<string | null> {
+  const mine = () => {
+    const q = db.selectFrom("assets").select(["id", "kind", "file_key"])
+      .where("kind", "=", wanted.kind).where("deleted_at", "is", null).where("origin", "not in", HIDDEN).where("kept_at", "is not", null);
+    return wanted.folder ? q.where("folder_id", "=", wanted.folder) : q.where("folder_id", "is", null);
+  };
+  const known = await mine().where("digest", "=", wanted.digest).orderBy("created_at", "desc").executeTakeFirst();
   if (known) return known.id;
-  let older = db.selectFrom("assets").select(["id", "kind", "file_key"])
-    .where("digest", "is", null).where("kind", "=", wanted.kind).where("deleted_at", "is", null).where("origin", "not in", HIDDEN);
-  older = wanted.kind === "image" ? older.where("width", "=", wanted.width ?? -1).where("height", "=", wanted.height ?? -1) : older.where("bytes", "=", wanted.bytes);
-  for (const row of await older.orderBy("created_at", "desc").limit(LOOKED_AT).execute()) {
+  if (wanted.kind === "image") return null;
+  for (const row of await mine().where("digest", "is", null).where("bytes", "=", wanted.bytes).orderBy("created_at", "desc").limit(LOOKED_AT).execute()) {
     if ((await digestOf(db, storage, row)) === wanted.digest) return row.id;
   }
   return null;

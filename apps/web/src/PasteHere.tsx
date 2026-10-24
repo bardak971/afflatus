@@ -23,12 +23,13 @@ function useOpenPasted() {
 
 /**
  * The library shown (the Studio's grid, the timeline's Media strip open): Ctrl+V pastes into the folder it shows, `folder`,
- * else the project's root. `name`: what the banner calls it.
+ * else the project's root. `name`: what the banner calls it. `opened`: what the banner's Open does, when the library is
+ * not the Studio's (the Media strip opens itself, rather than leave the editor); the Studio's grid by default.
  */
-export function usePasteIntoLibrary(shown: boolean, folder: string | null, name: string): void {
+export function usePasteIntoLibrary(shown: boolean, folder: string | null, name: string, opened?: (items: Asset[]) => void): void {
   const say = useBanners((b) => b.push);
   const open = useOpenPasted();
-  usePasteTarget(shown ? { level: "library", take: (files) => void pasteIntoLibrary(files, { folder, name, say, open: open(folder) }) } : null);
+  usePasteTarget(shown ? { level: "library", take: (files) => void pasteIntoLibrary(files, { folder, name, say, open: opened ?? open(folder) }) } : null);
 }
 
 /**

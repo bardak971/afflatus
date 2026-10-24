@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type Asset } from "./api";
 import { plural } from "./format";
 import { projectForNew } from "./project";
@@ -40,6 +40,32 @@ export function usePasteTarget(target: PasteTarget | null): void {
   }, [level]);
 }
 
+/** Said of a paste while the last files are still going in: one paste at a time, a second one not dropped without a word. */
+export const STILL_ADDING = "Still adding the last one: paste again in a moment.";
+
+/**
+ * A media slot of its own make (not PictureField's Slot: the Prompt kit's pictures and voice) as a paste target while
+ * `on`: the files of its kind it has room for go to `take`, and what is said of the rest comes back, to be shown under it.
+ * `busy`: the last ones are still going in.
+ */
+export function useSlotPaste(on: boolean, o: { el(): HTMLElement | null; kind: MediaKind; label: string; room?: number; busy: boolean; take(files: File[]): void }): string | null {
+  const [said, setSaid] = useState<string | null>(null);
+  usePasteTarget(on ? {
+    level: "slot",
+    el: o.el,
+    take: (files) => {
+      if (o.busy) return void setSaid(STILL_ADDING);
+      const sorted = sortPasted(files, o.kind, o.label, o.room);
+      setSaid(sorted.said);
+      if (sorted.taken.length) o.take(sorted.taken);
+    },
+  } : null);
+  useEffect(() => {
+    if (!o.busy) setSaid((w) => (w === STILL_ADDING ? null : w));
+  }, [o.busy]);
+  return said;
+}
+
 const newest = (level: PasteTarget["level"]) => targets.filter((t) => t.level === level).reverse();
 
 /** Where the user types text: an input that takes text, a text area, an editable element. */
@@ -67,8 +93,18 @@ export function pastedFiles(data: DataTransfer, at = new Date()): File[] {
 }
 
 /**
+ * The modal on top, or null: the one holding the focus (a Dialog keeps it inside), else the last one drawn (the Viewer, which
+ * may leave it on the page). A dialog fading out is a still copy with no role, never counted.
+ */
+function topModal(focused: Element | null): Element | null {
+  const held = focused?.closest("[role=dialog][aria-modal=true]");
+  return held ?? [...document.querySelectorAll("[role=dialog][aria-modal=true]")].at(-1) ?? null;
+}
+
+/**
  * The `paste` event, wherever it happens: the files handed to the first place that takes them, `elsewhere` when none is
- * shown. Text, and a paste with no file, are left to the browser.
+ * shown. Text, and a paste with no file, are left to the browser. A modal on top takes the paste, or nothing does: a picker
+ * only when it is that modal, a slot only inside it, and the library behind it never (a question asked, the Viewer).
  */
 export function onPaste(e: ClipboardEvent, elsewhere: (files: File[]) => void): void {
   const data = e.clipboardData;
@@ -76,22 +112,24 @@ export function onPaste(e: ClipboardEvent, elsewhere: (files: File[]) => void): 
   const files = pastedFiles(data);
   if (!files.length) return;
   const focused = document.activeElement;
+  const top = topModal(focused);
+  const pickers = newest("picker").filter((t) => top && t.el?.() === top);
   if (typingIn(focused)) {
     // text pasted into a field stays the browser's; a file there is no surprise upload, unless the field is an open
     // picker's own search (it has the focus as the picker opens)
     if (data.types.includes("text/plain")) return;
-    const picker = newest("picker")[0];
-    if (!picker?.el?.()?.contains(focused)) {
+    if (!pickers[0]?.el?.()?.contains(focused)) {
       e.preventDefault();
       return;
     }
   }
   e.preventDefault();
-  for (const t of newest("picker")) if (t.take(files, focused) !== false) return;
+  for (const t of pickers) if (t.take(files, focused) !== false) return;
   for (const t of newest("slot")) {
     const el = t.el?.();
-    if (el && focused && el.contains(focused) && t.take(files, focused) !== false) return;
+    if (el && focused && el.contains(focused) && (!top || top.contains(el)) && t.take(files, focused) !== false) return;
   }
+  if (top) return;
   for (const t of newest("library")) if (t.take(files, focused) !== false) return;
   elsewhere(files);
 }
@@ -147,7 +185,7 @@ export async function pasteIntoLibrary(files: File[], o: { folder: string | null
     }
   }
   const items = [...added, ...found];
-  const title = !items.length ? `Nothing pasted into ${o.name}` : added.length ? `${added.length > 1 ? `${added.length} files pasted` : "Pasted"} into ${o.name}` : "Already in your library";
+  const title = !items.length ? `Nothing pasted into ${o.name}` : added.length ? `${added.length > 1 ? `${added.length} files pasted` : "Pasted"} into ${o.name}` : `Already in ${o.name}`;
   o.say({
     id, tone: failed.length ? "bad" : "good", title,
     text: [
@@ -155,6 +193,6 @@ export async function pasteIntoLibrary(files: File[], o: { folder: string | null
       failed.length > 0 && `${failed.length} failed · ${failed[0]}`,
       leftOut,
     ].filter(Boolean).join(" ") || undefined,
-    ...(items.length ? { href: "/", go: "Open", act: () => o.open(items) } : {}),
+    ...(items.length ? { go: "Open", act: () => o.open(items) } : {}),
   });
 }

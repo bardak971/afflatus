@@ -160,9 +160,13 @@ export function useTimelineMutations(id: string, o: {
   // answered 404 (and Undo brings the clip back with what was typed)
   // a clip of a recording or of the source cuts its part out of it (Timelines.removeClips): what that does is said first,
   // and nothing goes unless it is gone ahead with. Several picked go in one call, one step for Undo (each was one)
+  // In / Out's Remove range asks the same of the clips it takes off whole (rangeRemoves)
+  const askRemoval = async (ids: string[], range?: boolean): Promise<boolean> => {
+    const asked = o.timeline ? removalAsk(o.timeline, o.recipes, ids, { range }) : null;
+    return !asked || ask(asked);
+  };
   const removeClips = async (ids: string[]): Promise<boolean> => {
-    const asked = o.timeline ? removalAsk(o.timeline, o.recipes, ids) : null;
-    if (asked && !(await ask(asked))) return false;
+    if (!(await askRemoval(ids))) return false;
     for (const clip of ids) await save(clip);
     await turn(() => (ids.length === 1 ? api.deleteClip(ids[0]!) : api.removeClips(id, ids)));
     return true;
@@ -275,5 +279,5 @@ export function useTimelineMutations(id: string, o: {
   // the latest that failed, not the first of the list: an old error does not hide a new one
   // (with when it was asked, `errorAt`, for the editor to weigh it against its own range actions')
   const { error, at: errorAt } = latestFailure([plan, loop, render, fix, patch, edit, makeSource, cutSource, sourceForm, windowForm, recording, cutRecording, recordingForm, trimSource, trimRecording, splitSource, add, remove, removeMany, bringBack, removeTake, stop, undo, redo, exportIt, frame, split, duplicate]);
-  return { after, readBack, render, patch, fix, edit, makeSource, cutSource, sourceForm, windowForm, recording, cutRecording, recordingForm, trimSource, trimRecording, splitSource, add, remove, removeMany, bringBack, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error, errorAt };
+  return { askRemoval, after, readBack, render, patch, fix, edit, makeSource, cutSource, sourceForm, windowForm, recording, cutRecording, recordingForm, trimSource, trimRecording, splitSource, add, remove, removeMany, bringBack, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error, errorAt };
 }

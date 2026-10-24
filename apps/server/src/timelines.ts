@@ -201,6 +201,7 @@ export class Timelines {
       row: (id) => this.row(id), clipRow: (id) => this.clipRow(id), assetRow: (id) => this.assetRow(id), placed: (id, db) => this.placed(id, db),
       remember: (id, label, added, db) => this.remember(id, label, added, db), oneAtATime: (key, work) => this.history.oneAtATime(key, work), touch: (id) => this.touch(id), keep: (id, db) => this.keep(id, db), renumber: (id, order, db) => this.renumber(id, order, db),
       settingsOf, frame: (video, atMs, once, timeline) => this.media.frame(video, atMs, once, timeline), motion: (id, row) => this.media.motion(id, row),
+      cutRuns: (id, ids, tx) => this.cutRuns(id, ids, tx as Tx),
     };
     this.range = new TimelineRange(core);
     this.media = new TimelineMedia(core);
@@ -763,7 +764,8 @@ export class Timelines {
       };
       const fitting = parked.filter((row) => ofGrid(row.clip.recipe_id));
       const off = parked.filter((row) => !ofGrid(row.clip.recipe_id));
-      const rows = fitting.map((row) => ({ ...part(row.clip, false), fits: true, taken: row.takes.length > 0 }));
+      const cuts = new Set((plan.removed ?? []).map((p) => p.before));
+      const rows = fitting.map((row) => ({ ...part(row.clip, false), fits: true, taken: row.takes.length > 0, cut: cuts.has(String(row.clip.id)) }));
       const grow = trimOut(last && lastSpan ? { start: lastSpan.from, end: lastSpan.end, free: !last.clip.take_id && !busy.has(last.clip.id), reach } : undefined, rows, toMs, { fromMs: plan.fromMs });
       const kept = grow.keep ? fitting.slice(grow.back) : [];
       const offKept = grow.keep ? off : off.filter((row) => row.takes.length);
@@ -1316,6 +1318,8 @@ export class Timelines {
         const mostS = w.fits ? w.fits.frames / w.fits.fps - (w.fits.pad ?? 0) : 15;
         const row = await this.row(timelineId);
         const parked = parkedRecordings(row)[to.asset] ?? [];
+        // the clips set aside with a part removed before them, kept removed (foldParts): they come back past it
+        const cuts = new Set((removedRecordings(row)[to.asset] ?? []).map((p) => p.before));
         let shortened = shortenedRecordings(row)[to.asset];
         const last = mine.at(-1)!;
         const lastPart = part(last.clip);
@@ -1323,7 +1327,7 @@ export class Timelines {
         // as far as the first clip set aside starts, else (none set aside) its own length before a trim in shortened it
         const before = shortened?.clip === last.clip.id ? lastPart.start + shortened.seconds * 1000 : undefined;
         const reach = last.clip.take_id ? undefined : first ? ((first.start - lastPart.start) / 1000 <= mostS ? first.start : undefined) : before;
-        const grow = trimOut({ start: lastPart.start, end: curTo, free: !last.clip.take_id && !busy.has(last.clip.id), reach }, parked.map((p) => ({ ...part(p.clip), fits: true, taken: p.takes.length > 0 })), toMs, { fromMs: curFrom, leastMs: (w.fits?.min ?? 1) * 1000, mostMs: mostS * 1000 });
+        const grow = trimOut({ start: lastPart.start, end: curTo, free: !last.clip.take_id && !busy.has(last.clip.id), reach }, parked.map((p) => ({ ...part(p.clip), fits: true, taken: p.takes.length > 0, cut: cuts.has(String(p.clip.id)) })), toMs, { fromMs: curFrom, leastMs: (w.fits?.min ?? 1) * 1000, mostMs: mostS * 1000 });
         const { back } = grow;
         const end = Math.round(grow.end);
         const parts = grow.more && toMs > end + 50 ? this.recordingPartsOf(w.fits, pauses, end / 1000, toMs / 1000, cutAs.seconds, cutAs.snap) : [];
@@ -1745,26 +1749,40 @@ export class Timelines {
     if (!unique.length) return;
     await this.row(timelineId);
     await this.history.oneAtATime(timelineId, async () => {
-      const t = await this.row(timelineId);
       const all = await this.placed(timelineId);
       const order = all.map((p) => p.clip.id);
       if (unique.some((id) => !order.includes(id))) throw notFound("this clip");
       const gone = new Set(unique);
-      const runs = this.runsOf(t, all).map((r) => ({ ...r, removal: removalOf(r.ids, gone) })).filter((r) => r.ids.some((id) => gone.has(id)) && !r.removal.whole);
-      const aside = runs.flatMap((r) => [...r.removal.tail, ...r.removal.middles.flatMap((m) => m.ids)]);
-      refuseBusy(aside, await this.busyOf(aside), all, "remove it");
-      // the clips whose join may change: each one after a part cut out, and the one first now
-      const busy = await this.busyOf(runs.flatMap((r) => [...r.removal.middles.map((m) => m.before), ...r.ids.filter((id) => !gone.has(id)).slice(0, 1)]));
       const one = all.find((p) => p.clip.id === unique[0])!;
       const label = unique.length > 1 ? `the ${unique.length} clips removed` : one.clip.kind === "still" ? "the image removed" : "the clip removed";
       await this.db.transaction().execute(async (tx) => {
         await this.remember(timelineId, label, undefined, tx);
-        for (const run of runs) await this.cutOut(tx, timelineId, run, all, busy);
+        await this.cutRuns(timelineId, unique, tx);
         await tx.deleteFrom("clips").where("id", "in", unique).execute();
         await this.renumber(timelineId, order.filter((id) => !gone.has(id)), tx);
       });
     });
     await this.touch(timelineId);
+  }
+
+  /**
+   * The runs of a recording or the source that clips about to be removed (`ids`) are part of, cut as removeClips cuts them,
+   * in the transaction `tx` the removal is made in (removeClips, and In / Out's Remove range: it set them aside the same
+   * way, or deleted them with nothing said or kept): the first ones' In moved, the middle ones and the last ones set aside.
+   * The clips left for the caller to delete are those not set aside. Refused (409) when one to set aside renders or waits
+   * in the queue.
+   */
+  async cutRuns(timelineId: string, ids: string[], tx: Tx): Promise<void> {
+    const t = await tx.selectFrom("timelines").selectAll().where("id", "=", timelineId).executeTakeFirstOrThrow();
+    const all = await this.placed(timelineId, tx);
+    const gone = new Set(ids);
+    const runs = this.runsOf(t, all).map((r) => ({ ...r, removal: removalOf(r.ids, gone) })).filter((r) => r.ids.some((id) => gone.has(id)) && !r.removal.whole);
+    if (!runs.length) return;
+    const aside = runs.flatMap((r) => [...r.removal.tail, ...r.removal.middles.flatMap((m) => m.ids)]);
+    refuseBusy(aside, await this.busyOf(aside, tx), all, "remove it");
+    // the clips whose join may change: each one after a part cut out, and the one first now
+    const busy = await this.busyOf(runs.flatMap((r) => [...r.removal.middles.map((m) => m.before), ...r.ids.filter((id) => !gone.has(id)).slice(0, 1)]), tx);
+    for (const run of runs) await this.cutOut(tx, timelineId, run, all, busy);
   }
 
   /**
@@ -2157,11 +2175,12 @@ type GrowFrom = { start: number; end: number; free: boolean; reach?: number };
  * shortened window's render landing lost every rendered window set aside, on the next drag out, with nothing said. Twice
  * this rule was written out twice, and the two drifted: a gap that only waited for a longer stretch dropped every window
  * set aside, a rendered clip under new parts went with its take, and a window in the queue was given its length back under
- * its render. `more`: new clips may be added from `end` to the stretch's end; with `leastMs`, never one shorter than a clip
- * can be, whichever way the clips set aside ended: the empty last clip takes what is left when it holds it (`mostMs`), else
- * the end rests where the clips end (recordingParts folds a short last part alike).
+ * its render. A clip set aside with a part removed before it (`cut`) comes back past the gap the part leaves. `more`: new
+ * clips may be added from `end` to the stretch's end; with `leastMs`, never one shorter than a clip can be, whichever way
+ * the clips set aside ended: the empty last clip takes what is left when it holds it (`mostMs`), else the end rests where
+ * the clips end (recordingParts folds a short last part alike).
  */
-export function trimOut(last: GrowFrom | undefined, rows: Array<{ start: number; end: number; fits: boolean; taken?: boolean }>, asked: number, o: { fromMs: number; leastMs?: number; mostMs?: number }): { lastEnd?: number; back: number; end: number; keep: boolean; more: boolean } {
+export function trimOut(last: GrowFrom | undefined, rows: Array<{ start: number; end: number; fits: boolean; taken?: boolean; cut?: boolean }>, asked: number, o: { fromMs: number; leastMs?: number; mostMs?: number }): { lastEnd?: number; back: number; end: number; keep: boolean; more: boolean } {
   let end = last ? last.end : o.fromMs;
   let lastEnd: number | undefined;
   // any length a trim in took off given back (within a rounding too: a window left a frame short stays so for good)
@@ -2172,7 +2191,9 @@ export function trimOut(last: GrowFrom | undefined, rows: Array<{ start: number;
   let back = 0;
   let keep = true;
   for (const [k, row] of rows.entries()) {
-    const meets = row.fits && (!last || Math.abs(row.start - end) <= 50);
+    // the clip after a part removed from the middle (`cut`, timelineRemoved.ts) starts past it on purpose: it meets the one
+    // before it across the part, which stays removed
+    const meets = row.fits && (!last || Math.abs(row.start - end) <= 50 || Boolean(row.cut && row.start > end));
     if (!meets) {
       const waits = row.fits && back === 0 && last?.reach !== undefined && Math.abs(row.start - last.reach) <= 50;
       if (waits || rows.slice(k).some((r) => r.taken)) return { lastEnd, back, end, keep: true, more: false };

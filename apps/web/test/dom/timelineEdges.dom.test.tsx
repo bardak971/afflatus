@@ -14,6 +14,7 @@ import { useClipEdits } from "../../src/timeline/useClipEdits";
 import { useOneTrim } from "../../src/timeline/useOneTrim";
 import { usePlayhead } from "../../src/timeline/usePlayhead";
 import { useRange } from "../../src/timeline/useRange";
+import { rangeRemoves } from "../../src/timeline/removalWords";
 import { useTimelineMutations } from "../../src/timeline/useTimelineMutations";
 import { fakeApi, jsonAnswer, later } from "./fakeApi";
 import { draw } from "./render";
@@ -194,7 +195,7 @@ describe("the range played, drawn", () => {
       playingNow = playing;
       setPlayingNow = setPlaying;
       const player = { current: { seek, fullscreen: () => {}, where: () => null } };
-      r = useRange({ id: timeline.id, clips: timeline.clips, durationMs: 10_000, clock, player, playing, setPlaying, on: { after: () => {}, select: () => {}, note: () => {}, say: () => {}, writeBetween: () => {} } });
+      r = useRange({ id: timeline.id, clips: timeline.clips, durationMs: 10_000, clock, player, playing, setPlaying, on: { after: () => {}, select: () => {}, note: () => {}, say: () => {}, writeBetween: () => {}, askRemoval: async () => true } });
       p = usePlayhead({ clock, clips: timeline.clips, endMs: 10_000, player, rangeRef: r.rangeRef, loopRef: r.loopRef, playingRange: r.playingRange, setPlaying });
       return null;
     }
@@ -212,6 +213,42 @@ describe("the range played, drawn", () => {
     act(() => r.toggle());
     act(() => p.onTime(3000));
     expect(playingNow).toBe(false);
+  });
+});
+
+describe("In / Out's Remove range, asked first", () => {
+  it("asks what removing the clips it takes whole does, and removes nothing unless gone ahead with", async () => {
+    let r!: ReturnType<typeof useRange>;
+    let yes = false;
+    const askRemoval = vi.fn(async () => yes);
+    fakeApi.on("POST /timelines/:id/range", {});
+    function Transport() {
+      const clock = useNewClock();
+      const [playing, setPlaying] = useState(false);
+      const player = { current: { seek: () => {}, fullscreen: () => {}, where: () => null } };
+      r = useRange({ id: timeline.id, clips: timeline.clips, durationMs: 10_000, clock, player, playing, setPlaying, on: { after: () => {}, select: () => {}, note: () => {}, say: () => {}, writeBetween: () => {}, askRemoval } });
+      return null;
+    }
+    draw(<Transport />);
+    act(() => r.setRange({ inMs: 0, outMs: 5000 }));
+    const remove = () => r.rangeItems().find((i) => typeof i === "object" && i.label === "Remove range") as { run(): void };
+    await act(async () => remove().run());
+    expect(askRemoval).toHaveBeenLastCalledWith([timeline.clips[0]!.id], true);
+    expect(fakeApi.calls("POST", `/timelines/${timeline.id}/range`)).toHaveLength(0);
+    yes = true;
+    await act(async () => remove().run());
+    await waitFor(() => expect(fakeApi.calls("POST", `/timelines/${timeline.id}/range`)).toHaveLength(1));
+  });
+
+  it("finds the clips the range takes off whole as the server does: inside it, a tenth of a second left, none inside one clip", () => {
+    const at = (id: string, atMs: number, lengthMs: number) => ({ id, atMs, lengthMs });
+    const clips = [at("a", 0, 5000), at("b", 5000, 5000), at("c", 10_000, 5000), at("d", 15_000, 0)];
+    expect(rangeRemoves(clips, 5000, 10_000)).toEqual(["b"]);
+    expect(rangeRemoves(clips, 50, 12_000)).toEqual(["a", "b"]);
+    expect(rangeRemoves(clips, 4950, 12_000)).toEqual(["b"]);
+    expect(rangeRemoves(clips, 6000, 14_950)).toEqual(["c"]);
+    expect(rangeRemoves(clips, 6000, 15_050)).toEqual(["c", "d"]);
+    expect(rangeRemoves(clips, 6000, 9000)).toEqual([]);
   });
 });
 
@@ -281,6 +318,16 @@ describe("drags on the track, drawn", () => {
     fireEvent.pointerCancel(lane, { pointerId: 1 });
     expect(onPeek).toHaveBeenLastCalledWith(null);
     expect(onStretch).not.toHaveBeenCalled();
+  });
+
+  it("marks no removed part while the window after it is set aside itself: no \"clip 0\", no Bring back to refuse", () => {
+    const part = (before: string) => ({ before, fromMs: 3000, toMs: 4000, clips: 1, takes: 0 });
+    const tl = { ...timeline, source: { ...timeline.source!, removed: [part("zz-test-set-aside"), part(timeline.clips[0]!.id)] } } as Timeline;
+    draw(
+      <SourceLane timeline={tl} place={{ atMs: 5000, lengthMs: 20_000, made: true, windows: [], replaces: null }} recipes={[model]} pps={50} selected={false} over={false}
+        slots={layout(tl.clips, 50, [model])} onDragOver={() => {}} onSelect={() => {}} onBringBack={() => {}} />,
+    );
+    expect(screen.getAllByRole("button", { name: /cut out here/ }).map((b) => b.getAttribute("aria-label"))).toEqual([expect.stringContaining("clip 1 starts after a cut")]);
   });
 
   it("draws the stretch released until the timeline read back has it, and the old one again when it is not made (W-9)", async () => {

@@ -342,9 +342,11 @@ export function SourceLane({ timeline, place, recipes, pps, selected, over, onDr
           <span key={b.id} className="pointer-events-none absolute inset-y-1 rounded-sm border border-accent/70" style={{ left: inLane(b.from), width: Math.max(4, ((b.to - b.from) / 1000) * pps) }} />
         ))}
         {/* the parts cut out of the middle by removing their windows: the stretch of the video the clips jump over */}
-        {(source.removed ?? []).map((p) => (
-          <RemovedMark key={p.before} part={p} left={inLane(p.fromMs)} width={((p.toMs - p.fromMs) / 1000) * pps} number={(slots.find((s) => s.clip.id === p.before)?.index ?? -1) + 1} onBringBack={onBringBack} />
-        ))}
+        {/* none while the window after it is set aside itself (the Out brought in past it): it comes back with that window */}
+        {(source.removed ?? []).map((p) => {
+          const after = slots.find((s) => s.clip.id === p.before);
+          return after ? <RemovedMark key={p.before} part={p} left={inLane(p.fromMs)} width={((p.toMs - p.fromMs) / 1000) * pps} number={after.index + 1} onBringBack={onBringBack} /> : null;
+        })}
         <span className="pointer-events-none absolute top-0.5 rounded bg-ground/85 px-1 text-micro font-semibold whitespace-nowrap" style={{ left: Math.max(2, inLane(lineFrom) + 3) }}>
           {held ? (held.kind === "slip" ? `${(fromMs / 1000).toFixed(1)}–${(toMs / 1000).toFixed(1)} s` : `${((held.kind === "start" ? fromMs : toMs) / 1000).toFixed(1)} s${held.kind === "end" ? ": stops here" : ": starts here"}`) : `${video.name} · from ${(fromMs / 1000).toFixed(1)} s`}
         </span>

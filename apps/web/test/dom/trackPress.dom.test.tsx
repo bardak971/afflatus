@@ -62,9 +62,11 @@ function rig(first: string | null) {
 }
 
 const inTrack = () => Boolean(document.activeElement?.closest("[data-track]"));
+/** The focus on the track itself, no clip or join of it: where Escape leaves it, for Tab to carry on from. */
+const onTrack = () => Boolean(document.activeElement?.hasAttribute("data-track"));
 
 describe("Esc on the track (card #77)", () => {
-  it("lets go of the selected clip and leaves no track element focused, so no ring stays on it", () => {
+  it("lets go of the selected clip and hands the focus to the track itself, so no ring stays on the clip and Tab carries on from the track", () => {
     rig(null);
     const two = screen.getByRole("button", { name: /^Clip 2,/ });
     act(() => two.focus());
@@ -73,7 +75,8 @@ describe("Esc on the track (card #77)", () => {
     expect(inTrack()).toBe(true);
     fireEvent.keyDown(two, { key: "Escape" });
     expect(screen.getByTestId("selected").textContent).toBe("");
-    expect(inTrack()).toBe(false);
+    expect(onTrack()).toBe(true);
+    expect(document.activeElement).not.toBe(document.body);
   });
 
   it("leaves the join's dot as well once it was pressed", () => {
@@ -81,7 +84,7 @@ describe("Esc on the track (card #77)", () => {
     const dot = screen.getByRole("button", { name: "The join before clip 2: a cut" });
     act(() => dot.focus());
     fireEvent.keyDown(dot, { key: "Escape" });
-    expect(inTrack()).toBe(false);
+    expect(onTrack()).toBe(true);
   });
 
   it("leaves a focus outside the track where it is", () => {

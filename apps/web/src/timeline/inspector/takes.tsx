@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { ImagePlus, MoreHorizontal, Play, ScanFace, Scissors, Trash2 } from "lucide-react";
 import { api, thumbUrl, type Asset, type Clip, type Take } from "../../api";
@@ -7,6 +7,7 @@ import { FieldRow } from "../../fields";
 import { RangeSlider } from "../../RangeSlider";
 import { DRAG_PICTURE, useDropZone } from "../../dragging";
 import { projectForNew } from "../../project";
+import { useSlotPaste } from "../../paste";
 import { ContextMenu, useMenu } from "../../ContextMenu";
 import { PIN_WORDS, pinInputs, takeTrouble, type PinMirror, type PinWhere, type ShownPatch } from "../model";
 import { pinMenuItems } from "../menus";
@@ -16,14 +17,20 @@ import { useRecipes } from "../../data";
 import { useTileMenu } from "../../TileMenu";
 import { Viewer } from "../../viewer/LazyViewer";
 
-/** A place a picture can be dropped on to become a pinned frame: one from the library, or a file from the computer, which goes into the library first. */
-function PinDrop({ className, onPick, onMenu, children }: { className?: string; onPick(id: string): void; onMenu?(e: React.MouseEvent): void; children: ReactNode }) {
-  const upload = useMutation({ mutationFn: (file: File) => api.upload(file, { project: projectForNew() }), onSuccess: (a) => onPick(a.id) });
-  const drop = useDropZone([DRAG_PICTURE], onPick, (file) => file.type.startsWith("image/") && upload.mutate(file));
+/**
+ * A place a picture can be dropped on to become a pinned frame: one from the library, or a file from the computer, which
+ * goes into the library first. Ctrl+V while the focus is in it: as a drop, a picture the library holds already used as it is.
+ */
+function PinDrop({ className, label, onPick, onMenu, children }: { className?: string; label: string; onPick(id: string): void; onMenu?(e: React.MouseEvent): void; children: ReactNode }) {
+  const upload = useMutation({ mutationFn: ({ file, reuse }: { file: File; reuse: boolean }) => api.upload(file, { project: projectForNew(), reuse }), onSuccess: (a) => onPick(a.id) });
+  const drop = useDropZone([DRAG_PICTURE], onPick, (file) => file.type.startsWith("image/") && upload.mutate({ file, reuse: false }));
+  const root = useRef<HTMLDivElement>(null);
+  const pasted = useSlotPaste(true, { el: () => root.current, kind: "image", label, busy: upload.isPending, take: ([file]) => upload.mutate({ file: file!, reuse: true }) });
   return (
-    <div {...drop.props} onContextMenu={onMenu} className={cx(className, drop.zone, drop.wanted && "ring-1 ring-accent/50")} data-tip={drop.wanted ? "Drop the picture here" : undefined}>
+    <div ref={root} {...drop.props} onContextMenu={onMenu} className={cx(className, drop.zone, drop.wanted && "ring-1 ring-accent/50")} data-tip={drop.wanted ? "Drop the picture here" : undefined}>
       {children}
       {upload.isPending && <span className="ml-1 text-xs text-ink-2">Adding…</span>}
+      {pasted && <span role="alert" className="ml-1 text-xs text-warn-ink">{pasted}</span>}
     </div>
   );
 }
@@ -271,7 +278,7 @@ export function PinnedFrames({ stored, pins, frames, midDefault, mirrors, pictur
     <div className="flex flex-col gap-2">
             {[{ where: "start" as const, id: opens, input: pins.start, text: "First frame" }, { where: "end" as const, id: ends, input: pins.end, text: loops ? "Last frame, same as the first: it loops" : "Last frame" }].map((p) =>
               p.id ? (
-                <PinDrop key={p.where} className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5" onPick={(id) => onInputs({ ...stored, [p.input!]: id })} onMenu={menuOn(p.where)}>
+                <PinDrop key={p.where} label={p.where === "start" ? "First frame" : "Last frame"} className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5" onPick={(id) => onInputs({ ...stored, [p.input!]: id })} onMenu={menuOn(p.where)}>
                   {thumb(p.where, p.id)}
                   <span className="grow">{p.text}</span>
                   <Button size="sm" onClick={() => setPicking(p.where)}>Change</Button>
@@ -280,7 +287,7 @@ export function PinnedFrames({ stored, pins, frames, midDefault, mirrors, pictur
               ) : null,
             )}
             {through && pins.mid && pins.midAt && (
-              <PinDrop className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5" onPick={(id) => onInputs({ ...stored, [pins.mid!]: id })} onMenu={menuOn("mid")}>
+              <PinDrop label="Keyframe" className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5" onPick={(id) => onInputs({ ...stored, [pins.mid!]: id })} onMenu={menuOn("mid")}>
                 {thumb("mid", through)}
                 <span className="grow">Keyframe at</span>
                 <NumberBox label="When the clip reaches this keyframe, in seconds" value={Number(stored[pins.midAt] ?? midDefault)} min={0.5} max={14.5} step={0.5} unit="s" onCommit={(v) => onInputs({ ...stored, [pins.midAt!]: v })} />
@@ -289,9 +296,9 @@ export function PinnedFrames({ stored, pins, frames, midDefault, mirrors, pictur
             )}
             <div className="flex flex-wrap items-center gap-1.5">
               {/* each takes a picture dropped on it: from the library, or a file from the computer */}
-              {pins.start && !carries && !opens && <PinDrop className="rounded-lg" onPick={(id) => onInputs({ ...stored, [pins.start!]: id })}><Button size="sm" onClick={() => setPicking("start")}><ImagePlus size={13} /> First frame</Button></PinDrop>}
-              {pins.mid && !through && <PinDrop className="rounded-lg" onPick={(id) => onInputs({ ...stored, [pins.mid!]: id })}><Button size="sm" onClick={() => setPicking("mid")}><ImagePlus size={13} /> Keyframe</Button></PinDrop>}
-              {pins.end && !ends && <PinDrop className="rounded-lg" onPick={(id) => onInputs({ ...stored, [pins.end!]: id })}><Button size="sm" onClick={() => setPicking("end")}><ImagePlus size={13} /> Last frame</Button></PinDrop>}
+              {pins.start && !carries && !opens && <PinDrop label="First frame" className="rounded-lg" onPick={(id) => onInputs({ ...stored, [pins.start!]: id })}><Button size="sm" onClick={() => setPicking("start")}><ImagePlus size={13} /> First frame</Button></PinDrop>}
+              {pins.mid && !through && <PinDrop label="Keyframe" className="rounded-lg" onPick={(id) => onInputs({ ...stored, [pins.mid!]: id })}><Button size="sm" onClick={() => setPicking("mid")}><ImagePlus size={13} /> Keyframe</Button></PinDrop>}
+              {pins.end && !ends && <PinDrop label="Last frame" className="rounded-lg" onPick={(id) => onInputs({ ...stored, [pins.end!]: id })}><Button size="sm" onClick={() => setPicking("end")}><ImagePlus size={13} /> Last frame</Button></PinDrop>}
             </div>
       {menu.menu && subject && (
         <ContextMenu

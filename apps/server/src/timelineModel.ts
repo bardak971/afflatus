@@ -333,6 +333,12 @@ export interface TimelineCore {
   settingsOf(recipe: Recipe<any>, all: Placed[], index: number): Record<string, unknown>;
   /** One frame of a video as a picture in the library (timelineMedia.ts), in the folder of the timeline it is taken in. */
   frame(video: AssetRow, atMs: number, once?: boolean, timeline?: string): Promise<AssetRow>;
+  /**
+   * Clips about to be removed that are part of a recording or the source cut their part out of it, as a clip removed does
+   * (Timelines.cutRuns): those set aside are off the timeline after it, the rest are the caller's to delete. `db`: the
+   * transaction the removal is made in.
+   */
+  cutRuns(timelineId: string, ids: string[], db: Db): Promise<void>;
 }
 
 /** A clip's music settings as stored: only what differs from the rest; null when nothing does. */

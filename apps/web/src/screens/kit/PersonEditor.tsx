@@ -11,6 +11,7 @@ import { Viewer } from "../../viewer/LazyViewer";
 import { useLoraWordsOf } from "../../fields";
 import { fileLabel, plural } from "../../format";
 import { Picker } from "../../PictureField";
+import { useSlotPaste } from "../../paste";
 import { ModelLink } from "../../ModelLink";
 import { Card, Row } from "../../Rows";
 import { Select } from "../../Select";
@@ -21,6 +22,7 @@ import { dropped, moved } from "../queue/order";
 import { useFlip } from "../../useFlip";
 import { entryOf, field, modelRows, outfitsOf, withEntry } from "./shared";
 import { queryKeys } from "../../queryKeys";
+import { useBanners } from "../../store";
 
 /** A small fact of a row: what a model takes of the person. */
 function Takes({ children, tip }: { children: string; tip: string }) {
@@ -61,6 +63,9 @@ function Pictures({ value, onChange, what, sent, face }: { value: string[]; onCh
     onSuccess: (ids) => onChange([...value, ...ids.filter((id, i) => !value.includes(id) && ids.indexOf(id) === i)].slice(0, LIMITS.pictures)),
   });
   const drop = useDropZone([DRAG_PICTURE], () => {}, () => {});
+  // Ctrl+V while the focus is in the row: as a drop of those files, as many as there is room for
+  const row = useRef<HTMLDivElement>(null);
+  const pasted = useSlotPaste(!picking, { el: () => row.current, kind: "image", label: `Pictures of ${what}`, room, busy: add.isPending, take: (files) => add.mutate({ files, ids: [] }) });
   const onDrop = (e: DragEvent) => {
     // one of the row put in another place
     if (dragged) {
@@ -90,6 +95,7 @@ function Pictures({ value, onChange, what, sent, face }: { value: string[]; onCh
   return (
     <div className={cx("px-4 py-3", first > 0 && "pt-7")}>
       <div
+        ref={row}
         {...drop.props}
         onDragOver={(e) => (dragged ? e.preventDefault() : drop.props.onDragOver(e))}
         onDrop={onDrop}
@@ -152,9 +158,15 @@ function Pictures({ value, onChange, what, sent, face }: { value: string[]; onCh
             <span className="text-xs">{add.isPending ? "Adding…" : "Add"}</span>
           </button>
         )}
-        {add.isError && <span className="basis-full text-xs text-warn-ink">{add.error.message}</span>}
+        {(pasted ?? add.error?.message) && <span role="alert" className="basis-full text-xs text-warn-ink">{pasted ?? add.error?.message}</span>}
         {/* a file from the computer is kept with the person or place, not put in the library; one picked from the library stays there too */}
-        {picking && <Picker kit title={`A reference image of ${what}`} onClose={() => setPicking(false)} onPick={(id) => { if (!value.includes(id)) onChange([...value, id]); setPicking(false); }} />}
+        {picking && (
+          <Picker
+            kit title={`A reference image of ${what}`} room={room} onClose={() => setPicking(false)}
+            onPick={(id) => { if (!value.includes(id)) onChange([...value, id]); setPicking(false); }}
+            onPicks={(ids) => { onChange([...value, ...ids.filter((id, i) => !value.includes(id) && ids.indexOf(id) === i)].slice(0, LIMITS.pictures)); setPicking(false); }}
+          />
+        )}
         {shown.data && <Viewer asset={shown.data} onClose={() => setOpen(null)} />}
       </div>
     </div>
@@ -188,8 +200,11 @@ function Voice({ value, part, onChange, onPart }: {
   });
   // a sound of the library, or a video that has sound
   const drop = useDropZone([DRAG_SOUND, DRAG_HAS_SOUND], onChange, (file) => file.type.startsWith("audio/") && upload.mutate(file));
+  // Ctrl+V while the focus is in it (its slot, its Change or Remove): as a drop
+  const root = useRef<HTMLDivElement>(null);
+  const pasted = useSlotPaste(!picking, { el: () => root.current, kind: "audio", label: "Voice sample", busy: upload.isPending, take: ([file]) => upload.mutate(file!) });
   return (
-    <div className="flex min-w-0 grow flex-col gap-1">
+    <div ref={root} className="flex min-w-0 grow flex-col gap-1">
       {value ? (
         <div {...drop.props} className={cx("flex min-w-0 items-center gap-2 rounded-xl border bg-raised py-1 pr-1.5 pl-2", drop.over ? "border-accent bg-accent-wash" : drop.wanted ? "border-dashed border-accent" : "border-line")}>
           {/* the part the models are given, played on the whole sample's waveform where it is chosen */}
@@ -209,7 +224,7 @@ function Voice({ value, part, onChange, onPart }: {
           <span className="truncate">{upload.isPending ? "Adding…" : "Choose or drop an audio file"}</span>
         </button>
       )}
-      {upload.isError && <span className="text-xs text-warn-ink">{upload.error.message}</span>}
+      {(pasted ?? upload.error?.message) && <span role="alert" className="text-xs text-warn-ink">{pasted ?? upload.error?.message}</span>}
       {picking && <Picker title="Voice sample" kind="audio" onClose={() => setPicking(false)} onPick={(id) => { onChange(id); setPicking(false); }} />}
     </div>
   );
@@ -247,8 +262,15 @@ function OutfitPicture({ value, onChange, what }: { value: string | null; onChan
     },
   });
   const drop = useDropZone([DRAG_PICTURE], onChange, (file) => file.type.startsWith("image/") && upload.mutate(file));
+  // Ctrl+V while the focus is on it: as a drop. What is refused is said in a banner, the square having no room for words
+  const root = useRef<HTMLDivElement>(null);
+  const pasted = useSlotPaste(!picking, { el: () => root.current, kind: "image", label: `The picture of ${what}`, busy: upload.isPending, take: ([file]) => upload.mutate(file!) });
+  const say = useBanners((b) => b.push);
+  useEffect(() => {
+    if (pasted) say({ id: `paste-outfit:${Date.now()}`, tone: "bad", title: pasted });
+  }, [pasted, say]);
   return (
-    <div {...drop.props} className="relative h-9 w-9">
+    <div ref={root} {...drop.props} className="relative h-9 w-9">
       {value ? (
         <>
           <button type="button" aria-label={`Show the picture of ${what} large`} onClick={() => setOpen(true)} className={cx("block cursor-zoom-in rounded-lg border", drop.over || drop.wanted ? "border-accent" : "border-line")}>
