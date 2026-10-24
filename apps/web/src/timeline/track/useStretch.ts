@@ -4,6 +4,7 @@ import { motionAllowed } from "../../useFlip";
 import { roomOf, type ShownPatch, type Slot } from "../model";
 import { edgeGive, resisted } from "./spring";
 import type { Stretch } from "./TrackClip";
+import { SLOP_PX } from "./useClipDrag";
 import { useSpringBack } from "./useSpringBack";
 
 /**
@@ -54,7 +55,8 @@ export function trimOf(c: Clip, side: "start" | "end", base: number, lengthMs: n
 export function useStretch({ clips, pps, onTrim }: { clips: Clip[]; pps: number; onTrim(clip: Clip, patch: ShownPatch): void }) {
   /** An edge being dragged: the clip, which edge, the length it gives, and the length drawn (past a limit, more). */
   const [stretch, setStretch] = useState<(Stretch & { drawnMs: number }) | null>(null);
-  const pull = useRef<{ x: number; base: number; least: number; most: number; give: number } | null>(null);
+  /** The press: where it was, and whether the pointer has gone past SLOP_PX since (then it is a drag, even back where it was). */
+  const pull = useRef<{ x: number; y: number; moved: boolean; base: number; least: number; most: number; give: number } | null>(null);
   const back = useSpringBack();
 
   const startPull = (e: ReactPointerEvent, s: Slot, side: "start" | "end") => {
@@ -62,30 +64,44 @@ export function useStretch({ clips, pps, onTrim }: { clips: Clip[]; pps: number;
     e.preventDefault();
     const c = s.clip;
     back.stop();
-    pull.current = { x: e.clientX, base: c.lengthMs, ...pullRoom(c, side), give: edgeGive(s.width) };
+    pull.current = { x: e.clientX, y: e.clientY, moved: false, base: c.lengthMs, ...pullRoom(c, side), give: edgeGive(s.width) };
     e.currentTarget.setPointerCapture(e.pointerId);
     setStretch({ clip: c.id, side, lengthMs: c.lengthMs, drawnMs: c.lengthMs });
   };
   const movePull = (e: ReactPointerEvent) => {
     const p = pull.current;
     if (!p || !stretch) return;
+    if (Math.abs(e.clientX - p.x) >= SLOP_PX || Math.abs(e.clientY - p.y) >= SLOP_PX) p.moved = true;
     const moved = ((e.clientX - p.x) / pps) * 1000;
     const length = pulledLength(p, stretch.side, moved);
     const drawnMs = drawnLength(p, stretch.side, moved, pps, p.give, motionAllowed());
     back.seen((drawnMs / 1000) * pps);
     if (length !== stretch.lengthMs || drawnMs !== stretch.drawnMs) setStretch({ ...stretch, lengthMs: length, drawnMs });
   };
-  const endPull = () => {
+  /** Let go of (or taken back by the browser: no event); true when it was a click, the pointer let go of where it was pressed. */
+  const endPull = (e?: ReactPointerEvent): boolean => {
     const p = pull.current;
     pull.current = null;
-    if (!p || !stretch) return setStretch(null);
+    if (!p || !stretch) {
+      setStretch(null);
+      return false;
+    }
+    // a few pixels of a hand's jitter trim nothing (they gave a tenth of a second at a close zoom)
+    if (e && !p.moved && Math.abs(e.clientX - p.x) < SLOP_PX && Math.abs(e.clientY - p.y) < SLOP_PX) {
+      setStretch(null);
+      return true;
+    }
     const c = clips.find((x) => x.id === stretch.clip);
     const trim = c && trimOf(c, stretch.side, p.base, stretch.lengthMs);
     if (c && trim) onTrim(c, trim);
     // let go past a limit: drawn on, springing back to it, the trim sent meanwhile; else gone at once, as before
-    if (stretch.drawnMs === stretch.lengthMs) return setStretch(null);
+    if (stretch.drawnMs === stretch.lengthMs) {
+      setStretch(null);
+      return false;
+    }
     back.jump((stretch.drawnMs / 1000) * pps, (stretch.lengthMs / 1000) * pps, "edge");
     setStretch({ ...stretch, drawnMs: stretch.lengthMs, settling: true });
+    return false;
   };
   // sprung back (or no spring under reduced motion): the edge's drawing let go of
   const resting = back.left.tag === null;

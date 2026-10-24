@@ -3,8 +3,8 @@ import { motionAllowed } from "../../useFlip";
 import { PAD, type Slot } from "../model";
 import { follow, releaseSpeed, rubberband, stepSpring, type Spring, type Trail } from "./spring";
 
-/** How far the pointer goes before a press on a clip is a drag rather than a click (px). */
-const SLOP_PX = 4;
+/** How far the pointer goes before a press on a clip (or on its trim edge) is a drag rather than a click (px). */
+export const SLOP_PX = 4;
 /** Near the track's visible ends, a dragged clip scrolls it: how near (px), and how fast at the very edge (px per second). */
 const EDGE_PX = 40;
 const EDGE_SPEED = 700;
