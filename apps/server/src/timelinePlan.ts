@@ -6,7 +6,7 @@ import { httpError, notFound } from "./errors";
 import type { Registry } from "./registry";
 import type { TimelineMedia } from "./timelineMedia";
 import type { TimelineTakes } from "./timelineTakes";
-import { FROM_PREVIOUS, landingOnGrid, mirroredPins, plays, stillRef, type AssetRow, type ClipRow, type Placed, type TakeRow, type TimelineCore } from "./timelineModel";
+import { FROM_PREVIOUS, landingOnGrid, lengthOnGrid, mirroredPins, plays, stillRef, type AssetRow, type ClipRow, type Placed, type TakeRow, type TimelineCore } from "./timelineModel";
 
 /**
  * What a clip is made from: a new clip's model and form (taken over from the clips before it), a scene planned as
@@ -320,7 +320,9 @@ export class TimelinePlan {
     if (w.leadIn) plan.input[w.leadIn] = true;
     const fps = w.fits?.fps ?? 24;
     const lead = Math.round((w.fits?.less ?? []).reduce((sum, id) => sum + (Number(was[id]) || 0), 0) * fps) / fps;
-    const endMs = Math.min(plan.links.prev?.at ?? plays(prior.active).end, prior.active.asset.duration_ms ?? Infinity);
+    // on the model's frame grid, as the track plays it (lengthOnGrid): an interpolated file is a frame short of it, and capped
+    // there, the next part started 20 ms early and those 20 ms of the song played twice at the join (Timeline 24's export)
+    const endMs = Math.min(plan.links.prev?.at ?? plays(prior.active).end, lengthOnGrid(prior.active.asset));
     const reached = Number(was[w.start]) + (endMs - prior.active.take.head_ms) / 1000 - lead;
     const end = own.start + own.seconds;
     // nothing to skip, or so little left that the clip would be under a second: its part as it was cut
