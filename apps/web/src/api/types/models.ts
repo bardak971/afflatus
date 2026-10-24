@@ -237,6 +237,15 @@ export interface Download {
   /** When it ended, in ms since 1970. */
   at?: number;
 }
+/** Where a model file is on disk (card #64): each place it is, when ComfyUI runs on Afflatus's machine. */
+export interface FileWhere {
+  /** Its places can be known: ComfyUI runs on the machine Afflatus runs on. */
+  known: boolean;
+  /** Each place it is, ComfyUI's own models/<folder> first; several are copies of it. */
+  places: Array<{ path: string; kind: "own" | "older" | "other" }>;
+  /** Show in folder is offered: this page is open on that same computer. */
+  reveal: boolean;
+}
 /** One of the paths ComfyUI reads a model folder from (card #59). */
 export interface DownloadPlace {
   path: string;

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Check, Plus } from "lucide-react";
 import { fileKey } from "@afflatus/core";
 import { api, type DeployFile } from "../api";
+import { FileWhere } from "../FileWhere";
 import { plural, size } from "../format";
 import { useSettled } from "../hooks";
 import { filesOfPick, ViaChip } from "../modelFilesUi";
@@ -77,7 +78,11 @@ export function Yours({ words, onWords, picked, onPick }: { words: string; onWor
               const on = picked.has(fileKey(f));
               return (
                 <div key={fileKey(f)} className="grid grid-cols-[minmax(0,1fr)_auto_64px_28px] items-center gap-3 rounded-lg px-2 py-1.5 text-body hover:bg-hover">
-                  <span className="min-w-0 break-all">{f.file}<span className="text-ink-3"> · {f.folder}</span></span>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="break-all">{f.file}<span className="text-ink-3"> · {f.folder}</span></span>
+                    {/* the whole path on disk, each place it is (card #64) */}
+                    <FileWhere folder={f.folder} file={f.file} />
+                  </span>
                   <ViaChip via={f.via} />
                   <span className="text-right font-mono text-xs text-ink-3">{f.size ? size(f.size) : "–"}</span>
                   <IconButton size={24} pressed={on} label={`Pick ${f.file}`} tip={on ? "Picked" : undefined} disabled={on} onClick={() => pick("this PC", filesOfPick({ kind: "file", hit: f }))}>{on ? <Check size={13} /> : <Plus size={14} />}</IconButton>

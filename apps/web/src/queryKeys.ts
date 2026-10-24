@@ -32,6 +32,8 @@ export const queryKeys = {
   downloads: (machine?: string) => (machine ? (["downloads", machine] as const) : (["downloads"] as const)),
   /** Where each model folder's downloads go on a ComfyUI (card #59): read again when a place is chosen, not on every download's step. */
   downloadPlaces: (machine?: string) => (machine ? (["download-places", machine] as const) : (["download-places"] as const)),
+  /** Where a model file is on disk (card #64), on a ComfyUI: kept a minute, the disk seldom changes under it. */
+  modelFileWhere: (folder: string, file: string, machine?: string) => ["model-file-where", machine ?? "", folder, file] as const,
   presetFiles: () => ["preset-files"] as const,
   backupPlan: () => ["backup-plan"] as const,
   /** The ComfyUI log, of the first machine or of the one named. */
