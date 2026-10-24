@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { ComfyClient } from "@afflatus/comfy";
+import { isModelFile } from "@afflatus/core";
 import { httpError, notFound } from "./errors";
 import { downloadTarget } from "./fetchFile";
 import { fromThisComputer } from "./hostCheck";
@@ -37,11 +38,21 @@ export interface FileWhere {
   reveal: boolean;
 }
 
-/** A file's name under its folder, as its parts: never empty, never one going up a folder. Null for any other. */
+/**
+ * A file's name under its folder, as its parts: never empty, never one going up a folder, and a model file's name. Null
+ * for any other: with ComfyUI not saying its folders, the folder set in Settings is looked in, and any device signed in
+ * could otherwise ask whether ComfyUI's own files are there (extra_model_paths.yaml) and be told their paths.
+ */
 function nameParts(file: string): string[] | null {
   const parts = file.split(/[\\/]/).filter(Boolean);
-  return parts.length && !parts.some((p) => p === "." || p === "..") && !/[:*?"<>|\x00-\x1f]/.test(file) ? parts : null;
+  return parts.length && !parts.some((p) => p === "." || p === "..") && !/[:*?"<>|\x00-\x1f]/.test(file) && isModelFile(parts.at(-1)!) ? parts : null;
 }
+
+/**
+ * A model folder's name as ComfyUI keys it ("loras", "ultralytics_bbox", "frame_interpolation"): no dot, no slash. "." or
+ * ".." passed the earlier `[\w.-]` and, from a ComfyUI not saying its folders, was looked for in models/.. (ComfyUI's own).
+ */
+const FOLDER = /^[\w-]+$/;
 
 /** ComfyUI's folder list, kept a few seconds per ComfyUI: a list of 80 files asks for each file's places at once. */
 const listed = new Map<string, { at: number; paths: Promise<Record<string, string[]> | null> }>();
@@ -64,7 +75,7 @@ function folderPathsOf(client: Pick<ComfyClient, "raw" | "baseUrl">): Promise<Re
 export async function filePlaces(client: Pick<ComfyClient, "raw" | "baseUrl">, comfyDir: string, folder: string, file: string): Promise<FilePlace[] | null> {
   if (!onThisMachine(client.baseUrl)) return null;
   const parts = nameParts(file);
-  if (!parts || NOT_MODELS.has(folder) || !/^[\w.-]+$/.test(folder)) return [];
+  if (!parts || NOT_MODELS.has(folder) || !FOLDER.test(folder)) return [];
   const paths = await folderPathsOf(client);
   const dirs = paths ? listedFor(paths, folder) : await modelDirs(comfyDir, folder);
   const out: FilePlace[] = [];
@@ -99,8 +110,15 @@ export const fileManager = {
   },
 };
 
-/** A model file, by its folder and its name under it (core fileKey's parts), on one ComfyUI (left out: the first). */
-const fileOf = z.object({ folder: z.string().min(1).max(120), file: z.string().min(1).max(500), machine: z.string().max(40).optional() });
+/**
+ * A model file, by its folder and its name under it (core fileKey's parts), on one ComfyUI (left out: the first). A folder
+ * that is no folder's name, or a name that is no model file's, is refused outright: filePlaces would find nothing anyway.
+ */
+const fileOf = z.object({
+  folder: z.string().min(1).max(120).regex(FOLDER, "that is not a models folder"),
+  file: z.string().min(1).max(500).refine((f) => nameParts(f) !== null, "that is not a model file's name"),
+  machine: z.string().max(40).optional(),
+});
 
 export function registerModelWhere(app: FastifyInstance, s: Services): void {
   const whereOf = async (q: z.infer<typeof fileOf>) => {
@@ -112,7 +130,7 @@ export function registerModelWhere(app: FastifyInstance, s: Services): void {
 
   /** Where a model file is on disk: every place it is, and whether Show in folder can open one (card #64). */
   app.get("/api/model-files/where", async (req): Promise<FileWhere> => {
-    const places = await whereOf(fileOf.parse(req.query));
+    const places = await whereOf(fileOf.strict().parse(req.query));
     return { known: places !== null, places: places ?? [], reveal: places !== null && fromThisComputer(req) };
   });
 

@@ -69,6 +69,16 @@ describe("the server's start (start.ts, run by index.ts)", () => {
     expect(await queue.json()).toMatchObject({ waiting: [] });
   });
 
+  it("removes what a Get ffmpeg cut short by the last stop left in bin/.get, and keeps the ffmpeg it had put there", async () => {
+    const bin = join(config.dataDir, "bin");
+    mkdirSync(join(bin, ".get", "x"), { recursive: true });
+    writeFileSync(join(bin, ".get", "ffmpeg-zz-test-gpl-9.0.zip"), "half a download");
+    writeFileSync(join(bin, "ffmpeg-kept"), "");
+    await run();
+    expect(existsSync(join(bin, ".get"))).toBe(false);
+    expect(existsSync(join(bin, "ffmpeg-kept"))).toBe(true);
+  });
+
   it("listens within seconds while connections keep coming in during the start", async () => {
     // a browser tab reconnecting while the port is only held: connections made all along the start and left open by
     // the client. The held port must drop them, or letting it go waits for them to end and the start never listens

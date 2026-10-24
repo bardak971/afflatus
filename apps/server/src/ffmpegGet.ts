@@ -32,6 +32,39 @@ export interface GetView {
 
 const fileFor = (platform: NodeJS.Platform) => (platform === "win32" ? FFMPEG_BUILD.files.win32 : platform === "linux" ? FFMPEG_BUILD.files.linux : null);
 
+/**
+ * The new files (in `work`) put in place of the old ones (in `bin`), all of them or none: the old ones are moved aside first,
+ * and put back when one of the new ones cannot be renamed in (a Windows file held a moment, EBUSY). One renamed in alone would
+ * leave the new ffmpeg with the old ffprobe, a pair the check never tried. What is moved aside stays in `work`, removed with it.
+ */
+export async function swapIn(work: string, bin: string, names: string[]): Promise<void> {
+  const aside: string[] = [];
+  const placed: string[] = [];
+  try {
+    for (const name of names) {
+      if (!existsSync(join(bin, name))) continue;
+      await rename(join(bin, name), join(work, `${name}.old`));
+      aside.push(name);
+    }
+    for (const name of names) {
+      await rename(join(work, name), join(bin, name));
+      placed.push(name);
+    }
+  } catch (err) {
+    for (const name of placed) await rm(join(bin, name), { force: true }).catch(() => {});
+    for (const name of aside) await rename(join(work, `${name}.old`), join(bin, name)).catch(() => {});
+    throw err;
+  }
+}
+
+/**
+ * What a Get cut short by a stop or a restart left: its download (about 190 MB) and what it unpacked, in bin/.get. Removed at
+ * the start (start.ts), before any Get can be under way; a Get that runs removes its own when it ends.
+ */
+export async function clearLeftGet(dataDir: string): Promise<void> {
+  await rm(join(gotDir(dataDir), ".get"), { recursive: true, force: true }).catch(() => {});
+}
+
 /** One Get ffmpeg at a time; what it is doing, for the page that asked (Settings › About, the banner, the first launch). */
 export class FfmpegGetter {
   view: GetView;
@@ -87,16 +120,15 @@ export class FfmpegGetter {
       if (out.code !== 0) throw new Error(`The archive could not be unpacked (${out.said || `tar exited with ${out.code}`})`);
       const inner = (await readdir(into)).find((d) => d.startsWith("ffmpeg"));
       const from = inner ? join(into, inner) : into;
-      for (const tool of ["ffmpeg", "ffprobe"]) {
-        const name = win ? `${tool}.exe` : tool;
+      const names = ["ffmpeg", "ffprobe"].map((tool) => (win ? `${tool}.exe` : tool));
+      for (const name of names) {
         const src = join(from, "bin", name);
         if (!existsSync(src)) throw new Error(`The archive holds no bin/${name}`);
         // beside it first, then in its place: an ffmpeg half copied is never the one found
         await copyFile(src, join(work, name));
         if (!win) await chmod(join(work, name), 0o755);
-        await rm(join(bin, name), { force: true });
-        await rename(join(work, name), join(bin, name));
       }
+      await swapIn(work, bin, names);
       if (existsSync(join(from, "LICENSE.txt"))) await copyFile(join(from, "LICENSE.txt"), join(bin, "LICENSE-ffmpeg.txt"));
       await writeFile(join(bin, "VERSIONS.txt"), `ffmpeg and ffprobe: BtbN FFmpeg-Builds ${FFMPEG_BUILD.tag}, ${file.name} (SHA-256 ${file.sha256}), put here by Get ffmpeg\n`);
     } finally {

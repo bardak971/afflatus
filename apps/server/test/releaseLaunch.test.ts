@@ -71,6 +71,8 @@ describe("the bundle's launch, run in a pretend bundle", () => {
     const env: NodeJS.ProcessEnv = { ...process.env, AFFLATUS_NO_BROWSER: "1" };
     delete env.DATA_DIR;
     delete env.DATABASE_URL;
+    delete env.FFMPEG;
+    delete env.FFPROBE;
     return env;
   };
   const run = (v: string) => {
@@ -93,6 +95,27 @@ describe("the bundle's launch, run in a pretend bundle", () => {
     expect(env.AFFLATUS_STARTED_FILE).toMatch(/[\\/]versions[\\/]0\.4\.0[\\/]\.started-\d+$/);
     // the run's marker goes with the run
     expect(markers("0.4.0")).toEqual([]);
+  });
+
+  it("puts the bundle's ffmpeg first on the PATH without setting FFMPEG, and passes a person's own FFMPEG on untouched", () => {
+    version("0.3.9", `writeFileSync(process.env.DATA_DIR + "-env.json", JSON.stringify(process.env)); process.exit(0);`);
+    const bin = join(root, "versions", "0.3.9", "bin");
+    mkdirSync(bin, { recursive: true });
+    const exe = process.platform === "win32" ? ".exe" : "";
+    for (const t of ["ffmpeg", "ffprobe"]) writeFileSync(join(bin, t + exe), "");
+    mkdirSync(join(root, "data"), { recursive: true });
+    const read = () => JSON.parse(readFileSync(join(root, "data-env.json"), "utf8")) as NodeJS.ProcessEnv;
+    const pathOf = (env: NodeJS.ProcessEnv) => env[Object.keys(env).find((k) => k.toUpperCase() === "PATH")!]!;
+    // FFMPEG set by the launcher read as the person's own: the bundle's never passed over when it fails its check (ffmpegCheck.ts)
+    expect(run("0.3.9")).toBe(0);
+    const env = read();
+    expect(env.FFMPEG).toBeUndefined();
+    expect(env.FFPROBE).toBeUndefined();
+    expect(pathOf(env).startsWith(bin)).toBe(true);
+    const own = spawnSync(process.execPath, [join(root, "versions", "0.3.9", "app", "launch.mjs")], { env: { ...envOf(), FFMPEG: "/opt/zz-test/ffmpeg" }, encoding: "utf8" });
+    expect(own.status).toBe(0);
+    expect(read()).toMatchObject({ FFMPEG: "/opt/zz-test/ffmpeg" });
+    expect(read().FFPROBE).toBeUndefined();
   });
 
   it("falls back on the new version's first start, with the library as it was before the update and a note", () => {

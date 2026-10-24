@@ -15,6 +15,7 @@ import { installNodePack } from "./nodePack";
 import { onThisMachine } from "./modelDownload";
 import { LocalStorage } from "./storage";
 import { preflight, runPreflight } from "./preflight";
+import { clearLeftGet } from "./ffmpegGet";
 import { AfflatusUpdates, RESTART_CODE } from "./updates";
 import type { UpdatesOptions } from "./updatesModel";
 
@@ -151,6 +152,8 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<St
     const checked = await preflight.run(config.dataDir);
     const data = checked.checks.find((c) => c.id === "data");
     if (data && !data.ok) throw new DataFolderError(data.detail, data.fix);
+    // a Get ffmpeg cut short by the stop before this start left its download behind; none can be under way yet (the port is held)
+    await clearLeftGet(config.dataDir);
     const { db, kind } = openDb(config);
     const applied = await migrate(db).catch(async (err: Error) => {
       const newer = NEWER.exec(err.message);

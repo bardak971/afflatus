@@ -69,16 +69,36 @@ describe("a model file's places", () => {
     put(join(comfy, "models", "secret.safetensors"));
     put(join(disk, "outside.safetensors"));
     await start({ folderPaths: { custom_nodes: [join(comfy, "custom_nodes")], loras: [join(comfy, "models", "loras")] } });
+    // a name going up is refused; a whole path (refused on Windows for its drive's colon) finds nothing either way
     for (const file of ["../secret.safetensors", "..\\..\\..\\outside.safetensors", join(disk, "outside.safetensors")]) {
       const res = await where({ folder: "loras", file });
-      expect(res.json().places, file).toEqual([]);
-      expect((await reveal({ folder: "loras", file })).statusCode, file).toBe(404);
+      if (res.statusCode !== 400) expect(res.json().places, file).toEqual([]);
+      expect([400, 404], file).toContain((await reveal({ folder: "loras", file })).statusCode);
     }
-    // a folder ComfyUI does not list, custom_nodes, a folder name that is a path
-    for (const folder of ["checkpoints", "custom_nodes", "../models"]) {
+    // a folder ComfyUI does not list, custom_nodes
+    for (const folder of ["checkpoints", "custom_nodes"]) {
       expect((await where({ folder, file: "secret.safetensors" })).json().places, folder).toEqual([]);
       expect((await reveal({ folder, file: "secret.safetensors" })).statusCode, folder).toBe(404);
     }
+    // a folder name that is a path
+    expect((await where({ folder: "../models", file: "secret.safetensors" })).statusCode).toBe(400);
+    expect(shown).toEqual([]);
+  });
+
+  it("refuses a folder of dots and a name that is no model file's, with ComfyUI not saying its folders (its own folder looked in)", async () => {
+    // ComfyUI's own files, in the folder set in Settings: models/.. is ComfyUI's folder itself
+    put(join(comfy, "extra_model_paths.yaml"));
+    put(join(comfy, "models", "loras", "notes.yaml"));
+    await start({ folderPaths: {}, hideFolderPaths: true });
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { comfyDir: comfy } });
+    for (const q of [{ folder: "..", file: "extra_model_paths.yaml" }, { folder: ".", file: "extra_model_paths.yaml" }, { folder: "..", file: "x.safetensors" }, { folder: "loras", file: "notes.yaml" }]) {
+      const res = await where(q);
+      expect(res.statusCode, JSON.stringify(q)).toBe(400);
+      expect(res.body).not.toContain(comfy.replace(/\\/g, "\\\\"));
+      expect((await reveal(q)).statusCode, JSON.stringify(q)).toBe(400);
+    }
+    // a query with more than it takes is refused too
+    expect((await where({ folder: "loras", file: "soft.safetensors", path: "C:\\Windows" })).statusCode).toBe(400);
     expect(shown).toEqual([]);
   });
 

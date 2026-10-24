@@ -70,12 +70,12 @@ The launcher reads a few environment variables. On Windows set them in the conso
 | `PUBLIC_URL` | empty | The address other machines reach Afflatus at (`http://192.168.x.y:8720`), given to ComfyUI's node pack for model downloads when ComfyUI runs elsewhere; its host is answered to as well |
 | `LINK_ROOTS` | empty | Only the folders named here (and what is inside them) can be linked from Settings → Folders, separated as PATH is (`;` on Windows, `:` elsewhere). Set it whenever Afflatus can be reached from other machines: without it, anyone who can open the page can link any folder of the disk Afflatus can read and have its pictures, videos and sounds served and written to. The system's own folders (Windows, Program Files, AppData, a drive's root, the home folder itself) are never linked, whatever is set |
 | `DATA_DIR` | the `data` folder beside the launcher | Where everything is kept |
-| `FFMPEG`, `FFPROBE` | the bundled ones (`versions/<version>/bin/`), or the PATH on macOS | The tools' paths |
+| `FFMPEG`, `FFPROBE` | the first that passes the start-up check: the bundled ones (`versions/<version>/bin/`), the PATH's, Get ffmpeg's in `data/bin`, ComfyUI's imageio-ffmpeg | The tools' paths. One you set is the only one tried, never swapped for another |
 | `AFFLATUS_NO_BROWSER` | empty | `1`: the launcher opens no browser tab when Afflatus starts (a machine without a desktop, a start at log-in) |
 
 ## macOS and ffmpeg
 
-The Mac bundle has no ffmpeg: there is no build of it that can be shipped without licence questions. Install it once with Homebrew:
+The Mac bundle has no ffmpeg: BtbN, whose build the Windows and Linux bundles carry, builds none for macOS. Install it once with Homebrew:
 
 ```
 brew install ffmpeg
@@ -85,7 +85,7 @@ Without it the library and the designer work; trims, exports, joins, slow motion
 
 ## Running from the sources instead
 
-See [develop.md](develop.md). It needs Node 22.16 or newer and ffmpeg 6.1 or newer with libx264 (not 7.0 or 7.1, which miscount a join's frames) on the PATH; when none is found, Settings › About's Get ffmpeg downloads the bundles' one into the data folder.
+See [develop.md](develop.md). It needs Node 22.16 or newer and ffmpeg 6.1 or newer with libx264 (not 7.0 or 7.1, which miscount a join's frames) on the PATH; when none is found, Settings › About's Get ffmpeg downloads the bundles' one into the data folder (on macOS it gives the `brew install ffmpeg` line instead).
 
 ## Next
 

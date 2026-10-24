@@ -33,6 +33,14 @@ describe("the shared helpers' guard", () => {
     expect(why("packages/recipes/src/flux/index.ts", "detect: [\"(^|[\\\\/])ae\\\\.(safetensors|sft)$\"]")).toEqual([]);
   });
 
+  it("refuses a list of the usual model folders outside core's modelFiles.ts, not two folders named together", () => {
+    const line = 'export const FOLDERS = ["checkpoints", "diffusion_models", "loras", "vae", "text_encoders"];';
+    expect(why("apps/web/src/findModels/store.ts", line)).toEqual(["a list of the usual model folders"]);
+    expect(why("apps/server/src/fromLink.ts", "const KNOWN = ['checkpoints', 'diffusion_models', 'unet', 'loras', 'vae', 'text_encoders', 'clip'];")).toEqual(["a list of the usual model folders"]);
+    expect(why("packages/core/src/modelFiles.ts", line)).toEqual([]);
+    expect(why("apps/web/src/bar/actions/models.tsx", 'export const MODEL_FOLDERS = ["checkpoints", "diffusion_models", "unet"];')).toEqual([]);
+  });
+
   // An inline plural slipped into check-graphs.ts while the scripts were left out (review O-12).
   it("reads the scripts too, all but its own rules", () => {
     const root = fileURLToPath(new URL("../../..", import.meta.url));

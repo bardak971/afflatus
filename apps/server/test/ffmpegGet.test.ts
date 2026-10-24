@@ -94,4 +94,15 @@ describe("Get ffmpeg", () => {
     // Debian's ffmpeg is below the minimum (bookworm's 5.1) or miscounts a join's run-up (trixie's 7.1)
     expect(docker).not.toMatch(/apt-get install[^\n]*\bffmpeg\b/);
   });
+
+  it("holds the Dockerfile's sums, arm64's too, to checksums.json: nothing else checks the arm64 one", () => {
+    const docker = readFileSync(resolve(__dirname, "../../../Dockerfile"), "utf8");
+    const sums = JSON.parse(readFileSync(resolve(__dirname, "../../../scripts/release/checksums.json"), "utf8")) as { sha256: Record<string, string> };
+    const listed = [...docker.matchAll(/^\s*(\w+)\) file=(\S+); sum=([0-9a-f]{64}) ;;/gm)].map((m) => ({ arch: m[1], file: m[2]!, sum: m[3] }));
+    expect(listed.map((l) => l.arch)).toEqual(["amd64", "arm64"]);
+    for (const l of listed) {
+      expect(l.file).toMatch(/-gpl-9\.0\.tar\.xz$/);
+      expect(sums.sha256[l.file], l.file).toBe(l.sum);
+    }
+  });
 });

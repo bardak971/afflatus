@@ -2,6 +2,12 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { Download, HealthCheck } from "../../src/api";
 import { BarHost } from "../../src/bar/BarHost";
+import { ConfirmHost } from "../../src/Confirm";
+import { QueryClient } from "@tanstack/react-query";
+import { commandActions } from "../../src/bar/actions/commands";
+import { whereActions } from "../../src/bar/actions/models";
+import type { BarCtx } from "../../src/bar/actions/ctx";
+import { queryKeys } from "../../src/queryKeys";
 import { ContextMenu, useMenu } from "../../src/ContextMenu";
 import { fakeApi } from "./fakeApi";
 import { draw } from "./render";
@@ -73,7 +79,7 @@ describe("the command bar on an archived project", () => {
 
 /** The bar opened, `typed` written in it: its box, and the user to go on. */
 async function barWith(typed: string) {
-  const { user } = draw(<BarHost />);
+  const { user } = draw(<><BarHost /><ConfirmHost /></>);
   await user.keyboard("{Control>}k{/Control}");
   const box = await screen.findByRole("combobox", { name: "Search Afflatus" });
   await user.type(box, typed);
@@ -123,6 +129,17 @@ describe("ffmpeg in the command bar, as Settings › About has it", () => {
     await user.keyboard("{Enter}");
     await waitFor(() => expect(fakeApi.calls("POST", "/health/check")).toHaveLength(1));
   });
+
+  it("says why its row is off: passing, or FFMPEG set and failing (no Get offered), never \"passes\" over a failure", () => {
+    const noteWith = (checks: HealthCheck[]) => {
+      const client = new QueryClient();
+      client.setQueryData(queryKeys.health(), health(checks, true));
+      return commandActions({ client } as unknown as BarCtx, { cmd: "get-ffmpeg" })[0]!;
+    };
+    expect(noteWith([ffmpegOk])).toMatchObject({ disabled: true, note: "the ffmpeg check passes" });
+    const pinned = { ...ffmpegFailed, get: undefined, fix: "FFMPEG is set to D:\\zz-test\\ffmpeg.exe: point it to ffmpeg 6.1 or newer, or take it out so that Afflatus finds one." };
+    expect(noteWith([pinned])).toMatchObject({ disabled: true, note: "FFMPEG is set: its failure is in Settings › About" });
+  });
 });
 
 const GB = 2 ** 30;
@@ -138,7 +155,25 @@ describe("the downloads line and model files in the command bar", () => {
     const { user, box } = await barWith("> remove waiting downloads");
     await waitFor(() => expect(selected(box)).toMatch(/Remove all waiting downloads.*1 file waiting/));
     await user.keyboard("{Enter}");
+    // asked first, as the queue's Remove all waiting
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Remove it" }));
     await waitFor(() => expect(fakeApi.calls("POST", "/downloads/cancel-waiting")).toHaveLength(1));
+  });
+
+  it("asks before removing every machine's waiting downloads, each machine's count named, and removes none when declined", async () => {
+    fakeApi.on("GET /queue", { online: true, paused: false, running: null, waiting: [], later: [], recent: [], machines: [{ id: "m1", name: "zz-test desk", url: "http://127.0.0.1:8188" }, { id: "zz-test-pod", name: "zz-test pod", url: "https://zz-test.invalid" }] });
+    serveDownloads([dl("zz-test-a", { waiting: "behind b" }), dl("zz-test-b", { waiting: "behind c", machine: "zz-test-pod" }), dl("zz-test-c", { waiting: "behind d", machine: "zz-test-pod" })]);
+    fakeApi.on("POST /downloads/cancel-waiting", { cancelled: 3 });
+    const { user, box } = await barWith("> remove waiting downloads");
+    await waitFor(() => expect(fakeApi.calls("GET", "/queue")).not.toHaveLength(0));
+    await waitFor(() => expect(selected(box)).toMatch(/Remove all waiting downloads/));
+    await user.keyboard("{Enter}");
+    const question = await screen.findByRole("dialog");
+    expect(question.textContent).toMatch(/Remove 3 waiting downloads\?/);
+    expect(question.textContent).toMatch(/1 file on zz-test desk, 2 files on zz-test pod/);
+    await user.click(within(question).getByRole("button", { name: /Cancel|Keep|No/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(fakeApi.calls("POST", "/downloads/cancel-waiting")).toHaveLength(0);
   });
 
   it("lists no Remove all waiting downloads among the commands when nothing waits", async () => {
@@ -183,6 +218,13 @@ describe("the downloads line and model files in the command bar", () => {
     const actions = await screen.findByRole("listbox", { name: "Actions" });
     await user.click(await within(actions).findByRole("option", { name: /Show in folder/ }));
     await waitFor(() => expect(fakeApi.calls("POST", "/model-files/reveal").map((c) => c.body)).toEqual([{ folder: "loras", file: "zz-test-soft.safetensors", at: 0 }]));
+  });
+
+  it("says a file's place could not be read when the server's answer failed, rather than being read for good", async () => {
+    const client = new QueryClient();
+    await client.fetchQuery({ queryKey: queryKeys.modelFileWhere("loras", "zz-test-done.safetensors", undefined), queryFn: () => Promise.reject(new Error("zz-test refused")), retry: false }).catch(() => {});
+    const rows = whereActions({ client } as unknown as BarCtx, { folders: ["loras"], file: "zz-test-done.safetensors" });
+    expect(rows).toMatchObject([{ label: "Show in folder", disabled: true, note: "its place on disk could not be read" }]);
   });
 
   it("offers Copy path, not Show in folder, from another computer", async () => {

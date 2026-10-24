@@ -40,7 +40,7 @@ import { useKeepForSync } from "./keepFor";
 import { queryKeys } from "./queryKeys";
 import { useSettings } from "./data";
 import { failedBanner } from "./sayFailed";
-import { ELSEWHERE } from "./GetFfmpeg";
+import { ELSEWHERE, useFollowFfmpegGet } from "./GetFfmpeg";
 
 /** Where the banners of the start-up checks lead. */
 const ABOUT = { id: "ffmpeg-get", href: "/settings/about", go: "Open About in Settings" };
@@ -51,6 +51,8 @@ const ABOUT = { id: "ffmpeg-get", href: "/settings/about", go: "Open About in Se
  */
 export function useMissingTools() {
   const health = useQuery({ queryKey: queryKeys.health(), queryFn: () => api.health(), staleTime: Infinity });
+  // a Get ffmpeg begun from the banner or the bar, with About not open: followed here, the checks read again once it ends
+  useFollowFfmpegGet();
   const push = useBanners((s) => s.push);
   const client = useQueryClient();
   useEffect(() => {

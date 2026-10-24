@@ -78,3 +78,12 @@ export interface RecordingPlace {
 export function partAt(place: RecordingPlace, ms: number): RecordingPart | undefined {
   return place.parts.find((p) => ms >= p.startMs && ms < p.endMs) ?? (ms === place.toMs ? place.parts.at(-1) : undefined);
 }
+
+/**
+ * Where what the stage plays in place of the clips (the source while its panel is open, a recording open) ends on the
+ * track; null when it plays the clips. The transport runs to it, and the track is drawn out to it.
+ */
+export function stageEnd(sourceOpen: boolean, source: { atMs: number; lengthMs: number } | null | undefined, recording: RecordingPlace | null | undefined): number | null {
+  if (sourceOpen && source) return source.atMs + source.lengthMs;
+  return recording ? recording.toTrack(recording.lengthMs) : null;
+}

@@ -108,6 +108,9 @@ export const spaceOf = (a: { bytes: number; keptBytes?: number }) => a.bytes + (
 /** An item's size split, for the tip over it: said only when it keeps something beside its file. */
 export const spaceSaid = (a: { bytes: number; keptBytes?: number }) => (a.keptBytes ? `${size(a.bytes)} file + ${size(a.keptBytes)} kept for the clips that continue it` : undefined);
 
+/** A place in a line as people say it: "1st", "2nd", "3rd", "11th", "21st", "112th". */
+export const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th")}`;
+
 export const gb = (bytes: number) => `${(bytes / 2 ** 30).toFixed(1)} GB`;
 
 /** A count with its word: "1 take", "3 settings", "2 people" (core's, shared with the server). */

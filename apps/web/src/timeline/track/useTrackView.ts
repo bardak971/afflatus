@@ -47,6 +47,7 @@ export function useTrackView(scroller: RefObject<HTMLDivElement | null>, pps: nu
   const said = useRef<TrackView | null>(null);
   const sayNow = useRef(onView);
   sayNow.current = onView;
+  const ppsBefore = useRef<number | null>(null);
   useEffect(() => {
     const el = scroller.current;
     if (!el || !sayNow.current) return;
@@ -65,7 +66,12 @@ export function useTrackView(scroller: RefObject<HTMLDivElement | null>, pps: nu
       if (!frame) frame = requestAnimationFrame(read);
     };
     said.current = null;
-    read();
+    // zoomed: read a frame later, once the zoom has scrolled the track to keep its moment in place (its own frame, asked
+    // before this one). Read at once, the new zoom met the old scroll and the stage showed a wrong stretch for a frame
+    const zoomed = ppsBefore.current !== null && ppsBefore.current !== pps;
+    ppsBefore.current = pps;
+    if (zoomed) soon();
+    else read();
     el.addEventListener("scroll", soon, { passive: true });
     const seen = new ResizeObserver(soon);
     seen.observe(el);

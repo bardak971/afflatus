@@ -1,13 +1,22 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Slider } from "../../Slider";
 import { CloseButton as KitClose, cx } from "../../ui";
 
 /** A slider that says its value while it moves and saves it when it is let go; `disabled`, greyed and not moved (a change under way). */
 export function Slide({ label, value, min = 0, max, step = 1, show, onCommit, disabled = false }: { label: string; value: number; min?: number; max: number; step?: number; show(value: number): string; onCommit(value: number): void; disabled?: boolean }) {
   const [local, setLocal] = useState<number | null>(null);
-  const shown = local ?? value;
+  // the value let go on, shown until it is back as `value` or the change it started is over (`disabled` ends): let go,
+  // the slider sprang back to the old value until the read back, as if the change had not been taken
+  const [held, setHeld] = useState<number | null>(null);
+  useEffect(() => {
+    if (held !== null && (held === value || !disabled)) setHeld(null);
+  }, [held, value, disabled]);
+  const shown = local ?? held ?? value;
   const commit = (v: number) => {
-    if (v !== value && !disabled) onCommit(v);
+    if (v !== value && !disabled) {
+      onCommit(v);
+      setHeld(v);
+    }
     setLocal(null);
   };
   return (

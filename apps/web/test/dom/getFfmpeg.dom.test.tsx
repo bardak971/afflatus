@@ -52,6 +52,22 @@ describe("Get ffmpeg in Settings › About", () => {
     expect(useBanners.getState().items.find((b) => b.id === "check-ffmpeg")?.action).toBeUndefined();
   });
 
+  it("follows a Get begun from the banner with About not open, and reads the checks again once it is done", async () => {
+    sessionStorage.clear();
+    fakeApi.on("GET /health", health([failed]));
+    fakeApi.on("POST /ffmpeg/get", get({ phase: "downloading", bytes: 97 * 2 ** 20 }));
+    fakeApi.on("GET /ffmpeg/get", get({ phase: "done", bytes: 194 * 2 ** 20 }));
+    const Banner = () => (useMissingTools(), null);
+    draw(<Banner />);
+    await waitFor(() => expect(useBanners.getState().items.find((b) => b.id === "check-ffmpeg")?.action?.label).toBe("Get ffmpeg"));
+    // nothing asked of Get ffmpeg before it is begun
+    expect(fakeApi.calls("GET", "/ffmpeg/get")).toHaveLength(0);
+    const reads = fakeApi.calls("GET", "/health").length;
+    useBanners.getState().items.find((b) => b.id === "check-ffmpeg")!.action!.run();
+    await waitFor(() => expect(fakeApi.calls("GET", "/ffmpeg/get").length).toBeGreaterThan(0), { timeout: 3000 });
+    await waitFor(() => expect(fakeApi.calls("GET", "/health").length).toBeGreaterThan(reads));
+  });
+
   it("says it when the banner's Get ffmpeg is refused, in the server's words", async () => {
     sessionStorage.clear();
     fakeApi.on("GET /health", health([failed]));

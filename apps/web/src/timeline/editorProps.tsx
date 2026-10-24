@@ -21,6 +21,7 @@ import type { ClipSource } from "./inspector/clipSource";
 import type { ClipRecording } from "./inspector/clipRecording";
 import type { RecordingPanelProps } from "./inspector/recording";
 import { clipsOfRecording, recordingInput } from "./track/RecordingBand";
+import { stageEnd } from "./recordingPlace";
 import { failedBanner } from "../sayFailed";
 
 // What each part of the timeline editor is drawn with, from what the editor holds (useTimelineEditor): the wiring
@@ -83,8 +84,8 @@ export function playerProps(e: LoadedEditor): ComponentPropsWithoutRef<typeof Pl
 
 /** How long the transport runs: the clips, or the source or the recording as far as it reaches when the stage plays it. */
 const runOf = (e: LoadedEditor) => Math.max(e.total, stageEndOf(e) ?? 0);
-/** Where what the stage plays in place of the clips (the source, a recording) ends on the track; null when it plays the clips. */
-const stageEndOf = (e: LoadedEditor) => (e.sourceOpen && e.place ? e.place.atMs + e.place.lengthMs : e.recordingAt ? e.recordingAt.toTrack(e.recordingAt.lengthMs) : null);
+/** Where what the stage plays in place of the clips ends on the track (stageEnd); null when it plays the clips. */
+const stageEndOf = (e: LoadedEditor) => stageEnd(e.sourceOpen, e.place, e.recordingAt);
 
 export function transportProps(e: LoadedEditor): ComponentProps<typeof Transport> {
   const { player } = e;
@@ -144,10 +145,8 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     renderOf: (c) => (c.kind === "video" && !c.job && e.ready(c).input && !render.isPending ? { run: () => render.mutate({ clips: [c] }), ms: e.takes(c) } : null),
     busy: add.isPending,
     onSelect: (clipId) => e.select(clipId),
-    // the music's panel in place of a recording open (the source's keeps the column, as it did)
-    onSelectMusic: () => {
-      e.setMusicOpen(true);
-    },
+    // the music's panel: opening it closes a recording open (useEditorPanels), the source's keeps the column, as it did
+    onSelectMusic: () => e.setMusicOpen(true),
     cursorMs: e.cursor,
     onSeek: (ms, trackMs) => {
       // the stage plays the source or a recording: the playhead stands in the track's own time

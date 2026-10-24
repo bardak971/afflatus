@@ -1,13 +1,14 @@
-import { createRef } from "react";
+import { createRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, renderHook, screen, waitFor, within } from "@testing-library/react";
 import type { Asset, RecipeInfo, Timeline } from "../../src/api";
 import type { PlayerHandle } from "../../src/timeline/Player";
 import { barsIn, RecordingStage, stretchOf } from "../../src/timeline/RecordingStage";
-import { newViewStore } from "../../src/timeline/track/useTrackView";
+import { newViewStore, useTrackView } from "../../src/timeline/track/useTrackView";
 import { TimelineEditor } from "../../src/screens/TimelineEditor";
 import { useEditorPanels } from "../../src/timeline/useEditorPanels";
 import { recordingPlace } from "../../src/timeline/recordingPlace";
+import { Slide } from "../../src/timeline/inspector/parts";
 import type { Slot } from "../../src/timeline/model";
 import { fakeApi, later } from "./fakeApi";
 import { draw } from "./render";
@@ -242,6 +243,72 @@ describe("a recording on the timeline opened like the source (card #61)", () => 
       expect(look.value).toBe("zz-test round glasses");
     });
 
+    it("holds Clip length and Snap to pauses from the click on, while what was typed is saved before the cut", async () => {
+      const saved = later<unknown>();
+      fakeApi.on("PATCH /clips/:id", () => saved.promise);
+      fakeApi.on("POST /timelines/:id/recording/cut", { clips: ["zz-test-a", "zz-test-b", "zz-test-c"] });
+      const { band, user } = await editor({ ...timeline, clips: timeline.clips.map((c) => ({ ...c, take: null, takes: [] })) } as unknown as Timeline);
+      // clip 2's scene typed, its save out when the recording's panel cuts it again
+      click(band);
+      await user.click(within(panel()!).getByRole("button", { name: /^Clip 2,/ }));
+      await user.type(await screen.findByLabelText("What happens"), " and laughs");
+      click(band);
+      const p = within(panel()!);
+      await user.click(p.getByRole("switch", { name: /Snap to pauses/ }));
+      await waitFor(() => expect(fakeApi.calls("PATCH", "/clips/zz-test-a")).toHaveLength(1));
+      expect(p.getByRole("slider", { name: "Clip length" }).closest("[aria-disabled]")).toBeTruthy();
+      // clicked again meanwhile: no second cut with the length from before the first
+      await user.click(p.getByRole("switch", { name: /Snap to pauses/ }));
+      saved.answer({ id: "zz-test-a" });
+      await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-rec/recording/cut")).toHaveLength(1));
+      await act(() => new Promise((done) => setTimeout(done, 50)));
+      expect(fakeApi.calls("POST", "/timelines/zz-test-rec/recording/cut").map((c) => c.body)).toEqual([{ asset: sound.id, seconds: 5, snap: false }]);
+    });
+
+    it("shows the Clip length let go on while it is cut again, not the old one until the read back", () => {
+      function Rig() {
+        const [busy, setBusy] = useState(false);
+        return <Slide label="Clip length" value={5000} min={4000} max={8000} step={100} show={(ms) => `about ${(ms / 1000).toFixed(1)} s`} onCommit={() => setBusy(true)} disabled={busy} />;
+      }
+      draw(<Rig />);
+      fireEvent.keyDown(screen.getByRole("slider", { name: "Clip length" }), { key: "ArrowRight" });
+      expect(screen.getByText("about 5.1 s")).toBeTruthy();
+    });
+
+    it("gives what they share in the forms' turn: a clip's save sent while the share is out goes after it, with the share laid over it", async () => {
+      // the server as a stand-in: the share written in all the clips as it is received, answered when the test says
+      const kept = new Map(timeline.clips.map((c) => [c.id, { ...c.inputs } as Record<string, unknown>]));
+      const now = () => ({ ...timeline, clips: timeline.clips.map((c) => ({ ...c, inputs: { ...kept.get(c.id)! } })) }) as unknown as Timeline;
+      fakeApi.on("PATCH /clips/:id", ({ params, body }) => {
+        const b = body as { inputs?: Record<string, unknown> };
+        if (b.inputs) kept.set(params.id!, { ...b.inputs });
+        return { id: params.id };
+      });
+      const shared = later<unknown>();
+      fakeApi.on("POST /timelines/:id/recording/form", ({ body }) => {
+        const { inputs } = body as { inputs: Record<string, unknown> };
+        const clips = ["zz-test-a", "zz-test-b", "zz-test-c"].map((id) => {
+          kept.set(id, { ...kept.get(id)!, ...inputs });
+          return { id, inputs: { ...kept.get(id)! } };
+        });
+        return shared.promise.then(() => ({ ok: true, clips }));
+      });
+      const { band, user } = await editor();
+      fakeApi.on("GET /timelines/:id", () => now());
+      click(band);
+      const look = within(panel()!).getByLabelText("How they look");
+      await user.type(look, "zz-test round glasses");
+      act(() => look.blur());
+      await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-rec/recording/form")).toHaveLength(1));
+      // clip 2 typed in while the share is out, and its save's half second gone by
+      await user.click(within(panel()!).getByRole("button", { name: /^Clip 2,/ }));
+      await user.type(await screen.findByLabelText("What happens"), " and laughs");
+      await act(() => new Promise((done) => setTimeout(done, 700)));
+      act(() => shared.answer(null));
+      await waitFor(() => expect(kept.get("zz-test-a")!.description).toBe("zz-test talks and laughs"), { timeout: 3000 });
+      expect(kept.get("zz-test-a")!.subject).toBe("zz-test round glasses");
+    });
+
     it("keeps what is typed again while a share is out, through two shares in a row", async () => {
       // the server as a stand-in, each share answered when the test says
       const kept = new Map(timeline.clips.map((c) => [c.id, { ...c.inputs } as Record<string, unknown>]));
@@ -265,19 +332,21 @@ describe("a recording on the timeline opened like the source (card #61)", () => 
       click(band);
       const look = within(panel()!).getByLabelText("How they look") as HTMLTextAreaElement;
       const reads = () => fakeApi.calls("GET", "/timelines/zz-test-rec").length;
-      // shared once, then typed again and shared again, both out
+      // shared once, then typed again and shared again: the second waits its turn (the forms' turn), the first out
       await user.type(look, "zz-test glasses");
       act(() => look.blur());
       await waitFor(() => expect(answers).toHaveLength(1));
       await user.type(look, " and a hat");
       act(() => look.blur());
-      await waitFor(() => expect(answers).toHaveLength(2));
-      // the first one back and read back: the field keeps the newer text, the second still out
+      await act(() => new Promise((done) => setTimeout(done, 50)));
+      expect(answers).toHaveLength(1);
+      // the first one back and read back: the field keeps the newer text, the second sent then
       let before = reads();
       act(() => answers[0]!());
       await waitFor(() => expect(reads()).toBeGreaterThan(before));
       await act(() => new Promise((done) => setTimeout(done, 50)));
       expect(look.value).toBe("zz-test glasses and a hat");
+      await waitFor(() => expect(answers).toHaveLength(2));
       before = reads();
       act(() => answers[1]!());
       await waitFor(() => expect(reads()).toBeGreaterThan(before));
@@ -457,6 +526,27 @@ describe("a recording's place under its clips", () => {
       expect(parts()).toEqual(["2", "3", "4"]);
     });
 
+    it("says the stretch shown after a zoom once the zoom has scrolled the track, never the new zoom with the old scroll", () => {
+      const frames: FrameRequestCallback[] = [];
+      vi.stubGlobal("requestAnimationFrame", (f: FrameRequestCallback) => frames.push(f));
+      vi.stubGlobal("cancelAnimationFrame", () => {});
+      try {
+        const el = document.createElement("div");
+        Object.defineProperty(el, "clientWidth", { value: 1000 });
+        el.scrollLeft = 10;
+        const said = vi.fn();
+        const { rerender } = renderHook(({ pps }) => useTrackView({ current: el }, pps, said), { initialProps: { pps: 100 } });
+        expect(said).toHaveBeenLastCalledWith({ fromMs: 0, toMs: 10_000 });
+        // zoomed in twice around 5 s at the stage's middle: the zoom asks its scroll for the next frame, then is drawn
+        frames.push(() => (el.scrollLeft = 10 + 500));
+        rerender({ pps: 200 });
+        for (const f of frames.splice(0)) f(0);
+        expect(said.mock.calls.map((c) => c[0])).toEqual([{ fromMs: 0, toMs: 10_000 }, { fromMs: 2500, toMs: 7500 }]);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
     it("draws the bars of the stretch shown, as tall as the whole recording's loudest makes them", () => {
       const sound = Array.from({ length: 150 }, (_, k) => (k < 50 ? -6 : -30));
       const top = Math.max(...sound.map((db) => (db + 60) / 60));
@@ -465,6 +555,57 @@ describe("a recording's place under its clips", () => {
       expect(wave.bars).toHaveLength(80);
       expect([wave.fromMs, wave.toMs]).toEqual([6000, 14_000]);
       expect(wave.bars.every((v) => Math.abs(v - 30 / 54) < 1e-9)).toBe(true);
+    });
+
+    /** Its one clip opening the timeline, In trimmed to 10 s: what lies before In plays before the track's start. */
+    const trimmed = () => {
+      const c = { ...timeline.clips[1]!, inputs: { ...timeline.clips[1]!.inputs, recordingStart: 10, recordingSeconds: 5 } };
+      return recordingPlace(slotsOf([c], [[0, 5000]]), [video, lipSync], sound.id, 15000)!;
+    };
+    const wide = (el: Element) => (el.getBoundingClientRect = () => ({ left: 0, width: 1500, top: 0, height: 100, right: 1500, bottom: 100, x: 0, y: 0, toJSON: () => ({}) }));
+
+    it("never puts the playhead before the track's start: a click before In stops at the moment heard at 0", () => {
+      const { onTime, drawn } = stageOf(trimmed());
+      const wave = within(drawn.container).getByRole("slider", { name: /^The recording/ });
+      wide(wave);
+      onTime.mockClear();
+      // 2 s of the recording, which would play 8 s before the track's start
+      fireEvent.pointerDown(wave, { button: 0, clientX: 200, pointerId: 1 });
+      fireEvent.pointerUp(wave, { pointerId: 1 });
+      expect(onTime).toHaveBeenLastCalledWith(0);
+      expect(within(drawn.container).getByText(/^0:10\.0 of 15\.0 s/)).toBeTruthy();
+      expect(wave.getAttribute("aria-valuemin")).toBe("10000");
+    });
+
+    it("plays again from the moment heard at the track's start, not the recording's 0", () => {
+      const p = trimmed();
+      const ref = createRef<PlayerHandle>();
+      const props = { recording: sound as unknown as Asset, onPlaying: () => {}, onTime: () => {}, startAt: 0, place: p };
+      const drawn = draw(<RecordingStage ref={ref} {...props} playing={false} />);
+      const audio = drawn.container.querySelector("audio")!;
+      audio.play = () => Promise.resolve();
+      act(() => ref.current!.seek(5000));
+      expect(audio.currentTime).toBe(15);
+      drawn.rerender(<RecordingStage ref={ref} {...props} playing />);
+      expect(audio.currentTime).toBe(10);
+    });
+
+    it("moves the playhead with the keys of a slider: a second, five with Shift, Home and End", () => {
+      const { onTime, drawn } = stageOf(at(tail));
+      const wave = within(drawn.container).getByRole("slider", { name: /^The recording/ });
+      expect(wave.tabIndex).toBe(0);
+      const now = () => wave.getAttribute("aria-valuenow");
+      fireEvent.keyDown(wave, { key: "ArrowRight" });
+      expect(now()).toBe("1000");
+      fireEvent.keyDown(wave, { key: "ArrowRight", shiftKey: true });
+      expect(now()).toBe("6000");
+      expect(onTime).toHaveBeenLastCalledWith(11_000);
+      fireEvent.keyDown(wave, { key: "ArrowLeft" });
+      expect(now()).toBe("5000");
+      fireEvent.keyDown(wave, { key: "End" });
+      expect(now()).toBe("15000");
+      fireEvent.keyDown(wave, { key: "Home" });
+      expect(now()).toBe("0");
     });
 
     it("draws a recording with no length at its start, never NaN %", () => {

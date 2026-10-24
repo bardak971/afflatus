@@ -12,7 +12,7 @@ import type { ExportAsk } from "./ExportDialog";
 import { layout, moveAfter, otherShape, ZOOM } from "./model";
 import { madeFromSource, sourcePlace } from "./track/SourceLane";
 import { clipsOfRecording } from "./track/RecordingBand";
-import { recordingPlace } from "./recordingPlace";
+import { recordingPlace, stageEnd } from "./recordingPlace";
 import { sameWindowGrid } from "@afflatus/core";
 import type { PlayerHandle } from "./Player";
 import { useClipEdits } from "./useClipEdits";
@@ -332,15 +332,23 @@ export function useTimelineEditor(id: string) {
    * with their forms as the server has them.
    */
   const [cutAsk, setCutAsk] = useState<{ asset: string; seconds: number; snap: boolean; rendered: number; clips: number } | null>(null);
+  // under way from the click on, not from the cut's request: while what was typed is saved first, a Snap to pauses
+  // clicked sent a second cut with the Clip length from before the first
+  const [cutting, setCutting] = useState(false);
   const recordingCut = {
-    pending: cutRecordingMut.isPending,
+    pending: cutting || cutRecordingMut.isPending,
     ask: cutAsk,
     run: (asset: string, seconds: number, snap: boolean, sure = false) => {
       const mine = clipsOfRecording(clips, videoRecipes, asset);
       const rendered = mine.filter((c) => c.take).length + (t?.recordings?.find((r) => r.asset.id === asset)?.parkedTakes ?? 0);
       if (!sure && rendered > 0) return setCutAsk({ asset, seconds, snap, rendered, clips: mine.length });
       setCutAsk(null);
-      void save().then(() => cutRecordingMut.mutate({ asset, seconds, snap }, { onSuccess: (r) => trimmed(r.clips) }));
+      setCutting(true);
+      // a failure is the mutation's own, said with the editor's others (latestFailure); a save that failed is said by the autosave
+      void save()
+        .then(() => cutRecordingMut.mutateAsync({ asset, seconds, snap }).then((r) => trimmed(r.clips)))
+        .catch(() => {})
+        .finally(() => setCutting(false));
     },
     keep: () => setCutAsk(null),
   };
@@ -355,7 +363,9 @@ export function useTimelineEditor(id: string) {
     run: (asset: string, inputs: Record<string, unknown>) => {
       setSharing((n) => n + 1);
       // a failure is the mutation's own, said with the editor's others (latestFailure)
-      void save().then(() => recordingFormMut.mutateAsync({ asset, inputs })).catch(() => {}).finally(() => setSharing((n) => n - 1));
+      // in the forms' turn: a clip's save sent while the share is out went before it on the server's side and after it
+      // here, and wrote the old shared text back; waiting its turn, it goes with the share laid over it (savedElsewhere)
+      void save().then(() => turn(() => recordingFormMut.mutateAsync({ asset, inputs }))).catch(() => {}).finally(() => setSharing((n) => n - 1));
     },
   };
 
@@ -383,7 +393,7 @@ export function useTimelineEditor(id: string) {
   // the selected clip, told to the command bar (useSelectedClipBridge.ts)
   useSelectedClipBridge({ id, t, clips, current, recipes: recipes.data?.recipes, patch, inputsOf, rangeAct, edit, openSource });
 
-  const { volume, muted, onVolume, onMute, cursor, setCursor, onTime, stopAt, frameMs } = usePlayhead({ clock, clips, endMs: t ? (sourceOpen && place ? Math.max(total, place.atMs + place.lengthMs) : recordingAt ? Math.max(total, recordingAt.toTrack(recordingAt.lengthMs)) : total) : null, player, rangeRef, loopRef, playingRange, setPlaying });
+  const { volume, muted, onVolume, onMute, cursor, setCursor, onTime, stopAt, frameMs } = usePlayhead({ clock, clips, endMs: t ? Math.max(total, stageEnd(sourceOpen, place, recordingAt) ?? 0) : null, player, rangeRef, loopRef, playingRange, setPlaying });
   // a key held down sends one undo at a time: the next only once the last is back
   const stepping = undo.isPending || redo.isPending;
   // the keys' refs for what is set below: Ctrl+Enter renders, [ and ] jump, S and Ctrl+B split, Alt+[ and Alt+] step the take; - and =, Shift+Z: the track's zoom (filled by the track)

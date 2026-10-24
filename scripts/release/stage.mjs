@@ -10,7 +10,7 @@
 //
 // A release resolves the lockfile once (the stage job of release.yml) and hands that one file to the image and
 // to every bundle, so all of them install the same tree. It also writes THIRD_PARTY_NOTICES.txt: every
-// package that ships, with its licence, from `pnpm licenses list --prod`.
+// package that ships, with its licence, from `pnpm licenses list --prod`, and the ffmpeg build the bundles and the image carry.
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -117,10 +117,23 @@ const licenceText = (dir) => {
   return files.map((f) => readFileSync(join(dir, f), "utf8").replace(/\r\n/g, "\n").trim()).join("\n\n");
 };
 const rule = "-".repeat(78);
+// the ffmpeg the bundles and the image carry, read from where it is chosen rather than written a second time here: the tag
+// from bundle.mjs, the build (its version and FFmpeg's commit) from Get ffmpeg's archive names, which ffmpegGet.test.ts holds
+// to that tag and to checksums.json
+const ffmpegTag = /const FFMPEG_TAG = "(autobuild-[\d-]+)";/.exec(readFileSync(join(root, "scripts/release/bundle.mjs"), "utf8"))?.[1];
+const ffmpegBuild = /"ffmpeg-(n[\d.]+-\d+-g([0-9a-f]+))-linux64-gpl-[\d.]+\.tar\.xz"/.exec(readFileSync(join(root, "apps/server/src/ffmpegGet.ts"), "utf8"));
+if (!ffmpegTag || !ffmpegBuild) throw new Error("the ffmpeg build could not be read from bundle.mjs's FFMPEG_TAG and ffmpegGet.ts's FFMPEG_BUILD, for THIRD_PARTY_NOTICES.txt");
 const notices = [
   "Afflatus is free software under the GNU AGPL-3.0 (LICENSE). It ships the packages below, each under its own licence.",
   "The node pack in comfy-nodes/ carries its own LICENSE files; apps/server/assets/LICENSE-danbooru-tags covers the tag list.",
   "sharp's platform package (@img/sharp-*) carries libvips, under the LGPL-3.0-or-later.",
+  "",
+  `The Windows and Linux bundles and the Docker image carry ffmpeg and ffprobe, unmodified: FFmpeg ${ffmpegBuild[1]}, the GPL build`,
+  `of BtbN's FFmpeg-Builds release ${ffmpegTag} (built with --enable-gpl --enable-version3, with the libraries it links in, such as`,
+  "x264), under the GPL-3.0-or-later. Its licence is beside the binaries: versions/<version>/bin/LICENSE-ffmpeg.txt in a bundle,",
+  "/usr/local/share/doc/ffmpeg/LICENSE.txt in the image (and bin/LICENSE-ffmpeg.txt in the data folder after Get ffmpeg).",
+  `The source: FFmpeg's git (https://git.ffmpeg.org/ffmpeg.git) at commit ${ffmpegBuild[2]}, and the build scripts with the`,
+  `libraries' versions at https://github.com/BtbN/FFmpeg-Builds, tag ${ffmpegTag}.`,
   "",
   ...packages.map((p) => `${p.name} ${p.versions.join(", ")}  ${p.license}${p.homepage ? `  ${p.homepage}` : ""}`),
   "",

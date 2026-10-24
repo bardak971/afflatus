@@ -84,7 +84,8 @@ export function RecordingPanel(p: RecordingPanelProps) {
 
       <div className="flex min-h-0 grow flex-col overflow-y-auto">
         <Section title="Model" help="The model its clips are made with. A recording has one today: each clip is made around its part of it, the mouth following the words.">
-          <Segmented<string> label="Model" size="sm" oneLine value="model" onChange={() => {}} options={[{ value: "model", label: p.model }]} />
+          {/* said, not a one-choice switch: there is nothing to pick from today (the row stays, as in every H3 form) */}
+          <span className="text-sm text-ink-strong">{p.model}</span>
         </Section>
 
         <Section title="Uses" note="In → Out">

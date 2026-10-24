@@ -183,8 +183,10 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
       if (info || typing(e) || document.getSelection()?.toString() || document.querySelector("[role=listbox], [role=menu], [data-keys-help]")) return;
       const action = actionOfKey(list, place, keyOfEvent(e));
       if (!action) return;
-      action.run!();
       e.preventDefault();
+      // held down, the key copies once: each repeat copied it again and stacked a banner on the one before
+      if (e.repeat) return;
+      action.run!();
       return;
     }
     if (info || !plainKey(e, { over: "[data-keys-help]" })) return;

@@ -550,7 +550,9 @@ function findMedia(r: Reading, reach: Set<string>): { videos: Inspection["videos
   const roleOf = (id: string): Inspection["videos"][number]["role"] => {
     const given = names.givenName(id) ?? "";
     if (/next|after|arriv|target/i.test(given)) return "next";
-    return /previous|prev\b|before|continu|extend|carry|last frames?/i.test(given) ? "previous" : "source";
+    // "prev" run into the next word or a number too (prev_clip, PrevVideo, prev1: "prev" alone was read before), never
+    // "Preview" or "Prevent": a video to work on
+    return /prev(?!iew|ent)|before|continu|extend|carry|last frames?/i.test(given) ? "previous" : "source";
   };
   const videos: Inspection["videos"] = loaders.filter((l) => l.kind === "video").map((l) => ({ node: l.id, title: names.titleOf(l.id), role: roleOf(l.id), binding: binding(l.id, l.input) }));
   const sounds: Inspection["sounds"] = loaders.filter((l) => l.kind === "audio").map((l) => ({ node: l.id, title: names.titleOf(l.id), binding: binding(l.id, l.input) }));

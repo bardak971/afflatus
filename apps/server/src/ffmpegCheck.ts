@@ -1,6 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
-import { delimiter, dirname, join } from "node:path";
+import { delimiter, dirname, join, relative, resolve } from "node:path";
 import { environment } from "./config";
 import { countFrames, cutArgs, ffRun, inTemp } from "./cut";
 import { writeAtomic } from "./updatesModel";
@@ -78,9 +78,16 @@ export function newEnough(version: string, least = FFMPEG_LEAST): boolean {
   return true;
 }
 
+/**
+ * How long each of the check's own runs may take, and the whole of one candidate. The check runs before the server listens,
+ * and an update's --check of a new version has two minutes (updatesInstall.ts): a hanging ffmpeg given a job's timeouts (two
+ * minutes a frame count) held the start about six minutes per candidate. A good one takes about a second in all.
+ */
+export const CHECK_TIMEOUTS = { version: 10_000, encoders: 10_000, clip: 20_000, cut: 20_000, count: 15_000, candidate: 45_000 };
+
 /** A tool's version from its first line of `-version`; null when it could not be run. */
-async function versionOf(tool: string): Promise<{ version: string | null; missing: boolean }> {
-  const r = await ffRun(tool, ["-version"], { timeout: 10_000 });
+async function versionOf(tool: string, signal?: AbortSignal): Promise<{ version: string | null; missing: boolean }> {
+  const r = await ffRun(tool, ["-version"], { timeout: CHECK_TIMEOUTS.version, signal });
   if (r.err) return { version: null, missing: r.missing };
   const first = r.stdout.split(/\r?\n/)[0]?.trim() ?? "";
   return { version: /version\s+(\S+)/i.exec(first)?.[1] ?? (first || "?"), missing: false };
@@ -100,13 +107,15 @@ const TEST = { seconds: 2, sourceFps: 25, rates: [24, 16], count: 22 };
  * old one is refused without the rest), then the encoders, then the cut, its frames counted by the ffprobe that goes with it.
  */
 export async function tryTools(c: Candidate): Promise<Tried> {
-  const [mpeg, probe] = await Promise.all([versionOf(c.ffmpeg), versionOf(c.ffprobe)]);
+  // each run has its own bound, and all of them together the candidate's: one that hangs at every step is still left in time
+  const signal = AbortSignal.timeout(CHECK_TIMEOUTS.candidate);
+  const [mpeg, probe] = await Promise.all([versionOf(c.ffmpeg, signal), versionOf(c.ffprobe, signal)]);
   const out = (why: string | null): Tried => ({ ...c, ok: why === null, version: mpeg.version, probeVersion: probe.version, why });
   if (!mpeg.version) return out(mpeg.missing ? "was not found" : "could not be run");
   if (!probe.version) return out(probe.missing ? "has no ffprobe beside it" : "has an ffprobe that could not be run");
   if (!newEnough(mpeg.version)) return out(`is older than ${FFMPEG_LEAST}`);
   if (!newEnough(probe.version)) return out(`has an ffprobe older than ${FFMPEG_LEAST} (${shortVersion(probe.version)})`);
-  const listed = await ffRun(c.ffmpeg, ["-hide_banner", "-encoders"], { timeout: 10_000 });
+  const listed = await ffRun(c.ffmpeg, ["-hide_banner", "-encoders"], { timeout: CHECK_TIMEOUTS.encoders, signal });
   const lacking = ENCODERS.filter((e) => !new RegExp(`^\\s*\\S+\\s+${e}\\s`, "m").test(listed.stdout));
   if (lacking.length) return out(`has no ${lacking.join(" or ")} encoder`);
   return out(await inTemp(async (dir) => {
@@ -116,14 +125,14 @@ export async function tryTools(c: Candidate): Promise<Tried> {
       "-f", "lavfi", "-i", `testsrc=size=64x48:rate=${TEST.sourceFps}:duration=${TEST.seconds}`,
       "-f", "lavfi", "-i", `sine=frequency=440:duration=${TEST.seconds}`,
       "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", clip,
-    ], { timeout: 30_000 });
+    ], { timeout: CHECK_TIMEOUTS.clip, signal });
     if (made.err) return `could not make a test clip (${lastLine(made.stderr)})`;
     for (const fps of TEST.rates) {
       const cut = join(dir, `cut-${fps}.mp4`);
       const start = TEST.seconds * fps - TEST.count;
-      const ran = await ffRun(c.ffmpeg, cutArgs(clip, cut, { fps, start, count: TEST.count, hasSound: true }), { timeout: 30_000 });
+      const ran = await ffRun(c.ffmpeg, cutArgs(clip, cut, { fps, start, count: TEST.count, hasSound: true }), { timeout: CHECK_TIMEOUTS.cut, signal });
       if (ran.err) return `could not cut frames (${lastLine(ran.stderr)})`;
-      const got = await countFrames(cut, c.ffprobe).catch(() => -1);
+      const got = await countFrames(cut, c.ffprobe, { timeout: CHECK_TIMEOUTS.count, signal }).catch(() => -1);
       if (got < 0) return "has an ffprobe that could not count the frames";
       if (got !== TEST.count) return `cut ${got} frames where ${TEST.count} were asked (at ${fps} fps)`;
     }
@@ -137,15 +146,48 @@ const lastLine = (text: string) => text.trim().split(/\r?\n/).pop()?.slice(0, 16
 
 const exe = (name: string, platform: string) => (platform === "win32" ? `${name}.exe` : name);
 
-/** A program on the PATH, as the system would find it: its full path, or null. */
-export function onPath(name: string, env: NodeJS.ProcessEnv = environment(), platform = process.platform): string | null {
+/** A program on the PATH, as the system would find it: its full path, or null. `skip`: folders passed over. */
+export function onPath(name: string, env: NodeJS.ProcessEnv = environment(), platform = process.platform, skip?: (dir: string) => boolean): string | null {
   const path = env.PATH ?? env.Path ?? Object.entries(env).find(([k]) => k.toUpperCase() === "PATH")?.[1] ?? "";
   for (const dir of path.split(platform === "win32" ? ";" : delimiter)) {
     if (!dir.trim()) continue;
-    const file = join(dir.trim().replace(/^"|"$/g, ""), exe(name, platform));
+    const folder = dir.trim().replace(/^"|"$/g, "");
+    if (skip?.(folder)) continue;
+    const file = join(folder, exe(name, platform));
     if (existsSync(file)) return file;
   }
   return null;
+}
+
+/**
+ * Whether a folder is a bundle's own bin/ (<AFFLATUS_ROOT>/versions/<v>/bin, in a bundle run): what is there is the bundle's
+ * ffmpeg, not one the person chose. The launcher puts that folder first on the PATH, and up to 0.6.1 it also set FFMPEG and
+ * FFPROBE to it (an older version's launcher still does, after a Go back): read as set by the person, the bundle's ffmpeg was
+ * never swapped for another and Get ffmpeg never offered.
+ */
+export function inBundleBin(dir: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): boolean {
+  const root = env.AFFLATUS_ROOT?.trim();
+  if (env.AFFLATUS_INSTALL !== "bundle" || !root) return false;
+  const rel = relative(join(resolve(root), "versions"), resolve(dir));
+  const parts = (platform === "win32" ? rel.toLowerCase() : rel).split(/[\\/]/);
+  return parts.length === 2 && !!parts[0] && parts[0] !== ".." && parts[1] === "bin";
+}
+
+/** A tool as FFMPEG or FFPROBE names it, found on the PATH when it is a bare name ("ffmpeg"); null when it is not there. */
+function located(tool: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string | null {
+  if (tool.includes("/") || tool.includes("\\")) return tool;
+  return onPath(platform === "win32" ? tool.replace(/\.exe$/i, "") : tool, env, platform);
+}
+
+/** The FFMPEG and FFPROBE the person set; those a bundle's launcher set to its own bin/ are not theirs (inBundleBin). */
+export function setByPerson(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): { ffmpeg: string | null; ffprobe: string | null } {
+  const theirs = (value: string | undefined) => {
+    const tool = value?.trim();
+    if (!tool) return null;
+    const at = located(tool, env, platform);
+    return at && inBundleBin(dirname(at), env, platform) ? null : tool;
+  };
+  return { ffmpeg: theirs(env.FFMPEG), ffprobe: theirs(env.FFPROBE) };
 }
 
 /** The folder Get ffmpeg downloads into: the data folder's bin/. */
@@ -177,7 +219,10 @@ export async function comfyFfmpegs(comfyDir: string, platform = process.platform
   return found;
 }
 
-/** A bundle's ffmpeg, newest version first (versions/<v>/bin, under AFFLATUS_ROOT): for a bundle run with FFMPEG taken out. */
+/**
+ * A bundle's ffmpeg, newest version first (versions/<v>/bin, under AFFLATUS_ROOT): the one of the version running is found
+ * first on the PATH already; the others are tried last.
+ */
 async function bundleFfmpegs(root: string | undefined, platform: string): Promise<string[]> {
   if (!root) return [];
   const versions = join(root, "versions");
@@ -195,13 +240,14 @@ export interface LookIn {
 
 /**
  * Every ffmpeg worth trying, in order, each with the ffprobe that goes with it: the one beside it, else the one set in FFPROBE,
- * else the PATH's or Get ffmpeg's (imageio-ffmpeg ships no ffprobe). FFMPEG set: that one alone.
+ * else Get ffmpeg's or the PATH's (imageio-ffmpeg ships no ffprobe). FFMPEG set: that one alone. In a bundle its own bin/ is
+ * first on the PATH (the launcher puts it there): the ffmpeg found there is said as the bundle's, and the next one on the PATH
+ * is tried after it as the PATH's.
  */
 export async function candidates(o: LookIn): Promise<Candidate[]> {
   const env = o.env ?? environment();
   const platform = o.platform ?? process.platform;
-  const setMpeg = env.FFMPEG?.trim();
-  const setProbe = env.FFPROBE?.trim();
+  const { ffmpeg: setMpeg, ffprobe: setProbe } = setByPerson(env, platform);
   const got = gotDir(o.dataDir);
   const gotProbe = join(got, exe("ffprobe", platform));
   const pathProbe = onPath("ffprobe", env, platform);
@@ -209,14 +255,20 @@ export async function candidates(o: LookIn): Promise<Candidate[]> {
     if (setProbe) return setProbe;
     const beside = join(dirname(ffmpeg), exe("ffprobe", platform));
     if (ffmpeg.includes("/") || ffmpeg.includes("\\")) if (existsSync(beside)) return beside;
-    return pathProbe ?? (existsSync(gotProbe) ? gotProbe : "ffprobe");
+    // Get ffmpeg's before the PATH's: it is the known build, put there because what was found did not pass, and the PATH's
+    // may be the old one that did not
+    return existsSync(gotProbe) ? gotProbe : pathProbe ?? "ffprobe";
   };
   if (setMpeg) return [{ ffmpeg: setMpeg, ffprobe: probeFor(setMpeg), where: "set" }];
   const list: Candidate[] = [];
   const add = (ffmpeg: string | null, where: Where) => {
     if (ffmpeg && !list.some((c) => c.ffmpeg.toLowerCase() === ffmpeg.toLowerCase())) list.push({ ffmpeg, ffprobe: probeFor(ffmpeg), where });
   };
-  add(onPath("ffmpeg", env, platform), "path");
+  const first = onPath("ffmpeg", env, platform);
+  if (first && inBundleBin(dirname(first), env, platform)) {
+    add(first, "bundle");
+    add(onPath("ffmpeg", env, platform, (dir) => inBundleBin(dir, env, platform)), "path");
+  } else add(first, "path");
   const gotMpeg = join(got, exe("ffmpeg", platform));
   if (existsSync(gotMpeg)) add(gotMpeg, "got");
   for (const dir of o.comfyDirs) for (const f of await comfyFfmpegs(dir, platform)) add(f, "comfy");
@@ -226,13 +278,18 @@ export async function candidates(o: LookIn): Promise<Candidate[]> {
 
 // ---------------------------------------------------------------- choosing, kept between starts
 
-/** What a tool file is now: its path, size and time, so that a result kept for it is used only while it is the same file. */
-function stamp(file: string): string {
+/**
+ * What a tool file is now: its path, size and time, so that a result kept for it is used only while it is the same file. A bare
+ * name (FFMPEG=ffmpeg) is stamped as the file the PATH gives for it: stamped as the name alone, another ffmpeg put on the PATH
+ * would reuse the verdict kept for the one before.
+ */
+function stamp(file: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string {
+  const at = located(file, env, platform) ?? file;
   try {
-    const st = statSync(file);
-    return `${file}|${st.size}|${Math.round(st.mtimeMs)}`;
+    const st = statSync(at);
+    return `${at}|${st.size}|${Math.round(st.mtimeMs)}`;
   } catch {
-    return `${file}|-`;
+    return `${at}|-`;
   }
 }
 
@@ -264,7 +321,8 @@ async function readKept(dataDir: string): Promise<Record<string, Tried>> {
  */
 export async function chooseFfmpeg(o: LookIn & { fresh?: boolean; tryOne?: (c: Candidate) => Promise<Tried> }): Promise<Choice> {
   const env = o.env ?? environment();
-  const pinned = !!env.FFMPEG?.trim();
+  const platform = o.platform ?? process.platform;
+  const pinned = !!setByPerson(env, platform).ffmpeg;
   const list = await candidates(o);
   const tryOne = o.tryOne ?? tryTools;
   // no data folder named (a check asked before the start named one): nothing kept, nothing read, rather than files in the working folder
@@ -274,7 +332,7 @@ export async function chooseFfmpeg(o: LookIn & { fresh?: boolean; tryOne?: (c: C
   const refused: Tried[] = [];
   let used: Tried | null = null;
   for (const c of list) {
-    const key = `${CHECK_ID}>${stamp(c.ffmpeg)}>${stamp(c.ffprobe)}`;
+    const key = `${CHECK_ID}>${stamp(c.ffmpeg, env, platform)}>${stamp(c.ffprobe, env, platform)}`;
     const before = kept[key];
     const t = before && before.ffmpeg === c.ffmpeg && before.where === c.where ? before : await tryOne(c);
     keep[key] = t;

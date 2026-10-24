@@ -10,7 +10,7 @@ import { cancelHunt, openDeploy } from "../../deploy";
 import { openLoadPanel } from "../../loadPanelHost";
 import { OPEN_MACHINES } from "../../MachinesPill";
 import { api, type Download as DownloadJob, type Health, type RecipeInfo } from "../../api";
-import { inLine } from "../../downloadLine";
+import { linesOf } from "../../downloadLine";
 import { ELSEWHERE } from "../../GetFfmpeg";
 import { copyText } from "../../secureContext";
 import { emptyAll, restoreAll } from "../../binActions";
@@ -568,7 +568,13 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
         return [{ label: "Copy “brew install ffmpeg”", icon: <Copy size={14} />, stay: true, note: "Homebrew's line, as About shows it", run: () => copyText("brew install ffmpeg").then(() => x.onCopied("brew install ffmpeg"), () => x.onCopied("")) }];
       }
       // as GetFfmpeg: offered only when the check offers the download, and refused from another computer
-      if (get !== "download") return [{ label: "Get ffmpeg", icon: <Download size={14} />, disabled: true, note: "the ffmpeg check passes", run: () => {} }];
+      if (get !== "download") {
+        // no download offered: the check passes, or it fails with FFMPEG set (theirs is the only one tried, ffmpegCheck)
+        // or with no build for this computer; said as it is, not "passes" over a failing check
+        const check = h?.checks.find((k) => k.id === "ffmpeg");
+        const why = !check ? "the checks are not read yet" : check.ok ? "the ffmpeg check passes" : check.fix.includes("FFMPEG is set") ? "FFMPEG is set: its failure is in Settings › About" : "no build to get for this computer: the fix is in Settings › About";
+        return [{ label: "Get ffmpeg", icon: <Download size={14} />, disabled: true, note: why, run: () => {} }];
+      }
       return [{
         label: "Get ffmpeg", icon: <Download size={14} />, disabled: h?.here === false, note: h?.here === false ? ELSEWHERE : "into the data folder · its progress in Settings › About",
         run: () => api.getFfmpeg().then((v) => {
@@ -579,11 +585,28 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       }];
     }
     case "cancel-downloads": {
-      const waiting = (client.getQueryData<{ items: DownloadJob[] }>(queryKeys.downloads())?.items ?? []).filter(inLine).length;
+      // every ComfyUI's line at once (rented pods' too), where the line's own Remove all waiting clears its machine's only:
+      // asked first, each machine's count named, as the queue's Remove all waiting asks
+      const machines = queue?.machines ?? [];
+      const lines = linesOf(client.getQueryData<{ items: DownloadJob[] }>(queryKeys.downloads())?.items ?? [], machines[0]?.id).filter((l) => l.next.length);
+      const waiting = lines.reduce((n, l) => n + l.next.length, 0);
+      const where = (id: string | undefined) => {
+        const m = machines.find((x) => x.id === id);
+        return m ? machineLabel(m) : "ComfyUI";
+      };
+      const said = lines.map((l) => `${plural(l.next.length, "file")} on ${where(l.machine)}`).join(", ");
       return [{
-        label: "Remove all waiting downloads", icon: <Square size={14} />, danger: true, disabled: !waiting,
-        note: waiting ? `${plural(waiting, "file")} · as the line's Remove all waiting; those under way go on` : "nothing waits",
-        run: () => api.cancelWaitingDownloads().then(() => void client.invalidateQueries({ queryKey: queryKeys.downloads() }), failed("The waiting downloads were not cancelled")),
+        label: "Remove all waiting downloads…", icon: <Square size={14} />, danger: true, disabled: !waiting,
+        note: waiting ? `${said} · asked first; those under way go on` : "nothing waits",
+        run: async () => {
+          const yes = await ask({
+            title: `Remove ${plural(waiting, "waiting download")}?`,
+            text: `${said}: out of ${lines.length > 1 ? `the lines of all ${lines.length} ComfyUIs` : "the line"}. Those under way go on.`,
+            yes: waiting === 1 ? "Remove it" : `Remove all ${waiting}`,
+          });
+          if (!yes) return;
+          await api.cancelWaitingDownloads().then(() => void client.invalidateQueries({ queryKey: queryKeys.downloads() }), failed("The waiting downloads were not cancelled"));
+        },
       }];
     }
     case "update": {

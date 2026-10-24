@@ -107,6 +107,17 @@ describe("a node pack that is busy, or forgot a download", () => {
     expect(downloads.list().some((x) => x.status === "error")).toBe(false);
   });
 
+  it("tells the page one waiting on a busy pack is begun: not in the line, so not dragged (move() refuses it)", async () => {
+    busy = 1000;
+    const downloads = make();
+    downloads.packBusyEveryMs = 20;
+    const d = await downloads.start(stub(), "http://127.0.0.1:2", want);
+    await until(() => Boolean(downloads.get(d.id)!.waiting?.includes("node pack")));
+    expect(downloads.get(d.id)).toMatchObject({ status: "starting", begun: true });
+    expect(downloads.move(d.id, null)).toBe(false);
+    downloads.stop(d.id);
+  });
+
   it("gives a pack that stays busy up, as a failure that passes (the pod's files ask again)", async () => {
     busy = 1_000;
     const downloads = make();

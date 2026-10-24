@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { isModelFile } from "@afflatus/core";
+import { isModelFile, USUAL_FOLDERS } from "@afflatus/core";
 import { civitaiGet, civitaiSites } from "./civitai";
 import { envSaid } from "./config";
 import { httpError } from "./errors";
@@ -160,8 +160,6 @@ interface Known {
 /** The built-in families' slots as the folder guess reads them (an imported workflow's slots are its own files). */
 export const familyPlaces = (s: Pick<Services, "registry">): SlotPlace[] => slotPlaces(s.registry.families().filter((f) => !f.imported));
 
-/** The folders a file without one can be put in when ComfyUI does not answer: the usual ones. */
-const USUAL_FOLDERS = ["checkpoints", "diffusion_models", "loras", "vae", "text_encoders", "clip_vision", "upscale_models", "latent_upscale_models", "controlnet", "model_patches", "audio_encoders", "embeddings"];
 
 async function known(s: Services): Promise<Known> {
   const [hashes, sets, updates, settings] = await Promise.all([
@@ -439,7 +437,7 @@ export function registerBrowse(app: FastifyInstance, s: Services): void {
       all: z.enum(["1", "0"]).default("0"),
       // one creator's models only (the command bar's by:), by their Civitai name
       by: z.string().trim().max(80).regex(/^[\w.-]*$/, "a Civitai user name").default(""),
-    }).parse(req.query);
+    }).strict().parse(req.query);
     await lookupsOn();
     const params = new URLSearchParams({ sort: q.sort, period: q.period });
     if (q.q.trim()) params.set("query", q.q.trim());
@@ -476,7 +474,7 @@ export function registerBrowse(app: FastifyInstance, s: Services): void {
    * at a time, several meaning all of them at once), a page at a time.
    */
   app.get("/api/browse/huggingface", async (req, reply) => {
-    const q = z.object({ q: z.string().max(200).default(""), base: z.string().max(120).refine((b) => Object.values(FAMILY_HF_BASES).flat().includes(b), "a base model the browser offers").optional(), kind: z.enum(["comfyui", "loras", "all"]).default("comfyui"), sort: z.enum(["downloads", "likes", "lastModified", "trendingScore"]).default("downloads"), cursor: z.string().max(400).optional(), by: z.string().trim().max(96).regex(/^[\w.-]*$/, "a Hugging Face user or organisation").default("") }).parse(req.query);
+    const q = z.object({ q: z.string().max(200).default(""), base: z.string().max(120).refine((b) => Object.values(FAMILY_HF_BASES).flat().includes(b), "a base model the browser offers").optional(), kind: z.enum(["comfyui", "loras", "all"]).default("comfyui"), sort: z.enum(["downloads", "likes", "lastModified", "trendingScore"]).default("downloads"), cursor: z.string().max(400).optional(), by: z.string().trim().max(96).regex(/^[\w.-]*$/, "a Hugging Face user or organisation").default("") }).strict().parse(req.query);
     const settings = await lookupsOn();
     const params = new URLSearchParams({ sort: q.sort, direction: "-1", limit: String(PAGE), full: "true" });
     if (q.q.trim()) params.set("search", q.q.trim());
@@ -518,7 +516,7 @@ export function registerBrowse(app: FastifyInstance, s: Services): void {
    * ComfyUI does not answer.
    */
   app.get("/api/browse/folders", async (req) => {
-    const { machine } = z.object({ machine: z.string().max(40).optional() }).parse(req.query);
+    const { machine } = z.object({ machine: z.string().max(40).optional() }).strict().parse(req.query);
     const comfy = await downloadTarget(s, await readSettings(s.db), machine).then((t) => t.comfy, () => null);
     const theirs = comfy ? await comfy.client.folders().catch(() => [] as string[]) : [];
     const folders = new Set([...theirs, ...USUAL_FOLDERS, ...familyPlaces(s).map((p) => p.folder)]);
@@ -528,7 +526,7 @@ export function registerBrowse(app: FastifyInstance, s: Services): void {
 
   /** A Hugging Face repository opened: its model files with their sizes and SHA-256. */
   app.get("/api/browse/huggingface/files", async (req) => {
-    const { repo } = z.object({ repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "a repository is owner/name").max(200) }).parse(req.query);
+    const { repo } = z.object({ repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "a repository is owner/name").max(200) }).strict().parse(req.query);
     const settings = await lookupsOn();
     return { files: await repoFiles(repo, settings.huggingFaceToken, await known(s)) };
   });

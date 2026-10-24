@@ -1,4 +1,4 @@
-import { FRAME_SLACK_MS, joinFrames, joinWay, latentFrameAtOrBefore, LATENT_FPS, type Recipe } from "@afflatus/core";
+import { FRAME_SLACK_MS, joinFrames, joinWay, latentFrameAtOrBefore, LATENT_FPS, leadInBefore, leadInCovers, type Recipe } from "@afflatus/core";
 import { FfmpegMissing } from "./cut";
 import { frozenTailAt } from "./measure";
 import { newId, now, type Db } from "./db";
@@ -6,7 +6,7 @@ import { httpError, notFound } from "./errors";
 import type { Registry } from "./registry";
 import type { TimelineMedia } from "./timelineMedia";
 import type { TimelineTakes } from "./timelineTakes";
-import { FROM_PREVIOUS, landingOnGrid, lengthOnGrid, mirroredPins, plays, stillRef, type AssetRow, type ClipRow, type Placed, type TakeRow, type TimelineCore } from "./timelineModel";
+import { FROM_PREVIOUS, landingOnGrid, lengthOnGrid, mirroredPins, plays, stillRef, type AssetRow, type ClipRow, type Placed, type Taken, type TakeRow, type TimelineCore } from "./timelineModel";
 
 /**
  * What a clip is made from: a new clip's model and form (taken over from the clips before it), a scene planned as
@@ -36,6 +36,24 @@ export const ownInputIds = (recipe: Recipe<any>) => new Set(recipe.inputs.filter
 function ownInputs(recipe: Recipe<any>, input: Record<string, unknown>): Record<string, unknown> {
   const ids = ownInputIds(recipe);
   return Object.fromEntries(Object.entries(input).filter(([id]) => ids.has(id)));
+}
+
+/**
+ * The generation a take is the render of, among its clip's takes: its own, or for a finish made by a cut (SeedVR2, RTX, a
+ * model, Face refine on frames: no generation of its own), its draft's, through a finish of a finish. What the render was sent
+ * (a song's hand-over, its head sung) is the draft's: read off the finish, it said nothing, and the next clip sang the song
+ * again at the join. Null for a take rendered nowhere here (an import, a cut of one).
+ */
+export function generationOfTake(x: Taken, takes: readonly Taken[]): string | null {
+  let at: Taken | undefined = x;
+  for (let i = 0; at && i < 5; i++) {
+    if (at.asset.generation_id) return at.asset.generation_id;
+    if (!at.take.finished_from) return null;
+    const from: Taken = at;
+    // the draft's take, else (that take removed from the clip) the take of the video the finish was cut from
+    at = takes.find((y) => y.take.id === from.take.finished_from) ?? (from.asset.source_id ? takes.find((y) => y.asset.id === from.asset.source_id) : undefined);
+  }
+  return null;
 }
 
 /**
@@ -218,7 +236,8 @@ export class TimelinePlan {
     const plan: ClipPlan = { input: ownInputs(recipe, raw), sources: [], links: {}, mirror: [] };
     if (t.width && t.height) plan.canvas = { width: t.width, height: t.height };
     if (clip.joined === "continue" && i > 0) await this.carryOn(plan, all[i - 1]!, recipe, raw, finishedFrom, quick);
-    await this.recordingRun(plan, recipe, raw, all, i);
+    // a finish is its draft's frames and sound made again: the draft's part of the recording as it was sent (raw), never planned anew
+    if (!finishedFrom) await this.recordingRun(plan, recipe, raw, all, i);
     const startSpec = recipe.inputs.find((s) => s.type === "image" && s.role === "start");
     if (startSpec && plan.input[startSpec.id] === FROM_PREVIOUS && !quick) {
       throw httpError("This clip extends the previous clip from its last frame, and that clip has no take yet.");
@@ -296,9 +315,14 @@ export class TimelinePlan {
    */
   private async recordingRun(plan: ClipPlan, recipe: Recipe<any>, raw: Record<string, unknown>, all: Placed[], i: number) {
     const spec = recipe.inputs.find((s) => s.type === "audio" && s.window?.goesOn);
-    if (spec?.type !== "audio" || !spec.window?.goesOn || typeof raw[spec.id] !== "string") return;
+    if (spec?.type !== "audio" || !spec.window?.goesOn) return;
     const w = spec.window;
     const goesOn = w.goesOn!;
+    // said here for every clip, never kept from its form: a form reused from a clip of a song (its render's inputs, whole)
+    // carried a true onto a last or lone clip, its tail then the recording unfaded and its head said sung
+    plan.input[goesOn] = false;
+    if (w.leadIn) plan.input[w.leadIn] = false;
+    if (typeof raw[spec.id] !== "string") return;
     // a clip's part of the same recording, from its form (where the recording's cut put it)
     const partOf = (inputs: Record<string, unknown>) => ({ start: Number(inputs[w.start]), seconds: Number(inputs[w.seconds]) });
     const sameRecording = (p: Placed | undefined) => (p?.clip.recipe_id === recipe.id && (JSON.parse(p.clip.inputs) as Record<string, unknown>)[spec.id] === raw[spec.id] ? partOf(JSON.parse(p.clip.inputs) as Record<string, unknown>) : null);
@@ -312,13 +336,20 @@ export class TimelinePlan {
     const prior = all[i - 1];
     const before = sameRecording(prior);
     if (!before || !meets(before, own) || !prior?.active) return;
-    const genId = prior.active.asset.generation_id;
+    const genId = generationOfTake(prior.active, prior.takes);
     const made = genId ? await this.core.db.selectFrom("generations").select("inputs").where("id", "=", genId).executeTakeFirst() : undefined;
     const was = made ? (JSON.parse(made.inputs) as Record<string, unknown>) : null;
     if (!was?.[goesOn]) return;
-    // its head (the frames it shares with that clip) sounds of the recording that clip sang, not of the model's guess at it
-    if (w.leadIn) plan.input[w.leadIn] = true;
     const fps = w.fits?.fps ?? 24;
+    // its head (the frames it shares with that clip) sounds of the recording that clip sang, not of the model's guess at it,
+    // when what is handed over before its part covers the head and its own moment before the words, as the graph files it
+    const prevSpec = recipe.inputs.find((s) => s.type === "clip" && s.role === "previous");
+    const sungFrom = (start: number) => {
+      if (!w.leadIn) return;
+      const head = prevSpec && plan.input[prevSpec.id] ? joinFrames(recipe, "previous", raw) : 0;
+      const ownLead = Math.round((w.fits?.less ?? []).reduce((sum, id) => sum + (Number(plan.input[id]) || 0), 0) * fps);
+      plan.input[w.leadIn] = leadInCovers(leadInBefore(start), head + ownLead, fps);
+    };
     const lead = Math.round((w.fits?.less ?? []).reduce((sum, id) => sum + (Number(was[id]) || 0), 0) * fps) / fps;
     // on the model's frame grid, as the track plays it (lengthOnGrid): an interpolated file is a frame short of it, and capped
     // there, the next part started 20 ms early and those 20 ms of the song played twice at the join (Timeline 24's export)
@@ -326,11 +357,12 @@ export class TimelinePlan {
     const reached = Number(was[w.start]) + (endMs - prior.active.take.head_ms) / 1000 - lead;
     const end = own.start + own.seconds;
     // nothing to skip, or so little left that the clip would be under a second: its part as it was cut
-    if (!Number.isFinite(reached) || reached <= own.start + 0.01 || end - reached < 1) return;
+    if (!Number.isFinite(reached) || reached <= own.start + 0.01 || end - reached < 1) return sungFrom(own.start);
     // to the microsecond: the clip before ends on its frame grid (124 frames at 24: 5.16667 s), and rounded to the millisecond
     // the song stepped by a third of one where the sound hands over to this clip's head
     plan.input[w.start] = Math.round(reached * 1e6) / 1e6;
     plan.input[w.seconds] = Math.round((end - reached) * 1e6) / 1e6;
+    sungFrom(Number(plan.input[w.start]));
   }
 
   /** The moment the clip before should hand over: before its frozen tail when it has one, else null. */

@@ -77,6 +77,13 @@ describe("the bar's rows, mode by mode (rowsFor)", () => {
     expect(sections[1]!.rows.map((r) => r.key)).toEqual(["cmd:cancel-waiting", "cmd:retry-failed", "cmd:dismiss-failed"]);
   });
 
+  it("the queue mode says a waiting job's place past the twentieth as people say it (it once said 21th)", () => {
+    const job = (i: number) => ({ id: `w${i}`, label: `Waiting ${i}`, recipe: "sdxl", input: {}, draftId: null, createdAt: "2026-10-10T09:00:00Z" });
+    const queue = { paused: false, online: true, running: null, waiting: Array.from({ length: 23 }, (_, i) => job(i + 1)), recent: [] } as unknown as QueueStatus;
+    const [jobs] = rows("!", { queue }, { queue: { ...CALM.queue!, waiting: 23 } });
+    expect(jobs!.rows.slice(20, 23).map((r) => r.meta?.split(" · ")[1])).toEqual(["21st", "22nd", "23rd"]);
+  });
+
   it("searching everything puts a timeline before a command of the same words, and lights the letters found", () => {
     const sections = rows("harbor");
     expect(sections[0]!.group).toBe("Timelines");

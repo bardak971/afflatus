@@ -80,6 +80,11 @@ export interface DownloadView {
   rate?: number;
   /** When it ended (done, failed or stopped), in ms since 1970: the Downloads card's "Done today · 14:02". */
   at?: number;
+  /**
+   * Under way: taken from the queue of Afflatus's own downloads and the pack's. Told the page while it is still "starting"
+   * (a node pack whose line is full, 429): it waits, but no longer in the line, and cannot be moved (move()).
+   */
+  begun?: boolean;
 }
 
 /**
@@ -121,8 +126,6 @@ interface Download extends DownloadView {
   abort: AbortController;
   /** Afflatus's own: where the file goes (its .part beside it). */
   dest?: string;
-  /** Under way: taken from the queue of Afflatus's own downloads and the pack's. */
-  begun?: boolean;
   /** A failure that passes is kept off the page's list: the pod's files ask for the file again (quietPassing). */
   quietPassing?: boolean;
   /** The pack's: the address Afflatus is reached at, and the download's id there. */
@@ -330,7 +333,8 @@ export class Downloads {
     const turn = status === "starting" || status === "downloading" ? d.turn : undefined;
     const rate = status === "downloading" && d.rate ? Math.round(d.rate) : undefined;
     const again = (status === "error" || status === "stopped") && d.ask !== undefined ? (true as const) : undefined;
-    const all: DownloadView = { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine, quiet, shown, turn, rate, again, at: d.finishedAt };
+    const begun = status === "starting" && d.begun ? true : undefined;
+    const all: DownloadView = { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine, quiet, shown, turn, rate, again, at: d.finishedAt, begun };
     for (const k of Object.keys(all) as Array<keyof DownloadView>) if (all[k] === undefined) delete all[k];
     return all;
   }
@@ -360,8 +364,10 @@ export class Downloads {
   /** The list as it stands, written for the next run. Never awaited: a failure to write changes nothing here. */
   private persist(): void {
     if (!this.stateFile) return;
-    const kept: Kept[] = [...this.past, ...this.toResume, ...[...this.all.values()].map((d) => {
-      const { turn: _t, rate: _r, again: _a, at: _at, ...view } = this.view(d);
+    // the one being asked again is listed already once its start has it (resume()): kept once, not twice
+    const asked = (k: Kept) => [...this.all.values()].some((d) => running(d) && d.file === k.file && d.folder === k.folder && d.machine === k.machine);
+    const kept: Kept[] = [...this.past, ...this.toResume.filter((k) => !asked(k)), ...[...this.all.values()].map((d) => {
+      const { turn: _t, rate: _r, again: _a, at: _at, begun: _b, ...view } = this.view(d);
       return {
         ...view, order: d.order,
         ...(d.ask !== undefined ? { ask: d.ask, from: d.from } : {}),
@@ -543,7 +549,12 @@ export class Downloads {
     return (await this.manager(comfy)).found ? "manager" : "none";
   }
 
-  private routeSeen: { key: string; at: number; value: Via | "none" } | null = null;
+  /**
+   * route()'s answers, by ComfyUI (and the folder the Settings give it): one per machine, so that two machines asked in
+   * turn (the list is read up to twice a second during a download) do not each push the other's out and have their
+   * folders, the pack and Manager asked again each time, a pod's over the internet.
+   */
+  private readonly routeSeen = new Map<string, { at: number; value: Via | "none" }>();
 
   /**
    * Who downloads into this ComfyUI, in general (one folder Afflatus cannot write may still go another way):
@@ -551,14 +562,16 @@ export class Downloads {
    */
   async route(comfy: Comfy, comfyDir: string): Promise<Via | "none"> {
     const key = `${comfy.client.baseUrl}|${comfyDir}`;
-    const seen = this.routeSeen;
-    if (seen && seen.key === key && Date.now() - seen.at < 30_000) return seen.value;
+    const seen = this.routeSeen.get(key);
+    if (seen && Date.now() - seen.at < 30_000) return seen.value;
     const paths = await comfyFolderPaths(comfy.client);
     let value: Via | "none" = "none";
     for (const folder of ["checkpoints", "loras", "diffusion_models"]) if (value === "none" && (await modelRoot(paths, folder, comfy.client.baseUrl, comfyDir))) value = "afflatus";
     if (value === "none" && (await this.packCan(comfy))) value = "pack";
     if (value === "none" && (await this.manager(comfy)).found) value = "manager";
-    this.routeSeen = { key, at: Date.now(), value };
+    this.routeSeen.set(key, { at: Date.now(), value });
+    // kept small, as managerSeen: a machine's address that changed leaves its old answer behind
+    if (this.routeSeen.size > 32) this.routeSeen.delete(this.routeSeen.keys().next().value!);
     return value;
   }
 
@@ -575,6 +588,22 @@ export class Downloads {
     /** What it was asked with through the page (fetchFile.ts), kept to ask it again: a restart while it waits, a Try again. */
     ask?: unknown;
   }): Promise<DownloadView> {
+    // the same file to the same ComfyUI once at a time, from the first word: the look at the list in startNow() comes before
+    // several awaits (ComfyUI's folders, the pack's version, the disk), and two starts at once (a double click, two tabs,
+    // the command bar's several at once, a resume beside a click) both passed it and wrote the one .part together. The
+    // second is given the first's answer instead.
+    const key = `${comfy.client.baseUrl}|${want.folder}|${want.file}`;
+    const under = this.starting.get(key);
+    if (under) return under;
+    const begun = this.startNow(comfy, self, want).finally(() => this.starting.delete(key));
+    this.starting.set(key, begun);
+    return begun;
+  }
+
+  /** The starts under way, by ComfyUI, folder and file (start()). */
+  private readonly starting = new Map<string, Promise<DownloadView>>();
+
+  private async startNow(comfy: Comfy, self: string, want: Parameters<Downloads["start"]>[2]): Promise<DownloadView> {
     const name = want.file.split(/[\\/]/).pop() ?? "";
     const sub = want.file.split(/[\\/]/).slice(0, -1).filter(Boolean).join("/");
     if (!isModelFile(name) || want.file.split(/[\\/]/).some((p) => BAD_NAME.test(p))) throw httpError(`"${name}" is not a model file Afflatus can download.`);
@@ -783,14 +812,17 @@ export class Downloads {
    */
   async resume(again: (ask: unknown, from: string) => Promise<unknown>): Promise<void> {
     await this.restored;
-    const waiting = this.toResume;
-    this.toResume = [];
-    for (const k of waiting) {
+    // each taken off only once it was asked again: the state file keeps those not asked yet (persist()), so that a second
+    // restart while the first ones are asked (each a call to ComfyUI) does not lose the rest of the line
+    while (this.toResume.length) {
+      const k = this.toResume[0]!;
       try {
         await again(k.ask, k.from!);
       } catch (err) {
         const { part: _p, queued: _q, order: _o, ...rest } = k;
         this.past.push({ ...rest, status: "error", error: `Not asked again after the restart: ${(err as Error).message}`, finishedAt: Date.now() });
+      } finally {
+        this.toResume.shift();
       }
     }
     this.tell(true);
@@ -822,7 +854,15 @@ export class Downloads {
           this.tell(true);
         },
       });
-      if (d.abort.signal.aborted) return;
+      // a stop that came once the file was whole and named (fetchToFile had put it in its place) stopped nothing: the file is
+      // there, and saying "stopped, nothing is kept" left a file the list said was not. It is said done when ComfyUI lists it
+      if (d.abort.signal.aborted) {
+        d.status = "saving";
+        delete d.finishedAt;
+        this.tell(true);
+        void this.untilListed(d);
+        return;
+      }
       // whole, and named: ComfyUI lists it once it looks at the folder again
       d.status = "saving";
       this.tell(true);

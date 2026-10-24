@@ -1,6 +1,6 @@
 // The bundle's own start, one per version: R/versions/<v>/app/launch.mjs, run by R/Afflatus.bat or R/afflatus.sh
-// with that version's node. It sets the environment of a bundle (AFFLATUS_INSTALL, AFFLATUS_ROOT, DATA_DIR, the
-// ffmpeg beside it), runs the server, and answers for it to the launcher through its exit code: 75 starts
+// with that version's node. It sets the environment of a bundle (AFFLATUS_INSTALL, AFFLATUS_ROOT, DATA_DIR, its
+// bin/ with ffmpeg first on the PATH), runs the server, and answers for it to the launcher through its exit code: 75 starts
 // R/versions/current again (after an update, Go back, or a fall back); anything else stops.
 //
 // The launchers are kept minimal and never change once unpacked (a running .bat is read from disk as it goes, so
@@ -168,10 +168,9 @@ async function main() {
   // the release the app was staged as (v0.4.0), which the web page was built with too; the folder name otherwise
   env.AFFLATUS_VERSION = readLine(join(app, "VERSION")) ?? version;
   if (!env.DATA_DIR) env.DATA_DIR = join(root, "data");
-  for (const tool of ["ffmpeg", "ffprobe"]) {
-    const exe = join(bin, win ? `${tool}.exe` : tool);
-    if (existsSync(exe) && !env[tool.toUpperCase()]) env[tool.toUpperCase()] = exe;
-  }
+  // the bundle's ffmpeg is found first on the PATH, not set in FFMPEG and FFPROBE: those are the person's own, never swapped
+  // for another (apps/server/src/ffmpegCheck.ts), and set here they kept a bundle's ffmpeg that fails the start-up check from
+  // being passed over for one that works, or Get ffmpeg from being offered. A person's own FFMPEG is passed on untouched
   const pathKey = Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
   env[pathKey] = `${bin}${win ? ";" : ":"}${env[pathKey] ?? ""}`;
   const port = Number(env.PORT) || 8720;

@@ -5,7 +5,7 @@ import { civitaiVersionsByHash } from "./civitai";
 import { now } from "./db";
 import { findOnHuggingFace, huggingFaceSha256 } from "./huggingface";
 import { fileName } from "./media";
-import { MODEL_EXT } from "@afflatus/core";
+import { MODEL_EXT, FULL_MODEL_FOLDERS } from "@afflatus/core";
 import { modelDirsSaid } from "./modelFiles";
 import type { Services } from "./services";
 import { ownMachines, readSettings } from "./settings";
@@ -20,7 +20,7 @@ import { ownMachines, readSettings } from "./settings";
  */
 
 /** The folders whose files are hashed: the model folders a pod is sent files of. */
-export const HASHED_FOLDERS = ["checkpoints", "diffusion_models", "loras", "vae", "text_encoders", "clip_vision", "upscale_models", "latent_upscale_models", "controlnet", "model_patches", "audio_encoders"];
+export const HASHED_FOLDERS = FULL_MODEL_FOLDERS;
 /** A file matched to nothing is asked about again after this long (a site may have it since). */
 const ASK_AGAIN_MS = 7 * 24 * 60 * 60_000;
 /** While a render runs here, how often the hashing looks whether it may go on. */

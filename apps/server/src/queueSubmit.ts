@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, onGrid, packOfNode, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
+import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, onGrid, packOfNode, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
 import { catalogKey, ComfyCancelled, ComfyError, ComfyUnreachable } from "@afflatus/comfy";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
@@ -685,11 +685,13 @@ async function uploadSound({ db, storage, upload, input, signal, sent }: Up, spe
   const after = spec.window.after ?? 0;
   const goesOn = Boolean(spec.window.goesOn && input[spec.window.goesOn]);
   // sung up to the part by the clip before (its `leadIn`): the seconds before the part handed over too, for the clip's head
-  const pre = spec.window.leadIn && input[spec.window.leadIn] ? Math.max(0, Math.min(LEAD_IN_S, asked.start)) : 0;
+  const pre = spec.window.leadIn && input[spec.window.leadIn] ? leadInBefore(asked.start) : 0;
   // a sound to follow (a recording cut into clips) is evened out by one gain for all of it, the same in every clip; a voice
   // sample by its own part's (one part, one clip: nothing to keep even with)
   const evenWhole = spec.role === "sound";
-  const part = await soundPart(whole, extOf(asset.mime), { start: asked.start - pre, seconds: asked.seconds + pre, durationMs: asset.duration_ms, even, evenWhole, after, goesOn }).catch((err) => {
+  // its loudness not measured (a failed or timed-out ffmpeg run): said, for that clip then sounds at another level than the rest
+  const unmeasured = () => sent.warnings.push(`The loudness of the ${spec.label.toLowerCase()} could not be measured: its part was not evened out${evenWhole ? ", and may sound louder or quieter than the other clips of it" : ""}.`);
+  const part = await soundPart(whole, extOf(asset.mime), { start: asked.start - pre, seconds: asked.seconds + pre, durationMs: asset.duration_ms, even, evenWhole, after, goesOn, evenKey: `${value}:${asset.file_key}`, unmeasured }).catch((err) => {
     sent.warnings.push(`The part of the ${spec.label.toLowerCase()} could not be cut (${(err as Error).message}): the whole sound was used.`);
     return null;
   });
@@ -698,9 +700,6 @@ async function uploadSound({ db, storage, upload, input, signal, sent }: Up, spe
   const seconds = part ? partOf(asked.start, asked.seconds, asset.duration_ms ? asset.duration_ms / 1000 : null).seconds : asset.duration_ms ? asset.duration_ms / 1000 : undefined;
   if (seconds) sent.media[spec.id] = { width: 0, height: 0, seconds, ...(part && after ? { after } : {}), ...(part && pre ? { before: pre } : {}) };
 }
-
-/** Seconds of a sound handed over before its part, at most, for a clip's head (the window's `leadIn`): more than its 917 ms run-up. */
-const LEAD_IN_S = 2;
 
 /** A part painted on one picture cannot be put on another one. */
 function checkMasks(recipe: Recipe<any>, media: Record<string, MediaFacts>): void {
