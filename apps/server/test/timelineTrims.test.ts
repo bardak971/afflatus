@@ -615,6 +615,37 @@ describe("a clip removed from a recording cuts its part out (card #75)", () => {
     expect((await joins(tl))[4]).toEqual([ids[4], "continue"]);
   });
 
+  it("keeps a part removed when the clip after it was rendered since: the Out in past it and out again brings that clip back as the cut it was rendered as", async () => {
+    const { tl, sound, made, ids } = await song();
+    await call("DELETE", `/api/clips/${ids[2]}`);
+    const take = await takeFor(ids[3]!);
+    await call("POST", `/api/timelines/${tl}/recording/trim`, { asset: sound, fromMs: 0, toMs: Math.round((made.clips[1]!.s + made.clips[1]!.n) * 1000) });
+    expect((await recordingState(tl)).clips.map((c) => c.id)).toEqual(ids.slice(0, 2));
+    expect((await removedState(tl)).map((p) => [p.before, p.ids])).toEqual([[ids[3], [ids[2]]]]);
+    await call("POST", `/api/timelines/${tl}/recording/trim`, { asset: sound, fromMs: 0, toMs: 30000 });
+    expect((await joins(tl)).map(([id]) => id)).toEqual(ids.filter((id) => id !== ids[2]));
+    expect((await joins(tl))[2]).toEqual([ids[3], "cut"]);
+    expect((await recordingState(tl)).clips[2]).toMatchObject({ id: ids[3], take });
+    expect((await view(tl)).recordings[0].removed.map((p: { before: string }) => p.before)).toEqual([ids[3]]);
+  });
+
+  it("cuts the part out when In / Out's Remove range takes a clip whole: set aside with its takes, the clip after it a cut", async () => {
+    const { tl, ids } = await song();
+    const takes = [];
+    for (const id of ids) takes.push(await takeFor(id));
+    const laid = (await view(tl)).clips as Array<{ id: string; atMs: number; lengthMs: number }>;
+    const third = laid.find((c) => c.id === ids[2])!;
+    expect(third.lengthMs).toBeGreaterThan(0);
+    await call("POST", `/api/timelines/${tl}/range`, { inMs: third.atMs, outMs: third.atMs + third.lengthMs, action: "remove" });
+    expect((await joins(tl)).map(([id]) => id)).toEqual(ids.filter((id) => id !== ids[2]));
+    expect(await removedState(tl)).toEqual([{ before: ids[3], joined: "continue", moved: false, ids: [ids[2]], takes: [takes[2]] }]);
+    expect((await joins(tl))[2]).toEqual([ids[3], "cut"]);
+    // the last clip taken by the range: set aside as the Out brought in before it, for the Out moved out to bring back
+    const last = (await view(tl)).clips.at(-1) as { id: string; atMs: number; lengthMs: number };
+    await call("POST", `/api/timelines/${tl}/range`, { inMs: last.atMs, outMs: last.atMs + last.lengthMs, action: "remove" });
+    expect((await recordingState(tl)).parked.map((p) => p.id)).toEqual([ids.at(-1)]);
+  });
+
   it("refuses a clip set aside while it renders, as the trims do, and turns the song's hand-over off at the cut", async () => {
     const { ids } = await song();
     await queued(ids[2]!, "h3.lipsync");
@@ -664,6 +695,47 @@ describe("a window removed from a source cuts its part out (card #75)", () => {
     await call("POST", `/api/timelines/${tl}/removed/back`, { before: ids[2] });
     expect(await sourceState(tl)).toEqual(before);
     expect(await joins(tl)).toEqual(beforeJoins);
+  });
+
+  it("keeps the window after a part its form as a cut when it was rendered since: an Out in past it and out again does not revert it", async () => {
+    const tl = await madeSwap();
+    const before = await sourceState(tl);
+    const ids = before.clips.map((c) => c.id);
+    await call("DELETE", `/api/clips/${ids[1]}`);
+    const cut = await sourceState(tl);
+    const asCut = cut.clips[1]!;
+    expect(asCut.id).toBe(ids[2]);
+    // rendered as a cut, from its moved start
+    const take = await takeFor(ids[2]!);
+    await call("POST", `/api/timelines/${tl}/source/trim`, { fromMs: 0, toMs: Math.round((cut.clips[0]!.s + cut.clips[0]!.n) * 1000) });
+    expect((await sourceState(tl)).clips.map((c) => c.id)).toEqual([ids[0]]);
+    // the part stays removed, kept with it while it is set aside
+    expect((await removedState(tl)).map((p) => [p.before, p.ids])).toEqual([[ids[2], [ids[1]]]]);
+    await call("POST", `/api/timelines/${tl}/source/trim`, { fromMs: 0, toMs: before.toMs });
+    const back = await sourceState(tl);
+    expect(back.clips.map((c) => c.id)).toEqual(ids.filter((id) => id !== ids[1]));
+    // its take made as a cut plays as one: its join and its start as they were when it was rendered
+    expect(back.clips[1]).toMatchObject({ id: ids[2], s: asCut.s, n: asCut.n, take });
+    expect((await joins(tl))[1]).toEqual([ids[2], "cut"]);
+    // the part marked again, and brought back on its own: the window after it still a cut
+    expect((await view(tl)).source.removed.map((p: { before: string }) => p.before)).toEqual([ids[2]]);
+    await call("POST", `/api/timelines/${tl}/removed/back`, { before: ids[2] });
+    expect((await sourceState(tl)).clips.map((c) => c.id)).toEqual(ids);
+    expect((await joins(tl))[2]).toEqual([ids[2], "cut"]);
+  });
+
+  it("gives the window after a part its join and form back when it was not rendered since", async () => {
+    const tl = await madeSwap();
+    const before = await sourceState(tl);
+    const ids = before.clips.map((c) => c.id);
+    await call("DELETE", `/api/clips/${ids[1]}`);
+    const cut = await sourceState(tl);
+    await call("POST", `/api/timelines/${tl}/source/trim`, { fromMs: 0, toMs: Math.round((cut.clips[0]!.s + cut.clips[0]!.n) * 1000) });
+    await call("POST", `/api/timelines/${tl}/source/trim`, { fromMs: 0, toMs: before.toMs });
+    const back = await sourceState(tl);
+    expect(back.clips.map((c) => c.id)).toEqual(ids);
+    expect(back.clips[2]).toMatchObject({ id: ids[2], s: before.clips[2]!.s });
+    expect((await joins(tl))[2]).toEqual([ids[2], "continue"]);
   });
 
   it("removes the first window as the In moved past it (the source keeps its place, the click on its first frame goes) and sets the last aside", async () => {

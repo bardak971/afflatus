@@ -178,7 +178,7 @@ export function useTimelineEditor(id: string) {
   const durationMs = t?.durationMs ?? 0;
   const { range, setRange, rangeRef, loopRange, loopRef, snapQuiet, toggleSnapQuiet, playingRange, emptyRange, totalRef, toggle, toggleLoop, toggleLoopNow, rangeAct, rangeItems } = useRange({
     id, clips, durationMs, clock, player, playing, setPlaying,
-    on: { after, select, note: setNote, say, writeBetween: (v) => writeBetween.mutate(v) },
+    on: { after, select, note: setNote, say, writeBetween: (v) => writeBetween.mutate(v), askRemoval: m.askRemoval },
   });
   // the right-click menus (a clip's, its sound's, a pinned frame's, the music's, the range's) and what a clip's says at its head
   const { clipMenu, soundMenu, pinMenu, musicMenu, rangeMenu, onClip, clipHead } = useEditorMenus(clips, player);

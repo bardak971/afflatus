@@ -18,7 +18,7 @@ import { firstFrame } from "./video";
 /** A file brought into the library from the user's computer. */
 
 /** What an upload's address may say. A name given twice comes as a list, which is refused here rather than used as a name. */
-/** `same=use`: a file the library already holds (sameContent.ts) is answered with that item, `found: true`, and not added again. */
+/** `same=use`: a file the library already holds kept in the folder it goes to (sameContent.ts) is answered with that item, `found: true`, and not added again. */
 const uploadQuery = z.object({ name: z.string().optional(), as: z.string().optional(), folder: z.string().optional(), project: z.string().optional(), same: z.literal("use").optional() });
 
 export function registerAssetUpload(app: FastifyInstance, s: Services, { asset }: AssetLookup): void {
@@ -48,20 +48,20 @@ export function registerAssetUpload(app: FastifyInstance, s: Services, { asset }
     const kit = req.query.as === "kit";
     if (kit && !picture && media?.kind !== "audio") throw httpError("a file of the Prompt kit has to be a picture or a sound");
     if (mask && !picture) throw httpError("the mask has to be an image");
-    // what it holds, kept on the item: a picture's always (it is read whole already), a video's or a sound's when it is
-    // asked to be found (it is read once more for it). Found in the library: that item as it is, and nothing added
-    const reuse = req.query.same === "use" && !mask && !kit;
-    const digest = bytes ? await pictureDigest(bytes) : reuse ? await fileDigest(createReadStream(up.path)) : null;
-    if (reuse && digest) {
-      const same = await findSame(s.db, s.storage, { kind: picture ? "image" : media!.kind, digest, width: picture?.width, height: picture?.height, bytes: up.bytes });
-      if (same) return { ...assetView(await asset(same)), found: true };
-    }
     const id = newId();
     const mime = picture?.mime ?? media!.mime;
     // into the folder named (a whole folder brought in from the computer: the folder made for each file; a drop: the folder open), else the project's root
     const named = req.query.folder && !mask && !kit ? (await s.db.selectFrom("folders").selectAll().where("id", "=", req.query.folder).executeTakeFirst()) ?? null : null;
     const rootId = !named && !mask && !kit && req.query.project ? await rootFolderOf(s.db, req.query.project) : null;
     const into = named ?? (rootId ? (await s.db.selectFrom("folders").selectAll().where("id", "=", rootId).executeTakeFirst()) ?? null : null);
+    // what it holds, worked out only when it is asked to be found (a picture is decoded whole for it) and kept on the item.
+    // Found kept in the folder it goes to: that item as it is, and nothing added
+    const reuse = req.query.same === "use" && !mask && !kit;
+    const digest = !reuse ? null : bytes ? await pictureDigest(bytes) : await fileDigest(createReadStream(up.path));
+    if (reuse && digest) {
+      const same = await findSame(s.db, s.storage, { kind: picture ? "image" : media!.kind, digest, bytes: up.bytes, folder: into?.id ?? null });
+      if (same) return { ...assetView(await asset(same)), found: true };
+    }
     // into a linked folder: written into its directory first (a folder gone, read-only or full refuses it, and nothing is
     // imported), and registered as a reading of that directory would register it; else into Afflatus's own storage
     const onDisk = into?.path ? await s.linked.importFile(into, up.path, String(req.query.name ?? ""), mime) : null;

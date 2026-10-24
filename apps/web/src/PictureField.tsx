@@ -22,7 +22,7 @@ import { firstPart, SoundRange, useSoundMarks } from "./SoundRange";
 import { VideoRange } from "./VideoRange";
 import { VideoPlayer } from "./VideoPlayer";
 import { queryKeys } from "./queryKeys";
-import { sortPasted, usePasteTarget } from "./paste";
+import { sortPasted, STILL_ADDING, usePasteTarget } from "./paste";
 
 /**
  * Send files from this computer to the library, one after another, then hand them over: to the `onDone` of the moment
@@ -107,11 +107,16 @@ export function Picker({ title, kind = "image", kit, room = 1, onPick, onPicks, 
     level: "picker",
     el: () => head.current?.closest<HTMLElement>("[role=dialog]") ?? null,
     take: (files) => {
+      // one paste at a time: a second one while the first is still going in is said, not dropped without a word
+      if (upload.isPending) return void setWrong(STILL_ADDING);
       const { taken, said } = sortPasted(files, kind, title, room);
       setWrong(said);
-      if (taken.length && !upload.isPending) upload.mutate(taken, true);
+      if (taken.length) upload.mutate(taken, true);
     },
   });
+  useEffect(() => {
+    if (!upload.isPending) setWrong((w) => (w === STILL_ADDING ? null : w));
+  }, [upload.isPending]);
 
   return (
     <Dialog label={title} onClose={onClose} z="z-50" className="flex max-h-full w-full max-w-4xl flex-col rounded-dialog border border-line-strong bg-panel shadow-modal motion-safe:animate-peek-rise">
@@ -269,11 +274,16 @@ function Slot({ label, note, aside, kind, drags, kit, room = 1, onAsset, onAsset
     level: "slot",
     el: () => root.current,
     take: (files) => {
+      // one paste at a time: a second one while the first is still going in is said, not dropped without a word
+      if (upload.isPending) return void setWrong(STILL_ADDING);
       const { taken, said } = sortPasted(files, kind, label, room);
       setWrong(said);
-      if (taken.length && !upload.isPending) upload.mutate(taken, true);
+      if (taken.length) upload.mutate(taken, true);
     },
   });
+  useEffect(() => {
+    if (!upload.isPending) setWrong((w) => (w === STILL_ADDING ? null : w));
+  }, [upload.isPending]);
   const failed = wrong ?? upload.error?.message;
   return (
     <div ref={root} className="flex flex-col gap-1.5">

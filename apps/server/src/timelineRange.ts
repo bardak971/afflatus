@@ -309,7 +309,8 @@ export class TimelineRange {
 
   /**
    * What plays between In and Out goes: the clips inside, and the parts of the clips at the edges (a
-   * clip with less than a tenth of a second left goes too). The clips after close the gap.
+   * clip with less than a tenth of a second left goes too). The clips after close the gap. A clip of a recording or the
+   * source among those that go cuts its part out of it (Timelines.cutRuns).
    */
   private async cutOut(timelineId: string, a: number, b: number, db: Db): Promise<void> {
     const EDGE = 100;
@@ -336,7 +337,12 @@ export class TimelineRange {
         else await this.startAt(l.p, b - start, db);
       }
     }
-    if (gone.length) await db.deleteFrom("clips").where("id", "in", gone).execute();
+    // a clip of a recording or the source cuts its part out of it, as a clip removed does: the first ones move the In, the
+    // others are set aside with their takes (a part to bring back, or the Out brought in), never deleted unsaid
+    if (gone.length) {
+      await this.core.cutRuns(timelineId, gone, db);
+      await db.deleteFrom("clips").where("id", "in", gone).execute();
+    }
     await this.core.renumber(timelineId, (await this.core.placed(timelineId, db)).map((p) => p.clip.id), db);
   }
 

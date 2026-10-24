@@ -164,7 +164,13 @@ export function MediaOverlay({ timeline, placeItems }: {
   const projectId = useProject((s) => s.id);
   const projects = useProjects();
   const projectName = projectId === "none" ? "Inbox" : projects.data?.items.find((p) => p.id === projectId)?.name ?? "your project";
-  usePasteIntoLibrary(open, pasteFolder, folderList?.find((f) => f.id === pasteFolder)?.name ?? (pasteFolder ? "the folder" : projectName));
+  // the banner's Open: the strip again, on that folder and the item large when it was one, never the Studio behind the editor
+  usePasteIntoLibrary(open, pasteFolder, folderList?.find((f) => f.id === pasteFolder)?.name ?? (pasteFolder ? "the folder" : projectName), (pasted) => {
+    setStudio({ place: pasteFolder ? { type: "folder", id: pasteFolder } : { type: "all" } });
+    setScope("folder");
+    setOpen(true);
+    if (pasted.length === 1) setViewing(pasted[0]!);
+  });
   const narrowed = kind !== "all" || kept || Boolean(q);
   const count = !fetched || (assets.data && !assets.hasNextPage)
     ? items.length

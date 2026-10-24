@@ -4,6 +4,8 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import type { ReferenceValue } from "@afflatus/core";
 import { PictureField, ReferencesField } from "../../src/PictureField";
 import { PasteHere, usePasteIntoLibrary } from "../../src/PasteHere";
+import { Dialog } from "../../src/Dialog";
+import { useSlotPaste } from "../../src/paste";
 import { useBanners } from "../../src/store";
 import { useTrackPaste } from "../../src/timeline/track/useTrackPaste";
 import { fakeApi } from "./fakeApi";
@@ -157,7 +159,87 @@ describe("Ctrl+V with pictures, videos or sounds on the clipboard", () => {
     draw(<PasteHere />, { at: "/queue" });
     document.body.focus();
     paste([png()]);
-    await waitFor(() => expect(banner(/^Already in your library$/)).toBeTruthy());
+    await waitFor(() => expect(banner(/^Already in Inbox$/)).toBeTruthy());
+  });
+
+  it("a modal on top that is no picker takes no paste: neither the library behind it nor the project's", async () => {
+    const sent = uploads();
+    function Library() {
+      usePasteIntoLibrary(true, "zz-folder", "zz-test Shoots");
+      return null;
+    }
+    draw(<><PasteHere /><Library /><Picture /><Dialog label="zz-test question" onClose={() => {}}><button type="button">OK</button></Dialog></>);
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "zz-test question" }).contains(document.activeElement)).toBe(true));
+    paste([png()]);
+    // the slot under the modal, focused by a script, does not take it either
+    screen.getByRole("button", { name: /Choose an image, or drop one here/ }).focus();
+    paste([png()]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(sent()).toHaveLength(0);
+  });
+
+  it("a picker under another modal is not asked: the one on top is", async () => {
+    const sent = uploads();
+    const { user } = draw(<><PasteHere /><Picture /></>);
+    await user.click(screen.getByRole("button", { name: /Choose an image, or drop one here/ }));
+    await screen.findByRole("dialog", { name: "Start image" });
+    // a question asked over the picker (drawn after it, holding the focus)
+    const { unmount } = draw(<Dialog label="zz-test question" onClose={() => {}} z="z-60"><button type="button">OK</button></Dialog>);
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "zz-test question" }).contains(document.activeElement)).toBe(true));
+    paste([png()]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(sent()).toHaveLength(0);
+    unmount();
+  });
+
+  it("a paste while the last one is still going in is said, not dropped without a word, and the word goes once it is in", async () => {
+    let finish = () => {};
+    fakeApi.on("POST /assets", ({ body }) => new Promise((r) => { finish = () => r({ id: "zz-up-1", kind: "image", name: (body as File).name }); }));
+    draw(<><PasteHere /><Picture /></>);
+    screen.getByRole("button", { name: /Choose an image, or drop one here/ }).focus();
+    paste([png()]);
+    await waitFor(() => expect(fakeApi.calls("POST", "/assets?")).toHaveLength(1));
+    act(() => void paste([png("zz-second.png")]));
+    expect(screen.getByRole("alert").textContent).toBe("Still adding the last one: paste again in a moment.");
+    expect(fakeApi.calls("POST", "/assets?")).toHaveLength(1);
+    act(() => finish());
+    await waitFor(() => expect(valueShown()).toBe("zz-up-1"));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
+  it("a slot of its own make (the Prompt kit's): takes what it has room for and says the rest, one paste at a time", async () => {
+    const took: string[][] = [];
+    function Row({ busy }: { busy: boolean }) {
+      const el = useRef<HTMLDivElement>(null);
+      const said = useSlotPaste(true, { el: () => el.current, kind: "image", label: "zz-test Pictures", room: 2, busy, take: (files) => took.push(files.map((f) => f.name)) });
+      return <div ref={el}><button type="button">Add</button>{said && <span role="alert">{said}</span>}</div>;
+    }
+    const { rerender } = draw(<><PasteHere /><Row busy={false} /></>);
+    screen.getByRole("button", { name: "Add" }).focus();
+    act(() => void paste([png("zz-a.png"), wav(), png("zz-b.png"), png("zz-c.png")]));
+    expect(took).toEqual([["zz-a.png", "zz-b.png"]]);
+    expect(screen.getByRole("alert").textContent).toBe("zz-test Pictures takes images: zz-test.wav is an audio file. zz-test Pictures had room for 2: the first 2 of 3 were added.");
+    rerender(<><PasteHere /><Row busy /></>);
+    act(() => void paste([png()]));
+    expect(took).toHaveLength(1);
+    expect(screen.getByRole("alert").textContent).toBe("Still adding the last one: paste again in a moment.");
+  });
+
+  it("the library's banner Open does what the place says (the Media strip opens itself), and leaves the page as it is", async () => {
+    uploads();
+    const opened: string[] = [];
+    function Strip() {
+      usePasteIntoLibrary(true, null, "zz-test Shelf", (items) => opened.push(...items.map((a) => a.id)));
+      return null;
+    }
+    const { location } = draw(<><PasteHere /><Strip /></>, { at: "/timelines/zz-test" });
+    document.body.focus();
+    paste([png()]);
+    await waitFor(() => expect(banner(/^Pasted into zz-test Shelf$/)).toBeTruthy());
+    const before = location.history.length;
+    act(() => banner(/^Pasted into zz-test Shelf$/)!.act!());
+    expect(opened).toEqual(["zz-up-1"]);
+    expect(location.history).toHaveLength(before);
   });
 
   it("a timeline's drop cell with the focus: as a drop there, the kind it takes or refused", async () => {

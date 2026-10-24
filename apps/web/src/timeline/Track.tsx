@@ -265,7 +265,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   };
 
   return (
-    <div ref={floor} data-designer-floor data-track className="flex shrink-0 flex-col border-t border-line bg-panel select-none">
+    // focusable from a script only (tabIndex -1): Escape hands the focus back to it from a clip or a join (leaveTrackFocus)
+    <div ref={floor} data-designer-floor data-track tabIndex={-1} className="flex shrink-0 flex-col border-t border-line bg-panel select-none">
       <div className="flex">
         <div className="relative w-[64px] shrink-0 border-r border-line text-meta font-semibold text-ink-2" style={{ height: HEIGHT }}>
           {/* each lane's name on the middle of its row */}

@@ -8,6 +8,7 @@ import type { Banner } from "../store";
 import type { Clock } from "./clock";
 import type { PlayerHandle } from "./Player";
 import type { TimeRange } from "./model";
+import { rangeRemoves } from "./removalWords";
 
 /**
  * The range: In and Out on the clock of what plays, what is done with it, and the transport that knows
@@ -32,6 +33,8 @@ export function useRange({ id, clips, durationMs, clock, player, playing, setPla
     say(b: Banner): void;
     /** The designer writing a clip put between two others. */
     writeBetween(v: { clip: string; force: boolean; arrive?: string }): void;
+    /** What removing these clips does to a recording or the source, asked first (removalAsk): false, nothing is done. */
+    askRemoval(ids: string[], range: true): Promise<boolean>;
   };
 }) {
   // ---- the range: In and Out on the clock of what plays; what is done with it
@@ -146,6 +149,11 @@ export function useRange({ id, clips, durationMs, clock, player, playing, setPla
       else if (action === "copy") on.say({ id: `copy:${Date.now()}`, tone: "good", title: "Copying the range to your library", text: "One video of that part of the timeline, without the music. It runs in the queue.", href: "/queue", go: "Open queue" });
     },
   });
+  // a clip of a recording or the source it takes off whole cuts its part out of it, as a clip removed does: said first
+  const removeRange = async () => {
+    if (!range || !(await on.askRemoval(rangeRemoves(clips, range.inMs, range.outMs), true))) return;
+    rangeAct.mutate("remove");
+  };
   /** What can be done with the range: the bar under the video and the right-click on the band show the same list. */
   const rangeItems = (): MenuItem[] => {
     if (!range) return [];
@@ -172,7 +180,7 @@ export function useRange({ id, clips, durationMs, clock, player, playing, setPla
         { label: "Slow motion ×4", icon: <Gauge size={14} />, disabled: Boolean(slowWhy), note: slowWhy ?? "a quarter speed", run: () => rangeAct.mutate({ slow: 4 }) },
       ],
       [{ label: "Clear the range", key: "Esc", icon: <X size={14} />, run: () => setRange(null) }],
-      [{ label: "Remove range", icon: <Scissors size={14} />, danger: true, disabled: emptyRange || busy, note: why ?? "the clips after close the gap; Undo brings it back", run: () => rangeAct.mutate("remove") }],
+      [{ label: "Remove range", icon: <Scissors size={14} />, danger: true, disabled: emptyRange || busy, note: why ?? "the clips after close the gap; Undo brings it back", run: () => void removeRange() }],
     );
   };
   return { range, setRange, rangeRef, loopRange, loopRef, snapQuiet, toggleSnapQuiet, playingRange, emptyRange, totalRef, toggle, toggleLoop, toggleLoopNow, playRange, rangeAct, rangeItems };

@@ -85,8 +85,17 @@ describe("the words said before a clip of a recording is removed (removalAsk)", 
   });
 
   it("says the first clip moves In past it, the last moves Out before it", () => {
-    expect(ask(["zz-test-a"])!.text).toBe("Clip 2 is the first of “zz-test talk.wav”: In moves to 0:04.7, past its 4.7 s.\nUndo brings it all back.");
+    const unrendered = { ...timeline, clips: timeline.clips.map((c) => ({ ...c, take: null, takes: [] })) } as unknown as Timeline;
+    expect(ask(["zz-test-a"], unrendered)!.text).toBe("Clip 2 is the first of “zz-test talk.wav”: In moves to 0:04.7, past its 4.7 s.\nUndo brings it all back.");
     expect(ask(["zz-test-c"])!.text).toBe("Clip 4 is the last of “zz-test talk.wav”: Out moves to 0:10.2, before its 4.8 s. Set aside with its takes, it comes back when Out is moved out again.\nUndo brings it all back.");
+  });
+
+  it("adds, of the first clips, that the clip first now has a take made carrying on from them", () => {
+    expect(ask(["zz-test-a"])!.text).toBe("Clip 2 is the first of “zz-test talk.wav”: In moves to 0:04.7, past its 4.7 s.\nClip 3's take was made carrying on from clip 2: its start no longer matches. Render clip 3 again for a clean start after the cut.\nUndo brings it all back.");
+  });
+
+  it("is a range's question when In / Out's Remove range asks it", () => {
+    expect(removalAsk(timeline, recipes, ["zz-test-b"], { range: true })).toMatchObject({ title: "Remove the range?", yes: "Remove range" });
   });
 
   it("lists every clip picked in one question, and asks nothing for a clip of no recording, nor for all of one", () => {
@@ -95,6 +104,7 @@ describe("the words said before a clip of a recording is removed (removalAsk)", 
     expect(both.yes).toBe("Remove 3 clips");
     expect(both.text.split("\n")).toEqual([
       "Clip 2 is the first of “zz-test talk.wav”: In moves to 0:04.7, past its 4.7 s.",
+      "Clip 3's take was made carrying on from clip 2: its start no longer matches. Render clip 3 again for a clean start after the cut.",
       "Clip 4 is the last of “zz-test talk.wav”: Out moves to 0:10.2, before its 4.8 s. Set aside with its takes, it comes back when Out is moved out again.",
       "Undo brings it all back.",
     ]);

@@ -10,7 +10,7 @@ import { madeFromSource, windowed } from "./track/SourceLane";
  * In moved past them, the last ones as the Out brought in before them, a run of them in the middle set aside, the clip
  * after it a cut. Null when none of the clips is part of one (or all of one go): those are removed as before, unasked.
  */
-export function removalAsk(t: Timeline, recipes: RecipeInfo[], ids: string[]): { title: string; text: string; help: string; yes: string } | null {
+export function removalAsk(t: Timeline, recipes: RecipeInfo[], ids: string[], o: { range?: boolean } = {}): { title: string; text: string; help: string; yes: string } | null {
   const gone = new Set(ids);
   const one = ids.length === 1;
   const number = (id: string) => t.clips.findIndex((c) => c.id === id) + 1;
@@ -26,6 +26,8 @@ export function removalAsk(t: Timeline, recipes: RecipeInfo[], ids: string[]): {
     const span = (cs: Clip[]) => seconds(run.span(cs.at(-1)!).to - run.span(cs[0]!).from);
     if (lead.length) {
       lines.push(`${clipsSaid(lead, number)} ${lead.length > 1 ? "are" : "is"} the first of ${name}: In moves to ${at(run.span(kept[0]!).from)}, past ${lead.length > 1 ? "their" : "its"} ${span(lead)}.${run.kind === "source" && t.source?.pick ? " Who the swap replaces is clicked again on the new first frame." : ""}`);
+      // the clip first now opens it as the first removed did: its take, made carrying on from them, opens on their frames
+      if (kept[0]!.take && kept[0]!.joined === "continue") lines.push(carriesOn(number(kept[0]!.id), number(lead.at(-1)!.id)));
     }
     for (let k = first; k <= last; k++) {
       if (!gone.has(run.clips[k]!.id) || gone.has(run.clips[k - 1]!.id)) continue;
@@ -39,19 +41,37 @@ export function removalAsk(t: Timeline, recipes: RecipeInfo[], ids: string[]): {
       const which = one ? "" : ` (${clipsSaid(block, number).toLowerCase()})`;
       lines.push(`${several ? "Their" : "Its"} ${span(block)} of ${name} ${several ? "are" : "is"} cut out${which}: ${run.what} jumps from ${at(run.span(before).to)} to ${at(run.span(block.at(-1)!).to)}, and clip ${n} starts after a cut instead of carrying on. The part is set aside with its takes: Bring back on its mark puts it back.`);
       // its take was rendered carrying on from the clip removed: the frames it opens on were that clip's
-      if (after.take && after.joined === "continue") lines.push(`Clip ${n}'s take was made carrying on from clip ${number(block.at(-1)!.id)}: its start no longer matches. Render clip ${n} again for a clean start after the cut.`);
+      if (after.take && after.joined === "continue") lines.push(carriesOn(n, number(block.at(-1)!.id)));
       k = end;
     }
     if (tail.length) lines.push(`${clipsSaid(tail, number)} ${tail.length > 1 ? "are" : "is"} the last of ${name}: Out moves to ${at(run.span(kept.at(-1)!).to)}, before ${tail.length > 1 ? "their" : "its"} ${span(tail)}. Set aside with ${tail.length > 1 ? "their" : "its"} takes, ${tail.length > 1 ? "they come" : "it comes"} back when Out is moved out again.`);
   }
   if (!lines.length) return null;
   return {
-    title: one ? `Remove clip ${number(ids[0]!)}?` : `Remove ${plural(ids.length, "clip")}?`,
+    title: o.range ? "Remove the range?" : one ? `Remove clip ${number(ids[0]!)}?` : `Remove ${plural(ids.length, "clip")}?`,
     text: [...lines, "Undo brings it all back."].join("\n"),
     help: "A ripple delete, as in a video editor: a clip of a recording or of the source takes its part of it away, and the clips after it close the gap. Taken from the middle, the part is kept aside with its takes, marked on the band or the Source lane where it was cut (Bring back puts it back); the clip after it no longer carries on from what came before, so it starts on its own. The first or last clip moves In or Out instead, as trimming them would.",
-    yes: one ? "Remove" : `Remove ${plural(ids.length, "clip")}`,
+    yes: o.range ? "Remove range" : one ? "Remove" : `Remove ${plural(ids.length, "clip")}`,
   };
 }
+
+/**
+ * The clips In / Out's Remove range takes off whole, as the server finds them (TimelineRange.cutOut): those inside the
+ * range, those it leaves less than a tenth of a second of, and one not laid out yet (no take) standing inside it. None
+ * when the range is inside one clip: that one is split, not removed.
+ */
+export function rangeRemoves(clips: Pick<Clip, "id" | "atMs" | "lengthMs">[], a: number, b: number): string[] {
+  const EDGE = 100;
+  if (clips.some((c) => c.atMs < a && c.atMs + c.lengthMs > b)) return [];
+  return clips.filter((c) => {
+    const end = c.atMs + c.lengthMs;
+    if (c.lengthMs <= 0) return c.atMs > a && c.atMs < b;
+    return (c.atMs >= a - 1 && end <= b + 1) || (c.atMs < a && end > a && a - c.atMs < EDGE) || (c.atMs < b && end > b && end - b < EDGE);
+  }).map((c) => c.id);
+}
+
+/** Of a clip (`n`) whose take was made carrying on from a clip removed (`from`): what is left to do. */
+const carriesOn = (n: number, from: number) => `Clip ${n}'s take was made carrying on from clip ${from}: its start no longer matches. Render clip ${n} again for a clean start after the cut.`;
 
 /** A moment of a recording or source, as the warning says it. */
 const at = (ms: number) => clock(ms, { decimals: 1 });
