@@ -1326,7 +1326,10 @@ export class Timelines {
         const first = parked[0] ? part(parked[0].clip) : undefined;
         // as far as the first clip set aside starts, else (none set aside) its own length before a trim in shortened it
         const before = shortened?.clip === last.clip.id ? lastPart.start + shortened.seconds * 1000 : undefined;
-        const reach = last.clip.take_id ? undefined : first ? ((first.start - lastPart.start) / 1000 <= mostS ? first.start : undefined) : before;
+        // never across a part kept removed: the first clip set aside then starts past that part, and growing up to it would
+        // play the removed words in the empty last clip
+        const pastRemoved = parked[0] ? cuts.has(String(parked[0].clip.id)) : false;
+        const reach = last.clip.take_id || pastRemoved ? undefined : first ? ((first.start - lastPart.start) / 1000 <= mostS ? first.start : undefined) : before;
         const grow = trimOut({ start: lastPart.start, end: curTo, free: !last.clip.take_id && !busy.has(last.clip.id), reach }, parked.map((p) => ({ ...part(p.clip), fits: true, taken: p.takes.length > 0, cut: cuts.has(String(p.clip.id)) })), toMs, { fromMs: curFrom, leastMs: (w.fits?.min ?? 1) * 1000, mostMs: mostS * 1000 });
         const { back } = grow;
         const end = Math.round(grow.end);

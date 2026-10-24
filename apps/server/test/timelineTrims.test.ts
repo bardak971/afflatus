@@ -622,7 +622,11 @@ describe("a clip removed from a recording cuts its part out (card #75)", () => {
     await call("POST", `/api/timelines/${tl}/recording/trim`, { asset: sound, fromMs: 0, toMs: Math.round((made.clips[1]!.s + made.clips[1]!.n) * 1000) });
     expect((await recordingState(tl)).clips.map((c) => c.id)).toEqual(ids.slice(0, 2));
     expect((await removedState(tl)).map((p) => [p.before, p.ids])).toEqual([[ids[3], [ids[2]]]]);
+    // the empty clip before the removed part keeps its length: grown up to the clip after it, it would play the removed words
+    const lengthOf = async (id: string) => (await recordingState(tl)).clips.find((c) => c.id === id)!.n;
+    const before = await lengthOf(ids[1]!);
     await call("POST", `/api/timelines/${tl}/recording/trim`, { asset: sound, fromMs: 0, toMs: 30000 });
+    expect(await lengthOf(ids[1]!)).toBe(before);
     expect((await joins(tl)).map(([id]) => id)).toEqual(ids.filter((id) => id !== ids[2]));
     expect((await joins(tl))[2]).toEqual([ids[3], "cut"]);
     expect((await recordingState(tl)).clips[2]).toMatchObject({ id: ids[3], take });
