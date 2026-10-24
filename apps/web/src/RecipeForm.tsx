@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, Pin, PinOff, RotateCcw } from "lucide-react";
 import { isShown, LIMITS, sameFile, typedInto, type InputSpec } from "@afflatus/core";
 import { ContextMenu, groups, headLine, useMenu } from "./ContextMenu";
 import { FieldNameNote } from "./fields/FieldName";
+import { FieldRow } from "./fields/FieldRow";
 import { useAdvice } from "./advice";
 import { api, thumbUrl, type RecipeInfo, type RecipeStatus } from "./api";
 import { useQuery } from "@tanstack/react-query";
@@ -83,6 +84,11 @@ export function Form(props: {
   machine?: string;
   /** No Pinned card and no pin menu: a form that is not one renders are made from (a preset's values, an import's preview). */
   noPins?: boolean;
+  /**
+   * Settings that do not apply where the form is, by input id, with why: shown greyed with their value, the reason in their
+   * "?" (a Lip sync clip inside a run of its recording: Speech starts at). Never hidden: a row that comes and goes is never learnt.
+   */
+  off?: Record<string, string>;
 }) {
   const written = useWrittenPrompt(props.recipe, props.stored, props.given);
   const recipe = useMemo(
@@ -112,7 +118,7 @@ export function useWrittenPrompt(recipe: RecipeInfo, stored: Record<string, unkn
   return asked?.into && asked.text ? { into: asked.into, text: asked.text } : null;
 }
 
-function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, chapterExtra, first, keepEmpty, promptInView, machine, noPins }: {
+function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, chapterExtra, first, keepEmpty, promptInView, machine, noPins, off }: {
   recipe: RecipeInfo;
   status: RecipeStatus | undefined;
   /** What the draft holds for this recipe: only what was touched. */
@@ -146,6 +152,11 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   machine?: string;
   /** No Pinned card and no pin menu: a form that is not one renders are made from (a preset's values, an import's preview). */
   noPins?: boolean;
+  /**
+   * Settings that do not apply where the form is, by input id, with why: shown greyed with their value, the reason in their
+   * "?" (a Lip sync clip inside a run of its recording: Speech starts at). Never hidden: a row that comes and goes is never learnt.
+   */
+  off?: Record<string, string>;
 }) {
   const family = useRecipes().data?.families.find((f) => f.id === recipe.family);
   const settings = useModelSettings();
@@ -269,6 +280,18 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
    * looks for by its input id); in its section, a pinned one carries a pin after its name.
    */
   const field = (i: InputSpec, { bare = false, copy }: { bare?: boolean; copy?: { from: string } } = {}) => {
+    const why = off?.[i.id];
+    if (why) {
+      // greyed, its value as it stands, nothing to change: the reason in its "?"
+      const value = values[i.id] ?? defaults[i.id];
+      return (
+        <div key={i.id} data-input-id={copy ? undefined : i.id} data-off="" className="opacity-60">
+          <FieldRow label={i.label} note={why} trail>
+            <span className="text-sm text-ink-3">{value === undefined || value === null ? "—" : `${String(value)}${"unit" in i && i.unit ? i.unit : ""}`} · off here</span>
+          </FieldRow>
+        </div>
+      );
+    }
     const pin = pinsOn && pinnable(i);
     return (
     <div key={i.id} data-input-id={copy ? undefined : i.id} onContextMenu={pin ? menuFor(i) : undefined} className="flex flex-col gap-1 rounded-lg">

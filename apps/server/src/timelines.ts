@@ -21,6 +21,7 @@ import { takeView, TimelineViews } from "./timelineViews";
 import { generationOfTake, ownInputIds, recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
 import { clipsOfSource, patchedSource, planWindows, sourceOfRow, windowFormFor, windowRunUp, type SourcePatch, type SourcePlan } from "./timelineSource";
 import { TimelineTakes } from "./timelineTakes";
+import { foldParts, removalOf, removedOf, removedView, type ParkedClip, type Removal, type RemovedPart } from "./timelineRemoved";
 import { unusedSize, unusedTakes } from "./timelineUnused";
 import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, setTrims, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, mirroredPins, mirrorJson, mirrorOfRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow, transitionJson, transitionOfRow } from "./timelineModel";
 
@@ -445,7 +446,11 @@ export class Timelines {
       return view;
     });
     // its voice recordings, each under its Lip sync clips on the Audio row, with what a trim set aside of it
-    return { ...(await this.views.headOf(t)), durationMs: at, clips, recordings: await this.recordingsView(t, all) };
+    const head = await this.views.headOf(t);
+    // the parts cut out of the source's middle by removing their windows, as the editor marks them (not their rows)
+    const ofSource = this.runsOf(t, all).find((r) => r.kind === "source");
+    const source = head.source && { ...head.source, removed: ofSource ? (head.source.removed ?? []).map((p) => removedView(p, (row) => ofSource.span(row.clip, false))) : [] };
+    return { ...head, source, durationMs: at, clips, recordings: await this.recordingsView(t, all) };
   }
 
   // ---------------------------------------------------------------- editing
@@ -732,12 +737,13 @@ export class Timelines {
           }
           // set aside whole, in order, before those set aside already (they lie further on); a window shortened before is
           // set aside at its length before, as it lay among them, unless it was rendered since (atLengthBefore)
-          const rows = await parkClips(tx, cut.away);
+          // a part removed before one of them goes back among them, end to end, for the end out to bring back (foldParts)
+          const { rows, parts } = foldParts(plan.removed ?? [], cut.away, await parkClips(tx, cut.away));
           shortened = atLengthBefore(rows, shortened, w.seconds);
           if (fresh) shortened = fresh;
           parked = [...rows, ...parked];
           await this.renumber(timelineId, order.filter((id) => !cut.away.includes(id)), tx);
-          await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, toMs, parked, shortened }), updated_at: now() }).where("id", "=", timelineId).execute();
+          await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, toMs, parked, shortened, removed: parts.length ? parts : undefined }), updated_at: now() }).where("id", "=", timelineId).execute();
         });
         return { clips: [], toMs };
       }
@@ -845,14 +851,17 @@ export class Timelines {
       const mine = all.filter((p) => ofSource.includes(p.clip.id) && !busy.has(p.clip.id));
       // a window's form in the new model's words, from the form it has: each window may have its own (card #42)
       const formOf = (row: { recipe_id?: unknown; inputs?: unknown }) => windowFormFor((typeof row.recipe_id === "string" ? this.registry.recipe(row.recipe_id) : undefined) ?? old, next, JSON.parse(String(row.inputs)) as Record<string, unknown>);
-      const parked = (plan.parked ?? []).map((row) => ({ ...row, clip: { ...row.clip, recipe_id: next.id, inputs: JSON.stringify(formOf(row.clip)) } }));
+      const formed = (row: ParkedClip) => ({ ...row, clip: { ...row.clip, recipe_id: next.id, inputs: JSON.stringify(formOf(row.clip)) } });
+      const parked = (plan.parked ?? []).map(formed);
+      // the parts removed from the middle too, and the form the clip after each gets back with it
+      const removed = (plan.removed ?? []).map((p) => ({ ...p, rows: p.rows.map(formed), ...(p.inputs !== undefined ? { inputs: JSON.stringify(formOf({ inputs: p.inputs })) } : {}) }));
       await this.db.transaction().execute(async (tx) => {
         await this.remember(timelineId, `the source made with ${next.title}`, undefined, tx);
         for (const p of mine) {
           const inputs = formOf(p.clip);
           await tx.updateTable("clips").set({ recipe_id: next.id, inputs: JSON.stringify(inputs), updated_at: now() }).where("id", "=", p.clip.id).execute();
         }
-        await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, recipe: next.id, ...(parked.length ? { parked } : {}) }), updated_at: now() }).where("id", "=", timelineId).execute();
+        await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, recipe: next.id, ...(parked.length ? { parked } : {}), ...(removed.length ? { removed } : {}) }), updated_at: now() }).where("id", "=", timelineId).execute();
       });
       return { switched: true, clips: [] };
     });
@@ -1005,7 +1014,7 @@ export class Timelines {
       const read = sourceOfRow(t.source);
       if (!read) throw httpError("Drop a video on the Source lane first.");
       // `stretch`: the source's start moved after Make (trimSource): every window made anew over the new stretch, nothing set aside
-      const plan: SourcePlan = opts.stretch ? { ...read, fromMs: opts.stretch.fromMs, toMs: opts.stretch.toMs, parked: [], shortened: undefined } : read;
+      const plan: SourcePlan = opts.stretch ? { ...read, fromMs: opts.stretch.fromMs, toMs: opts.stretch.toMs, parked: [], shortened: undefined, removed: undefined } : read;
       // `recipe`: the model it is made anew with, written with the clips (one step for Undo)
       const recipeId = opts.recipe ?? plan.recipe;
       const recipe = recipeId ? this.registry.recipe(recipeId) : undefined;
@@ -1069,7 +1078,7 @@ export class Timelines {
         // the source's start sits where its stretch now plays from; the clip it was taken from is gone. Cut again, it stays where
         // it was, and the clips it no longer has keep nothing apart
         const apart = plan.apart ? Object.fromEntries(Object.entries(plan.apart).filter(([id]) => !again?.drop.includes(id))) : undefined;
-        const placedPlan = { ...(again ? { ...plan, clip: null, ...(apart ? { apart } : {}) } : { ...plan, atMs: startsAt - plan.fromMs, clip: null }), recipe: recipe.id, ...(opts.anew || opts.again ? { parked: [], shortened: undefined } : {}) };
+        const placedPlan = { ...(again ? { ...plan, clip: null, ...(apart ? { apart } : {}) } : { ...plan, atMs: startsAt - plan.fromMs, clip: null }), recipe: recipe.id, ...(opts.anew || opts.again ? { parked: [], shortened: undefined, removed: undefined } : {}) };
         await tx.updateTable("timelines").set({ source: JSON.stringify(placedPlan), updated_at: now() }).where("id", "=", timelineId).execute();
         if (picture) await this.keep(picture, tx);
         return made;
@@ -1107,7 +1116,7 @@ export class Timelines {
         await this.remember(timelineId, o.label ?? `the ${plural(parts.length, "Lip sync clip")} made from the recording`, undefined, tx);
         const made = await this.recordingClipsIn(tx, timelineId, sound, parts, { gone });
         // made anew over a moved start: what a trim had set aside of it no longer fits its clips
-        if (o.replace?.length) await setParkedRecording(tx, timelineId, sound.id, [], null);
+        if (o.replace?.length) await setParkedRecording(tx, timelineId, sound.id, [], null, []);
         // cut again at another length (the recording's panel): kept for its trims, which cut what they add the same way
         if (o.keepCut) await setRecordingCut(tx, timelineId, sound.id, { seconds: o.seconds ?? DEFAULT_CUT.seconds, snap: o.snap ?? true });
         return made;
@@ -1177,7 +1186,7 @@ export class Timelines {
    * them on the Audio row; and how each is cut into clips (`seconds` about, `snap` to its pauses), as its panel shows it.
    */
   private async recordingsView(t: TimelineRow, all: Placed[]) {
-    let spec: { id: string } | undefined;
+    let spec: ReturnType<Timelines["recordingModel"]>["spec"] | undefined;
     let recipe: string | undefined;
     try {
       const m = this.recordingModel();
@@ -1191,7 +1200,17 @@ export class Timelines {
     const used = all.filter((p) => p.clip.recipe_id === recipe).map((p) => (JSON.parse(p.clip.inputs) as Record<string, unknown>)[spec!.id]);
     const ids = [...new Set([...used, ...Object.keys(parked)].filter((x): x is string => typeof x === "string" && Boolean(x)))];
     const rows = ids.length ? await this.db.selectFrom("assets").selectAll().where("id", "in", ids).execute() : [];
-    return rows.filter((a) => used.includes(a.id)).map((a) => ({ asset: assetView(a), parked: parked[a.id]?.length ?? 0, parkedTakes: (parked[a.id] ?? []).filter((row) => row.clip.take_id).length, ...cutOf(cuts, a.id) }));
+    const removed = removedRecordings(t);
+    const w = spec!.window;
+    const spanOf = (row: ParkedClip) => {
+      const inputs = JSON.parse(String(row.clip.inputs)) as Record<string, unknown>;
+      return { from: Number(inputs[w.start]) * 1000, to: (Number(inputs[w.start]) + Number(inputs[w.seconds])) * 1000 };
+    };
+    return rows.filter((a) => used.includes(a.id)).map((a) => ({
+      asset: assetView(a), parked: parked[a.id]?.length ?? 0, parkedTakes: (parked[a.id] ?? []).filter((row) => row.clip.take_id).length, ...cutOf(cuts, a.id),
+      // the parts cut out of its middle by removing their clips, each by the clip after it
+      removed: (removed[a.id] ?? []).map((p) => removedView(p, spanOf)),
+    }));
   }
 
   /**
@@ -1350,11 +1369,11 @@ export class Timelines {
         }
         // set aside whole, in order, before those set aside already (they lie further on): the end out brings them back. A
         // clip shortened before is set aside at its length before, as it lay among them, unless it was rendered since
-        // (atLengthBefore)
-        const rows = await parkClips(tx, cut.away);
+        // (atLengthBefore). A part removed before one of them goes back among them, end to end (foldParts)
+        const { rows, parts } = foldParts(removedRecordings(row)[to.asset] ?? [], cut.away, await parkClips(tx, cut.away));
         shortened = atLengthBefore(rows, shortened, w.seconds);
         if (fresh) shortened = fresh;
-        await setParkedRecording(tx, timelineId, to.asset, [...rows, ...(parkedRecordings(row)[to.asset] ?? [])], shortened ?? null);
+        await setParkedRecording(tx, timelineId, to.asset, [...rows, ...(parkedRecordings(row)[to.asset] ?? [])], shortened ?? null, parts);
         if (cut.away.length) await this.renumber(timelineId, all.map((p) => p.clip.id).filter((id) => !cut.away.includes(id)), tx);
       });
       return { clips: [], toMs };
@@ -1708,14 +1727,187 @@ export class Timelines {
   }
 
   async removeClip(id: string) {
-    const clip = await this.clipRow(id);
-    // in the timeline's turn and in one transaction: an Undo or a take landing never comes between the removal and the renumbering
-    await this.history.oneAtATime(clip.timeline_id, () => this.db.transaction().execute(async (tx) => {
-      await this.remember(clip.timeline_id, clip.kind === "still" ? "the image removed" : "the clip removed", undefined, tx);
-      await tx.deleteFrom("clips").where("id", "=", id).execute();
-      await this.renumber(clip.timeline_id, (await this.placed(clip.timeline_id, tx)).map((p) => p.clip.id), tx);
-    }));
-    await this.touch(clip.timeline_id);
+    await this.removeClips((await this.clipRow(id)).timeline_id, [id]);
+  }
+
+  /**
+   * Clips taken off the timeline, one step for Undo however many (picked with Ctrl+click, they went one step each). One of
+   * a recording's Lip sync clips or of the source's windows cuts its part out of it (timelineRemoved.ts, card #75): the
+   * first ones go, the In past them; the last ones are set aside as the Out brought in before them sets them aside; a run
+   * of them in the middle is set aside as a removed part kept with the clip after it, which becomes a cut (the song's
+   * hand-over is off there by itself: the parts no longer meet, TimelinePlan.recordingRun). Any other clip goes as it is.
+   * A clip set aside while it renders or waits in the queue is refused, as the trims refuse it: its render would land on no
+   * clip. In the timeline's turn and in one transaction: an Undo or a take landing never comes between the removal and the
+   * renumbering.
+   */
+  async removeClips(timelineId: string, ids: string[]) {
+    const unique = [...new Set(ids)];
+    if (!unique.length) return;
+    await this.row(timelineId);
+    await this.history.oneAtATime(timelineId, async () => {
+      const t = await this.row(timelineId);
+      const all = await this.placed(timelineId);
+      const order = all.map((p) => p.clip.id);
+      if (unique.some((id) => !order.includes(id))) throw notFound("this clip");
+      const gone = new Set(unique);
+      const runs = this.runsOf(t, all).map((r) => ({ ...r, removal: removalOf(r.ids, gone) })).filter((r) => r.ids.some((id) => gone.has(id)) && !r.removal.whole);
+      const aside = runs.flatMap((r) => [...r.removal.tail, ...r.removal.middles.flatMap((m) => m.ids)]);
+      refuseBusy(aside, await this.busyOf(aside), all, "remove it");
+      // the clips whose join may change: each one after a part cut out, and the one first now
+      const busy = await this.busyOf(runs.flatMap((r) => [...r.removal.middles.map((m) => m.before), ...r.ids.filter((id) => !gone.has(id)).slice(0, 1)]));
+      const one = all.find((p) => p.clip.id === unique[0])!;
+      const label = unique.length > 1 ? `the ${unique.length} clips removed` : one.clip.kind === "still" ? "the image removed" : "the clip removed";
+      await this.db.transaction().execute(async (tx) => {
+        await this.remember(timelineId, label, undefined, tx);
+        for (const run of runs) await this.cutOut(tx, timelineId, run, all, busy);
+        await tx.deleteFrom("clips").where("id", "in", unique).execute();
+        await this.renumber(timelineId, order.filter((id) => !gone.has(id)), tx);
+      });
+    });
+    await this.touch(timelineId);
+  }
+
+  /**
+   * The timeline's runs of clips made of one stretch: the source's windows and each recording's Lip sync clips, in order,
+   * with the inputs that hold each one's part (`start`, `seconds`) and its part in ms (`span`: `start` where its part
+   * begins, `from` where its own frames begin, after those a window that carries on carries, as trimSource reads it).
+   */
+  private runsOf(t: TimelineRow, all: Placed[]): Run[] {
+    const runs: Run[] = [];
+    const plan = sourceOfRow(t.source);
+    const recipe = plan?.recipe ? this.registry.recipe(plan.recipe) : undefined;
+    const driving = recipe?.traits?.windows ? recipe.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window) : undefined;
+    if (plan && recipe && driving?.type === "clip" && driving.window) {
+      const w = driving.window;
+      const fps = recipe.traits!.fps;
+      const ofSource = clipsOfSource(plan, all.map((p) => p.clip), (r) => this.registry.recipe(r));
+      const ids = all.filter((p) => ofSource.includes(p.clip.id)).map((p) => p.clip.id);
+      const span = (clip: RunClip, first: boolean) => {
+        const inputs = JSON.parse(String(clip.inputs)) as Record<string, unknown>;
+        const start = Number(inputs[w.start]) * 1000;
+        const own = clip.joined === "continue" && !first ? start + (carriedOf(this.registry.recipe(String(clip.recipe_id)) ?? recipe, inputs) * 1000) / fps : start;
+        return { start, from: own, to: start + Number(inputs[w.seconds]) * 1000 };
+      };
+      if (ids.length) runs.push({ kind: "source", ids, start: w.start, seconds: w.seconds, span });
+    }
+    let model: ReturnType<Timelines["recordingModel"]>;
+    try {
+      model = this.recordingModel();
+    } catch {
+      return runs;
+    }
+    const { recipe: lip, spec } = model;
+    const byAsset = new Map<string, string[]>();
+    for (const p of all) {
+      const asset = p.clip.recipe_id === lip.id ? (JSON.parse(p.clip.inputs) as Record<string, unknown>)[spec.id] : undefined;
+      if (typeof asset === "string" && asset) byAsset.set(asset, [...(byAsset.get(asset) ?? []), p.clip.id]);
+    }
+    const span = (clip: RunClip) => {
+      const inputs = JSON.parse(String(clip.inputs)) as Record<string, unknown>;
+      const start = Number(inputs[spec.window.start]) * 1000;
+      return { start, from: start, to: start + Number(inputs[spec.window.seconds]) * 1000 };
+    };
+    for (const [asset, ids] of byAsset) runs.push({ kind: "recording", asset, ids, start: spec.window.start, seconds: spec.window.seconds, span });
+    return runs;
+  }
+
+  /**
+   * One run's clips removed (removeClips), written in its transaction: the first ones gone, the In past them, the clip first
+   * now taking the join the first one had; each run of them in the middle set aside as a removed part kept with the clip
+   * after it, that clip made a cut (a window of the source then starts after the frames it carried, unless it is rendered
+   * or in the queue: its take was made of its part); the last ones set aside with what the trims set aside, the Out before
+   * them. The parts removed before next to them are folded in (foldParts).
+   */
+  private async cutOut(tx: Tx, timelineId: string, run: Run & { removal: Removal }, all: Placed[], busy: Set<string>) {
+    const { removal } = run;
+    const placedOf = (id: string) => all.find((p) => p.clip.id === id)!;
+    const t = await tx.selectFrom("timelines").selectAll().where("id", "=", timelineId).executeTakeFirstOrThrow();
+    const plan = run.kind === "source" ? sourceOfRow(t.source)! : undefined;
+    let parts = plan ? [...(plan.removed ?? [])] : [...(removedRecordings(t)[run.asset!] ?? [])];
+    let parked = plan ? [...(plan.parked ?? [])] : [...(parkedRecordings(t)[run.asset!] ?? [])];
+    let shortened = plan ? plan.shortened : shortenedRecordings(t)[run.asset!];
+    const out = new Set([...removal.lead, ...removal.tail, ...removal.middles.flatMap((m) => m.ids)]);
+    const kept = run.ids.filter((id) => !out.has(id));
+    // a clip made a cut, or given the join the first one had: a window of the source moves its part by the frames carried
+    const rejoin = async (p: Placed, joined: ClipRow["joined"]) => {
+      const free = !p.clip.take_id && !busy.has(p.clip.id);
+      const moved = plan && free && joined !== p.clip.joined ? windowRunUp(this.registry.recipe(p.clip.recipe_id ?? ""), JSON.parse(p.clip.inputs) as Record<string, unknown>, joined) : null;
+      if (joined !== p.clip.joined || moved) await tx.updateTable("clips").set({ joined, ...(moved ? { inputs: JSON.stringify(moved) } : {}), updated_at: now() }).where("id", "=", p.clip.id).execute();
+      return moved;
+    };
+    let fromMs = plan?.fromMs;
+    if (removal.lead.length) {
+      // the parts removed among them, or just after them (the first now), go with them
+      parts = foldParts(parts, removal.lead, null).parts.filter((p) => p.before !== kept[0]);
+      const first = placedOf(kept[0]!);
+      const moved = await rejoin(first, placedOf(removal.lead[0]!).clip.joined);
+      if (plan) fromMs = Math.round(run.span({ ...first.clip, inputs: moved ? JSON.stringify(moved) : first.clip.inputs }, true).start);
+    }
+    for (const m of removal.middles) {
+      const folded = foldParts(parts, m.ids, await parkClips(tx, m.ids));
+      parts = folded.parts;
+      const there = parts.find((p) => p.before === m.before);
+      if (there) {
+        // the clip after them is already the cut of a part removed before: one part, these clips first (they lay before it)
+        there.rows = [...folded.rows, ...there.rows];
+        continue;
+      }
+      const after = placedOf(m.before);
+      const moved = await rejoin(after, "cut");
+      parts.push({ before: m.before, rows: folded.rows, joined: after.clip.joined, take: after.clip.take_id, ...(moved ? { inputs: after.clip.inputs } : {}) });
+    }
+    let toMs = plan?.toMs;
+    if (removal.tail.length) {
+      const folded = foldParts(parts, removal.tail, await parkClips(tx, removal.tail));
+      parts = folded.parts;
+      shortened = atLengthBefore(folded.rows, shortened, run.seconds);
+      parked = [...folded.rows, ...parked];
+      if (plan) toMs = Math.round(run.span(placedOf(kept.at(-1)!).clip, kept.length === 1).to);
+    }
+    if (!plan) return setParkedRecording(tx, timelineId, run.asset!, parked, shortened ?? null, parts);
+    // the In moved: the source keeps its place under the clips (the first one now starts where the first removed did), and
+    // who a swap replaces, clicked on the old first frame, is clicked again on the new one (gone as a moved start drops it)
+    const shift = (fromMs ?? plan.fromMs) - plan.fromMs;
+    const next: SourcePlan = { ...plan, fromMs: fromMs ?? plan.fromMs, toMs: toMs ?? plan.toMs, atMs: plan.atMs - shift, parked, shortened, removed: parts.length ? parts : undefined };
+    if (shift) delete next.pick;
+    await tx.updateTable("timelines").set({ source: JSON.stringify(next), updated_at: now() }).where("id", "=", timelineId).execute();
+  }
+
+  /**
+   * A part removed from the middle of a recording or the source (removeClips) brought back: its clips set aside back as they
+   * were, with their takes, just before the clip it was kept with, and that clip given its join and its form back, unless
+   * it was rendered since (a take made as a cut, which keeps it) or is in the queue. One step for Undo. Refused while that
+   * clip is set aside itself (an Out brought in past it): the Out moved out brings it back first.
+   */
+  async bringBack(timelineId: string, before: string): Promise<void> {
+    await this.history.oneAtATime(timelineId, async () => {
+      const t = await this.row(timelineId);
+      const plan = sourceOfRow(t.source);
+      const recordings = removedRecordings(t);
+      const asset = Object.keys(recordings).find((a) => recordings[a]!.some((p) => p.before === before));
+      const parts = asset ? recordings[asset]! : (plan?.removed ?? []);
+      const part = parts.find((p) => p.before === before);
+      if (!part) throw notFound("this removed part");
+      const all = await this.placed(timelineId);
+      if (!all.some((p) => p.clip.id === before)) throw httpError("The clip after the cut is set aside too: move the Out back out first, then bring the part back.", 409);
+      const after = all.find((p) => p.clip.id === before)!;
+      const same = (after.clip.take_id ?? null) === (part.take ?? null) && !(await this.busyOf([before])).size;
+      await this.db.transaction().execute(async (tx) => {
+        await this.remember(timelineId, "the part brought back", undefined, tx);
+        const order = all.map((p) => p.clip.id);
+        let at = order.indexOf(before);
+        for (const row of part.rows) {
+          await unparkClip(tx, row);
+          order.splice(at++, 0, String(row.clip.id));
+        }
+        if (same) await tx.updateTable("clips").set({ joined: part.joined, ...(part.inputs !== undefined ? { inputs: part.inputs } : {}), updated_at: now() }).where("id", "=", before).execute();
+        await this.renumber(timelineId, order, tx);
+        const left = parts.filter((p) => p !== part);
+        if (asset) await setParkedRecording(tx, timelineId, asset, parkedRecordings(t)[asset] ?? [], undefined, left);
+        else await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan!, removed: left.length ? left : undefined }), updated_at: now() }).where("id", "=", timelineId).execute();
+      });
+    });
+    await this.touch(timelineId);
   }
 
   /**
@@ -1939,9 +2131,10 @@ export function ownsOf(windows: Array<{ start: number; seconds: number; opens?: 
   return out;
 }
 
-/** A clip set aside whole by a trim (a source's windows, a recording's clips): its row and its takes' rows, as they were. */
-/** A clip a trim set aside, whole; `told`: one that never comes back (of another model), said so once to the user. */
-type ParkedClip = { clip: Record<string, unknown>; takes: Array<Record<string, unknown>>; told?: true };
+/** What a run's `span` reads of a clip (its row, or a row set aside). */
+type RunClip = { inputs?: unknown; joined?: unknown; recipe_id?: unknown };
+/** A run of clips made of one stretch (Timelines.runsOf): the source's, or a recording's (`asset`). */
+type Run = { kind: "source" | "recording"; asset?: string; ids: string[]; start: string; seconds: string; span: (clip: RunClip, first: boolean) => { start: number; from: number; to: number } };
 type Tx = Parameters<Parameters<ReturnType<Db["transaction"]>["execute"]>[0]>[0];
 
 /**
@@ -2084,18 +2277,36 @@ function shortenedRecordings(t: TimelineRow): Record<string, Shortened> {
  * What is set aside of one recording, written back (none: its entry goes), with its clip a trim in shortened (null: none;
  * left out: as it is).
  */
-async function setParkedRecording(db: Db | Tx, timelineId: string, asset: string, rows: ParkedClip[], shortened?: Shortened | null) {
+async function setParkedRecording(db: Db | Tx, timelineId: string, asset: string, rows: ParkedClip[], shortened?: Shortened | null, removed?: RemovedPart[]) {
   const t = await db.selectFrom("timelines").selectAll().where("id", "=", timelineId).executeTakeFirstOrThrow();
   const map: Record<string, unknown> = parkedRecordings(t);
   const short = shortenedRecordings(t);
   const cuts = recordingCuts(t);
+  const parts = removedRecordings(t);
   if (rows.length) map[asset] = rows;
   else delete map[asset];
   if (shortened) short[asset] = shortened;
   else if (shortened === null) delete short[asset];
+  if (removed?.length) parts[asset] = removed;
+  else if (removed) delete parts[asset];
   if (Object.keys(short).length) map[SHORTENED] = short;
   if (Object.keys(cuts).length) map[CUTS] = cuts;
+  if (Object.keys(parts).length) map[REMOVED] = parts;
   await db.updateTable("timelines").set({ recordings: Object.keys(map).length ? JSON.stringify(map) : null }).where("id", "=", timelineId).execute();
+}
+
+/** Where the recordings' removed parts are kept (timelineRemoved.ts), in the same JSON: no recording is named so. */
+const REMOVED = "removed";
+
+/** The parts cut out of the middle of each of a timeline's recordings by removing their clips, by recording asset. */
+function removedRecordings(t: TimelineRow): Record<string, RemovedPart[]> {
+  try {
+    const read = (JSON.parse(t.recordings ?? "{}") as Record<string, unknown>)[REMOVED];
+    if (!read || typeof read !== "object") return {};
+    return Object.fromEntries(Object.entries(read as Record<string, unknown>).map(([k, v]) => [k, removedOf(v)] as const).filter(([, v]) => v.length));
+  } catch {
+    return {};
+  }
 }
 
 /** How a recording is cut into clips, as its panel sets it: about `seconds` a clip, ended in its pauses when `snap`. */

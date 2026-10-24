@@ -464,11 +464,13 @@ describe("a recording's place under its clips", () => {
     expect(p.parts.map((x) => [x.trackMs, x.clipFromMs, x.clipToMs])).toEqual([[5000, 5000, 9700], [9700, 9700, 15_200], [15_200, 15_200, 20_000]]);
   });
 
-  it("starts each part after the moment before the words (Speech starts at)", () => {
-    const later = timeline.clips.map((c) => (c.id === "zz-test-b" ? { ...c, inputs: { ...c.inputs, speechAt: 0.5 } } : c));
+  it("starts a part after the moment before the words (Speech starts at) where a run starts, never inside one (card #75)", () => {
+    const later = timeline.clips.map((c) => (c.id === "zz-test-a" || c.id === "zz-test-b" ? { ...c, inputs: { ...c.inputs, speechAt: 0.5 } } : c));
     const p = recordingPlace(slotsOf(later, laid), [video, lipSync], sound.id, 15000)!;
-    expect(p.parts[1]!.trackMs).toBe(10200);
-    expect(p.toTrack(4700)).toBe(10200);
+    expect(p.parts[0]!.trackMs).toBe(5500);
+    // clip 3 carries on clip 2's part: its own moment does not apply, the server sends none (TimelinePlan.recordingRun)
+    expect(p.parts[1]!.trackMs).toBe(9700);
+    expect(p.toTrack(4700)).toBe(9700);
   });
 
   describe("on the stage", () => {

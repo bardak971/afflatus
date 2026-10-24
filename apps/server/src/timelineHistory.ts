@@ -129,9 +129,14 @@ export class TimelineHistory {
     const w = was.timeline;
     // the clips a trim had set aside at that step, whole (the source's windows, each recording's clips), written back
     // with the takes that fit them
-    const source = parse(w.source) as { parked?: Parked[] } | null;
+    // (and the clips removed from their middle, kept as removed parts: timelineRemoved.ts)
+    const source = parse(w.source) as { parked?: Parked[]; removed?: Array<{ rows?: Parked[] }> } | null;
     const recordings = parse(w.recordings) as Record<string, unknown> | null;
-    const aside = [...(source?.parked ?? []), ...Object.values(recordings ?? {}).flatMap((v) => (Array.isArray(v) ? (v as Parked[]) : []))].filter((r) => r && typeof r.clip === "object" && Array.isArray(r.takes));
+    const removed = recordings?.removed && typeof recordings.removed === "object" ? Object.values(recordings.removed as Record<string, unknown>).flatMap((v) => (Array.isArray(v) ? (v as Array<{ rows?: Parked[] }>) : [])) : [];
+    const aside = [
+      ...(source?.parked ?? []), ...Object.values(recordings ?? {}).flatMap((v) => (Array.isArray(v) ? (v as Parked[]) : [])),
+      ...[...(Array.isArray(source?.removed) ? source.removed : []), ...removed].flatMap((p) => (Array.isArray(p?.rows) ? p.rows : [])),
+    ].filter((r) => r && typeof r.clip === "object" && Array.isArray(r.takes));
     // the takes the state has, placed or set aside with their clip: none of them is one made since
     const known = new Set([...was.takes.map((t) => t.id), ...aside.flatMap((r) => r.takes.map((t) => String(t.id)))]);
     const newer: TakeRow[] = [];

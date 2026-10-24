@@ -3,7 +3,7 @@ import { CircleAlert, PenLine } from "lucide-react";
 import type { Open } from "./Confirm";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
 import { Keys } from "./Keys";
-import { Button, cx, fieldClass } from "./ui";
+import { Button, cx, fieldClass, Help } from "./ui";
 
 /** The text question: a box with what it holds now, Enter or the button answers, Escape closes with nothing. */
 function TextAsk({ open }: { open: Extract<Open, { kind: "text" }> }) {
@@ -65,7 +65,7 @@ export function ConfirmDialog({ open }: { open: Open }) {
   return (
     <Dialog label={open.title} onClose={() => open.answer(false)} z="z-confirm" className={DIALOG}>
       <DialogHead icon={<CircleAlert size={16} />} tone="warn" title={open.title} />
-      <p className="m-0 whitespace-pre-line text-ink-2">{open.text}</p>
+      <p className="m-0 whitespace-pre-line text-ink-2">{open.text}{open.help && <Help text={open.help} title={open.title} className="ml-1.5 align-middle" />}</p>
       <DialogFoot>
         <Button autoFocus onClick={() => open.answer(false)}>Cancel <Keys keys="Esc" size="sm" /></Button>
         <Button tone="danger" onClick={() => open.answer(true)}>{open.yes}</Button>

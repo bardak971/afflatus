@@ -7,6 +7,7 @@ import { cx } from "../../ui";
 import { clock } from "../../format";
 import { motionAllowed } from "../../useFlip";
 import { fileVersion, PAD, type Slot } from "../model";
+import { RemovedMark } from "./RemovedMark";
 import { ROW, SOURCE } from "./rows";
 import { edgeGive, resisted } from "./spring";
 import { useSpringBack } from "./useSpringBack";
@@ -103,7 +104,7 @@ export function sourcePlace(t: Timeline, slots: Slot[], recipes: RecipeInfo[]): 
  * under its place), its right end where it stops; once made, the clips made from it are outlined over their parts. Empty:
  * nothing here (its drop is the end column's, after the last clip). A click opens it (the stage plays it); right-click: its menu (split at the playhead among it).
  */
-export function SourceLane({ timeline, place, recipes, pps, selected, over, onDragOver, onSelect, onOpen, onRemove, onStretch, onSplit, onPeek }: {
+export function SourceLane({ timeline, place, recipes, pps, selected, over, onDragOver, onSelect, onOpen, onRemove, onStretch, onSplit, onPeek, slots = [], onBringBack }: {
   timeline: Timeline;
   place: SourcePlace | null;
   recipes: RecipeInfo[];
@@ -126,6 +127,10 @@ export function SourceLane({ timeline, place, recipes, pps, selected, over, onDr
   onPeek?(ms: number | null): void;
   /** Split at the playhead: the part before it a clip of its own, played as it is (null: the playhead is not in the stretch). */
   onSplit?: (() => void) | null;
+  /** The track's clips, for the number of the clip after a part removed from the middle. */
+  slots?: Slot[];
+  /** A part cut out of the middle (its mark) brought back, by the clip after it. */
+  onBringBack?(before: string): void;
 }) {
   const menu = useMenu<true>();
   /**
@@ -335,6 +340,10 @@ export function SourceLane({ timeline, place, recipes, pps, selected, over, onDr
         <span className={cx("pointer-events-none absolute inset-y-0 rounded border-2", selected ? "border-accent" : "border-ink-3")} style={{ left: Math.max(0, inLane(lineFrom)), width: Math.max(4, inLane(lineTo) - Math.max(0, inLane(lineFrom))) }} />
         {bound.map((b) => (
           <span key={b.id} className="pointer-events-none absolute inset-y-1 rounded-sm border border-accent/70" style={{ left: inLane(b.from), width: Math.max(4, ((b.to - b.from) / 1000) * pps) }} />
+        ))}
+        {/* the parts cut out of the middle by removing their windows: the stretch of the video the clips jump over */}
+        {(source.removed ?? []).map((p) => (
+          <RemovedMark key={p.before} part={p} left={inLane(p.fromMs)} width={((p.toMs - p.fromMs) / 1000) * pps} number={(slots.find((s) => s.clip.id === p.before)?.index ?? -1) + 1} onBringBack={onBringBack} />
         ))}
         <span className="pointer-events-none absolute top-0.5 rounded bg-ground/85 px-1 text-micro font-semibold whitespace-nowrap" style={{ left: Math.max(2, inLane(lineFrom) + 3) }}>
           {held ? (held.kind === "slip" ? `${(fromMs / 1000).toFixed(1)}–${(toMs / 1000).toFixed(1)} s` : `${((held.kind === "start" ? fromMs : toMs) / 1000).toFixed(1)} s${held.kind === "end" ? ": stops here" : ": starts here"}`) : `${video.name} · from ${(fromMs / 1000).toFixed(1)} s`}

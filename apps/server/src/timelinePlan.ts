@@ -335,6 +335,10 @@ export class TimelinePlan {
     // file it plays, less what comes before its part there (the frames of the clip before it, the moment before the words)
     const prior = all[i - 1];
     const before = sameRecording(prior);
+    // inside a run, its part carrying on from the clip before's, no moment before the words (Speech starts at): the clip
+    // before sang the song up to the part, and that moment, filed with the recording before it, played those words twice
+    // (review S4, card #75). The form shows the setting greyed there (lipSyncInRun)
+    if (before && meets(before, own)) for (const id of w.fits?.less ?? []) plan.input[id] = 0;
     if (!before || !meets(before, own) || !prior?.active) return;
     const genId = generationOfTake(prior.active, prior.takes);
     const made = genId ? await this.core.db.selectFrom("generations").select("inputs").where("id", "=", genId).executeTakeFirst() : undefined;

@@ -5,6 +5,7 @@ import type { Clip, RecipeInfo, Timeline } from "../../api";
 import { clock as mmss, plural } from "../../format";
 import { cx } from "../../ui";
 import { motionAllowed } from "../../useFlip";
+import { RemovedMark } from "./RemovedMark";
 import { SOUND } from "./rows";
 import { edgeGive, resisted } from "./spring";
 import { useSpringBack } from "./useSpringBack";
@@ -19,6 +20,24 @@ export function recordingInput(recipe: RecipeInfo | undefined) {
     ? { id: spec.id, start: spec.window.start, seconds: spec.window.seconds, leastMs: (spec.window.fits?.min ?? 1) * 1000, mostMs: spec.window.fits ? (spec.window.fits.frames / spec.window.fits.fps - (spec.window.fits.pad ?? 0)) * 1000 : 15_000, lead: spec.window.fits?.less ?? [] }
     : null;
 }
+
+/**
+ * Where a Lip sync clip carries on a run of its recording (a song cut into clips end to end): the number of the clip just
+ * before it on the timeline, whose part of the same recording ends where its own starts; null when it starts a run or stands
+ * alone. Inside a run no moment before the words is added (Speech starts at, TimelinePlan.recordingRun): the clip before sang
+ * the song right up to the part, and that moment played those words twice (review S4, card #75).
+ */
+export function runFrom(clips: Clip[], recipes: RecipeInfo[], c: Clip, inputs: Record<string, unknown> = c.inputs): number | null {
+  const i = clips.findIndex((x) => x.id === c.id);
+  const prior = i > 0 ? clips[i - 1]! : undefined;
+  const input = recordingInput(recipes.find((r) => r.id === c.recipe));
+  if (!prior || !input || prior.recipe !== c.recipe || !inputs[input.id] || prior.inputs[input.id] !== inputs[input.id]) return null;
+  const end = Number(prior.inputs[input.start]) + Number(prior.inputs[input.seconds]);
+  return Math.abs(end - Number(inputs[input.start])) <= 0.05 ? i : null;
+}
+
+/** Why Speech starts at is greyed on a clip inside a run (runFrom): said in its "?". */
+export const inRunSaid = (before: number) => `Does not apply here: this clip carries the recording on from clip ${before}, which sings right up to its part, so no moment before the words is added (it would play those words twice). It applies on the clip a run starts with.`;
 
 /**
  * A Lip sync clip's voice, as its form holds it (the recording laid on its sound): undefined for a clip of a model that
@@ -69,7 +88,7 @@ export function clipsOfRecording(clips: Clip[], recipes: RecipeInfo[], asset: st
  * of the recording: the clips made anew), its left edge moves its start (made anew), its right edge its end (clips set
  * aside or brought back, more made at its pauses), as the Recording chapter's In and Out do.
  */
-export function RecordingBands({ timeline, slots, recipes, pps, onTrim, onSelect, onOpen, open = null }: {
+export function RecordingBands({ timeline, slots, recipes, pps, onTrim, onBringBack, onSelect, onOpen, open = null }: {
   timeline: Timeline;
   slots: Slot[];
   recipes: RecipeInfo[];
@@ -79,6 +98,8 @@ export function RecordingBands({ timeline, slots, recipes, pps, onTrim, onSelect
    * false when it is not made (asked first, failed, or another one asked for in its place).
    */
   onTrim?(asset: string, fromMs: number, toMs: number): Promise<boolean> | void;
+  /** A part cut out of its middle (its mark) brought back, by the clip after it. */
+  onBringBack?(before: string): void;
   /** A click on a band without `onOpen`: its first clip opened (its Recording chapter). */
   onSelect(clip: string): void;
   /** A click on a band: the recording opened on the stage and in the column, as the source lane opens. */
@@ -89,18 +110,19 @@ export function RecordingBands({ timeline, slots, recipes, pps, onTrim, onSelect
   return (
     <>
       {(timeline.recordings ?? []).map((r) => (
-        <Band key={r.asset.id} recording={r} slots={slots} recipes={recipes} pps={pps} onTrim={onTrim} onSelect={onSelect} onOpen={onOpen} open={open === r.asset.id} />
+        <Band key={r.asset.id} recording={r} slots={slots} recipes={recipes} pps={pps} onTrim={onTrim} onBringBack={onBringBack} onSelect={onSelect} onOpen={onOpen} open={open === r.asset.id} />
       ))}
     </>
   );
 }
 
-function Band({ recording, slots, recipes, pps, onTrim, onSelect, onOpen, open }: {
+function Band({ recording, slots, recipes, pps, onTrim, onBringBack, onSelect, onOpen, open }: {
   recording: NonNullable<Timeline["recordings"]>[number];
   slots: Slot[];
   recipes: RecipeInfo[];
   pps: number;
   onTrim?(asset: string, fromMs: number, toMs: number): Promise<boolean> | void;
+  onBringBack?(before: string): void;
   onSelect(clip: string): void;
   onOpen?(asset: string): void;
   open: boolean;
@@ -247,6 +269,11 @@ function Band({ recording, slots, recipes, pps, onTrim, onSelect, onOpen, open }
         <Mic size={11} className="shrink-0" />
         <span className="truncate">{recording.asset.name} · {stretch}{recording.parked ? ` · +${recording.parked}` : ""}{open ? " · open on the stage" : ""}</span>
       </span>
+      {/* where a part was cut out of its middle (its clips removed): the clip after it starts after a cut */}
+      {(recording.removed ?? []).map((p) => {
+        const after = mine.find((s) => s.clip.id === p.before);
+        return after ? <RemovedMark key={p.before} part={p} left={after.left - left} number={after.index + 1} onBringBack={onBringBack} /> : null;
+      })}
       {onTrim && <span aria-hidden data-tip="Drag: where the recording ends (clips set aside, or brought back and added at its pauses)" onPointerDown={down("end")} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} className={cx(edge, "-right-[4px]")} />}
     </div>
   );

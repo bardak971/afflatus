@@ -233,7 +233,11 @@ describe("a timeline's source lane", () => {
         } as never).execute();
         await t.db.updateTable("clips").set({ take_id: take }).where("id", "=", c.id).execute();
       }
+      // removed, the last window moves the stretch's Out before it (card #75): its end given back as it was, so that the
+      // cut again has a stretch left past the rendered windows
+      const toMs = ((await view(tl.id)) as { source: { toMs: number } }).source.toMs;
       await call("DELETE", `/api/clips/${clips.at(-1)!.id}`);
+      await call("PATCH", `/api/timelines/${tl.id}`, { source: { toMs } });
       const added = await call("POST", `/api/timelines/${tl.id}/clips`, {});
       const emptyId = (added.id ?? (await read()).clips.at(-1)!.id) as string;
       await call("PATCH", `/api/timelines/${tl.id}`, { source: { recipe: "h3.swap", clip: emptyId } });

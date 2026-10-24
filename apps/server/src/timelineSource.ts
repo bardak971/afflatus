@@ -2,6 +2,7 @@ import { gridAtOrBefore, sourceWindows, windowShapeOf, type Recipe, type SourceW
 import { z } from "zod";
 import { httpError } from "./errors";
 import type { AssetRow } from "./timelineModel";
+import { removedOf, type RemovedPart } from "./timelineRemoved";
 
 /**
  * A timeline's source lane (HANDOVER-timeline-brainstorm.md §3.1–3.2): a long video laid under the clips, `atMs` where its
@@ -43,6 +44,8 @@ export interface SourcePlan {
    * gives it that length back before the windows set aside return, so that no part of the video is left between them.
    */
   shortened?: { clip: string; seconds: number };
+  /** Stretches cut out of the middle by removing their windows, each kept with the window after it (timelineRemoved.ts). */
+  removed?: RemovedPart[];
 }
 
 /** What a timeline's PATCH takes of it: a new source (its video), or changes to the one there; null takes it away. */
@@ -78,6 +81,7 @@ export function sourceOfRow(raw: string | null | undefined): SourcePlan | null {
       ...(x.apart && typeof x.apart === "object" ? { apart: Object.fromEntries(Object.entries(x.apart).filter(([, v]) => Array.isArray(v) && v.length).map(([k, v]) => [k, v.filter((i): i is string => typeof i === "string")])) } : {}),
       ...(Array.isArray(x.parked) && x.parked.length ? { parked: x.parked.filter((p) => p && typeof p.clip === "object" && Array.isArray(p.takes)) } : {}),
       ...(x.shortened && typeof x.shortened.clip === "string" && Number(x.shortened.seconds) > 0 ? { shortened: { clip: x.shortened.clip, seconds: Number(x.shortened.seconds) } } : {}),
+      ...(removedOf(x.removed).length ? { removed: removedOf(x.removed) } : {}),
     };
   } catch {
     return null;

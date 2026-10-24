@@ -152,6 +152,10 @@ describe.skipIf(!ffmpegThere)("the start-up check of ffmpeg", { timeout: FFMPEG_
     expect(wordsOf(first, "linux").ffmpeg).toMatchObject({ ok: false, get: "download" });
     expect(wordsOf(first, "darwin").ffmpeg).toMatchObject({ ok: false, get: "brew" });
     expect(wordsOf(first, "darwin").ffmpeg.fix).toMatch(/brew install ffmpeg/);
+    // in the Docker image no Get (every request comes from the bridge, card #75): the image's own ffmpeg is said
+    const image = wordsOf(first, "linux", "docker").ffmpeg;
+    expect(image.get).toBeUndefined();
+    expect(image.fix).toMatch(/^Afflatus uses the image's ffmpeg/);
     // the next start: the same files, the result kept
     await chooseFfmpeg({ dataDir: data, comfyDirs: [], env: { PATH: old.dir }, tryOne });
     expect(tried).toBe(1);

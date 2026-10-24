@@ -169,6 +169,8 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     onSourceSettings: () => e.openSource(),
     // its band on the Audio row dragged: trimmed as its Recording chapter's In and Out trim it
     onRecordingTrim: (asset, fromMs, toMs) => e.recordingTrim.run(asset, clipsOfRecording(e.clips, e.videoRecipes, asset), fromMs, toMs),
+    // a removed part's mark on its band or the Source lane: its clips back, before the clip it was kept with
+    onBringBack: (before) => e.bringBack.mutate(before),
     // its band clicked: the recording on the stage and in the column, as the source lane opens
     recordingOpen: e.recordingOpen,
     stageEndMs: e.recordingAt ? stageEndOf(e) : null,

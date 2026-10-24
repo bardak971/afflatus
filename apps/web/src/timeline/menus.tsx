@@ -144,7 +144,7 @@ export const clipMenuItems = (c: Clip, act: ClipMenuActions): MenuItem[] => {
       ...(index >= 0 && index < act.clips.length - 1 ? [{ label: "Move later", key: "Alt+→", icon: <ArrowRight size={14} />, run: () => act.move(c.id, 1) }] : []),
     ],
     [act.picked.has(c.id) && act.picked.size > 1
-      ? { label: `Remove the ${act.picked.size} picked clips`, key: "Del", icon: <Trash2 size={14} />, danger: true, note: "Undo brings them back one by one", run: () => act.removeMany([...act.picked]) }
+      ? { label: `Remove the ${act.picked.size} picked clips`, key: "Del", icon: <Trash2 size={14} />, danger: true, note: "Undo brings them all back", run: () => act.removeMany([...act.picked]) }
       : { label: "Remove clip", key: "Del", icon: <Trash2 size={14} />, danger: true, note: "Undo brings it back", run: () => act.remove(c.id) }],
   );
 };

@@ -52,7 +52,7 @@ function moveHint(m: ClipMove, now: string[]): string {
   return `Let go to move clip ${n(m.clip)} ${where} · Esc puts it back`;
 }
 
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, onSource, onRecording, onVoice, onRecipe, onSourceSettings, onRecordingTrim, recordingOpen, onOpenRecording, stageEndMs = null, onView, sourceSelected, onSelectSource, onOpenSource, onRemoveSource, onStretchSource, onSplitSource, onPeekSource, sourcePlace, sourceMode, sourceLabel, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, onSource, onRecording, onVoice, onRecipe, onSourceSettings, onRecordingTrim, onBringBack, recordingOpen, onOpenRecording, stageEndMs = null, onView, sourceSelected, onSelectSource, onOpenSource, onRemoveSource, onStretchSource, onSplitSource, onPeekSource, sourcePlace, sourceMode, sourceLabel, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -119,6 +119,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onSourceSettings?(): void;
   /** A recording's band on the Audio row dragged: its In and Out, in ms of the recording (settled: RecordingBands' onTrim). */
   onRecordingTrim?(asset: string, fromMs: number, toMs: number): Promise<boolean> | void;
+  /** A part removed from the middle of a recording or the source brought back (its mark), by the clip after it. */
+  onBringBack?(before: string): void;
   /** The recording open on the stage (its asset's id; its band outlined), and a band clicked: that recording opened. */
   recordingOpen?: string | null;
   onOpenRecording?(asset: string): void;
@@ -331,7 +333,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
             })}
 
             {/* the voice recordings, each a band under the Lip sync clips made of it */}
-            <RecordingBands timeline={timeline} slots={slots} recipes={recipes} pps={pps} onTrim={onRecordingTrim} onSelect={onSelect} onOpen={onOpenRecording} open={recordingOpen} />
+            <RecordingBands timeline={timeline} slots={slots} recipes={recipes} pps={pps} onTrim={onRecordingTrim} onBringBack={onBringBack} onSelect={onSelect} onOpen={onOpenRecording} open={recordingOpen} />
 
             {/* the end column: New clip, a voice recording, a long video, the three drops that add their clips after the last one.
                 After the last clip, and over the clips only while they run past the view (pinned at its right edge: at 1440 px
@@ -367,6 +369,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                 onOpen={onOpenSource}
                 onRemove={onRemoveSource}
                 onStretch={onStretchSource}
+                slots={slots}
+                onBringBack={onBringBack}
               />
             )}
 

@@ -1,6 +1,6 @@
 import type { Clip, RecipeInfo } from "../api";
 import type { Slot } from "./model";
-import { recordingInput } from "./track/RecordingBand";
+import { recordingInput, runFrom } from "./track/RecordingBand";
 
 /** One clip's part of a recording, and where it plays on the track. */
 export interface RecordingPart {
@@ -35,7 +35,8 @@ export function recordingPlace(slots: Slot[], recipes: RecipeInfo[], asset: stri
   const parts: RecordingPart[] = mine.map((s) => {
     const c = s.clip;
     const startMs = Math.round(Number(c.inputs[input.start] ?? 0) * 1000);
-    const lead = input.lead.reduce((sum, id) => sum + (Number(c.inputs[id]) || 0), 0) * 1000;
+    // inside a run of the recording, none: its Speech starts at does not apply there (runFrom)
+    const lead = runFrom(slots.map((x) => x.clip), recipes, c) ? 0 : input.lead.reduce((sum, id) => sum + (Number(c.inputs[id]) || 0), 0) * 1000;
     return { clip: c, number: s.index + 1, startMs, endMs: startMs + Math.round(Number(c.inputs[input.seconds] ?? 0) * 1000), trackMs: s.startMs + lead, clipFromMs: s.startMs, clipToMs: s.startMs + s.lengthMs };
   });
   const first = parts[0]!;

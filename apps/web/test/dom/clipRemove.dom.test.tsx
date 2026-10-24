@@ -49,14 +49,15 @@ describe("a clip removed within half a second of typing in its form, drawn", () 
     expect(saves.mustAsk()).toBe(false);
   });
 
-  it("does the same for each of several picked clips", async () => {
+  it("does the same for several picked clips, removed in one call (one step for Undo, card #75)", async () => {
     const came = answerClips();
+    fakeApi.on("POST /timelines/:id/clips/remove", ({ path, body }) => (came.push(`POST ${path} ${JSON.stringify(body)}`), { ok: true }));
     const { saves, m } = rig();
     saves.queue("zz-test-a", { prompt: "a" });
     saves.queue("zz-test-b", { prompt: "b" });
     m().removeMany.mutate(["zz-test-a", "zz-test-b"]);
     await waitFor(() => expect(m().removeMany.isSuccess).toBe(true));
-    expect(came).toEqual(["PATCH /clips/zz-test-a", "DELETE /clips/zz-test-a", "PATCH /clips/zz-test-b", "DELETE /clips/zz-test-b"]);
+    expect(came).toEqual(["PATCH /clips/zz-test-a", "PATCH /clips/zz-test-b", 'POST /timelines/zz-test-timeline/clips/remove {"ids":["zz-test-a","zz-test-b"]}']);
     expect(saves.pending.size).toBe(0);
   });
 });
