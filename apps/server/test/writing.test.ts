@@ -237,6 +237,11 @@ describe.skipIf(!hasFfmpeg)("a part of a sound", () => {
     const midWord = await soundPart(take, "wav", { start: 0, seconds: 2, durationMs: 8_000, after: 2 });
     expect(secondsOf(midWord)).toBeCloseTo(4, 1);
     expect(peakIn(midWord, 2.2, 4)).toBeLessThan(0.01);
+    // the recording going on in the next clip (a song): the words after the part handed over as they are, not faded
+    const goesOn = await soundPart(take, "wav", { start: 0, seconds: 2, durationMs: 8_000, after: 2, goesOn: true });
+    expect(secondsOf(goesOn)).toBeCloseTo(4, 1);
+    expect(peakIn(goesOn, 2.2, 2.9)).toBeGreaterThan(0.05);
+    expect(peakIn(goesOn, 3.05, 3.95)).toBeLessThan(0.01);
     // past the sound's end: silence to the length handed over
     const atEnd = await soundPart(take, "wav", { start: 5, seconds: 3, durationMs: 8_000, after: 2 });
     expect(secondsOf(atEnd)).toBeCloseTo(5, 1);

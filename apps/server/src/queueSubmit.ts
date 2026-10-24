@@ -683,7 +683,8 @@ async function uploadSound({ db, storage, upload, input, signal, sent }: Up, spe
   const asked = { start: Number(input[spec.window.start] ?? 0), seconds: Number(input[spec.window.seconds] ?? 8) };
   const even = Boolean(spec.window.even && input[spec.window.even]);
   const after = spec.window.after ?? 0;
-  const part = await soundPart(whole, extOf(asset.mime), { ...asked, durationMs: asset.duration_ms, even, after }).catch((err) => {
+  const goesOn = Boolean(spec.window.goesOn && input[spec.window.goesOn]);
+  const part = await soundPart(whole, extOf(asset.mime), { ...asked, durationMs: asset.duration_ms, even, after, goesOn }).catch((err) => {
     sent.warnings.push(`The part of the ${spec.label.toLowerCase()} could not be cut (${(err as Error).message}): the whole sound was used.`);
     return null;
   });

@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { newId, now } from "../src/db";
+import { newId, now, OWNER } from "../src/db";
 import { newAssetRow } from "../src/media";
 import { FFMPEG_TIMEOUT, ffmpegThere } from "./clipKit";
 import { get, sentView, withTakes, makeApp, type TestApp } from "./helpers";
@@ -310,6 +310,41 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     // nothing it can share: refused
     const res = await t.app.inject({ method: "POST", url: `/api/timelines/${tl.id}/recording/form`, payload: { asset: sound, inputs: { recordingSeconds: 3 } } });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("that never pauses (a song): each clip hands the recording on to the next, which starts where the clip before stops playing", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test song" });
+    const sound = await recording([tone(24)], 24000);
+    await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
+    await call("POST", `/api/timelines/${tl.id}/recording/cut`, { asset: sound, seconds: 8, snap: true });
+    const v = await view(tl.id);
+    const clips = v.clips as Array<{ id: string; inputs: Record<string, unknown> }>;
+    expect(clips.map((c) => [c.inputs.recordingStart, c.inputs.recordingSeconds])).toEqual([[0, 8], [8, 8], [16, 8]]);
+    const recipe = t.services.registry.recipe("h3.lipsync")!;
+    const planOf = (k: number) => t.services.timelines.plan(clips[k]!.id, recipe, clips[k]!.inputs, false, null, true);
+    // the recording goes on in the next clip for the first two, not for the last
+    expect((await planOf(0)).input.recordingGoesOn).toBe(true);
+    expect((await planOf(1)).input.recordingGoesOn).toBe(true);
+    expect((await planOf(2)).input.recordingGoesOn).toBeUndefined();
+
+    // clip 1 rendered 8.687 s long (its pad and the frame grid), first without the recording going on: clip 2 as it was cut
+    const made = { recording: sound, recordingStart: 0, recordingSeconds: 8, speechAt: 0 };
+    await t.db.insertInto("generations").values({ id: "zz-g1", owner_id: OWNER, recipe_id: "h3.lipsync", recipe_version: 1, family: "h3", inputs: JSON.stringify(made), resolved: "{}", gen_ms: 1, draft_id: null, created_at: now() } as never).execute();
+    await t.db.insertInto("assets").values(newAssetRow({
+      id: "zz-v1", kind: "video", origin: "generated", name: "zz-test song c1", file_key: "assets/zz/zz-v1", thumb_key: null, mime: "video/mp4", bytes: 1000,
+      width: 576, height: 1024, duration_ms: 8687, fps: 24, has_sound: 1, folder_id: null, generation_id: "zz-g1", kept_at: now(),
+    })).execute();
+    const asset = await t.db.selectFrom("assets").selectAll().where("id", "=", "zz-v1").executeTakeFirstOrThrow();
+    await t.services.timelines.takes.add(clips[0]!.id, asset, { headMs: 0, tailMs: 0 }, {});
+    let second = await planOf(1);
+    expect([second.input.recordingStart, second.input.recordingSeconds]).toEqual([8, 8]);
+    // made with the recording going on: its tail sang 8 to 8.687, so clip 2 starts there and still ends at 16
+    await t.db.updateTable("generations").set({ inputs: JSON.stringify({ ...made, recordingGoesOn: true }) }).where("id", "=", "zz-g1").execute();
+    second = await planOf(1);
+    expect(second.input.recordingStart).toBeCloseTo(8.687, 3);
+    expect(Number(second.input.recordingStart) + Number(second.input.recordingSeconds)).toBeCloseTo(16, 3);
+    // the clip's own form is left as the cut made it
+    expect((await view(tl.id)).clips[1].inputs).toMatchObject({ recordingStart: 8, recordingSeconds: 8 });
   });
 
   it("says its pauses, as it is cut at them", async () => {
