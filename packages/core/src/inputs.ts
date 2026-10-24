@@ -255,9 +255,12 @@ interface AudioInput extends Base {
    * `even`: the id of a toggle that evens out the part's loudness as it is cut (a quiet take guides a model weakly).
    * `after`: seconds of the sound handed over after the part, for a clip that outlasts the part to end on: the sound's
    * own pause when there is one, else the part's end faded out in 0.15 s, then silence (the server's soundPart).
+   * `goesOn`: the id of an internal toggle a timeline sets when the next clip's part carries on where this one's ends: the
+   * `after` seconds are then the sound itself, not faded, and that next clip starts its part where this clip's sound stops
+   * playing (TimelinePlan.recordingRun).
    * `fits`: how much of the sound one clip can hold (see PartFit); without it, the length input's own max.
    */
-  window?: { start: string; seconds: string; even?: string; after?: number; fits?: PartFit };
+  window?: { start: string; seconds: string; even?: string; after?: number; goesOn?: string; fits?: PartFit };
 }
 
 /**

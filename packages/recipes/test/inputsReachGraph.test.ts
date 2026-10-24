@@ -10,7 +10,7 @@ type Variant = Recipe<any>["variants"][number];
 
 /**
  * Settings the build does not read, each for its reason: what is read elsewhere is not a setting the graph shows.
- * Besides these, the start, length and loudness of a media input's part (its `window`) and the frames a joined clip
+ * Besides these, the start, length, loudness and going on of a media input's part (its `window`) and the frames a joined clip
  * gives (`framesFrom`) are the server's: it cuts the part before the build sees it.
  */
 const NOT_IN_GRAPH: Record<string, string> = {
@@ -23,10 +23,13 @@ const NOT_IN_GRAPH: Record<string, string> = {
   "h3.lipsync.turboIn": "a recording always takes the reference model, whose turbo LoRA is its own: the setting acts on a hybrid fine-tune only",
 };
 
-/** The inputs a media input's part is cut by on the server: its window's start, length and loudness, the frames a joined clip gives. */
+/**
+ * The inputs a media input's part is cut by on the server: its window's start, length, loudness and whether the sound goes on
+ * after it, the frames a joined clip gives.
+ */
 const serverRead = (r: Recipe<any>) =>
   new Set(r.inputs.flatMap((i) => [
-    ...("window" in i && i.window ? [i.window.start, i.window.seconds, ...("even" in i.window && i.window.even ? [i.window.even] : [])] : []),
+    ...("window" in i && i.window ? [i.window.start, i.window.seconds, ...("even" in i.window && i.window.even ? [i.window.even] : []), ...("goesOn" in i.window && i.window.goesOn ? [i.window.goesOn] : [])] : []),
     ...("framesFrom" in i && i.framesFrom ? [i.framesFrom] : []),
   ]));
 

@@ -26,7 +26,8 @@ export interface H3LipSync extends H3Video {
 /**
  * Seconds of the recording handed over after the part: a clip outlasts its words (a quarter second, the frame grid's
  * rounding, 4 s at least) and ends on the recording's own pause, not on the model's sound, which babbled on after the
- * words (the owner's renders, 2026-10-13). Where the recording goes on speaking, the server fades it out in 0.15 s.
+ * words (the owner's renders, 2026-10-13). Where the recording goes on speaking, the server fades it out in 0.15 s, unless
+ * the next clip carries the recording on (recordingGoesOn): then the tail is the recording itself.
  */
 const AFTER = 4;
 /** A quarter second after the last word, so that the frame grid's rounding never ends the clip on it. */
@@ -41,7 +42,7 @@ const SPEAKS = "The person speaks throughout, the lips moving with every word.";
 const recordingInputs: InputSpec[] = [
   {
     id: "recording", type: "audio", role: "sound", label: "Recording",
-    window: { start: "recordingStart", seconds: "recordingSeconds", even: "evenLoudness", after: AFTER, fits: { frames: H3_MAX_FRAMES, fps: H3_FPS, pad: PAD, min: 4, less: ["speechAt"] } },
+    window: { start: "recordingStart", seconds: "recordingSeconds", even: "evenLoudness", after: AFTER, goesOn: "recordingGoesOn", fits: { frames: H3_MAX_FRAMES, fps: H3_FPS, pad: PAD, min: 4, less: ["speechAt"] } },
     note: "what is said: the clip is made around it, the mouth follows it, and it is the clip's sound. One clip holds about 14.8 seconds (less the moment before the words, and the frames of a clip it continues); the part's ends snap to the pauses so that no word is cut",
   },
   { id: "recordingStart", type: "number", label: "Recording: start", min: 0, max: 600, step: 0.1, default: 0, unit: " s", showWhen: "recording" },
@@ -54,6 +55,9 @@ const recordingInputs: InputSpec[] = [
     id: "evenLoudness", type: "toggle", label: "Even out the loudness", default: true, showWhen: "recording", advanced: true,
     note: "the part is brought to a usual speaking level (-16 LUFS, measured as EBU R128) before it is used: a quiet take guides the mouth weakly",
   },
+  // set by a timeline when the next clip's part carries on from this one's end (a song): the clip's tail is the recording
+  // itself, sung, not faded out, and the next clip picks up where it stops (TimelinePlan.recordingRun)
+  { id: "recordingGoesOn", type: "toggle", label: "Recording goes on in the next clip", default: false, internal: true },
 ];
 
 /**

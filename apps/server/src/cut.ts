@@ -543,15 +543,18 @@ export function partOf(start: number, seconds: number, total: number | null): { 
  * quietly (the owner's sample sat at -37 dB) guided H3 weakly. `after` hands over that many seconds more, for a
  * clip that outlasts the part: the sound's own pause after the part (its room tone), faded out in its last 0.15 s
  * before the sound speaks again (at once when the part was ended mid-word), then silence, `after` seconds in all.
+ * `goesOn`: the next clip carries the sound on from where this clip stops, so the `after` seconds are the sound itself, not
+ * faded out (a song never pauses: faded, every join of its clips fell silent, then sang that tail again).
  */
-export async function soundPart(source: Media, ext: string, opts: { start: number; seconds: number; durationMs?: number | null; even?: boolean; after?: number }): Promise<Uint8Array> {
+export async function soundPart(source: Media, ext: string, opts: { start: number; seconds: number; durationMs?: number | null; even?: boolean; after?: number; goesOn?: boolean }): Promise<Uint8Array> {
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "part.wav");
     const { start, seconds } = partOf(opts.start, opts.seconds, opts.durationMs ? opts.durationMs / 1000 : null);
     const after = Math.max(0, opts.after ?? 0);
     const filters = opts.even ? ["loudnorm=I=-16:TP=-1.5:LRA=11"] : [];
-    if (after > 0) {
+    if (after > 0 && opts.goesOn) filters.push(`apad=whole_dur=${(seconds + after).toFixed(3)}`);
+    else if (after > 0) {
       const quiet = await quietAfter(input, start, seconds, after);
       // faded out by the end of the pause, so that the next word's first sound is not handed over with it
       if (quiet < after - 0.01) filters.push(`afade=t=out:st=${(seconds + Math.max(0, quiet - 0.15)).toFixed(3)}:d=0.15`);

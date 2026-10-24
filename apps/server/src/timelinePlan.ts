@@ -218,6 +218,7 @@ export class TimelinePlan {
     const plan: ClipPlan = { input: ownInputs(recipe, raw), sources: [], links: {}, mirror: [] };
     if (t.width && t.height) plan.canvas = { width: t.width, height: t.height };
     if (clip.joined === "continue" && i > 0) await this.carryOn(plan, all[i - 1]!, recipe, raw, finishedFrom, quick);
+    await this.recordingRun(plan, recipe, raw, all, i);
     const startSpec = recipe.inputs.find((s) => s.type === "image" && s.role === "start");
     if (startSpec && plan.input[startSpec.id] === FROM_PREVIOUS && !quick) {
       throw httpError("This clip extends the previous clip from its last frame, and that clip has no take yet.");
@@ -284,6 +285,46 @@ export class TimelinePlan {
       plan.sources.push({ asset: before.asset.id, role: "previous" });
       plan.links.prev = { take: before.take.id, at };
     }
+  }
+
+  /**
+   * A recording that runs on across clips (a song, Lip sync's parts end to end): a clip whose part the next clip's carries on
+   * hands over the recording itself after its part (the window's `goesOn`), not its end faded out; and a clip after one made
+   * so starts its part where that clip's sound stops playing, keeping its own end. A clip outlasts its part (the pad and the
+   * frame grid: 0.69 s at 8 s parts); faded, that tail fell silent while its mouth went on, and the next clip sang those
+   * words again (Timeline 24, 2026-10-24). A clip before made without it (before this, or the last of its run) is left as it is.
+   */
+  private async recordingRun(plan: ClipPlan, recipe: Recipe<any>, raw: Record<string, unknown>, all: Placed[], i: number) {
+    const spec = recipe.inputs.find((s) => s.type === "audio" && s.window?.goesOn);
+    if (spec?.type !== "audio" || !spec.window?.goesOn || typeof raw[spec.id] !== "string") return;
+    const w = spec.window;
+    const goesOn = w.goesOn!;
+    // a clip's part of the same recording, from its form (where the recording's cut put it)
+    const partOf = (inputs: Record<string, unknown>) => ({ start: Number(inputs[w.start]), seconds: Number(inputs[w.seconds]) });
+    const sameRecording = (p: Placed | undefined) => (p?.clip.recipe_id === recipe.id && (JSON.parse(p.clip.inputs) as Record<string, unknown>)[spec.id] === raw[spec.id] ? partOf(JSON.parse(p.clip.inputs) as Record<string, unknown>) : null);
+    const meets = (a: { start: number; seconds: number }, b: { start: number; seconds: number }) => Math.abs(a.start + a.seconds - b.start) <= 0.05;
+    const own = partOf(raw);
+    if (!Number.isFinite(own.start) || !Number.isFinite(own.seconds)) return;
+    const next = sameRecording(all[i + 1]);
+    if (next && meets(own, next)) plan.input[goesOn] = true;
+    // where the clip before's sound stops playing, in the recording: its part's start as it was rendered, plus how far into its
+    // file it plays, less what comes before its part there (the frames of the clip before it, the moment before the words)
+    const prior = all[i - 1];
+    const before = sameRecording(prior);
+    if (!before || !meets(before, own) || !prior?.active) return;
+    const genId = prior.active.asset.generation_id;
+    const made = genId ? await this.core.db.selectFrom("generations").select("inputs").where("id", "=", genId).executeTakeFirst() : undefined;
+    const was = made ? (JSON.parse(made.inputs) as Record<string, unknown>) : null;
+    if (!was?.[goesOn]) return;
+    const fps = w.fits?.fps ?? 24;
+    const lead = Math.round((w.fits?.less ?? []).reduce((sum, id) => sum + (Number(was[id]) || 0), 0) * fps) / fps;
+    const endMs = Math.min(plan.links.prev?.at ?? plays(prior.active).end, prior.active.asset.duration_ms ?? Infinity);
+    const reached = Number(was[w.start]) + (endMs - prior.active.take.head_ms) / 1000 - lead;
+    const end = own.start + own.seconds;
+    // nothing to skip, or so little left that the clip would be under a second: its part as it was cut
+    if (!Number.isFinite(reached) || reached <= own.start + 0.01 || end - reached < 1) return;
+    plan.input[w.start] = Math.round(reached * 1000) / 1000;
+    plan.input[w.seconds] = Math.round((end - reached) * 1000) / 1000;
   }
 
   /** The moment the clip before should hand over: before its frozen tail when it has one, else null. */
