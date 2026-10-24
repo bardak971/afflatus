@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -17,6 +18,24 @@ FILE.write("{}", 8);
 let asked: Array<{ url: string; auth?: string; range?: string }>;
 /** The slow file's request was given up on by Afflatus (its connection closed). */
 let slowDropped: boolean;
+const FILE_SHA = createHash("sha256").update(FILE).digest("hex").toUpperCase();
+/**
+ * A model whose files Civitai names in two ways (card #80, DaSiWa MiniMax H3 on 2026-10-25): its search calls them
+ * `…_int4` / `…_int8`, its version page `…_<file id>`. Same ids, sizes and hashes.
+ */
+const twoNames = (listed: boolean, files: Array<{ id: number; fp: string; sha: string; url: string }> = [
+  { id: 3262925, fp: "int4", sha: "A".repeat(64), url: "/files/big4" },
+  { id: 3263048, fp: "int8", sha: FILE_SHA, url: "/files/big8" },
+]) => ({
+  id: 77, name: "Hybrid Turbo v3", baseModel: "MiniMax H3", model: { name: "DaSiWa MiniMax H3", type: "Checkpoint" },
+  files: files.map((f) => ({
+    id: f.id, name: `DasiwaMinimaxH3_dasiwaHybridTurboV3_${listed ? f.fp : f.id}.safetensors`, type: "Model", sizeKB: FILE.length / 1024,
+    metadata: { fp: f.fp, format: "SafeTensor" }, hashes: { SHA256: f.sha }, downloadUrl: `${siteUrl}${f.url}`,
+  })),
+});
+/** The version page as Civitai gives it in the test at hand: a file it no longer lists is left out. */
+let versionPage: () => object;
+
 /** The cut file was cut already: it is sent whole from now on. */
 let cutOnce: boolean;
 let site: Server;
@@ -42,6 +61,7 @@ beforeEach(async () => {
   asked = [];
   slowDropped = false;
   cutOnce = false;
+  versionPage = () => twoNames(false);
   site = createServer((req, res) => {
     asked.push({ url: req.url ?? "", auth: req.headers.authorization, ...(req.headers.range ? { range: req.headers.range } : {}) });
     if (req.url === "/api/v1/model-versions/42") {
@@ -65,6 +85,14 @@ beforeEach(async () => {
     if (req.url === "/api/v1/models/9") {
       res.setHeader("content-type", "application/json");
       return res.end(JSON.stringify({ id: 9, name: "Some H3", type: "Checkpoint", modelVersions: [version(50, "v3"), version(49, "v2")] }));
+    }
+    if (req.url?.startsWith("/api/v1/models?")) {
+      res.setHeader("content-type", "application/json");
+      return res.end(JSON.stringify({ items: [{ id: 2877206, name: "DaSiWa MiniMax H3", type: "Checkpoint", modelVersions: [twoNames(true)] }], metadata: {} }));
+    }
+    if (req.url === "/api/v1/model-versions/77") {
+      res.setHeader("content-type", "application/json");
+      return res.end(JSON.stringify(versionPage()));
     }
     if (req.url === "/api/v1/model-versions/50") {
       res.setHeader("content-type", "application/json");
@@ -262,6 +290,40 @@ describe("fetching a missing model file into ComfyUI", () => {
     expect((await post(t.app, "/api/downloads/nope/again", {})).statusCode).toBe(404);
   });
 
+  it("of a file Civitai names otherwise on its version page than in its search: found by its hash and id, saved under the name seen", async () => {
+    await start(true);
+    await on();
+    // picked in Find models as Nicolas did: the int8 file of the search's card, Get on this PC (getOnPc's body)
+    const card = (await get(t.app, "/api/browse/civitai?q=dasiwa")).json().items[0];
+    const f = card.versions[0].files.find((x: { name: string }) => x.name.endsWith("_int8.safetensors"));
+    expect(f.source).toEqual({ kind: "civitai", version: 77, pick: "DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors", fileId: 3263048, sha256: FILE_SHA });
+    const { version, pick, fileId, sha256 } = f.source;
+    const res = await post(t.app, "/api/downloads", { file: f.name, folder: "diffusion_models", civitai: version, pick, fileId, sha256 });
+    expect(res.statusCode).toBe(200);
+    await done(res.json().id);
+    expect(asked.map((a) => a.url)).toContain("/files/big8");
+    expect(asked.map((a) => a.url)).not.toContain("/files/big4");
+    // under the name Find models showed: "on this PC" and the forms know it by that one
+    expect(fake.installed).toEqual([{ folder: "diffusion_models", file: "DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors", bytes: FILE.length }]);
+  });
+
+  it("of a file its version no longer lists: refused in words that say what to do, with 409", async () => {
+    await start(true);
+    await on();
+    versionPage = () => twoNames(false, [{ id: 3262925, fp: "int4", sha: "A".repeat(64), url: "/files/big4" }]);
+    const pick = "DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors";
+    for (const exact of [{ fileId: 3263048, sha256: FILE_SHA }, { fileId: 3263048 }, {}]) {
+      const res = await post(t.app, "/api/downloads", { file: pick, folder: "diffusion_models", civitai: 77, pick, ...exact });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toBe(`Civitai no longer lists ${pick} for this version: open it again in Find models.`);
+    }
+    // and a ComfyUI that is gone from the settings
+    const gone = await post(t.app, "/api/downloads", { file: pick, folder: "diffusion_models", civitai: 77, pick, machine: "nope" });
+    expect(gone.statusCode).toBe(409);
+    expect(gone.json().error).toContain("no longer in Settings › ComfyUI");
+    expect(fake.installed).toEqual([]);
+  });
+
   it("is never done while lookups are off either: with lookups off Afflatus contacts neither Civitai nor Hugging Face", async () => {
     await start(true);
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: true } });
@@ -384,8 +446,9 @@ describe("a model from a link", () => {
     expect((await get(t.app, "/api/models/checkpoints/pages")).json().items).toEqual({ "my_h3.safetensors": { url: "https://civitai.com/models/9?modelVersionId=50", title: "Some H3 · v3" } });
     // once there, the link says so
     expect((await resolve("https://civitai.com/models/9")).json().have).toEqual({});
+    // a name the version does not have, not even the closest: refused, 409 (the route is there, Civitai's answer changed)
     const none = await post(t.app, "/api/downloads", { file: "x.safetensors", folder: "checkpoints", civitai: 50, pick: "no_such_file.safetensors" });
-    expect(none.statusCode).toBe(404);
+    expect(none.statusCode).toBe(409);
   });
 });
 
@@ -604,7 +667,7 @@ describe("fetching a model file into one of several ComfyUIs", () => {
     try {
       await on();
       await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ id: "m1", url: fake.url }, { id: "m2", name: "Second GPU", url: second.url }] } });
-      expect((await post(t.app, "/api/downloads", { file: "soft_light-v2.safetensors", folder: "loras", civitai: 42, machine: "m9" })).statusCode).toBe(404);
+      expect((await post(t.app, "/api/downloads", { file: "soft_light-v2.safetensors", folder: "loras", civitai: 42, machine: "m9" })).statusCode).toBe(409);
       const d = (await post(t.app, "/api/downloads", { file: "soft_light-v2.safetensors", folder: "loras", civitai: 42, machine: "m2" })).json();
       expect(d.machine).toBe("m2");
       await done(d.id);

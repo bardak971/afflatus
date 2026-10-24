@@ -269,7 +269,9 @@ const pretendSite = createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(value));
   };
-  const version = (file: string) => ({ id: 1001, name: "v1 (pretend)", baseModel: "Demo", trainedWords: ["demo"], model: { name: "Pretend model" }, files: [{ name: file, type: "Model", primary: true, sizeKB: PRETEND_BYTES / 1024, downloadUrl: `${self}/files/demo` }] });
+  // as the real Civitai, the search names the file otherwise than the version's page (`<words>.safetensors` there,
+  // `model.safetensors` here) under the same id: a download finds it by that id (card #80)
+  const version = (file: string) => ({ id: 1001, name: "v1 (pretend)", baseModel: "Demo", trainedWords: ["demo"], model: { name: "Pretend model" }, files: [{ id: 90001, name: file, type: "Model", primary: true, sizeKB: PRETEND_BYTES / 1024, downloadUrl: `${self}/files/demo` }] });
   if (url.pathname === "/api/v1/models") {
     const file = `${(url.searchParams.get("query") ?? "model").trim().replace(/\s+/g, "_")}.safetensors`;
     return json({ items: [{ id: 501, name: "Pretend model (the demo's Civitai)", type: "Checkpoint", modelVersions: [version(file)] }] });

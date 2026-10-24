@@ -17,7 +17,7 @@ describe("a removed machine's download places", () => {
     expect(res.statusCode).toBe(200);
     expect(await placesNow()).toEqual({ m1: { loras: "C:\ComfyUI\models\loras" }, gone: { vae: "/workspace/extra/vae" } });
     // choosing one still needs its ComfyUI to say it reads from there
-    expect((await put("/api/downloads/places", { machine: "gone", folder: "loras", path: "/workspace/extra/loras" })).statusCode).toBe(404);
+    expect((await put("/api/downloads/places", { machine: "gone", folder: "loras", path: "/workspace/extra/loras" })).statusCode).toBe(409);
   });
 
   it("go with the machine when it is taken out", async () => {

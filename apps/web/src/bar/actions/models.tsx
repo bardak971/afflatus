@@ -1,7 +1,7 @@
 import { Copy, Download as DownloadIcon, ExternalLink, FolderOpen, ListPlus, RotateCcw, Search, Server, Square, User, X } from "lucide-react";
 import { api, type BrowseCard, type BrowseFile, type Download, type FileWhere, type UpdateRow } from "../../api";
 import { ask, askChoice } from "../../Confirm";
-import { addPicked, clearPicked, dropPicked, foldersFor, getOnPc, openFindModels, openFindModelsOn, pickedNow, pickedOf, type FindTarget } from "../../findModels/store";
+import { addPicked, clearPicked, dropPicked, foldersFor, getOnPc, openFindModels, openFindModelsOn, pickedNow, pickedOf, thisPcTarget, civitaiExact, type FindTarget } from "../../findModels/store";
 import { plural } from "../../format";
 import { toFind, type BrowseAsk } from "../browseSearch";
 import { retype } from "./retype";
@@ -20,13 +20,7 @@ import type { Action, BarCtx } from "./ctx";
  */
 
 /** Find models as Settings › Models opens it: what is picked downloads onto this PC (the bar's `find models`, a pasted link's Tab). */
-export const onThisPc = (x: BarCtx): FindTarget => ({
-  what: "this PC", action: "Get on this PC", pc: true,
-  add: async (files) => {
-    await getOnPc(files);
-    void x.client.invalidateQueries({ queryKey: queryKeys.downloads() });
-  },
-});
+export const onThisPc = (x: BarCtx): FindTarget => thisPcTarget(x.client);
 
 /** A ComfyUI a download can go to: this PC (the first one, no id) or another, by its id. */
 type Where = { id?: string; name: string };
@@ -53,7 +47,7 @@ async function download(x: BarCtx, card: BrowseCard, version: string, f: BrowseF
     await api.startDownload({
       file: f.name, folder, page: { url: page, title: card.site === "civitai" ? `${card.name} · ${card.versions.find((v) => v.id === version)?.name ?? version}` : card.id },
       ...(to.id ? { machine: to.id } : {}),
-      ...(f.source.kind === "civitai" ? { civitai: f.source.version, pick: f.source.pick } : { url: f.source.url }),
+      ...(f.source.kind === "civitai" ? { civitai: f.source.version, pick: f.source.pick, ...civitaiExact(f.source) } : { url: f.source.url }),
     });
     void x.client.invalidateQueries({ queryKey: queryKeys.downloads() });
     x.good(`Downloading ${f.name}`, `Into ${folder} on ${to.name}. Type ! in the bar to follow it.`);
@@ -217,13 +211,13 @@ export function pickedActions(x: BarCtx): Action[] {
 }
 
 /** A missing file's source: its own address, else the file of exactly its name on Hugging Face, else an exact match on Civitai. */
-async function sourceOf(m: { file: string; folder: string | null; url?: string }): Promise<{ from: { url: string } | { civitai: number; pick: string }; bytes: number } | null> {
+async function sourceOf(m: { file: string; folder: string | null; url?: string }): Promise<{ from: { url: string } | { civitai: number; pick: string; sha256?: string; fileId?: number }; bytes: number } | null> {
   if (m.url) return { from: { url: m.url }, bytes: 0 };
   const found = await api.civitaiFind(m.file, m.folder).catch(() => null);
   const hf = found?.exact.find((h) => !h.gated);
   if (hf) return { from: { url: hf.url }, bytes: 0 };
   const civ = found?.items.find((c) => c.exact && c.fits && c.versionId);
-  return civ ? { from: { civitai: civ.versionId!, pick: civ.file }, bytes: civ.bytes } : null;
+  return civ ? { from: { civitai: civ.versionId!, pick: civ.file, ...civitaiExact(civ) }, bytes: civ.bytes } : null;
 }
 
 /** `> get missing files`: the open form's missing model files looked up, then downloaded onto this PC after asking (with their total). */

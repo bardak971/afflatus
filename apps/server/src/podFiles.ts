@@ -2,7 +2,7 @@ import { fileName } from "./media";
 import { civitaiVersion } from "./civitai";
 import type { Comfy } from "./comfy";
 import { filesIn } from "@afflatus/comfy";
-import { isOfficialFile } from "@afflatus/core";
+import { isOfficialFile, type PresetFile } from "@afflatus/core";
 import type { Db } from "./db";
 import { PASSING, type Downloads } from "./downloads";
 import { stat } from "node:fs/promises";
@@ -50,7 +50,7 @@ export interface PodFileWant {
   folder: string;
   /** Where it is had, when the caller knows (a job's missing file, a preset's or a set's file). */
   url?: string;
-  civitai?: { version: number; pick?: string };
+  civitai?: PresetFile["civitai"];
   /** Bytes, when known. */
   size?: number;
 }
@@ -60,7 +60,7 @@ interface Entry extends PodFileView {
   needAt: number;
   source?: PodSource | null;
   url?: string;
-  civitai?: { version: number; pick?: string };
+  civitai?: PresetFile["civitai"];
   downloadId?: string;
   upload?: AbortController;
   /** When its bytes started coming, for its speed. */
@@ -637,7 +637,7 @@ export class PodFiles {
     const settings = await this.d.settings().catch(() => null);
     if (settings?.civitaiLookups) {
       if (src.kind === "civitai") {
-        const found = await civitaiVersion(src.version, src.pick ?? fileName(f.file), settings.civitaiKey, src.sha256).catch(() => null);
+        const found = await civitaiVersion(src.version, src.pick ?? fileName(f.file), settings.civitaiKey, src).catch(() => null);
         if (found?.file.sizeKB) return Math.round(found.file.sizeKB * 1024);
       } else if (src.kind === "url" && measureKind(src) === "hf") {
         // judged as any address fetched on a user's say-so (outbound.ts), redirects too; the size is on the first answer
@@ -851,7 +851,7 @@ export class PodFiles {
       let total = e.total;
       if (src.kind === "civitai") {
         // a version found by this computer's copy's hash: its file of these bytes, not the one of the closest name
-        const found = await civitaiVersion(src.version, src.pick ?? name, settings.civitaiKey, src.sha256);
+        const found = await civitaiVersion(src.version, src.pick ?? name, settings.civitaiKey, src);
         if (!found?.file.downloadUrl) throw new Error("Civitai lists no file of that version to download");
         source = found.file.downloadUrl;
         headers = settings.civitaiKey ? { Authorization: `Bearer ${settings.civitaiKey}` } : undefined;

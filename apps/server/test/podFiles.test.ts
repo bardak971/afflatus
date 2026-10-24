@@ -430,11 +430,11 @@ describe("where a pod's file comes from", () => {
     });
 
     it("takes a version's file by its hash, not by the name it has here", async () => {
-      expect((await civitaiVersion(56, "renamed_by_me.safetensors", "", FP8))?.file.name).toBe("mine_fp8.safetensors");
+      expect((await civitaiVersion(56, "renamed_by_me.safetensors", "", { sha256: FP8 }))?.file.name).toBe("mine_fp8.safetensors");
       // by the name only with no hash: the closest name, its main file on a tie
       expect((await civitaiVersion(56, "renamed_by_me.safetensors", ""))?.file.name).toBe("mine.safetensors");
       // a hash none of its files has: none of them
-      expect(await civitaiVersion(56, "mine.safetensors", "", "C".repeat(64))).toBeNull();
+      expect(await civitaiVersion(56, "mine.safetensors", "", { sha256: "C".repeat(64) })).toBeNull();
     });
 
     it("keeps a lookup that found nothing for a day; the lists ask no site at all", async () => {

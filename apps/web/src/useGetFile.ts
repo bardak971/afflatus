@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isOfficialFile } from "@afflatus/core";
 import { api } from "./api";
+import { civitaiExact } from "./findModels/store";
 import { useRecipes, useSettings } from "./data";
 import { siteName } from "./format";
 import { queryKeys } from "./queryKeys";
@@ -21,8 +22,8 @@ export type Find = Awaited<ReturnType<typeof api.civitaiFind>>;
 export const NO_ROUTE = "Nothing can download into this ComfyUI: Afflatus cannot write its model folders, it has no Afflatus node pack 0.11 or newer loaded, and ComfyUI-Manager was not found. Set ComfyUI's folder in Settings › ComfyUI (ComfyUI on this machine), restart ComfyUI to load the node pack, or install ComfyUI-Manager (Settings › Models › Missing models says how).";
 /** What is said before a download that ComfyUI-Manager would do: it holds a file in RAM before writing it. */
 export const MANAGER_CAUTION = "Downloads go through ComfyUI-Manager, which holds a file from anywhere but Hugging Face in RAM before writing it: over 1 GB it may fail. To download straight to disk, set ComfyUI's folder in Settings › ComfyUI (ComfyUI on this machine), or restart ComfyUI to load the updated Afflatus node pack."
-/** Where a download comes from: the address, or a Civitai version. */
-export type From = { url: string } | { civitai: number };
+/** Where a download comes from: the address, or a Civitai version (with its file's hash and id when a search found it). */
+export type From = { url: string } | { civitai: number; sha256?: string; fileId?: number };
 /** The download to offer first, and what it is. */
 export interface Best { key: string; from: From; what: string; tip?: string; page?: string; bytes?: number }
 
@@ -119,7 +120,7 @@ function bestOf({ fetching, url, civitai, source, data }: { fetching: boolean; u
   if (cv) {
     return {
       key: `cv:${cv.url}`,
-      from: { civitai: cv.versionId! },
+      from: { civitai: cv.versionId!, ...civitaiExact(cv) },
       // the model's name, for a close one: the link is what is offered, and "close name" alone left it to guess which
       what: cv.exact ? `exact match on ${siteName(cv.site)}` : `a file with a close name is on ${siteName(cv.site)}: ${cv.name}`,
       page: cv.url,

@@ -23,8 +23,8 @@ import { readSettings } from "./settings";
 
 export type PodSource =
   | { kind: "url"; url: string }
-  /** `sha256`: the file of the version with these bytes (a version found by the file's hash), whatever its name. */
-  | { kind: "civitai"; version: number; pick?: string; sha256?: string }
+  /** `sha256`, `fileId`: the file of the version with these bytes, or of Civitai's id, whatever its name. */
+  | { kind: "civitai"; version: number; pick?: string; sha256?: string; fileId?: number }
   | { kind: "upload"; path: string };
 
 const HF_HOSTS = ["huggingface.co", "hf.co"];
@@ -121,7 +121,10 @@ const updatesOf = (l: SourceLookup, folder: string) =>
 /** A source given as a PresetFile's (an address, or a Civitai version and which of its files). */
 export function presetSource(f: Pick<PresetFile, "url" | "civitai">): PodSource | null {
   if (f.url) return { kind: "url", url: f.url };
-  if (f.civitai) return { kind: "civitai", version: f.civitai.version, ...(f.civitai.pick ? { pick: f.civitai.pick } : {}) };
+  if (f.civitai) {
+    const { version, pick, sha256, fileId } = f.civitai;
+    return { kind: "civitai", version, ...(pick ? { pick } : {}), ...(sha256 ? { sha256 } : {}), ...(fileId ? { fileId } : {}) };
+  }
   return null;
 }
 
@@ -192,7 +195,7 @@ async function sameBytes(l: SourceLookup, want: { file: string; folder: string }
   const page = (await lookUpPage(l.db, want.folder, want.file).catch(() => null))?.page;
   const versions = [...new Set([updated, page ? Number(CIVITAI_PAGE.exec(page.url)?.[1] ?? 0) : 0].filter((v): v is number => Boolean(v)))];
   for (const version of versions) {
-    const found = await civitaiVersion(version, pick, settings.civitaiKey, row.sha256).catch(() => null);
+    const found = await civitaiVersion(version, pick, settings.civitaiKey, { sha256: row.sha256 }).catch(() => null);
     if (found?.file.hashes?.SHA256?.toUpperCase() !== row.sha256) continue;
     await keep({ civitai_version: version, hf_url: null });
     return { kind: "civitai", version, pick, sha256: row.sha256 };

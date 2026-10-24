@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { ChevronRight, Download as DownloadIcon } from "lucide-react";
 import { folderOfFileInput } from "@afflatus/core";
 import { api } from "../../api";
+import { civitaiExact } from "../../findModels/store";
 import { fileLabel, plural, size } from "../../format";
 import { CivitaiMatch, civitaiSays, civitaiTip, DownloadRow, HfMatch } from "../../GetFile";
 import { Select } from "../../Select";
@@ -144,7 +145,7 @@ export function MissingFile({ f, m, hints, where }: { f: MissingFileOf; m: Mappi
                 {moreCivitai.map((c) => (
                   <CivitaiMatch key={c.url} m={c} folder={folder}>
                     {fetching && c.versionId && (c.fits || c.exact) && !c.have && (
-                      <Button size="sm" disabled={busy || noRoute} data-tip={why ?? civitaiTip(c, f.file)} onClick={() => download({ civitai: c.versionId! })} className="shrink-0">
+                      <Button size="sm" disabled={busy || noRoute} data-tip={why ?? civitaiTip(c, f.file)} onClick={() => download({ civitai: c.versionId!, ...civitaiExact(c) })} className="shrink-0">
                         <DownloadIcon size={13} /> {c.exact ? "Download" : "Download as this filename"}
                       </Button>
                     )}

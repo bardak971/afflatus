@@ -10,7 +10,7 @@ import { Select } from "../Select";
 import { Button, CloseButton, cx } from "../ui";
 import { FileState, GoesTo } from "../DownloadsLine";
 import { useDownloads } from "../useGetFile";
-import { getOnPc, type FindTarget, type PickedFile } from "./store";
+import { getOnPc, refusedSaid, type FindTarget, type PickedFile } from "./store";
 
 /**
  * Picked: what goes where the browser was opened for, each file with where it comes from and its size, what they come to
@@ -36,7 +36,7 @@ export function Tray({ files, target, onRemove, onClear, onDone, dropping, onOve
   const toGet = target.pc ? files.filter((f) => !mine(f)) : files;
   const bytes = toGet.reduce((n, f) => n + (f.size ?? 0), 0);
   const estimate = toGet.length ? target.estimate?.(toGet) ?? null : null;
-  const add = useMutation({ mutationFn: async () => target.add(toGet), onSuccess: () => (target.pc ? void client.invalidateQueries({ queryKey: queryKeys.downloads() }) : onDone()), onError: sayFailed("Not added") });
+  const add = useMutation({ mutationFn: async () => target.add(toGet), onSuccess: () => (target.pc ? void client.invalidateQueries({ queryKey: queryKeys.downloads() }) : onDone()), onError: sayFailed(target.pc ? "Not downloaded" : "Not added") });
   // the files into a Model set as its own files (the set saved as it is, plus these)
   const sets = useQuery({ queryKey: queryKeys.modelSets.all(), queryFn: ({ signal }) => api.modelSets({ signal }), staleTime: 30_000 });
   const [toSet, setToSet] = useState("");
@@ -59,8 +59,7 @@ export function Tray({ files, target, onRemove, onClear, onDone, dropping, onOve
     onSuccess: (refused) => {
       if (!refused.length) return onDone();
       for (const f of files) if (!refused.some((r) => r.file === f)) onRemove(f);
-      const why = refused.map(({ file, error }) => `${file.file}: ${error instanceof Error ? error.message : String(error)}`).join("; ");
-      sayFailed(`${plural(refused.length, "file")} not downloaded`)(new Error(why));
+      sayFailed(`${plural(refused.length, "file")} not downloaded`)(new Error(refusedSaid(refused)));
     },
     onError: sayFailed("Not downloaded"),
     onSettled: () => void client.invalidateQueries({ queryKey: queryKeys.downloads() }),

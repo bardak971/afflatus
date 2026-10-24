@@ -290,6 +290,9 @@ export interface CivitaiFind {
   versionId: number | null;
   file: string;
   bytes: number;
+  /** That file's SHA-256 and Civitai's id for it, when the search gives them: the download asks for it by these (card #80). */
+  sha256?: string;
+  fileId?: number;
   /** The site that has it: civitai.com, or civitai.red. */
   site: string;
   /** It is the kind of model the folder holds (a workflow found by the same words is not). */
@@ -346,7 +349,7 @@ export interface DeployFile {
   file: string;
   folder: string;
   url?: string;
-  civitai?: { version: number; pick?: string; page?: string };
+  civitai?: { version: number; pick?: string; page?: string; sha256?: string; fileId?: number };
   via: FileVia | null;
   /** Bytes, when known. */
   size: number | null;
@@ -363,7 +366,8 @@ export interface DeployModels {
 }
 
 /** Find models (the server's browse.ts): where a browsed file comes from. */
-export type BrowseSource = { kind: "civitai"; version: number; pick: string } | { kind: "url"; url: string };
+/** A Civitai file by its name as listed, and by its SHA-256 and Civitai's id when known (its version page may name it otherwise). */
+export type BrowseSource = { kind: "civitai"; version: number; pick: string; fileId?: number; sha256?: string } | { kind: "url"; url: string };
 /** What the user has of a browsed file already: this PC's file (same SHA-256, or name), a Model set holding it. */
 export type BrowseHave = { kind: "pc"; folder: string; file: string } | { kind: "set"; name: string };
 

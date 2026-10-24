@@ -45,8 +45,14 @@ export const viaOf = (f: BrowseFile): DeployFile["via"] =>
 /** A browsed file as picked, in the folder given (its own guess, or the user's). */
 export const pickedOf = (f: BrowseFile, card: BrowseCard, version: string, folder = f.folder ?? ""): PickedFile => ({
   file: f.name, folder, via: viaOf(f), size: f.bytes || null, from: card.site === "civitai" ? `${card.name} · ${version}` : card.id,
-  ...(f.source.kind === "civitai" ? { civitai: { version: f.source.version, pick: f.source.pick, page: `${card.page}?modelVersionId=${f.source.version}` } } : { url: f.source.url }),
+  ...(f.source.kind === "civitai" ? { civitai: { version: f.source.version, pick: f.source.pick, page: `${card.page}?modelVersionId=${f.source.version}`, ...civitaiExact(f.source) } } : { url: f.source.url }),
 });
+
+/**
+ * A Civitai file's SHA-256 and Civitai's id for it, when known: they find it on its version's page, which may name it
+ * otherwise than the list it was picked from (card #80).
+ */
+export const civitaiExact = (c: { sha256?: string; fileId?: number }): { sha256?: string; fileId?: number } => ({ ...(c.sha256 ? { sha256: c.sha256 } : {}), ...(c.fileId ? { fileId: c.fileId } : {}) });
 
 /** The ComfyUI folders a file without one can be put in, until the server says its ComfyUI's own (and when it does not answer). */
 export const FOLDERS: string[] = [...USUAL_FOLDERS];
@@ -63,9 +69,25 @@ export const foldersFor = (client: QueryClient, machine?: string): Promise<strin
  * they stay picked for another try (a file started twice would download twice).
  */
 export async function getOnPc(files: PickedFile[]): Promise<Array<{ file: PickedFile; error: unknown }>> {
-  const tried = await Promise.allSettled(files.map((f) => api.startDownload({ file: f.file, folder: f.folder, ...(f.civitai ? { civitai: f.civitai.version, ...(f.civitai.pick ? { pick: f.civitai.pick } : {}) } : { url: f.url! }) })));
+  const tried = await Promise.allSettled(files.map((f) => api.startDownload({ file: f.file, folder: f.folder, ...(f.civitai ? { civitai: f.civitai.version, ...(f.civitai.pick ? { pick: f.civitai.pick } : {}), ...civitaiExact(f.civitai) } : { url: f.url! }) })));
   return tried.flatMap((t, i) => (t.status === "rejected" ? [{ file: files[i]!, error: t.reason as unknown }] : []));
 }
+
+/** The files getOnPc did not start, each with why, as a banner's words. */
+export const refusedSaid = (refused: Array<{ file: PickedFile; error: unknown }>): string =>
+  refused.map(({ file, error }) => `${file.file}: ${error instanceof Error ? error.message : String(error)}`).join("; ");
+
+/**
+ * Find models opened to download onto this PC (Settings › Models, the command bar): its button fails when a file was
+ * refused, naming each with why, so the tray's banner says it (a refused download was said nowhere before).
+ */
+export const thisPcTarget = (client: QueryClient): FindTarget => ({
+  what: "this PC", action: "Get on this PC", pc: true,
+  add: async (files) => {
+    const refused = await getOnPc(files).finally(() => void client.invalidateQueries({ queryKey: queryKeys.downloads() }));
+    if (refused.length) throw new Error(refusedSaid(refused));
+  },
+});
 
 /** The browser's own state, kept when it closes (Esc, a click on its ✕): opened again, it is where it was. */
 interface Panel {
