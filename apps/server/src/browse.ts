@@ -298,17 +298,45 @@ export class PageStore<T> {
   forget(): void {
     this.pages.clear();
   }
+  /** How many pages are kept now (for the tests). @internal */
+  get size(): number {
+    return this.pages.size;
+  }
   private put(key: string, ask: () => Promise<T>): Promise<T> {
     const got = ask();
     this.pages.delete(key);
-    this.pages.set(key, { at: this.clock(), got });
+    const now = this.clock();
+    this.pages.set(key, { at: now, got });
     got.catch(() => { if (this.pages.get(key)?.got === got) this.pages.delete(key); });
-    for (const old of this.pages.keys()) {
-      if (this.pages.size <= this.most) break;
+    // in the order they were put: those past their time first (else they stayed until 60 were kept), then the oldest beyond the most
+    for (const [old, page] of this.pages) {
+      if (now - page.at < this.keepMs && this.pages.size <= this.most) break;
       this.pages.delete(old);
     }
     return got;
   }
+}
+
+/**
+ * A page as it is kept: only what its cards read. Civitai sends each model's description, every version's pictures with their
+ * prompts and settings, and much more; 60 pages of that were held for 5 minutes for a picture, a few names and the files.
+ */
+export function civitaiKept(page: CivPage | null): CivPage | null {
+  if (!page) return page;
+  const items = (page.items ?? []).map((m): CivModel => {
+    // the card's picture, the only one read (thumbOf): the first of all its versions' pictures, kept with the first version
+    const pic = (m.modelVersions ?? []).flatMap((v) => v.images ?? [])[0];
+    return {
+      id: m.id, name: m.name, type: m.type, creator: { username: m.creator?.username }, stats: { downloadCount: m.stats?.downloadCount, thumbsUpCount: m.stats?.thumbsUpCount },
+      allowCommercialUse: m.allowCommercialUse, allowNoCredit: m.allowNoCredit, allowDerivatives: m.allowDerivatives, nsfw: m.nsfw, tags: m.tags,
+      modelVersions: (m.modelVersions ?? []).map((v, i) => ({
+        id: v.id, name: v.name, baseModel: v.baseModel, publishedAt: v.publishedAt, trainedWords: v.trainedWords?.slice(0, 20),
+        files: (v.files ?? []).map((f) => ({ name: f.name, sizeKB: f.sizeKB, type: f.type, primary: f.primary, metadata: f.metadata && { fp: f.metadata.fp, size: f.metadata.size, format: f.metadata.format }, hashes: { SHA256: f.hashes?.SHA256 } })),
+        images: i === 0 && pic ? [{ url: pic.url, type: pic.type }] : [],
+      })),
+    };
+  });
+  return { items, metadata: { nextCursor: page.metadata?.nextCursor } };
 }
 
 type CivPage = { items?: CivModel[]; metadata?: { nextCursor?: string | number } };
@@ -329,7 +357,7 @@ export const forgetPages = () => {
  */
 const civitaiPage = (path: string) => {
   const deadline = AbortSignal.timeout(PAGE_DEADLINE_MS);
-  return civitaiGet<CivPage>(path, "", deadline).catch((err: unknown) => {
+  return civitaiGet<CivPage>(path, "", deadline).then(civitaiKept, (err: unknown) => {
     throw deadline.aborted ? httpError(`Civitai did not answer in ${PAGE_DEADLINE_MS / 1000} s.`, 504) : err;
   });
 };
@@ -371,7 +399,12 @@ const huggingFacePage = async (params: URLSearchParams, token: string): Promise<
   if (!res?.ok) throw httpError(deadline.aborted ? `Hugging Face did not answer in ${PAGE_DEADLINE_MS / 1000} s.` : "Hugging Face did not answer.", deadline.aborted ? 504 : 502);
   const repos = (await res.json().catch(() => [])) as HfRepo[];
   const next = /<[^>]*[?&]cursor=([^&>]+)[^>]*>;\s*rel="next"/.exec(res.headers.get("link") ?? "")?.[1] ?? null;
-  return { repos: Array.isArray(repos) ? repos : [], next: next ? decodeURIComponent(next) : null };
+  // kept with only what its cards read (huggingFaceCard): a repository's every file is listed, and only its model files count
+  const kept = (Array.isArray(repos) ? repos : []).map((r): HfRepo => ({
+    id: r.id, downloads: r.downloads, likes: r.likes, lastModified: r.lastModified, gated: r.gated, tags: r.tags?.filter((t) => t.startsWith("base_model:")),
+    library_name: r.library_name, pipeline_tag: r.pipeline_tag, siblings: r.siblings?.filter((x) => isModelFile(x.rfilename)).map((x) => ({ rfilename: x.rfilename })),
+  }));
+  return { repos: kept, next: next ? decodeURIComponent(next) : null };
 };
 
 /** A Server-Timing entry (DevTools' Timing tab): its name, how long, and what it was. */

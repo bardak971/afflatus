@@ -9,7 +9,7 @@ export function useEditorPanels() {
   const [selected, setSelected] = useState<string | null>(null);
   /** The clips picked with Ctrl + click on the track, to render together. */
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [musicOpen, setMusicOpen] = useState(false);
+  const [musicOpen, setMusic] = useState(false);
   /** The clip whose join with the clip before is open in the column (its dot on the track was clicked). */
   const [joinOpen, setJoinOpen] = useState<string | null>(null);
   /** The source lane is open in the column. */
@@ -19,7 +19,7 @@ export function useEditorPanels() {
   /** A clip selected, its panel open in place of the music's. */
   const select = (clip: string | null) => {
     setSelected(clip);
-    setMusicOpen(false);
+    setMusic(false);
     setJoinOpen(null);
     setSourceOpen(false);
     setRecordingOpen(null);
@@ -27,7 +27,7 @@ export function useEditorPanels() {
   /** The source lane, opened in the column: no clip selected meanwhile. */
   const openSource = () => {
     setSelected(null);
-    setMusicOpen(false);
+    setMusic(false);
     setJoinOpen(null);
     setRecordingOpen(null);
     setSourceOpen(true);
@@ -35,15 +35,24 @@ export function useEditorPanels() {
   /** A recording opened as the source is: its stage and its panel, no clip selected meanwhile. */
   const openRecording = (asset: string) => {
     setSelected(null);
-    setMusicOpen(false);
+    setMusic(false);
     setJoinOpen(null);
     setSourceOpen(false);
     setRecordingOpen(asset);
   };
+  /**
+   * The music's panel opened or closed. Opened, it closes the recording, whose panel the column shows before it: a drop on
+   * the music lane, Show music or the Overview's music button did nothing while one was open. The source's keeps the
+   * column, as it did.
+   */
+  const setMusicOpen = (on: boolean) => {
+    if (on) setRecordingOpen(null);
+    setMusic(on);
+  };
   /** The join before a clip, opened in the column: the clip is selected with it. */
   const openJoin = (clip: string) => {
     setSelected(clip);
-    setMusicOpen(false);
+    setMusic(false);
     setRecordingOpen(null);
     setJoinOpen(clip);
   };

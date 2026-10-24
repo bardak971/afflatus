@@ -698,6 +698,11 @@ async function written(db: Db, patch: unknown, fromPage = false, forget = ""): P
       list.splice(0, list.length, ...list.map(own).map(stale), ...kept);
     }
     sent.machines = list;
+    // a machine removed takes the download places chosen on it along (a terminated pod's could not even be reset: no
+    // ComfyUI answers for it any more)
+    const ids = new Set((list as Array<{ id?: unknown }>).map((m) => m?.id));
+    const places = sent.downloadPlaces && typeof sent.downloadPlaces === "object" ? (sent.downloadPlaces as Record<string, unknown>) : current.downloadPlaces;
+    if (Object.keys(places).some((id) => !ids.has(id))) sent.downloadPlaces = Object.fromEntries(Object.entries(places).filter(([id]) => ids.has(id)));
     // none left (every machine removed, or a rented-only start): `comfyUrl` keeps the last address, for the next one added.
     // Only a ComfyUI of the user's own is kept so: a pod's proxy address was offered, once the pod was gone, as "Your ComfyUI"
     const first = (list as Array<{ url?: unknown; dir?: unknown; rented?: unknown }>).find((m) => !m.rented);

@@ -1,22 +1,22 @@
 import { useState } from "react";
 import { Slider } from "../../Slider";
-import { CloseButton as KitClose } from "../../ui";
+import { CloseButton as KitClose, cx } from "../../ui";
 
-/** A slider that says its value while it moves and saves it when it is let go. */
-export function Slide({ label, value, min = 0, max, step = 1, show, onCommit }: { label: string; value: number; min?: number; max: number; step?: number; show(value: number): string; onCommit(value: number): void }) {
+/** A slider that says its value while it moves and saves it when it is let go; `disabled`, greyed and not moved (a change under way). */
+export function Slide({ label, value, min = 0, max, step = 1, show, onCommit, disabled = false }: { label: string; value: number; min?: number; max: number; step?: number; show(value: number): string; onCommit(value: number): void; disabled?: boolean }) {
   const [local, setLocal] = useState<number | null>(null);
   const shown = local ?? value;
   const commit = (v: number) => {
-    if (v !== value) onCommit(v);
+    if (v !== value && !disabled) onCommit(v);
     setLocal(null);
   };
   return (
-    <div className="flex flex-col gap-1">
+    <div className={cx("flex flex-col gap-1", disabled && "pointer-events-none")} aria-disabled={disabled || undefined}>
       <span className="flex items-baseline justify-between">
         <span>{label}</span>
         <span className="font-mono text-ink-2">{show(shown)}</span>
       </span>
-      <Slider box={false} label={label} min={min} max={max} step={step} value={shown} format={show} onChange={setLocal} onCommit={commit} />
+      <Slider box={false} label={label} min={min} max={max} step={step} value={shown} format={show} off={disabled} onChange={(v) => !disabled && setLocal(v)} onCommit={commit} />
     </div>
   );
 }

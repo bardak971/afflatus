@@ -1376,12 +1376,13 @@ export class Timelines {
    * sync form but the recording itself, each clip's part of it and its seed; null takes it away. One step for Undo. Their
    * takes stay; their next ones are made with it.
    */
-  async recordingForm(timelineId: string, o: { asset: string; inputs: Record<string, unknown> }): Promise<void> {
+  async recordingForm(timelineId: string, o: { asset: string; inputs: Record<string, unknown> }): Promise<Array<{ id: string; inputs: Record<string, unknown> }>> {
     const { recipe, spec } = this.recordingModel();
     const w = spec.window;
     const shared = new Set(recipe.inputs.filter((i) => i.type !== "clip" && i.id !== spec.id && i.id !== w.start && i.id !== w.seconds && i.id !== "seed").map((i) => i.id));
     const given = Object.entries(o.inputs).filter(([k]) => shared.has(k));
     if (!given.length) throw httpError("Nothing the recording's clips can share was given.");
+    let written: Array<{ id: string; inputs: Record<string, unknown> }> = [];
     await this.history.oneAtATime(timelineId, async () => {
       const mine = await this.recordingClipsOf(timelineId, o.asset);
       const changed = mine.flatMap((c) => {
@@ -1390,12 +1391,15 @@ export class Timelines {
         return JSON.stringify(next) === JSON.stringify(c.inputs) ? [] : [{ id: c.id, next }];
       });
       if (!changed.length) return;
+      written = changed.map((c) => ({ id: c.id, inputs: c.next }));
       await this.db.transaction().execute(async (tx) => {
         await this.remember(timelineId, "the recording's clips changed together", undefined, tx);
         for (const c of changed) await tx.updateTable("clips").set({ inputs: JSON.stringify(c.next), updated_at: now() }).where("id", "=", c.id).execute();
       });
     });
     await this.touch(timelineId);
+    // the clips' forms as written: the editor's edits over them become these (a clip typed in before kept its old text)
+    return written;
   }
 
   /** A recording's Lip sync clips on a timeline, in order, with their forms read; none is refused. */

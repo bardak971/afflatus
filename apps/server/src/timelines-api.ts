@@ -216,8 +216,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   app.post<{ Params: { id: string } }>("/api/timelines/:id/recording/cut", async (req) => t.cutRecording(req.params.id, z.strictObject({ asset: z.string().min(1), seconds: z.number().min(1).max(60), snap: z.boolean() }).parse(req.body)));
   // what a recording's clips share, given to all of them at once (its panel's Shared by its clips: Timelines.recordingForm)
   app.post<{ Params: { id: string } }>("/api/timelines/:id/recording/form", async (req) => {
-    await t.recordingForm(req.params.id, z.strictObject({ asset: z.string().min(1), inputs: z.record(z.string(), z.unknown()) }).parse(req.body));
-    return { ok: true };
+    const clips = await t.recordingForm(req.params.id, z.strictObject({ asset: z.string().min(1), inputs: z.record(z.string(), z.unknown()) }).parse(req.body));
+    return { ok: true, clips };
   });
   // a voice recording made into Lip sync clips cut at its pauses, in place of an empty clip or at the end (Timelines.makeFromRecording)
   app.post<{ Params: { id: string } }>("/api/timelines/:id/recording", async (req) => ({ clips: await t.makeFromRecording(req.params.id, z.strictObject({ asset: z.string().min(1), clip: z.string().optional(), seconds: z.number().min(1).max(60).optional() }).parse(req.body)) }));

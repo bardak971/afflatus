@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
@@ -149,6 +149,35 @@ describe.skipIf(!ffmpegThere)("the start-up check of ffmpeg", { timeout: FFMPEG_
     writeFileSync(old.ffmpeg, "changed");
     await chooseFfmpeg({ dataDir: data, comfyDirs: [], env: { PATH: old.dir }, tryOne });
     expect(tried).toBe(2);
+  });
+
+  it("starts with a damaged kept file, as with none, and writes it whole again", async () => {
+    const old = toolsOf("old");
+    for (const [i, text] of ["", '{"half": {"ffmpeg": "C:', "null", "[1]"].entries()) {
+      const data = join(root, `data-damaged-${i}`);
+      mkdirSync(data, { recursive: true });
+      writeFileSync(join(data, "ffmpeg-check.json"), text);
+      let tried = 0;
+      const choice = await chooseFfmpeg({ dataDir: data, comfyDirs: [], env: { PATH: old.dir }, tryOne: (c) => (tried++, tryTools(c)) });
+      expect(choice.used, JSON.stringify(text)).toMatchObject({ where: "path", ok: false });
+      expect(tried).toBe(1);
+      expect(Object.keys(JSON.parse(readFileSync(join(data, "ffmpeg-check.json"), "utf8")))).toHaveLength(1);
+      expect(existsSync(join(data, "ffmpeg-check.json.tmp"))).toBe(false);
+    }
+  });
+
+  it("tries again an ffmpeg kept as passing by a check that asked less (an older release's key)", async () => {
+    const data = join(root, "data-older-check");
+    mkdirSync(data, { recursive: true });
+    const old = toolsOf("old");
+    const stamp = (f: string) => `${f}|${statSync(f).size}|${Math.round(statSync(f).mtimeMs)}`;
+    // 0.6.1's key: the two files' stamps alone, kept as "ok"
+    const pass = { ffmpeg: old.ffmpeg, ffprobe: old.ffprobe, where: "path", ok: true, version: "4.2.7", probeVersion: "4.2.7", why: null };
+    writeFileSync(join(data, "ffmpeg-check.json"), JSON.stringify({ [`${stamp(old.ffmpeg)}>${stamp(old.ffprobe)}`]: pass }));
+    let tried = 0;
+    const choice = await chooseFfmpeg({ dataDir: data, comfyDirs: [], env: { PATH: old.dir }, tryOne: (c) => (tried++, tryTools(c)) });
+    expect(tried).toBe(1);
+    expect(choice.used).toMatchObject({ ok: false, why: expect.stringMatching(/older than/) });
   });
 
   it("takes Get ffmpeg's download in the data folder before ComfyUI's", async () => {

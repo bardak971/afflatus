@@ -237,7 +237,7 @@ describe("where Afflatus may write a model", () => {
     expect(await modelRoot(listed, "loras", local, "", join(a1111, "Lora"))).toBe(await realpath(join(a1111, "Lora")));
     expect(await modelRoot(listed, "loras", local, "", join(dir, "elsewhere"))).toBe(await realpath(join(comfy, "models", "loras")));
     // what the page is told: each place, whether it can be written, the one chosen and where a download goes
-    const told = await folderPlaces(listed, local, "", { loras: join(a1111, "Lora") });
+    const told = await folderPlaces(listed, local, "", { loras: join(a1111, "Lora") }, "manager");
     expect(told.loras).toMatchObject({ chosen: join(a1111, "Lora"), goes: join(a1111, "Lora") });
     expect(told.diffusion_models!.goes).toBe(join("models", "unet"));
     expect(told.diffusion_models!.places.map((p) => p.ok)).toEqual([false, true, false]);

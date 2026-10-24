@@ -2,7 +2,7 @@ import { envSaid } from "./config";
 import { httpError, notFound } from "./errors";
 import type { FastifyInstance } from "fastify";
 import { said } from "./forecast";
-import { allowedHosts, hostAllowed } from "./hostCheck";
+import { allowedHosts, fromThisComputer, hostAllowed } from "./hostCheck";
 import { z } from "zod";
 import { ComfyClient, ComfyLocked, plannedScan } from "@afflatus/comfy";
 import { describeRecipe, listOptions, parseInput, type InputSpec } from "@afflatus/core";
@@ -13,6 +13,7 @@ import { accessOf } from "./lock-api";
 import { installNodePack } from "./nodePack";
 import { preflight } from "./preflight";
 import { ffmpegGetter } from "./ffmpegGet";
+import { said as ffmpegSaid } from "./ffmpegCheck";
 import { withMedia } from "./queueSubmit";
 import type { Services } from "./services";
 import { publicSettings, readSettings, writeSettings } from "./settings";
@@ -34,10 +35,15 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
   app.get("/api/ffmpeg/get", async () => ffmpegGetter.view);
   /**
    * Get ffmpeg started: BtbN's build downloaded into the data folder, then the checks run again, which find it and use it. Not
-   * when FFMPEG is set: theirs is never swapped for another, the check says to change it.
+   * when FFMPEG is set: theirs is never swapped for another, the check says to change it. Only from this computer, as Updates:
+   * 185 MB written into the program's data folder is not for anyone who reaches the page. And not when the ffmpeg in use
+   * passed: the page hides the button then, a request made anyway would only download one more.
    */
-  app.post("/api/ffmpeg/get", async () => {
+  app.post("/api/ffmpeg/get", async (req) => {
+    if (!fromThisComputer(req)) throw httpError("Get ffmpeg is done on the computer Afflatus runs on, not from another one.", 403);
     if (envSaid.ffmpeg()?.trim()) throw httpError("FFMPEG is set: Afflatus uses that ffmpeg and no other. Point FFMPEG to a newer one, or take it out.", 409);
+    const used = preflight.last?.ffmpeg.used;
+    if (used?.ok) throw httpError(`${ffmpegSaid(used)} passed the checks: there is nothing to get.`, 409);
     try {
       return ffmpegGetter.start(preflight.dataDir, async () => {
         const p = await preflight.run(undefined, { fresh: true });

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import type { FfmpegGetView, HealthCheck } from "../../src/api";
 import { AboutCard } from "../../src/screens/settings/AboutCard";
-import { fakeApi } from "./fakeApi";
+import { useMissingTools } from "../../src/App";
+import { useBanners } from "../../src/store";
+import { fakeApi, jsonAnswer } from "./fakeApi";
 import { draw } from "./render";
 
 const failed: HealthCheck = {
@@ -37,5 +39,16 @@ describe("Get ffmpeg in Settings › About", () => {
     expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Get ffmpeg" })).toBeNull();
     expect(fakeApi.calls("GET", "/ffmpeg/get")).toHaveLength(0);
+  });
+
+  it("says it when the banner's Get ffmpeg is refused, in the server's words", async () => {
+    sessionStorage.clear();
+    fakeApi.on("GET /health", health([failed]));
+    fakeApi.on("POST /ffmpeg/get", () => jsonAnswer({ error: "Get ffmpeg is done on the computer Afflatus runs on, not from another one." }, 403));
+    const Banner = () => (useMissingTools(), null);
+    draw(<Banner />);
+    await waitFor(() => expect(useBanners.getState().items.find((b) => b.id === "check-ffmpeg")?.action?.label).toBe("Get ffmpeg"));
+    useBanners.getState().items.find((b) => b.id === "check-ffmpeg")!.action!.run();
+    await waitFor(() => expect(useBanners.getState().items.at(-1)).toMatchObject({ tone: "bad", title: "Get ffmpeg did not start", text: "Get ffmpeg is done on the computer Afflatus runs on, not from another one.", href: "/settings/about" }));
   });
 });

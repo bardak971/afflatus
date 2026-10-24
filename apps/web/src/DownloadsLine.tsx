@@ -7,7 +7,7 @@ import { ContextMenu, menuAt } from "./ContextMenu";
 import { useQueue, useSettings } from "./data";
 import { coming, inLine, lineOfFile, linesOf, msFor, ordinal, startsIn, type Line } from "./downloadLine";
 import { FileWhere } from "./FileWhere";
-import { est, fileLabel, size } from "./format";
+import { est, fileLabel, hourMinute, leftWords, size } from "./format";
 import { useNow } from "./hooks";
 import { machineName } from "./machines";
 import { Popover } from "./Popover";
@@ -47,7 +47,7 @@ function useWhere() {
 function leftSaid(line: Line): string {
   // an end only when every size is known: one not known yet would make it a promise the line cannot keep
   const ms = line.unsized ? null : msFor(line.left, line.rate);
-  const end = ms ? new Date(Date.now() + ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+  const end = ms ? hourMinute(Date.now() + ms) : "";
   return [line.left ? `${line.unsized ? "over " : ""}${size(line.left)} left` : "", end ? `done ~${end}` : ""].filter(Boolean).join(" · ");
 }
 
@@ -164,7 +164,7 @@ export function LineList({ line, full, head }: { line: Line; full?: boolean; hea
           <Check size={13} className="justify-self-center text-good" />
           <div className="flex min-w-0 flex-col">
             <span className="truncate text-body" data-tip={d.file}>{nameOf(d)}</span>
-            <span className="truncate text-xs text-ink-3">Here · {d.shown ?? d.folder}{d.at ? ` · ${new Date(d.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}</span>
+            <span className="truncate text-xs text-ink-3">Here · {d.shown ?? d.folder}{d.at ? ` · ${hourMinute(d.at)}` : ""}</span>
             {/* the file on disk, with Show in folder or Copy (card #64) */}
             <FileWhere folder={d.folder} file={d.file} machine={d.machine} />
           </div>
@@ -329,9 +329,12 @@ export function GoesTo({ folder, className }: { folder: string; className?: stri
   });
   const f = places.data?.folders[folder];
   if (!f?.goes) return null;
-  const several = f.places.length > 1;
+  const several = f.places.length > 1 && !f.fixed;
   const said = <span className="truncate font-mono">→ {f.goes}</span>;
-  if (!several) return <span className={cx("inline-flex min-w-0 items-center text-xs text-ink-3", className)} data-tip="Where the file goes on disk">{said}</span>;
+  if (!several) {
+    const tip = f.fixed && f.places.length > 1 ? "Where the file goes on disk. Downloads reach this ComfyUI through ComfyUI-Manager or an older Afflatus node pack, which cannot be told another of its places." : "Where the file goes on disk";
+    return <span className={cx("inline-flex min-w-0 items-center text-xs text-ink-3", className)} data-tip={tip}>{said}</span>;
+  }
   const current = f.chosen ?? f.places.find((p) => p.shown === f.goes)?.path;
   return (
     <>
@@ -392,7 +395,7 @@ export function FileState({ d }: { d: Download | undefined }) {
   }
   const part = d.total ? Math.min(1, d.bytes / d.total) : 0;
   const left = d.rate && d.total > d.bytes ? msFor(d.total - d.bytes, d.rate) : null;
-  const words = d.status === "saving" ? "Saving…" : d.status === "starting" ? "Starting…" : `Downloading${d.total ? ` ${Math.floor(part * 100)} %` : ` ${size(d.bytes)}`}${left ? ` · ${est(left).replace(/^~/, "")}` : ""}`;
+  const words = d.status === "saving" ? "Saving…" : d.status === "starting" ? "Starting…" : `Downloading${d.total ? ` ${Math.floor(part * 100)} %` : ` ${size(d.bytes)}`}${left ? ` · ${leftWords(left)}` : ""}`;
   return (
     <span className="inline-flex items-center gap-1">
       <span className={cx(tag, "border-line-strong bg-raised text-ink")} data-tip={`into ${d.into ?? d.folder}`}>

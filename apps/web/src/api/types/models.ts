@@ -261,6 +261,8 @@ export interface FolderPlaces {
   places: DownloadPlace[];
   chosen?: string;
   goes?: string;
+  /** Downloads here go a way that cannot be told a place (ComfyUI-Manager, an older node pack): `goes` only, no choice. */
+  fixed?: true;
 }
 /** Who downloads model files into this ComfyUI ("none": nothing can). */
 export type DownloadVia = "afflatus" | "pack" | "manager";

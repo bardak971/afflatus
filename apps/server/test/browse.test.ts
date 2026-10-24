@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { forAdults, forgetPages, PageStore, thumbOf } from "../src/browse";
+import { civitaiCard, civitaiKept, forAdults, forgetPages, PageStore, thumbOf } from "../src/browse";
 import { startFakeComfy } from "@afflatus/comfy/testing";
 import { folderOfHfFile, folderOfSlots, slotPlaces } from "../src/fromLink";
 import { forgetHuggingFace } from "../src/huggingface";
@@ -246,6 +246,33 @@ describe("find models", () => {
     // two kept at most: the oldest (a) went
     expect(pages.get("c", ask).how).toBe("kept");
     expect(pages.get("a", ask).how).toBe("asked");
+  });
+
+  it("drops a page past its time when another is kept, not only at the most kept", async () => {
+    let now = 0;
+    const pages = new PageStore<number>(1000, 60, () => now);
+    const ask = () => Promise.resolve(1);
+    pages.get("a", ask);
+    pages.get("b", ask);
+    now = 1500;
+    pages.get("c", ask);
+    expect(pages.size).toBe(1);
+  });
+
+  it("keeps of a Civitai page only what its cards read: the same cards, without descriptions and every version's pictures", () => {
+    const big = {
+      ...civModel, description: "<p>" + "x".repeat(50_000) + "</p>", nsfwLevel: 3, tags: ["style"],
+      modelVersions: [
+        { ...civModel.modelVersions[0]!, description: "y".repeat(10_000), images: Array.from({ length: 20 }, (_, i) => ({ url: `https://image.civitai.com/x/${i}/original=true/1.jpeg`, type: "image", meta: { prompt: "z".repeat(2000) } })) },
+        { ...civModel.modelVersions[0]!, id: 771, name: "v1", images: [{ url: "https://image.civitai.com/x/old/original=true/1.jpeg", type: "image" }] },
+      ],
+    };
+    const page = { items: [big], metadata: { nextCursor: "c2", totalItems: 9 } };
+    const kept = civitaiKept(JSON.parse(JSON.stringify(page)))!;
+    const k = { bySha: new Map(), byName: new Map(), inSets: new Map(), versions: new Map(), bases: new Map(), places: [] };
+    expect(civitaiCard(kept.items![0]!, k)).toEqual(civitaiCard(big as never, k));
+    expect(kept.metadata).toEqual({ nextCursor: "c2" });
+    expect(JSON.stringify(kept).length).toBeLessThan(JSON.stringify(page).length / 20);
   });
 
   it("places a file its path says nothing of by the families' slots: RIFE at a repository's root goes in frame_interpolation", async () => {
