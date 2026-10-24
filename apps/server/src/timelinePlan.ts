@@ -327,8 +327,10 @@ export class TimelinePlan {
     const end = own.start + own.seconds;
     // nothing to skip, or so little left that the clip would be under a second: its part as it was cut
     if (!Number.isFinite(reached) || reached <= own.start + 0.01 || end - reached < 1) return;
-    plan.input[w.start] = Math.round(reached * 1000) / 1000;
-    plan.input[w.seconds] = Math.round((end - reached) * 1000) / 1000;
+    // to the microsecond: the clip before ends on its frame grid (124 frames at 24: 5.16667 s), and rounded to the millisecond
+    // the song stepped by a third of one where the sound hands over to this clip's head
+    plan.input[w.start] = Math.round(reached * 1e6) / 1e6;
+    plan.input[w.seconds] = Math.round((end - reached) * 1e6) / 1e6;
   }
 
   /** The moment the clip before should hand over: before its frozen tail when it has one, else null. */

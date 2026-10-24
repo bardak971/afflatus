@@ -15,10 +15,12 @@ export interface Rendered {
   recipe: string;
   /** Made by a Face refine alone (a take's Face pass, or the Face route of a finish): its faces redrawn, nothing else. */
   facePass: boolean;
+  /** What its render was sent (its form, with what the timeline filled in): a Lip sync head's lead-in (sungHead). */
+  inputs?: Record<string, unknown>;
 }
 
 /** A take as the browser gets it. */
-export function takeView(x: Taken, rendered: Rendered | undefined, laid = false) {
+export function takeView(x: Taken, rendered: Rendered | undefined, laid: { sound: boolean; sung: boolean } = { sound: false, sung: false }) {
   const shown = visible(x);
   return {
     id: x.take.id, asset: assetView(x.asset), headMs: x.take.head_ms, tailMs: x.take.tail_ms,
@@ -40,7 +42,9 @@ export function takeView(x: Taken, rendered: Rendered | undefined, laid = false)
     /** A Face refine of the take it finishes, alone: the same frames, its faces redrawn. */
     facePass: rendered?.facePass ?? false,
     /** Its sound is a recording laid after its head (Lip sync, core laysSound): its head's sound is the model's guess, never handed over to. */
-    ...(laid ? { laidSound: true } : {}),
+    ...(laid.sound ? { laidSound: true } : {}),
+    /** Its head filed with the recording the clip before sang (core sungHead), not the model's guess: the sound hands over to it as to any. */
+    ...(laid.sound && laid.sung ? { headSung: true } : {}),
   };
 }
 
@@ -120,7 +124,7 @@ export class TimelineViews {
     const made = [...new Set(all.flatMap((p) => p.takes.map((x) => x.asset.generation_id)).filter((g): g is string => Boolean(g)))];
     const records = made.length ? await this.db.selectFrom("generations").select(["id", "gen_ms", "measure", "recipe_id", "inputs"]).where("id", "in", made).execute() : [];
     // how each render's own part looks (mean luma, sharpness), measured on its frames when it was stored
-    return new Map(records.map((g) => [g.id, { genMs: g.gen_ms, measure: g.measure ? (JSON.parse(g.measure) as Measure) : null, recipe: g.recipe_id, facePass: g.inputs.includes('"faceRefineOnly":true') }]));
+    return new Map(records.map((g) => [g.id, { genMs: g.gen_ms, measure: g.measure ? (JSON.parse(g.measure) as Measure) : null, recipe: g.recipe_id, facePass: g.inputs.includes('"faceRefineOnly":true'), inputs: JSON.parse(g.inputs) as Record<string, unknown> }]));
   }
 
   /**

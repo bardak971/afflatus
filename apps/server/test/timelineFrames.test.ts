@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { newId, now } from "../src/db";
 import { FFMPEG_TIMEOUT } from "./clipKit";
-import { clicks, ffmpegThere, firstMiss, H, readFrames, runs, silentMs, synth, synthMade, W } from "./framesKit";
+import { clicks, ffmpegThere, firstMiss, H, readFrames, runs, silentMs, synth, synthMade, W, waveShift } from "./framesKit";
 import { get, sentView, withTakes, makeApp, until, type TestApp } from "./helpers";
 
 /**
@@ -32,8 +32,8 @@ const upload = async (bytes: Uint8Array, name: string) => {
   return res.json() as { id: string; durationMs: number };
 };
 /** The timeline exported, and the file's bytes. */
-async function exportOf(id: string): Promise<Uint8Array> {
-  await call("POST", `/api/timelines/${id}/export`, { match: false });
+async function exportOf(id: string, range?: { inMs: number; outMs: number }): Promise<Uint8Array> {
+  await call("POST", `/api/timelines/${id}/export`, { match: false, ...(range ? { range } : {}) });
   await until(async () => (await view(id)).exporting === null, 60_000);
   const v = await view(id);
   if (v.exportFailed) throw new Error(v.exportFailed);
@@ -118,6 +118,29 @@ describe.skipIf(!ffmpegThere)("the timeline, frame by frame", { timeout: FFMPEG_
     const out = await exportOf(id);
     // handed over 120 ms early, the guess's silence was heard just before the join
     expect(silentMs(out, 5146 - 200, 5146 + 100), "silence before the join").toBeLessThanOrEqual(3);
+  });
+
+  it("runs a song on across a Lip sync join whose head was filed with it: no drop-out, nothing twice, to the sample", async () => {
+    // two tones (no shift but none matches them both, so where the export is in them is read back to the sample), the song:
+    // the first clip sings it to its end, the second, its head filed with it (recordingLeadIn), from its first frame
+    const ends = (k: number) => k * (5146 - 896) / 1000;
+    const song = (k: number) => `0.3*sin(2*PI*440*(t+${ends(k)}))+0.3*sin(2*PI*523*(t+${ends(k)}))`;
+    const sung = await Promise.all([1, 2].map((c, k) => synthMade(c, FILE, 48, undefined, song(k))));
+    const { id, clips } = await chain(sung, N);
+    await t.db.updateTable("clips").set({ recipe_id: "h3.lipsync" }).where("id", "in", clips.map((c) => c.id)).execute();
+    const second = await t.db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").select("assets.id").where("takes.id", "=", clips[1]!.take.id).executeTakeFirstOrThrow();
+    await t.db.insertInto("generations").values({ id: "zz-sung", owner_id: "local", recipe_id: "h3.lipsync", recipe_version: 1, family: "h3", inputs: JSON.stringify({ recordingLeadIn: true }), resolved: "{}", gen_ms: 1, draft_id: null, created_at: now() } as never).execute();
+    await t.db.updateTable("assets").set({ generation_id: "zz-sung" }).where("id", "=", second.id).execute();
+    expect((await view(id)).clips[1].take).toMatchObject({ laidSound: true, headSung: true });
+    // a range from 4.3 s, between two frames (as Timeline 24's export): its picture starts on the frame before, 8.3 ms early
+    const out = await exportOf(id, { inMs: 4300, outMs: 6600 });
+    expect(silentMs(out, 846 - 200, 846 + 100), "silence at the join").toBeLessThanOrEqual(0);
+    // where the export is in the song, 200 ms before the join and 100 ms after: the same, to a sample (it starts on the frame
+    // its picture starts on, 4291.67 ms, so 8.33 ms before In all along). Its sound cut to the moments, a frame was lost there
+    const heard = (s: number) => 0.3 * Math.sin(2 * Math.PI * 440 * (s + 4.3)) + 0.3 * Math.sin(2 * Math.PI * 523 * (s + 4.3));
+    const before = waveShift(out, 846 - 200, heard);
+    expect(before).toBeCloseTo(-8.33, 1);
+    expect(Math.abs(waveShift(out, 846 + 100, heard) - before)).toBeLessThan(1000 / 48000 + 1e-9);
   });
 
   it("crossfades a SCAIL-2 window over its head (the clip before's own last moments made again), both moving, the clock unmoved", async () => {

@@ -22,6 +22,8 @@ export interface ExportPart {
   endMs: number;
   /** Whether the video has a sound of its own. */
   hasSound: boolean;
+  /** Its video's own frames a second, when known: its sound is then cut on its picture's frames (framesOf). */
+  fps?: number;
   /** What is heard: the video's own sound, nothing, or a sound file (cut or padded to the part's length). */
   sound: "own" | "muted" | "file";
   soundFile?: { source: Media; ext: string };
@@ -361,7 +363,15 @@ async function partChains(parts: ExportPart[], files: string[], which: number[],
       ? `scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H}`
       : `scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`;
     const tune = looks[i] ?? "";
-    const { next, padMs, out, into, early, heardMs } = heldOf(parts, i, fps);
+    const { next, padMs, out, into, early } = heldOf(parts, i, fps);
+    let { heardMs } = heldOf(parts, i, fps);
+    // played straight: its sound on its picture's own frames, as long as they last (framesOf)
+    const exact = padMs === 0 && out === 0 && into === 0 && early === 0 ? framesOf(p, fps) : null;
+    if (exact) heardMs += exact.toMs - exact.fromMs - (p.endMs - p.startMs);
+    const soundFrom = exact?.fromMs ?? p.startMs + early;
+    const soundTo = exact?.toMs ?? p.endMs;
+    // its times to the microsecond only when cut on its frames: elsewhere as the pieces of a long export count them (runClock)
+    const t = exact ? fine : sec;
     const pad = (padMs > 0 ? `,tpad=stop_mode=clone:stop_duration=${sec(padMs)}` : "")
       + (out > 0 || into > 0 ? `,tpad=${[into > 0 ? `start_mode=clone:start_duration=${sec(into)}` : "", out > 0 ? `stop_mode=clone:stop_duration=${sec(out)}` : ""].filter(Boolean).join(":")}` : "");
     const heard = sec(heardMs);
@@ -378,13 +388,15 @@ async function partChains(parts: ExportPart[], files: string[], which: number[],
       // a seamless join's sound hands over early (headSoundMs): this part's last moments are heard from the part after's head,
       // in this part's own run of the concat (each run's sound is laid from where its picture starts)
       const hand = next?.kind === "video" && next.headSoundMs ? next.headSoundMs : 0;
+      // the head heard up to where the part after's picture starts, on its frames too
+      const nextFrom = next ? framesOf(next, fps)?.fromMs ?? next.startMs : 0;
       if (hand > 0) {
         const head = (await inputs.add(`head${i + 1}.${next!.ext}`, files[i + 1]!)).index;
-        const own = sec(heardMs - hand);
-        chains.push(`[${main}:a]atrim=start=${sec(p.startMs + early)}:end=${sec(p.endMs - hand)},asetpts=PTS-STARTPTS,${STEREO},${loud},apad,atrim=duration=${own}[ao${i}]`);
-        chains.push(`[${head}:a]atrim=start=${sec(next!.startMs - hand)}:end=${sec(next!.startMs)},asetpts=PTS-STARTPTS,${STEREO},volume=${Math.max(0, next!.volume).toFixed(2)},apad,atrim=duration=${sec(hand)}[ah${i}]`);
-        chains.push(`[ao${i}][ah${i}]concat=n=2:v=0:a=1,apad,atrim=duration=${heard}${fades}[a${i}]`);
-      } else chains.push(`[${main}:a]atrim=start=${sec(p.startMs + early)}:end=${sec(p.endMs)},asetpts=PTS-STARTPTS,${STEREO},${loud},apad,atrim=duration=${heard}${fades}[a${i}]`);
+        const own = t(heardMs - hand);
+        chains.push(`[${main}:a]atrim=start=${t(soundFrom)}:end=${t(soundTo - hand)},asetpts=PTS-STARTPTS,${STEREO},${loud},apad,atrim=duration=${own}[ao${i}]`);
+        chains.push(`[${head}:a]atrim=start=${t(nextFrom - hand)}:end=${t(nextFrom)},asetpts=PTS-STARTPTS,${STEREO},volume=${Math.max(0, next!.volume).toFixed(2)},apad,atrim=duration=${t(hand)}[ah${i}]`);
+        chains.push(`[ao${i}][ah${i}]concat=n=2:v=0:a=1,apad,atrim=duration=${t(heardMs)}${fades}[a${i}]`);
+      } else chains.push(`[${main}:a]atrim=start=${t(soundFrom)}:end=${t(soundTo)},asetpts=PTS-STARTPTS,${STEREO},${loud},apad,atrim=duration=${t(heardMs)}${fades}[a${i}]`);
     } else if (p.sound === "file" && p.soundFile) {
       const sound = (await inputs.add(`sound${i}.${p.soundFile.ext}`, p.soundFile.source)).index;
       chains.push(`[${sound}:a]${STEREO},${loud},apad,atrim=duration=${heard},asetpts=PTS-STARTPTS${fades}[a${i}]`);
@@ -393,6 +405,23 @@ async function partChains(parts: ExportPart[], files: string[], which: number[],
     }
   }
   return chains;
+}
+
+/** A time for ffmpeg to the microsecond: a frame's start at 48 a second falls between milliseconds (895.833 ms), which `sec` rounds. */
+const fine = (ms: number) => (ms / 1000).toFixed(6);
+
+/**
+ * Where a part's picture really starts and ends in its video, on its frames: the trim takes the frames from half a frame
+ * before its moments (partChains), so it holds whole frames, up to one more or one less than its moments say. Its sound cut
+ * to the moments instead, the concat padded the shorter of the two with silence before the part after, and a song carried on
+ * across a join dropped out for up to a frame there and came back that much late (6 ms of silence, 7.8 ms late: Timeline
+ * 24's export, 2026-10-24). Cut here, sound and picture last the same, and a song runs on from one part into the next. Only
+ * a video at the export's own rate, played straight (no hold, no transition, no freeze's early start): null otherwise.
+ */
+function framesOf(p: ExportPart, fps: number): { fromMs: number; toMs: number } | null {
+  if (p.kind !== "video" || !p.fps || Math.abs(p.fps - fps) > 0.01) return null;
+  const at = (ms: number) => (Math.ceil((Math.max(0, ms - 500 / fps) * fps) / 1000 - 1e-6) * 1000) / fps;
+  return { fromMs: at(p.startMs), toMs: at(p.endMs) };
 }
 
 /**

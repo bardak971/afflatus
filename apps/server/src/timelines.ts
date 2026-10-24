@@ -1,7 +1,7 @@
 import { chatJson } from "./llm";
 import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
-import { carriedOf, joinWay, laysSound, musicPlan, plural, recordingPart, recordingParts, sameWindowGrid, trimIn, typedSeed, type ClipMusic, type InputSpec, type Recipe, type Transition } from "@afflatus/core";
+import { carriedOf, joinWay, laysSound, musicPlan, sungHead, plural, recordingPart, recordingParts, sameWindowGrid, trimIn, typedSeed, type ClipMusic, type InputSpec, type Recipe, type Transition } from "@afflatus/core";
 import { newId, now, OWNER, type Db } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError, notFound } from "./errors";
@@ -396,8 +396,16 @@ export class Timelines {
       return source?.measure ? { genMs: own?.genMs ?? null, measure: source.measure, recipe: own?.recipe ?? source.recipe, facePass: own?.facePass ?? false } : own;
     };
     // a take's sound laid from a recording (Lip sync): by the recipe it was rendered with, else its clip's
-    const laid = (recipe: string | null | undefined) => laysSound(this.registry.recipe(recipe ?? "")?.inputs ?? []);
-    const viewOf = (takes: Taken[], clipRecipe: string | null) => (x: Taken) => { const r = renderOf(x, takes); return takeView(x, r, laid(r?.recipe ?? clipRecipe)); };
+    const laid = (recipe: string | null | undefined, made: Record<string, unknown> | undefined) => {
+      const inputs = this.registry.recipe(recipe ?? "")?.inputs ?? [];
+      return { sound: laysSound(inputs), sung: sungHead(inputs, made ?? {}) };
+    };
+    const viewOf = (takes: Taken[], clipRecipe: string | null) => (x: Taken) => {
+      const r = renderOf(x, takes);
+      // its own render's form: a finish's, made from a draft, is the draft's frames and sound
+      const own = x.asset.generation_id ? rendered.get(x.asset.generation_id) : undefined;
+      return takeView(x, r, laid(r?.recipe ?? clipRecipe, own?.inputs));
+    };
     let at = 0;
     const clips = all.map((p, i) => {
       const length = lengthOf(p);
