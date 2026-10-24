@@ -316,6 +316,8 @@ export class TimelinePlan {
     const made = genId ? await this.core.db.selectFrom("generations").select("inputs").where("id", "=", genId).executeTakeFirst() : undefined;
     const was = made ? (JSON.parse(made.inputs) as Record<string, unknown>) : null;
     if (!was?.[goesOn]) return;
+    // its head (the frames it shares with that clip) sounds of the recording that clip sang, not of the model's guess at it
+    if (w.leadIn) plan.input[w.leadIn] = true;
     const fps = w.fits?.fps ?? 24;
     const lead = Math.round((w.fits?.less ?? []).reduce((sum, id) => sum + (Number(was[id]) || 0), 0) * fps) / fps;
     const endMs = Math.min(plan.links.prev?.at ?? plays(prior.active).end, prior.active.asset.duration_ms ?? Infinity);

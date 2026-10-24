@@ -137,6 +137,8 @@ export interface MediaFacts {
   seconds?: number;
   /** Of a sound: how many seconds of it were handed over after the part (the window's `after`). */
   after?: number;
+  /** Of a sound: how many seconds of it were handed over before the part (the window's `leadIn`): the part starts that far in. */
+  before?: number;
   /** Of a mask: the part that was painted, with room around it, in pixels of the picture it is painted over. */
   box?: { x: number; y: number; width: number; height: number };
 }

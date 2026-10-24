@@ -1,7 +1,7 @@
 import { chatJson } from "./llm";
 import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
-import { carriedOf, joinWay, musicPlan, plural, recordingPart, recordingParts, sameWindowGrid, trimIn, typedSeed, type ClipMusic, type InputSpec, type Recipe, type Transition } from "@afflatus/core";
+import { carriedOf, joinWay, laysSound, musicPlan, plural, recordingPart, recordingParts, sameWindowGrid, trimIn, typedSeed, type ClipMusic, type InputSpec, type Recipe, type Transition } from "@afflatus/core";
 import { newId, now, OWNER, type Db } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError, notFound } from "./errors";
@@ -395,7 +395,9 @@ export class Timelines {
       const source = from?.asset.generation_id ? rendered.get(from.asset.generation_id) : undefined;
       return source?.measure ? { genMs: own?.genMs ?? null, measure: source.measure, recipe: own?.recipe ?? source.recipe, facePass: own?.facePass ?? false } : own;
     };
-    const viewOf = (takes: Taken[]) => (x: Taken) => takeView(x, renderOf(x, takes));
+    // a take's sound laid from a recording (Lip sync): by the recipe it was rendered with, else its clip's
+    const laid = (recipe: string | null | undefined) => laysSound(this.registry.recipe(recipe ?? "")?.inputs ?? []);
+    const viewOf = (takes: Taken[], clipRecipe: string | null) => (x: Taken) => { const r = renderOf(x, takes); return takeView(x, r, laid(r?.recipe ?? clipRecipe)); };
     let at = 0;
     const clips = all.map((p, i) => {
       const length = lengthOf(p);
@@ -404,8 +406,8 @@ export class Timelines {
       const view = {
         id: p.clip.id, kind: p.clip.kind, joined: p.clip.joined, join: this.joinState(all, i), recipe: p.clip.recipe_id,
         inputs: JSON.parse(p.clip.inputs) as Record<string, unknown>,
-        take: p.active ? viewOf(p.takes)(p.active) : null,
-        takes: p.takes.map(viewOf(p.takes)),
+        take: p.active ? viewOf(p.takes, p.clip.recipe_id)(p.active) : null,
+        takes: p.takes.map(viewOf(p.takes, p.clip.recipe_id)),
         still: p.still ? assetView(p.still) : null,
         /** The pictures pinned on its form: first frame, last frame, keyframe. */
         pictures: p.pictures.map((x) => ({ input: x.input, role: x.role, asset: assetView(x.asset) })),

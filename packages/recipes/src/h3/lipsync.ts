@@ -42,7 +42,7 @@ const SPEAKS = "The person speaks throughout, the lips moving with every word.";
 const recordingInputs: InputSpec[] = [
   {
     id: "recording", type: "audio", role: "sound", label: "Recording",
-    window: { start: "recordingStart", seconds: "recordingSeconds", even: "evenLoudness", after: AFTER, goesOn: "recordingGoesOn", fits: { frames: H3_MAX_FRAMES, fps: H3_FPS, pad: PAD, min: 4, less: ["speechAt"] } },
+    window: { start: "recordingStart", seconds: "recordingSeconds", even: "evenLoudness", after: AFTER, goesOn: "recordingGoesOn", leadIn: "recordingLeadIn", fits: { frames: H3_MAX_FRAMES, fps: H3_FPS, pad: PAD, min: 4, less: ["speechAt"] } },
     note: "what is said: the clip is made around it, the mouth follows it, and it is the clip's sound. One clip holds about 14.8 seconds (less the moment before the words, and the frames of a clip it continues); the part's ends snap to the pauses so that no word is cut",
   },
   { id: "recordingStart", type: "number", label: "Recording: start", min: 0, max: 600, step: 0.1, default: 0, unit: " s", showWhen: "recording" },
@@ -58,6 +58,9 @@ const recordingInputs: InputSpec[] = [
   // set by a timeline when the next clip's part carries on from this one's end (a song): the clip's tail is the recording
   // itself, sung, not faded out, and the next clip picks up where it stops (TimelinePlan.recordingRun)
   { id: "recordingGoesOn", type: "toggle", label: "Recording goes on in the next clip", default: false, internal: true },
+  // set by a timeline when the clip before sang the recording right up to this part: its head (the frames they share) is
+  // filed with the recording before the part, the moments that clip sang, not the model's rough guess at them
+  { id: "recordingLeadIn", type: "toggle", label: "Recording sung up to this part by the clip before", default: false, internal: true },
 ];
 
 /**
@@ -98,13 +101,17 @@ export const h3LipSync = defineRecipe<H3LipSync>({
   build(input, ctx) {
     // the recording's part as it was cut (a sound that ends early gives less than asked), else the length asked for
     const spoken = ctx.media.recording?.seconds ?? input.recordingSeconds;
+    // the recording handed over before the part (its lead-in, recordingLeadIn): the part starts this far into the file
+    const pre = ctx.media.recording?.before ?? 0;
     const lead = leadOf(input);
     const seconds = Math.min(15, Math.max(4, input.speechAt + spoken + PAD));
     const description = [input.description.trim(), SPEAKS].filter(Boolean).join(" ");
+    let file: Ref | null = null;
     let recording: Ref | null = null;
-    // one loader, cut to the clip's frames after the words begin, for the guide and the sound
+    // one loader; the part cut to the clip's frames after the words begin, for the guide and the sound
+    const whole = (g: GraphBuilder) => (file ??= g.out("LoadAudio", { audio: ctx.uploads.recording }));
     const loaded = (g: GraphBuilder, at: { head: number; frames: number }) =>
-      (recording ??= g.out("TrimAudioDuration", { audio: g.out("LoadAudio", { audio: ctx.uploads.recording }), start_index: 0, duration: (at.frames - at.head - lead) / H3_FPS }));
+      (recording ??= g.out("TrimAudioDuration", { audio: whole(g), start_index: pre, duration: (at.frames - at.head - lead) / H3_FPS }));
     // the cast's videos lend their frames only: their own sound would be a second voice beside the recording, pulling the
     // timbre away from it as a voice sample would
     const media = Object.fromEntries(Object.entries(ctx.media).map(([k, m]) => [k, k.startsWith("refVideos.") ? { ...m, hasSound: false } : m]));
@@ -117,6 +124,9 @@ export const h3LipSync = defineRecipe<H3LipSync>({
       // sound is that much shorter than its frames
       sound: (g, decoded, at) => {
         const before = (at.head + lead) / H3_FPS;
+        // the clip before sang the recording up to the part: the head is filed with it too, the whole clip one stretch of the
+        // recording. The model's guess there was heard at the join, where one frame of the head shows (a song's, 2026-10-24)
+        if (before > 0 && pre >= before - 1e-6) return g.out("TrimAudioDuration", { audio: whole(g), start_index: pre - before, duration: at.frames / H3_FPS });
         const sound = loaded(g, at);
         return before > 0 ? g.out("AudioConcat", { audio1: g.out("TrimAudioDuration", { audio: decoded, start_index: 0, duration: before }), audio2: sound, direction: "after" }) : sound;
       },

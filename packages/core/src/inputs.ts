@@ -259,9 +259,12 @@ interface AudioInput extends Base {
    * `goesOn`: the id of an internal toggle a timeline sets when the next clip's part carries on where this one's ends: the
    * `after` seconds are then the sound itself, not faded, and that next clip starts its part where this clip's sound stops
    * playing (TimelinePlan.recordingRun).
+   * `leadIn`: the id of an internal toggle a timeline sets when the clip before sang the sound right up to this part (its
+   * `goesOn`): a few seconds of the sound before the part are handed over too (MediaFacts `before`), for the clip's head, the
+   * frames it shares with the clip before, to sound of them rather than of the model's guess at them.
    * `fits`: how much of the sound one clip can hold (see PartFit); without it, the length input's own max.
    */
-  window?: { start: string; seconds: string; even?: string; after?: number; goesOn?: string; fits?: PartFit };
+  window?: { start: string; seconds: string; even?: string; after?: number; goesOn?: string; leadIn?: string; fits?: PartFit };
 }
 
 /**
@@ -279,6 +282,12 @@ export interface PartFit {
   /** The clip's frame counts (a swap's 17k + 5): what one clip holds and what a part makes are floored to it, not to a tenth of a second. */
   grid?: FrameGrid;
 }
+
+/**
+ * Whether a recipe's clips sound of a recording laid on them after their head (Lip sync: a sound to follow, a part of it cut
+ * for each clip), not of the model's own sound: their head, the frames shared with the clip before, is the model's guess at it.
+ */
+export const laysSound = (inputs: readonly InputSpec[]) => inputs.some((i) => i.type === "audio" && i.role === "sound" && Boolean(i.window));
 
 /** What a part makes with the form's values: the longest part one clip holds, and the clip's own length for a part of `seconds`. */
 export function partFit(fit: PartFit, specs: InputSpec[], values: Record<string, unknown>): { most: number; clip(seconds: number): number } {

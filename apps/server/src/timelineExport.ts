@@ -4,7 +4,7 @@ import { type FrameMeans } from "./measure";
 import { BLEND_MS, DISSOLVE_MS, type ExportMusic, type ExportPart, joinVideosInto } from "./exportJoin";
 import { newId, now } from "./db";
 import type { LibraryChange } from "./events";
-import { FRAME_SLACK_MS, MIN_FADE_MS, musicPlan, soundHandover, TRANSITIONS, transitionSpan } from "@afflatus/core";
+import { FRAME_SLACK_MS, laysSound, MIN_FADE_MS, musicPlan, soundHandover, TRANSITIONS, transitionSpan } from "@afflatus/core";
 import { duckCurve } from "./duck";
 import { assetView, extOf, newAssetRow } from "./media";
 import { sourceOf } from "./storage";
@@ -130,6 +130,7 @@ export class TimelineExport {
       bothOwnSound: p.clip.sound === "own" && Boolean(x.asset.has_sound) && before?.sound === "own" && Boolean(before.hasSound),
       shownFromMs: visible(x).start,
       beforeMs: before ? before.endMs - before.startMs : 0,
+      laidAfter: laysSound(this.core.registry.recipe(p.clip.recipe_id ?? "")?.inputs ?? []),
     });
     return {
       kind: "video", source: await sourceOf(storage, x.asset.file_key), ext: extOf(x.asset.mime),

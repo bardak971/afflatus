@@ -45,6 +45,7 @@ export function soundHandoverOf(c: Clip | undefined, from: Clip | undefined): nu
     bothOwnSound: c.sound === "own" && from.sound === "own" && Boolean(c.take.asset.hasSound) && Boolean(from.take.asset.hasSound),
     shownFromMs: c.take.startMs,
     beforeMs: from.lengthMs,
+    laidAfter: Boolean(c.take.laidSound),
   });
 }
 

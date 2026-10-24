@@ -68,10 +68,12 @@ export const SOUND_HANDOVER_MS = 120;
 /**
  * How many ms before the join the sound hands over to the clip after (SOUND_HANDOVER_MS), or 0: only at a seamless join, both
  * clips heard by their own sound, with as much of the clip after's head before where it plays (`shownFromMs`, its visible start
- * in its video) and of the clip before to play (`beforeMs`).
+ * in its video) and of the clip before to play (`beforeMs`). Never into a clip whose sound is a recording laid after its head
+ * (`laidAfter`, Lip sync: laysSound): its head is the model's rough guess at the recording, while the clip before plays the
+ * recording itself to its end; handed over, a song's joins played 120 ms of that guess, then the song again a little late.
  */
-export function soundHandover(x: { seamless: boolean; bothOwnSound: boolean; shownFromMs: number; beforeMs: number }): number {
-  if (!x.seamless || !x.bothOwnSound) return 0;
+export function soundHandover(x: { seamless: boolean; bothOwnSound: boolean; shownFromMs: number; beforeMs: number; laidAfter?: boolean }): number {
+  if (!x.seamless || !x.bothOwnSound || x.laidAfter) return 0;
   return x.shownFromMs >= SOUND_HANDOVER_MS && x.beforeMs > 2 * SOUND_HANDOVER_MS ? SOUND_HANDOVER_MS : 0;
 }
 

@@ -97,6 +97,21 @@ describe("MiniMax H3 · Lip sync", () => {
     expect(of(graph, "LoadAudio")).toHaveLength(1);
   });
 
+  it("files the recording over the whole clip when the clip before sang it up to the part: its head never the model's guess", () => {
+    // 2 s handed over before the part (recordingLeadIn): the guide still from the part's start, the file from the head's
+    const { built, graph } = build({ previous: { asset: "c1" }, recordingLeadIn: true }, { previous: joined, recording: { width: 0, height: 0, seconds: 7.3, after: 4, before: 2 } }, { previous: "a.mp4" });
+    const saved = graph[built.outputs.find((o) => o.role === "result")!.node]!;
+    const sound = graph[(saved.inputs.audio as [string, number])[0]]!;
+    expect(sound.class_type).toBe("TrimAudioDuration");
+    expect(sound.inputs.start_index as number).toBeCloseTo(2 - 22 / H3_FPS, 5);
+    expect(sound.inputs.duration as number).toBeCloseTo(built.frames! / H3_FPS, 5);
+    expect(of(graph, "AudioConcat")).toHaveLength(0);
+    // the recording's guide (not the clip before's frames pinned with their sound): from the part's start
+    const guides = of(graph, "MiniMaxH3AddGuide").map((n) => graph[(n.inputs.audio as [string, number] | undefined)?.[0] ?? ""]).filter((n) => n?.class_type === "TrimAudioDuration");
+    expect(guides.map((n) => n!.inputs.start_index)).toEqual([2]);
+    expect(of(graph, "LoadAudio")).toHaveLength(1);
+  });
+
   it("files the recording alone when the clip starts on its words", () => {
     const { built, graph } = build({}, { recording: { width: 0, height: 0, seconds: 5, after: 4 } });
     const saved = graph[built.outputs.find((o) => o.role === "result")!.node]!;

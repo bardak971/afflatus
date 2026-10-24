@@ -18,7 +18,7 @@ export interface Rendered {
 }
 
 /** A take as the browser gets it. */
-export function takeView(x: Taken, rendered: Rendered | undefined) {
+export function takeView(x: Taken, rendered: Rendered | undefined, laid = false) {
   const shown = visible(x);
   return {
     id: x.take.id, asset: assetView(x.asset), headMs: x.take.head_ms, tailMs: x.take.tail_ms,
@@ -39,6 +39,8 @@ export function takeView(x: Taken, rendered: Rendered | undefined) {
     recipe: rendered?.recipe ?? null,
     /** A Face refine of the take it finishes, alone: the same frames, its faces redrawn. */
     facePass: rendered?.facePass ?? false,
+    /** Its sound is a recording laid after its head (Lip sync, core laysSound): its head's sound is the model's guess, never handed over to. */
+    ...(laid ? { laidSound: true } : {}),
   };
 }
 

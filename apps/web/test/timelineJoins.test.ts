@@ -43,6 +43,9 @@ describe("the sound at a seamless join, as the export hands it over", () => {
     expect(soundHandoverOf(clip({ id: "b", take: sounding({ seamless: true, startMs: 100 }) }), before)).toBe(0);
     expect(soundHandoverOf(clip({ id: "b", take: sounding({ seamless: true, startMs: 896 }) }), clip({ id: "a", lengthMs: 200, take: sounding() }))).toBe(0);
   });
+  it("never goes early to a Lip sync take: its head is the model's guess at the recording the clip before plays to its end", () => {
+    expect(soundHandoverOf(clip({ id: "b", take: sounding({ seamless: true, startMs: 896, laidSound: true }) }), before)).toBe(0);
+  });
 });
 
 describe("a clip moved one place", () => {
