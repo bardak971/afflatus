@@ -27,6 +27,7 @@ import { useRangeDrag } from "./track/useRangeDrag";
 import { useStretch } from "./track/useStretch";
 import { useTrackZoom, type TrackKeys } from "./track/useTrackZoom";
 import { LEGEND, useTrackDrop } from "./track/useTrackDrop";
+import { useMediaOpen } from "./mediaOpen";
 
 export type { TrackKeys } from "./track/useTrackZoom";
 
@@ -215,6 +216,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const moved = clipDrag.shown;
   const hint = moved?.holding ? moveHint(moved, clips.map((c) => c.id)) : dropHint;
   const legend = dropLegend && !moved?.holding;
+  const setMedia = useMediaOpen((s) => s.set);
 
   // the join the pointer is near, within 20 px either side of it on the video row: its "+" shows (review 4, P6). Kept
   // out of the Track's state (nearJoin.ts), so that crossing a join draws only the two clips concerned again
@@ -399,7 +401,16 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
           <span className="flex h-5 min-w-0 grow flex-wrap items-center gap-x-3.5 overflow-hidden text-meta whitespace-nowrap text-ink-3">
             <span className="sr-only">{hint}</span>
             <span aria-hidden className="-mr-3.5 h-5" />
-            {LEGEND.map((l) => <span key={l.words} aria-hidden className="flex h-5 shrink-0 items-center gap-1.5"><Keys keys={l.keys} size="sm" />{l.words}</span>)}
+            {LEGEND.map((l) => l.media ? (
+              // its "media" a link that opens the media over the stage: the one part of the line a screen reader is given
+              <span key={l.words} className="flex h-5 shrink-0 items-center gap-1.5">
+                <span aria-hidden><Keys keys={l.keys} size="sm" /></span>
+                <span>
+                  <button type="button" aria-label="Show the media" onClick={() => setMedia(true)} className="text-ink-2 underline decoration-ink-3 underline-offset-[3px] hover:text-accent hover:decoration-accent">media</button>
+                  <span aria-hidden>{l.words.slice("media".length)}</span>
+                </span>
+              </span>
+            ) : <span key={l.words} aria-hidden className="flex h-5 shrink-0 items-center gap-1.5"><Keys keys={l.keys} size="sm" />{l.words}</span>)}
           </span>
         ) : (
           <span className={cx("min-w-0 grow truncate", dragging ? "font-semibold text-accent" : "text-ink-3")}>{hint}</span>

@@ -4,9 +4,12 @@ import { DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, DRAG_VIDEO } from "../../screens/L
 import { TRANSITIONS, type TransitionKind } from "@afflatus/core";
 import { DRAG_TRANSITION, pinInputs, type Slot } from "../model";
 
-/** What is done on the track, as keys and their words: the line under it while nothing is dragged. */
-export const LEGEND: ReadonlyArray<{ keys: string; words: string }> = [
-  { keys: "drag", words: "media onto the track" },
+/**
+ * What is done on the track, as keys and their words: the line under it while nothing is dragged. `media`: its first
+ * word opens the media over the stage (the strip at the left edge was not found without being told).
+ */
+export const LEGEND: ReadonlyArray<{ keys: string; words: string; media?: true }> = [
+  { keys: "drag", words: "media onto the track", media: true },
   { keys: "click", words: "a clip" },
   { keys: "right-click", words: "its menu" },
   { keys: "I O", words: "a range" },
