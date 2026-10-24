@@ -8,13 +8,16 @@ import { queryKeys } from "./queryKeys";
 import { Button, ErrorNote } from "./ui";
 
 const BUSY = new Set(["downloading", "unpacking", "checking"]);
+/** Said in place of the button to a page on another computer (the banner too). */
+export const ELSEWHERE = "Get ffmpeg from the PC Afflatus runs on.";
 
 /**
  * Get ffmpeg (ffmpegGet.ts), where the ffmpeg check offers it: on Windows and Linux, a button that downloads the bundles'
  * build into Afflatus's data folder, with its progress, then the checks read again (the new ffmpeg used at once); on macOS,
- * Homebrew's line with Copy. Nothing when the check offers neither (it passed, or FFMPEG is set).
+ * Homebrew's line with Copy. Nothing when the check offers neither (it passed, or FFMPEG is set). From another computer
+ * (`here` false), where the server refuses the download, the button gives way to a line saying where to press it.
  */
-export function GetFfmpeg({ check }: { check: HealthCheck | undefined }) {
+export function GetFfmpeg({ check, here }: { check: HealthCheck | undefined; here: boolean | undefined }) {
   const client = useQueryClient();
   const brew = useCopied();
   const view = useQuery({
@@ -49,6 +52,7 @@ export function GetFfmpeg({ check }: { check: HealthCheck | undefined }) {
     );
   }
   if (phase === "done") return <span className="text-xs text-good">ffmpeg is in Afflatus's data folder and used from now on.</span>;
+  if (here === false) return <span className="text-xs text-ink-3">{ELSEWHERE}</span>;
   return (
     <span className="flex flex-wrap items-center gap-2">
       <Button size="sm" tone="primary" disabled={start.isPending} onClick={() => start.mutate()}>{start.isPending ? "Starting…" : "Get ffmpeg"}</Button>

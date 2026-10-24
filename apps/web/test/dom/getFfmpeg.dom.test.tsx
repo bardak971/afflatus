@@ -41,6 +41,17 @@ describe("Get ffmpeg in Settings › About", () => {
     expect(fakeApi.calls("GET", "/ffmpeg/get")).toHaveLength(0);
   });
 
+  it("offers no Get ffmpeg to a page on another computer, where it is refused: About, the first launch and the banner say where", async () => {
+    sessionStorage.clear();
+    fakeApi.on("GET /health", { ...health([failed]), here: false });
+    const Banner = () => (useMissingTools(), null);
+    draw(<><AboutCard /><Banner /></>);
+    expect(await screen.findByText("Get ffmpeg from the PC Afflatus runs on.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Get ffmpeg" })).toBeNull();
+    await waitFor(() => expect(useBanners.getState().items.find((b) => b.id === "check-ffmpeg")?.text).toMatch(/Get ffmpeg from the PC Afflatus runs on\.$/));
+    expect(useBanners.getState().items.find((b) => b.id === "check-ffmpeg")?.action).toBeUndefined();
+  });
+
   it("says it when the banner's Get ffmpeg is refused, in the server's words", async () => {
     sessionStorage.clear();
     fakeApi.on("GET /health", health([failed]));

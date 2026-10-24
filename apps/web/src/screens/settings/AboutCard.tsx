@@ -69,7 +69,7 @@ export function AboutCard() {
               {(c.note || c.get) && (
                 <Block className="flex flex-col gap-2 text-xs text-ink-3">
                   {c.note && <span>{c.note}</span>}
-                  <GetFfmpeg check={c} />
+                  <GetFfmpeg check={c} here={health.data?.here} />
                 </Block>
               )}
             </Fragment>

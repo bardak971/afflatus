@@ -171,7 +171,7 @@ export function MediaOverlay({ timeline, placeItems }: {
       data-tip={open ? "Fold the media away: the stage comes back" : "Media: your library over the stage. Drag onto the track or into the clip's form."}
       onClick={() => setOpen(!open)}
       className={cx(
-        "group flex w-11 shrink-0 flex-col items-center gap-2.5 border-r border-line pt-2.5 transition-colors focus-visible:outline-offset-[-2px]",
+        "group flex w-11 shrink-0 flex-col items-center gap-2.5 border-r border-line pt-2.5 transition-colors focus-visible:outline-offset-[-2px]!",
         open ? "bg-raised" : "bg-panel hover:bg-hover",
       )}
     >

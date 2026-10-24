@@ -26,6 +26,14 @@ describe("a clip's edit in the timeline editor", () => {
     expect(settleEdits(edits, [{ id: "c1", inputs: { prompt: "a walk", seed: 6 } }], unsaved)).toBe(edits);
   });
 
+  it("takes what the server changed under what was typed since, from the clip as it was read (a share from the recording's panel)", () => {
+    const before = { prompt: "a walk", seed: 5, subject: "glasses" };
+    const edits = { c1: { prompt: "a run", seed: 5, subject: "glasses" } };
+    expect(withServerInputs(edits, "c1", { prompt: "a walk", seed: 5, subject: "a hat" }, new Set(["c1"]), before)).toEqual({ c1: { prompt: "a run", seed: 5, subject: "a hat" } });
+    // one typed over since is the newer
+    expect(withServerInputs({ c1: { ...before, subject: "a scarf" } }, "c1", { ...before, subject: "a hat" }, new Set(["c1"]), before)).toEqual({ c1: { ...before, subject: "a scarf" } });
+  });
+
   it("is not made for a clip that had none", () => {
     const edits = {};
     expect(withServerInputs(edits, "c1", { seed: 6 }, none)).toBe(edits);

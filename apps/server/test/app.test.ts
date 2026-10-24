@@ -34,6 +34,13 @@ describe("GET /api/health", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ ok: true, database: "sqlite" });
   });
+
+  it("says whether the page is on this computer, where Get ffmpeg is not refused", async () => {
+    expect((await get(t.app, "/api/health")).json().here).toBe(true);
+    const lan = await t.app.inject({ method: "GET", url: "/api/health", remoteAddress: "192.168.1.20" });
+    expect(lan.json().here).toBe(false);
+    expect((await t.app.inject({ method: "POST", url: "/api/ffmpeg/get", remoteAddress: "192.168.1.20" })).json().error).toMatch(/on the computer Afflatus runs on/);
+  });
 });
 
 describe("GET /api/recipes", () => {

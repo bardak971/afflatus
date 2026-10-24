@@ -40,6 +40,7 @@ import { useKeepForSync } from "./keepFor";
 import { queryKeys } from "./queryKeys";
 import { useSettings } from "./data";
 import { failedBanner } from "./sayFailed";
+import { ELSEWHERE } from "./GetFfmpeg";
 
 /** Where the banners of the start-up checks lead. */
 const ABOUT = { id: "ffmpeg-get", href: "/settings/about", go: "Open About in Settings" };
@@ -66,9 +67,10 @@ export function useMissingTools() {
         push({ id: `check-${c.id}`, tone: "good", title: `${c.label}: ${c.detail}`, text: c.note, href: "/settings/about", go: "Open About in Settings" });
         continue;
       }
-      // started here, followed in About, where the banner leads
-      const get = c.get === "download" ? { label: "Get ffmpeg", run: () => void api.getFfmpeg().then((v) => client.setQueryData(queryKeys.ffmpegGet(), v), (err) => push(failedBanner(ABOUT, "Get ffmpeg did not start", err))) } : undefined;
-      push({ id: `check-${c.id}`, tone: "bad", title: `${c.label}: ${c.detail}`, text: `${c.without} ${c.fix}`, href: "/settings/about", go: "Open About in Settings", ...(get ? { action: get } : {}) });
+      // started here, followed in About, where the banner leads; from another computer, where it is refused, only said
+      const elsewhere = c.get === "download" && health.data?.here === false;
+      const get = c.get === "download" && !elsewhere ? { label: "Get ffmpeg", run: () => void api.getFfmpeg().then((v) => client.setQueryData(queryKeys.ffmpegGet(), v), (err) => push(failedBanner(ABOUT, "Get ffmpeg did not start", err))) } : undefined;
+      push({ id: `check-${c.id}`, tone: "bad", title: `${c.label}: ${c.detail}`, text: `${c.without} ${c.fix}${elsewhere ? ` ${ELSEWHERE}` : ""}`, href: "/settings/about", go: "Open About in Settings", ...(get ? { action: get } : {}) });
     }
   }, [health.data, push, client]);
 }

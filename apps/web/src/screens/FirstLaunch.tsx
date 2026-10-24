@@ -143,7 +143,7 @@ export function FirstLaunch() {
         {ffmpeg && !ffmpeg.ok && (
           <div role="status" className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-raised px-3.5 py-3">
             <span className="text-ink">ffmpeg {ffmpeg.detail}: trims, joins and exports need it.</span>
-            <GetFfmpeg check={ffmpeg} />
+            <GetFfmpeg check={ffmpeg} here={health.data?.here} />
           </div>
         )}
 

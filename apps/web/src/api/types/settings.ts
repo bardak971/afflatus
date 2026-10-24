@@ -9,6 +9,8 @@ export interface Health {
   database: string;
   checks: HealthCheck[];
   checkedAt: string | null;
+  /** The page is on the computer Afflatus runs on: Get ffmpeg is refused from any other (setup-api.ts). */
+  here?: boolean;
 }
 /** One of the start-up checks (preflight.ts). */
 export interface HealthCheck {
