@@ -61,6 +61,7 @@ export type Command =
   | { cmd: "next-take" }
   | { cmd: "mirror-pin"; off?: boolean }
   | { cmd: "cancel-waiting" }
+  | { cmd: "cancel-downloads" }
   | { cmd: "retry-failed" }
   | { cmd: "dismiss-failed" }
   | { cmd: "group-queue" }
@@ -90,6 +91,8 @@ export type Command =
   | { cmd: "spending" }
   | { cmd: "find-models"; words: string }
   | { cmd: "check-updates" }
+  | { cmd: "check-tools" }
+  | { cmd: "get-ffmpeg" }
   | { cmd: "model-updates" }
   | { cmd: "picked" }
   | { cmd: "get-missing" }
@@ -172,6 +175,7 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "next-take", name: "Next take", typed: "next take", example: "next take", what: "The selected clip plays its take after, as its key in the editor" },
   { id: "mirror-pin", name: "Mirror pinned frame", typed: "mirror pin", example: "mirror pin", what: "A pinned frame of the selected clip flipped at render time (or back: mirror pin off), as its right-click menu" },
   { id: "cancel-waiting", name: "Remove all waiting…", typed: "remove waiting", example: "remove waiting", what: "Every waiting job out of the queue, asked first; the running one goes on" },
+  { id: "cancel-downloads", name: "Remove all waiting downloads", typed: "remove waiting downloads", example: "remove waiting downloads", what: "Every model file waiting its turn taken out of the downloads line, as its Remove all waiting; those under way go on" },
   { id: "retry-failed", name: "Retry all failed", typed: "retry failed", example: "retry failed", what: "The failed jobs the queue lists, queued again oldest first" },
   { id: "dismiss-failed", name: "Dismiss all failed…", typed: "dismiss failed", example: "dismiss failed", what: "The failed jobs the queue lists, off the history, asked first" },
   { id: "group-queue", name: "Group by model", typed: "group by model", example: "group by model", what: "Same model together, the loaded one first" },
@@ -180,6 +184,8 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "get-missing", name: "Get missing files", typed: "get missing files", example: "get missing files", what: "The open form's missing model files, looked up and downloaded onto this PC (asked, with their total)" },
   { id: "model-updates", name: "Model updates", typed: "model updates", example: "model updates", what: "Newer versions of your models on Civitai: asked now, then the list in Settings › Models" },
   { id: "check-updates", name: "Check for updates", typed: "check for updates", example: "check for updates", what: "Is a newer Afflatus out: GitHub asked now, as About's Check now" },
+  { id: "check-tools", name: "Check this computer again", typed: "check ffmpeg", example: "check ffmpeg again", what: "ffmpeg, ffprobe, Node and the data folder tried again, as About's On this computer › Check again" },
+  { id: "get-ffmpeg", name: "Get ffmpeg", typed: "get ffmpeg", example: "get ffmpeg", what: "When the ffmpeg check fails: the bundles' build downloaded into Afflatus's data folder, as About's Get ffmpeg (from the PC Afflatus runs on)" },
   { id: "update", name: "Update Afflatus", typed: "update", example: "update", what: "To the latest release, as About's Update: Afflatus restarts once the queue is empty; your library stays as it is" },
   { id: "go-back", name: "Go back to the previous version…", typed: "go back", example: "go back", what: "The version before the last update, its library as it was then (asked first), as About's Go back" },
   { id: "sign-out", name: "Sign out", typed: "sign out", example: "sign out", what: "This browser signed out, as the Access card's Sign out on this device: the sign-in page comes next (with a password set)" },
@@ -299,6 +305,9 @@ export function parseCommand(input: string): Command | null {
   if (/^(?:get|download|fetch) (?:the )?missing(?: model)?(?: files| models)?$/.test(low)) return { cmd: "get-missing" };
   if (/^(?:(?:models?|loras?|checkpoints?) updates?|newer (?:models|loras|versions)|check (?:my )?models?(?: for updates?)?)$/.test(low)) return { cmd: "model-updates" };
   if (/^(?:check (?:for )?(?:updates?|(?:a )?new version)|updates)$/.test(low)) return { cmd: "check-updates" };
+  // About's On this computer › Check again: every start-up check, ffmpeg the one it is wanted for
+  if (/^(?:re-?check|check|test) (?:(?:the )?(?:ffmpeg|ffprobe|tools|start-?up checks)|this (?:computer|pc))(?: again)?$/.test(low)) return { cmd: "check-tools" };
+  if (/^(?:get|download|install|fetch) ffmpeg$/.test(low)) return { cmd: "get-ffmpeg" };
   if (/^(?:update|upgrade)(?: afflatus)?(?: now)?$/.test(low)) return { cmd: "update" };
   if (/^(?:go back|roll ?back|downgrade)(?: to (?:the )?(?:previous|last|old)(?: version)?| to v?\d[\d.]*)?$/.test(low)) return { cmd: "go-back" };
   if ((m = /^(?:send (?:a )?)?test (?:notification|message|telegram|discord)(?: (?:on|to|via) (telegram|discord))?$/.exec(low))) {
@@ -309,6 +318,7 @@ export function parseCommand(input: string): Command | null {
   if (/^next take$/.test(low)) return { cmd: "next-take" };
   if ((m = /^(?:mirror|flip) (?:the )?(?:pin(?:ned)?|frame|pinned frame)s?(?: (on|off))?$/.exec(low))) return { cmd: "mirror-pin", off: m[1] === "off" };
   if (/^(?:unmirror|unflip) (?:the )?(?:pin(?:ned)?|frame|pinned frame)s?$/.test(low)) return { cmd: "mirror-pin", off: true };
+  if (/^(?:cancel|remove) (?:all )?(?:the )?waiting downloads?$/.test(low)) return { cmd: "cancel-downloads" };
   if (/^(?:cancel|remove) (?:all )?(?:the )?waiting(?: jobs)?$/.test(low)) return { cmd: "cancel-waiting" };
   if (/^retry (?:all )?(?:the )?failed(?: jobs)?$/.test(low)) return { cmd: "retry-failed" };
   if (/^dismiss (?:all )?(?:the )?failed(?: jobs)?$/.test(low)) return { cmd: "dismiss-failed" };

@@ -1,4 +1,4 @@
-import { Bell, LogOut, Bookmark, ChevronLeft, ChevronRight, Clapperboard, CircleDollarSign, Download, Eye, FileOutput, FileUp, Film, FlipHorizontal2, FolderPlus, Gauge, Layers, Link2, MemoryStick, Pause, PenLine, Play, Plug, RotateCcw, Search, Server, Sparkles, Split, Square, Trash2, Undo2, Redo2, Wand2, X } from "lucide-react";
+import { Bell, Copy, LogOut, Bookmark, ChevronLeft, ChevronRight, Clapperboard, CircleDollarSign, Download, Eye, FileOutput, FileUp, Film, FlipHorizontal2, FolderPlus, Gauge, Layers, Link2, MemoryStick, Pause, PenLine, Play, Plug, RotateCcw, Search, Server, Sparkles, Split, Square, Trash2, Undo2, Redo2, Wand2, X } from "lucide-react";
 import { TRANSITIONS, withinPixels } from "@afflatus/core";
 import { ask } from "../../Confirm";
 import { openFindModels } from "../../findModels/store";
@@ -9,7 +9,10 @@ import { missingActions, onThisPc, pickedActions } from "./models";
 import { cancelHunt, openDeploy } from "../../deploy";
 import { openLoadPanel } from "../../loadPanelHost";
 import { OPEN_MACHINES } from "../../MachinesPill";
-import { api, type RecipeInfo } from "../../api";
+import { api, type Download as DownloadJob, type Health, type RecipeInfo } from "../../api";
+import { inLine } from "../../downloadLine";
+import { ELSEWHERE } from "../../GetFfmpeg";
+import { copyText } from "../../secureContext";
 import { emptyAll, restoreAll } from "../../binActions";
 import { snapEdge } from "../../fields/SizeField";
 import { wholeForm } from "../../form";
@@ -547,6 +550,42 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
           }
         },
       }];
+    case "check-tools":
+      return [{
+        label: "Check this computer again", icon: <RotateCcw size={14} />, note: "as About's On this computer › Check again",
+        // About's Check again: the checks run anew, the banner, About and the first launch read what they say
+        run: () => api.checkHealth().then((h) => {
+          client.setQueryData(queryKeys.health(), h);
+          const bad = h.checks.filter((k) => !k.ok);
+          if (bad.length) say({ id: "bar:checks", tone: "bad", title: `${bad.map((k) => k.label).join(", ")} failed`, text: bad.map((k) => `${k.label}: ${k.detail}`).join(" · "), href: settingHref("about.checks"), go: "Open About" });
+          else good("Every start-up check passes", h.checks.find((k) => k.note)?.note, settingHref("about.checks"), "Open About");
+        }, failed("Could not check again")),
+      }];
+    case "get-ffmpeg": {
+      const h = client.getQueryData<Health>(queryKeys.health());
+      const get = h?.checks.find((k) => k.get)?.get;
+      if (get === "brew") {
+        return [{ label: "Copy “brew install ffmpeg”", icon: <Copy size={14} />, stay: true, note: "Homebrew's line, as About shows it", run: () => copyText("brew install ffmpeg").then(() => x.onCopied("brew install ffmpeg"), () => x.onCopied("")) }];
+      }
+      // as GetFfmpeg: offered only when the check offers the download, and refused from another computer
+      if (get !== "download") return [{ label: "Get ffmpeg", icon: <Download size={14} />, disabled: true, note: "the ffmpeg check passes", run: () => {} }];
+      return [{
+        label: "Get ffmpeg", icon: <Download size={14} />, disabled: h?.here === false, note: h?.here === false ? ELSEWHERE : "into the data folder · its progress in Settings › About",
+        run: () => api.getFfmpeg().then((v) => {
+          client.setQueryData(queryKeys.ffmpegGet(), v);
+          // About follows the download and reads the checks again once it is in
+          go(settingHref("about.checks"));
+        }, failed("Get ffmpeg did not start")),
+      }];
+    }
+    case "cancel-downloads": {
+      const waiting = (client.getQueryData<{ items: DownloadJob[] }>(queryKeys.downloads())?.items ?? []).filter(inLine).length;
+      return [{
+        label: "Remove all waiting downloads", icon: <Square size={14} />, danger: true, disabled: !waiting,
+        note: waiting ? `${plural(waiting, "file")} · as the line's Remove all waiting; those under way go on` : "nothing waits",
+        run: () => api.cancelWaitingDownloads().then(() => void client.invalidateQueries({ queryKey: queryKeys.downloads() }), failed("The waiting downloads were not cancelled")),
+      }];
+    }
     case "update": {
       const v = x.updates;
       if (!v?.newer || !v.latest) return [{ label: "Update Afflatus", icon: <Download size={14} />, disabled: true, note: v ? `you have ${v.version}, the latest known` : "not read yet", run: () => {} }];

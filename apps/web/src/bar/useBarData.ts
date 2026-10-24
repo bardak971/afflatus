@@ -15,6 +15,7 @@ import { opened } from "../keys/search";
 import { BAR_DEFAULT } from "../keys/table";
 import { TABS, tabHref } from "../screens/settings/settingsIndex";
 import { isUnder, queryKeys } from "../queryKeys";
+import { inLine } from "../downloadLine";
 import { type Grid } from "./calc";
 import { commandTemplates, type CommandCtx } from "./commandRows";
 import { machineLabel, severalMachines } from "../machines";
@@ -198,6 +199,16 @@ export function useBarData({ open, mode, text, line, ranks, picked, learn, found
   // what the rented GPUs cost (`> spending`), read while the bar is open with a RunPod key; Afflatus's own updates
   const spending = useQuery({ queryKey: queryKeys.rentedSpending(), queryFn: ({ signal }) => api.rentedSpending({ signal }), enabled: open && Boolean(settings.data?.hasRunpodKey), staleTime: 60_000 }).data?.spending ?? null;
   const updates = useUpdates().data ?? null;
+  // the start-up checks as About shows them (`> check ffmpeg`, `> get ffmpeg`), read once by the app's banner
+  const health = useQuery({ queryKey: queryKeys.health(), queryFn: () => api.health(), staleTime: Infinity }).data;
+  const tools = useMemo(() => {
+    if (!health) return null;
+    const get = health.checks.find((c) => c.get)?.get;
+    return { failed: health.checks.filter((c) => !c.ok).map((c) => c.label), ...(get ? { get } : {}), here: health.here };
+  }, [health]);
+  // the model downloads: rows of `!`, and those waiting their turn for `> remove waiting downloads`
+  const downloadList = useQuery({ queryKey: queryKeys.downloads(), queryFn: ({ signal }) => api.downloads({ signal }), enabled: open }).data?.items;
+  const downloadsWaiting = useMemo(() => (downloadList ?? []).filter(inLine).length, [downloadList]);
   const n = settings.data?.notify;
   const telegram = Boolean(n?.hasTelegramToken && n.telegramChat);
   const discord = Boolean(n?.hasDiscordWebhook);
@@ -217,8 +228,8 @@ export function useBarData({ open, mode, text, line, ranks, picked, learn, found
     return formRecipe && st ? { recipe: formRecipe.title, files: st.missing.length } : null;
   }, [formRecipe, setup]);
   const commandCtx: CommandCtx = useMemo(
-    () => ({ aim, queue: queueNow ?? null, selectedClip, bannerUndo, editorUndo, bannerRedo, editorRedo, draftName, binEmpty, binSaid, spending, updates, channels: { telegram, discord }, lookups, picked: pickedFiles, missing, access: session ? { locked, session: inSession } : null }),
-    [aim, queueNow, selectedClip, bannerUndo, editorUndo, bannerRedo, editorRedo, draftName, binEmpty, binSaid, spending, updates, telegram, discord, lookups, pickedFiles, missing, session, locked, inSession],
+    () => ({ aim, queue: queueNow ?? null, selectedClip, bannerUndo, editorUndo, bannerRedo, editorRedo, draftName, binEmpty, binSaid, spending, updates, channels: { telegram, discord }, lookups, picked: pickedFiles, missing, access: session ? { locked, session: inSession } : null, tools, downloadsWaiting }),
+    [tools, downloadsWaiting, aim, queueNow, selectedClip, bannerUndo, editorUndo, bannerRedo, editorRedo, draftName, binEmpty, binSaid, spending, updates, telegram, discord, lookups, pickedFiles, missing, session, locked, inSession],
   );
   const templates = useMemo(() => commandTemplates(commandCtx), [commandCtx]);
 
@@ -294,7 +305,6 @@ export function useBarData({ open, mode, text, line, ranks, picked, learn, found
     const by = new Map((modelUpdates?.items ?? []).filter((u) => u.newer).map((u) => [nameOf(u.file), u]));
     return (file: string) => by.get(nameOf(file));
   }, [modelUpdates]);
-  const downloadList = useQuery({ queryKey: queryKeys.downloads(), queryFn: ({ signal }) => api.downloads({ signal }), enabled: open && mode === "queue" }).data?.items;
   const queueNames = useQueueOf((q) => (open && mode === "queue" ? q.machines : null));
 
   const sections: Section[] = useMemo(() => {

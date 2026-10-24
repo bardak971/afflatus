@@ -84,7 +84,7 @@ export function CommandBar() {
   const { shown, setDwell, detail } = useShown(open, current, acting?.item ?? null);
 
   const onCopied = (what: string) => setFlash(what ? { text: `Copied ${what}` } : { text: "Could not copy: the browser refused", bad: true });
-  const { actionsOf, element } = useBarActions({ subject: detail ?? null, aim, settingCtx, onCopied, flash: (text, bad) => setFlash({ text, ...(bad ? { bad } : {}) }) });
+  const { actionsOf, element } = useBarActions({ subject: detail ?? null, about: acting?.item ?? current, aim, settingCtx, onCopied, flash: (text, bad) => setFlash({ text, ...(bad ? { bad } : {}) }) });
 
   const actions: Action[] = acting ? actionsOf(acting.item) : [];
   const shownActions = acting ? (acting.text.trim() ? search(actions.map((a) => ({ a, p: prepare(a.label) })), acting.text, 60).map((x) => x.item.a) : actions) : [];

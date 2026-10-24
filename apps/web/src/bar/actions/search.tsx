@@ -12,7 +12,7 @@ import type { SearchValue } from "../items";
 import type { Action, BarCtx } from "./ctx";
 import { commandActions } from "./commands";
 import { retype } from "./retype";
-import { cardActions, downloadActions, findAction, linkActions, newerActions } from "./models";
+import { cardActions, downloadActions, findAction, linkActions, MODEL_FOLDERS, newerActions, whereActions, whereAsk } from "./models";
 
 /** A model file's page (Civitai, Hugging Face) as Afflatus keeps it, from the folders it may be in; opened, or said missing. */
 const pageAction = (x: BarCtx, file: string, folders: string[]): Action => ({
@@ -64,6 +64,7 @@ export function searchValueActions(x: BarCtx, v: SearchValue): Action[] {
         { label: "Its renders alone", icon: <Search size={14} />, note: `lora:${name}`, stay: true, run: retype(`lora:${valueText(name)} `) },
         ...(v.newer ? newerActions(x, v.newer) : []),
         pageAction(x, v.file, ["loras"]),
+        ...whereActions(x, whereAsk(v)!),
         {
           label: "Copy its trigger words", icon: <Copy size={14} />, stay: true,
           run: async () => {
@@ -89,7 +90,8 @@ export function searchValueActions(x: BarCtx, v: SearchValue): Action[] {
       return [
         { label: "Its renders alone", icon: <Search size={14} />, note: `model:${stem(v.file)}`, stay: true, run: retype(`model:${valueText(stem(v.file))} `) },
         ...(v.newer ? newerActions(x, v.newer) : []),
-        pageAction(x, v.file, ["checkpoints", "diffusion_models", "unet"]),
+        pageAction(x, v.file, MODEL_FOLDERS),
+        ...whereActions(x, whereAsk(v)!),
         { label: "Copy the file's name", icon: <Copy size={14} />, stay: true, run: () => copyText(v.file).then(() => x.onCopied(v.file), () => x.onCopied("")) },
       ];
     case "link":
