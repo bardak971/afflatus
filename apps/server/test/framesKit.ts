@@ -118,3 +118,28 @@ export function firstMiss(got: Array<{ clip: number; index: number }>, want: Arr
   }
   return null;
 }
+
+/**
+ * Where a video's sound is in a signal `wave(t)` over 20 ms from `atMs` of its own clock: the shift, in ms, of the moment heard
+ * from that moment, found a sample at a time within 50 ms either way. The same shift on either side of a join: the sound runs
+ * straight on, nothing dropped and nothing heard twice.
+ */
+export function waveShift(bytes: Uint8Array, atMs: number, wave: (t: number) => number): number {
+  const dir = mkdtempSync(join(tmpdir(), "afflatus-wave-"));
+  const file = join(dir, "v.mp4");
+  writeFileSync(file, bytes);
+  const out = spawnSync("ffmpeg", ["-loglevel", "error", "-i", file, "-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", "-"], { maxBuffer: 1 << 28 });
+  rmSync(dir, { recursive: true, force: true });
+  const raw = out.stdout as Buffer;
+  const pcm = new Float32Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length));
+  const sr = 48000;
+  const i0 = Math.round((atMs / 1000) * sr);
+  let best = Infinity;
+  let at = 0;
+  for (let shift = -2400; shift <= 2400; shift++) {
+    let e = 0;
+    for (let i = 0; i < 960; i += 2) e += (pcm[i0 + i]! - wave((i0 + i + shift) / sr)) ** 2;
+    if (e < best) [best, at] = [e, shift];
+  }
+  return (at / sr) * 1000;
+}

@@ -4,7 +4,7 @@ import { type FrameMeans } from "./measure";
 import { BLEND_MS, DISSOLVE_MS, type ExportMusic, type ExportPart, joinVideosInto } from "./exportJoin";
 import { newId, now } from "./db";
 import type { LibraryChange } from "./events";
-import { FRAME_SLACK_MS, laysSound, MIN_FADE_MS, musicPlan, soundHandover, TRANSITIONS, transitionSpan } from "@afflatus/core";
+import { FRAME_SLACK_MS, laysSound, MIN_FADE_MS, sungHead, musicPlan, soundHandover, TRANSITIONS, transitionSpan } from "@afflatus/core";
 import { duckCurve } from "./duck";
 import { assetView, extOf, newAssetRow } from "./media";
 import { sourceOf } from "./storage";
@@ -12,7 +12,7 @@ import { folderOfTimeline } from "./timelineFolder";
 import { fewAtATime } from "./timelineMedia";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideoFile } from "./video";
-import { clockOf, joinFade, laidOut, sameMaking, seamless, visible, type AssetRow, type Laid, type Placed, type TimelineCore, type TimelineRow, musicBaseOf, musicClipsOf, transitionOfRow } from "./timelineModel";
+import { clockOf, joinFade, laidOut, sameMaking, seamless, visible, type AssetRow, type Laid, type Placed, type Taken, type TimelineCore, type TimelineRow, musicBaseOf, musicClipsOf, transitionOfRow } from "./timelineModel";
 
 /** A timeline as one video: its clips that play joined in order, with their sounds, its music and the joins softened. */
 
@@ -57,6 +57,16 @@ export class TimelineExport {
     const joinOpts = { scale: opts.scale ?? 1, music, smoothTo: opts.smooth ? 48 : undefined, match: opts.match !== false, webMb: opts.webMb, fromRender: await this.holdsRender(shown), signal: opts.signal };
     // stored from where ffmpeg wrote it: the export is never held whole in memory
     return joinVideosInto(parts, frame, fps, joinOpts, (file) => this.storeExport(t, file, frame, fps, win, Boolean(opts.webMb)));
+  }
+
+  /**
+   * Whether a take's head sounds of the model's guess (core soundHandover's `guessedHead`): its sound a recording laid after
+   * its head (Lip sync), rendered without the lead-in its render's form would say (sungHead).
+   */
+  private async guessedHead(x: Taken, recipeId: string | null): Promise<boolean> {
+    const made = x.asset.generation_id ? await this.core.db.selectFrom("generations").select(["recipe_id", "inputs"]).where("id", "=", x.asset.generation_id).executeTakeFirst() : undefined;
+    const inputs = this.core.registry.recipe(made?.recipe_id ?? recipeId ?? "")?.inputs ?? [];
+    return laysSound(inputs) && !sungHead(inputs, made ? (JSON.parse(made.inputs) as Record<string, unknown>) : {});
   }
 
   /**
@@ -130,10 +140,10 @@ export class TimelineExport {
       bothOwnSound: p.clip.sound === "own" && Boolean(x.asset.has_sound) && before?.sound === "own" && Boolean(before.hasSound),
       shownFromMs: visible(x).start,
       beforeMs: before ? before.endMs - before.startMs : 0,
-      laidAfter: laysSound(this.core.registry.recipe(p.clip.recipe_id ?? "")?.inputs ?? []),
+      guessedHead: seam ? await this.guessedHead(x, p.clip.recipe_id) : false,
     });
     return {
-      kind: "video", source: await sourceOf(storage, x.asset.file_key), ext: extOf(x.asset.mime),
+      kind: "video", source: await sourceOf(storage, x.asset.file_key), ext: extOf(x.asset.mime), ...(x.asset.fps ? { fps: x.asset.fps } : {}),
       startMs: visible(x).start + from - (blend >= 80 && landed ? blend : 0) - short - (blend >= 80 && dissolve ? 1000 / fps : 0), endMs: visible(x).start + to, hasSound: Boolean(x.asset.has_sound), ...heard,
       // the sound hands over at the frame the model's own begins, not where the picture took over early (see ExportPart)
       ...(blend >= 80 ? { blendMs: blend, blendMode: landed ? ("overlap" as const) : dissolve ? ("freeze" as const) : ("hold" as const) } : {}),

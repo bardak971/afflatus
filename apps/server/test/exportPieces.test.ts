@@ -176,6 +176,15 @@ describe.skipIf(!ffmpegThere)("a long export made by ffmpeg", () => {
       : video(200 + (i % 4) * 100, 1600 + (i % 3) * 100, { source: clip, ...(i > 0 ? fades[i % fades.length] : {}) }));
   };
 
+  it("cuts plain parts' sound on their frames alike, made whole or in pieces: the same moments, the same sound", async () => {
+    // parts at the export's own rate (fps said), started and ended between frames: their sound cut on their frames (framesOf)
+    const plain = Array.from({ length: 9 }, (_, i) => video(210 + (i % 3) * 7, 1590 + (i % 4) * 11, { source: clip, fps: 24 }));
+    const whole = await exported(plain, 24, {}, 100);
+    const pieces = await exported(plain, 24, {}, 3);
+    expect(pieces.pts).toEqual(whole.pts);
+    expect(pieces.sound).toBe(whole.sound);
+  }, FFMPEG_TIMEOUT);
+
   it("cuts a long run of fades inside its parts, the same pictures at the same moments and the same sound as made whole", async () => {
     expect(runsOf(chained())).toHaveLength(1);
     // (not at the web's speed: there a timeline in pieces can end a frame short of the whole one, cut runs or not)

@@ -563,7 +563,8 @@ export async function soundPart(source: Media, ext: string, opts: { start: numbe
       filters.push(`apad=whole_dur=${(seconds + after).toFixed(3)}`);
     }
     const af = filters.length ? ["-af", filters.join(",")] : [];
-    await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-ss", start.toFixed(3), "-t", (seconds + after).toFixed(3), "-i", input, "-vn", ...af, "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", out]);
+    // to the microsecond: a part that carries on from the clip before starts where it stopped on its frame grid (5.16667 s)
+    await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-ss", start.toFixed(6), "-t", (seconds + after).toFixed(6), "-i", input, "-vn", ...af, "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", out]);
     return new Uint8Array(await readFile(out));
   });
 }

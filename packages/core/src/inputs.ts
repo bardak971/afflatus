@@ -289,6 +289,13 @@ export interface PartFit {
  */
 export const laysSound = (inputs: readonly InputSpec[]) => inputs.some((i) => i.type === "audio" && i.role === "sound" && Boolean(i.window));
 
+/**
+ * Whether a render of such a recipe had its head filed with the recording itself (its window's `leadIn` set in what it was
+ * sent, `made`): the clip before sang it up to the part, and the head sounds of those moments, not of the model's guess.
+ */
+export const sungHead = (inputs: readonly InputSpec[], made: Record<string, unknown>) =>
+  inputs.some((i) => i.type === "audio" && i.role === "sound" && Boolean(i.window?.leadIn && made[i.window.leadIn]));
+
 /** What a part makes with the form's values: the longest part one clip holds, and the clip's own length for a part of `seconds`. */
 export function partFit(fit: PartFit, specs: InputSpec[], values: Record<string, unknown>): { most: number; clip(seconds: number): number } {
   let frames = fit.frames;

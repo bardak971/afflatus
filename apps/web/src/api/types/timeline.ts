@@ -34,6 +34,8 @@ export interface Take {
   facePass?: boolean;
   /** Its sound is a recording laid after its head (Lip sync): the sound never hands over to its head early (core soundHandover). */
   laidSound?: boolean;
+  /** Its head filed with the recording the clip before sang (the lead-in), not the model's guess: the sound hands over to it as to any. */
+  headSung?: boolean;
 }
 /** How a take's own part looks, measured on its real frames when it was rendered (the server's lookOf). Older takes carry the first two only. */
 export interface Measure {
