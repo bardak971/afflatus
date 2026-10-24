@@ -29,6 +29,7 @@ import { useTimelineMutations } from "./useTimelineMutations";
 import { useEditorPanels } from "./useEditorPanels";
 import { useRenderPlan } from "./useRenderPlan";
 import { useSelectedClipBridge } from "./useSelectedClipBridge";
+import { newViewStore } from "./track/useTrackView";
 
 const NONE: RecipeInfo[] = [];
 
@@ -55,6 +56,8 @@ export function useTimelineEditor(id: string) {
   // the moment of what plays: not state, so that a tick redraws the track and the readout, not the whole editor
   const clock = useNewClock();
   const [pps, setPps] = useState(ZOOM.start);
+  // the stretch the track shows, for the recording's stage to show the same (kept outside the editor's state: useTrackView)
+  const [trackView] = useState(newViewStore);
   const [preview, setPreview] = useState<Take | null>(null);
   const [opened, setOpened] = useState<Asset | null>(null);
   const [picking, setPicking] = useState(false);
@@ -482,7 +485,7 @@ export function useTimelineEditor(id: string) {
 
   return {
     id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, current,
-    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, recordingOpen, setRecordingOpen, openRecording, recordingAt, recordingCut, recordingShared, removeSource, makeSource, cutSource, sourceForm, recording, stretch, recordingTrim, splitSource, masks, setMasks, maskOfCurrent, place, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
+    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, recordingOpen, setRecordingOpen, openRecording, recordingAt, recordingCut, recordingShared, removeSource, makeSource, cutSource, sourceForm, recording, stretch, recordingTrim, splitSource, masks, setMasks, maskOfCurrent, place, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps, trackView,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, typeSource, sourceTyped, inputsOf, editInputs, formOf, ready, keptToClip, keepToClip, sayOf, say, m, range, setRange, loopRange, snapQuiet,

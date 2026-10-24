@@ -119,6 +119,7 @@ function Editor({ id }: { id: string }) {
                 stopAt={e.stopAt}
                 startAt={e.cursor ?? e.clock.get()}
                 master={e.muted ? 0 : e.volume}
+                view={e.trackView}
               />
             ) : (
               <Player ref={e.player} {...playerProps(e)} />

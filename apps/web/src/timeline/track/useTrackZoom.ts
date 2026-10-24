@@ -69,6 +69,11 @@ export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clo
     if (fitMs <= 0) return;
     whole.current = true;
     onZoom(Math.max(ZOOM.least, Math.min(ZOOM.most, room / (fitMs / 1000))));
+    // from its start: a track scrolled before kept its place, the first clips off its left side with the whole fitting
+    // (and the recording's stage, which shows what the track shows, with them)
+    requestAnimationFrame(() => {
+      if (scroller.current) scroller.current.scrollLeft = 0;
+    });
   };
   /** One zoom step out (-1) or in (1) around the playhead: it stays where it is on screen (brought to the middle when it was out of view). */
   const zoomAtHead = (by: -1 | 1) => {
