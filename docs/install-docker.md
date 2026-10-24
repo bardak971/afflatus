@@ -1,6 +1,6 @@
 # Afflatus with Docker
 
-One image, `ghcr.io/bardak971/afflatus`, with ffmpeg inside, for `linux/amd64` and `linux/arm64`. It is tagged like the release (`0.2.1`), by minor (`0.2`) and `latest`; a pre-release (`0.3.0-rc.1`) gets its own tag only. ComfyUI is not in it: Afflatus talks to the one you run. Its ffmpeg is Debian's package, a GPL build.
+One image, `ghcr.io/bardak971/afflatus`, with ffmpeg inside, for `linux/amd64` and `linux/arm64`. It is tagged like the release (`0.2.1`), by minor (`0.2`) and `latest`; a pre-release (`0.3.0-rc.1`) gets its own tag only. ComfyUI is not in it: Afflatus talks to the one you run. Its ffmpeg is the one the Windows and Linux bundles carry, BtbN's GPL 9.0 build (with libx264), checked against its published SHA-256 when the image is built; its licence is in `/usr/local/share/doc/ffmpeg`.
 
 ## Compose
 
