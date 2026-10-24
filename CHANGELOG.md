@@ -10,6 +10,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ### Fixed
 - **The Windows and Linux bundles carry BtbN's GPL ffmpeg**, with libx264: the LGPL build they carried until now has none, so every trim, join and export in a bundle failed with "Unknown encoder 'libx264'".
+- **The Docker image carries the bundles' ffmpeg** (BtbN's GPL 9.0 build, amd64 and arm64, its SHA-256 checked at build) instead of Debian's: bookworm's 5.1 is below the 6.1 the start-up check asks, so the image would have shown ffmpeg as failed at each start. It also has `xz` now, which Get ffmpeg needs to unpack its download on Linux.
 - **A join whose frames could not be cut names the ffmpeg**, its version and the count it gave ("ffmpeg 7.1 (ComfyUI's) cut 21 where 22 were asked"), and points to Settings › About.
 
 ## [0.6.1] - 2026-10-23

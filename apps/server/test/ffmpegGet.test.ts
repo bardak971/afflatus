@@ -86,4 +86,12 @@ describe("Get ffmpeg", () => {
       expect(sums.sha256[f.name]).toBe(f.sha256);
     }
   });
+
+  it("is the build the Docker image carries on amd64: the Dockerfile's tag, archive and sum", () => {
+    const docker = readFileSync(resolve(__dirname, "../../../Dockerfile"), "utf8");
+    expect(docker).toContain(`tag=${FFMPEG_BUILD.tag};`);
+    expect(docker).toContain(`amd64) file=${FFMPEG_BUILD.files.linux.name}; sum=${FFMPEG_BUILD.files.linux.sha256} ;;`);
+    // Debian's ffmpeg is below the minimum (bookworm's 5.1) or miscounts a join's run-up (trixie's 7.1)
+    expect(docker).not.toMatch(/apt-get install[^\n]*\bffmpeg\b/);
+  });
 });
