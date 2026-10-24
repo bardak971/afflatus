@@ -268,7 +268,7 @@ try {
   else console.log(`player check: a range looped ${rounds} times back to In, never past Out`);
   await fresh.close();
 
-  // ---- a selected clip's trim edges at a join: the press is theirs, not the join dot's drawn over them (W-10). Hit-tested
+  // ---- a selected clip's trim edges at a join: the press is theirs, not the join dot's drawn over them (W-10), a click there opening the join. Hit-tested
   // by the browser itself, which jsdom does not do: at the middle of each edge, the element on top is the edge; then the
   // start edge of clip 2 dragged trims it (neither the join opened nor the clip moved)
   const edges = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
@@ -282,9 +282,21 @@ try {
     if (top !== name) problems.push(`clip ${clip} selected, the middle of "${name}" is taken by "${top}"`);
     return at;
   };
+  const lengthOf2 = async () => ((await call("GET", `/api/timelines/${tl.id}`)).clips as Array<{ lengthMs: number }>)[1]!.lengthMs;
+  // a click there (let go of without moving) is the dot's: the join before clip 2 opens in the column, nothing trimmed (card #77)
+  const clicked = async (clip: number, name: string) => {
+    const spot = await onTop(clip, name);
+    const was = await lengthOf2();
+    await edges.mouse.click(spot.x, spot.y);
+    const opened = await edges.locator("aside span", { hasText: /^Join$/ }).waitFor({ timeout: 5000 }).then(() => true, () => false);
+    if (!opened) problems.push(`clip ${clip} selected, a click on "${name}" at the join's dot did not open the join`);
+    else if ((await lengthOf2()) !== was) problems.push(`clip ${clip} selected, a click on "${name}" at the join's dot trimmed clip 2`);
+    else console.log(`player check: clip ${clip} selected, a click at the join's dot on its edge opens the join`);
+  };
+  await clicked(1, "Drag to trim the end of the clip");
+  await clicked(2, "Drag to trim the start of the clip");
   await onTop(1, "Drag to trim the end of the clip");
   const at = await onTop(2, "Drag to trim the start of the clip");
-  const lengthOf2 = async () => ((await call("GET", `/api/timelines/${tl.id}`)).clips as Array<{ lengthMs: number }>)[1]!.lengthMs;
   const was = await lengthOf2();
   await edges.mouse.move(at.x, at.y);
   await edges.mouse.down();

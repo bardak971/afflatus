@@ -222,9 +222,20 @@ export function editKey(e: KeyboardEvent, { typing, open, held, plain, designing
   return false;
 }
 
+/**
+ * The clip, the join or the band last pressed on the track keeps the focus once Escape has let go of it, and the key itself
+ * turned it to :focus-visible: its ring stayed on what was no longer selected. It is blurred, the page's focus then nowhere
+ * (Tab goes on from there, as the browser keeps its place); a focus outside the track is left where it is.
+ */
+export function leaveTrackFocus(el: HTMLElement) {
+  // the key is sent to what holds the focus: that is the element to let go of
+  if (el.closest("[data-track]")) el.blur();
+}
+
 /** Escape lets go, one thing a press: the picked clips with the range, else the range, else the clip open, else the music's panel. */
-export function selectionKey(e: KeyboardEvent, { typing, held }: KeyPlace, a: KeyActions): boolean {
+export function selectionKey(e: KeyboardEvent, { el, typing, held }: KeyPlace, a: KeyActions): boolean {
   if (e.key !== "Escape" || typing || held) return false;
+  leaveTrackFocus(el);
   a.setPicked(new Set());
   if (a.rangeRef.current) {
     e.preventDefault();

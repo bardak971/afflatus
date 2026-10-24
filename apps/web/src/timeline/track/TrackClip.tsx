@@ -50,7 +50,8 @@ export interface TrackClipActs {
   /** Its edges: drag to shorten it (or to give back what was cut). */
   startPull(e: ReactPointerEvent, s: Slot, side: "start" | "end"): void;
   movePull(e: ReactPointerEvent): void;
-  endPull(): void;
+  /** Let go of (no event: taken back by the browser); true when it was a click, not a drag. */
+  endPull(e?: ReactPointerEvent): boolean;
   onSelect(clip: string): void;
   onPick?(clip: string): void;
   onRange(range: TimeRange | null): void;
@@ -96,6 +97,9 @@ export const joinCovered = (slots: Slot[], s: Slot, selected: string | null) =>
 
 /** How long a clip's film strip waits for its motion before it is asked for all the same. */
 const STRIP_WAIT_MS = 8000;
+
+/** Half the join's dot (24 px round): a press let go of within it, on the edge drawn over it, is a click on the dot. */
+const DOT_HALF = 12;
 
 export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, misfit, on, edged, picked, rendering, stretch, over, pinOn, ownSound, fileSound, renderMs, lift, moving, nearJoin, voice, acts }: {
   s: Slot;
@@ -188,6 +192,19 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
     onSelect(c.id);
     onPinMenu(c, where, e);
   };
+  // the selected clip's edges take the press over the join's dot under them (W-10): a drag trims, but a click let go of on
+  // the dot's spot opens that join as a click on the dot does (the same dot clicked, so it does what its own click does)
+  const joinAt = (side: "start" | "end") => (side === "start" ? (s.index > 0 ? s : undefined) : a().slots[s.index + 1]);
+  const letGo = (e: ReactPointerEvent<HTMLElement>, side: "start" | "end") => {
+    if (!a().endPull(e)) return;
+    const j = joinAt(side);
+    const lanes = e.currentTarget.parentElement?.parentElement;
+    if (!j || !lanes) return;
+    const y = e.clientY - lanes.getBoundingClientRect().top;
+    if (Math.abs(a().xOf(e.clientX) - j.left) > DOT_HALF || Math.abs(y - (ROW.top + ROW.height / 2)) > DOT_HALF) return;
+    [...lanes.querySelectorAll<HTMLElement>("[data-join]")].find((dot) => dot.dataset.join === j.clip.id)?.click();
+  };
+  const edgeHint = (side: "start" | "end", drag: string) => (joinAt(side) && !moving ? `click: the join · ${drag}` : drag);
   // not rendered yet, a model that makes its own sound says so, neutral: what will be heard there once it is
   const heard = c.kind === "still" || s.planned ? (c.sound === "file" ? c.soundAsset?.name || "Audio file" : s.planned && recipe?.traits?.sound && voice === undefined ? "own sound, once rendered" : "") : c.sound === "file" ? c.soundAsset?.name || "Audio file" : c.sound === "muted" ? "Muted" : video?.hasSound ? "Own audio" : "Silent";
   return (
@@ -357,9 +374,9 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
       {on && !s.planned && !c.job && (
         <>
           {c.kind === "video" && (
-            <span role="separator" aria-label="Drag to trim the start of the clip" data-hint="drag: trim the start" onPointerDown={(e) => a().startPull(e, s, "start")} onPointerMove={(e) => a().movePull(e)} onPointerUp={() => a().endPull()} onPointerCancel={() => a().endPull()} className={cx(EDGE_HIT, "rounded-l-lg", moving ? "z-10" : "z-20")} style={{ left: s.left + 1, top: ROW.top, height: ROW.height }} />
+            <span role="separator" aria-label="Drag to trim the start of the clip" data-hint={edgeHint("start", "drag: trim the start")} onPointerDown={(e) => a().startPull(e, s, "start")} onPointerMove={(e) => a().movePull(e)} onPointerUp={(e) => letGo(e, "start")} onPointerCancel={() => a().endPull()} className={cx(EDGE_HIT, "rounded-l-lg", moving ? "z-10" : "z-20")} style={{ left: s.left + 1, top: ROW.top, height: ROW.height }} />
           )}
-          <span role="separator" aria-label="Drag to trim the end of the clip" data-hint={c.kind === "still" ? "drag: change the still's duration" : "drag: trim the end"} onPointerDown={(e) => a().startPull(e, s, "end")} onPointerMove={(e) => a().movePull(e)} onPointerUp={() => a().endPull()} onPointerCancel={() => a().endPull()} className={cx(EDGE_HIT, "rounded-r-lg", moving ? "z-10" : "z-20")} style={{ left: s.left + s.width - 11.5, top: ROW.top, height: ROW.height }} />
+          <span role="separator" aria-label="Drag to trim the end of the clip" data-hint={edgeHint("end", c.kind === "still" ? "drag: change the still's duration" : "drag: trim the end")} onPointerDown={(e) => a().startPull(e, s, "end")} onPointerMove={(e) => a().movePull(e)} onPointerUp={(e) => letGo(e, "end")} onPointerCancel={() => a().endPull()} className={cx(EDGE_HIT, "rounded-r-lg", moving ? "z-10" : "z-20")} style={{ left: s.left + s.width - 11.5, top: ROW.top, height: ROW.height }} />
         </>
       )}
 
@@ -436,6 +453,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
             )}
             <button
               type="button"
+              data-join={c.id}
               onClick={() => (opens ? a().onOpenJoin?.(c) : toggles ? a().onJoin?.(c, c.joined === "continue" ? "cut" : "continue") : a().onSelect(c.id))}
               onDragOver={(e) => a().overJoin(e, s)}
               data-hint={hint}
