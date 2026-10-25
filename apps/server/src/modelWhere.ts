@@ -4,12 +4,12 @@ import { dirname, isAbsolute, join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { ComfyClient } from "@afflatus/comfy";
-import { isModelFile } from "@afflatus/core";
+import { isModelFile, WHERE_MOST } from "@afflatus/core";
 import { httpError, notFound } from "./errors";
 import { downloadTarget } from "./fetchFile";
 import { fromThisComputer } from "./hostCheck";
 import { isNetworkPath } from "./linked";
-import { comfyBase, comfyFolderPaths, inside, listedFor, NOT_MODELS, onThisMachine, placesOf } from "./modelDownload";
+import { comfyBase, comfyFolderPaths, inside, listedFor, NOT_MODELS, onThisMachine, placesOf, type Place } from "./modelDownload";
 import { modelDirs } from "./modelFiles";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
@@ -28,12 +28,15 @@ export interface FilePlace {
   kind: "own" | "older" | "other";
 }
 
-/** What the page is told of a file's places. */
-export interface FileWhere {
-  /** Whether its places can be known here: ComfyUI runs on the machine Afflatus runs on. */
+/** What the page is told of a list of files' places. */
+export interface FilesWhere {
+  /** Whether their places can be known here: ComfyUI runs on the machine Afflatus runs on. */
   known: boolean;
-  /** Each place it is, ComfyUI's own models/<folder> first: one place more is a copy worth seeing. Empty when not known. */
-  places: FilePlace[];
+  /**
+   * Each file's places, in the order the files were named: every place it is, ComfyUI's own models/<folder> first (one
+   * place more is a copy worth seeing). Each empty when not known.
+   */
+  places: FilePlace[][];
   /** Whether Show in folder is offered: known, and asked from this computer itself, whose screen the file manager opens on. */
   reveal: boolean;
 }
@@ -54,7 +57,7 @@ function nameParts(file: string): string[] | null {
  */
 const FOLDER = /^[\w-]+$/;
 
-/** ComfyUI's folder list, kept a few seconds per ComfyUI: a list of 80 files asks for each file's places at once. */
+/** ComfyUI's folder list, kept a few seconds per ComfyUI: a page asks for a list's places, then for one file's as it is shown. */
 const listed = new Map<string, { at: number; paths: Promise<Record<string, string[]> | null> }>();
 const KEPT_MS = 10_000;
 
@@ -67,26 +70,38 @@ function folderPathsOf(client: Pick<ComfyClient, "raw" | "baseUrl">): Promise<Re
 }
 
 /**
- * Every place a model file is on this machine: each directory ComfyUI reads its folder from (from /internal/folder_paths,
+ * What finds every place a model file is on this machine: each directory ComfyUI reads its folder from (from /internal/folder_paths,
  * extra_model_paths.yaml counted; from an older ComfyUI, the folder set in Settings), in placesOf's order, that holds a
  * file of that name. Only a path under one of those directories is ever said, never one on a network share (a stat of it
  * reaches for the share). Null when ComfyUI runs on another machine: its paths are its own disk's, nothing here to look at.
  */
-export async function filePlaces(client: Pick<ComfyClient, "raw" | "baseUrl">, comfyDir: string, folder: string, file: string): Promise<FilePlace[] | null> {
+function placeFinder(client: Pick<ComfyClient, "raw" | "baseUrl">, comfyDir: string): ((folder: string, file: string) => Promise<FilePlace[]>) | null {
   if (!onThisMachine(client.baseUrl)) return null;
-  const parts = nameParts(file);
-  if (!parts || NOT_MODELS.has(folder) || !FOLDER.test(folder)) return [];
-  const paths = await folderPathsOf(client);
-  const dirs = paths ? listedFor(paths, folder) : await modelDirs(comfyDir, folder);
-  const out: FilePlace[] = [];
-  for (const place of placesOf(dirs, folder, comfyBase(paths, comfyDir))) {
-    const dir = place.path;
-    if (!isAbsolute(dir) || isNetworkPath(dir)) continue;
-    const path = join(dir, ...parts);
-    if (!inside(dir, path)) continue;
-    if ((await stat(path).catch(() => null))?.isFile()) out.push({ path, kind: place.kind });
-  }
-  return out;
+  // a list asks for many files of few folders: each folder's directories are worked out once per finder
+  const dirsOf = new Map<string, Promise<Place[]>>();
+  const dirsFor = (folder: string) => {
+    let dirs = dirsOf.get(folder);
+    if (!dirs) {
+      dirs = (async () => {
+        const paths = await folderPathsOf(client);
+        const listed = paths ? listedFor(paths, folder) : await modelDirs(comfyDir, folder);
+        return placesOf(listed, folder, comfyBase(paths, comfyDir)).filter((p) => isAbsolute(p.path) && !isNetworkPath(p.path));
+      })();
+      dirsOf.set(folder, dirs);
+    }
+    return dirs;
+  };
+  return async (folder, file) => {
+    const parts = nameParts(file);
+    if (!parts || NOT_MODELS.has(folder) || !FOLDER.test(folder)) return [];
+    const out: FilePlace[] = [];
+    for (const place of await dirsFor(folder)) {
+      const path = join(place.path, ...parts);
+      if (!inside(place.path, path)) continue;
+      if ((await stat(path).catch(() => null))?.isFile()) out.push({ path, kind: place.kind });
+    }
+    return out;
+  };
 }
 
 /**
@@ -112,7 +127,7 @@ export const fileManager = {
 
 /**
  * A model file, by its folder and its name under it (core fileKey's parts), on one ComfyUI (left out: the first). A folder
- * that is no folder's name, or a name that is no model file's, is refused outright: filePlaces would find nothing anyway.
+ * that is no folder's name, or a name that is no model file's, is refused outright: the finder would find nothing anyway.
  */
 const fileOf = z.object({
   folder: z.string().min(1).max(120).regex(FOLDER, "that is not a models folder"),
@@ -120,18 +135,35 @@ const fileOf = z.object({
   machine: z.string().max(40).optional(),
 });
 
+/**
+ * The files of one /where, on one ComfyUI. Each is a folder and a name as fileOf takes them, but one that is no model
+ * file's is answered with no place rather than refusing the list: one odd name would empty the places of the whole page.
+ */
+const filesOf = z
+  .object({
+    files: z.array(z.object({ folder: z.string().min(1).max(120), file: z.string().min(1).max(500) }).strict()).min(1).max(WHERE_MOST),
+    machine: z.string().max(40).optional(),
+  })
+  .strict();
+
 export function registerModelWhere(app: FastifyInstance, s: Services): void {
-  const whereOf = async (q: z.infer<typeof fileOf>) => {
+  /** The finder for a ComfyUI (the first, or the one named), with one settings read: null when none is set or it is another machine's. */
+  const finderOf = async (machine?: string) => {
     const settings = await readSettings(s.db);
     if (!settings.machines.length) return null;
-    const { comfy, dir } = await downloadTarget(s, settings, q.machine);
-    return filePlaces(comfy.client, dir, q.folder, q.file);
+    const { comfy, dir } = await downloadTarget(s, settings, machine);
+    return placeFinder(comfy.client, dir);
   };
 
-  /** Where a model file is on disk: every place it is, and whether Show in folder can open one (card #64). */
-  app.get("/api/model-files/where", async (req): Promise<FileWhere> => {
-    const places = await whereOf(fileOf.strict().parse(req.query));
-    return { known: places !== null, places: places ?? [], reveal: places !== null && fromThisComputer(req) };
+  /**
+   * Where a list of model files is on disk: every place each is, and whether Show in folder can open one (card #64). One
+   * request for a page's list (card #74): one settings read, each folder's directories once, the files looked for at once.
+   */
+  app.post("/api/model-files/where", async (req): Promise<FilesWhere> => {
+    const q = filesOf.parse(req.body);
+    const find = await finderOf(q.machine);
+    if (!find) return { known: false, places: q.files.map(() => []), reveal: false };
+    return { known: true, places: await Promise.all(q.files.map((f) => find(f.folder, f.file))), reveal: fromThisComputer(req) };
   });
 
   /**
@@ -143,8 +175,9 @@ export function registerModelWhere(app: FastifyInstance, s: Services): void {
   app.post("/api/model-files/reveal", async (req) => {
     const q = fileOf.extend({ at: z.number().int().min(0).max(50).default(0) }).strict().parse(req.body);
     if (!fromThisComputer(req)) throw httpError("Show in folder opens on the computer Afflatus runs on: from another one, copy the path.", 403);
-    const places = await whereOf(q);
-    if (places === null) throw httpError("ComfyUI runs on another machine: its files are not on this one's disk.", 409);
+    const find = await finderOf(q.machine);
+    const places = find && (await find(q.folder, q.file));
+    if (!places) throw httpError("ComfyUI runs on another machine: its files are not on this one's disk.", 409);
     const place = places[q.at];
     if (!place) throw notFound("that file in ComfyUI's model folders");
     fileManager.show(place.path);

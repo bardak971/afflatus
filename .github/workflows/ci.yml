@@ -14,16 +14,42 @@ on:
 permissions:
   contents: read
 
+# The ffmpeg the tests and the player run on: the one users run, the build the bundles, the Docker image and Get ffmpeg carry
+# (scripts/release/bundle.mjs's FFMPEG_TAG, BtbN's GPL 9.0 build for linux64), its SHA-256 checked on every run, cached
+# between runs (~150 MB). Not the runner's apt ffmpeg: 24.04's 6.1.1 is not what ships, and a newer image's (7.1) is refused
+# by the start-up check and miscounts run-ups. ffmpegGet.test.ts holds these three to FFMPEG_BUILD and checksums.json.
+env:
+  FFMPEG_TAG: autobuild-2026-09-30-13-08
+  FFMPEG_FILE: ffmpeg-n9.0.2-17-g2a571b6068-linux64-gpl-9.0.tar.xz
+  FFMPEG_SHA256: 68ee646831adaae2495618346f3bba94ff207ff83bbd34d643e7004730d66269
+
 jobs:
   check:
-    # ubuntu-24.04, not -latest: its apt ffmpeg (6.1.1) passes the start-up check; a newer image's (7.1) is refused and miscounts run-ups
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 24, cache: pnpm }
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg shellcheck
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
+      # BtbN's archive from the cache, else from its release; checked either way before it is unpacked, then first on the PATH
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/ffmpeg-archive
+          key: ffmpeg-${{ env.FFMPEG_FILE }}-${{ env.FFMPEG_SHA256 }}
+      - name: ffmpeg (the shipped build)
+        run: |
+          set -eu
+          mkdir -p ~/ffmpeg-archive "$RUNNER_TEMP/ffmpeg"
+          archive=~/ffmpeg-archive/$FFMPEG_FILE
+          if ! echo "$FFMPEG_SHA256  $archive" | sha256sum -c --status - 2> /dev/null; then
+            curl -fsSL --retry 3 -o "$archive.part" "https://github.com/BtbN/FFmpeg-Builds/releases/download/$FFMPEG_TAG/$FFMPEG_FILE"
+            echo "$FFMPEG_SHA256  $archive.part" | sha256sum -c -
+            mv "$archive.part" "$archive"
+          fi
+          tar -xJf "$archive" -C "$RUNNER_TEMP/ffmpeg" --strip-components=1
+          echo "$RUNNER_TEMP/ffmpeg/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/ffmpeg/bin/ffmpeg" -hide_banner -version | head -n 1
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       # the hooks rules and a few rules for outright mistakes (.oxlintrc.json); a disable comment says why
@@ -54,14 +80,30 @@ jobs:
   # the timeline player frame by frame in headless Chrome (the runner has Chrome): H3-shaped synthetic clips with their frame
   # index burned in, played in the real editor; fails on a frame out of order, a flicker at a hand-over, a hidden run-up shown
   player:
-    # ubuntu-24.04, not -latest: its apt ffmpeg (6.1.1) passes the start-up check; a newer image's (7.1) is refused and miscounts run-ups
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 24, cache: pnpm }
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      # BtbN's archive from the cache, else from its release; checked either way before it is unpacked, then first on the PATH
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/ffmpeg-archive
+          key: ffmpeg-${{ env.FFMPEG_FILE }}-${{ env.FFMPEG_SHA256 }}
+      - name: ffmpeg (the shipped build)
+        run: |
+          set -eu
+          mkdir -p ~/ffmpeg-archive "$RUNNER_TEMP/ffmpeg"
+          archive=~/ffmpeg-archive/$FFMPEG_FILE
+          if ! echo "$FFMPEG_SHA256  $archive" | sha256sum -c --status - 2> /dev/null; then
+            curl -fsSL --retry 3 -o "$archive.part" "https://github.com/BtbN/FFmpeg-Builds/releases/download/$FFMPEG_TAG/$FFMPEG_FILE"
+            echo "$FFMPEG_SHA256  $archive.part" | sha256sum -c -
+            mv "$archive.part" "$archive"
+          fi
+          tar -xJf "$archive" -C "$RUNNER_TEMP/ffmpeg" --strip-components=1
+          echo "$RUNNER_TEMP/ffmpeg/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/ffmpeg/bin/ffmpeg" -hide_banner -version | head -n 1
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm check:player

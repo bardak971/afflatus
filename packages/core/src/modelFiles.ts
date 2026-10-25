@@ -15,6 +15,12 @@ export const MODEL_EXT = endsIn(MODEL_EXTS);
 export const isModelFile = (name: string) => MODEL_EXT.test(name);
 
 /**
+ * The most files one /api/model-files/where names (card #74): a page's list (Find models › Yours shows up to 80), never a
+ * whole disk. The page sends a longer list in parts of this size.
+ */
+export const WHERE_MOST = 200;
+
+/**
  * ComfyUI's usual model folders, in the order they are offered: where a file with no folder of its own can go while
  * ComfyUI does not say its own, and the folders hashed, searched and listed on a pod (those less embeddings). Written by
  * hand five times, server and web, the lists could drift apart as a folder was added to some of them only.

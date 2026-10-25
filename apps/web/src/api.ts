@@ -1,5 +1,5 @@
 import { projectForNew, projectParam } from "./project";
-import { UPLOAD_MAX_BYTES, unlistOptions, type ListedOptions, type ModelInfo, type RankedGpu } from "@afflatus/core";
+import { UPLOAD_MAX_BYTES, unlistOptions, WHERE_MOST, type ListedOptions, type ModelInfo, type RankedGpu } from "@afflatus/core";
 import { size } from "./format";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
@@ -12,7 +12,7 @@ import { signedOut } from "./access/signedOut";
 import type { GoBackCheck, UpdatesView } from "./api/types/updates";
 import type { CostsView } from "./api/types/costs";
 import type { CommandEntry, CommandEstimate, CommandIndex, PromptHistoryItem } from "./api/types/bar";
-import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ComfyProbe, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, FileWhere, FolderPlaces, HuggingFaceFind, CivitaiFind, DeployModels, ModelSet, SetFile, SetSearch, BrowseBases, BrowseCard, BrowseFile, BrowsePage, HashStatus } from "./api/types/models";
+import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ComfyProbe, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, FileWhere, FilesWhere, FolderPlaces, HuggingFaceFind, CivitaiFind, DeployModels, ModelSet, SetFile, SetSearch, BrowseBases, BrowseCard, BrowseFile, BrowsePage, HashStatus } from "./api/types/models";
 
 /** Shapes of the server's answers. Kept next to the calls so a change on one side is noticed on the other. */
 export * from "./api/types/queue";
@@ -157,6 +157,59 @@ interface PackState { id: string; state: "pending" | "done" | "failed"; message?
 type Asked = { signal?: AbortSignal };
 /** A machine named in a query (`?machine=`), or nothing. */
 const machineParam = (machine?: string) => (machine ? `?machine=${encodeURIComponent(machine)}` : "");
+
+/** A file whose places are asked, waiting for the request that names it with the others asked in the same moment. */
+type WhereWaiting = { folder: string; file: string; signal?: AbortSignal; done(w: FileWhere): void; failed(err: unknown): void };
+/** The files asked and not sent yet, by ComfyUI ("" for the first). */
+const whereWaiting = new Map<string, WhereWaiting[]>();
+const givenUp = (signal: AbortSignal) => signal.reason ?? new DOMException("The request was given up on", "AbortError");
+
+/**
+ * Where one model file is on disk, asked with every other file asked in the same moment (card #74): a list of 80 files
+ * (Find models › Yours, Settings › Models) draws a FileWhere per row, each with its own query, and made a request per row.
+ * Each row keeps its own query and key (the command bar reads the same cache); their requests leave as one.
+ */
+function whereOf(f: { folder: string; file: string; machine?: string }, signal?: AbortSignal): Promise<FileWhere> {
+  return new Promise((done, failed) => {
+    const machine = f.machine ?? "";
+    let line = whereWaiting.get(machine);
+    if (!line) {
+      line = [];
+      whereWaiting.set(machine, line);
+      // the rows of one list ask in the same commit's effects: the next task sees them all
+      setTimeout(() => sendWhere(machine), 0);
+    }
+    line.push({ folder: f.folder, file: f.file, ...(signal ? { signal } : {}), done, failed });
+  });
+}
+
+/** The files asked of a ComfyUI sent, WHERE_MOST at a time, each answered with its own places. */
+function sendWhere(machine: string): void {
+  const line = whereWaiting.get(machine) ?? [];
+  whereWaiting.delete(machine);
+  // a row given up on before the request left (a list searched again, a dialog closed) is not named
+  const asked: WhereWaiting[] = [];
+  for (const w of line) {
+    if (w.signal?.aborted) w.failed(givenUp(w.signal));
+    else asked.push(w);
+  }
+  for (let i = 0; i < asked.length; i += WHERE_MOST) {
+    const part = asked.slice(i, i + WHERE_MOST);
+    // the request is given up on only once every row it answers was: one row scrolled away leaves the others' answer coming
+    const stop = new AbortController();
+    let left = part.length;
+    for (const w of part) {
+      w.signal?.addEventListener("abort", () => {
+        w.failed(givenUp(w.signal!));
+        if (--left === 0) stop.abort();
+      }, { once: true });
+    }
+    call<FilesWhere>("POST", "/model-files/where", { files: part.map((w) => ({ folder: w.folder, file: w.file })), ...(machine ? { machine } : {}) }, stop.signal).then(
+      (r) => part.forEach((w, j) => w.done({ known: r.known, reveal: r.reveal, places: r.places[j] ?? [] })),
+      (err) => part.forEach((w) => w.failed(err)),
+    );
+  }
+}
 
 /** A list of the library: its filters, its page and its order. */
 export type AssetFilter = { /** A project ("none": the Inbox), in place of the one the app looks at. */ project?: string; kind?: string; bin?: boolean; folder?: string; after?: string; before?: string; q?: string; family?: string; kept?: boolean; /** Only what was not kept (kept wins when both are said). */ unkept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean; /** A page's size: 40 when not said. */ limit?: number; /** The order (newest first when not said); `dir` turns name and size around. */ sort?: "new" | "old" | "name" | "size"; dir?: "asc" | "desc" };
@@ -434,8 +487,11 @@ export const api = {
   clearDownloads: (machine?: string) => call<{ cleared: number }>("POST", "/downloads/clear", machine ? { machine } : {}),
   /** Where each model folder's downloads go on a ComfyUI (the first, or the one named), by folder name. */
   downloadPlaces: (o?: Asked, machine?: string) => call<{ machine: string | null; folders: Record<string, FolderPlaces> }>("GET", `/downloads/places${machineParam(machine)}`, undefined, o?.signal),
-  /** Where a model file is on disk (card #64), on a ComfyUI (the first, or the one named), and whether Show in folder can open it. */
-  modelFileWhere: (f: { folder: string; file: string; machine?: string }, o?: Asked) => call<FileWhere>("GET", `/model-files/where?${new URLSearchParams({ folder: f.folder, file: f.file, ...(f.machine ? { machine: f.machine } : {}) })}`, undefined, o?.signal),
+  /**
+   * Where a model file is on disk (card #64), on a ComfyUI (the first, or the one named), and whether Show in folder can
+   * open it: asked with the other files asked in the same moment, in one request (card #74).
+   */
+  modelFileWhere: (f: { folder: string; file: string; machine?: string }, o?: Asked) => whereOf(f, o?.signal),
   /** Show in folder: this computer's file manager opened on one of a model file's places (`at`, in /where's order). The path is never sent. */
   revealModelFile: (body: { folder: string; file: string; machine?: string; at: number }) => call<{ ok: true }>("POST", "/model-files/reveal", body),
   /** The place chosen for a model folder's downloads on a ComfyUI, or forgotten (null): ComfyUI's own models/<folder> again. */

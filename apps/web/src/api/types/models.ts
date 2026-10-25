@@ -250,6 +250,12 @@ export interface FileWhere {
   /** Show in folder is offered: this page is open on that same computer. */
   reveal: boolean;
 }
+/** Where a list of model files is on disk (card #74): FileWhere's of each, its places in the order the files were named. */
+export interface FilesWhere {
+  known: boolean;
+  places: Array<FileWhere["places"]>;
+  reveal: boolean;
+}
 /** One of the paths ComfyUI reads a model folder from (card #59). */
 export interface DownloadPlace {
   path: string;
