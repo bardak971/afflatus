@@ -209,7 +209,9 @@ const MSR_INPUTS: InputSpec[] = [
   },
   {
     id: "voice", type: "audio", role: "voice", label: "Voice sample", optional: true, window: { start: "voiceStart", seconds: "voiceSeconds", even: "voiceEven" },
-    note: "someone speaking: the person in the first reference image speaks with that voice. The model hears the first 5 seconds of the part. The LoRA's authors find the clip's other sounds come out only when the sample has music under the voice",
+    // the MSR pack puts it ahead of the clip as a reference (its own time slot, at timestep 0) and takes it out of the
+    // model's output: a voice to speak in, never laid into the take as H3 lays a lone sound reference (card #79)
+    note: "someone speaking: a voice to speak in, not a sound of the take. The person in the first reference image says the prompt's line (in quotation marks) in that voice, the mouth on the model's own sound; the sample itself is not heard. The model hears the first 5 seconds of the part. Under a recording, the recording is heard instead. The LoRA's authors find the clip's other sounds come out only when the sample has music under the voice",
   },
   { id: "voiceStart", type: "number", label: "Voice sample: start", min: 0, max: 600, step: 0.5, default: 0, unit: " s", showWhen: "voice" },
   // the MSR LoRA's voice slot is 5 s (its metadata); a person's own part, up to H3's 15 s, is taken and cut there by the guide
