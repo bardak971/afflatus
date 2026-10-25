@@ -1,5 +1,5 @@
 import { defineRecipe, gridAtOrBefore, GraphBuilder, plural, type BuildContext, type ClipValue, type CueValue, type InputSpec, type LoraValue, type MediaFacts, type Recipe, type ReferenceRole, type ReferenceValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
-import { LTX_CANVAS_SHORT, LTX_MAX_PIXELS, ltxCanvas, ltxFramesAt } from "./family";
+import { LTX_CANVAS_SHORT, LTX_MAX_PIXELS, ltxCanvas, ltxFramesAt, MSR_DETECT } from "./family";
 import { UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNeeds, upscaleNodes } from "../video/upscale";
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
 import { loadUnet, unetNodes } from "../shared/unet";
@@ -127,6 +127,8 @@ const MSR_NODES = ["ComfyUILTX25MSRICLoRALoader", "ComfyUILTX25MSRMultiReference
 const MSR_NUMBERED = 4;
 /** What each picture is, as the prompt says it before the user's words (the LoRA's authors: label them "Image 1", "Image 2"...). */
 const MSR_SAYS: Record<ReferenceRole, string> = { person: "a person", clothing: "the clothes worn", object: "an object", place: "the place, the background of the scene", style: "the look" };
+/** A person's picture cut to a square around their face (afflatus-nodes, with insightface): MSR's guide fits the whole picture in its slot. */
+export const FACE_CROP = "AfflatusFaceCrop";
 
 /**
  * The cast's pictures and voice, laid in MSR's slots: up to four pictures numbered in their order, the first place as the
@@ -140,6 +142,8 @@ interface MsrRefs {
   voice: string | null;
   /** The prompt's first lines: what each picture is, by its number. */
   legend: string;
+  /** The people's pictures go in cut to their face (FACE_CROP). */
+  faceCrop: boolean;
 }
 function msrOf(input: LtxVideo, ctx: Pick<BuildContext, "slots" | "uploads" | "has">, warnings: string[], voices: boolean): MsrRefs | null {
   const given = (input.references ?? []).flatMap((r, i) => {
@@ -172,14 +176,36 @@ function msrOf(input: LtxVideo, ctx: Pick<BuildContext, "slots" | "uploads" | "h
   }
   if (!numbered.length) return null;
   const roles: ReferenceRole[] = [...numbered.map((r) => r.role), ...(background ? (["place"] as const) : [])];
-  return { numbered, background, voice, legend: roles.map((role, i) => `Image ${i + 1}: ${MSR_SAYS[role]}.`).join("\n") };
+  const people = numbered.some((r) => r.role === "person");
+  const faceCrop = people && input.refFaceCrop !== false && ctx.has(FACE_CROP);
+  if (people && input.refFaceCrop !== false && !faceCrop) warnings.push("The people's pictures go in whole, not cut to the face: this ComfyUI lacks Afflatus's Face Crop (node pack 0.38, with insightface).");
+  return { numbered, background, voice, legend: roles.map((role, i) => `Image ${i + 1}: ${MSR_SAYS[role]}.`).join("\n"), faceCrop };
+}
+
+/** Whether a LoRA of the list is the MSR LoRA: the file of its slot (under any folder), or a file named as it is. */
+const isMsr = (file: string, slot: string | undefined): boolean => {
+  const name = (f: string) => f.split(/[\\/]/).pop()!.toLowerCase();
+  return (slot !== undefined && name(file) === name(slot)) || MSR_DETECT.some((d) => new RegExp(d, "i").test(name(file)));
+};
+
+/**
+ * The LoRA list and the MSR LoRA's strength when the pictures go through it: the MSR LoRA put in the list by hand is taken
+ * out of it, as its own loader already puts it on (Timeline 10, 2026-10-25: added at 0.8, it was loaded twice, the second
+ * time by a plain loader that drops its slots). Its strength in the list, when it is on, is the one used.
+ */
+function msrHeld(input: LtxVideo, slot: string | undefined, warnings: string[]): { loras: LoraValue[]; strength: number } {
+  const byHand = input.loras.filter((l) => isMsr(l.file, slot));
+  const set = byHand.find((l) => l.weight !== 0);
+  const strength = set?.weight ?? input.refLoraStrength ?? 1;
+  if (byHand.length) warnings.push(`The MSR LoRA of the LoRA list is loaded once, by the references' own loader, at ${strength}${set ? " (its strength in the list)" : ""}.`);
+  return { loras: input.loras.filter((l) => !isMsr(l.file, slot)), strength };
 }
 
 /** The pictures and the voice, where H3's forms have theirs and in their words; the cast fills them (compose). */
 const MSR_INPUTS: InputSpec[] = [
   {
     id: "references", type: "references", label: "Reference images", max: MSR_NUMBERED + 1, roles: ["person", "clothing", "object", "place"], subjects: true,
-    note: "pictures of a person, clothes, an object or a place: they are followed, they are not frames of the clip. Each picture is a subject of its own (two people: a picture of each), four at most, and one place, the scene's background. Through the MSR reference LoRA (Settings › Models has it) and its node pack; without them, left out",
+    note: "pictures of a person, clothes, an object or a place: they are followed, they are not frames of the clip. Each picture is a subject of its own (two people: a picture of each), four at most, and one place, the scene's background. A clip that opens on a picture (a start frame, or carried on from the clip before) takes the face from that frame rather than from the reference. Through the MSR reference LoRA (Settings › Models has it) and its node pack; without them, left out",
   },
   {
     id: "voice", type: "audio", role: "voice", label: "Voice sample", optional: true, window: { start: "voiceStart", seconds: "voiceSeconds", even: "voiceEven" },
@@ -199,6 +225,10 @@ const MSR_STRENGTHS: InputSpec[] = [
   {
     id: "refLoraStrength", type: "number", label: "Reference LoRA strength", min: 0, max: 1.5, step: 0.05, default: 1, showWhen: "references", advanced: true, perModel: true,
     note: "how strongly the MSR LoRA is put on the model: 1 is its authors', on the distilled model",
+  },
+  {
+    id: "refFaceCrop", type: "toggle", label: "Crop people's pictures to the face", default: true, showWhen: "references", advanced: true,
+    note: "a picture of a person is cut to a square around the face, 2.5 face heights a side: MSR fits the whole picture in a slot the size of the clip's frame, where the face of a large or far portrait comes out a few latent cells. A portrait already that close is left as it is. Off: the picture whole (to follow the clothes or the figure from it)",
   },
   { id: "refStrength", type: "number", label: "Reference strength", min: 0, max: 1, step: 0.05, default: 1, showWhen: "references", advanced: true, note: "how closely the pictures are followed: 1 is the LoRA's authors'" },
   {
@@ -266,6 +296,7 @@ export interface LtxVideo extends ColourMatch, Partial<Recording> {
   refStrength?: number;
   refFrames?: string;
   refLoraStrength?: number;
+  refFaceCrop?: boolean;
   /** The cast person's picture the take is scored against (2.3: no reference pictures of its own). */
   facePhoto?: string;
   faceRefine?: boolean;
@@ -332,8 +363,9 @@ const ltxFrame = (g: GraphBuilder, input: LtxVideo, upload: string | undefined, 
 /**
  * The model, its text encoder and its two VAEs: from files of their own or from the one checkpoint, the LoRAs and the
  * speed-ups on it, then the distilled LoRA and the live preview. `model` samples every pass; `first` the first one.
+ * `msr`: the MSR LoRA's strength and the LoRA list without it (msrHeld), when the pictures go through it.
  */
-function ltxLoad(spec: LtxSpec, g: GraphBuilder, ctx: BuildContext, input: LtxVideo, picked: ReturnType<typeof modelOf>, msr: boolean) {
+function ltxLoad(spec: LtxSpec, g: GraphBuilder, ctx: BuildContext, input: LtxVideo, picked: ReturnType<typeof modelOf>, msr: ReturnType<typeof msrHeld> | null) {
   const { slots } = ctx;
   let model: Ref;
   let clip: Ref;
@@ -354,11 +386,11 @@ function ltxLoad(spec: LtxSpec, g: GraphBuilder, ctx: BuildContext, input: LtxVi
     audioVae = g.out("LTXVAudioVAELoader", { ckpt_name: picked.checkpoint });
     clip = g.out("LTXAVTextEncoderLoader", { text_encoder: slots.clip, ckpt_name: picked.checkpoint, device: "default" });
   }
-  model = applyLoras(g, model, input.loras);
+  model = applyLoras(g, model, msr?.loras ?? input.loras);
   // the MSR LoRA through its own loader, which hands its slot embeddings on to the guide (a plain LoRA loader drops them)
   let msrParams: Ref | null = null;
   if (msr) {
-    const loader = g.add("ComfyUILTX25MSRICLoRALoader", { model, lora_name: ctx.slots.msr, strength_model: input.refLoraStrength ?? 1 });
+    const loader = g.add("ComfyUILTX25MSRICLoRALoader", { model, lora_name: ctx.slots.msr, strength_model: msr.strength });
     model = [loader, 0];
     msrParams = [loader, 1];
   }
@@ -861,7 +893,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       ...(spec.lipSync ? [] : HEAD_SOUND_NODES),
       LTX_SAVE_LATENT, ...LTX_CONTINUATION_NODES, LTX_TRIM, ...LTX_LATENT_CORE,
       // the cast's pictures and voice, when the MSR LoRA and its pack are there (msrOf)
-      ...(spec.references ? [...MSR_NODES, ...(spec.lipSync ? [] : ["LoadAudio"])] : []),
+      ...(spec.references ? [...MSR_NODES, FACE_CROP, ...(spec.lipSync ? [] : ["LoadAudio"])] : []),
       // the clip before's last frame as it was filed, loaded when the server sends it (its chain was colour-matched: colourCarried)
       "LoadImage",
       // under a recording: what goes before its part (the clip before's sound under the head, silence before the words)
@@ -908,7 +940,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       const g = new GraphBuilder();
       const warnings: string[] = [];
       const refs = spec.references ? msrOf(input, ctx, warnings, !spec.lipSync) : null;
-      const loaded = ltxLoad(spec, g, ctx, input, picked, Boolean(refs));
+      const held = refs ? msrHeld(input, slots.msr, warnings) : null;
+      const loaded = ltxLoad(spec, g, ctx, input, picked, held);
       const byHand = input.schedule !== BY_STEPS;
       const steps = byHand ? LTX_SIGMAS.split(",").length - 1 : input.steps;
       // Lip sync: the scene, then that the person speaks (the recording is what is said)
@@ -974,7 +1007,10 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         msr: refs
           ? {
               pics: {
-                ...Object.fromEntries(refs.numbered.map((r, i) => [`pic${i + 1}`, g.out("LoadImage", { image: r.upload })])),
+                ...Object.fromEntries(refs.numbered.map((r, i) => {
+                  const pic = g.out("LoadImage", { image: r.upload });
+                  return [`pic${i + 1}`, refs.faceCrop && r.role === "person" ? g.out(FACE_CROP, { image: pic }) : pic];
+                })),
                 ...(refs.background ? { background: g.out("LoadImage", { image: refs.background }) } : {}),
               },
               voice: refs.voice ? g.out("LTXVAudioVAEEncode", { audio: g.out("LoadAudio", { audio: refs.voice }), audio_vae: loaded.audioVae }) : null,
@@ -1071,7 +1107,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
           ...(temporal ? [`latent_upscale_models/${slots.temporal}`] : []),
           ...(loaded.lora ? [`loras/${loaded.lora}`] : []),
           ...(refs ? [`loras/${slots.msr}`] : []),
-          ...loraLoads(input.loras),
+          ...loraLoads(held?.loras ?? input.loras),
           ...faces.loads,
         ],
       };

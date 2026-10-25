@@ -126,6 +126,9 @@ export const ltx = defineFamily({
   lint: ltxLint,
 });
 
+/** The names LTX 2.5's MSR reference LoRA goes by: its slot finds it with them, and a render knows it in the LoRA list by them. */
+export const MSR_DETECT = ["licon.?msr", "ltx.?2[._]?5.*msr"];
+
 export const LTX_FPS = 25;
 /** The largest canvas offered: a little over 1080p on the short edge is far more than a home card takes. Edges are multiples of 64. */
 export const LTX_MAX_PIXELS = 1920 * 1088;

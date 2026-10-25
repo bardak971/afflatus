@@ -1,5 +1,5 @@
 import { defineFamily } from "@afflatus/core";
-import { LTX_SHARED_SLOTS, ltxGuide, ltxLint } from "../ltx/family";
+import { LTX_SHARED_SLOTS, ltxGuide, ltxLint, MSR_DETECT } from "../ltx/family";
 import { LTX25_WRONG, LTX_VERSIONS } from "../ltx/versions";
 import { faceRefineSlots } from "../h3/faceSlots";
 
@@ -64,7 +64,7 @@ export const ltx25 = defineFamily({
     {
       // Licon Studio's MSR V2 (Apache-2.0, not gated): each reference picture in a slot of its own, and a voice for the first
       // two; its slot embeddings are inside the file, read by its own pack's loader (a plain LoRA loader drops them)
-      id: "msr", label: "Reference LoRA (MSR)", folder: "loras", detect: ["licon.?msr", "ltx.?2[._]?5.*msr"], optional: true,
+      id: "msr", label: "Reference LoRA (MSR)", folder: "loras", detect: MSR_DETECT, optional: true,
       hint: "Without it, LTX 2.5 leaves the cast's pictures and voice out: the clip is made from the words and LoRAs alone. Put LTX-2.5-Licon-MSR-V2.safetensors in ComfyUI's models/loras folder, with the ComfyUI-LTX2.5-MSR node pack (its loader reads the pictures' slots from the file).",
       get: { file: "LTX-2.5-Licon-MSR-V2.safetensors", url: "https://huggingface.co/LiconStudio/LTX-2.5-Multiple-Subject-Reference/resolve/main/LTX-2.5-Licon-MSR-V2.safetensors" },
     },
