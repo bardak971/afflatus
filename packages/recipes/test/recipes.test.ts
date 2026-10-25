@@ -436,9 +436,31 @@ describe("h3.video: watching it form, and videos of the person", () => {
     expect(Object.keys(v.inputs).filter((k) => /audio_\d/.test(k))).toEqual(["ref_audios.ref_audio_0"]);
     expect(String(v.inputs.prompt)).toContain("<Audio 1> is the voice-timbre reference for <Subject 1> (S1).");
     expect(String(v.inputs.prompt)).not.toContain("soundtrack");
-    // only pictures of a person are refused as videos
-    expect(() => parseInput(h3Video, { description: "a", refVideos: [{ asset: "v", role: "place" }] })).toThrow();
+    // a video takes the pictures' roles, no other
+    expect(() => parseInput(h3Video, { description: "a", refVideos: [{ asset: "v", role: "voice" }] })).toThrow();
     expect(() => parseInput(h3Video, { description: "a", refVideos: [1, 2, 3, 4].map((n) => ({ asset: `v${n}`, role: "person" })) })).toThrow();
+  });
+
+  it("takes a video of a place, clothes, an object or a look as its own subject, and only a person's video gives its sound (card #86)", () => {
+    const sounding = { width: 384, height: 682, frames: 72, fps: 24, hasSound: true };
+    const media = { "refVideos.0": sounding, "refVideos.1": sounding, "refVideos.2": sounding };
+    const uploads = { "refVideos.0": "a.mp4", "refVideos.1": "b.mp4", "refVideos.2": "c.mp4" };
+    const b = build({ refVideos: [{ asset: "v1", role: "place" }, { asset: "v2", role: "person" }, { asset: "v3", role: "style" }] }, { uploads, media });
+    const node = one(b, "MiniMaxH3ReferenceToVideo")[0]!;
+    // the three videos go in, the person's sound only, by its own number
+    expect(Object.keys(node.inputs).filter((k) => /^ref_(videos|video_audios)\./.test(k)).sort()).toEqual(["ref_video_audios.ref_video_audio_1", "ref_videos.ref_video_0", "ref_videos.ref_video_1", "ref_videos.ref_video_2"]);
+    const prompt = String(node.inputs.prompt);
+    expect(prompt).toContain("<Subject 1> is the character in <Video 2>.");
+    expect(prompt).toContain("<Subject 2> is the location shown in <Video 1>.");
+    expect(prompt).toContain("<Subject 3> is the visual style of <Video 3>.");
+    expect(prompt).toContain("<Audio 1> is the soundtrack of <Video 2>: the voice of <Subject 1> (S1).");
+    expect(prompt).not.toContain("<Audio 2>");
+
+    // a place's video alone: no sound goes in, and no audio reference is said
+    const alone = one(build({ refVideos: [{ asset: "v1", role: "place" }] }, { uploads, media }), "MiniMaxH3ReferenceToVideo")[0]!;
+    expect(Object.keys(alone.inputs).filter((k) => /audio_\d/.test(k))).toEqual([]);
+    expect(String(alone.inputs.prompt)).not.toContain("audio reference");
+    expect(String(alone.inputs.prompt)).not.toContain("<Subject 1> is the character");
   });
 });
 

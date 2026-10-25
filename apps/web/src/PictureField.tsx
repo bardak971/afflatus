@@ -534,7 +534,7 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
             {roles.length === 1 && <span className="text-ink-2">{video ? `Video ${i + 1}` : `Image ${i + 1}`}: {ROLE_WORDS[ref.role].label.toLowerCase()}</span>}
             {roles.length > 1 && <Select
               size="sm"
-              label={`What image ${i + 1} shows`}
+              label={`What ${video ? "video" : "image"} ${i + 1} shows`}
               value={ref.role}
               onChange={(role) => onChange(value.map((v, j) => (j === i ? { ...v, role: role as ReferenceRole } : v)))}
               options={roles.map((r) => ({ value: r, label: ROLE_WORDS[r].label, note: ROLE_WORDS[r].note }))}

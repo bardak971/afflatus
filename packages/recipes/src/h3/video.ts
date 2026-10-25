@@ -148,6 +148,13 @@ export const h3Video = defineRecipe<H3Video & Partial<H3Recording>>({
         media: { "refVideos.0": { width: 384, height: 682, frames: 72, fps: 24, hasSound: true }, "refVideos.1": { width: 384, height: 682, frames: 72, fps: 24, hasSound: false } },
       },
       {
+        // a place's and a look's videos: their own subjects, and their sound left out
+        name: "a video of a place and a video of a look, both with sound",
+        input: { description: "a", refVideos: [{ asset: "v1", role: "place" }, { asset: "v2", role: "style" }] },
+        slots: all, uploads: { "refVideos.0": "a.mp4", "refVideos.1": "b.mp4" },
+        media: { "refVideos.0": { width: 384, height: 682, frames: 72, fps: 24, hasSound: true }, "refVideos.1": { width: 384, height: 682, frames: 72, fps: 24, hasSound: true } },
+      },
+      {
         name: "passes through a picture half way",
         input: { description: "a", start: "p1", mid: "p2", midAt: 2.5 },
         slots: all, uploads: { start: "a.png", mid: "m.png" }, media: { start: picture },

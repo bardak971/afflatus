@@ -88,6 +88,8 @@ export interface H3Video extends ColourMatch {
  * Said in the "?" of every H3 text the user writes but the prompt as sent (card #49): H3's tags are Afflatus's to write,
  * around the words, in H3's own layout.
  */
+/** What the reference videos are, said alike on every H3 form that takes them (its sound is each form's own line). */
+export const REF_VIDEOS_WHAT = "short videos of a person, a place, clothes, an object or a look, and how they move: they are followed, they are not frames of the clip. The first 3 seconds of each are used.";
 export const H3_NO_TAGS = "No <Picture 1> or <Video 1> to type: Afflatus adds H3's tags, saying which picture is whom.";
 
 export const h3Inputs: InputSpec[] = [
@@ -146,8 +148,10 @@ export const h3Inputs: InputSpec[] = [
     note: "pictures of a person, a place, clothes, an object or a look: they are followed, they are not frames of the clip. Every \"A person\" picture is the same person, seen another way. For two people, pin a keyframe that shows both",
   },
   {
-    id: "refVideos", type: "references", media: "video", label: "Reference videos", max: H3_REFERENCE_VIDEOS, roles: ["person"],
-    note: "short videos of the person: how they look, move and sound. The first 3 seconds of each are used; a video's own sound is taken as their voice unless a voice sample is given",
+    id: "refVideos", type: "references", media: "video", label: "Reference videos", max: H3_REFERENCE_VIDEOS, roles: [...REFERENCE_ROLES],
+    // only a person's video gives its sound (as their voice): H3 lays a lone sound reference into the take as it is and
+    // ignores it beside a voice (card #79), so a place's sound would become the clip's sound or do nothing
+    note: `${REF_VIDEOS_WHAT} Only a person's video gives its sound, as their voice unless a voice sample is given; the sound of any other is left out: for a place's sound, use the music lane or a sound cue`,
   },
   {
     id: "voice", type: "audio", role: "voice", label: "Voice sample", optional: true, window: { start: "voiceStart", seconds: "voiceSeconds", even: "voiceEven" },

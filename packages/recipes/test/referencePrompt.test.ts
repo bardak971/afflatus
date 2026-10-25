@@ -49,3 +49,71 @@ describe("H3's reference prompt: the pictures say who, never the scene", () => {
     expect(prompt({ continues: true })).toContain("The setting of [Shot 1]: comes from the given opening frames");
   });
 });
+
+describe("H3's reference prompt: a reference video per role (card #86)", () => {
+  const video = (role: string, sound = false) => prompt({ roles: [], videos: [{ role, sound }] });
+
+  it("a person's video is <Subject 1>, its sound their voice", () => {
+    const p = video("person", true);
+    expect(p).toContain("<Subject 1> is the character in <Video 1>, Nicolas.");
+    expect(p).toContain("<Audio 1> is the soundtrack of <Video 1>: the voice of <Subject 1> (S1).");
+    expect(p).toContain("[reference generation + video reference + audio reference]");
+    expect(p).toContain("The setting of [Shot 1]: comes from the description of [Shot 1], never from <Video 1>.");
+  });
+
+  it("a place's video is the setting, with how the camera moves through it, and its sound is never said", () => {
+    const p = video("place", true);
+    expect(p).toContain("<Subject 1> is the location shown in <Video 1>.");
+    expect(p).toContain("<Subject 1> (the setting of [Shot 1]): fully_preserved - the place, its layout and light, and how the camera moves through it.");
+    expect(p).not.toContain("The setting of [Shot 1]: comes from");
+    expect(p).not.toContain("not for the scene");
+    expect(p).not.toContain("<Audio");
+    expect(p).not.toContain("audio reference");
+  });
+
+  it("a look's video: colour, light, rendering, grain and motion feel only, not the scene", () => {
+    const p = video("style");
+    expect(p).toContain("<Subject 1> is the visual style of <Video 1>.");
+    expect(p).toContain("<Subject 1>: attribute_transfer - colour, lighting, rendering style, grain and motion feel only.");
+    expect(p).toContain("<Video 1> is a reference for who and what appears, not for the scene");
+    expect(p).toContain("The setting of [Shot 1]: comes from the description of [Shot 1], never from <Video 1>.");
+  });
+
+  it("clothes' and an object's videos: their look and how they move", () => {
+    const clothes = prompt({ roles: ["person"], videos: [{ role: "clothing", sound: true }] });
+    expect(clothes).toContain("<Subject 2> is the clothing shown in <Video 1>, worn by <Subject 1>.");
+    expect(clothes).toContain("<Subject 2>: fully_preserved - the garments, their colours and materials, and how the cloth moves and sways.");
+    expect(clothes).not.toContain("<Audio");
+    const object = video("object");
+    expect(object).toContain("<Subject 1> is the object shown in <Video 1>.");
+    expect(object).toContain("<Subject 1>: fully_preserved - its shape, colour and details, and how it moves.");
+  });
+
+  it("the pictures' lines stay as they were: no motion words on a picture", () => {
+    const p = prompt({ roles: ["place", "style", "clothing", "object"] });
+    expect(p).toContain("fully_preserved - the place, its layout and light.");
+    expect(p).toContain("attribute_transfer - colour, lighting and rendering style only.");
+    expect(p).toContain("fully_preserved - the garments, their colours and materials.");
+    expect(p).toContain("fully_preserved - its shape, colour and details.");
+  });
+
+  it("the subjects count the pictures first, then the videos", () => {
+    const p = prompt({ roles: ["person", "object"], videos: [{ role: "person", sound: false }, { role: "place", sound: true }] });
+    expect(p).toContain("<Subject 1> is the character in <Picture 1> and <Video 1>, Nicolas.");
+    expect(p).toContain("<Subject 2> is the object shown in <Picture 2>.");
+    expect(p).toContain("<Subject 3> is the location shown in <Video 2>.");
+    // a place video sets the scene: no line takes the setting elsewhere, and the person's references keep only who they are
+    expect(p).not.toContain("The setting of [Shot 1]: comes from");
+    expect(p).toContain("<Picture 1>, <Picture 2> and <Video 1> are references for who and what appears, not for the scene");
+  });
+
+  it("says on every H3 form taking them that a video takes a role and only a person's gives its sound", () => {
+    for (const id of ["h3.video", "h3.lipsync"]) {
+      const spec = recipeById(id)!.inputs.find((i) => i.id === "refVideos");
+      expect(spec && spec.type === "references" && spec.roles).toEqual(["person", "place", "clothing", "object", "style"]);
+      expect(spec?.note).toContain("short videos of a person, a place, clothes, an object or a look");
+    }
+    expect(recipeById("h3.video")!.inputs.find((i) => i.id === "refVideos")?.note).toContain("use the music lane or a sound cue");
+    expect(recipeById("h3.lipsync")!.inputs.find((i) => i.id === "refVideos")?.note).toContain("Their sound is left out: the recording is the voice");
+  });
+});

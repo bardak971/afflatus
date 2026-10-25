@@ -1,7 +1,7 @@
 import { defineRecipe, type InputSpec, type Variant } from "@afflatus/core";
 import { H3_FPS } from "./family";
 import { RECORDING_AFTER, recordingInputs, recordingNodes, recordingOnClip, type H3Recording } from "./recording";
-import { H3_NO_TAGS, h3Inputs, type H3Video } from "./inputs";
+import { H3_NO_TAGS, REF_VIDEOS_WHAT, h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video } from "./video";
 import { H3_STARTS, referenceNeeds, turboNeeds, vedaNeeds } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
@@ -45,6 +45,8 @@ const lipSyncInputs: InputSpec[] = h3Inputs.flatMap((spec): InputSpec[] => {
       ...recordingInputs({ shown: true, less: [speechAt] }),
     ];
   }
+  // the recording is the voice: no reference video gives its sound here (build)
+  if (spec.id === "refVideos") return [{ ...spec, note: `${REF_VIDEOS_WHAT} Their sound is left out: the recording is the voice` }];
   return [spec];
 });
 
