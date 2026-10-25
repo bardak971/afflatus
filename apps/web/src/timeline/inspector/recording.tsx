@@ -90,7 +90,7 @@ export function RecordingPanel(p: RecordingPanelProps) {
       </div>
 
       <div className="flex min-h-0 grow flex-col overflow-y-auto">
-        <Section title="New clips" help="The form a cut, a re-cut or a longer Out makes its new clips in. A clip whose part survives a re-cut keeps its own form, and each clip can take another below. Lip sync: the mouth follows its part. Video with audio: the recording plays over the clip unchanged, H3's own sound dropped.">
+        <Section title="New clips" help="The form a cut, a re-cut or a longer Out makes its new clips in. A clip whose part survives a re-cut keeps its own form, and each clip can take another below. Lip sync: the mouth follows its part. Video with audio (H3, LTX) or Wan: the recording plays over the clip unchanged, the model's own sound dropped. A recording dropped on an LTX clip is cut into LTX Lip sync clips, else H3's.">
           <Select label="New clips" size="sm" value={p.newClips.value} options={p.newClips.options} onChange={p.newClips.onChange} disabled={p.newClips.pending} />
           <span className="text-xs text-ink-2">The form new parts are made in. Each clip can take another below.</span>
         </Section>

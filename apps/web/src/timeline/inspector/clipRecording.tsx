@@ -35,7 +35,7 @@ export function recordingLead(r: ClipRecording): LeadPart {
       <div className="flex flex-col gap-3">
         {r.over && (
           <span className="text-xs text-ink-2">
-            <span className="font-semibold text-ink">Plays over this clip</span>, unchanged: the take keeps the recording's part as its sound, and H3's own sound is dropped. Back to Lip sync, the mouth follows it again.
+            <span className="font-semibold text-ink">Plays over this clip</span>, unchanged: the take keeps the recording's part as its sound, and the model's own sound is dropped. Back to Lip sync, the mouth follows it again.
           </span>
         )}
         <span className="text-xs text-ink-2">

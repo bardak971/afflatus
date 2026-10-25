@@ -31,7 +31,9 @@ export const RECORDING_PAD = 0.25;
 
 /**
  * What a model's clips hold of a recording: its frame rate, the most frames a clip takes, the shortest and longest clip
- * a part makes, in seconds, and its frame counts (`grid`) when they are not every count.
+ * a part makes, in seconds, and its frame counts (`grid`) when they are not every count. `pad`: the seconds after the
+ * last word, RECORDING_PAD unless the grid's step is longer (a clip's frames are brought down to the grid, so the pad
+ * has to outlast one step of it, or the rounding could end the clip on the last word).
  */
 export interface RecordingFrames {
   fps: number;
@@ -39,6 +41,7 @@ export interface RecordingFrames {
   min: number;
   most: number;
   grid?: FrameGrid;
+  pad?: number;
 }
 /** H3's: 24 a second, 362 frames at most, 4 to 15 s a clip. */
 export const H3_RECORDING: RecordingFrames = { fps: H3_FPS, frames: H3_MAX_FRAMES, min: 4, most: 15 };
@@ -57,11 +60,11 @@ export function recordingInputs(o: { shown: boolean; less?: InputSpec[]; fit?: R
       id: "recording", type: "audio", role: "sound", label: "Recording", ...(o.shown ? {} : { optional: true, internal: true }),
       window: {
         start: "recordingStart", seconds: "recordingSeconds", even: "evenLoudness", after: RECORDING_AFTER, goesOn: "recordingGoesOn", leadIn: "recordingLeadIn",
-        fits: { frames: fit.frames, fps: fit.fps, pad: RECORDING_PAD, min: fit.min, ...(fit.grid ? { grid: fit.grid } : {}), ...(o.less?.length ? { less: o.less.map((i) => i.id) } : {}) },
+        fits: { frames: fit.frames, fps: fit.fps, pad: fit.pad ?? RECORDING_PAD, min: fit.min, ...(fit.grid ? { grid: fit.grid } : {}), ...(o.less?.length ? { less: o.less.map((i) => i.id) } : {}) },
       },
-      note: o.shown
+      note: o.note ?? (o.shown
         ? "what is said: the clip is made around it, the mouth follows it, and it is the clip's sound. One clip holds about 14.8 seconds (less the moment before the words, and the frames of a clip it continues); the part's ends snap to the pauses so that no word is cut"
-        : (o.note ?? "the recording the clip is under: its part is the clip's sound, laid over H3's own"),
+        : "the recording the clip is under: its part is the clip's sound, laid over H3's own"),
     },
     { id: "recordingStart", type: "number", label: "Recording: start", min: 0, max: 600, step: 0.1, default: 0, unit: " s", showWhen: "recording", ...hidden },
     { id: "recordingSeconds", type: "number", label: "Recording: length", min: 1, max: 15, step: 0.1, default: 8, unit: " s", showWhen: "recording", ...hidden },
@@ -106,7 +109,10 @@ export function recordingOnClip(input: Pick<Recording, "recordingSeconds">, ctx:
   const loaded = (g: GraphBuilder, at: { head: number; frames: number }) =>
     (part ??= g.out("TrimAudioDuration", { audio: whole(g), start_index: pre, duration: (at.frames - at.head - lead) / fps }));
   return {
-    seconds: Math.min(fit.most, Math.max(fit.min, lead / fps + spoken + RECORDING_PAD)),
+    seconds: Math.min(fit.most, Math.max(fit.min, lead / fps + spoken + (fit.pad ?? RECORDING_PAD))),
+    /** Whether the head and the moment before the words are filed with the recording too (the clip before sang up to the part). */
+    sungThrough: (at: { head: number }) => leadInCovers(pre, at.head + lead, fps),
+    whole,
     loaded,
     // the files' sound: the model's own for the frames before the part (the clip before's, mostly), then the recording
     // itself to the clip's end, the pause the server handed over after the part included (continued clips decode it

@@ -299,7 +299,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
         )}
         {playsOver && s.width > 64 && (
           <span className="absolute top-1 right-1.5 flex max-w-[45%] justify-end">
-            <Chip size="xs" tip={`The recording plays over clip ${s.index + 1} unchanged: its take keeps the recording's part as its sound, H3's own dropped`}>♫ plays over</Chip>
+            <Chip size="xs" tip={`The recording plays over clip ${s.index + 1} unchanged: its take keeps the recording's part as its sound, the model's own dropped`}>♫ plays over</Chip>
           </span>
         )}
         <span className="absolute inset-x-1.5 bottom-1 flex items-end justify-between gap-1">

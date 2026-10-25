@@ -30,6 +30,9 @@ const video = {
   ],
   traits: { sound: true, continues: "clip", latentNodes: ["zz-test-seam"], fps: 24 },
 } as unknown as RecipeInfo;
+/** LTX's two forms under a recording (card #2): its Lip sync, and its Video with audio the recording plays over. */
+const ltxLipSync = { ...lipSync, id: "zz-test.ltx-lipsync", family: "zz-ltx", traits: { sound: true, continues: "clip", fps: 25, frameGrid: { step: 8, offset: 1 } } } as unknown as RecipeInfo;
+const ltxVideo = { ...video, id: "zz-test.ltx-video", family: "zz-ltx", traits: { sound: true, continues: "clip", fps: 25, frameGrid: { step: 8, offset: 1 } } } as unknown as RecipeInfo;
 const wan = { id: "zz-test.wan", family: "zz-wan", title: "Image to video", output: "video", summary: "", version: 1, inputs: [{ id: "description", type: "prompt", label: "Prompt" }], traits: {} } as unknown as RecipeInfo;
 
 const sound = { id: "zz-test-song", name: "zz-test song.wav", kind: "audio", durationMs: 15000 };
@@ -46,9 +49,9 @@ const timeline = {
   recordings: [{ asset: sound, parked: 0, parkedTakes: 0, seconds: 5, snap: true }],
 } as unknown as Timeline;
 
-async function editor() {
+async function editor(more: RecipeInfo[] = []) {
   fakeApi.on("GET /timelines/:id", timeline);
-  fakeApi.on("GET /recipes", { families: [{ id: "zz-test", name: "H3" }, { id: "zz-wan", name: "Wan 2.2" }], recipes: [lipSync, video, wan] });
+  fakeApi.on("GET /recipes", { families: [{ id: "zz-test", name: "H3" }, { id: "zz-wan", name: "Wan 2.2" }, { id: "zz-ltx", name: "LTX 2.3" }], recipes: [lipSync, video, wan, ...more] });
   fakeApi.on("GET /assets/:id/motion", { rate: 10, values: Array(150).fill(0), sound: Array(150).fill(-12), speech: null });
   fakeApi.on("GET /assets/:id/pauses", { pauses: [{ start: 4.6, end: 4.8 }, { start: 10.1, end: 10.3 }] });
   fakeApi.on("PATCH /clips/:id", ({ params }) => ({ id: params.id }));
@@ -85,6 +88,33 @@ describe("a recording's clips in any H3 form (card #72)", () => {
     await user.click(p.getByRole("button", { name: "New clips: H3 · Lip sync" }));
     await user.click(within(await screen.findByRole("listbox", { name: "New clips" })).getByRole("option", { name: /H3 · Video with audio/ }));
     await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-any/recording/new-clips").map((c) => c.body)).toEqual([{ asset: sound.id, recipe: video.id }]));
+  });
+
+  it("offers LTX's forms beside H3's (card #2): New clips takes LTX's Lip sync, a clip's form says LTX after H3 is a cut", async () => {
+    fakeApi.on("POST /timelines/:id/recording/new-clips", { ok: true });
+    const { band, user } = await editor([ltxLipSync, ltxVideo]);
+    open(band);
+    const p = within(panel());
+    // the forms made around a recording first, each family's, then those it plays over
+    await user.click(p.getByRole("button", { name: "New clips: H3 · Lip sync" }));
+    const list = await screen.findByRole("listbox", { name: "New clips" });
+    expect(within(list).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      expect.stringContaining("H3 · Lip sync"),
+      expect.stringContaining("LTX 2.3 · Lip sync"),
+      expect.stringContaining("H3 · Video with audio"),
+      expect.stringContaining("LTX 2.3 · Video with audio"),
+    ]);
+    await user.click(within(list).getByRole("option", { name: /LTX 2\.3 · Lip sync/ }));
+    await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-any/recording/new-clips").map((c) => c.body)).toEqual([{ asset: sound.id, recipe: ltxLipSync.id }]));
+    // clip 3 after an H3 clip: LTX meets it with a cut, H3 carries on seamlessly
+    await user.click(p.getByRole("button", { name: "Clip 3's form: Lip sync" }));
+    const forms = await screen.findByRole("listbox", { name: "Clip 3's form" });
+    expect(within(forms).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      expect.stringContaining("the mouth follows its part · seamless"),
+      expect.stringContaining("the mouth follows its part · a cut"),
+      expect.stringContaining("plays over · seamless"),
+      expect.stringContaining("plays over · a cut"),
+    ]);
   });
 
   it("hatches the part it plays over on the stage and the band", async () => {
