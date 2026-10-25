@@ -1,7 +1,7 @@
 [project]
 name = "afflatus-nodes"
 description = "Afflatus nodes for ComfyUI: continue a MiniMax H3 clip from its own latent (save/load H3 latents + the MIT continuation nodes)."
-version = "0.39.0"
+version = "0.40.0"
 license = { file = "LICENSE" }
 dependencies = []
 

@@ -201,6 +201,14 @@ describe("people, places and styles", () => {
     expect(made.added.endDropped).toBeUndefined();
   });
 
+  // card #81, from #85's series: "…in a grey sweater She slowly turns…"
+  it("end their sentences with a full stop before what is written, one already there kept", async () => {
+    const mara = (await post(t.app, "/api/entities", { kind: "person", name: "zz-test Mara", def: { pictures: [], sentence: "A woman in a grey sweater" } })).json();
+    const sky = (await post(t.app, "/api/entities", { kind: "place", name: "zz-test field", def: { pictures: [], sentence: "A field at dusk!" } })).json();
+    const made = (await post(t.app, "/api/compose", { recipe: "ltx.video", input: { prompt: "She slowly turns" }, look: { cast: [{ id: mara.id }, { id: sky.id }] } })).json();
+    expect(made.input.prompt).toBe("A woman in a grey sweater. A field at dusk! She slowly turns");
+  });
+
   it("hand a model their first pictures in the order they were put in: the first is the face, the ones after the first three stay home", async () => {
     const c = await cast();
     const [back, close] = [await picture("back.png"), await picture("close.png")];

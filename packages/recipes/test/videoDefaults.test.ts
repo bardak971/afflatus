@@ -127,7 +127,7 @@ describe("LTX 2.5's reference pictures and voice (the MSR LoRA)", () => {
   // the picture's file, through the cut to the face a person's picture goes through
   const loadOf = (graph: Graph, ref: unknown): unknown => {
     const n = graph[(ref as [string, number])[0]]!;
-    return n.class_type === "AfflatusFaceFrame" || n.class_type === "AfflatusFaceCrop" ? loadOf(graph, n.inputs.image) : n.inputs.image;
+    return ["AfflatusFaceFrame", "AfflatusFaceCrop", "AfflatusFaceBackdrop"].includes(n.class_type) ? loadOf(graph, n.inputs.image) : n.inputs.image;
   };
 
   it("lays the pictures in MSR's slots, a place as the background, the voice with the first, in both passes, as its authors do", () => {
@@ -252,7 +252,10 @@ describe("LTX 2.5's reference pictures and voice (the MSR LoRA)", () => {
     expect(crops).toHaveLength(1);
     expect(loadOf(graph, crops[0]!.inputs.image)).toBe("r0.png");
     for (const g of of(graph, "ComfyUILTX25MSRMultiReferenceGuide")) {
-      expect(graph[(g.inputs.pic1 as [string, number])[0]]!.class_type).toBe("AfflatusFaceFrame");
+      // cut, then what is around the face blurred (card #81)
+      const pic1 = graph[(g.inputs.pic1 as [string, number])[0]]!;
+      expect(pic1.class_type).toBe("AfflatusFaceBackdrop");
+      expect(graph[(pic1.inputs.image as [string, number])[0]]!.class_type).toBe("AfflatusFaceFrame");
       expect(graph[(g.inputs.pic2 as [string, number])[0]]!.class_type).toBe("LoadImage");
       expect(graph[(g.inputs.background as [string, number])[0]]!.class_type).toBe("LoadImage");
     }
@@ -296,5 +299,78 @@ describe("LTX 2.5's reference pictures and voice (the MSR LoRA)", () => {
     expect(build({ references: r.references, shape: { width: 704, height: 704 }, short: 704 }, r.uploads, { msr }, before).warnings).toBeUndefined();
     // the "?" says it
     expect(ltx25Video.inputs.find((i) => i.id === "refFaceCrop")!.note).toContain("to the clip's frame shape");
+  });
+
+  // card #81, from #85's series: every reference clip redid the photo's own setting (a stone arch, a slicker) rather than the
+  // scene asked, and with an opening picture went there within a second
+  it("blurs what is around a person's head and shoulders by default, greys it or keeps it as asked, and says when it cannot", () => {
+    const r = refs(["person", "object"]);
+    const backdrops = (graph: Graph) => of(graph, "AfflatusFaceBackdrop").map((n) => n.inputs.backdrop);
+    const b = build({ references: r.references }, r.uploads);
+    // the person's picture only, once for both passes
+    expect(backdrops(b.graph as Graph)).toEqual(["blur"]);
+    expect(b.warnings).toBeUndefined();
+    expect(backdrops(build({ references: r.references, refBackdrop: "Grey" }, r.uploads).graph as Graph)).toEqual(["grey"]);
+    expect(backdrops(build({ references: r.references, refBackdrop: "As in the picture" }, r.uploads).graph as Graph)).toEqual([]);
+    // with the crop off, on the picture whole
+    const whole = build({ references: r.references, refFaceCrop: false }, r.uploads).graph as Graph;
+    expect(of(whole, "AfflatusFaceBackdrop").map((n) => whole[(n.inputs.image as [string, number])[0]]!.class_type)).toEqual(["LoadImage"]);
+    // a node pack of before 0.40: kept, and said
+    const old = build({ references: r.references }, r.uploads, { msr }, (t) => t !== "AfflatusFaceBackdrop");
+    expect(backdrops(old.graph as Graph)).toEqual([]);
+    expect(old.warnings).toEqual(["What is around the people in their pictures is kept as it is: this ComfyUI lacks Afflatus's Face Backdrop (node pack 0.40, with insightface)."]);
+    // no person: nothing done, nothing said
+    const things = refs(["object"]);
+    expect(build({ references: things.references }, things.uploads).warnings).toBeUndefined();
+    expect(ltx25Video.inputs.find((i) => i.id === "refBackdrop")).toMatchObject({ type: "choice", options: ["Blurred", "Grey", "As in the picture"], default: "Blurred", showWhen: "references", advanced: true });
+  });
+
+  it("cuts closer to the face when asked, the node's own size left unsaid otherwise", () => {
+    const r = refs(["person"]);
+    expect(of(build({ references: r.references }, r.uploads).graph as Graph, "AfflatusFaceFrame")[0]!.inputs.factor).toBeUndefined();
+    expect(of(build({ references: r.references, refFaceSize: 1.75 }, r.uploads).graph as Graph, "AfflatusFaceFrame")[0]!.inputs.factor).toBe(1.75);
+    const square = build({ references: r.references, refFaceSize: 2 }, r.uploads, { msr }, (t) => t !== "AfflatusFaceFrame");
+    expect(of(square.graph as Graph, "AfflatusFaceCrop")[0]!.inputs.factor).toBe(2);
+    expect(ltx25Video.inputs.find((i) => i.id === "refFaceSize")).toMatchObject({ type: "number", default: 2.5, showWhen: "refFaceCrop", advanced: true });
+  });
+
+  it("says after the pictures that the scene is the one written, when a person is given and no place", () => {
+    const text = (roles: string[]) => {
+      const r = refs(roles);
+      return of(build({ references: r.references }, r.uploads).graph as Graph, "CLIPTextEncode")[0]!.inputs.text;
+    };
+    expect(text(["person"])).toBe("Image 1: a person.\nThe scene, its place, light and framing, is the one written below.\n\nThey talk.");
+    // a place given: the scene is that picture's
+    expect(text(["person", "place"])).toBe("Image 1: a person.\nImage 2: the place, the background of the scene.\n\nThey talk.");
+    // no person: nothing to keep apart from its setting
+    expect(text(["object"])).toBe("Image 1: an object.\n\nThey talk.");
+  });
+});
+
+describe("LTX's distilled LoRA on a dev model (card #81)", () => {
+  const dev = { unet: "ltx-2.5-22b-dev-transformer-bf16.safetensors", clip: "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors", videoVae: "ltx-2.5-video-vae-bf16.safetensors", audioVae: "ltx-2.5-audio-vae-bf16.safetensors", upscaler: "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors" };
+  const turbo = "ltx-2.5-22b-distilled-lora-450-bf16.safetensors";
+  const build = (input: Record<string, unknown>, slots: Record<string, string>) => ltx25Video.build(parseInput(ltx25Video, { prompt: "They talk.", ...input }), dryContext({ slots }));
+
+  it("is sent to a rented machine for a model that is not distilled, never to the user's own", () => {
+    const input = parseInput(ltx25Video, { prompt: "a" });
+    expect(ltx25Video.needsWith!(input, dev, { own: false })).toContain("turbo");
+    // a deploy's list, which names no machine, is a pod's
+    expect(ltx25Video.needsWith!(input, dev)).toContain("turbo");
+    expect(ltx25Video.needsWith!(input, dev, { own: true })).not.toContain("turbo");
+    // a distilled model, by its name or as said in the form, needs none
+    expect(ltx25Video.needsWith!(input, { ...dev, unet: "ltx-2.5-22b-distilled-transformer-bf16.safetensors" }, { own: false })).not.toContain("turbo");
+    expect(ltx25Video.needsWith!(parseInput(ltx25Video, { prompt: "a", turboIn: "Yes" }), dev, { own: false })).not.toContain("turbo");
+    expect(ltxVideo.needsWith!(parseInput(ltxVideo, { prompt: "a", model: "ltx-2.3-22b-dev.safetensors" }), {}, { own: false })).toContain("turbo");
+  });
+
+  it("says on the job when a dev model renders without it", () => {
+    const without = build({}, dev);
+    expect(of(without.graph as Graph, "LoraLoaderModelOnly")).toEqual([]);
+    expect(without.warnings).toEqual(["LTX 2.5's distilled LoRA is not on this ComfyUI: the dev model renders LTX's 8 steps without it (models/loras; Settings › Models has it). A distilled model needs none: Distilled model › Yes."]);
+    const withIt = build({}, { ...dev, turbo });
+    expect(of(withIt.graph as Graph, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name)).toEqual([turbo]);
+    expect(withIt.warnings).toBeUndefined();
+    expect(build({}, { ...dev, unet: "ltx-2.5-22b-distilled-transformer-bf16.safetensors" }).warnings).toBeUndefined();
   });
 });

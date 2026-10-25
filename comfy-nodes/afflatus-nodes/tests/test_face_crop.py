@@ -159,3 +159,58 @@ def test_the_frame_cut_without_a_face_or_when_insightface_fails_leaves_the_pictu
 
     monkeypatch.setattr(face_match, "_face_app", broken)
     assert face_match.AfflatusFaceFrame.execute(picture, 1280, 704).args == (picture,)
+
+
+# Face Backdrop (card #81): MSR redid a reference photo's own setting rather than the scene asked
+
+
+def test_the_head_and_shoulders_are_kept_and_the_corners_go():
+    # a 100 px face in the middle of a 400 x 400 picture
+    mask = face_match.head_mask((150, 120, 250, 220), 400, 400)
+    assert mask.shape == (400, 400)
+    # the face, the hair above it and the neck under it kept whole
+    assert mask[170, 200] == 1.0 and mask[90, 200] == 1.0 and mask[250, 200] == 1.0
+    # the shoulders, wider than the head, partly
+    assert mask[300, 100] > 0.5
+    # the room at the sides of the head, and the corners, gone
+    assert mask[150, 20] == 0.0 and mask[0, 0] == 0.0 and mask[0, 399] == 0.0
+    # faded, not cut: values between at the oval's edge
+    assert ((mask > 0.05) & (mask < 0.95)).any()
+
+
+def test_the_blur_keeps_the_colours_and_washes_out_the_shapes():
+    a = np.zeros((60, 60, 3), dtype=np.float32)
+    a[:, 30:] = 1.0
+    out = face_match.box_blurred(a, 4)
+    assert out.shape == a.shape
+    # a flat part stays as it was; the edge between the two halves is spread
+    assert abs(out[30, 2, 0]) < 1e-5 and abs(out[30, 57, 0] - 1.0) < 1e-5
+    assert 0.2 < out[30, 29, 0] < 0.8
+    assert abs(out.mean() - a.mean()) < 1e-3
+
+
+def test_the_backdrop_greys_or_blurs_around_the_face_only(monkeypatch):
+    found(monkeypatch, [150, 120, 250, 220, 0.9])
+    monkeypatch.setattr(face_match, "_as_image", lambda a, like: Batch(a))
+    picture = Batch(np.random.default_rng(1).random((1, 400, 400, 3), dtype=np.float32))
+    (grey,) = face_match.AfflatusFaceBackdrop.execute(picture, "grey").args
+    assert grey.shape == picture.shape
+    # the face as it was, a corner the plain grey
+    assert np.allclose(grey.a[0, 170, 200], picture.a[0, 170, 200])
+    assert np.allclose(grey.a[0, 0, 0], face_match.BACKDROP_GREY)
+    (blurred,) = face_match.AfflatusFaceBackdrop.execute(picture, "blur").args
+    assert np.allclose(blurred.a[0, 170, 200], picture.a[0, 170, 200])
+    # the noise of the corner smoothed towards its mean
+    assert blurred.a[0, :40, :40].std() < picture.a[0, :40, :40].std() / 3
+
+
+def test_the_backdrop_without_a_face_or_when_insightface_fails_leaves_the_picture_as_it_is(monkeypatch):
+    picture = portrait(400, 300)
+    found(monkeypatch)
+    assert face_match.AfflatusFaceBackdrop.execute(picture, "grey").args == (picture,)
+
+    def broken():
+        raise RuntimeError("no model files")
+
+    monkeypatch.setattr(face_match, "_face_app", broken)
+    assert face_match.AfflatusFaceBackdrop.execute(picture, "blur").args == (picture,)
