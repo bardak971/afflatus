@@ -78,7 +78,14 @@ RUN pip install -c /torch-cuda.txt $(grep -E '^nvidia-(nccl|nvshmem)' /torch-cud
 RUN pip install --index-url "https://download.pytorch.org/whl/${TORCH_CUDA}" "torch==${TORCH_VERSION}" "torchvision==${TORCHVISION_VERSION}" "torchaudio==${TORCHAUDIO_VERSION}" \
  && python -c "import subprocess; have = set(subprocess.check_output(['pip', 'freeze'], text=True).split()); lack = [p for p in open('/torch-cuda.txt').read().split() if p not in have]; assert not lack, lack" \
  && pip freeze | grep -iE '^(torch|torchvision|torchaudio)==' > /constraints.txt
+# Of ComfyUI's requirements, the workflow templates' pictures and videos and the nodes' docs go again in the same layer,
+# never in the image: ~535 MB of the 8.9 GB a pod unpacks at every boot, and unpacking is all of its pull (2026-10-25, card
+# #44: downloaded in ~20 s, unpacked in 80-185 s), for what only the browser's Templates and node help show, which no pod's
+# ComfyUI is opened for. The templates' index and their workflows stay (core, json): ComfyUI lists them without an error,
+# their pictures missing; without the docs it says so at the info level (frontend_management.py at v0.41.2)
 RUN pip install -c /constraints.txt -r requirements.txt \
+ && pip uninstall -y comfyui-workflow-templates-media-api comfyui-workflow-templates-media-video comfyui-workflow-templates-media-image comfyui-workflow-templates-media-other comfyui-workflow-templates-media-assets-01 comfyui-workflow-templates-media-assets-02 comfyui-embedded-docs \
+ && python -c "import comfyui_workflow_templates, comfyui_workflow_templates_json" \
  && if [ -f manager_requirements.txt ]; then pip install -c /constraints.txt -r manager_requirements.txt; else pip install -c /constraints.txt comfyui_manager; fi
 
 # The node packs the built-in forms use most, built in at the commits Afflatus is tested against (packs.ts names their

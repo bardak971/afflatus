@@ -83,7 +83,10 @@ jobs:
           file: deploy/runpod/base/Dockerfile
           # RunPod's GPUs are on x86 hosts
           platforms: linux/amd64
-          push: ${{ env.PUBLISH == 'true' }}
+          # its layers in zstd, not gzip: a pod's pull is its host unpacking ~8.9 GB one layer after another (downloaded in
+          # ~20 s, unpacked in 80-185 s; 2026-10-25, card #44), and zstd unpacks several times faster. Forced, so that the
+          # python image's own layers are written so too; the top's build copies them as they are (pod-image.yml)
+          outputs: type=image,push=${{ env.PUBLISH == 'true' }},compression=zstd,force-compression=true,oci-mediatypes=true
           tags: ${{ env.IMAGE }}:${{ steps.version.outputs.tag }}${{ matrix.suffix }}
           build-args: |
             TORCH_CUDA=${{ matrix.cuda }}
