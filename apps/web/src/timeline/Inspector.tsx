@@ -23,7 +23,9 @@ import { recordingLead, type ClipRecording } from "./inspector/clipRecording";
 import { ClipHead } from "./inspector/head";
 import { LookTable } from "./inspector/look";
 import { Slide } from "./inspector/parts";
-import { Duration, PinnedFrames, TakeList } from "./inspector/takes";
+import { Duration, PinnedFrames, TakeList, takeDiff, type FormNow } from "./inspector/takes";
+import { diffWords, differs, settingsPatch } from "./madeWith";
+import { ask } from "../Confirm";
 import { voiceInput, voiceOf } from "./track/RecordingBand";
 import { queryKeys } from "../queryKeys";
 import { useSayFailed } from "../sayFailed";
@@ -175,7 +177,28 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
     onError: failed("The Face refine was not queued"),
   });
   const offersFace = Boolean(recipe?.traits?.faceRefine) && !clip.job;
-  const takesInner = clip.takes.length > 0 ? <TakeList clip={clip} take={take} joinOf={joinOf} smoothest={smoothest} onPreview={onPreview} onPatch={onPatch} onRemoveTake={onRemoveTake} onFacePass={offersFace && !facePass.isPending ? (t) => facePass.mutate(t) : undefined} /> : null;
+  // the form is the next render's settings: browsing the takes never changes it, each take says what it was made with, and
+  // Use this take's settings puts one back (card #89). Asked first only when the form holds changes no take was made with
+  const allRecipes = all.data?.recipes ?? recipes;
+  const formNow: FormNow = {
+    recipe, whole: whole ?? stored, carries, recipes: allRecipes,
+    onUse: (t) => {
+      const of = allRecipes.find((r) => r.id === t.made.recipe);
+      if (!of) return;
+      const n = clip.takes.findIndex((x) => x.id === t.id) + 1;
+      const unrendered = clip.takes.every((x) => { const d = takeDiff(x, formNow); return !d || differs(d); });
+      const go = () => onPatch(settingsPatch(t, of, stored, carries));
+      if (!unrendered) return go();
+      void ask({
+        title: `Use take ${n}'s settings?`,
+        text: `The form holds changes no take was made with yet. Take ${n}'s settings replace them (against the form now: ${diffWords(takeDiff(t, formNow)!) ?? "its settings"}). Undo brings them back.`,
+        yes: "Use its settings",
+      }).then((yes) => yes && go());
+    },
+  };
+  const playingDiff = take ? takeDiff(take, formNow) : null;
+  const playingSaid = playingDiff ? diffWords(playingDiff) : null;
+  const takesInner = clip.takes.length > 0 ? <TakeList clip={clip} take={take} joinOf={joinOf} smoothest={smoothest} form={formNow} onPreview={onPreview} onPatch={onPatch} onRemoveTake={onRemoveTake} onFacePass={offersFace && !facePass.isPending ? (t) => facePass.mutate(t) : undefined} /> : null;
   const takesHelp = clip.takes.length > 1 ? `Hover a take to preview it, click to make it play.${joins.data ? ` The join figures say how much the picture jumps at In and at Out (×1 = like the clip's own motion; past ×${SHOWS} the join shows); the smoothest is marked.` : joins.isFetching ? " Measuring the joins…" : ""}` : "Each render adds a take; the one you pick plays.";
   const durationInner = still || take ? <Duration clip={clip} take={take} room={room} rendered={Boolean(recipe)} onPatch={onPatch} /> : null;
   const lookInner = take?.measure && !still ? <LookTable timeline={timeline} index={index} take={take} onSelectClip={onSelectClip} /> : null;
@@ -197,15 +220,25 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
     ),
   } : undefined;
   const pinWords = [opens && "first frame", through && "keyframe", ends && "last frame"].filter(Boolean).join(", ");
+  // the take that plays was made with other inputs than the form shows: said at the top of Inputs, whichever tab is open
+  const madeHead = take?.made && playingSaid ? (
+    <span className="flex flex-wrap items-center gap-x-1.5 text-xs text-attention-ink" data-tip={`Take ${playing}: ${playingSaid}. The form is the next render's settings; picking a take never changes it.`}>
+      The take that plays was made with other inputs
+      <span className="text-ink-3">·</span>
+      <button type="button" className="font-semibold underline" onClick={() => formNow.onUse(take as Take & { made: NonNullable<Take["made"]> })}>Use its settings</button>
+      <Help title="Use its settings" text="Puts the settings this take was rendered with back into the form, as Send to does in A1111: its pinned frames, references, voice, prompt, seed and the rest. One Undo step. The form stays what the next render is made with." />
+    </span>
+  ) : null;
   const framesExtra = inForm && pinnedInner ? {
-    summary: pinWords ? `pinned ${pinWords}` : "",
+    summary: [pinWords ? `pinned ${pinWords}` : "", madeHead ? "the take that plays differs" : ""].filter(Boolean).join(" · "),
+    head: madeHead,
     node: (
       <div className="flex flex-col gap-1.5">
         <span className="flex items-center gap-1.5 font-semibold">Pinned frames<Help text={pinHelp} /></span>
         {pinnedInner}
       </div>
     ),
-  } : undefined;
+  } : inForm && madeHead ? { summary: "the take that plays differs", head: madeHead } : undefined;
 
   return (
     <aside data-designer-stays style={{ width: panelWidth }} className="relative flex shrink-0 flex-col border-l border-line bg-panel">

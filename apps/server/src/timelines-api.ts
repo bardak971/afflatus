@@ -90,6 +90,8 @@ export const clipPatch = z.strictObject({
   fitNext: z.boolean().optional(),
   /** Its pinned pictures flipped left to right at render time (Mirror), by input id: true flips one, false turns it back. */
   pinMirror: z.record(z.string().max(64), z.boolean()).refine((m) => Object.keys(m).length <= 8, "at most 8 pinned frames").optional(),
+  /** The take whose settings the patch puts back (Use this take's settings). */
+  settingsOf: z.string().optional(),
   stillMs: z.number().min(0).optional(),
   animate: z.boolean().optional(),
   look: lookSchema.nullable().optional(),

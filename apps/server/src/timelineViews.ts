@@ -2,7 +2,8 @@ import type { Measure } from "./measure";
 import type { Db } from "./db";
 import type { Look } from "./entities";
 import { assetView } from "./media";
-import { carried, EXPORT_JOB, lengthOnGrid, seamless, visible, type Placed, type Taken, type TimelineRow } from "./timelineModel";
+import type { InputSpec, Recipe } from "@afflatus/core";
+import { carried, EXPORT_JOB, FROM_PREVIOUS, lengthOnGrid, seamless, visible, type Placed, type Taken, type TimelineRow } from "./timelineModel";
 import { sourceOfRow } from "./timelineSource";
 
 /** What a timeline's view is made of besides its clips' order and lengths: its takes as the browser gets them, its jobs, its header. */
@@ -17,10 +18,54 @@ export interface Rendered {
   facePass: boolean;
   /** What its render was sent (its form, with what the timeline filled in): a Lip sync head's lead-in (sungHead). */
   inputs?: Record<string, unknown>;
+  /** The form as typed, before the cast was worked in and the timeline filled its part (null: nothing was, the same as `inputs`). */
+  asked?: Record<string, unknown> | null;
+  /** The seed it was rendered with, when the form drew one (-1) or named it. */
+  seed?: number | null;
+  /** The pinned pictures it flipped (Mirror), by input id. */
+  mirror?: string[];
+}
+
+/**
+ * What a take was made with, as its clip's form would hold it: its recipe, its form as typed (the cast's additions and what
+ * the timeline filled in left out: the clips it joins, a first frame carried on from the clip before, the internal toggles),
+ * with the seed it was rendered with, and the pinned pictures it flipped. What "Use this take's settings" puts back.
+ */
+export interface Made {
+  recipe: string;
+  form: Record<string, unknown>;
+  /** Its first frame was the clip before's (its last frame, or a still), handed on by the timeline: no picture pinned on its form. */
+  carried?: boolean;
+  mirror: string[];
+}
+
+/**
+ * A take's Made, from its render's record (the draft's, for a finish: what the finish added is not the clip's form) and
+ * the link to the clip before it was made with. Null for a take rendered nowhere here, or with a recipe no longer here.
+ */
+export function madeOf(recipe: Recipe<any> | undefined, r: Rendered | undefined, prevTake: string | null): Made | null {
+  if (!recipe || !r?.inputs) return null;
+  const typed = r.asked ?? r.inputs;
+  const specs = recipe.inputs as InputSpec[];
+  // a source's part is its cut's, and a window moved by hand no longer joins the windows around it: not the form's to say
+  const sourcePart = specs.flatMap((i) => (i.type === "clip" && i.role === "source" && i.window ? [i.window.start, i.window.seconds] : []));
+  const form: Record<string, unknown> = {};
+  for (const spec of specs) {
+    if (spec.internal || (spec.type === "clip" && spec.role !== "source") || sourcePart.includes(spec.id) || (spec.type === "image" && spec.role === "face")) continue;
+    if (typed[spec.id] !== undefined) form[spec.id] = typed[spec.id];
+  }
+  const start = specs.find((i) => i.type === "image" && i.role === "start");
+  const prevSpec = specs.some((i) => i.type === "clip" && i.role === "previous");
+  // the timeline opened it on the clip before's last frame (a recipe that carries on by its frame), or on the still before it
+  const carried = Boolean(start && prevTake && (prevTake.startsWith("still:") || !prevSpec || form[start.id] === FROM_PREVIOUS));
+  if (start && (carried || form[start.id] === FROM_PREVIOUS)) delete form[start.id];
+  const seedSpec = specs.find((i) => i.type === "seed");
+  if (seedSpec && typeof r.seed === "number" && r.seed >= 0) form[seedSpec.id] = r.seed;
+  return { recipe: r.recipe, form, ...(carried ? { carried: true } : {}), mirror: r.mirror ?? [] };
 }
 
 /** A take as the browser gets it. */
-export function takeView(x: Taken, rendered: Rendered | undefined, laid: { sound: boolean; sung: boolean } = { sound: false, sung: false }) {
+export function takeView(x: Taken, rendered: Rendered | undefined, laid: { sound: boolean; sung: boolean } = { sound: false, sung: false }, made: Made | null = null) {
   const shown = visible(x);
   return {
     id: x.take.id, asset: assetView(x.asset), headMs: x.take.head_ms, tailMs: x.take.tail_ms,
@@ -47,6 +92,8 @@ export function takeView(x: Taken, rendered: Rendered | undefined, laid: { sound
     ...(laid.sound ? { laidSound: true } : {}),
     /** Its head filed with the recording the clip before sang (core sungHead), not the model's guess: the sound hands over to it as to any. */
     ...(laid.sound && laid.sung ? { headSung: true } : {}),
+    /** What it was made with, as its clip's form would hold it (Made); null for a take rendered nowhere here. */
+    made,
   };
 }
 
@@ -124,9 +171,15 @@ export class TimelineViews {
   /** How long each take's render took and how its own part looks, by generation (a finish made by a cut has none). */
   async renderedOf(all: Placed[]): Promise<Map<string, Rendered>> {
     const made = [...new Set(all.flatMap((p) => p.takes.map((x) => x.asset.generation_id)).filter((g): g is string => Boolean(g)))];
-    const records = made.length ? await this.db.selectFrom("generations").select(["id", "gen_ms", "measure", "recipe_id", "inputs"]).where("id", "in", made).execute() : [];
+    const records = made.length ? await this.db.selectFrom("generations").select(["id", "gen_ms", "measure", "recipe_id", "inputs", "asked", "resolved"]).where("id", "in", made).execute() : [];
     // how each render's own part looks (mean luma, sharpness), measured on its frames when it was stored
-    return new Map(records.map((g) => [g.id, { genMs: g.gen_ms, measure: g.measure ? (JSON.parse(g.measure) as Measure) : null, recipe: g.recipe_id, facePass: g.inputs.includes('"faceRefineOnly":true'), inputs: JSON.parse(g.inputs) as Record<string, unknown> }]));
+    return new Map(records.map((g) => {
+      const resolved = JSON.parse(g.resolved) as { seed?: number; mirror?: string[] };
+      return [g.id, {
+        genMs: g.gen_ms, measure: g.measure ? (JSON.parse(g.measure) as Measure) : null, recipe: g.recipe_id, facePass: g.inputs.includes('"faceRefineOnly":true'), inputs: JSON.parse(g.inputs) as Record<string, unknown>,
+        asked: g.asked ? (JSON.parse(g.asked) as Record<string, unknown>) : null, seed: typeof resolved.seed === "number" ? resolved.seed : null, mirror: Array.isArray(resolved.mirror) ? resolved.mirror : [],
+      }];
+    }));
   }
 
   /**

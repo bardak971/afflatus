@@ -80,7 +80,11 @@ export function useTimelineMutations(id: string, o: {
   const patch = useMutation({
     mutationFn: async (v: { clip: string; patch: ShownPatch }) => {
       await save(v.clip);
-      return turn(() => api.editClip(v.clip, v.patch));
+      const done = await turn(() => api.editClip(v.clip, v.patch));
+      // a patch that writes the whole form (Use this take's settings): the form's own edit of the clip, if it has one, is
+      // that now, else what was typed before stayed over the clip and went out with the next render
+      if (v.patch.inputs !== undefined) savedElsewhere(v.clip, done.inputs ?? v.patch.inputs);
+      return done;
     },
     onSuccess: after,
   });
