@@ -99,7 +99,9 @@ jobs:
           file: deploy/runpod/Dockerfile
           # RunPod's GPUs are on x86 hosts
           platforms: linux/amd64
-          push: ${{ env.PUBLISH == 'true' }}
+          # an OCI manifest: the base's layers are zstd (pod-base-image.yml), which only OCI's media types name; they are
+          # copied as they are, the top's own few MB in gzip
+          outputs: type=image,push=${{ env.PUBLISH == 'true' }},oci-mediatypes=true
           tags: ${{ env.IMAGE }}:${{ steps.version.outputs.tag }}${{ matrix.suffix }}
           # a published image must carry Manager's registry list (registry_cache.py --required); a dry run goes on without it
           build-args: |
