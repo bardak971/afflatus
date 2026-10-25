@@ -8,6 +8,7 @@ import { latentUpscaleNeeds } from "./latent-upscale";
 import { upscaleNeeds } from "../video/upscale";
 import { rifeNeeds } from "../shared/finish";
 import { FACE_REFINE_SLOTS, faceRefineNeeds } from "./faceRefine";
+import { cueMixNodes } from "./cue";
 
 /**
  * MiniMax H3 · Lip sync: a new shot made around a recording. The recording is laid on the clip's sound where the clip's
@@ -63,7 +64,7 @@ export const h3LipSync = defineRecipe<H3LipSync>({
   presets: h3Video.presets,
   // the recording is cut to the clip; the model's decoded sound goes before it when the clip opens on frames of the clip
   // before or on a moment before the words. No voice sample: H3's nodes are asked without one
-  nodes: (input) => [...new Set([...h3Video.nodes({ ...input, voice: undefined, recording: undefined }), "MiniMaxH3AddGuide", ...recordingNodes({ joined: (Boolean(input.previous) || leadOf(input) > 0) && !input.recordingLeadIn })])],
+  nodes: (input) => [...new Set([...h3Video.nodes({ ...input, voice: undefined, recording: undefined }), "MiniMaxH3AddGuide", ...recordingNodes({ joined: (Boolean(input.previous) || leadOf(input) > 0) && !input.recordingLeadIn }), ...cueMixNodes(input)])],
   optionalNodes: h3Video.optionalNodes,
   finishing: h3Video.finishing,
 
@@ -111,6 +112,12 @@ export const h3LipSync = defineRecipe<H3LipSync>({
         name: "the recording handed over with its pause after the part, no smoothing",
         input: { description: "a", references: [{ asset: "r1", role: "person" }], recording: "a1", smooth: false },
         slots: all, uploads: { "references.0": "r1.png", recording: "rec.wav" }, media: { recording: { width: 0, height: 0, seconds: 6.3, after: RECORDING_AFTER } },
+      },
+      {
+        // added over the recording, which plays on under it
+        name: "a sound cue over the recording",
+        input: { description: "a", start: "p1", recording: "a1", cues: [{ asset: "s1", start: 0, seconds: 0.6, at: 2.4 }] },
+        slots: all, uploads: { start: "a.png", recording: "rec.wav", "cues.0": "door.wav" }, media: { start: { width: 832, height: 1216 }, recording: { width: 0, height: 0, seconds: 5.9 }, "cues.0": { width: 0, height: 0, seconds: 0.6 } },
       },
     ];
   })(),

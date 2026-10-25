@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, onGrid, packOfNode, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
+import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, onGrid, packOfNode, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
 import { catalogKey, ComfyCancelled, ComfyError, ComfyUnreachable } from "@afflatus/comfy";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
-import { cutFrames, frameAt, inTemp, onDisk, partOf, rangeKeep, referenceClip, soundPart, type Media } from "./cut";
+import { cutFrames, frameAt, inTemp, exactPart, onDisk, partOf, rangeKeep, referenceClip, soundPart, type Media } from "./cut";
 import type { Db, Tables } from "./db";
 import { extOf } from "./media";
 import { usualParts } from "./renders";
@@ -232,7 +232,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const specs = (recipe.inputs as InputSpec[]).filter((spec) => {
     const value = input[spec.id];
     if (standsIn(spec, value)) return false;
-    return (spec.type === "image" && typeof value === "string") || (spec.type === "clip" && Boolean(value)) || (spec.type === "references" && Array.isArray(value)) || (spec.type === "audio" && typeof value === "string");
+    return (spec.type === "image" && typeof value === "string") || (spec.type === "clip" && Boolean(value)) || (spec.type === "references" && Array.isArray(value)) || (spec.type === "audio" && typeof value === "string") || (spec.type === "cues" && Array.isArray(value) && value.length > 0);
   });
   const told = specs.map(() => [] as string[]);
   const done = await Promise.allSettled(specs.map((spec, i) => {
@@ -242,6 +242,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
     if (spec.type === "clip" && spec.whole) return uploadWholeClip(own, spec, value as ClipValue);
     if (spec.type === "clip") return uploadJoinClip(own, spec, value as ClipValue);
     if (spec.type === "references") return uploadReferences(own, spec, value as ReferenceValue[]);
+    if (spec.type === "cues") return uploadCues(own, spec, value as CueValue[]);
     return uploadSound(own, spec, value as string);
   }));
   const failed = done.find((d): d is PromiseRejectedResult => d.status === "rejected");
@@ -701,6 +702,31 @@ async function uploadSound({ db, storage, upload, input, signal, sent }: Up, spe
   if (seconds) sent.media[spec.id] = { width: 0, height: 0, seconds, ...(part && after ? { after } : {}), ...(part && pre ? { before: pre } : {}) };
 }
 
+/**
+ * Each sound cue's part goes up under "<input>.<n>", cut from its file as a recording's part is (soundPart: at its own level,
+ * nothing handed over after it), with how long it really is (a sound that ends before the part gives less). A cue whose part
+ * cannot be cut is refused, not sent whole: the whole file laid in at the cue would play over the rest of the clip.
+ */
+async function uploadCues({ db, storage, upload, signal, sent }: Up, spec: InputSpec, cues: CueValue[]): Promise<void> {
+  if (spec.type !== "cues") return;
+  const ids = [...new Set(cues.map((c) => c.asset))];
+  const rows = ids.length ? await db.selectFrom("assets").select(["id", "file_key", "mime", "kind", "has_sound", "duration_ms"]).where("id", "in", ids).execute() : [];
+  const found = new Map(rows.map((r) => [r.id, r]));
+  cues.forEach((cue, i) => {
+    const asset = found.get(cue.asset);
+    if (!asset || (asset.kind !== "audio" && !(asset.kind === "video" && asset.has_sound))) throw new Error(`the sound of cue ${i + 1} is no longer in your library`);
+  });
+  await Promise.all(cues.map(async (cue, i) => {
+    const asset = found.get(cue.asset)!;
+    going(signal);
+    const part = await soundPart(await sourceOf(storage, asset.file_key), extOf(asset.mime), { start: cue.start, seconds: cue.seconds, durationMs: asset.duration_ms, exact: true }).catch((err) => {
+      throw new Error(`the part of sound cue ${i + 1} could not be cut (${(err as Error).message})`);
+    });
+    sent.uploads[`${spec.id}.${i}`] = await upload(part, "wav");
+    sent.media[`${spec.id}.${i}`] = { width: 0, height: 0, seconds: exactPart(cue.start, cue.seconds, asset.duration_ms ? asset.duration_ms / 1000 : null).seconds };
+  }));
+}
+
 /** A part painted on one picture cannot be put on another one. */
 function checkMasks(recipe: Recipe<any>, media: Record<string, MediaFacts>): void {
   for (const spec of recipe.inputs as InputSpec[]) {
@@ -823,6 +849,9 @@ export async function builtOf(core: QueueCore, recipeId: string, rawInput: unkno
         const asset = typeof v === "string" ? v : String((v as { asset?: string })?.asset ?? "");
         standIn(`${spec.id}.${i}`, asset, spec.media === "video" ? await referenceFacts(core.db, asset) : await pictureFacts(core.db, asset));
       }
+    } else if (spec.type === "cues" && Array.isArray(value)) {
+      // a cue's part as asked: what the build reads of it is its length
+      for (const [i, cue] of (value as CueValue[]).entries()) standIn(`${spec.id}.${i}`, cue.asset, { width: 0, height: 0, seconds: cue.seconds });
     }
   }
   // a finish that re-samples the draft's own latent is built on it, as submit builds it: else it is built as the draft and its finish both

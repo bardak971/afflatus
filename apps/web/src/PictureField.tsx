@@ -2,7 +2,7 @@ import { useExplain } from "./store";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Film, ImagePlus, Music, Upload } from "lucide-react";
-import type { ClipValue, ReferenceRole, ReferenceValue } from "@afflatus/core";
+import { CUE_MAX_SECONDS, type ClipValue, type CueValue, type ReferenceRole, type ReferenceValue } from "@afflatus/core";
 import { Select } from "./Select";
 import { api, thumbUrl, type Asset } from "./api";
 import { Dialog, DialogHead } from "./Dialog";
@@ -667,5 +667,73 @@ export function SoundField({ label, note, optional, value, onChange, part, cast 
         ),
       } : undefined}
     />
+  );
+}
+
+/**
+ * Sounds that land at moments of the clip: each row a sound of the library, the part of it used (From → to, on its waveform)
+ * and when it lands on the clip ("at", in the clip's own time). `clipSeconds`: how long the clip will be, when the form says:
+ * a cue past it is said on its row (the render would refuse it).
+ */
+export function CuesField({ label, note, max, value, onChange, clipSeconds }: {
+  label: string;
+  note?: string;
+  max: number;
+  value: CueValue[];
+  onChange(value: CueValue[]): void;
+  clipSeconds: number | null;
+}) {
+  // a sound added starts with all of it (cut where its file ends), landing at the clip's start
+  const addAll = (assets: string[]) => {
+    const fresh = assets.slice(0, Math.max(0, max - value.length)).map((asset) => ({ asset, start: 0, seconds: CUE_MAX_SECONDS, at: 0 }));
+    if (fresh.length) onChange([...value, ...fresh]);
+  };
+  const set = (i: number, cue: CueValue) => onChange(value.map((c, j) => (j === i ? cue : c)));
+  return (
+    <Slot
+      label={label} note={note} aside={`${value.length} of ${max}`} kind="audio" drags={[DRAG_SOUND, DRAG_HAS_SOUND]} onAsset={(id) => addAll([id])} onAssets={addAll} room={max - value.length}
+      empty={value.length < max ? { icon: <Music size={15} />, text: "Add a sound cue, or drop one here", says: "Drop to add as a sound cue" } : undefined}
+    >
+      {value.map((cue, i) => (
+        <CueRow key={`${i}:${cue.asset}`} index={i} cue={cue} clipSeconds={clipSeconds} onChange={(c) => set(i, c)} onRemove={() => onChange(value.filter((_c, j) => j !== i))} />
+      ))}
+    </Slot>
+  );
+}
+
+/** One sound cue: its sound, playing the part used, the part's ends and when it lands. */
+function CueRow({ index, cue, clipSeconds, onChange, onRemove }: { index: number; cue: CueValue; clipSeconds: number | null; onChange(cue: CueValue): void; onRemove(): void }) {
+  const asset = useAsset(cue.asset);
+  const total = asset.data?.durationMs ? asset.data.durationMs / 1000 : null;
+  const name = `Sound cue ${index + 1}`;
+  // the part as the server cuts it: from where it was asked, ending where the sound ends
+  const from = total === null ? cue.start : Math.max(0, Math.min(cue.start, total - 0.05));
+  const lasts = total === null ? cue.seconds : Math.max(0.05, Math.min(cue.seconds, total - from));
+  const most = Math.min(CUE_MAX_SECONDS, total ?? CUE_MAX_SECONDS);
+  const setPart = (start: number, seconds: number) => onChange({ ...cue, start, seconds });
+  // a sound added with all of it asked: its own length once known, so that its ends say what is used
+  useEffect(() => {
+    if (total !== null && cue.seconds > total - from + 0.05) onChange({ ...cue, seconds: Math.round((total - from) * 100) / 100 });
+  }, [total, from, cue, onChange]);
+  const past = clipSeconds !== null && cue.at > clipSeconds + 0.01;
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-line bg-raised p-2" data-cue={index}>
+      <AudioPlayer
+        asset={cue.asset} name={asset.data?.name || name} range={{ from, to: from + lasts }} bare className="px-0.5 pt-0.5"
+        strip={total !== null ? (now, playFrom) => (
+          <SoundRange asset={cue.asset} total={total} start={from} seconds={lasts} min={Math.min(0.1, total)} most={most} label={`${name}: the part used`} playhead={now} onSeek={playFrom} onCommit={setPart} />
+        ) : undefined}
+      />
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-line pt-2 text-xs text-ink-2">
+        <span>Part</span>
+        <NumberBox label={`${name}: the part used starts at, in seconds`} value={tenth(from)} min={0} max={total ? Math.max(0, Math.floor((total - 0.1) * 10) / 10) : 600} step={0.1} unit="s" onCommit={(v) => setPart(v, lasts)} />
+        <span>→</span>
+        <NumberBox label={`${name}: the part used ends at, in seconds`} value={tenth(from + lasts)} min={tenth(from + 0.1)} max={tenth(Math.min(total ?? Infinity, from + most))} step={0.1} unit="s" onCommit={(v) => setPart(from, tenth(v - from))} />
+        <span className="ml-2">at</span>
+        <NumberBox label={`${name}: lands at, in seconds of the clip`} value={tenth(cue.at)} min={0} max={15} step={0.1} unit="s" onCommit={(at) => onChange({ ...cue, at })} />
+        <span className="ml-auto"><CloseButton size={28} label={`Remove sound cue ${index + 1}`} onClose={onRemove} /></span>
+      </div>
+      {past && <span className="px-0.5 text-xs text-warn-ink">Lands past the clip's end ({clipSeconds!.toFixed(1)} s): the render refuses it. Move it in, or make the clip longer.</span>}
+    </div>
   );
 }

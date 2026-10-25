@@ -168,3 +168,28 @@ describe("an advanced setting filed under Output", () => {
     expect(l.out.map((i) => i.id)).toEqual(["seed"]);
   });
 });
+
+describe("H3's sound cues in a form", () => {
+  const h3 = recipe([
+    { id: "description", type: "prompt", label: "What happens", style: "sentences" },
+    { id: "start", type: "image", role: "start", label: "First frame", optional: true },
+    { id: "cues", type: "cues", label: "Sound cues", max: 6 },
+    { id: "cueSound", type: "choice", label: "In the take", options: ["The file's sound", "H3's own"], default: "The file's sound", showWhen: "cues" },
+    { id: "references", type: "references", label: "Reference images", max: 6, roles: ["person"] },
+  ], "video");
+  const cue = { asset: "zz-test-door", start: 0, seconds: 0.6, at: 2.4 };
+
+  it("sit in the Frames tab, In the take under them once there is one", () => {
+    const ids = (list: InputSpec[]) => list.map((i) => i.id);
+    expect(ids(layoutOf(h3, { cues: [] }, "").frames)).toEqual(["start", "cues"]);
+    expect(ids(layoutOf(h3, { cues: [cue] }, "").frames)).toEqual(["start", "cues", "cueSound"]);
+    expect(ids(layoutOf(h3, { cues: [cue] }, "").refs)).toEqual(["references"]);
+  });
+
+  it("are counted among the frames chosen only when there is one, and never missing", () => {
+    const said = (values: Record<string, unknown>) => summariesOf(h3, layoutOf(h3, values, ""), values, {});
+    expect(said({ cues: [] }).framesChosen).toHaveLength(0);
+    expect(said({ cues: [cue] }).framesChosen).toHaveLength(1);
+    expect(said({}).missing).toBe(false);
+  });
+});

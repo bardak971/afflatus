@@ -20,7 +20,7 @@ function useTakes() {
     (i.type === "image" && i.role !== "mask" && dragged.includes(DRAG_PICTURE)) ||
     (i.type === "clip" && dragged.includes(DRAG_VIDEO)) ||
     (i.type === "references" && dragged.includes(i.media === "video" ? DRAG_VIDEO : DRAG_PICTURE)) ||
-    (i.type === "audio" && (dragged.includes(DRAG_SOUND) || dragged.includes(DRAG_HAS_SOUND)));
+    ((i.type === "audio" || i.type === "cues") && (dragged.includes(DRAG_SOUND) || dragged.includes(DRAG_HAS_SOUND)));
 }
 
 /**

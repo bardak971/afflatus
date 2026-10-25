@@ -6,6 +6,7 @@ import { unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import { COLOUR_MATCH_NODES, rifeNeeds, rifeSkippedSaid } from "../shared/finish";
 import { conditionFor, type MorePicture } from "./condition";
+import { cueMixNodes, cueNodes, cuesFor, guideCues, layCues, laysCues } from "./cue";
 import { finish, H3_SAVE_LATENT } from "./finish";
 import { FACE_REFINE_OPTIONAL, FACE_REFINE_PACK_NEEDED, FACE_REFINE_SLOTS, faceRefineNeeds, faceRefineSkipped } from "./faceRefine";
 import { h3Inputs, type H3Video } from "./inputs";
@@ -62,6 +63,9 @@ export const h3Video = defineRecipe<H3Video & Partial<H3Recording>>({
       ...(input.previous || input.next || input.refVideos.length ? ["LoadVideo", "GetVideoComponents"] : []),
       ...(guided ? ["MiniMaxH3AddGuide"] : []),
       ...(input.recording ? recordingNodes({ joined: Boolean(input.previous) && !input.recordingLeadIn }) : []),
+      ...cueNodes(input),
+      // a cue over a recording laid in as the take's sound is mixed with it
+      ...(input.recording ? cueMixNodes(input) : []),
     ];
   },
   optionalNodes: [FACE_NODE, ...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, ...COLOUR_MATCH_NODES, ...H3_CONTINUATION_NODES, H3_SEAM, H3_HEAD_GUIDE, H3_LANDING, H3_TRIM, ...H3_SAVE_LATENT,
@@ -165,6 +169,17 @@ export const h3Video = defineRecipe<H3Video & Partial<H3Recording>>({
         slots: { ...all, faceRefineUnet: faceSlots.faceRefineUnet, faceDetector: faceSlots.faceDetector }, uploads: { "references.0": "r1.png", "self.latent": "own.safetensors" },
       },
       {
+        // the cues pinned after the run-up (frames 22 + 2.4 s and 22 + 0), their parts laid into the file's sound over H3's
+        name: "two sound cues laid in, carrying on from a clip",
+        input: { description: "a", previous: { asset: "c1" }, cues: [{ asset: "s1", start: 0.1, seconds: 0.6, at: 2.4 }, { asset: "s2", start: 3, seconds: 1.5, at: 0 }] },
+        slots: all, uploads: { previous: "a.mp4", "cues.0": "door.wav", "cues.1": "cheer.wav" }, media: { previous: joined, "cues.0": { width: 0, height: 0, seconds: 0.6 }, "cues.1": { width: 0, height: 0, seconds: 1.5 } },
+      },
+      {
+        name: "a sound cue that H3 makes its own sound for",
+        input: { description: "a", cues: [{ asset: "s1", start: 0, seconds: 0.5, at: 2.4 }], cueSound: "H3's own" },
+        slots: all, uploads: { "cues.0": "clap.wav" }, media: { "cues.0": { width: 0, height: 0, seconds: 0.5 } },
+      },
+      {
         name: "a voice only, with the picture of who speaks",
         input: { description: "a", start: "p1", voice: "v1" },
         slots: all, uploads: { start: "a.png", voice: "v.wav" }, media: { start: picture },
@@ -179,6 +194,12 @@ export const h3Video = defineRecipe<H3Video & Partial<H3Recording>>({
         name: "under a recording, carrying on from a clip that sang up to its part",
         input: { description: "a", previous: { asset: "c1" }, recording: "a1", recordingLeadIn: true, recordingGoesOn: true },
         slots: all, uploads: { previous: "a.mp4", recording: "rec.wav" }, media: { previous: joined, recording: { width: 0, height: 0, seconds: 7.3, after: 4, before: 2 } },
+      },
+      {
+        // added over the recording, which plays on under it (card #71)
+        name: "under a recording, a sound cue over it",
+        input: { description: "She listens and claps once.", recording: "a1", cues: [{ asset: "s1", start: 0, seconds: 0.6, at: 2.4 }] },
+        slots: all, uploads: { recording: "rec.wav", "cues.0": "clap.wav" }, media: { recording: { width: 0, height: 0, seconds: 5.9, after: 4 }, "cues.0": { width: 0, height: 0, seconds: 0.6 } },
       },
     ];
   })(),
@@ -274,7 +295,10 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   const patched = extra.model && !own ? extra.model(g, model, { vae, width, height, frames: join.frames }) : null;
   const sampledWith = patched?.model ?? model;
   // what a recipe made on this one adds to the guides (a recording laid on the sound): the sampled clip follows it, the re-sample does not
-  const guided = extra.guide ? extra.guide(g, { positive, latent, vae, audioVae, head: join.head, frames: join.frames }) : positive;
+  const recipeGuided = extra.guide ? extra.guide(g, { positive, latent, vae, audioVae, head: join.head, frames: join.frames }) : positive;
+  // the sound cues, each pinned at its frame (a finish samples nothing, and keeps them only in its file's sound)
+  const cues = cuesFor(g, ctx, input.cues, join);
+  const guided = cues && !own ? guideCues(g, cues.placed, cues.parts, { positive: recipeGuided, latent, vae, audioVae }) : recipeGuided;
   g.phase(own ? "loading" : "sampling");
   const sampled = own
     ? g.add("AfflatusLoadH3Latent", { latent: own })
@@ -310,7 +334,15 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
       seam = true;
     }
   }
-  const sound = extra.sound ? (decoded: Ref) => extra.sound!(g, decoded, { head: join.head, frames: join.frames }) : undefined;
+  // the file's sound: the recipe's (a recording, a source's sound) or the model's, then each cue's part laid in, unless the
+  // form keeps H3's own sound at them
+  const laid = cues && laysCues(input) ? cues : null;
+  const sound = extra.sound || laid
+    ? (decoded: Ref) => {
+        const base = extra.sound ? extra.sound(g, decoded, { head: join.head, frames: join.frames }) : decoded;
+        return laid ? layCues(g, base, laid.placed, laid.parts, { frames: join.frames, over: Boolean(extra.sound) }) : base;
+      }
+    : undefined;
   const frames = extra.frames ? (images: Ref) => extra.frames!(g, images, { width, height, frames: join.frames }) : undefined;
   const made = finish(g, ctx, extra.faceLook === undefined ? input : { ...input, subject: extra.faceLook }, { finished, sampled, fine, vae, audioVae, clip, width, height, head: join.head, sound, frames });
 

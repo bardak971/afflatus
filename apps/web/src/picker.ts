@@ -47,6 +47,9 @@ export function carryOver(from: RecipeInfo, to: RecipeInfo, stored: Record<strin
       case "audio":
         out[i.id] = value;
         break;
+      case "cues":
+        out[i.id] = (value as unknown[]).slice(0, i.max);
+        break;
       // a clip to continue belongs to a timeline, not to a form that is carried along
       case "clip":
         break;

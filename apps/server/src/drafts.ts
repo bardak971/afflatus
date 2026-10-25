@@ -95,7 +95,7 @@ function holdsNothing(d: Tables["drafts"]): boolean {
 }
 
 /** The inputs that are a form's content (what it is about); the others are its settings (model, size, steps, seed...). */
-const CONTENT = new Set(["prompt", "image", "clip", "references", "audio"]);
+const CONTENT = new Set(["prompt", "image", "clip", "references", "audio", "cues"]);
 const filled = (v: unknown) => v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0);
 
 /**
