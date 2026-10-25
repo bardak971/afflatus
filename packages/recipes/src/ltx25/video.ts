@@ -27,6 +27,7 @@ const spec: LtxSpec = {
   nag: false,
   references: true,
   faceRefine: true,
+  seamColour: true,
   temporalFile: "ltx-2.5-latent-temporal-upscaler-x2-*.safetensors",
   missing: {
     model: "LTX 2.5 was not found: put its distilled transformer in ComfyUI's models/diffusion_models folder, with its two VAEs in models/vae and its Gemma 4 text encoder in models/text_encoders (Settings › Models has them; the files are gated on Hugging Face).",

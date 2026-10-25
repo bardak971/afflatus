@@ -26,6 +26,7 @@ colour and voice at the join).
 | Afflatus: Swap Paste by Difference (H3) | The swap's render kept over the source where it clearly differs from it inside the redrawn zone, and over the person; elsewhere the source's own pixels. |
 | Afflatus: H3 Audio Lock | Encodes a sound into an H3 latent's audio stream and masks it from the noise: the sampler redraws the video only, with that sound beside it (Face refine). |
 | Afflatus: Follow Colours | Brings each frame's colours to a reference video's at the same moment (Lab mean and spread), both averaged over a stretch of frames first, never across a cut: a slow drift is followed, no flicker is added. |
+| Afflatus: Room Tone | Lays a faint noise (-50 dBFS) into a sound's stretches of exact digital silence, 20 ms or more, and leaves the rest as it is: for the copy of a sound LTX 2.3 is pinned to, which faded the picture to black over exact silence. |
 | Afflatus: Swap Colour Match (H3) | Passes the swap's render through unchanged. Deprecated (0.31.0): its colour match washed the redrawn wall white and was taken out of Swap character; kept for graphs that name it. |
 | MiniMax H3 Guided Continuation Window | Allocates the continuation target: a hidden overlap of the previous latent's tail plus the new frames. |
 | MiniMax H3 Latent Tail Guide | Conditions the target on the previous latent's tail, video and audio, with no VAE round trip. |

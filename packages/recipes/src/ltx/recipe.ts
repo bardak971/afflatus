@@ -57,6 +57,14 @@ export interface LtxSpec {
    * as SCAIL-2's at 24 fps). Not on 2.3: at 25 a second the sound held under the redrawn faces would not keep their time.
    */
   faceRefine?: boolean;
+  /**
+   * The stretches of digital silence in a sound the model is pinned to filled with a faint noise first (Afflatus: Room
+   * Tone): 2.3 faded a sung clip to black over the song's pause, exact silence, and the clip after carried the fade on (#85).
+   * 2.5, its own audio VAE, did not with the same recording.
+   */
+  roomTone?: boolean;
+  /** A seam's first own frames brought to the clip before's last as filed, then let go over a second (seamColour): 2.5's decoder. */
+  seamColour?: boolean;
   variants: Variant<LtxVideo>[];
 }
 
@@ -126,6 +134,15 @@ const SEAM_CONTEXT = 4;
 const LTX_MAX_SECONDS = 20;
 /** The core nodes that pin a whole sound under a clip: Lip sync's recording, encoded, laid into the silence and held there. */
 const PINNED_SOUND_NODES = ["LTXVAudioVAEEncode", "LatentCompositeMasked", "SolidMask", "SetLatentNoiseMask"];
+
+/**
+ * The node pack's Room Tone (0.41.0): a sound's stretches of exact digital silence filled with a white noise at -50 dBFS,
+ * the rest left as it is, before it is encoded to be pinned. Exact silence is the floor of the audio VAE's spectrogram:
+ * LTX 2.3's encodes it to latents of RMS 2.1 to 2.3, against 1.0 to 1.3 for the voice and the song around it, and 1.1 once
+ * filled (measured on the CPU on #85's takes, 2026-10-25). Only the copy the model is given: the take keeps the sound as it is.
+ */
+export const ROOM_TONE = "AfflatusRoomTone";
+const ROOM_TONE_DB = -50;
 
 /**
  * What an LTX clip holds of a recording (card #2): its part at the model's rate, on its 8n + 1 frames, 1 to 15 s (a recording
@@ -641,6 +658,11 @@ function ltxTemporal(run: LtxRun, made: { video: Ref; audio: Ref }): { video: Re
   return { video: [apart, 0], audio: [apart, 1] };
 }
 
+/** A sound as the model is given it to be pinned to: with Room Tone in its silences on 2.3, else as it is. */
+type Toned = (wave: Ref) => Ref;
+const tonedFor = (spec: LtxSpec, g: GraphBuilder, ctx: BuildContext): Toned =>
+  spec.roomTone && ctx.has(ROOM_TONE) ? (wave) => g.out(ROOM_TONE, { audio: wave, level_db: ROOM_TONE_DB, seed: 0 }) : (wave) => wave;
+
 /**
  * The sound the first pass starts from: silence for the model to fill, or, for a clip that carries on from one with sound, the
  * clip before's own sound under its frames at the head, pinned (a noise mask of 0 there) so that the model carries it on
@@ -650,10 +672,10 @@ function ltxTemporal(run: LtxRun, made: { video: Ref; audio: Ref }): { video: Re
  * frame short of the head, so that what is pinned is the head's sound, never the silence after it. `carried`: the head's
  * sound is the clip before's (the take's join says so, and the sound hands over early into it).
  */
-function headSound(g: GraphBuilder, ctx: BuildContext, audioVae: Ref, previous: Ref | null, frames: number, head: number, fps: number): { sound: Ref; pin: (audio: Ref) => Ref; carried: boolean } {
+function headSound(g: GraphBuilder, ctx: BuildContext, audioVae: Ref, previous: Ref | null, frames: number, head: number, fps: number, tone: Toned): { sound: Ref; pin: (audio: Ref) => Ref; carried: boolean } {
   const sound = g.out("LTXVEmptyLatentAudio", { frames_number: frames, frame_rate: fps, batch_size: 1, audio_vae: audioVae });
   if (!previous || head < 2 || ctx.media.previous?.hasSound === false || !HEAD_SOUND_NODES.every((n) => ctx.has(n))) return { sound, pin: (audio) => audio, carried: false };
-  const heard = g.out("LTXVAudioVAEEncode", { audio: [previous[0], 1], audio_vae: audioVae });
+  const heard = g.out("LTXVAudioVAEEncode", { audio: tone([previous[0], 1]), audio_vae: audioVae });
   const laid = g.out("LatentCompositeMasked", { destination: sound, source: heard, x: 0, y: 0, resize_source: false });
   const mask = g.out("MaskComposite", {
     destination: g.out("SolidMask", { value: 1, width: 1, height: frames }),
@@ -689,9 +711,9 @@ function latentJoinOf(ctx: BuildContext, input: LtxVideo, head: number, twoPass:
  * for the moment before the words, then the recording's part. Laid into the silence rather than given alone, the clip keeps
  * the silence's length whatever the encoder makes of the file's.
  */
-function pinnedSound(g: GraphBuilder, audioVae: Ref, wave: Ref, frames: number, fps: number): { sound: Ref; pin: (audio: Ref) => Ref } {
+function pinnedSound(g: GraphBuilder, audioVae: Ref, wave: Ref, frames: number, fps: number, tone: Toned): { sound: Ref; pin: (audio: Ref) => Ref } {
   const silence = g.out("LTXVEmptyLatentAudio", { frames_number: frames, frame_rate: fps, batch_size: 1, audio_vae: audioVae });
-  const laid = g.out("LatentCompositeMasked", { destination: silence, source: g.out("LTXVAudioVAEEncode", { audio: wave, audio_vae: audioVae }), x: 0, y: 0, resize_source: false });
+  const laid = g.out("LatentCompositeMasked", { destination: silence, source: g.out("LTXVAudioVAEEncode", { audio: tone(wave), audio_vae: audioVae }), x: 0, y: 0, resize_source: false });
   const mask = g.out("SolidMask", { value: 0, width: 1, height: frames });
   const pin = (audio: Ref): Ref => g.out("SetLatentNoiseMask", { samples: audio, mask });
   return { sound: pin(laid), pin };
@@ -724,12 +746,12 @@ function ltxCues(spec: LtxSpec): InputSpec[] {
  * mask of 0 over the head and each cue's stretch only. The mask is a column as tall as the clip's frames: ComfyUI stretches
  * it over the sound's own steps (reshape_mask, bilinear), so a row is a frame's moment of the sound, as headSound's is.
  */
-function cuedSound(g: GraphBuilder, audioVae: Ref, before: Ref | null, cues: NonNullable<ReturnType<typeof cuesFor>>, frames: number, head: number, fps: number): { sound: Ref; pin: (audio: Ref) => Ref; carried: boolean } {
+function cuedSound(g: GraphBuilder, audioVae: Ref, before: Ref | null, cues: NonNullable<ReturnType<typeof cuesFor>>, frames: number, head: number, fps: number, tone: Toned): { sound: Ref; pin: (audio: Ref) => Ref; carried: boolean } {
   const quiet = (duration: number): Ref => g.out("EmptyAudio", { duration, sample_rate: 48000, channels: 2 });
   const base = before ? g.out("AudioConcat", { audio1: before, audio2: quiet((frames - head) / fps), direction: "after" }) : quiet(frames / fps);
   const wave = layCues(g, base, cues.placed, cues.parts, { frames, over: false, fps });
   const silence = g.out("LTXVEmptyLatentAudio", { frames_number: frames, frame_rate: fps, batch_size: 1, audio_vae: audioVae });
-  const laid = g.out("LatentCompositeMasked", { destination: silence, source: g.out("LTXVAudioVAEEncode", { audio: wave, audio_vae: audioVae }), x: 0, y: 0, resize_source: false });
+  const laid = g.out("LatentCompositeMasked", { destination: silence, source: g.out("LTXVAudioVAEEncode", { audio: tone(wave), audio_vae: audioVae }), x: 0, y: 0, resize_source: false });
   let mask: Ref = g.out("SolidMask", { value: 1, width: 1, height: frames });
   const hold = (from: number, rows: number) => {
     mask = g.out("MaskComposite", { destination: mask, source: g.out("SolidMask", { value: 0, width: 1, height: rows }), x: 0, y: from, operation: "multiply" });
@@ -740,6 +762,38 @@ function cuedSound(g: GraphBuilder, audioVae: Ref, before: Ref | null, cues: Non
   const pin = (audio: Ref): Ref => g.out("SetLatentNoiseMask", { samples: audio, mask });
   return { sound: pin(laid), pin, carried: Boolean(before) };
 }
+
+/**
+ * LTX 2.5's join decoded as one piece with the clip before (card #40): its first own frames brought to the colours the clip
+ * before was last seen in, then let go over a second. Two decodes meet there and 2.5's decoder tells them apart where 2.3's
+ * does not (#85's chains, 2026-10-25): the clip before's last token, decoded at its latent's end, drifted from the seam's view
+ * of the same token (ΔE up to 0.5 on the last frame, the frames before it within 0.05); and the seam's own frames come from a
+ * temporal tile (2.5's 64 frames, 16 shared) begun two tokens before them, still settling. A step of ΔE 1.1 to 1.9 at the
+ * join against 0.16 to 0.8 inside a clip; 2.3's, decoded whole, 0.2. One transform (ColorTransfer, Lab mean and spread)
+ * takes the first own frame to the clip before's last as filed (the run-up as handed over, its last frame); it is laid at
+ * full strength on the first quarter second, then three quarters, half and a quarter. On #85's takes, done on the CPU,
+ * the join's ΔE came to 0.35 to 0.61, no frame-to-frame change above 0.49; on 2.3's it went up a little (0.2 to 0.26), so
+ * 2.3 does without. Not when the chain's colour match is carried on (`previous.look`: colourCarried brings every frame to
+ * that frame already), nor without the nodes.
+ */
+function seamColour(g: GraphBuilder, ctx: BuildContext, images: Ref, previous: Ref, head: number, frames: number, fps: number): Ref {
+  const own = frames - head;
+  const chunk = Math.max(1, Math.round((SEAM_COLOUR_S * fps) / SEAM_COLOUR_STEPS));
+  const span = chunk * SEAM_COLOUR_STEPS;
+  if (head < 1 || own < span || ctx.uploads["previous.look"] || !SEAM_COLOUR_NODES.every((n) => ctx.has(n))) return images;
+  const part = (from: Ref, at: number, length: number): Ref => g.out("ImageFromBatch", { image: from, batch_index: at, length });
+  const brought = g.out("ColorTransfer", { image_target: part(images, head, span), image_ref: part(previous, head - 1, 1), method: "reinhard_lab", source_stats: "target_frame", "source_stats.target_index": 0, strength: 1 });
+  let out = part(images, 0, head);
+  for (let i = 0; i < SEAM_COLOUR_STEPS; i++) {
+    const strength = (SEAM_COLOUR_STEPS - i) / SEAM_COLOUR_STEPS;
+    const piece = strength === 1 ? part(brought, 0, chunk) : g.out("ImageBlend", { image1: part(images, head + i * chunk, chunk), image2: part(brought, i * chunk, chunk), blend_factor: strength, blend_mode: "normal" });
+    out = g.out("ImageBatch", { image1: out, image2: piece });
+  }
+  return own > span ? g.out("ImageBatch", { image1: out, image2: part(images, head + span, own - span) }) : out;
+}
+const SEAM_COLOUR_S = 1;
+const SEAM_COLOUR_STEPS = 4;
+const SEAM_COLOUR_NODES = ["ImageFromBatch", "ColorTransfer", "ImageBlend", "ImageBatch"];
 
 /** The nodes Video with audio's cues add: the parts loaded and fitted, laid into a silence, encoded and pinned; mixed over a recording in the take. */
 const CUED_SOUND_NODES = ["LoadAudio", "TrimAudioDuration", "EmptyAudio", "AudioConcat", "LTXVAudioVAEEncode", "LatentCompositeMasked", "SolidMask", "MaskComposite", "SetLatentNoiseMask"];
@@ -971,13 +1025,15 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       "LoraLoaderModelOnly",
       "LatentUpscaleModelLoader", "LTXVLatentUpsampler", "LTXVImgToVideoInplace", "LTXVAddGuide", "LTXVCropGuides", "ManualSigmas",
       "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ", ...(spec.nag ? ["LTX2_NAG"] : []),
-      // the head's sound pinned when the nodes are there (Lip sync needs them all: in its nodes)
-      ...(spec.lipSync ? [] : HEAD_SOUND_NODES),
+      // the head's sound pinned when the nodes are there (Lip sync needs them all: in its nodes); 2.3's silences filled first
+      ...(spec.lipSync ? [] : HEAD_SOUND_NODES), ...(spec.roomTone ? [ROOM_TONE] : []),
       LTX_SAVE_LATENT, ...LTX_CONTINUATION_NODES, LTX_TRIM, ...LTX_LATENT_CORE,
       // the cast's pictures and voice, when the MSR LoRA and its pack are there (msrOf)
       ...(spec.references ? [...MSR_NODES, FACE_FRAME, FACE_CROP, FACE_BACKDROP,...(spec.lipSync ? [] : ["LoadAudio"])] : []),
       // the clip before's last frame as it was filed, loaded when the server sends it (its chain was colour-matched: colourCarried)
       "LoadImage",
+      // 2.5: a seam's first own frames brought to the clip before's last as filed, then let go (seamColour)
+      ...(spec.seamColour ? SEAM_COLOUR_NODES : []),
       // under a recording: what goes before its part (the clip before's sound under the head, silence before the words)
       "AudioConcat", "AudioAdjustVolume",
       // the face along the take against its person's picture; Face refine's pack, done without when missing
@@ -1077,13 +1133,17 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       };
       const recorded = spec.lipSync && laid ? laid.sound(g, ahead(), at) : null;
       const wave = recorded && cues ? layCues(g, recorded, cues.placed, cues.parts, { frames, over: true, fps }) : recorded;
+      // 2.3's silences filled before they are pinned (a clip carried on in the latent pins the clip before's sound as it was
+      // sampled: a Lip sync clip made since has it filled)
+      const tone = tonedFor(spec, g, ctx);
+      if (spec.roomTone && spec.lipSync && wave && !ctx.has(ROOM_TONE)) warnings.push(`Stretches of exact silence in the sound were pinned as they are: this ComfyUI's Afflatus node pack has no Room Tone (0.41.0), and ${spec.name} can fade the picture to black over them. Settings › ComfyUI updates the pack.`);
       const carry = wave
-        ? { ...pinnedSound(g, loaded.audioVae, wave, frames, fps), carried: head > 0 && Boolean(heardBefore || laid!.sungThrough(at)) }
+        ? { ...pinnedSound(g, loaded.audioVae, wave, frames, fps, tone), carried: head > 0 && Boolean(heardBefore || laid!.sungThrough(at)) }
         : cues
-          ? cuedSound(g, loaded.audioVae, heardBefore, cues, frames, head, fps)
+          ? cuedSound(g, loaded.audioVae, heardBefore, cues, frames, head, fps, tone)
           : continued
             ? { sound: [continued, 1] as Ref, pin: (audio: Ref): Ref => g.out("SetLatentNoiseMask", { samples: audio, mask: [continued, 2] }), carried: true }
-            : headSound(g, ctx, loaded.audioVae, previous, frames, head, fps);
+            : headSound(g, ctx, loaded.audioVae, previous, frames, head, fps, tone);
       const run: LtxRun = {
         spec, g, ctx, input, loaded, cond, steps, frame: { width, height, frames }, passes: [], head, opens, previous, tail,
         next: lands ? clipOf(ctx.uploads.next) : null,
@@ -1127,7 +1187,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       // shows the clip before's real frames. Doubled by the temporal upscaler, its tokens are no longer the clip before's: alone
       const context = kept && !temporal ? Math.max(0, Math.min(SEAM_CONTEXT, ((kept.cut || kept.frames) - 1) / 8 + 1 - (head + 7) / 8)) : 0;
       const seam = before && !temporal ? g.add("AfflatusLTXSeamLatent", { previous_av_latent: before, sampled: made.video, overlap_frames: head, context }) : null;
-      const images = seam ? g.out("ImageFromBatch", { image: decode([seam, 0]), batch_index: 8 * context, length: frames }) : decode(made.video);
+      const decodedFrames = seam ? g.out("ImageFromBatch", { image: decode([seam, 0]), batch_index: 8 * context, length: frames }) : decode(made.video);
+      const images = seam && previous && spec.seamColour ? seamColour(g, ctx, decodedFrames, previous, head, frames, fps) : decodedFrames;
       // the take's sound: Lip sync's is the sound it was made to; one a recording plays over carries its part after the head
       // (card #72's rule: the model's own sound there is dropped); else the model's
       const decoded = wave ? null : g.out("LTXVAudioVAEDecode", { samples: made.audio, audio_vae: loaded.audioVae });

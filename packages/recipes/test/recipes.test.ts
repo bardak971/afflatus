@@ -1009,7 +1009,9 @@ describe("ltx.video", () => {
     const [video] = all(b, "GetVideoComponents");
     const id = Object.entries(b.graph).find(([, n]) => n === video)![0];
     // the sound of the frames handed over, encoded with the model's audio VAE
-    expect(all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio).toEqual([id, 1]);
+    // (2.3's: through Room Tone, which fills its stretches of exact silence first)
+    const encoded = all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio as [string, number];
+    expect(b.graph[encoded[0]]).toMatchObject({ class_type: "AfflatusRoomTone", inputs: { audio: [id, 1], level_db: -50 } });
     // laid into the clip's silence (its length stays the silence's), the head's frames less one pinned
     const silence = Object.entries(b.graph).find(([, n]) => n.class_type === "LTXVEmptyLatentAudio")![0];
     expect(all(b, "LatentCompositeMasked")[0]!.inputs).toMatchObject({ destination: [silence, 0], x: 0, y: 0 });
@@ -1285,6 +1287,12 @@ describe("LTX under a recording (card #2)", () => {
   const ref = (b: Built, r: unknown) => b.graph[(r as [string, number])[0]]!;
   const idOf = (b: Built, cls: string) => Object.entries(b.graph).find(([, n]) => n.class_type === cls)![0];
   const save = (b: Built) => all(b, "VHS_VideoCombine")[0]!.inputs;
+  // the sound the model is pinned to, as it was before 2.3's Room Tone fills its silences (the take carries it so)
+  const waveOf = (b: Built) => {
+    const encoded = all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio as [string, number];
+    const node = b.graph[encoded[0]]!;
+    return node.class_type === "AfflatusRoomTone" ? node.inputs.audio : encoded;
+  };
 
   it("Lip sync: the recording drawn in its form, no Duration, its part's length on the model's grid", () => {
     expect(madeAroundRecording(ltxLipSync.inputs)).toBe(true);
@@ -1303,7 +1311,7 @@ describe("LTX under a recording (card #2)", () => {
     // 5.9 s and the pad: 156 frames, brought down to 153 on the grid
     expect(b.frames).toBe(153);
     expect(all(b, "EmptyLTXVLatentVideo")[0]!.inputs.length).toBe(153);
-    const part = all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio;
+    const part = waveOf(b);
     expect(ref(b, part)).toMatchObject({ class_type: "TrimAudioDuration", inputs: { start_index: 0, duration: 153 / 25 } });
     expect(ref(b, ref(b, part).inputs.audio)).toMatchObject({ class_type: "LoadAudio", inputs: { audio: "rec.wav" } });
     // laid into the silence, all of it pinned: a mask of 0 as tall as the clip's frames
@@ -1325,7 +1333,7 @@ describe("LTX under a recording (card #2)", () => {
     const b = build(ltxLipSync, { previous: { asset: "c" }, recordingSeconds: 4.2, speechAt: 0.5 }, { media: { previous: prev, ...rec(4.2) } });
     // 13 frames before the words, 4.2 s, the pad, and the 25 frames of the head: 151, brought down to 145
     expect(b.frames).toBe(145);
-    const wave = ref(b, all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio);
+    const wave = ref(b, waveOf(b));
     expect(wave.class_type).toBe("AudioConcat");
     const ahead = ref(b, wave.inputs.audio1);
     expect(ahead.inputs).toMatchObject({ start_index: 0, duration: 38 / 25 });
@@ -1335,12 +1343,12 @@ describe("LTX under a recording (card #2)", () => {
     expect(ref(b, quiet.inputs.audio)).toMatchObject({ class_type: "AudioAdjustVolume", inputs: { volume: -100 } });
     expect(ref(b, wave.inputs.audio2).inputs).toMatchObject({ start_index: 0, duration: (145 - 38) / 25 });
     // the take's sound is the same; its head is the clip before's, carried: the sound hands over at the join
-    expect(save(b).audio).toEqual(all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio);
+    expect(save(b).audio).toEqual(waveOf(b));
     expect(b.overlap).toEqual({ headMs: 1000, tailMs: 0, sound: true });
     expect(all(b, "SolidMask").map((n) => [n.inputs.value, n.inputs.height])).toEqual([[0, 145]]);
     // a clip before without sound: silence under the head, the join not carried
     const mute = build(ltxLipSync, { previous: { asset: "c" }, recordingSeconds: 4.2 }, { media: { previous: { ...prev, hasSound: false }, ...rec(4.2) } });
-    const muteWave = ref(mute, all(mute, "LTXVAudioVAEEncode")[0]!.inputs.audio);
+    const muteWave = ref(mute, waveOf(mute));
     expect(ref(mute, ref(mute, muteWave.inputs.audio1).inputs.audio)).toMatchObject({ class_type: "AudioAdjustVolume" });
     expect(mute.overlap).toEqual({ headMs: 1000, tailMs: 0 });
   });
@@ -1353,13 +1361,13 @@ describe("LTX under a recording (card #2)", () => {
     // the sound sampled from is the recording's, laid after the clip before's own under the head, pinned whole
     const sampled = all(b, "SamplerCustomAdvanced").map((n) => ref(b, ref(b, n.inputs.latent_image).inputs.audio_latent));
     expect(sampled.every((n) => n.class_type === "SetLatentNoiseMask" && ref(b, n.inputs.mask).class_type === "SolidMask")).toBe(true);
-    expect(ref(b, all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio).class_type).toBe("AudioConcat");
-    expect(save(b).audio).toEqual(all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio);
+    expect(ref(b, waveOf(b)).class_type).toBe("AudioConcat");
+    expect(save(b).audio).toEqual(waveOf(b));
   });
 
   it("Lip sync sung up to its part by the clip before: the recording under the head too, one stretch of it", () => {
     const b = build(ltxLipSync, { previous: { asset: "c" }, recordingSeconds: 6, recordingLeadIn: true }, { media: { previous: prev, ...rec(6, { before: 1, after: 6 }) } });
-    const wave = ref(b, all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio);
+    const wave = ref(b, waveOf(b));
     expect(wave).toMatchObject({ class_type: "TrimAudioDuration", inputs: { start_index: 0, duration: b.frames! / 25 } });
     expect(all(b, "AudioConcat")).toEqual([]);
     expect(b.overlap).toEqual({ headMs: 1000, tailMs: 0, sound: true });
@@ -1369,7 +1377,7 @@ describe("LTX under a recording (card #2)", () => {
     const cues = [{ asset: "s1", start: 0, seconds: 0.6, at: 2.4 }];
     const ctx = { uploads: { recording: "rec.wav", previous: "c.mp4", "cues.0": "clap.wav" }, media: { previous: prev, ...rec(5), "cues.0": { width: 0, height: 0, seconds: 0.6 } } };
     const b = build(ltxLipSync, { previous: { asset: "c" }, recordingSeconds: 5, cues }, ctx);
-    const encoded = all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio;
+    const encoded = waveOf(b);
     // after the cue: the recording again, from where the cue ends (25 frames of head and 2.4 s in: 85 frames, 3.4 s)
     const after = ref(b, encoded);
     expect(after.class_type).toBe("AudioConcat");
@@ -1397,7 +1405,7 @@ describe("LTX under a recording (card #2)", () => {
     const b = build(ltxVideo, { recording: undefined, seconds: 5, cues: [cue] }, { uploads: { "cues.0": "clap.wav" }, media: cueMedia });
     expect(b.frames).toBe(129);
     // a silence as long as the clip, the cue laid in at 2.4 s (frame 60), encoded
-    const wave = ref(b, all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio);
+    const wave = ref(b, waveOf(b));
     expect(wave.class_type).toBe("AudioConcat");
     const upTo = ref(b, wave.inputs.audio1);
     expect(ref(b, ref(b, upTo.inputs.audio1).inputs.audio)).toMatchObject({ class_type: "EmptyAudio", inputs: { duration: 129 / 25 } });
@@ -1423,7 +1431,7 @@ describe("LTX under a recording (card #2)", () => {
     for (const [media, uploads] of [[{ previous: prev }, {}], [{ previous: latentOf }, { "previous.latent": "c.safetensors" }]] as const) {
       const b = build(ltxVideo, { recording: undefined, previous: { asset: "c" }, seconds: 5, cues: [cue] }, { uploads: { previous: "c.mp4", "cues.0": "clap.wav", ...uploads }, media: { ...media, "cues.0": { width: 0, height: 0, seconds: 0.6 } } });
       const frames = ltxFrames(6);
-      const head = ref(b, ref(b, ref(b, ref(b, all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio).inputs.audio1).inputs.audio1).inputs.audio);
+      const head = ref(b, ref(b, ref(b, ref(b, waveOf(b)).inputs.audio1).inputs.audio1).inputs.audio);
       expect(head.class_type).toBe("AudioConcat");
       expect(ref(b, head.inputs.audio1).inputs).toMatchObject({ audio: [idOf(b, "GetVideoComponents"), 1], duration: 1 });
       expect(ref(b, head.inputs.audio2)).toMatchObject({ class_type: "EmptyAudio", inputs: { duration: (frames - 25) / 25 } });

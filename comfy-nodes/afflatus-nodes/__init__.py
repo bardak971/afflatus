@@ -27,6 +27,8 @@ Afflatus's other routes:
   shoulders blurred or grey, for LTX 2.5's references; registered only when insightface is installed.
 - Afflatus: Follow Colours — a Motion transfer clip's colours brought to its driving video's at each moment, both
   averaged over about a second first, so that a drift inside a window is followed and windows of one source meet.
+- Afflatus: Room Tone — a faint noise laid into a sound's stretches of digital silence before LTX is pinned to it (LTX 2.3
+  faded the picture to black over exact silence).
 
 Afflatus writes this pack into ComfyUI's custom_nodes folder itself when it knows the folder (Settings →
 ComfyUI); ComfyUI picks it up at its next start. It can also be installed by hand: copy this folder into
@@ -106,6 +108,7 @@ from .face_match import AfflatusFaceAt, AfflatusFaceBackdrop, AfflatusFaceCrop, 
 from .swap_mask import AfflatusSwapMask, AfflatusSwapMaskPreview, AfflatusSwapMatch, AfflatusSwapPaste  # noqa: E402
 from .face_refine import AfflatusH3AudioLock  # noqa: E402
 from .colour_follow import AfflatusColorFollow  # noqa: E402
+from .room_tone import AfflatusRoomTone  # noqa: E402
 
 
 def _version() -> str:
@@ -151,6 +154,7 @@ class AfflatusExtension(ComfyExtension):
             AfflatusH3AudioLock,
             # a Motion transfer clip's colours brought to its driving video's, moment by moment
             AfflatusColorFollow,
+            AfflatusRoomTone,
             # a face's likeness to some photos, for the pictures a Motion transfer is made from, and a person's picture cut to
             # their face (LTX 2.5's references): only with insightface installed
             *([AfflatusFaceMatch, AfflatusFaceAt, AfflatusFaceCrop, AfflatusFaceFrame, AfflatusFaceBackdrop] if face_available() else []),
