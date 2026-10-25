@@ -94,3 +94,68 @@ def test_without_a_face_or_when_insightface_fails_the_picture_goes_on_whole(monk
 
     monkeypatch.setattr(face_match, "_face_app", broken)
     assert face_match.AfflatusFaceCrop.execute(picture).args == (picture,)
+
+
+# Face Crop to Frame: MSR's guide fits a picture of another shape family than its slot whole on a white canvas, and a clip that
+# did not carry on copied those bars (card #91). The cut has the frame's shape and size.
+
+
+def test_the_frame_cut_has_the_frame_shape_its_short_side_two_and_a_half_face_heights():
+    # a 600 px face in a 3024 x 4032 portrait, a 1280 x 704 clip: 1500 px tall, 1500 x 1280 / 704 wide, centred on the face
+    left, top, w, h = face_match.face_frame((1212, 1700, 1812, 2300), 3024, 4032, 1280, 704)
+    assert (w, h) == (2727, 1500)
+    assert (left, top) == (1512 - 1364, 1250)
+    # a portrait clip: the short side is the width
+    assert face_match.face_frame((1212, 1700, 1812, 2300), 3024, 4032, 704, 1280)[2:] == (1500, 2727)
+    # a square clip: Face Crop's square
+    left, top, side = face_match.face_square((1212, 1700, 1812, 2300), 3024, 4032)
+    assert face_match.face_frame((1212, 1700, 1812, 2300), 3024, 4032, 704, 704) == (left, top, side, side)
+
+
+def test_the_frame_cut_is_made_smaller_whole_and_kept_inside_a_picture_too_small_for_it():
+    # Timeline 10's reference: a close 750 x 750 portrait in a 1280 x 704 clip, the face 450 px tall: as wide as the picture
+    left, top, w, h = face_match.face_frame((200, 150, 550, 600), 750, 750, 1280, 704)
+    assert (left, w) == (0, 750)
+    assert abs(h - 750 * 704 / 1280) <= 0.5
+    assert 0 <= top <= 750 - h
+    # still the frame's shape, to a pixel
+    assert abs(w / h - 1280 / 704) < 0.01
+    # a face at the bottom right corner: moved in, not past the edge
+    left, top, w, h = face_match.face_frame((2900, 3900, 3024, 4032), 3024, 4032, 1280, 704)
+    assert (left + w, top + h) == (3024, 4032)
+
+
+def test_the_frame_cut_is_brought_to_the_frame_size(monkeypatch):
+    found(monkeypatch, [200, 150, 550, 600, 0.9])
+    asked = []
+
+    def scaled(image, wide, high):
+        asked.append((image.shape, wide, high))
+        return Batch(np.zeros((1, high, wide, 3), dtype=np.float32))
+
+    monkeypatch.setattr(face_match, "_scaled", scaled)
+    (cut,) = face_match.AfflatusFaceFrame.execute(portrait(750, 750), 1280, 704).args
+    assert cut.shape == (1, 704, 1280, 3)
+    # the cut of the picture, as wide as it is and of the frame's shape, is what was brought to the frame's size
+    h = face_match.face_frame((200, 150, 550, 600), 750, 750, 1280, 704)[3]
+    assert asked == [((1, h, 750, 3), 1280, 704)]
+
+
+def test_the_frame_cut_of_the_frame_size_already_is_not_scaled(monkeypatch):
+    # a 704 px face in a 4000 x 3000 picture, a 1280 x 704 clip at 1 face height: exactly the frame
+    found(monkeypatch, [1000, 1000, 1704, 1704, 0.9])
+    monkeypatch.setattr(face_match, "_scaled", lambda *a: pytest.fail("scaled"))
+    (cut,) = face_match.AfflatusFaceFrame.execute(portrait(4000, 3000), 1280, 704, 1.0).args
+    assert cut.shape == (1, 704, 1280, 3)
+
+
+def test_the_frame_cut_without_a_face_or_when_insightface_fails_leaves_the_picture_whole(monkeypatch):
+    picture = portrait(800, 600)
+    found(monkeypatch, [10, 10, 300, 300, 0.3])
+    assert face_match.AfflatusFaceFrame.execute(picture, 1280, 704).args == (picture,)
+
+    def broken():
+        raise RuntimeError("no model files")
+
+    monkeypatch.setattr(face_match, "_face_app", broken)
+    assert face_match.AfflatusFaceFrame.execute(picture, 1280, 704).args == (picture,)
