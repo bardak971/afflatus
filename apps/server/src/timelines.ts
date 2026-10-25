@@ -1,7 +1,7 @@
 import { chatJson } from "./llm";
 import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
-import { carriedOf, joinWay, laysSound, musicPlan, sungHead, plural, recordingPart, recordingParts, sameWindowGrid, trimIn, typedSeed, type ClipMusic, type InputSpec, type Recipe, type Transition } from "@afflatus/core";
+import { carriedOf, joinWay, laysSound, madeAroundRecording, musicPlan, recordingSpecOf, sungHead, plural, recordingPart, recordingParts, sameWindowGrid, trimIn, typedSeed, type ClipMusic, type InputSpec, type Recipe, type Transition } from "@afflatus/core";
 import { newId, now, OWNER, type Db } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError, notFound } from "./errors";
@@ -397,10 +397,11 @@ export class Timelines {
       const source = from?.asset.generation_id ? rendered.get(from.asset.generation_id) : undefined;
       return source?.measure ? { genMs: own?.genMs ?? null, measure: source.measure, recipe: own?.recipe ?? source.recipe, facePass: own?.facePass ?? false } : own;
     };
-    // a take's sound laid from a recording (Lip sync): by the recipe it was rendered with, else its clip's
+    // a take's sound laid from a recording (Lip sync, or a form it plays over): by the recipe it was rendered with, else its
+    // clip's, and what that render was sent (a Video with audio take made under no recording keeps its own sound)
     const laid = (recipe: string | null | undefined, made: Record<string, unknown> | undefined) => {
       const inputs = this.registry.recipe(recipe ?? "")?.inputs ?? [];
-      return { sound: laysSound(inputs), sung: sungHead(inputs, made ?? {}) };
+      return { sound: laysSound(inputs, made), sung: sungHead(inputs, made ?? {}) };
     };
     const viewOf = (takes: Taken[], clipRecipe: string | null) => (x: Taken) => {
       const r = renderOf(x, takes);
@@ -1114,13 +1115,16 @@ export class Timelines {
       // clips of the recording made anew in their place (its start moved)
       const gone = o.replace ?? (o.clip && all.some((p) => p.clip.id === o.clip && !p.clip.take_id && p.clip.kind === "video") ? [o.clip] : []);
       refuseBusy(gone, await this.busyOf(gone), all, o.replace ? "move the recording's start" : "drop a recording on it");
+      // a re-cut or a moved start keeps each clip's form where its part survives (card #72): the clips it replaces, as they lie
+      const was = o.replace ? all.filter((p) => o.replace!.includes(p.clip.id)).map((p) => this.partOfClip(p)) : [];
+      const cut = cutOf(recordingCuts(await this.row(timelineId)), sound.id);
       return this.db.transaction().execute(async (tx) => {
-        await this.remember(timelineId, o.label ?? `the ${plural(parts.length, "Lip sync clip")} made from the recording`, undefined, tx);
-        const made = await this.recordingClipsIn(tx, timelineId, sound, parts, { gone });
+        await this.remember(timelineId, o.label ?? `the ${plural(parts.length, "clip")} made from the recording`, undefined, tx);
+        const made = await this.recordingClipsIn(tx, timelineId, sound, parts, { gone, was, form: cut.form });
         // made anew over a moved start: what a trim had set aside of it no longer fits its clips
         if (o.replace?.length) await setParkedRecording(tx, timelineId, sound.id, [], null, []);
         // cut again at another length (the recording's panel): kept for its trims, which cut what they add the same way
-        if (o.keepCut) await setRecordingCut(tx, timelineId, sound.id, { seconds: o.seconds ?? DEFAULT_CUT.seconds, snap: o.snap ?? true });
+        if (o.keepCut) await setRecordingCut(tx, timelineId, sound.id, { ...cut, seconds: o.seconds ?? DEFAULT_CUT.seconds, snap: o.snap ?? true });
         return made;
       });
     });
@@ -1146,32 +1150,41 @@ export class Timelines {
   }
 
   /**
-   * The Lip sync clips of these parts of a recording, written in the transaction given: in place of the clips `gone` (the
-   * first of them), else after `after`, else at the end; each with the settings of the clip it replaces or follows when it
-   * is one of the model's, else of the last clip of the model; the first carrying on from the clip before when it can.
+   * The clips of these parts of a recording, written in the transaction given: in place of the clips `gone` (the first of
+   * them), else after `after`, else at the end. Each part is made in the form of the clip it replaces whose part it overlaps
+   * most (`was`: a re-cut keeps a clip's form and its settings where its part survives, card #72), else in the recording's
+   * New clips form (`form`, Lip sync by default), with the settings of the clip it replaces or follows when it is of that
+   * form, else of the last clip of it; the first carrying on from the clip before when it can.
    */
-  private async recordingClipsIn(tx: Db, timelineId: string, sound: AssetRow, parts: Array<{ start: number; seconds: number }>, at: { gone: string[]; after?: string }): Promise<string[]> {
-    const { recipe, spec } = this.recordingModel();
+  private async recordingClipsIn(tx: Db, timelineId: string, sound: AssetRow, parts: Array<{ start: number; seconds: number }>, at: { gone: string[]; after?: string; was?: ClipPart[]; form?: string }): Promise<string[]> {
+    const { recipe: lip, spec } = this.recordingModel();
     const { gone, after } = at;
     const all = await this.placed(timelineId, tx);
     const replaced = gone.length ? all.findIndex((p) => gone.includes(p.clip.id)) : -1;
     const index = replaced >= 0 ? replaced : after ? all.findIndex((p) => p.clip.id === after) + 1 : all.length;
-    const own = ownInputIds(recipe);
     const model = replaced >= 0 ? all[replaced] : after ? all.find((p) => p.clip.id === after) : undefined;
-    const kept = model && model.clip.recipe_id === recipe.id ? (JSON.parse(model.clip.inputs) as Record<string, unknown>) : {};
-    const form = Object.fromEntries(Object.entries({ ...settingsOf(recipe, all, index), ...kept }).filter(([k]) => own.has(k) && k !== spec.id && k !== spec.window!.start && k !== spec.window!.seconds && k !== "seed"));
+    const fresh = (at.form && this.holdsRecording(at.form) ? this.registry.recipe(at.form) : undefined) ?? lip;
+    const ofPart = new Set([spec.id, spec.window.start, spec.window.seconds, "seed"]);
     // the clips it replaces taken out, the new ones go where the first of them was: the clip before is the one just ahead
     const left = all.filter((p) => !gone.includes(p.clip.id));
     const before = index > 0 ? left[index - 1] : undefined;
-    // the first carries on from the clip before when it can (H3 to Lip sync: in the latent), else it starts on its own
-    const opens = !before || before.clip.kind !== "video" || !before.clip.recipe_id || joinWay(this.registry.recipe(before.clip.recipe_id), recipe) === "cut";
     const order: Array<{ clip: { id: string } }> = left.map((p) => ({ clip: { id: p.clip.id } }));
     if (gone.length) await tx.deleteFrom("clips").where("id", "in", gone).execute();
     const made: string[] = [];
     for (const [k, part] of parts.entries()) {
+      const from = part.start * 1000;
+      const to = (part.start + part.seconds) * 1000;
+      const overlap = (c: ClipPart) => Math.min(to, c.to) - Math.max(from, c.from);
+      const survives = (at.was ?? []).reduce<ClipPart | undefined>((best, c) => (overlap(c) > 0 && (!best || overlap(c) > overlap(best)) ? c : best), undefined);
+      const recipe = (survives && this.holdsRecording(survives.recipe) ? this.registry.recipe(survives.recipe) : undefined) ?? fresh;
+      const own = ownInputIds(recipe);
+      const kept = survives?.recipe === recipe.id ? survives.inputs : model?.clip.recipe_id === recipe.id ? (JSON.parse(model.clip.inputs) as Record<string, unknown>) : {};
+      const form = Object.fromEntries(Object.entries({ ...settingsOf(recipe, all, index), ...kept }).filter(([key]) => own.has(key) && !ofPart.has(key)));
+      // the first carries on from the clip before when it can (H3 to Lip sync: in the latent), else it starts on its own
+      const opens = k === 0 && (!before || before.clip.kind !== "video" || !before.clip.recipe_id || joinWay(this.registry.recipe(before.clip.recipe_id), recipe) === "cut");
       const clip: NewClip = {
-        kind: "video", recipeId: recipe.id, joined: k === 0 && opens ? "cut" : "continue", still: null, take: null, asset: undefined, look: null,
-        inputs: { ...form, [spec.id]: sound.id, [spec.window!.start]: part.start, [spec.window!.seconds]: part.seconds },
+        kind: "video", recipeId: recipe.id, joined: opens ? "cut" : "continue", still: null, take: null, asset: undefined, look: null,
+        inputs: { ...form, [spec.id]: sound.id, [spec.window.start]: part.start, [spec.window.seconds]: part.seconds },
       };
       const id = await this.planner.insertClip(timelineId, order, index + k, clip, tx, false);
       order.splice(index + k, 0, { clip: { id } });
@@ -1183,23 +1196,28 @@ export class Timelines {
     return made;
   }
 
+  /** A clip under a recording as a re-cut reads it: its part of the recording in ms, its form and what it was given. */
+  private partOfClip(p: Placed): ClipPart {
+    const { spec } = this.recordingModel();
+    const inputs = JSON.parse(p.clip.inputs) as Record<string, unknown>;
+    const from = Number(inputs[spec.window.start]) * 1000;
+    return { from, to: from + Number(inputs[spec.window.seconds]) * 1000, recipe: p.clip.recipe_id ?? "", inputs };
+  }
+
   /**
    * A timeline's recordings and what of each a trim set aside (`parkedTakes`: of those, the rendered), as the editor draws
    * them on the Audio row; and how each is cut into clips (`seconds` about, `snap` to its pauses), as its panel shows it.
    */
   private async recordingsView(t: TimelineRow, all: Placed[]) {
     let spec: ReturnType<Timelines["recordingModel"]>["spec"] | undefined;
-    let recipe: string | undefined;
     try {
-      const m = this.recordingModel();
-      spec = m.spec;
-      recipe = m.recipe.id;
+      spec = this.recordingModel().spec;
     } catch {
       return [];
     }
     const parked = parkedRecordings(t);
     const cuts = recordingCuts(t);
-    const used = all.filter((p) => p.clip.recipe_id === recipe).map((p) => (JSON.parse(p.clip.inputs) as Record<string, unknown>)[spec!.id]);
+    const used = all.map((p) => this.recordingUnder(p.clip));
     const ids = [...new Set([...used, ...Object.keys(parked)].filter((x): x is string => typeof x === "string" && Boolean(x)))];
     const rows = ids.length ? await this.db.selectFrom("assets").selectAll().where("id", "in", ids).execute() : [];
     const removed = removedRecordings(t);
@@ -1223,12 +1241,32 @@ export class Timelines {
     return (recipeId ? this.registry.recipe(recipeId)?.inputs.flatMap((i) => ("window" in i && i.window ? [i.id, i.window.start, i.window.seconds] : [])) : undefined) ?? [];
   }
 
-  /** The model whose form takes a recording laid on a clip's sound part by part (H3 · Lip sync), and that input. */
+  /**
+   * The model whose form is made around a recording laid on a clip's sound part by part (H3 · Lip sync), and that input:
+   * a dropped recording's clips are made in it. Its input's ids are those of every form a clip under a recording takes.
+   */
   private recordingModel() {
-    const recipe = this.registry.recipes().find((r) => r.output === "video" && r.inputs.some((i) => i.type === "audio" && i.role === "sound" && i.window));
-    const spec = recipe?.inputs.find((i) => i.type === "audio" && i.role === "sound" && i.window);
-    if (!recipe || !spec || spec.type !== "audio" || !spec.window) throw httpError("No model on this Afflatus makes a clip around a recording (MiniMax H3 · Lip sync).");
-    return { recipe, spec: spec as typeof spec & { window: NonNullable<typeof spec.window> } };
+    const recipe = this.registry.recipes().find((r) => r.output === "video" && madeAroundRecording(r.inputs));
+    const spec = recipe && recordingSpecOf(recipe.inputs);
+    if (!recipe || !spec) throw httpError("No model on this Afflatus makes a clip around a recording (MiniMax H3 · Lip sync).");
+    return { recipe, spec };
+  }
+
+  /** Whether a clip in this form can be under a recording (card #72): made around it (Lip sync), or one it plays over (Video with audio). */
+  private holdsRecording(recipeId: string | null | undefined): boolean {
+    const recipe = recipeId ? this.registry.recipe(recipeId) : undefined;
+    return Boolean(recipe && recordingSpecOf(recipe.inputs));
+  }
+
+  /**
+   * The recording a clip is under: its recording input set, whatever its form, as long as the form takes one (card #72).
+   * Its model changed between Lip sync and Video with audio, it stays one of the recording's; leaving it is Remove.
+   */
+  private recordingUnder(clip: { recipe_id?: unknown; inputs?: unknown }): string | undefined {
+    const recipe = typeof clip.recipe_id === "string" ? this.registry.recipe(clip.recipe_id) : undefined;
+    const spec = recipe && recordingSpecOf(recipe.inputs);
+    const asset = spec ? (JSON.parse(String(clip.inputs)) as Record<string, unknown>)[spec.id] : undefined;
+    return typeof asset === "string" && asset ? asset : undefined;
   }
 
   /**
@@ -1283,7 +1321,7 @@ export class Timelines {
    * Read and written in the timeline's turn (trimSource says why). Returns the clips added, and where the end came to rest.
    */
   async trimRecording(timelineId: string, to: { asset: string; fromMs: number; toMs: number }): Promise<{ clips: string[]; toMs: number }> {
-    const { recipe, spec } = this.recordingModel();
+    const { spec } = this.recordingModel();
     const w = spec.window;
     const sound = await this.assetRow(to.asset);
     const length = sound?.duration_ms ?? 0;
@@ -1292,7 +1330,7 @@ export class Timelines {
     const { pauses } = await this.pausesOf(sound);
     const out = await this.history.oneAtATime(timelineId, async () => {
       const all = await this.placed(timelineId);
-      const mine = all.filter((p) => p.clip.recipe_id === recipe.id && (JSON.parse(p.clip.inputs) as Record<string, unknown>)[spec.id] === to.asset);
+      const mine = all.filter((p) => this.recordingUnder(p.clip) === to.asset);
       if (!mine.length) throw httpError("No clip of this timeline is made of that recording.");
       const part = (clip: { inputs?: unknown }) => {
         const inputs = JSON.parse(String(clip.inputs)) as Record<string, unknown>;
@@ -1352,7 +1390,7 @@ export class Timelines {
             order.splice(at++, 0, String(row.clip.id));
           }
           await this.renumber(timelineId, order, tx);
-          const made = parts.length ? await this.recordingClipsIn(tx, timelineId, sound, parts, { gone: [], after }) : [];
+          const made = parts.length ? await this.recordingClipsIn(tx, timelineId, sound, parts, { gone: [], after, form: cutAs.form }) : [];
           await setParkedRecording(tx, timelineId, to.asset, rest, shortened ?? null);
           return made;
         });
@@ -1415,9 +1453,11 @@ export class Timelines {
    * takes stay; their next ones are made with it.
    */
   async recordingForm(timelineId: string, o: { asset: string; inputs: Record<string, unknown> }): Promise<Array<{ id: string; inputs: Record<string, unknown> }>> {
-    const { recipe, spec } = this.recordingModel();
+    const { spec } = this.recordingModel();
     const w = spec.window;
-    const shared = new Set(recipe.inputs.filter((i) => i.type !== "clip" && i.id !== spec.id && i.id !== w.start && i.id !== w.seconds && i.id !== "seed").map((i) => i.id));
+    // any setting of a form a clip under a recording takes; each clip is given those its own form has (card #72)
+    const forms = this.registry.recipes().filter((r) => r.output === "video" && recordingSpecOf(r.inputs));
+    const shared = new Set(forms.flatMap((r) => r.inputs).filter((i) => i.type !== "clip" && i.id !== spec.id && i.id !== w.start && i.id !== w.seconds && i.id !== "seed").map((i) => i.id));
     const given = Object.entries(o.inputs).filter(([k]) => shared.has(k));
     if (!given.length) throw httpError("Nothing the recording's clips can share was given.");
     let written: Array<{ id: string; inputs: Record<string, unknown> }> = [];
@@ -1425,7 +1465,12 @@ export class Timelines {
       const mine = await this.recordingClipsOf(timelineId, o.asset);
       const changed = mine.flatMap((c) => {
         const next = { ...c.inputs };
-        for (const [k, v] of given) if (v === null || v === undefined) delete next[k]; else next[k] = v;
+        const own = new Set((c.recipe ? this.registry.recipe(c.recipe)?.inputs ?? [] : []).map((i) => i.id));
+        for (const [k, v] of given) {
+          if (!own.has(k)) continue;
+          if (v === null || v === undefined) delete next[k];
+          else next[k] = v;
+        }
         return JSON.stringify(next) === JSON.stringify(c.inputs) ? [] : [{ id: c.id, next }];
       });
       if (!changed.length) return;
@@ -1440,12 +1485,36 @@ export class Timelines {
     return written;
   }
 
-  /** A recording's Lip sync clips on a timeline, in order, with their forms read; none is refused. */
+  /**
+   * The form a recording's new clips are made in (its panel's New clips, card #72): a re-cut's parts no clip had, a longer
+   * Out's. One of the forms a clip under a recording takes; one step for Undo. The clips it has keep theirs.
+   */
+  async recordingNewClips(timelineId: string, o: { asset: string; recipe: string }): Promise<void> {
+    if (!this.holdsRecording(o.recipe)) throw httpError(`That model does not go under a recording: ${this.formsUnderRecording()} do.`);
+    await this.history.oneAtATime(timelineId, async () => {
+      const t = await this.row(timelineId);
+      await this.recordingClipsOf(timelineId, o.asset);
+      await this.db.transaction().execute(async (tx) => {
+        await this.remember(timelineId, "the form of the recording's new clips", undefined, tx);
+        await setRecordingCut(tx, timelineId, o.asset, { ...cutOf(recordingCuts(t), o.asset), form: o.recipe });
+      });
+    });
+    await this.touch(timelineId);
+  }
+
+  /** The forms a clip under a recording takes, named as the editor names them ("Lip sync and Video with audio"). */
+  private formsUnderRecording(): string {
+    // the form a recording is made around first, as the editor lists them
+    const forms = this.registry.recipes().filter((r) => r.output === "video" && recordingSpecOf(r.inputs));
+    const titles = [...forms.filter((r) => madeAroundRecording(r.inputs)), ...forms.filter((r) => !madeAroundRecording(r.inputs))].map((r) => r.title);
+    return titles.length > 1 ? `${titles.slice(0, -1).join(", ")} and ${titles.at(-1)}` : (titles[0] ?? "none");
+  }
+
+  /** A recording's clips on a timeline, whatever their form, in order, with their forms read; none is refused. */
   private async recordingClipsOf(timelineId: string, asset: string) {
-    const { recipe, spec } = this.recordingModel();
     const mine = (await this.placed(timelineId))
-      .map((p) => ({ id: p.clip.id, recipe: p.clip.recipe_id, inputs: JSON.parse(p.clip.inputs) as Record<string, unknown> }))
-      .filter((c) => c.recipe === recipe.id && c.inputs[spec.id] === asset);
+      .filter((p) => this.recordingUnder(p.clip) === asset)
+      .map((p) => ({ id: p.clip.id, recipe: p.clip.recipe_id, inputs: JSON.parse(p.clip.inputs) as Record<string, unknown> }));
     if (!mine.length) throw httpError("No clip of this timeline is made of that recording.");
     return mine;
   }
@@ -1672,6 +1741,11 @@ export class Timelines {
   private async checkClipPatch(clip: ClipRow, patch: ClipPatch, all: Placed[]) {
     const id = clip.id;
     if (patch.recipe !== undefined && !this.registry.recipe(patch.recipe)) throw httpError(`there is no model or operation called ${patch.recipe}`);
+    // a clip under a recording stays one of its clips whatever its form (card #72): a model none of them is would take it
+    // out without a word, its part left a hole in the song. Leaving the recording is Remove, which cuts the part out
+    if (patch.recipe !== undefined && patch.recipe !== clip.recipe_id && this.recordingUnder(clip) && !this.holdsRecording(patch.recipe)) {
+      throw httpError(`This clip is under a recording: ${this.formsUnderRecording()} go there. To use another model, remove it from the recording first (its part is cut out).`);
+    }
     if (patch.take !== undefined) {
       const take = await this.db.selectFrom("takes").select("id").where("id", "=", patch.take).where("clip_id", "=", id).executeTakeFirst();
       if (!take) throw notFound("this take");
@@ -1817,11 +1891,11 @@ export class Timelines {
     } catch {
       return runs;
     }
-    const { recipe: lip, spec } = model;
+    const { spec } = model;
     const byAsset = new Map<string, string[]>();
     for (const p of all) {
-      const asset = p.clip.recipe_id === lip.id ? (JSON.parse(p.clip.inputs) as Record<string, unknown>)[spec.id] : undefined;
-      if (typeof asset === "string" && asset) byAsset.set(asset, [...(byAsset.get(asset) ?? []), p.clip.id]);
+      const asset = this.recordingUnder(p.clip);
+      if (asset) byAsset.set(asset, [...(byAsset.get(asset) ?? []), p.clip.id]);
     }
     const span = (clip: RunClip) => {
       const inputs = JSON.parse(String(clip.inputs)) as Record<string, unknown>;
@@ -2334,7 +2408,9 @@ function removedRecordings(t: TimelineRow): Record<string, RemovedPart[]> {
 }
 
 /** How a recording is cut into clips, as its panel sets it: about `seconds` a clip, ended in its pauses when `snap`. */
-type RecordingCut = { seconds: number; snap: boolean };
+type RecordingCut = { seconds: number; snap: boolean; form?: string };
+/** A clip under a recording as a re-cut reads it (Timelines.partOfClip). */
+type ClipPart = { from: number; to: number; recipe: string; inputs: Record<string, unknown> };
 /** A recording cut as it is dropped: about 5 s a clip, in its pauses. */
 const DEFAULT_CUT: RecordingCut = { seconds: 5, snap: true };
 /** Where the recordings' cuts are kept, in the same JSON as what a trim set aside (asset ids are hex: none is named so). */

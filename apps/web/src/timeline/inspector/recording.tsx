@@ -5,6 +5,7 @@ import { clock as mmss, plural } from "../../format";
 import { RenderOn } from "../../GenerateOn";
 import { severalMachines } from "../../machines";
 import { useQueue } from "../../data";
+import { Select, type Option } from "../../Select";
 import { AutoText, Button, cx, fieldClass, Help, NumberBox, Segmented, Toggle } from "../../ui";
 import { useClock, type Clock } from "../clock";
 import { ColumnEdge, FoldButton, useColumnWidth } from "../column";
@@ -16,8 +17,10 @@ export type RecordingPanelProps = {
   timelineId: string;
   recording: Asset;
   place: RecordingPlace;
-  /** The model its clips are made with, as the app names it. */
-  model: string;
+  /** The form its new clips are made in (a re-cut's parts no clip had, a longer Out's), among the forms under a recording. */
+  newClips: { value: string; options: Option[]; onChange(recipe: string): void; pending: boolean };
+  /** Each clip's form among those under a recording (card #72), changed in place: its options say how it meets the clip before. */
+  forms: { of(clip: Clip): Option[]; change(clip: string, recipe: string): void };
   /** The timeline's clock: the clip under the playhead is lit in the list. */
   clock: Clock;
   onClose(): void;
@@ -52,10 +55,11 @@ export type RecordingPanelProps = {
 };
 
 /**
- * A recording open in the column (its band on the Audio row clicked), as the source lane opens its own panel: what model
- * its clips are made with, the stretch of it they use (In → Out), how it is cut into them (Clip length, Snap to pauses),
- * its clips with their parts and takes, how the first one opens, what they share, and Render N clips at the foot. A clip's
- * own Recording chapter stays as it is; the edits here go through the same paths.
+ * A recording open in the column (its band on the Audio row clicked), as the source lane opens its own panel: the form its
+ * new clips are made in, the stretch of it they use (In → Out), how it is cut into them (Clip length, Snap to pauses),
+ * its clips with their parts, forms and takes (Lip sync, or one it plays over: card #72), how the first one opens, what
+ * they share, and Render N clips at the foot. A clip's own Recording chapter stays as it is; the edits here go through
+ * the same paths.
  */
 export function RecordingPanel(p: RecordingPanelProps) {
   const panelWidth = useColumnWidth();
@@ -68,6 +72,9 @@ export function RecordingPanel(p: RecordingPanelProps) {
   const leastMs = Math.ceil(cut.leastMs / 100) * 100;
   const mostMs = Math.max(leastMs, Math.floor(cut.mostMs / 100) * 100);
   const lengths = place.parts.map((x) => ((x.endMs - x.startMs) / 1000).toFixed(1));
+  // how many it plays over (another form than Lip sync), said beside how many follow it with the mouth
+  const over = place.parts.filter((x) => x.over).length;
+  const forms = over ? ` · ${place.parts.length - over} lip sync, ${over === 1 ? "1 plays over" : `${over} play over`}` : "";
 
   return (
     <aside data-designer-stays aria-label={`Recording ${recording.name}`} style={{ width: panelWidth }} className="relative flex shrink-0 flex-col border-l border-line bg-panel">
@@ -76,16 +83,16 @@ export function RecordingPanel(p: RecordingPanelProps) {
         <div className="flex min-w-0 grow flex-wrap items-center gap-1.5 pt-0.5">
           <span className="mr-0.5 flex h-6 shrink-0 items-center rounded-chip bg-accent-wash px-2 text-xs font-bold text-accent uppercase">Recording</span>
           <span className="truncate font-semibold">{recording.name}</span>
-          <span className="text-xs text-ink-3">{(place.lengthMs / 1000).toFixed(1)} s · under {numbers}</span>
+          <span className="text-xs text-ink-3">{(place.lengthMs / 1000).toFixed(1)} s · under {numbers}{forms}</span>
         </div>
         <FoldButton />
         <span className="ml-1.5 flex shrink-0 border-l border-line pl-1.5"><CloseButton onClose={p.onClose} /></span>
       </div>
 
       <div className="flex min-h-0 grow flex-col overflow-y-auto">
-        <Section title="Model" help="The model its clips are made with. A recording has one today: each clip is made around its part of it, the mouth following the words.">
-          {/* said, not a one-choice switch: there is nothing to pick from today (the row stays, as in every H3 form) */}
-          <span className="text-sm text-ink-strong">{p.model}</span>
+        <Section title="New clips" help="The form a cut, a re-cut or a longer Out makes its new clips in. A clip whose part survives a re-cut keeps its own form, and each clip can take another below. Lip sync: the mouth follows its part. Video with audio: the recording plays over the clip unchanged, H3's own sound dropped.">
+          <Select label="New clips" size="sm" value={p.newClips.value} options={p.newClips.options} onChange={p.newClips.onChange} disabled={p.newClips.pending} />
+          <span className="text-xs text-ink-2">The form new parts are made in. Each clip can take another below.</span>
         </Section>
 
         <Section title="Uses" note="In → Out">
@@ -106,7 +113,7 @@ export function RecordingPanel(p: RecordingPanelProps) {
           {p.trimming && <span className="text-xs text-ink-2">Trimming the recording…</span>}
         </Section>
 
-        <Section title="Clips" help="How the stretch is cut into Lip sync clips. Changed, its clips are made anew over the same stretch.">
+        <Section title="Clips" help="How the stretch is cut into clips. Changed, its clips are made anew over the same stretch: each keeps its form where its part survives, new parts take New clips' form.">
           {cut.ask && (
             <Ask
               title="Cutting it again makes its clips anew:"
@@ -127,7 +134,7 @@ export function RecordingPanel(p: RecordingPanelProps) {
         </Section>
 
         <Section title="Its clips" note={String(place.parts.length)}>
-          <ClipRows place={place} clock={p.clock} onSelectClip={p.onSelectClip} />
+          <ClipRows place={place} clock={p.clock} forms={p.forms} onSelectClip={p.onSelectClip} />
         </Section>
 
         <Section title="Opens from" help="How its first clip starts: carrying on from the clip before it (a seamless join), or on its own from a picture, a cut.">
@@ -205,10 +212,11 @@ function stateOf(c: Clip): { said: string; good: boolean } {
 }
 
 /**
- * Its clips, each with its part of the recording and whether it has a take; the one under the playhead lit. Reads the
- * clock on its own: only the list redraws as the recording plays. A click opens that clip.
+ * Its clips, each with its part of the recording, its form (changed in place: Lip sync, or one the recording plays over)
+ * and whether it has a take; the one under the playhead lit. Reads the clock on its own: only the list redraws as the
+ * recording plays. A click on its number or part opens that clip.
  */
-function ClipRows({ place, clock, onSelectClip }: { place: RecordingPlace; clock: Clock; onSelectClip(id: string): void }) {
+function ClipRows({ place, clock, forms, onSelectClip }: { place: RecordingPlace; clock: Clock; forms: RecordingPanelProps["forms"]; onSelectClip(id: string): void }) {
   const now = useClock(clock);
   const under = place.parts.find((x) => now >= x.clipFromMs && now < x.clipToMs);
   return (
@@ -217,18 +225,20 @@ function ClipRows({ place, clock, onSelectClip }: { place: RecordingPlace; clock
         const s = stateOf(x.clip);
         const here = x === under;
         return (
-          <button
-            key={x.clip.id}
-            type="button"
-            aria-current={here || undefined}
-            aria-label={`Clip ${x.number}, ${mmss(x.startMs, { decimals: 1 })}–${mmss(x.endMs, { decimals: 1 })}, ${s.said}`}
-            onClick={() => onSelectClip(x.clip.id)}
-            className="grid grid-cols-[3.5rem_1fr_auto] items-baseline gap-x-2 border-t border-line py-1.5 text-left text-sm first:border-t-0 hover:bg-hover"
-          >
-            <span className={cx("font-semibold", here ? "text-accent" : "text-ink-strong")}>Clip {x.number}</span>
-            <span className={cx("font-mono text-xs", here ? "text-accent" : "text-ink-2")}>{mmss(x.startMs, { decimals: 1 })}–{mmss(x.endMs, { decimals: 1 })}</span>
-            <span className={cx("text-xs", s.good ? "text-good" : "text-ink-3")}>{s.said}</span>
-          </button>
+          <div key={x.clip.id} data-plays-over={x.over || undefined} className="grid grid-cols-[1fr_auto_auto] items-center gap-x-2 border-t border-line py-1 text-sm first:border-t-0">
+            <button
+              type="button"
+              aria-current={here || undefined}
+              aria-label={`Clip ${x.number}, ${mmss(x.startMs, { decimals: 1 })}–${mmss(x.endMs, { decimals: 1 })}, ${s.said}`}
+              onClick={() => onSelectClip(x.clip.id)}
+              className="grid grid-cols-[3.25rem_1fr] items-baseline gap-x-1.5 rounded py-0.5 text-left hover:bg-hover"
+            >
+              <span className={cx("font-semibold", here ? "text-accent" : "text-ink-strong")}>Clip {x.number}</span>
+              <span className={cx("font-mono text-xs whitespace-nowrap", here ? "text-accent" : "text-ink-2")}>{mmss(x.startMs, { decimals: 1 })}–{mmss(x.endMs, { decimals: 1 })}</span>
+            </button>
+            <Select label={`Clip ${x.number}'s form`} size="sm" value={x.clip.recipe ?? ""} options={forms.of(x.clip)} onChange={(to) => to !== x.clip.recipe && forms.change(x.clip.id, to)} disabled={Boolean(x.clip.job)} />
+            <span className={cx("text-right text-xs", s.good ? "text-good" : "text-ink-3")}>{s.said}</span>
+          </div>
         );
       })}
     </div>

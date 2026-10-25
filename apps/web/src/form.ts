@@ -286,7 +286,7 @@ const holds = (x: unknown) => (Array.isArray(x) ? x.length > 0 : Boolean(x));
  * What each part of a form holds, in a few words, for its folded line: the model, the inputs, what comes
  * out, how it samples. `madeSummary`, `lookSummary` and `frameSummary` are what the screen adds itself.
  */
-export function summariesOf(recipe: RecipeInfo, layout: FormLayout, values: Record<string, unknown>, extra: { madeSummary?: string; lookSummary?: string; frameSummary?: string }) {
+export function summariesOf(recipe: RecipeInfo, layout: FormLayout, values: Record<string, unknown>, extra: { madeSummary?: string; lookSummary?: string; frameSummary?: string; off?: Record<string, string | { why: string; value: string }> }) {
   const { knobs, loras, frames, pictures, refs, out, sampling, afterSampling } = layout;
   const said = (i: InputSpec): string => {
     const v = values[i.id];
@@ -312,6 +312,9 @@ export function summariesOf(recipe: RecipeInfo, layout: FormLayout, values: Reco
   const framesSaid = framesChosen.length ? framesChosen.map((i) => i.label.toLowerCase()).join(", ") : missing ? "nothing chosen yet" : frames.length && !refsSaid.length ? `txt2${kind}` : "";
   const outSaid = out.map((i) => {
     const v = values[i.id];
+    // set where the form is rather than by it (a clip under a recording: Duration, by its part): what stands for it
+    const standIn = extra.off?.[i.id];
+    if (standIn && typeof standIn !== "string") return standIn.value;
     if (i.type === "size") {
       const s = v as SizeValue | undefined;
       const shape = i.shapes.find((x) => x.width === s?.width && x.height === s?.height);

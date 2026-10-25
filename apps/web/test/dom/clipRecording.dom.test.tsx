@@ -7,12 +7,13 @@ import { draw } from "./render";
 function chapter(over: Partial<ClipRecording> = {}) {
   const asked: string[] = [];
   const r: ClipRecording = {
-    count: 3, part: { startMs: 4600, seconds: 5.6 }, fromMs: 0, toMs: 15000, trimming: false, ask: null,
+    count: 3, over: false, part: { startMs: 4600, seconds: 5.6 }, fromMs: 0, toMs: 15000, trimming: false, ask: null,
     onUses: (from, to) => asked.push(`uses ${from}–${to}`),
     ...over,
   };
-  draw(<>{recordingLead(r).node}</>);
-  return asked;
+  const lead = recordingLead(r);
+  draw(<>{lead.node}</>);
+  return Object.assign(asked, { lead });
 }
 
 describe("a Lip sync clip's Recording chapter", () => {
@@ -28,5 +29,20 @@ describe("a Lip sync clip's Recording chapter", () => {
     expect(screen.getByRole("alert").textContent).toMatch(/starting at 0:02\.0 cuts its clips again.*3 clips are made anew; 1 rendered take go/);
     fireEvent.click(screen.getByRole("button", { name: "Keep it" }));
     expect(asked).toEqual(["keep"]);
+  });
+
+  it("on a clip the recording plays over (Video with audio, card #72), says so plainly, the why in its \"?\"", () => {
+    const { lead } = chapter({ over: true });
+    expect(screen.getByText(/Plays over this clip/).parentElement!.textContent).toBe("Plays over this clip, unchanged: the take keeps the recording's part as its sound, and H3's own sound is dropped. Back to Lip sync, the mouth follows it again.");
+    expect(lead.summary).toBe("0:00.0–0:15.0 · 3 clips · plays over");
+    expect(lead.help).toMatch(/^The clip stays one of the recording's: its part, its place in the recording's list, the join and the song's hand-over stay/);
+    // the stretch's In and Out stay, as on a Lip sync clip
+    expect(screen.getByLabelText("Out (s of the recording)")).toBeTruthy();
+  });
+
+  it("on a Lip sync clip, says nothing of playing over", () => {
+    const { lead } = chapter();
+    expect(screen.queryByText(/Plays over this clip/)).toBeNull();
+    expect(lead.summary).toBe("0:00.0–0:15.0 · 3 clips");
   });
 });

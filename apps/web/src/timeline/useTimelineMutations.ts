@@ -140,6 +140,8 @@ export function useTimelineMutations(id: string, o: {
       return readBack();
     },
   });
+  /** The form a recording's new clips are made in, from its panel (Timelines.recordingNewClips). */
+  const recordingNewClips = useMutation({ mutationFn: (v: { asset: string; recipe: string }) => api.recordingNewClips(id, v.asset, v.recipe), onSuccess: readBack });
   /** A voice recording made into Lip sync clips (their ids, the first opened once the timeline is read again). */
   const recording = useMutation({ mutationFn: (v: { asset: string; clip?: string }) => api.makeFromRecording(id, v.asset, v.clip), onSuccess: after });
   /** The source given another windowed form: its windows and takes kept on the same grid, else made anew (Timelines.sourceForm). */
@@ -278,6 +280,6 @@ export function useTimelineMutations(id: string, o: {
   });
   // the latest that failed, not the first of the list: an old error does not hide a new one
   // (with when it was asked, `errorAt`, for the editor to weigh it against its own range actions')
-  const { error, at: errorAt } = latestFailure([plan, loop, render, fix, patch, edit, makeSource, cutSource, sourceForm, windowForm, recording, cutRecording, recordingForm, trimSource, trimRecording, splitSource, add, remove, removeMany, bringBack, removeTake, stop, undo, redo, exportIt, frame, split, duplicate]);
-  return { askRemoval, after, readBack, render, patch, fix, edit, makeSource, cutSource, sourceForm, windowForm, recording, cutRecording, recordingForm, trimSource, trimRecording, splitSource, add, remove, removeMany, bringBack, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error, errorAt };
+  const { error, at: errorAt } = latestFailure([plan, loop, render, fix, patch, edit, makeSource, cutSource, sourceForm, windowForm, recording, cutRecording, recordingForm, recordingNewClips, trimSource, trimRecording, splitSource, add, remove, removeMany, bringBack, removeTake, stop, undo, redo, exportIt, frame, split, duplicate]);
+  return { askRemoval, after, readBack, render, patch, fix, edit, makeSource, cutSource, sourceForm, windowForm, recording, cutRecording, recordingForm, recordingNewClips, trimSource, trimRecording, splitSource, add, remove, removeMany, bringBack, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error, errorAt };
 }

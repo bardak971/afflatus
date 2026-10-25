@@ -120,6 +120,27 @@ describe.skipIf(!ffmpegThere)("the timeline, frame by frame", { timeout: FFMPEG_
     expect(silentMs(out, 5146 - 200, 5146 + 100), "silence before the join").toBeLessThanOrEqual(3);
   });
 
+  it("keeps the sound with the clip before to its end at a join into a clip the recording plays over (Video with audio, card #72)", async () => {
+    // a song along a Lip sync clip and a Video with audio clip under the same recording: the second's file is the recording
+    // laid after its head (its render was sent the recording), silent before; read as its own sound, the 120 ms handover
+    // played that silence just before the join
+    const ends = (k: number) => k * (5146 - 896) / 1000;
+    const song = (k: number) => `if(${k === 0 ? "1" : "gte(t,0.896)"},0.5*sin(2*PI*440*(t+${ends(k)})),0)`;
+    const sung = await Promise.all([1, 2].map((c, k) => synthMade(c, FILE, 48, undefined, song(k))));
+    const { id, clips } = await chain(sung, N);
+    await t.db.updateTable("clips").set({ recipe_id: "h3.lipsync" }).where("id", "=", clips[0]!.id).execute();
+    await t.db.updateTable("clips").set({ recipe_id: "h3.video" }).where("id", "=", clips[1]!.id).execute();
+    const second = await t.db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").select("assets.id").where("takes.id", "=", clips[1]!.take.id).executeTakeFirstOrThrow();
+    await t.db.insertInto("generations").values({ id: "zz-over", owner_id: "local", recipe_id: "h3.video", recipe_version: 2, family: "h3", inputs: JSON.stringify({ recording: "zz-song" }), resolved: "{}", gen_ms: 1, draft_id: null, created_at: now() } as never).execute();
+    await t.db.updateTable("assets").set({ generation_id: "zz-over" }).where("id", "=", second.id).execute();
+    expect((await view(id)).clips[1].take).toMatchObject({ laidSound: true });
+    expect((await view(id)).clips[1].take.headSung).toBeUndefined();
+    expect(silentMs(await exportOf(id), 5146 - 200, 5146 + 100), "silence before the join").toBeLessThanOrEqual(3);
+    // the same clip rendered under no recording: its own sound, handed over as any (the flag follows what it was sent)
+    await t.db.updateTable("generations").set({ inputs: "{}" }).where("id", "=", "zz-over").execute();
+    expect((await view(id)).clips[1].take.laidSound).toBeUndefined();
+  });
+
   it("runs a song on across a Lip sync join whose head was filed with it: no drop-out, nothing twice, to the sample", async () => {
     // two tones (no shift but none matches them both, so where the export is in them is read back to the sample), the song:
     // the first clip sings it to its end, the second, its head filed with it (recordingLeadIn), from its first frame

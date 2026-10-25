@@ -1,6 +1,6 @@
 import { useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Mic } from "lucide-react";
-import { trimIn } from "@afflatus/core";
+import { madeAroundRecording, trimIn } from "@afflatus/core";
 import type { Clip, RecipeInfo, Timeline } from "../../api";
 import { clock as mmss, plural } from "../../format";
 import { cx } from "../../ui";
@@ -11,7 +11,10 @@ import { edgeGive, resisted } from "./spring";
 import { useSpringBack } from "./useSpringBack";
 import type { Slot } from "../model";
 
-/** The input a model takes a recording in, part by part (H3 · Lip sync), and where in it each clip's part starts and lasts. */
+/**
+ * The input a model takes a recording in, part by part, and where in it each clip's part starts and lasts: Lip sync's, made
+ * around it, or the internal one of a form the recording plays over (Video with audio, card #72), under the same ids.
+ */
 export function recordingInput(recipe: RecipeInfo | undefined) {
   const spec = recipe?.inputs.find((i) => i.type === "audio" && i.role === "sound" && i.window);
   // the fewest seconds a clip takes (as the server's trim reads it), under which an empty clip the end falls in is set aside;
@@ -31,7 +34,9 @@ export function runFrom(clips: Clip[], recipes: RecipeInfo[], c: Clip, inputs: R
   const i = clips.findIndex((x) => x.id === c.id);
   const prior = i > 0 ? clips[i - 1]! : undefined;
   const input = recordingInput(recipes.find((r) => r.id === c.recipe));
-  if (!prior || !input || prior.recipe !== c.recipe || !inputs[input.id] || prior.inputs[input.id] !== inputs[input.id]) return null;
+  // the clip before in any form under the same recording (Lip sync, or one it plays over): the song runs on across it
+  const theirs = prior ? recordingInput(recipes.find((r) => r.id === prior.recipe)) : null;
+  if (!prior || !input || theirs?.id !== input.id || !inputs[input.id] || prior.inputs[input.id] !== inputs[input.id]) return null;
   const end = Number(prior.inputs[input.start]) + Number(prior.inputs[input.seconds]);
   return Math.abs(end - Number(inputs[input.start])) <= 0.05 ? i : null;
 }
@@ -40,12 +45,30 @@ export function runFrom(clips: Clip[], recipes: RecipeInfo[], c: Clip, inputs: R
 export const inRunSaid = (before: number) => `Does not apply here: this clip carries the recording on from clip ${before}, which sings right up to its part, so no moment before the words is added (it would play those words twice). It applies on the clip a run starts with.`;
 
 /**
+ * The input a Lip sync clip takes its voice in: the recording its form is made around. None on a form a recording only
+ * plays over (Video with audio): it is put under one by the recording's cut, never asked for one.
+ */
+export function voiceInput(recipe: RecipeInfo | undefined) {
+  return recipe && madeAroundRecording(recipe.inputs) ? recordingInput(recipe) : null;
+}
+
+/**
+ * Whether a clip plays its recording over its picture (card #72): under a recording in a form not made around it (Video
+ * with audio), the recording its take's sound, unchanged, and its mouth free.
+ */
+export function playsOver(c: Clip, recipes: RecipeInfo[]): boolean {
+  const recipe = recipes.find((r) => r.id === c.recipe);
+  const input = recordingInput(recipe);
+  return Boolean(recipe && input && c.inputs[input.id] && !madeAroundRecording(recipe.inputs));
+}
+
+/**
  * A Lip sync clip's voice, as its form holds it (the recording laid on its sound): undefined for a clip of a model that
  * takes none, null while it has none, else the recording's id. Its form as it stands (`inputs`, with what was typed and
  * not saved yet) when given.
  */
 export function voiceOf(c: Clip, recipe: RecipeInfo | undefined, inputs: Record<string, unknown> = c.inputs): string | null | undefined {
-  const input = c.kind === "video" ? recordingInput(recipe) : null;
+  const input = c.kind === "video" ? voiceInput(recipe) : null;
   if (!input) return undefined;
   const v = inputs[input.id];
   return typeof v === "string" && v ? v : null;
@@ -57,7 +80,7 @@ export function voiceOf(c: Clip, recipe: RecipeInfo | undefined, inputs: Record<
  */
 export function ownSoundModel(recipe: RecipeInfo | undefined, recipes: RecipeInfo[]): RecipeInfo | undefined {
   if (!recipe) return undefined;
-  return recipes.find((r) => r.id !== recipe.id && r.family === recipe.family && r.output === "video" && !r.hidden && r.traits?.sound && !recordingInput(r) && !r.inputs.some((i) => i.type === "clip" && i.role === "source"));
+  return recipes.find((r) => r.id !== recipe.id && r.family === recipe.family && r.output === "video" && !r.hidden && r.traits?.sound && !madeAroundRecording(r.inputs) && !r.inputs.some((i) => i.type === "clip" && i.role === "source"));
 }
 
 /**
@@ -74,7 +97,7 @@ export function recordingEndRest(clips: Clip[], input: NonNullable<ReturnType<ty
   return trimIn(parts, toMs, input.leastMs).toMs;
 }
 
-/** The clips made of a recording, in their order on the timeline. */
+/** The clips made of a recording, whatever their form, in their order on the timeline. */
 export function clipsOfRecording(clips: Clip[], recipes: RecipeInfo[], asset: string): Clip[] {
   return clips.filter((c) => {
     const input = recordingInput(recipes.find((r) => r.id === c.recipe));
@@ -151,6 +174,7 @@ function Band({ recording, slots, recipes, pps, onTrim, onBringBack, onSelect, o
   const fromMs = mine.length ? at(mine[0]!.clip) : 0;
   const toMs = mine.length && input ? at(mine.at(-1)!.clip) + Math.round(Number(mine.at(-1)!.clip.inputs[input.seconds] ?? 0) * 1000) : 0;
   if (!mine.length || !input) return null;
+  const over = mine.filter((s) => playsOver(s.clip, recipes));
   const length = recording.asset.durationMs ?? toMs;
   const drawn = held ?? sent;
   const shown = drawn ?? { fromMs, toMs };
@@ -251,13 +275,15 @@ function Band({ recording, slots, recipes, pps, onTrim, onBringBack, onSelect, o
       data-open={open || undefined}
       className={cx("pointer-events-none absolute z-10 rounded-md", open ? "border-2 border-accent shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_22%,transparent)]" : "border-[1.5px]", !open && (held?.moved ? "border-accent" : "border-accent/60"))}
     >
+      {/* the parts of the clips it plays over (another form, card #72): hatched, the recording heard over them unchanged; under its name */}
+      {over.map((s) => <span key={s.clip.id} aria-hidden data-plays-over={s.index + 1} style={{ left: s.left - left, width: s.width }} className="pointer-events-none absolute inset-y-0 bg-[repeating-linear-gradient(135deg,color-mix(in_srgb,var(--color-accent)_22%,transparent)_0_5px,transparent_5px_10px)]" />)}
       {onTrim && <span aria-hidden data-tip="Drag: where the recording starts (its clips made anew)" onPointerDown={down("start")} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} className={cx(edge, "-left-[4px]")} />}
       <span
         role="button"
         tabIndex={0}
         aria-label={`Recording ${recording.asset.name}, ${stretch}${recording.parked ? `, ${recording.parked} set aside` : ""}`}
         aria-pressed={onOpen ? open : undefined}
-        data-tip={`${recording.asset.name}: ${stretch} of it, made into ${plural(mine.length, "Lip sync clip")}. ${onOpen ? "Click to open it on the stage; drag" : "Drag"} it to slip (another part of it, its clips made anew), its edges to trim${recording.parked ? `; ${recording.parked} set aside past its end, back when it is made longer` : ""}`}
+        data-tip={`${recording.asset.name}: ${stretch} of it, under ${plural(mine.length, "clip")}${over.length ? ` (${over.length} it plays over)` : ""}. ${onOpen ? "Click to open it on the stage; drag" : "Drag"} it to slip (another part of it, its clips made anew), its edges to trim${recording.parked ? `; ${recording.parked} set aside past its end, back when it is made longer` : ""}`}
         onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && opened()}
         onPointerDown={onTrim ? down("slip") : undefined}
         onPointerMove={move}

@@ -240,11 +240,17 @@ export const RecordingStage = forwardRef<PlayerHandle, {
             <div
               key={p.clip.id}
               data-part={p.number}
-              className={cx("pointer-events-none absolute -top-7 -bottom-3.5 border-l", here ? "border-accent bg-accent/10" : "border-line-strong")}
+              data-plays-over={p.over || undefined}
+              // a clip the recording plays over (another form than Lip sync, card #72): hatched, its own sound dropped
+              className={cx(
+                "pointer-events-none absolute -top-7 -bottom-3.5 border-l",
+                here ? "border-accent bg-accent/10" : "border-line-strong",
+                p.over && "bg-[repeating-linear-gradient(135deg,color-mix(in_srgb,var(--color-accent)_14%,transparent)_0_6px,transparent_6px_12px)]",
+              )}
               style={{ left: share(p.startMs), width: sizeOf(p.endMs - p.startMs) }}
             >
               <span className={cx("absolute top-0 text-xs whitespace-nowrap", here ? "font-semibold text-accent" : "text-ink-2")} style={{ left: `calc(${into * 100}% + 0.375rem)` }}>
-                Clip {p.number} · {((p.endMs - p.startMs) / 1000).toFixed(1)} s{here && playing ? " · playing" : ""}
+                Clip {p.number}{p.over ? " · ♫ over" : ""} · {((p.endMs - p.startMs) / 1000).toFixed(1)} s{here && playing ? " · playing" : ""}
               </span>
             </div>
           );

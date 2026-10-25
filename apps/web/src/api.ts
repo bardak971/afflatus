@@ -618,12 +618,14 @@ export const api = {
   makeFromSource: (id: string, again?: boolean) => call<{ clips: string[] }>("POST", `/timelines/${id}/source/make`, again ? { again } : undefined),
   /** The source's stretch trimmed after Make: its end in or out (windows set aside, brought back), its start moved (made anew). */
   trimSource: (id: string, fromMs: number, toMs: number) => call<{ clips: string[]; toMs: number; said?: string }>("POST", `/timelines/${id}/source/trim`, { fromMs, toMs }),
-  /** A recording's Lip sync clips trimmed: its end in (clips go) or out (clips added at its pauses), its start moved (made anew). */
+  /** A recording's clips trimmed: its end in (clips go) or out (clips added at its pauses), its start moved (made anew). */
   trimRecording: (id: string, asset: string, fromMs: number, toMs: number) => call<{ clips: string[]; toMs: number }>("POST", `/timelines/${id}/recording/trim`, { asset, fromMs, toMs }),
   /** A recording's clips cut again from its panel: about `seconds` each, in its pauses or not (their ids). */
   cutRecording: (id: string, asset: string, seconds: number, snap: boolean) => call<{ clips: string[] }>("POST", `/timelines/${id}/recording/cut`, { asset, seconds, snap }),
   /** What a recording's clips share given to all of them at once (null takes a setting away): one step for Undo. */
   recordingForm: (id: string, asset: string, inputs: Record<string, unknown>) => call<{ ok: true; clips?: Array<{ id: string; inputs: Record<string, unknown> }> }>("POST", `/timelines/${id}/recording/form`, { asset, inputs }),
+  /** The form a recording's new clips are made in (its panel's New clips): Lip sync, or one it plays over. One step for Undo. */
+  recordingNewClips: (id: string, asset: string, recipe: string) => call<{ ok: true }>("POST", `/timelines/${id}/recording/new-clips`, { asset, recipe }),
   /** A voice recording made into Lip sync clips cut at its pauses: in place of the empty `clip`, else at the end (their ids). */
   makeFromRecording: (id: string, asset: string, clip?: string) => call<{ clips: string[] }>("POST", `/timelines/${id}/recording`, { asset, ...(clip ? { clip } : {}) }),
   /** The source given another windowed form: in place on the same grid (`switched`), else every window made anew (their ids). */

@@ -1,4 +1,4 @@
-import { FRAME_SLACK_MS, joinFrames, joinWay, latentFrameAtOrBefore, LATENT_FPS, leadInBefore, leadInCovers, type Recipe } from "@afflatus/core";
+import { FRAME_SLACK_MS, joinFrames, joinWay, latentFrameAtOrBefore, LATENT_FPS, leadInBefore, leadInCovers, recordingSpecOf, type Recipe } from "@afflatus/core";
 import { FfmpegMissing } from "./cut";
 import { frozenTailAt } from "./measure";
 import { newId, now, type Db } from "./db";
@@ -325,7 +325,13 @@ export class TimelinePlan {
     if (typeof raw[spec.id] !== "string") return;
     // a clip's part of the same recording, from its form (where the recording's cut put it)
     const partOf = (inputs: Record<string, unknown>) => ({ start: Number(inputs[w.start]), seconds: Number(inputs[w.seconds]) });
-    const sameRecording = (p: Placed | undefined) => (p?.clip.recipe_id === recipe.id && (JSON.parse(p.clip.inputs) as Record<string, unknown>)[spec.id] === raw[spec.id] ? partOf(JSON.parse(p.clip.inputs) as Record<string, unknown>) : null);
+    // in any form a clip under a recording takes (Lip sync, or one the recording plays over: card #72), the song runs on across it
+    const formOf = (p: Placed | undefined) => (p?.clip.recipe_id ? this.core.registry.recipe(p.clip.recipe_id) : undefined);
+    const sameRecording = (p: Placed | undefined) => {
+      const theirs = formOf(p);
+      const inputs = p ? (JSON.parse(p.clip.inputs) as Record<string, unknown>) : {};
+      return theirs && recordingSpecOf(theirs.inputs)?.id === spec.id && inputs[spec.id] === raw[spec.id] ? partOf(inputs) : null;
+    };
     const meets = (a: { start: number; seconds: number }, b: { start: number; seconds: number }) => Math.abs(a.start + a.seconds - b.start) <= 0.05;
     const own = partOf(raw);
     if (!Number.isFinite(own.start) || !Number.isFinite(own.seconds)) return;
@@ -354,7 +360,9 @@ export class TimelinePlan {
       const ownLead = Math.round((w.fits?.less ?? []).reduce((sum, id) => sum + (Number(plan.input[id]) || 0), 0) * fps);
       plan.input[w.leadIn] = leadInCovers(leadInBefore(start), head + ownLead, fps);
     };
-    const lead = Math.round((w.fits?.less ?? []).reduce((sum, id) => sum + (Number(was[id]) || 0), 0) * fps) / fps;
+    // the moment before the words the clip before's own form has (Lip sync's: the first of a run may have one), as it was sent
+    const priorLess = recordingSpecOf(formOf(prior)?.inputs ?? [])?.window.fits?.less ?? [];
+    const lead = Math.round(priorLess.reduce((sum, id) => sum + (Number(was[id]) || 0), 0) * fps) / fps;
     // on the model's frame grid, as the track plays it (lengthOnGrid): an interpolated file is a frame short of it, and capped
     // there, the next part started 20 ms early and those 20 ms of the song played twice at the join (Timeline 24's export)
     const endMs = Math.min(plan.links.prev?.at ?? plays(prior.active).end, lengthOnGrid(prior.active.asset));

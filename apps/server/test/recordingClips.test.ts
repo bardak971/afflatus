@@ -509,3 +509,116 @@ describe.skipIf(!ffmpegThere)("a voice given to a Lip sync clip by its form", { 
     expect(c.inputs).toMatchObject({ recording: other, recordingStart: 0, recordingSeconds: 7 });
   });
 });
+
+describe.skipIf(!ffmpegThere)("a clip under a recording, in any H3 form (card #72)", { timeout: FFMPEG_TIMEOUT }, () => {
+  type ViewClip = { id: string; recipe: string; inputs: Record<string, unknown> };
+  const dropped = async (name: string, parts?: string[], ms?: number) => {
+    const tl = await call("POST", "/api/timelines", { name });
+    const sound = await recording(parts, ms);
+    await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
+    return { id: tl.id as string, sound, clips: (await view(tl.id)).clips as ViewClip[] };
+  };
+  const forms = async (id: string) => ((await view(id)).clips as ViewClip[]).map((c) => c.recipe);
+
+  it("stays one of the recording's when its model changes to Video with audio: its part, its trims, its removal", async () => {
+    const { id, sound, clips } = await dropped("zz-test any form");
+    await call("PATCH", `/api/clips/${clips[1]!.id}`, { recipe: "h3.video" });
+    let v = await view(id);
+    expect(v.clips[1].inputs).toMatchObject({ recording: sound, recordingStart: clips[1]!.inputs.recordingStart, recordingSeconds: clips[1]!.inputs.recordingSeconds });
+    expect(v.recordings).toEqual([expect.objectContaining({ asset: expect.objectContaining({ id: sound }) })]);
+    // the recording's trim reaches it: its end in to 9 s sets the third clip aside and shortens the Video with audio one
+    await call("POST", `/api/timelines/${id}/recording/trim`, { asset: sound, fromMs: 0, toMs: 9000 });
+    v = await view(id);
+    expect(v.clips).toHaveLength(2);
+    expect(Number(v.clips[1].inputs.recordingStart) + Number(v.clips[1].inputs.recordingSeconds)).toBeCloseTo(9, 2);
+    await call("POST", `/api/timelines/${id}/recording/trim`, { asset: sound, fromMs: 0, toMs: 15000 });
+    expect(await forms(id)).toEqual(["h3.lipsync", "h3.video", "h3.lipsync"]);
+    // removed from the middle, its part is cut out (set aside, a cut join), as a Lip sync clip's is
+    await call("POST", `/api/timelines/${id}/clips/remove`, { ids: [clips[1]!.id] });
+    v = await view(id);
+    expect(v.clips.map((c: ViewClip) => c.id)).toEqual([clips[0]!.id, clips[2]!.id]);
+    expect(v.recordings[0].removed).toHaveLength(1);
+  });
+
+  it("refuses a model no clip under a recording takes, with what to do; a clip under none changes freely", async () => {
+    const { id, clips } = await dropped("zz-test any form refused");
+    const steps = async () => (await t.db.selectFrom("timeline_history").select("seq").where("timeline_id", "=", id).execute()).length;
+    const before = await steps();
+    const res = await t.app.inject({ method: "PATCH", url: `/api/clips/${clips[0]!.id}`, payload: { recipe: "wan.video" } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/under a recording: Lip sync and Video with audio go there\. To use another model, remove it from the recording first/);
+    expect(await steps()).toBe(before);
+    expect(await forms(id)).toEqual(["h3.lipsync", "h3.lipsync", "h3.lipsync"]);
+    await call("POST", `/api/timelines/${id}/clips`, { recipe: "h3.video" });
+    const free = ((await view(id)).clips as ViewClip[]).at(-1)!;
+    await call("PATCH", `/api/clips/${free.id}`, { recipe: "wan.video" });
+    expect((await forms(id)).at(-1)).toBe("wan.video");
+  });
+
+  it("re-cut, keeps each clip's form where its part survives; a part no clip had takes the recording's New clips form", async () => {
+    const { id, sound, clips } = await dropped("zz-test any form re-cut");
+    await call("PATCH", `/api/clips/${clips[0]!.id}`, { recipe: "h3.video" });
+    await call("PATCH", `/api/clips/${clips[0]!.id}`, { inputs: { ...clips[0]!.inputs, description: "zz-test she listens, her mouth closed" } });
+    // about 7 s in its pauses: [0, 4.7] is clip 1's part (Video with audio), [4.7, 15] clips 2 and 3's (Lip sync)
+    await call("POST", `/api/timelines/${id}/recording/cut`, { asset: sound, seconds: 7, snap: true });
+    let v = await view(id);
+    expect(v.clips.map((c: ViewClip) => c.recipe)).toEqual(["h3.video", "h3.lipsync"]);
+    expect(v.clips[0].inputs.description).toBe("zz-test she listens, her mouth closed");
+    // New clips set to Video with audio: kept with the cut, and refused for a model none of them is
+    await call("POST", `/api/timelines/${id}/recording/new-clips`, { asset: sound, recipe: "h3.video" });
+    expect((await view(id)).recordings[0]).toEqual(expect.objectContaining({ seconds: 7, snap: true, form: "h3.video" }));
+    const wrong = await t.app.inject({ method: "POST", url: `/api/timelines/${id}/recording/new-clips`, payload: { asset: sound, recipe: "wan.video" } });
+    expect(wrong.statusCode).toBe(400);
+    // its start moved in to 4.7 s, then back to 0: the part before 4.7 s is new, no clip had it, made in New clips' form
+    await call("POST", `/api/timelines/${id}/recording/trim`, { asset: sound, fromMs: 4700, toMs: 15000 });
+    expect(await forms(id)).toEqual(["h3.lipsync"]);
+    await call("POST", `/api/timelines/${id}/recording/trim`, { asset: sound, fromMs: 0, toMs: 15000 });
+    v = await view(id);
+    expect(v.clips[0].recipe).toBe("h3.video");
+    expect(v.clips.slice(1).every((c: ViewClip) => c.recipe === "h3.lipsync")).toBe(true);
+    // a cut again keeps New clips' form; Undo takes the form back with the step that set it
+    await call("POST", `/api/timelines/${id}/recording/cut`, { asset: sound, seconds: 6, snap: false });
+    expect((await view(id)).recordings[0]).toEqual(expect.objectContaining({ seconds: 6, snap: false, form: "h3.video" }));
+  });
+
+  it("gives what its clips share to each clip whose form has it: Speech starts at to Lip sync only, Even out the loudness to all", async () => {
+    const { id, sound, clips } = await dropped("zz-test any form shared");
+    await call("PATCH", `/api/clips/${clips[1]!.id}`, { recipe: "h3.video" });
+    await call("POST", `/api/timelines/${id}/recording/form`, { asset: sound, inputs: { description: "zz-test a room with a piano", speechAt: 0.5, evenLoudness: false } });
+    const v = (await view(id)).clips as ViewClip[];
+    expect(v.map((c) => c.inputs.description)).toEqual(Array(3).fill("zz-test a room with a piano"));
+    expect(v.map((c) => c.inputs.speechAt)).toEqual([0.5, undefined, 0.5]);
+    expect(v.map((c) => c.inputs.evenLoudness)).toEqual([false, false, false]);
+  });
+
+  it("hands a song on across a Video with audio clip: its tail is the recording, and the clip after starts where it stops playing", async () => {
+    const { id, sound } = await dropped("zz-test any form song", [tone(24)], 24000);
+    await call("POST", `/api/timelines/${id}/recording/cut`, { asset: sound, seconds: 8, snap: true });
+    const clips = (await view(id)).clips as ViewClip[];
+    await call("PATCH", `/api/clips/${clips[1]!.id}`, { recipe: "h3.video" });
+    const recipeOf = (k: number) => t.services.registry.recipe(k === 1 ? "h3.video" : "h3.lipsync")!;
+    const planOf = (k: number) => t.services.timelines.plan(clips[k]!.id, recipeOf(k), clips[k]!.inputs, false, null, true);
+    // the recording goes on into the Video with audio clip, and out of it into the third
+    expect((await planOf(0)).input.recordingGoesOn).toBe(true);
+    const middle = await planOf(1);
+    expect(middle.input).toMatchObject({ recording: sound, recordingStart: 8, recordingSeconds: 8, recordingGoesOn: true, recordingLeadIn: false });
+    // it is never sent a moment before the words: its form has none
+    expect(middle.input).not.toHaveProperty("speechAt");
+
+    // the Video with audio clip rendered with the song going on, 8.687 s long: the third starts where it stops, still ending at 24
+    const made = { recording: sound, recordingStart: 8, recordingSeconds: 8, recordingGoesOn: true };
+    await t.db.insertInto("generations").values({ id: "zz-g-over", owner_id: OWNER, recipe_id: "h3.video", recipe_version: 2, family: "h3", inputs: JSON.stringify(made), resolved: "{}", gen_ms: 1, draft_id: null, created_at: now() } as never).execute();
+    await t.db.insertInto("assets").values(newAssetRow({
+      id: "zz-v-over", kind: "video", origin: "generated", name: "zz-test song over", file_key: "assets/zz/zz-v-over", thumb_key: null, mime: "video/mp4", bytes: 1000,
+      width: 576, height: 1024, duration_ms: 8687, fps: 24, has_sound: 1, folder_id: null, generation_id: "zz-g-over", kept_at: now(),
+    })).execute();
+    const asset = await t.db.selectFrom("assets").selectAll().where("id", "=", "zz-v-over").executeTakeFirstOrThrow();
+    await t.services.timelines.takes.add(clips[1]!.id, asset, { headMs: 0, tailMs: 0 }, {});
+    const third = await planOf(2);
+    expect(third.input.recordingStart).toBeCloseTo(16.687, 3);
+    expect(Number(third.input.recordingStart) + Number(third.input.recordingSeconds)).toBeCloseTo(24, 3);
+    expect(third.input.recordingLeadIn).toBe(true);
+    // its take says its sound is the recording laid after its head, as a Lip sync take's
+    expect((await view(id)).clips[1].take).toMatchObject({ laidSound: true });
+  });
+});

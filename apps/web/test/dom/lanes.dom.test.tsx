@@ -171,6 +171,26 @@ describe("the end column (the lanes mock, 2026-10-22)", () => {
   });
 });
 
+describe("a clip the recording plays over (Video with audio under a recording, card #72)", () => {
+  const over = {
+    ...video, id: "zz-test.video-over",
+    inputs: [...video.inputs, { id: "recording", type: "audio", role: "sound", label: "Recording", optional: true, internal: true, window: { start: "recordingStart", seconds: "recordingSeconds" } }],
+  } as unknown as RecipeInfo;
+
+  it("says so on its face, never asks for a voice, and keeps its own Audio cell", () => {
+    const clips = [clip("a", 0, lipSync.id, { recording: "zz-test-song" }), clip("b", 5000, over.id, { recording: "zz-test-song", recordingStart: 5, recordingSeconds: 5 }), clip("c", 10_000, over.id)];
+    const tl = { ...timelineOf(clips), recordings: [{ asset: { id: "zz-test-song", name: "zz-test song.wav", kind: "audio", durationMs: 15000 }, parked: 0 }] } as unknown as Timeline;
+    const { container } = track(clips, { timeline: tl, recipes: [video, lipSync, over] });
+    const face = screen.getByRole("button", { name: /^Clip 2,/ });
+    expect(within(face).getByText("♫ plays over").closest("[data-tip]")!.getAttribute("data-tip")).toMatch(/^The recording plays over clip 2 unchanged/);
+    expect(within(face).queryByText("needs a voice")).toBeNull();
+    expect(container.querySelector('[data-voice-cell="b"]')).toBeNull();
+    // the same form under no recording: its own sound, nothing said
+    expect(within(screen.getByRole("button", { name: /^Clip 3,/ })).queryByText("♫ plays over")).toBeNull();
+    expect(within(screen.getByRole("button", { name: /^Clip 1,/ })).queryByText("♫ plays over")).toBeNull();
+  });
+});
+
 describe("a Lip sync clip without a voice", () => {
   const twoClips = () => [clip("a", 0), clip("b", 5000, lipSync.id, { description: "zz-test: a person talks" })];
 
