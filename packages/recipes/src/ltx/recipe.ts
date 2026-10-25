@@ -717,6 +717,18 @@ const CUED_SOUND_NODES = ["LoadAudio", "TrimAudioDuration", "EmptyAudio", "Audio
 /** Said after the scene on Lip sync, as on H3's: what the recording is, so that the person in the picture says it. */
 const SPEAKS = "The person speaks throughout, the lips moving with every word.";
 
+/**
+ * Said last on a clip that carries on from the one before: LTX 2.5 can cut to an insert shot right after the head, the
+ * thing a line names in place of the person saying it (card #87: a flooded palace for 2 s after a line naming the tide).
+ * Positive words only, as the text encoder reads a negation as the thing named. On the person of the reference pictures
+ * by their number when there is one, else on the person speaking (Lip sync), else on the scene the head shows.
+ */
+const oneShot = (refs: MsrRefs | null, lipSync: boolean | undefined): string => {
+  const person = refs ? refs.numbered.findIndex((r) => r.role === "person") : -1;
+  const on = person >= 0 ? `the person in Image ${person + 1}` : lipSync ? "the person" : "the same scene";
+  return `One continuous shot, the camera stays on ${on}.`;
+};
+
 /** Lip sync's moment before the words, as H3's Lip sync has it. */
 const speechAt: InputSpec = {
   id: "speechAt", type: "number", label: "Speech starts at", min: 0, max: 3, step: 0.25, default: 0, unit: " s", showWhen: "recording", advanced: true,
@@ -981,8 +993,9 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       const loaded = ltxLoad(spec, g, ctx, input, picked, held);
       const byHand = input.schedule !== BY_STEPS;
       const steps = byHand ? LTX_SIGMAS.split(",").length - 1 : input.steps;
-      // Lip sync: the scene, then that the person speaks (the recording is what is said)
-      const text = spec.lipSync ? [input.prompt.trim(), SPEAKS].filter(Boolean).join(" ") : input.prompt;
+      // Lip sync: the scene, then that the person speaks (the recording is what is said); a clip that carries on: that the shot does
+      const after = [spec.lipSync ? SPEAKS : "", input.previous ? oneShot(refs, spec.lipSync) : ""].filter(Boolean);
+      const text = after.length ? [input.prompt.trim(), ...after].filter(Boolean).join(" ") : input.prompt;
       const cond = g.add("LTXVConditioning", {
         // what each reference picture is, by its number, before the user's words (the LoRA's authors' way of writing it)
         positive: g.out("CLIPTextEncode", { clip: loaded.clip, text: refs ? `${refs.legend}\n\n${text}` : text }),
