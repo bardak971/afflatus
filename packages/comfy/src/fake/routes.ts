@@ -32,6 +32,9 @@ export function fakeRoutes(fake: FakeState, hooks: { queued(promptId: string, cl
           { t, m: "Starting server" },
           { t, m: "To see the GUI go to: http://127.0.0.1:8188" },
           ...Object.keys(fake.history).map((id) => ({ t, m: `got prompt ${id}` })),
+          // ComfyUI keeps each write as it came, a line's end among them: the lines above are given whole, without it
+          ...(fake.printed.length ? [{ t, m: "\n" }] : []),
+          ...fake.printed.map((m) => ({ t, m })),
         ] });
       }
       if (path === "/models") return json(200, Object.keys(fake.models));

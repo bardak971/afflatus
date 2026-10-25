@@ -93,6 +93,8 @@ export interface FakeComfy {
    * boot log (RunPod's image, an older Afflatus image, or no container yet).
    */
   bootLog: { token: string; lines: Array<{ t: string; m: string }> } | null;
+  /** What it printed since it started, as ComfyUI keeps each write (GET /internal/logs/raw gives them after its start lines). */
+  printed: string[];
   /** The node pack's watchdog (0.13.0): each "still here" it heard, with the minutes it was given. */
   alive: Array<{ at: number; minutes: number }>;
   /** Every address the pretend node pack fetched a download from, in order (a fresh link after one expired among them). */
@@ -150,6 +152,12 @@ export interface FakeInit extends Partial<Pick<FakeComfy, "catalog" | "models" |
   packsFail?: string[];
   /** Packs its pretend Manager does not find the first so many times it is asked (its list still loading). */
   packsLate?: Record<string, number>;
+  /**
+   * Pack ids whose install script "fails" (a requirement pip could not have), as the real Manager answers it: its history says
+   * `result`, ComfyUI's log gets `printed` (Manager's and pip's writes), and the pack is in custom_nodes all the same, its
+   * nodes (afterReboot) coming at the restart when `loads`.
+   */
+  packsBroken?: Record<string, { result: string; printed?: string[]; loads?: boolean }>;
   /** Node types that appear in the catalog once ComfyUI "restarts" after a pack install (what the pack brings). */
   afterReboot?: NodeCatalog;
   /**
@@ -172,7 +180,7 @@ const body = async (req: IncomingMessage) => {
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: FakeState = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, rejectNext: [], uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], packUploaded: [], removed: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, podDied: null, ram: null, bootLog: null, alive: [],
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, rejectNext: [], uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], packUploaded: [], removed: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, podDied: null, ram: null, bootLog: null, printed: [], alive: [],
     folderPaths: init.folderPaths ?? null, hideFolderPaths: init.hideFolderPaths ?? false,
     catalog: init.catalog ?? {},
     models: init.models ?? {},

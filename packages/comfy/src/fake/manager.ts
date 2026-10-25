@@ -22,6 +22,16 @@ export function fakeManager(fake: FakeState, init: FakeInit): (r: FakeRequest) =
   const runTask = (t: Task) => {
     const notYet = (late[t.params.id] ?? 0) > 0;
     if (notYet) late[t.params.id]!--;
+    const broken = notYet ? undefined : init.packsBroken?.[t.params.id];
+    if (broken) {
+      fake.printed.push(...(broken.printed ?? []));
+      if (broken.loads) fake.packs.push(t.params);
+      history[t.ui_id] = {
+        ui_id: t.ui_id, client_id: t.client_id, kind: t.kind, timestamp: new Date().toISOString(),
+        result: broken.result, status: { status_str: "error", completed: true, messages: [broken.result] },
+      };
+      return;
+    }
     const failed = notYet || init.packsFail?.includes(t.params.id);
     if (!failed) fake.packs.push(t.params);
     history[t.ui_id] = {
