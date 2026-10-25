@@ -1,6 +1,6 @@
 import { defineRecipe, type InputSpec, type Variant } from "@afflatus/core";
 import { H3_FPS } from "./family";
-import { RECORDING_AFTER, recordingInputs, recordingNodes, recordingOnClip, type H3Recording } from "./recording";
+import { RECORDING_AFTER, recordingInputs, recordingNodes, recordingOnClip, type Recording } from "../shared/recording";
 import { H3_NO_TAGS, h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video } from "./video";
 import { H3_STARTS, referenceNeeds, turboNeeds, vedaNeeds } from "./model";
@@ -17,7 +17,7 @@ import { cueMixNodes } from "./cue";
  * Turbo, the finishes. Tested 2026-10-13 (HANDOVER-swap-lipsync-report.md §8): three chained clips cut in the
  * recording's pauses joined at 1.8 (the app flags 3), lip-sync confidence 4.4 to 5.4.
  */
-export interface H3LipSync extends H3Video, H3Recording {
+export interface H3LipSync extends H3Video, Recording {
   recording: string;
   speechAt: number;
 }

@@ -159,6 +159,8 @@ function joinWords(clip: Clip, take: Take, index: number): string {
   if (take.joinKind === "hybrid") return "frames + latent join";
   if (take.joinKind === "pixels") return "pixel join";
   if (take.joinKind === "window") return "window join, crossfaded";
+  // Wan without SVI 2.0 Pro there: opened on the clip before's last frame, still
+  if (take.joinKind === "still") return "a cut: SVI's LoRAs aren't here";
   return clip.joined === "continue" ? `extends clip ${index}` : "cut";
 }
 

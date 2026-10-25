@@ -1,11 +1,13 @@
-import { defineRecipe, GraphBuilder, type BuildContext, type LoraValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
+import { defineRecipe, GraphBuilder, type BuildContext, type ClipValue, type LoraValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
 import { WAN_FORM_PIXELS, WAN_FPS, wanCanvas, wanFrames } from "./family";
 import { UPSCALE_OPTIONAL, upscaleInputs, upscaleNeeds, upscaleNodes } from "../video/upscale";
-import { colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, rifeNeeds, rifeSkippedSaid, type ColourMatch } from "../shared/finish";
+import { colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, openingStart, rifeNeeds, rifeRuns, rifeSkippedSaid, type ColourMatch } from "../shared/finish";
+import { previousFrames } from "../motion/driving";
 import { applyLoras, livePreview, loraLoads } from "../shared/model";
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
+import { recordingInputs, recordingNodes, recordingOnClip, type Recording, type RecordingFrames } from "../shared/recording";
 
 /**
  * Wan's own negative prompt, as its authors give it (in Chinese: washed-out colours, overexposure, a
@@ -14,7 +16,13 @@ import { CORE_VIDEO_OUT, VHS } from "../shared/out";
  */
 export const WAN_NEGATIVE = "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走";
 
-export interface WanVideo extends ColourMatch {
+/**
+ * What a Wan clip under a recording holds of it (card #82): its part at Wan's 16 a second, on its frame grid, 1 to 15 s (a
+ * recording is cut into parts for Lip sync's clips, up to 15 s; Wan is made for about 5, and drifts on longer ones).
+ */
+export const WAN_RECORDING: RecordingFrames = { fps: WAN_FPS, frames: wanFrames(15), min: 1, most: 15, grid: { step: 4, offset: 1 } };
+
+export interface WanVideo extends ColourMatch, Partial<Recording> {
   model?: string;
   modelLow?: string;
   turboIn: string;
@@ -22,6 +30,7 @@ export interface WanVideo extends ColourMatch {
   negative: string;
   start?: string;
   end?: string;
+  previous?: ClipValue;
   seconds: number;
   shape: SizeValue;
   short: number;
@@ -57,8 +66,50 @@ export interface WanVideo extends ColourMatch {
 // The fine-tune lines: "Lightspeed" is distilled, "TrueVision" is made for the full steps (20 to 30 at CFG 3.5), so the maker's name alone says nothing
 const namedTurbo = /turbo|distill|lightning|lightx2v|lightspeed|rapid|smoothmix|(^|[^a-z0-9])\d+[ _-]?steps?/i;
 
-/** Which way the clip is made: from words alone (the words-to-video models), or opening / ending on a picture. */
-const uses = (input: WanVideo) => ({ words: !input.start && !input.end, both: Boolean(input.end) });
+/** Which way the clip is made: from words alone (the words-to-video models), or opening / ending on a picture (a clip it carries on from is one). */
+const uses = (input: WanVideo) => ({ words: !input.start && !input.end && !input.previous, both: Boolean(input.end) });
+
+/**
+ * SVI 2.0 Pro (Stable Video Infinity, KJNodes' WanImageToVideoSVIPro): a clip carries on from the clip before in the latent.
+ * Its first latent frame is pinned to an anchor picture (here the clip before's last frame), and the clip before's last
+ * latent frame (`SVI_MOTION_LATENTS`: its last 4 frames) is handed over unpinned, as the motion to carry on. The clip's first
+ * frame is thus the anchor (dropped), its next 4 the clip before's last moments made again moving (kept as its head, hidden on
+ * a timeline: the join fades over them as over a SCAIL-2 window's), and its own frames come after.
+ */
+const SVI_MOTION_LATENTS = 1;
+/** The frames after the anchor that remake the clip before's last ones: one latent frame's worth. */
+const SVI_HEAD = 4 * SVI_MOTION_LATENTS;
+/**
+ * The frames of the clip before handed over: 9, encoded as 3 latent frames, the last of which is the motion carried (the VAE
+ * is causal: a few frames before it bring that latent closer to the clip's own); 5 for a clip too short.
+ */
+const SVI_FRAMES = [9, 5];
+
+/**
+ * How a clip that carries on from the clip before is made: through SVI 2.0 Pro when its LoRAs and its node are there, else
+ * opened on the clip before's last frame, still (a cut), with why. Null for a clip that carries on from nothing.
+ */
+function carryOf(input: WanVideo, ctx: Pick<BuildContext, "slots" | "uploads" | "has">): { svi: true } | { svi: false; why: string; still: boolean } | null {
+  if (!input.previous || !ctx.uploads.previous) return null;
+  const cut = "A cut: this clip opens on the clip before's last frame, still";
+  if (input.end) return { svi: false, still: false, why: `${cut}, as SVI 2.0 Pro takes no last frame and this clip ends on one.` };
+  if (!ctx.slots.sviHigh || !ctx.slots.sviLow) return { svi: false, still: true, why: `${cut}: SVI 2.0 Pro's two LoRAs, which carry the motion on, are not on this ComfyUI (models/loras; Settings › Models has them).` };
+  if (!ctx.has("WanImageToVideoSVIPro")) return { svi: false, still: true, why: `${cut}: this ComfyUI has no WanImageToVideoSVIPro node, which carries the motion on (a newer KJNodes has it).` };
+  return { svi: true };
+}
+
+/**
+ * A clip made through SVI 2.0 Pro (its anchor frame dropped), its colours brought to where the clip before ends: one transform
+ * for every frame (ComfyUI's ColorTransfer), the one that takes its head's last frame (that clip's last moment, made again) to
+ * that clip's last frame as handed over. SVI shifts the colours a little at each clip, a step at every join that adds up along
+ * a chain (users' reports); one transform takes the step away and keeps the light changes the clip itself makes. Without the
+ * node, as it is (said on the job).
+ */
+function sviColours(g: GraphBuilder, ctx: Pick<BuildContext, "has">, images: Ref, before: Ref): Ref {
+  if (!ctx.has("ColorTransfer")) return images;
+  const last = g.out("ImageFromBatch", { image: before, batch_index: -1, length: 1 });
+  return g.out("ColorTransfer", { image_target: images, image_ref: last, method: "reinhard_lab", source_stats: "target_frame", "source_stats.target_index": SVI_HEAD - 1, strength: 1 });
+}
 
 /** What a Wan model is made for, when its file name says: opening on a picture (I2V), or words alone (T2V). */
 const madeFor = (file: string | undefined): "picture" | "words" | undefined => {
@@ -93,21 +144,25 @@ type WanModels = ReturnType<typeof modelsOf> & { high: string; low: string };
  * for a few steps as it is. Without their files (and with a model that is not distilled) there is no Turbo: the
  * clip takes the full steps.
  */
-function wanLoad(g: GraphBuilder, ctx: BuildContext, input: WanVideo, picked: WanModels) {
+function wanLoad(g: GraphBuilder, ctx: BuildContext, input: WanVideo, picked: WanModels, svi: { high: string; low: string } | null) {
   const turboLoras = input.fast && !picked.distilled && picked.turboHigh && picked.turboLow ? { high: picked.turboHigh, low: picked.turboLow } : null;
   const turbo = input.fast && (picked.distilled || Boolean(turboLoras));
   // the form's shift: 8 at full steps (the template's), and Turbo starts it on 5, what the lightx2v LoRAs are made for
   const shift = input.shift;
   // the live preview shows the clip forming; ComfyUI's own preview is the first frame alone: the start image, still
   const finish = (model: Ref): Ref => livePreview(g, ctx, g.out("ModelSamplingSD3", { model: faster(g, model, input, ctx), shift }), input.livePreview);
-  /** The model with its LoRAs, and the same model with the user's LoRAs but without the turbo one (for the hybrid pass). */
-  const load = (file: string, turboLora: string | undefined, strength: number, loras: LoraValue[]) => {
-    const base = loadUnet(g, ctx, file);
+  /**
+   * The model with its LoRAs, and the same model with the user's LoRAs but without the turbo one (for the hybrid pass). SVI 2.0
+   * Pro's LoRA, for a clip that carries on through it, goes on first, under the turbo one and on the hybrid pass's model too.
+   */
+  const load = (file: string, sviLora: string | undefined, turboLora: string | undefined, strength: number, loras: LoraValue[]) => {
+    const unet = loadUnet(g, ctx, file);
+    const base = sviLora ? g.out("LoraLoaderModelOnly", { model: unet, lora_name: sviLora, strength_model: 1 }) : unet;
     const boosted = applyLoras(g, turboLora ? g.out("LoraLoaderModelOnly", { model: base, lora_name: turboLora, strength_model: strength }) : base, loras);
     return { model: finish(boosted), plain: turboLora && input.turboHybrid ? finish(applyLoras(g, base, loras)) : null };
   };
-  const high = load(picked.high, turboLoras?.high, input.turboStrength, input.loras);
-  const low = load(picked.low, turboLoras?.low, 1, input.lorasLow).model;
+  const high = load(picked.high, svi?.high, turboLoras?.high, input.turboStrength, input.loras);
+  const low = load(picked.low, svi?.low, turboLoras?.low, 1, input.lorasLow).model;
   return { high: high.model, plain: high.plain, low, turbo, turboLoras, shift };
 }
 
@@ -130,16 +185,30 @@ export function wanHandover(steps: number, shift: number, scheduler: string, wor
   return clamp(steps - 1);
 }
 
-/** The texts, and the latent to fill: an empty one from words alone, else the first (and the last) picture, which the node resizes to the canvas itself. */
-function wanLatent(g: GraphBuilder, ctx: BuildContext, input: WanVideo, frame: { width: number; height: number; frames: number }, clip: Ref, vae: Ref) {
+/**
+ * The texts, and the latent to fill: an empty one from words alone, else the first (and the last) picture, which the node resizes
+ * to the canvas itself. A clip that carries on (`carried`, the clip before's frames as handed over): through SVI 2.0 Pro, those
+ * frames at this clip's size, encoded, the last one the anchor and the last latent frame the motion; without it, the clip before's
+ * last frame as the first frame.
+ */
+function wanLatent(g: GraphBuilder, ctx: BuildContext, input: WanVideo, frame: { width: number; height: number; frames: number }, clip: Ref, vae: Ref, carried: { frames: Ref; svi: boolean } | null) {
   const { width, height, frames } = frame;
   let positive: Ref = g.out("CLIPTextEncode", { clip, text: input.prompt });
   let negative: Ref = g.out("CLIPTextEncode", { clip, text: input.negative });
   const how = uses(input);
   if (how.words) return { positive, negative, latent: g.out("EmptyHunyuanLatentVideo", { width, height, length: frames, batch_size: 1 }) };
+  if (carried?.svi) {
+    const sized = g.out("ImageScale", { image: carried.frames, upscale_method: "lanczos", width, height, crop: "center" });
+    const anchor = g.out("VAEEncode", { pixels: g.out("ImageFromBatch", { image: sized, batch_index: -1, length: 1 }), vae });
+    const node = g.add("WanImageToVideoSVIPro", {
+      positive, negative, length: frames, anchor_samples: anchor, prev_samples: g.out("VAEEncode", { pixels: sized, vae }), motion_latent_count: SVI_MOTION_LATENTS,
+    });
+    return { positive: [node, 0] as Ref, negative: [node, 1] as Ref, latent: [node, 2] as Ref };
+  }
+  const opening = carried ? g.out("ImageFromBatch", { image: carried.frames, batch_index: -1, length: 1 }) : input.start ? g.out("LoadImage", { image: ctx.uploads.start }) : null;
   const node = g.add(how.both ? "WanFirstLastFrameToVideo" : "WanImageToVideo", {
     positive, negative, vae, width, height, length: frames, batch_size: 1,
-    ...(input.start ? { start_image: g.out("LoadImage", { image: ctx.uploads.start }) } : {}),
+    ...(opening ? { start_image: opening } : {}),
     ...(input.end ? { end_image: g.out("LoadImage", { image: ctx.uploads.end }) } : {}),
   });
   positive = [node, 0];
@@ -148,9 +217,18 @@ function wanLatent(g: GraphBuilder, ctx: BuildContext, input: WanVideo, frame: {
 }
 
 /**
+ * The full steps the 3-sampler split runs in front of Turbo's own (Hybrid turbo): on the high-noise model without its turbo
+ * LoRA, at the full CFG scale, where the motion is decided. Two, as the split is shared (2 + 2 + the rest on the low-noise
+ * model). They were one taken out of Turbo's 4 until 2026-10-25 (about a fifth more motion, 2026-10-11), which left the
+ * high-noise model a single step with its LoRA.
+ */
+export const TURBO_LEAD = 2;
+
+/**
  * Two passes over one schedule: the high-noise model makes the first steps and hands its latent, still noisy, to
- * the low-noise model, which finishes it. With the hybrid turbo pass, the first step or two run on the high-noise
- * model without its turbo LoRA, at the full CFG scale, where the motion is decided; then the LoRAs at CFG 1 as usual.
+ * the low-noise model, which finishes it. With the hybrid turbo pass (the 3-sampler split), TURBO_LEAD steps are added in
+ * front, on the high-noise model without its turbo LoRA at the full CFG scale; then the LoRAs at CFG 1 as usual, Turbo's
+ * steps on the rest of the same schedule.
  */
 function wanPasses(g: GraphBuilder, ctx: BuildContext, input: WanVideo, models: ReturnType<typeof wanLoad>, cond: { positive: Ref; negative: Ref; latent: Ref }) {
   const { positive, negative, latent } = cond;
@@ -160,10 +238,11 @@ function wanPasses(g: GraphBuilder, ctx: BuildContext, input: WanVideo, models: 
   const nag = (model: Ref): Ref => (nagged ? g.out("WanVideoNAG", { model, conditioning: negative, nag_scale: input.nagScale, nag_alpha: 0.25, nag_tau: 2.5 }) : model);
   const high = nag(models.high);
   const low = nag(models.low);
-  const steps = models.turbo ? input.turboSteps : input.steps;
+  const lead = models.turbo && input.turboHybrid && models.plain ? TURBO_LEAD : 0;
+  const steps = (models.turbo ? input.turboSteps : input.steps) + lead;
   const cfg = models.turbo ? 1 : input.cfg;
-  const handover = wanHandover(steps, models.shift, input.scheduler, uses(input).words, input.split);
-  const lead = models.turbo && input.turboHybrid && models.plain ? Math.min(handover - 1, steps >= 6 ? 2 : 1) : 0;
+  // the high-noise model with its LoRA keeps a step after the lead
+  const handover = Math.min(steps - 1, Math.max(lead + 1, wanHandover(steps, models.shift, input.scheduler, uses(input).words, input.split)));
   const passes: Array<{ node: string; steps: number }> = [];
   g.phase("sampling");
   let latentSoFar = latent;
@@ -203,15 +282,15 @@ const turboNeeds = (input: WanVideo, slots: Record<string, string> = {}): string
 
 export const wanVideo = defineRecipe<WanVideo>({
   id: "wan.video",
-  // the lightx2v LoRAs with Turbo, RIFE with "RIFE ×2" on
-  needsWith: (input, slots) => [...turboNeeds(input, slots), ...upscaleNeeds(input), ...rifeNeeds(input.smooth)],
+  // the lightx2v LoRAs with Turbo, SVI 2.0 Pro's for a clip that carries on, RIFE with "RIFE ×2" on
+  needsWith: (input, slots) => [...turboNeeds(input, slots), ...(input.previous && !input.end ? ["sviHigh", "sviLow"] : []), ...upscaleNeeds(input), ...rifeNeeds(input.smooth)],
   family: "wan",
   version: 1,
   title: "Video",
   summary: "i2v from a first frame, from a first and last frame, or t2v. No audio.",
   output: "video",
   traits: {
-    startFrame: true, endFrame: true, midFrames: false, continues: "frame", endAnchor: false, sound: false,
+    startFrame: true, endFrame: true, midFrames: false, continues: "clip", endAnchor: false, sound: false,
     fps: WAN_FPS, frameGrid: { step: 4, offset: 1 },
   },
   inputs: [
@@ -229,6 +308,10 @@ export const wanVideo = defineRecipe<WanVideo>({
     },
     { id: "start", type: "image", role: "start", label: "First frame", note: "the first frame. Without one, the clip is made from the words alone, which needs words-to-video (T2V) models: picture-to-video (I2V) ones make a gray clip without a picture", optional: true },
     { id: "end", type: "image", role: "end", label: "Last frame", note: "the last frame", optional: true },
+    {
+      id: "previous", type: "clip", role: "previous", label: "Previous clip", optional: true, frames: SVI_FRAMES, fps: WAN_FPS, advanced: true,
+      note: "the clip this one carries on from, through SVI 2.0 Pro: its last frames go in the latent, so that the motion carries over, not only the last picture; on a timeline, the clip before. Its colours are matched to where that clip ends (SVI shifts them a little, clip after clip). Style LoRAs inside an SVI chain can slow its motion down to slow motion. Needs SVI's two LoRAs (Settings › Models) and KJNodes: without them, or with a Last frame, the clip opens on that clip's last frame, still (a cut). A First frame is not used with it",
+    },
     { id: "seconds", type: "number", label: "Duration", min: 1, max: 10, step: 0.5, default: 5, unit: " s", note: "the model is made for about 5 seconds: longer clips drift" },
     {
       id: "shape", type: "size", label: "Aspect ratio", default: "tall", grid: 16, min: 256, max: 1280, ratioOnly: true,
@@ -261,7 +344,7 @@ export const wanVideo = defineRecipe<WanVideo>({
     },
     {
       id: "turboHybrid", type: "toggle", label: "Hybrid turbo", default: true, showWhen: "fast", advanced: true, perModel: true,
-      note: "the first step or two run on the high-noise model WITHOUT the turbo LoRA at the full CFG scale (the motion is decided there), then the LoRAs take over at CFG 1: a draft that moves like a full render, a little slower. Only with the turbo LoRAs, not with a distilled model",
+      note: "the 3-sampler split: two full steps first on the high-noise model WITHOUT the turbo LoRA, at the full CFG scale (the motion is decided there), then Turbo's steps with the LoRAs at CFG 1. The turbo LoRAs alone make Wan's motion slow, close to slow motion; with the split it moves like a full render, for two steps more. Only with the turbo LoRAs, not with a distilled model",
     },
     {
       id: "nag", type: "toggle", label: "NAG", default: true, showWhen: "fast", advanced: true, perModel: true,
@@ -295,12 +378,14 @@ export const wanVideo = defineRecipe<WanVideo>({
     },
     {
       id: "fps", type: "number", label: "Frame rate (fps)", min: 8, max: 60, step: 1, default: WAN_FPS, advanced: true,
-      note: "Wan makes 16 pictures for a second of motion. Another figure plays the same pictures faster or slower: 24 makes the motion quicker and the clip shorter. Doubled when Smooth is on",
+      note: "Wan makes 16 pictures for a second of motion. Another figure plays the same pictures faster or slower: 24 makes the motion quicker and the clip shorter. Doubled when Smooth is on. Under a recording, 16: the clip lasts as long as its part",
     },
     { id: "crf", type: "number", label: "CRF", note: "how hard the video file is compressed: lower is better and larger. 19 looks lossless, 23 is the usual quality of the web", min: 0, max: 40, step: 1, default: 19, advanced: true },
     { id: "loras", type: "loras", label: "LoRAs (high noise)", max: 6, note: "Wan LoRAs come in two files: the HIGH one here" },
     { id: "lorasLow", type: "loras", label: "LoRAs (low noise)", max: 6, note: "and the LOW one here. A LoRA in one file goes in both" },
     { id: "seed", type: "seed", label: "Seed" },
+    // a clip under a recording it plays over (card #82): its place in the recording, set by the timeline, never drawn
+    ...recordingInputs({ shown: false, fit: WAN_RECORDING, note: "the recording the clip is under: Wan makes no sound, its part is the clip's sound" }),
   ],
 
   nodes(input) {
@@ -311,13 +396,21 @@ export const wanVideo = defineRecipe<WanVideo>({
     return [
       ...routeNodes,
       ...unetNodes(input.model), "CLIPLoader", "VAELoader", "CLIPTextEncode", "ModelSamplingSD3", "KSamplerAdvanced", "VAEDecode", ...speedNodes(input),
-      how.words ? "EmptyHunyuanLatentVideo" : how.both ? "WanFirstLastFrameToVideo" : "WanImageToVideo",
-      ...(how.words ? [] : ["LoadImage"]),
+      // a clip that carries on: through SVI 2.0 Pro where its LoRAs and node are there, else opened on the clip before's last
+      // frame (the nodes of either way are optional below, the build picks)
+      ...(input.previous && !how.both ? [] : [how.words ? "EmptyHunyuanLatentVideo" : how.both ? "WanFirstLastFrameToVideo" : "WanImageToVideo"]),
+      ...(input.previous ? ["LoadVideo", "GetVideoComponents", "ImageFromBatch"] : how.words ? [] : ["LoadImage"]),
       ...((input.fast && !picked.distilled) || any(input.loras) || any(input.lorasLow) ? ["LoraLoaderModelOnly"] : []),
+      // under a recording: its part, cut (and the silence before it of a head, among the optional nodes)
+      ...(input.recording ? recordingNodes({ joined: false }) : []),
     ];
   },
   // the video is written by VideoHelperSuite when it is there, else by ComfyUI's own two nodes
-  optionalNodes: [...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ", "WanVideoNAG", ...COLOUR_MATCH_NODES],
+  optionalNodes: [...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ", "WanVideoNAG", ...COLOUR_MATCH_NODES,
+    // a clip that carries on: SVI 2.0 Pro's way, or the clip before's last frame as its first
+    "WanImageToVideoSVIPro", "ImageScale", "VAEEncode", "LoraLoaderModelOnly", "WanImageToVideo",
+    // under a recording, carrying on through SVI: the head's silence before the part
+    "AudioConcat", "AudioAdjustVolume"],
 
   build(input, ctx) {
     const { slots, media } = ctx;
@@ -332,36 +425,60 @@ export const wanVideo = defineRecipe<WanVideo>({
           : "Wan 2.2 comes as two models: the high-noise and the low-noise file are both needed.");
     }
 
-    // the frame: a timeline's canvas, else the picture it opens or ends on, else the shape picked
-    const like = input.start ? media.start : input.end ? media.end : undefined;
+    // under a recording it plays over (card #82): the clip lasts as long as its part, at Wan's own 16 a second (another rate
+    // would play it off its part), and its files carry the part: Wan makes no sound, so the recording plays on across it
+    const laid = input.recording ? recordingOnClip({ recordingSeconds: input.recordingSeconds ?? 0 }, ctx, 0, WAN_RECORDING) : null;
+    const fps = laid ? WAN_FPS : input.fps;
+    // the frame: a timeline's canvas, else the clip it carries on from, else the picture it opens or ends on, else the shape picked
+    const carry = carryOf(input, ctx);
+    const like = carry ? media.previous : input.start ? media.start : input.end ? media.end : undefined;
     const { width, height } = ctx.canvas
       ? wanCanvas(ctx.canvas.width, ctx.canvas.height, Math.min(ctx.canvas.width, ctx.canvas.height, 720))
       : like?.width
         ? wanCanvas(like.width, like.height, input.short, WAN_FORM_PIXELS)
         : wanCanvas(input.shape.width, input.shape.height, input.short, WAN_FORM_PIXELS);
-    const frames = wanFrames(input.seconds);
+    // through SVI, the anchor frame and the head come first: the clip's own frames are as many as without it, less one (81 make 80, 5 s)
+    const svi = carry?.svi ? { high: slots.sviHigh!, low: slots.sviLow! } : null;
+    const frames = wanFrames(laid ? laid.seconds : input.seconds) + (svi ? SVI_HEAD : 0);
 
     const g = new GraphBuilder();
     const clip = g.out("CLIPLoader", { clip_name: slots.clip, type: "wan", device: "default" });
     const vae = g.out("VAELoader", { vae_name: slots.vae });
-    const models = wanLoad(g, ctx, input, picked as WanModels);
-    const cond = wanLatent(g, ctx, input, { width, height, frames }, clip, vae);
+    const models = wanLoad(g, ctx, input, picked as WanModels, svi);
+    const before = carry ? previousFrames(g, ctx)! : null;
+    const cond = wanLatent(g, ctx, input, { width, height, frames }, clip, vae, before ? { frames: before, svi: Boolean(svi) } : null);
     const { sampled, passes, steps } = wanPasses(g, ctx, input, models, cond);
 
     g.phase("decoding");
-    const made = finishFrames(g, ctx, colourMatched(g, ctx, g.out("VAEDecode", { samples: [sampled, 0], vae }), input, input.fps), input, { frame: { width, height }, rife: input.smooth, fps: input.fps });
+    const decoded = g.out("VAEDecode", { samples: [sampled, 0], vae });
+    // through SVI: the anchor dropped, the head kept, and the colours brought to where the clip before ends
+    const own = svi && before ? sviColours(g, ctx, g.out("ImageFromBatch", { image: decoded, batch_index: 1, length: 4096 }), before) : decoded;
+    // the part's sound, after the head's frames (the anchor dropped)
+    const audio = laid ? laid.sound(g, null, { head: svi ? SVI_HEAD : 0, frames: svi ? frames - 1 : frames }) : undefined;
+    const made = finishFrames(g, ctx, colourMatched(g, ctx, own, openingStart(input), fps), input, { frame: { width, height }, rife: input.smooth, fps, ...(audio ? { audio } : {}) });
     const lorasOf = (turboLora: string | undefined, loras: LoraValue[]) => [...(turboLora ? [`loras/${turboLora}`] : []), ...loraLoads(loras)];
-    const unsmoothed = rifeSkippedSaid(input.smooth, ctx);
+    const said = [
+      rifeSkippedSaid(input.smooth, ctx),
+      carry && !carry.svi ? carry.why : null,
+      svi && !ctx.has("ColorTransfer") ? "Not colour-matched to the clip before: this ComfyUI has no ColorTransfer node (a newer ComfyUI has it)." : null,
+    ].filter((x): x is string => Boolean(x));
+    // its head, hidden on a timeline: the join fades over it with both clips moving; with RIFE, the clip starts on the frame
+    // RIFE makes between the head's last and its own first, as a SCAIL-2 window's does (motionSaved)
+    const headMs = svi ? Math.round(((rifeRuns(input.smooth, ctx) ? SVI_HEAD - 0.5 : SVI_HEAD) * 1000) / fps) : 0;
     return {
-      ...(unsmoothed ? { warnings: [unsmoothed] } : {}),
+      ...(said.length ? { warnings: said } : {}),
       graph: g.graph,
       phases: g.phases,
       outputs: [{ node: made.out, kind: "video", role: "result" }],
       totalSteps: steps,
       passes,
+      // said: the rest of the batch (ImageFromBatch's 4096) is no frame count
+      frames,
+      ...(svi ? { overlap: { headMs, tailMs: 0, moving: true } } : carry && !carry.svi && carry.still ? { overlap: { headMs: 0, tailMs: 0, still: true } } : {}),
       loads: [
         ...made.loads,
         `diffusion_models/${picked.high}`, `diffusion_models/${picked.low}`, `text_encoders/${slots.clip}`, `vae/${slots.vae}`,
+        ...(svi ? [`loras/${svi.high}`, `loras/${svi.low}`] : []),
         ...lorasOf(models.turboLoras?.high, input.loras), ...lorasOf(models.turboLoras?.low, input.lorasLow),
       ],
     };
@@ -397,6 +514,30 @@ export const wanVideo = defineRecipe<WanVideo>({
         name: "a distilled fine-tune in two files, on a timeline's canvas",
         input: { prompt: "a", start: "p1", model: "High\\SomeoneWAN22I2V_lightningHigh.safetensors", modelLow: "Low\\SomeoneWAN22I2V_lightningLow.safetensors", scheduler: "linear_quadratic" },
         slots: all, uploads: { start: "a.png" }, media: { start: picture }, canvas: { width: 1024, height: 576 },
+      },
+      {
+        name: "carries on from the clip before through SVI 2.0 Pro, Turbo, on a timeline's canvas",
+        input: { prompt: "a", previous: { asset: "v0", at: 5000 } },
+        slots: { ...all, sviHigh: "SVI_v2_PRO_Wan2.2-I2V-A14B_HIGH_lora_rank_128_fp16.safetensors", sviLow: "SVI_v2_PRO_Wan2.2-I2V-A14B_LOW_lora_rank_128_fp16.safetensors" },
+        uploads: { previous: "prev.mp4" }, media: { previous: { width: 480, height: 832, frames: 9, fps: 16 } }, canvas: { width: 480, height: 832 },
+      },
+      {
+        // without SVI's LoRAs: a cut onto the clip before's last frame, as before SVI
+        name: "carries on without SVI's LoRAs: opens on the clip before's last frame",
+        input: { prompt: "a", previous: { asset: "v0" }, fast: false },
+        slots: all, uploads: { previous: "prev.mp4" }, media: { previous: { width: 480, height: 832, frames: 9, fps: 16 } },
+      },
+      {
+        // its part laid in as the take's sound (card #82)
+        name: "under a recording it plays over",
+        input: { prompt: "a", start: "p1", recording: "a1", fps: 24 },
+        slots: all, uploads: { start: "a.png", recording: "rec.wav" }, media: { start: picture, recording: { width: 0, height: 0, seconds: 5.9, after: 4 } },
+      },
+      {
+        name: "under a recording, carrying on through SVI: silence under its head",
+        input: { prompt: "a", previous: { asset: "v0" }, recording: "a1" },
+        slots: { ...all, sviHigh: "SVI_v2_PRO_Wan2.2-I2V-A14B_HIGH_lora_rank_128_fp16.safetensors", sviLow: "SVI_v2_PRO_Wan2.2-I2V-A14B_LOW_lora_rank_128_fp16.safetensors" },
+        uploads: { previous: "prev.mp4", recording: "rec.wav" }, media: { previous: { width: 480, height: 832, frames: 9, fps: 16 }, recording: { width: 0, height: 0, seconds: 7.3, after: 4 } },
       },
     ];
   })(),

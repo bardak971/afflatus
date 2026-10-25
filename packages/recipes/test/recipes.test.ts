@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { checkGraph, choicesOf, dryContext, parseInput, pickChoice, ruledDefaults, schemaFor, type ChoiceInput, type NodeCatalog, type Wanted } from "@afflatus/core";
+import { checkGraph, choicesOf, dryContext, joinKindOf, parseInput, pickChoice, ruledDefaults, schemaFor, type ChoiceInput, type NodeCatalog, type Wanted } from "@afflatus/core";
 import { seedvrChunk, families, familyById, krea2Picture, h3Canvas, h3Frames, h3Prompt, h3Video, introduce, kleinSize, padsFor, recipeById, recipes, sdxlTextToPicture, wanCanvas, wanFrames, wanVideo, ltxCanvas, ltxFrames, ltxVideo, LTX_REFINE_SIGMAS, LTX_SIGMAS, fluxEdit, fluxPicture, qwenEdit, qwenPicture, flux, qwen, wan, ltx, zimage, zimagePicture } from "../src";
 
 const catalog = JSON.parse(
@@ -73,8 +73,10 @@ describe("every recipe", () => {
         const input = parseInput(r, v.input);
         const built = r.build(input, dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {}, media: v.media ?? {}, canvas: v.canvas, ...(v.has ? { has: v.has } : {}) }));
         expect(checkGraph(built, catalog), `${r.id} · ${v.name}`).toEqual([]);
-        // what the graph uses is what nodes() says, plus the extras it only takes when ComfyUI has them
-        const used = new Set(Object.values(built.graph).map((n) => n.class_type).filter((c) => !r.optionalNodes?.includes(c)));
+        // what the graph uses is what nodes() says, plus the extras it only takes when ComfyUI has them (an extra for one form can
+        // be needed by another: Wan's WanImageToVideo, a way its continuation is made, is the node of a clip opening on a picture)
+        const listed = r.nodes(input);
+        const used = new Set(Object.values(built.graph).map((n) => n.class_type).filter((c) => !r.optionalNodes?.includes(c) || listed.includes(c)));
         expect([...used].sort(), `${r.id} · ${v.name}: nodes()`).toEqual([...new Set(r.nodes(input))].sort());
       }
     }
@@ -160,7 +162,9 @@ describe("every recipe, its inputs as parsed", () => {
         const input = parseInput(r, { ...v.input, start: "p", colourMatch: true });
         const ctx = dryContext({ slots: v.slots ?? {}, uploads: { ...v.uploads, start: "zz-unrelated.png" }, media: { ...v.media, start: { width: 640, height: 640 } }, canvas: v.canvas });
         const graph = r.build(input, ctx).graph;
-        expect(Object.values(graph).filter((n) => n.class_type === "ColorTransfer"), `${r.id} · ${v.name}`).toEqual([]);
+        // a match to anything else (Wan's to the clip before, through SVI) is not this one
+        const toPicture = (n: { inputs: Record<string, unknown> }) => graph[(n.inputs.image_ref as [string, number])[0]]?.class_type === "LoadImage";
+        expect(Object.values(graph).filter((n) => n.class_type === "ColorTransfer" && toPicture(n)), `${r.id} · ${v.name}`).toEqual([]);
         expect(Object.values(graph).some((n) => n.inputs.image === "zz-unrelated.png"), `${r.id} · ${v.name}`).toBe(false);
         checked++;
       }
@@ -772,6 +776,121 @@ describe("wan.video", () => {
     // 16 pictures a second, 32 when smoothed
     expect(all(b, "VHS_VideoCombine")[0]!.inputs.frame_rate).toBe(16);
     expect(all(build({}, { slots: { ...turbo, rife: "r.pth" } }), "VHS_VideoCombine")[0]!.inputs.frame_rate).toBe(32);
+  });
+
+  it("runs Hybrid turbo as a 3-sampler split: two full steps without the turbo LoRA in front of Turbo's four", () => {
+    const [lead, high, low] = passes(build({ fast: true }));
+    expect(lead).toMatchObject({ steps: 6, cfg: 3.5, start_at_step: 0, end_at_step: 2, add_noise: "enable" });
+    expect(high).toMatchObject({ steps: 6, cfg: 1, start_at_step: 2, end_at_step: 3, add_noise: "disable" });
+    expect(low).toMatchObject({ steps: 6, cfg: 1, start_at_step: 3, end_at_step: 10000 });
+    expect(build({ fast: true }).passes!.map((p) => p.steps)).toEqual([2, 1, 3]);
+    // the high-noise model with its LoRA keeps a step, however few Turbo's are
+    const [, short] = passes(build({ fast: true, turboSteps: 2 }));
+    expect(short).toMatchObject({ steps: 4, start_at_step: 2, end_at_step: 3 });
+  });
+
+  describe("carrying on from the clip before", () => {
+    const svi = { ...turbo, sviHigh: "svi_high.safetensors", sviLow: "svi_low.safetensors" };
+    const carry = (over: Record<string, unknown> = {}, ctx: Parameters<typeof dryContext>[0] = {}) =>
+      build({ start: undefined, previous: { asset: "v0", at: 5000 }, ...over }, { slots: svi, uploads: { previous: "prev.mp4", end: "b.png" }, media: { previous: { width: 480, height: 832, frames: 9, fps: 16 }, end: picture }, ...ctx });
+    const ref = (b: ReturnType<typeof build>, r: unknown) => b.graph[(r as [string, number])[0]]!;
+
+    it("goes through SVI 2.0 Pro: the clip before's last frame the anchor, its last latent frame the motion", () => {
+      const b = carry({ fast: true });
+      const node = all(b, "WanImageToVideoSVIPro")[0]!.inputs;
+      // 5 s: its own 80 frames after the anchor and the 4 frames of the head
+      expect(node).toMatchObject({ length: 85, motion_latent_count: 1 });
+      const anchor = ref(b, ref(b, node.anchor_samples).inputs.pixels);
+      expect(anchor).toMatchObject({ class_type: "ImageFromBatch", inputs: { batch_index: -1, length: 1 } });
+      expect(ref(b, ref(b, node.prev_samples).inputs.pixels)).toMatchObject({ class_type: "ImageScale", inputs: { width: 480, height: 832, crop: "center" } });
+      expect(all(b, "WanImageToVideo")).toEqual([]);
+      // its LoRAs on both models, under the turbo ones
+      expect(all(b, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name)).toEqual(["svi_high.safetensors", "th.safetensors", "svi_low.safetensors", "tl.safetensors"]);
+      expect(b.loads).toEqual(expect.arrayContaining(["loras/svi_high.safetensors", "loras/svi_low.safetensors"]));
+      // and on the 3-sampler split's model without the turbo LoRA
+      const lead = passes(b)[0]!;
+      const leadLoras: string[] = [];
+      for (let m = ref(b, lead.model); m; m = m.inputs.model ? ref(b, m.inputs.model) : undefined!) if (m.class_type === "LoraLoaderModelOnly") leadLoras.push(String(m.inputs.lora_name));
+      expect(leadLoras).toEqual(["svi_high.safetensors"]);
+    });
+
+    it("drops the anchor, keeps the head hidden for a moving fade, and matches its colours to the clip before's last frame", () => {
+      const b = carry({ smooth: false });
+      const kept = all(b, "ImageFromBatch").find((n) => n.inputs.batch_index === 1)!;
+      expect(ref(b, kept.inputs.image).class_type).toBe("VAEDecode");
+      const match = all(b, "ColorTransfer")[0]!.inputs;
+      expect(match).toMatchObject({ source_stats: "target_frame", "source_stats.target_index": 3, strength: 1 });
+      expect(ref(b, match.image_ref).inputs).toMatchObject({ batch_index: -1, length: 1 });
+      // 4 frames at 16 a second; with RIFE, from the frame it makes between the head's last and the clip's first
+      expect(b.overlap).toEqual({ headMs: 250, tailMs: 0, moving: true });
+      expect(joinKindOf(b.overlap)).toBe("window");
+      expect(carry({}, { slots: { ...svi, rife: "r.pth" } }).overlap!.headMs).toBe(219);
+      expect(b.frames).toBe(85);
+      // its own First frame's colour match is not made: it does not open on it
+      expect(all(carry({ start: "p", colourMatch: true }, { slots: svi, uploads: { previous: "prev.mp4", start: "a.png" } }), "LoadImage")).toEqual([]);
+    });
+
+    it("opens on the clip before's last frame, still, without SVI's LoRAs or node, or with a Last frame, and says so", () => {
+      const without = carry({}, { slots: turbo });
+      expect(all(without, "WanImageToVideoSVIPro")).toEqual([]);
+      const opening = all(without, "WanImageToVideo")[0]!.inputs;
+      expect(opening.length).toBe(81);
+      expect(ref(without, opening.start_image)).toMatchObject({ class_type: "ImageFromBatch", inputs: { batch_index: -1 } });
+      expect(without.overlap).toEqual({ headMs: 0, tailMs: 0, still: true });
+      expect(joinKindOf(without.overlap)).toBe("still");
+      expect(without.warnings!.join(" ")).toMatch(/A cut.*SVI 2\.0 Pro's two LoRAs/);
+      const noNode = carry({}, { has: (n: string) => n !== "WanImageToVideoSVIPro" });
+      expect(noNode.warnings!.join(" ")).toMatch(/no WanImageToVideoSVIPro node/);
+      expect(joinKindOf(noNode.overlap)).toBe("still");
+      // a Last frame: SVI takes none, the clip goes from the clip before's last frame to it, a plain cut
+      const ends = carry({ end: "q" });
+      expect(Object.keys(all(ends, "WanFirstLastFrameToVideo")[0]!.inputs)).toEqual(expect.arrayContaining(["start_image", "end_image"]));
+      expect(ends.overlap).toBeUndefined();
+      expect(ends.warnings!.join(" ")).toMatch(/takes no last frame/);
+    });
+
+    it("asks for SVI's LoRAs where it carries on, never with a Last frame, and its models are picture-to-video ones", () => {
+      const needs = (over: Record<string, unknown>) => wanVideo.needsWith!(parseInput(wanVideo, { prompt: "a", ...over }), turbo);
+      expect(needs({ previous: { asset: "v0" }, fast: false, smooth: false })).toEqual(["sviHigh", "sviLow"]);
+      expect(needs({ previous: { asset: "v0" }, end: "q", fast: false, smooth: false })).toEqual([]);
+      expect(needs({ start: "p", fast: false, smooth: false })).toEqual([]);
+      // no start picture, yet not from words: the i2v models
+      expect(all(carry(), "UNETLoader").map((n) => n.inputs.unet_name)).toEqual(["i2v_high.safetensors", "i2v_low.safetensors"]);
+      expect(wanVideo.traits!.continues).toBe("clip");
+    });
+  });
+
+  describe("under a recording it plays over (card #82)", () => {
+    const rec = { recording: { width: 0, height: 0, seconds: 5.9, after: 4 } };
+    const ref = (b: ReturnType<typeof build>, r: unknown) => b.graph[(r as [string, number])[0]]!;
+
+    it("lasts as long as its part, at 16 a second whatever its Frame rate, and its files carry the part", () => {
+      const b = build({ recording: "a1", recordingSeconds: 5.9, fps: 24, smooth: false }, { uploads: { start: "a.png", recording: "rec.wav" }, media: { start: picture, ...rec } });
+      // 5.9 s and the quarter second after the words: 98 frames, 101 on the grid
+      expect(all(b, "WanImageToVideo")[0]!.inputs.length).toBe(101);
+      const save = all(b, "VHS_VideoCombine")[0]!.inputs;
+      expect(save.frame_rate).toBe(16);
+      const part = ref(b, save.audio);
+      expect(part).toMatchObject({ class_type: "TrimAudioDuration", inputs: { start_index: 0, duration: 101 / 16 } });
+      expect(ref(b, part.inputs.audio)).toMatchObject({ class_type: "LoadAudio", inputs: { audio: "rec.wav" } });
+      expect(all(b, "AudioConcat")).toEqual([]);
+      // its form is the recording's internal one: never drawn, the same ids as H3's
+      expect(wanVideo.inputs.filter((i) => i.id.startsWith("recording")).every((i) => i.internal)).toBe(true);
+    });
+
+    it("carrying on through SVI, sounds of silence under its head, then the part", () => {
+      const b = build(
+        { start: undefined, previous: { asset: "v0" }, recording: "a1", recordingSeconds: 5.9, smooth: false },
+        { slots: { ...turbo, sviHigh: "h.safetensors", sviLow: "l.safetensors" }, uploads: { previous: "prev.mp4", recording: "rec.wav" }, media: { previous: { width: 480, height: 832, frames: 9, fps: 16 }, ...rec } },
+      );
+      const joined = ref(b, all(b, "VHS_VideoCombine")[0]!.inputs.audio);
+      expect(joined.class_type).toBe("AudioConcat");
+      const head = ref(b, joined.inputs.audio1);
+      expect(head.inputs).toMatchObject({ start_index: 0, duration: 4 / 16 });
+      expect(ref(b, head.inputs.audio)).toMatchObject({ class_type: "AudioAdjustVolume", inputs: { volume: -100 } });
+      // the file's frames: the head and its own 100 (101 on the grid, less the anchor dropped); the part after the head
+      expect(ref(b, joined.inputs.audio2).inputs.duration).toBe(100 / 16);
+    });
   });
 });
 

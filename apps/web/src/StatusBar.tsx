@@ -165,9 +165,10 @@ const JOIN_TIP = {
   latent: "This clip continues the clip before's exact latent (decoded on its own: the join is faded).",
   hybrid: "This clip continues the clip before in the latent: its sound and run-up from its own latent, its picture guide from its re-encoded last frames (so a chain stays anchored to real pixels).",
   pixels: "This clip starts beside pinned frames of the clip before (that model has no latent to continue from, or Frames was asked for).",
-  window: "This window makes the clip before's last moments again before its own, both moving: the join crossfades over them.",
+  window: "This clip makes the clip before's last moments again before its own (a Motion transfer window, a Wan clip through SVI 2.0 Pro), both moving: the join crossfades over them.",
+  still: "A cut: this clip opens on the clip before's last frame, still. Wan carries the motion on through SVI 2.0 Pro, whose two LoRAs (Settings › Models) or node (KJNodes) that machine lacks.",
 } as const;
-const JOIN_WORD = { seamless: "seamless", latent: "latent", hybrid: "frames + latent", pixels: "pixel", window: "window" } as const;
+const JOIN_WORD = { seamless: "seamless", latent: "latent", hybrid: "frames + latent", pixels: "pixel", window: "window", still: "cut, no SVI" } as const;
 
 /** A clip render's label ("Big Air · clip 2 · finish"): what it is ("Clip 2 · finish") and the timeline it is of. Any other job: its label whole. */
 export function splitLabel(job: Pick<Job, "label" | "clipId">): { what: string; of: string | null } {

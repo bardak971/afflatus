@@ -43,7 +43,8 @@ export interface Suite {
 }
 
 /** Registers the file's hooks: the clips once, an app and a pretend ComfyUI per test. */
-export function timelineSuite(): Suite {
+/** `models`: the files the pretend ComfyUI lists (H3's by default; another family's for its own timeline tests). */
+export function timelineSuite(models: Record<string, string[]> = H3_FILES): Suite {
   const s = {} as Suite;
   beforeAll(async () => {
     // where ffmpeg is not installed the tests that need them are skipped
@@ -52,7 +53,7 @@ export function timelineSuite(): Suite {
     s.clips = { three, smooth, silent, tone };
   }, FFMPEG_TIMEOUT);
   beforeEach(async () => {
-    s.fake = await startFakeComfy({ catalog: referenceCatalog(), models: H3_FILES });
+    s.fake = await startFakeComfy({ catalog: referenceCatalog(), models });
     s.t = await makeApp({ comfyUrl: s.fake.url });
     await s.t.services.queue.start();
   });

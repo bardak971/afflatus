@@ -1,14 +1,14 @@
-import { leadInCovers, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
-import { H3_FPS, H3_MAX_FRAMES } from "./family";
+import { leadInCovers, type BuildContext, type FrameGrid, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
+import { H3_FPS, H3_MAX_FRAMES } from "../h3/family";
 
 /**
- * A recording's part laid on an H3 clip's sound, shared by the forms a clip under a recording takes (card #72): Lip sync,
- * whose mouth follows it, and Video with audio, which it plays over unchanged (a cutaway, someone listening). The same
- * inputs under the same ids on both, so that a clip keeps its part, its place in the recording and the song's hand-over
- * whichever of them it is in; and the same sound in the take's files, so that the player and the export play the
- * recording across both alike.
+ * A recording's part laid on a clip's sound, shared by the forms a clip under a recording takes (cards #72, #82): H3's Lip
+ * sync, whose mouth follows it, and the forms it plays over unchanged (H3's Video with audio: a cutaway, someone listening;
+ * Wan, which makes no sound). The same inputs under the same ids on all, so that a clip keeps its part, its place in the
+ * recording and the song's hand-over whichever of them it is in; and the same sound in the take's files, so that the player
+ * and the export play the recording across them alike.
  */
-export interface H3Recording {
+export interface Recording {
   recording?: string;
   recordingStart: number;
   recordingSeconds: number;
@@ -30,23 +30,38 @@ export const RECORDING_AFTER = 4;
 export const RECORDING_PAD = 0.25;
 
 /**
+ * What a model's clips hold of a recording: its frame rate, the most frames a clip takes, the shortest and longest clip
+ * a part makes, in seconds, and its frame counts (`grid`) when they are not every count.
+ */
+export interface RecordingFrames {
+  fps: number;
+  frames: number;
+  min: number;
+  most: number;
+  grid?: FrameGrid;
+}
+/** H3's: 24 a second, 362 frames at most, 4 to 15 s a clip. */
+export const H3_RECORDING: RecordingFrames = { fps: H3_FPS, frames: H3_MAX_FRAMES, min: 4, most: 15 };
+
+/**
  * The recording's inputs: the recording and its part, Even out the loudness, and the two toggles a timeline sets for a
  * song carried across clips. `shown`: Lip sync's form draws them (the recording is what it is made around); on another
  * form they are the clip's place in the recording, set by the timeline and never drawn (internal). `less`: the number
  * inputs a part is shortened by (Lip sync's moment before the words), placed after its length.
  */
-export function recordingInputs(o: { shown: boolean; less?: InputSpec[] }): InputSpec[] {
+export function recordingInputs(o: { shown: boolean; less?: InputSpec[]; fit?: RecordingFrames; note?: string }): InputSpec[] {
   const hidden = o.shown ? {} : { internal: true };
+  const fit = o.fit ?? H3_RECORDING;
   return [
     {
       id: "recording", type: "audio", role: "sound", label: "Recording", ...(o.shown ? {} : { optional: true, internal: true }),
       window: {
         start: "recordingStart", seconds: "recordingSeconds", even: "evenLoudness", after: RECORDING_AFTER, goesOn: "recordingGoesOn", leadIn: "recordingLeadIn",
-        fits: { frames: H3_MAX_FRAMES, fps: H3_FPS, pad: RECORDING_PAD, min: 4, ...(o.less?.length ? { less: o.less.map((i) => i.id) } : {}) },
+        fits: { frames: fit.frames, fps: fit.fps, pad: RECORDING_PAD, min: fit.min, ...(fit.grid ? { grid: fit.grid } : {}), ...(o.less?.length ? { less: o.less.map((i) => i.id) } : {}) },
       },
       note: o.shown
         ? "what is said: the clip is made around it, the mouth follows it, and it is the clip's sound. One clip holds about 14.8 seconds (less the moment before the words, and the frames of a clip it continues); the part's ends snap to the pauses so that no word is cut"
-        : "the recording the clip is under: its part is the clip's sound, laid over H3's own",
+        : (o.note ?? "the recording the clip is under: its part is the clip's sound, laid over H3's own"),
     },
     { id: "recordingStart", type: "number", label: "Recording: start", min: 0, max: 600, step: 0.1, default: 0, unit: " s", showWhen: "recording", ...hidden },
     { id: "recordingSeconds", type: "number", label: "Recording: length", min: 1, max: 15, step: 0.1, default: 8, unit: " s", showWhen: "recording", ...hidden },
@@ -65,18 +80,21 @@ export function recordingInputs(o: { shown: boolean; less?: InputSpec[] }): Inpu
 }
 
 /**
- * The nodes laying a recording adds to an H3 clip: its loader and cut, and the join to the model's sound before the part
+ * The nodes laying a recording adds to a clip: its loader and cut, and the join to the model's sound before the part
  * (`joined`: frames before it, and no lead-in: a clip the one before sang up to its part is filed with the recording whole,
- * as the timeline sets the lead-in only where it covers them, leadInCovers).
+ * as the timeline sets the lead-in only where it covers them, leadInCovers); `silent`, a model that makes no sound (Wan):
+ * those frames sound of silence, the recording's own start turned down.
  */
-export const recordingNodes = (o: { joined: boolean }) => ["LoadAudio", "TrimAudioDuration", ...(o.joined ? ["AudioConcat"] : [])];
+export const recordingNodes = (o: { joined: boolean; silent?: boolean }) => ["LoadAudio", "TrimAudioDuration", ...(o.joined ? ["AudioConcat", ...(o.silent ? ["AudioAdjustVolume"] : [])] : [])];
 
 /**
- * The recording's part on an H3 clip whose part begins `lead` frames after its head (Lip sync's moment before the words;
+ * The recording's part on a clip whose part begins `lead` frames after its head (Lip sync's moment before the words;
  * none on a clip it plays over): how long the clip lasts, the part cut to the clip's frames (Lip sync's guide), and the
- * sound its files carry in place of the decoded one.
+ * sound its files carry in place of the decoded one (none from a model that makes no sound: silence before the part).
+ * `fit`: the model's frames (H3's by default).
  */
-export function recordingOnClip(input: Pick<H3Recording, "recordingSeconds">, ctx: BuildContext, lead: number) {
+export function recordingOnClip(input: Pick<Recording, "recordingSeconds">, ctx: BuildContext, lead: number, fit: RecordingFrames = H3_RECORDING) {
+  const fps = fit.fps;
   // the recording's part as it was cut (a sound that ends early gives less than asked), else the length asked for
   const spoken = ctx.media.recording?.seconds ?? input.recordingSeconds;
   // the recording handed over before the part (its lead-in, recordingLeadIn): the part starts this far into the file
@@ -86,9 +104,9 @@ export function recordingOnClip(input: Pick<H3Recording, "recordingSeconds">, ct
   // one loader; the part cut to the clip's frames after the part begins, for the guide and the sound
   const whole = (g: GraphBuilder) => (file ??= g.out("LoadAudio", { audio: ctx.uploads.recording }));
   const loaded = (g: GraphBuilder, at: { head: number; frames: number }) =>
-    (part ??= g.out("TrimAudioDuration", { audio: whole(g), start_index: pre, duration: (at.frames - at.head - lead) / H3_FPS }));
+    (part ??= g.out("TrimAudioDuration", { audio: whole(g), start_index: pre, duration: (at.frames - at.head - lead) / fps }));
   return {
-    seconds: Math.min(15, Math.max(4, lead / H3_FPS + spoken + RECORDING_PAD)),
+    seconds: Math.min(fit.most, Math.max(fit.min, lead / fps + spoken + RECORDING_PAD)),
     loaded,
     // the files' sound: the model's own for the frames before the part (the clip before's, mostly), then the recording
     // itself to the clip's end, the pause the server handed over after the part included (continued clips decode it
@@ -96,14 +114,17 @@ export function recordingOnClip(input: Pick<H3Recording, "recordingSeconds">, ct
     // babbled on after the words, and on a clip the recording plays over it is H3's own music or speech, dropped.
     // A recording handed over without that pause (cut before 2026-10-13, or not cut) ends with its words: the file's
     // sound is that much shorter than its frames
-    sound: (g: GraphBuilder, decoded: Ref, at: { head: number; frames: number }): Ref => {
-      const before = (at.head + lead) / H3_FPS;
+    sound: (g: GraphBuilder, decoded: Ref | null, at: { head: number; frames: number }): Ref => {
+      const before = (at.head + lead) / fps;
       // the clip before sang the recording up to the part: the head is filed with it too, the whole clip one stretch of the
       // recording. The model's guess there was heard at the join, where one frame of the head shows (a song's, 2026-10-24).
       // The timeline asks for it by the same sum (leadInCovers), so that a take it says is sung was made so
-      if (leadInCovers(pre, at.head + lead, H3_FPS)) return g.out("TrimAudioDuration", { audio: whole(g), start_index: pre - before, duration: at.frames / H3_FPS });
+      if (leadInCovers(pre, at.head + lead, fps)) return g.out("TrimAudioDuration", { audio: whole(g), start_index: pre - before, duration: at.frames / fps });
       const sound = loaded(g, at);
-      return before > 0 ? g.out("AudioConcat", { audio1: g.out("TrimAudioDuration", { audio: decoded, start_index: 0, duration: before }), audio2: sound, direction: "after" }) : sound;
+      if (before <= 0) return sound;
+      // a model without sound: the recording's own start, as long and at its own rate, turned down to nothing
+      const ahead = decoded ?? g.out("AudioAdjustVolume", { audio: whole(g), volume: -100 });
+      return g.out("AudioConcat", { audio1: g.out("TrimAudioDuration", { audio: ahead, start_index: 0, duration: before }), audio2: sound, direction: "after" });
     },
   };
 }
