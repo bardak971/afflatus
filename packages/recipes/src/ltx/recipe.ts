@@ -92,7 +92,9 @@ export const LTX_JOIN_FRAMES = [25, 9];
 /**
  * The run-ups the form offers (Frames from the clip before, card #87): H3's 5, 22 and 39 on LTX's grid of whole tokens (8k - 7),
  * 2, 4 and 6 tokens of the clip before. 41 frames (1.6 to 1.7 s) give the model more of a turn or a walk to read its direction
- * from; a clip before too short for the count asked gives the next one down.
+ * from; a clip before too short for the count asked gives the next one down. 41 is the default: in the 0.7.0 series (card #85)
+ * the head's sound followed the clip before's best with it on both versions (r 0.92 and 0.99, against 0.81 to 0.88 at 25), for
+ * about 8 % more render time.
  */
 export const LTX_RUN_UPS = ["9", "25", "41"] as const;
 /**
@@ -789,7 +791,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         note: "the clip this one carries on from: its last frames (a second, by default) open this clip as a guide, its sound under them, so that the motion and the sound carry over, not only the last picture. On a timeline those frames are hidden, the clip plays from its own. A first frame is not used with it",
       },
       {
-        id: "context", type: "choice", label: "Frames from the clip before", options: [...LTX_RUN_UPS], default: "25", showWhen: "previous", advanced: true, section: "rare",
+        id: "context", type: "choice", label: "Frames from the clip before", options: [...LTX_RUN_UPS], default: "41", showWhen: "previous", advanced: true, section: "rare",
         note: "pinned at the start as the run-up: 9 is a position, 25 brings its motion and voice too, 41 a long run-in. When the join jumps, try another count",
       },
       {

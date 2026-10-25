@@ -65,7 +65,8 @@ describe.skipIf(!ffmpegThere)("LTX clips carried on in their own latent", { time
     const of = (cls: string) => Object.values(second).filter((n) => n.class_type === cls);
     // the clip before's latent, named where this ComfyUI saved it; its last tokens pinned, the join decoded after them
     expect(of("AfflatusLoadLTXLatent")[0]!.inputs.latent).toMatch(/\.safetensors \[temp\]$/);
-    expect(of("AfflatusLTXContinuation")[0]!.inputs.overlap_frames).toBe(25);
+    // the form's run-up when none is asked: 41 frames (card #85)
+    expect(of("AfflatusLTXContinuation")[0]!.inputs.overlap_frames).toBe(41);
     expect(of("LTXVAddLatentGuide")).toHaveLength(1);
     expect(of("AfflatusLTXSeamLatent")).toHaveLength(1);
     // made at the latent's size (in one pass: this ComfyUI has no latent upscaler)
@@ -73,24 +74,24 @@ describe.skipIf(!ffmpegThere)("LTX clips carried on in their own latent", { time
     const v2 = await view(tl.id);
     expect(v2.clips[1].take.joinKind).toBe("seamless");
     expect(v2.clips[1].take.seamless).toBe(true);
-    expect(v2.clips[1].take.headMs).toBe(1000);
+    expect(v2.clips[1].take.headMs).toBe(1640);
   });
 
-  it("carries on with the run-up asked (card #87): 41 frames of the clip before, 6 of its tokens, a longer hidden head", async () => {
+  it("carries on with the run-up asked (card #87): 25 frames of the clip before, 4 of its tokens, a shorter hidden head", async () => {
     const tl = await call("POST", "/api/timelines", { name: "zz-test ltx run-up" });
     const a = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "ltx.video" })).clip as string;
     await renderLtx(tl.id, a);
     await finishLtx(1, 73);
     const b = (await call("POST", `/api/timelines/${tl.id}/clips`, {})).clip as string;
-    await call("POST", `/api/timelines/${tl.id}/render`, { clips: [{ id: b, input: { prompt: "A lighthouse at dusk, waves below.", context: "41" } }] });
+    await call("POST", `/api/timelines/${tl.id}/render`, { clips: [{ id: b, input: { prompt: "A lighthouse at dusk, waves below.", context: "25" } }] });
     const second = await finishLtx(2, 145);
     const of = (cls: string) => Object.values(second).filter((n) => n.class_type === cls);
-    expect(of("AfflatusLTXContinuation")[0]!.inputs.overlap_frames).toBe(41);
-    expect(of("AfflatusLTXSeamLatent")[0]!.inputs).toMatchObject({ overlap_frames: 41, context: 4 });
+    expect(of("AfflatusLTXContinuation")[0]!.inputs.overlap_frames).toBe(25);
+    expect(of("AfflatusLTXSeamLatent")[0]!.inputs).toMatchObject({ overlap_frames: 25 });
     const v2 = await view(tl.id);
     expect(v2.clips[1].take.joinKind).toBe("seamless");
-    // 41 frames at LTX 2.3's 25 a second, hidden as the 25 were
-    expect(v2.clips[1].take.headMs).toBe(1640);
+    // 25 frames at LTX 2.3's 25 a second, hidden as the 41 are
+    expect(v2.clips[1].take.headMs).toBe(1000);
   });
 
   it("joins on frames after another model's clip, its H3 latent never sent to LTX", async () => {

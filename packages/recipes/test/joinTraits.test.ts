@@ -20,8 +20,8 @@ describe("the frames a join takes", () => {
     expect(joinFrames(recipeById("scail.motion"), "next")).toBe(0);
     expect(joinFrames(undefined, "previous")).toBe(0);
   });
-  it("a clip input with no count of its own to choose: its first count (LTX's 25)", () => {
-    expect(joinFrames(recipeById("ltx.video"), "previous")).toBe(25);
+  it("a clip input with no count asked: its form's default (LTX's 41, card #85)", () => {
+    expect(joinFrames(recipeById("ltx.video"), "previous")).toBe(41);
   });
 });
 
