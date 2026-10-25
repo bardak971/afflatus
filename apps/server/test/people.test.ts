@@ -184,6 +184,23 @@ describe("people, places and styles", () => {
     expect(own.added.endDropped).toBeUndefined();
   });
 
+  it("are each a subject of their own on LTX 2.5: one picture each, still described, the voice's owner first, a last frame kept", async () => {
+    const c = await cast();
+    const face = await picture("him.png");
+    const him = (await post(t.app, "/api/entities", { kind: "person", name: "Him", def: { pictures: [face], sentence: "He has a grey beard." } })).json();
+    const look = { cast: [{ id: him.id }, { id: c.her, outfit: "dress" }, { id: c.place }] };
+    const made = (await post(t.app, "/api/compose", { recipe: "ltx25.video", input: { prompt: "They wave at a boat.", end: c.terrace }, look })).json();
+    // her first picture only, put first as the voice is hers (MSR gives a voice to the first picture), the rest as they come; one place
+    expect(made.input.references).toEqual([
+      { asset: c.front, role: "person" }, { asset: face, role: "person" }, { asset: c.dress, role: "clothing" }, { asset: c.terrace, role: "place" },
+    ]);
+    expect(made.input.voice).toBe(c.voice);
+    // the people are described though their pictures are sent (the LoRA's authors ask for it), she first as her picture is
+    expect(made.input.prompt).toBe("She has brown hair and green eyes. She wears a white summer dress. He has a grey beard. A terrace above a bay. They wave at a boat.");
+    expect(made.input.end).toBe(c.terrace);
+    expect(made.added.endDropped).toBeUndefined();
+  });
+
   it("hand a model their first pictures in the order they were put in: the first is the face, the ones after the first three stay home", async () => {
     const c = await cast();
     const [back, close] = [await picture("back.png"), await picture("close.png")];

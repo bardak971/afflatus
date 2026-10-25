@@ -21,6 +21,7 @@ const spec: LtxSpec = {
   decode: { tile: 512, frames: 64, overlap: 16 },
   modelMatch: ["ltx.?2[._]?5"],
   nag: false,
+  references: true,
   temporalFile: "ltx-2.5-latent-temporal-upscaler-x2-*.safetensors",
   missing: {
     model: "LTX 2.5 was not found: put its distilled transformer in ComfyUI's models/diffusion_models folder, with its two VAEs in models/vae and its Gemma 4 text encoder in models/text_encoders (Settings › Models has them; the files are gated on Hugging Face).",
@@ -65,6 +66,32 @@ const spec: LtxSpec = {
       },
       { name: "opens on a picture, one pass asked for, by steps on LTX's scheduler", input: { prompt: "a", start: "p1", twoPass: false, schedule: "By steps" }, slots: { ...parts, ...extras }, uploads: { start: "a.png" }, media: { start: picture } },
       { name: "twice the frames with LTX's temporal upscaler", input: { prompt: "a", start: "p1", smooth: true }, slots: { ...parts, ...temporal }, uploads: { start: "a.png" }, media: { start: picture } },
+      {
+        name: "the cast's pictures through the MSR LoRA: a person, the clothes, the place as the background, the person's voice; two passes",
+        input: { prompt: "a", references: [{ asset: "r1", role: "person" }, { asset: "r2", role: "clothing" }, { asset: "r3", role: "place" }], voice: "v1" },
+        slots: { ...parts, ...extras, msr: "LTX-2.5-Licon-MSR-V2.safetensors" }, uploads: { "references.0": "r1.png", "references.1": "r2.png", "references.2": "r3.png", voice: "v.wav" },
+      },
+      {
+        name: "a reference picture beside a first and a last frame: one pass, the last frame kept",
+        input: { prompt: "a", start: "p1", end: "p2", references: [{ asset: "r1", role: "person" }] },
+        slots: { ...parts, ...extras, msr: "LTX-2.5-Licon-MSR-V2.safetensors" }, uploads: { start: "a.png", end: "b.png", "references.0": "r1.png" }, media: { start: picture, end: picture },
+      },
+      {
+        name: "a reference picture on a clip that carries on from another",
+        input: { prompt: "a", previous: { asset: "c1" }, references: [{ asset: "r1", role: "person" }] },
+        slots: { ...parts, ...extras, msr: "LTX-2.5-Licon-MSR-V2.safetensors" }, uploads: { previous: "a.mp4", "references.0": "r1.png" }, media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX25_FPS, hasSound: true } },
+      },
+      {
+        name: "a reference picture on a clip carried on in the clip before's latent: the seam decoded as one piece",
+        input: { prompt: "a", previous: { asset: "c1" }, references: [{ asset: "r1", role: "person" }] },
+        slots: { ...parts, ...extras, msr: "LTX-2.5-Licon-MSR-V2.safetensors" }, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors", "references.0": "r1.png" },
+        media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX25_FPS, hasSound: true, latentFrames: 121, latentSize: { width: 704, height: 1280 } } },
+      },
+      {
+        name: "reference pictures without the MSR LoRA: left out, said on the job",
+        input: { prompt: "a", references: [{ asset: "r1", role: "person" }] },
+        slots: { ...parts, ...extras }, uploads: { "references.0": "r1.png" },
+      },
       { name: "SeedVR2 upscale, ComfyUI's own video output", input: { prompt: "a", upscale: "Video: SeedVR2 (restores)", upscaleBy: 2 }, slots: { ...parts, ...extras, seedvr: "seedvr2_3b_int8_convrot.safetensors", seedvrVae: "seedvr2_ema_vae_fp16.safetensors" }, has: (n: string) => n !== "VHS_VideoCombine" },
       {
         name: "under a recording it plays over",
@@ -101,6 +128,11 @@ export const ltx25LipSync = ltxRecipe({
         name: "carrying on from a clip",
         input: { prompt: "a", previous: { asset: "c1" }, recording: "a1", recordingSeconds: 4.2 },
         slots: two, uploads: { previous: "a.mp4", recording: "rec.wav" }, media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX25_FPS, hasSound: true }, recording: { width: 0, height: 0, seconds: 4.2 } },
+      },
+      {
+        name: "the cast's picture through the MSR LoRA, the recording as the voice",
+        input: { prompt: "a café terrace", references: [{ asset: "r1", role: "person" }], recording: "a1", recordingSeconds: 5.9 },
+        slots: { ...two, msr: "LTX-2.5-Licon-MSR-V2.safetensors" }, uploads: { "references.0": "r1.png", recording: "rec.wav" }, media: { recording: { width: 0, height: 0, seconds: 5.9 } },
       },
       {
         name: "the dev transformer with the distilled LoRA, by steps in one pass (no upscaler), smooth with RIFE",

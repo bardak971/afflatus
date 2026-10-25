@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dryContext, parseInput } from "@afflatus/core";
-import { h3Video, ltx25Video, ltxVideo, wanVideo } from "../src";
+import { h3Video, ltx25LipSync, ltx25Video, ltxVideo, wanVideo } from "../src";
 
 type Graph = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
 const of = (graph: Graph, type: string) => Object.values(graph).filter((n) => n.class_type === type);
@@ -112,5 +112,85 @@ describe("LTX 2.5", () => {
   it("offers no NAG, and refuses without its parts", () => {
     expect(ltx25Video.inputs.some((i) => i.id === "nag")).toBe(false);
     expect(() => ltx25Video.build(parseInput(ltx25Video, { prompt: "a" }), dryContext({ slots: { unet: slots.unet, clip: slots.clip } }))).toThrow(/video VAE/);
+  });
+});
+
+describe("LTX 2.5's reference pictures and voice (the MSR LoRA)", () => {
+  const slots = { unet: "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors", clip: "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors", videoVae: "ltx-2.5-video-vae-bf16.safetensors", audioVae: "ltx-2.5-audio-vae-bf16.safetensors", upscaler: "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors" };
+  const msr = "LTX-2.5-Licon-MSR-V2.safetensors";
+  const refs = (roles: string[]) => ({
+    references: roles.map((role, i) => ({ asset: `r${i}`, role })),
+    uploads: Object.fromEntries(roles.map((_r, i) => [`references.${i}`, `r${i}.png`])),
+  });
+  const build = (input: Record<string, unknown>, uploads: Record<string, string>, more: Record<string, string> = { msr }, has?: (t: string) => boolean) =>
+    ltx25Video.build(parseInput(ltx25Video, { prompt: "They talk.", ...input }), dryContext({ slots: { ...slots, ...more }, uploads, ...(has ? { has } : {}) }));
+  const loadOf = (graph: Graph, ref: unknown) => graph[(ref as [string, number])[0]]!.inputs.image;
+
+  it("lays the pictures in MSR's slots, a place as the background, the voice with the first, in both passes, as its authors do", () => {
+    const r = refs(["person", "place", "object"]);
+    const b = build({ references: r.references, voice: "v" }, { ...r.uploads, voice: "v.wav" });
+    const graph = b.graph as Graph;
+    const loader = of(graph, "ComfyUILTX25MSRICLoRALoader");
+    expect(loader.map((n) => n.inputs)).toEqual([expect.objectContaining({ lora_name: msr, strength_model: 1 })]);
+    const guides = of(graph, "ComfyUILTX25MSRMultiReferenceGuide");
+    expect(guides).toHaveLength(2);
+    for (const g of guides) {
+      expect([loadOf(graph, g.inputs.pic1), loadOf(graph, g.inputs.pic2), loadOf(graph, g.inputs.background), g.inputs.pic3]).toEqual(["r0.png", "r2.png", "r1.png", undefined]);
+      expect(g.inputs).toMatchObject({ strength: 1, reference_frames: "33" });
+      expect(graph[(g.inputs.audio_ref1 as [string, number])[0]]!.class_type).toBe("LTXVAudioVAEEncode");
+    }
+    // one encode of the voice and one load of each picture, for both passes
+    expect(of(graph, "LTXVAudioVAEEncode")).toHaveLength(1);
+    expect(of(graph, "LoadImage")).toHaveLength(3);
+    // each pass's references are cropped off before the clip goes on
+    expect(of(graph, "LTXVCropGuides")).toHaveLength(2);
+    // the pictures said by their number before the user's words
+    expect(of(graph, "CLIPTextEncode")[0]!.inputs.text).toBe("Image 1: a person.\nImage 2: an object.\nImage 3: the place, the background of the scene.\n\nThey talk.");
+    expect(b.loads).toContain(`loras/${msr}`);
+    expect(b.warnings).toBeUndefined();
+  });
+
+  it("asks for the MSR LoRA only with pictures or a voice: a pod is sent it, a machine without it renders without", () => {
+    expect(ltx25Video.needsWith!(parseInput(ltx25Video, { prompt: "a" }), {})).not.toContain("msr");
+    expect(ltx25Video.needsWith!(parseInput(ltx25Video, { prompt: "a", references: [{ asset: "r", role: "person" }] }), {})).toContain("msr");
+    expect(ltx25Video.needsWith!(parseInput(ltx25Video, { prompt: "a", voice: "v" }), {})).toContain("msr");
+    // LTX 2.3 takes none
+    expect(ltxVideo.inputs.some((i) => i.type === "references")).toBe(false);
+    // Lip sync takes the pictures, not a voice: its recording is the voice
+    expect(ltx25LipSync.inputs.some((i) => i.type === "references")).toBe(true);
+    expect(ltx25LipSync.inputs.filter((i) => i.id.startsWith("voice"))).toEqual([]);
+  });
+
+  it("leaves them out in words without the LoRA or its pack, the clip made as before", () => {
+    const r = refs(["person"]);
+    const without = build({ references: r.references, voice: "v" }, { ...r.uploads, voice: "v.wav" }, {});
+    expect(of(without.graph as Graph, "ComfyUILTX25MSRMultiReferenceGuide")).toEqual([]);
+    expect(of(without.graph as Graph, "CLIPTextEncode")[0]!.inputs.text).toBe("They talk.");
+    expect(without.warnings).toEqual(["The reference pictures and the voice sample are left out: LTX 2.5's MSR reference LoRA is not on this ComfyUI (models/loras; Settings › Models has it)."]);
+    const noPack = build({ references: r.references }, r.uploads, { msr }, (t) => !t.startsWith("ComfyUILTX25MSR"));
+    expect(of(noPack.graph as Graph, "ComfyUILTX25MSRICLoRALoader")).toEqual([]);
+    expect(noPack.warnings).toEqual(["The reference picture is left out: this ComfyUI lacks the ComfyUI-LTX2.5-MSR node pack, which reads the MSR LoRA's slots."]);
+  });
+
+  it("says what does not fit: four pictures and one place, a voice only for a person in the first picture", () => {
+    const r = refs(["object", "person", "person", "clothing", "person"]);
+    const b = build({ references: r.references, voice: "v" }, { ...r.uploads, voice: "v.wav" });
+    const [guide] = of(b.graph as Graph, "ComfyUILTX25MSRMultiReferenceGuide");
+    expect(loadOf(b.graph as Graph, guide!.inputs.pic4)).toBe("r3.png");
+    expect(guide!.inputs.audio_ref1).toBeUndefined();
+    expect(b.warnings).toEqual([
+      "1 reference picture left out: LTX 2.5 takes 4, and a place.",
+      "The voice sample is left out: LTX 2.5 gives a voice to the person in the first picture, and the first picture is not a person.",
+    ]);
+    const two = refs(["person", "place", "place"]);
+    const places = build({ references: two.references }, two.uploads);
+    const [one] = of(places.graph as Graph, "ComfyUILTX25MSRMultiReferenceGuide");
+    expect(loadOf(places.graph as Graph, one!.inputs.background)).toBe("r1.png");
+    expect(places.warnings).toEqual(["1 place picture left out: LTX 2.5 takes one place, as the background."]);
+    // a place alone is the first picture, not a background with nothing before it
+    const place = refs(["place"]);
+    const [alone] = of(build({ references: place.references }, place.uploads).graph as Graph, "ComfyUILTX25MSRMultiReferenceGuide");
+    expect(loadOf(build({ references: place.references }, place.uploads).graph as Graph, alone!.inputs.pic1)).toBe("r0.png");
+    expect(alone!.inputs.background).toBeUndefined();
   });
 });
