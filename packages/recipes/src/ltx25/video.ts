@@ -93,6 +93,11 @@ export const ltx25LipSync = ltxRecipe({
         slots: two, uploads: { start: "a.png", recording: "rec.wav" }, media: { start: { width: 832, height: 1216 }, recording: { width: 0, height: 0, seconds: 5.9 } },
       },
       {
+        name: "a sound cue over the recording",
+        input: { prompt: "She claps once.", recording: "a1", recordingSeconds: 5.9, cues: [{ asset: "s1", start: 0, seconds: 0.6, at: 2.4 }] },
+        slots: two, uploads: { recording: "rec.wav", "cues.0": "clap.wav" }, media: { recording: { width: 0, height: 0, seconds: 5.9 }, "cues.0": { width: 0, height: 0, seconds: 0.6 } },
+      },
+      {
         name: "carrying on from a clip",
         input: { prompt: "a", previous: { asset: "c1" }, recording: "a1", recordingSeconds: 4.2 },
         slots: two, uploads: { previous: "a.mp4", recording: "rec.wav" }, media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX25_FPS, hasSound: true }, recording: { width: 0, height: 0, seconds: 4.2 } },

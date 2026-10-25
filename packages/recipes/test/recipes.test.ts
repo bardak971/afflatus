@@ -1340,6 +1340,31 @@ describe("LTX under a recording (card #2)", () => {
     expect(b.overlap).toEqual({ headMs: 1000, tailMs: 0, sound: true });
   });
 
+  it("Lip sync's sound cues: added over the recording at their moments, before it is pinned, and the take carries them", () => {
+    const cues = [{ asset: "s1", start: 0, seconds: 0.6, at: 2.4 }];
+    const ctx = { uploads: { recording: "rec.wav", previous: "c.mp4", "cues.0": "clap.wav" }, media: { previous: prev, ...rec(5), "cues.0": { width: 0, height: 0, seconds: 0.6 } } };
+    const b = build(ltxLipSync, { previous: { asset: "c" }, recordingSeconds: 5, cues }, ctx);
+    const encoded = all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio;
+    // after the cue: the recording again, from where the cue ends (25 frames of head and 2.4 s in: 85 frames, 3.4 s)
+    const after = ref(b, encoded);
+    expect(after.class_type).toBe("AudioConcat");
+    expect(ref(b, after.inputs.audio2).inputs).toMatchObject({ start_index: 85 / 25 + 0.6 });
+    // before it, the recording up to the cue, then the cue added over its stretch (AudioMerge "add"), on LTX's 25 a second
+    const upTo = ref(b, after.inputs.audio1);
+    expect(ref(b, upTo.inputs.audio1).inputs).toMatchObject({ start_index: 0, duration: 85 / 25 });
+    const merged = ref(b, upTo.inputs.audio2);
+    expect(merged).toMatchObject({ class_type: "AudioMerge", inputs: { merge_method: "add" } });
+    expect(ref(b, merged.inputs.audio1).inputs).toMatchObject({ start_index: 85 / 25, duration: 0.6 });
+    expect(ref(b, ref(b, merged.inputs.audio2).inputs.audio)).toMatchObject({ class_type: "LoadAudio", inputs: { audio: "clap.wav" } });
+    // the same sound is the take's, and it is pinned whole
+    expect(save(b).audio).toEqual(encoded);
+    expect(all(b, "SolidMask").map((n) => n.inputs.value)).toEqual([0]);
+    // one past the clip's own end is refused in words; Video with audio has no cues
+    expect(() => build(ltxLipSync, { recordingSeconds: 5, cues: [{ ...cues[0]!, at: 9 }] }, { media: { ...rec(5), "cues.0": { width: 0, height: 0, seconds: 0.6 } } })).toThrow(/Sound cue 1 lands at 9 s, past the clip's end/);
+    expect(ltxLipSync.inputs.some((i) => i.type === "cues")).toBe(true);
+    expect(ltxVideo.inputs.some((i) => i.type === "cues")).toBe(false);
+  });
+
   it("LTX 2.5's Lip sync at 24 a second, under its dual guider", () => {
     const parts = { unet: "ltx-2.5-distilled.safetensors", clip: "gemma4.safetensors", videoVae: "v.safetensors", audioVae: "a.safetensors" };
     const b = build(ltx25LipSync, { recordingSeconds: 5.9 }, { slots: parts, media: rec(5.9) });

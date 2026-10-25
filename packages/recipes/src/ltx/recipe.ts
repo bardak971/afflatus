@@ -1,4 +1,4 @@
-import { defineRecipe, gridAtOrBefore, GraphBuilder, type BuildContext, type ClipValue, type InputSpec, type LoraValue, type MediaFacts, type Recipe, type Ref, type SizeValue, type Variant } from "@afflatus/core";
+import { defineRecipe, gridAtOrBefore, GraphBuilder, type BuildContext, type ClipValue, type CueValue, type InputSpec, type LoraValue, type MediaFacts, type Recipe, type Ref, type SizeValue, type Variant } from "@afflatus/core";
 import { LTX_CANVAS_SHORT, LTX_MAX_PIXELS, ltxCanvas, ltxFramesAt } from "./family";
 import { UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNeeds, upscaleNodes } from "../video/upscale";
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
@@ -7,6 +7,7 @@ import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import { colourCarried, colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, openingStart, rifeNeeds, rifeSkippedSaid, type ColourMatch } from "../shared/finish";
 import { applyLoras, livePreview, loraLoads } from "../shared/model";
 import { recordingInputs, recordingNodes, recordingOnClip, type Recording, type RecordingFrames } from "../shared/recording";
+import { cuesFor, H3_CUES, layCues } from "../h3/cue";
 
 /**
  * The LTX video recipe, made for a version of the model: LTX 2.3 and LTX 2.5 are the same two-pass graph (half the size
@@ -114,6 +115,8 @@ export interface LtxVideo extends ColourMatch, Partial<Recording> {
   model?: string;
   /** Lip sync: a moment of the clip before the words begin, in seconds after the frames of the clip before. */
   speechAt?: number;
+  /** Lip sync: sounds laid into the clip's sound at moments of it, pinned with the recording. */
+  cues?: CueValue[];
   turboIn: string;
   prompt: string;
   negative: string;
@@ -470,6 +473,16 @@ function pinnedSound(g: GraphBuilder, audioVae: Ref, wave: Ref, frames: number, 
   return { sound: pin(laid), pin };
 }
 
+/**
+ * Lip sync's sound cues (card #2), as H3's forms take them (card #71): each a part of a file at a moment of the clip's own
+ * time. Here they are added into the sound the clip is made to, over the recording, and held there with it: the model hears
+ * them as the clip's own and the take carries them as they are, so there is no "In the take" choice to make.
+ */
+const lipSyncCues: InputSpec = {
+  id: "cues", type: "cues", label: "Sound cues", max: H3_CUES,
+  note: "sounds that land at moments of the clip: a door slam, a clap, a music hit. Each one is a part of its file and the moment it lands, in the clip's own time, added over the recording and held with it, so the take carries it as it is; the picture meets it when What happens names it at that moment (\"she claps her hands once\")",
+};
+
 /** Said after the scene on Lip sync, as on H3's: what the recording is, so that the person in the picture says it. */
 const SPEAKS = "The person speaks throughout, the lips moving with every word.";
 
@@ -488,6 +501,8 @@ function formInputs(spec: LtxSpec, inputs: InputSpec[]): InputSpec[] {
   const fit = ltxRecording(spec.fps);
   return inputs.flatMap((i): InputSpec[] => {
     if (i.id === "seconds") return spec.lipSync ? [] : [i, ...recordingInputs({ shown: false, fit, note: `the recording the clip is under: its part is the clip's sound, laid over ${spec.name}'s own` })];
+    // Lip sync's cues after the keyframe's moment, where H3's forms have theirs
+    if (i.id === "midAt" && spec.lipSync) return [i, lipSyncCues];
     if (i.id === "prompt" && spec.lipSync && i.type === "prompt") {
       return [
         { ...i, label: "What happens", placeholder: "A medium close-up. A man at a café terrace talks to the camera, calm and friendly, his eyebrows lifting between phrases.", note: "where they are and how they speak, without a dialogue line: the recording is what is said, and the clip's whole sound" },
@@ -645,6 +660,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         // Lip sync's sound is the recording, pinned from the first step: none is decoded. Under a recording, its part is cut
         ...(spec.lipSync ? PINNED_SOUND_NODES : ["LTXVAudioVAEDecode"]),
         ...(input.recording ? recordingNodes({ joined: false }) : []),
+        // Lip sync's cues: each part loaded and fitted, then added over the recording on its own stretch
+        ...(spec.lipSync && input.cues?.length ? ["LoadAudio", "TrimAudioDuration", "AudioMerge", "AudioConcat"] : []),
         ...(input.model ? unetNodes(input.model).filter((n) => n !== "UNETLoader") : []),
         ...(spec.loader === "split" ? ["UNETLoader", "CLIPLoader", "VAELoader"] : []),
         ...(input.schedule === BY_STEPS ? ["LTXVScheduler"] : []),
@@ -749,7 +766,11 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         const quiet = g.out("TrimAudioDuration", { audio: g.out("AudioAdjustVolume", { audio: laid.whole(g), volume: -100 }), start_index: 0, duration: lead / fps });
         return g.out("AudioConcat", { audio1: heardBefore, audio2: quiet, direction: "after" });
       };
-      const wave = spec.lipSync && laid ? laid.sound(g, ahead(), at) : null;
+      // Lip sync's cues added over it at their moments (card #71's way over a recording: on each cue's own stretch), so that
+      // they are held with it and the take carries them
+      const cues = spec.lipSync ? cuesFor(g, ctx, input.cues, { head, tail, frames, fps }) : null;
+      const recorded = spec.lipSync && laid ? laid.sound(g, ahead(), at) : null;
+      const wave = recorded && cues ? layCues(g, recorded, cues.placed, cues.parts, { frames, over: true, fps }) : recorded;
       const carry = wave
         ? { ...pinnedSound(g, loaded.audioVae, wave, frames, fps), carried: head > 0 && Boolean(heardBefore || laid!.sungThrough(at)) }
         : continued
