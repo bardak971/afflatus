@@ -401,3 +401,97 @@ class AfflatusFaceFrame(io.ComfyNode):
         left, top, w, h = face_frame(box, int(image.shape[2]), int(image.shape[1]), width, height, factor)
         cut = image[:, top : top + h, left : left + w, :]
         return io.NodeOutput(cut if (w, h) == (width, height) else _scaled(cut, width, height))
+
+
+# What is kept of a person's reference picture around the face (card #81): the head with its hair, and the neck and shoulders
+# below, in face widths and heights from the face's box; the rest goes. In the 0.7.0 series, a clip given the cast's photo
+# (a stone arch, a slicker) redid that setting rather than the scene asked, and with an opening picture it went there within
+# a second: MSR follows everything a picture shows, and a cut of 2.5 face heights still shows the room behind.
+BACKDROP_GREY = 0.5
+BACKDROPS = ("blur", "grey")
+
+
+def head_mask(box, width: int, height: int):
+    """How much of each pixel (0 to 1, height x width) is the person around a face's box (x0, y0, x1, y1): an oval of the head
+    and its hair, one of the neck and shoulders under it, their edges faded over a fifth of their size."""
+    import numpy as np
+
+    x0, y0, x1, y1 = box
+    fw, fh = max(1.0, x1 - x0), max(1.0, y1 - y0)
+    cx = (x0 + x1) / 2
+    ys, xs = np.mgrid[0:height, 0:width].astype(np.float32)
+
+    def oval(cy, a, b):
+        d = np.sqrt(((xs - cx) / a) ** 2 + ((ys - cy) / b) ** 2)
+        t = np.clip((d - 1.0) / 0.2, 0.0, 1.0)
+        return 1.0 - t * t * (3.0 - 2.0 * t)
+
+    head = oval(y0 + 0.4 * fh, 0.68 * fw, 0.88 * fh)
+    shoulders = oval(y1 + 0.8 * fh, 1.2 * fw, 0.7 * fh)
+    return np.maximum(head, shoulders)
+
+
+def box_blurred(a, radius: int):
+    """A picture (height x width x channels) blurred by three box blurs of `radius` (about a Gaussian), its edges held."""
+    import numpy as np
+
+    out = a.astype(np.float32)
+    for axis in (0, 1):
+        for _ in range(3):
+            pad = [(0, 0)] * out.ndim
+            pad[axis] = (radius + 1, radius)
+            c = np.cumsum(np.pad(out, pad, mode="edge"), axis=axis)
+            n = out.shape[axis]
+            hi = np.take(c, np.arange(2 * radius + 1, 2 * radius + 1 + n), axis=axis)
+            lo = np.take(c, np.arange(0, n), axis=axis)
+            out = (hi - lo) / (2 * radius + 1)
+    return out
+
+
+def _as_image(a, like):
+    """A numpy batch back as a ComfyUI image, on the device and in the type of the one it came from."""
+    import torch
+
+    return torch.from_numpy(a).to(device=like.device, dtype=like.dtype)
+
+
+class AfflatusFaceBackdrop(io.ComfyNode):
+    """
+    A person's reference picture with what is around them blurred or made a plain grey, the head, hair, neck and shoulders
+    kept: LTX 2.5's MSR guide follows the whole picture, and redid its setting rather than the one the prompt asked (card
+    #81). The largest face is taken; a picture with no face found, or one InsightFace cannot read, goes through as it is.
+    """
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusFaceBackdrop",
+            display_name="Afflatus: Face Backdrop",
+            category="Afflatus",
+            description="Around the largest face (InsightFace's detector, on the CPU), the head and shoulders kept and the rest blurred or a plain grey. Without a face found, the picture as it is.",
+            inputs=[
+                io.Image.Input("image", tooltip="A person's picture, cut to the face already or not: the batch is changed where its first picture's face is."),
+                io.Combo.Input("backdrop", options=list(BACKDROPS), default="blur", tooltip="What becomes of the rest: blurred, or a plain mid grey."),
+            ],
+            outputs=[io.Image.Output("image")],
+        )
+
+    @classmethod
+    def execute(cls, image, backdrop: str = "blur") -> io.NodeOutput:
+        import numpy as np
+
+        # a better reference, never a failed render: whatever goes wrong here, the picture goes on as it was given
+        try:
+            box = AfflatusFaceCrop._largest(image)
+            if box is None:
+                return io.NodeOutput(image)
+            a = image.detach().cpu().numpy()
+            height, width = int(a.shape[1]), int(a.shape[2])
+            mask = head_mask(box, width, height)[None, :, :, None]
+            # blurred by a 12th of the picture's short side: its colours stay, its shapes (an arch, a window) do not
+            radius = max(4, round(min(width, height) / 12))
+            rest = np.full_like(a, BACKDROP_GREY) if backdrop == "grey" else np.stack([box_blurred(p, radius) for p in a])
+            return io.NodeOutput(_as_image((a * mask + rest * (1 - mask)).astype(a.dtype), image))
+        except Exception as err:  # noqa: BLE001 — any error of InsightFace or of a picture it cannot read
+            print(f"[afflatus-nodes] Face Backdrop: the picture is taken as it is ({str(err)[:200]})")
+            return io.NodeOutput(image)

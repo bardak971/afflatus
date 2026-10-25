@@ -149,6 +149,20 @@ export const FACE_CROP = "AfflatusFaceCrop";
  * white bars, which a clip that did not carry on from the one before copied into its frames (Timeline 10, card #91).
  */
 export const FACE_FRAME = "AfflatusFaceFrame";
+/**
+ * What is around a person's head and shoulders in their picture, blurred or a plain grey (afflatus-nodes 0.40). MSR follows
+ * all a picture shows: in the 0.7.0 series (card #85) every reference clip redid the photo's own setting (a stone arch, a
+ * slicker) rather than the scene asked, and with an opening picture went there within a second.
+ */
+export const FACE_BACKDROP = "AfflatusFaceBackdrop";
+/** Around the face, as the form says it; and as Face Backdrop's `backdrop` takes it. */
+export const BACKDROPS = ["Blurred", "Grey", "As in the picture"] as const;
+const BACKDROP_OF: Record<string, string> = { Blurred: "blur", Grey: "grey" };
+/**
+ * The prompt's line after the pictures' when a person is among them and no place is: the scene comes from the words (card
+ * #81). Said as what to do, never as what not to: a prompt reads a thing it names, even after "not", as asked.
+ */
+const SCENE_FROM_WORDS = "The scene, its place, light and framing, is the one written below.";
 /** MSR's guide's shape families (`aspect_family` in its _resize_reference): a picture of another family than its slot goes between white bars. */
 const msrFamily = (width: number, height: number): string => (width / height >= 1.25 ? "landscape" : width / height <= 0.8 ? "portrait" : "square");
 
@@ -166,6 +180,8 @@ interface MsrRefs {
   legend: string;
   /** How the people's pictures are cut to their face: to the clip's frame (FACE_FRAME), to a square (FACE_CROP), or not. */
   faceCrop: typeof FACE_FRAME | typeof FACE_CROP | null;
+  /** What becomes of what is around the people (Face Backdrop's `backdrop`), or null: their pictures as they are. */
+  backdrop: string | null;
 }
 function msrOf(input: LtxVideo, ctx: Pick<BuildContext, "slots" | "uploads" | "has">, warnings: string[], voices: boolean, frame: { width: number; height: number }): MsrRefs | null {
   const given = (input.references ?? []).flatMap((r, i) => {
@@ -205,7 +221,11 @@ function msrOf(input: LtxVideo, ctx: Pick<BuildContext, "slots" | "uploads" | "h
   if (faceCrop === FACE_CROP && msrFamily(frame.width, frame.height) !== "square") {
     warnings.push("The people's pictures are cut to a square around the face, which MSR lays between white bars in this clip's frame (node pack 0.39 cuts them to the frame's shape): a clip that does not carry on from the one before can copy the bars.");
   }
-  return { numbered, background, voice, legend: roles.map((role, i) => `Image ${i + 1}: ${MSR_SAYS[role]}.`).join("\n"), faceCrop };
+  const asked = BACKDROP_OF[input.refBackdrop ?? BACKDROPS[0]] ?? null;
+  const backdrop = people && asked && ctx.has(FACE_BACKDROP) ? asked : null;
+  if (people && asked && !backdrop) warnings.push("What is around the people in their pictures is kept as it is: this ComfyUI lacks Afflatus's Face Backdrop (node pack 0.40, with insightface).");
+  const legend = [...roles.map((role, i) => `Image ${i + 1}: ${MSR_SAYS[role]}.`), ...(people && !background ? [SCENE_FROM_WORDS] : [])].join("\n");
+  return { numbered, background, voice, legend, faceCrop, backdrop };
 }
 
 /** Whether a LoRA of the list is the MSR LoRA: the file of its slot (under any folder), or a file named as it is. */
@@ -257,6 +277,14 @@ const MSR_STRENGTHS: InputSpec[] = [
   {
     id: "refFaceCrop", type: "toggle", label: "Crop people's pictures to the face", default: true, showWhen: "references", advanced: true,
     note: "a picture of a person is cut around the face to the clip's frame shape, its short side 2.5 face heights, and brought to the frame's size: MSR fits the whole picture in a slot the size of the clip's frame, where the face of a large or far portrait comes out a few latent cells, and a picture of another shape (a square in a 16:9 clip) goes between white bars, which a clip that does not carry on from the one before can copy. Off: the picture whole (to follow the clothes or the figure from it), with those bars when its shape is not the clip's",
+  },
+  {
+    id: "refFaceSize", type: "number", label: "Face crop size", min: 1.5, max: 4, step: 0.25, default: 2.5, unit: " face heights", showWhen: "refFaceCrop", advanced: true,
+    note: "the cut's short side, in face heights: 2.5 keeps the hair, the neck and some of the room behind; smaller is closer on the face, with less of the photo's setting for the clip to take",
+  },
+  {
+    id: "refBackdrop", type: "choice", label: "Around the face", options: [...BACKDROPS], default: BACKDROPS[0], showWhen: "references", advanced: true,
+    note: "what becomes of a person's picture around their head and shoulders. MSR follows all a picture shows: given a photo's room, light and clothes, a clip redoes that setting rather than the prompt's. Blurred keeps its colours, Grey nothing of it. As in the picture: the photo whole, its setting with it",
   },
   { id: "refStrength", type: "number", label: "Reference strength", min: 0, max: 1, step: 0.05, default: 1, showWhen: "references", advanced: true, note: "how closely the pictures are followed: 1 is the LoRA's authors'" },
   {
@@ -327,6 +355,8 @@ export interface LtxVideo extends ColourMatch, Partial<Recording> {
   refFrames?: string;
   refLoraStrength?: number;
   refFaceCrop?: boolean;
+  refFaceSize?: number;
+  refBackdrop?: string;
   /** The cast person's picture the take is scored against (2.3: no reference pictures of its own). */
   facePhoto?: string;
   faceRefine?: boolean;
@@ -754,10 +784,13 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
     // RIFE when the frames are interpolated with it: asked for, or Auto without LTX's temporal upscaler (or with SeedVR2,
     // which takes RIFE after it), as the build below picks. The temporal upscaler when it is asked for by name (Auto does
     // without it), and SeedVR2's files for its upscale: the build refuses either missing
-    needsWith: (input, slots = {}) => [
+    needsWith: (input, slots = {}, where = {}) => [
       ...rifeNeeds(input.smooth && input.smoothWith !== SMOOTH_LTX && (input.smoothWith === SMOOTH_RIFE || !slots.temporal || (input.smoothWith === SMOOTH_AUTO && input.upscale === UPSCALE.seedvr))),
       ...(input.smooth && input.smoothWith === SMOOTH_LTX ? ["temporal"] : []),
       ...upscaleNeeds(input),
+      // the distilled LoRA for a model that is not distilled: a pod is sent it, a machine of the user's own renders without it
+      // (said on the job). Asked as the build loads it: the form's model, else the family's found on that machine
+      ...(where.own !== true && !modelOf(spec, input, slots).distilled ? ["turbo"] : []),
       // the MSR LoRA for the cast's pictures or voice: a pod is sent it, a machine of the user's own renders without (SOFT_SLOTS)
       ...(spec.references && (input.references?.length || (!spec.lipSync && input.voice)) ? ["msr"] : []),
       // Face refine's files (H3's, its text encoder and VAEs too), with a picture of the person to refine towards
@@ -930,7 +963,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       ...(spec.lipSync ? [] : HEAD_SOUND_NODES),
       LTX_SAVE_LATENT, ...LTX_CONTINUATION_NODES, LTX_TRIM, ...LTX_LATENT_CORE,
       // the cast's pictures and voice, when the MSR LoRA and its pack are there (msrOf)
-      ...(spec.references ? [...MSR_NODES, FACE_FRAME, FACE_CROP, ...(spec.lipSync ? [] : ["LoadAudio"])] : []),
+      ...(spec.references ? [...MSR_NODES, FACE_FRAME, FACE_CROP, FACE_BACKDROP,...(spec.lipSync ? [] : ["LoadAudio"])] : []),
       // the clip before's last frame as it was filed, loaded when the server sends it (its chain was colour-matched: colourCarried)
       "LoadImage",
       // under a recording: what goes before its part (the clip before's sound under the head, silence before the words)
@@ -980,6 +1013,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       const held = refs ? msrHeld(input, slots.msr, warnings) : null;
       const loaded = ltxLoad(spec, g, ctx, input, picked, held);
       const byHand = input.schedule !== BY_STEPS;
+      // a dev model without its distilled LoRA still renders, but less well than asked: said on the job, never silently
+      if (!picked.distilled && !loaded.lora) warnings.push(`${spec.name}'s distilled LoRA is not on this ComfyUI: the dev model ${byHand ? "renders LTX's 8 steps" : "refines"} without it (models/loras; Settings › Models has it). A distilled model needs none: Distilled model › Yes.`);
       const steps = byHand ? LTX_SIGMAS.split(",").length - 1 : input.steps;
       // Lip sync: the scene, then that the person speaks (the recording is what is said)
       const text = spec.lipSync ? [input.prompt.trim(), SPEAKS].filter(Boolean).join(" ") : input.prompt;
@@ -1046,8 +1081,12 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
               pics: {
                 ...Object.fromEntries(refs.numbered.map((r, i) => {
                   const pic = g.out("LoadImage", { image: r.upload });
-                  if (!refs.faceCrop || r.role !== "person") return [`pic${i + 1}`, pic];
-                  return [`pic${i + 1}`, refs.faceCrop === FACE_FRAME ? g.out(FACE_FRAME, { image: pic, width, height }) : g.out(FACE_CROP, { image: pic })];
+                  if (r.role !== "person") return [`pic${i + 1}`, pic];
+                  // the node's own 2.5 face heights unless another size is asked (the graph of a form left alone as it was)
+                  const sized = input.refFaceSize !== undefined && input.refFaceSize !== 2.5 ? { factor: input.refFaceSize } : {};
+                  const cut = !refs.faceCrop ? pic : refs.faceCrop === FACE_FRAME ? g.out(FACE_FRAME, { image: pic, width, height, ...sized }) : g.out(FACE_CROP, { image: pic, ...sized });
+                  // the rest blurred or grey once the picture is cut: the oval is laid at the size MSR is given
+                  return [`pic${i + 1}`, refs.backdrop ? g.out(FACE_BACKDROP, { image: cut, backdrop: refs.backdrop }) : cut];
                 })),
                 ...(refs.background ? { background: g.out("LoadImage", { image: refs.background }) } : {}),
               },

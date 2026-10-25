@@ -50,6 +50,18 @@ describe("the cast's picture for the face score", () => {
     expect((await compose(t.db, recipeById("wan.video")!, { prompt: "zz-test", facePhoto: stale }, { cast: [{ id: place }], snippets: [] })).input.facePhoto).toBeUndefined();
   });
 
+  // card #81, from #85's series: LTX 2.3 said nothing of the cast's pictures it does not use
+  it("is said in words: the cast's pictures are not used by LTX 2.3 or Wan, LTX 2.5 named as the one that takes them", async () => {
+    const person = await entity("person", "zz-test Mara", [await picture("face.png")]);
+    const place = await entity("place", "zz-test room", [await picture("room.png")]);
+    const skipped = async (id: string, cast: string[]) => (await compose(t.db, recipeById(id)!, { prompt: "zz-test" }, { cast: cast.map((c) => ({ id: c })), snippets: [] })).added.skipped;
+    expect(await skipped("ltx.video", [person])).toEqual(["zz-test Mara's pictures aren't used: LTX 2.3 takes no reference pictures (LTX 2.5 does)"]);
+    expect(await skipped("wan.video", [person, place])).toEqual(["The pictures of zz-test Mara and zz-test room aren't used: Wan 2.2 takes no reference pictures"]);
+    // LTX 2.5 takes them; a person with no picture has none to leave out
+    expect(await skipped("ltx25.video", [person])).toEqual([]);
+    expect(await skipped("ltx.video", [await entity("person", "zz-test nobody", [])])).toEqual([]);
+  });
+
   it("is left out when the person's picture is in the bin", async () => {
     const face = await picture("face.png");
     await t.db.updateTable("assets").set({ deleted_at: now() }).where("id", "=", face).execute();

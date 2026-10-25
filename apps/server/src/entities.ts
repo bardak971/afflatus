@@ -1,4 +1,5 @@
 import { LIMITS, plural, presetFileSchema, provenanceSchema, type InputSpec, type LoraValue, type Recipe, type ReferenceRole, type ReferenceValue } from "@afflatus/core";
+import { familyById, recipes } from "@afflatus/recipes";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { httpError } from "./errors";
@@ -171,7 +172,16 @@ function withWords(own: string, before: string[], after: string[], tags: boolean
     held += ` ${k}`;
     return part;
   };
-  return join([...before.map(fresh), own, ...after.map(fresh)], " ");
+  // sentences put one after another each end with a full stop, or a person's words run into what is written ("…sweater She turns")
+  const parts = [...before.map(fresh), own, ...after.map(fresh)].map((p) => p.trim().replace(/^[,\s]+|[,\s]+$/g, "")).filter(Boolean);
+  return parts.map((p, i) => (i < parts.length - 1 && !/[.!?…:;]["'”’)\]]*$/.test(p) ? `${p}.` : p)).join(" ");
+}
+
+/** Another model of the same maker and output whose form takes reference pictures ("LTX 2.5" for LTX 2.3), when there is one. */
+function takesReferences(recipe: Recipe<any>, name: string): string | undefined {
+  const maker = name.split(" ")[0]!.toLowerCase();
+  const other = recipes.find((r) => r.family !== recipe.family && r.output === recipe.output && !r.hidden && (r.inputs as InputSpec[]).some((i) => i.type === "references" && !i.media) && familyById(r.family)?.name.split(" ")[0]!.toLowerCase() === maker);
+  return other && familyById(other.family)?.name;
 }
 
 /** The look and mood of a whole video go at the end of what happens, like a style's words. */
@@ -311,6 +321,16 @@ export async function compose(db: Db, recipe: Recipe<any>, asked: Record<string,
   if (faceSpec && faced) {
     const alive = await db.selectFrom("assets").select("id").where("id", "=", faced.asset).where("deleted_at", "is", null).where("kind", "=", "image").executeTakeFirst();
     if (alive) input[faceSpec.id] = faced.asset;
+  }
+  // and that model is told it in words: only the face score reads those pictures, so a cast person's look comes from their words
+  // and LoRA alone. A model of the same name that does take them is named (LTX 2.3's, LTX 2.5).
+  if (faceSpec && !refSpec) {
+    const pictured = [...new Set(refs.map((r) => r.from))];
+    if (pictured.length) {
+      const name = familyById(recipe.family)?.name ?? recipe.family;
+      const other = takesReferences(recipe, name);
+      added.skipped.push(`${pictured.length === 1 ? `${pictured[0]}'s pictures aren't` : `The pictures of ${pictured.join(" and ")} aren't`} used: ${name} takes no reference pictures${other ? ` (${other} does)` : ""}`);
+    }
   }
 
   // a model that follows reference pictures and was given an end frame makes the clip from the references instead (MiniMax H3);
