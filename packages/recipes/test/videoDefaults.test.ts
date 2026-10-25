@@ -154,6 +154,20 @@ describe("LTX 2.5's reference pictures and voice (the MSR LoRA)", () => {
     expect(b.warnings).toBeUndefined();
   });
 
+  it("keeps a clip that carries on in one shot, on the person by their picture's number, in words after the user's (card #87)", () => {
+    const previous = { width: 1280, height: 704, frames: 41, fps: 24, hasSound: true };
+    const textOf = (b: { graph: unknown }) => of(b.graph as Graph, "CLIPTextEncode")[0]!.inputs.text;
+    const carried = (input: Record<string, unknown>, uploads: Record<string, string>, recipe = ltx25Video, media = {}) =>
+      recipe.build(parseInput(recipe, { prompt: "They talk.", previous: { asset: "c1" }, ...input }), dryContext({ slots: { ...slots, msr }, uploads: { previous: "c1.mp4", ...uploads }, media: { previous, ...media } }));
+    const r = refs(["place", "person"]);
+    expect(textOf(carried({ references: r.references }, r.uploads))).toBe("Image 1: a person.\nImage 2: the place, the background of the scene.\n\nThey talk. One continuous shot, the camera stays on the person in Image 1.");
+    expect(textOf(carried({}, {}))).toBe("They talk. One continuous shot, the camera stays on the same scene.");
+    // Lip sync: after the line that the person speaks
+    expect(textOf(carried({ recording: "a1" }, { recording: "rec.wav" }, ltx25LipSync, { recording: { width: 0, height: 0, seconds: 4 } }))).toBe("They talk. The person speaks throughout, the lips moving with every word. One continuous shot, the camera stays on the person.");
+    // a clip that opens the scene is left to cut as its words say
+    expect(textOf(build({}, {}))).toBe("They talk.");
+  });
+
   it("asks for the MSR LoRA only with pictures or a voice: a pod is sent it, a machine without it renders without", () => {
     expect(ltx25Video.needsWith!(parseInput(ltx25Video, { prompt: "a" }), {})).not.toContain("msr");
     expect(ltx25Video.needsWith!(parseInput(ltx25Video, { prompt: "a", references: [{ asset: "r", role: "person" }] }), {})).toContain("msr");
