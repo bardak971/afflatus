@@ -40,6 +40,17 @@ export const ltxVideo = ltxRecipe({
         input: { prompt: "a", previous: { asset: "c1" }, start: "ignored" },
         slots: { ...one, ...extras }, uploads: { previous: "a.mp4", start: "a.png" }, media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX_FPS, hasSound: true } },
       },
+      {
+        name: "between two clips: the clip before's sound carried on, its chain's colour match carried on, landing on the clip after",
+        input: { prompt: "a", previous: { asset: "c1" }, next: { asset: "c2", at: 0 } },
+        slots: { ...one, ...extras }, uploads: { previous: "a.mp4", "previous.look": "look.png", next: "b.mp4" },
+        media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX_FPS, hasSound: true }, next: { width: 704, height: 1280, frames: 25, fps: LTX_FPS, hasSound: true } },
+      },
+      {
+        name: "lands on a short clip after, in one pass, without ComfyUI's colour nodes",
+        input: { prompt: "a", next: { asset: "c2", at: 0 }, twoPass: false },
+        slots: one, uploads: { next: "b.mp4" }, media: { next: { width: 704, height: 1280, frames: 9, fps: LTX_FPS, hasSound: false } },
+      },
       { name: "carries on from a short clip, in one pass with a last picture", input: { prompt: "a", previous: { asset: "c1" }, end: "p2" }, slots: one, uploads: { previous: "a.mp4", end: "b.png" }, media: { previous: { width: 704, height: 1280, frames: 9, fps: LTX_FPS, hasSound: false }, end: picture } },
       {
         name: "from a first to a last picture: one pass, a LoRA",

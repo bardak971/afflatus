@@ -66,15 +66,16 @@ export function joinFade(x: { landedMs?: number; joined: boolean; seamless: bool
 export const SOUND_HANDOVER_MS = 120;
 
 /**
- * How many ms before the join the sound hands over to the clip after (SOUND_HANDOVER_MS), or 0: only at a seamless join, both
+ * How many ms before the join the sound hands over to the clip after (SOUND_HANDOVER_MS), or 0: only at a seamless join, or a
+ * join whose head carries the clip before's own sound (`carried`: an LTX join, its head's sound pinned, still after that take), both
  * clips heard by their own sound, with as much of the clip after's head before where it plays (`shownFromMs`, its visible start
  * in its video) and of the clip before to play (`beforeMs`). Never into a clip whose head's sound is a guess (`guessedHead`: a
  * recording laid after its head, Lip sync's laysSound, without the lead-in, sungHead): the model's rough guess at it, while
  * the clip before plays the recording itself to its end; handed over, a song's joins played 120 ms of that guess. Into a head
  * filed with the recording, it hands over as any: the player switches from the clip after already running, hidden.
  */
-export function soundHandover(x: { seamless: boolean; bothOwnSound: boolean; shownFromMs: number; beforeMs: number; guessedHead?: boolean }): number {
-  if (!x.seamless || !x.bothOwnSound || x.guessedHead) return 0;
+export function soundHandover(x: { seamless: boolean; carried?: boolean; bothOwnSound: boolean; shownFromMs: number; beforeMs: number; guessedHead?: boolean }): number {
+  if (!(x.seamless || x.carried) || !x.bothOwnSound || x.guessedHead) return 0;
   return x.shownFromMs >= SOUND_HANDOVER_MS && x.beforeMs > 2 * SOUND_HANDOVER_MS ? SOUND_HANDOVER_MS : 0;
 }
 

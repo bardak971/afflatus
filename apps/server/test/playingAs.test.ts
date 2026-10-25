@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { playingAs, plays, seamless, visible, type AssetRow, type ClipRow, type Placed, type TakeRow } from "../src/timelineModel";
+import { carried, markJoins, playingAs, plays, seamless, visible, type AssetRow, type ClipRow, type Placed, type TakeRow } from "../src/timelineModel";
 
 /**
  * A take that does not play, measured as it would play: the joins panel's figures of every take, and its "smoothest", must
@@ -47,5 +47,29 @@ describe("playingAs", () => {
   it("a take after another take than its own is no seamless join", () => {
     const as = playingAs(timeline("b1"), 1, "b2");
     expect(seamless(as[1]!.active)).toBe(false);
+  });
+});
+
+describe("a join that carries the clip before's sound (LTX)", () => {
+  const placedWith = (prev: string, trimStart = 0): Placed[] => {
+    const a = { take: take("a1", "A", "va", { head_ms: 0 }), asset: asset("va", { fps: 25 }) };
+    const b = { take: take("b1", "B", "vb", { head_ms: 1000, join_kind: "carried", prev_take_id: prev, prev_at_ms: plays(a).end, trim_start_ms: trimStart }), asset: asset("vb", { fps: 25 }) };
+    return [
+      { clip: clip("A", "cut"), takes: [a], active: a, still: null, sound: null, pictures: [] },
+      { clip: clip("B", "continue"), takes: [b], active: b, still: null, sound: null, pictures: [] },
+    ] as Placed[];
+  };
+  it("is carried only after the very take it was made from, untrimmed; never seamless, and the clip before gives nothing up", () => {
+    const placed = placedWith("a1");
+    markJoins(placed);
+    expect(carried(placed[1]!.active)).toBe(true);
+    expect(seamless(placed[1]!.active)).toBe(false);
+    expect(placed[0]!.active!.give ?? 0).toBe(0);
+    const other = placedWith("gone");
+    markJoins(other);
+    expect(carried(other[1]!.active)).toBe(false);
+    const trimmed = placedWith("a1", 200);
+    markJoins(trimmed);
+    expect(carried(trimmed[1]!.active)).toBe(false);
   });
 });

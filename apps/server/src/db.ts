@@ -339,7 +339,7 @@ export interface Tables {
     /** The take this one is the finished (upscaled) version of: the draft stays in the list. */
     finished_from: string | null;
     /** How its start joins the clip before: in the latent (the clip before's own tokens continued), or pinned frames; null when it does not continue a clip. */
-    join_kind: "seamless" | "latent" | "hybrid" | "pixels" | "window" | null;
+    join_kind: "seamless" | "latent" | "hybrid" | "pixels" | "carried" | "window" | null;
     created_at: string;
   };
   /** Imported ComfyUI workflows: the workflow and its mapping, as one JSON document each. */

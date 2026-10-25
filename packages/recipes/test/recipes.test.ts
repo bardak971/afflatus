@@ -73,9 +73,10 @@ describe("every recipe", () => {
         const input = parseInput(r, v.input);
         const built = r.build(input, dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {}, media: v.media ?? {}, canvas: v.canvas, ...(v.has ? { has: v.has } : {}) }));
         expect(checkGraph(built, catalog), `${r.id} · ${v.name}`).toEqual([]);
-        // what the graph uses is what nodes() says, plus the extras it only takes when ComfyUI has them
+        // what the graph uses is what nodes() says, plus the extras it only takes when ComfyUI has them or the server sends
+        // them (a node can be both: LTX's LoadImage, for a picture asked for and for the clip before's look, sent or not)
         const used = new Set(Object.values(built.graph).map((n) => n.class_type).filter((c) => !r.optionalNodes?.includes(c)));
-        expect([...used].sort(), `${r.id} · ${v.name}: nodes()`).toEqual([...new Set(r.nodes(input))].sort());
+        expect([...used].sort(), `${r.id} · ${v.name}: nodes()`).toEqual([...new Set(r.nodes(input).filter((c) => !r.optionalNodes?.includes(c)))].sort());
       }
     }
   });
@@ -853,12 +854,73 @@ describe("ltx.video", () => {
     // 5 s of its own after the second it shares: 150 frames on the grid, the overlap said for the timeline (a join on pixels)
     expect(all(b, "EmptyLTXVLatentVideo")[0]!.inputs.length).toBe(ltxFrames(6));
     expect(b.frames).toBe(ltxFrames(6));
-    expect(b.overlap).toEqual({ headMs: 1000, tailMs: 0 });
+    expect(b.overlap).toEqual({ headMs: 1000, tailMs: 0, sound: true });
     // the keyframe's moment is counted after the shared frames
     const mid = build({ previous: { asset: "c" }, mid: "m", midAt: 2 }, { uploads: { previous: "c.mp4", mid: "m.png" }, media: { previous: prev, mid: { width: 832, height: 1216 } } });
     expect(all(mid, "LTXVAddGuide").map((n) => n.inputs.frame_idx)).toEqual([0, 25 + 48, 0, 25 + 48]);
     // fewer frames than the join takes are refused with the counts it takes
     expect(() => build({ previous: { asset: "c" } }, { uploads: { previous: "c.mp4" }, media: { previous: { ...prev, frames: 17 } } })).toThrow(/25 or 9/);
+  });
+
+  it("carries the clip before's sound on: encoded under its frames at the head and pinned there in every pass", () => {
+    const prev = { width: 704, height: 1280, frames: 25, fps: 25, hasSound: true };
+    const b = build({ previous: { asset: "c" }, seconds: 5 }, { uploads: { previous: "c.mp4" }, media: { previous: prev } });
+    const [video] = all(b, "GetVideoComponents");
+    const id = Object.entries(b.graph).find(([, n]) => n === video)![0];
+    // the sound of the frames handed over, encoded with the model's audio VAE
+    expect(all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio).toEqual([id, 1]);
+    // laid into the clip's silence (its length stays the silence's), the head's frames less one pinned
+    const silence = Object.entries(b.graph).find(([, n]) => n.class_type === "LTXVEmptyLatentAudio")![0];
+    expect(all(b, "LatentCompositeMasked")[0]!.inputs).toMatchObject({ destination: [silence, 0], x: 0, y: 0 });
+    expect(all(b, "SolidMask").map((n) => [n.inputs.value, n.inputs.height])).toEqual([[1, ltxFrames(6)], [0, 24]]);
+    expect(all(b, "MaskComposite")[0]!.inputs.operation).toBe("multiply");
+    // the first pass starts from it, the refining pass gets the pin back on the first pass's sound
+    const pins = Object.entries(b.graph).filter(([, n]) => n.class_type === "SetLatentNoiseMask").map(([k]) => k);
+    expect(pins).toHaveLength(2);
+    expect(all(b, "LTXVConcatAVLatent").map((n) => (n.inputs.audio_latent as [string, number])[0])).toEqual(pins);
+    // the interpolation's settling pass too
+    const doubled = build({ previous: { asset: "c" }, smooth: true, smoothWith: "LTX temporal (latent)" }, { slots: { ...one, ...extras, temporal: "t.safetensors" }, uploads: { previous: "c.mp4" }, media: { previous: prev } });
+    expect(all(doubled, "SetLatentNoiseMask")).toHaveLength(3);
+    // a clip before without sound, or a ComfyUI without the nodes: the head's sound is made, as before, and the take says so
+    const silent = build({ previous: { asset: "c" } }, { uploads: { previous: "c.mp4" }, media: { previous: { ...prev, hasSound: false } } });
+    expect(all(silent, "LTXVAudioVAEEncode")).toEqual([]);
+    expect(silent.overlap).toEqual({ headMs: 1000, tailMs: 0 });
+    const old = build({ previous: { asset: "c" } }, { uploads: { previous: "c.mp4" }, media: { previous: prev }, has: (n: string) => n !== "LatentCompositeMasked" });
+    expect(all(old, "SetLatentNoiseMask")).toEqual([]);
+    expect(old.overlap).toEqual({ headMs: 1000, tailMs: 0 });
+    // nothing of it on a clip that starts on its own
+    expect(all(build({}), "LTXVAudioVAEEncode")).toEqual([]);
+  });
+
+  it("lands on the clip after: its first frames guide the clip's last in both passes, hidden as the tail", () => {
+    const after = { width: 704, height: 1280, frames: 25, fps: 25, hasSound: true };
+    const b = build({ next: { asset: "n", at: 0 }, seconds: 5 }, { uploads: { next: "n.mp4" }, media: { next: after } });
+    const frames = ltxFrames(6);
+    expect(b.frames).toBe(frames);
+    expect(all(b, "LTXVAddGuide").map((n) => [n.inputs.frame_idx, n.inputs.strength])).toEqual([[frames - 25, 1], [frames - 25, 1]]);
+    expect((frames - 25) % 8).toBe(0);
+    // the frame is the clip after's
+    expect(all(b, "ImageScale").map((n) => [n.inputs.width, n.inputs.height])).toEqual([[352, 640], [704, 1280]]);
+    expect(b.overlap).toEqual({ headMs: 0, tailMs: 1000 });
+    // between two clips: both guides, the clip that long again
+    const prev = { ...after };
+    const both = build({ previous: { asset: "c" }, next: { asset: "n", at: 0 }, seconds: 5 }, { uploads: { previous: "c.mp4", next: "n.mp4" }, media: { previous: prev, next: after } });
+    expect(both.frames).toBe(ltxFrames(7));
+    expect(all(both, "LTXVAddGuide").map((n) => n.inputs.frame_idx)).toEqual([0, ltxFrames(7) - 25, 0, ltxFrames(7) - 25]);
+    expect(both.overlap).toEqual({ headMs: 1000, tailMs: 1000, sound: true });
+    // a last picture of its own wins: the clip after is not landed on
+    const pinned = build({ start: "p", end: "q", next: { asset: "n", at: 0 } }, { uploads: { start: "a.png", end: "b.png", next: "n.mp4" }, media: { start: picture, end: picture, next: after } });
+    expect(all(pinned, "GetVideoComponents")).toEqual([]);
+    expect(pinned.overlap).toBeUndefined();
+    expect(ltxVideo.traits?.endAnchor).toBe(true);
+  });
+
+  it("carries a chain's colour match on, at the head's last frame, when the clip before's chain was matched", () => {
+    const prev = { width: 704, height: 1280, frames: 25, fps: 25, hasSound: true };
+    const look = build({ previous: { asset: "c" } }, { uploads: { previous: "c.mp4", "previous.look": "look.png" }, media: { previous: prev }, has: (n: string) => n !== "AfflatusColorFollow" });
+    expect(all(look, "ColorTransfer")[0]!.inputs).toMatchObject({ source_stats: "target_frame", "source_stats.target_index": 24, strength: 1 });
+    expect(all(build({ previous: { asset: "c" } }, { uploads: { previous: "c.mp4" }, media: { previous: prev } }), "ColorTransfer")).toEqual([]);
+    expect(ltxVideo.inputs.find((i) => i.id === "previous")).toMatchObject({ look: "matched" });
   });
 
   it("makes it in one pass at full size when it ends on a picture, when asked, or without the upscaler", () => {

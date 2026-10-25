@@ -4,7 +4,7 @@ import { UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNeeds, upscaleNodes } 
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
-import { colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, openingStart, rifeNeeds, rifeSkippedSaid, type ColourMatch } from "../shared/finish";
+import { colourCarried, colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, openingStart, rifeNeeds, rifeSkippedSaid, type ColourMatch } from "../shared/finish";
 import { applyLoras, livePreview, loraLoads } from "../shared/model";
 
 /**
@@ -74,6 +74,11 @@ const BY_STEPS = "By steps";
 export const LTX_JOIN_FRAMES = [25, 9];
 /** The guide's strength on those frames: they are the clip before's own and are not shown, so they are held exactly. */
 const CARRY_STRENGTH = 1;
+/**
+ * The core nodes that pin the clip before's sound under its frames: its sound encoded, laid at the start of the clip's
+ * silence, and a noise mask that keeps it as it is (ComfyUI's own audio-to-video templates pin a whole sound the same way).
+ */
+const HEAD_SOUND_NODES = ["LTXVAudioVAEEncode", "LatentCompositeMasked", "SolidMask", "MaskComposite", "SetLatentNoiseMask"];
 /** The longest clip the model takes, in seconds: the frames shared with the clip before count in it. */
 const LTX_MAX_SECONDS = 20;
 
@@ -86,6 +91,7 @@ export interface LtxVideo extends ColourMatch {
   nagScale: number;
   start?: string;
   previous?: ClipValue;
+  next?: ClipValue;
   end?: string;
   mid?: string;
   midAt: number;
@@ -160,10 +166,11 @@ const midFrame = (input: LtxVideo, fps: number, frames: number, head = 0) => {
   return Math.max(step, Math.min(frames - 1 - step, at));
 };
 
-/** The frames of the clip before a clip opens on, as they were handed over: 25 or 9, on the model's 8n + 1. */
-function headFramesOf(m: MediaFacts | undefined): number {
+/** The frames of the clip before a clip opens on, or of the clip after it lands on, as they were handed over: 25 or 9, on the model's 8n + 1. */
+function joinFramesOf(m: MediaFacts | undefined, side: "previous" | "next"): number {
   const n = m?.frames ?? 0;
-  if (!LTX_JOIN_FRAMES.includes(n)) throw new Error(`a clip carries on from ${LTX_JOIN_FRAMES.join(" or ")} frames of the clip before, not ${n}`);
+  const [does, which] = side === "previous" ? ["carries on from", "before"] : ["lands on", "after"];
+  if (!LTX_JOIN_FRAMES.includes(n)) throw new Error(`a clip ${does} ${LTX_JOIN_FRAMES.join(" or ")} frames of the clip ${which}, not ${n}`);
   return n;
 }
 /**
@@ -235,6 +242,11 @@ interface LtxRun {
   /** The clip before's last frames, as handed over, and how many: the clip opens on them. Null when it starts on its own. */
   previous: Ref | null;
   head: number;
+  /** The clip after's first frames, as handed over, and how many: the clip ends on them. Null when it lands on nothing. */
+  next: Ref | null;
+  tail: number;
+  /** The sound as a pass is given it again: with the clip before's sound pinned at the head, that pin put back (headSound). */
+  pin: (audio: Ref) => Ref;
   /** The clip opens on its first-frame picture (not when it carries on from a clip: that one's frames open it). */
   opens: boolean;
 }
@@ -267,7 +279,10 @@ function guided(run: LtxRun, on: Ref, wide: number, high: number, opening?: stri
   // the first picture as a guide (the one-pass route; the two-pass one puts it in the latent itself)
   else if (opening) add(ltxFrame(g, input, opening, wide, high), 0, input.startStrength);
   if (input.mid) add(ltxFrame(g, input, ctx.uploads.mid, wide, high), midFrame(input, spec.fps, run.frame.frames, run.head), input.midStrength);
-  return { positive, negative, latent, any: Boolean(run.previous || opening || input.mid) };
+  // the clip after's first frames at the clip's end, held as exactly as the clip before's: the clip lands on them (a tail of
+  // 8n + 1 frames ending a clip of 8m + 1 starts on the model's 8-frame steps)
+  if (run.next) add(ltxGuideFrames(g, input, run.next, wide, high), run.frame.frames - run.tail, CARRY_STRENGTH);
+  return { positive, negative, latent, any: Boolean(run.previous || opening || input.mid || run.next) };
 }
 
 /**
@@ -307,7 +322,7 @@ function ltxTwoPass(run: LtxRun): { video: Ref; audio: Ref } {
     noise: g.out("RandomNoise", { noise_seed: ctx.seed + 1 }),
     guider: guiderOf(run, loaded.model, full.positive, full.negative),
     sampler, sigmas: g.out("ManualSigmas", { sigmas: refineSigmas(input.refineStrength, refine) }),
-    latent_image: g.out("LTXVConcatAVLatent", { video_latent: full.latent, audio_latent: [made, 1] }),
+    latent_image: g.out("LTXVConcatAVLatent", { video_latent: full.latent, audio_latent: run.pin([made, 1]) }),
   });
   passes.push({ node: second, steps: refine });
   const done = g.add("LTXVSeparateAVLatent", { av_latent: [second, 0] });
@@ -351,11 +366,35 @@ function ltxTemporal(run: LtxRun, made: { video: Ref; audio: Ref }): { video: Re
     noise: g.out("RandomNoise", { noise_seed: ctx.seed + 2 }),
     guider: guiderOf(run, loaded.model, [cond, 0], [cond, 1]),
     sampler, sigmas: g.out("ManualSigmas", { sigmas: refineSigmas(0.5, 2) }),
-    latent_image: g.out("LTXVConcatAVLatent", { video_latent: doubled, audio_latent: made.audio }),
+    latent_image: g.out("LTXVConcatAVLatent", { video_latent: doubled, audio_latent: run.pin(made.audio) }),
   });
   passes.push({ node: settled, steps: 2 });
   const apart = g.add("LTXVSeparateAVLatent", { av_latent: [settled, 0] });
   return { video: [apart, 0], audio: [apart, 1] };
+}
+
+/**
+ * The sound the first pass starts from: silence for the model to fill, or, for a clip that carries on from one with sound, the
+ * clip before's own sound under its frames at the head, pinned (a noise mask of 0 there) so that the model carries it on
+ * rather than making up another over the same moments (r 0.13 to 0.14 against the clip before, measured on such heads on
+ * 2026-10-21). Laid into the silence rather than joined to it, the clip keeps the silence's length whatever the encoder makes
+ * of the head's. The mask is a column as tall as the clip's frames, stretched over the sound's own steps; its pinned part is a
+ * frame short of the head, so that what is pinned is the head's sound, never the silence after it. `carried`: the head's
+ * sound is the clip before's (the take's join says so, and the sound hands over early into it).
+ */
+function headSound(g: GraphBuilder, ctx: BuildContext, audioVae: Ref, previous: Ref | null, frames: number, head: number, fps: number): { sound: Ref; pin: (audio: Ref) => Ref; carried: boolean } {
+  const sound = g.out("LTXVEmptyLatentAudio", { frames_number: frames, frame_rate: fps, batch_size: 1, audio_vae: audioVae });
+  if (!previous || head < 2 || ctx.media.previous?.hasSound === false || !HEAD_SOUND_NODES.every((n) => ctx.has(n))) return { sound, pin: (audio) => audio, carried: false };
+  const heard = g.out("LTXVAudioVAEEncode", { audio: [previous[0], 1], audio_vae: audioVae });
+  const laid = g.out("LatentCompositeMasked", { destination: sound, source: heard, x: 0, y: 0, resize_source: false });
+  const mask = g.out("MaskComposite", {
+    destination: g.out("SolidMask", { value: 1, width: 1, height: frames }),
+    source: g.out("SolidMask", { value: 0, width: 1, height: head - 1 }),
+    x: 0, y: 0, operation: "multiply",
+  });
+  // given again to every pass after the first: the sound each one is handed is the pass before's, the head still the clip before's
+  const pin = (audio: Ref): Ref => g.out("SetLatentNoiseMask", { samples: audio, mask });
+  return { sound: pin(laid), pin, carried: true };
 }
 
 /** The recipe of a version of LTX, from its spec. */
@@ -377,7 +416,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
     summary: spec.summary,
     output: "video",
     traits: {
-      startFrame: true, endFrame: true, midFrames: true, continues: "clip", endAnchor: false, sound: true,
+      startFrame: true, endFrame: true, midFrames: true, continues: "clip", endAnchor: true, sound: true,
       fps, frameGrid: { step: 8, offset: 1 },
     },
     inputs: [
@@ -391,8 +430,12 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       },
       { id: "start", type: "image", role: "start", label: "First frame", note: "the first frame", optional: true },
       {
-        id: "previous", type: "clip", role: "previous", label: "Previous clip", optional: true, frames: LTX_JOIN_FRAMES, fps, advanced: true,
-        note: "the clip this one carries on from: its last second (25 frames) opens this clip as a guide, so that the motion carries over, not only the last picture. On a timeline those frames are hidden, the clip plays from its own. A first frame is not used with it",
+        id: "previous", type: "clip", role: "previous", label: "Previous clip", optional: true, frames: LTX_JOIN_FRAMES, fps, advanced: true, look: "matched",
+        note: "the clip this one carries on from: its last second (25 frames) opens this clip as a guide, its sound under it, so that the motion and the sound carry over, not only the last picture. On a timeline those frames are hidden, the clip plays from its own. A first frame is not used with it",
+      },
+      {
+        id: "next", type: "clip", role: "next", label: "Next clip", optional: true, frames: LTX_JOIN_FRAMES, fps, advanced: true,
+        note: "this clip ends exactly where that one begins: its first second (25 frames) guides this clip's last ones. Not used with a last frame",
       },
       { id: "end", type: "image", role: "end", label: "Last frame", note: "the last frame. With one, the clip is made in one pass at full size", optional: true },
       { id: "mid", type: "image", role: "mid", at: "midAt", label: "Keyframe", note: "a picture the clip passes through, at the time set below", optional: true, advanced: true },
@@ -498,7 +541,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         ...(spec.loader === "split" ? ["UNETLoader", "CLIPLoader", "VAELoader"] : []),
         ...(input.schedule === BY_STEPS ? ["LTXVScheduler"] : []),
         ...((input.start && !input.previous) || input.end || input.mid ? ["LoadImage", "ImageScale", "LTXVPreprocess"] : []),
-        ...(input.previous ? ["LoadVideo", "GetVideoComponents", "ImageScale", "LTXVPreprocess"] : []),
+        ...(input.previous || input.next ? ["LoadVideo", "GetVideoComponents", "ImageScale", "LTXVPreprocess"] : []),
       ];
     },
     // which loaders, and which way the clip is made, depend on the files this ComfyUI has
@@ -507,7 +550,9 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       ...(spec.loader === "checkpoint" ? ["UNETLoader", "DualCLIPLoader", "VAELoader", "CheckpointLoaderSimple", "LTXVAudioVAELoader", "LTXAVTextEncoderLoader"] : []),
       "LoraLoaderModelOnly",
       "LatentUpscaleModelLoader", "LTXVLatentUpsampler", "LTXVImgToVideoInplace", "LTXVAddGuide", "LTXVCropGuides", "ManualSigmas",
-      "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ", ...(spec.nag ? ["LTX2_NAG"] : []),
+      "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ", ...(spec.nag ? ["LTX2_NAG"] : []), ...HEAD_SOUND_NODES,
+      // the clip before's last frame as it was filed, loaded when the server sends it (its chain was colour-matched: colourCarried)
+      "LoadImage",
     ],
 
     build(input, ctx) {
@@ -522,15 +567,18 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       // as Wan's is up to its 720p: a clip at a 1080p timeline's size was 1088p, slower and no better (users put LTX's sweet spot
       // at 720p; the owner, 2026-10-15)
       const opens = Boolean(input.start) && !input.previous;
-      const like = input.previous ? media.previous : opens ? media.start : input.end ? media.end : input.mid ? media.mid : undefined;
+      // the clip after is landed on, unless the clip ends on a last picture of its own, which would guide the same frames
+      const lands = Boolean(input.next) && !input.end;
+      const like = input.previous ? media.previous : lands ? media.next : opens ? media.start : input.end ? media.end : input.mid ? media.mid : undefined;
       const { width, height } = ctx.canvas
         ? ltxCanvas(ctx.canvas.width, ctx.canvas.height, Math.min(ctx.canvas.width, ctx.canvas.height, LTX_CANVAS_SHORT))
         : like?.width
           ? ltxCanvas(like.width, like.height, input.short)
           : ltxCanvas(input.shape.width, input.shape.height, input.short);
-      // the frames shared with the clip before are that clip's: the clip is made that much longer, within the 20 s the model takes
-      const head = input.previous ? headFramesOf(media.previous) : 0;
-      const frames = ltxFramesAt(Math.min(input.seconds, LTX_MAX_SECONDS - head / fps) + head / fps, fps);
+      // the frames shared with the clips before and after are theirs: the clip is made that much longer, within the 20 s the model takes
+      const head = input.previous ? joinFramesOf(media.previous, "previous") : 0;
+      const tail = lands ? joinFramesOf(media.next, "next") : 0;
+      const frames = ltxFramesAt(Math.min(input.seconds, LTX_MAX_SECONDS - (head + tail) / fps) + (head + tail) / fps, fps);
 
       const g = new GraphBuilder();
       const loaded = ltxLoad(spec, g, ctx, input, picked);
@@ -550,12 +598,16 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         loaded.model = nag(loaded.model);
         loaded.first = same ? loaded.model : nag(loaded.first);
       }
+      // the clip before's last frames and the clip after's first, as handed over (cut by the server to LTX_JOIN_FRAMES at the model's rate)
+      const clipOf = (upload: string | undefined): Ref => [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: upload }) }), 0];
+      const previous = input.previous ? clipOf(ctx.uploads.previous) : null;
+      const carry = headSound(g, ctx, loaded.audioVae, previous, frames, head, fps);
       const run: LtxRun = {
-        spec, g, ctx, input, loaded, cond, steps, frame: { width, height, frames }, passes: [], head, opens,
-        // the clip before's last frames as handed over (cut by the server to LTX_JOIN_FRAMES at the model's rate)
-        previous: input.previous ? [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.previous }) }), 0] : null,
+        spec, g, ctx, input, loaded, cond, steps, frame: { width, height, frames }, passes: [], head, opens, previous, tail,
+        next: lands ? clipOf(ctx.uploads.next) : null,
+        pin: carry.pin,
         sampler: g.out("KSamplerSelect", { sampler_name: input.sampler }),
-        sound: g.out("LTXVEmptyLatentAudio", { frames_number: frames, frame_rate: fps, batch_size: 1, audio_vae: loaded.audioVae }),
+        sound: carry.sound,
         // By steps: LTX's own scheduler, shifted by the size of the latent it is given
         sigmas: (latent) => (byHand ? g.out("ManualSigmas", { sigmas: LTX_SIGMAS }) : g.out("LTXVScheduler", { steps, max_shift: input.maxShift, base_shift: input.baseShift, stretch: input.stretch, terminal: input.terminal, latent })),
       };
@@ -570,7 +622,10 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       g.phase("decoding");
       const images = g.out("VAEDecodeTiled", { samples: made.video, vae: loaded.vae, tile_size: input.tile, overlap: 64, temporal_size: input.tileFrames, temporal_overlap: spec.decode.overlap });
       const heard = g.out("LTXVAudioVAEDecode", { samples: made.audio, audio_vae: loaded.audioVae });
-      const done = finishFrames(g, ctx, colourMatched(g, ctx, images, openingStart(input), fps), input, { frame: { width, height }, rife: input.smooth && !temporal, fps, audio: heard, doubled: temporal });
+      // matched to the first frame (a clip that opens a chain), or carrying that match on (one that continues it: its head's last
+      // frame is the clip before's last moment, brought to how that clip was filed)
+      const looked = colourCarried(g, ctx, colourMatched(g, ctx, images, openingStart(input), fps), head - 1, fps);
+      const done = finishFrames(g, ctx, looked, input, { frame: { width, height }, rife: input.smooth && !temporal, fps, audio: heard, doubled: temporal });
       const unsmoothed = rifeSkippedSaid(input.smooth && !temporal, ctx);
 
       return {
@@ -581,9 +636,9 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         totalSteps: run.passes.reduce((n, p) => n + p.steps, 0),
         passes: run.passes,
         // a continuation counts its frames as an extension and an overlap: hidden on a timeline, faded over the clip before (a
-        // join on pixels, as joinKindOf reads it)
+        // join on pixels, as joinKindOf reads it, "carried" with the clip before's sound pinned under them). A landing likewise
         frames,
-        ...(head ? { overlap: { headMs: Math.round((head / fps) * 1000), tailMs: 0 } } : {}),
+        ...(head || tail ? { overlap: { headMs: Math.round((head / fps) * 1000), tailMs: Math.round((tail / fps) * 1000), ...(carry.carried ? { sound: true } : {}) } } : {}),
         loads: [
           ...done.loads,
           ...(picked.unet

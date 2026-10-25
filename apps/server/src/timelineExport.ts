@@ -13,7 +13,7 @@ import { generationOfTake } from "./timelinePlan";
 import { fewAtATime } from "./timelineMedia";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideoFile } from "./video";
-import { clockOf, joinFade, laidOut, sameMaking, seamless, visible, type AssetRow, type Laid, type Placed, type Taken, type TimelineCore, type TimelineRow, musicBaseOf, musicClipsOf, transitionOfRow } from "./timelineModel";
+import { carried, clockOf, joinFade, laidOut, sameMaking, seamless, visible, type AssetRow, type Laid, type Placed, type Taken, type TimelineCore, type TimelineRow, musicBaseOf, musicClipsOf, transitionOfRow } from "./timelineModel";
 
 /** A timeline as one video: its clips that play joined in order, with their sounds, its music and the joins softened. */
 
@@ -127,8 +127,11 @@ export class TimelineExport {
     const fade = afterVideo && from === 0 ? joinFade(x, p.clip.joined === "continue") : null;
     const landed = fade?.mode === "overlap";
     // a join made in the latent: the clip before plays to its end, held there while this one dissolves in (DISSOLVE_MS), the
-    // sound straight on ("hybrid": takes made before 2026-10-08 joined in the latent too; none are made now)
-    const dissolve = !landed && (x.take.join_kind === "latent" || x.take.join_kind === "hybrid");
+    // sound straight on ("hybrid": takes made before 2026-10-08 joined in the latent too; none are made now). So too a join
+    // that carries the clip before's sound at its head (LTX, still after that take): its sound goes on from that clip's, a
+    // crossfade over the held picture would only dip it
+    const heardOn = from === 0 && p.clip.joined === "continue" && carried(x) && afterVideo;
+    const dissolve = !landed && (x.take.join_kind === "latent" || x.take.join_kind === "hybrid" || heardOn);
     const blend = blendJoins && fade && before
       ? Math.min(landed ? fade.ms : dissolve ? DISSOLVE_MS : BLEND_MS, to - FRAME_SLACK_MS, ...(landed ? [x.landed ?? fade.ms, before.endMs - before.startMs - FRAME_SLACK_MS] : []))
       : 0;
@@ -141,10 +144,11 @@ export class TimelineExport {
     // the sound hands over before the clip before's last moments, from this take's head (core soundHandover)
     const handover = soundHandover({
       seamless: seam && !heard.transitionIn,
+      carried: heardOn && !heard.transitionIn,
       bothOwnSound: p.clip.sound === "own" && Boolean(x.asset.has_sound) && before?.sound === "own" && Boolean(before.hasSound),
       shownFromMs: visible(x).start,
       beforeMs: before ? before.endMs - before.startMs : 0,
-      guessedHead: seam ? await this.guessedHead(x, p) : false,
+      guessedHead: seam || heardOn ? await this.guessedHead(x, p) : false,
     });
     return {
       kind: "video", source: await sourceOf(storage, x.asset.file_key), ext: extOf(x.asset.mime), ...(x.asset.fps ? { fps: x.asset.fps } : {}),

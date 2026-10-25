@@ -41,6 +41,12 @@ export const ltx25Video = ltxRecipe({
         slots: { ...parts, ...extras }, uploads: { previous: "a.mp4" }, media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX25_FPS, hasSound: true } },
       },
       {
+        name: "between two clips: the clip before's sound carried on, its chain's colour match carried on, landing on the clip after, smooth",
+        input: { prompt: "a", previous: { asset: "c1" }, next: { asset: "c2", at: 0 }, smooth: true },
+        slots: { ...parts, ...temporal }, uploads: { previous: "a.mp4", "previous.look": "look.png", next: "b.mp4" },
+        media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX25_FPS, hasSound: true }, next: { width: 704, height: 1280, frames: 25, fps: LTX25_FPS, hasSound: true } },
+      },
+      {
         name: "from a first to a last picture through a keyframe: one pass",
         input: { prompt: "a", start: "p1", mid: "p3", midAt: 3, end: "p2" },
         slots: { ...parts, ...extras }, uploads: { start: "a.png", mid: "c.png", end: "b.png" }, media: { start: picture, mid: picture, end: picture },
