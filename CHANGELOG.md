@@ -4,7 +4,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
-- **Afflatus's pod image is pod-v0.1.34**: node pack 0.37.0 (the LTX latent nodes seamless LTX joins use) on base 5, whose layers are zstd instead of gzip and which leaves out ComfyUI's workflow templates' pictures and videos and the nodes' docs (a pod's ComfyUI is never opened for them). A pod's pull is its host unpacking the image, not downloading it: 3.88 GB to fetch instead of 4.79 (12.8 build: 4.73 instead of 6.11), and faster to unpack.
+- **Afflatus's pod image is pod-v0.1.35**: node pack 0.37.0 (the LTX latent nodes seamless LTX joins use) on base 6, which also builds in ComfyUI-LTX2.5-MSR (LTX 2.5's reference pictures and voice), whose layers are zstd instead of gzip and which leaves out ComfyUI's workflow templates' pictures and videos and the nodes' docs (a pod's ComfyUI is never opened for them). A pod's pull is its host unpacking the image, not downloading it: 3.88 GB to fetch instead of 4.79 (12.8 build: 4.73 instead of 6.11), and faster to unpack.
 - **Queue › Costs splits a pod's pull from its boot again**: its pull figures (how much it fetched, how fast) were never kept, as RunPod's log seldom says the line Afflatus waited for, and a pod whose ComfyUI answered within seconds of its container's start had its whole pull counted as boot.
 
 ## [0.6.3] - 2026-10-24
