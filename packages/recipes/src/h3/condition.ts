@@ -31,16 +31,18 @@ export interface MorePicture {
   role: string;
 }
 
-/** The clip from the reference model: the pictures, the videos of the person and the voice, and the opening picture pinned at the first frame when there is one. */
+/** The clip from the reference model: the pictures, the reference videos and the voice, and the opening picture pinned at the first frame when there is one. */
 function referenceStart(g: GraphBuilder, ctx: BuildContext, input: H3Video, how: H3Uses, frame: Frame, clip: Ref, length: number | Ref, fixed?: (pictures: number) => string, more: MorePicture[] = []): { start: string; positive: Ref } {
   const { uploads, media } = ctx;
   const { width, height, vae, audioVae } = frame;
   // a voice with a picture to open on and nothing else: that picture is who speaks, not a frame
   const voiceOnly = input.references.length === 0 && input.refVideos.length === 0;
-  // videos of the person: their frames, and their sound as the voice when no voice sample is given
-  const videos = input.refVideos.map((_, i) => ({
+  // reference videos: their frames, and a person's sound as their voice when no voice sample is given. Another role's
+  // sound is left out: H3 lays a lone sound reference into the take as it is and ignores it beside a voice (card #79)
+  const videos = input.refVideos.map((r, i) => ({
     parts: g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: uploads[`refVideos.${i}`] }) }),
-    sound: Boolean(media[`refVideos.${i}`]?.hasSound) && !input.voice,
+    role: r.role,
+    sound: r.role === "person" && Boolean(media[`refVideos.${i}`]?.hasSound) && !input.voice,
   }));
   // the form's pictures, then those the recipe makes in the graph (a motion window: the clip before's last frame)
   const pictures: Array<{ file?: string; image?: Ref; role: string }> = voiceOnly && !more.length
@@ -50,7 +52,7 @@ function referenceStart(g: GraphBuilder, ctx: BuildContext, input: H3Video, how:
   const opening = !voiceOnly && how.start;
   const files: Array<{ file?: string; image?: Ref }> = [...pictures, ...(opening ? [{ file: uploads.start }] : [])];
   // a recipe made on this one can say the prompt itself (a swap: its LoRA's short trained caption)
-  const prompt = fixed ? fixed(files.length) : h3ReferencePrompt(input, { roles: pictures.map((p) => p.role), videos: videos.map((v) => v.sound), voice: Boolean(input.voice), continues: Boolean(input.previous), opening, voiceOnly });
+  const prompt = fixed ? fixed(files.length) : h3ReferencePrompt(input, { roles: pictures.map((p) => p.role), videos: videos.map(({ role, sound }) => ({ role, sound })), voice: Boolean(input.voice), continues: Boolean(input.previous), opening, voiceOnly });
   const start = g.add("MiniMaxH3ReferenceToVideo", {
     clip, vae, audio_vae: audioVae, prompt, width, height, length, ref_image_size: input.sharpRefs ? "max" : "match",
     // inputs of a group that grows are named "<group>.<prefix><n>", counting from 0

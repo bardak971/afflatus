@@ -59,8 +59,8 @@ export function h3Prompt(mode: H3Mode, seconds: number, f: H3Fields, continuing?
 interface H3References {
   /** What each reference picture shows, in the order they are given. */
   roles: string[];
-  /** Videos of the person, given after the pictures: for each, whether its sound comes with it (it is then the person's voice). */
-  videos?: boolean[];
+  /** Reference videos, given after the pictures: what each shows (a reference role), and whether its sound comes with it (only a person's: it is then their voice). */
+  videos?: Array<{ role: string; sound: boolean }>;
   /** A voice sample comes with them. */
   voice: boolean;
   /** The clip carries on from another one: its first frames are given. */
@@ -87,9 +87,9 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
   const pics = ref.roles.map((_r, i) => `<Picture ${i + 1}>`);
   // the model's order: the pictures, then the videos (a video's sound is an <Audio> of its own), then the voice
   let audios = 0;
-  const vids = (ref.videos ?? []).map((sound, k) => ({ tag: `<Video ${k + 1}>`, audio: sound ? `<Audio ${++audios}>` : "" }));
+  const vids = (ref.videos ?? []).map((v, k) => ({ tag: `<Video ${k + 1}>`, role: v.role, audio: v.sound && v.role === "person" ? `<Audio ${++audios}>` : "" }));
   const soundtracks = vids.filter((v) => v.audio);
-  const people = [...pics.filter((_p, i) => ref.roles[i] === "person"), ...vids.map((v) => v.tag)];
+  const people = [...pics.filter((_p, i) => ref.roles[i] === "person"), ...vids.filter((v) => v.role === "person").map((v) => v.tag)];
   const hasPerson = people.length > 0;
   const who1 = hasPerson ? "<Subject 1>" : "the character";
   const voiceTag = ref.voice ? `<Audio ${audios + 1}>` : "";
@@ -103,8 +103,9 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
   // the reference pictures say who and what, never the scene: a reference given alone was seen re-animated whole as the
   // clip (a mirror selfie, its phone and its room, the prompt's café ignored: 2026-10-13). The setting comes from the
   // opening frame, the clip before, a place picture or the description; the swap LoRA's author found saying so helps
-  const hasPlace = ref.roles.includes("place");
-  const notPlace = pics.filter((_p, i) => ref.roles[i] !== "place");
+  // a video is held to it as a picture is, more so: it may be pulled in as the clip itself
+  const hasPlace = ref.roles.includes("place") || vids.some((v) => v.role === "place");
+  const notPlace = [...pics.filter((_p, i) => ref.roles[i] !== "place"), ...vids.filter((v) => v.role !== "place").map((v) => v.tag)];
   // (a place picture is the setting itself: its own line says so)
   const scene = ref.voiceOnly || !notPlace.length ? "" : ref.continues ? "the given opening frames" : hasPlace ? "" : opening ? opening : "the description of [Shot 1]";
   const onlyRefs = !ref.voiceOnly && notPlace.length
@@ -125,28 +126,29 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
       }${ref.voiceOnly ? "" : `; only the identity and look are taken from ${list(people)}, not ${people.length > 1 ? "their" : "its"} background`}.`,
     );
   }
-  pics.forEach((tag, i) => {
-    const role = ref.roles[i];
-    if (role === "person") return;
+  // every picture, then every video, that is not a person is a subject of its own; a video adds how it moves
+  const things = [...pics.map((tag, i) => ({ tag, role: ref.roles[i]!, video: false })), ...vids.map((v) => ({ tag: v.tag, role: v.role, video: true }))];
+  for (const { tag, role, video } of things) {
+    if (role === "person") continue;
     const S = `<Subject ${++subject}>`;
     if (role === "place") {
       defs.push(`${S} is the location shown in ${tag}.`);
       uses.push(`the location ${S} from ${tag}`);
-      keeps.push(`${S} (the setting of [Shot 1]): fully_preserved - the place, its layout and light.`);
+      keeps.push(`${S} (the setting of [Shot 1]): fully_preserved - the place, its layout and light${video ? ", and how the camera moves through it" : ""}.`);
     } else if (role === "clothing") {
       defs.push(`${S} is the clothing shown in ${tag}${hasPerson ? ", worn by <Subject 1>" : ""}.`);
       uses.push(`the clothing ${S} from ${tag}`);
-      keeps.push(`${S}: fully_preserved - the garments, their colours and materials.`);
+      keeps.push(`${S}: fully_preserved - the garments, their colours and materials${video ? ", and how the cloth moves and sways" : ""}.`);
     } else if (role === "object") {
       defs.push(`${S} is the object shown in ${tag}.`);
       uses.push(`the object ${S} from ${tag}`);
-      keeps.push(`${S}: fully_preserved - its shape, colour and details.`);
+      keeps.push(`${S}: fully_preserved - its shape, colour and details${video ? ", and how it moves" : ""}.`);
     } else {
       defs.push(`${S} is the visual style of ${tag}.`);
       uses.push(`the visual style ${S} of ${tag}`);
-      keeps.push(`${S}: attribute_transfer - colour, lighting and rendering style only.`);
+      keeps.push(`${S}: attribute_transfer - ${video ? "colour, lighting, rendering style, grain and motion feel only" : "colour, lighting and rendering style only"}.`);
     }
-  });
+  }
   return [
     `subject_definitions:\n${defs.join("\n")}` +
       soundtracks.map((v) => `\n${v.audio} is the soundtrack of ${v.tag}: the voice of ${who1} (S1).`).join("") +
