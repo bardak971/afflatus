@@ -22,8 +22,9 @@ Afflatus's other routes:
   deprecated so that graphs naming it load, passes the render through.
 - Afflatus: H3 Audio Lock — a clip's own sound held in an H3 latent while Face refine redraws the picture.
 - Afflatus: Face Match / Face At — how much a face in a picture is the person of some photos (InsightFace's ArcFace, on the
-  CPU), to rank the pictures a Motion transfer is made from; Face Crop — a person's picture cut to a square around their
-  face, for LTX 2.5's references; registered only when insightface is installed.
+  CPU), to rank the pictures a Motion transfer is made from; Face Crop / Face Crop to Frame — a person's picture cut
+  around their face (a square, or the clip's frame shape at its size), for LTX 2.5's references; registered only when
+  insightface is installed.
 - Afflatus: Follow Colours — a Motion transfer clip's colours brought to its driving video's at each moment, both
   averaged over about a second first, so that a drift inside a window is followed and windows of one source meet.
 
@@ -101,7 +102,7 @@ from .continuation_nodes import (  # noqa: E402
 )
 from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, AfflatusH3SeamLatent, AfflatusH3TailGuide, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent  # noqa: E402
 from .latent_ltx import AfflatusLoadLTXLatent, AfflatusLTXContinuation, AfflatusLTXSeamLatent, AfflatusSaveLTXLatent, AfflatusTrimLTXLatent  # noqa: E402
-from .face_match import AfflatusFaceAt, AfflatusFaceCrop, AfflatusFaceMatch, available as face_available  # noqa: E402
+from .face_match import AfflatusFaceAt, AfflatusFaceCrop, AfflatusFaceFrame, AfflatusFaceMatch, available as face_available  # noqa: E402
 from .swap_mask import AfflatusSwapMask, AfflatusSwapMaskPreview, AfflatusSwapMatch, AfflatusSwapPaste  # noqa: E402
 from .face_refine import AfflatusH3AudioLock  # noqa: E402
 from .colour_follow import AfflatusColorFollow  # noqa: E402
@@ -152,7 +153,7 @@ class AfflatusExtension(ComfyExtension):
             AfflatusColorFollow,
             # a face's likeness to some photos, for the pictures a Motion transfer is made from, and a person's picture cut to
             # their face (LTX 2.5's references): only with insightface installed
-            *([AfflatusFaceMatch, AfflatusFaceAt, AfflatusFaceCrop] if face_available() else []),
+            *([AfflatusFaceMatch, AfflatusFaceAt, AfflatusFaceCrop, AfflatusFaceFrame] if face_available() else []),
         ]
 
 

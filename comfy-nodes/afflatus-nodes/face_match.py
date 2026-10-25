@@ -337,3 +337,67 @@ class AfflatusFaceCrop(io.ComfyNode):
         boxes, _ = det_model.detect(_bgr(image, 0), input_size=(PHOTO_DET, PHOTO_DET), max_num=0, metric="max")
         found = [tuple(float(v) for v in b[:4]) for b in boxes if b[4] >= 0.5 and b[2] - b[0] >= 24]
         return max(found, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]), default=None)
+
+
+def face_frame(box, width: int, height: int, wide: int, high: int, factor: float = FACE_SQUARE) -> tuple[int, int, int, int]:
+    """The box (left, top, w, h) of the clip's frame shape (`wide` x `high`) a picture is cut to around a face's box: its
+    short side `factor` face heights, centred on the face, made smaller as a whole (its shape kept) when the picture is not
+    that large, and moved inside the picture. A square frame gives face_square's square."""
+    x0, y0, x1, y1 = box
+    aspect = wide / high
+    short = (y1 - y0) * factor
+    w, h = (short * aspect, short) if aspect >= 1 else (short, short / aspect)
+    fit = min(1.0, width / w, height / h)
+    w = max(1, min(round(w * fit), width))
+    h = max(1, min(round(h * fit), height))
+    left = min(max(round((x0 + x1) / 2 - w / 2), 0), width - w)
+    top = min(max(round((y0 + y1) / 2 - h / 2), 0), height - h)
+    return int(left), int(top), int(w), int(h)
+
+
+def _scaled(image, wide: int, high: int):
+    """A ComfyUI image batch brought to wide x high (bilinear, as MSR's guide resizes)."""
+    import comfy.utils
+
+    return comfy.utils.common_upscale(image.movedim(-1, 1), wide, high, "bilinear", crop="disabled").movedim(1, -1)
+
+
+class AfflatusFaceFrame(io.ComfyNode):
+    """
+    A person's reference picture cut around their face to the shape of the clip's frame, and brought to its size. MSR's
+    guide (ComfyUI-LTX2.5-MSR, `_resize_reference`) cover-crops a picture only when it is of the slot's shape family
+    (landscape, square, portrait); any other it fits whole on a white canvas. Face Crop's square in a 16:9 clip was laid
+    between white bars, and a clip that did not carry on from the one before copied them into its frames (Timeline 10,
+    2026-10-25, card #91). Cut to the frame's shape at its size, the picture fills the slot. Without a face found, or when
+    InsightFace fails, the picture goes on whole, as Face Crop's.
+    """
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusFaceFrame",
+            display_name="Afflatus: Face Crop to Frame",
+            category="Afflatus",
+            description="The picture cut around its largest face (InsightFace's detector, on the CPU) to the frame's shape, its short side 2.5 face heights, kept inside the picture, then brought to the frame's size. Without a face found, the picture as it is.",
+            inputs=[
+                io.Image.Input("image", tooltip="A person's picture: its first image is read, the batch cut where its face is."),
+                io.Int.Input("width", default=1280, min=16, max=8192, step=8, tooltip="The clip's frame width."),
+                io.Int.Input("height", default=704, min=16, max=8192, step=8, tooltip="The clip's frame height."),
+                io.Float.Input("factor", default=FACE_SQUARE, min=1.2, max=8.0, step=0.1, optional=True, tooltip="The cut's short side, in face heights."),
+            ],
+            outputs=[io.Image.Output("image")],
+        )
+
+    @classmethod
+    def execute(cls, image, width: int, height: int, factor: float = FACE_SQUARE) -> io.NodeOutput:
+        # a better reference, never a failed render: whatever goes wrong here, the picture goes on as it was given
+        try:
+            box = AfflatusFaceCrop._largest(image)
+        except Exception as err:  # noqa: BLE001 — any error of InsightFace or of a picture it cannot read
+            print(f"[afflatus-nodes] Face Crop to Frame: the picture is taken whole ({str(err)[:200]})")
+            return io.NodeOutput(image)
+        if box is None:
+            return io.NodeOutput(image)
+        left, top, w, h = face_frame(box, int(image.shape[2]), int(image.shape[1]), width, height, factor)
+        cut = image[:, top : top + h, left : left + w, :]
+        return io.NodeOutput(cut if (w, h) == (width, height) else _scaled(cut, width, height))
