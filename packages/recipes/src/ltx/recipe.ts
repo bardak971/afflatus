@@ -139,8 +139,16 @@ const MSR_NODES = ["ComfyUILTX25MSRICLoRALoader", "ComfyUILTX25MSRMultiReference
 const MSR_NUMBERED = 4;
 /** What each picture is, as the prompt says it before the user's words (the LoRA's authors: label them "Image 1", "Image 2"...). */
 const MSR_SAYS: Record<ReferenceRole, string> = { person: "a person", clothing: "the clothes worn", object: "an object", place: "the place, the background of the scene", style: "the look" };
-/** A person's picture cut to a square around their face (afflatus-nodes, with insightface): MSR's guide fits the whole picture in its slot. */
+/** A person's picture cut to a square around their face (afflatus-nodes 0.38, with insightface): MSR's guide fits the whole picture in its slot. */
 export const FACE_CROP = "AfflatusFaceCrop";
+/**
+ * The same cut to the clip's frame shape and brought to its size (afflatus-nodes 0.39). MSR's guide cover-crops a picture of
+ * its slot's shape family only, and fits any other whole on a white canvas: FACE_CROP's square in a 16:9 clip was laid between
+ * white bars, which a clip that did not carry on from the one before copied into its frames (Timeline 10, card #91).
+ */
+export const FACE_FRAME = "AfflatusFaceFrame";
+/** MSR's guide's shape families (`aspect_family` in its _resize_reference): a picture of another family than its slot goes between white bars. */
+const msrFamily = (width: number, height: number): string => (width / height >= 1.25 ? "landscape" : width / height <= 0.8 ? "portrait" : "square");
 
 /**
  * The cast's pictures and voice, laid in MSR's slots: up to four pictures numbered in their order, the first place as the
@@ -154,10 +162,10 @@ interface MsrRefs {
   voice: string | null;
   /** The prompt's first lines: what each picture is, by its number. */
   legend: string;
-  /** The people's pictures go in cut to their face (FACE_CROP). */
-  faceCrop: boolean;
+  /** How the people's pictures are cut to their face: to the clip's frame (FACE_FRAME), to a square (FACE_CROP), or not. */
+  faceCrop: typeof FACE_FRAME | typeof FACE_CROP | null;
 }
-function msrOf(input: LtxVideo, ctx: Pick<BuildContext, "slots" | "uploads" | "has">, warnings: string[], voices: boolean): MsrRefs | null {
+function msrOf(input: LtxVideo, ctx: Pick<BuildContext, "slots" | "uploads" | "has">, warnings: string[], voices: boolean, frame: { width: number; height: number }): MsrRefs | null {
   const given = (input.references ?? []).flatMap((r, i) => {
     const upload = ctx.uploads[`references.${i}`];
     return upload ? [{ upload, role: r.role }] : [];
@@ -189,8 +197,12 @@ function msrOf(input: LtxVideo, ctx: Pick<BuildContext, "slots" | "uploads" | "h
   if (!numbered.length) return null;
   const roles: ReferenceRole[] = [...numbered.map((r) => r.role), ...(background ? (["place"] as const) : [])];
   const people = numbered.some((r) => r.role === "person");
-  const faceCrop = people && input.refFaceCrop !== false && ctx.has(FACE_CROP);
-  if (people && input.refFaceCrop !== false && !faceCrop) warnings.push("The people's pictures go in whole, not cut to the face: this ComfyUI lacks Afflatus's Face Crop (node pack 0.38, with insightface).");
+  const cut = people && input.refFaceCrop !== false;
+  const faceCrop = !cut ? null : ctx.has(FACE_FRAME) ? FACE_FRAME : ctx.has(FACE_CROP) ? FACE_CROP : null;
+  if (cut && !faceCrop) warnings.push("The people's pictures go in whole, not cut to the face: this ComfyUI lacks Afflatus's Face Crop (node pack 0.38, with insightface).");
+  if (faceCrop === FACE_CROP && msrFamily(frame.width, frame.height) !== "square") {
+    warnings.push("The people's pictures are cut to a square around the face, which MSR lays between white bars in this clip's frame (node pack 0.39 cuts them to the frame's shape): a clip that does not carry on from the one before can copy the bars.");
+  }
   return { numbered, background, voice, legend: roles.map((role, i) => `Image ${i + 1}: ${MSR_SAYS[role]}.`).join("\n"), faceCrop };
 }
 
@@ -242,7 +254,7 @@ const MSR_STRENGTHS: InputSpec[] = [
   },
   {
     id: "refFaceCrop", type: "toggle", label: "Crop people's pictures to the face", default: true, showWhen: "references", advanced: true,
-    note: "a picture of a person is cut to a square around the face, 2.5 face heights a side: MSR fits the whole picture in a slot the size of the clip's frame, where the face of a large or far portrait comes out a few latent cells. A portrait already that close is left as it is. Off: the picture whole (to follow the clothes or the figure from it)",
+    note: "a picture of a person is cut around the face to the clip's frame shape, its short side 2.5 face heights, and brought to the frame's size: MSR fits the whole picture in a slot the size of the clip's frame, where the face of a large or far portrait comes out a few latent cells, and a picture of another shape (a square in a 16:9 clip) goes between white bars, which a clip that does not carry on from the one before can copy. Off: the picture whole (to follow the clothes or the figure from it), with those bars when its shape is not the clip's",
   },
   { id: "refStrength", type: "number", label: "Reference strength", min: 0, max: 1, step: 0.05, default: 1, showWhen: "references", advanced: true, note: "how closely the pictures are followed: 1 is the LoRA's authors'" },
   {
@@ -916,7 +928,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       ...(spec.lipSync ? [] : HEAD_SOUND_NODES),
       LTX_SAVE_LATENT, ...LTX_CONTINUATION_NODES, LTX_TRIM, ...LTX_LATENT_CORE,
       // the cast's pictures and voice, when the MSR LoRA and its pack are there (msrOf)
-      ...(spec.references ? [...MSR_NODES, FACE_CROP, ...(spec.lipSync ? [] : ["LoadAudio"])] : []),
+      ...(spec.references ? [...MSR_NODES, FACE_FRAME, FACE_CROP, ...(spec.lipSync ? [] : ["LoadAudio"])] : []),
       // the clip before's last frame as it was filed, loaded when the server sends it (its chain was colour-matched: colourCarried)
       "LoadImage",
       // under a recording: what goes before its part (the clip before's sound under the head, silence before the words)
@@ -962,7 +974,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
 
       const g = new GraphBuilder();
       const warnings: string[] = [];
-      const refs = spec.references ? msrOf(input, ctx, warnings, !spec.lipSync) : null;
+      const refs = spec.references ? msrOf(input, ctx, warnings, !spec.lipSync, { width, height }) : null;
       const held = refs ? msrHeld(input, slots.msr, warnings) : null;
       const loaded = ltxLoad(spec, g, ctx, input, picked, held);
       const byHand = input.schedule !== BY_STEPS;
@@ -1032,7 +1044,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
               pics: {
                 ...Object.fromEntries(refs.numbered.map((r, i) => {
                   const pic = g.out("LoadImage", { image: r.upload });
-                  return [`pic${i + 1}`, refs.faceCrop && r.role === "person" ? g.out(FACE_CROP, { image: pic }) : pic];
+                  if (!refs.faceCrop || r.role !== "person") return [`pic${i + 1}`, pic];
+                  return [`pic${i + 1}`, refs.faceCrop === FACE_FRAME ? g.out(FACE_FRAME, { image: pic, width, height }) : g.out(FACE_CROP, { image: pic })];
                 })),
                 ...(refs.background ? { background: g.out("LoadImage", { image: refs.background }) } : {}),
               },

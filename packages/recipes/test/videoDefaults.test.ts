@@ -127,7 +127,7 @@ describe("LTX 2.5's reference pictures and voice (the MSR LoRA)", () => {
   // the picture's file, through the cut to the face a person's picture goes through
   const loadOf = (graph: Graph, ref: unknown): unknown => {
     const n = graph[(ref as [string, number])[0]]!;
-    return n.class_type === "AfflatusFaceCrop" ? loadOf(graph, n.inputs.image) : n.inputs.image;
+    return n.class_type === "AfflatusFaceFrame" || n.class_type === "AfflatusFaceCrop" ? loadOf(graph, n.inputs.image) : n.inputs.image;
   };
 
   it("lays the pictures in MSR's slots, a place as the background, the voice with the first, in both passes, as its authors do", () => {
@@ -233,27 +233,54 @@ describe("LTX 2.5's reference pictures and voice (the MSR LoRA)", () => {
     const r = refs(["person", "object", "place"]);
     const b = build({ references: r.references }, r.uploads);
     const graph = b.graph as Graph;
-    const crops = of(graph, "AfflatusFaceCrop");
+    const crops = of(graph, "AfflatusFaceFrame");
     // one cut of the person's one load, shared by both passes
     expect(crops).toHaveLength(1);
     expect(loadOf(graph, crops[0]!.inputs.image)).toBe("r0.png");
     for (const g of of(graph, "ComfyUILTX25MSRMultiReferenceGuide")) {
-      expect(graph[(g.inputs.pic1 as [string, number])[0]]!.class_type).toBe("AfflatusFaceCrop");
+      expect(graph[(g.inputs.pic1 as [string, number])[0]]!.class_type).toBe("AfflatusFaceFrame");
       expect(graph[(g.inputs.pic2 as [string, number])[0]]!.class_type).toBe("LoadImage");
       expect(graph[(g.inputs.background as [string, number])[0]]!.class_type).toBe("LoadImage");
     }
     expect(b.warnings).toBeUndefined();
     expect(ltx25Video.inputs.find((i) => i.id === "refFaceCrop")).toMatchObject({ type: "toggle", default: true, showWhen: "references", advanced: true });
+    const cuts = (graph: Graph) => [...of(graph, "AfflatusFaceFrame"), ...of(graph, "AfflatusFaceCrop")];
     // off: the pictures whole
-    expect(of(build({ references: r.references, refFaceCrop: false }, r.uploads).graph as Graph, "AfflatusFaceCrop")).toEqual([]);
+    expect(cuts(build({ references: r.references, refFaceCrop: false }, r.uploads).graph as Graph)).toEqual([]);
     // no person: nothing to cut, nothing said
     const things = refs(["object"]);
     const none = build({ references: things.references }, things.uploads);
-    expect(of(none.graph as Graph, "AfflatusFaceCrop")).toEqual([]);
+    expect(cuts(none.graph as Graph)).toEqual([]);
     expect(none.warnings).toBeUndefined();
     // an older node pack, or no insightface: whole, and said
-    const old = build({ references: r.references }, r.uploads, { msr }, (t) => t !== "AfflatusFaceCrop");
-    expect(of(old.graph as Graph, "AfflatusFaceCrop")).toEqual([]);
+    const old = build({ references: r.references }, r.uploads, { msr }, (t) => t !== "AfflatusFaceCrop" && t !== "AfflatusFaceFrame");
+    expect(cuts(old.graph as Graph)).toEqual([]);
     expect(old.warnings).toEqual(["The people's pictures go in whole, not cut to the face: this ComfyUI lacks Afflatus's Face Crop (node pack 0.38, with insightface)."]);
+  });
+
+  // card #91: MSR's guide fits a picture of another shape family than its slot whole on a white canvas; Face Crop's square in
+  // Timeline 10's 1280 x 704 clip went between white bars, which takes cut from the clip before copied into their frames
+  it("cuts a person's picture to the clip's frame shape and size, so that MSR fills its slot with it rather than padding it white", () => {
+    const r = refs(["person"]);
+    const wide = { shape: { width: 1280, height: 704 }, short: 704 };
+    const graph = build({ references: r.references, ...wide }, r.uploads).graph as Graph;
+    const latent = of(graph, "EmptyLTXVLatentVideo")[0]!.inputs;
+    // the first pass at half the clip's size: the cut is at the clip's full frame, which MSR brings down to each pass's slot
+    expect([latent.width, latent.height]).toEqual([640, 352]);
+    expect(of(graph, "AfflatusFaceFrame").map((n) => [n.inputs.width, n.inputs.height])).toEqual([[1280, 704]]);
+    expect(of(graph, "AfflatusFaceCrop")).toEqual([]);
+    // a portrait clip: cut to its shape
+    const tall = build({ references: r.references, shape: { width: 704, height: 1280 }, short: 704 }, r.uploads).graph as Graph;
+    expect(of(tall, "AfflatusFaceFrame").map((n) => [n.inputs.width, n.inputs.height])).toEqual([[704, 1280]]);
+    // a node pack of before 0.39: the square cut, and the bars said in a clip that is not square
+    const before = (t: string) => t !== "AfflatusFaceFrame";
+    const square = build({ references: r.references, ...wide }, r.uploads, { msr }, before);
+    expect(of(square.graph as Graph, "AfflatusFaceCrop")).toHaveLength(1);
+    expect(square.warnings).toEqual([
+      "The people's pictures are cut to a square around the face, which MSR lays between white bars in this clip's frame (node pack 0.39 cuts them to the frame's shape): a clip that does not carry on from the one before can copy the bars.",
+    ]);
+    expect(build({ references: r.references, shape: { width: 704, height: 704 }, short: 704 }, r.uploads, { msr }, before).warnings).toBeUndefined();
+    // the "?" says it
+    expect(ltx25Video.inputs.find((i) => i.id === "refFaceCrop")!.note).toContain("to the clip's frame shape");
   });
 });
