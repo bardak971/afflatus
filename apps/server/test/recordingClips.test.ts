@@ -691,6 +691,49 @@ describe.skipIf(!ffmpegThere)("LTX under a recording (card #2)", { timeout: FFMP
   });
 });
 
+describe.skipIf(!ffmpegThere)("a recording dropped on an empty clip of another form (card #2)", { timeout: FFMPEG_TIMEOUT }, () => {
+  type ViewClip = { id: string; recipe: string; inputs: Record<string, unknown> };
+  const clipsOf = async (id: string) => (await view(id)).clips as ViewClip[];
+
+  // Video with audio becomes Lip sync under the recording: what was written in the clip goes with it
+  it.each([
+    ["h3.video", "h3.lipsync", "description"],
+    ["ltx.video", "ltx.lipsync", "prompt"],
+    ["ltx25.video", "ltx25.lipsync", "prompt"],
+  ])("%s becomes %s with its scene, model, LoRAs and settings, the first part its seed", async (was, becomes, scene) => {
+    const tl = await call("POST", "/api/timelines", { name: `zz-test drop on ${was}` });
+    await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: was });
+    const [empty] = await clipsOf(tl.id);
+    const written = { [scene]: "A woman talks to the camera in a kitchen.", model: "zz-test-model.safetensors", loras: [{ file: "zz-test-lora.safetensors", weight: 0.6 }], seed: 4242, steps: 12 };
+    await call("PATCH", `/api/clips/${empty!.id}`, { inputs: written });
+    const sound = await recording();
+    await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound, clip: empty!.id });
+    const clips = await clipsOf(tl.id);
+    expect(clips.map((c) => c.recipe)).toEqual([becomes, becomes, becomes]);
+    const { seed, ...shared } = written;
+    for (const c of clips) expect(c.inputs).toMatchObject({ ...shared, recording: sound });
+    expect(clips[0]!.inputs.seed).toBe(seed);
+    for (const c of clips.slice(1)) expect(c.inputs.seed).not.toBe(seed);
+  });
+
+  it("dropped on another family's clip keeps only its words: the model and LoRAs are of no use there", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test drop across families" });
+    await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "ltx.video" });
+    const [first] = await clipsOf(tl.id);
+    const sound = await recording();
+    await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound, clip: first!.id });
+    // its New clips form is now LTX's Lip sync: a drop on an empty H3 clip after them makes LTX clips
+    await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "h3.video" });
+    const h3 = (await clipsOf(tl.id)).at(-1)!;
+    await call("PATCH", `/api/clips/${h3.id}`, { inputs: { description: "A man waves from a boat.", model: "zz-test-h3.safetensors", seed: 7 } });
+    await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound, clip: h3.id });
+    const made = (await clipsOf(tl.id)).slice(3);
+    expect(made.length).toBeGreaterThan(0);
+    expect(made.every((c) => c.recipe === "ltx.lipsync")).toBe(true);
+    expect(made[0]!.inputs.model).not.toBe("zz-test-h3.safetensors");
+  });
+});
+
 describe.skipIf(!ffmpegThere)("a clip added past a recording's end (card #88)", { timeout: FFMPEG_TIMEOUT }, () => {
   type ViewClip = { id: string; recipe: string; joined: string; inputs: Record<string, unknown> };
   const clipsOf = async (id: string) => (await view(id)).clips as ViewClip[];
