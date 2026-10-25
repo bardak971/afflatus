@@ -34,16 +34,17 @@ const said = (s: number) => `${Number(s.toFixed(2))} s`;
 /**
  * Each cue placed on the clip: its moment is in the clip's own time, after the frames it shares with the clip before (`head`),
  * and before those it lands on of the clip after (`tail`). One landing at or past the clip's own end is refused in words; one
- * that starts inside and runs past it is cut at the end.
+ * that starts inside and runs past it is cut at the end. `fps`: the model's (H3's unless said: LTX's Lip sync lays them too).
  */
-export function placeCues(cues: CueValue[], ctx: BuildContext, at: { head: number; tail: number; frames: number }): Placed[] {
+export function placeCues(cues: CueValue[], ctx: BuildContext, at: { head: number; tail: number; frames: number; fps?: number }): Placed[] {
+  const fps = at.fps ?? H3_FPS;
   const own = at.frames - at.head - at.tail;
   return cues.map((cue, index) => {
-    const frame = Math.round(cue.at * H3_FPS);
-    if (frame >= own) throw new Error(`Sound cue ${index + 1} lands at ${said(cue.at)}, past the clip's end (${said(own / H3_FPS)}). Move it inside the clip, or make the clip longer.`);
+    const frame = Math.round(cue.at * fps);
+    if (frame >= own) throw new Error(`Sound cue ${index + 1} lands at ${said(cue.at)}, past the clip's end (${said(own / fps)}). Move it inside the clip, or make the clip longer.`);
     // the part as it was cut (a sound that ends early gives less than asked), else the length asked for
     const cut = ctx.media[`cues.${index}`]?.seconds ?? cue.seconds;
-    return { index, frame: at.head + frame, seconds: Math.min(cut, (own - frame) / H3_FPS) };
+    return { index, frame: at.head + frame, seconds: Math.min(cut, (own - frame) / fps) };
   });
 }
 
@@ -70,10 +71,11 @@ export function guideCues(g: GraphBuilder, placed: Placed[], parts: Map<number, 
  * result down when the sum clips, and the rest of the recording keeps its level. ComfyUI's TrimAudioDuration refuses an empty
  * stretch: a cue at the very start has nothing before it, and one that ends with the clip nothing after it.
  */
-export function layCues(g: GraphBuilder, sound: Ref, placed: Placed[], parts: Map<number, Ref>, at: { frames: number; over: boolean }): Ref {
-  const total = at.frames / H3_FPS;
+export function layCues(g: GraphBuilder, sound: Ref, placed: Placed[], parts: Map<number, Ref>, at: { frames: number; over: boolean; fps?: number }): Ref {
+  const fps = at.fps ?? H3_FPS;
+  const total = at.frames / fps;
   for (const p of placed) {
-    const from = p.frame / H3_FPS;
+    const from = p.frame / fps;
     const till = from + p.seconds;
     const part = parts.get(p.index)!;
     const laid = at.over ? g.out("AudioMerge", { audio1: g.out("TrimAudioDuration", { audio: sound, start_index: from, duration: p.seconds }), audio2: part, merge_method: "add" }) : part;
@@ -85,7 +87,7 @@ export function layCues(g: GraphBuilder, sound: Ref, placed: Placed[], parts: Ma
 }
 
 /** The cues of a clip, placed and loaded, ready for its guide and its sound; null with none. */
-export function cuesFor(g: GraphBuilder, ctx: BuildContext, cues: CueValue[] | undefined, at: { head: number; tail: number; frames: number }): { placed: Placed[]; parts: Map<number, Ref> } | null {
+export function cuesFor(g: GraphBuilder, ctx: BuildContext, cues: CueValue[] | undefined, at: { head: number; tail: number; frames: number; fps?: number }): { placed: Placed[]; parts: Map<number, Ref> } | null {
   if (!cues?.length) return null;
   const placed = placeCues(cues, ctx, at);
   return { placed, parts: cueParts(g, ctx, placed) };

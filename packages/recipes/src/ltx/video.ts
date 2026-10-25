@@ -134,6 +134,13 @@ export const ltxLipSync = ltxRecipe({
         media: { previous: { ...joined, latentFrames: 97, latentCut: 97, latentSize: { width: 704, height: 1280 } }, recording: { width: 0, height: 0, seconds: 5 } },
       },
       {
+        // added over the recording on their own stretches, pinned with it: one at the clip's start, one inside it
+        name: "two sound cues over the recording, carrying on from a clip",
+        input: { prompt: "She claps once.", previous: { asset: "c1" }, recording: "a1", recordingSeconds: 5, cues: [{ asset: "s1", start: 0, seconds: 0.6, at: 2.4 }, { asset: "s2", start: 1, seconds: 0.5, at: 0 }] },
+        slots: one, uploads: { previous: "a.mp4", recording: "rec.wav", "cues.0": "clap.wav", "cues.1": "door.wav" },
+        media: { previous: joined, recording: { width: 0, height: 0, seconds: 5 }, "cues.0": { width: 0, height: 0, seconds: 0.6 }, "cues.1": { width: 0, height: 0, seconds: 0.5 } },
+      },
+      {
         name: "sung up to its part by the clip before: the recording under the head too",
         input: { prompt: "a", previous: { asset: "c1" }, recording: "a1", recordingSeconds: 6, recordingLeadIn: true, recordingGoesOn: true },
         slots: one, uploads: { previous: "a.mp4", recording: "rec.wav" }, media: { previous: joined, recording: { width: 0, height: 0, seconds: 6, before: 1, after: 6 } },
