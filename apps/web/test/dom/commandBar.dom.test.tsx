@@ -196,7 +196,7 @@ describe("the downloads line and model files in the command bar", () => {
 
   it("shows a finished download in its folder on this PC, naming the file, never its path", async () => {
     serveDownloads([dl("zz-test-done", { status: "done", bytes: GB, machine: "m1" })]);
-    fakeApi.on("GET /model-files/where", { known: true, reveal: true, places: [{ path: "C:\\ComfyUI\\models\\loras\\zz-test-done.safetensors", kind: "own" }] });
+    fakeApi.on("POST /model-files/where", { known: true, reveal: true, places: [[{ path: "C:\\ComfyUI\\models\\loras\\zz-test-done.safetensors", kind: "own" }]] });
     fakeApi.on("POST /model-files/reveal", { ok: true });
     const { user, box } = await barWith("!zz-test-done");
     await waitFor(() => expect(selected(box)).toContain("zz-test-done"));
@@ -210,7 +210,7 @@ describe("the downloads line and model files in the command bar", () => {
 
   it("shows a LoRA of lora: in its folder, from its value's Tab", async () => {
     fakeApi.on("GET /assets/models", { models: [], loras: [{ file: "zz-test-soft.safetensors", count: 3 }] });
-    fakeApi.on("GET /model-files/where", { known: true, reveal: true, places: [{ path: "C:\\ComfyUI\\models\\loras\\zz-test-soft.safetensors", kind: "own" }] });
+    fakeApi.on("POST /model-files/where", { known: true, reveal: true, places: [[{ path: "C:\\ComfyUI\\models\\loras\\zz-test-soft.safetensors", kind: "own" }]] });
     fakeApi.on("POST /model-files/reveal", { ok: true });
     const { user, box } = await barWith("lora:zz-test");
     await waitFor(() => expect(selected(box)).toContain("zz-test-soft"));
@@ -229,7 +229,7 @@ describe("the downloads line and model files in the command bar", () => {
 
   it("offers Copy path, not Show in folder, from another computer", async () => {
     serveDownloads([dl("zz-test-done", { status: "done", bytes: GB })]);
-    fakeApi.on("GET /model-files/where", { known: true, reveal: false, places: [{ path: "C:\\ComfyUI\\models\\loras\\zz-test-done.safetensors", kind: "own" }] });
+    fakeApi.on("POST /model-files/where", { known: true, reveal: false, places: [[{ path: "C:\\ComfyUI\\models\\loras\\zz-test-done.safetensors", kind: "own" }]] });
     const { user, box } = await barWith("!zz-test-done");
     await waitFor(() => expect(selected(box)).toContain("zz-test-done"));
     await user.keyboard("{Tab}");

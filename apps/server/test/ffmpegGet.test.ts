@@ -95,6 +95,14 @@ describe("Get ffmpeg", () => {
     expect(docker).not.toMatch(/apt-get install[^\n]*\bffmpeg\b/);
   });
 
+  it("is the build CI tests with: ci.yml's tag, archive and sum, and no apt ffmpeg there (card #74)", () => {
+    const ci = readFileSync(resolve(__dirname, "../../../.github/workflows/ci.yml"), "utf8");
+    for (const line of [`FFMPEG_TAG: ${FFMPEG_BUILD.tag}`, `FFMPEG_FILE: ${FFMPEG_BUILD.files.linux.name}`, `FFMPEG_SHA256: ${FFMPEG_BUILD.files.linux.sha256}`]) expect(ci.split("\n").map((l) => l.trim())).toContain(line);
+    // checked before it is unpacked, a cached copy too
+    expect(ci).toMatch(/sha256sum -c[^\n]*\n[\s\S]*tar -xJf "\$archive"/);
+    expect(ci).not.toMatch(/apt-get install[^\n]*\bffmpeg\b/);
+  });
+
   it("holds the Dockerfile's sums, arm64's too, to checksums.json: nothing else checks the arm64 one", () => {
     const docker = readFileSync(resolve(__dirname, "../../../Dockerfile"), "utf8");
     const sums = JSON.parse(readFileSync(resolve(__dirname, "../../../scripts/release/checksums.json"), "utf8")) as { sha256: Record<string, string> };
