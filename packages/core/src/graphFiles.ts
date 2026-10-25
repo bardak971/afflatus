@@ -56,11 +56,12 @@ const MISSING = "afflatus-missing-slot.";
 /**
  * Slots whose file makes a render better, not different (RIFE: twice the frames; H3's latent upscaler, else a plain resize;
  * Face refine's person detector and SAM, else no head where no face is found and a paste over the face's box; Wan's SVI 2.0 Pro
- * LoRAs, else a continuation opens on the clip before's last frame, still). A rented pod is sent it for a job that
+ * LoRAs, else a continuation opens on the clip before's last frame, still; LTX 2.5's MSR LoRA, else the cast's pictures and
+ * voice are left out, as words and LoRAs alone made the clip before). A rented pod is sent it for a job that
  * asks for it; a machine of the user's own without it still takes the job, renders without it, and the job says so: kept
  * off every such machine, an H3 clip with "RIFE ×2" on (the default) would wait for ever where no machine had RIFE.
  */
-export const SOFT_SLOTS: ReadonlySet<string> = new Set(["rife", "latentUpscaler", "faceSeg", "faceSam", "sviHigh", "sviLow"]);
+export const SOFT_SLOTS: ReadonlySet<string> = new Set(["rife", "latentUpscaler", "faceSeg", "faceSam", "sviHigh", "sviLow", "msr"]);
 
 /** Whether a file name is missingSlotFile's: a file nobody has, that cannot be sent. */
 export const isMissingSlotFile = (file: string) => file.startsWith(MISSING);

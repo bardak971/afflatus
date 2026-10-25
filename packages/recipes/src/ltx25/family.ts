@@ -61,6 +61,13 @@ export const ltx25 = defineFamily({
       get: { file: "ltx-2.5-22b-distilled-lora-450-bf16.safetensors", url: `${HF}/loras/ltx-2.5-22b-distilled-lora-450-bf16.safetensors` },
     },
     {
+      // Licon Studio's MSR V2 (Apache-2.0, not gated): each reference picture in a slot of its own, and a voice for the first
+      // two; its slot embeddings are inside the file, read by its own pack's loader (a plain LoRA loader drops them)
+      id: "msr", label: "Reference LoRA (MSR)", folder: "loras", detect: ["licon.?msr", "ltx.?2[._]?5.*msr"], optional: true,
+      hint: "Without it, LTX 2.5 leaves the cast's pictures and voice out: the clip is made from the words and LoRAs alone. Put LTX-2.5-Licon-MSR-V2.safetensors in ComfyUI's models/loras folder, with the ComfyUI-LTX2.5-MSR node pack (its loader reads the pictures' slots from the file).",
+      get: { file: "LTX-2.5-Licon-MSR-V2.safetensors", url: "https://huggingface.co/LiconStudio/LTX-2.5-Multiple-Subject-Reference/resolve/main/LTX-2.5-Licon-MSR-V2.safetensors" },
+    },
+    {
       id: "tinyVae", label: "Tiny VAE (live preview)", folder: "vae_approx", detect: ["tae.?ltx.?2.?5"], optional: true,
       hint: "Optional: with a taeltx2_5 tiny VAE in ComfyUI's models/vae_approx folder, the animated live preview shows the real frames. Without it, it is a few blurred patches of colour.",
     },

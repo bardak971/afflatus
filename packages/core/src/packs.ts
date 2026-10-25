@@ -39,6 +39,8 @@ const NODE_PACKS: NodePack[] = [
   { name: "comfyui-detail-daemon", repo: "https://github.com/Jonseed/ComfyUI-Detail-Daemon", nodes: ["LyingSigmaSampler"] },
   // H3's Face refine: the face tracked and cropped per frame, the crops started from, the denoise by face size, the paste-back
   { name: "comfyui-h3-facerefine", repo: "https://github.com/Carasibana/ComfyUI-H3-FaceRefine", nodes: ["H3FaceTrackCrop", "H3InjectVideoLatent", "H3PerFrameDenoise", "H3FaceMaskSAM", "H3FaceStitch"] },
+  // LTX 2.5's reference pictures and voice: the MSR LoRA's own loader (its slot embeddings) and guide, by the LoRA's authors
+  { name: "ltx2.5-msr", repo: "https://github.com/liconstudio/ComfyUI-LTX2.5-MSR", nodes: ["ComfyUILTX25MSRICLoRALoader", "ComfyUILTX25MSRMultiReferenceGuide"] },
   { name: "comfyui_controlnet_aux", repo: "https://github.com/Fannovel16/comfyui_controlnet_aux", nodes: ["DepthAnythingV2Preprocessor", "DWPreprocessor", "AIO_Preprocessor"] },
 ];
 

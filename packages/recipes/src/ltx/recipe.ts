@@ -1,4 +1,4 @@
-import { defineRecipe, gridAtOrBefore, GraphBuilder, type BuildContext, type ClipValue, type InputSpec, type LoraValue, type MediaFacts, type Recipe, type Ref, type SizeValue, type Variant } from "@afflatus/core";
+import { defineRecipe, gridAtOrBefore, GraphBuilder, plural, type BuildContext, type ClipValue, type InputSpec, type LoraValue, type MediaFacts, type Recipe, type ReferenceRole, type ReferenceValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
 import { LTX_CANVAS_SHORT, LTX_MAX_PIXELS, ltxCanvas, ltxFramesAt } from "./family";
 import { UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNeeds, upscaleNodes } from "../video/upscale";
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
@@ -40,6 +40,8 @@ export interface LtxSpec {
   nag: boolean;
   /** The temporal upscaler's file, as the error names it. */
   temporalFile: string;
+  /** The cast's pictures and a voice taken through Licon Studio's MSR LoRA (made for 2.5 alone). */
+  references?: boolean;
   /** What is said when the model is not found, and when its split files lack a part. */
   missing: { model: string; parts: string };
   /**
@@ -110,6 +112,93 @@ const PINNED_SOUND_NODES = ["LTXVAudioVAEEncode", "LatentCompositeMasked", "Soli
  */
 export const ltxRecording = (fps: number): RecordingFrames => ({ fps, frames: Math.round((15 * fps - 1) / 8) * 8 + 1, min: 1, most: 15, grid: { step: 8, offset: 1 }, pad: Math.ceil((8 / fps) * 100) / 100 });
 
+
+/** The MSR LoRA's own pack: its loader reads the pictures' slot embeddings from the file, its guide lays each picture in its slot. */
+const MSR_NODES = ["ComfyUILTX25MSRICLoRALoader", "ComfyUILTX25MSRMultiReferenceGuide"];
+/** The pictures MSR numbers (pic1 to pic4); a place goes in the one background slot after them. */
+const MSR_NUMBERED = 4;
+/** What each picture is, as the prompt says it before the user's words (the LoRA's authors: label them "Image 1", "Image 2"...). */
+const MSR_SAYS: Record<ReferenceRole, string> = { person: "a person", clothing: "the clothes worn", object: "an object", place: "the place, the background of the scene", style: "the look" };
+
+/**
+ * The cast's pictures and voice, laid in MSR's slots: up to four pictures numbered in their order, the first place as the
+ * background, a voice with the first picture when that one is a person (the guide pairs audio_ref1 with pic1). Null when
+ * there is nothing to lay in, or when the LoRA or its pack is not here: the clip is then made from the words and LoRAs
+ * alone, and the job says why. `voices`: the form takes a voice sample (Lip sync's voice is its recording).
+ */
+interface MsrRefs {
+  numbered: Array<{ upload: string; role: ReferenceRole }>;
+  background: string | null;
+  voice: string | null;
+  /** The prompt's first lines: what each picture is, by its number. */
+  legend: string;
+}
+function msrOf(input: LtxVideo, ctx: Pick<BuildContext, "slots" | "uploads" | "has">, warnings: string[], voices: boolean): MsrRefs | null {
+  const given = (input.references ?? []).flatMap((r, i) => {
+    const upload = ctx.uploads[`references.${i}`];
+    return upload ? [{ upload, role: r.role }] : [];
+  });
+  const voiced = voices && Boolean(input.voice && ctx.uploads.voice);
+  if (!given.length && !voiced) return null;
+  const what = given.length && voiced ? "The reference pictures and the voice sample are" : given.length ? `The reference ${given.length > 1 ? "pictures are" : "picture is"}` : "The voice sample is";
+  if (!ctx.slots.msr) {
+    warnings.push(`${what} left out: LTX 2.5's MSR reference LoRA is not on this ComfyUI (models/loras; Settings › Models has it).`);
+    return null;
+  }
+  if (!MSR_NODES.every((n) => ctx.has(n))) {
+    warnings.push(`${what} left out: this ComfyUI lacks the ComfyUI-LTX2.5-MSR node pack, which reads the MSR LoRA's slots.`);
+    return null;
+  }
+  const places = given.filter((r) => r.role === "place");
+  const numbered = given.filter((r) => r.role !== "place");
+  if (numbered.length > MSR_NUMBERED) warnings.push(`${plural(numbered.length - MSR_NUMBERED, "reference picture")} left out: LTX 2.5 takes ${MSR_NUMBERED}, and a place.`);
+  if (places.length > 1) warnings.push(`${plural(places.length - 1, "place picture")} left out: LTX 2.5 takes one place, as the background.`);
+  numbered.splice(MSR_NUMBERED);
+  // the guide needs a first picture: a place given alone is that one
+  const background = numbered.length ? (places[0]?.upload ?? null) : null;
+  if (!numbered.length && places[0]) numbered.push(places[0]);
+  let voice: string | null = null;
+  if (voiced) {
+    if (numbered[0]?.role === "person") voice = ctx.uploads.voice!;
+    else warnings.push(`The voice sample is left out: LTX 2.5 gives a voice to the person in the first picture, and ${numbered.length ? "the first picture is not a person" : "there is no picture"}.`);
+  }
+  if (!numbered.length) return null;
+  const roles: ReferenceRole[] = [...numbered.map((r) => r.role), ...(background ? (["place"] as const) : [])];
+  return { numbered, background, voice, legend: roles.map((role, i) => `Image ${i + 1}: ${MSR_SAYS[role]}.`).join("\n") };
+}
+
+/** The pictures and the voice, where H3's forms have theirs and in their words; the cast fills them (compose). */
+const MSR_INPUTS: InputSpec[] = [
+  {
+    id: "references", type: "references", label: "Reference images", max: MSR_NUMBERED + 1, roles: ["person", "clothing", "object", "place"], subjects: true,
+    note: "pictures of a person, clothes, an object or a place: they are followed, they are not frames of the clip. Each picture is a subject of its own (two people: a picture of each), four at most, and one place, the scene's background. Through the MSR reference LoRA (Settings › Models has it) and its node pack; without them, left out",
+  },
+  {
+    id: "voice", type: "audio", role: "voice", label: "Voice sample", optional: true, window: { start: "voiceStart", seconds: "voiceSeconds", even: "voiceEven" },
+    note: "someone speaking: the person in the first reference image speaks with that voice. The model hears the first 5 seconds of the part. The LoRA's authors find the clip's other sounds come out only when the sample has music under the voice",
+  },
+  { id: "voiceStart", type: "number", label: "Voice sample: start", min: 0, max: 600, step: 0.5, default: 0, unit: " s", showWhen: "voice" },
+  // the MSR LoRA's voice slot is 5 s (its metadata); a person's own part, up to H3's 15 s, is taken and cut there by the guide
+  { id: "voiceSeconds", type: "number", label: "Voice sample: length", min: 2, max: 15, step: 0.5, default: 5, unit: " s", showWhen: "voice" },
+  {
+    id: "voiceEven", type: "toggle", label: "Even out the voice's loudness", default: true, showWhen: "voice", advanced: true,
+    note: "the part is brought to a usual speaking level (-16 LUFS, measured as EBU R128) before it is used: a quiet sample carries a voice weakly",
+  },
+];
+
+/** How the pictures are held: the LoRA's authors' values (their V2 workflow: 1, 1, 33 frames). */
+const MSR_STRENGTHS: InputSpec[] = [
+  {
+    id: "refLoraStrength", type: "number", label: "Reference LoRA strength", min: 0, max: 1.5, step: 0.05, default: 1, showWhen: "references", advanced: true, perModel: true,
+    note: "how strongly the MSR LoRA is put on the model: 1 is its authors', on the distilled model",
+  },
+  { id: "refStrength", type: "number", label: "Reference strength", min: 0, max: 1, step: 0.05, default: 1, showWhen: "references", advanced: true, note: "how closely the pictures are followed: 1 is the LoRA's authors'" },
+  {
+    id: "refFrames", type: "choice", label: "Reference frames", options: ["33", "25"], default: "33", showWhen: "references", advanced: true,
+    note: "each picture is given to the model as a still this many frames long: 33 is the authors' default, 25 a little lighter. Its authors leave the choice to a test",
+  },
+];
+
 export interface LtxVideo extends ColourMatch, Partial<Recording> {
   model?: string;
   /** Lip sync: a moment of the clip before the words begin, in seconds after the frames of the clip before. */
@@ -159,6 +248,12 @@ export interface LtxVideo extends ColourMatch, Partial<Recording> {
   compile: SpeedSettings["compile"];
   loras: LoraValue[];
   seed: number;
+  /** The reference pictures and the voice (2.5): absent on a version that takes none. */
+  references?: ReferenceValue[];
+  voice?: string;
+  refStrength?: number;
+  refFrames?: string;
+  refLoraStrength?: number;
 }
 
 /** What a model is, as far as its file name says: the distilled one, or a merge known to be made for a few steps. */
@@ -221,7 +316,7 @@ const ltxFrame = (g: GraphBuilder, input: LtxVideo, upload: string | undefined, 
  * The model, its text encoder and its two VAEs: from files of their own or from the one checkpoint, the LoRAs and the
  * speed-ups on it, then the distilled LoRA and the live preview. `model` samples every pass; `first` the first one.
  */
-function ltxLoad(spec: LtxSpec, g: GraphBuilder, ctx: BuildContext, input: LtxVideo, picked: ReturnType<typeof modelOf>) {
+function ltxLoad(spec: LtxSpec, g: GraphBuilder, ctx: BuildContext, input: LtxVideo, picked: ReturnType<typeof modelOf>, msr: boolean) {
   const { slots } = ctx;
   let model: Ref;
   let clip: Ref;
@@ -242,7 +337,15 @@ function ltxLoad(spec: LtxSpec, g: GraphBuilder, ctx: BuildContext, input: LtxVi
     audioVae = g.out("LTXVAudioVAELoader", { ckpt_name: picked.checkpoint });
     clip = g.out("LTXAVTextEncoderLoader", { text_encoder: slots.clip, ckpt_name: picked.checkpoint, device: "default" });
   }
-  model = faster(g, applyLoras(g, model, input.loras), input, ctx);
+  model = applyLoras(g, model, input.loras);
+  // the MSR LoRA through its own loader, which hands its slot embeddings on to the guide (a plain LoRA loader drops them)
+  let msrParams: Ref | null = null;
+  if (msr) {
+    const loader = g.add("ComfyUILTX25MSRICLoRALoader", { model, lora_name: ctx.slots.msr, strength_model: input.refLoraStrength ?? 1 });
+    model = [loader, 0];
+    msrParams = [loader, 1];
+  }
+  model = faster(g, model, input, ctx);
   const byHand = input.schedule !== BY_STEPS;
   // the live preview, without sound: the node plays it for H3 alone (seen on a real render: an audio VAE given here is not used)
   const previewed = (m: Ref): Ref => livePreview(g, ctx, m, input.livePreview);
@@ -252,7 +355,7 @@ function ltxLoad(spec: LtxSpec, g: GraphBuilder, ctx: BuildContext, input: LtxVi
   // the model without the LoRA is only sampled with when there is no LoRA, or By steps is off (the first pass runs on it)
   const plain = lora && byHand ? null : previewed(model);
   const boosted = lora ? previewed(g.out("LoraLoaderModelOnly", { model, lora_name: lora, strength_model: input.loraStrength })) : plain!;
-  return { model: boosted, first: byHand ? boosted : plain!, clip, vae, audioVae, lora };
+  return { model: boosted, first: byHand ? boosted : plain!, clip, vae, audioVae, lora, msrParams };
 }
 
 /** What every pass of a render takes: the model, the conditioning, the sampler, the empty sound, the schedule of the first pass, and the passes so far. */
@@ -284,6 +387,8 @@ interface LtxRun {
   latentGuide: Ref | null;
   /** The clip opens on its first-frame picture (not when it carries on from a clip: that one's frames open it). */
   opens: boolean;
+  /** The reference pictures, loaded once, and the voice, encoded once: given to every pass's guide, as the LoRA's authors do. */
+  msr: { pics: Record<string, Ref>; voice: Ref | null } | null;
 }
 
 /** The guider of a pass: CFG on the conditioning, or 2.5's dual CFG with the video and the sound at the same scale. */
@@ -310,6 +415,16 @@ function guided(run: LtxRun, on: Ref, wide: number, high: number, opening?: stri
     negative = [added, 1];
     latent = [added, 2];
   };
+  // the reference pictures first, each in its slot ahead of the clip's frames, the voice with the first; the guide sizes them to the pass
+  if (run.msr && loaded.msrParams) {
+    const refs = g.add("ComfyUILTX25MSRMultiReferenceGuide", {
+      positive, negative, vae: loaded.vae, latent, ...run.msr.pics, msr_parameters: loaded.msrParams, ...(run.msr.voice ? { audio_ref1: run.msr.voice } : {}),
+      strength: input.refStrength ?? 1, reference_frames: input.refFrames ?? "33", use_tiled_encode: false, tile_size: 256, tile_overlap: 64,
+    });
+    positive = [refs, 0];
+    negative = [refs, 1];
+    latent = [refs, 2];
+  }
   // the clip before's own tokens at frame 0 at the clip's full size (latent_idx 0, as LTX's extend sampler pins them), else its frames
   if (run.latentGuide && full) {
     const added = g.add("LTXVAddLatentGuide", { positive, negative, vae: loaded.vae, latent, guiding_latent: run.latentGuide, latent_idx: 0, strength: CARRY_STRENGTH });
@@ -323,7 +438,7 @@ function guided(run: LtxRun, on: Ref, wide: number, high: number, opening?: stri
   // the clip after's first frames at the clip's end, held as exactly as the clip before's: the clip lands on them (a tail of
   // 8n + 1 frames ending a clip of 8m + 1 starts on the model's 8-frame steps)
   if (run.next) add(ltxGuideFrames(g, input, run.next, wide, high), run.frame.frames - run.tail, CARRY_STRENGTH);
-  return { positive, negative, latent, any: Boolean(run.previous || opening || input.mid || run.next) };
+  return { positive, negative, latent, any: Boolean(run.msr || run.previous || opening || input.mid || run.next) };
 }
 
 /**
@@ -512,6 +627,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       ...rifeNeeds(input.smooth && input.smoothWith !== SMOOTH_LTX && (input.smoothWith === SMOOTH_RIFE || !slots.temporal || (input.smoothWith === SMOOTH_AUTO && input.upscale === UPSCALE.seedvr))),
       ...(input.smooth && input.smoothWith === SMOOTH_LTX ? ["temporal"] : []),
       ...upscaleNeeds(input),
+      // the MSR LoRA for the cast's pictures or voice: a pod is sent it, a machine of the user's own renders without (SOFT_SLOTS)
+      ...(spec.references && (input.references?.length || (!spec.lipSync && input.voice)) ? ["msr"] : []),
     ],
     id: spec.id,
     family: spec.family,
@@ -545,6 +662,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       { id: "end", type: "image", role: "end", label: "Last frame", note: "the last frame. With one, the clip is made in one pass at full size", optional: true },
       { id: "mid", type: "image", role: "mid", at: "midAt", label: "Keyframe", note: "a picture the clip passes through, at the time set below", optional: true, advanced: true },
       { id: "midAt", type: "number", label: "Keyframe at", min: 0.5, max: 19.5, step: 0.5, default: 2.5, unit: " s", showWhen: "mid", advanced: true, note: "snapped to the model's 8-frame steps (about a third of a second)" },
+      // Lip sync takes the pictures, not a voice: the recording is the voice, as on H3's Lip sync
+      ...(spec.references ? MSR_INPUTS.filter((i) => !spec.lipSync || !i.id.startsWith("voice")) : []),
       { id: "seconds", type: "number", label: "Duration", min: 1, max: 20, step: 0.5, default: 5, unit: " s" },
       {
         id: "shape", type: "size", label: "Aspect ratio", default: "wide", grid: 64, min: 256, max: 1920, ratioOnly: true,
@@ -605,6 +724,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
             { id: "nagScale", type: "number", label: "NAG scale", min: 1, max: 30, step: 0.5, default: 11, showWhen: "nag", advanced: true, perModel: true, note: "how hard the negative pushes: 11 is its authors' value" } as const,
           ]
         : []),
+      ...(spec.references ? MSR_STRENGTHS : []),
       { id: "startStrength", type: "number", label: "First frame strength", min: 0.1, max: 1, step: 0.05, default: 0.7, showWhen: "start", advanced: true, note: "lower lets the first frames move away from the picture sooner" },
       { id: "endStrength", type: "number", label: "Last frame strength", min: 0.1, max: 1, step: 0.05, default: 0.7, showWhen: "end", advanced: true },
       {
@@ -662,6 +782,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       // the head's sound pinned when the nodes are there (Lip sync needs them all: in its nodes)
       ...(spec.lipSync ? [] : HEAD_SOUND_NODES),
       LTX_SAVE_LATENT, ...LTX_CONTINUATION_NODES, LTX_TRIM, ...LTX_LATENT_CORE,
+      // the cast's pictures and voice, when the MSR LoRA and its pack are there (msrOf)
+      ...(spec.references ? [...MSR_NODES, ...(spec.lipSync ? [] : ["LoadAudio"])] : []),
       // the clip before's last frame as it was filed, loaded when the server sends it (its chain was colour-matched: colourCarried)
       "LoadImage",
       // under a recording: what goes before its part (the clip before's sound under the head, silence before the words)
@@ -704,13 +826,16 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         : ltxFramesAt(Math.min(input.seconds, LTX_MAX_SECONDS - (head + tail) / fps) + (head + tail) / fps, fps);
 
       const g = new GraphBuilder();
-      const loaded = ltxLoad(spec, g, ctx, input, picked);
+      const warnings: string[] = [];
+      const refs = spec.references ? msrOf(input, ctx, warnings, !spec.lipSync) : null;
+      const loaded = ltxLoad(spec, g, ctx, input, picked, Boolean(refs));
       const byHand = input.schedule !== BY_STEPS;
       const steps = byHand ? LTX_SIGMAS.split(",").length - 1 : input.steps;
       // Lip sync: the scene, then that the person speaks (the recording is what is said)
       const text = spec.lipSync ? [input.prompt.trim(), SPEAKS].filter(Boolean).join(" ") : input.prompt;
       const cond = g.add("LTXVConditioning", {
-        positive: g.out("CLIPTextEncode", { clip: loaded.clip, text }),
+        // what each reference picture is, by its number, before the user's words (the LoRA's authors' way of writing it)
+        positive: g.out("CLIPTextEncode", { clip: loaded.clip, text: refs ? `${refs.legend}\n\n${text}` : text }),
         negative: g.out("CLIPTextEncode", { clip: loaded.clip, text: input.negative }),
         frame_rate: fps,
       });
@@ -760,6 +885,15 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         next: lands ? clipOf(ctx.uploads.next) : null,
         pin: carry.pin,
         latentGuide: continued ? [continued, 0] : null,
+        msr: refs
+          ? {
+              pics: {
+                ...Object.fromEntries(refs.numbered.map((r, i) => [`pic${i + 1}`, g.out("LoadImage", { image: r.upload })])),
+                ...(refs.background ? { background: g.out("LoadImage", { image: refs.background }) } : {}),
+              },
+              voice: refs.voice ? g.out("LTXVAudioVAEEncode", { audio: g.out("LoadAudio", { audio: refs.voice }), audio_vae: loaded.audioVae }) : null,
+            }
+          : null,
         sampler: g.out("KSamplerSelect", { sampler_name: input.sampler }),
         sound: carry.sound,
         // By steps: LTX's own scheduler, shifted by the size of the latent it is given
@@ -791,12 +925,13 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       const looked = colourCarried(g, ctx, colourMatched(g, ctx, images, openingStart(input), fps), head - 1, fps);
       const done = finishFrames(g, ctx, looked, input, { frame: { width, height }, rife: input.smooth && !temporal, fps, audio: heard, doubled: temporal });
       const unsmoothed = rifeSkippedSaid(input.smooth && !temporal, ctx);
+      if (unsmoothed) warnings.push(unsmoothed);
       const keptLatent = ctx.has(LTX_SAVE_LATENT)
         ? g.add(LTX_SAVE_LATENT, { samples: g.out("LTXVConcatAVLatent", { video_latent: sampled.video, audio_latent: sampled.audio }), fps, filename_prefix: "Afflatus/ltx" })
         : null;
 
       return {
-        ...(unsmoothed ? { warnings: [unsmoothed] } : {}),
+        ...(warnings.length ? { warnings } : {}),
         graph: g.graph,
         phases: g.phases,
         outputs: [
@@ -821,6 +956,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
           ...(how.twoPass ? [`latent_upscale_models/${slots.upscaler}`] : []),
           ...(temporal ? [`latent_upscale_models/${slots.temporal}`] : []),
           ...(loaded.lora ? [`loras/${loaded.lora}`] : []),
+          ...(refs ? [`loras/${slots.msr}`] : []),
           ...loraLoads(input.loras),
         ],
       };

@@ -89,7 +89,8 @@ RUN pip install -c /constraints.txt -r requirements.txt \
  && if [ -f manager_requirements.txt ]; then pip install -c /constraints.txt -r manager_requirements.txt; else pip install -c /constraints.txt comfyui_manager; fi
 
 # The node packs the built-in forms use most, built in at the commits Afflatus is tested against (packs.ts names their
-# nodes): DaSiWa's (H3's step cache, the RTX upscale route), VideoHelperSuite, KJNodes and the MMH3 upscale. Their sources
+# nodes): DaSiWa's (H3's step cache, the RTX upscale route), VideoHelperSuite, KJNodes, the MMH3 upscale and LTX 2.5's MSR
+# references (its LoRA's own loader and guide; it needs no Python package). Their sources
 # stay here with their Python packages, as each commit's requirements go with it. Those packages are held to the image's
 # torch; DaSiWa's own list is not, as it asks for llama-cpp-python (a compile) for its LLM nodes, which import it only when
 # used: what it imports at load, ComfyUI brings. Its RTX node's nvidia-vfx comes in a layer of its own, below. start.sh puts
@@ -98,12 +99,14 @@ ARG DASIWA_COMMIT=18ed2d23c36363ead84f35c06bfcc0a5f8b710b2
 ARG VHS_COMMIT=4d907bee61e92c2e65af3bd6383a4e4d356126d1
 ARG KJNODES_COMMIT=d3cfe21625e5170126ce06fbfcfe1d88108688c3
 ARG MMH3_COMMIT=fe6658f6d144066f14150d3526247b417683ff2b
+ARG MSR_COMMIT=03061c18f8a79d26f3c63931dd8e28f5e5d872a6
 RUN set -e; mkdir -p /opt/packs; cd /opt/packs; \
     pin() { git init -q "$1" && git -C "$1" remote add origin "$2" && git -C "$1" fetch -q --depth 1 origin "$3" && git -C "$1" checkout -q FETCH_HEAD && echo "$1" >> /opt/packs/BUILT_IN; }; \
     pin ComfyUI-DaSiWa-Nodes https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes "${DASIWA_COMMIT}"; \
     pin ComfyUI-VideoHelperSuite https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite "${VHS_COMMIT}"; \
     pin ComfyUI-KJNodes https://github.com/kijai/ComfyUI-KJNodes "${KJNODES_COMMIT}"; \
     pin Comfyui-MMH3-UltimateUpscale https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale "${MMH3_COMMIT}"; \
+    pin ComfyUI-LTX2.5-MSR https://github.com/liconstudio/ComfyUI-LTX2.5-MSR "${MSR_COMMIT}"; \
     pip install -c /constraints.txt -r ComfyUI-VideoHelperSuite/requirements.txt -r ComfyUI-KJNodes/requirements.txt psutil av nvidia-ml-py
 
 # NVIDIA's Video Effects runtime (the nvvfx module), which DaSiWa's RTX Upscaler & Refiner imports when it runs: without it

@@ -239,6 +239,12 @@ interface ReferencesInput extends Base {
   roles: ReferenceRole[];
   /** They are videos from the library, not pictures: a short clip of each is what the model is given. */
   media?: "video";
+  /**
+   * Each picture is a subject of its own, not one more view of the same one (LTX 2.5's MSR LoRA gives each its own slot):
+   * a person gets one picture and the place one, the people are still described in words (the LoRA's authors ask for each
+   * picture to be described), the voice's owner comes first (a voice goes with the first picture), and a last frame stays.
+   */
+  subjects?: true;
 }
 export interface ReferenceValue {
   /** The picture's id in the library. */

@@ -84,10 +84,11 @@ export function designerContext(s: Services) {
       cast: words(["person", "place"]).map((w) => ({ name: w.from, words: w.text })),
       style: style ? { name: style.from, words: style.text } : undefined,
       kitLoras: (added?.loras ?? []).map((l) => ({ name: shortName(l.file), from: l.from })),
-      pictures: refs.length ? { first: source ? 2 : 1, introduced: specs.some((i) => i.type === "prompt" && i.holds === "subject"), list: refs.map((r) => ({ role: r.role, whose: whose.get(r.asset) ?? null })) } : undefined,
+      pictures: refs.length ? { first: source ? 2 : 1, introduced: specs.some((i) => i.type === "prompt" && i.holds === "subject") || (refSpec?.type === "references" && Boolean(refSpec.subjects)), list: refs.map((r) => ({ role: r.role, whose: whose.get(r.asset) ?? null })) } : undefined,
       voice: typeof voice === "string" && voice ? { whose: added?.voice ?? null } : undefined,
-      // with references or a voice the model takes the reference way, which has no last frame (MiniMax H3)
-      endDropped: Boolean(added?.endDropped) || (Boolean(refSpec) && specs.some((i) => i.type === "image" && i.role === "end") && (refs.length > 0 || (typeof voice === "string" && Boolean(voice)))),
+      // with references or a voice the model takes the reference way, which has no last frame (MiniMax H3); a model that
+      // takes each picture as a subject of its own guides with them beside its last frame (LTX 2.5)
+      endDropped: Boolean(added?.endDropped) || (refSpec?.type === "references" && !refSpec.subjects && specs.some((i) => i.type === "image" && i.role === "end") && (refs.length > 0 || (typeof voice === "string" && Boolean(voice)))),
     };
   }
 

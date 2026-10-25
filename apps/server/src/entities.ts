@@ -207,6 +207,9 @@ export async function compose(db: Db, recipe: Recipe<any>, asked: Record<string,
   const tags = main?.type === "prompt" && main.style === "tags";
   const subjectSpec = specs.find((i) => i.type === "prompt" && i.holds === "subject");
   const refSpec = specs.find((i) => i.type === "references" && !i.media);
+  // each picture a subject of its own (LTX 2.5's MSR slots): one per person and one per place, not more views of the same one
+  const subjects = refSpec?.type === "references" && Boolean(refSpec.subjects);
+  const sent = subjects ? { person: 1, place: 1 } : PICTURES;
   const voiceSpec = specs.find((i) => i.type === "audio" && i.role === "voice");
   const loraSpec = specs.find((i) => i.type === "loras");
 
@@ -226,9 +229,9 @@ export async function compose(db: Db, recipe: Recipe<any>, asked: Record<string,
       const p = defs.person.parse(JSON.parse(row.def)) as PersonDef;
       const worn = p.outfits.find((o) => o.id === member.outfit);
       const m = p.models[recipe.family];
-      persons.push({ name: row.name, trigger: m?.trigger ?? "", look: (tags ? p.tags : p.sentence) ?? "", worn: (tags ? worn?.tags : worn?.sentence) ?? "", pictures: p.pictures.slice(0, PICTURES.person) });
+      persons.push({ name: row.name, trigger: m?.trigger ?? "", look: (tags ? p.tags : p.sentence) ?? "", worn: (tags ? worn?.tags : worn?.sentence) ?? "", pictures: p.pictures.slice(0, sent.person) });
       if (m?.lora) loras.push({ file: m.lora, weight: m.weight, from: row.name });
-      for (const asset of p.pictures.slice(0, PICTURES.person)) refs.push({ asset, role: "person", from: row.name });
+      for (const asset of p.pictures.slice(0, sent.person)) refs.push({ asset, role: "person", from: row.name });
       if (worn?.picture) refs.push({ asset: worn.picture, role: "clothing", from: row.name });
       if (p.voice && !voice) voice = { asset: p.voice, from: row.name, part: p.voicePart };
     } else if (row.kind === "place") {
@@ -238,7 +241,7 @@ export async function compose(db: Db, recipe: Recipe<any>, asked: Record<string,
         places.push(words);
         added.words.push({ from: row.name, text: words.trim(), kind: "place" });
       }
-      for (const asset of p.pictures.slice(0, PICTURES.place)) refs.push({ asset, role: "place", from: row.name });
+      for (const asset of p.pictures.slice(0, sent.place)) refs.push({ asset, role: "place", from: row.name });
     }
   }
   // the ticked snippets, in the order they were ticked
@@ -262,6 +265,13 @@ export async function compose(db: Db, recipe: Recipe<any>, asked: Record<string,
   }
 
   // ---- reference pictures and the voice, for the recipes that take them
+  // the voice goes with the first picture where each is a subject of its own: its owner's picture is put first, and their
+  // words, so that the first person described is the first picture
+  if (subjects && voice) {
+    const owner = voice.from;
+    refs.sort((a, b) => Number(!(a.from === owner && a.role === "person")) - Number(!(b.from === owner && b.role === "person")));
+    persons.sort((a, b) => Number(a.name !== owner) - Number(b.name !== owner));
+  }
   let withRefs = false;
   const before = refSpec ? (Array.isArray(input[refSpec.id]) ? (input[refSpec.id] as unknown[]).length : 0) : 0;
   const hadVoice = Boolean(voiceSpec && input[voiceSpec.id]);
@@ -291,18 +301,20 @@ export async function compose(db: Db, recipe: Recipe<any>, asked: Record<string,
     }
   }
 
-  // a model that follows reference pictures and was given an end frame makes the clip from the references instead (MiniMax H3)
+  // a model that follows reference pictures and was given an end frame makes the clip from the references instead (MiniMax H3);
+  // one that takes each picture as a subject of its own guides with them beside its last frame (LTX 2.5)
   const endSpec = specs.find((i) => i.type === "image" && i.role === "end");
-  if (endSpec && input[endSpec.id] && !before && !hadVoice && (added.references > 0 || added.voiceAsset)) {
+  if (endSpec && !subjects && input[endSpec.id] && !before && !hadVoice && (added.references > 0 || added.voiceAsset)) {
     added.endDropped = true;
     added.skipped.push(`The last frame is not used: with ${added.references > 0 ? "the cast's reference images" : "the cast's voice sample"}, it renders with its reference model, which takes no last frame`);
   }
 
   // ---- the people's words. A model that takes who someone is from their pictures alone (Klein, Qwen edit: no
   // place of its own for how people look) is not told it again in words: its guides say a face a picture shows
-  // is pointed at, never described, and words that describe it fight the picture. What they wear stays.
-  const sent = new Set(refSpec?.type === "references" && Array.isArray(input[refSpec.id]) ? (input[refSpec.id] as ReferenceValue[]).map((r) => r.asset) : []);
-  const pictured = (who: (typeof persons)[number]) => !tags && !subjectSpec && who.pictures.some((a) => sent.has(a));
+  // is pointed at, never described, and words that describe it fight the picture. What they wear stays. A model that takes
+  // each picture as a subject of its own is told how each one looks as well: its LoRA's authors ask for it (LTX 2.5's MSR).
+  const given = new Set(refSpec?.type === "references" && Array.isArray(input[refSpec.id]) ? (input[refSpec.id] as ReferenceValue[]).map((r) => r.asset) : []);
+  const pictured = (who: (typeof persons)[number]) => !tags && !subjectSpec && !subjects && who.pictures.some((a) => given.has(a));
   const people = persons.flatMap((who) => {
     // a trigger is a LoRA's own words, a tag in either way of writing: in sentences it opens them, as a line of its own
     const trigger = who.trigger.trim().replace(/[,.\s]+$/, "");
