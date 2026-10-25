@@ -101,8 +101,10 @@ const STRIP_WAIT_MS = 8000;
 /** Half the join's dot (24 px round): a press let go of within it, on the edge drawn over it, is a click on the dot. */
 const DOT_HALF = 12;
 
-export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, misfit, on, edged, picked, rendering, stretch, over, pinOn, ownSound, fileSound, renderMs, lift, moving, nearJoin, voice, acts }: {
+export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, misfit, on, edged, picked, rendering, stretch, over, pinOn, ownSound, fileSound, renderMs, lift, moving, nearJoin, voice, playsOver, acts }: {
   s: Slot;
+  /** Under a recording in a form it plays over (Video with audio, card #72): said on its face, its own sound dropped. */
+  playsOver?: boolean;
   /**
    * A Lip sync clip's voice: the recording's name, null while it has none (said in amber on its face and in its Audio cell,
    * which then takes one); undefined for a clip of any other model.
@@ -205,8 +207,9 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
     [...lanes.querySelectorAll<HTMLElement>("[data-join]")].find((dot) => dot.dataset.join === j.clip.id)?.click();
   };
   const edgeHint = (side: "start" | "end", drag: string) => (joinAt(side) && !moving ? `click: the join · ${drag}` : drag);
-  // not rendered yet, a model that makes its own sound says so, neutral: what will be heard there once it is
-  const heard = c.kind === "still" || s.planned ? (c.sound === "file" ? c.soundAsset?.name || "Audio file" : s.planned && recipe?.traits?.sound && voice === undefined ? "own sound, once rendered" : "") : c.sound === "file" ? c.soundAsset?.name || "Audio file" : c.sound === "muted" ? "Muted" : video?.hasSound ? "Own audio" : "Silent";
+  // not rendered yet, a model that makes its own sound says so, neutral: what will be heard there once it is (under a
+  // recording, the recording is: its band says so)
+  const heard = c.kind === "still" || s.planned ? (c.sound === "file" ? c.soundAsset?.name || "Audio file" : s.planned && recipe?.traits?.sound && voice === undefined && !playsOver ? "own sound, once rendered" : "") : c.sound === "file" ? c.soundAsset?.name || "Audio file" : c.sound === "muted" ? "Muted" : video?.hasSound ? "Own audio" : "Silent";
   return (
     // its parts in one wrapper at the track's origin, laid out from its slot: a clip moved by the pointer moves them together
     <div ref={acts.current.mount(c.id)} className={cx("absolute top-0 left-0", lift && "z-sticky")}>
@@ -280,7 +283,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
         <span className="absolute top-1 left-1.5 rounded bg-ground/85 px-1.5 py-px text-meta font-bold">{s.index + 1}</span>
         {/* nothing to play yet: what it will be, in its own words, beside its number (clear of its pinned pictures) */}
         {s.planned && !c.job && s.width > 100 && (
-          <span className={cx("absolute top-1.5 left-9 truncate text-meta text-ink-2", voice !== undefined && s.width > 150 ? "right-30" : "right-2")}>{titleOf(c, recipe)}</span>
+          <span className={cx("absolute top-1.5 left-9 truncate text-meta text-ink-2", (voice !== undefined || playsOver) && s.width > 150 ? "right-30" : "right-2")}>{titleOf(c, recipe)}</span>
         )}
         {/* a Lip sync clip's voice on its face: amber while it has none, told apart before it is clicked; its recording's name once it has one */}
         {voice !== undefined && s.width > 64 && (
@@ -291,6 +294,11 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
               // the icon outside the cut name: inside a truncated chip it took a line of its own
               <Chip size="xs" tip={`Its voice: ${voice}`} className="max-w-full min-w-0 shrink!"><Mic size={10} className="shrink-0" /><span className="min-w-0 truncate">{voice}</span></Chip>
             )}
+          </span>
+        )}
+        {playsOver && s.width > 64 && (
+          <span className="absolute top-1 right-1.5 flex max-w-[45%] justify-end">
+            <Chip size="xs" tip={`The recording plays over clip ${s.index + 1} unchanged: its take keeps the recording's part as its sound, H3's own dropped`}>♫ plays over</Chip>
           </span>
         )}
         <span className="absolute inset-x-1.5 bottom-1 flex items-end justify-between gap-1">

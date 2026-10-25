@@ -6,7 +6,7 @@ import type { useModelSettings, useRecipes, useSetup } from "../data";
 import { wholeForm } from "../form";
 import { notReady } from "../format";
 import { queryKeys } from "../queryKeys";
-import { recordingInput } from "./track/RecordingBand";
+import { voiceInput } from "./track/RecordingBand";
 
 /**
  * The key the source lane's form is kept under among the clips' forms: saved as they are (after the last change, as the
@@ -102,7 +102,7 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
     setEdits((e) => ({ ...e, [c.id]: value }));
     queue(c.id, value);
     // a new voice is saved at once: the server works out its part, which the band and the Recording chapter show
-    const voice = recordingInput(recipes.data?.recipes.find((r) => r.id === c.recipe));
+    const voice = voiceInput(recipes.data?.recipes.find((r) => r.id === c.recipe));
     if (voice && value[voice.id] && value[voice.id] !== was[voice.id]) void flush(c.id);
   };
   /** The source lane's form typed (its panel's), saved as a clip's form is. */
@@ -159,7 +159,7 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
       const before = at > 0 ? clips[at - 1] : undefined;
       const carries = Boolean(before) && c.joined === "continue";
       // a Lip sync clip waits for its voice first: said with where it goes (the clip's Audio cell on the track), a to-do
-      const voice = recordingInput(recipe);
+      const voice = voiceInput(recipe);
       if (voice && !input[voice.id]) return { why: `Drop a voice recording on clip ${at + 1}'s Audio cell, or choose one.`, voice: true };
       for (const i of recipe.inputs) {
         if (i.type === "prompt" && ((!i.optional && i.default === undefined) || i.example) && !String(input[i.id] ?? "").trim()) return { why: `Write ${i.label.toLowerCase()} first.` };

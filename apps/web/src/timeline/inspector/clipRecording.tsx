@@ -3,13 +3,15 @@ import { clock as mmss, plural } from "../../format";
 import { Button, NumberBox } from "../../ui";
 
 /**
- * A Lip sync clip made from a recording dropped on the track (the rethink's step 6), as its panel shows it: the recording's
- * stretch its clips are made of, In and Out (seconds of the recording), trimmed as a source's is (Timelines.trimRecording),
- * and the question when a moved start would leave rendered takes behind.
+ * A clip under a recording dropped on the track (the rethink's step 6), whatever its form, as its panel shows it: the
+ * recording's stretch its clips are made of, In and Out (seconds of the recording), trimmed as a source's is
+ * (Timelines.trimRecording), and the question when a moved start would leave rendered takes behind.
  */
 export type ClipRecording = {
   /** How many clips the recording made, this one among them; this one's part. */
   count: number;
+  /** The recording plays over this clip (a form other than Lip sync, card #72): its mouth does not follow it. */
+  over: boolean;
   part: { startMs: number; seconds: number };
   fromMs: number;
   toMs: number;
@@ -19,16 +21,23 @@ export type ClipRecording = {
   trimming: boolean;
 };
 
-/** The Recording chapter of a Lip sync clip made from a recording. */
+/** The Recording chapter of a clip under a recording: Lip sync's, made around its part, or one the recording plays over. */
 export function recordingLead(r: ClipRecording): LeadPart {
   const stretch = `${mmss(r.fromMs, { decimals: 1 })}–${mmss(r.toMs, { decimals: 1 })}`;
   return {
     id: "recording",
     title: "Recording",
-    help: "The recording this clip is a part of, cut at its pauses into Lip sync clips. In and Out set the stretch they are made of: the end in drops the clips past it (a rendered one is never shortened), the end out adds clips at its pauses, the start moved makes them anew.",
-    summary: `${stretch} · ${plural(r.count, "clip")}`,
+    help: r.over
+      ? "The clip stays one of the recording's: its part, its place in the recording's list, the join and the song's hand-over stay. What the person does comes from What happens. In and Out set the stretch the recording's clips are made of, as on a Lip sync clip."
+      : "The recording this clip is a part of, cut at its pauses into clips. In and Out set the stretch they are made of: the end in drops the clips past it (a rendered one is never shortened), the end out adds clips at its pauses, the start moved makes them anew.",
+    summary: `${stretch} · ${plural(r.count, "clip")}${r.over ? " · plays over" : ""}`,
     node: (
       <div className="flex flex-col gap-3">
+        {r.over && (
+          <span className="text-xs text-ink-2">
+            <span className="font-semibold text-ink">Plays over this clip</span>, unchanged: the take keeps the recording's part as its sound, and H3's own sound is dropped. Back to Lip sync, the mouth follows it again.
+          </span>
+        )}
         <span className="text-xs text-ink-2">
           {stretch} made into {plural(r.count, "clip")} · this one {mmss(r.part.startMs, { decimals: 1 })}–{mmss(r.part.startMs + r.part.seconds * 1000, { decimals: 1 })}
         </span>

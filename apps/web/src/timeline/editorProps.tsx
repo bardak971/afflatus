@@ -1,5 +1,5 @@
 import type { ComponentProps, ComponentPropsWithoutRef } from "react";
-import { api, type Asset, type Clip } from "../api";
+import { api, type Asset, type Clip, type RecipeInfo } from "../api";
 import type { ExportDialog } from "./ExportDialog";
 import type { FinishDialog } from "./Finish";
 import type { Inspector } from "./Inspector";
@@ -14,14 +14,15 @@ import { PIN_WORDS, pinInputs, pinMirrorOf } from "./model";
 import { pinMenuItems, placeItems, type ClipMenuActions } from "./menus";
 import type { ContextMenu } from "../ContextMenu";
 import type { LoadedEditor } from "./useTimelineEditor";
-import { plural, recipeLabel } from "../format";
+import { plural } from "../format";
 import { carriedOf, sameWindowGrid, windowBounds } from "@afflatus/core";
 import { madeFromSource, sourceDropClip, windowed } from "./track/SourceLane";
 import type { ClipSource } from "./inspector/clipSource";
 import type { ClipRecording } from "./inspector/clipRecording";
 import type { RecordingPanelProps } from "./inspector/recording";
-import { clipsOfRecording, recordingInput } from "./track/RecordingBand";
+import { clipsOfRecording, playsOver, recordingInput, voiceInput } from "./track/RecordingBand";
 import { stageEnd } from "./recordingPlace";
+import { recordingFormOptions, recordingForms } from "./recordingForms";
 import { failedBanner } from "../sayFailed";
 
 // What each part of the timeline editor is drawn with, from what the editor holds (useTimelineEditor): the wiring
@@ -123,7 +124,7 @@ export function transportProps(e: LoadedEditor): ComponentProps<typeof Transport
  * Recording field sets it: over the form as it stands, what was typed meanwhile kept.
  */
 function setVoice(e: LoadedEditor, clip: Clip, asset: string) {
-  const input = recordingInput(e.videoRecipes.find((r) => r.id === clip.recipe));
+  const input = voiceInput(e.videoRecipes.find((r) => r.id === clip.recipe));
   if (input) e.editInputs(clip, (was) => ({ ...was, [input.id]: asset }));
 }
 
@@ -279,23 +280,23 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
 }
 
 /**
- * A Lip sync clip made from a recording (its form's recording, part by part), as its panel takes it: the Recording chapter,
- * the recording's stretch over all its clips. Undefined for any other clip.
+ * A clip under a recording (its form's recording, part by part), whatever its form, as its panel takes it: the Recording
+ * chapter, the recording's stretch over all its clips. Undefined for any other clip.
  */
 function clipRecordingOf(e: LoadedEditor, current: Clip): ClipRecording | undefined {
-  const recipe = e.videoRecipes.find((r) => r.id === current.recipe);
-  const spec = recipe?.inputs.find((i) => i.type === "audio" && i.role === "sound" && i.window);
-  if (!spec || spec.type !== "audio" || !spec.window) return undefined;
-  const asset = current.inputs[spec.id];
+  const w = recordingInput(e.videoRecipes.find((r) => r.id === current.recipe));
+  if (!w) return undefined;
+  const asset = current.inputs[w.id];
   if (typeof asset !== "string" || !asset) return undefined;
-  const w = spec.window;
-  // as shown, with what is typed and not read back yet (the band reads them so): a voice just given, its part worked out
-  const mine = e.shown.clips.filter((c) => c.recipe === current.recipe && c.inputs[spec.id] === asset);
+  // as shown, with what is typed and not read back yet (the band reads them so): a voice just given, its part worked out.
+  // Every clip under it, whatever its form (card #72): Lip sync and those it plays over make one stretch
+  const mine = clipsOfRecording(e.shown.clips, e.videoRecipes, asset);
   const at = (c: Clip) => Math.round(Number(c.inputs[w.start] ?? 0) * 1000);
   const end = (c: Clip) => at(c) + Math.round(Number(c.inputs[w.seconds] ?? 0) * 1000);
   const ask = e.recordingTrim.ask?.asset === asset ? e.recordingTrim.ask : null;
   return {
     count: mine.length,
+    over: playsOver(current, e.videoRecipes),
     part: { startMs: at(current), seconds: Number(current.inputs[w.seconds] ?? 0) },
     fromMs: mine.length ? at(mine[0]!) : 0,
     toMs: mine.length ? end(mine.at(-1)!) : 0,
@@ -324,19 +325,31 @@ export function recordingPanelProps(e: LoadedEditor, place: NonNullable<LoadedEd
   const cutAsk = e.recordingCut.ask?.asset === asset ? e.recordingCut.ask : null;
   const seconds = recording.seconds ?? 5;
   const snap = recording.snap ?? true;
-  // what the clips share: the scene and how they look, as each clip's form holds it now (what was typed with it)
-  const shared = recipe.inputs
-    .filter((i) => i.type === "prompt" && (!i.optional || i.holds === "subject"))
-    .map((i) => {
-      const values = mine.map((c) => String(e.inputsOf(c)[i.id] ?? ""));
-      return { id: i.id, label: i.label, value: values.every((v) => v === values[0]) ? values[0]! : null, placeholder: i.type === "prompt" ? i.placeholder : undefined };
-    });
+  // what the clips share: the scene and how they look, as each clip's form holds it now (what was typed with it); of every
+  // form its clips are in (card #72), each field read off the clips whose form has it
+  const formsIn = [...new Set(mine.map((c) => c.recipe))].map((id) => e.videoRecipes.find((r) => r.id === id)).filter((r): r is RecipeInfo => Boolean(r));
+  const fields = formsIn.flatMap((r) => r.inputs).filter((i, k, all) => i.type === "prompt" && (!i.optional || i.holds === "subject") && all.findIndex((x) => x.id === i.id) === k);
+  const shared = fields.map((i) => {
+    const values = mine.filter((c) => e.videoRecipes.find((r) => r.id === c.recipe)?.inputs.some((x) => x.id === i.id)).map((c) => String(e.inputsOf(c)[i.id] ?? ""));
+    return { id: i.id, label: i.label, value: values.every((v) => v === values[0]) ? (values[0] ?? "") : null, placeholder: i.type === "prompt" ? i.placeholder : undefined };
+  });
   const at = e.clips.indexOf(first);
+  const families = e.recipes.data?.families;
+  // each clip's form, changed in place, as its model list offers the forms under a recording (each says how it meets the
+  // clip before); named by their titles in the list's rows, the family the same for all
+  const formOptions = (c: Clip) => {
+    const k = e.clips.indexOf(c);
+    const before = k > 0 ? e.clips[k - 1] : undefined;
+    const prior = before?.kind === "video" && before.recipe ? e.videoRecipes.find((r) => r.id === before.recipe) : undefined;
+    return recordingFormOptions(e.videoRecipes, families, prior, { short: true });
+  };
+  const newForm = recording.form ?? recordingForms(e.videoRecipes)[0]?.id ?? recipe.id;
   return {
     timelineId: e.t.id,
     recording: recording.asset,
     place,
-    model: recipeLabel(e.recipes.data?.families.find((f) => f.id === recipe.family)?.name, recipe.title),
+    newClips: { value: newForm, options: recordingFormOptions(e.videoRecipes, families, undefined), onChange: (to) => e.m.recordingNewClips.mutate({ asset, recipe: to }), pending: e.m.recordingNewClips.isPending },
+    forms: { of: formOptions, change: (clip, to) => e.patch.mutate({ clip, patch: { recipe: to } }) },
     clock: e.clock,
     onClose: () => e.setRecordingOpen(null),
     onUses: (fromMs, toMs) => void e.recordingTrim.run(asset, mine, fromMs, toMs),

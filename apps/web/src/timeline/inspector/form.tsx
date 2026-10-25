@@ -16,7 +16,9 @@ import { useInputEdits } from "../../hooks";
 import { Select } from "../../Select";
 import { AutoText, Button, cx, fieldClass, NumberBox, Segmented, Spinner } from "../../ui";
 import { fileVersion, type ShownPatch } from "../model";
-import { inRunSaid, recordingInput, runFrom } from "../track/RecordingBand";
+import { inRunSaid, playsOver, recordingInput, runFrom } from "../track/RecordingBand";
+import { JOIN_WORDS, OTHER_MODELS_SAID, recordingFormOptions } from "../recordingForms";
+import type { OffHere } from "../../RecipeForm";
 
 type FormProps = ComponentProps<typeof Form>;
 
@@ -59,15 +61,35 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
   const edit = useInputEdits(stored, onInputs);
   // inside a run of its recording (a song cut into clips end to end), Speech starts at does not apply: greyed, why in its "?"
   const runBefore = runFrom(timeline.clips, recipes, clip, { ...clip.inputs, ...stored });
-  const off = runBefore ? Object.fromEntries((recordingInput(recipe)?.lead ?? []).map((id) => [id, inRunSaid(runBefore)])) : undefined;
+  // under a recording (card #72): only the forms a clip under one takes are offered; on one it plays over (Video with
+  // audio) its part sets its length, as a Lip sync clip's does, its Duration greyed with the part's
+  const recording = recordingInput(recipe);
+  const under = Boolean(recording && clip.inputs[recording.id]);
+  const over = playsOver(clip, recipes);
+  const duration = secondsInput(form?.inputs ?? []);
+  const partS = recording ? Number(clip.inputs[recording.seconds] ?? 0) : 0;
+  const off: Record<string, OffHere> | undefined = runBefore || (over && duration)
+    ? {
+        ...(runBefore ? Object.fromEntries((recording?.lead ?? []).map((id) => [id, inRunSaid(runBefore)])) : {}),
+        ...(over && duration ? { [duration.id]: { why: "Set by its part of the recording: the clip lasts as long as its part, as a Lip sync clip does, so that the next part starts where its picture ends.", value: `${partS.toFixed(1)} s, its part` } } : {}),
+      }
+    : undefined;
   // the machine picked for the timeline's renders: the form's node pack notes speak for it
   const pickedOn = usePickedMachine(timelineKey(timeline.id));
   // how each model would meet the clip before, said beside it before it is picked (the join rule, joinWay): a still or no clip
   // before says nothing. The forms made window by window come last, under where they are made from
   const prior = index > 0 && before?.kind === "video" && before.recipe ? all.data?.recipes.find((r) => r.id === before.recipe) : undefined;
-  const WAY = { seamless: "seamless", frames: "carries on", cut: "a cut" } as const;
   const ordered = [...recipes.filter((r) => !r.traits?.windows), ...recipes.filter((r) => r.traits?.windows)];
-  const picker = (
+  const picker = under ? (
+    // under a recording: what the recording does on each form, how it meets the clip before; leaving it is Remove
+    <Select
+      label="Model"
+      value={recipe?.id ?? ""}
+      onChange={onRecipe}
+      options={recordingFormOptions(recipes, all.data?.families, prior).map((o) => ({ ...o, group: "Under the recording" }))}
+      footer={() => <div className="border-t border-line px-3 py-2 text-xs text-ink-3">{OTHER_MODELS_SAID}</div>}
+    />
+  ) : (
     <Select
       label="Model"
       value={recipe?.id ?? ""}
@@ -77,7 +99,7 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
         value: r.id,
         label: recipeLabel(all.data?.families.find((f) => f.id === r.family)?.name, r.title),
         detail: r.summary,
-        ...(r.traits?.windows ? { group: "From a source", note: "a window of the source" } : prior ? { note: `${WAY[joinWay(prior, r)]} after clip ${index}` } : {}),
+        ...(r.traits?.windows ? { group: "From a source", note: "a window of the source" } : prior ? { note: `${JOIN_WORDS[joinWay(prior, r)]} after clip ${index}` } : {}),
       }))}
     />
   );
@@ -92,6 +114,17 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
       </div>
     );
   }
+  // on a clip the recording plays over: what the person does said in positive words (#79: "listens, mouth closed" kept the
+  // mouth still; H3 reads a negation as the thing), and Music left empty (naming the song moved the lips)
+  const shownForm: RecipeInfo = over
+    ? {
+        ...form,
+        inputs: form.inputs.map((i) =>
+          i.id === "description" && i.type === "prompt" ? { ...i, placeholder: "She listens, eyes closed, her mouth closed, swaying slowly to the music." }
+          : i.id === "music" && i.type === "prompt" ? { ...i, note: "Under a recording, leave it empty: the recording is the clip's sound, and naming a song moves the lips." }
+          : i),
+      }
+    : form;
   const main = mainTextOf(form);
   const written = main ? String(stored[main.id] ?? "") : "";
   const cast = clip.look === null ? (
@@ -119,7 +152,8 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
   const startsHow = carries ? `Extends clip ${index}: its motion carries in` : opens ? `Opens on a picture` : "Starts on its own";
   // its own pinned last frame wins over landing on the clip after (the server skips the landing then)
   const endsHow = ends ? "ends on a picture" : nextJoined ? `ends where clip ${index + 2} begins` : "ends free";
-  const seconds = secondsInput(form.inputs);
+  // (a clip the recording plays over lasts as long as its part: no Duration to set beside the join)
+  const seconds = over ? undefined : duration;
   // the input the form's next clip names for how many of its frames are landed on (H3's Landing), not an id of H3's own
   const nextClip = recipe.inputs.find((i) => i.type === "clip" && i.role === "next");
   const landing = nextClip?.type === "clip" && nextClip.framesFrom ? recipe.inputs.find((i) => i.id === nextClip.framesFrom && i.type === "choice") : undefined;
@@ -132,7 +166,7 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
       <CardPrompt.Provider value>
       <Form
         key={`${clip.id}:${form.id}`}
-        recipe={form}
+        recipe={shownForm}
         machine={pickedOn?.id}
         given={carries ? { previous: true } : undefined}
         status={status}

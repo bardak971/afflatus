@@ -210,7 +210,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   app.post<{ Params: { id: string } }>("/api/timelines/:id/source/make", async (req) => ({ clips: await t.makeFromSource(req.params.id, z.strictObject({ again: z.boolean().optional() }).parse(req.body ?? {})) }));
   // the source's stretch trimmed after Make: its end in or out (windows set aside and brought back), its start moved (made anew)
   app.post<{ Params: { id: string } }>("/api/timelines/:id/source/trim", async (req) => t.trimSource(req.params.id, z.strictObject({ fromMs: z.number().min(0), toMs: z.number().min(0) }).parse(req.body)));
-  // a recording's Lip sync clips trimmed: its end in (clips go) or out (clips added at its pauses), its start moved (made anew)
+  // a recording's clips trimmed: its end in (clips go) or out (clips added at its pauses), its start moved (made anew)
   app.post<{ Params: { id: string } }>("/api/timelines/:id/recording/trim", async (req) => t.trimRecording(req.params.id, z.strictObject({ asset: z.string().min(1), fromMs: z.number().min(0), toMs: z.number().min(0) }).parse(req.body)));
   // a recording's clips cut again at another length, in its pauses or not (its panel: Timelines.cutRecording)
   app.post<{ Params: { id: string } }>("/api/timelines/:id/recording/cut", async (req) => t.cutRecording(req.params.id, z.strictObject({ asset: z.string().min(1), seconds: z.number().min(1).max(60), snap: z.boolean() }).parse(req.body)));
@@ -218,6 +218,11 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   app.post<{ Params: { id: string } }>("/api/timelines/:id/recording/form", async (req) => {
     const clips = await t.recordingForm(req.params.id, z.strictObject({ asset: z.string().min(1), inputs: z.record(z.string(), z.unknown()) }).parse(req.body));
     return { ok: true, clips };
+  });
+  // the form a recording's new clips are made in, Lip sync or one it plays over (its panel's New clips: Timelines.recordingNewClips)
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/recording/new-clips", async (req) => {
+    await t.recordingNewClips(req.params.id, z.strictObject({ asset: z.string().min(1), recipe: z.string().min(1) }).parse(req.body));
+    return { ok: true };
   });
   // a voice recording made into Lip sync clips cut at its pauses, in place of an empty clip or at the end (Timelines.makeFromRecording)
   app.post<{ Params: { id: string } }>("/api/timelines/:id/recording", async (req) => ({ clips: await t.makeFromRecording(req.params.id, z.strictObject({ asset: z.string().min(1), clip: z.string().optional(), seconds: z.number().min(1).max(60).optional() }).parse(req.body)) }));

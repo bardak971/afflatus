@@ -24,7 +24,7 @@ import { ClipHead } from "./inspector/head";
 import { LookTable } from "./inspector/look";
 import { Slide } from "./inspector/parts";
 import { Duration, PinnedFrames, TakeList } from "./inspector/takes";
-import { recordingInput, voiceOf } from "./track/RecordingBand";
+import { voiceInput, voiceOf } from "./track/RecordingBand";
 import { queryKeys } from "../queryKeys";
 import { useSayFailed } from "../sayFailed";
 
@@ -138,7 +138,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
     [recipe, sourcePart],
   );
   // a Lip sync clip without its voice: Needs a look says so at the top, with the picker its Recording field opens
-  const voiceInput = recordingInput(recipe);
+  const voiceSpec = voiceInput(recipe);
   const needsVoice = !clip.job && voiceOf(clip, recipe, stored) === null;
   const canFit = Boolean(recipe?.traits?.endAnchor && after?.take && after.joined === "continue");
   const take = clip.take;
@@ -324,7 +324,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
         </div>
       )}
 
-      {picking === "voice" && voiceInput && <Picker title="Recording" kind="audio" onClose={() => setPicking(null)} onPick={(asset) => { onInputs({ ...stored, [voiceInput.id]: asset }); setPicking(null); }} />}
+      {picking === "voice" && voiceSpec && <Picker title="Recording" kind="audio" onClose={() => setPicking(null)} onPick={(asset) => { onInputs({ ...stored, [voiceSpec.id]: asset }); setPicking(null); }} />}
       {picking === "sound" && <Picker title={`Audio of clip ${index + 1}`} kind="audio" onClose={() => setPicking(null)} onPick={(soundAsset) => { onPatch({ soundAsset }); setPicking(null); }} />}
       {(picking === "start" || picking === "end" || picking === "mid") && (
         <Picker

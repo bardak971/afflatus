@@ -45,6 +45,11 @@ export { mainTextOf } from "./form";
  */
 /** A chapter a screen puts before the form's own (a timeline clip's Source, its Takes). */
 export type LeadPart = { id: string; title: string; summary: ReactNode; node: ReactNode; help?: string };
+/**
+ * Why a setting does not apply where the form is (Form's `off`); with `value`, what stands for its value where it is not its
+ * own (a clip under a recording: its part's length for Duration), said on its row and in its chapter's summary.
+ */
+export type OffHere = string | { why: string; value: string };
 
 /**
  * The form a recipe's inputs make. A form whose prompt is written from parts (card #34: a swap's In the source, How they look,
@@ -88,7 +93,7 @@ export function Form(props: {
    * Settings that do not apply where the form is, by input id, with why: shown greyed with their value, the reason in their
    * "?" (a Lip sync clip inside a run of its recording: Speech starts at). Never hidden: a row that comes and goes is never learnt.
    */
-  off?: Record<string, string>;
+  off?: Record<string, OffHere>;
 }) {
   const written = useWrittenPrompt(props.recipe, props.stored, props.given);
   const recipe = useMemo(
@@ -156,7 +161,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
    * Settings that do not apply where the form is, by input id, with why: shown greyed with their value, the reason in their
    * "?" (a Lip sync clip inside a run of its recording: Speech starts at). Never hidden: a row that comes and goes is never learnt.
    */
-  off?: Record<string, string>;
+  off?: Record<string, OffHere>;
 }) {
   const family = useRecipes().data?.families.find((f) => f.id === recipe.family);
   const settings = useModelSettings();
@@ -195,7 +200,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   const { query, setQuery, q, revealedBy } = useFormSearch(recipe);
   const layout = layoutOf(recipe, seen, q, keepEmpty);
   const { chapters, advancedMoved, promptMoved, mainText, hit, sought, texts, frames, refs, loras, out, knobs, sampling, afterSampling, upscaling, encoding, rare, hidden } = layout;
-  const said = summariesOf(recipe, layout, values, { madeSummary, lookSummary, frameSummary: frameExtra?.summary });
+  const said = summariesOf(recipe, layout, values, { madeSummary, lookSummary, frameSummary: frameExtra?.summary, off });
 
   // ---- Pinned fields: the settings pinned for the model's family (every H3 form shares "h3"), first in the form. Each is a
   // live copy of the one in its section; one the form does not show now stays on the card, dimmed, saying why. An id this
@@ -280,14 +285,16 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
    * looks for by its input id); in its section, a pinned one carries a pin after its name.
    */
   const field = (i: InputSpec, { bare = false, copy }: { bare?: boolean; copy?: { from: string } } = {}) => {
-    const why = off?.[i.id];
-    if (why) {
-      // greyed, its value as it stands, nothing to change: the reason in its "?"
+    const offHere = off?.[i.id];
+    if (offHere) {
+      // greyed, its value as it stands (or what stands for it), nothing to change: the reason in its "?"
       const value = values[i.id] ?? defaults[i.id];
+      const why = typeof offHere === "string" ? offHere : offHere.why;
+      const shows = typeof offHere === "string" ? `${value === undefined || value === null ? "—" : `${String(value)}${"unit" in i && i.unit ? i.unit : ""}`} · off here` : `${offHere.value} · set here`;
       return (
         <div key={i.id} data-input-id={copy ? undefined : i.id} data-off="" className="opacity-60">
           <FieldRow label={i.label} note={why} trail>
-            <span className="text-sm text-ink-3">{value === undefined || value === null ? "—" : `${String(value)}${"unit" in i && i.unit ? i.unit : ""}`} · off here</span>
+            <span className="text-sm text-ink-3">{shows}</span>
           </FieldRow>
         </div>
       );

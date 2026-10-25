@@ -9,6 +9,7 @@ import { conditionFor, type MorePicture } from "./condition";
 import { finish, H3_SAVE_LATENT } from "./finish";
 import { FACE_REFINE_OPTIONAL, FACE_REFINE_PACK_NEEDED, FACE_REFINE_SLOTS, faceRefineNeeds, faceRefineSkipped } from "./faceRefine";
 import { h3Inputs, type H3Video } from "./inputs";
+import { recordingInputs, recordingNodes, recordingOnClip, type H3Recording } from "./recording";
 import { isH3Layout } from "./prompt";
 import { frameFor, H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_LANDING, H3_SEAM, H3_TRIM, resolveJoin } from "./join";
 import { H3_LATENT_ENLARGE_NODES, H3_LATENT_UPSCALE_NODES, latentUpscaleNeeds, latentUpscalePass, latentUpscaleRounds, plainResizeSaid } from "./latent-upscale";
@@ -17,7 +18,7 @@ import { AUTO_SAMPLER, H3_STARTS, loadH3Model, modelOf, namedFor, referenceNeeds
 // the recipe's parts live beside it (inputs, join, condition, latent-upscale, finish); its input type is still had from here
 export type { H3Video } from "./inputs";
 
-export const h3Video = defineRecipe<H3Video>({
+export const h3Video = defineRecipe<H3Video & Partial<H3Recording>>({
   // Turbo's LoRA, the reference model for a clip with references, H3's latent upscaler for an upscale with it, RIFE with
   // "RIFE ×2" on, Face refine's files with it on
   needsWith: (input, slots) => [...turboNeeds(input, slots), ...referenceNeeds(input, slots), ...vedaNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...faceRefineNeeds(input)],
@@ -31,7 +32,8 @@ export const h3Video = defineRecipe<H3Video>({
     startFrame: true, endFrame: true, midFrames: true, continues: "clip", endAnchor: true, sound: true,
     fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], faceRefine: "faceRefine",
   },
-  inputs: h3Inputs,
+  // a clip under a recording it plays over (card #72): its place in the recording, set by the timeline, never drawn
+  inputs: [...h3Inputs, ...recordingInputs({ shown: false })],
   starts: H3_STARTS,
   // a distilled file (DaSiWa's …TurboV3) is made for few steps: it starts on Turbo, which runs them without a LoRA
   presets: [
@@ -59,6 +61,7 @@ export const h3Video = defineRecipe<H3Video>({
       ...(input.voice ? ["LoadAudio"] : []),
       ...(input.previous || input.next || input.refVideos.length ? ["LoadVideo", "GetVideoComponents"] : []),
       ...(guided ? ["MiniMaxH3AddGuide"] : []),
+      ...(input.recording ? recordingNodes({ joined: Boolean(input.previous) && !input.recordingLeadIn }) : []),
     ];
   },
   optionalNodes: [FACE_NODE, ...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, ...COLOUR_MATCH_NODES, ...H3_CONTINUATION_NODES, H3_SEAM, H3_HEAD_GUIDE, H3_LANDING, H3_TRIM, ...H3_SAVE_LATENT,
@@ -73,10 +76,18 @@ export const h3Video = defineRecipe<H3Video>({
   // finish by Face refine decodes it as it is and redraws its faces only
   finishing: (input) => (input.upscale === UPSCALE.latent || input.faceRefineOnly ? { latent: "own" } : null),
 
-  build: (input, ctx) => buildH3(input, ctx),
+  // under a recording it plays over (card #72): the clip lasts as long as its part, as a Lip sync clip does, and its files
+  // carry the part in place of H3's own sound, so that the recording plays on across it unchanged. No guide: the mouth
+  // does what What happens says (#79: "listens, mouth closed" kept it as still as a silent Lip sync guide)
+  build(input, ctx) {
+    if (!input.recording) return buildH3(input, ctx);
+    // (its form always has the part's length: the recording's inputs are its own, with their defaults)
+    const laid = recordingOnClip({ recordingSeconds: input.recordingSeconds ?? 0 }, ctx, 0);
+    return buildH3({ ...input, seconds: laid.seconds }, ctx, { sound: laid.sound });
+  },
 
 
-  variants: ((): Variant<H3Video>[] => {
+  variants: ((): Variant<H3Video & Partial<H3Recording>>[] => {
     const slots = { unet: "minimax_h3_fl2va.safetensors", clip: "qwen3vl_minimax_h3.safetensors", videoVae: "minimax_h3_video_vae.safetensors", audioVae: "minimax_h3_audio_vae.safetensors" };
     const all = { ...slots, turbo: "minimax_h3_turbo.safetensors", rife: "rife49.pth", refUnet: "minimax_h3_ref2va.safetensors", refTurbo: "minimax_h3_ref2v_turbo.safetensors" };
     const joined = { width: 576, height: 1024, frames: 22, fps: H3_FPS, hasSound: true };
@@ -157,6 +168,17 @@ export const h3Video = defineRecipe<H3Video>({
         name: "a voice only, with the picture of who speaks",
         input: { description: "a", start: "p1", voice: "v1" },
         slots: all, uploads: { start: "a.png", voice: "v.wav" }, media: { start: picture },
+      },
+      // under a recording it plays over (card #72): its part laid in as the sound, nothing guided with it
+      {
+        name: "under a recording it plays over",
+        input: { description: "She listens, her mouth closed, swaying gently to the music.", recording: "a1" },
+        slots: all, uploads: { recording: "rec.wav" }, media: { recording: { width: 0, height: 0, seconds: 5.9, after: 4 } },
+      },
+      {
+        name: "under a recording, carrying on from a clip that sang up to its part",
+        input: { description: "a", previous: { asset: "c1" }, recording: "a1", recordingLeadIn: true, recordingGoesOn: true },
+        slots: all, uploads: { previous: "a.mp4", recording: "rec.wav" }, media: { previous: joined, recording: { width: 0, height: 0, seconds: 7.3, after: 4, before: 2 } },
       },
     ];
   })(),

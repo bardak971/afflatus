@@ -1,6 +1,6 @@
 import type { Clip, RecipeInfo } from "../api";
 import type { Slot } from "./model";
-import { recordingInput, runFrom } from "./track/RecordingBand";
+import { playsOver, recordingInput, runFrom } from "./track/RecordingBand";
 
 /** One clip's part of a recording, and where it plays on the track. */
 export interface RecordingPart {
@@ -15,10 +15,12 @@ export interface RecordingPart {
   /** Where its clip lies on the track (as the track draws it: a clip not rendered yet at the length it will have). */
   clipFromMs: number;
   clipToMs: number;
+  /** The recording plays over the clip (another form than Lip sync, card #72): its mouth does not follow it. */
+  over: boolean;
 }
 
 /**
- * A recording laid under its Lip sync clips (the recording's stage): its clips' parts, the stretch they use, and where a
+ * A recording laid under its clips, whatever their form (the recording's stage): its clips' parts, the stretch they use, and where a
  * moment of it plays on the track and the other way round. Within a part, the recording runs with the clip; between two
  * parts (a clip that outlasts its words) the track goes on while the recording waits at the next part's start; before
  * the first and past the last it runs on from them, as the source runs on past its stretch. Null when no clip of the
@@ -35,9 +37,11 @@ export function recordingPlace(slots: Slot[], recipes: RecipeInfo[], asset: stri
   const parts: RecordingPart[] = mine.map((s) => {
     const c = s.clip;
     const startMs = Math.round(Number(c.inputs[input.start] ?? 0) * 1000);
-    // inside a run of the recording, none: its Speech starts at does not apply there (runFrom)
-    const lead = runFrom(slots.map((x) => x.clip), recipes, c) ? 0 : input.lead.reduce((sum, id) => sum + (Number(c.inputs[id]) || 0), 0) * 1000;
-    return { clip: c, number: s.index + 1, startMs, endMs: startMs + Math.round(Number(c.inputs[input.seconds] ?? 0) * 1000), trackMs: s.startMs + lead, clipFromMs: s.startMs, clipToMs: s.startMs + s.lengthMs };
+    // its own form's moment before the words (Lip sync's; none on one the recording plays over); inside a run of the
+    // recording, none: its Speech starts at does not apply there (runFrom)
+    const own = recordingInput(recipes.find((r) => r.id === c.recipe))?.lead ?? [];
+    const lead = runFrom(slots.map((x) => x.clip), recipes, c) ? 0 : own.reduce((sum, id) => sum + (Number(c.inputs[id]) || 0), 0) * 1000;
+    return { clip: c, number: s.index + 1, startMs, endMs: startMs + Math.round(Number(c.inputs[input.seconds] ?? 0) * 1000), trackMs: s.startMs + lead, clipFromMs: s.startMs, clipToMs: s.startMs + s.lengthMs, over: playsOver(c, recipes) };
   });
   const first = parts[0]!;
   const last = parts.at(-1)!;

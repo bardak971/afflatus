@@ -62,14 +62,15 @@ export class TimelineExport {
 
   /**
    * Whether a take's head sounds of the model's guess (core soundHandover's `guessedHead`): its sound a recording laid after
-   * its head (Lip sync), rendered without the lead-in its render's form would say (sungHead). A finish made by a cut reads its
+   * its head (Lip sync, or a form it plays over), rendered without the lead-in its render's form would say (sungHead). A finish made by a cut reads its
    * draft's render: the same frames and sound.
    */
   private async guessedHead(x: Taken, p: Placed): Promise<boolean> {
     const genId = generationOfTake(x, p.takes);
     const made = genId ? await this.core.db.selectFrom("generations").select(["recipe_id", "inputs"]).where("id", "=", genId).executeTakeFirst() : undefined;
     const inputs = this.core.registry.recipe(made?.recipe_id ?? p.clip.recipe_id ?? "")?.inputs ?? [];
-    return laysSound(inputs) && !sungHead(inputs, made ? (JSON.parse(made.inputs) as Record<string, unknown>) : {});
+    const sent = made ? (JSON.parse(made.inputs) as Record<string, unknown>) : undefined;
+    return laysSound(inputs, sent) && !sungHead(inputs, sent ?? {});
   }
 
   /**

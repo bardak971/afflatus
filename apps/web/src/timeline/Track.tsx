@@ -14,7 +14,7 @@ import type { PinPlace } from "./track/peek";
 import { PinPeek, type PinOver } from "./track/PinPeek";
 import { Playhead } from "./track/Playhead";
 import { MusicLane } from "./track/MusicLane";
-import { ownSoundModel, RecordingBands, voiceOf } from "./track/RecordingBand";
+import { ownSoundModel, playsOver, RecordingBands, voiceOf } from "./track/RecordingBand";
 import { EndColumnLive } from "./track/EndColumn";
 import { useLaneMenus } from "./track/LaneMenus";
 import { useTrackPaste } from "./track/useTrackPaste";
@@ -333,6 +333,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                   moving={Boolean(moved)}
                   nearJoin={near}
                   voice={voiceName(c)}
+                  playsOver={playsOver(c, recipes)}
                   acts={acts}
                 />
               );

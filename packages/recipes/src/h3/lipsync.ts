@@ -1,5 +1,6 @@
-import { defineRecipe, leadInCovers, type GraphBuilder, type InputSpec, type Ref, type Variant } from "@afflatus/core";
-import { H3_FPS, H3_MAX_FRAMES } from "./family";
+import { defineRecipe, type InputSpec, type Variant } from "@afflatus/core";
+import { H3_FPS } from "./family";
+import { RECORDING_AFTER, recordingInputs, recordingNodes, recordingOnClip, type H3Recording } from "./recording";
 import { H3_NO_TAGS, h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video } from "./video";
 import { H3_STARTS, referenceNeeds, turboNeeds, vedaNeeds } from "./model";
@@ -15,23 +16,10 @@ import { FACE_REFINE_SLOTS, faceRefineNeeds } from "./faceRefine";
  * Turbo, the finishes. Tested 2026-10-13 (HANDOVER-swap-lipsync-report.md §8): three chained clips cut in the
  * recording's pauses joined at 1.8 (the app flags 3), lip-sync confidence 4.4 to 5.4.
  */
-export interface H3LipSync extends H3Video {
+export interface H3LipSync extends H3Video, H3Recording {
   recording: string;
-  recordingStart: number;
-  recordingSeconds: number;
-  evenLoudness: boolean;
   speechAt: number;
 }
-
-/**
- * Seconds of the recording handed over after the part: a clip outlasts its words (a quarter second, the frame grid's
- * rounding, 4 s at least) and ends on the recording's own pause, not on the model's sound, which babbled on after the
- * words (the owner's renders, 2026-10-13). Where the recording goes on speaking, the server fades it out in 0.15 s, unless
- * the next clip carries the recording on (recordingGoesOn): then the tail is the recording itself.
- */
-const AFTER = 4;
-/** A quarter second after the last word, so that the frame grid's rounding never ends the clip on it. */
-const PAD = 0.25;
 
 /** The frames of the clip before the words begin. */
 const leadOf = (input: H3LipSync) => Math.round(input.speechAt * H3_FPS);
@@ -39,29 +27,10 @@ const leadOf = (input: H3LipSync) => Math.round(input.speechAt * H3_FPS);
 /** Said after the scene: without it H3 sometimes leaves the person silent while the recording plays. */
 const SPEAKS = "The person speaks throughout, the lips moving with every word.";
 
-const recordingInputs: InputSpec[] = [
-  {
-    id: "recording", type: "audio", role: "sound", label: "Recording",
-    window: { start: "recordingStart", seconds: "recordingSeconds", even: "evenLoudness", after: AFTER, goesOn: "recordingGoesOn", leadIn: "recordingLeadIn", fits: { frames: H3_MAX_FRAMES, fps: H3_FPS, pad: PAD, min: 4, less: ["speechAt"] } },
-    note: "what is said: the clip is made around it, the mouth follows it, and it is the clip's sound. One clip holds about 14.8 seconds (less the moment before the words, and the frames of a clip it continues); the part's ends snap to the pauses so that no word is cut",
-  },
-  { id: "recordingStart", type: "number", label: "Recording: start", min: 0, max: 600, step: 0.1, default: 0, unit: " s", showWhen: "recording" },
-  { id: "recordingSeconds", type: "number", label: "Recording: length", min: 1, max: 15, step: 0.1, default: 8, unit: " s", showWhen: "recording" },
-  {
-    id: "speechAt", type: "number", label: "Speech starts at", min: 0, max: 3, step: 0.25, default: 0, unit: " s", showWhen: "recording", advanced: true,
-    note: "a moment of the clip before the words begin, counted after the frames of the clip before",
-  },
-  {
-    id: "evenLoudness", type: "toggle", label: "Even out the loudness", default: true, showWhen: "recording", advanced: true,
-    note: "the recording is brought to a usual speaking level (-16 LUFS, EBU R128) by one gain for all of it, the same in every clip: a quiet take guides the mouth weakly",
-  },
-  // set by a timeline when the next clip's part carries on from this one's end (a song): the clip's tail is the recording
-  // itself, sung, not faded out, and the next clip picks up where it stops (TimelinePlan.recordingRun)
-  { id: "recordingGoesOn", type: "toggle", label: "Recording goes on in the next clip", default: false, internal: true },
-  // set by a timeline when the clip before sang the recording right up to this part: its head (the frames they share) is
-  // filed with the recording before the part, the moments that clip sang, not the model's rough guess at them
-  { id: "recordingLeadIn", type: "toggle", label: "Recording sung up to this part by the clip before", default: false, internal: true },
-];
+const speechAt: InputSpec = {
+  id: "speechAt", type: "number", label: "Speech starts at", min: 0, max: 3, step: 0.25, default: 0, unit: " s", showWhen: "recording", advanced: true,
+  note: "a moment of the clip before the words begin, counted after the frames of the clip before",
+};
 
 /**
  * H3's inputs with the scene in place of the dialogue, the recording after it, no duration (the recording's length decides
@@ -72,7 +41,7 @@ const lipSyncInputs: InputSpec[] = h3Inputs.flatMap((spec): InputSpec[] => {
   if (spec.id === "description" && spec.type === "prompt") {
     return [
       { ...spec, label: "What happens", placeholder: "A man at a café terrace, medium close-up, talking to the camera, calm and friendly.", note: `where they are and how they speak, without a dialogue line: the recording is what is said. ${H3_NO_TAGS}` },
-      ...recordingInputs,
+      ...recordingInputs({ shown: true, less: [speechAt] }),
     ];
   }
   return [spec];
@@ -94,43 +63,20 @@ export const h3LipSync = defineRecipe<H3LipSync>({
   presets: h3Video.presets,
   // the recording is cut to the clip; the model's decoded sound goes before it when the clip opens on frames of the clip
   // before or on a moment before the words. No voice sample: H3's nodes are asked without one
-  nodes: (input) => [...new Set([...h3Video.nodes({ ...input, voice: undefined }), "LoadAudio", "MiniMaxH3AddGuide", "TrimAudioDuration", ...(input.previous || leadOf(input) > 0 ? ["AudioConcat"] : [])])],
+  nodes: (input) => [...new Set([...h3Video.nodes({ ...input, voice: undefined, recording: undefined }), "MiniMaxH3AddGuide", ...recordingNodes({ joined: (Boolean(input.previous) || leadOf(input) > 0) && !input.recordingLeadIn })])],
   optionalNodes: h3Video.optionalNodes,
   finishing: h3Video.finishing,
 
   build(input, ctx) {
-    // the recording's part as it was cut (a sound that ends early gives less than asked), else the length asked for
-    const spoken = ctx.media.recording?.seconds ?? input.recordingSeconds;
-    // the recording handed over before the part (its lead-in, recordingLeadIn): the part starts this far into the file
-    const pre = ctx.media.recording?.before ?? 0;
     const lead = leadOf(input);
-    const seconds = Math.min(15, Math.max(4, input.speechAt + spoken + PAD));
+    const laid = recordingOnClip(input, ctx, lead);
     const description = [input.description.trim(), SPEAKS].filter(Boolean).join(" ");
-    let file: Ref | null = null;
-    let recording: Ref | null = null;
-    // one loader; the part cut to the clip's frames after the words begin, for the guide and the sound
-    const whole = (g: GraphBuilder) => (file ??= g.out("LoadAudio", { audio: ctx.uploads.recording }));
-    const loaded = (g: GraphBuilder, at: { head: number; frames: number }) =>
-      (recording ??= g.out("TrimAudioDuration", { audio: whole(g), start_index: pre, duration: (at.frames - at.head - lead) / H3_FPS }));
     // the cast's videos lend their frames only: their own sound would be a second voice beside the recording, pulling the
     // timbre away from it as a voice sample would
     const media = Object.fromEntries(Object.entries(ctx.media).map(([k, m]) => [k, k.startsWith("refVideos.") ? { ...m, hasSound: false } : m]));
-    return buildH3({ ...input, voice: undefined, seconds, description }, { ...ctx, media }, {
-      guide: (g, at) => g.out("MiniMaxH3AddGuide", { positive: at.positive, latent: at.latent, vae: at.vae, audio_vae: at.audioVae, audio: loaded(g, at), frame_idx: at.head + lead }),
-      // the files' sound: the model's own for the frames before the words (the clip before's, mostly), then the recording
-      // itself to the clip's end, the pause the server handed over after the part included (continued clips decode it
-      // only roughly: 0.15 correlation, measured 2026-10-13). Never the model's own after the words: it babbled on there.
-      // A recording handed over without that pause (cut before 2026-10-13, or not cut) ends with its words: the file's
-      // sound is that much shorter than its frames
-      sound: (g, decoded, at) => {
-        const before = (at.head + lead) / H3_FPS;
-        // the clip before sang the recording up to the part: the head is filed with it too, the whole clip one stretch of the
-        // recording. The model's guess there was heard at the join, where one frame of the head shows (a song's, 2026-10-24).
-        // The timeline asks for it by the same sum (leadInCovers), so that a take it says is sung was made so
-        if (leadInCovers(pre, at.head + lead, H3_FPS)) return g.out("TrimAudioDuration", { audio: whole(g), start_index: pre - before, duration: at.frames / H3_FPS });
-        const sound = loaded(g, at);
-        return before > 0 ? g.out("AudioConcat", { audio1: g.out("TrimAudioDuration", { audio: decoded, start_index: 0, duration: before }), audio2: sound, direction: "after" }) : sound;
-      },
+    return buildH3({ ...input, voice: undefined, seconds: laid.seconds, description }, { ...ctx, media }, {
+      guide: (g, at) => g.out("MiniMaxH3AddGuide", { positive: at.positive, latent: at.latent, vae: at.vae, audio_vae: at.audioVae, audio: laid.loaded(g, at), frame_idx: at.head + lead }),
+      sound: laid.sound,
     });
   },
 
@@ -164,7 +110,7 @@ export const h3LipSync = defineRecipe<H3LipSync>({
       {
         name: "the recording handed over with its pause after the part, no smoothing",
         input: { description: "a", references: [{ asset: "r1", role: "person" }], recording: "a1", smooth: false },
-        slots: all, uploads: { "references.0": "r1.png", recording: "rec.wav" }, media: { recording: { width: 0, height: 0, seconds: 6.3, after: AFTER } },
+        slots: all, uploads: { "references.0": "r1.png", recording: "rec.wav" }, media: { recording: { width: 0, height: 0, seconds: 6.3, after: RECORDING_AFTER } },
       },
     ];
   })(),

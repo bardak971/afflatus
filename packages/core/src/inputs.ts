@@ -284,17 +284,37 @@ export interface PartFit {
 }
 
 /**
- * Whether a recipe's clips sound of a recording laid on them after their head (Lip sync: a sound to follow, a part of it cut
- * for each clip), not of the model's own sound: their head, the frames shared with the clip before, is the model's guess at it.
+ * The input a recipe takes a recording on, part by part (an audio input of role "sound" with a window): Lip sync's, made
+ * around it, and the internal one of a form a recording plays over (Video with audio, card #72). The same ids on every form
+ * that has it, so that a clip keeps its part and its place in the recording whichever of them it is in.
  */
-export const laysSound = (inputs: readonly InputSpec[]) => inputs.some((i) => i.type === "audio" && i.role === "sound" && Boolean(i.window));
+export const recordingSpecOf = (inputs: readonly InputSpec[]) =>
+  inputs.find((i): i is AudioInput & { window: NonNullable<AudioInput["window"]> } => i.type === "audio" && i.role === "sound" && Boolean(i.window));
+
+/** Whether a recipe is made around a recording (Lip sync: the mouth follows it), not only played over by one: its recording is a field of its form. */
+export const madeAroundRecording = (inputs: readonly InputSpec[]) => {
+  const spec = recordingSpecOf(inputs);
+  return Boolean(spec && !spec.internal);
+};
+
+/**
+ * Whether a render sounds of a recording laid on it after its head, not of the model's own sound: its head, the frames
+ * shared with the clip before, is the model's guess at it. Every render of a form made around a recording (Lip sync); one
+ * of a form a recording plays over (Video with audio) when it was sent one (`made`: its recording set, card #72).
+ */
+export const laysSound = (inputs: readonly InputSpec[], made?: Record<string, unknown>) => {
+  const spec = recordingSpecOf(inputs);
+  return Boolean(spec && (!spec.internal || made?.[spec.id]));
+};
 
 /**
  * Whether a render of such a recipe had its head filed with the recording itself (its window's `leadIn` set in what it was
  * sent, `made`): the clip before sang it up to the part, and the head sounds of those moments, not of the model's guess.
  */
-export const sungHead = (inputs: readonly InputSpec[], made: Record<string, unknown>) =>
-  inputs.some((i) => i.type === "audio" && i.role === "sound" && Boolean(i.window?.leadIn && made[i.window.leadIn]));
+export const sungHead = (inputs: readonly InputSpec[], made: Record<string, unknown>) => {
+  const spec = recordingSpecOf(inputs);
+  return Boolean(spec?.window.leadIn && made[spec.window.leadIn]);
+};
 
 /** What a part makes with the form's values: the longest part one clip holds, and the clip's own length for a part of `seconds`. */
 export function partFit(fit: PartFit, specs: InputSpec[], values: Record<string, unknown>): { most: number; clip(seconds: number): number } {
@@ -493,6 +513,10 @@ export function secondsOf(specs: InputSpec[], values: Record<string, unknown>): 
  * to place a clip not made yet.
  */
 export function plannedSeconds(specs: InputSpec[], values: Record<string, unknown>): number | null {
+  // under a recording it plays over (card #72), the part sets the clip's length, whatever its own Duration says
+  const recording = recordingSpecOf(specs);
+  const part = recording && values[recording.id] ? Number(values[recording.window.seconds]) : NaN;
+  if (Number.isFinite(part) && part > 0) return part;
   const own = secondsOf(specs, values);
   if (own !== null) return own;
   for (const i of specs) {

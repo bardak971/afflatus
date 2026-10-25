@@ -41,7 +41,7 @@ export function takeView(x: Taken, rendered: Rendered | undefined, laid: { sound
     recipe: rendered?.recipe ?? null,
     /** A Face refine of the take it finishes, alone: the same frames, its faces redrawn. */
     facePass: rendered?.facePass ?? false,
-    /** Its sound is a recording laid after its head (Lip sync, core laysSound): its head's sound is the model's guess, never handed over to. */
+    /** Its sound is a recording laid after its head (Lip sync, or a form it plays over: core laysSound): its head's sound is the model's guess, never handed over to. */
     ...(laid.sound ? { laidSound: true } : {}),
     /** Its head filed with the recording the clip before sang (core sungHead), not the model's guess: the sound hands over to it as to any. */
     ...(laid.sound && laid.sung ? { headSung: true } : {}),
