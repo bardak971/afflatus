@@ -139,6 +139,8 @@ export interface MediaFacts {
   latentAt?: number;
   /** Of a clip continued from before its end (it was handed over before a frozen tail): its latent is cut to this many first frames. */
   latentCut?: number;
+  /** Of a clip continued from its latent: that latent's size in pixels, when it says it (LTX's): the clip is made at it. */
+  latentSize?: { width: number; height: number };
   /** Of the clip before, in a latent re-sample finish: the size of its own re-sampled latent, when it was finished that way (uploaded as "<input>.fine"). */
   fine?: { width: number; height: number };
   /** Of a sound: how long the part handed over is, in seconds (shorter than asked when the sound ends first). */

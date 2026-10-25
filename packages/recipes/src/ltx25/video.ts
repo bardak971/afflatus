@@ -41,6 +41,12 @@ export const ltx25Video = ltxRecipe({
         slots: { ...parts, ...extras }, uploads: { previous: "a.mp4" }, media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX25_FPS, hasSound: true } },
       },
       {
+        name: "carries on in the clip before's latent, doubled by the temporal upscaler: its join decoded alone",
+        input: { prompt: "a", previous: { asset: "c1" }, smooth: true, smoothWith: "LTX temporal (latent)" },
+        slots: { ...parts, ...temporal }, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors" },
+        media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX25_FPS, hasSound: true, latentFrames: 121, latentSize: { width: 704, height: 1280 } } },
+      },
+      {
         name: "between two clips: the clip before's sound carried on, its chain's colour match carried on, landing on the clip after, smooth",
         input: { prompt: "a", previous: { asset: "c1" }, next: { asset: "c2", at: 0 }, smooth: true },
         slots: { ...parts, ...temporal }, uploads: { previous: "a.mp4", "previous.look": "look.png", next: "b.mp4" },

@@ -107,9 +107,9 @@ export class TimelineTakes {
       }
       // the take carried on from before the clip before's frozen tail: that clip now stops where the take picks up
       if (links.prev && !finishedFrom) {
-        const prev = await db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").select(["takes.id as id", "takes.tail_ms as tail_ms", "takes.trim_end_ms as trim_end_ms", "assets.duration_ms as duration_ms", "assets.latent_frames as latent_frames"]).where("takes.id", "=", links.prev.take).executeTakeFirst();
+        const prev = await db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").select(["takes.id as id", "takes.tail_ms as tail_ms", "takes.trim_end_ms as trim_end_ms", "assets.duration_ms as duration_ms", "assets.latent_frames as latent_frames", "assets.latent_clock as latent_clock"]).where("takes.id", "=", links.prev.take).executeTakeFirst();
         if (prev?.duration_ms) {
-          const length = lengthOnGrid(prev as unknown as AssetRow);
+          const length = lengthOnGrid(prev);
           const end = length - prev.tail_ms - prev.trim_end_ms;
           if (links.prev.at < end - 40) {
             await this.core.remember(clip.timeline_id, "the hand-over before the frozen tail", undefined, db);

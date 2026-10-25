@@ -1,5 +1,5 @@
 import type { EventEmitter } from "node:events";
-import { chunkAtOrAfter, clipMusicOf, follows, joinFade as fadeOf, landsOn, LATENT_FPS, plannedSeconds, transitionOf, type ClipMusic, type JoinTake, type Recipe, type Transition } from "@afflatus/core";
+import { chunkAtOrAfter, clipMusicOf, follows, joinFade as fadeOf, landsOn, LATENT_FPS, latentClockOf, plannedSeconds, transitionOf, type ClipMusic, type JoinTake, type Recipe, type Transition } from "@afflatus/core";
 import type { Db, Tables } from "./db";
 import type { Registry } from "./registry";
 import type { Storage } from "./storage";
@@ -142,10 +142,12 @@ export const plays = (t: { take: TakeRow; asset: AssetRow }) => {
  * were placed half a model frame early and every join skipped a frame (measured 2026-10-07). With the model's
  * frame count kept (its latent), the length is that count's; otherwise, and for a file that is not that render, the file's.
  */
-export const lengthOnGrid = (asset: AssetRow) => {
+export const lengthOnGrid = (asset: Pick<AssetRow, "duration_ms" | "latent_frames" | "latent_clock">) => {
   const file = asset.duration_ms ?? 0;
-  const grid = asset.latent_frames ? Math.round((asset.latent_frames * 1000) / LATENT_FPS) : 0;
-  return grid && Math.abs(grid - file) <= 1000 / LATENT_FPS ? grid : file;
+  // the count at its own model's rate: H3's 24, LTX 2.3's 25 (latent_clock)
+  const { fps } = latentClockOf(asset.latent_clock);
+  const grid = asset.latent_frames ? Math.round((asset.latent_frames * 1000) / fps) : 0;
+  return grid && Math.abs(grid - file) <= 1000 / fps ? grid : file;
 };
 /**
  * Whether two takes went through the same enlargement, as far as their size tells: a clip enlarged ×2 in its render
@@ -163,7 +165,8 @@ export const sameMaking = (a: AssetRow, b: AssetRow) => {
  */
 export const landingOnGrid = (t: { take: TakeRow; asset: AssetRow }, landFrames: number) => {
   const { start, end } = plays(t);
-  if (!t.asset.latent_key || !t.asset.latent_frames) return start;
+  // landed on in the latent: H3's only (its chunks); another model's take is landed on from its frames, where it plays
+  if (!t.asset.latent_key || !t.asset.latent_frames || latentClockOf(t.asset.latent_clock).family !== "h3") return start;
   const frame = Math.ceil((start * LATENT_FPS) / 1000 - 0.25);
   const chunk = chunkAtOrAfter(frame);
   const at = Math.round((chunk * 1000) / LATENT_FPS);

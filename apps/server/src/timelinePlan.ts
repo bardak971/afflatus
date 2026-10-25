@@ -1,4 +1,4 @@
-import { FRAME_SLACK_MS, joinFrames, joinWay, latentFrameAtOrBefore, LATENT_FPS, leadInBefore, leadInCovers, recordingSpecOf, type Recipe } from "@afflatus/core";
+import { FRAME_SLACK_MS, joinFrames, joinWay, latentClockOf, latentFrameAtOrBefore, leadInBefore, leadInCovers, recordingSpecOf, type Recipe } from "@afflatus/core";
 import { FfmpegMissing } from "./cut";
 import { frozenTailAt } from "./measure";
 import { newId, now, type Db } from "./db";
@@ -57,17 +57,18 @@ export function generationOfTake(x: Taken, takes: readonly Taken[]): string | nu
 }
 
 /**
- * Where a clip that carries on picks up from a clip before whose latent was kept: on the latent's grid (17k + 5 frames), at or
- * before the moment asked, so the join is made in the latent. Off the grid, the queue joins on frames instead (finishLatent),
+ * Where a clip that carries on picks up from a clip before whose latent was kept: on the latent's grid (H3's 17k + 5 frames,
+ * LTX's 8k + 1 at its own rate: `clock`, the latent's latent_clock), at or before the moment asked, so the join is made in the latent. Off the grid, the queue joins on frames instead (finishLatent),
  * which a trim made by hand nearly always lands on. The very end of the video stays as it is (the whole latent is taken), and so
  * does a moment whose grid frame would leave fewer frames than the run-up the form asks for.
  */
-export function handoverOnGrid(atMs: number, before: { durationMs: number; latentFrames: number | null }, runUpFrames: number): number {
+export function handoverOnGrid(atMs: number, before: { durationMs: number; latentFrames: number | null; clock?: string | null }, runUpFrames: number): number {
   if (!before.latentFrames || atMs >= before.durationMs - FRAME_SLACK_MS) return atMs;
-  const frame = Math.round((atMs * LATENT_FPS) / 1000);
-  const grid = latentFrameAtOrBefore(frame);
+  const { fps, grid: on } = latentClockOf(before.clock);
+  const frame = Math.round((atMs * fps) / 1000);
+  const grid = latentFrameAtOrBefore(frame, on);
   if (grid === frame || grid < runUpFrames) return atMs;
-  return Math.round(grid * (1000 / LATENT_FPS));
+  return Math.round(grid * (1000 / fps));
 }
 
 /**
@@ -76,11 +77,12 @@ export function handoverOnGrid(atMs: number, before: { durationMs: number; laten
  * fewer frames than the run-up the form takes; else on a whole frame of the model that made it (SCAIL-2's 16 a second, not
  * H3's 24), the frames handed over being whole frames of it. A video of unknown making hands over where it stopped moving.
  */
-export function handoverFrame(livelyMs: number, before: { latentFrames: number | null; fps: number | null | undefined }, runUpFrames: number): number {
+export function handoverFrame(livelyMs: number, before: { latentFrames: number | null; fps: number | null | undefined; clock?: string | null }, runUpFrames: number): number {
   if (before.latentFrames) {
-    const frame = Math.round((livelyMs * LATENT_FPS) / 1000);
-    const grid = latentFrameAtOrBefore(frame);
-    return Math.round((grid >= runUpFrames ? grid : frame) * (1000 / LATENT_FPS));
+    const { fps, grid: on } = latentClockOf(before.clock);
+    const frame = Math.round((livelyMs * fps) / 1000);
+    const grid = latentFrameAtOrBefore(frame, on);
+    return Math.round((grid >= runUpFrames ? grid : frame) * (1000 / fps));
   }
   const fps = before.fps;
   return fps ? Math.round(Math.round((livelyMs * fps) / 1000) * (1000 / fps)) : livelyMs;
@@ -290,12 +292,12 @@ export class TimelinePlan {
         });
         if (lively !== null && lively < at - FRAME_SLACK_MS) {
           const fps = this.core.registry.recipe(prior.clip.recipe_id ?? "")?.traits?.fps ?? before.asset.fps;
-          at = handoverFrame(lively, { latentFrames: before.asset.latent_frames, fps }, joinFrames(recipe, "previous", raw));
+          at = handoverFrame(lively, { latentFrames: before.asset.latent_frames, fps, clock: before.asset.latent_clock }, joinFrames(recipe, "previous", raw));
         }
       }
       // a clip before trimmed by hand stops wherever its out point was put: picked up on the latent's grid all the same, and
       // that clip then stops there when the take comes back (TimelineTakes, the hand-over before the frozen tail)
-      if (!sameBefore) at = handoverOnGrid(at, { durationMs: before.asset.duration_ms ?? 0, latentFrames: before.asset.latent_frames }, joinFrames(recipe, "previous", raw));
+      if (!sameBefore) at = handoverOnGrid(at, { durationMs: before.asset.duration_ms ?? 0, latentFrames: before.asset.latent_frames, clock: before.asset.latent_clock }, joinFrames(recipe, "previous", raw));
       plan.input[prevSpec.id] = { asset: before.asset.id, at };
       plan.links.prev = { take: before.take.id, at };
     } else if (startSpec && recipe.traits?.continues === "frame" && !quick) {

@@ -90,6 +90,7 @@ import m0088 from "./0088-render-started";
 import m0089 from "./0089-pod-packs";
 import m0090 from "./0090-asset-digest";
 import m0091 from "./0091-civitai-base";
+import m0092 from "./0092-latent-clock";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -188,4 +189,5 @@ export const migrations: Record<string, Migration> = {
   "0089_pod_packs": m0089,
   "0090_asset_digest": m0090,
   "0091_civitai_base": m0091,
+  "0092_latent_clock": m0092,
 };

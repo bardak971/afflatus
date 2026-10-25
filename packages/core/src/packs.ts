@@ -22,6 +22,7 @@ const NODE_PACKS: NodePack[] = [
       "AfflatusSaveH3Latent", "AfflatusLoadH3Latent", "AfflatusNormalizeH3Latent", "AfflatusTrimH3Latent", "AfflatusH3TailGuide", "AfflatusH3LatentHeadGuide", "AfflatusH3LatentLanding", "AfflatusH3SeamLatent",
       "MiniMaxH3GuidedContinuationWindow", "MiniMaxH3LatentTailGuide", "MiniMaxH3AppendContinuation", "AfflatusFaceMatch", "AfflatusFaceAt", "AfflatusH3AudioLock",
       "AfflatusSwapMask", "AfflatusSwapMaskPreview", "AfflatusSwapPaste", "AfflatusSwapMatch", "AfflatusColorFollow",
+      "AfflatusSaveLTXLatent", "AfflatusLoadLTXLatent", "AfflatusTrimLTXLatent", "AfflatusLTXContinuation", "AfflatusLTXSeamLatent",
     ],
   },
   { name: "Comfyui-MMH3-UltimateUpscale", repo: "https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale", nodes: ["MMH3UltimateUpscale", "MMH3LatentUpscaleWithModelParams", "MMH3LatentUpscaleParams", "MMH3TemporalSplitParams", "MMH3SpatialSplitParams"] },
