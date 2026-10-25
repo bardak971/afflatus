@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
 import { dryContext, graphFiles, missingSlotFile, missingSlotIn, nodesOfPack, packOfNode, parseInput, type GraphFile } from "@afflatus/core";
-import { h3, h3Video, ltxVideo, recipeById, UPSCALE, wanVideo } from "@afflatus/recipes";
+import { h3, h3Video, ltxVideo, recipeById, UPSCALE, wan, wanVideo } from "@afflatus/recipes";
 import { newId, now, OWNER } from "../src/db";
 import { loadedOn, offeredOn, podSlotFiles } from "../src/jobFiles";
 import { packsLacked } from "../src/jobPacks";
@@ -229,6 +229,13 @@ describe("lackOn from what the job's graph loads", () => {
     const rife = { files: [], absent: [file(download("rife"), "rife")] };
     expect(lackOn(recipe, {}, pod(), { families: {} }, { ...machine, rented: { provider: "runpod" } as never }, () => "h3", rife)).toMatchObject({ sendable: true, files: [{ file: download("rife"), url: slot("rife").get!.url }] });
     expect(lackOn(recipe, {}, pod(), { families: {} }, machine, () => "h3", rife)).toBeNull();
+  });
+
+  it("sends SVI 2.0 Pro's LoRAs to a rented pod for a Wan clip that carries on, and does not keep it off a machine of the user's own (a still restart there)", () => {
+    const svi = (id: string) => wan.slots.find((s) => s.id === id)!;
+    const asked = { files: [], absent: (["sviHigh", "sviLow"] as const).map((id) => ({ file: svi(id).get!.file, folder: "loras", node: "1", classType: "LoraLoaderModelOnly", input: "lora_name", slot: id })) };
+    expect(lackOn(recipe, {}, pod(), { families: {} }, { ...machine, rented: { provider: "runpod" } as never }, () => "h3", asked)?.files.map((f) => f.file)).toEqual([svi("sviHigh").get!.file, svi("sviLow").get!.file]);
+    expect(lackOn(recipe, {}, pod(), { families: {} }, machine, () => "h3", asked)).toBeNull();
   });
 
   it("does not keep a latent-upscale job off a machine of the user's own for want of H3's latent upscaler (it resizes plainly, and says so)", () => {

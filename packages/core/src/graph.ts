@@ -95,6 +95,11 @@ export interface BuiltGraph {
      * not one the model made up over them: the sound can hand over early into the head, as at a seamless join.
      */
     sound?: boolean;
+    /**
+     * No head: it opens on the clip before's last frame, still, where it would have carried the motion on (Wan without SVI
+     * 2.0 Pro's LoRAs or node on that machine). A cut, said on the join.
+     */
+    still?: boolean;
   };
   /** What went less well than asked, known when the graph is built (a node this ComfyUI lacks, done without): said on the job. */
   warnings?: string[];
@@ -105,10 +110,13 @@ export interface BuiltGraph {
  * (the join is a plain cut, as the whole chain decoded at once), "latent" its exact latent decoded alone,
  * "hybrid" its re-encoded frames for the picture (takes made before 2026-10-08: it softened a full-step chain
  * ~35 % a clip), "pixels" pinned frames (ComfyUI alone), "carried" pinned frames with the clip before's own sound pinned
- * under them (LTX); null when it starts on its own.
+ * under them (LTX), "window" its head the clip before's last moments made again moving (a SCAIL-2 window, a Wan clip through
+ * SVI 2.0 Pro), "still" a cut onto the clip before's last frame where it would have carried on (overlap.still); null when it
+ * starts on its own.
  */
-export type JoinKind = "seamless" | "latent" | "hybrid" | "pixels" | "carried" | "window";
+export type JoinKind = "seamless" | "latent" | "hybrid" | "pixels" | "carried" | "window" | "still";
 export function joinKindOf(overlap: BuiltGraph["overlap"] | undefined): JoinKind | null {
+  if (overlap?.still && overlap.headMs <= 0) return "still";
   if (!overlap || overlap.headMs <= 0) return null;
   return overlap.latent ? (overlap.frames ? "hybrid" : overlap.seam ? "seamless" : "latent") : overlap.moving ? "window" : overlap.sound ? "carried" : "pixels";
 }

@@ -1502,11 +1502,15 @@ export class Timelines {
     await this.touch(timelineId);
   }
 
-  /** The forms a clip under a recording takes, named as the editor names them ("Lip sync and Video with audio"). */
+  /**
+   * The forms a clip under a recording takes, named as the editor's model list names them, with their family ("MiniMax H3 ·
+   * Lip sync, MiniMax H3 · Video with audio and Wan 2.2 · Video": Wan's title alone says no model).
+   */
   private formsUnderRecording(): string {
     // the form a recording is made around first, as the editor lists them
     const forms = this.registry.recipes().filter((r) => r.output === "video" && recordingSpecOf(r.inputs));
-    const titles = [...forms.filter((r) => madeAroundRecording(r.inputs)), ...forms.filter((r) => !madeAroundRecording(r.inputs))].map((r) => r.title);
+    const named = (r: Recipe<any>) => `${this.registry.family(r.family)?.name ?? r.family} · ${r.title}`;
+    const titles = [...forms.filter((r) => madeAroundRecording(r.inputs)), ...forms.filter((r) => !madeAroundRecording(r.inputs))].map(named);
     return titles.length > 1 ? `${titles.slice(0, -1).join(", ")} and ${titles.at(-1)}` : (titles[0] ?? "none");
   }
 

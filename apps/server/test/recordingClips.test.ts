@@ -544,15 +544,15 @@ describe.skipIf(!ffmpegThere)("a clip under a recording, in any H3 form (card #7
     const { id, clips } = await dropped("zz-test any form refused");
     const steps = async () => (await t.db.selectFrom("timeline_history").select("seq").where("timeline_id", "=", id).execute()).length;
     const before = await steps();
-    const res = await t.app.inject({ method: "PATCH", url: `/api/clips/${clips[0]!.id}`, payload: { recipe: "wan.video" } });
+    const res = await t.app.inject({ method: "PATCH", url: `/api/clips/${clips[0]!.id}`, payload: { recipe: "ltx.video" } });
     expect(res.statusCode).toBe(400);
-    expect(res.json().error).toMatch(/under a recording: Lip sync and Video with audio go there\. To use another model, remove it from the recording first/);
+    expect(res.json().error).toMatch(/under a recording: MiniMax H3 · Lip sync, MiniMax H3 · Video with audio and Wan 2\.2 · Video go there\. To use another model, remove it from the recording first/);
     expect(await steps()).toBe(before);
     expect(await forms(id)).toEqual(["h3.lipsync", "h3.lipsync", "h3.lipsync"]);
     await call("POST", `/api/timelines/${id}/clips`, { recipe: "h3.video" });
     const free = ((await view(id)).clips as ViewClip[]).at(-1)!;
-    await call("PATCH", `/api/clips/${free.id}`, { recipe: "wan.video" });
-    expect((await forms(id)).at(-1)).toBe("wan.video");
+    await call("PATCH", `/api/clips/${free.id}`, { recipe: "ltx.video" });
+    expect((await forms(id)).at(-1)).toBe("ltx.video");
   });
 
   it("re-cut, keeps each clip's form where its part survives; a part no clip had takes the recording's New clips form", async () => {
@@ -567,7 +567,7 @@ describe.skipIf(!ffmpegThere)("a clip under a recording, in any H3 form (card #7
     // New clips set to Video with audio: kept with the cut, and refused for a model none of them is
     await call("POST", `/api/timelines/${id}/recording/new-clips`, { asset: sound, recipe: "h3.video" });
     expect((await view(id)).recordings[0]).toEqual(expect.objectContaining({ seconds: 7, snap: true, form: "h3.video" }));
-    const wrong = await t.app.inject({ method: "POST", url: `/api/timelines/${id}/recording/new-clips`, payload: { asset: sound, recipe: "wan.video" } });
+    const wrong = await t.app.inject({ method: "POST", url: `/api/timelines/${id}/recording/new-clips`, payload: { asset: sound, recipe: "ltx.video" } });
     expect(wrong.statusCode).toBe(400);
     // its start moved in to 4.7 s, then back to 0: the part before 4.7 s is new, no clip had it, made in New clips' form
     await call("POST", `/api/timelines/${id}/recording/trim`, { asset: sound, fromMs: 4700, toMs: 15000 });
@@ -620,5 +620,26 @@ describe.skipIf(!ffmpegThere)("a clip under a recording, in any H3 form (card #7
     expect(third.input.recordingLeadIn).toBe(true);
     // its take says its sound is the recording laid after its head, as a Lip sync take's
     expect((await view(id)).clips[1].take).toMatchObject({ laidSound: true });
+  });
+
+  it("takes Wan as a form the recording plays over (card #82): its part, a re-cut keeping it, the song handed on across it", async () => {
+    const { id, sound } = await dropped("zz-test any form wan", [tone(24)], 24000);
+    await call("POST", `/api/timelines/${id}/recording/cut`, { asset: sound, seconds: 8, snap: true });
+    let clips = (await view(id)).clips as ViewClip[];
+    await call("PATCH", `/api/clips/${clips[1]!.id}`, { recipe: "wan.video" });
+    clips = (await view(id)).clips as ViewClip[];
+    expect(clips.map((c) => c.recipe)).toEqual(["h3.lipsync", "wan.video", "h3.lipsync"]);
+    expect(clips[1]!.inputs).toMatchObject({ recording: sound, recordingStart: 8, recordingSeconds: 8 });
+    // the recording goes on into the Wan clip and out of it into the third
+    const recipeOf = (k: number) => t.services.registry.recipe(k === 1 ? "wan.video" : "h3.lipsync")!;
+    const planOf = (k: number) => t.services.timelines.plan(clips[k]!.id, recipeOf(k), clips[k]!.inputs, false, null, true);
+    expect((await planOf(0)).input.recordingGoesOn).toBe(true);
+    expect((await planOf(1)).input).toMatchObject({ recording: sound, recordingStart: 8, recordingSeconds: 8, recordingGoesOn: true });
+    // a re-cut keeps it where its part survives
+    await call("POST", `/api/timelines/${id}/recording/cut`, { asset: sound, seconds: 8, snap: false });
+    expect(((await view(id)).clips as ViewClip[]).map((c) => c.recipe)).toEqual(["h3.lipsync", "wan.video", "h3.lipsync"]);
+    // and New clips can be made in it
+    await call("POST", `/api/timelines/${id}/recording/new-clips`, { asset: sound, recipe: "wan.video" });
+    expect((await view(id)).recordings[0]).toEqual(expect.objectContaining({ form: "wan.video" }));
   });
 });

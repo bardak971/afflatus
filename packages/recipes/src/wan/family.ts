@@ -8,6 +8,8 @@ import { WAN_WRONG } from "./wrong";
 const HF = "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files";
 /** lightx2v's own 4-step LoRAs, the newer ones (Oct and Dec 2025): better motion than the v1 files ComfyUI's templates link. */
 const LIGHTX2V = "https://huggingface.co/lightx2v/Wan2.2-Distill-Loras/resolve/main";
+/** SVI 2.0 Pro's two LoRAs for Wan 2.2 I2V, as Kijai repacked them for ComfyUI. */
+const SVI = "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/LoRAs/Stable-Video-Infinity/v2.0";
 
 /**
  * Wan 2.2 (the 14B models): video without sound, from a picture, from a first and a last picture, or
@@ -77,6 +79,18 @@ export const wan = defineFamily({
       id: "t2vTurboLow", label: "Turbo LoRA (t2v, low noise)", folder: "loras", detect: ["^(?=.*t2v)(?=.*(lightx2v|lightning))(?=.*low)"], optional: true,
       hint: "The low-noise half of the turbo LoRAs for t2v.",
       get: { file: "wan2.2_t2v_A14b_low_noise_lora_rank64_lightx2v_4step_1217.safetensors", url: `${LIGHTX2V}/wan2.2_t2v_A14b_low_noise_lora_rank64_lightx2v_4step_1217.safetensors` },
+    },
+    {
+      // SVI 2.0 Pro (Stable Video Infinity): a clip carries the motion of the clip before on, its last frames in the latent;
+      // without the two LoRAs it opens on that clip's last frame, still. The words in any order, as the turbo LoRAs'
+      id: "sviHigh", label: "SVI 2.0 Pro LoRA (high noise)", folder: "loras", detect: ["^(?=.*svi)(?=.*pro)(?=.*high)"], optional: true,
+      hint: "Without the two SVI 2.0 Pro LoRAs, a clip that carries on from the clip before opens on its last frame, still: a cut. Put SVI_v2_PRO_Wan2.2-I2V-A14B_HIGH_lora and its LOW half in ComfyUI's models/loras folder.",
+      get: { file: "SVI_v2_PRO_Wan2.2-I2V-A14B_HIGH_lora_rank_128_fp16.safetensors", url: `${SVI}/SVI_v2_PRO_Wan2.2-I2V-A14B_HIGH_lora_rank_128_fp16.safetensors` },
+    },
+    {
+      id: "sviLow", label: "SVI 2.0 Pro LoRA (low noise)", folder: "loras", detect: ["^(?=.*svi)(?=.*pro)(?=.*low)"], optional: true,
+      hint: "The low-noise half of SVI 2.0 Pro's LoRAs.",
+      get: { file: "SVI_v2_PRO_Wan2.2-I2V-A14B_LOW_lora_rank_128_fp16.safetensors", url: `${SVI}/SVI_v2_PRO_Wan2.2-I2V-A14B_LOW_lora_rank_128_fp16.safetensors` },
     },
     {
       id: "tinyVae", label: "Tiny VAE (live preview)", folder: "vae_approx", detect: ["tae.?w2[._]1"], optional: true,

@@ -10,7 +10,7 @@ import { cueMixNodes, cueNodes, cuesFor, guideCues, layCues, laysCues } from "./
 import { finish, H3_SAVE_LATENT } from "./finish";
 import { FACE_REFINE_OPTIONAL, FACE_REFINE_PACK_NEEDED, FACE_REFINE_SLOTS, faceRefineNeeds, faceRefineSkipped } from "./faceRefine";
 import { h3Inputs, type H3Video } from "./inputs";
-import { recordingInputs, recordingNodes, recordingOnClip, type H3Recording } from "./recording";
+import { recordingInputs, recordingNodes, recordingOnClip, type Recording } from "../shared/recording";
 import { isH3Layout } from "./prompt";
 import { frameFor, H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_LANDING, H3_SEAM, H3_TRIM, resolveJoin } from "./join";
 import { H3_LATENT_ENLARGE_NODES, H3_LATENT_UPSCALE_NODES, latentUpscaleNeeds, latentUpscalePass, latentUpscaleRounds, plainResizeSaid } from "./latent-upscale";
@@ -19,7 +19,7 @@ import { AUTO_SAMPLER, H3_STARTS, loadH3Model, modelOf, namedFor, referenceNeeds
 // the recipe's parts live beside it (inputs, join, condition, latent-upscale, finish); its input type is still had from here
 export type { H3Video } from "./inputs";
 
-export const h3Video = defineRecipe<H3Video & Partial<H3Recording>>({
+export const h3Video = defineRecipe<H3Video & Partial<Recording>>({
   // Turbo's LoRA, the reference model for a clip with references, H3's latent upscaler for an upscale with it, RIFE with
   // "RIFE ×2" on, Face refine's files with it on
   needsWith: (input, slots) => [...turboNeeds(input, slots), ...referenceNeeds(input, slots), ...vedaNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...faceRefineNeeds(input)],
@@ -91,7 +91,7 @@ export const h3Video = defineRecipe<H3Video & Partial<H3Recording>>({
   },
 
 
-  variants: ((): Variant<H3Video & Partial<H3Recording>>[] => {
+  variants: ((): Variant<H3Video & Partial<Recording>>[] => {
     const slots = { unet: "minimax_h3_fl2va.safetensors", clip: "qwen3vl_minimax_h3.safetensors", videoVae: "minimax_h3_video_vae.safetensors", audioVae: "minimax_h3_audio_vae.safetensors" };
     const all = { ...slots, turbo: "minimax_h3_turbo.safetensors", rife: "rife49.pth", refUnet: "minimax_h3_ref2va.safetensors", refTurbo: "minimax_h3_ref2v_turbo.safetensors" };
     const joined = { width: 576, height: 1024, frames: 22, fps: H3_FPS, hasSound: true };
