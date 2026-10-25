@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { ImagePlus, MoreHorizontal, Play, ScanFace, Scissors, Trash2 } from "lucide-react";
-import { api, thumbUrl, type Asset, type Clip, type Take } from "../../api";
+import { AudioLines, CornerDownRight, FlipHorizontal2, ImagePlus, MoreHorizontal, Play, ScanFace, Scissors, SlidersHorizontal, Trash2 } from "lucide-react";
+import { api, thumbUrl, type Asset, type Clip, type RecipeInfo, type Take, type TakeMade } from "../../api";
 import { Button, Chip, CloseButton, cx, IconButton, NumberBox, Segmented } from "../../ui";
 import { FieldRow } from "../../fields";
 import { RangeSlider } from "../../RangeSlider";
@@ -16,6 +16,7 @@ import { SHOWS } from "../attention";
 import { useRecipes } from "../../data";
 import { useTileMenu } from "../../TileMenu";
 import { Viewer } from "../../viewer/LazyViewer";
+import { diffWords, madeDiff, madeShown, type MadeDiff } from "../madeWith";
 
 /**
  * A place a picture can be dropped on to become a pinned frame: one from the library, or a file from the computer, which
@@ -35,6 +36,55 @@ function PinDrop({ className, label, onPick, onMenu, children }: { className?: s
   );
 }
 
+/** The clip's form as it stands, which each take is compared with (card #89): the next render's settings. */
+export interface FormNow {
+  recipe: RecipeInfo | undefined;
+  /** Its whole form, with its defaults, as a render would send it. */
+  whole: Record<string, unknown>;
+  /** It carries on from the clip before: its first frame is that clip's. */
+  carries: boolean;
+  recipes: RecipeInfo[];
+  /** Use this take's settings: its form put back into the clip's (one Undo step). */
+  onUse(take: Take & { made: TakeMade }): void;
+}
+
+/** How a take differs from the form now; null for a take rendered nowhere here (an import), or a form not known. */
+export function takeDiff(t: Take, form: FormNow | undefined): MadeDiff | null {
+  return t.made && form ? madeDiff(t.made, form, form.recipes) : null;
+}
+
+const REF_WORDS: Record<string, string> = { person: "person", place: "place", clothing: "clothes", object: "object", style: "style" };
+const seconds = (s: number) => `${s.toFixed(1)} s`;
+
+/**
+ * What a take was made with, read from its own render (never the clip's form): small pictures of its pinned frames and
+ * references, its voice or sound, the prompt it was sent; and, under them, how that differs from the form now.
+ */
+function MadeLine({ made, recipe, diff }: { made: TakeMade; recipe: RecipeInfo | undefined; diff: MadeDiff | null }) {
+  if (!recipe) return null;
+  const shown = madeShown(made, recipe);
+  const said = diff ? diffWords(diff) : null;
+  const box = "size-5 shrink-0 rounded-key bg-raised object-cover";
+  return (
+    <>
+      <span className="flex min-w-0 items-center gap-1" data-made>
+        {shown.pins.map((p) => (p.asset
+          ? <span key={p.where} className="relative shrink-0" data-tip={`${p.word[0]!.toUpperCase()}${p.word.slice(1)}${p.mirrored ? " (mirrored)" : ""}`}>
+              <img src={thumbUrl(p.asset)} alt={p.word} loading="lazy" className={cx(box, "ring-1 ring-accent/60", p.mirrored && "-scale-x-100")} />
+              {p.mirrored && <FlipHorizontal2 size={9} aria-hidden className="absolute -right-0.5 -bottom-0.5 rounded-full bg-panel text-ink-2" />}
+            </span>
+          : <span key={p.where} aria-label={p.word} data-tip="First frame: the clip before's last frame, carried on" className={cx(box, "flex items-center justify-center border border-dashed border-line-strong text-ink-3")}><CornerDownRight size={11} /></span>))}
+        {shown.references.map((r, k) => <img key={`${r.asset}:${k}`} src={thumbUrl(r.asset)} alt={`reference: ${REF_WORDS[r.role] ?? r.role}`} loading="lazy" data-tip={`Reference: ${REF_WORDS[r.role] ?? r.role}`} className={box} />)}
+        {shown.sounds.map((x) => (
+          <span key={x.asset} aria-label={x.word} data-tip={`${x.word[0]!.toUpperCase()}${x.word.slice(1)}${x.part ? `, ${seconds(x.part.start)} to ${seconds(x.part.start + x.part.seconds)}` : ""}`} className={cx(box, "flex items-center justify-center text-ink-2")}><AudioLines size={12} /></span>
+        ))}
+        {shown.prompt && <span className="min-w-0 truncate text-meta text-ink-3" data-tip={`Prompt sent: ${shown.prompt.length > 600 ? `${shown.prompt.slice(0, 600)}…` : shown.prompt}`}>{shown.prompt}</span>}
+      </span>
+      {said && <span className="text-meta text-attention-ink" data-tip={`How this take was made against the form as it stands, which is the next render's settings${diff?.settings.length ? ` (${diff.settings.join(", ")})` : ""}. Its ··· menu has Use this take's settings.`}>{said}</span>}
+    </>
+  );
+}
+
 /** How the takes after the one that plays are listed: the newest first, the smoothest joins, the face closest to its person's. */
 type TakeSort = "newest" | "smoothest" | "face";
 
@@ -44,12 +94,14 @@ type TakeSort = "newest" | "smoothest" | "face";
  * its length, how its joins jump and its face figure on a meta line under its name, and its "···" (or a right-click)
  * offers the library's actions on its video (Download, Keep, Compare…) after the take's own (Face refine, Remove).
  */
-export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, onRemoveTake, onFacePass }: {
+export function TakeList({ clip, take, joinOf, smoothest, form, onPreview, onPatch, onRemoveTake, onFacePass }: {
   clip: Clip;
   take: Take | null;
   joinOf(take: string): { in: number | null; out: number | null } | undefined;
   /** The take whose joins jump least, once measured. */
   smoothest: string | null;
+  /** The clip's form now, which each take says it was made with or not; left out, the takes do not say. */
+  form?: FormNow;
   onPreview(take: Take | null): void;
   onPatch(patch: ShownPatch): void;
   onRemoveTake(id: string): void;
@@ -106,6 +158,7 @@ export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, on
       return [
         ...(t.id !== take?.id ? [{ label: "Play this take", icon: <Play size={14} />, run: () => onPatch({ take: t.id }) }] : []),
         ...(onFacePass && !t.facePass && !trouble ? [{ label: "Face refine", icon: <ScanFace size={14} />, note: "as a new take", run: () => onFacePass(t) }] : []),
+        ...(form && t.made && takeDiff(t, form) && diffWords(takeDiff(t, form)!) ? [{ label: "Use this take's settings", icon: <SlidersHorizontal size={14} />, note: "into the form · Undo takes it back", run: () => form.onUse(t as Take & { made: TakeMade }) }] : []),
       ];
     },
     // the take's Remove in the bin's place: last, alone, as every menu's destructive row
@@ -183,6 +236,7 @@ export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, on
                     </span>
                   )}
                 </span>
+                {t.made && <MadeLine made={t.made} recipe={form?.recipes.find((r) => r.id === t.made!.recipe)} diff={takeDiff(t, form)} />}
               </span>
             </button>
             <IconButton size={28} label={`Take ${i + 1}: more`} tip="Face refine, Download, Keep, Compare, Remove…" aria-haspopup="menu" onClick={(e) => menu.open(e, t.asset)} className="mr-1 opacity-60 group-hover/take:opacity-100 focus-visible:opacity-100">

@@ -81,7 +81,12 @@ export function Form(props: {
   /** What the screen puts at the top of one of the recipe's own chapters, by its id (a swap clip's Mask: who is replaced, Show the mask). */
   chapterExtra?: Record<string, ReactNode>;
   /** What the screen adds to the Inputs chapter's frames (a timeline clip's pinned frames), with its words for the summary. */
-  frameExtra?: { node: ReactNode; summary: string };
+  frameExtra?: {
+    node?: ReactNode;
+    summary: string;
+    /** A line at the top of the chapter, whichever tab is open (a clip whose take that plays was made with other inputs). */
+    head?: ReactNode;
+  };
   /** Show the recipe's chapters that hold nothing yet (the import screen's preview, while sections are arranged). */
   keepEmpty?: boolean;
   /** Bring the prompt into view when the form opens on a short screen: the Create panel. A timeline clip's form stays where it is. */
@@ -149,7 +154,12 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   /** What the screen puts at the top of one of the recipe's own chapters, by its id (a swap clip's Mask: who is replaced, Show the mask). */
   chapterExtra?: Record<string, ReactNode>;
   /** What the screen adds to the Inputs chapter's frames (a timeline clip's pinned frames), with its words for the summary. */
-  frameExtra?: { node: ReactNode; summary: string };
+  frameExtra?: {
+    node?: ReactNode;
+    summary: string;
+    /** A line at the top of the chapter, whichever tab is open (a clip whose take that plays was made with other inputs). */
+    head?: ReactNode;
+  };
   /** Show the recipe's chapters that hold nothing yet (the import screen's preview, while sections are arranged). */
   keepEmpty?: boolean;
   /** Bring the prompt into view when the form opens on a short screen: the Create panel. A timeline clip's form stays where it is. */
@@ -344,7 +354,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
     return n ? <span className="text-accent"> · {n} changed</span> : null;
   };
 
-  const hasFrames = frames.length > 0 || Boolean(frameExtra);
+  const hasFrames = frames.length > 0 || Boolean(frameExtra?.node);
   // while searching, what a screen adds (the model picker, the cast, the designer) steps aside: it is not a setting
   // no reference input and no text the cast writes into: the cast is only who goes into a picture (Motion transfer's)
   const lookWithFrames = refs.length === 0 && recipe.inputs.every((i) => i.type !== "prompt" || Boolean(i.noCast));

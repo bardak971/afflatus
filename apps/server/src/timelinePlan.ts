@@ -57,6 +57,20 @@ export function generationOfTake(x: Taken, takes: readonly Taken[]): string | nu
 }
 
 /**
+ * The draft a take finishes, through a finish of a finish (an upscale of a Face refine): the take itself when it finishes
+ * none, or when its draft was removed from the clip.
+ */
+export function draftOf(x: Taken, takes: readonly Taken[]): Taken {
+  let at = x;
+  for (let i = 0; at.take.finished_from && i < 5; i++) {
+    const from = takes.find((y) => y.take.id === at.take.finished_from);
+    if (!from) break;
+    at = from;
+  }
+  return at;
+}
+
+/**
  * Where a clip that carries on picks up from a clip before whose latent was kept: on the latent's grid (H3's 17k + 5 frames,
  * LTX's 8k + 1 at its own rate: `clock`, the latent's latent_clock), at or before the moment asked, so the join is made in the latent. Off the grid, the queue joins on frames instead (finishLatent),
  * which a trim made by hand nearly always lands on. The very end of the video stays as it is (the whole latent is taken), and so

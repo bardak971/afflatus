@@ -38,6 +38,18 @@ export interface Take {
   laidSound?: boolean;
   /** Its head filed with the recording the clip before sang (the lead-in), not the model's guess: the sound hands over to it as to any. */
   headSung?: boolean;
+  /** What it was made with, as its clip's form would hold it (its draft's, for a finish); null for a take rendered nowhere here. */
+  made: TakeMade | null;
+}
+/** A take's form as it was rendered: what "Use this take's settings" puts back into its clip's form. */
+export interface TakeMade {
+  recipe: string;
+  /** Its form as typed (the cast's additions and what the timeline fills in left out), with the seed it was rendered with. */
+  form: Record<string, unknown>;
+  /** Its first frame was the clip before's, handed on by the timeline: no picture was pinned on its form. */
+  carried?: boolean;
+  /** The pinned pictures it flipped (Mirror), by input id. */
+  mirror: string[];
 }
 /** How a take's own part looks, measured on its real frames when it was rendered (the server's lookOf). Older takes carry the first two only. */
 export interface Measure {
@@ -235,6 +247,8 @@ export interface ClipPatch {
   music?: ClipMusic | null;
   /** Mirror on a pinned picture, by input id: true flips it at render time, false turns it back. */
   pinMirror?: Record<string, boolean>;
+  /** The take whose settings `recipe`, `inputs` and `pinMirror` put back (Use this take's settings): one Undo step, named after it. */
+  settingsOf?: string;
   /** Of a clip made from the source: "apart" keeps this change to it, "inLine" brings its own settings back to the others', "toAll" gives them to every clip. */
   share?: "apart" | "inLine" | "toAll";
 }

@@ -47,14 +47,19 @@ export function InputsPart({ frames, refs, framesChosen, refsCount, chosen, summ
   look?: ReactNode;
   /** The search names the cast ("cast", "look", "people"): it shows while searching. */
   lookHit?: boolean;
-  frameExtra?: { node: ReactNode; summary: string };
+  frameExtra?: {
+    node?: ReactNode;
+    summary: string;
+    /** A line at the top of the chapter, whichever tab is open (a clip whose take that plays was made with other inputs). */
+    head?: ReactNode;
+  };
   q: string;
   render(i: InputSpec): ReactNode;
 }) {
   const onRefs = useParts((st) => st.open["inputs:references"] ?? false);
   const setPart = useParts((st) => st.set);
   const takes = useTakes();
-  const hasFrames = frames.length > 0 || Boolean(frameExtra);
+  const hasFrames = frames.length > 0 || Boolean(frameExtra?.node);
   const hasRefs = refs.length > 0 || (Boolean(look) && !lookWithFrames && (!q || Boolean(lookHit)));
   const tab = hasFrames && hasRefs ? (onRefs ? "references" : "frames") : hasFrames ? "frames" : "references";
   // something dragged in: the tab that takes it comes forward
@@ -88,6 +93,7 @@ export function InputsPart({ frames, refs, framesChosen, refsCount, chosen, summ
   if (!hasFrames && !hasRefs) return null;
   return (
     <Part id="inputs" title="Inputs" summary={summary} needs={opened || Boolean(stay) || Boolean(q)}>
+      {!q && frameExtra?.head}
       {hasFrames && hasRefs && !q && (
         <div className="w-full">
           <Segmented<"frames" | "references">

@@ -17,8 +17,8 @@ import { TimelineExport } from "./timelineExport";
 import { TimelineMedia } from "./timelineMedia";
 import { clipColumns, takeColumns, TimelineHistory } from "./timelineHistory";
 import { TimelineRange } from "./timelineRange";
-import { takeView, TimelineViews } from "./timelineViews";
-import { generationOfTake, ownInputIds, recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
+import { madeOf, takeView, TimelineViews } from "./timelineViews";
+import { draftOf, generationOfTake, ownInputIds, recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
 import { clipsOfSource, patchedSource, planWindows, sourceOfRow, windowFormFor, windowRunUp, type SourcePatch, type SourcePlan } from "./timelineSource";
 import { TimelineTakes } from "./timelineTakes";
 import { foldParts, removalOf, removedOf, removedView, type ParkedClip, type Removal, type RemovedPart } from "./timelineRemoved";
@@ -141,6 +141,8 @@ export interface ClipPatch {
   music?: ClipMusic | null;
   /** Its pinned pictures flipped left to right at render time (Mirror), by input id: true flips one, false turns it back. The others stay as they are. */
   pinMirror?: Record<string, boolean>;
+  /** The take whose settings `recipe`, `inputs` and `pinMirror` put back (Use this take's settings): one step for Undo, named after it. */
+  settingsOf?: string;
   /**
    * Of a clip made from the source, how its settings go with the other clips' (sameForm). Left out, what changes in its
    * `inputs` is every clip's; "apart": this clip's own, the others keep theirs; "inLine": its own settings back to the
@@ -409,7 +411,10 @@ export class Timelines {
       // render of its own, reads the draft's: else its head was said guessed, and the sound no longer handed over into it)
       const made = generationOfTake(x, takes);
       const own = made ? rendered.get(made) : undefined;
-      return takeView(x, r, laid(r?.recipe ?? clipRecipe, own?.inputs));
+      // what it was made with is its draft's form: what a finish added (its route, its upscale) is not the clip's to take back
+      const draft = draftOf(x, takes);
+      const drafted = draft === x ? own : rendered.get(generationOfTake(draft, takes) ?? "");
+      return takeView(x, r, laid(r?.recipe ?? clipRecipe, own?.inputs), madeOf(this.registry.recipe(drafted?.recipe ?? ""), drafted, draft.take.prev_take_id));
     };
     let at = 0;
     const clips = all.map((p, i) => {
@@ -1692,6 +1697,7 @@ export class Timelines {
     const all = await this.placed(clip.timeline_id);
     const checked = await this.checkClipPatch(clip, patch, all);
     if (keys.every((k) => k === "inputs" || k === "share") && patch.inputs !== undefined && !patch.share) await this.rememberWriting(clip, all);
+    else if (patch.settingsOf !== undefined) await this.remember(clip.timeline_id, `the settings of take ${checked.settingsOf}`);
     else if (keys.length) await this.remember(clip.timeline_id, labelOf(patch));
 
     const { animate, trims, order, mirror } = checked;
@@ -1779,6 +1785,13 @@ export class Timelines {
       const take = await this.db.selectFrom("takes").select("id").where("id", "=", patch.take).where("clip_id", "=", id).executeTakeFirst();
       if (!take) throw notFound("this take");
     }
+    // the take whose settings are put back (Use this take's settings): its number, for the Undo button
+    let settingsOf: number | null = null;
+    if (patch.settingsOf !== undefined) {
+      settingsOf = (all.find((p) => p.clip.id === id)?.takes.findIndex((t) => t.take.id === patch.settingsOf) ?? -1) + 1;
+      if (!settingsOf) throw notFound("this take");
+      if (patch.inputs === undefined) throw httpError("Say the settings to put back.");
+    }
     if (patch.soundAsset) {
       const sound = await this.assetRow(patch.soundAsset);
       if (!sound || (sound.kind !== "audio" && !(sound.kind === "video" && sound.has_sound))) throw httpError("That is not an audio file, nor a video with audio.");
@@ -1811,7 +1824,7 @@ export class Timelines {
       throw httpError("The clip is rendering or in the queue: let it end, or stop it, to change its voice or its part of the source.", 409);
     }
     const pinned = recipe ? (recipe.inputs as InputSpec[]).find((i) => i.type === "image" && typeof patch.inputs![i.id] === "string" && patch.inputs![i.id] !== was[i.id]) : undefined;
-    return { animate, trims, order, pinnedNow: pinned ? (patch.inputs![pinned.id] as string) : null, mirror: this.mirrorAfter(clip, patch) };
+    return { animate, trims, order, pinnedNow: pinned ? (patch.inputs![pinned.id] as string) : null, mirror: this.mirrorAfter(clip, patch), settingsOf };
   }
 
   /**
