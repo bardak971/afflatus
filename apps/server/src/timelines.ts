@@ -1,7 +1,7 @@
 import { chatJson } from "./llm";
 import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
-import { carriedOf, joinWay, laysSound, madeAroundRecording, musicPlan, recordingSpecOf, sungHead, plural, recordingPart, recordingParts, sameWindowGrid, trimIn, typedSeed, type ClipMusic, type InputSpec, type Recipe, type Transition } from "@afflatus/core";
+import { carriedOf, carryOver, joinWay, laysSound, madeAroundRecording, musicPlan, recordingSpecOf, sungHead, plural, recordingPart, recordingParts, sameWindowGrid, trimIn, typedSeed, type ClipMusic, type InputSpec, type Recipe, type Transition } from "@afflatus/core";
 import { newId, now, OWNER, type Db } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError, notFound } from "./errors";
@@ -1163,8 +1163,9 @@ export class Timelines {
    * The clips of these parts of a recording, written in the transaction given: in place of the clips `gone` (the first of
    * them), else after `after`, else at the end. Each part is made in the form of the clip it replaces whose part it overlaps
    * most (`was`: a re-cut keeps a clip's form and its settings where its part survives, card #72), else in the recording's
-   * New clips form (`form`, Lip sync by default), with the settings of the clip it replaces or follows when it is of that
-   * form, else of the last clip of it; the first carrying on from the clip before when it can.
+   * New clips form (`form`, Lip sync by default), with what was written in the clip it replaces (its shared inputs across a
+   * change of form, its seed on the first: writtenIn), or the settings of the clip it follows when it is of that form, else
+   * of the last clip of it; the first carrying on from the clip before when it can.
    */
   private async recordingClipsIn(tx: Db, timelineId: string, sound: AssetRow, parts: Array<{ start: number; seconds: number }>, at: { gone: string[]; after?: string; was?: ClipPart[]; form?: string }): Promise<string[]> {
     const { spec } = this.recordingModel();
@@ -1188,8 +1189,11 @@ export class Timelines {
       const survives = (at.was ?? []).reduce<ClipPart | undefined>((best, c) => (overlap(c) > 0 && (!best || overlap(c) > overlap(best)) ? c : best), undefined);
       const recipe = (survives && this.holdsRecording(survives.recipe) ? this.registry.recipe(survives.recipe) : undefined) ?? fresh;
       const own = ownInputIds(recipe);
-      const kept = survives?.recipe === recipe.id ? survives.inputs : model?.clip.recipe_id === recipe.id ? (JSON.parse(model.clip.inputs) as Record<string, unknown>) : {};
-      const form = Object.fromEntries(Object.entries({ ...settingsOf(recipe, all, index), ...kept }).filter(([key]) => own.has(key) && !ofPart.has(key)));
+      // the clip dropped on hands what was written in it over in any form; one it comes after, only in its own
+      const kept = survives?.recipe === recipe.id ? survives.inputs : model && (replaced >= 0 || model.clip.recipe_id === recipe.id) ? this.writtenIn(model, recipe) : {};
+      // the first part takes the place of the clip dropped on and keeps its seed; the others draw their own
+      const seed = k === 0 && !survives && replaced >= 0 && "seed" in kept ? { seed: kept.seed } : {};
+      const form = { ...Object.fromEntries(Object.entries({ ...settingsOf(recipe, all, index), ...kept }).filter(([key]) => own.has(key) && !ofPart.has(key))), ...seed };
       // the first carries on from the clip before when it can (H3 to Lip sync: in the latent), else it starts on its own
       const opens = k === 0 && (!before || before.clip.kind !== "video" || !before.clip.recipe_id || joinWay(this.registry.recipe(before.clip.recipe_id), recipe) === "cut");
       const clip: NewClip = {
@@ -1204,6 +1208,23 @@ export class Timelines {
     await this.renumber(timelineId, order.map((p) => p.clip.id), tx);
     await this.keep(sound.id, tx);
     return made;
+  }
+
+  /**
+   * What was written in a clip (its scene, model, LoRAs, seed…) that a clip of `recipe` made in its place keeps: all of it in
+   * the same form; across a change of form (a recording dropped on LTX · Video with audio makes LTX · Lip sync, card #2) the
+   * inputs both forms have, as the studio carries them when its operation changes (carryOver); into another family only the
+   * prompts, its model and LoRAs being of no use there.
+   */
+  private writtenIn(model: Placed, recipe: Recipe<any>): Record<string, unknown> {
+    const inputs = JSON.parse(model.clip.inputs) as Record<string, unknown>;
+    if (model.clip.recipe_id === recipe.id) return inputs;
+    const from = model.clip.recipe_id ? this.registry.recipe(model.clip.recipe_id) : undefined;
+    if (!from) return {};
+    const carried = carryOver(from, recipe, inputs, undefined);
+    if (from.family === recipe.family) return carried;
+    const prompts = new Set(recipe.inputs.filter((i) => i.type === "prompt").map((i) => i.id));
+    return Object.fromEntries(Object.entries(carried).filter(([id]) => prompts.has(id)));
   }
 
   /** A clip under a recording as a re-cut reads it: its part of the recording in ms, its form and what it was given. */
