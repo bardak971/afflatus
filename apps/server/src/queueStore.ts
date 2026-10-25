@@ -1,5 +1,5 @@
 import type { OutputFile, waitForOutputs } from "@afflatus/comfy";
-import type { ClipValue, CueValue, InputSpec, Recipe, ReferenceValue } from "@afflatus/core";
+import { latentClockText, type ClipValue, type CueValue, type InputSpec, type Recipe, type ReferenceValue } from "@afflatus/core";
 import { draftNames, labelNames, passName, promptOf } from "./autoName";
 import type { Comfy } from "./comfy";
 import { frameAt } from "./cut";
@@ -20,18 +20,35 @@ import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel
 type Outputs = Awaited<ReturnType<typeof waitForOutputs>>;
 type AssetRow = ReturnType<typeof newAssetRow>;
 
-/** The frame count written in the metadata of a latent saved by the Afflatus node pack (a safetensors file: 8 bytes of header length, then the header). */
-function latentFramesOf(bytes: Uint8Array): number {
+/** The metadata of a latent saved by the Afflatus node pack (a safetensors file: 8 bytes of header length, then the header). */
+function latentMetaOf(bytes: Uint8Array): Record<string, string> {
   try {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const n = Number(view.getBigUint64(0, true));
-    if (n <= 0 || n > 1_000_000 || 8 + n > bytes.byteLength) return 0;
-    const header = JSON.parse(new TextDecoder().decode(bytes.subarray(8, 8 + n))) as { __metadata__?: Record<string, string> };
-    const frames = Number(header.__metadata__?.frames ?? 0);
-    return Number.isFinite(frames) && frames > 0 ? Math.round(frames) : 0;
+    if (n <= 0 || n > 1_000_000 || 8 + n > bytes.byteLength) return {};
+    return (JSON.parse(new TextDecoder().decode(bytes.subarray(8, 8 + n))) as { __metadata__?: Record<string, string> }).__metadata__ ?? {};
   } catch {
-    return 0;
+    return {};
   }
+}
+/** The frame count written in a saved latent's metadata; 0 when it says none. */
+export function latentFramesOf(bytes: Uint8Array): number {
+  const frames = Number(latentMetaOf(bytes).frames ?? 0);
+  return Number.isFinite(frames) && frames > 0 ? Math.round(frames) : 0;
+}
+/** What the pack's LTX latents say they are (Afflatus: Save LTX Latent). An H3 latent says "afflatus-h3-av-latent/1". */
+export const LTX_LATENT_FORMAT = "afflatus-ltx-av-latent/1";
+/**
+ * How a saved latent counts its frames (core LatentClock), stored beside it: an LTX latent's, its family, rate and grid the
+ * recipe's that made it and its size the file's; null for H3's (the clock a latent stored without one has).
+ */
+export function latentClockFor(bytes: Uint8Array, recipe: Pick<Recipe<any>, "family" | "traits">): string | null {
+  const meta = latentMetaOf(bytes);
+  const { fps, frameGrid } = recipe.traits ?? {};
+  if (meta.format !== LTX_LATENT_FORMAT || !fps || !frameGrid) return null;
+  const width = Number(meta.width);
+  const height = Number(meta.height);
+  return latentClockText({ family: recipe.family, fps, grid: frameGrid, ...(width > 0 && height > 0 ? { width, height } : {}) });
 }
 
 /**
@@ -291,6 +308,7 @@ async function fileOne(
   const key = `assets/${id.slice(0, 2)}/${id}.${ext}`;
   const rawKey = rawBytes && side.raw ? `assets/${id.slice(0, 2)}/${id}.raw.${extOf(mimeOfFile(side.raw.filename))}` : null;
   const latentFrames = latentBytes ? latentFramesOf(latentBytes) : null;
+  const latentClock = latentBytes && latentFrames ? latentClockFor(latentBytes, recipe) : null;
   const latentKey = latentBytes && latentFrames ? `assets/${id.slice(0, 2)}/${id}.latent.safetensors` : null;
   const fineKey = fineBytes ? `assets/${id.slice(0, 2)}/${id}.fine.safetensors` : null;
   await Promise.all([
@@ -313,7 +331,7 @@ async function fileOne(
   return {
     measure: video?.facts ? () => measureStored({ db, storage }, recipe, input, resume, { id, key, ext, latentKey, latentFrames, facts: video.facts! }) : null,
     row: {
-      id, kind, origin: "generated", name: "", file_key: key, thumb_key: thumb ? thumbKey(id) : null, mime, bytes: bytes.length, raw_key: rawKey, latent_key: latentKey, latent_frames: latentFrames, fine_latent_key: fineKey, kept_bytes: (rawKey ? rawBytes!.length : 0) + (latentKey ? latentBytes!.length : 0) + (fineKey ? fineBytes!.length : 0),
+      id, kind, origin: "generated", name: "", file_key: key, thumb_key: thumb ? thumbKey(id) : null, mime, bytes: bytes.length, raw_key: rawKey, latent_key: latentKey, latent_frames: latentFrames, latent_clock: latentClock, fine_latent_key: fineKey, kept_bytes: (rawKey ? rawBytes!.length : 0) + (latentKey ? latentBytes!.length : 0) + (fineKey ? fineBytes!.length : 0),
       width: size?.width ?? null, height: size?.height ?? null,
       duration_ms: video?.facts?.durationMs ?? null, fps: video?.facts?.fps ?? null, has_sound: video?.facts?.hasSound ? 1 : 0,
       source_id: null, source_range: null, linked_path: null, kept_at: null, countdown_from: null,
@@ -356,7 +374,8 @@ async function measureStored(
   const overlap = resume.overlap;
   const prevSpec = recipe.inputs.find((s) => s.type === "clip" && s.role === "previous") as (InputSpec & { fps?: number }) | undefined;
   const prevValue = prevSpec ? (input[prevSpec.id] as ClipValue | undefined) : undefined;
-  if (overlap?.latent && overlap.headMs > 0 && stored.latentKey && stored.latentFrames && prevValue?.asset) {
+  // (H3's latents: the drift is read on its token layout; an LTX latent's is another)
+  if (overlap?.latent && overlap.headMs > 0 && stored.latentKey && stored.latentFrames && prevValue?.asset && recipe.family === "h3") {
     const shown = await db.selectFrom("assets").selectAll().where("id", "=", prevValue.asset).executeTakeFirst();
     const before = shown ? await renderedOf(db, shown) : null;
     const beforeBytes = before?.latent_key ? await storage.get(before.latent_key).catch(() => null) : null;

@@ -1,4 +1,4 @@
-import { FRAME_SLACK_MS, joinFrames, latentFrameAtOrBefore, LATENT_FPS, secondsInput, type Recipe } from "@afflatus/core";
+import { FRAME_SLACK_MS, joinFrames, latentClockOf, latentFrameAtOrBefore, secondsInput, type Recipe } from "@afflatus/core";
 import { fromName, nameOf } from "./autoName";
 import { stat } from "node:fs/promises";
 import { CutError, rangeKeep, slowMotion, type Media } from "./cut";
@@ -451,16 +451,17 @@ export class TimelineRange {
   }
 
   /**
-   * The clip before kept its latent (an H3 render): In goes back to a frame of its latent's grid (17k + 5), so the
-   * new clip continues it in the latent, cut there, rather than from its frames (at most 16 frames earlier).
+   * The clip before kept its latent (an H3 or LTX render): In goes back to a frame of its latent's grid (H3's 17k + 5, LTX's
+   * 8k + 1), so the new clip continues it in the latent, cut there, rather than from its frames (at most a step earlier).
    */
   private onLatentGrid(laid: Laid[], x: number): number {
     const under = x > 0 ? this.before(laid, x) : undefined;
     if (!under?.p.active?.asset.latent_frames || under.p.clip.kind !== "video") return x;
     const assetMs = visible(under.p.active).start + (x - under.atMs);
-    const frame = Math.round((assetMs * LATENT_FPS) / 1000);
-    const grid = latentFrameAtOrBefore(frame);
-    const back = ((frame - grid) * 1000) / LATENT_FPS;
+    const { fps, grid: on } = latentClockOf(under.p.active.asset.latent_clock);
+    const frame = Math.round((assetMs * fps) / 1000);
+    const grid = latentFrameAtOrBefore(frame, on);
+    const back = ((frame - grid) * 1000) / fps;
     // the frames a continuation of it takes by default (its own model's run-up): a grid frame before them leaves too few
     const runUp = joinFrames(this.core.registry.recipe(under.p.clip.recipe_id ?? ""), "previous");
     return grid >= runUp && back > 0 && x - back > under.atMs + FRAME_SLACK_MS ? Math.round(x - back) : x;

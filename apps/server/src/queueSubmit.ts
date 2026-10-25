@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, onGrid, packOfNode, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
+import { baseModels, checkGraph, choicesOf, clockFits, FRAME_SLACK_MS, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, onGrid, packOfNode, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
 import { catalogKey, ComfyCancelled, ComfyError, ComfyUnreachable } from "@afflatus/comfy";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
@@ -611,13 +611,16 @@ async function uploadLook(up: Up, spec: InputSpec & { type: "clip" }, asset: Pic
  */
 async function finishLatent(
   up: Up, spec: InputSpec & { type: "clip" },
-  asset: Pick<Tables["assets"], "latent_key" | "latent_frames">, shown: Pick<Tables["assets"], "fine_latent_key" | "width" | "height">,
+  asset: Pick<Tables["assets"], "latent_key" | "latent_frames" | "latent_clock">, shown: Pick<Tables["assets"], "fine_latent_key" | "width" | "height">,
   cut: { at: number | undefined; counts: number[]; durationMs: number },
 ): Promise<void> {
   const { recipe, catalog, finishedFrom, sent } = up;
   // only a recipe that joins in a kept latent reads one (it names the nodes that do, traits.latentNodes): the others are not
   // sent a file they would not open
-  if (!asset.latent_key || !asset.latent_frames || !recipe.traits?.latentNodes?.length) return;
+  if (!asset.latent_key || !asset.latent_frames || !recipe.traits?.latentNodes?.length || spec.framesOnly) return;
+  // another model's latent (Extend kept across a change of model): the join is made on its frames
+  const clock = latentClockOf(asset.latent_clock);
+  if (!clockFits(clock, recipe)) return;
   const { at, counts } = cut;
   const atFrames = at === undefined ? 0 : Math.round((at / 1000) * spec.fps);
   const whole = spec.role === "previous" && (at === undefined || at >= cut.durationMs - FRAME_SLACK_MS);
@@ -638,7 +641,10 @@ async function finishLatent(
   const lacking = spec.role === "previous" ? (recipe.traits?.latentNodes ?? []).filter((n) => !(n in catalog)) : [];
   if (lacking.length) sent.warnings.push(`The join was made on frames: this ComfyUI has no Afflatus node pack (no ${lacking[0]}), which a join in the latent takes.`);
   sent.uploads[`${spec.id}.latent`] = saved;
-  sent.media[spec.id] = { ...sent.media[spec.id]!, latentFrames: cutAt || asset.latent_frames, ...(cutAt ? { latentCut: cutAt } : {}), ...(spec.role === "next" ? { latentAt: atFrames } : {}) };
+  sent.media[spec.id] = {
+    ...sent.media[spec.id]!, latentFrames: cutAt || asset.latent_frames, ...(cutAt ? { latentCut: cutAt } : {}), ...(spec.role === "next" ? { latentAt: atFrames } : {}),
+    ...(clock.width && clock.height ? { latentSize: { width: clock.width, height: clock.height } } : {}),
+  };
   // a finish after a clip finished by the same latent re-sample: that clip's re-sampled latent, for decoding the join as one piece with it
   const wantsFine = Boolean(finishedFrom && spec.role === "previous" && shown.fine_latent_key && shown.width && shown.height);
   const fine = wantsFine ? await sendLatent(up, shown.fine_latent_key!) : null;

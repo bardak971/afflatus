@@ -549,6 +549,17 @@ describe("the join sums shared by the server and the player", () => {
     // a video of unknown rate: where it stopped moving
     expect(handoverFrame(4100, { latentFrames: null, fps: null }, 22)).toBe(4100);
   });
+  it("hands an LTX clip over on its own latent's grid: 8k + 1 frames at its own rate", () => {
+    const clock = '{"family":"ltx","fps":25,"step":8,"offset":1,"width":704,"height":1280}';
+    // 4.1 s at 25 a second is frame 103 (rounded from 102.5): back to 97 frames, 3.88 s
+    expect(handoverOnGrid(4100, { durationMs: 5160, latentFrames: 129, clock }, 25)).toBe(3880);
+    expect(handoverFrame(4100, { latentFrames: 129, fps: 25, clock }, 25)).toBe(3880);
+    // on the grid already, or the very end: as asked
+    expect(handoverOnGrid(3880, { durationMs: 5160, latentFrames: 129, clock }, 25)).toBe(3880);
+    expect(handoverOnGrid(5150, { durationMs: 5160, latentFrames: 129, clock }, 25)).toBe(5150);
+    // a grid frame shorter than the run-up (0.7 s is frame 18, the grid's 17 < 25): as asked
+    expect(handoverOnGrid(700, { durationMs: 5160, latentFrames: 129, clock }, 25)).toBe(700);
+  });
   it("marks a landing on a finished take as on its draft (markJoins)", () => {
     const asset = { duration_ms: 5000, latent_frames: null, fps: 24 } as AssetRow;
     const row = (o: Partial<TakeRow>) => ({ head_ms: 0, tail_ms: 0, trim_start_ms: 0, trim_end_ms: 0, prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null, finished_from: null, join_kind: null, ...o }) as TakeRow;

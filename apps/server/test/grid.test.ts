@@ -11,6 +11,13 @@ describe("a take's length on the model's frame grid", () => {
     const take = { head_ms: 0, trim_start_ms: 0, tail_ms: 0, trim_end_ms: 0 } as TakeRow;
     expect(plays({ take, asset: asset({}) }).end).toBe(5167);
   });
+  it("an LTX 2.3 render on its own rate: 129 frames at 25 a second, 5160 ms; interpolated ×2 (257 at 50), still 5160", () => {
+    const clock = '{"family":"ltx","fps":25,"step":8,"offset":1,"width":704,"height":1280}';
+    expect(lengthOnGrid(asset({ duration_ms: 5160, latent_frames: 129, latent_clock: clock }))).toBe(5160);
+    expect(lengthOnGrid(asset({ duration_ms: 5140, latent_frames: 129, latent_clock: clock }))).toBe(5160);
+    // read on H3's rate it would have been 5375, far from the file: the file's length then
+    expect(lengthOnGrid(asset({ duration_ms: 5160, latent_frames: 129 }))).toBe(5160);
+  });
   it("without a latent, or a file that is not that render (trimmed, another length), the file's", () => {
     expect(lengthOnGrid(asset({ latent_frames: null }))).toBe(5146);
     expect(lengthOnGrid(asset({ duration_ms: 3000 }))).toBe(3000);
@@ -37,8 +44,9 @@ describe("where a clip lands on the take after it", () => {
   it("from its first frame: there", () => expect(landingOnGrid({ take: take(0), asset }, 22)).toBe(0));
   it("a continuation playing from frame 22 (its overlap): frame 34, half a second further in", () => expect(landingOnGrid({ take: take(917), asset }, 22)).toBe(1417));
   it("already on a chunk: there", () => expect(landingOnGrid({ take: take(917, 500), asset }, 22)).toBe(1417));
-  it("without a latent, or too near its end: where it plays", () => {
+  it("without a latent, an LTX one (landed on from its frames), or too near its end: where it plays", () => {
     expect(landingOnGrid({ take: take(917), asset: { ...asset, latent_key: null } as AssetRow }, 22)).toBe(917);
+    expect(landingOnGrid({ take: take(1000), asset: { ...asset, latent_clock: '{"family":"ltx","fps":25,"step":8,"offset":1,"width":704,"height":1280}' } as AssetRow }, 25)).toBe(1000);
     expect(landingOnGrid({ take: take(917, 4000), asset }, 22)).toBe(4917);
   });
 });

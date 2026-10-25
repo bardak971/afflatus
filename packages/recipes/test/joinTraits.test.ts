@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { joinFrames, joinWay, LATENT_FPS, LATENT_GRID, type Recipe } from "@afflatus/core";
+import { clockFits, H3_CLOCK, joinFrames, joinWay, LATENT_FPS, LATENT_GRID, type Recipe } from "@afflatus/core";
 import { recipeById, recipes } from "../src/index";
 
 /**
@@ -27,13 +27,24 @@ describe("the frames a join takes", () => {
 
 describe("recipes that join in a kept latent", () => {
   const latent = recipes.filter((r: Recipe<any>) => r.traits?.latentNodes?.length);
-  it("every H3 form", () => {
-    expect(latent.map((r) => r.id).sort()).toEqual(["h3.lipsync", "h3.motion", "h3.swap", "h3.video"]);
+  it("every H3 form, and LTX 2.3 and 2.5 (pack 0.37.0)", () => {
+    expect(latent.map((r) => r.id).sort()).toEqual(["h3.lipsync", "h3.motion", "h3.swap", "h3.video", "ltx.video", "ltx25.video"]);
   });
-  it.each(latent.map((r) => [r.id, r] as const))("%s: on the kept latent's rate and grid, with the node that cuts it", (_id, r) => {
+  it.each(latent.filter((r) => r.family === "h3").map((r) => [r.id, r] as const))("%s: on H3's kept latent's rate and grid, with the node that cuts it", (_id, r) => {
     expect(r.traits!.fps).toBe(LATENT_FPS);
     expect(r.traits!.frameGrid).toEqual(LATENT_GRID);
     expect(r.traits!.latentTrim).toBeTruthy();
+    // a latent kept without a clock is H3's, which every H3 form continues
+    expect(clockFits(H3_CLOCK, r)).toBe(true);
+  });
+  it("LTX on its own model's rate and grid: a latent of one LTX continued by that LTX only", () => {
+    const [ltx, ltx25] = [recipeById("ltx.video")!, recipeById("ltx25.video")!];
+    for (const r of [ltx, ltx25]) expect(r.traits).toMatchObject({ frameGrid: { step: 8, offset: 1 }, latentTrim: "AfflatusTrimLTXLatent" });
+    const clock = { family: "ltx", fps: 25, grid: { step: 8, offset: 1 } };
+    expect(clockFits(clock, ltx)).toBe(true);
+    expect(clockFits(clock, ltx25)).toBe(false);
+    expect(clockFits(clock, recipeById("h3.video"))).toBe(false);
+    expect(clockFits(H3_CLOCK, ltx)).toBe(false);
   });
 });
 
@@ -49,6 +60,11 @@ describe("how a clip meets the one before it, by default (the join rule)", () =>
     // SCAIL-2 at 16 fps then at 24 (review H-12): the frames handed over are another rate's, met as a cut
     expect(joinWay(r("scail.motion"), r("scail.motion24"))).toBe("cut");
     expect(joinWay(r("scail.motion24"), r("scail.motion24"))).toBe("frames");
+  });
+  it("seamless between two clips of one LTX: it carries on in its kept latent; a cut across LTX 2.3 and 2.5", () => {
+    expect(joinWay(r("ltx.video"), r("ltx.video"))).toBe("seamless");
+    expect(joinWay(r("ltx25.video"), r("ltx25.video"))).toBe("seamless");
+    expect(joinWay(r("ltx.video"), r("ltx25.video"))).toBe("cut");
   });
   it("a cut when the model changes, or when nothing is before it", () => {
     expect(joinWay(r("h3.video"), r("ltx.video"))).toBe("cut");

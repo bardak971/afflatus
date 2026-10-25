@@ -3,7 +3,7 @@
  * fades in, and H3's latent grid that joins are cut on. The same sums on the server (what plays, what the export
  * makes) and in the browser (what the player shows), so that the two agree.
  */
-import { chunkStartAtOrAfter, gridAtOrBefore, LATENT_GRID } from "./frameGrid";
+import { chunkStartAtOrAfter, gridAtOrBefore, LATENT_GRID, type FrameGrid } from "./frameGrid";
 
 /** Two moments are the same when they are within about a frame of each other. */
 export const near = (a: number | null, b: number) => a !== null && Math.abs(a - b) <= 45;
@@ -104,10 +104,47 @@ export function joinFrames(recipe: JoinForm | undefined, role: "previous" | "nex
 }
 
 /**
- * The frame on H3's latent grid (17k + 5 frames) at or before `frame`: a clip handed over there continues in the
- * latent, cut on a whole chunk, rather than from frames.
+ * How a kept latent counts its frames: the family whose model made it, that model's rate and frame grid, and (LTX) its size
+ * in pixels. Stored beside it (assets.latent_clock); a latent stored without one is H3's, the one model whose latent was kept
+ * before LTX's (pack 0.37.0). Frame N of a kept latent is at N / fps seconds, and a clip is handed over on its grid.
  */
-export const latentFrameAtOrBefore = (frame: number) => gridAtOrBefore(frame, LATENT_GRID);
+export interface LatentClock {
+  family: string;
+  fps: number;
+  grid: FrameGrid;
+  width?: number;
+  height?: number;
+}
+export const H3_CLOCK: LatentClock = { family: "h3", fps: LATENT_FPS, grid: LATENT_GRID };
+
+/** A kept latent's clock as stored (latentClockText), H3's when none is. */
+export function latentClockOf(stored: string | null | undefined): LatentClock {
+  if (!stored) return H3_CLOCK;
+  try {
+    const c = JSON.parse(stored) as { family?: string; fps?: number; step?: number; offset?: number; width?: number; height?: number };
+    if (!c.family || !(Number(c.fps) > 0) || !(Number(c.step) > 0) || !(Number(c.offset) > 0)) return H3_CLOCK;
+    return { family: c.family, fps: Number(c.fps), grid: { step: Number(c.step), offset: Number(c.offset) }, ...(c.width && c.height ? { width: Number(c.width), height: Number(c.height) } : {}) };
+  } catch {
+    return H3_CLOCK;
+  }
+}
+
+/** A clock as it is stored beside its latent. */
+export const latentClockText = (c: LatentClock) =>
+  JSON.stringify({ family: c.family, fps: c.fps, step: c.grid.step, offset: c.grid.offset, ...(c.width && c.height ? { width: c.width, height: c.height } : {}) });
+
+/**
+ * Whether a recipe can continue a latent of this clock: the same family, at the same rate, on the same grid. Across a change
+ * of model (Extend kept on purpose) the clip before's latent is another model's and the join is made on frames.
+ */
+export const clockFits = (c: LatentClock, recipe: { family: string; traits?: { fps?: number; frameGrid?: FrameGrid } | null } | undefined) =>
+  Boolean(recipe && recipe.family === c.family && recipe.traits?.fps === c.fps && recipe.traits.frameGrid?.step === c.grid.step && recipe.traits.frameGrid.offset === c.grid.offset);
+
+/**
+ * The frame on a kept latent's grid (H3's 17k + 5 frames unless another is given) at or before `frame`: a clip handed over
+ * there continues in the latent, cut on a whole chunk, rather than from frames.
+ */
+export const latentFrameAtOrBefore = (frame: number, grid: FrameGrid = LATENT_GRID) => gridAtOrBefore(frame, grid);
 
 /** The first frame of one of a latent's 17-frame chunks at or after `frame`: where a landing on it is made in the latent, on time. */
 export const chunkAtOrAfter = (frame: number) => chunkStartAtOrAfter(frame, LATENT_GRID);

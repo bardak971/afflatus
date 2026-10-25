@@ -51,6 +51,18 @@ export const ltxVideo = ltxRecipe({
         input: { prompt: "a", next: { asset: "c2", at: 0 }, twoPass: false },
         slots: one, uploads: { next: "b.mp4" }, media: { next: { width: 704, height: 1280, frames: 9, fps: LTX_FPS, hasSound: false } },
       },
+      {
+        name: "carries on in the clip before's own latent, cut at its hand-over: two passes, its join decoded as one piece with it",
+        input: { prompt: "a", previous: { asset: "c1" } },
+        slots: { ...one, ...extras }, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors" },
+        media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX_FPS, hasSound: true, latentFrames: 97, latentCut: 97, latentSize: { width: 704, height: 1280 } } },
+      },
+      {
+        name: "carries on in the clip before's latent in one pass with a last picture, a short run-up",
+        input: { prompt: "a", previous: { asset: "c1" }, end: "p2" },
+        slots: one, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors", end: "b.png" },
+        media: { previous: { width: 704, height: 1280, frames: 9, fps: LTX_FPS, hasSound: true, latentFrames: 121, latentSize: { width: 704, height: 1280 } }, end: picture },
+      },
       { name: "carries on from a short clip, in one pass with a last picture", input: { prompt: "a", previous: { asset: "c1" }, end: "p2" }, slots: one, uploads: { previous: "a.mp4", end: "b.png" }, media: { previous: { width: 704, height: 1280, frames: 9, fps: LTX_FPS, hasSound: false }, end: picture } },
       {
         name: "from a first to a last picture: one pass, a LoRA",

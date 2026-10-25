@@ -14,6 +14,9 @@ Afflatus's other routes:
 - MiniMax H3 Guided Continuation Window, Latent Tail Guide, Append Continuation — the native latent-tail
   continuation by ttulttul (MIT, see LICENSE-continuation), vendored with one change: the check for a recent
   enough ComfyUI says "update ComfyUI" when the module it reads is missing, instead of a bare ImportError.
+- Afflatus: Save LTX Latent / Load LTX Latent / Trim LTX Latent / LTX Continuation / LTX Seam Latent — the same for LTX
+  (2.3, 2.5): its video+audio latent kept, a clip carried on from the clip before's last tokens (pinned as LTX's own extend
+  sampler does) with that clip's sound pinned under them, and its join decoded as one piece with the clip before.
 - Afflatus: Swap Mask / Swap Mask Preview / Swap Paste by Difference — the person an H3 Swap character redraws, from SAM
   3.1's track, and the render pasted back over the source where it differs; Swap Colour Match, retired (pack 0.31) and kept
   deprecated so that graphs naming it load, passes the render through.
@@ -96,6 +99,7 @@ from .continuation_nodes import (  # noqa: E402
     MiniMaxH3LatentTailGuide,
 )
 from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, AfflatusH3SeamLatent, AfflatusH3TailGuide, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent  # noqa: E402
+from .latent_ltx import AfflatusLoadLTXLatent, AfflatusLTXContinuation, AfflatusLTXSeamLatent, AfflatusSaveLTXLatent, AfflatusTrimLTXLatent  # noqa: E402
 from .face_match import AfflatusFaceAt, AfflatusFaceMatch, available as face_available  # noqa: E402
 from .swap_mask import AfflatusSwapMask, AfflatusSwapMaskPreview, AfflatusSwapMatch, AfflatusSwapPaste  # noqa: E402
 from .face_refine import AfflatusH3AudioLock  # noqa: E402
@@ -129,6 +133,12 @@ class AfflatusExtension(ComfyExtension):
             MiniMaxH3GuidedContinuationWindow,
             MiniMaxH3LatentTailGuide,
             MiniMaxH3AppendContinuation,
+            # an LTX clip kept and continued from its own latent, its join decoded as one piece with the clip before
+            AfflatusSaveLTXLatent,
+            AfflatusLoadLTXLatent,
+            AfflatusTrimLTXLatent,
+            AfflatusLTXContinuation,
+            AfflatusLTXSeamLatent,
             # the person a swap redraws, from SAM 3.1's track (H3 · Swap character)
             AfflatusSwapMask,
             AfflatusSwapMaskPreview,

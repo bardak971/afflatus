@@ -49,9 +49,11 @@ export interface Tables {
     source_range: string | null;
     /** Of a generated video whose frames were changed after the model made them: the model's own output, kept beside it for the clips that carry on from it. */
     raw_key: string | null;
-    /** Of a MiniMax H3 video made with the Afflatus node pack: its latent (video and audio), for the clips that continue it; and how many frames it holds. */
+    /** Of a MiniMax H3 or LTX video made with the Afflatus node pack: its latent (video and audio), for the clips that continue it; and how many frames it holds. */
     latent_key: string | null;
     latent_frames: number | null;
+    /** How that latent counts its frames (core LatentClock as JSON: family, rate, grid, size); null for H3's, kept before LTX's were. Optional on insert, as the database fills it with null. */
+    latent_clock?: string | null;
     /**
      * Of a clip finished by H3's latent re-sample: its re-sampled (enlarged) latent, for the finish of the clip after, which
      * decodes its join as one piece with it (seamless at the finished size). Not for new renders: those take latent_key.

@@ -345,7 +345,7 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
     // the draft's frames, enlarged: its length on the model's frame grid is the draft's (lengthOnGrid), or an interpolated
     // finish plays one frame short and a seamless join skips it. The latent itself stays the draft's (renderedOf)
     if (video.latent_frames && Math.abs((kept.duration_ms ?? 0) - (video.duration_ms ?? 0)) <= 42) {
-      kept = await core.db.updateTable("assets").set({ latent_frames: video.latent_frames }).where("id", "=", kept.id).returningAll().executeTakeFirstOrThrow();
+      kept = await core.db.updateTable("assets").set({ latent_frames: video.latent_frames, latent_clock: video.latent_clock }).where("id", "=", kept.id).returningAll().executeTakeFirstOrThrow();
     }
     await noteTool(core, note, "done", kept);
     return kept;

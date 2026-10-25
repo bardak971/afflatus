@@ -1017,7 +1017,8 @@ describe("ltx.video", () => {
     // the first pass starts from it, the refining pass gets the pin back on the first pass's sound
     const pins = Object.entries(b.graph).filter(([, n]) => n.class_type === "SetLatentNoiseMask").map(([k]) => k);
     expect(pins).toHaveLength(2);
-    expect(all(b, "LTXVConcatAVLatent").map((n) => (n.inputs.audio_latent as [string, number])[0])).toEqual(pins);
+    // (the passes' latents: the last one is the clip's own, kept beside it)
+    expect(all(b, "LTXVConcatAVLatent").slice(0, 2).map((n) => (n.inputs.audio_latent as [string, number])[0])).toEqual(pins);
     // the interpolation's settling pass too
     const doubled = build({ previous: { asset: "c" }, smooth: true, smoothWith: "LTX temporal (latent)" }, { slots: { ...one, ...extras, temporal: "t.safetensors" }, uploads: { previous: "c.mp4" }, media: { previous: prev } });
     expect(all(doubled, "SetLatentNoiseMask")).toHaveLength(3);
@@ -1053,6 +1054,83 @@ describe("ltx.video", () => {
     expect(all(pinned, "GetVideoComponents")).toEqual([]);
     expect(pinned.overlap).toBeUndefined();
     expect(ltxVideo.traits?.endAnchor).toBe(true);
+  });
+
+  it("keeps every clip's own latent beside it, at the model's rate, for the clips that carry on from it", () => {
+    const b = build({ start: "p" });
+    const [save] = Object.entries(b.graph).filter(([, n]) => n.class_type === "AfflatusSaveLTXLatent");
+    expect(save![1].inputs).toMatchObject({ fps: 25, filename_prefix: "Afflatus/ltx" });
+    expect(b.outputs).toContainEqual({ node: save![0], kind: "video", role: "latent" });
+    // the latent sampled, not the one the temporal upscaler doubled
+    const doubled = build({ start: "p", smooth: true, smoothWith: "LTX temporal (latent)" }, { slots: { ...one, ...extras, temporal: "t.safetensors" } });
+    const concat = all(doubled, "AfflatusSaveLTXLatent")[0]!.inputs.samples as [string, number];
+    const separated = Object.entries(doubled.graph).filter(([, n]) => n.class_type === "LTXVSeparateAVLatent").map(([k]) => k);
+    expect((doubled.graph[concat[0]]!.inputs.audio_latent as [string, number])[0]).toBe(separated[1]);
+    // without the node pack: nothing kept
+    expect(all(build({}, { has: (n: string) => n !== "AfflatusSaveLTXLatent" }), "AfflatusSaveLTXLatent")).toEqual([]);
+    expect(ltxVideo.traits).toMatchObject({ latentNodes: ["AfflatusLoadLTXLatent", "AfflatusLTXContinuation", "AfflatusLTXSeamLatent"], latentTrim: "AfflatusTrimLTXLatent" });
+  });
+
+  it("carries on in the clip before's own latent: its last tokens pinned at full size, its sound under them, the join decoded as one piece", () => {
+    const prev = { width: 704, height: 1280, frames: 25, fps: 25, hasSound: true, latentFrames: 97, latentCut: 97, latentSize: { width: 704, height: 1280 } };
+    const b = build({ previous: { asset: "c" }, seconds: 5 }, { uploads: { previous: "c.mp4", "previous.latent": "c.safetensors" }, media: { previous: prev }, canvas: { width: 1024, height: 576 } });
+    const id = (cls: string) => Object.entries(b.graph).filter(([, n]) => n.class_type === cls).map(([k]) => k);
+    const frames = ltxFrames(6);
+    // made at the latent's own size, whatever the canvas
+    expect(all(b, "EmptyLTXVLatentVideo")[0]!.inputs).toMatchObject({ width: 352, height: 640, length: frames });
+    // the latent loaded, cut at its hand-over frame, its last 4 tokens (25 frames) and their sound taken
+    expect(all(b, "AfflatusLoadLTXLatent")[0]!.inputs.latent).toBe("c.safetensors");
+    expect(all(b, "AfflatusTrimLTXLatent")[0]!.inputs).toMatchObject({ samples: [id("AfflatusLoadLTXLatent")[0], 0], frames: 97 });
+    const [cont] = id("AfflatusLTXContinuation");
+    expect(b.graph[cont!]!.inputs).toMatchObject({ previous_av_latent: [id("AfflatusTrimLTXLatent")[0], 0], overlap_frames: 25 });
+    // the first pass, at half the size, guided by the frames; the refining pass at full size by the tokens themselves
+    expect(all(b, "LTXVAddGuide").map((n) => [n.inputs.frame_idx, n.inputs.strength])).toEqual([[0, 1]]);
+    expect(all(b, "LTXVAddLatentGuide")[0]!.inputs).toMatchObject({ guiding_latent: [cont, 0], latent_idx: 0, strength: 1 });
+    // the sound: the continuation's, pinned again on the refining pass by its mask; nothing encoded from the frames
+    expect(all(b, "LTXVAudioVAEEncode")).toEqual([]);
+    expect(all(b, "LTXVConcatAVLatent")[0]!.inputs.audio_latent).toEqual([cont, 1]);
+    expect(all(b, "SetLatentNoiseMask")[0]!.inputs.mask).toEqual([cont, 2]);
+    // decoded after 4 tokens of the clip before besides the run-up, their 32 frames dropped
+    expect(all(b, "AfflatusLTXSeamLatent")[0]!.inputs).toMatchObject({ overlap_frames: 25, context: 4 });
+    expect(all(b, "ImageFromBatch")[0]!.inputs).toMatchObject({ batch_index: 32, length: frames });
+    expect(b.overlap).toEqual({ headMs: 1000, tailMs: 0, latent: true, seam: true });
+    // a short clip before: as much context as it has (97 frames are 13 tokens; 4 of a run-up of 25 leave 9)
+    const short = build({ previous: { asset: "c" } }, { uploads: { previous: "c.mp4", "previous.latent": "c.safetensors" }, media: { previous: { ...prev, latentFrames: 33, latentCut: undefined } } });
+    expect(all(short, "AfflatusTrimLTXLatent")).toEqual([]);
+    expect(all(short, "AfflatusLTXSeamLatent")[0]!.inputs.context).toBe(1);
+    expect(all(short, "ImageFromBatch")[0]!.inputs.batch_index).toBe(8);
+  });
+
+  it("carries on from the frames when the latent cannot be continued", () => {
+    const prev = { width: 704, height: 1280, frames: 25, fps: 25, hasSound: true, latentFrames: 121, latentSize: { width: 704, height: 1280 } };
+    const up = { previous: "c.mp4", "previous.latent": "c.safetensors" };
+    const onFrames = (b: ReturnType<typeof build>) => {
+      expect(all(b, "AfflatusLoadLTXLatent")).toEqual([]);
+      expect(all(b, "LTXVAddLatentGuide")).toEqual([]);
+      expect(b.overlap).toEqual({ headMs: 1000, tailMs: 0, sound: true });
+    };
+    // no size said (a latent kept before 0.37.0 cannot be: they are H3's), no pack, no latent guide, a size the half pass cannot take
+    onFrames(build({ previous: { asset: "c" } }, { uploads: up, media: { previous: { ...prev, latentSize: undefined } } }));
+    onFrames(build({ previous: { asset: "c" } }, { uploads: up, media: { previous: prev }, has: (n: string) => n !== "AfflatusLTXSeamLatent" }));
+    onFrames(build({ previous: { asset: "c" } }, { uploads: up, media: { previous: prev }, has: (n: string) => n !== "LTXVAddLatentGuide" }));
+    onFrames(build({ previous: { asset: "c" } }, { uploads: up, media: { previous: { ...prev, latentSize: { width: 736, height: 1280 } } } }));
+    // cut at a hand-over frame without the pack's trim
+    onFrames(build({ previous: { asset: "c" } }, { uploads: up, media: { previous: { ...prev, latentCut: 97 } }, has: (n: string) => n !== "AfflatusTrimLTXLatent" }));
+    // one pass takes a size on 32 pixels
+    const one = build({ previous: { asset: "c" }, twoPass: false }, { uploads: up, media: { previous: { ...prev, latentSize: { width: 736, height: 1280 } } } });
+    expect(all(one, "LTXVAddLatentGuide")).toHaveLength(1);
+    expect(all(one, "LTXVAddGuide")).toEqual([]);
+  });
+
+  it("decodes a join carried on in the latent alone when the temporal upscaler doubles its frames", () => {
+    const prev = { width: 704, height: 1280, frames: 25, fps: 25, hasSound: true, latentFrames: 121, latentSize: { width: 704, height: 1280 } };
+    const b = build({ previous: { asset: "c" }, smooth: true, smoothWith: "LTX temporal (latent)" }, { slots: { ...one, ...extras, temporal: "t.safetensors" }, uploads: { previous: "c.mp4", "previous.latent": "c.safetensors" }, media: { previous: prev } });
+    expect(all(b, "LTXVAddLatentGuide")).toHaveLength(1);
+    expect(all(b, "AfflatusLTXSeamLatent")).toEqual([]);
+    expect(all(b, "ImageFromBatch")).toEqual([]);
+    expect(b.overlap).toEqual({ headMs: 1000, tailMs: 0, latent: true });
+    // the pin put back on the settling pass too
+    expect(all(b, "SetLatentNoiseMask")).toHaveLength(2);
   });
 
   it("carries a chain's colour match on, at the head's last frame, when the clip before's chain was matched", () => {

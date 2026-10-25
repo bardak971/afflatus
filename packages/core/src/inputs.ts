@@ -219,6 +219,8 @@ interface ClipInput extends Base {
    * "matched": only when that clip's chain was colour-matched to its first frame (H3: the match carried on, see colourCarried).
    */
   look?: boolean | "matched";
+  /** Its latent is never sent: the recipe meets that clip on its frames only, whatever was kept of it (LTX's landing). */
+  framesOnly?: boolean;
   /** "source": a person in it can be clicked on its first frame (a swap's who is replaced), kept as the value's `pick`. */
   pick?: boolean;
 }
