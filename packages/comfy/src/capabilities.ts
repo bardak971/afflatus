@@ -1,4 +1,4 @@
-import { checkGraph, choicesOf, dryContext, slotsRead, folderOfFileInput, parseInput, sameBase, sameFile, type Family, type ModelInfo, type NodeCatalog, type Recipe } from "@afflatus/core";
+import { checkGraph, choicesOf, dryContext, slotsRead, folderOfFileInput, parseInput, sameBase, sameFile, versionOf, type Family, type ModelInfo, type NodeCatalog, type Recipe } from "@afflatus/core";
 import { catalogKey, ComfyLocked, type ComfyClient, type ComfyStatus } from "./client";
 
 /**
@@ -113,12 +113,21 @@ async function slotFiles(families: Family[], files: Files, overrides: SlotOverri
       id: f.id,
       slots: await Promise.all(
         f.slots.map(async (s): Promise<SlotStatus> => {
-          const list = await files(s.folder);
+          const all = await files(s.folder);
           const chosen = overrides[f.id]?.[s.id];
+          // a file of another version of the family's model never fills its slot, nor is offered for it: on a pod with LTX
+          // 2.5's transformer and no 2.3 file, 2.3's slot took 2.5's by its weights, and a 2.3 render ran on it, garbled
+          // (2026-10-26, card #94). With nothing else there, the slot is a gap: its file is fetched, or the render refused
+          const versionIs = (x: string) => (f.line ? versionOf(f.line, x, undefined, infoOf(s.folder, x)) : null);
+          const list = f.line ? all.filter((x) => { const v = versionIs(x); return !v || v === f.line!.own; }) : all;
           // a file whose weights say they are this family's fits the slot whatever it is called (only the main model's folders: a VAE or a text encoder says nothing of a family)
           const byWeights = s.folder === "diffusion_models" || s.folder === "checkpoints" ? list.filter((x) => sameBase(infoOf(s.folder, x)?.base, f.name)) : [];
-          const auto = detect(list, s.detect) ?? byWeights[0] ?? null;
-          const byHand = Boolean(chosen && list.includes(chosen));
+          // weights say only the model ("LTX", for each of its versions): in a family whose versions do not mix, they pick the
+          // slot's file only when the version is told as well (a fine-tune's trained-on model, its Civitai base); the others
+          // stay choices, picked by hand
+          const picks = f.line ? byWeights.filter((x) => versionIs(x) === f.line!.own) : byWeights;
+          const auto = detect(list, s.detect) ?? picks[0] ?? null;
+          const byHand = Boolean(chosen && all.includes(chosen));
           const patterns = s.detect.map((d) => new RegExp(d, "i"));
           // a file only hidden recipes use is not offered for download: what it is for cannot be opened
           const onlyHidden = Boolean(s.onlyFor?.length) && !s.onlyFor!.some((id) => shown.has(id));
@@ -155,10 +164,12 @@ async function recipeChoices(
       // what a form starts on comes first: the family's own file when the input stands for a slot
       const usual = input.slot ? slots.find((s) => s.id === input.slot)?.file : null;
       const family = families.find((x) => x.id === r.family);
-      const named = input.match ? all.filter((f) => input.match!.some((p) => new RegExp(p, "i").test(f))) : [];
+      // a file named or known as another version of the family's model (LTX 2.5's under 2.3) is another family's for this
+      const otherVersion = (f: string) => { const v = family?.line ? versionOf(family.line, f, undefined, infoOf(input.folder, f)) : null; return Boolean(v && v !== family!.line!.own); };
+      const named = input.match ? all.filter((f) => !otherVersion(f) && input.match!.some((p) => new RegExp(p, "i").test(f))) : [];
       // then the files whose weights say they are this family's; a file known to be another family's goes last
-      const byWeights = family ? all.filter((f) => !named.includes(f) && sameBase(infoOf(input.folder, f)?.base, family.name)) : [];
-      const foreign = family ? all.filter((f) => { const b = infoOf(input.folder, f)?.base; return Boolean(b) && !named.includes(f) && !byWeights.includes(f) && !sameBase(b, family.name); }) : [];
+      const byWeights = family ? all.filter((f) => !named.includes(f) && !otherVersion(f) && sameBase(infoOf(input.folder, f)?.base, family.name)) : [];
+      const foreign = family ? all.filter((f) => { const b = infoOf(input.folder, f)?.base; return !named.includes(f) && !byWeights.includes(f) && (otherVersion(f) || (Boolean(b) && !sameBase(b, family.name))); }) : [];
       const fits = [...named, ...byWeights];
       // a file that fills another slot of the family (H3's reference model) is used on its own when a clip
       // needs it: it is not a choice for this one. A slot of one recipe's own (Swap's model) is that recipe's choice

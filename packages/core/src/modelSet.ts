@@ -60,6 +60,9 @@ const NOUN: Record<string, string> = {
 };
 const nounOf = (folder: string) => NOUN[folder] ?? "file";
 
+/** The folders whose file of another version is refused rather than said: the latent space's own files. */
+const MIXED_BLACK = new Set(["vae", "diffusion_models", "checkpoints"]);
+
 const tested = (sources: readonly string[] | undefined, text: string) =>
   (sources ?? []).some((s) => {
     try {
@@ -88,9 +91,10 @@ export function checkModelSet(family: Pick<Family, "name" | "loraMatch" | "line"
     }
     const version = family.line ? versionOf(family.line, p.file, sha, info) : null;
     if (version && version !== family.line!.own) {
-      // a VAE of another version decodes another latent space: garbled or black frames, never a doubtful result
+      // a VAE of another version decodes another latent space, and its diffusion model samples one under the family's VAEs:
+      // garbled or black frames, never a doubtful result (LTX 2.5's transformer under 2.3's VAEs, 84 s billed on a pod, #94)
       if (p.lora) say(`This LoRA was trained for ${version}: on ${family.line!.own} it may do nothing.`);
-      else say(`This ${noun} is ${version}'s: ${needs()}.`, p.folder === "vae");
+      else say(`This ${noun} is ${version}'s: ${needs()}.`, MIXED_BLACK.has(p.folder));
       continue;
     }
     // a LoRA whose header (or Civitai) names another model altogether; a name alone is not enough to say so

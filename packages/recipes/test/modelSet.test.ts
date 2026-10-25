@@ -64,13 +64,16 @@ describe("LTX 2.3's set", () => {
       "videoVae: This VAE is LTX-2's: LTX 2.3 needs LTX23_video_vae_bf16 (Settings › Models has it). [refused]",
     ]);
   });
-  it("warns of LTX-2's model picked in the form, and of LTX-2's LoRA", () => {
+  it("refuses LTX-2's model picked in the form, and warns of LTX-2's LoRA", () => {
     const found = check(ltx, ltxVideo, { slots: split, input: { model: "ltx-2-19b-dev-fp8.safetensors", loras: [{ file: "ltx-2-19b-lora-camera-control-dolly-in.safetensors", weight: 1 }] } });
     expect(texts(found)).toEqual([
-      expect.stringMatching(/^model: This model is LTX-2's: LTX 2\.3 needs /),
+      expect.stringMatching(/^model: This model is LTX-2's: LTX 2\.3 needs .* \[refused\]$/),
       "loras: This LoRA was trained for LTX-2: on LTX 2.3 it may do nothing.",
     ]);
-    expect(found.every((f) => !f.black)).toBe(true);
+  });
+  it("refuses LTX 2.5's transformer handed as its diffusion model (a pod's slot, #94)", () => {
+    const found = check(ltx, ltxVideo, { slots: { ...split, unet: "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors" } });
+    expect(texts(found)).toEqual([expect.stringMatching(/^unet: This model is LTX 2\.5's: LTX 2\.3 needs its own\. \[refused\]$/)]);
   });
 });
 
