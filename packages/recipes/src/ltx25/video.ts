@@ -1,5 +1,5 @@
 import type { Variant } from "@afflatus/core";
-import { ltxRecipe, type LtxVideo } from "../ltx/recipe";
+import { ltxRecipe, type LtxSpec, type LtxVideo } from "../ltx/recipe";
 import { LTX25_FPS } from "./family";
 
 /**
@@ -8,7 +8,7 @@ import { LTX25_FPS } from "./family";
  * sound alike at the form's CFG), the decoder's tiles as its template sets them: ComfyUI's own `video_ltx2_5_t2v` and
  * `_i2v` templates, read 2026-10-15. NAG is not offered: KJNodes' LTX2_NAG is untried on 2.5's new blocks.
  */
-export const ltx25Video = ltxRecipe({
+const spec: LtxSpec = {
   id: "ltx25.video",
   family: "ltx25",
   name: "LTX 2.5",
@@ -66,6 +66,42 @@ export const ltx25Video = ltxRecipe({
       { name: "opens on a picture, one pass asked for, by steps on LTX's scheduler", input: { prompt: "a", start: "p1", twoPass: false, schedule: "By steps" }, slots: { ...parts, ...extras }, uploads: { start: "a.png" }, media: { start: picture } },
       { name: "twice the frames with LTX's temporal upscaler", input: { prompt: "a", start: "p1", smooth: true }, slots: { ...parts, ...temporal }, uploads: { start: "a.png" }, media: { start: picture } },
       { name: "SeedVR2 upscale, ComfyUI's own video output", input: { prompt: "a", upscale: "Video: SeedVR2 (restores)", upscaleBy: 2 }, slots: { ...parts, ...extras, seedvr: "seedvr2_3b_int8_convrot.safetensors", seedvrVae: "seedvr2_ema_vae_fp16.safetensors" }, has: (n: string) => n !== "VHS_VideoCombine" },
+      {
+        name: "under a recording it plays over",
+        input: { prompt: "a", recording: "a1", recordingSeconds: 5.9 },
+        slots: { ...parts, ...extras }, uploads: { recording: "rec.wav" }, media: { recording: { width: 0, height: 0, seconds: 5.9, after: 4 } },
+      },
+    ];
+  })(),
+};
+export const ltx25Video = ltxRecipe(spec);
+
+/** LTX 2.5 · Lip sync (card #2): LTX 2.3's (ltx/video.ts) on 2.5's files, at 24 frames a second, the sound pinned under 2.5's dual guider. */
+export const ltx25LipSync = ltxRecipe({
+  ...spec,
+  id: "ltx25.lipsync",
+  title: "Lip sync",
+  summary: "A new shot made around a recording: the mouth follows it. Continues the clip before.",
+  lipSync: true,
+  variants: ((): Variant<LtxVideo>[] => {
+    const parts = { unet: "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors", clip: "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors", videoVae: "ltx-2.5-video-vae-bf16.safetensors", audioVae: "ltx-2.5-audio-vae-bf16.safetensors" };
+    const two = { ...parts, upscaler: "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors" };
+    return [
+      {
+        name: "a recording and the picture of who speaks",
+        input: { prompt: "a café terrace", start: "p1", recording: "a1", recordingSeconds: 5.9 },
+        slots: two, uploads: { start: "a.png", recording: "rec.wav" }, media: { start: { width: 832, height: 1216 }, recording: { width: 0, height: 0, seconds: 5.9 } },
+      },
+      {
+        name: "carrying on from a clip",
+        input: { prompt: "a", previous: { asset: "c1" }, recording: "a1", recordingSeconds: 4.2 },
+        slots: two, uploads: { previous: "a.mp4", recording: "rec.wav" }, media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX25_FPS, hasSound: true }, recording: { width: 0, height: 0, seconds: 4.2 } },
+      },
+      {
+        name: "the dev transformer with the distilled LoRA, by steps in one pass (no upscaler), smooth with RIFE",
+        input: { prompt: "a", recording: "a1", recordingSeconds: 5, model: "ltx-2.5-22b-dev-transformer-comfy-int8-convrot.safetensors", loraStrength: 0.6, smooth: true, schedule: "By steps", cfg: 3 },
+        slots: { ...parts, turbo: "ltx-2.5-22b-distilled-lora-450-bf16.safetensors", rife: "rife49.pth" }, uploads: { recording: "rec.wav" }, media: { recording: { width: 0, height: 0, seconds: 5 } },
+      },
     ];
   })(),
 });

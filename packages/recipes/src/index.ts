@@ -7,9 +7,9 @@ import { h3MotionTransfer } from "./h3/motionTransfer";
 import { h3Video } from "./h3/video";
 import { klein } from "./klein/family";
 import { ltx } from "./ltx/family";
-import { ltxVideo } from "./ltx/video";
+import { ltxLipSync, ltxVideo } from "./ltx/video";
 import { ltx25 } from "./ltx25/family";
-import { ltx25Video } from "./ltx25/video";
+import { ltx25LipSync, ltx25Video } from "./ltx25/video";
 import { krea2 } from "./krea2/family";
 import { krea2FixFace, krea2PaintOver, krea2Picture, krea2Redraw, krea2Sharper } from "./krea2/recipes";
 import { kleinEdit, kleinFixFace, kleinPaintOver, kleinPicture, kleinReshape, kleinSharper, kleinVariation } from "./klein/recipes";
@@ -44,7 +44,9 @@ export const recipes: Recipe<any>[] = [
   scailMotion,
   scailMotion24,
   ltxVideo,
+  ltxLipSync,
   ltx25Video,
+  ltx25LipSync,
   removeBackground, seedvrPicture,
 ];
 
@@ -53,7 +55,7 @@ export const recipeById = (id: string) => recipes.find((r) => r.id === id);
 
 export { h3, h3Video, klein, krea2, krea2Picture, sdxl, sdxlTextToPicture, tools, wan, wanVideo };
 export { wanCanvas, wanFrames, WAN_FPS } from "./wan/family";
-export { ltx, ltxVideo, ltx25, ltx25Video };
+export { ltx, ltxLipSync, ltxVideo, ltx25, ltx25LipSync, ltx25Video };
 export { scail, scailMotion, scailMotion24 };
 export { flux, fluxEdit, fluxPicture, qwen, qwenEdit, qwenPicture, qwen21, qwen21Edit, qwen21Picture, zimage, zimagePicture };
 export { ltxCanvas, ltxFrames, ltxFramesAt, LTX_FPS } from "./ltx/family";

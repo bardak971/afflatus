@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { checkGraph, choicesOf, dryContext, joinKindOf, parseInput, pickChoice, ruledDefaults, schemaFor, type ChoiceInput, type NodeCatalog, type Wanted } from "@afflatus/core";
-import { seedvrChunk, families, familyById, krea2Picture, h3Canvas, h3Frames, h3Prompt, h3Video, introduce, kleinSize, padsFor, recipeById, recipes, sdxlTextToPicture, wanCanvas, wanFrames, wanVideo, ltxCanvas, ltxFrames, ltxVideo, LTX_REFINE_SIGMAS, LTX_SIGMAS, fluxEdit, fluxPicture, qwenEdit, qwenPicture, flux, qwen, wan, ltx, zimage, zimagePicture } from "../src";
+import { checkGraph, choicesOf, dryContext, joinKindOf, madeAroundRecording, recordingSpecOf, parseInput, pickChoice, ruledDefaults, schemaFor, type ChoiceInput, type NodeCatalog, type Wanted } from "@afflatus/core";
+import { seedvrChunk, families, familyById, krea2Picture, h3Canvas, h3Frames, h3Prompt, h3Video, introduce, kleinSize, padsFor, recipeById, recipes, sdxlTextToPicture, wanCanvas, wanFrames, wanVideo, ltxCanvas, ltxFrames, ltxLipSync, ltxVideo, ltx25LipSync, LTX_REFINE_SIGMAS, LTX_SIGMAS, fluxEdit, fluxPicture, qwenEdit, qwenPicture, flux, qwen, wan, ltx, zimage, zimagePicture } from "../src";
 
 const catalog = JSON.parse(
   readFileSync(fileURLToPath(new URL("../../../reference/comfy-object-info.json", import.meta.url)), "utf-8"),
@@ -1245,6 +1245,128 @@ describe("ltx.video", () => {
         expect(all(b, "LTXVCropGuides")).toEqual([]);
       }
     });
+  });
+});
+
+describe("LTX under a recording (card #2)", () => {
+  const one = { checkpoint: "ltx-2.3-22b-distilled.safetensors", clip: "gemma.safetensors", upscaler: "up.safetensors" };
+  const picture = { width: 1216, height: 832 };
+  const rec = (seconds: number, more: Record<string, number> = {}) => ({ recording: { width: 0, height: 0, seconds, ...more } });
+  const prev = { width: 704, height: 1280, frames: 25, fps: 25, hasSound: true };
+  type Built = ReturnType<typeof ltxLipSync.build>;
+  const build = (recipe: typeof ltxLipSync, over: Record<string, unknown>, ctx: Parameters<typeof dryContext>[0] = {}) =>
+    recipe.build(parseInput(recipe, { prompt: "A man at a café terrace.", recording: "a1", ...over }), dryContext({ seed: 7, slots: one, uploads: { start: "a.png", recording: "rec.wav", previous: "c.mp4" }, ...ctx }));
+  const all = (b: Built, cls: string) => Object.values(b.graph).filter((n) => n.class_type === cls);
+  const ref = (b: Built, r: unknown) => b.graph[(r as [string, number])[0]]!;
+  const idOf = (b: Built, cls: string) => Object.entries(b.graph).find(([, n]) => n.class_type === cls)![0];
+  const save = (b: Built) => all(b, "VHS_VideoCombine")[0]!.inputs;
+
+  it("Lip sync: the recording drawn in its form, no Duration, its part's length on the model's grid", () => {
+    expect(madeAroundRecording(ltxLipSync.inputs)).toBe(true);
+    expect(ltxLipSync.inputs.find((i) => i.id === "seconds")).toBeUndefined();
+    // 15 s at most, 377 frames at 25 a second; the pad after the words outlasts one step of the 8-frame grid
+    expect(recordingSpecOf(ltxLipSync.inputs)!.window.fits).toMatchObject({ frames: 377, fps: 25, pad: 0.32, min: 1, grid: { step: 8, offset: 1 }, less: ["speechAt"] });
+    expect(recordingSpecOf(ltx25LipSync.inputs)!.window.fits).toMatchObject({ frames: 361, fps: 24, pad: 0.34 });
+    // Video with audio takes it as the recording's internal inputs, under the same ids: a recording it plays over
+    expect(madeAroundRecording(ltxVideo.inputs)).toBe(false);
+    expect(ltxVideo.inputs.filter((i) => i.id.startsWith("recording")).every((i) => i.internal)).toBe(true);
+    expect(recordingSpecOf(ltxVideo.inputs)!.id).toBe(recordingSpecOf(ltxLipSync.inputs)!.id);
+  });
+
+  it("Lip sync: the part is the clip's sound from the first step, pinned in every pass, and the take's sound itself", () => {
+    const b = build(ltxLipSync, { start: "p", recordingSeconds: 5.9 }, { media: { start: picture, ...rec(5.9) } });
+    // 5.9 s and the pad: 156 frames, brought down to 153 on the grid
+    expect(b.frames).toBe(153);
+    expect(all(b, "EmptyLTXVLatentVideo")[0]!.inputs.length).toBe(153);
+    const part = all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio;
+    expect(ref(b, part)).toMatchObject({ class_type: "TrimAudioDuration", inputs: { start_index: 0, duration: 153 / 25 } });
+    expect(ref(b, ref(b, part).inputs.audio)).toMatchObject({ class_type: "LoadAudio", inputs: { audio: "rec.wav" } });
+    // laid into the silence, all of it pinned: a mask of 0 as tall as the clip's frames
+    expect(all(b, "LatentCompositeMasked")[0]!.inputs).toMatchObject({ destination: [idOf(b, "LTXVEmptyLatentAudio"), 0], x: 0, y: 0 });
+    expect(all(b, "SolidMask").map((n) => [n.inputs.value, n.inputs.height])).toEqual([[0, 153]]);
+    const pins = Object.entries(b.graph).filter(([, n]) => n.class_type === "SetLatentNoiseMask").map(([k]) => k);
+    const sampled = all(b, "SamplerCustomAdvanced").map((n) => ref(b, n.inputs.latent_image).inputs.audio_latent as [string, number]);
+    expect(sampled.map(([id]) => id)).toEqual(pins);
+    expect(pins).toHaveLength(2);
+    // nothing decoded: the take's sound is the part it was made to
+    expect(all(b, "LTXVAudioVAEDecode")).toEqual([]);
+    expect(save(b).audio).toEqual(part);
+    // the scene, then that the person speaks
+    expect(String(all(b, "CLIPTextEncode")[0]!.inputs.text)).toBe("A man at a café terrace. The person speaks throughout, the lips moving with every word.");
+    expect(b.overlap).toBeUndefined();
+  });
+
+  it("Lip sync carrying on, the words a moment in: the clip before's sound under the head, silence, then the part, all pinned", () => {
+    const b = build(ltxLipSync, { previous: { asset: "c" }, recordingSeconds: 4.2, speechAt: 0.5 }, { media: { previous: prev, ...rec(4.2) } });
+    // 13 frames before the words, 4.2 s, the pad, and the 25 frames of the head: 151, brought down to 145
+    expect(b.frames).toBe(145);
+    const wave = ref(b, all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio);
+    expect(wave.class_type).toBe("AudioConcat");
+    const ahead = ref(b, wave.inputs.audio1);
+    expect(ahead.inputs).toMatchObject({ start_index: 0, duration: 38 / 25 });
+    const [heard, quiet] = [ref(b, ref(b, ahead.inputs.audio).inputs.audio1), ref(b, ref(b, ahead.inputs.audio).inputs.audio2)];
+    expect(heard.inputs).toMatchObject({ audio: [idOf(b, "GetVideoComponents"), 1], start_index: 0, duration: 1 });
+    expect(quiet.inputs).toMatchObject({ start_index: 0, duration: 13 / 25 });
+    expect(ref(b, quiet.inputs.audio)).toMatchObject({ class_type: "AudioAdjustVolume", inputs: { volume: -100 } });
+    expect(ref(b, wave.inputs.audio2).inputs).toMatchObject({ start_index: 0, duration: (145 - 38) / 25 });
+    // the take's sound is the same; its head is the clip before's, carried: the sound hands over at the join
+    expect(save(b).audio).toEqual(all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio);
+    expect(b.overlap).toEqual({ headMs: 1000, tailMs: 0, sound: true });
+    expect(all(b, "SolidMask").map((n) => [n.inputs.value, n.inputs.height])).toEqual([[0, 145]]);
+    // a clip before without sound: silence under the head, the join not carried
+    const mute = build(ltxLipSync, { previous: { asset: "c" }, recordingSeconds: 4.2 }, { media: { previous: { ...prev, hasSound: false }, ...rec(4.2) } });
+    const muteWave = ref(mute, all(mute, "LTXVAudioVAEEncode")[0]!.inputs.audio);
+    expect(ref(mute, ref(mute, muteWave.inputs.audio1).inputs.audio)).toMatchObject({ class_type: "AudioAdjustVolume" });
+    expect(mute.overlap).toEqual({ headMs: 1000, tailMs: 0 });
+  });
+
+  it("Lip sync carrying on in the clip before's latent (card #40): the picture from its latent, the sound the recording's, pinned whole", () => {
+    const latentOf = { ...prev, latentFrames: 97, latentCut: 97, latentSize: { width: 704, height: 1280 } };
+    const b = build(ltxLipSync, { previous: { asset: "c" }, recordingSeconds: 5 }, { uploads: { start: "a.png", recording: "rec.wav", previous: "c.mp4", "previous.latent": "c.safetensors" }, media: { previous: latentOf, ...rec(5) } });
+    expect(all(b, "AfflatusLTXContinuation")).toHaveLength(1);
+    expect(b.overlap).toMatchObject({ headMs: 1000, latent: true });
+    // the sound sampled from is the recording's, laid after the clip before's own under the head, pinned whole
+    const sampled = all(b, "SamplerCustomAdvanced").map((n) => ref(b, ref(b, n.inputs.latent_image).inputs.audio_latent));
+    expect(sampled.every((n) => n.class_type === "SetLatentNoiseMask" && ref(b, n.inputs.mask).class_type === "SolidMask")).toBe(true);
+    expect(ref(b, all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio).class_type).toBe("AudioConcat");
+    expect(save(b).audio).toEqual(all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio);
+  });
+
+  it("Lip sync sung up to its part by the clip before: the recording under the head too, one stretch of it", () => {
+    const b = build(ltxLipSync, { previous: { asset: "c" }, recordingSeconds: 6, recordingLeadIn: true }, { media: { previous: prev, ...rec(6, { before: 1, after: 6 }) } });
+    const wave = ref(b, all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio);
+    expect(wave).toMatchObject({ class_type: "TrimAudioDuration", inputs: { start_index: 0, duration: b.frames! / 25 } });
+    expect(all(b, "AudioConcat")).toEqual([]);
+    expect(b.overlap).toEqual({ headMs: 1000, tailMs: 0, sound: true });
+  });
+
+  it("LTX 2.5's Lip sync at 24 a second, under its dual guider", () => {
+    const parts = { unet: "ltx-2.5-distilled.safetensors", clip: "gemma4.safetensors", videoVae: "v.safetensors", audioVae: "a.safetensors" };
+    const b = build(ltx25LipSync, { recordingSeconds: 5.9 }, { slots: parts, media: rec(5.9) });
+    // 5.9 s and the pad at 24: 150 frames, 145 on the grid
+    expect(b.frames).toBe(145);
+    expect(all(b, "LTXVEmptyLatentAudio")[0]!.inputs).toMatchObject({ frames_number: 145, frame_rate: 24 });
+    expect(all(b, "LTXVDualCFGGuider")).toHaveLength(1);
+    expect(all(b, "SetLatentNoiseMask")).toHaveLength(1);
+  });
+
+  it("Video with audio under a recording: the clip as long as its part, its own sound made, the part laid in as the take's", () => {
+    const b = build(ltxVideo, { recordingSeconds: 5.9, seconds: 9 }, { media: rec(5.9, { after: 4 }) });
+    expect(b.frames).toBe(153);
+    // the model's sound is made freely, as on any clip, and dropped from the take
+    expect(all(b, "SetLatentNoiseMask")).toEqual([]);
+    expect(all(b, "LTXVAudioVAEDecode")).toHaveLength(1);
+    expect(ref(b, save(b).audio)).toMatchObject({ class_type: "TrimAudioDuration", inputs: { start_index: 0, duration: 153 / 25 } });
+    // carrying on: the head's own sound (the clip before's, pinned) before the part
+    const c = build(ltxVideo, { previous: { asset: "c" }, recordingSeconds: 4.2 }, { media: { previous: prev, ...rec(4.2) } });
+    const joined = ref(c, save(c).audio);
+    expect(joined.class_type).toBe("AudioConcat");
+    expect(ref(c, joined.inputs.audio1).inputs).toMatchObject({ audio: [idOf(c, "LTXVAudioVAEDecode"), 0], start_index: 0, duration: 1 });
+    expect(ref(c, joined.inputs.audio2).inputs).toMatchObject({ duration: (c.frames! - 25) / 25 });
+    // not under one, as before: Duration decides, the model's sound is the take's
+    const free = build(ltxVideo, { recording: undefined, seconds: 5 });
+    expect(free.frames).toBe(ltxFrames(5));
+    expect(ref(free, save(free).audio).class_type).toBe("LTXVAudioVAEDecode");
   });
 });
 

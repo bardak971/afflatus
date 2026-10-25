@@ -1,4 +1,4 @@
-import { defineRecipe, GraphBuilder, type BuildContext, type ClipValue, type LoraValue, type MediaFacts, type Recipe, type Ref, type SizeValue, type Variant } from "@afflatus/core";
+import { defineRecipe, gridAtOrBefore, GraphBuilder, type BuildContext, type ClipValue, type InputSpec, type LoraValue, type MediaFacts, type Recipe, type Ref, type SizeValue, type Variant } from "@afflatus/core";
 import { LTX_CANVAS_SHORT, LTX_MAX_PIXELS, ltxCanvas, ltxFramesAt } from "./family";
 import { UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNeeds, upscaleNodes } from "../video/upscale";
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
@@ -6,6 +6,7 @@ import { loadUnet, unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import { colourCarried, colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, openingStart, rifeNeeds, rifeSkippedSaid, type ColourMatch } from "../shared/finish";
 import { applyLoras, livePreview, loraLoads } from "../shared/model";
+import { recordingInputs, recordingNodes, recordingOnClip, type Recording, type RecordingFrames } from "../shared/recording";
 
 /**
  * The LTX video recipe, made for a version of the model: LTX 2.3 and LTX 2.5 are the same two-pass graph (half the size
@@ -41,6 +42,11 @@ export interface LtxSpec {
   temporalFile: string;
   /** What is said when the model is not found, and when its split files lack a part. */
   missing: { model: string; parts: string };
+  /**
+   * The form is Lip sync (card #2): a new shot made around a recording, its part the clip's sound from the first step,
+   * pinned, so that the picture (the mouth first) is made to it. Else Video with audio, which a recording may play over.
+   */
+  lipSync?: boolean;
   variants: Variant<LtxVideo>[];
 }
 
@@ -94,9 +100,20 @@ const LTX_LATENT_CORE = ["LTXVAddLatentGuide", "ImageFromBatch"];
 const SEAM_CONTEXT = 4;
 /** The longest clip the model takes, in seconds: the frames shared with the clip before count in it. */
 const LTX_MAX_SECONDS = 20;
+/** The core nodes that pin a whole sound under a clip: Lip sync's recording, encoded, laid into the silence and held there. */
+const PINNED_SOUND_NODES = ["LTXVAudioVAEEncode", "LatentCompositeMasked", "SolidMask", "SetLatentNoiseMask"];
 
-export interface LtxVideo extends ColourMatch {
+/**
+ * What an LTX clip holds of a recording (card #2): its part at the model's rate, on its 8n + 1 frames, 1 to 15 s (a recording
+ * is cut into parts of up to 15 s, as for H3's clips; LTX takes 20 s, the frames of the clips it joins among them). Its pad
+ * outlasts one step of the grid, which a clip's frames are brought down to.
+ */
+export const ltxRecording = (fps: number): RecordingFrames => ({ fps, frames: Math.round((15 * fps - 1) / 8) * 8 + 1, min: 1, most: 15, grid: { step: 8, offset: 1 }, pad: Math.ceil((8 / fps) * 100) / 100 });
+
+export interface LtxVideo extends ColourMatch, Partial<Recording> {
   model?: string;
+  /** Lip sync: a moment of the clip before the words begin, in seconds after the frames of the clip before. */
+  speechAt?: number;
   turboIn: string;
   prompt: string;
   negative: string;
@@ -438,6 +455,52 @@ function latentJoinOf(ctx: BuildContext, input: LtxVideo, head: number, twoPass:
   return { file, frames, cut, size };
 }
 
+/**
+ * Lip sync's sound (card #2): the clip's whole sound given from the first step and pinned (a noise mask of 0 over all of it),
+ * so that the model makes the picture to it, the mouth first, as ComfyUI's own audio-to-video templates do; its later passes
+ * are given the same pin again. `wave` is also the sound the take's files carry: the clip before's under the head, silence
+ * for the moment before the words, then the recording's part. Laid into the silence rather than given alone, the clip keeps
+ * the silence's length whatever the encoder makes of the file's.
+ */
+function pinnedSound(g: GraphBuilder, audioVae: Ref, wave: Ref, frames: number, fps: number): { sound: Ref; pin: (audio: Ref) => Ref } {
+  const silence = g.out("LTXVEmptyLatentAudio", { frames_number: frames, frame_rate: fps, batch_size: 1, audio_vae: audioVae });
+  const laid = g.out("LatentCompositeMasked", { destination: silence, source: g.out("LTXVAudioVAEEncode", { audio: wave, audio_vae: audioVae }), x: 0, y: 0, resize_source: false });
+  const mask = g.out("SolidMask", { value: 0, width: 1, height: frames });
+  const pin = (audio: Ref): Ref => g.out("SetLatentNoiseMask", { samples: audio, mask });
+  return { sound: pin(laid), pin };
+}
+
+/** Said after the scene on Lip sync, as on H3's: what the recording is, so that the person in the picture says it. */
+const SPEAKS = "The person speaks throughout, the lips moving with every word.";
+
+/** Lip sync's moment before the words, as H3's Lip sync has it. */
+const speechAt: InputSpec = {
+  id: "speechAt", type: "number", label: "Speech starts at", min: 0, max: 3, step: 0.25, default: 0, unit: " s", showWhen: "recording", advanced: true,
+  note: "a moment of the clip before the words begin, counted after the frames of the clip before",
+};
+
+/**
+ * The form's inputs: Video with audio's, with the recording's inputs a timeline sets on a clip under a recording (internal:
+ * the recording plays over it), after Duration; on Lip sync, the scene in place of the prompt, the recording drawn after it,
+ * and no Duration: the part's length decides it.
+ */
+function formInputs(spec: LtxSpec, inputs: InputSpec[]): InputSpec[] {
+  const fit = ltxRecording(spec.fps);
+  return inputs.flatMap((i): InputSpec[] => {
+    if (i.id === "seconds") return spec.lipSync ? [] : [i, ...recordingInputs({ shown: false, fit, note: `the recording the clip is under: its part is the clip's sound, laid over ${spec.name}'s own` })];
+    if (i.id === "prompt" && spec.lipSync && i.type === "prompt") {
+      return [
+        { ...i, label: "What happens", placeholder: "A medium close-up. A man at a café terrace talks to the camera, calm and friendly, his eyebrows lifting between phrases.", note: "where they are and how they speak, without a dialogue line: the recording is what is said, and the clip's whole sound" },
+        ...recordingInputs({
+          shown: true, less: [speechAt], fit,
+          note: `what is said: the clip is made around it, its sound from the first step, so the mouth follows it, and it is the clip's sound. One clip holds about ${(fit.frames / fit.fps - fit.pad!).toFixed(1)} seconds (less the moment before the words, and the frames of the clips it joins); the part's ends snap to the pauses so that no word is cut`,
+        }),
+      ];
+    }
+    return [i];
+  });
+}
+
 /** The recipe of a version of LTX, from its spec. */
 export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
   const { fps } = spec;
@@ -461,7 +524,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       latentNodes: LTX_CONTINUATION_NODES, latentTrim: LTX_TRIM,
       fps, frameGrid: { step: 8, offset: 1 },
     },
-    inputs: [
+    inputs: formInputs(spec, [
       {
         id: "model", type: "model", label: "Model", folder: "diffusion_models", slot: "unet", match: spec.modelMatch,
         note: spec.loader === "checkpoint" ? "a diffusion model in a file of its own (a fine-tune, usually). Left alone with none there, the one checkpoint is used" : "the diffusion model: the distilled one, or a fine-tune of it",
@@ -571,14 +634,17 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       },
       { id: "loras", type: "loras", label: "LoRAs", max: 6 },
       { id: "seed", type: "seed", label: "Seed" },
-    ],
+    ]),
 
     nodes(input) {
       const routeNodes = upscaleNodes(input);
       return [
         ...routeNodes,
         "CLIPTextEncode", "LTXVConditioning", "EmptyLTXVLatentVideo", "LTXVEmptyLatentAudio", "LTXVConcatAVLatent", "LTXVSeparateAVLatent",
-        "RandomNoise", "KSamplerSelect", spec.guider === "dual" ? "LTXVDualCFGGuider" : "CFGGuider", "SamplerCustomAdvanced", "VAEDecodeTiled", "LTXVAudioVAEDecode", ...speedNodes(input),
+        "RandomNoise", "KSamplerSelect", spec.guider === "dual" ? "LTXVDualCFGGuider" : "CFGGuider", "SamplerCustomAdvanced", "VAEDecodeTiled", ...speedNodes(input),
+        // Lip sync's sound is the recording, pinned from the first step: none is decoded. Under a recording, its part is cut
+        ...(spec.lipSync ? PINNED_SOUND_NODES : ["LTXVAudioVAEDecode"]),
+        ...(input.recording ? recordingNodes({ joined: false }) : []),
         ...(input.model ? unetNodes(input.model).filter((n) => n !== "UNETLoader") : []),
         ...(spec.loader === "split" ? ["UNETLoader", "CLIPLoader", "VAELoader"] : []),
         ...(input.schedule === BY_STEPS ? ["LTXVScheduler"] : []),
@@ -592,10 +658,14 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       ...(spec.loader === "checkpoint" ? ["UNETLoader", "DualCLIPLoader", "VAELoader", "CheckpointLoaderSimple", "LTXVAudioVAELoader", "LTXAVTextEncoderLoader"] : []),
       "LoraLoaderModelOnly",
       "LatentUpscaleModelLoader", "LTXVLatentUpsampler", "LTXVImgToVideoInplace", "LTXVAddGuide", "LTXVCropGuides", "ManualSigmas",
-      "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ", ...(spec.nag ? ["LTX2_NAG"] : []), ...HEAD_SOUND_NODES,
+      "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ", ...(spec.nag ? ["LTX2_NAG"] : []),
+      // the head's sound pinned when the nodes are there (Lip sync needs them all: in its nodes)
+      ...(spec.lipSync ? [] : HEAD_SOUND_NODES),
       LTX_SAVE_LATENT, ...LTX_CONTINUATION_NODES, LTX_TRIM, ...LTX_LATENT_CORE,
       // the clip before's last frame as it was filed, loaded when the server sends it (its chain was colour-matched: colourCarried)
       "LoadImage",
+      // under a recording: what goes before its part (the clip before's sound under the head, silence before the words)
+      "AudioConcat", "AudioAdjustVolume",
     ],
 
     build(input, ctx) {
@@ -625,14 +695,22 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
             : ltxCanvas(input.shape.width, input.shape.height, input.short);
       // the frames shared with the clips before and after are theirs: the clip is made that much longer, within the 20 s the model takes
       const tail = lands ? joinFramesOf(media.next, "next") : 0;
-      const frames = ltxFramesAt(Math.min(input.seconds, LTX_MAX_SECONDS - (head + tail) / fps) + (head + tail) / fps, fps);
+      // under a recording (card #2): the clip lasts as long as its part (Lip sync's moment before the words and the pad after
+      // them in it), brought down to the model's 8n + 1 frames with those of the clips it joins: the pad outlasts that step
+      const lead = spec.lipSync ? Math.round((input.speechAt ?? 0) * fps) : 0;
+      const laid = input.recording ? recordingOnClip({ recordingSeconds: input.recordingSeconds ?? 0 }, ctx, lead, ltxRecording(fps)) : null;
+      const frames = laid
+        ? gridAtOrBefore(Math.max(9, head + tail + Math.round(laid.seconds * fps)), { step: 8, offset: 1 })
+        : ltxFramesAt(Math.min(input.seconds, LTX_MAX_SECONDS - (head + tail) / fps) + (head + tail) / fps, fps);
 
       const g = new GraphBuilder();
       const loaded = ltxLoad(spec, g, ctx, input, picked);
       const byHand = input.schedule !== BY_STEPS;
       const steps = byHand ? LTX_SIGMAS.split(",").length - 1 : input.steps;
+      // Lip sync: the scene, then that the person speaks (the recording is what is said)
+      const text = spec.lipSync ? [input.prompt.trim(), SPEAKS].filter(Boolean).join(" ") : input.prompt;
       const cond = g.add("LTXVConditioning", {
-        positive: g.out("CLIPTextEncode", { clip: loaded.clip, text: input.prompt }),
+        positive: g.out("CLIPTextEncode", { clip: loaded.clip, text }),
         negative: g.out("CLIPTextEncode", { clip: loaded.clip, text: input.negative }),
         frame_rate: fps,
       });
@@ -659,9 +737,24 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
             overlap_frames: head,
           })
         : null;
-      const carry = continued
-        ? { sound: [continued, 1] as Ref, pin: (audio: Ref): Ref => g.out("SetLatentNoiseMask", { samples: audio, mask: [continued, 2] }), carried: true }
-        : headSound(g, ctx, loaded.audioVae, previous, frames, head, fps);
+      // Lip sync: the whole sound pinned, the recording's part after the head and the moment before the words (the clip
+      // before's sound under the head, taken from its file even when its latent carries the picture on; silence before the
+      // words; the recording through both where the clip before sang up to the part). Else the head's sound alone, when the
+      // clip carries on from one with sound: from its latent, else encoded from its frames
+      const at = { head, frames };
+      const heardBefore = spec.lipSync && previous && head > 0 && media.previous?.hasSound !== false ? g.out("TrimAudioDuration", { audio: [previous[0], 1], start_index: 0, duration: head / fps }) : null;
+      const ahead = (): Ref | null => {
+        if (!laid || laid.sungThrough(at) || !heardBefore) return null;
+        if (lead <= 0) return heardBefore;
+        const quiet = g.out("TrimAudioDuration", { audio: g.out("AudioAdjustVolume", { audio: laid.whole(g), volume: -100 }), start_index: 0, duration: lead / fps });
+        return g.out("AudioConcat", { audio1: heardBefore, audio2: quiet, direction: "after" });
+      };
+      const wave = spec.lipSync && laid ? laid.sound(g, ahead(), at) : null;
+      const carry = wave
+        ? { ...pinnedSound(g, loaded.audioVae, wave, frames, fps), carried: head > 0 && Boolean(heardBefore || laid!.sungThrough(at)) }
+        : continued
+          ? { sound: [continued, 1] as Ref, pin: (audio: Ref): Ref => g.out("SetLatentNoiseMask", { samples: audio, mask: [continued, 2] }), carried: true }
+          : headSound(g, ctx, loaded.audioVae, previous, frames, head, fps);
       const run: LtxRun = {
         spec, g, ctx, input, loaded, cond, steps, frame: { width, height, frames }, passes: [], head, opens, previous, tail,
         next: lands ? clipOf(ctx.uploads.next) : null,
@@ -689,7 +782,10 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       const context = kept && !temporal ? Math.max(0, Math.min(SEAM_CONTEXT, ((kept.cut || kept.frames) - 1) / 8 + 1 - (head + 7) / 8)) : 0;
       const seam = before && !temporal ? g.add("AfflatusLTXSeamLatent", { previous_av_latent: before, sampled: made.video, overlap_frames: head, context }) : null;
       const images = seam ? g.out("ImageFromBatch", { image: decode([seam, 0]), batch_index: 8 * context, length: frames }) : decode(made.video);
-      const heard = g.out("LTXVAudioVAEDecode", { samples: made.audio, audio_vae: loaded.audioVae });
+      // the take's sound: Lip sync's is the sound it was made to; one a recording plays over carries its part after the head
+      // (card #72's rule: the model's own sound there is dropped); else the model's
+      const decoded = wave ? null : g.out("LTXVAudioVAEDecode", { samples: made.audio, audio_vae: loaded.audioVae });
+      const heard = wave ?? (laid ? laid.sound(g, decoded, at) : decoded!);
       // matched to the first frame (a clip that opens a chain), or carrying that match on (one that continues it: its head's last
       // frame is the clip before's last moment, brought to how that clip was filed)
       const looked = colourCarried(g, ctx, colourMatched(g, ctx, images, openingStart(input), fps), head - 1, fps);

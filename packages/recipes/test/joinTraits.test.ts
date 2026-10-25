@@ -27,8 +27,8 @@ describe("the frames a join takes", () => {
 
 describe("recipes that join in a kept latent", () => {
   const latent = recipes.filter((r: Recipe<any>) => r.traits?.latentNodes?.length);
-  it("every H3 form, and LTX 2.3 and 2.5 (pack 0.37.0)", () => {
-    expect(latent.map((r) => r.id).sort()).toEqual(["h3.lipsync", "h3.motion", "h3.swap", "h3.video", "ltx.video", "ltx25.video"]);
+  it("every H3 form, and LTX 2.3 and 2.5 with their Lip sync (pack 0.37.0)", () => {
+    expect(latent.map((r) => r.id).sort()).toEqual(["h3.lipsync", "h3.motion", "h3.swap", "h3.video", "ltx.lipsync", "ltx.video", "ltx25.lipsync", "ltx25.video"]);
   });
   it.each(latent.filter((r) => r.family === "h3").map((r) => [r.id, r] as const))("%s: on H3's kept latent's rate and grid, with the node that cuts it", (_id, r) => {
     expect(r.traits!.fps).toBe(LATENT_FPS);

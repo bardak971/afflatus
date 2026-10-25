@@ -1,5 +1,5 @@
 import type { Variant } from "@afflatus/core";
-import { ltxRecipe, type LtxVideo } from "./recipe";
+import { ltxRecipe, type LtxSpec, type LtxVideo } from "./recipe";
 import { LTX_FPS } from "./family";
 
 // the recipe's workings are shared with LTX 2.5 (recipe.ts); its input type and its schedules are still had from here
@@ -7,7 +7,7 @@ export type { LtxVideo } from "./recipe";
 export { LTX_REFINE_SIGMAS, LTX_SIGMAS } from "./recipe";
 
 /** LTX 2.3: the one checkpoint (or split files with their text projection), `euler`, CFG on the conditioning, 25 frames a second. */
-export const ltxVideo = ltxRecipe({
+const spec: LtxSpec = {
   id: "ltx.video",
   family: "ltx",
   name: "LTX 2.3",
@@ -88,6 +88,68 @@ export const ltxVideo = ltxRecipe({
       { name: "twice the frames with LTX's temporal upscaler, one pass with a last picture", input: { prompt: "a", end: "p2", smooth: true, smoothWith: "LTX temporal (latent)" }, slots: { ...one, ...temporal }, uploads: { end: "b.png" }, media: { end: picture } },
       { name: "RIFE asked for although the temporal upscaler is there", input: { prompt: "a", smooth: true, smoothWith: "RIFE (pixels)" }, slots: { ...one, ...temporal } },
       { name: "a GGUF diffusion model, ComfyUI's own video output", input: { prompt: "a", model: "ltx-2.3-22b-dev-Q4_K_M.gguf" }, slots: { ...parts, ...extras }, has: (n: string) => n !== "VHS_VideoCombine" },
+      {
+        name: "under a recording it plays over: its part is the take's sound, the clip as long as it",
+        input: { prompt: "a", start: "p1", recording: "a1", recordingSeconds: 5.9, seconds: 9 },
+        slots: { ...one, ...extras }, uploads: { start: "a.png", recording: "rec.wav" }, media: { start: picture, recording: { width: 0, height: 0, seconds: 5.9, after: 4 } },
+      },
+      {
+        name: "under a recording, carrying on from a clip: the head's own sound before the part",
+        input: { prompt: "a", previous: { asset: "c1" }, recording: "a1", recordingSeconds: 4.2 },
+        slots: { ...one, ...extras }, uploads: { previous: "a.mp4", recording: "rec.wav" }, media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX_FPS, hasSound: true }, recording: { width: 0, height: 0, seconds: 4.2 } },
+      },
+    ];
+  })(),
+};
+export const ltxVideo = ltxRecipe(spec);
+
+/**
+ * LTX 2.3 · Lip sync (card #2): a new shot made around a recording, its part the clip's sound pinned from the first step
+ * (core nodes), so that the picture is made to it; the clip as long as its part, the take's sound the part itself.
+ */
+export const ltxLipSync = ltxRecipe({
+  ...spec,
+  id: "ltx.lipsync",
+  title: "Lip sync",
+  summary: "A new shot made around a recording: the mouth follows it. Continues the clip before.",
+  lipSync: true,
+  variants: ((): Variant<LtxVideo>[] => {
+    const one = { checkpoint: "ltx-2.3-22b-distilled-fp8.safetensors", clip: "gemma_3_12B_it.safetensors", upscaler: "ltx-2.3-spatial-upscaler-x2.safetensors", rife: "rife49.pth" };
+    const joined = { width: 704, height: 1280, frames: 25, fps: LTX_FPS, hasSound: true };
+    return [
+      {
+        name: "a recording and the picture of who speaks",
+        input: { prompt: "a café terrace", start: "p1", recording: "a1", recordingSeconds: 5.9 },
+        slots: one, uploads: { start: "a.png", recording: "rec.wav" }, media: { start: { width: 832, height: 1216 }, recording: { width: 0, height: 0, seconds: 5.9 } },
+      },
+      {
+        name: "carrying on from a clip, the words a moment in: its sound under the head, silence, then the part",
+        input: { prompt: "a", previous: { asset: "c1" }, recording: "a1", recordingSeconds: 4.2, speechAt: 0.5 },
+        slots: one, uploads: { previous: "a.mp4", recording: "rec.wav" }, media: { previous: joined, recording: { width: 0, height: 0, seconds: 4.2 } },
+      },
+      {
+        name: "carrying on in the clip before's own latent: the picture from its latent, the sound the recording's, pinned",
+        input: { prompt: "a", previous: { asset: "c1" }, recording: "a1", recordingSeconds: 5 },
+        slots: one, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors", recording: "rec.wav" },
+        media: { previous: { ...joined, latentFrames: 97, latentCut: 97, latentSize: { width: 704, height: 1280 } }, recording: { width: 0, height: 0, seconds: 5 } },
+      },
+      {
+        name: "sung up to its part by the clip before: the recording under the head too",
+        input: { prompt: "a", previous: { asset: "c1" }, recording: "a1", recordingSeconds: 6, recordingLeadIn: true, recordingGoesOn: true },
+        slots: one, uploads: { previous: "a.mp4", recording: "rec.wav" }, media: { previous: joined, recording: { width: 0, height: 0, seconds: 6, before: 1, after: 6 } },
+      },
+      {
+        name: "between two clips, one pass, twice the frames with the temporal upscaler: the pin on every pass",
+        input: { prompt: "a", previous: { asset: "c1" }, next: { asset: "c2", at: 0 }, recording: "a1", recordingSeconds: 7, twoPass: false, smooth: true, smoothWith: "LTX temporal (latent)" },
+        slots: { ...one, temporal: "ltx-2.3-temporal-upscaler-x2-1.0.safetensors" }, uploads: { previous: "a.mp4", next: "b.mp4", recording: "rec.wav" },
+        media: { previous: { ...joined, hasSound: false }, next: joined, recording: { width: 0, height: 0, seconds: 7, after: 4 } },
+      },
+      {
+        name: "the full model in separate files, with the distilled LoRA, by steps in one pass (no upscaler)",
+        input: { prompt: "a", recording: "a1", recordingSeconds: 5, model: "ltx-2.3-22b-dev.safetensors", loraStrength: 0.6, schedule: "By steps", cfg: 3 },
+        slots: { unet: "SomeoneLTX23_v4.safetensors", videoVae: "LTX23_video_vae.safetensors", audioVae: "LTX23_audio_vae.safetensors", projection: "ltx-2.3_text_projection.safetensors", clip: "gemma_3_12B_it.safetensors", turbo: "ltx_2.3_distilled_lora.safetensors" },
+        uploads: { recording: "rec.wav" }, media: { recording: { width: 0, height: 0, seconds: 5 } },
+      },
     ];
   })(),
 });

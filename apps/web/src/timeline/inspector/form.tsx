@@ -114,18 +114,19 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
       </div>
     );
   }
-  // on a clip the recording plays over: what the person does said in positive words (#79: "listens, mouth closed" kept the
-  // mouth still; H3 reads a negation as the thing), and Music left empty (naming the song moved the lips)
+  const main = mainTextOf(form);
+  // on a clip the recording plays over: what the person does said in positive words in its main prompt, whatever the form
+  // calls it (#79: "listens, mouth closed" kept the mouth still; H3 reads a negation as the thing), and Music left empty
+  // (naming the song moved the lips)
   const shownForm: RecipeInfo = over
     ? {
         ...form,
         inputs: form.inputs.map((i) =>
-          i.id === "description" && i.type === "prompt" ? { ...i, placeholder: "She listens, eyes closed, her mouth closed, swaying slowly to the music." }
+          i.id === main?.id && i.type === "prompt" ? { ...i, placeholder: "She listens, eyes closed, her mouth closed, swaying slowly to the music." }
           : i.id === "music" && i.type === "prompt" ? { ...i, note: "Under a recording, leave it empty: the recording is the clip's sound, and naming a song moves the lips." }
           : i),
       }
     : form;
-  const main = mainTextOf(form);
   const written = main ? String(stored[main.id] ?? "") : "";
   const cast = clip.look === null ? (
     <div className="flex flex-col gap-1.5">
