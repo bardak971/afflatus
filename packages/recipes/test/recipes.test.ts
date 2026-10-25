@@ -820,7 +820,7 @@ describe("wan.video", () => {
     it("goes through SVI 2.0 Pro: the clip before's last frame the anchor, its last latent frame the motion", () => {
       const b = carry({ fast: true });
       const node = all(b, "WanImageToVideoSVIPro")[0]!.inputs;
-      // 5 s: its own 80 frames after the anchor and the 4 frames of the head
+      // 5 s: the 2 frames dropped, the 4 frames of the head, and its own 79
       expect(node).toMatchObject({ length: 85, motion_latent_count: 1 });
       const anchor = ref(b, ref(b, node.anchor_samples).inputs.pixels);
       expect(anchor).toMatchObject({ class_type: "ImageFromBatch", inputs: { batch_index: -1, length: 1 } });
@@ -836,10 +836,11 @@ describe("wan.video", () => {
       expect(leadLoras).toEqual(["svi_high.safetensors"]);
     });
 
-    it("drops the anchor, keeps the head hidden for a moving fade, and matches its colours to the clip before's last frame", () => {
+    it("drops the anchor and the frame after it, keeps the head hidden for a moving fade, and matches its colours to the clip before's last frame", () => {
       const b = carry({ smooth: false });
-      const kept = all(b, "ImageFromBatch").find((n) => n.inputs.batch_index === 1)!;
-      expect(ref(b, kept.inputs.image).class_type).toBe("VAEDecode");
+      // the decoded frames from the third on: with the anchor alone dropped, the head was one frame early (measured, card #82)
+      const kept = all(b, "ImageFromBatch").filter((n) => ref(b, n.inputs.image).class_type === "VAEDecode");
+      expect(kept.map((n) => n.inputs)).toEqual([expect.objectContaining({ batch_index: 2, length: 4096 })]);
       const match = all(b, "ColorTransfer")[0]!.inputs;
       expect(match).toMatchObject({ source_stats: "target_frame", "source_stats.target_index": 3, strength: 1 });
       expect(ref(b, match.image_ref).inputs).toMatchObject({ batch_index: -1, length: 1 });
@@ -910,8 +911,8 @@ describe("wan.video", () => {
       const head = ref(b, joined.inputs.audio1);
       expect(head.inputs).toMatchObject({ start_index: 0, duration: 4 / 16 });
       expect(ref(b, head.inputs.audio)).toMatchObject({ class_type: "AudioAdjustVolume", inputs: { volume: -100 } });
-      // the file's frames: the head and its own 100 (101 on the grid, less the anchor dropped); the part after the head
-      expect(ref(b, joined.inputs.audio2).inputs.duration).toBe(100 / 16);
+      // the file's frames: the head and its own 99 (101 on the grid, less the 2 frames dropped); the part after the head
+      expect(ref(b, joined.inputs.audio2).inputs.duration).toBe(99 / 16);
     });
   });
 });

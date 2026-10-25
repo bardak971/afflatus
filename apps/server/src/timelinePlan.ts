@@ -1,7 +1,8 @@
 import { FRAME_SLACK_MS, joinFrames, joinWay, latentClockOf, latentFrameAtOrBefore, leadInBefore, leadInCovers, madeAroundRecording, recordingPlaceOf, recordingSpecOf, type Recipe } from "@afflatus/core";
 import { FfmpegMissing } from "./cut";
 import { frozenTailAt } from "./measure";
-import { newId, now, type Db } from "./db";
+import { newId, now, toRun, type Db } from "./db";
+import { NO_MEDIA } from "./queueSubmit";
 import { httpError, notFound } from "./errors";
 import type { Registry } from "./registry";
 import type { TimelineMedia } from "./timelineMedia";
@@ -294,6 +295,11 @@ export class TimelinePlan {
     return plan;
   }
 
+  /** Whether a clip has a render waiting or running, its take to come. */
+  private async takeComing(clipId: string): Promise<boolean> {
+    return Boolean(await this.core.db.selectFrom("jobs").select("id").where("clip_id", "=", clipId).where(toRun).executeTakeFirst());
+  }
+
   /**
    * What a clip that carries on from `prior` is given: a still's picture to open on; else the video before and the moment it
    * stops playing (handed over before its frozen tail, on its latent's grid when that was kept), or its last frame to open on.
@@ -307,7 +313,13 @@ export class TimelinePlan {
       plan.links.prev = { take: stillRef(prior.still.id), at: 0 };
       return;
     }
-    if (!before) return;
+    if (!before) {
+      // its take still to come (its job waiting or running): a quick plan (what a pod is sent ahead, a forecast) reads this
+      // clip as carrying on from a video all the same, as its submit will. Read as opening on nothing, a Wan clip queued
+      // with the one before was taken for words-to-video, and a pod was never sent SVI's LoRAs for it (card #82, 2026-10-25)
+      if (quick && prevSpec && (await this.takeComing(prior.clip.id))) plan.input[prevSpec.id] = { asset: NO_MEDIA };
+      return;
+    }
     let at = plays(before).end;
     // a finish's re-render carries on from the same video and moment as its draft (its own render's input), while the clip
     // before is that video or its finish (the finish route skips a clip that is not, see timelines-api)
