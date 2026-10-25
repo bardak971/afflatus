@@ -2,7 +2,7 @@ import { projectForNew, projectParam } from "./project";
 import { unlistOptions, type ListedOptions, type ModelInfo, type RankedGpu } from "@afflatus/core";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
-import type { Advice, DeployOverhead, FillPlan, FormPacks, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumeFilesView, VolumePlan, Job, QueueAnswer, QueuePart, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
+import type { Advice, DeployOverhead, FillPlan, FormPacks, SetFinding, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumeFilesView, VolumePlan, Job, QueueAnswer, QueuePart, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
@@ -398,6 +398,8 @@ export const api = {
   advice: (recipe: string, input: Record<string, unknown>) => call<{ estimate: Advice | null }>("POST", "/advice", { recipe, input }),
   /** What the form says under an option whose node pack the machine lacks. */
   formPacks: (recipe: string, input: Record<string, unknown>, machine?: string, o?: Asked) => call<FormPacks>("POST", "/form/packs", { recipe, input, ...(machine ? { machine } : {}) }, o?.signal),
+  /** Whether the form's files go together: a VAE, text encoder or LoRA of another version, a pair swapped. */
+  setCheck: (recipe: string, input: Record<string, unknown>, o?: Asked) => call<{ findings: SetFinding[] }>("POST", "/form/set-check", { recipe, input }, o?.signal),
   /** The prompt as sent of a form written from parts, while its prompt is left empty (Recipe.promptFromParts). */
   formPrompt: (recipe: string, input: Record<string, unknown>, o?: Asked) => call<{ into: string | null; text: string }>("POST", "/form/prompt", { recipe, input }, o?.signal),
   civitaiFind: (file: string, folder: string | null, hints: string[] = []) =>

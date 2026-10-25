@@ -1,7 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { Worker } from "node:worker_threads";
-import { civitaiVersionsByHash } from "./civitai";
+import { civitaiGet, civitaiVersionsByHash, type ApiVersion } from "./civitai";
 import { now } from "./db";
 import { findOnHuggingFace, huggingFaceSha256 } from "./huggingface";
 import { fileName } from "./media";
@@ -23,6 +23,8 @@ import { ownMachines, readSettings } from "./settings";
 export const HASHED_FOLDERS = FULL_MODEL_FOLDERS;
 /** A file matched to nothing is asked about again after this long (a site may have it since). */
 const ASK_AGAIN_MS = 7 * 24 * 60 * 60_000;
+/** The LoRAs whose Civitai base model is asked in one pass, one at a time: a library of a thousand is read over a few hours. */
+const BASES_A_PASS = 200;
 /** While a render runs here, how often the hashing looks whether it may go on. */
 const PAUSE_MS = 2_000;
 /** How long a close waits for a hashing pass to end before it goes on without it. */
@@ -288,7 +290,7 @@ export class ModelHashes {
     if (!settings.civitaiLookups) return;
     const rows = await this.s.db.selectFrom("model_hashes").selectAll().execute();
     const due = rows.filter((r) => !r.matched_at || (!(Number(r.civitai_version) > 0) && !r.hf_url && Date.now() - Date.parse(r.matched_at) > ASK_AGAIN_MS));
-    if (!due.length) return;
+    if (!due.length) return this.bases(settings.civitaiKey);
     const versions = await civitaiVersionsByHash([...new Set(due.map((r) => r.sha256))], settings.civitaiKey);
     if (!versions) throw new Error("Civitai did not answer the hashes: asked again at the next pass");
     for (const r of due) {
@@ -312,6 +314,22 @@ export class ModelHashes {
         }
       }
       await this.s.db.updateTable("model_hashes").set({ civitai_version: version, hf_url: hf, matched_at: version || hf || answered ? now() : null }).where("folder", "=", r.folder).where("file", "=", r.file).execute();
+    }
+    await this.bases(settings.civitaiKey);
+  }
+
+  /**
+   * The base model of each LoRA's Civitai version, asked once a file ("" when it gives none): a LoRA's header says "LTX" for
+   * every LTX, Civitai says which, and a LoRA made for another version is told by it (modelSet.ts). No answer: asked again
+   * at the next pass.
+   */
+  private async bases(key: string): Promise<void> {
+    const rows = await this.s.db.selectFrom("model_hashes").select(["folder", "file", "civitai_version"]).where("folder", "=", "loras").where("civitai_base", "is", null).where("civitai_version", ">", 0).limit(BASES_A_PASS).execute();
+    for (const r of rows) {
+      if (this.stopped) return;
+      const version = await civitaiGet<ApiVersion>(`/api/v1/model-versions/${Number(r.civitai_version)}`, key).catch(() => undefined);
+      if (version === undefined) return;
+      await this.s.db.updateTable("model_hashes").set({ civitai_base: version?.baseModel ?? "" }).where("folder", "=", r.folder).where("file", "=", r.file).execute();
     }
   }
 }

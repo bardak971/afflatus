@@ -1974,6 +1974,8 @@ export class Queue {
 
   /** The graph a form (or a past render) gives, built without uploading anything; null when the form is not complete enough to build. */
   builtOf(recipeId: string, rawInput: unknown, opts: Parameters<typeof submitting.builtOf>[3] = {}): Promise<BuiltGraph | null> { return submitting.builtOf(this.core, recipeId, rawInput, opts); }
+  /** Whether a form's files go together, before it is queued (queueSubmit.ts setCheckOf). */
+  setCheck(recipeId: string, rawInput: unknown): ReturnType<typeof submitting.setCheckOf> { return submitting.setCheckOf(this.core, recipeId, rawInput); }
   /** What a waiting job's graph loads on a pod that has nothing yet (the Deploy dialog, the hunt): jobFiles.ts loadedOn. */
   loadedOnNew(row: Parameters<typeof loadedOn>[1]): Promise<Loaded | null> { return loadedOn(this.core, row, null); }
   /** Whether the base models a form would use are the ones the first ComfyUI was last asked to load; null when it cannot be told. */

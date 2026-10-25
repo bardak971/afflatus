@@ -165,6 +165,7 @@ export const queryKeys = {
   /** What a form would take, from the record of render times: under "advice", read again when a render ends. */
   /** What a form says under its options whose node packs the machine lacks: read again once ComfyUI restarts (the setup's key). */
   formPacks: (recipe: string | undefined, values: string, machine?: string) => ["setup", "formPacks", recipe, values, machine ?? null] as const,
+  setCheck: (recipe: string | undefined, values: string) => ["setup", "setCheck", recipe, values] as const,
   formPrompt: (recipe: string, values: string) => ["setup", "formPrompt", recipe, values] as const,
   advice: {
     all: () => ["advice"] as const,

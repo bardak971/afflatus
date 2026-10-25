@@ -2,6 +2,7 @@ import { frameOf, type Family, type PromptLine, LIST_LINE, wordCount } from "@af
 import { defineFamily } from "@afflatus/core";
 import { SEEDVR_SLOTS } from "../video/upscale";
 import { RIFE_GET } from "../shared/finish";
+import { LTX23_WRONG, LTX_VERSIONS } from "./versions";
 
 /**
  * How LTX reads a prompt, 2.3 and 2.5 alike: the Designer's guide for a version of the model, with any rule that version
@@ -97,7 +98,7 @@ export const ltx = defineFamily({
       get: { file: "gemma_3_12B_it_fp4_mixed.safetensors", url: "https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors" },
     },
     {
-      id: "upscaler", label: "Latent upscaler (×2)", folder: "latent_upscale_models", detect: ["ltx.?2[._]?3.*spatial.?upscaler.?x2"], optional: true,
+      id: "upscaler", label: "Latent upscaler (×2)", folder: "latent_upscale_models", detect: ["ltx.?2[._]?3.*spatial.?upscaler.?x2.*1[._]1", "ltx.?2[._]?3.*spatial.?upscaler.?x2"], optional: true,
       hint: "Without it, clips are generated in one pass at full resolution, which is slower and softer. Put ltx-2.3-spatial-upscaler-x2-*.safetensors in ComfyUI's models/latent_upscale_models folder.",
       get: { file: "ltx-2.3-spatial-upscaler-x2-1.1.safetensors", url: "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x2-1.1.safetensors" },
     },
@@ -107,7 +108,7 @@ export const ltx = defineFamily({
       get: { file: "ltx-2.3-temporal-upscaler-x2-1.0.safetensors", url: "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-temporal-upscaler-x2-1.0.safetensors" },
     },
     {
-      id: "turbo", label: "Distilled LoRA (for a model that is not distilled)", folder: "loras", detect: ["ltx.?2[._]?3.*distilled.*lora"], optional: true,
+      id: "turbo", label: "Distilled LoRA (for a model that is not distilled)", folder: "loras", detect: ["ltx.?2[._]?3.*distilled.*1[._]1.*lora", "ltx.?2[._]?3.*distilled.*lora.*1[._]1", "ltx.?2[._]?3.*distilled.*lora"], optional: true,
       hint: "Only for the full (dev) model: it makes it work in 8 steps. A distilled model, and most fine-tunes, need none. Put ltx_2.3_22b_distilled_*_lora_*.safetensors in ComfyUI's models/loras folder.",
       get: { file: "ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors", url: "https://huggingface.co/Comfy-Org/ltx-2.3/resolve/main/split_files/loras/ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors" },
     },
@@ -119,6 +120,8 @@ export const ltx = defineFamily({
     ...LTX_SHARED_SLOTS,
   ],
   loraMatch: ["ltx"],
+  line: { own: "LTX 2.3", versions: LTX_VERSIONS },
+  wrong: LTX23_WRONG,
   guide: ltxGuide("LTX 2.3"),
   lint: ltxLint,
 });

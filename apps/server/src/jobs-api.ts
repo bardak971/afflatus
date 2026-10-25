@@ -7,6 +7,7 @@ import type { Services } from "./services";
 import { draftLabel, promptOf } from "./autoName";
 import { findDraft, writeDraft } from "./drafts";
 import { paged } from "./queueView";
+import { refusedSaid } from "./modelSetCheck";
 
 /** The queue: jobs sent to it, models loaded ahead, and the queue's own controls (pause, order, retry, cancel, previews). */
 
@@ -52,6 +53,9 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
     const recipe = s.registry.recipe(body.recipe);
     // a job pinned to a machine there is not would wait for ever
     if (body.machine && !(await s.machines()).some((m) => m.machine.id === body.machine)) throw httpError("there is no ComfyUI with that id");
+    // a mix of files known to give black frames is refused before it is queued; the job checks again on the machine it runs on
+    const found = await s.queue.setCheck(body.recipe, body.input);
+    if (found.some((f) => f.black)) throw httpError(refusedSaid(found));
     const ids: string[] = [];
     const seed = typedSeed(body.input.seed);
     // sent from a blank draft: it is written now, so that what comes out is filed under it
@@ -88,6 +92,15 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
     // loading a model on a machine there is not would wait for ever, as a render pinned there would (/api/jobs)
     if (body.machine && !(await s.machines()).some((m) => m.machine.id === body.machine)) throw httpError("there is no ComfyUI with that id");
     return { id: await s.queue.enqueue(body.recipe, await withCast(body), { label: `Load the model: ${s.registry.recipe(body.recipe)?.title ?? body.recipe}`, warm: true, machine: body.machine ?? null }) };
+  });
+
+  /**
+   * Whether a form's files go together (modelSetCheck.ts): what the form says under its fields, each finding by the field or
+   * family file it is about. A warning lets the render go; one marked `black` is refused at Render.
+   */
+  app.post("/api/form/set-check", async (req) => {
+    const body = warmBody.parse(req.body);
+    return { findings: await s.queue.setCheck(body.recipe, await withCast(body)) };
   });
 
   /** Whether the models a form would render with are the ones ComfyUI was last asked to load. */

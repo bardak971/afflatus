@@ -6,6 +6,7 @@ import { httpError } from "./errors";
 import { modelDirs, readLocalHeader } from "./modelFiles";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
+import { withSite } from "./modelSetCheck";
 
 /**
  * What model files say about themselves (see ModelInfo), so that a search for a LoRA can find it by
@@ -88,6 +89,17 @@ export function registerModelInfo(app: FastifyInstance, s: Services): void {
           .catch((err) => console.warn(`[models] reading ${folder} stopped: ${(err as Error).message}`))
           .finally(() => reading.delete(folder));
         reading.set(folder, job);
+      }
+    }
+    // what Civitai gave as its base model, by its hash: finer than the header's, and the only word of a file that says none
+    const sites = await s.db.selectFrom("model_hashes").select(["file", "civitai_base"]).where("folder", "=", folder).where("civitai_base", "is not", null).where("civitai_base", "!=", "").execute();
+    if (sites.length) {
+      const path = (file: string) => file.replace(/\\/g, "/").toLowerCase();
+      const byPath = new Map(sites.map((r) => [path(r.file), r.civitai_base!]));
+      for (const file of new Set([...Object.keys(items), ...(files ?? [])])) {
+        const base = byPath.get(path(file));
+        const merged = base ? withSite(items[file], base) : undefined;
+        if (merged) items[file] = merged;
       }
     }
     return { items, pending };

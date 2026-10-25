@@ -18,6 +18,7 @@ import { OutputPart } from "./recipeForm/OutputPart";
 import { CardPrompt, FormSearching, Heading, Part, PART_HEAD, TextFold, useFormAim, useParts } from "./recipeForm/Part";
 import { Strip } from "./recipeForm/Strip";
 import { PackNotes, usePackNotes } from "./recipeForm/packNotes";
+import { SetNotes, useSetNotes } from "./recipeForm/setNotes";
 import { usePinnedFields } from "./recipeForm/pinned";
 import { PinnedPart, type PinnedRow } from "./recipeForm/PinnedPart";
 import { useFormSearch } from "./recipeForm/useFormSearch";
@@ -179,6 +180,8 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   }, [recipe, defaults, stored]);
   // the node packs the options asked for need where the form renders: said under each (packNotes.tsx)
   const packNotes = usePackNotes(recipe, values, machine);
+  // the files that do not go together (a VAE of another version, a pair swapped): said, never changed (setNotes.tsx)
+  const setNotes = useSetNotes(recipe, values);
   // what decides which settings show: the values, plus what the screen will fill in itself
   const seen = given ? { ...values, ...given } : values;
   // what it will take: the same query as the Generate button's (advice.ts)
@@ -315,6 +318,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
       </FieldNameNote.Provider>
       {i.type === "model" && isMissingModel(i.id) && <Suspense fallback={null}><MissingModel folder={i.folder} file={String(values[i.id])} /></Suspense>}
       <PackNotes of={packNotes} input={i.id} />
+      {i.type === "loras" && <SetNotes of={setNotes} input={i.id} recipe={recipe} family={family} />}
     </div>
     );
   };
@@ -396,7 +400,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
       <Strip parts={withPinned(ordered(parts, (x) => x.id), (x) => x.id, { id: "pinned", label: "Pinned" })} open={(id) => id !== "prompt" && setPart(id, true, true)} query={query} setQuery={setQuery} found={found} />
       {q && found === 0 && <div className="px-1 text-sm text-ink-2">No setting of this form matches “{q}”.</div>}
       {/* a pack no single option pulls in: said once, above the parts */}
-      <div className="flex flex-col gap-1 px-1 empty:hidden"><PackNotes of={packNotes} input={null} /></div>
+      <div className="flex flex-col gap-1 px-1 empty:hidden"><PackNotes of={packNotes} input={null} /><SetNotes of={setNotes} input={null} recipe={recipe} family={family} /></div>
       {withPinned(ordered<[string, ReactNode]>([
         ...(!q ? leads.map((l): [string, ReactNode] => [l.id, <Part key={l.id} id={l.id} title={l.title} help={l.help} summary={l.summary} startOpen>{l.node}</Part>]) : []),
         ["model", ((made && (!q || madeHit)) || knobs.length > 0 || loras.length > 0) && (

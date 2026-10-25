@@ -1,5 +1,6 @@
 import { defineFamily } from "@afflatus/core";
 import { LTX_SHARED_SLOTS, ltxGuide, ltxLint } from "../ltx/family";
+import { LTX25_WRONG, LTX_VERSIONS } from "../ltx/versions";
 
 /** Where Lightricks keeps LTX 2.5's files: a gated repository (the licence accepted on its page, a Hugging Face token in Settings › Models). */
 const HF = "https://huggingface.co/Lightricks/LTX-2.5/resolve/main";
@@ -66,6 +67,8 @@ export const ltx25 = defineFamily({
     ...LTX_SHARED_SLOTS,
   ],
   loraMatch: ["ltx"],
+  line: { own: "LTX 2.5", versions: LTX_VERSIONS },
+  wrong: LTX25_WRONG,
   guide: ltxGuide("LTX 2.5", [
     "Several shots (2.5 only): two to four in one clip, each cut named in the prose as it happens (\"Cut to a wide shot of the harbour at dusk.\"), each shot a sentence or two in order; one clip of one shot needs none of this.",
   ]),
