@@ -61,4 +61,30 @@ describe.skipIf(!ffmpegThere)("a Wan clip carrying on without SVI's LoRAs", { ti
     const job = (await s.t.db.selectFrom("jobs").select("warning").where("clip_id", "=", v.clips[1].id).executeTakeFirst())!;
     expect(job.warning).toMatch(/A cut.*SVI 2\.0 Pro's two LoRAs/);
   });
+
+  it("sends SVI's LoRAs to a pod for the clip that carries on, though its own form names no clip before (the timeline does)", async () => {
+    const { v } = await chain();
+    const row = (await s.t.db.selectFrom("jobs").selectAll().where("clip_id", "=", v.clips[1].id).executeTakeFirst())!;
+    expect(JSON.parse(row.inputs).previous).toBeUndefined();
+    const loaded = (await s.t.services.queue.loadedOnNew(row))!;
+    expect(loaded.files.map((f) => f.file)).toEqual(expect.arrayContaining(WAN.loras));
+  });
+
+  it("sends them too while the clip before is still to render, both queued at once", async () => {
+    const { call, finish } = timelineSteps(s);
+    const tl = await call("POST", "/api/timelines", { name: "zz-test wan chain" });
+    const a = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "wan.video" })).clip as string;
+    const b = (await call("POST", `/api/timelines/${tl.id}/clips`, {})).clip as string;
+    const input = { prompt: "A red kite turns over a hill." };
+    await call("POST", `/api/timelines/${tl.id}/render`, { clips: [{ id: a, input }, { id: b, input }] });
+    const row = (await s.t.db.selectFrom("jobs").selectAll().where("clip_id", "=", b).executeTakeFirst())!;
+    expect(await s.t.db.selectFrom("takes").select("id").where("clip_id", "=", a).execute()).toEqual([]);
+    const loaded = (await s.t.services.queue.loadedOnNew(row))!;
+    // read as carrying on, not as words-to-video: the picture-to-video models and SVI's LoRAs
+    expect(loaded.refused).toBeUndefined();
+    expect(loaded.files.map((f) => f.file)).toEqual(expect.arrayContaining([...WAN.loras, "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors"]));
+    // (both rendered, so that the queue is left with nothing running)
+    await finish(s.clips.silent, 1);
+    await finish(s.clips.silent, 2);
+  });
 });

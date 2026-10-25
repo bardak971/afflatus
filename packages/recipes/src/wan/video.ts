@@ -76,12 +76,18 @@ const uses = (input: WanVideo) => ({ words: !input.start && !input.end && !input
  * SVI 2.0 Pro (Stable Video Infinity, KJNodes' WanImageToVideoSVIPro): a clip carries on from the clip before in the latent.
  * Its first latent frame is pinned to an anchor picture (here the clip before's last frame), and the clip before's last
  * latent frame (`SVI_MOTION_LATENTS`: its last 4 frames) is handed over unpinned, as the motion to carry on. The clip's first
- * frame is thus the anchor (dropped), its next 4 the clip before's last moments made again moving (kept as its head, hidden on
- * a timeline: the join fades over them as over a SCAIL-2 window's), and its own frames come after.
+ * frames (`SVI_DROPPED`) are dropped, its next 4 are the clip before's last moments made again moving (kept as its head,
+ * hidden on a timeline: the join fades over them as over a SCAIL-2 window's), and its own frames come after.
  */
 const SVI_MOTION_LATENTS = 1;
-/** The frames after the anchor that remake the clip before's last ones: one latent frame's worth. */
+/** The frames that remake the clip before's last ones: one latent frame's worth. */
 const SVI_HEAD = 4 * SVI_MOTION_LATENTS;
+/**
+ * The frames dropped before the head: the anchor, and the one after it. Measured on a chain (card #82, 2026-10-25): with the
+ * anchor alone dropped, every head frame matched the clip before's frame one earlier than its place, so its last moment
+ * (about 60 ms) played twice at each join. The head starts one frame later, and ends on that clip's last frame made again.
+ */
+const SVI_DROPPED = 2;
 /**
  * The frames of the clip before handed over: 9, encoded as 3 latent frames, the last of which is the motion carried (the VAE
  * is causal: a few frames before it bring that latent closer to the clip's own); 5 for a clip too short.
@@ -443,7 +449,8 @@ export const wanVideo = defineRecipe<WanVideo>({
       : like?.width
         ? wanCanvas(like.width, like.height, input.short, WAN_FORM_PIXELS)
         : wanCanvas(input.shape.width, input.shape.height, input.short, WAN_FORM_PIXELS);
-    // through SVI, the anchor frame and the head come first: the clip's own frames are as many as without it, less one (81 make 80, 5 s)
+    // through SVI, the frames dropped and the head come first: the clip's own frames are as many as without it, less the two
+    // dropped (81 make 79, about 5 s), as Wan's frame counts go by fours
     const svi = carry?.svi ? { high: slots.sviHigh!, low: slots.sviLow! } : null;
     const frames = wanFrames(laid ? laid.seconds : input.seconds) + (svi ? SVI_HEAD : 0);
 
@@ -457,10 +464,10 @@ export const wanVideo = defineRecipe<WanVideo>({
 
     g.phase("decoding");
     const decoded = g.out("VAEDecode", { samples: [sampled, 0], vae });
-    // through SVI: the anchor dropped, the head kept, and the colours brought to where the clip before ends
-    const own = svi && before ? sviColours(g, ctx, g.out("ImageFromBatch", { image: decoded, batch_index: 1, length: 4096 }), before) : decoded;
-    // the part's sound, after the head's frames (the anchor dropped)
-    const audio = laid ? laid.sound(g, null, { head: svi ? SVI_HEAD : 0, frames: svi ? frames - 1 : frames }) : undefined;
+    // through SVI: the first frames dropped, the head kept, and the colours brought to where the clip before ends
+    const own = svi && before ? sviColours(g, ctx, g.out("ImageFromBatch", { image: decoded, batch_index: SVI_DROPPED, length: 4096 }), before) : decoded;
+    // the part's sound, after the head's frames (the first frames dropped)
+    const audio = laid ? laid.sound(g, null, { head: svi ? SVI_HEAD : 0, frames: svi ? frames - SVI_DROPPED : frames }) : undefined;
     const made = finishFrames(g, ctx, colourMatched(g, ctx, own, openingStart(input), fps), input, { frame: { width, height }, rife: input.smooth, fps, ...(audio ? { audio } : {}) });
     const lorasOf = (turboLora: string | undefined, loras: LoraValue[]) => [...(turboLora ? [`loras/${turboLora}`] : []), ...loraLoads(loras)];
     const said = [
