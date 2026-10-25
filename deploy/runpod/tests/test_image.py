@@ -90,6 +90,25 @@ class Base(unittest.TestCase):
         self.assertRegex(read(BASE), r'afflatus\.base-dockerfile-sha256="\$\{BASE_DOCKERFILE_SHA256\}"')
         self.assertRegex(read(BASE), r'afflatus\.cuda="\$\{TORCH_CUDA\}"')
 
+    def test_it_leaves_out_what_no_pod_shows_in_the_layer_that_installs_it(self):
+        # the templates' media and the nodes' docs (~535 MB unpacked at every boot): gone in the same RUN, or the layer
+        # holds them all the same; the templates' index and workflows stay, or ComfyUI logs an error at each start
+        run = next(r for r in re.sub(r"\\\n", " ", read(BASE)).splitlines() if r.startswith("RUN pip install -c /constraints.txt -r requirements.txt"))
+        for media in ("api", "video", "image", "other", "assets-01", "assets-02"):
+            self.assertIn(f"comfyui-workflow-templates-media-{media}", run)
+        self.assertIn("comfyui-embedded-docs", run)
+        self.assertIn("import comfyui_workflow_templates, comfyui_workflow_templates_json", run)
+
+    def test_its_layers_are_zstd(self):
+        # a pull is its host unpacking the layers: zstd, forced on the python image's layers too; the top keeps them in an
+        # OCI manifest, the only one that names zstd
+        base = read(os.path.join("..", "..", ".github", "workflows", "pod-base-image.yml"))
+        self.assertRegex(base, r"(?m)^\s+outputs: type=image,push=\$\{\{ env\.PUBLISH == 'true' \}\},compression=zstd,force-compression=true,oci-mediatypes=true$")
+        self.assertNotRegex(base, r"(?m)^\s+push: \$")
+        top = read(os.path.join("..", "..", ".github", "workflows", "pod-image.yml"))
+        self.assertRegex(top, r"(?m)^\s+outputs: type=image,push=\$\{\{ env\.PUBLISH == 'true' \}\},oci-mediatypes=true$")
+        self.assertNotRegex(top, r"(?m)^\s+push: \$")
+
     def test_it_holds_torch_for_every_later_pip(self):
         # Manager's installs on a pod too: a pack asking for another torch would swap the CUDA one
         self.assertRegex(read(BASE), r'(?m)^ENV PIP_CONSTRAINT=/constraints\.txt$')
