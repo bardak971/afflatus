@@ -1359,10 +1359,54 @@ describe("LTX under a recording (card #2)", () => {
     // the same sound is the take's, and it is pinned whole
     expect(save(b).audio).toEqual(encoded);
     expect(all(b, "SolidMask").map((n) => n.inputs.value)).toEqual([0]);
-    // one past the clip's own end is refused in words; Video with audio has no cues
+    // one past the clip's own end is refused in words
     expect(() => build(ltxLipSync, { recordingSeconds: 5, cues: [{ ...cues[0]!, at: 9 }] }, { media: { ...rec(5), "cues.0": { width: 0, height: 0, seconds: 0.6 } } })).toThrow(/Sound cue 1 lands at 9 s, past the clip's end/);
+    // no "In the take" on Lip sync: the take carries the cue as it was pinned
     expect(ltxLipSync.inputs.some((i) => i.type === "cues")).toBe(true);
-    expect(ltxVideo.inputs.some((i) => i.type === "cues")).toBe(false);
+    expect(ltxLipSync.inputs.some((i) => i.id === "cueSound")).toBe(false);
+  });
+
+  it("Video with audio's sound cues: each part laid into a silence the clip's length, its own stretch held, the rest the model's", () => {
+    const cue = { asset: "s1", start: 0, seconds: 0.6, at: 2.4 };
+    const cueMedia = { "cues.0": { width: 0, height: 0, seconds: 0.6 } };
+    const b = build(ltxVideo, { recording: undefined, seconds: 5, cues: [cue] }, { uploads: { "cues.0": "clap.wav" }, media: cueMedia });
+    expect(b.frames).toBe(129);
+    // a silence as long as the clip, the cue laid in at 2.4 s (frame 60), encoded
+    const wave = ref(b, all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio);
+    expect(wave.class_type).toBe("AudioConcat");
+    const upTo = ref(b, wave.inputs.audio1);
+    expect(ref(b, ref(b, upTo.inputs.audio1).inputs.audio)).toMatchObject({ class_type: "EmptyAudio", inputs: { duration: 129 / 25 } });
+    expect(ref(b, ref(b, upTo.inputs.audio2).inputs.audio)).toMatchObject({ class_type: "LoadAudio", inputs: { audio: "clap.wav" } });
+    // held over the cue's 15 frames only, from frame 60: the rest of the column left to the model
+    expect(all(b, "SolidMask").map((n) => [n.inputs.value, n.inputs.height])).toEqual([[1, 129], [0, 15]]);
+    expect(all(b, "MaskComposite")[0]!.inputs).toMatchObject({ y: 60, operation: "multiply" });
+    expect(all(b, "SetLatentNoiseMask")).toHaveLength(2);
+    // the take: the model's sound, the cue's part laid in over its stretch
+    const take = ref(b, save(b).audio);
+    expect(take.class_type).toBe("AudioConcat");
+    expect(ref(b, ref(b, ref(b, take.inputs.audio1).inputs.audio1).inputs.audio)).toMatchObject({ class_type: "LTXVAudioVAEDecode" });
+    // the model's own asked for: its decoded sound alone in the take, the cue still held for it to hear
+    const own = build(ltxVideo, { recording: undefined, seconds: 5, cues: [cue], cueSound: "LTX 2.3's own" }, { uploads: { "cues.0": "clap.wav" }, media: cueMedia });
+    expect(ref(own, save(own).audio).class_type).toBe("LTXVAudioVAEDecode");
+    expect(all(own, "MaskComposite")).toHaveLength(1);
+    expect(ltxVideo.inputs.find((i) => i.id === "cueSound")).toMatchObject({ options: ["The file's sound", "LTX 2.3's own"] });
+  });
+
+  it("Video with audio's cues carrying on: the clip before's sound under the head from its file, head and cue held", () => {
+    const cue = { asset: "s1", start: 0, seconds: 0.6, at: 2.4 };
+    const latentOf = { ...prev, latentFrames: 97, latentCut: 97, latentSize: { width: 704, height: 1280 } };
+    for (const [media, uploads] of [[{ previous: prev }, {}], [{ previous: latentOf }, { "previous.latent": "c.safetensors" }]] as const) {
+      const b = build(ltxVideo, { recording: undefined, previous: { asset: "c" }, seconds: 5, cues: [cue] }, { uploads: { previous: "c.mp4", "cues.0": "clap.wav", ...uploads }, media: { ...media, "cues.0": { width: 0, height: 0, seconds: 0.6 } } });
+      const frames = ltxFrames(6);
+      const head = ref(b, ref(b, ref(b, ref(b, all(b, "LTXVAudioVAEEncode")[0]!.inputs.audio).inputs.audio1).inputs.audio1).inputs.audio);
+      expect(head.class_type).toBe("AudioConcat");
+      expect(ref(b, head.inputs.audio1).inputs).toMatchObject({ audio: [idOf(b, "GetVideoComponents"), 1], duration: 1 });
+      expect(ref(b, head.inputs.audio2)).toMatchObject({ class_type: "EmptyAudio", inputs: { duration: (frames - 25) / 25 } });
+      // the head a frame short, then the cue at 25 + 60
+      expect(all(b, "MaskComposite").map((n) => n.inputs.y)).toEqual([0, 85]);
+      expect(all(b, "SolidMask").map((n) => n.inputs.height)).toEqual([frames, 24, 15]);
+      expect(b.overlap).toMatchObject({ headMs: 1000 });
+    }
   });
 
   it("LTX 2.5's Lip sync at 24 a second, under its dual guider", () => {
