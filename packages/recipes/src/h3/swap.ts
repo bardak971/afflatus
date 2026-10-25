@@ -12,6 +12,7 @@ import { rifeNeeds } from "../shared/finish";
 import { partBounds } from "../motion/driving";
 import { H3_CONTINUATION_NODES, H3_LANDINGS, H3_SEAM, H3_TRIM } from "./join";
 import { FACE_REFINE_SLOTS, faceRefineNeeds } from "./faceRefine";
+import { cueMixNodes } from "./cue";
 
 /**
  * MiniMax H3 · Swap character: a person in a video replaced by someone of the cast, the rest of the video kept. The
@@ -87,8 +88,11 @@ const SWAP_LEAST = 90;
 const SWAP_CARRIED = 22;
 /** The run-ups a window takes, and the input that sets it: H3's own (the server cuts the source's windows for it). */
 export const SWAP_RUN_UP = { input: "context", counts: H3_LANDINGS.map(Number) };
-/** What each window of a source keeps its own: its prompt (the owner, 2026-10-20: clip 6 can show something else than clip 2). */
-export const SWAP_OWN = ["who", "happens"];
+/**
+ * What each window of a source keeps its own: its prompt (the owner, 2026-10-20: clip 6 can show something else than clip 2),
+ * and its sound cues, which land at a moment of that window alone.
+ */
+export const SWAP_OWN = ["who", "happens", "cues"];
 /** What the Source: length field takes, in seconds. */
 const SWAP_PART = (({ least, most }) => ({ min: least, max: most }))(partBounds({ fps: H3_FPS, most: SWAP_FRAMES, least: SWAP_LEAST }));
 
@@ -485,7 +489,7 @@ export const h3Swap = defineRecipe<H3Swap>({
     ...(input.fast && !modelOf({ ...input, model: input.swapModel ?? slots.swapUnet, turboIn: "From the name" }, slots).turbo && !slots.refTurbo && !slots.turbo ? ["refTurbo"] : []),
   ],
   // Show the mask runs the tracking and the masks alone (MASK_NODES, the preview node and the video out are optional)
-  nodes: (input) => input.maskPreview ? ["LoadVideo", "GetVideoComponents"] : [...new Set([...h3Video.nodes(asClip(input, "swap.safetensors", SWAP_FRAMES, 0, "minimax_h3_ref2va.safetensors")), ...(refinesOnly(input) ? [] : ["LoraLoaderModelOnly"]), ...(input.keepSound ? ["TrimAudioDuration"] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : [])])],
+  nodes: (input) => input.maskPreview ? ["LoadVideo", "GetVideoComponents"] : [...new Set([...h3Video.nodes(asClip(input, "swap.safetensors", SWAP_FRAMES, 0, "minimax_h3_ref2va.safetensors")), ...(refinesOnly(input) ? [] : ["LoraLoaderModelOnly"]), ...(input.keepSound ? ["TrimAudioDuration", ...cueMixNodes(input)] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : [])])],
   // the mask's nodes are not asked of a machine: one without them (an older node pack) swaps unmasked, and the job says so
   // Veda's node only serves its toggle, and without its pack the swap runs the full attention and says so on the job: an
   // optional node, so that it never stops a render and Settings › Models offers its pack among the optional ones
@@ -586,6 +590,12 @@ export const h3Swap = defineRecipe<H3Swap>({
         name: "a window of a long source, masked, carrying on from the window before",
         input: { who: "the man", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: false, maskOn: true },
         slots: all, uploads: { source: "v.mp4", previous: "w.mp4", "references.0": "r1.png" }, media: { source: { ...part, frames: 124 }, previous: { width: 864, height: 480, frames: 5, fps: H3_FPS, hasSound: true } },
+      },
+      {
+        // added over the source's own sound, which plays on under it
+        name: "a sound cue over the source's sound kept",
+        input: { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], cues: [{ asset: "s1", start: 0, seconds: 0.6, at: 2.4 }] },
+        slots: all, uploads: { source: "v.mp4", "references.0": "r1.png", "cues.0": "door.wav" }, media: { source: part, "cues.0": { width: 0, height: 0, seconds: 0.6 } },
       },
       {
         name: "a short part, Turbo, the sound H3 makes",

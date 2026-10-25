@@ -540,6 +540,16 @@ export function partOf(start: number, seconds: number, total: number | null): { 
 }
 
 /**
+ * The part of a sound as it was asked (a sound cue: a clap of half a second, its part from 0.3 s), the start never moved back
+ * for two seconds after it as partOf does for a voice; it ends where the sound ends when that comes first.
+ */
+export function exactPart(start: number, seconds: number, total: number | null): { start: number; seconds: number } {
+  if (total === null) return { start: Math.max(0, start), seconds };
+  const from = Math.max(0, Math.min(start, total - 0.05));
+  return { start: from, seconds: Math.max(0.05, Math.min(seconds, total - from)) };
+}
+
+/**
  * A part of a sound (or of a video's sound) as a sound of its own: from `start` seconds, `seconds` long.
  * The start is where it was asked, as long as two seconds are left after it; the part ends where the
  * sound ends when that comes first. `even` evens out its loudness, toward -16 LUFS (EBU R128) by one gain (evenGain): a voice
@@ -552,13 +562,13 @@ export function partOf(start: number, seconds: number, total: number | null): { 
  * `goesOn`: the next clip carries the sound on from where this clip stops, so the `after` seconds are the sound itself, not
  * faded out (a song never pauses: faded, every join of its clips fell silent, then sang that tail again).
  * `evenKey` names the sound given as bytes (its asset), so that its whole gain is measured once (wholeGain); `unmeasured` is
- * told when its loudness could not be measured, the part then left at its own level.
+ * told when its loudness could not be measured, the part then left at its own level. `exact`: the part as asked (exactPart).
  */
-export async function soundPart(source: Media, ext: string, opts: { start: number; seconds: number; durationMs?: number | null; even?: boolean; evenWhole?: boolean; after?: number; goesOn?: boolean; evenKey?: string; unmeasured?: () => void }): Promise<Uint8Array> {
+export async function soundPart(source: Media, ext: string, opts: { start: number; seconds: number; durationMs?: number | null; even?: boolean; evenWhole?: boolean; after?: number; goesOn?: boolean; evenKey?: string; unmeasured?: () => void; exact?: boolean }): Promise<Uint8Array> {
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "part.wav");
-    const { start, seconds } = partOf(opts.start, opts.seconds, opts.durationMs ? opts.durationMs / 1000 : null);
+    const { start, seconds } = (opts.exact ? exactPart : partOf)(opts.start, opts.seconds, opts.durationMs ? opts.durationMs / 1000 : null);
     const after = Math.max(0, opts.after ?? 0);
     const gain = !opts.even ? 0 : opts.evenWhole ? await wholeGain(input, source, opts.evenKey) : await evenGain(input, { start, seconds });
     // unmeasured, the part keeps its own level: said, for a clip of a recording then sounds louder or quieter than the others

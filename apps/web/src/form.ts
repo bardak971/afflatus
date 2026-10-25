@@ -35,6 +35,7 @@ function defaultOf(spec: InputSpec, options: string[] | undefined): unknown {
     case "clip": return undefined;
     case "references": return [];
     case "audio": return undefined;
+    case "cues": return [];
   }
 }
 
@@ -229,14 +230,14 @@ export function layoutOf(recipe: RecipeInfo, seen: Record<string, unknown>, q: s
   const length = secondsInput(recipe.inputs);
   // a recipe can file a size or a seed under Advanced on purpose (an imported workflow leaves the shelves to its importer)
   const isOut = (i: InputSpec) => i.section !== "rare" && (i.section === "out" || i.type === "size" || i.type === "seed" || (i.type === "number" && (i.id === length?.id || i.unit?.trim() === "p")));
-  const isMedia = (i: InputSpec) => i.type === "image" || i.type === "clip" || i.type === "references" || i.type === "audio";
+  const isMedia = (i: InputSpec) => i.type === "image" || i.type === "clip" || i.type === "references" || i.type === "audio" || i.type === "cues";
   const front = rest.filter((i) => !i.advanced || underPrompt(i) || isMedia(i));
   // a setting up front that only shows with a picture (how a guide picture is followed) sits under that picture
   const mediaIds = new Set(rest.filter(isMedia).map((i) => i.id));
   const withMedia = (i: InputSpec) => !i.advanced && typeof i.showWhen === "string" && mediaIds.has(i.showWhen);
   // a sound the result is made from (a lip sync's recording, an imported workflow's sound) is an input like a frame, not
   // a reference: it sits first with them, and a missing one opens the part. A voice sample stays with the references
-  const builtOn = (i: InputSpec): i is Extract<InputSpec, { type: "image" | "clip" | "audio" }> => i.type === "image" || i.type === "clip" || (i.type === "audio" && i.role === "sound");
+  const builtOn = (i: InputSpec): i is Extract<InputSpec, { type: "image" | "clip" | "audio" | "cues" }> => i.type === "image" || i.type === "clip" || i.type === "cues" || (i.type === "audio" && i.role === "sound");
   const pictures = rest.filter(builtOn);
   // an advanced setting filed under Output (a pass's denoise, a colour match) goes to the Output chapter's upscale
   // group by groupOf; only the shapes, the seed and the length stay out of the groups, on the Output shelf
@@ -297,8 +298,9 @@ export function summariesOf(recipe: RecipeInfo, layout: FormLayout, values: Reco
     return "";
   };
   const loraCount = loras.reduce((n, i) => n + ((values[i.id] as LoraValue[] | undefined)?.length ?? 0), 0);
-  const framesChosen = pictures.filter((i) => values[i.id]);
-  const missing = pictures.some((i) => !i.optional && !values[i.id]);
+  const framesChosen = pictures.filter((i) => holds(values[i.id]));
+  // (sound cues are a list, empty or not: never missing)
+  const missing = pictures.some((i) => i.type !== "cues" && !i.optional && !values[i.id]);
   const refsSaid = [
     extra.lookSummary,
     ...refs.map((i) => {

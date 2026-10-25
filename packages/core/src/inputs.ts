@@ -268,6 +268,27 @@ interface AudioInput extends Base {
 }
 
 /**
+ * Sounds that land at moments of the clip (a door slam, a clap, a music hit): each one a part of a sound from the library
+ * and the moment it lands, in seconds of the clip's own time (after the frames it shares with the clip before). The model
+ * hears it there; the recipe says whether the take's file carries it (its own choice input).
+ */
+interface CuesInput extends Base {
+  type: "cues";
+  max: number;
+}
+export interface CueValue {
+  /** The sound's id in the library (or a video that has sound). */
+  asset: string;
+  /** The part of it used: where it starts in the file and how long it lasts, in seconds. */
+  start: number;
+  seconds: number;
+  /** When it lands, in seconds of the clip's own time. */
+  at: number;
+}
+/** The longest part of a sound a cue takes, in seconds: a clip lasts 15 at most. */
+export const CUE_MAX_SECONDS = 15;
+
+/**
  * How long a part of a sound (or of a source video) one clip can hold: the clip's most frames at `fps`, less the frames of the clips it
  * joins (each clip input that is set: its count from its `framesFrom` input, else its first), less `pad` seconds
  * after the part, less the seconds of the `less` number inputs (a moment before the words). The clip's own part
@@ -335,7 +356,7 @@ export function partFit(fit: PartFit, specs: InputSpec[], values: Record<string,
 }
 
 export type InputSpec =
-  | PromptInput | ModelInput | LorasInput | SizeInput | NumberInput | ToggleInput | ChoiceInput | SeedInput | ImageInput | ClipInput | ReferencesInput | AudioInput;
+  | PromptInput | ModelInput | LorasInput | SizeInput | NumberInput | ToggleInput | ChoiceInput | SeedInput | ImageInput | ClipInput | ReferencesInput | AudioInput | CuesInput;
 
 export interface ClipValue {
   /** The video's id in the library. */
@@ -411,6 +432,10 @@ function schemaOf(spec: InputSpec): z.ZodType {
       return z.array(z.strictObject({ asset: z.string().min(1), role: z.enum(spec.roles as [ReferenceRole, ...ReferenceRole[]]) })).max(spec.max).default([]);
     case "audio":
       return spec.optional ? z.string().min(1).optional() : z.string().min(1);
+    case "cues":
+      return z.array(z.strictObject({
+        asset: z.string().min(1), start: z.number().min(0), seconds: z.number().positive().max(CUE_MAX_SECONDS), at: z.number().min(0),
+      })).max(spec.max).default([]);
   }
 }
 

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { InputSpec, ReferenceValue } from "@afflatus/core";
+import { CUE_MAX_SECONDS, type CueValue, type InputSpec, type ReferenceValue } from "@afflatus/core";
 import type { Asset, Look, RecipeInfo } from "./api";
 import type { MenuItem } from "./ContextMenu";
 
@@ -52,6 +52,9 @@ export function formPlaces(target: Target | null, a: Asset): MenuItem[] {
       out.push({ label: i.label || (i.media === "video" ? "Reference video" : "Reference image"), note: has ? "already there" : `${list.length} of ${i.max}`, disabled: has || list.length >= i.max, run: () => set(i.id, [...list, { asset: a.id, role: i.roles[0]! }]) });
     } else if (i.type === "audio" && (a.kind === "audio" || (a.kind === "video" && a.hasSound))) {
       out.push({ label: i.label || (i.role === "voice" ? "Voice sample" : "Sound"), note: a.kind === "video" ? "its sound" : filled(i.id) ? "replaces the one there" : undefined, run: () => set(i.id, a.id) });
+    } else if (i.type === "cues" && (a.kind === "audio" || (a.kind === "video" && a.hasSound))) {
+      const list = (values[i.id] as CueValue[] | undefined) ?? [];
+      out.push({ label: i.label, note: `${list.length} of ${i.max}`, disabled: list.length >= i.max, run: () => set(i.id, [...list, { asset: a.id, start: 0, seconds: CUE_MAX_SECONDS, at: 0 }]) });
     }
   }
   return out;

@@ -11,6 +11,7 @@ import { partBounds } from "../motion/driving";
 import { asClip as swapClip, h3Swap, SWAP_FRAMES, SWAP_RUN_UP, type H3Swap } from "./swap";
 import { controlled, frameBefore, MOTION_CHAPTER, motionControlInputs, motionNeeds, motionNodes, poseVideo, POSE_SDPOSE, type H3Motion } from "./motion";
 import { FACE_REFINE_SLOTS, faceRefineNeeds } from "./faceRefine";
+import { cueMixNodes } from "./cue";
 
 /**
  * MiniMax H3 · Motion transfer (the owner's, 2026-10-18; built 2026-10-20): a picture made to move like a driving video,
@@ -240,7 +241,7 @@ function nodesAfterSwap(input: H3MotionTransfer): string[] {
   const optional = new Set(MOTION_OPTIONAL);
   return [...new Set([
     ...h3Video.nodes({ ...swapClip(asSwap(input), null, SWAP_FRAMES, MOTION_CARRIED), description: "a", references: [...input.references, { asset: "frame", role: "person" }] }),
-    ...(input.keepSound ? ["TrimAudioDuration"] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : []),
+    ...(input.keepSound ? ["TrimAudioDuration", ...cueMixNodes(input)] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : []),
     ...motionNodes(input),
   // (with no cast photo, the frame is the only picture: nothing loaded from a file)
   ])].filter((n) => !optional.has(n) && !(n === "LoadImage" && input.references.length === 0));
@@ -271,7 +272,7 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
   traits: {
     startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID,
     latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], faceRefine: "faceRefine",
-    windows: { most: SWAP_FRAMES, least: MOTION_LEAST, carried: MOTION_CARRIED, runUp: SWAP_RUN_UP, own: ["description", "happens"] },
+    windows: { most: SWAP_FRAMES, least: MOTION_LEAST, carried: MOTION_CARRIED, runUp: SWAP_RUN_UP, own: ["description", "happens", "cues"] },
   },
   inputs,
   chapters: [MOTION_CHAPTER],
@@ -291,7 +292,7 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
   nodes: (input) => afterSwap(input) ? nodesAfterSwap(input) : [...new Set([
     // carrying on, the clip before's last frame is a picture of who moves: the reference route (with H3's reference model there)
     ...h3Video.nodes(asWindow(input)), ...motionNodes(input),
-    ...(input.keepSound ? ["TrimAudioDuration"] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : []),
+    ...(input.keepSound ? ["TrimAudioDuration", ...cueMixNodes(input)] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : []),
   // (carrying on with no cast photo, the frame is the only picture: nothing loaded from a file)
   ])].filter((n) => !(n === "LoadImage" && input.previous && input.references.length === 0)),
   optionalNodes: MOTION_OPTIONAL,
@@ -350,6 +351,11 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
         name: "a picture moved by the driving video's pose (DWPose), its sound kept",
         input: { picture: "p1", source: { asset: "v1" }, description: "A man dances in a living room." },
         slots: all, uploads: { picture: "p.png", source: "v.mp4" }, media: { picture, source: part },
+      },
+      {
+        name: "a picture moved by the driving video, a sound cue over its sound",
+        input: { picture: "p1", source: { asset: "v1" }, description: "A man dances in a living room and claps once.", cues: [{ asset: "s1", start: 0, seconds: 0.6, at: 2.4 }] },
+        slots: all, uploads: { picture: "p.png", source: "v.mp4", "cues.0": "clap.wav" }, media: { picture, source: part, "cues.0": { width: 0, height: 0, seconds: 0.6 } },
       },
       {
         name: "Veda's sparse attention on a moved picture",

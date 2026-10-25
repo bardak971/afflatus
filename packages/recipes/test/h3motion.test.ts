@@ -106,7 +106,7 @@ describe("MiniMax H3 · Motion transfer after a swap (H3 · Swap motion retired,
   });
 
   it("writes its prompt from the parts as carrying on, the plain carrying on with none, each window keeping its own", () => {
-    expect(h3MotionTransfer.traits!.windows!.own).toEqual(["description", "happens"]);
+    expect(h3MotionTransfer.traits!.windows!.own).toEqual(["description", "happens", "cues"]);
     const after = (look: string, happens: string) => h3MotionTransfer.promptFromParts!({ afterSwap: true, look, happens } as never);
     expect(after("", "")).toBe(CARRY_ON_PROMPT);
     expect(after("short brown hair", "he dances")).toBe("The person, short brown hair, carries on moving as in the clip before. He dances.");

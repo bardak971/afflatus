@@ -1,10 +1,11 @@
-import { REFERENCE_ROLES, type ClipValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
+import { REFERENCE_ROLES, type ClipValue, type CueValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import { H3_FORM_PIXELS, H3_FPS } from "./family";
 import { UPSCALE, upscaleInputs } from "../video/upscale";
 import { COLOUR_MATCH_INPUTS, type ColourMatch } from "../shared/finish";
 import { H3_REFERENCES, H3_REFERENCE_VIDEOS } from "./condition";
 import { H3_JOIN_FRAMES, H3_LANDINGS } from "./join";
 import { FACE_REFINE_INPUTS } from "./faceRefine";
+import { CUE_SOUND, H3_CUES } from "./cue";
 
 export interface H3Video extends ColourMatch {
   model?: string;
@@ -17,6 +18,10 @@ export interface H3Video extends ColourMatch {
   end?: string;
   mid?: string;
   midAt: number;
+  /** Sounds that land at moments of the clip, each a part of a file (cue.ts). */
+  cues: CueValue[];
+  /** Whose sound the take's file carries at each cue: CUE_SOUND's. */
+  cueSound: string;
   previous?: ClipValue;
   /** Whether a frozen tail of the clip before is cut off, so this one carries on from its last lively moment (read by the server, not the graph). */
   handover: boolean;
@@ -101,6 +106,15 @@ export const h3Inputs: InputSpec[] = [
   { id: "end", type: "image", role: "end", label: "Last frame", note: "the last frame. Not used with reference pictures, videos or a voice sample: the reference model takes no last frame", optional: true },
   { id: "mid", type: "image", role: "mid", at: "midAt", label: "Keyframe", note: "a picture the clip passes through, at the time set below", optional: true, advanced: true },
   { id: "midAt", type: "number", label: "Keyframe at", min: 0.5, max: 14.5, step: 0.5, default: 2.5, unit: " s", showWhen: "mid", advanced: true },
+  {
+    // a sound alone pinned at a frame lands there exactly, and the picture meets it only when the words name it (card #79)
+    id: "cues", type: "cues", label: "Sound cues", max: H3_CUES,
+    note: "sounds that land at moments of the clip: a door slam, a clap, a line, a music hit. Each one is a part of its file and the moment it lands, in the clip's own time. H3 hears it there; the picture meets it when What happens names it at that moment (\"she claps her hands once\")",
+  },
+  {
+    id: "cueSound", type: "choice", label: "In the take", options: [...CUE_SOUND], default: CUE_SOUND[0], showWhen: "cues",
+    note: "the file's sound: each cue's part is laid into the take at its moment, over H3's own sound there (added over a recording or a source's sound, which play on unchanged under it). H3's own: H3 makes the sound it hears at the cue, which may or may not be the file, and the file only guides it",
+  },
   {
     id: "previous", type: "clip", role: "previous", label: "Previous clip", optional: true, frames: H3_JOIN_FRAMES, framesFrom: "context", fps: H3_FPS, look: "matched",
     note: "the motion and the voices of that clip continue into this one. With the Afflatus node pack in ComfyUI (Settings → ComfyUI), the clip continues from that clip's own latent, which keeps the look and the voice as well as the motion",

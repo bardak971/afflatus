@@ -1,5 +1,5 @@
 import type { OutputFile, waitForOutputs } from "@afflatus/comfy";
-import type { ClipValue, InputSpec, Recipe, ReferenceValue } from "@afflatus/core";
+import type { ClipValue, CueValue, InputSpec, Recipe, ReferenceValue } from "@afflatus/core";
 import { draftNames, labelNames, passName, promptOf } from "./autoName";
 import type { Comfy } from "./comfy";
 import { frameAt } from "./cut";
@@ -376,6 +376,7 @@ function sourcesOf(recipe: Recipe<any>, input: Record<string, unknown>, resume: 
     if (spec.type === "clip" && value) sources.push({ asset: (value as ClipValue).asset, role: spec.role });
     if (spec.type === "references" && Array.isArray(value)) for (const ref of value as ReferenceValue[]) sources.push({ asset: ref.asset, role: ref.role });
     if (spec.type === "audio" && typeof value === "string") sources.push({ asset: value, role: spec.role });
+    if (spec.type === "cues" && Array.isArray(value)) for (const cue of value as CueValue[]) sources.push({ asset: cue.asset, role: "cue" });
   }
   return sources;
 }

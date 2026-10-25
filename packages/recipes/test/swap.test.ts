@@ -51,7 +51,7 @@ describe("MiniMax H3 · Swap character", () => {
     const sampler = of(graph, "SamplerCustomAdvanced")[0]!;
     expect(graph[(sampler.inputs.latent_image as [string, number])[0]]!.class_type).toBe("LTXVConcatAVLatent");
     expect(built.overlap).toMatchObject({ headMs: 917, latent: true, seam: true });
-    expect(h3Swap.traits?.windows).toMatchObject({ most: 141, least: 90, carried: 22, runUp: { input: "context", counts: [5, 22, 39] }, own: ["who", "happens"] });
+    expect(h3Swap.traits?.windows).toMatchObject({ most: 141, least: 90, carried: 22, runUp: { input: "context", counts: [5, 22, 39] }, own: ["who", "happens", "cues"] });
   });
 
   it("carries on by the window before's frames when its latent was not kept: pinned at the start with their sound", () => {

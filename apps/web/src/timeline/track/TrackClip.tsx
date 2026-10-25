@@ -20,6 +20,7 @@ import type { Over } from "./useTrackDrop";
 import { useSpringBack } from "./useSpringBack";
 import { useNearJoin, type NearJoin } from "./nearJoin";
 import { Wave } from "./Wave";
+import { CueMarks } from "./CueMarks";
 
 /**
  * An edge being dragged: the clip, which edge, and the length drawn for now (past a limit, a little more: useStretch).
@@ -375,6 +376,8 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
         {opens && mirrored.has("start") && <MirrorMark className="top-[18px] left-9" onMenu={pinMenu("start")} />}
         {ends && mirrored.has("end") && <MirrorMark className="top-[18px] right-2" onMenu={pinMenu("end")} />}
         {through && mirrored.has("mid") && <MirrorMark className="top-[18px]" style={{ left: `calc(${through.part * 100}% + 8px)` }} onMenu={pinMenu("mid")} />}
+        {/* a ♪ where each sound cue lands (card #71) */}
+        <CueMarks inputs={c.inputs} specs={recipe?.inputs} lengthMs={s.lengthMs} />
         {pinned && <span aria-hidden className={cx("absolute inset-y-0 w-2 bg-accent", pinned === "start" ? "left-0" : pinned === "end" ? "right-0" : "left-1/2 -translate-x-1/2")} />}
       </div>
 
