@@ -7,7 +7,7 @@ import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import { colourCarried, colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, openingStart, rifeNeeds, rifeSkippedSaid, type ColourMatch } from "../shared/finish";
 import { applyLoras, livePreview, loraLoads } from "../shared/model";
 import { recordingInputs, recordingNodes, recordingOnClip, type Recording, type RecordingFrames } from "../shared/recording";
-import { cuesFor, H3_CUES, layCues } from "../h3/cue";
+import { CUE_SOUND, cuesFor, H3_CUES, layCues, laysCues } from "../h3/cue";
 
 /**
  * The LTX video recipe, made for a version of the model: LTX 2.3 and LTX 2.5 are the same two-pass graph (half the size
@@ -204,8 +204,10 @@ export interface LtxVideo extends ColourMatch, Partial<Recording> {
   model?: string;
   /** Lip sync: a moment of the clip before the words begin, in seconds after the frames of the clip before. */
   speechAt?: number;
-  /** Lip sync: sounds laid into the clip's sound at moments of it, pinned with the recording. */
+  /** Sounds pinned in the clip's sound at moments of it: on Lip sync with the recording, on Video with audio on their own. */
   cues?: CueValue[];
+  /** Video with audio: whose sound the take carries at a cue, the file's part (the first) or the model's. */
+  cueSound?: string;
   turboIn: string;
   prompt: string;
   negative: string;
@@ -589,14 +591,51 @@ function pinnedSound(g: GraphBuilder, audioVae: Ref, wave: Ref, frames: number, 
 }
 
 /**
- * Lip sync's sound cues (card #2), as H3's forms take them (card #71): each a part of a file at a moment of the clip's own
- * time. Here they are added into the sound the clip is made to, over the recording, and held there with it: the model hears
- * them as the clip's own and the take carries them as they are, so there is no "In the take" choice to make.
+ * The sound cues (card #2), as H3's forms take them (card #71): each a part of a file at a moment of the clip's own time. On
+ * Lip sync they are added into the sound the clip is made to, over the recording, and held there with it: the take carries
+ * them as they are, so there is no "In the take" choice to make. On Video with audio each one's stretch of the clip's sound is
+ * held as the file, the rest left to the model (cuedSound), and the take carries the file's part or the model's.
  */
-const lipSyncCues: InputSpec = {
-  id: "cues", type: "cues", label: "Sound cues", max: H3_CUES,
-  note: "sounds that land at moments of the clip: a door slam, a clap, a music hit. Each one is a part of its file and the moment it lands, in the clip's own time, added over the recording and held with it, so the take carries it as it is; the picture meets it when What happens names it at that moment (\"she claps her hands once\")",
-};
+function ltxCues(spec: LtxSpec): InputSpec[] {
+  const cues: InputSpec = {
+    id: "cues", type: "cues", label: "Sound cues", max: H3_CUES,
+    note: spec.lipSync
+      ? "sounds that land at moments of the clip: a door slam, a clap, a music hit. Each one is a part of its file and the moment it lands, in the clip's own time, added over the recording and held with it, so the take carries it as it is; the picture meets it when What happens names it at that moment (\"she claps her hands once\")"
+      : `sounds that land at moments of the clip: a door slam, a clap, a line, a music hit. Each one is a part of its file and the moment it lands, in the clip's own time. ${spec.name} hears it there as the clip's own sound and makes the rest around it; the picture meets it when the prompt names it at that moment ("she claps her hands once")`,
+  };
+  if (spec.lipSync) return [cues];
+  return [cues, {
+    id: "cueSound", type: "choice", label: "In the take", options: [CUE_SOUND[0], `${spec.name}'s own`], default: CUE_SOUND[0], showWhen: "cues",
+    note: `the file's sound: each cue's part is laid into the take at its moment, over ${spec.name}'s own sound there (added over a recording that plays over the clip, which plays on unchanged under it). ${spec.name}'s own: the sound it decodes there, the cue as it heard it`,
+  }];
+}
+
+/**
+ * Video with audio's sound with its cues pinned in it (card #2): a sound as long as the clip, the clip before's under the head
+ * (`before`, from its file: the latent's own head mask is at the latent's size, which a mask counted in frames cannot be laid
+ * on), silence after it, each cue's part laid in at its moment; encoded, laid into the clip's silence, and held by a noise
+ * mask of 0 over the head and each cue's stretch only. The mask is a column as tall as the clip's frames: ComfyUI stretches
+ * it over the sound's own steps (reshape_mask, bilinear), so a row is a frame's moment of the sound, as headSound's is.
+ */
+function cuedSound(g: GraphBuilder, audioVae: Ref, before: Ref | null, cues: NonNullable<ReturnType<typeof cuesFor>>, frames: number, head: number, fps: number): { sound: Ref; pin: (audio: Ref) => Ref; carried: boolean } {
+  const quiet = (duration: number): Ref => g.out("EmptyAudio", { duration, sample_rate: 48000, channels: 2 });
+  const base = before ? g.out("AudioConcat", { audio1: before, audio2: quiet((frames - head) / fps), direction: "after" }) : quiet(frames / fps);
+  const wave = layCues(g, base, cues.placed, cues.parts, { frames, over: false, fps });
+  const silence = g.out("LTXVEmptyLatentAudio", { frames_number: frames, frame_rate: fps, batch_size: 1, audio_vae: audioVae });
+  const laid = g.out("LatentCompositeMasked", { destination: silence, source: g.out("LTXVAudioVAEEncode", { audio: wave, audio_vae: audioVae }), x: 0, y: 0, resize_source: false });
+  let mask: Ref = g.out("SolidMask", { value: 1, width: 1, height: frames });
+  const hold = (from: number, rows: number) => {
+    mask = g.out("MaskComposite", { destination: mask, source: g.out("SolidMask", { value: 0, width: 1, height: rows }), x: 0, y: from, operation: "multiply" });
+  };
+  // the head a frame short, as headSound pins it; each cue over its own frames, one at least
+  if (before && head > 1) hold(0, head - 1);
+  for (const p of cues.placed) hold(p.frame, Math.max(1, Math.round(p.seconds * fps)));
+  const pin = (audio: Ref): Ref => g.out("SetLatentNoiseMask", { samples: audio, mask });
+  return { sound: pin(laid), pin, carried: Boolean(before) };
+}
+
+/** The nodes Video with audio's cues add: the parts loaded and fitted, laid into a silence, encoded and pinned; mixed over a recording in the take. */
+const CUED_SOUND_NODES = ["LoadAudio", "TrimAudioDuration", "EmptyAudio", "AudioConcat", "LTXVAudioVAEEncode", "LatentCompositeMasked", "SolidMask", "MaskComposite", "SetLatentNoiseMask"];
 
 /** Said after the scene on Lip sync, as on H3's: what the recording is, so that the person in the picture says it. */
 const SPEAKS = "The person speaks throughout, the lips moving with every word.";
@@ -617,7 +656,7 @@ function formInputs(spec: LtxSpec, inputs: InputSpec[]): InputSpec[] {
   return inputs.flatMap((i): InputSpec[] => {
     if (i.id === "seconds") return spec.lipSync ? [] : [i, ...recordingInputs({ shown: false, fit, note: `the recording the clip is under: its part is the clip's sound, laid over ${spec.name}'s own` })];
     // Lip sync's cues after the keyframe's moment, where H3's forms have theirs
-    if (i.id === "midAt" && spec.lipSync) return [i, lipSyncCues];
+    if (i.id === "midAt") return [i, ...ltxCues(spec)];
     if (i.id === "prompt" && spec.lipSync && i.type === "prompt") {
       return [
         { ...i, label: "What happens", placeholder: "A medium close-up. A man at a café terrace talks to the camera, calm and friendly, his eyebrows lifting between phrases.", note: "where they are and how they speak, without a dialogue line: the recording is what is said, and the clip's whole sound" },
@@ -782,6 +821,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         ...(input.recording ? recordingNodes({ joined: false }) : []),
         // Lip sync's cues: each part loaded and fitted, then added over the recording on its own stretch
         ...(spec.lipSync && input.cues?.length ? ["LoadAudio", "TrimAudioDuration", "AudioMerge", "AudioConcat"] : []),
+        // Video with audio's: pinned in the clip's own sound, mixed over a recording that plays over it in the take
+        ...(!spec.lipSync && input.cues?.length ? [...CUED_SOUND_NODES, ...(input.recording && laysCues(input) ? ["AudioMerge"] : [])] : []),
         ...(input.model ? unetNodes(input.model).filter((n) => n !== "UNETLoader") : []),
         ...(spec.loader === "split" ? ["UNETLoader", "CLIPLoader", "VAELoader"] : []),
         ...(input.schedule === BY_STEPS ? ["LTXVScheduler"] : []),
@@ -884,23 +925,25 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       // words; the recording through both where the clip before sang up to the part). Else the head's sound alone, when the
       // clip carries on from one with sound: from its latent, else encoded from its frames
       const at = { head, frames };
-      const heardBefore = spec.lipSync && previous && head > 0 && media.previous?.hasSound !== false ? g.out("TrimAudioDuration", { audio: [previous[0], 1], start_index: 0, duration: head / fps }) : null;
+      // the cues, in the clip's own time after the head: Lip sync's added over the recording (card #71's way over a recording:
+      // on each cue's own stretch) and held with it; Video with audio's held in a sound of their own (cuedSound)
+      const cues = cuesFor(g, ctx, input.cues, { head, tail, frames, fps });
+      const heardBefore = (spec.lipSync || cues) && previous && head > 0 && media.previous?.hasSound !== false ? g.out("TrimAudioDuration", { audio: [previous[0], 1], start_index: 0, duration: head / fps }) : null;
       const ahead = (): Ref | null => {
         if (!laid || laid.sungThrough(at) || !heardBefore) return null;
         if (lead <= 0) return heardBefore;
         const quiet = g.out("TrimAudioDuration", { audio: g.out("AudioAdjustVolume", { audio: laid.whole(g), volume: -100 }), start_index: 0, duration: lead / fps });
         return g.out("AudioConcat", { audio1: heardBefore, audio2: quiet, direction: "after" });
       };
-      // Lip sync's cues added over it at their moments (card #71's way over a recording: on each cue's own stretch), so that
-      // they are held with it and the take carries them
-      const cues = spec.lipSync ? cuesFor(g, ctx, input.cues, { head, tail, frames, fps }) : null;
       const recorded = spec.lipSync && laid ? laid.sound(g, ahead(), at) : null;
       const wave = recorded && cues ? layCues(g, recorded, cues.placed, cues.parts, { frames, over: true, fps }) : recorded;
       const carry = wave
         ? { ...pinnedSound(g, loaded.audioVae, wave, frames, fps), carried: head > 0 && Boolean(heardBefore || laid!.sungThrough(at)) }
-        : continued
-          ? { sound: [continued, 1] as Ref, pin: (audio: Ref): Ref => g.out("SetLatentNoiseMask", { samples: audio, mask: [continued, 2] }), carried: true }
-          : headSound(g, ctx, loaded.audioVae, previous, frames, head, fps);
+        : cues
+          ? cuedSound(g, loaded.audioVae, heardBefore, cues, frames, head, fps)
+          : continued
+            ? { sound: [continued, 1] as Ref, pin: (audio: Ref): Ref => g.out("SetLatentNoiseMask", { samples: audio, mask: [continued, 2] }), carried: true }
+            : headSound(g, ctx, loaded.audioVae, previous, frames, head, fps);
       const run: LtxRun = {
         spec, g, ctx, input, loaded, cond, steps, frame: { width, height, frames }, passes: [], head, opens, previous, tail,
         next: lands ? clipOf(ctx.uploads.next) : null,
@@ -940,7 +983,13 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       // the take's sound: Lip sync's is the sound it was made to; one a recording plays over carries its part after the head
       // (card #72's rule: the model's own sound there is dropped); else the model's
       const decoded = wave ? null : g.out("LTXVAudioVAEDecode", { samples: made.audio, audio_vae: loaded.audioVae });
-      const heard = wave ?? (laid ? laid.sound(g, decoded, at) : decoded!);
+      // Video with audio's cues laid into it as the files, unless the model's own sound there is asked for: in place of it, or
+      // added over the recording it plays under
+      const theirs = (): Ref => {
+        const own = laid ? laid.sound(g, decoded, at) : decoded!;
+        return cues && laysCues(input) ? layCues(g, own, cues.placed, cues.parts, { frames, over: Boolean(laid), fps }) : own;
+      };
+      const heard = wave ?? theirs();
       // matched to the first frame (a clip that opens a chain), or carrying that match on (one that continues it: its head's last
       // frame is the clip before's last moment, brought to how that clip was filed)
       const looked = colourCarried(g, ctx, colourMatched(g, ctx, images, openingStart(input), fps), head - 1, fps);

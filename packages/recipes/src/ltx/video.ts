@@ -89,6 +89,28 @@ const spec: LtxSpec = {
       { name: "RIFE asked for although the temporal upscaler is there", input: { prompt: "a", smooth: true, smoothWith: "RIFE (pixels)" }, slots: { ...one, ...temporal } },
       { name: "a GGUF diffusion model, ComfyUI's own video output", input: { prompt: "a", model: "ltx-2.3-22b-dev-Q4_K_M.gguf" }, slots: { ...parts, ...extras }, has: (n: string) => n !== "VHS_VideoCombine" },
       {
+        name: "a sound cue pinned in its own sound, laid into the take",
+        input: { prompt: "She claps once.", cues: [{ asset: "s1", start: 0, seconds: 0.6, at: 2.4 }] },
+        slots: { ...one, ...extras }, uploads: { "cues.0": "clap.wav" }, media: { "cues.0": { width: 0, height: 0, seconds: 0.6 } },
+      },
+      {
+        name: "two sound cues carrying on from a clip, its sound under the head: LTX's own sound in the take",
+        input: { prompt: "a", previous: { asset: "c1" }, cues: [{ asset: "s1", start: 0, seconds: 0.6, at: 2.4 }, { asset: "s2", start: 1, seconds: 0.5, at: 0 }], cueSound: "LTX 2.3's own" },
+        slots: { ...one, ...extras }, uploads: { previous: "a.mp4", "cues.0": "clap.wav", "cues.1": "door.wav" },
+        media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX_FPS, hasSound: true }, "cues.0": { width: 0, height: 0, seconds: 0.6 }, "cues.1": { width: 0, height: 0, seconds: 0.5 } },
+      },
+      {
+        name: "a sound cue carrying on in the clip before's latent: the head's sound from its file",
+        input: { prompt: "a", previous: { asset: "c1" }, cues: [{ asset: "s1", start: 0, seconds: 0.6, at: 1 }] },
+        slots: { ...one, ...extras }, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors", "cues.0": "clap.wav" },
+        media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX_FPS, hasSound: true, latentFrames: 97, latentCut: 97, latentSize: { width: 704, height: 1280 } }, "cues.0": { width: 0, height: 0, seconds: 0.6 } },
+      },
+      {
+        name: "a sound cue under a recording it plays over: added over the recording in the take",
+        input: { prompt: "a", recording: "a1", recordingSeconds: 5.9, cues: [{ asset: "s1", start: 0, seconds: 0.6, at: 2.4 }] },
+        slots: { ...one, ...extras }, uploads: { recording: "rec.wav", "cues.0": "clap.wav" }, media: { recording: { width: 0, height: 0, seconds: 5.9, after: 4 }, "cues.0": { width: 0, height: 0, seconds: 0.6 } },
+      },
+      {
         name: "under a recording it plays over: its part is the take's sound, the clip as long as it",
         input: { prompt: "a", start: "p1", recording: "a1", recordingSeconds: 5.9, seconds: 9 },
         slots: { ...one, ...extras }, uploads: { start: "a.png", recording: "rec.wav" }, media: { start: picture, recording: { width: 0, height: 0, seconds: 5.9, after: 4 } },

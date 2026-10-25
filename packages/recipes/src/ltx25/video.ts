@@ -94,6 +94,11 @@ const spec: LtxSpec = {
       },
       { name: "SeedVR2 upscale, ComfyUI's own video output", input: { prompt: "a", upscale: "Video: SeedVR2 (restores)", upscaleBy: 2 }, slots: { ...parts, ...extras, seedvr: "seedvr2_3b_int8_convrot.safetensors", seedvrVae: "seedvr2_ema_vae_fp16.safetensors" }, has: (n: string) => n !== "VHS_VideoCombine" },
       {
+        name: "a sound cue pinned in its own sound",
+        input: { prompt: "She claps once.", cues: [{ asset: "s1", start: 0, seconds: 0.6, at: 2.4 }] },
+        slots: { ...parts, ...extras }, uploads: { "cues.0": "clap.wav" }, media: { "cues.0": { width: 0, height: 0, seconds: 0.6 } },
+      },
+      {
         name: "under a recording it plays over",
         input: { prompt: "a", recording: "a1", recordingSeconds: 5.9 },
         slots: { ...parts, ...extras }, uploads: { recording: "rec.wav" }, media: { recording: { width: 0, height: 0, seconds: 5.9, after: 4 } },
