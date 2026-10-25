@@ -102,6 +102,28 @@ describe("a rented pod's model files", () => {
     expect(files.jobState("pod", "other")).toBeNull();
   });
 
+  // card #93, #81's test pod: a model picked in a form has no address in its job's plan; the deploy's list, read once the pod is
+  // up, came after with one, and was not read. The file failed, the job stayed planned there, held by that entry, the pod billed
+  it("that failed with no site known come once an address is given, and a job is held only by the files it is sent for now", async () => {
+    files.want("pod", [{ file: "nowhere.safetensors", folder: "loras" }, { file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors` }], { tier: "need", job: "j1" });
+    await settle("pod", "nowhere.safetensors");
+    await settle("pod", "a.safetensors");
+    expect(files.view("pod").find((f) => f.file === "nowhere.safetensors")).toMatchObject({ state: "failed", error: expect.stringContaining("no site is known") });
+    expect(files.jobState("pod", "j1")?.state).toBe("failed");
+    // the plan sends it only a.safetensors now (nowhere.safetensors on the pod by other means): ready
+    expect(files.jobState("pod", "j1", [{ file: "a.safetensors", folder: "loras" }])?.state).toBe("ready");
+    // the deploy's list with its address: back in line, and fetched
+    files.want("pod", [{ file: "nowhere.safetensors", folder: "loras", url: `${siteUrl}/files/nowhere.safetensors`, size: FILE.length }], { tier: "ahead" });
+    expect(files.view("pod").find((f) => f.file === "nowhere.safetensors")?.state).toBe("next");
+    await settle("pod", "nowhere.safetensors");
+    expect(files.view("pod").find((f) => f.file === "nowhere.safetensors")).toMatchObject({ state: "ready", via: "url", jobs: ["j1"] });
+    expect(files.jobState("pod", "j1")?.state).toBe("ready");
+    // one left out at the deploy stays out, an address or not
+    files.leaveOut("pod", [{ file: "out.safetensors", folder: "loras" }]);
+    files.want("pod", [{ file: "out.safetensors", folder: "loras", url: `${siteUrl}/files/out.safetensors` }], { tier: "ahead" });
+    expect(files.view("pod").find((f) => f.file === "out.safetensors")).toMatchObject({ state: "failed", error: "left out when the pod was deployed" });
+  });
+
   it("of a gated Hugging Face model are signed with the user's token, sent to Hugging Face alone", async () => {
     const seen: Array<Record<string, string>> = [];
     t.services.downloads.signer = async (source, headers) => {

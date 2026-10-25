@@ -154,6 +154,8 @@ const DISK_FULL = /disk is full|no space left|\(507[:)]/i;
 const NO_ROOM = /^(the pod's disk|its volume) is full/;
 /** Room kept free on a pod's disk beside its models: ComfyUI's outputs, its temporary files, the pack's .part files. */
 const DISK_MARGIN = 2 * 2 ** 30;
+/** Why a file failed when no site is known for it and this computer has no copy: an address given later puts it back in line. */
+const NO_SOURCE = "no site is known for it, and this computer's ComfyUI has no copy to send";
 /** How often a pod's disk is read again (GET /afflatus/disk): its row says it, and a file is held against it before it starts. */
 const DISK_EVERY_MS = 15_000;
 const gbSaid = (bytes: number) => `${(bytes / 2 ** 30).toFixed(1)} GB`;
@@ -481,6 +483,21 @@ export class PodFiles {
         e.needAt = ++this.seq;
         changed = true;
       }
+      // where it comes from, when the first ask had none: a job's plan names a model picked in its form with no address, and the
+      // deploy's list, read once the pod is up, came after it with the address (card #93: the file failed, "no site is known").
+      // One that failed for want of a source goes back in line with it
+      // (one left out at the deploy stays out)
+      if ((f.url || f.civitai) && !e.url && !e.civitai) {
+        if (f.url) e.url = f.url;
+        if (f.civitai) e.civitai = f.civitai;
+        if (!e.total && f.size) e.total = f.size;
+        if (e.state === "failed" && e.error === NO_SOURCE) {
+          e.state = "next";
+          delete e.error;
+          delete e.source;
+        } else if (e.state === "next" && e.source === null) delete e.source;
+        changed = true;
+      }
       if (!o.sentFor) e.byUser = true;
       else if (!e.sentFor?.includes(o.sentFor)) (e.sentFor ??= []).push(o.sentFor);
       if (o.job && !e.jobs.includes(o.job)) {
@@ -524,9 +541,15 @@ export class PodFiles {
     return [...(this.pods.get(machine)?.values() ?? [])].some((e) => e.sentFor?.includes(job) && e.state !== "failed");
   }
 
-  /** A job's files on that pod: all there ("ready"), one that cannot be had ("failed", with why), or still coming; null when it asked for none. */
-  jobState(machine: string, job: string): { state: "ready" | "waiting" | "failed"; error?: string; files: PodFileView[] } | null {
-    const mine = [...(this.pods.get(machine)?.values() ?? [])].filter((e) => e.jobs.includes(job));
+  /**
+   * A job's files on that pod: all there ("ready"), one that cannot be had ("failed", with why), or still coming; null when it
+   * asked for none. `only`: the files the plan sends it for now. One it was sent for before and no longer lacks (put on the pod
+   * by other means after it failed) does not hold it: #81's test pod sat 33 minutes billed with the job planned there, never
+   * started, for a failed entry of a file it had (card #93).
+   */
+  jobState(machine: string, job: string, only?: ReadonlyArray<{ file: string; folder: string }>): { state: "ready" | "waiting" | "failed"; error?: string; files: PodFileView[] } | null {
+    const wanted = only ? new Set(only.map((f) => keyOf(f.folder, f.file))) : null;
+    const mine = [...(this.pods.get(machine)?.values() ?? [])].filter((e) => e.jobs.includes(job) && (!wanted || wanted.has(keyOf(e.folder, e.file))));
     const packs = this.packs.jobPacks(machine, job);
     if (!mine.length && !packs.length) return null;
     const failed = mine.find((e) => e.state === "failed");
@@ -751,7 +774,7 @@ export class PodFiles {
           if (e.source) e.via = measureKind(e.source);
         }
         if (!e.source) {
-          await this.failUnlessThere(machine, e, "no site is known for it, and this computer's ComfyUI has no copy to send");
+          await this.failUnlessThere(machine, e, NO_SOURCE);
           changed = true;
           continue;
         }
