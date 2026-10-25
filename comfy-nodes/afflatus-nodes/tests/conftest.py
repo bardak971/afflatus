@@ -59,6 +59,14 @@ class Tensor:
     def float(self):
         return self._like(dtype="float32")
 
+    def squeeze(self, dim):
+        dim = dim % len(self.shape)
+        if self.shape[dim] != 1:
+            return self._like()
+        shape = self.shape[:dim] + self.shape[dim + 1 :]
+        axis = self.axis - 1 if dim < self.axis else self.axis
+        return Tensor(shape, self.labels, axis, self.dtype, self.device)
+
     def new_zeros(self, shape):
         return Tensor(shape, None, None, self.dtype, self.device)
 
