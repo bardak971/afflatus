@@ -137,6 +137,16 @@ describe("a pull's progress from RunPod's log", () => {
     const cut = real.filter((l) => Date.parse(l.ts) < end - 2000);
     expect(pullOf(cut, image, end + 1000, end + 5000).phase).toBe("extracting");
     expect(pullOf(cut, image, end + 6000, end + 5000)).toMatchObject({ phase: "done", fresh: true, bytes });
+    // layers of which nothing but their start came (12 of 25 in a real log): in by a later layer's extraction, not at the
+    // end, or its download is the whole pull and its speed far too low
+    const lost = started.filter((l) => !/^aaaaaaaaaaa[24] (?!Pulling fs layer)/.test(l.line));
+    const kept = pullOf(lost, image, end + 1000);
+    expect(kept.downloadMs! / 1000).toBeCloseTo(3716 / 35, -1);
+    expect(kept.extractMs).toBeGreaterThan(0);
+    expect(kept.mbps).toBeGreaterThan(30);
+    // every progress line of a big layer lost: no speed said rather than a GB in a second
+    const quick = started.filter((l) => !/^aaaaaaaaaaa3 (Downloading|Verifying Checksum|Download complete)/.test(l.line) && !/^aaaaaaaaaaa[1245] /.test(l.line));
+    expect(pullOf(quick, image, end + 1000)).toMatchObject({ phase: "done", mbps: null });
     // no line of it at all: nothing said, whatever the container
     expect(pullOf([], image, end + 6000, end).phase).toBe("waiting");
   });

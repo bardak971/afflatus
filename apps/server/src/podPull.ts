@@ -80,10 +80,11 @@ function layersOf(lines: readonly PullLine[], sizes: ReadonlyMap<string, number>
     switch (m[2]) {
       case "Already exists": x.had = true; break;
       case "Downloading": x.lines.push(t); first ??= t; break;
-      // a layer checked or extracting is in, its "Download complete" said or not
+      // a layer checked or extracting is in, its "Download complete" said or not: an extracting one by its last progress
+      // line, as it may have waited long for the layers before it to extract
       case "Verifying Checksum":
       case "Download complete": x.downloaded ??= t; break;
-      case "Extracting": x.extractFrom ??= t; x.downloaded ??= t; break;
+      case "Extracting": x.extractFrom ??= t; x.downloaded ??= x.lines.at(-1) ?? t; break;
       case "Pull complete": x.extracted ??= t; x.downloaded ??= t; break;
     }
   }
@@ -124,8 +125,14 @@ export function pullOf(lines: readonly PullLine[], image: readonly ImageLayer[] 
   const { layers, first, upToDate } = said;
   const end = said.end ?? (upAt !== null && upAt <= now && layers.size ? upAt : null);
   const all = [...layers.values()];
-  // ended: a layer whose every line after its start was lost was in by then
-  if (end !== null) for (const x of all) if (!x.had) x.downloaded ??= end;
+  // ended: a layer whose every line after its start was lost (12 of 25 in a real log, 2026-10-25) is taken as in with the
+  // last one whose download the log tells, else by the end. Not the end for all of them, which made the whole pull its
+  // download and its speed a third of the host's
+  if (end !== null) {
+    const told = all.flatMap((x) => (!x.had && x.downloaded !== null ? [x.downloaded] : []));
+    const by = told.length ? Math.max(...told) : end;
+    for (const x of all) if (!x.had) x.downloaded ??= by;
+  }
   // pulled when any layer came down; the host had it all when the pull ended with nothing downloaded
   const fresh = all.some((x) => !x.had && (x.lines.length > 0 || x.downloaded !== null)) ? true : end !== null && upToDate ? false : null;
   const known = image !== null && all.length > 0 && all.every((x) => x.size !== null);
@@ -136,7 +143,9 @@ export function pullOf(lines: readonly PullLine[], image: readonly ImageLayer[] 
   const downloadMs = first !== null && lastDownload !== null ? Math.max(0, lastDownload - first) : null;
   // what extracting added: from its last layer in to the pull's end (the layers before extract while the others come)
   const extractMs = end !== null && lastDownload !== null ? Math.max(0, end - lastDownload) : null;
-  if (end !== null) return { phase: "done", fresh, bytes, done: bytes, mbps: downloadMs ? bytes / 1e6 / (downloadMs / 1000) || null : null, leftMs: 0, downloadMs, extractMs };
+  // its speed over its download, only when that is long enough to tell: a log that lost a big layer's lines can put a
+  // GB download within a second
+  if (end !== null) return { phase: "done", fresh, bytes, done: bytes, mbps: downloadMs !== null && downloadMs >= 5000 ? bytes / 1e6 / (downloadMs / 1000) || null : null, leftMs: 0, downloadMs, extractMs };
   if (!all.length) return { phase: "waiting", fresh: null, bytes, done: 0, mbps: null, leftMs: null, downloadMs: null, extractMs: null };
   const downloading = lastDownload === null;
   // its speed over the last minute of its download (all of it, while it is younger), from what the lines say was in by then
