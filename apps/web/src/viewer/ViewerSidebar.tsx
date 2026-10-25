@@ -28,6 +28,7 @@ import { latestFailure } from "../sayFailed";
 // what a source was to the render: the quiet line under its name
 const ROLES: Record<string, string> = { start: "first frame", end: "last frame", source: "source image", previous: "previous clip", next: "next clip",
   mid: "keyframe", mask: "mask", person: "person", place: "place", clothing: "clothing", object: "object", style: "style", voice: "voice sample", sound: "audio", cue: "sound cue",
+  face: "face scored against",
 };
 
 /** Whose picture it is in the prompt kit (a person, one of their outfits, a place), by the picture's id. */

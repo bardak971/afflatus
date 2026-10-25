@@ -78,9 +78,9 @@ describe("how a clip meets the one before it, by default (the join rule)", () =>
 });
 
 describe("recipes whose takes a finish can Face refine", () => {
-  it("every H3 form and SCAIL-2 at 24 fps say so in their traits, naming an input they have; no other recipe", () => {
+  it("every H3 form, SCAIL-2 at 24 fps and both LTX 2.5 forms say so in their traits, naming an input they have; no other recipe", () => {
     const refining = recipes.filter((r: Recipe<any>) => r.traits?.faceRefine);
-    expect(refining.map((r) => r.id).sort()).toEqual(["h3.lipsync", "h3.motion", "h3.swap", "h3.video", "scail.motion24"]);
+    expect(refining.map((r) => r.id).sort()).toEqual(["h3.lipsync", "h3.motion", "h3.swap", "h3.video", "ltx25.lipsync", "ltx25.video", "scail.motion24"]);
     for (const r of refining) expect(r.inputs.some((i) => i.id === r.traits!.faceRefine), r.id).toBe(true);
   });
 });

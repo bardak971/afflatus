@@ -8,7 +8,7 @@ import {
   chunkLengths, drivingFrames, previousFrames, previousInput, matchedToDriving, motionBatchNodes, MOTION_GRID, MOTION_NODES, MOTION_OPTIONAL, motionOutInputs, motionCanvas, motionFrames, motionInputs,
   motionSaved, motionSound, type MotionShape, type MotionValues,
 } from "../motion/driving";
-import { FACE_REFINE_OPTIONAL, FACE_REFINE_OTHER_INPUTS, FACE_REFINE_OWN_SLOTS, FACE_REFINE_SLOTS, faceRefined, faceRefineNeeds, faceRefineSkipped } from "../h3/faceRefine";
+import { FACE_REFINE_H3, FACE_REFINE_OPTIONAL, FACE_REFINE_OTHER_INPUTS, FACE_REFINE_OWN_SLOTS, FACE_REFINE_SLOTS, faceRefined, faceRefineNeeds, faceRefineSkipped } from "../h3/faceRefine";
 
 /**
  * SCAIL-2 · Motion transfer: the picture's people moved like the driving video's. As ComfyUI's SCAIL-2 template runs it in
@@ -31,13 +31,6 @@ export interface ScailMotion extends MotionValues {
   faceRefineDenoise?: number;
   faceRefineSteps?: number;
 }
-
-/**
- * The H3 nodes Face refine runs on SCAIL beside SCAIL's own (its text encoder, VAEs, loader and scheduler are SCAIL's node
- * types too); its pack's nodes and the audio lock stay optional, done without when missing.
- */
-const FACE_REFINE_H3 = ["MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift", "ModelAttentionBackend", "SamplerCustomAdvanced", "RandomNoise", "BasicGuider"];
-
 
 /** Who is matched with whom, as SCAIL2ColoredMask sorts them. */
 const ORDERS: Record<string, string> = { "Left to right": "left_to_right", "Biggest first": "area", "As found": "none" };

@@ -195,6 +195,10 @@ export async function compose(db: Db, recipe: Recipe<any>, asked: Record<string,
   // a Prompt kit person named "@Nicolas" in a text: cast for this render, and said by how they look (withMentions)
   const { input: raw, look } = await withMentions(db, recipe, asked, askedLook);
   const input = { ...raw };
+  // the picture a take's face is scored against is the cast's of this render alone: one carried over in a form copied from an
+  // older job's (a take used again) would score against someone no longer cast
+  const faceSpec = (recipe.inputs as InputSpec[]).find((i) => i.type === "image" && i.role === "face");
+  if (faceSpec) delete input[faceSpec.id];
   const added: Composed["added"] = { words: [], loras: [], references: 0, refs: [], voice: null, voiceAsset: null, skipped: [] };
   if (emptyLook(look)) return { input, added };
   const ids = [...look!.cast.map((c) => c.id), ...(look!.style ? [look!.style] : []), ...(look!.snippets ?? [])];
@@ -299,6 +303,14 @@ export async function compose(db: Db, recipe: Recipe<any>, asked: Record<string,
         added.voicePart = voice.part;
       }
     }
+  }
+
+  // the picture the take's face is scored against, on a model that takes no reference pictures (LTX 2.3, Wan): the first cast
+  // person's first, as H3's take is scored against its cast's
+  const faced = refs.find((r) => r.role === "person");
+  if (faceSpec && faced) {
+    const alive = await db.selectFrom("assets").select("id").where("id", "=", faced.asset).where("deleted_at", "is", null).where("kind", "=", "image").executeTakeFirst();
+    if (alive) input[faceSpec.id] = faced.asset;
   }
 
   // a model that follows reference pictures and was given an end frame makes the clip from the references instead (MiniMax H3);

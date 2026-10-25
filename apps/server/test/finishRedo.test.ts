@@ -45,7 +45,7 @@ describe("Redo finished › Changed", () => {
   it("leaves a SCAIL-2 clip whose Face refine was made at its form's denoise, whatever the dialog's", async () => {
     const tl = (await t.app.inject({ method: "POST", url: "/api/timelines", payload: { name: "zz-test redo changed" } })).json();
     const clip = (await t.app.inject({ method: "POST", url: `/api/timelines/${tl.id}/clips`, payload: { recipe: "scail.motion24" } })).json().clip as string;
-    const draft = await take(clip, await video({ prompt: "zz-test" }), null);
+    const draft = await take(clip, await video({ prompt: "zz-test", picture: "zz-test-picture" }), null);
     await take(clip, await video(null), draft);
     // the finish that made it, done after the clip last changed: the cut a Face refine on SCAIL-2 queues, at 0.35
     const at = new Date(Date.now() + 1000).toISOString();
@@ -66,7 +66,7 @@ describe("a Face refine with a finish queued behind it (Face refine first, then 
   it("is placed among the clip's takes but does not play, nor take a step: the finish made from it is the finished take", async () => {
     const tl = (await t.app.inject({ method: "POST", url: "/api/timelines", payload: { name: "zz-test face first" } })).json();
     const clip = (await t.app.inject({ method: "POST", url: `/api/timelines/${tl.id}/clips`, payload: { recipe: "scail.motion24" } })).json().clip as string;
-    const draft = await take(clip, await video({ prompt: "zz-test" }), null);
+    const draft = await take(clip, await video({ prompt: "zz-test", picture: "zz-test-picture" }), null);
     const before = withTakes((await get(t.app, `/api/timelines/${tl.id}`)).json()).undo;
     const refined = await video({ prompt: "zz-test", faceRefineOnly: true });
     const generation = (await t.db.selectFrom("assets").select("generation_id").where("id", "=", refined).executeTakeFirstOrThrow()).generation_id!;
@@ -83,7 +83,7 @@ describe("a Face refine with a finish queued behind it (Face refine first, then 
   it("is told from the queue's own rows: a cut made from its video behind it holds it back, none lets it play", async () => {
     const tl = (await t.app.inject({ method: "POST", url: "/api/timelines", payload: { name: "zz-test face first, queue" } })).json();
     const clip = (await t.app.inject({ method: "POST", url: `/api/timelines/${tl.id}/clips`, payload: { recipe: "scail.motion24" } })).json().clip as string;
-    const draft = await take(clip, await video({ prompt: "zz-test" }), null);
+    const draft = await take(clip, await video({ prompt: "zz-test", picture: "zz-test-picture" }), null);
     const place = (row: JobRow, generation: string) => (t.services.queue as unknown as { place(row: JobRow, generation: string, resume: null): Promise<void> }).place(row, generation, null);
     const job = async (o: { recipe: string; status: string; dependsOn?: string; inputs?: Record<string, unknown> }) => {
       const id = newId();

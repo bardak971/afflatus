@@ -178,7 +178,7 @@ export function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, on
                     </span>
                   )}
                   {t.measure?.face != null && (
-                    <span data-tip={`How much the face along the take is its person's: ArcFace against the cast's photo, else the first reference picture (a Motion transfer's Picture), the median of a few frames${t.measure.faceLow != null ? `; the lowest ${t.measure.faceLow.toFixed(2)}` : ""}. Small or turned faces read lower: compare takes of one clip.`}>
+                    <span data-tip={`How much the face along the take is its person's: ArcFace against the cast's photo, else the first reference picture (a Motion transfer's Picture), else the picture the clip opens on (LTX, Wan), the median of a few frames${t.measure.faceLow != null ? `; the lowest ${t.measure.faceLow.toFixed(2)}` : ""}. Small or turned faces read lower: compare takes of one clip.`}>
                       · face {t.measure.face.toFixed(2)}
                     </span>
                   )}

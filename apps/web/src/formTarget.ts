@@ -41,7 +41,7 @@ export function formPlaces(target: Target | null, a: Asset): MenuItem[] {
   const filled = (id: string) => values[id] !== undefined && values[id] !== null && values[id] !== "";
   const out: MenuItem[] = [];
   for (const i of recipe.inputs as InputSpec[]) {
-    if (i.type === "image" && a.kind === "image") {
+    if (i.type === "image" && !i.internal && a.kind === "image") {
       out.push({ label: i.label || ROLE_WORDS[i.role] || "Image", note: filled(i.id) ? "replaces the one there" : undefined, run: () => set(i.id, a.id) });
     } else if (i.type === "clip" && a.kind === "video") {
       const word: [string, string] = { previous: ["Previous clip", "carries on from its end"] as [string, string], next: ["Next clip", "arrives at its start"] as [string, string], source: ["Source video", "the whole video"] as [string, string] }[i.role];

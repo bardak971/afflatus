@@ -1,6 +1,7 @@
 import { defineFamily } from "@afflatus/core";
 import { LTX_SHARED_SLOTS, ltxGuide, ltxLint } from "../ltx/family";
 import { LTX25_WRONG, LTX_VERSIONS } from "../ltx/versions";
+import { faceRefineSlots } from "../h3/faceSlots";
 
 /** Where Lightricks keeps LTX 2.5's files: a gated repository (the licence accepted on its page, a Hugging Face token in Settings › Models). */
 const HF = "https://huggingface.co/Lightricks/LTX-2.5/resolve/main";
@@ -72,6 +73,8 @@ export const ltx25 = defineFamily({
       hint: "Optional: with a taeltx2_5 tiny VAE in ComfyUI's models/vae_approx folder, the animated live preview shows the real frames. Without it, it is a few blurred patches of colour.",
     },
     ...LTX_SHARED_SLOTS,
+    // Face refine's files (H3's pass on LTX 2.5's own frames, at its 24 a second)
+    ...faceRefineSlots(["ltx25.video", "ltx25.lipsync"]),
   ],
   loraMatch: ["ltx"],
   line: { own: "LTX 2.5", versions: LTX_VERSIONS },
