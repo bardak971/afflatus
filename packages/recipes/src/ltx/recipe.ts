@@ -8,6 +8,8 @@ import { colourCarried, colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, 
 import { applyLoras, livePreview, loraLoads } from "../shared/model";
 import { recordingInputs, recordingNodes, recordingOnClip, type Recording, type RecordingFrames } from "../shared/recording";
 import { CUE_SOUND, cuesFor, H3_CUES, layCues, laysCues } from "../h3/cue";
+import { FACE_PHOTO, FACE_NODE, facePhotos, faceScore } from "../shared/face";
+import { FACE_REFINE_H3, FACE_REFINE_OPTIONAL, FACE_REFINE_TAKE_INPUTS, faceRefined, faceRefineNeeds, faceRefineSkipped } from "../h3/faceRefine";
 
 /**
  * The LTX video recipe, made for a version of the model: LTX 2.3 and LTX 2.5 are the same two-pass graph (half the size
@@ -50,6 +52,11 @@ export interface LtxSpec {
    * pinned, so that the picture (the mouth first) is made to it. Else Video with audio, which a recording may play over.
    */
   lipSync?: boolean;
+  /**
+   * H3's Face refine on the take's own frames (2.5: at H3's 24 a second, its 8n + 1 frames padded to H3's grid and cut back,
+   * as SCAIL-2's at 24 fps). Not on 2.3: at 25 a second the sound held under the redrawn faces would not keep their time.
+   */
+  faceRefine?: boolean;
   variants: Variant<LtxVideo>[];
 }
 
@@ -259,6 +266,11 @@ export interface LtxVideo extends ColourMatch, Partial<Recording> {
   refStrength?: number;
   refFrames?: string;
   refLoraStrength?: number;
+  /** The cast person's picture the take is scored against (2.3: no reference pictures of its own). */
+  facePhoto?: string;
+  faceRefine?: boolean;
+  faceRefineDenoise?: number;
+  faceRefineSteps?: number;
 }
 
 /** What a model is, as far as its file name says: the distilled one, or a merge known to be made for a few steps. */
@@ -683,6 +695,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       ...upscaleNeeds(input),
       // the MSR LoRA for the cast's pictures or voice: a pod is sent it, a machine of the user's own renders without (SOFT_SLOTS)
       ...(spec.references && (input.references?.length || (!spec.lipSync && input.voice)) ? ["msr"] : []),
+      // Face refine's files (H3's, its text encoder and VAEs too), with a picture of the person to refine towards
+      ...(spec.faceRefine ? faceRefineNeeds(input, { own: true, picture: Boolean(input.start && !input.previous) }) : []),
     ],
     id: spec.id,
     family: spec.family,
@@ -694,6 +708,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       startFrame: true, endFrame: true, midFrames: true, continues: "clip", endAnchor: true, sound: true,
       latentNodes: LTX_CONTINUATION_NODES, latentTrim: LTX_TRIM,
       fps, frameGrid: { step: 8, offset: 1 },
+      // H3's Face refine on its own frames: a finish of a take redraws the take's frames (its kept latent is LTX's, not H3's)
+      ...(spec.faceRefine ? { faceRefine: "faceRefine" } : {}),
     },
     inputs: formInputs(spec, [
       {
@@ -717,7 +733,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       { id: "mid", type: "image", role: "mid", at: "midAt", label: "Keyframe", note: "a picture the clip passes through, at the time set below", optional: true, advanced: true },
       { id: "midAt", type: "number", label: "Keyframe at", min: 0.5, max: 19.5, step: 0.5, default: 2.5, unit: " s", showWhen: "mid", advanced: true, note: "snapped to the model's 8-frame steps (about a third of a second)" },
       // Lip sync takes the pictures, not a voice: the recording is the voice, as on H3's Lip sync
-      ...(spec.references ? MSR_INPUTS.filter((i) => !spec.lipSync || !i.id.startsWith("voice")) : []),
+      ...(spec.references ? MSR_INPUTS.filter((i) => !spec.lipSync || !i.id.startsWith("voice")) : [FACE_PHOTO]),
       { id: "seconds", type: "number", label: "Duration", min: 1, max: 20, step: 0.5, default: 5, unit: " s" },
       {
         id: "shape", type: "size", label: "Aspect ratio", default: "wide", grid: 64, min: 256, max: 1920, ratioOnly: true,
@@ -732,6 +748,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       { id: "short", type: "number", label: "Resolution", note: "the short side of the frame: 704 is about 720p, 1088 about 1080p. Larger is sharper and much slower", min: 384, max: 1088, step: 64, default: 704, unit: "p", picks: [512, 704, 832, 1088] },
       ...upscaleInputs(),
       ...COLOUR_MATCH_INPUTS,
+      ...(spec.faceRefine ? FACE_REFINE_TAKE_INPUTS : []),
       {
         id: "twoPass", type: "toggle", label: "Two-pass (latent upscale)", default: true, advanced: true,
         note: "half the size first, enlarged with the latent upscaler, then 3 steps that refine: faster and sharper. Off, or without the upscaler, or with an end image: one pass at full size. A keyframe guides both passes",
@@ -828,6 +845,9 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         ...(input.schedule === BY_STEPS ? ["LTXVScheduler"] : []),
         ...((input.start && !input.previous) || input.end || input.mid ? ["LoadImage", "ImageScale", "LTXVPreprocess"] : []),
         ...(input.previous || input.next ? ["LoadVideo", "GetVideoComponents", "ImageScale", "LTXVPreprocess"] : []),
+        // Face refine: H3's nodes, the clip's 8n + 1 frames made up to H3's grid and cut back (not with the temporal upscaler
+        // asked for by name: the pass is left out at 48 a second)
+        ...(spec.faceRefine && input.faceRefine && !(input.smooth && input.smoothWith === SMOOTH_LTX) ? [...FACE_REFINE_H3, "BasicScheduler", "VAEDecode", "CLIPLoader", "VAELoader", "ImageFromBatch", "ImageBatch", "RepeatImageBatch"] : []),
       ];
     },
     // which loaders, and which way the clip is made, depend on the files this ComfyUI has
@@ -846,6 +866,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       "LoadImage",
       // under a recording: what goes before its part (the clip before's sound under the head, silence before the words)
       "AudioConcat", "AudioAdjustVolume",
+      // the face along the take against its person's picture; Face refine's pack, done without when missing
+      FACE_NODE, ...(spec.faceRefine ? FACE_REFINE_OPTIONAL : []),
     ],
 
     build(input, ctx) {
@@ -990,9 +1012,28 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         return cues && laysCues(input) ? layCues(g, own, cues.placed, cues.parts, { frames, over: Boolean(laid), fps }) : own;
       };
       const heard = wave ?? theirs();
+      // Face refine (2.5): H3's pass on the frames as decoded, before the colour match, an upscale or RIFE (whose in-between
+      // frames are then made from the refined faces), the take's own sound held under them; towards the person's reference
+      // picture, else the picture the clip opens on. Doubled by the temporal upscaler, the frames are at 48 a second, which
+      // the pass cannot hold its sound to: left out, and said. The kept latent stays the sampled one: the clip after carries
+      // on from it, and has its own faces refined when it asks for it
+      // (read only where the form has them: 2.3's has no Face refine)
+      const refining = Boolean(spec.faceRefine && input.faceRefine);
+      const towards = opens ? ctx.uploads.start : undefined;
+      const refineValues = refining
+        ? { faceRefine: !temporal, faceRefineDenoise: input.faceRefineDenoise ?? 0.45, faceRefineSteps: input.faceRefineSteps ?? 4, references: input.references ?? [], subject: "", quick: true }
+        : { faceRefine: false, faceRefineDenoise: 0, faceRefineSteps: 0, references: [], subject: "", quick: true };
+      const faces = faceRefined(g, ctx, refineValues, images, { audio: heard, picture: towards, frames });
+      if (faces.pass) run.passes.push(faces.pass);
+      const facesSaid = [
+        refining && temporal ? "Not face-refined: LTX's temporal upscaler doubled the frames to 48 a second, and Face refine runs at 24 (interpolate with RIFE to have both)." : null,
+        faceRefineSkipped(refineValues, ctx, { picture: towards, own: true, audio: true }),
+        faces.said,
+      ].filter((x): x is string => Boolean(x));
+      warnings.push(...facesSaid);
       // matched to the first frame (a clip that opens a chain), or carrying that match on (one that continues it: its head's last
       // frame is the clip before's last moment, brought to how that clip was filed)
-      const looked = colourCarried(g, ctx, colourMatched(g, ctx, images, openingStart(input), fps), head - 1, fps);
+      const looked = colourCarried(g, ctx, colourMatched(g, ctx, faces.images, openingStart(input), fps), head - 1, fps);
       const done = finishFrames(g, ctx, looked, input, { frame: { width, height }, rife: input.smooth && !temporal, fps, audio: heard, doubled: temporal });
       const unsmoothed = rifeSkippedSaid(input.smooth && !temporal, ctx);
       if (unsmoothed) warnings.push(unsmoothed);
@@ -1008,6 +1049,9 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
           { node: done.out, kind: "video", role: "result" },
           // the clip's own latent at the model's rate, kept beside it for the clips that carry on from it
           ...(keptLatent ? [{ node: keptLatent, kind: "video" as const, role: "latent" as const }] : []),
+          // the face along the take against its person's picture (the cast's, else the picture it opens on): drift along a run of
+          // clips is flagged on the timeline, as on H3's
+          ...faceScore(g, ctx, faces.images, facePhotos(g, ctx, spec.references ? { references: input.references, opens } : { facePhoto: input.facePhoto, opens })),
         ],
         totalSteps: run.passes.reduce((n, p) => n + p.steps, 0),
         passes: run.passes,
@@ -1028,6 +1072,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
           ...(loaded.lora ? [`loras/${loaded.lora}`] : []),
           ...(refs ? [`loras/${slots.msr}`] : []),
           ...loraLoads(input.loras),
+          ...faces.loads,
         ],
       };
     },

@@ -1,20 +1,11 @@
 import { defineFamily, wordCount, type Family, type FrameGrid } from "@afflatus/core";
 import { wan } from "../wan/family";
-import { h3 } from "../h3/family";
+import { faceRefineSlots } from "../h3/faceSlots";
 
 const HF = "https://huggingface.co/Comfy-Org/SCAIL-2/resolve/main";
 
 /** Wan's own files SCAIL-2 loads as they are (it is a Wan 2.1 14B model): the text encoder and the VAE, found the same way. */
 const fromWan = (id: string): Family["slots"][number] => wan.slots.find((s) => s.id === id)!;
-
-/**
- * Face refine's files, for SCAIL-2 at 24 fps (the pass is H3's, run on SCAIL's own frames): H3's own, found the same way and
- * offered only while that recipe is shown; H3's text encoder and VAEs under ids of their own, beside SCAIL's (Wan's) two.
- */
-const forFaceRefine = (id: string, as?: { id: string; label: string }): Family["slots"][number] => {
-  const slot = h3.slots.find((s) => s.id === id)!;
-  return { ...slot, ...(as ?? {}), optional: true, onlyFor: ["scail.motion24"] };
-};
 
 /**
  * SCAIL-2 (zai-org, on Wan 2.1 14B): a picture's people moved like a driving video's, the whole body, the hands and the
@@ -62,13 +53,8 @@ export const scail = defineFamily({
     },
     fromWan("tinyVae"),
     fromWan("rife"),
-    forFaceRefine("faceRefineUnet"),
-    forFaceRefine("faceDetector"),
-    forFaceRefine("faceSeg"),
-    forFaceRefine("faceSam"),
-    forFaceRefine("clip", { id: "faceClip", label: "MiniMax H3 text encoder (Face refine)" }),
-    forFaceRefine("videoVae", { id: "faceVideoVae", label: "MiniMax H3 VAE, image (Face refine)" }),
-    forFaceRefine("audioVae", { id: "faceAudioVae", label: "MiniMax H3 VAE, audio (Face refine)" }),
+    // Face refine's files, for SCAIL-2 at 24 fps (H3's pass on SCAIL's own frames)
+    ...faceRefineSlots(["scail.motion24"]),
   ],
   loraMatch: ["wan", "scail"],
   guide: `SCAIL-2 moves the people of a PICTURE the way the people of a DRIVING VIDEO move: the motion, the gestures, the mouth and the camera all come from the video, everything seen comes from the picture. The prompt only describes the picture, so that the model keeps what is in it. It is optional, and short is best.

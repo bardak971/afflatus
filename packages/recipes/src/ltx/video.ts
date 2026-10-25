@@ -35,6 +35,7 @@ const spec: LtxSpec = {
       { name: "from words, the one checkpoint, one pass (no upscaler)", input: { prompt: "a" }, slots: one },
       { name: "from words, the one checkpoint, two passes", input: { prompt: "a", seconds: 3 }, slots: { ...one, ...extras } },
       { name: "opens on a picture, in separate files, two passes, smooth", input: { prompt: "a", start: "p1", smooth: true }, slots: { ...parts, ...extras }, uploads: { start: "a.png" }, media: { start: picture } },
+      { name: "the face scored against the cast person's picture", input: { prompt: "a", start: "p1", facePhoto: "f1" }, slots: { ...parts, ...extras }, uploads: { start: "a.png", facePhoto: "face.png" }, media: { start: picture } },
       {
         name: "carries on from a clip: its last second opens the clip, a first frame set aside",
         input: { prompt: "a", previous: { asset: "c1" }, start: "ignored" },

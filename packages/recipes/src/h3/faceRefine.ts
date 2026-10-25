@@ -43,6 +43,18 @@ export const FACE_REFINE_INPUTS: InputSpec[] = [
 export const FACE_REFINE_OTHER_INPUTS: InputSpec[] = FACE_REFINE_INPUTS.filter((spec) => spec.id !== "faceRefineOnly").map((spec) =>
   spec.id === "faceRefineDenoise" && spec.type === "number" ? { ...spec, default: 0.35, note: `${spec.note}. 0.35 here: 0.45 stopped the mouth following the source` } : spec);
 
+/**
+ * Face refine on a model that keeps no H3 latent for a finish to redraw from (LTX 2.5): H3's own settings, words and
+ * defaults (every form alike), less the internal "only" a finish of a kept H3 latent sets. A finish redraws the take's frames.
+ */
+export const FACE_REFINE_TAKE_INPUTS: InputSpec[] = FACE_REFINE_INPUTS.filter((spec) => spec.id !== "faceRefineOnly");
+
+/**
+ * The H3 nodes Face refine runs on beside a model that is not H3's (the text encoder, VAEs, loader and scheduler are ComfyUI's
+ * own node types); its pack's nodes and the audio lock stay optional, done without when missing.
+ */
+export const FACE_REFINE_H3 = ["MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift", "ModelAttentionBackend", "SamplerCustomAdvanced", "RandomNoise", "BasicGuider"];
+
 /** What Face refine reads of a form: its own settings, and the person's words and pictures. */
 export type FaceRefineValues = Pick<H3Video, "faceRefine" | "faceRefineDenoise" | "faceRefineSteps" | "references" | "subject" | "quick">;
 

@@ -17,7 +17,7 @@ const ROUTES: Array<{ value: FinishSettings["route"]; label: string; detail: str
   { value: "latent", label: "H3 latent re-sample", detail: "H3 clips: the draft's own latent re-sampled larger with the prompt in hand: the same motion, detail the model would have drawn, seamless joins kept. Other clips take SeedVR2" },
   { value: "rtx", label: "RTX Video Super Resolution", detail: "NVIDIA's driver: near real time, steady, modest detail. Windows and an RTX card" },
   { value: "model", label: "Pixel upscale model", detail: "an ESRGAN-type model, frame by frame: fast, sharp, may shimmer" },
-  { value: "face", label: "Face refine (H3, SCAIL 24 fps)", detail: "H3 clips with a person's picture (the cast's, else the first reference picture), and SCAIL-2 clips at 24 fps (towards their Picture): the take's own frames, its faces redrawn closer to the picture, nothing else changed. Best on slow-moving shots. Other clips are skipped" },
+  { value: "face", label: "Face refine (H3, SCAIL 24 fps, LTX 2.5)", detail: "H3 and LTX 2.5 clips with a person's picture (the cast's, else the first reference picture; an LTX 2.5 clip's first frame too), and SCAIL-2 clips at 24 fps (towards their Picture): the take's own frames, its faces redrawn closer to the picture, nothing else changed. Best on slow-moving shots. Other clips are skipped" },
 ];
 const COLOURS = ["lab", "wavelet", "adain", "none"] as const;
 const FALLBACK: FinishSettings = { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.15, latentSteps: 2, faceDenoise: 0.45, seedvrFrames: 0, sharpen: 0 };
@@ -91,7 +91,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
         <div className="flex flex-wrap gap-1.5">
           <Chip tone="accent">{plural(todo.length, "clip")} to finish</Chip>
           {stills > 0 && <Chip>{plural(stills, "still")} left as {stills > 1 ? "they are" : "it is"}</Chip>}
-          {v.route === "face" && refined < videos.length && <Chip tone="warn" tip="Face refine redraws the faces of H3 clips and of SCAIL-2 clips at 24 fps: the other clips are left as they are.">{videos.length - refined} of {videos.length} skipped</Chip>}
+          {v.route === "face" && refined < videos.length && <Chip tone="warn" tip="Face refine redraws the faces of H3 clips, LTX 2.5 clips and SCAIL-2 clips at 24 fps: the other clips are left as they are.">{videos.length - refined} of {videos.length} skipped</Chip>}
           {v.route === "latent" && resampled < videos.length && <Chip tone="warn" tip="Only a model that offers the latent re-sample (H3) is re-sampled in the latent; the other clips take SeedVR2.">{videos.length - resampled} of {videos.length} not re-sampled: SeedVR2</Chip>}
           {v.route === "latent" && v.face && refined > 0 && <Chip tip="Their faces redrawn closer to the person's picture after the re-sample, in the same job.">Face refine on {plural(refined, "clip")}</Chip>}
           {v.route !== "latent" && v.route !== "face" && v.face && refined > 0 && <Chip tip="Their faces redrawn first, then the upscale on what it made: two jobs a clip.">Face refine first on {plural(refined, "clip")}</Chip>}
@@ -105,7 +105,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
             <NumberBox label="Upscale factor" value={v.factor} min={1} max={4} step={0.25} unit="×" onCommit={(factor) => setV({ ...v, factor })} />
           </FieldRow>}
           {v.route === "face" && (
-            <FieldRow label="Denoise" note="On the smallest faces (30 px and under); a face of 120 px and more gets a third of it. More is closer to the picture and further from the take. H3 clips; a SCAIL-2 clip keeps its own (0.35 unless its form said otherwise)" trail>
+            <FieldRow label="Denoise" note="On the smallest faces (30 px and under); a face of 120 px and more gets a third of it. More is closer to the picture and further from the take. H3 and LTX 2.5 clips; a SCAIL-2 clip keeps its own (0.35 unless its form said otherwise)" trail>
               <NumberBox label="Face refine denoise" value={v.faceDenoise ?? 0.45} min={0.3} max={0.6} step={0.05} onCommit={(faceDenoise) => setV({ ...v, faceDenoise })} />
             </FieldRow>
           )}

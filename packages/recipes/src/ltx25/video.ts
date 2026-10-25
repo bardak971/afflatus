@@ -1,6 +1,10 @@
 import type { Variant } from "@afflatus/core";
 import { ltxRecipe, type LtxSpec, type LtxVideo } from "../ltx/recipe";
 import { LTX25_FPS } from "./family";
+import { FACE_REFINE_OWN_SLOTS, FACE_REFINE_SLOTS } from "../h3/faceRefine";
+
+/** Face refine's files, H3's own, for the sample builds. */
+const FACE = { ...FACE_REFINE_SLOTS, ...FACE_REFINE_OWN_SLOTS };
 
 /**
  * LTX 2.5 · Video with audio: the same two-pass graph as LTX 2.3 (ltx/recipe.ts), on 2.5's files (split, the text projection
@@ -22,6 +26,7 @@ const spec: LtxSpec = {
   modelMatch: ["ltx.?2[._]?5"],
   nag: false,
   references: true,
+  faceRefine: true,
   temporalFile: "ltx-2.5-latent-temporal-upscaler-x2-*.safetensors",
   missing: {
     model: "LTX 2.5 was not found: put its distilled transformer in ComfyUI's models/diffusion_models folder, with its two VAEs in models/vae and its Gemma 4 text encoder in models/text_encoders (Settings › Models has them; the files are gated on Hugging Face).",
@@ -92,6 +97,27 @@ const spec: LtxSpec = {
         input: { prompt: "a", references: [{ asset: "r1", role: "person" }] },
         slots: { ...parts, ...extras }, uploads: { "references.0": "r1.png" },
       },
+      {
+        name: "Face refine towards the cast's picture, then RIFE: the face scored on the refined frames",
+        input: { prompt: "a", references: [{ asset: "r1", role: "person" }], faceRefine: true, smooth: true, smoothWith: "RIFE (pixels)" },
+        slots: { ...parts, ...extras, ...FACE, msr: "LTX-2.5-Licon-MSR-V2.safetensors" }, uploads: { "references.0": "r1.png" },
+      },
+      {
+        name: "Face refine towards the picture it opens on, 0.35 denoise in 6 steps",
+        input: { prompt: "a", start: "p1", faceRefine: true, faceRefineDenoise: 0.35, faceRefineSteps: 6 },
+        slots: { ...parts, ...extras, ...FACE }, uploads: { start: "a.png" }, media: { start: picture },
+      },
+      {
+        name: "Face refine on a clip carried on in the clip before's latent: the seam's frames refined",
+        input: { prompt: "a", previous: { asset: "c1" }, references: [{ asset: "r1", role: "person" }], faceRefine: true },
+        slots: { ...parts, ...extras, ...FACE, msr: "LTX-2.5-Licon-MSR-V2.safetensors" }, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors", "references.0": "r1.png" },
+        media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX25_FPS, hasSound: true, latentFrames: 121, latentSize: { width: 704, height: 1280 } } },
+      },
+      {
+        name: "Face refine asked with the temporal upscaler: left out, said",
+        input: { prompt: "a", start: "p1", faceRefine: true, smooth: true, smoothWith: "LTX temporal (latent)" },
+        slots: { ...parts, ...temporal, ...FACE }, uploads: { start: "a.png" }, media: { start: picture },
+      },
       { name: "SeedVR2 upscale, ComfyUI's own video output", input: { prompt: "a", upscale: "Video: SeedVR2 (restores)", upscaleBy: 2 }, slots: { ...parts, ...extras, seedvr: "seedvr2_3b_int8_convrot.safetensors", seedvrVae: "seedvr2_ema_vae_fp16.safetensors" }, has: (n: string) => n !== "VHS_VideoCombine" },
       {
         name: "a sound cue pinned in its own sound",
@@ -138,6 +164,11 @@ export const ltx25LipSync = ltxRecipe({
         name: "the cast's picture through the MSR LoRA, the recording as the voice",
         input: { prompt: "a café terrace", references: [{ asset: "r1", role: "person" }], recording: "a1", recordingSeconds: 5.9 },
         slots: { ...two, msr: "LTX-2.5-Licon-MSR-V2.safetensors" }, uploads: { "references.0": "r1.png", recording: "rec.wav" }, media: { recording: { width: 0, height: 0, seconds: 5.9 } },
+      },
+      {
+        name: "Face refine, the recording held under the redrawn faces",
+        input: { prompt: "a café terrace", references: [{ asset: "r1", role: "person" }], recording: "a1", recordingSeconds: 5.9, faceRefine: true },
+        slots: { ...two, ...FACE, msr: "LTX-2.5-Licon-MSR-V2.safetensors" }, uploads: { "references.0": "r1.png", recording: "rec.wav" }, media: { recording: { width: 0, height: 0, seconds: 5.9 } },
       },
       {
         name: "the dev transformer with the distilled LoRA, by steps in one pass (no upscaler), smooth with RIFE",

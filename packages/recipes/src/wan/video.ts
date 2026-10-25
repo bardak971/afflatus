@@ -8,6 +8,7 @@ import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/
 import { loadUnet, unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import { recordingInputs, recordingNodes, recordingOnClip, type Recording, type RecordingFrames } from "../shared/recording";
+import { FACE_NODE, FACE_PHOTO, facePhotos, faceScore } from "../shared/face";
 
 /**
  * Wan's own negative prompt, as its authors give it (in Chinese: washed-out colours, overexposure, a
@@ -29,6 +30,8 @@ export interface WanVideo extends ColourMatch, Partial<Recording> {
   prompt: string;
   negative: string;
   start?: string;
+  /** The cast person's picture the take is scored against (Wan takes no reference pictures). */
+  facePhoto?: string;
   end?: string;
   previous?: ClipValue;
   seconds: number;
@@ -308,6 +311,7 @@ export const wanVideo = defineRecipe<WanVideo>({
     },
     { id: "start", type: "image", role: "start", label: "First frame", note: "the first frame. Without one, the clip is made from the words alone, which needs words-to-video (T2V) models: picture-to-video (I2V) ones make a gray clip without a picture", optional: true },
     { id: "end", type: "image", role: "end", label: "Last frame", note: "the last frame", optional: true },
+    FACE_PHOTO,
     {
       id: "previous", type: "clip", role: "previous", label: "Previous clip", optional: true, frames: SVI_FRAMES, fps: WAN_FPS, advanced: true,
       note: "the clip this one carries on from, through SVI 2.0 Pro: its last frames go in the latent, so that the motion carries over, not only the last picture; on a timeline, the clip before. Its colours are matched to where that clip ends (SVI shifts them a little, clip after clip). Style LoRAs inside an SVI chain can slow its motion down to slow motion. Needs SVI's two LoRAs (Settings › Models) and KJNodes: without them, or with a Last frame, the clip opens on that clip's last frame, still (a cut). A First frame is not used with it",
@@ -410,7 +414,9 @@ export const wanVideo = defineRecipe<WanVideo>({
     // a clip that carries on: SVI 2.0 Pro's way, or the clip before's last frame as its first
     "WanImageToVideoSVIPro", "ImageScale", "VAEEncode", "LoraLoaderModelOnly", "WanImageToVideo",
     // under a recording, carrying on through SVI: the head's silence before the part
-    "AudioConcat", "AudioAdjustVolume"],
+    "AudioConcat", "AudioAdjustVolume",
+    // the face along the take against its person's picture
+    FACE_NODE],
 
   build(input, ctx) {
     const { slots, media } = ctx;
@@ -469,7 +475,12 @@ export const wanVideo = defineRecipe<WanVideo>({
       ...(said.length ? { warnings: said } : {}),
       graph: g.graph,
       phases: g.phases,
-      outputs: [{ node: made.out, kind: "video", role: "result" }],
+      outputs: [
+        { node: made.out, kind: "video", role: "result" },
+        // the face along the take against its person's picture (the cast's, else the picture it opens on): drift along a run
+        // of clips is flagged on the timeline, as on H3's
+        ...faceScore(g, ctx, own, facePhotos(g, ctx, { facePhoto: input.facePhoto, opens: !input.previous && Boolean(input.start) })),
+      ],
       totalSteps: steps,
       passes,
       // said: the rest of the batch (ImageFromBatch's 4096) is no frame count
@@ -504,6 +515,7 @@ export const wanVideo = defineRecipe<WanVideo>({
       { name: "ends on a picture only", input: { prompt: "a", end: "p2", fast: false }, slots: all, uploads: { end: "b.png" }, media: { end: picture } },
       { name: "SageAttention and torch.compile on both models", input: { prompt: "a", start: "p1", sage: true, compile: true }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
       { name: "from words alone, Turbo", input: { prompt: "a", seconds: 3 }, slots: all },
+      { name: "the face scored against the cast person's picture", input: { prompt: "a", start: "p1", facePhoto: "f1" }, slots: all, uploads: { start: "a.png", facePhoto: "face.png" }, media: { start: picture } },
       { name: "from words alone, full steps, wide", input: { prompt: "a", fast: false, steps: 30, split: 0.4, cfg: 4, shift: 12, shape: { width: 832, height: 480 }, negative: "blurry" }, slots: all },
       { name: "Turbo with NAG off", input: { prompt: "a", start: "p1", fast: true, nag: false }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
       { name: "Turbo with the high-noise LoRA eased", input: { prompt: "a", start: "p1", fast: true, turboStrength: 0.7 }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },

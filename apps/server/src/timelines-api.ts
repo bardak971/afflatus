@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { RANDOM_SEED, TRANSITION_KINDS, TRANSITION_MS, hiddenRunUp, movedSeed, resamplesLatent, typedSeed, type InputSpec, type Recipe } from "@afflatus/core";
+import { RANDOM_SEED, TRANSITION_KINDS, TRANSITION_MS, hiddenRunUp, movedSeed, resamplesLatent, typedSeed, type InputSpec, type Recipe, type ReferenceValue } from "@afflatus/core";
 import { fromRender, markPng } from "./aiMark";
 import { nameOf } from "./autoName";
 import { VERSION } from "./config";
@@ -691,20 +691,29 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
     const label = `${view.name} · clip ${i + 1} · finish`;
     // Face refine: the draft's own latent decoded as it is (nothing sampled again) and its faces redrawn, the same length and
     // frames as the draft by construction; an H3 clip only, rendered here, its latent kept
-    // A model that keeps no latent (SCAIL-2 at 24 fps: its form has no "only" input) has its take's own frames refined instead
+    // A model whose form has no "only" input (SCAIL-2 at 24 fps, which keeps no latent; LTX 2.5, whose latent is not H3's)
+    // has its take's own frames refined instead
     const refining = b.route === "face" && clip.recipe ? s.registry.recipe(clip.recipe) : undefined;
-    if (refining && refinesFaces(refining) && !refining.inputs.some((input) => input.id === "faceRefineOnly")) {
+    if (refining && refinesFaces(refining) && !refinesKeptLatent(refining)) {
       const gen = await t.generationOf(draft.asset.id);
-      if (!gen) { skipped.push({ clip: i + 1, why: "not rendered here: no picture of the person to refine towards" }); continue; }
+      const towards = gen ? refinedTowards(gen.inputs) : undefined;
+      if (!towards) { skipped.push({ clip: i + 1, why: gen ? "no picture of the person to refine towards (a cast person, a reference picture or the picture it opens on)" : "not rendered here: no picture of the person to refine towards" }); continue; }
       const a = draft.asset;
-      // its own denoise (the form's, else the recipe's default: 0.35 on SCAIL), not the dialog's, which is H3's
-      const denoise = typeof gen.inputs.faceRefineDenoise === "number" ? gen.inputs.faceRefineDenoise : defaultDenoise(refining);
+      // interpolated ×2 with nothing of its own frames kept (LTX's temporal upscaler, or RIFE on a model that keeps no raw file):
+      // the pass runs at H3's 24 a second, and would hold the sound to twice the frames
+      if ((a.fps ?? 0) > 30 && !(await s.db.selectFrom("assets").select("raw_key").where("id", "=", a.id).executeTakeFirst())?.raw_key) {
+        skipped.push({ clip: i + 1, why: "interpolated to twice the frames with none of its own kept: Face refine runs at 24 a second (render it without Interpolate ×2 to refine it)" });
+        continue;
+      }
+      // a form with H3's Face refine takes the dialog's denoise as H3's clips do; one with a start of its own (0.35 on SCAIL) its
+      // own: the form's, else that default
+      const denoise = defaultDenoise(refining) === FACE_DENOISE ? b.faceDenoise ?? FACE_DENOISE : typeof gen!.inputs.faceRefineDenoise === "number" ? gen!.inputs.faceRefineDenoise : defaultDenoise(refining);
       push({ kind: "cut", label, video: { width: a.width ?? null, height: a.height ?? null, durationMs: a.durationMs ?? null, fps: a.fps ?? null },
-        cut: { asset: a.id, startMs: 0, endMs: a.durationMs ?? 0, action: "finish", route: "face", by: 1, faceDenoise: denoise, picture: typeof gen.inputs.picture === "string" ? gen.inputs.picture : undefined, family: refining.family, clip: clip.id, finishedFrom: from } });
+        cut: { asset: a.id, startMs: 0, endMs: a.durationMs ?? 0, action: "finish", route: "face", by: 1, faceDenoise: denoise, picture: towards, family: refining.family, clip: clip.id, finishedFrom: from } });
       continue;
     }
     if (b.route === "face") {
-      const why = clip.recipe && refinesFaces(s.registry.recipe(clip.recipe)) ? await keptForFinish(s, view.clips, i, draft.asset.id) : "a model that offers no Face refine: H3's and SCAIL-2 at 24 fps do";
+      const why = clip.recipe && refinesFaces(s.registry.recipe(clip.recipe)) ? await keptForFinish(s, view.clips, i, draft.asset.id) : "a model that offers no Face refine: H3's, SCAIL-2 at 24 fps and LTX 2.5 do";
       if (typeof why === "string") { skipped.push({ clip: i + 1, why }); continue; }
       push({ kind: "render", recipe: why.recipe, input: { ...asDrafted(why.inputs, draft.asset), seed: why.seed, upscale: "Off", faceRefine: true, faceRefineOnly: true, faceRefineDenoise: b.faceDenoise ?? 0.45 }, opts: {
         label, clip: { id: clip.id, fit: false, mirror: why.mirror }, look: clip.look ?? view.look, folder, finishedFrom: from,
@@ -732,7 +741,9 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
     // Face refine first, on a model that offers it (the rethink's Finish): its render from the draft's kept latent, then this
     // route on what it makes, queued behind it; without a kept latent, this route alone, and said
     if (b.face && clip.recipe && refinesFaces(s.registry.recipe(clip.recipe))) {
-      const kept = await keptForFinish(s, view.clips, i, draft.asset.id);
+      // only H3's kept latent is redrawn in a render of its own the upscale can follow: the others' faces are redrawn on the
+      // take's own frames, a finish of its own (rendered again, an LTX clip would be a new video)
+      const kept = refinesKeptLatent(s.registry.recipe(clip.recipe)) ? await keptForFinish(s, view.clips, i, draft.asset.id) : "its model redraws a take's own faces in a finish of their own: Face refine it alone";
       if (typeof kept !== "string") {
         push({ kind: "render", recipe: kept.recipe, input: { ...asDrafted(kept.inputs, draft.asset), seed: kept.seed, upscale: "Off", faceRefine: true, faceRefineOnly: true, faceRefineDenoise: b.faceDenoise ?? 0.45 }, opts: {
           label: `${label} · Face refine`, clip: { id: clip.id, fit: false, mirror: kept.mirror }, look: clip.look ?? view.look, folder, finishedFrom: from,
@@ -804,8 +815,25 @@ async function finishedWith(s: Services, clip: string, draft: string): Promise<s
   return null;
 }
 
-/** A model whose takes can have their faces redrawn from a finish: it says so in its traits (H3's five forms). */
+/** A model whose takes can have their faces redrawn from a finish: it says so in its traits (H3's forms, SCAIL-2 at 24 fps, LTX 2.5). */
 const refinesFaces = (recipe: { traits?: { faceRefine?: string } | null } | undefined): boolean => Boolean(recipe?.traits?.faceRefine);
+/** One whose Face refine is a render from the draft's kept latent (H3's: its form has the internal "only"); the others redraw the take's frames. */
+const refinesKeptLatent = (recipe: { inputs: InputSpec[] } | undefined): boolean => Boolean(recipe?.inputs.some((input) => input.id === "faceRefineOnly"));
+/** H3's Face refine denoise, the Finish dialog's own. */
+const FACE_DENOISE = 0.45;
+
+/**
+ * The picture a take's own frames are refined towards, as its render would have (facePicture): the cast's (a person
+ * reference), else the first reference picture, else the recipe's Picture (SCAIL's: the person it moves), else the picture
+ * the clip opened on (LTX's; not one that carried on from a clip).
+ */
+function refinedTowards(inputs: Record<string, unknown>): string | undefined {
+  const refs = Array.isArray(inputs.references) ? (inputs.references as ReferenceValue[]) : [];
+  const ref = refs.find((r) => r.role === "person") ?? refs[0];
+  if (ref?.asset) return ref.asset;
+  if (typeof inputs.picture === "string") return inputs.picture;
+  return typeof inputs.start === "string" && inputs.start !== FROM_PREVIOUS && !inputs.previous ? inputs.start : undefined;
+}
 
 /**
  * The draft's generation, for a finish made from its own kept latent (Face refine), or why there is none: rendered

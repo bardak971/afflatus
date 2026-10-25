@@ -171,8 +171,12 @@ interface SeedInput extends Base {
 }
 interface ImageInput extends Base {
   type: "image";
-  /** "mid": a picture the clip passes through, at the moment the number input named by `at` says. "guide": one the result follows the shapes of (a ControlNet's), not one it is made from. */
-  role: "source" | "start" | "end" | "mid" | "mask" | "guide";
+  /**
+   * "mid": a picture the clip passes through, at the moment the number input named by `at` says. "guide": one the result follows
+   * the shapes of (a ControlNet's), not one it is made from. "face": the cast person's picture the face along the take is scored
+   * against (internal: the cast fills it, the render never sees it), on a model that takes no reference pictures.
+   */
+  role: "source" | "start" | "end" | "mid" | "mask" | "guide" | "face";
   optional?: boolean;
   /**
    * Needed by a clip that opens, not by one that carries on from the clip before (Motion transfer's Picture: a window
