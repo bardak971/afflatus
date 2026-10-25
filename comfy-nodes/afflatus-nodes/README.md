@@ -17,6 +17,7 @@ colour and voice at the join).
 | Afflatus: H3 Latent Landing | The same from where any of the clip after's 17-frame chunks begins: a clip lands inside another, on time. |
 | Afflatus: H3 Seam Latent | A continuation's new tokens after the clip before's own last ones, to decode the two as one piece: the join then matches the whole chain decoded at once. |
 | Afflatus: Face Match | How alike the faces of pictures or a clip's frames are to a person's pictures (InsightFace buffalo_l, on the CPU). Registered only when `insightface` is installed in ComfyUI's Python. |
+| Afflatus: Face Crop | A person's picture cut to a square around its largest face, 2.5 face heights a side, kept inside the picture (LTX 2.5's reference pictures); without a face found, the picture as it is. Registered only when `insightface` is installed. |
 | Afflatus: Face At | The same for the person at a place in a frame (the one put in where someone stood), and how many copies of them it finds. Also needs `insightface`. |
 | Afflatus: Swap Mask (H3) | The person a swap replaces, from a SAM 3.1 video track (the one the window before replaced, a click, else the largest face): an H3 noise mask on the latent grid and a paste-back mask, so the swap redraws only them. |
 | Afflatus: Swap Mask Preview (H3) | Swap Mask's two masks drawn over the source frames: the cells H3 redraws in the accent colour, the paste-back band lighter. |

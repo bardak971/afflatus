@@ -276,3 +276,64 @@ class AfflatusFaceAt(io.ComfyNode):
         face = round(best[0], 3) if best is not None and refs else None
         nearest = best if placed else None
         return io.NodeOutput(ui={"afflatus_face": [{"face": face, "low": face, "frames": 1 if face is not None else 0, "read": 1, "photos": len(refs), "copies": copies, "placed": nearest is not None}]})
+
+
+# The side of the square a person's picture is cut to, in face heights: H3 Face refine's crop, the face at about 40 % of it
+# with the hair and the neck in. A reference close and square held the face best (Timeline 10, 2026-10-25: a 750 x 750
+# portrait kept it, a far one did not).
+FACE_SQUARE = 2.5
+
+
+def face_square(box, width: int, height: int, factor: float = FACE_SQUARE) -> tuple[int, int, int]:
+    """The square (left, top, side) a picture is cut to around a face's box (x0, y0, x1, y1): `factor` face heights a side,
+    centred on the face, no larger than the picture's short side, and moved inside the picture rather than past its edges
+    (a reference with its edges smeared or padded would be followed with them)."""
+    x0, y0, x1, y1 = box
+    side = max(1, min(round((y1 - y0) * factor), width, height))
+    left = min(max(round((x0 + x1) / 2 - side / 2), 0), width - side)
+    top = min(max(round((y0 + y1) / 2 - side / 2), 0), height - side)
+    return int(left), int(top), int(side)
+
+
+class AfflatusFaceCrop(io.ComfyNode):
+    """
+    A person's reference picture cut to a square around their face, for a model that fits the whole picture into a slot
+    the size of the clip's frame (LTX 2.5's MSR guide): a 3024 x 4032 portrait in a 16:9 clip's slot is about 264 x 352
+    between white bars there, its face a couple of latent cells. The largest face is taken; a picture with no face found
+    (a back, a figure far off), or one InsightFace cannot read, goes through as it is.
+    """
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusFaceCrop",
+            display_name="Afflatus: Face Crop",
+            category="Afflatus",
+            description="The picture cut to a square around its largest face (InsightFace's detector, on the CPU), 2.5 face heights a side, kept inside the picture. Without a face found, the picture as it is.",
+            inputs=[
+                io.Image.Input("image", tooltip="A person's picture: its first image is read, the batch cut where its face is."),
+                io.Float.Input("factor", default=FACE_SQUARE, min=1.2, max=8.0, step=0.1, optional=True, tooltip="The square's side, in face heights."),
+            ],
+            outputs=[io.Image.Output("image")],
+        )
+
+    @classmethod
+    def execute(cls, image, factor: float = FACE_SQUARE) -> io.NodeOutput:
+        # a better reference, never a failed render: whatever goes wrong here, the picture goes on as it was given
+        try:
+            box = cls._largest(image)
+        except Exception as err:  # noqa: BLE001 — any error of InsightFace or of a picture it cannot read
+            print(f"[afflatus-nodes] Face Crop: the picture is taken whole ({str(err)[:200]})")
+            return io.NodeOutput(image)
+        if box is None:
+            return io.NodeOutput(image)
+        left, top, side = face_square(box, int(image.shape[2]), int(image.shape[1]), factor)
+        return io.NodeOutput(image[:, top : top + side, left : left + side, :])
+
+    @staticmethod
+    def _largest(image):
+        """The box of the picture's largest face, at the photos' detection size; None without one."""
+        det_model = _face_app().det_model
+        boxes, _ = det_model.detect(_bgr(image, 0), input_size=(PHOTO_DET, PHOTO_DET), max_num=0, metric="max")
+        found = [tuple(float(v) for v in b[:4]) for b in boxes if b[4] >= 0.5 and b[2] - b[0] >= 24]
+        return max(found, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]), default=None)

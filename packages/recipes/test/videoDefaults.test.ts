@@ -124,7 +124,11 @@ describe("LTX 2.5's reference pictures and voice (the MSR LoRA)", () => {
   });
   const build = (input: Record<string, unknown>, uploads: Record<string, string>, more: Record<string, string> = { msr }, has?: (t: string) => boolean) =>
     ltx25Video.build(parseInput(ltx25Video, { prompt: "They talk.", ...input }), dryContext({ slots: { ...slots, ...more }, uploads, ...(has ? { has } : {}) }));
-  const loadOf = (graph: Graph, ref: unknown) => graph[(ref as [string, number])[0]]!.inputs.image;
+  // the picture's file, through the cut to the face a person's picture goes through
+  const loadOf = (graph: Graph, ref: unknown): unknown => {
+    const n = graph[(ref as [string, number])[0]]!;
+    return n.class_type === "AfflatusFaceCrop" ? loadOf(graph, n.inputs.image) : n.inputs.image;
+  };
 
   it("lays the pictures in MSR's slots, a place as the background, the voice with the first, in both passes, as its authors do", () => {
     const r = refs(["person", "place", "object"]);
@@ -192,5 +196,64 @@ describe("LTX 2.5's reference pictures and voice (the MSR LoRA)", () => {
     const [alone] = of(build({ references: place.references }, place.uploads).graph as Graph, "ComfyUILTX25MSRMultiReferenceGuide");
     expect(loadOf(build({ references: place.references }, place.uploads).graph as Graph, alone!.inputs.pic1)).toBe("r0.png");
     expect(alone!.inputs.background).toBeUndefined();
+  });
+
+  // three fixes from the owner's Timeline 10 (2026-10-25)
+  const lora = (file: string, weight: number) => ({ file, weight });
+  const msrLoaders = (graph: Graph) => [...of(graph, "ComfyUILTX25MSRICLoRALoader"), ...of(graph, "LoraLoaderModelOnly").filter((n) => /msr/i.test(String(n.inputs.lora_name)))];
+
+  it("loads the MSR LoRA once when it is in the LoRA list too, at the list's strength, and says so", () => {
+    const r = refs(["person"]);
+    const other = lora("ltx-2.5-some-style.safetensors", 0.7);
+    const b = build({ references: r.references, loras: [lora(msr, 0.8), other] }, r.uploads);
+    const graph = b.graph as Graph;
+    // one load, by MSR's own loader (a plain loader drops its slots), at the list's 0.8
+    expect(msrLoaders(graph).map((n) => [n.class_type, n.inputs.strength_model])).toEqual([["ComfyUILTX25MSRICLoRALoader", 0.8]]);
+    // the other LoRAs of the list are still put on
+    expect(of(graph, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name)).toEqual([other.file]);
+    expect(b.loads!.filter((l) => l === `loras/${msr}`)).toHaveLength(1);
+    expect(b.warnings).toEqual(["The MSR LoRA of the LoRA list is loaded once, by the references' own loader, at 0.8 (its strength in the list)."]);
+    // known by its name under another folder or another name of it too; off in the list, the field's strength is kept
+    const renamed = build({ references: r.references, loras: [lora("ltx/LTX-2.5-Licon-MSR-V1.safetensors", 0)], refLoraStrength: 0.9 }, r.uploads);
+    expect(msrLoaders(renamed.graph as Graph).map((n) => [n.class_type, n.inputs.strength_model])).toEqual([["ComfyUILTX25MSRICLoRALoader", 0.9]]);
+    expect(renamed.warnings).toEqual(["The MSR LoRA of the LoRA list is loaded once, by the references' own loader, at 0.9."]);
+    // without pictures, the list's MSR LoRA is the user's own plain LoRA, as before
+    const plain = build({ loras: [lora(msr, 0.8)] }, {});
+    expect(msrLoaders(plain.graph as Graph).map((n) => n.class_type)).toEqual(["LoraLoaderModelOnly"]);
+    expect(plain.warnings).toBeUndefined();
+  });
+
+  it("says under Reference images that a picture the clip opens on wins over the reference for the face", () => {
+    for (const recipe of [ltx25Video, ltx25LipSync]) {
+      expect(recipe.inputs.find((i) => i.id === "references")!.note).toContain("A clip that opens on a picture (a start frame, or carried on from the clip before) takes the face from that frame rather than from the reference.");
+    }
+  });
+
+  it("cuts a person's picture to the face before MSR's guide, only a person's, and says when it cannot", () => {
+    const r = refs(["person", "object", "place"]);
+    const b = build({ references: r.references }, r.uploads);
+    const graph = b.graph as Graph;
+    const crops = of(graph, "AfflatusFaceCrop");
+    // one cut of the person's one load, shared by both passes
+    expect(crops).toHaveLength(1);
+    expect(loadOf(graph, crops[0]!.inputs.image)).toBe("r0.png");
+    for (const g of of(graph, "ComfyUILTX25MSRMultiReferenceGuide")) {
+      expect(graph[(g.inputs.pic1 as [string, number])[0]]!.class_type).toBe("AfflatusFaceCrop");
+      expect(graph[(g.inputs.pic2 as [string, number])[0]]!.class_type).toBe("LoadImage");
+      expect(graph[(g.inputs.background as [string, number])[0]]!.class_type).toBe("LoadImage");
+    }
+    expect(b.warnings).toBeUndefined();
+    expect(ltx25Video.inputs.find((i) => i.id === "refFaceCrop")).toMatchObject({ type: "toggle", default: true, showWhen: "references", advanced: true });
+    // off: the pictures whole
+    expect(of(build({ references: r.references, refFaceCrop: false }, r.uploads).graph as Graph, "AfflatusFaceCrop")).toEqual([]);
+    // no person: nothing to cut, nothing said
+    const things = refs(["object"]);
+    const none = build({ references: things.references }, things.uploads);
+    expect(of(none.graph as Graph, "AfflatusFaceCrop")).toEqual([]);
+    expect(none.warnings).toBeUndefined();
+    // an older node pack, or no insightface: whole, and said
+    const old = build({ references: r.references }, r.uploads, { msr }, (t) => t !== "AfflatusFaceCrop");
+    expect(of(old.graph as Graph, "AfflatusFaceCrop")).toEqual([]);
+    expect(old.warnings).toEqual(["The people's pictures go in whole, not cut to the face: this ComfyUI lacks Afflatus's Face Crop (node pack 0.38, with insightface)."]);
   });
 });
