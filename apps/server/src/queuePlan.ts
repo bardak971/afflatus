@@ -64,8 +64,8 @@ export interface PodFetch {
   drop(machine: string, mayRun: (job: string) => boolean): void;
   /** Whether that machine holds or is getting files the plan sent it for this job (an "ahead" copy stays where it began). */
   holdsFor(machine: string, job: string): boolean;
-  /** A job's files on that machine: all there, still coming, one failed (null: it asked for none). */
-  jobState(machine: string, job: string): "ready" | "waiting" | "failed" | null;
+  /** A job's files on that machine: all there, still coming, one failed (null: it asked for none). `only`: the files it is sent for now. */
+  jobState(machine: string, job: string, only?: Lack["files"]): "ready" | "waiting" | "failed" | null;
   /** The machine's node packs wait for its ComfyUI to restart, or it restarts now: no job starts there meanwhile. */
   holding(machine: string): boolean;
   /** Files are coming to that machine now, their bytes moving: what holds a rented pod's idle time (podFiles.ts moving). */
@@ -86,7 +86,7 @@ export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "fai
     },
     drop: (machine, mayRun) => files.dropUnsought(machine, mayRun),
     holdsFor: (machine, job) => files.holdsFor(machine, job),
-    jobState: (machine, job) => files.jobState(machine, job)?.state ?? null,
+    jobState: (machine, job, only) => files.jobState(machine, job, only)?.state ?? null,
     holding: (machine) => files.holding(machine),
     moving: (machine) => files.moving(machine),
     failingPacks: (machine) => files.failingPacks(machine),
@@ -439,7 +439,10 @@ export class Planner {
     if (!fetch) return true;
     // a machine of the user's own waits for its node packs at its start instead (queuePacks.ts mayStart)
     if (!lane.machine?.rented) return !fetch.files.length;
-    return this.d.podFetch?.jobState(lane.id, r.id) === "ready";
+    // what the plan sends it for now, not every file it was ever sent for there: one it no longer lacks, failed before, held
+    // it for good, the pod billed (card #93). Nothing left to send: there
+    if (!fetch.files.length && !fetch.packs?.length) return true;
+    return this.d.podFetch?.jobState(lane.id, r.id, fetch.files) === "ready";
   }
 
   /**

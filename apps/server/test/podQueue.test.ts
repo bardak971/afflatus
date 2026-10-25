@@ -138,6 +138,27 @@ describe("a job whose model file a pod lacks", () => {
     expect(waiting?.lacks?.[id]?.failed).toContain("no site is known");
   });
 
+  // card #93: #81's test pod sat 33 min billed with its job planned there after its file failed and was put on the pod by other
+  // means (the hold itself, a failed entry of a file it no longer lacks, is podFiles.test's)
+  it("that could not be had, then is on the pod after all: the job runs there", async () => {
+    const id = await deployed();
+    await post(t.app, "/api/queue/pause", { machine: await homeId() });
+    const a = await enqueue({ checkpoint: "nowhere.safetensors" });
+    home.models.checkpoints = [CHECKPOINT, "other.safetensors", "nowhere.safetensors"];
+    await post(t.app, `/api/setup/rescan?machine=${await homeId()}`, {});
+    expect((await post(t.app, `/api/jobs/${a}/machine`, { machine: id })).statusCode).toBe(200);
+    await until(() => t.services.podFiles.view(id)[0]?.state === "failed", 15_000);
+    // put on the pod by other means (its pack's own download route): in its folder, among its loader's choices, its folders read again
+    writeFileSync(join(podDisk, "checkpoints", "nowhere.safetensors"), Buffer.alloc(10, 1));
+    ((pod.catalog.CheckpointLoaderSimple!.input.required!.ckpt_name as unknown[])[0] as string[]).push("nowhere.safetensors");
+    await post(t.app, `/api/setup/rescan?machine=${id}`, {});
+    // its old failed entry, of a file it no longer lacks, holds it no more
+    await until(() => pod.prompts.size === 1, 15_000);
+    complete(pod, [...pod.prompts.keys()][0]!);
+    await until(async () => (await row(a)).status === "done");
+    expect((await row(a)).machine_id).toBe(id);
+  });
+
   it("waiting for another job to end is no work for a pod: it does not keep it billed", async () => {
     const id = await deployed();
     await post(t.app, "/api/queue/pause", { machine: await homeId() });
