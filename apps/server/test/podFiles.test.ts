@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nodesOfPack, type Family } from "@afflatus/core";
-import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
+import { startFakeComfy, type FakeComfy, type FakeInit } from "@afflatus/comfy/testing";
 import { civitaiVersion } from "../src/civitai";
 import { Comfy } from "../src/comfy";
 import { NO_DIRECT } from "../src/downloads";
@@ -505,12 +505,12 @@ describe("what pods were measured at", () => {
 describe("a rented pod's node packs", () => {
   /** A pod with ComfyUI-Manager, and the pod files of it; `busy` says whether a job runs there. */
   /** `nodes`: the node types ComfyUI has once restarted (the packs' own, when they loaded). */
-  async function withManager(fail: string[] = [], late: Record<string, number> = {}, nodes = ["DetailerForEach", "FaceDetailer", "LyingSigmaSampler"]) {
+  async function withManager(fail: string[] = [], late: Record<string, number> = {}, nodes = ["DetailerForEach", "FaceDetailer", "LyingSigmaSampler"], broken: FakeInit["packsBroken"] = {}) {
     // a pod without these packs (none of Impact's nodes: one there would be an older copy of it): their nodes come only
     // with a restart that loads them
     const gone = [...nodesOfPack("comfyui-impact-pack"), "LyingSigmaSampler"];
     const catalog = Object.fromEntries(Object.entries(referenceCatalog()).filter(([n]) => !gone.includes(n)));
-    const pm = await startFakeComfy({ catalog, models: { loras: [] }, manager: true, packsFail: fail, packsLate: late, afterReboot: Object.fromEntries(nodes.map((n) => [n, { input: { required: {} }, output: [], output_name: [], name: n, category: "x" }])) as never });
+    const pm = await startFakeComfy({ catalog, models: { loras: [] }, manager: true, packsFail: fail, packsLate: late, packsBroken: broken, afterReboot: Object.fromEntries(nodes.map((n) => [n, { input: { required: {} }, output: [], output_name: [], name: n, category: "x" }])) as never });
     pm.packVersion = "0.14.0";
     const comfy = new Comfy(pm.url, t.services.registry);
     let busy = false;
@@ -599,6 +599,84 @@ describe("a rented pod's node packs", () => {
       await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "failed"));
       expect(pf.jobState("pod", "j1")).toMatchObject({ state: "failed", error: expect.stringContaining("ComfyUI-GGUF") });
       expect(pf.failedPacks("pod", ["ComfyUI-GGUF"])).toContain("ComfyUI-GGUF");
+      expect(pm.reboots).toBe(0);
+    } finally {
+      await pm.close();
+    }
+  });
+
+  /**
+   * What the real Manager prints into ComfyUI's log when Impact Pack's sam2 requirement fails under the pod image's
+   * constraints (card #45), as ComfyUI keeps the writes: pip's stderr comes as "[!]", a space, then its line.
+   */
+  const SAM2_FAILS = [
+    "Install: pip packages\n",
+    "\n## ComfyUI-Manager: EXECUTE => ['/usr/bin/python3', '-m', 'pip', 'install', 'segment-anything']\n",
+    "Requirement already satisfied: segment-anything in /usr/local/lib/python3.12/site-packages\n",
+    "\n## ComfyUI-Manager: EXECUTE => ['/usr/bin/python3', '-m', 'pip', 'install', 'git+https://github.com/facebookresearch/sam2']\n",
+    "Collecting git+https://github.com/facebookresearch/sam2\n",
+    "[!]", " ", "ERROR: Cannot install torch>=2.5.1 because these package versions have conflicting dependencies.\n",
+    "[!]", " ", "The conflict is caused by:\n",
+    "[!]", " ", "    The user requested torch>=2.5.1\n",
+    "[!]", " ", "    The user requested (constraint) torch==2.10.0+cu130\n",
+    "[!]", " ", "ERROR: ResolutionImpossible: for help visit https://pip.pypa.io/en/latest/topics/dependency-resolution/\n",
+    "install script failed: comfyui-impact-pack\n",
+    "\n## ComfyUI-Manager: EXECUTE => ['/usr/bin/python3', '-m', 'pip', 'install', 'scikit-image']\n",
+    "Requirement already satisfied: scikit-image in /usr/local/lib/python3.12/site-packages\n",
+  ];
+
+  it("whose install script failed and that ComfyUI does not load fail with Manager's words and pip's, on the job and its row (card #47)", async () => {
+    const { pm, pf } = await withManager([], {}, undefined, { "comfyui-impact-pack": { result: "Failed to execute install script: comfyui-impact-pack@8.28.3", printed: SAM2_FAILS } });
+    try {
+      pf.wantPacks("pod", ["comfyui-impact-pack"], "j1");
+      await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "failed"));
+      const error = pf.packsView("pod")[0]!.error!;
+      expect(error).toMatch(/^ComfyUI-Manager: Failed to execute install script: comfyui-impact-pack@8\.28\.3 \(pip install git\+https:\/\/github\.com\/facebookresearch\/sam2: ERROR: Cannot install torch>=2\.5\.1/);
+      expect(error).toContain("The user requested (constraint) torch==2.10.0+cu130");
+      expect(error).toContain("ERROR: ResolutionImpossible");
+      // not the requirements that went fine before and after it, nor our own generic words
+      expect(error).not.toMatch(/segment-anything|scikit-image|did not install it|did not load it/);
+      // Manager put it on the disk all the same: ComfyUI was restarted for it, and lacks its nodes
+      expect(pm.reboots).toBe(1);
+      expect(error).toMatch(/after ComfyUI's restart it lacks \w+/);
+      expect(pf.jobState("pod", "j1")).toMatchObject({ state: "failed", error: `the node pack comfyui-impact-pack: ${error}` });
+      expect(pf.failingPacks("pod").get("comfyui-impact-pack")).toBe(error);
+    } finally {
+      await pm.close();
+    }
+  });
+
+  it("whose install script failed but that ComfyUI loads all the same are ready: its job runs (as controlnet_aux 1.1.6 on the pod image)", async () => {
+    const { pm, pf } = await withManager([], {}, undefined, { "comfyui-impact-pack": { result: "Failed to execute install script: comfyui-impact-pack@8.28.3", printed: SAM2_FAILS, loads: true } });
+    try {
+      pf.wantPacks("pod", ["comfyui-impact-pack"], "j1");
+      await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "ready"));
+      expect(pm.reboots).toBe(1);
+      expect(pf.jobState("pod", "j1")?.state).toBe("ready");
+    } finally {
+      await pm.close();
+    }
+  });
+
+  it("that Manager's security level refuses say Manager's own line from ComfyUI's log, not a guess", async () => {
+    const security = "ERROR: To use this action, security_level must be `normal or below`, and network_mode must be set to `personal_cloud`. Please contact the administrator.";
+    const { pm, pf } = await withManager([], {}, undefined, { "comfyui-detail-daemon": { result: "failed", printed: [`${security}\nReference: https://github.com/ltdrdata/ComfyUI-Manager#security-policy\n`] } });
+    try {
+      pf.wantPacks("pod", ["comfyui-detail-daemon"], "j1");
+      await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "failed"));
+      expect(pf.packsView("pod")[0]!.error).toBe(`ComfyUI-Manager: ${security}`);
+      expect(pm.reboots).toBe(0);
+    } finally {
+      await pm.close();
+    }
+  });
+
+  it("that Manager refuses otherwise say its words as it answered them", async () => {
+    const { pm, pf } = await withManager([], {}, undefined, { "comfyui-detail-daemon": { result: "not available node: comfyui-detail-daemon@1.1.3" } });
+    try {
+      pf.wantPacks("pod", ["comfyui-detail-daemon"], "j1");
+      await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "failed"));
+      expect(pf.jobState("pod", "j1")?.error).toBe("the node pack comfyui-detail-daemon: ComfyUI-Manager: not available node: comfyui-detail-daemon@1.1.3");
       expect(pm.reboots).toBe(0);
     } finally {
       await pm.close();

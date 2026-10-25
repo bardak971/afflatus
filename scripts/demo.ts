@@ -102,9 +102,23 @@ const noPackNodes = (process.env.DEMO_NO_PACKS ?? "").split(",").map((p) => p.tr
 const withoutPacks = Object.fromEntries(Object.entries(catalog).filter(([n]) => !noPackNodes.includes(n)));
 const packsBack = Object.fromEntries(noPackNodes.flatMap((n) => (catalog[n] ? [[n, catalog[n]!]] : [])));
 
+// DEMO_PACKS_BROKEN=comfyui-impact-pack (with it in DEMO_NO_PACKS): its install script fails on that pretend ComfyUI as
+// Manager says it, pip's words in ComfyUI's log (sam2 under a pod image's constraints), and its nodes never come: the job
+// and its Queue row say Manager's words (card #47)
+const brokenPacks = Object.fromEntries((process.env.DEMO_PACKS_BROKEN ?? "").split(",").map((p) => p.trim()).filter(Boolean).map((p) => [p, {
+  result: `Failed to execute install script: ${p}@1.0.0`,
+  printed: [
+    "\n## ComfyUI-Manager: EXECUTE => ['/usr/bin/python3', '-m', 'pip', 'install', 'git+https://github.com/facebookresearch/sam2']\n",
+    "[!]", " ", "ERROR: Cannot install torch>=2.5.1 because these package versions have conflicting dependencies.\n",
+    "[!]", " ", "    The user requested (constraint) torch==2.10.0+cu130\n",
+    "[!]", " ", "ERROR: ResolutionImpossible: for help visit https://pip.pypa.io/en/latest/topics/dependency-resolution/\n",
+    `install script failed: ${p}\n`,
+  ],
+}]));
+
 const pretendComfy = (lacks?: RegExp, first = false) => startFakeComfy({
   catalog: first && noPackNodes.length ? withoutPacks : catalog,
-  ...(first && noPackNodes.length ? { afterReboot: packsBack } : {}),
+  ...(first && noPackNodes.length ? { afterReboot: packsBack, packsBroken: brokenPacks } : {}),
   // a pretend ComfyUI-Manager: "Download" in the demo fetches from the pretend site below
   manager: true,
   folderPaths,

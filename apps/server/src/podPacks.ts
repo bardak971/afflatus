@@ -36,6 +36,8 @@ interface Entry extends PodPackView {
   diskAt?: number;
   /** The node types the jobs that asked for it lacked: it is loaded once ComfyUI lists them all (followRestart). */
   lacks?: string[];
+  /** Manager's words of an install whose script failed, the pack put on the disk anyway: its error if ComfyUI does not load it. */
+  said?: string;
 }
 
 /**
@@ -46,6 +48,41 @@ const notListed = (name: string): string => {
   const repo = repoOfPack(name);
   return `ComfyUI-Manager did not find it in the Comfy Registry's list${repo ? `: clone ${repo} into ComfyUI's custom_nodes folder and restart ComfyUI` : ""}`;
 };
+
+/** At most this much of what Manager and pip said is kept on a failed pack: the job's line and the Queue row's tip show it. */
+const SAID_CHARS = 400;
+
+/**
+ * Why ComfyUI-Manager failed a pack's install, from ComfyUI's log (Comfy.client.logs, its last few hundred lines): Manager's
+ * history says only "Failed to execute install script: <pack>@<version>", or a bare "failed" for its security level. Its
+ * install script's why is pip's (or uv's) error lines of the requirement that failed, between Manager's "EXECUTE =>" and its
+ * "install script failed: <pack>" (pip's stderr is printed as "[!] …"); its security level's, its own "ERROR: To use this…"
+ * line. Null when the log says nothing of it: Manager on Windows runs install scripts at ComfyUI's next start, and a long
+ * install can turn the log over.
+ */
+export function installLogSaid(entries: Array<{ m: string }>, name: string, security = false): string | null {
+  // ComfyUI keeps each write as it came: a "[!]" and its line may be two entries, a line split in two another
+  const lines = entries.map((e) => e.m).join("").split("\n").map((l) => l.replace(/^\[!\]\s?/, "").trim()).filter(Boolean);
+  if (security) return [...lines].reverse().find((l) => /^ERROR: To use this (action|feature)/.test(l))?.slice(0, SAID_CHARS) ?? null;
+  const pack = name.toLowerCase();
+  const failed = lines.findLastIndex((l) => {
+    const m = /install script failed: (\S+)/i.exec(l);
+    return Boolean(m && (m[1]!.toLowerCase() === pack || m[1]!.toLowerCase().startsWith(`${pack}@`)));
+  });
+  if (failed < 0) return null;
+  const run = lines.slice(0, failed).findLastIndex((l) => l.includes("ComfyUI-Manager: EXECUTE =>"));
+  if (run < 0) return null;
+  const asked = /'([^']*)'\]\s*$/.exec(lines[run]!)?.[1];
+  const what = !asked ? "its install" : asked === "install.py" ? "its install.py" : `pip install ${asked}`;
+  const out = lines.slice(run + 1, failed);
+  const errors = out.filter((l) => /^(ERROR|error)\b|^×|^╰─▶|^The user requested/.test(l));
+  const why = (errors.length ? errors : out.slice(-1)).join("; ");
+  return `${what}${why ? `: ${why}` : ""}`.slice(0, SAID_CHARS);
+}
+
+/** Manager's own words of a failed install, with what its log adds: what the job and its Queue row say. */
+const managerSaid = (result: string, logged: string | null): string =>
+  `ComfyUI-Manager: ${[result, logged].filter(Boolean).join(" (")}${result && logged ? ")" : ""}`.slice(0, SAID_CHARS);
 
 export interface PodPacksDeps {
   comfyOf(machine: string): Promise<Comfy | null>;
@@ -127,6 +164,7 @@ export class PodPacks {
         Object.assign(e, { state: "next", tries: 0 });
         delete e.error;
         delete e.failedAt;
+        delete e.said;
         changed = true;
       }
       if (job && !e.jobs.includes(job)) {
@@ -309,9 +347,13 @@ export class PodPacks {
         let loaded = false;
         for (const node of nodesOfPack(e.name)) if (!lacking.includes(node) && (loaded = await listed(comfy, node))) break;
         const repo = repoOfPack(e.name);
+        // its install script failed: a node of it that came is not an older copy, only the part the failed requirement
+        // leaves out of it, and Manager's words say why
         Object.assign(e, {
           state: "failed", failedAt: Date.now(), unloaded: true,
-          error: loaded
+          error: e.said
+            ? `${e.said}; after ComfyUI's restart it lacks ${lacking.join(", ")}`.slice(0, SAID_CHARS + 120)
+            : loaded
             ? `update ${e.name} (its version lacks ${lacking.join(", ")}): through ComfyUI-Manager, or by hand with a git pull in its folder under custom_nodes${repo ? ` (${repo})` : ""}; then restart ComfyUI`
             : "installed, but ComfyUI did not load it after its restart: its log says why; once that is fixed, restart ComfyUI by hand",
         });
@@ -332,7 +374,7 @@ export class PodPacks {
     if (!installing.length) return false;
     let changed = false;
     const res = await comfy.client.raw(`/v2/manager/queue/history?client_id=${CLIENT}`, { signal: AbortSignal.timeout(15_000) }).catch(() => null);
-    const history = res?.ok ? (((await res.json().catch(() => ({}))) as { history?: Record<string, { result?: string; status?: { status_str?: string } }> }).history ?? {}) : {};
+    const history = res?.ok ? (((await res.json().catch(() => ({}))) as { history?: Record<string, { result?: string; status?: { status_str?: string; messages?: string[] } }> }).history ?? {}) : {};
     for (const e of installing) {
       const h = e.task ? history[e.task] : undefined;
       if (!h) {
@@ -352,8 +394,28 @@ export class PodPacks {
         changed = true;
         continue;
       }
-      if (ok) e.resolved = true;
-      Object.assign(e, ok ? { state: "installed" } : { state: "failed", failedAt: Date.now(), error: unresolved ? notListed(e.name) : !h.result || h.result === "failed" ? "ComfyUI-Manager did not install it (its security level, or the pack's own install failed: its log says)" : h.result.slice(0, 200) });
+      if (ok || unresolved) {
+        if (ok) e.resolved = true;
+        Object.assign(e, ok ? { state: "installed" } : { state: "failed", failedAt: Date.now(), error: notListed(e.name) });
+        changed = true;
+        continue;
+      }
+      const result = h.result || h.status?.messages?.[0] || "";
+      const security = !result || result === "failed";
+      // a log that cannot be read leaves Manager's own words alone
+      const logged = installLogSaid(await Promise.resolve().then(() => comfy.client.logs()).catch(() => []), e.name, security);
+      // its install script failed (a requirement pip could not have): Manager put the pack in custom_nodes all the same,
+      // and it may load without it (comfyui_controlnet_aux 1.1.6 did, on the pod image's check). ComfyUI is restarted for
+      // it as for one installed; it is failed with these words only when its nodes do not come (followRestart)
+      if (/^Failed to execute install script/.test(result)) {
+        e.resolved = true;
+        Object.assign(e, { state: "installed", said: managerSaid(result, logged) });
+      } else {
+        Object.assign(e, {
+          state: "failed", failedAt: Date.now(),
+          error: security && !logged ? "ComfyUI-Manager did not install it (its security level, or the pack's own install failed: its log says)" : managerSaid(security ? "" : result, logged),
+        });
+      }
       changed = true;
     }
     return changed;
