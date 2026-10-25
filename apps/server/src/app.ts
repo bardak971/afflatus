@@ -1,4 +1,5 @@
 import fastifyStatic from "@fastify/static";
+import { UPLOAD_MAX_BYTES } from "@afflatus/core";
 import Fastify, { type FastifyInstance } from "fastify";
 import { createWriteStream } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -85,7 +86,7 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
   registerAccessHook(app, s.access);
 
   /** Files from the computer are sent as the request body itself: written to a temporary file as they arrive, never held in memory. */
-  const UPLOAD_LIMIT = 512 * 1024 * 1024;
+  const UPLOAD_LIMIT = UPLOAD_MAX_BYTES;
   app.addContentTypeParser(UPLOAD_TYPE, (_req, payload, done) => {
     void (async () => {
       const dir = await mkdtemp(join(tmpdir(), "afflatus-upload-"));
@@ -95,7 +96,7 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
         const limit = new Transform({
           transform(chunk: Buffer, _enc, next) {
             bytes += chunk.length;
-            next(bytes > UPLOAD_LIMIT ? httpError(`This file is larger than ${UPLOAD_LIMIT / 1024 / 1024} MB, the most Afflatus takes in one upload.`, 413) : null, chunk);
+            next(bytes > UPLOAD_LIMIT ? httpError(`This file is larger than ${UPLOAD_LIMIT / 2 ** 30} GB, the most Afflatus takes in one upload.`, 413) : null, chunk);
           },
         });
         await pipeline(payload, limit, createWriteStream(path));

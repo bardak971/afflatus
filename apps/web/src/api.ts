@@ -1,5 +1,6 @@
 import { projectForNew, projectParam } from "./project";
-import { unlistOptions, type ListedOptions, type ModelInfo, type RankedGpu } from "@afflatus/core";
+import { UPLOAD_MAX_BYTES, unlistOptions, type ListedOptions, type ModelInfo, type RankedGpu } from "@afflatus/core";
+import { size } from "./format";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
 import type { Advice, DeployOverhead, FillPlan, FormPacks, SetFinding, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumeFilesView, VolumePlan, Job, QueueAnswer, QueuePart, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
@@ -191,6 +192,14 @@ const withTakes = (t: Sent): Timeline =>
   Array.isArray(t?.clips)
     ? { ...t, clips: t.clips.map((c) => ({ ...c, take: typeof c.take === "string" ? (c.takes?.find((x) => x.id === c.take) ?? null) : (c.take ?? null) })) }
     : (t as unknown as Timeline);
+
+/**
+ * A file over the upload limit, refused before it is sent: the server stops reading past the limit, and a browser still
+ * sending then shows a dropped connection, not the server's words.
+ */
+function tooLargeToSend(file: File): void {
+  if (file.size > UPLOAD_MAX_BYTES) throw new ApiError(`${file.name} is ${size(file.size)}: Afflatus takes up to ${size(UPLOAD_MAX_BYTES)} in one upload.`);
+}
 
 export const api = {
   recipes: (o?: Asked) => call<{ families: FamilyInfo[]; recipes: RecipeInfo[] }>("GET", "/recipes", undefined, o?.signal),
@@ -408,6 +417,7 @@ export const api = {
     ),
   /** What a file from the computer says about how it was made. The file is the request body; nothing is stored. */
   embedded: async (file: File, recipe?: string) => {
+    tooLargeToSend(file);
     const res = await send(`/api/embedded${recipe ? `?recipe=${encodeURIComponent(recipe)}` : ""}`, { method: "POST", headers: { "Content-Type": /^(image|video|audio)\//.test(file.type) ? file.type : "application/octet-stream" }, body: file });
     return answer<Embedded>(res);
   },
@@ -565,6 +575,7 @@ export const api = {
   /** A picture, a video or a sound from this computer, into the library. The file is the request body. */
   upload: async (file: File, opts: { /** The painted part of a picture: kept, but not shown in the library. */ mask?: boolean; /** A picture for a person or a place of the Prompt kit: kept with them, not shown in the library. */ kit?: boolean; /** The folder it goes into. */ folder?: string; /** Without a folder: the project whose root folder it goes into. */ project?: string | null; /** A file the library already holds is answered with that item (`found`), not added again: a paste. */ reuse?: boolean } = {}) => {
     if (!/^(image|video|audio)\//.test(file.type)) throw new ApiError("This file is not a picture, a video or a sound.");
+    tooLargeToSend(file);
     const res = await send(`/api/assets?name=${encodeURIComponent(file.name)}${opts.mask ? "&as=mask" : opts.kit ? "&as=kit" : ""}${opts.folder ? `&folder=${encodeURIComponent(opts.folder)}` : ""}${opts.project ? `&project=${encodeURIComponent(opts.project)}` : ""}${opts.reuse ? "&same=use" : ""}`, { method: "POST", headers: { "Content-Type": file.type }, body: file });
     return answer<Asset & { found?: true }>(res);
   },

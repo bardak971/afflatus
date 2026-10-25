@@ -8,6 +8,13 @@
  */
 export const UNKEPT_MS = 24 * 60 * 60_000;
 
+/**
+ * The most one upload may weigh: the server stops reading past it, and the page says so before sending, since a browser
+ * still sending when the server answers shows a dropped connection rather than the answer. Written to the disk as it
+ * arrives, never held in memory, so it can be as large as a long 4K phone video.
+ */
+export const UPLOAD_MAX_BYTES = 4 * 2 ** 30;
+
 export const LIMITS = {
   /** People and places in one look. */
   cast: 8,

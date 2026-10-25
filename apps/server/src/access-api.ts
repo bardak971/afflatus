@@ -50,7 +50,7 @@ export function openRoute(method: string, route: string | undefined): boolean {
 
 /**
  * The most an open route takes as a body: a password and a few flags. Anyone may send to these, so a body is never read
- * past this (bodyLimit), and only as JSON: a file type would go to the upload parser, which writes up to 512 MB to disk.
+ * past this (bodyLimit), and only as JSON: a file type would go to the upload parser, which writes up to UPLOAD_MAX_BYTES (4 GB) to disk.
  */
 const OPEN_BODY = 16 * 1024;
 
