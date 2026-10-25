@@ -1,4 +1,4 @@
-import { FRAME_SLACK_MS, joinFrames, latentClockOf, latentFrameAtOrBefore, secondsInput, type Recipe } from "@afflatus/core";
+import { FRAME_SLACK_MS, joinFrames, latentClockOf, latentFrameAtOrBefore, recordingPlaceOf, secondsInput, type Recipe } from "@afflatus/core";
 import { fromName, nameOf } from "./autoName";
 import { stat } from "node:fs/promises";
 import { CutError, rangeKeep, slowMotion, type Media } from "./cut";
@@ -517,8 +517,10 @@ export class TimelineRange {
   ): Promise<string> {
     const own = source.clip.recipe_id ? this.core.registry.recipe(source.clip.recipe_id) : undefined;
     const srcInputs = JSON.parse(source.clip.inputs) as Record<string, unknown>;
+    // never the source's place in a recording: its whole part laid again over a clip made in a range of it (card #88)
+    const placed = new Set(recordingPlaceOf(recipe.inputs));
     const inputs: Record<string, unknown> = own?.id === recipe.id
-      ? Object.fromEntries(Object.entries(srcInputs).filter(([id]) => recipe.inputs.some((i) => i.id === id && !["prompt", "image", "clip", "seed"].includes(i.type))))
+      ? Object.fromEntries(Object.entries(srcInputs).filter(([id]) => !placed.has(id) && recipe.inputs.some((i) => i.id === id && !["prompt", "image", "clip", "seed"].includes(i.type))))
       : this.core.settingsOf(recipe, all, index);
     const mainOf = (r: Recipe<any>) => r.inputs.find((i) => i.type === "prompt" && !i.optional) ?? r.inputs.find((i) => i.type === "prompt" && i.id !== "negative");
     const from = own ? mainOf(own) : undefined;

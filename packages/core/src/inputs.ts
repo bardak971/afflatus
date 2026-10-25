@@ -324,6 +324,16 @@ export interface PartFit {
 export const recordingSpecOf = (inputs: readonly InputSpec[]) =>
   inputs.find((i): i is AudioInput & { window: NonNullable<AudioInput["window"]> } => i.type === "audio" && i.role === "sound" && Boolean(i.window));
 
+/**
+ * The inputs that say a clip's place in a recording: the recording, its part, and the two a timeline sets for a song carried
+ * across clips. A recording's cut sets them; a new clip never takes them from the clip before (card #88): copied, a clip
+ * added past the recording's end was one of its clips, the same part laid over it again.
+ */
+export const recordingPlaceOf = (inputs: readonly InputSpec[]): string[] => {
+  const spec = recordingSpecOf(inputs);
+  return spec ? [spec.id, spec.window.start, spec.window.seconds, ...(spec.window.goesOn ? [spec.window.goesOn] : []), ...(spec.window.leadIn ? [spec.window.leadIn] : [])] : [];
+};
+
 /** Whether a recipe is made around a recording (Lip sync: the mouth follows it), not only played over by one: its recording is a field of its form. */
 export const madeAroundRecording = (inputs: readonly InputSpec[]) => {
   const spec = recordingSpecOf(inputs);

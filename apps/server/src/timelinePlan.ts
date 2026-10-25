@@ -1,4 +1,4 @@
-import { FRAME_SLACK_MS, joinFrames, joinWay, latentClockOf, latentFrameAtOrBefore, leadInBefore, leadInCovers, recordingSpecOf, type Recipe } from "@afflatus/core";
+import { FRAME_SLACK_MS, joinFrames, joinWay, latentClockOf, latentFrameAtOrBefore, leadInBefore, leadInCovers, madeAroundRecording, recordingPlaceOf, recordingSpecOf, type Recipe } from "@afflatus/core";
 import { FfmpegMissing } from "./cut";
 import { frozenTailAt } from "./measure";
 import { newId, now, type Db } from "./db";
@@ -88,12 +88,25 @@ export function handoverFrame(livelyMs: number, before: { latentFrames: number |
   return fps ? Math.round(Math.round((livelyMs * fps) / 1000) * (1000 / fps)) : livelyMs;
 }
 
-/** What a new clip takes over from the nearest clip before it made with the same recipe: its settings, not its story or its pictures. */
-export function settingsOf(recipe: Recipe<any>, all: Placed[], index: number): Record<string, unknown> {
-  const before = all.slice(0, index).reverse().find((p) => p.clip.recipe_id === recipe.id);
+/**
+ * What a new clip takes over from the nearest clip before it made with the same recipe (`from`, another recipe whose clip it
+ * follows: the ids both share): its settings, not its story, its pictures or its place in a recording (card #88).
+ */
+export function settingsOf(recipe: Recipe<any>, all: Placed[], index: number, from: string = recipe.id): Record<string, unknown> {
+  const before = all.slice(0, index).reverse().find((p) => p.clip.recipe_id === from);
   if (!before) return {};
-  const keep = new Set(recipe.inputs.filter((i) => !["prompt", "image", "clip", "seed"].includes(i.type)).map((i) => i.id));
+  const placed = new Set(recordingPlaceOf(recipe.inputs));
+  const keep = new Set(recipe.inputs.filter((i) => !["prompt", "image", "clip", "seed"].includes(i.type) && !placed.has(i.id)).map((i) => i.id));
   return Object.fromEntries(Object.entries(JSON.parse(before.clip.inputs) as Record<string, unknown>).filter(([id]) => keep.has(id)));
+}
+
+/**
+ * The form of a Lip sync recipe's family that makes the clip's own sound, with no recording and no source video to wait for
+ * (H3's or LTX's Video with audio), as the editor's ownSoundModel finds it: what a clip added after a Lip sync clip is made
+ * in, since its recording is the Lip sync clip's own and ends with it (card #88).
+ */
+export function ownSoundForm(registry: Registry, recipe: Recipe<any>): Recipe<any> | undefined {
+  return registry.recipes().find((r) => r.id !== recipe.id && r.family === recipe.family && r.output === "video" && !r.hidden && r.traits?.sound && !madeAroundRecording(r.inputs) && !r.inputs.some((i) => i.type === "clip" && i.role === "source"));
 }
 
 /** A video recipe that opens on a picture: `preferred` when it does, else the first that does. */
@@ -149,6 +162,13 @@ export class TimelinePlan {
     const other = (p: Placed) => Boolean(p.clip.recipe_id) && !windowed(p);
     const lastRecipe = (last && windowed(last) ? (all.slice(0, index).reverse().find(other) ?? all.find(other)) : last)?.clip.recipe_id ?? null;
     let recipeId = opts.recipe ?? lastRecipe;
+    // after a Lip sync clip, a plain clip of its family: the recording is that clip's own and ends with it, and a Lip sync
+    // clip without one only waits for a voice (card #88). Asked for by name, Lip sync it is, without a recording either
+    const around = !opts.recipe && lastRecipe ? registry.recipe(lastRecipe) : undefined;
+    const plain = around && madeAroundRecording(around.inputs) ? ownSoundForm(registry, around) : undefined;
+    if (plain) recipeId = plain.id;
+    // its settings from the clip before in its form, else (made plain) from the Lip sync clip, what the two forms share
+    const settings = (r: Recipe<any>) => settingsOf(r, all, index, plain && r.id === plain.id && !all.slice(0, index).some((p) => p.clip.recipe_id === plain.id) ? lastRecipe! : r.id);
     let inputs: Record<string, unknown> = {};
     let joined: ClipRow["joined"] = "continue";
     let kind: ClipRow["kind"] = "video";
@@ -174,7 +194,7 @@ export class TimelinePlan {
       const recipe = recipeWithStart(registry, recipeId);
       if (!recipe) throw httpError("None of your video models takes a first frame (i2v).");
       recipeId = recipe.id;
-      inputs = { ...settingsOf(recipe, all, index), [recipe.inputs.find((i) => i.type === "image" && i.role === "start")!.id]: asset.id };
+      inputs = { ...settings(recipe), [recipe.inputs.find((i) => i.type === "image" && i.role === "start")!.id]: asset.id };
       joined = "cut";
     } else if (asset?.kind === "image") {
       kind = "still";
@@ -185,7 +205,7 @@ export class TimelinePlan {
       throw httpError("Only videos and images go on the video track. Audio goes on a clip, or on the music track.");
     } else {
       const recipe = recipeId ? registry.recipe(recipeId) : undefined;
-      if (recipe) inputs = settingsOf(recipe, all, index);
+      if (recipe) inputs = settings(recipe);
     }
     // after a clip it cannot carry on from (another family, or a model that does not carry on) it starts on its own: a Cut,
     // the default across two models (Extend stays possible, set on the join, with its warning; joinWay)

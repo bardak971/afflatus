@@ -104,8 +104,8 @@ const DOT_HALF = 12;
 
 export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, misfit, on, edged, picked, rendering, stretch, over, pinOn, ownSound, fileSound, renderMs, lift, moving, nearJoin, voice, playsOver, acts }: {
   s: Slot;
-  /** Under a recording in a form it plays over (Video with audio, card #72): said on its face, its own sound dropped. */
-  playsOver?: boolean;
+  /** Under a recording in a form it plays over (Video with audio, card #72): the part it plays (overPart), said on its face, its own sound dropped. */
+  playsOver?: string | null;
   /**
    * A Lip sync clip's voice: the recording's name, null while it has none (said in amber on its face and in its Audio cell,
    * which then takes one); undefined for a clip of any other model.
@@ -299,7 +299,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
         )}
         {playsOver && s.width > 64 && (
           <span className="absolute top-1 right-1.5 flex max-w-[45%] justify-end">
-            <Chip size="xs" tip={`The recording plays over clip ${s.index + 1} unchanged: its take keeps the recording's part as its sound, the model's own dropped`}>♫ plays over</Chip>
+            <Chip size="xs" tip={`The recording plays over clip ${s.index + 1} unchanged, its ${playsOver} part: its take keeps that part as its sound, the model's own dropped`}>♫ plays over</Chip>
           </span>
         )}
         <span className="absolute inset-x-1.5 bottom-1 flex items-end justify-between gap-1">

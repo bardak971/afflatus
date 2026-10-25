@@ -690,3 +690,79 @@ describe.skipIf(!ffmpegThere)("LTX under a recording (card #2)", { timeout: FFMP
     expect(new Set(made.slice(1))).toEqual(new Set(["h3.lipsync"]));
   });
 });
+
+describe.skipIf(!ffmpegThere)("a clip added past a recording's end (card #88)", { timeout: FFMPEG_TIMEOUT }, () => {
+  type ViewClip = { id: string; recipe: string; joined: string; inputs: Record<string, unknown> };
+  const clipsOf = async (id: string) => (await view(id)).clips as ViewClip[];
+  const PLACE = ["recording", "recordingStart", "recordingSeconds", "recordingGoesOn", "recordingLeadIn"];
+  const placeOf = (c: ViewClip) => Object.fromEntries(PLACE.filter((k) => k in c.inputs).map((k) => [k, c.inputs[k]]));
+
+  it("after the recording's last clip is a plain clip of its family: not under the recording, the Lip sync clip's settings kept", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test past the end" });
+    const sound = await recording();
+    await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
+    const before = await clipsOf(tl.id);
+    await call("PATCH", `/api/clips/${before[2]!.id}`, { inputs: { ...before[2]!.inputs, steps: 13 } });
+    await call("POST", `/api/timelines/${tl.id}/clips`, {});
+    const clips = await clipsOf(tl.id);
+    expect(clips).toHaveLength(4);
+    const added = clips[3]!;
+    expect(added.recipe).toBe("h3.video");
+    expect(placeOf(added)).toEqual({});
+    expect(added.inputs.steps).toBe(13);
+    expect(added.joined).toBe("continue");
+    // the recording's clips are the three it was cut into, and the new one plans no part of it
+    const v = await view(tl.id);
+    expect(v.clips.filter((c: ViewClip) => c.inputs.recording === sound)).toHaveLength(3);
+    const planned = await t.services.timelines.plan(added.id, t.services.registry.recipe(added.recipe)!, added.inputs, false, null, true);
+    expect(planned.input.recording).toBeUndefined();
+  });
+
+  it("asked for in Lip sync by name, is Lip sync with no recording yet", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test past the end, lip sync" });
+    const sound = await recording();
+    await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
+    await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "h3.lipsync" });
+    const added = (await clipsOf(tl.id))[3]!;
+    expect(added.recipe).toBe("h3.lipsync");
+    expect(placeOf(added)).toEqual({});
+  });
+
+  it("after an LTX 2.5 Lip sync clip (Timeline 10's case) is LTX 2.5's Video with audio, the cast's pictures kept, no recording", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test ltx 2.5 past the end" });
+    await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "ltx25.video" });
+    const [empty] = await clipsOf(tl.id);
+    const sound = await recording([tone(7)], 7000);
+    await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound, clip: empty!.id });
+    const [lip] = await clipsOf(tl.id);
+    expect(lip!.recipe).toBe("ltx25.lipsync");
+    const references = [{ asset: "zz-test-person", role: "person" }];
+    await call("PATCH", `/api/clips/${lip!.id}`, { inputs: { ...lip!.inputs, references } });
+    // "Extend from this frame" and the end column's + both add a clip after it
+    await call("POST", `/api/timelines/${tl.id}/clips`, { after: lip!.id });
+    const added = (await clipsOf(tl.id))[1]!;
+    expect(added.recipe).toBe("ltx25.video");
+    expect(placeOf(added)).toEqual({});
+    expect(added.inputs.references).toEqual(references);
+    expect((await view(tl.id)).recordings[0].asset.id).toBe(sound);
+  });
+
+  it("a voice sample taken off an LTX 2.5 Video with audio clip is gone from its next job", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test voice off" });
+    await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "ltx25.video" });
+    const [clip] = await clipsOf(tl.id);
+    const voice = await recording([tone(5)], 5000);
+    await call("PATCH", `/api/clips/${clip!.id}`, { inputs: { ...clip!.inputs, prompt: "zz-test a woman talks", voice } });
+    const recipe = t.services.registry.recipe("ltx25.video")!;
+    let c = (await clipsOf(tl.id))[0]!;
+    expect((await t.services.timelines.plan(c.id, recipe, c.inputs, false, null, true)).input.voice).toBe(voice);
+    // the form's slot emptied, as its × sends it: the key left out
+    const { voice: _gone, ...rest } = c.inputs;
+    await call("PATCH", `/api/clips/${c.id}`, { inputs: rest });
+    c = (await clipsOf(tl.id))[0]!;
+    expect(c.inputs.voice).toBeUndefined();
+    const planned = await t.services.timelines.plan(c.id, recipe, c.inputs, false, null, true);
+    expect(planned.input.voice).toBeUndefined();
+    expect(planned.input.recording).toBeUndefined();
+  });
+});

@@ -54,12 +54,20 @@ export function voiceInput(recipe: RecipeInfo | undefined) {
 
 /**
  * Whether a clip plays its recording over its picture (card #72): under a recording in a form not made around it (Video
- * with audio), the recording its take's sound, unchanged, and its mouth free.
+ * with audio), the recording its take's sound, unchanged, and its mouth free. Never with no part of it to play (card #88).
  */
 export function playsOver(c: Clip, recipes: RecipeInfo[]): boolean {
+  return overPart(c, recipes) !== null;
+}
+
+/** The part of its recording a clip plays over its picture (playsOver), as "0:10.9–0:18.5" of the recording; null when none. */
+export function overPart(c: Clip, recipes: RecipeInfo[]): string | null {
   const recipe = recipes.find((r) => r.id === c.recipe);
   const input = recordingInput(recipe);
-  return Boolean(recipe && input && c.inputs[input.id] && !madeAroundRecording(recipe.inputs));
+  if (!recipe || !input || !c.inputs[input.id] || madeAroundRecording(recipe.inputs)) return null;
+  const start = Number(c.inputs[input.start] ?? 0) * 1000;
+  const seconds = Number(c.inputs[input.seconds] ?? 0) * 1000;
+  return seconds > 0 ? `${mmss(start, { decimals: 1 })}–${mmss(start + seconds, { decimals: 1 })}` : null;
 }
 
 /**
