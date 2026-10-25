@@ -2,7 +2,8 @@ import type { FrameGrid } from "./frameGrid";
 import type { LintInput, PromptLine } from "./promptLint";
 import type { BuiltGraph } from "./graph";
 import { chosenDefaults, schemaFor, withoutOldZeros, type InputSpec, type StartRule } from "./inputs";
-import { folderOfFileInput } from "./models";
+import { folderOfFileInput, type ModelLine } from "./models";
+import type { WrongFile } from "./modelSet";
 
 /** A file a family needs, wherever the user keeps it: found by pattern, overridable on the setup page. */
 interface ModelSlot {
@@ -47,6 +48,13 @@ export interface Family {
   slots: ModelSlot[];
   /** Regex sources matched against a LoRA's architecture metadata and path: which LoRAs fit this family. */
   loraMatch: string[];
+  /**
+   * The model's versions, whose files and LoRAs do not go with each other's (LTX-2, 2.3, 2.5): a file of another version in
+   * a render is said before it runs (modelSet.ts). Left out for a model whose versions share their files.
+   */
+  line?: ModelLine;
+  /** Files known to be wrong in some of its places (a high-noise file in the low-noise place), by name and hash (modelSet.ts). */
+  wrong?: WrongFile[];
   /** How this family's prompts are written, in words for the prompt designer's language model. */
   guide?: string;
   /**

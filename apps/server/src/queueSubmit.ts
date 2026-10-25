@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, onGrid, packOfNode, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
+import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, onGrid, packOfNode, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
 import { catalogKey, ComfyCancelled, ComfyError, ComfyUnreachable } from "@afflatus/comfy";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
@@ -21,6 +21,7 @@ import type { Placed } from "./timelineModel";
 /** Where a timeline's clips are read (Timelines.placedOnce). */
 type PlacedReader = (timelineId: string) => Promise<Placed[]>;
 import { draftOf, measuredFirst, renderedOf } from "./queueStore";
+import { refusedSaid, setFindings } from "./modelSetCheck";
 
 /** A job on its way to ComfyUI: its form settled, its files uploaded, its graph built and checked, the prompt queued. */
 
@@ -271,6 +272,13 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   if (bare && !loaders) throw new Error("this loads no model: there is nothing to preload");
   const built: BuiltGraph = loaders ? { ...whole, graph: loaders.graph, phases: loaders.phases, passes: [], outputs: [] } : whole;
   refuseGap(built.graph, gaps);
+  // files of another version, or a pair swapped (modelSetCheck.ts), as this machine has them: a mix known to give black frames
+  // is refused, the others said on the job, which runs. Read before the files are relocated, under the names the build gave
+  if (!loaders) {
+    const found = await setFindings(db, core.registry.family(recipe.family), recipe, input, built, slotFiles);
+    if (found.some((f) => f.black)) throw new Error(refusedSaid(found));
+    warnings.push(...found.map((f) => f.text));
+  }
   if (!loaders && whole.warnings?.length) warnings.push(...whole.warnings);
   // an option done without (its node pack not there): said, with why
   if (!loaders) warnings.push(...options.without.map(({ w, why }) => ranWithoutSaid(w, why)));
@@ -787,6 +795,26 @@ async function slots(core: QueueCore, comfy: Comfy, recipe: Recipe<any>): Promis
     }
   }
   return { files: slots, gaps };
+}
+
+/**
+ * A form's files held against its family's (modelSetCheck.ts) before it is queued, as the first machine has them: what the
+ * form says under its fields, and a mix known to give black frames refused at Render. Nothing when the form cannot be built
+ * or ComfyUI does not answer: the job's own check, on the machine it runs on, still comes.
+ */
+export async function setCheckOf(core: QueueCore, recipeId: string, raw: unknown): Promise<SetFinding[]> {
+  const recipe = core.registry.recipe(recipeId);
+  if (!recipe) return [];
+  try {
+    const comfy = await core.comfy();
+    const { files } = await slots(core, comfy, recipe);
+    const built = await builtOf(core, recipeId, raw, { comfy, slots: files, relocate: false });
+    if (!built) return [];
+    const input = parseInput(recipe, withTexts(recipe, raw)) as Record<string, unknown>;
+    return await setFindings(core.db, core.registry.family(recipe.family), recipe, input, built, files);
+  } catch {
+    return [];
+  }
 }
 
 /** Refuses a graph that reads a family file this ComfyUI does not have (slots), in the words said of that file. */

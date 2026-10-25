@@ -1,5 +1,5 @@
 /** Models and recipes: what ComfyUI has, what each recipe needs, imported workflows, and where a missing file can be had. */
-import type { Chapter, InputSpec, StartRule, VideoTraits } from "@afflatus/core";
+import type { Chapter, InputSpec, ModelLine, StartRule, VideoTraits } from "@afflatus/core";
 import type { Bindings, Wiring, WorkflowDef } from "@afflatus/workflows";
 import type { PresetFile } from "./designer";
 
@@ -44,6 +44,8 @@ export interface FamilyInfo {
   imported?: true;
   /** Patterns that tell which LoRAs were made for this family. */
   loraMatch?: string[];
+  /** Its versions, whose LoRAs do not carry over (LTX-2, 2.3, 2.5): a LoRA of another one is listed with the other models. */
+  line?: ModelLine;
   /** Its files (the server's ModelSlot): where each goes and, for the official ones, where it is had (`get`). */
   slots?: FamilySlot[];
 }

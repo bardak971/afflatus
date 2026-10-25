@@ -28,4 +28,5 @@ export * from "./gpuRank";
 export * from "./versions";
 export * from "./podSteps";
 export * from "./graphFiles";
+export * from "./modelSet";
 export * from "./trims";

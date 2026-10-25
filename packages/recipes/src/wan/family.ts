@@ -2,6 +2,7 @@ import { frameOf, type PromptLine, QUOTED_SPEECH, WEIGHT_SYNTAX, wordCount } fro
 import { defineFamily } from "@afflatus/core";
 import { SEEDVR_SLOTS } from "../video/upscale";
 import { RIFE_GET } from "../shared/finish";
+import { WAN_WRONG } from "./wrong";
 
 /** Where ComfyUI's own templates fetch Wan 2.2's files from. */
 const HF = "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files";
@@ -90,6 +91,7 @@ export const wan = defineFamily({
     ...SEEDVR_SLOTS,
   ],
   loraMatch: ["wan"],
+  wrong: WAN_WRONG,
   guide: `Wan 2.2 makes video WITHOUT sound: no dialogue, no sounds. Its authors' formula is Subject → Scene → Motion → Camera → Atmosphere and style, as natural sentences in the present tense, 40 to 120 words, no tags.
 RULES
 - Subject with 2 or 3 descriptors (age, hair, clothing with colour and material). Several people: a label and a place for each ("the man in the red jacket on the left").

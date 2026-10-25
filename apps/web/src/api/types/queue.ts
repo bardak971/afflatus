@@ -52,6 +52,15 @@ export interface Job {
   /** Of a waiting render: the node packs it waits for on a machine of the user's own, and where they stand. */
   packs?: PackWait | null;
 }
+/** A file of the form that does not go with the others (server modelSetCheck.ts): said under its field, or above the form. */
+export interface SetFinding {
+  /** The input or family file (slot) it is about. */
+  at: string;
+  file: string;
+  text: string;
+  /** Known to give black frames: Render refuses it. */
+  black: boolean;
+}
 /** What a form says under an option whose node pack the machine it renders on lacks (server formPacks.ts). */
 export interface FormPacks {
   /** The machine it renders on, and its rule: asks first, installs on first use, or a rented pod (installs on first use). */
