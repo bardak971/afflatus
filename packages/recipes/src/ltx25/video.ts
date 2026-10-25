@@ -47,6 +47,12 @@ const spec: LtxSpec = {
         slots: { ...parts, ...extras }, uploads: { previous: "a.mp4" }, media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX25_FPS, hasSound: true } },
       },
       {
+        name: "carries on in the clip before's own latent with a long run-up (41 frames, 6 tokens), two passes",
+        input: { prompt: "a", previous: { asset: "c1" }, context: "41" },
+        slots: { ...parts, ...extras }, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors" },
+        media: { previous: { width: 704, height: 1280, frames: 41, fps: LTX25_FPS, hasSound: true, latentFrames: 121, latentSize: { width: 704, height: 1280 } } },
+      },
+      {
         name: "carries on in the clip before's latent, doubled by the temporal upscaler: its join decoded alone",
         input: { prompt: "a", previous: { asset: "c1" }, smooth: true, smoothWith: "LTX temporal (latent)" },
         slots: { ...parts, ...temporal }, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors" },

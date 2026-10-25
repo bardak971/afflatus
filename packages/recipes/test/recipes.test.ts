@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { checkGraph, choicesOf, dryContext, joinKindOf, madeAroundRecording, recordingSpecOf, parseInput, pickChoice, ruledDefaults, schemaFor, type ChoiceInput, type NodeCatalog, type Wanted } from "@afflatus/core";
+import { checkGraph, choicesOf, dryContext, joinFrames, joinKindOf, madeAroundRecording, recordingSpecOf, parseInput, pickChoice, ruledDefaults, schemaFor, type ChoiceInput, type NodeCatalog, type Wanted } from "@afflatus/core";
 import { seedvrChunk, families, familyById, krea2Picture, h3Canvas, h3Frames, h3Prompt, h3Video, introduce, kleinSize, padsFor, recipeById, recipes, sdxlTextToPicture, wanCanvas, wanFrames, wanVideo, ltxCanvas, ltxFrames, ltxLipSync, ltxVideo, ltx25LipSync, LTX_REFINE_SIGMAS, LTX_SIGMAS, fluxEdit, fluxPicture, qwenEdit, qwenPicture, flux, qwen, wan, ltx, zimage, zimagePicture } from "../src";
 
 const catalog = JSON.parse(
@@ -1099,6 +1099,30 @@ describe("ltx.video", () => {
     expect(all(short, "AfflatusTrimLTXLatent")).toEqual([]);
     expect(all(short, "AfflatusLTXSeamLatent")[0]!.inputs.context).toBe(1);
     expect(all(short, "ImageFromBatch")[0]!.inputs.batch_index).toBe(8);
+  });
+
+  it("carries on with the run-up asked (card #87): 9, 25 or 41 frames of the clip before, as H3's 5, 22 or 39", () => {
+    const runUp = ltxVideo.inputs.find((i) => i.id === "context");
+    expect(runUp).toMatchObject({ type: "choice", label: "Frames from the clip before", options: ["9", "25", "41"], default: "25", showWhen: "previous", advanced: true, section: "rare" });
+    expect(ltxVideo.inputs.find((i) => i.id === "previous")).toMatchObject({ frames: [25, 9], framesFrom: "context" });
+    // the same choice on every LTX form, in the same place: right after the clip it is about
+    for (const r of [ltxVideo, ltxLipSync, ltx25LipSync]) expect(r.inputs.findIndex((i) => i.id === "context")).toBe(r.inputs.findIndex((i) => i.id === "previous") + 1);
+    // the count the server cuts the clip before to: the one asked, else the form's default
+    expect(joinFrames(ltxVideo, "previous", { context: "41" })).toBe(41);
+    expect(joinFrames(ltxVideo, "previous", {})).toBe(25);
+    // handed over with 41: 6 tokens pinned, the clip that much longer, the head that much longer hidden
+    const prev = { width: 704, height: 1280, frames: 41, fps: 25, hasSound: true, latentFrames: 97, latentSize: { width: 704, height: 1280 } };
+    const b = build({ previous: { asset: "c" }, seconds: 5, context: "41" }, { uploads: { previous: "c.mp4", "previous.latent": "c.safetensors" }, media: { previous: prev } });
+    expect(all(b, "AfflatusLTXContinuation")[0]!.inputs.overlap_frames).toBe(41);
+    expect(all(b, "AfflatusLTXSeamLatent")[0]!.inputs).toMatchObject({ overlap_frames: 41, context: 4 });
+    expect(all(b, "EmptyLTXVLatentVideo")[0]!.inputs.length).toBe(ltxFrames(5 + 41 / 25));
+    expect(b.overlap).toEqual({ headMs: 1640, tailMs: 0, latent: true, seam: true });
+    // on frames: the 41 frames as the guide, the head's sound a frame short of them
+    const frames = build({ previous: { asset: "c" }, context: "41" }, { uploads: { previous: "c.mp4" }, media: { previous: { ...prev, latentSize: undefined } } });
+    expect(all(frames, "SolidMask").map((n) => n.inputs.height)).toContain(40);
+    expect(frames.overlap).toEqual({ headMs: 1640, tailMs: 0, sound: true });
+    // a clip after is landed on with 25 or 9 still: 41 is a run-up only
+    expect(() => build({ next: { asset: "n", at: 0 } }, { uploads: { next: "n.mp4" }, media: { next: { ...prev, latentSize: undefined } } })).toThrow(/lands on 25 or 9 frames/);
   });
 
   it("carries on from the frames when the latent cannot be continued", () => {

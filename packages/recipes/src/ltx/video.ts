@@ -59,6 +59,12 @@ const spec: LtxSpec = {
         media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX_FPS, hasSound: true, latentFrames: 97, latentCut: 97, latentSize: { width: 704, height: 1280 } } },
       },
       {
+        name: "carries on in the clip before's own latent with a long run-up (41 frames, 6 tokens)",
+        input: { prompt: "a", previous: { asset: "c1" }, context: "41" },
+        slots: { ...one, ...extras }, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors" },
+        media: { previous: { width: 704, height: 1280, frames: 41, fps: LTX_FPS, hasSound: true, latentFrames: 97, latentSize: { width: 704, height: 1280 } } },
+      },
+      {
         name: "carries on in the clip before's latent in one pass with a last picture, a short run-up",
         input: { prompt: "a", previous: { asset: "c1" }, end: "p2" },
         slots: one, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors", end: "b.png" },

@@ -86,8 +86,20 @@ const BY_STEPS = "By steps";
  * How many frames of the clip before open a clip that carries on from it: its last second (25 frames, on the model's 8n + 1)
  * as a video guide at frame 0, the way LTX's own extension works from a clip's tail (its authors' pipelines carry 25 to 73
  * frames; 25 is what a short clip can give). A clip too short for that gives 9. Hidden on a timeline as H3's run-up is.
+ * Also the frames of the clip after a clip lands on.
  */
 export const LTX_JOIN_FRAMES = [25, 9];
+/**
+ * The run-ups the form offers (Frames from the clip before, card #87): H3's 5, 22 and 39 on LTX's grid of whole tokens (8k - 7),
+ * 2, 4 and 6 tokens of the clip before. 41 frames (1.6 to 1.7 s) give the model more of a turn or a walk to read its direction
+ * from; a clip before too short for the count asked gives the next one down.
+ */
+export const LTX_RUN_UPS = ["9", "25", "41"] as const;
+/**
+ * The counts a clip before can come handed over with: the run-up asked, else a shorter one of LTX_JOIN_FRAMES for a clip before
+ * too short for it (the server puts the count asked ahead of those, as for H3's 39).
+ */
+const LTX_RUN_UP_FRAMES = LTX_RUN_UPS.map(Number).sort((a, b) => b - a);
 /** The guide's strength on those frames: they are the clip before's own and are not shown, so they are held exactly. */
 const CARRY_STRENGTH = 1;
 /**
@@ -252,6 +264,8 @@ export interface LtxVideo extends ColourMatch, Partial<Recording> {
   nagScale: number;
   start?: string;
   previous?: ClipValue;
+  /** The run-up asked, in frames (LTX_RUN_UPS): the server hands the clip before over with that many, or fewer for a short one. */
+  context: string;
   next?: ClipValue;
   end?: string;
   mid?: string;
@@ -339,11 +353,14 @@ const midFrame = (input: LtxVideo, fps: number, frames: number, head = 0) => {
   return Math.max(step, Math.min(frames - 1 - step, at));
 };
 
-/** The frames of the clip before a clip opens on, or of the clip after it lands on, as they were handed over: 25 or 9, on the model's 8n + 1. */
+/**
+ * The frames of the clip before a clip opens on (a run-up: 41, 25 or 9), or of the clip after it lands on (25 or 9), as they
+ * were handed over, on the model's 8n + 1.
+ */
 function joinFramesOf(m: MediaFacts | undefined, side: "previous" | "next"): number {
   const n = m?.frames ?? 0;
-  const [does, which] = side === "previous" ? ["carries on from", "before"] : ["lands on", "after"];
-  if (!LTX_JOIN_FRAMES.includes(n)) throw new Error(`a clip ${does} ${LTX_JOIN_FRAMES.join(" or ")} frames of the clip ${which}, not ${n}`);
+  const [does, which, counts] = side === "previous" ? ["carries on from", "before", LTX_RUN_UP_FRAMES] : ["lands on", "after", LTX_JOIN_FRAMES];
+  if (!counts.includes(n)) throw new Error(`a clip ${does} ${counts.join(", ").replace(/, (\d+)$/, " or $1")} frames of the clip ${which}, not ${n}`);
   return n;
 }
 /**
@@ -754,8 +771,12 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       },
       { id: "start", type: "image", role: "start", label: "First frame", note: "the first frame", optional: true },
       {
-        id: "previous", type: "clip", role: "previous", label: "Previous clip", optional: true, frames: LTX_JOIN_FRAMES, fps, advanced: true, look: "matched",
-        note: "the clip this one carries on from: its last second (25 frames) opens this clip as a guide, its sound under it, so that the motion and the sound carry over, not only the last picture. On a timeline those frames are hidden, the clip plays from its own. A first frame is not used with it",
+        id: "previous", type: "clip", role: "previous", label: "Previous clip", optional: true, frames: LTX_JOIN_FRAMES, framesFrom: "context", fps, advanced: true, look: "matched",
+        note: "the clip this one carries on from: its last frames (a second, by default) open this clip as a guide, its sound under them, so that the motion and the sound carry over, not only the last picture. On a timeline those frames are hidden, the clip plays from its own. A first frame is not used with it",
+      },
+      {
+        id: "context", type: "choice", label: "Frames from the clip before", options: [...LTX_RUN_UPS], default: "25", showWhen: "previous", advanced: true, section: "rare",
+        note: "pinned at the start as the run-up: 9 is a position, 25 brings its motion and voice too, 41 a long run-in. When the join jumps, try another count",
       },
       {
         id: "next", type: "clip", role: "next", label: "Next clip", optional: true, frames: LTX_JOIN_FRAMES, fps, advanced: true, framesOnly: true,
