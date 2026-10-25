@@ -20,6 +20,7 @@ const spec: LtxSpec = {
   decode: { tile: 768, frames: 4096, overlap: 4 },
   modelMatch: ["ltx.?2[._]?3", "ltx"],
   nag: true,
+  roomTone: true,
   temporalFile: "ltx-2.3-temporal-upscaler-x2-*.safetensors",
   missing: {
     model: "LTX 2.3 was not found: put its checkpoint in ComfyUI's models/checkpoints folder, or a diffusion model in models/diffusion_models with its two VAEs and its text projection.",
