@@ -6,7 +6,9 @@ import type { ImageLayer } from "./podImage";
  *
  * The log names each layer by its digest's first 12 hex, and its steps: "Pulling fs layer", "Already exists" (the host has
  * it), "Downloading", "Download complete", "Extracting", "Pull complete"; then "Status: Downloaded newer image" (pulled) or
- * "Status: Image is up to date" (the host had it all). It gives no byte counts, but a "Downloading" line comes about every
+ * "Status: Image is up to date" (the host had it all). Most real logs say no "Status:" at all (5 of 6 read on 2026-10-25),
+ * drop a big layer's "Download complete" and the last layer's "Pull complete", and end with "start container for <image>:
+ * begin": that line ends a pull too, else the container's start as RunPod says it. It gives no byte counts, but a "Downloading" line comes about every
  * 5 MB of a layer (5.1-5.2 MB on every layer of a pull read on 2026-10-19, small and big alike), so the lines of a layer
  * still coming, against the layers already in, say how far it is. Its times are to the second.
  *
@@ -65,7 +67,7 @@ function layersOf(lines: readonly PullLine[], sizes: ReadonlyMap<string, number>
   for (const l of lines) {
     const t = Date.parse(l.ts);
     if (!Number.isFinite(t) || t > until) continue;
-    if (/^Status: Downloaded newer image/.test(l.line)) end ??= t;
+    if (/^Status: Downloaded newer image/.test(l.line) || /^start container for /.test(l.line)) end ??= t;
     if (/^Status: Image is up to date/.test(l.line)) {
       upToDate = true;
       end ??= t;
@@ -78,8 +80,10 @@ function layersOf(lines: readonly PullLine[], sizes: ReadonlyMap<string, number>
     switch (m[2]) {
       case "Already exists": x.had = true; break;
       case "Downloading": x.lines.push(t); first ??= t; break;
+      // a layer checked or extracting is in, its "Download complete" said or not
+      case "Verifying Checksum":
       case "Download complete": x.downloaded ??= t; break;
-      case "Extracting": x.extractFrom ??= t; break;
+      case "Extracting": x.extractFrom ??= t; x.downloaded ??= t; break;
       case "Pull complete": x.extracted ??= t; x.downloaded ??= t; break;
     }
   }
@@ -112,11 +116,16 @@ function doneBy(layers: Iterable<Layer>, per: number, until: number): number {
 /**
  * The pull's state at `now` (ms) from the system log's lines, against its image's layers (podImage.imageLayers; null when
  * the registry did not say: then the layers' sizes are not known, and only whether it downloads, extracts or is done is).
+ * `upAt`, its container's start (ms) once known, ends a pull whose log never said its end: the image was in by then.
  */
-export function pullOf(lines: readonly PullLine[], image: readonly ImageLayer[] | null, now: number): PullState {
+export function pullOf(lines: readonly PullLine[], image: readonly ImageLayer[] | null, now: number, upAt: number | null = null): PullState {
   const sizes = new Map((image ?? []).map((l) => [l.id, l.size]));
-  const { layers, first, end, upToDate } = layersOf(lines, sizes, now);
+  const said = layersOf(lines, sizes, now);
+  const { layers, first, upToDate } = said;
+  const end = said.end ?? (upAt !== null && upAt <= now && layers.size ? upAt : null);
   const all = [...layers.values()];
+  // ended: a layer whose every line after its start was lost was in by then
+  if (end !== null) for (const x of all) if (!x.had) x.downloaded ??= end;
   // pulled when any layer came down; the host had it all when the pull ended with nothing downloaded
   const fresh = all.some((x) => !x.had && (x.lines.length > 0 || x.downloaded !== null)) ? true : end !== null && upToDate ? false : null;
   const known = image !== null && all.length > 0 && all.every((x) => x.size !== null);

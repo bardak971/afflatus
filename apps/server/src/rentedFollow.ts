@@ -441,8 +441,10 @@ export class RentedFollow extends RentedBilling {
     // the rate of its last run here, until RunPod says one (it says 0 while the pod is stopped)
     s.rate ??= (await this.db.selectFrom("rent_sessions").select("rate").where("pod", "=", m.rented!.pod).orderBy("started_at", "desc").executeTakeFirst())?.rate || null;
     await this.session(m, pod, s);
-    // a deployed pod's first start: how far its image's pull is, from RunPod's system log, until its ComfyUI answers
-    if (m.rented!.deployedAt && pod && BILLED.has(pod.status) && !s.answered) void this.readPull(m, s, pod, key);
+    // a deployed pod's first start: how far its image's pull is, from RunPod's system log, until its ComfyUI answers; and a
+    // while after, while its figures are not kept (its log read up to its end, or its container's start known)
+    const pulling = m.rented!.deployedAt ? !s.answered : s.answered && s.pullLines.length > 0 && !s.pullKept && this.booting(s);
+    if (pulling && pod && BILLED.has(pod.status)) void this.readPull(m, s, pod, key);
     // its container up (RunPod says its uptime from then): its image pulled, kept on its session for the Costs tab's split of
     // its boot. From its uptime, not from now: right after a restart of Afflatus mid-boot too
     if (pod?.status === "RUNNING" && pod.uptime !== null && !s.pulledKept) {
@@ -707,7 +709,9 @@ export class RentedFollow extends RentedBilling {
    */
   private async containerUp(m: Machine, s: Seen, pod: Pod, key: string): Promise<void> {
     if (pod.uptime !== null) s.containerAt ??= this.now() - pod.uptime * 1000;
-    else if (s.containerAt === null && !s.answered) {
+    // asked a while after its first answer too: a ComfyUI up within a read of its container (15 s on a real pod) answered
+    // before its start was known, which then never was
+    else if (s.containerAt === null && this.booting(s)) {
       const first = this.boots.get(m.id)?.lines[0]?.t;
       const logged = first ? Date.parse(first) : Number.NaN;
       // a log of this run only: one kept from a run before (a stop, a start again) is not its container's start
@@ -723,10 +727,12 @@ export class RentedFollow extends RentedBilling {
 
   /**
    * Its container's start (its image pulled, ms) kept on its open session, before its ComfyUI first answered: the Costs tab's
-   * "pulling the image". Never over one kept (a container started again later is not its pull).
+   * "pulling the image". Never over one kept, nor after its first answer (a container started again later is not its pull);
+   * known only after that answer, it is kept still.
    */
   private async notePulled(m: Machine, at: number): Promise<void> {
-    await this.db.updateTable("rent_sessions").set({ pulled_at: new Date(Math.min(at, this.now())).toISOString() }).where("machine_id", "=", m.id).where("ended_at", "is", null).where("pulled_at", "is", null).where("up_at", "is", null).execute().catch(() => {});
+    const iso = new Date(Math.min(at, this.now())).toISOString();
+    await this.db.updateTable("rent_sessions").set({ pulled_at: iso }).where("machine_id", "=", m.id).where("ended_at", "is", null).where("pulled_at", "is", null).where((eb) => eb.or([eb("up_at", "is", null), eb("up_at", ">=", iso)])).execute().catch(() => {});
   }
 
   /**
@@ -742,11 +748,11 @@ export class RentedFollow extends RentedBilling {
     // 2026-10-20), so a read takes what came within its wait, and the next goes on from there; the lines of that last
     // second already held are not taken twice
     const last = s.pullLines.at(-1)?.ts ?? null;
-    const got = await this.client(key).systemLog(pod.id, last).catch(() => null);
-    if (!got?.length) return;
+    const got = (await this.client(key).systemLog(pod.id, last).catch(() => null)) ?? [];
     let skip = last ? s.pullLines.filter((l) => l.ts === last).length : 0;
     const added = got.filter((l) => !last || l.ts > last || (l.ts === last && skip-- <= 0));
-    if (!added.length) return;
+    // nothing new: worked out again only once its container's start can end a pull its log never ended
+    if (!added.length && (s.containerAt === null || !s.pullLines.length)) return;
     s.pullLines = [...s.pullLines, ...added];
     const lines = s.pullLines;
     const image = m.rented!.image || pod.image;
@@ -762,7 +768,7 @@ export class RentedFollow extends RentedBilling {
       this.layersSeen.set(image, seen);
     }
     const before = s.pull;
-    s.pull = pullOf(lines, (await seen?.layers) ?? null, this.now());
+    s.pull = pullOf(lines, (await seen?.layers) ?? null, this.now(), s.containerAt);
     if (before?.phase !== s.pull.phase || before.done !== s.pull.done || before.leftMs !== s.pull.leftMs) this.events.emit("queue");
     if (s.pull.phase === "done" && !s.pullKept) {
       s.pullKept = true;
