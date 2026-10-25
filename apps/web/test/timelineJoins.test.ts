@@ -48,6 +48,14 @@ describe("the sound at a seamless join, as the export hands it over", () => {
     // its head the recording the clip before sang (the lead-in): switched from it running hidden, before the cut
     expect(soundHandoverOf(clip({ id: "b", take: sounding({ seamless: true, startMs: 896, laidSound: true, headSung: true }) }), before)).toBe(SOUND_HANDOVER_MS);
   });
+  it("goes early too into a head that carries the clip before's own sound (an LTX join), still after that take", () => {
+    expect(soundHandoverOf(clip({ id: "b", take: sounding({ joinKind: "carried", carried: true, startMs: 1000 }) }), before)).toBe(SOUND_HANDOVER_MS);
+    // after another take than the one it carries the sound of (the server leaves carried off), or with that sound muted
+    expect(soundHandoverOf(clip({ id: "b", take: sounding({ joinKind: "carried", startMs: 1000 }) }), before)).toBe(0);
+    expect(soundHandoverOf(clip({ id: "b", sound: "muted", take: sounding({ joinKind: "carried", carried: true, startMs: 1000 }) }), before)).toBe(0);
+    // the picture still dissolves in over the clip before held, as at any join on frames
+    expect(dissolveOf(clip({ id: "b", take: sounding({ joinKind: "carried", carried: true, startMs: 1000, headMs: 1000 }) }), before)).toBe(170);
+  });
 });
 
 describe("a clip moved one place", () => {

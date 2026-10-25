@@ -90,6 +90,11 @@ export interface BuiltGraph {
      * kept): the join fades over them with both clips moving.
      */
     moving?: boolean;
+    /**
+     * Not in the latent: its head's sound is the clip before's own, encoded and pinned under its pinned frames (an LTX join),
+     * not one the model made up over them: the sound can hand over early into the head, as at a seamless join.
+     */
+    sound?: boolean;
   };
   /** What went less well than asked, known when the graph is built (a node this ComfyUI lacks, done without): said on the job. */
   warnings?: string[];
@@ -99,12 +104,13 @@ export interface BuiltGraph {
  * How a clip joins the clip before: "seamless" continues its exact latent and was decoded as one piece with it
  * (the join is a plain cut, as the whole chain decoded at once), "latent" its exact latent decoded alone,
  * "hybrid" its re-encoded frames for the picture (takes made before 2026-10-08: it softened a full-step chain
- * ~35 % a clip), "pixels" pinned frames and re-encoded sound (ComfyUI alone); null when it starts on its own.
+ * ~35 % a clip), "pixels" pinned frames (ComfyUI alone), "carried" pinned frames with the clip before's own sound pinned
+ * under them (LTX); null when it starts on its own.
  */
-export type JoinKind = "seamless" | "latent" | "hybrid" | "pixels" | "window";
+export type JoinKind = "seamless" | "latent" | "hybrid" | "pixels" | "carried" | "window";
 export function joinKindOf(overlap: BuiltGraph["overlap"] | undefined): JoinKind | null {
   if (!overlap || overlap.headMs <= 0) return null;
-  return overlap.latent ? (overlap.frames ? "hybrid" : overlap.seam ? "seamless" : "latent") : overlap.moving ? "window" : "pixels";
+  return overlap.latent ? (overlap.frames ? "hybrid" : overlap.seam ? "seamless" : "latent") : overlap.moving ? "window" : overlap.sound ? "carried" : "pixels";
 }
 
 /** Nodes are numbered in insertion order and tagged with the phase that was current when they were added. */

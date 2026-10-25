@@ -24,7 +24,7 @@ export interface Job {
   /** The draft it was sent from, when it was sent from one. */
   draftId: string | null;
   /** Of a clip render, once its graph is built: how it joins the clip before (in the latent, or on pinned frames); null when it starts on its own. */
-  join: "seamless" | "latent" | "hybrid" | "pixels" | "window" | null;
+  join: "seamless" | "latent" | "hybrid" | "pixels" | "carried" | "window" | null;
   /** "export": it puts a timeline together as one video instead of rendering. "load": it only loads the models of a render. "cut": a range of a video kept as new videos. */
   kind: "render" | "export" | "load" | "cut";
   /** Of a finish: what it upscales with (SeedVR2, RTX VSR, the upscale model's name). */

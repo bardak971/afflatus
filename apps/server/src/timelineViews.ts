@@ -2,7 +2,7 @@ import type { Measure } from "./measure";
 import type { Db } from "./db";
 import type { Look } from "./entities";
 import { assetView } from "./media";
-import { EXPORT_JOB, lengthOnGrid, seamless, visible, type Placed, type Taken, type TimelineRow } from "./timelineModel";
+import { carried, EXPORT_JOB, lengthOnGrid, seamless, visible, type Placed, type Taken, type TimelineRow } from "./timelineModel";
 import { sourceOfRow } from "./timelineSource";
 
 /** What a timeline's view is made of besides its clips' order and lengths: its takes as the browser gets them, its jobs, its header. */
@@ -29,6 +29,8 @@ export function takeView(x: Taken, rendered: Rendered | undefined, laid: { sound
     roomMs: Math.max(0, lengthOnGrid(x.asset) - x.take.head_ms - x.take.tail_ms),
     // decoded as one piece with the clip before it, which is still the take it was made from: the join is a plain cut
     seamless: seamless(x),
+    // its head sounds of the clip before's own sound, still after the take it was made from: the sound hands over into it early
+    ...(carried(x) ? { carried: true } : {}),
     ...(x.landed !== undefined ? { landedMs: x.landed } : {}),
     finishedFrom: x.take.finished_from,
     /** How its start joins the clip before: in the latent (the clip before's own tokens continued), or pinned frames; null when it does not continue a clip. */

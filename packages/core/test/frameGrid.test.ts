@@ -57,5 +57,8 @@ describe("a join's fade", () => {
     expect(joinFade({ joined: false, seamless: false, sharedMs: 281, moving: true })).toBeNull();
     expect(joinKindOf({ headMs: 281, tailMs: 0, moving: true })).toBe("window");
     expect(joinKindOf({ headMs: 281, tailMs: 0 })).toBe("pixels");
+    // pinned frames with the clip before's own sound pinned under them (LTX)
+    expect(joinKindOf({ headMs: 1000, tailMs: 0, sound: true })).toBe("carried");
+    expect(joinKindOf({ headMs: 0, tailMs: 1000, sound: true })).toBeNull();
   });
 });

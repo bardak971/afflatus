@@ -35,13 +35,14 @@ export const blendOf = (c: Clip | undefined, from: Clip | undefined) => (fadeIn(
 export const dissolveOf = (c: Clip | undefined, from: Clip | undefined) => (fadeIn(c, from)?.mode === "hold" ? fadeIn(c, from)!.ms : 0);
 
 /**
- * How many ms before a seamless join into `c` its sound takes over from `from`'s, as the export hands it (core soundHandover):
+ * How many ms before a seamless join into `c` (or one whose head carries `from`'s own sound, an LTX join) its sound takes over from `from`'s, as the export hands it (core soundHandover):
  * `c` runs hidden over its head meanwhile (PREROLL_MS), the same moments as `from`'s last ones, whose own sound ends silent.
  */
 export function soundHandoverOf(c: Clip | undefined, from: Clip | undefined): number {
   if (!c?.take || !from?.take || c.joined !== "continue" || c.transition) return 0;
   return soundHandover({
     seamless: Boolean(c.take.seamless),
+    carried: Boolean(c.take.carried),
     bothOwnSound: c.sound === "own" && from.sound === "own" && Boolean(c.take.asset.hasSound) && Boolean(from.take.asset.hasSound),
     shownFromMs: c.take.startMs,
     beforeMs: from.lengthMs,

@@ -74,7 +74,10 @@ export interface Taken {
   give?: number;
   /** The clip before lands on it (its tail was guided by this take's frames): it starts this many ms after where it plays, its own take-over point set aside. */
   landed?: number;
-  /** A seamless take placed after the very take it was decoded with, ending where it did: its join is a plain cut. */
+  /**
+   * A seamless take placed after the very take it was decoded with, ending where it did: its join is a plain cut. A carried
+   * one (an LTX join, the clip before's sound pinned at its head) after the take whose sound it carries: its sound hands over early.
+   */
   seamed?: boolean;
 }
 
@@ -120,6 +123,8 @@ export const leadOf = (t: Taken) => (seamless(t) ? seamLead(t.asset) : 0);
 const seamLead = (asset: AssetRow) => ((asset.fps ?? 24) > 30 ? Math.round(1000 / (asset.fps ?? 48)) : 0);
 /** A join decoded as one piece with the clip before: a plain cut is the whole chain decoded at once (no fade, no colour step). */
 export const seamless = (t: Taken | null | undefined) => Boolean(t?.seamed) && t?.take.join_kind === "seamless" && t.landed === undefined;
+/** A join whose head sounds of the clip before's own sound, still after that very take: the sound hands over into its head early (core soundHandover). */
+export const carried = (t: Taken | null | undefined) => Boolean(t?.seamed) && t?.take.join_kind === "carried" && t.landed === undefined;
 
 /**
  * The part of a take that plays, in its video's own time: after the frames it shares with the clip before
@@ -229,7 +234,7 @@ export function markJoins(placed: Placed[]): void {
       next.active.landed = LEAD_MS;
       continue;
     }
-    if (mine && next.active && next.clip.joined === "continue" && next.active.take.join_kind === "seamless") next.active.seamed = takeFollows(next.active.take, mine);
+    if (mine && next.active && next.clip.joined === "continue" && (next.active.take.join_kind === "seamless" || next.active.take.join_kind === "carried")) next.active.seamed = takeFollows(next.active.take, mine);
     const give = next.clip.kind === "video" && next.clip.joined === "continue" && next.active ? leadOf(next.active) : 0;
     if (give > 0) for (const t of placed[i]!.takes) t.give = give;
   }
