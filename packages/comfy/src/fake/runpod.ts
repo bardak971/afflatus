@@ -88,6 +88,8 @@ export interface FakeRunpod {
   startMs: number;
   /** Its start stops on an error at this step, as start.sh says it: its boot log says so, and its ComfyUI never answers. */
   bootFails: string | null;
+  /** Its GraphQL says no pod's uptime while set, as a real one did not in time once (a ComfyUI up 15 s after its container). */
+  uptimeHidden: boolean;
   /** Misbehaving as the real one can, for a test: an action refused with this status, by pod id; the env change refused;
    * the env left out of the list; the list refused with this status, or answered in a shape of another API; actions slow. */
   failAction: Record<string, number>;
@@ -204,7 +206,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
     return { pulled: true, ...p, env: p.env ?? {}, id: new URL(p.comfy.url).port, status, startedAt: status === "RUNNING" ? new Date().toISOString() : null };
   });
   const fake: Omit<FakeRunpod, "url" | "close"> = {
-    key: o.key, pods, calls: [], balance: o.balance ?? 23.4, userId: "user_fake", s3DataCenters: ["EU-RO-1", "EU-CZ-1", "US-KS-2"], autoBill: false, billLagMs: 0, bootMs: o.bootMs ?? 1500, pullMs: o.pullMs ?? 0, startMs: o.startMs ?? 0, bootFails: null,
+    key: o.key, pods, calls: [], balance: o.balance ?? 23.4, userId: "user_fake", s3DataCenters: ["EU-RO-1", "EU-CZ-1", "US-KS-2"], autoBill: false, billLagMs: 0, bootMs: o.bootMs ?? 1500, pullMs: o.pullMs ?? 0, startMs: o.startMs ?? 0, bootFails: null, uptimeHidden: false,
     failAction: {}, failDetail: null, secrets: {}, failSecrets: false, stopMs: 0, failPatch: null, hideEnv: false, failList: null, unlisted: new Set(), failOne: null, oddList: false, actionDelayMs: 0, latencyMs: 0,
     gpus: o.gpus ?? FAKE_GPUS, volumes: o.volumes ?? [], noCapacity: new Set(), failCreate: null, createThenFail: null, bill: [], comfyStaysDown: false, volumeBill: [],
   };
@@ -292,12 +294,14 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
         say(`${l.id} Download complete`);
       });
     }
+    // as RunPod's own log ends a pull (5 of 6 real ones read, 2026-10-25): no "Status:" line, the last layer's "Pull
+    // complete" never said, then the container's start
     later(Math.max(0, ms - 1), () => {
-      for (const l of FAKE_LAYERS) {
+      FAKE_LAYERS.forEach((l, i) => {
         say(`${l.id} Extracting`);
-        say(`${l.id} Pull complete`);
-      }
-      say(`Status: Downloaded newer image for ${image}`);
+        if (i < FAKE_LAYERS.length - 1) say(`${l.id} Pull complete`);
+      });
+      say(`start container for ${image}: begin`);
     });
   };
   const boot = (pod: FakePod) => {
@@ -369,7 +373,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
       const asked = /pod\(input:\s*\{\s*podId:\s*"([^"]+)"/.exec(String(body.query ?? ""));
       if (asked) {
         const p = fake.pods.find((x) => x.id === asked[1] && x.status !== "TERMINATED");
-        const up = p ? uptimeOf(p) : null;
+        const up = p && !fake.uptimeHidden ? uptimeOf(p) : null;
         return json(200, { data: { pod: p ? { id: p.id, runtime: up === null ? null : { uptimeInSeconds: up } } : null } });
       }
       // the account's id and its data centers, which say where the S3 API is

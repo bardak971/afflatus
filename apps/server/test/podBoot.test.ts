@@ -272,7 +272,7 @@ describe("a deployed pod's boot on its card, its row and its log tab", () => {
     await until(async () => (await rowOf(id)).booting === false);
     const row = await t.db.selectFrom("rent_sessions").selectAll().executeTakeFirstOrThrow();
     const log = JSON.parse(row.boot_log!) as { system: Array<{ line: string }>; pod: Array<{ m: string }> };
-    expect(log.system.some((l) => /^Status: Downloaded newer image/.test(l.line))).toBe(true);
+    expect(log.system.some((l) => /^start container for /.test(l.line))).toBe(true);
     expect(log.pod[0]!.m).toBe("[afflatus-pod] step: checking the GPU");
     const text = await get(t.app, `/api/rented/sessions/${row.id}/boot-log`);
     expect(text.headers["content-type"]).toMatch(/^text\/plain/);
@@ -322,5 +322,20 @@ describe("a deployed pod's boot on its card, its row and its log tab", () => {
     await rowOf(id);
     await rowOf(id);
     expect(runpod.calls.filter((c) => c === "POST /graphql").length - asked).toBeLessThanOrEqual(1);
+  });
+
+  it("keeps its container's start learned after its ComfyUI's first answer: its pull is still split from its boot", async () => {
+    // as a real pod whose ComfyUI answered 15 s after its container's start (2026-10-25): not known by then
+    runpod.uptimeHidden = true;
+    runpod.pullMs = 1500;
+    runpod.startMs = 3000;
+    const id = (await post(t.app, "/api/runpod/deploy", { ...ASK, template: "runpod" })).json().id as string;
+    await until(async () => (await rowOf(id)).booting === false);
+    expect((await t.db.selectFrom("rent_sessions").select("pulled_at").executeTakeFirstOrThrow()).pulled_at).toBeNull();
+    runpod.uptimeHidden = false;
+    await until(async () => (await rowOf(id), Boolean((await t.db.selectFrom("rent_sessions").select("pulled_at").executeTakeFirstOrThrow()).pulled_at)));
+    const kept = await t.db.selectFrom("rent_sessions").selectAll().executeTakeFirstOrThrow();
+    expect(Date.parse(kept.pulled_at!)).toBeGreaterThan(Date.parse(kept.started_at));
+    expect(Date.parse(kept.pulled_at!)).toBeLessThanOrEqual(Date.parse(kept.up_at!));
   });
 });

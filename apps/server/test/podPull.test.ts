@@ -120,6 +120,27 @@ describe("a pull's progress from RunPod's log", () => {
     expect(pullOf(lines, null, T0 + 30_000)).toMatchObject({ phase: "downloading", bytes: 0, mbps: null, leftMs: null, fresh: true });
   });
 
+  it("ends as RunPod's own log ends a pull: at its container's start line, else at its container's start", () => {
+    // as 5 of 6 real logs (2026-10-25): no Digest nor Status, the big layer's "Download complete" and the last layer's
+    // "Pull complete" never said
+    const { lines, end, image } = pullLog(shape, { total: 100 });
+    const real = lines.filter((l) => !/^(Digest|Status):/.test(l.line) && l.line !== "aaaaaaaaaaa3 Download complete" && l.line !== "aaaaaaaaaaa5 Pull complete");
+    const bytes = image.reduce((n, l) => n + l.size, 0);
+    expect(pullOf(real, image, end + 60_000).phase).toBe("extracting");
+    const started = [...real, { ts: iso(end), line: "start container for ghcr.io/owner/afflatus-pod:0.1.27: begin" }];
+    const done = pullOf(started, image, end + 1000);
+    expect(done).toMatchObject({ phase: "done", fresh: true, bytes, leftMs: 0 });
+    // the big layer in by its extraction's start, its "Download complete" lost
+    expect(done.downloadMs! / 1000).toBeCloseTo(3716 / 35, -1);
+    expect(done.mbps).toBeGreaterThan(30);
+    // a log read no further than its last extraction: ended by the container's start RunPod said, never before it
+    const cut = real.filter((l) => Date.parse(l.ts) < end - 2000);
+    expect(pullOf(cut, image, end + 1000, end + 5000).phase).toBe("extracting");
+    expect(pullOf(cut, image, end + 6000, end + 5000)).toMatchObject({ phase: "done", fresh: true, bytes });
+    // no line of it at all: nothing said, whatever the container
+    expect(pullOf([], image, end + 6000, end).phase).toBe("waiting");
+  });
+
   it("keeps one progress line in 15 s per layer for a saved log, saying how many it stands for", () => {
     const { lines } = pullLog(shape);
     const kept = pullKept(lines);
