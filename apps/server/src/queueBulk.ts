@@ -1,4 +1,5 @@
-import { now, type Db } from "./db";
+import type { ExpressionBuilder } from "kysely";
+import { now, type Db, type Tables } from "./db";
 import { readJson, type QueueCore, type Resume } from "./queueModel";
 
 /** Many jobs in one request: finished ones taken off the list or queued again, waiting ones cancelled (the Queue screen's bulk actions). */
@@ -10,13 +11,18 @@ export async function ofTimeline(db: Db, ids: readonly string[]): Promise<boolea
   return Boolean(one);
 }
 
-/** Take several finished jobs off the list in one go (one event for all); how many went. Jobs not finished stay. */
+/**
+ * Take several finished jobs off the list in one go (one event for all); how many went. Jobs not finished stay, and so does
+ * one a waiting or running job continues from (depends_on, as tidy.ts keeps it): a finish cut queued behind a Face refine
+ * reads that job's video when it starts, and failed for good once the refine's row was dismissed (card #119, B5).
+ */
 export async function dismissAll(core: QueueCore, ids: readonly string[]): Promise<number> {
   if (!ids.length) return 0;
-  const finished = core.db.selectFrom("jobs").where("id", "in", [...ids]).where("status", "in", ["done", "failed", "cancelled"]);
+  const awaited = (eb: ExpressionBuilder<Tables, "jobs">) => eb.exists(eb.selectFrom("jobs as later").select("later.id").whereRef("later.depends_on", "=", "jobs.id").where("later.status", "in", ["queued", "running"]));
+  const finished = core.db.selectFrom("jobs").where("id", "in", [...ids]).where("status", "in", ["done", "failed", "cancelled"]).where((eb) => eb.not(awaited(eb)));
   // a clip's job, a cut or an export is seen on its timeline too
   const timeline = await finished.select("id").where((eb) => eb.or([eb("clip_id", "is not", null), eb("timeline_id", "is not", null)])).executeTakeFirst();
-  const r = await core.db.deleteFrom("jobs").where("id", "in", [...ids]).where("status", "in", ["done", "failed", "cancelled"]).executeTakeFirst();
+  const r = await core.db.deleteFrom("jobs").where("id", "in", [...ids]).where("status", "in", ["done", "failed", "cancelled"]).where((eb) => eb.not(awaited(eb))).executeTakeFirst();
   core.events.emit("queue");
   if (timeline) core.events.emit("timeline");
   return Number(r.numDeletedRows);

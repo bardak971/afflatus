@@ -76,8 +76,8 @@ export function WhereCard() {
   const [chats, setChats] = useState<Array<{ id: string; name: string }> | null>(null);
   const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null);
   const client = useQueryClient();
-  // Telegram's bot and chat are where reset codes and alarms go: with a password set, a change asks for it again unless the
-  // sign-in is recent (access.ts mayChange); the change waits under the card while it is typed
+  // Telegram's bot and chat are where reset codes and alarms go, the Discord webhook where alarms go: with a password set, a
+  // change asks for it again unless the sign-in is recent (access.ts mayChange); the change waits under the card while it is typed
   const [asking, setAsking] = useState<{ notify: NotifyPatch; said: string | null } | null>(null);
   // a secret's save says what was wrong under its row (a token that cannot be one), not in a banner
   const saveSecret = useMutation({

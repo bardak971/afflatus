@@ -107,6 +107,50 @@ describe("what waits for ComfyUI and what does not", () => {
     await until(async () => (await statusOf(render)).status === "done");
     await until(async () => (await statusOf(exported)).status === "failed");
   });
+
+  it("an export does not wait for a render asked after it for another timeline or none (card #119, B17)", async () => {
+    const render = await enqueue();
+    await until(() => submitted().length === 1);
+    const exported = await t.services.queue.enqueueExport({ timeline: "nope", scale: 1, music: false }, "an export");
+    const later = await enqueue({ prompt: "a dog" });
+    // the render asked before it still holds it
+    await new Promise((r) => setTimeout(r, 300));
+    expect((await statusOf(exported)).status).toBe("queued");
+    complete(fake, submitted()[0]!);
+    await until(async () => (await statusOf(render)).status === "done");
+    await until(() => submitted().length === 2);
+    await until(async () => (await statusOf(exported)).status === "failed");
+    expect((await statusOf(later)).status).toBe("running");
+  });
+
+  it("an export still waits for a render of its own timeline asked after it", async () => {
+    const tl = (await post(t.app, "/api/timelines", { name: "zz-test b17" })).json() as { id: string };
+    const clip = (await post(t.app, `/api/timelines/${tl.id}/clips`, { recipe: "ltx25.video" })).json().clip as string;
+    const render = await enqueue();
+    await until(() => submitted().length === 1);
+    const exported = await t.services.queue.enqueueExport({ timeline: tl.id, scale: 1, music: false }, "its export");
+    const ofClip = await t.services.queue.enqueue("sdxl.text-to-picture", { ...INPUT, prompt: "a fox" }, { clip: { id: clip, fit: false } });
+    complete(fake, submitted()[0]!);
+    await until(async () => (await statusOf(render)).status === "done");
+    await until(() => submitted().length === 2);
+    await new Promise((r) => setTimeout(r, 300));
+    expect((await statusOf(ofClip)).status).toBe("running");
+    expect((await statusOf(exported)).status).toBe("queued");
+  });
+
+  it("an export still waits for a render asked after it that was dragged ahead of it", async () => {
+    const render = await enqueue();
+    await until(() => submitted().length === 1);
+    const exported = await t.services.queue.enqueueExport({ timeline: "nope", scale: 1, music: false }, "an export");
+    const dragged = await enqueue({ prompt: "a dog" });
+    await t.services.queue.reorder([dragged, exported]);
+    complete(fake, submitted()[0]!);
+    await until(async () => (await statusOf(render)).status === "done");
+    await until(() => submitted().length === 2);
+    await new Promise((r) => setTimeout(r, 300));
+    expect((await statusOf(dragged)).status).toBe("running");
+    expect((await statusOf(exported)).status).toBe("queued");
+  });
 });
 
 describe("a render's result that cannot be filed", () => {

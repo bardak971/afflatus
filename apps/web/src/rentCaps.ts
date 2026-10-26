@@ -31,6 +31,7 @@ export function useCapsSave(caps: Caps) {
   const lastEdit = useRef<Record<CapKey, number>>({ day: 0, month: 0 });
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const pending = useRef(0);
+  const refused = useRef(0);
   const [notSaved, setNotSaved] = useState<Partial<Record<CapKey, string>>>({});
   const [resets, setResets] = useState<Record<CapKey, number>>({ day: 0, month: 0 });
   const change = (key: CapKey, value: number) => {
@@ -51,6 +52,7 @@ export function useCapsSave(caps: Caps) {
         (err: unknown) => {
           // the edits after this one start again from the cap as saved, unless one of them set this cap again
           if (wanted.current && lastEdit.current[key] === edit) wanted.current[key] = saved.current[key];
+          refused.current += 1;
           setNotSaved((was) => ({ ...was, [key]: err instanceof Error ? err.message : String(err) }));
           setResets((was) => ({ ...was, [key]: was[key] + 1 }));
         },
@@ -62,5 +64,12 @@ export function useCapsSave(caps: Caps) {
   };
   // what is said of each cap not saved, with the cap still in force
   const notes = (Object.keys(notSaved) as CapKey[]).map((key) => ({ key, text: `The ${key} cap was not saved (still ${caps[key] ? usd(caps[key]) : "none"}): ${notSaved[key]}` }));
-  return { change, resets, notes };
+  // the saves under way (a box left by a click elsewhere, Done, has just queued its own) answered: true when none of them was
+  // refused, so that a page left at once never takes a refusal said under its boxes away with it
+  const settled = async () => {
+    const before = refused.current;
+    await queue.current;
+    return refused.current === before;
+  };
+  return { change, resets, notes, settled };
 }

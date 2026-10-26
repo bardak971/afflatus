@@ -82,6 +82,9 @@ describe.skipIf(!ffmpegThere)("Finish › Face refine on an LTX 2.5 take", { tim
   it("refines the take's own frames towards the picture it opened on, in a cut job, at the dialog's denoise", async () => {
     const { tl, start, draft } = await drafted("zz-test ltx face");
     expect(draft).toBeTruthy();
+    // the draft's kept latent on LTX's grid (as its render files it with the LTX nodes there)
+    const clock = '{"family":"ltx","fps":25,"step":8,"offset":1,"width":192,"height":320}';
+    await t.db.updateTable("assets").set({ latent_frames: 97, latent_clock: clock }).where("id", "=", draft.asset.id).execute();
     const res = await call("POST", `/api/timelines/${tl}/finish`, { route: "face", factor: 2, faceDenoise: 0.4, redo: true });
     expect(res.skipped).toEqual([]);
     expect(res.jobs).toHaveLength(1);
@@ -98,6 +101,9 @@ describe.skipIf(!ffmpegThere)("Finish › Face refine on an LTX 2.5 take", { tim
     await until(async () => withTakes((await get(t.app, `/api/timelines/${tl}`)).json()).clips[0].takes.length === 2, 20_000);
     const after = withTakes((await get(t.app, `/api/timelines/${tl}`)).json()).clips[0];
     expect(after.take.finishedFrom).toBe(draft.id);
+    // the refined take keeps its draft's grid: a continuation from it hands over on frames LTX made (card #119, B7)
+    const refined = await t.db.selectFrom("assets").select(["latent_frames", "latent_clock"]).where("id", "=", after.take.asset.id).executeTakeFirstOrThrow();
+    expect(refined).toEqual({ latent_frames: 97, latent_clock: clock });
   });
 
   it("is never queued as a render again before an upscale: the upscale alone, and said", async () => {

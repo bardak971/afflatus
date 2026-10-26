@@ -414,6 +414,7 @@ function clipSourceOf(e: LoadedEditor, current: Clip): ClipSource | undefined {
     stretchAsk: e.stretch.ask ? { ...e.stretch.ask, change: () => e.stretch.run(e.stretch.ask!.fromMs, e.stretch.ask!.toMs, true), keep: e.stretch.keep } : null,
     onUses: (fromMs, toMs) => e.stretch.run(fromMs, toMs),
     trimming: e.stretch.pending,
+    cutAsk: e.cutSource.ask ? { rendered: e.cutSource.ask.rendered, change: () => e.cutSource.run(e.cutSource.ask!.change, true), keep: e.cutSource.keep } : null,
     formAsk: ask ? { title: e.videoRecipes.find((r) => r.id === ask.recipe)?.title ?? ask.recipe, rendered: ask.rendered, windows: ask.windows, change: () => e.sourceForm.run(ask.recipe, true), keep: e.sourceForm.keep } : null,
     count: made.length,
     first: made[0]?.id === current.id,

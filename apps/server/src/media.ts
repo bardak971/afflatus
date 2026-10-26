@@ -1,5 +1,6 @@
 import { sql, type Insertable } from "kysely";
 import { now, OWNER, type Db, type Tables } from "./db";
+import { httpError } from "./errors";
 import { missingFiles } from "./missingFiles";
 import type { Storage } from "./storage";
 
@@ -67,6 +68,13 @@ export function pngSize(bytes: Uint8Array): { width: number; height: number } | 
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   return { width: view.getUint32(16), height: view.getUint32(20) };
 }
+
+/**
+ * The most a picture sent from the computer may weigh: one is read into memory whole (decoded, its thumbnail made, what it
+ * carries read), and two or three of the upload's 4 GB at once would take down the process that watches pods and caps.
+ */
+export const PICTURE_MOST = 256 * 2 ** 20;
+export const pictureTooLarge = () => httpError(`This picture is larger than ${PICTURE_MOST / 2 ** 20} MB, the most Afflatus reads of one.`, 413);
 
 /** Whether the first bytes of a file are a PNG's, a JPEG's or a WebP's: what tells a picture from a video or a sound before anything decodes it. */
 export function looksLikePicture(head: Uint8Array): boolean {

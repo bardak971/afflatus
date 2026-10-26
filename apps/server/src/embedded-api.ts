@@ -1,7 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { readFile } from "node:fs/promises";
 import { z } from "zod";
-import { readEmbedded } from "./embedded";
+import { readEmbedded, readEmbeddedFile, type Embedded } from "./embedded";
 import { httpError, notFound } from "./errors";
 import { fill, targetsFor } from "./fromPicture";
 import type { Services } from "./services";
@@ -15,8 +14,7 @@ const recipeQuery = z.object({ recipe: z.string().max(120).optional() });
  * The file is read and forgotten: nothing is stored.
  */
 export function registerEmbedded(app: FastifyInstance, s: Services): void {
-  const embeddedIn = async (bytes: Uint8Array, wanted: string | undefined) => {
-    const found = await readEmbedded(bytes);
+  const embeddedIn = async (found: Embedded, wanted: string | undefined) => {
     if (!found.settings) return { settings: null, workflow: found.workflow, why: found.why ?? null };
     const scan = await (await s.comfy()).scan().catch(() => null);
     const optionsOf = (id: string) => scan?.recipes.find((r) => r.id === id)?.options ?? {};
@@ -28,12 +26,14 @@ export function registerEmbedded(app: FastifyInstance, s: Services): void {
   };
   app.post("/api/embedded", async (req) => {
     if (!isUpload(req.body)) throw httpError("send the file itself");
-    return embeddedIn(new Uint8Array(await readFile(req.body.path)), recipeQuery.parse(req.query).recipe);
+    return embeddedIn(await readEmbeddedFile(req.body.path), recipeQuery.parse(req.query).recipe);
   });
   /** The same for a picture or a video already in the library: what its file carries. */
   app.get<{ Params: { id: string } }>("/api/assets/:id/embedded", async (req) => {
     const a = await s.db.selectFrom("assets").select(["file_key"]).where("id", "=", req.params.id).executeTakeFirst();
     if (!a) throw notFound("that item");
-    return embeddedIn(await s.storage.get(a.file_key), recipeQuery.parse(req.query).recipe);
+    // read where it is when it is on this machine's disk (a video is not read into memory), else fetched
+    const path = s.storage.localPath?.(a.file_key);
+    return embeddedIn(path ? await readEmbeddedFile(path) : await readEmbedded(await s.storage.get(a.file_key)), recipeQuery.parse(req.query).recipe);
   });
 }

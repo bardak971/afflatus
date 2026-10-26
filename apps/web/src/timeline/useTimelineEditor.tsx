@@ -39,6 +39,9 @@ const NONE: RecipeInfo[] = [];
  * playhead, the range, the edits and the mutations, and the keys. The editor (screens/TimelineEditor.tsx) lays it out;
  * editorProps.tsx hands each of its parts what it needs from here.
  */
+/** A change to the source that cuts it again (its window, scene cuts, run-up, or a window's form): useTimelineEditor's cutSource. */
+type SourceCut = { windowMs?: number; snap?: boolean; inputs?: Record<string, unknown>; recipe?: string; clip?: string };
+
 export function useTimelineEditor(id: string) {
   const timeline = useTimeline(id);
   const recipes = useRecipes();
@@ -226,14 +229,27 @@ export function useTimelineEditor(id: string) {
   };
   /**
    * The source's window, scene cuts or run-up changed (a swap clip's Source chapter): the change saved, then the source cut again,
-   * its rendered clips at the start kept and the first new one opened. Nothing renders.
+   * its rendered clips at the start kept and the first new one opened. Nothing renders. What is set aside past its end goes
+   * (the windows a trim set aside, a part removed kept with one of them: droppedRemovedTakes): asked first when that holds
+   * rendered takes (`ask`: Change or Keep, card #114).
    */
+  const [cutSourceAsk, setCutSourceAsk] = useState<{ change: SourceCut; rendered: number } | null>(null);
   const cutSource = {
     pending: edit.isPending || cutSourceMut.isPending,
+    ask: cutSourceAsk,
     // what was typed over the windows and the source's form saved first: the windows not rendered are made anew from what
     // the server has, and a save still waiting would go to a window no longer there
-    run: (change: { windowMs?: number; snap?: boolean; inputs?: Record<string, unknown>; recipe?: string; clip?: string }) =>
-      void save().then(() => edit.mutate({ source: change }, { onSuccess: () => cutSourceMut.mutate(undefined, { onSuccess: (r) => setToRender({ ids: r.clips, render: false }) }) })),
+    run: (change: SourceCut, sure = false) => {
+      // asked only when it is cut again: not when every window is rendered or in the queue, nor with a rendered one after
+      // one that is not (the server refuses both, and keeps what is set aside), unless an empty clip is cut for
+      const free = (t ? madeFromSource(t, videoRecipes) : []).map((c) => !c.take && !c.job);
+      const cuts = Boolean(t?.source?.clip) || (free.includes(true) && free.slice(free.indexOf(true)).every(Boolean));
+      const lost = t?.source && cuts ? (t.source.parkedTakes ?? 0) + droppedRemovedTakes(t.source.removed, t.source.fromMs, t.source.toMs) : 0;
+      if (!sure && lost > 0) return setCutSourceAsk({ change, rendered: lost });
+      setCutSourceAsk(null);
+      void save().then(() => edit.mutate({ source: change }, { onSuccess: () => cutSourceMut.mutate(undefined, { onSuccess: (r) => setToRender({ ids: r.clips, render: false }) }) }));
+    },
+    keep: () => setCutSourceAsk(null),
   };
 
   /**

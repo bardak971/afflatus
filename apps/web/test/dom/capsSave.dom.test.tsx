@@ -29,6 +29,15 @@ function serveSaves() {
   return first;
 }
 
+/** The first launch drawn on a ComfyUI already added (its settings read first), so that Done is there. */
+async function drawAdded() {
+  const drawn = draw(<FirstLaunch />);
+  await drawn.client.prefetchQuery({ queryKey: ["settings"], queryFn: () => fetch("/api/settings").then((r) => r.json()) });
+  drawn.rerender(<FirstLaunch key="read" />);
+  await screen.findByRole("button", { name: "Done" });
+  return drawn;
+}
+
 const bodies = () => fakeApi.calls("PUT", "/settings").map((c) => c.body);
 const box = (label: string) => screen.getByLabelText(label) as HTMLInputElement;
 
@@ -56,6 +65,34 @@ describe("the first launch's caps", () => {
     first.answer(jsonAnswer({ error: "the settings could not be written" }, 500));
     expect(await screen.findByText(/The day cap was not saved \(still none\): the settings could not be written/)).toBeTruthy();
     expect(box("Cap a day").value).toBe("");
+  });
+
+  it("Done waits for a cap still saving, and closes the page once it is saved", async () => {
+    const first = serveSaves();
+    const { user } = await drawAdded();
+    await user.type(await screen.findByLabelText("Cap a day"), "5");
+    // the click leaves the box: its save goes first, Done after it
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(bodies()).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(bodies()).toEqual([{ rentCaps: { day: 5, month: 0 } }]);
+    first.answer(null);
+    await waitFor(() => expect(bodies()).toEqual([{ rentCaps: { day: 5, month: 0 } }, { firstLaunch: "done" }]));
+  });
+
+  it("Done stays on the page when the cap it waited for is refused, and says so", async () => {
+    const first = serveSaves();
+    const { user } = await drawAdded();
+    await user.type(await screen.findByLabelText("Cap a day"), "5");
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(bodies()).toHaveLength(1));
+    first.answer(jsonAnswer({ error: "the settings could not be written" }, 500));
+    expect(await screen.findByText(/The day cap was not saved \(still none\)/)).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(bodies()).toEqual([{ rentCaps: { day: 5, month: 0 } }]);
+    // pressed again, with the refusal said: the user leaves as they asked
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(bodies().at(-1)).toEqual({ firstLaunch: "done" }));
   });
 });
 
