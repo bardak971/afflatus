@@ -365,6 +365,20 @@ describe("a batch of renders' cost (Queue empty)", () => {
     // a batch before it ended at -30: from there only
     expect(await t.services.rented.batchCost(T, T + 20 * MIN, T - 30 * MIN)).toBeCloseTo(0.5, 9);
   });
+
+  it("between two moments, counts each run only inside them, an open run to the second, as a batch with no run before would (U1)", async () => {
+    const at = (m: number) => new Date(Date.parse("2020-03-02T12:00:00.000Z") + m * MIN).toISOString();
+    const T = Date.parse(at(0));
+    await t.db.insertInto("rent_sessions").values([
+      { id: "zz-u1a", machine_id: "rp-zz", pod: "zz-u1a", rate: 0.6, started_at: at(-60), ended_at: at(30), seen_at: null, gpu: null, up_at: at(-50), idle_minutes: 10, busy_at: null },
+      { id: "zz-u1b", machine_id: "rp-zz", pod: "zz-u1b", rate: 1.2, started_at: at(50), ended_at: null, seen_at: null, gpu: null, up_at: at(55), idle_minutes: 10, busy_at: null },
+      { id: "zz-u1c", machine_id: "rp-zz", pod: "zz-u1c", rate: 6, started_at: at(-90), ended_at: at(-1), seen_at: null, gpu: null, up_at: at(-80), idle_minutes: 10, busy_at: null },
+    ]).execute();
+    // 30 min of the first at $0.6, 10 min of the open one at $1.2; the one ended before is not counted
+    expect(await t.services.rented.costBetween(T, T + 60 * MIN)).toBeCloseTo(0.3 + 0.2, 9);
+    expect(await t.services.rented.batchCost(T, T + 60 * MIN, T)).toBeCloseTo(0.5, 9);
+    await t.db.deleteFrom("rent_sessions").where("id", "in", ["zz-u1a", "zz-u1b", "zz-u1c"]).execute();
+  });
 });
 
 describe("the pretend RunPod", () => {
