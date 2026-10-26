@@ -7,6 +7,7 @@ import { ask } from "../Confirm";
 import { useSettings } from "../data";
 import { queryKeys } from "../queryKeys";
 import { useSayFailed } from "../sayFailed";
+import { useCapsSave } from "../rentCaps";
 import { GetFfmpeg } from "../GetFfmpeg";
 import { Button, Chip, cx, ErrorNote, fieldClass } from "../ui";
 import { INSTALLS } from "./settings/NoComfyCard";
@@ -128,7 +129,8 @@ export function FirstLaunch() {
   const rentsOn = hasKey || rent === "yes";
   const where = [comfy === "added" ? "your ComfyUI" : null, rent === "yes" && hasKey ? "RunPod" : null].filter(Boolean).join(" and ");
   const caps = settings.data?.rentCaps ?? { day: 0, month: 0 };
-  const saveCaps = (patch: Partial<typeof caps>) => save.mutate({ rentCaps: { ...caps, ...patch } }, { onError: sayFailed("The cap was not saved") });
+  // queued as in Settings › Rented GPUs: a second cap saved before the first answers never sets the first one back
+  const capsSave = useCapsSave(caps);
 
   return (
     <main aria-label="Where you render" className="relative flex grow justify-center overflow-y-auto">
@@ -234,9 +236,10 @@ export function FirstLaunch() {
               </span>
               <div className="flex flex-wrap items-center gap-4">
                 <span className="text-ink">Caps</span>
-                <CapBox label="a day" value={caps.day} help={CAP_DAY_WHY} onSave={(day) => saveCaps({ day })} />
-                <CapBox label="a month" value={caps.month} help={CAP_MONTH_WHY} onSave={(month) => saveCaps({ month })} />
+                <CapBox key={`day-${capsSave.resets.day}`} label="a day" value={caps.day} help={CAP_DAY_WHY} onSave={(day) => capsSave.change("day", day)} />
+                <CapBox key={`month-${capsSave.resets.month}`} label="a month" value={caps.month} help={CAP_MONTH_WHY} onSave={(month) => capsSave.change("month", month)} />
               </div>
+              {capsSave.notes.map((n) => <ErrorNote key={n.key}>{n.text}</ErrorNote>)}
               <span className="text-ink-3">Nothing deploys by itself: you deploy from the Queue, or when a job waits for a GPU.</span>
             </>
           )}
