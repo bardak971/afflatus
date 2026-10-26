@@ -99,7 +99,7 @@ describe("LTX 2.5's seam: its first own frames brought to the clip before's last
     expect(save(b).images).toEqual([batches.at(-1)![0], 0]);
   });
 
-  it("not on 2.3 (its decode agreed to ΔE 0.2), on frames, with the chain's colour match carried on, nor doubled by the temporal upscaler", () => {
+  it("not on 2.3 (its decode agreed to ΔE 0.2), on frames, nor with the chain's colour match carried on", () => {
     const b23 = build(ltxVideo, { previous: { asset: "c" }, seconds: 5 }, latentCtx(25));
     expect(b23.overlap).toMatchObject({ seam: true });
     expect(all(b23, "ColorTransfer")).toEqual([]);
@@ -108,9 +108,6 @@ describe("LTX 2.5's seam: its first own frames brought to the clip before's last
     const look = build(ltx25Video, { previous: { asset: "c" }, seconds: 5 }, { ...latentCtx(24, { "previous.look": "look.png" }), has: (n: string) => n !== "AfflatusColorFollow" });
     expect(all(look, "ColorTransfer").map(([, n]) => n.inputs.source_stats)).toEqual(["target_frame"]);
     expect(all(look, "ImageBlend")).toEqual([]);
-    const doubled = build(ltx25Video, { previous: { asset: "c" }, seconds: 5, smooth: true, smoothWith: "LTX temporal (latent)" }, { ...latentCtx(24), slots: { ...parts, temporal: "t.safetensors" } });
-    expect(all(doubled, "AfflatusLTXSeamLatent")).toEqual([]);
-    expect(all(doubled, "ColorTransfer")).toEqual([]);
   });
 
   it("Lip sync carried on in the latent gets it too, and a ComfyUI without ColorTransfer the seam as decoded", () => {
@@ -123,14 +120,61 @@ describe("LTX 2.5's seam: its first own frames brought to the clip before's last
   it("the chain's colour match carried on through the temporal upscaler: the run-up's last frame and Colour Follow's rate doubled", () => {
     const at = (b: Built) => all(b, "ColorTransfer")[0]![1].inputs["source_stats.target_index"] as number;
     const noFollow = { has: (n: string) => n !== "AfflatusColorFollow" };
-    const asIs = build(ltx25Video, { previous: { asset: "c" }, seconds: 5 }, { ...latentCtx(24, { "previous.look": "look.png" }), ...noFollow });
-    const doubledCtx = { ...latentCtx(24, { "previous.look": "look.png" }), slots: { ...parts, temporal: "t.safetensors" } };
+    const asIs = build(ltx25Video, { previous: { asset: "c" }, seconds: 5 }, { uploads: { previous: "c.mp4", "previous.look": "look.png" }, media: { previous: before(24) }, ...noFollow });
+    // on frames: a clip carried on in the latent takes RIFE (card #105)
+    const doubledCtx = { uploads: { previous: "c.mp4", "previous.look": "look.png" }, media: { previous: before(24) }, slots: { ...parts, temporal: "t.safetensors" } };
     const doubled = build(ltx25Video, { previous: { asset: "c" }, seconds: 5, smooth: true, smoothWith: "LTX temporal (latent)" }, { ...doubledCtx, ...noFollow });
     // T tokens become 2T - 1: frame i of the model's is frame 2i of the doubled clip
     expect(at(asIs)).toBeGreaterThan(0);
     expect(at(doubled)).toBe(2 * at(asIs));
     const radius = (b: Built) => all(b, "AfflatusColorFollow")[0]![1].inputs.radius;
-    expect(radius(build(ltx25Video, { previous: { asset: "c" }, seconds: 5 }, latentCtx(24, { "previous.look": "look.png" })))).toBe(12);
+    expect(radius(build(ltx25Video, { previous: { asset: "c" }, seconds: 5 }, { uploads: { previous: "c.mp4", "previous.look": "look.png" }, media: { previous: before(24) } }))).toBe(12);
     expect(radius(build(ltx25Video, { previous: { asset: "c" }, seconds: 5, smooth: true, smoothWith: "LTX temporal (latent)" }, doubledCtx))).toBe(24);
+  });
+});
+
+// card #105: a clip carried on in the latent is doubled by RIFE, not by the temporal upscaler (#40's jump at the join)
+describe("Interpolate ×2 on a clip carried on in the clip before's latent: RIFE", () => {
+  const withBoth = { ...parts, temporal: "t.safetensors", rife: "rife49.pth" };
+  const inLatentCtx = { uploads: { previous: "c.mp4", "previous.latent": "c.safetensors" }, media: { previous: inLatent(24) }, slots: withBoth };
+  // the temporal upscaler's file loaded (the spatial one, two passes, is an LTXVLatentUpsampler too)
+  const temporalLoads = (b: Built) => all(b, "LatentUpscaleModelLoader").filter(([, n]) => n.inputs.model_name === "t.safetensors");
+  const said = "Interpolated with RIFE, not LTX's temporal upscaler: this clip carries on in the clip before's latent, where the upscaler's settle pass makes the frames at the join anew and the join jumps.";
+
+  it("Auto takes RIFE there, without a word, and the join is decoded as one piece", () => {
+    const b = build(ltx25Video, { previous: { asset: "c" }, seconds: 5, smooth: true }, inLatentCtx);
+    expect(temporalLoads(b)).toEqual([]);
+    expect(all(b, "FrameInterpolate")).toHaveLength(1);
+    expect(b.overlap).toMatchObject({ latent: true, seam: true });
+    expect(b.warnings ?? []).not.toContain(said);
+    expect(b.loads).not.toContain("latent_upscale_models/t.safetensors");
+    // the same clip on frames (no kept latent) still takes the temporal upscaler
+    const frames = build(ltx25Video, { previous: { asset: "c" }, seconds: 5, smooth: true }, { uploads: { previous: "c.mp4" }, media: { previous: before(24) }, slots: withBoth });
+    expect(temporalLoads(frames)).toHaveLength(1);
+    expect(all(frames, "FrameInterpolate")).toEqual([]);
+  });
+
+  it("the temporal upscaler asked for by name: RIFE, and one line on the job says why; even without its file", () => {
+    for (const recipe of [ltx25Video, ltxVideo]) {
+      const ctx = recipe === ltxVideo ? { ...inLatentCtx, media: { previous: inLatent(25) }, slots: { ...one, temporal: "t.safetensors", rife: "rife49.pth" } } : inLatentCtx;
+      const b = build(recipe, { previous: { asset: "c" }, seconds: 5, smooth: true, smoothWith: "LTX temporal (latent)" }, ctx);
+      expect(temporalLoads(b)).toEqual([]);
+      expect(all(b, "FrameInterpolate")).toHaveLength(1);
+      expect(b.overlap).toMatchObject({ latent: true, seam: true });
+      expect(b.warnings!.filter((w) => w === said)).toHaveLength(1);
+    }
+    const without = build(ltx25Video, { previous: { asset: "c" }, seconds: 5, smooth: true, smoothWith: "LTX temporal (latent)" }, { ...inLatentCtx, slots: { ...parts, rife: "rife49.pth" } });
+    expect(all(without, "FrameInterpolate")).toHaveLength(1);
+    expect(() => build(ltx25Video, { seconds: 5, smooth: true, smoothWith: "LTX temporal (latent)" }, { slots: { ...parts, rife: "rife49.pth" } })).toThrow(/temporal upscaler was not found/);
+  });
+
+  it("a clip that carries on is sent RIFE, and Face refine's files and nodes, whichever way it goes", () => {
+    const values = parseInput(ltx25Video, { prompt: "a", previous: { asset: "c" }, smooth: true, smoothWith: "LTX temporal (latent)", faceRefine: true });
+    expect(ltx25Video.needsWith!(values, { temporal: "t.safetensors" })).toEqual(expect.arrayContaining(["rife", "temporal"]));
+    expect(ltx25Video.nodes(values)).toContain("MiniMaxH3ReferenceToVideo");
+    // a clip on its own, doubled by the temporal upscaler: neither
+    const alone = parseInput(ltx25Video, { prompt: "a", smooth: true, smoothWith: "LTX temporal (latent)", faceRefine: true });
+    expect(ltx25Video.needsWith!(alone, { temporal: "t.safetensors" })).not.toContain("rife");
+    expect(ltx25Video.nodes(alone)).not.toContain("MiniMaxH3ReferenceToVideo");
   });
 });

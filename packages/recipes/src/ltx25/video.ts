@@ -54,8 +54,15 @@ const spec: LtxSpec = {
         media: { previous: { width: 704, height: 1280, frames: 41, fps: LTX25_FPS, hasSound: true, latentFrames: 121, latentSize: { width: 704, height: 1280 } } },
       },
       {
-        name: "carries on in the clip before's latent, doubled by the temporal upscaler: its join decoded alone",
+        // the temporal upscaler's settle pass would remake the frames at the join (card #40): RIFE, said on the job
+        name: "carries on in the clip before's latent, the temporal upscaler asked for: RIFE instead, its join decoded as one piece",
         input: { prompt: "a", previous: { asset: "c1" }, smooth: true, smoothWith: "LTX temporal (latent)" },
+        slots: { ...parts, ...temporal }, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors" },
+        media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX25_FPS, hasSound: true, latentFrames: 121, latentSize: { width: 704, height: 1280 } } },
+      },
+      {
+        name: "carries on in the clip before's latent, Interpolate ×2 on Auto with the temporal upscaler there: RIFE",
+        input: { prompt: "a", previous: { asset: "c1" }, smooth: true },
         slots: { ...parts, ...temporal }, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors" },
         media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX25_FPS, hasSound: true, latentFrames: 121, latentSize: { width: 704, height: 1280 } } },
       },

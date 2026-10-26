@@ -20,6 +20,8 @@ const NOT_IN_GRAPH: Record<string, string> = {
   "h3.lipsync.joinFrom": "it chooses between the latent join and the frames; the latent join needs the clip before's saved latent, which the recipe tests hand over (not a variant)",
   "h3.swap.joinFrom": "it chooses between the latent join and the frames; the latent join needs the clip before's saved latent, which the recipe tests hand over (not a variant)",
   "h3.motion.joinFrom": "it chooses between the latent join and the frames; the latent join needs the clip before's saved latent, which the recipe tests hand over (not a variant)",
+  "ltx.video.cueSound": "one value left, the file's sound (card #105): kept so that a clip saved with the model's own still loads",
+  "ltx25.video.cueSound": "one value left, the file's sound (card #105): kept so that a clip saved with the model's own still loads",
   "h3.lipsync.turboIn": "a recording always takes the reference model, whose turbo LoRA is its own: the setting acts on a hybrid fine-tune only",
 };
 

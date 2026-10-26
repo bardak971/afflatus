@@ -226,18 +226,19 @@ function wanLatent(g: GraphBuilder, ctx: BuildContext, input: WanVideo, frame: {
 }
 
 /**
- * The full steps the 3-sampler split runs in front of Turbo's own (Hybrid turbo): on the high-noise model without its turbo
- * LoRA, at the full CFG scale, where the motion is decided. Two, as the split is shared (2 + 2 + the rest on the low-noise
- * model). They were one taken out of Turbo's 4 until 2026-10-25 (about a fifth more motion, 2026-10-11), which left the
- * high-noise model a single step with its LoRA.
+ * Hybrid turbo's lead: the steps taken out of Turbo's own and run first on the high-noise model without its turbo LoRA, at
+ * the full CFG scale, where the motion is decided. One of Turbo's 4 (two from 6), so the high-noise model with its LoRA keeps
+ * one after it: 0.6.3's split, render-checked on 2026-10-11 (about a fifth more motion). 0.7.0 tried two steps added in front
+ * of the 4 (a 6-step schedule); its clips ghosted, a double exposure from about 1.8 s (card #82, 2026-10-26), so the split is
+ * back to this one.
  */
-export const TURBO_LEAD = 2;
+const turboLead = (steps: number, handover: number) => Math.min(handover - 1, steps >= 6 ? 2 : 1);
 
 /**
  * Two passes over one schedule: the high-noise model makes the first steps and hands its latent, still noisy, to
- * the low-noise model, which finishes it. With the hybrid turbo pass (the 3-sampler split), TURBO_LEAD steps are added in
- * front, on the high-noise model without its turbo LoRA at the full CFG scale; then the LoRAs at CFG 1 as usual, Turbo's
- * steps on the rest of the same schedule.
+ * the low-noise model, which finishes it. With the hybrid turbo pass (the 3-sampler split), Turbo's first step or two
+ * (turboLead) run on the high-noise model without its turbo LoRA at the full CFG scale; then the LoRAs at CFG 1 as usual, on
+ * the rest of the same schedule.
  */
 function wanPasses(g: GraphBuilder, ctx: BuildContext, input: WanVideo, models: ReturnType<typeof wanLoad>, cond: { positive: Ref; negative: Ref; latent: Ref }) {
   const { positive, negative, latent } = cond;
@@ -247,11 +248,10 @@ function wanPasses(g: GraphBuilder, ctx: BuildContext, input: WanVideo, models: 
   const nag = (model: Ref): Ref => (nagged ? g.out("WanVideoNAG", { model, conditioning: negative, nag_scale: input.nagScale, nag_alpha: 0.25, nag_tau: 2.5 }) : model);
   const high = nag(models.high);
   const low = nag(models.low);
-  const lead = models.turbo && input.turboHybrid && models.plain ? TURBO_LEAD : 0;
-  const steps = (models.turbo ? input.turboSteps : input.steps) + lead;
+  const steps = models.turbo ? input.turboSteps : input.steps;
   const cfg = models.turbo ? 1 : input.cfg;
-  // the high-noise model with its LoRA keeps a step after the lead
-  const handover = Math.min(steps - 1, Math.max(lead + 1, wanHandover(steps, models.shift, input.scheduler, uses(input).words, input.split)));
+  const handover = wanHandover(steps, models.shift, input.scheduler, uses(input).words, input.split);
+  const lead = models.turbo && input.turboHybrid && models.plain ? turboLead(steps, handover) : 0;
   const passes: Array<{ node: string; steps: number }> = [];
   g.phase("sampling");
   let latentSoFar = latent;
@@ -354,7 +354,7 @@ export const wanVideo = defineRecipe<WanVideo>({
     },
     {
       id: "turboHybrid", type: "toggle", label: "Hybrid turbo", default: true, showWhen: "fast", advanced: true, perModel: true,
-      note: "the 3-sampler split: two full steps first on the high-noise model WITHOUT the turbo LoRA, at the full CFG scale (the motion is decided there), then Turbo's steps with the LoRAs at CFG 1. The turbo LoRAs alone make Wan's motion slow, close to slow motion; with the split it moves like a full render, for two steps more. Only with the turbo LoRAs, not with a distilled model",
+      note: "the 3-sampler split: Turbo's first step (two from 6) runs on the high-noise model WITHOUT the turbo LoRA, at the full CFG scale (the motion is decided there), then the LoRAs take over at CFG 1 for the rest. The turbo LoRAs alone make Wan's motion slow, close to slow motion; with the split it moves like a full render, for the same steps, a little slower each. Only with the turbo LoRAs, not with a distilled model",
     },
     {
       id: "nag", type: "toggle", label: "NAG", default: true, showWhen: "fast", advanced: true, perModel: true,
@@ -527,6 +527,8 @@ export const wanVideo = defineRecipe<WanVideo>({
       { name: "Turbo with NAG off", input: { prompt: "a", start: "p1", fast: true, nag: false }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
       { name: "Turbo with the high-noise LoRA eased", input: { prompt: "a", start: "p1", fast: true, turboStrength: 0.7 }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
       { name: "hybrid Turbo: the motion decided without the LoRA first", input: { prompt: "a", start: "p1", fast: true, turboHybrid: true, turboSteps: 6 }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
+      // 0.6.3's split, the default: Turbo's first step of 4 without the LoRA, one with it on the high-noise model, two on the low (card #105)
+      { name: "hybrid Turbo on its 4 steps: 1 lead, 1 high, 2 low", input: { prompt: "a", start: "p1", fast: true, turboHybrid: true, turboSteps: 4 }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
       { name: "a GGUF model, SeedVR2 upscale, ComfyUI's own video output", input: { prompt: "a", start: "p1", model: "wan2.2_i2v_high_noise_14B_Q5_K_M.gguf", modelLow: "wan2.2_i2v_low_noise_14B_Q5_K_M.gguf", upscale: "Video: SeedVR2 (restores)", smooth: false }, slots: { ...all, seedvr: "seedvr2_3b_int8_convrot.safetensors", seedvrVae: "seedvr2_ema_vae_fp16.safetensors" }, uploads: { start: "a.png" }, media: { start: picture }, has: (n: string) => n !== "VHS_VideoCombine" },
       {
         // made for a few steps as it is: no turbo LoRA on top of it
