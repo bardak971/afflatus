@@ -106,16 +106,21 @@ const testedBy = (sources: readonly string[] | undefined, text: string) =>
 /**
  * The version of its line a file is for: by its hash first (a renamed copy), then its name, then, for a LoRA, the model it
  * says it was trained on and its base model on Civitai. Null when nothing says.
+ *
+ * A hash listed under several versions is one file shipped for each (LTX 2.5's temporal upscaler is 2.3's, byte for byte,
+ * card #104): it goes with each of them, so it is the line's own version when that is one of them, else the name decides
+ * among them.
  */
 export function versionOf(line: ModelLine, file: string, sha?: string, info?: ModelInfo): string | null {
-  const byHash = line.versions.find((v) => Boolean(sha && v.sha256?.some((h) => h.toUpperCase() === sha.toUpperCase())));
-  if (byHash) return byHash.is;
+  const byHash = line.versions.filter((v) => Boolean(sha && v.sha256?.some((h) => h.toUpperCase() === sha.toUpperCase()))).map((v) => v.is);
+  if (byHash.length > 1 && byHash.includes(line.own)) return line.own;
+  if (byHash.length === 1) return byHash[0]!;
   for (const text of [file, info?.trainedOn, info?.civitaiBase]) {
     if (!text) continue;
     const hit = line.versions.find((v) => testedBy(v.name, text));
-    if (hit) return hit.is;
+    if (hit && (!byHash.length || byHash.includes(hit.is))) return hit.is;
   }
-  return null;
+  return byHash[0] ?? null;
 }
 
 /** Versions of one model whose LoRAs are known to carry over (a Wan 2.1 LoRA works on Wan 2.2). */

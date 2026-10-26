@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkModelSet, dryContext, graphFiles, loraFit, parseInput, setPlaces, type Family, type ModelInfo, type Recipe, type SetLook } from "@afflatus/core";
+import { checkModelSet, dryContext, graphFiles, loraFit, parseInput, setPlaces, versionOf, type Family, type ModelInfo, type Recipe, type SetLook } from "@afflatus/core";
 import { ltx, ltx25, ltx25Video, ltxVideo, wan, wanVideo } from "../src";
 
 /**
@@ -74,6 +74,39 @@ describe("LTX 2.3's set", () => {
   it("refuses LTX 2.5's transformer handed as its diffusion model (a pod's slot, #94)", () => {
     const found = check(ltx, ltxVideo, { slots: { ...split, unet: "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors" } });
     expect(texts(found)).toEqual([expect.stringMatching(/^unet: This model is LTX 2\.5's: LTX 2\.3 needs its own\. \[refused\]$/)]);
+  });
+});
+
+describe("LTX's temporal upscaler, one file shipped for 2.3 and 2.5 (card #104)", () => {
+  // Hugging Face's LFS sha256 of both Lightricks files, LTX-2.3's ltx-2.3-temporal-upscaler-x2-1.0 and LTX-2.5's
+  // ltx-2.5-latent-temporal-upscaler-x2-bf16-1.0 (261,944,000 bytes each, read 2026-10-26)
+  const SHA = "2bc3300f2b3c3c1834d72164fbf13a3b9fd73e5a741e8a2c3f4035f89a75c3fe";
+  const T23 = "ltx-2.3-temporal-upscaler-x2-1.0.safetensors";
+  const T25 = "ltx-2.5-latent-temporal-upscaler-x2-bf16-1.0.safetensors";
+  const temporal = { smooth: true, smoothWith: "LTX temporal (latent)" };
+  const on = (family: Family, recipe: Recipe<any>, file: string, more: Record<string, string | null> = {}) =>
+    texts(check(family, recipe, { input: temporal, slots: { ...more, temporal: file }, look: byHash({ [file]: SHA }) }));
+
+  it("passes either file, or a renamed copy, under LTX 2.5 and under 2.3", () => {
+    // the warning on every 2.5 render with it: "This upscaler is LTX 2.3's: LTX 2.5 needs ltx-2.5-latent-temporal-upscaler…"
+    expect(on(ltx25, ltx25Video, T25)).toEqual([]);
+    expect(on(ltx25, ltx25Video, T23)).toEqual([]);
+    expect(on(ltx25, ltx25Video, "temporal_x2.safetensors")).toEqual([]);
+    expect(on(ltx, ltxVideo, T23, { checkpoint: null })).toEqual([]);
+    expect(on(ltx, ltxVideo, T25, { checkpoint: null })).toEqual([]);
+  });
+  it("still tells 2.3's other files under 2.5 by their hash alone", () => {
+    expect(texts(check(ltx25, ltx25Video, { slots: { upscaler: "x2.safetensors" }, look: byHash({ "x2.safetensors": "5f416311fa8172b65af67530758964708d29a317b830d689a51143b7f91913ed" }) }))).toEqual([
+      expect.stringMatching(/^upscaler: This upscaler is LTX 2\.3's: LTX 2\.5 needs /),
+    ]);
+  });
+  it("is the version its name says among those it was shipped for, for a version of the line that is neither", () => {
+    const line = { own: "LTX-2", versions: ltx.line!.versions };
+    expect(versionOf(line, T25, SHA)).toBe("LTX 2.5");
+    expect(versionOf(line, T23, SHA)).toBe("LTX 2.3");
+    // a name that says LTX-2, against the hash: the hash wins, as for any other file
+    expect(versionOf(line, "ltx-2-temporal-upscaler-x2.safetensors", SHA)).toBe("LTX 2.3");
+    expect(versionOf(line, "temporal_x2.safetensors", SHA)).toBe("LTX 2.3");
   });
 });
 
