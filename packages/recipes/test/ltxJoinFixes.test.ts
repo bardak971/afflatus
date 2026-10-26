@@ -133,6 +133,58 @@ describe("LTX 2.5's seam: its first own frames brought to the clip before's last
   });
 });
 
+// card #115: a 2.5 clip landed on the clip after ended darker than that clip began (ΔE 1.54 at the cut on the 0.7.1 pod check)
+describe("LTX 2.5's landing: its last shown second brought to the clip after's first frame, from a quarter to full strength", () => {
+  const next = (fps: number, frames = 25) => ({ width: 1280, height: 704, frames, fps, hasSound: true });
+  const landing = (recipe: Recipe, fps: number, over: Record<string, unknown> = {}, ctx: Record<string, unknown> = {}) =>
+    build(recipe, { next: { asset: "n" }, seconds: 5, ...over }, { uploads: { next: "n.mp4" }, media: { next: next(fps) }, ...ctx });
+
+  it("one transform from the last shown frame to the clip after's first, laid a quarter, half, three quarters, then full through the tail", () => {
+    const b = landing(ltx25Video, 24);
+    const frames = b.frames!;
+    // 24 frames kept of the 25 handed over: the tail, hidden on the timeline
+    expect(b.overlap).toMatchObject({ tailMs: 1000 });
+    const shown = frames - 24;
+    const [[, transfer]] = all(b, "ColorTransfer") as [[string, Node]];
+    // the target: the last second shown (24 frames at 24 a second) and the tail; its baseline the last shown frame
+    expect(transfer.inputs).toMatchObject({ method: "reinhard_lab", source_stats: "target_frame", "source_stats.target_index": 23, strength: 1 });
+    expect(ref(b, transfer.inputs.image_target).inputs).toMatchObject({ batch_index: shown - 24, length: 48 });
+    // the reference: the clip after as handed over, its first frame
+    expect(ref(b, transfer.inputs.image_ref).inputs).toMatchObject({ image: [idOf(b, "GetVideoComponents"), 0], batch_index: 0, length: 1 });
+    expect(all(b, "ImageBlend").map(([, n]) => n.inputs.blend_factor)).toEqual([0.25, 0.5, 0.75]);
+    // the frames before it as they are, three blended pieces of six, then six at full strength and the tail: what is filed
+    const batches = all(b, "ImageBatch");
+    expect(batches).toHaveLength(4);
+    expect(ref(b, batches[0]![1].inputs.image1).inputs).toMatchObject({ batch_index: 0, length: shown - 24 });
+    expect(ref(b, batches.at(-1)![1].inputs.image2).inputs).toMatchObject({ batch_index: 18, length: 30 });
+    expect(save(b).images).toEqual([batches.at(-1)![0], 0]);
+  });
+
+  it("not on 2.3 (ΔE 0.6 there), nor without a clip after, nor on a ComfyUI without ColorTransfer", () => {
+    expect(all(landing(ltxVideo, 25), "ColorTransfer")).toEqual([]);
+    expect(all(build(ltx25Video, { seconds: 5 }), "ColorTransfer")).toEqual([]);
+    const bare = landing(ltx25Video, 24, {}, { has: (n: string) => n !== "ColorTransfer" });
+    expect(all(bare, "ImageBlend")).toEqual([]);
+  });
+
+  it("the 9-frame landing: a tail of 8, the second before it brought the same way", () => {
+    const b = build(ltx25Video, { next: { asset: "n" }, seconds: 5 }, { uploads: { next: "n.mp4" }, media: { next: next(24, 9) } });
+    const shown = b.frames! - 8;
+    const [[, transfer]] = all(b, "ColorTransfer") as [[string, Node]];
+    expect(ref(b, transfer.inputs.image_target).inputs).toMatchObject({ batch_index: shown - 24, length: 32 });
+  });
+
+  it("doubled by the temporal upscaler: the last shown frame is 2 (frames - tail - 1) of 2 frames - 1, a quarter second 12 frames", () => {
+    const b = landing(ltx25Video, 24, { smooth: true, smoothWith: "LTX temporal (latent)" }, { slots: { ...parts, temporal: "t.safetensors" } });
+    expect(all(b, "LTXVLatentUpsampler").length).toBeGreaterThan(0);
+    const frames = b.frames!;
+    const shown = 2 * (frames - 24) - 1;
+    const [[, transfer]] = all(b, "ColorTransfer") as [[string, Node]];
+    expect(transfer.inputs["source_stats.target_index"]).toBe(47);
+    expect(ref(b, transfer.inputs.image_target).inputs).toMatchObject({ batch_index: shown - 48, length: 48 + (2 * frames - 1 - shown) });
+  });
+});
+
 // card #105: a clip carried on in the latent is doubled by RIFE, not by the temporal upscaler (#40's jump at the join)
 describe("Interpolate ×2 on a clip carried on in the clip before's latent: RIFE", () => {
   const withBoth = { ...parts, temporal: "t.safetensors", rife: "rife49.pth" };
