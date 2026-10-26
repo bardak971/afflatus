@@ -34,6 +34,7 @@ import { Outside, outsideBusy } from "./queueOutside";
 import { OwnPacks } from "./queuePacks";
 import { cannotWhy, packFacts, packsSaid, type PackFacts } from "./jobPacks";
 import { formPacks, type FormPackNote } from "./formPacks";
+import { refusedSaid } from "./modelSetCheck";
 
 // what the routes and the services name from here: the options, and the RIFE model lookup the timelines routes share with the slow-motion tool
 export { DEFAULT_QUEUE_OPTIONS, type QueueOptions };
@@ -100,6 +101,8 @@ export function gpuOf(device: string | null, gpus: ReadonlyArray<{ name: string 
 export interface EnqueueOptions {
   label?: string; dependsOn?: string; clip?: { id: string; fit: boolean; mirror?: readonly string[] }; draft?: string | null; folder?: string | null;
   warm?: boolean; look?: unknown; finishedFrom?: string | null; asked?: Record<string, unknown>; machine?: string | null;
+  /** What the job is to the person when its files are refused ("Clip 3" of a timeline's Render): the refusal starts with it. */
+  who?: string;
 }
 
 export class Queue {
@@ -490,6 +493,14 @@ export class Queue {
     // choices written in a text ({red|black|white}) are settled now, one per job: what is kept is what was picked
     for (const spec of recipe.inputs as InputSpec[]) {
       if (spec.type === "prompt" && typeof input[spec.id] === "string") input[spec.id] = expandWildcards(input[spec.id] as string);
+    }
+    // a mix of files known to give black frames is refused before it is queued, on every way in (Render, a timeline's Render,
+    // Again, a tool): left to the job's own check at submit, a rented pod had fetched its files (22 GB for LTX 2.5's model)
+    // and was billed for nothing. A load ahead is not refused: it is asked while the form is being filled in, and its job
+    // checks the whole form at submit as any other
+    if (!opts.warm) {
+      const found = await submitting.setCheckOf(this.core, recipe.id, input);
+      if (found.some((f) => f.black)) throw httpError(opts.who ? `${opts.who}: ${refusedSaid(found)}` : refusedSaid(found));
     }
     // the person's own form beside it, when a cast was worked in: the fields the cast changed, as they were (JSON leaves out the ones that were not there)
     const asked = opts.asked && Object.keys(opts.asked).length ? JSON.stringify({ ...input, ...opts.asked }) : null;

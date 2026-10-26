@@ -584,46 +584,49 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
 async function renderClips(s: Services, timeline: string, clips: z.infer<typeof renderBody>["clips"], machine?: string): Promise<string[]> {
   const view = await s.timelines.view(timeline);
   const wanted = new Map(clips.map((c) => [c.id, c]));
-  const ids: string[] = [];
   /** The job a clip's next take will come out of: one queued here, or one that was already on its way. */
   const pending = new Map<string, string>();
   for (const c of view.clips) if (c.job) pending.set(c.id, c.job.id);
-  for (const [i, clip] of view.clips.entries()) {
-    const ask = wanted.get(clip.id);
-    if (!ask) continue;
-    const recipe = clip.recipe ? s.registry.recipe(clip.recipe) : undefined;
-    if (!recipe) throw httpError(clip.kind === "still" ? `Clip ${i + 1} is a still image: there is nothing to render.` : `Clip ${i + 1} is an imported video: there is no model to render it with.`);
-    // what a timeline fills in itself is not the form's to say
-    const own = ownInputIds(recipe);
-    // the cast and the style: the clip's own, else the timeline's, worked into its form
-    const typed = Object.fromEntries(Object.entries(ask.input).filter(([k]) => own.has(k)));
-    const input = withMood(recipe, (await compose(s.db, recipe, typed, clip.look ?? view.look)).input, view.mood);
-    const before = view.clips[i - 1];
-    // a recipe that picks up from the last frame of the clip before: that frame is its opening picture, taken when the job starts
-    const opening = recipe.inputs.find((x) => x.type === "image" && x.role === "start");
-    if (opening && !input[opening.id] && before && clip.joined === "continue" && (recipe.traits?.continues === "frame" || before.kind === "still")) input[opening.id] = FROM_PREVIOUS;
-    const next = view.clips[i + 1];
-    const count = ask.takes ?? 1;
-    const seed = typedSeed(input.seed);
-    for (let k = 0; k < count; k++) {
-      const each = k === 0 ? input : ask.seedMode && seed !== null ? { ...input, seed: movedSeed(seed, ask.seedMode, k) } : { ...input, seed: RANDOM_SEED };
-      const id = await s.queue.enqueue(recipe.id, each, {
-        label: `${view.name} · clip ${i + 1}${count > 1 ? ` · take ${k + 1} of ${count}` : ""}`,
-        dependsOn: before && clip.joined === "continue" ? pending.get(before.id) : undefined,
-        // a clip rendered together with the one after it has nothing to fit: that one is made to follow it
-        // with its Mirror as it is now: a flip changed while it waits is for the next render
-        clip: { id: clip.id, fit: ask.fit ?? (clip.fitNext && !(next && wanted.has(next.id))), mirror: clip.pinMirror },
-        look: clip.look ?? view.look,
-        // what was typed before the cast was worked in: what a tool opened from the take carries
-        asked: askedOf(typed, input),
-        // the render lands in the timeline's folder: its own, else its project's root
-        folder: (await folderOfTimeline(s.db, { folder_id: view.folderId, project_id: view.projectId })) ?? undefined,
-        machine: machine ?? null,
-      });
-      pending.set(clip.id, id);
-      ids.push(id);
+  // all of the clips queued, or none: one whose files are a mix known to give black frames is refused as it is queued
+  // (Queue.enqueue), named by its place, and the clips before it are not left rendering without it
+  const ids = await s.queue.enqueueAll(async (queue) => {
+    for (const [i, clip] of view.clips.entries()) {
+      const ask = wanted.get(clip.id);
+      if (!ask) continue;
+      const recipe = clip.recipe ? s.registry.recipe(clip.recipe) : undefined;
+      if (!recipe) throw httpError(clip.kind === "still" ? `Clip ${i + 1} is a still image: there is nothing to render.` : `Clip ${i + 1} is an imported video: there is no model to render it with.`);
+      // what a timeline fills in itself is not the form's to say
+      const own = ownInputIds(recipe);
+      // the cast and the style: the clip's own, else the timeline's, worked into its form
+      const typed = Object.fromEntries(Object.entries(ask.input).filter(([k]) => own.has(k)));
+      const input = withMood(recipe, (await compose(s.db, recipe, typed, clip.look ?? view.look)).input, view.mood);
+      const before = view.clips[i - 1];
+      // a recipe that picks up from the last frame of the clip before: that frame is its opening picture, taken when the job starts
+      const opening = recipe.inputs.find((x) => x.type === "image" && x.role === "start");
+      if (opening && !input[opening.id] && before && clip.joined === "continue" && (recipe.traits?.continues === "frame" || before.kind === "still")) input[opening.id] = FROM_PREVIOUS;
+      const next = view.clips[i + 1];
+      const count = ask.takes ?? 1;
+      const seed = typedSeed(input.seed);
+      for (let k = 0; k < count; k++) {
+        const each = k === 0 ? input : ask.seedMode && seed !== null ? { ...input, seed: movedSeed(seed, ask.seedMode, k) } : { ...input, seed: RANDOM_SEED };
+        const id = await queue.render(recipe.id, each, {
+          label: `${view.name} · clip ${i + 1}${count > 1 ? ` · take ${k + 1} of ${count}` : ""}`,
+          who: `Clip ${i + 1}`,
+          dependsOn: before && clip.joined === "continue" ? pending.get(before.id) : undefined,
+          // a clip rendered together with the one after it has nothing to fit: that one is made to follow it
+          // with its Mirror as it is now: a flip changed while it waits is for the next render
+          clip: { id: clip.id, fit: ask.fit ?? (clip.fitNext && !(next && wanted.has(next.id))), mirror: clip.pinMirror },
+          look: clip.look ?? view.look,
+          // what was typed before the cast was worked in: what a tool opened from the take carries
+          asked: askedOf(typed, input),
+          // the render lands in the timeline's folder: its own, else its project's root
+          folder: (await folderOfTimeline(s.db, { folder_id: view.folderId, project_id: view.projectId })) ?? undefined,
+          machine: machine ?? null,
+        });
+        pending.set(clip.id, id);
+      }
     }
-  }
+  });
   if (!ids.length) throw httpError("None of these clips are on this timeline.");
   return ids;
 }
