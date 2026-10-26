@@ -20,7 +20,8 @@ import { castOf, madeIn } from "./provenance";
 import type { Services } from "./services";
 import { makeThumb, mirrorPicture, readPicture, SMALL_EDGE, smallThumbKey, thumbKey } from "./thumbs";
 import { sourceOf } from "./storage";
-import { readVideo, readVideoFile } from "./video";
+import { ffmpegPool } from "./pool";
+import { firstFrame, inVideoFile, probeVideo, tools } from "./video";
 
 /**
  * The library: its items listed and searched (assetSearch.ts), uploaded (assetUpload.ts), kept or binned
@@ -73,6 +74,10 @@ function assetLookup(s: Services) {
   return { asset, fileInLinked, addBeside };
 }
 export type AssetLookup = ReturnType<typeof assetLookup>;
+
+/** How long an item no thumbnail could be made of is not tried again, and how many such items are remembered. */
+const UNMADE_MS = 10 * 60_000;
+const UNMADE_KEPT = 1000;
 
 /** How far back an edited copy's sources are followed for the render it comes from (a mirror of a frame of a cut of a render is four). */
 const ANCESTRY = 5;
@@ -249,31 +254,57 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
    * 256 or less (a tile that small on a screen of one pixel per point: the web's srcset), the 256 px one, made from the
    * 512 one on its first ask and kept beside it.
    */
+  /** An item's thumbnail made, its key; null when none could be (a video ffmpeg cannot read, or ffmpeg not installed). */
+  const makeThumbOf = async (a: Tables["assets"]): Promise<string | null> => {
+    // a video is read where it lies on the disk when it does: never the whole of it into memory for its first frame
+    const source = a.kind === "video" ? await sourceOf(s.storage, a.file_key) : await s.storage.get(a.file_key);
+    // of a video: its first frame, among the other ffmpeg runs made for a request (ahead of them: a tile waits on it). A
+    // video stored before Afflatus read videos, or a linked one, gets its size and length now too; the others are not probed
+    const read = async (file: string) => ({ facts: a.duration_ms === null ? (await probeVideo(file)).facts : null, frame: await firstFrame(file) });
+    const video = a.kind !== "video" ? null : await ffmpegPool(() => (typeof source === "string" ? read(source) : inVideoFile(source, extOf(a.mime), read)), { first: true });
+    if (video?.facts) {
+      const f = video.facts;
+      await s.db.updateTable("assets").set({ width: f.width, height: f.height, duration_ms: f.durationMs, fps: f.fps, has_sound: f.hasSound ? 1 : 0 }).where("id", "=", a.id).execute();
+      s.queue.events.emit("library", { items: [a.id], change: "fields" } satisfies LibraryChange);
+    }
+    const frame = video ? video.frame : typeof source === "string" ? null : source;
+    const thumb = frame && (await makeThumb(frame));
+    if (!thumb) return null;
+    const key = thumbKey(a.id);
+    await s.storage.put(key, thumb);
+    await s.db.updateTable("assets").set({ thumb_key: key }).where("id", "=", a.id).execute();
+    // made again because the file changed (a linked folder's, written again on the disk): the small one of the old picture goes
+    await s.storage.delete(smallThumbKey(a.id)).catch(() => {});
+    return key;
+  };
+  // the thumbnails being made, by item: the tiles that ask for one at once share its making. And the items of which none could
+  // be made, by their version and the ffmpeg tried, with when: not tried again on every view of a grid, nor for good (ffmpeg
+  // may be installed, or another chosen, as Get ffmpeg does)
+  const making = new Map<string, Promise<string | null>>();
+  const unmade = new Map<string, number>();
+  const thumbOf = (a: Tables["assets"]): Promise<string | null> => {
+    const version = `${a.id}:${a.bytes}:${a.created_at}:${tools.ffmpeg}:${tools.ffprobe}`;
+    const failed = unmade.get(version);
+    if (failed !== undefined && Date.now() - failed < UNMADE_MS) return Promise.resolve(null);
+    const had = making.get(a.id);
+    if (had) return had;
+    const made = makeThumbOf(a)
+      .then((key) => {
+        if (key) unmade.delete(version);
+        else {
+          if (unmade.size >= UNMADE_KEPT) unmade.delete(unmade.keys().next().value!);
+          unmade.set(version, Date.now());
+        }
+        return key;
+      })
+      .finally(() => making.delete(a.id));
+    making.set(a.id, made);
+    return made;
+  };
   app.get<{ Params: { id: string }; Querystring: { w?: string } }>("/api/assets/:id/thumb", async (req, reply) => {
     const a = await asset(req.params.id);
     const small = Number(req.query.w) > 0 && Number(req.query.w) <= SMALL_EDGE;
-    let key = a.thumb_key;
-    if (!key && a.kind !== "audio") {
-      // a video is read where it lies on the disk when it does: never the whole of it into memory for its first frame
-      const source = a.kind === "video" ? await sourceOf(s.storage, a.file_key) : await s.storage.get(a.file_key);
-      const bytes = typeof source === "string" ? null : source;
-      // of a video: its first frame. A video stored before Afflatus read videos gets its size and length now too.
-      const video = a.kind === "video" ? (typeof source === "string" ? await readVideoFile(source) : await readVideo(source, extOf(a.mime))) : null;
-      if (video?.facts && a.duration_ms === null) {
-        const f = video.facts;
-        await s.db.updateTable("assets").set({ width: f.width, height: f.height, duration_ms: f.durationMs, fps: f.fps, has_sound: f.hasSound ? 1 : 0 }).where("id", "=", a.id).execute();
-        s.queue.events.emit("library", { items: [a.id], change: "fields" } satisfies LibraryChange);
-      }
-      const frame = video ? video.frame : bytes;
-      const thumb = frame && (await makeThumb(frame));
-      if (thumb) {
-        key = thumbKey(a.id);
-        await s.storage.put(key, thumb);
-        await s.db.updateTable("assets").set({ thumb_key: key }).where("id", "=", a.id).execute();
-        // made again because the file changed (a linked folder's, written again on the disk): the small one of the old picture goes
-        await s.storage.delete(smallThumbKey(a.id)).catch(() => {});
-      }
-    }
+    const key = a.thumb_key ?? (a.kind !== "audio" ? await thumbOf(a) : null);
     // no picture can stand for a sound, or for a video when ffmpeg is not installed
     if (!key && a.kind !== "image") throw notFound("a preview of this item");
     // of a linked file: the version its row last read off the disk, which a reading changes when the file changed (and drops

@@ -95,9 +95,10 @@ export function Picker({ title, kind = "image", kit, room = 1, onPick, onPicks, 
   // capped as the library is: a long scroll holds a few pages, the ones above are read again on the way back up
   const assets = useAssets({ kind, q: q || undefined, all: all || undefined }, true, true);
   const items = assets.data?.pages.flatMap((p) => p.items) ?? [];
-  // where a sound is asked for, a video that has sound will do: its sound is what is used (the videos are only read then)
-  const videos = useAssets({ kind: "video", q: q || undefined, all: all || undefined }, kind === "audio", true);
-  const sounding = kind === "audio" ? (videos.data?.pages.flatMap((p) => p.items) ?? []).filter((a) => a.hasSound) : [];
+  // where a sound is asked for, a video that has sound will do: its sound is what is used (the videos are only read then).
+  // The server keeps the silent ones out: sorted here, a page of silent renders showed none and its More was never drawn
+  const videos = useAssets({ kind: "video", sound: true, q: q || undefined, all: all || undefined }, kind === "audio", true);
+  const sounding = kind === "audio" ? (videos.data?.pages.flatMap((p) => p.items) ?? []) : [];
   const file = useRef<HTMLInputElement>(null);
   const upload = useUpload((a) => (onPicks && a.length > 1 ? onPicks(a.map((x) => x.id)) : onPick(a[0]!.id)), kit);
   // Ctrl+V: the files pasted are added and picked as From your computer's (the first of the clipboard, or as many as there

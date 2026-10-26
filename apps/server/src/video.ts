@@ -116,13 +116,18 @@ export interface VideoRead {
 }
 
 /** The facts and the first frame (a PNG) of a video. Either is null when it could not be read. */
-export async function readVideo(bytes: Uint8Array, ext: string): Promise<VideoRead> {
+export function readVideo(bytes: Uint8Array, ext: string): Promise<VideoRead> {
+  return inVideoFile(bytes, ext, readVideoFile);
+}
+
+/** `read` given a video held in memory, written to a temporary file for it and removed after. */
+export async function inVideoFile<T>(bytes: Uint8Array, ext: string, read: (file: string) => Promise<T>): Promise<T> {
   // both tools need a file they can seek in: an MP4 keeps its index at the end
   const dir = await mkdtemp(join(tmpdir(), "afflatus-video-"));
   const file = join(dir, `in.${ext}`);
   try {
     await writeFile(file, bytes);
-    return await readVideoFile(file);
+    return await read(file);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
