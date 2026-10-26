@@ -11,7 +11,7 @@ function foot(over: Partial<ClipSource> = {}) {
   const s: ClipSource = {
     source: { pick: null } as never, count: 7, first: false, apart: [], takesPick: true, picking: false,
     onPicking: () => {}, onClearPick: () => {}, kept: false, windows: { leastMs: 3800, mostMs: 4900 }, onCut: () => {}, cutting: false,
-    mask: { status: "none", shown: false }, onShowMask: () => {}, onMaskShown: () => {}, list: [], onSelectWindow: () => {}, runUp: null, formAsk: null, stretchAsk: null, onUses: () => {}, trimming: false,
+    mask: { status: "none", shown: false }, onShowMask: () => {}, onMaskShown: () => {}, list: [], onSelectWindow: () => {}, runUp: null, formAsk: null, cutAsk: null, stretchAsk: null, onUses: () => {}, trimming: false,
     onKept: (on) => asked.push(on ? "this clip" : "all"), onInLine: () => asked.push("in line"), onToAll: () => asked.push("to all"),
     ...over,
   };
@@ -55,6 +55,7 @@ describe("a clip made from the source, its Source chapter (the rethink's source 
       onSelectWindow: (id: string) => asked.push(`select ${id}`),
       runUp: { counts: [5, 22, 39], value: 22, on: (n: number) => asked.push(`run-up ${n}`) },
       formAsk: null,
+      cutAsk: null,
       stretchAsk: null,
       onUses: (from: number, to: number) => asked.push(`uses ${from}–${to}`),
       ...over,
@@ -89,6 +90,15 @@ describe("a clip made from the source, its Source chapter (the rethink's source 
     fireEvent.click(screen.getByRole("button", { name: "Change" }));
     expect(asked).toEqual(["keep", "change"]);
   });
+
+  it("asks before the source cut again drops rendered takes set aside past its end: Change or Keep it (card #114)", () => {
+    const asked: string[] = [];
+    lead({ cutAsk: { rendered: 2, change: () => asked.push("change"), keep: () => asked.push("keep") } });
+    expect(screen.getByRole("alert").textContent).toMatch(/Cut again, the source drops what is set aside past its end.*2 rendered takes go to the library/);
+    fireEvent.click(screen.getByRole("button", { name: "Keep it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Change" }));
+    expect(asked).toEqual(["keep", "change"]);
+  });
 });
 
 describe("a source's stretch in its Source chapter (the rethink's trim, step 5)", () => {
@@ -99,7 +109,7 @@ describe("a source's stretch in its Source chapter (the rethink's trim, step 5)"
       source: { pick: null, fromMs: 0, toMs: 14000, windowMs: 5000, snap: true, video: { name: "dance.mp4", durationMs: 20000 } } as never, count: 3, first: true, apart: [], takesPick: false, picking: false,
       onPicking: () => {}, onClearPick: () => {}, kept: false, windows: { leastMs: 3800, mostMs: 5900 }, onCut: () => {}, cutting: false,
       mask: { status: "none", shown: false }, onShowMask: () => {}, onMaskShown: () => {}, onKept: () => {}, onInLine: () => {}, onToAll: () => {},
-      list: [], onSelectWindow: () => {}, runUp: null, formAsk: null, onUses: () => {}, trimming: false,
+      list: [], onSelectWindow: () => {}, runUp: null, formAsk: null, cutAsk: null, onUses: () => {}, trimming: false,
       stretchAsk: { fromMs: 2000, rendered: 2, windows: 3, change: () => asked.push("change"), keep: () => asked.push("keep") },
     } as ClipSource;
     draw(<>{sourceLead(s, { inputs: { sourceStart: 0, sourceSeconds: 5 } }, swap).node}</>);
@@ -114,7 +124,7 @@ describe("a source's stretch in its Source chapter (the rethink's trim, step 5)"
       source: { pick: null, fromMs: 0, toMs: 14000, windowMs: 5000, snap: true, video: { name: "dance.mp4", durationMs: 20000 } } as never, count: 3, first: true, apart: [], takesPick: false, picking: false,
       onPicking: () => {}, onClearPick: () => {}, kept: false, windows: { leastMs: 3800, mostMs: 5900 }, onCut: () => {}, cutting: false,
       mask: { status: "none", shown: false }, onShowMask: () => {}, onMaskShown: () => {}, onKept: () => {}, onInLine: () => {}, onToAll: () => {},
-      list: [], onSelectWindow: () => {}, runUp: null, formAsk: null, onUses: () => {}, trimming: true, stretchAsk: null,
+      list: [], onSelectWindow: () => {}, runUp: null, formAsk: null, cutAsk: null, onUses: () => {}, trimming: true, stretchAsk: null,
     } as ClipSource;
     draw(<>{sourceLead(s, { inputs: { sourceStart: 0, sourceSeconds: 5 } }, swap).node}</>);
     expect(screen.getByText("Trimming the source…")).toBeTruthy();

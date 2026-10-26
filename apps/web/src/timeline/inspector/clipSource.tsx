@@ -48,6 +48,8 @@ export type ClipSource = {
   trimming: boolean;
   /** Another form asked for on another grid, rendered windows in the way: said here, Change or Keep. */
   formAsk: { title: string; rendered: number; windows: number; change(): void; keep(): void } | null;
+  /** The source cut again (its window, scene cuts, run-up), rendered takes set aside past its end in the way: said here, Change or Keep. */
+  cutAsk: { rendered: number; change(): void; keep(): void } | null;
   /** Its changes are kept to it ("This clip"). */
   kept: boolean;
   onKept(on: boolean): void;
@@ -84,6 +86,18 @@ export function sourceLead(s: ClipSource, clip: { inputs: Record<string, unknown
             <span className="flex gap-1.5">
               <Button size="sm" tone="primary" onClick={s.formAsk.change}>Change</Button>
               <Button size="sm" onClick={s.formAsk.keep}>Keep it</Button>
+            </span>
+          </div>
+        )}
+        {s.cutAsk && (
+          <div role="alert" className="flex flex-col gap-2 rounded-lg border border-warn/50 bg-warn-wash/40 p-2.5">
+            <span className="text-xs">
+              <span className="font-semibold">Cut again, the source drops what is set aside past its end:</span>{" "}
+              <span className="text-ink-2">{plural(s.cutAsk.rendered, "rendered take")} go to the library (Undo brings them back). To keep them, move its end out first.</span>
+            </span>
+            <span className="flex gap-1.5">
+              <Button size="sm" tone="primary" onClick={s.cutAsk.change}>Change</Button>
+              <Button size="sm" onClick={s.cutAsk.keep}>Keep it</Button>
             </span>
           </div>
         )}
