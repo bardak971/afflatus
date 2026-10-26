@@ -1054,17 +1054,29 @@ describe("ltx.video", () => {
     const b = build({ next: { asset: "n", at: 0 }, seconds: 5 }, { uploads: { next: "n.mp4" }, media: { next: after } });
     const frames = ltxFrames(6);
     expect(b.frames).toBe(frames);
-    expect(all(b, "LTXVAddGuide").map((n) => [n.inputs.frame_idx, n.inputs.strength])).toEqual([[frames - 25, 1], [frames - 25, 1]]);
-    expect((frames - 25) % 8).toBe(0);
+    // where ComfyUI (v0.37 to v0.41's LTXVAddGuide) puts a guide of several frames off frame 0, and how many of them it keeps:
+    // on 8k + 1, its last frame dropped (nodes_lt.py get_latent_index and the throwaway first frame of execute)
+    const placed = (at: number, handed: number) => ({ at: Math.floor((at - 1) / 8) * 8 + 1, kept: Math.floor(handed / 8) * 8 });
+    expect(all(b, "LTXVAddGuide").map((n) => [n.inputs.frame_idx, n.inputs.strength])).toEqual([[frames - 24, 1], [frames - 24, 1]]);
+    // as asked, the clip after's first 24 frames end the clip, and only they are hidden: its frame 0 is shown once
+    const landed = placed(frames - 24, 25);
+    expect(landed).toEqual({ at: frames - 24, kept: 24 });
+    expect(landed.at + landed.kept).toBe(frames);
+    expect(b.overlap).toEqual({ headMs: 0, tailMs: Math.round(((frames - landed.at) / 25) * 1000) });
     // the frame is the clip after's
     expect(all(b, "ImageScale").map((n) => [n.inputs.width, n.inputs.height])).toEqual([[352, 640], [704, 1280]]);
-    expect(b.overlap).toEqual({ headMs: 0, tailMs: 1000 });
+    // 9 frames handed over: 8 landed on, the same way
+    const short = build({ next: { asset: "n", at: 0 }, seconds: 5 }, { uploads: { next: "n.mp4" }, media: { next: { ...after, frames: 9 } } });
+    const at9 = all(short, "LTXVAddGuide")[0]!.inputs.frame_idx as number;
+    expect(placed(at9, 9)).toEqual({ at: at9, kept: 8 });
+    expect(at9 + 8).toBe(short.frames);
+    expect(short.overlap).toEqual({ headMs: 0, tailMs: 320 });
     // between two clips: both guides, the clip that long again
     const prev = { ...after };
     const both = build({ previous: { asset: "c" }, next: { asset: "n", at: 0 }, seconds: 5 }, { uploads: { previous: "c.mp4", next: "n.mp4" }, media: { previous: prev, next: after } });
     expect(both.frames).toBe(ltxFrames(7));
-    expect(all(both, "LTXVAddGuide").map((n) => n.inputs.frame_idx)).toEqual([0, ltxFrames(7) - 25, 0, ltxFrames(7) - 25]);
-    expect(both.overlap).toEqual({ headMs: 1000, tailMs: 1000, sound: true });
+    expect(all(both, "LTXVAddGuide").map((n) => n.inputs.frame_idx)).toEqual([0, ltxFrames(7) - 24, 0, ltxFrames(7) - 24]);
+    expect(both.overlap).toEqual({ headMs: 1000, tailMs: 960, sound: true });
     // a last picture of its own wins: the clip after is not landed on
     const pinned = build({ start: "p", end: "q", next: { asset: "n", at: 0 } }, { uploads: { start: "a.png", end: "b.png", next: "n.mp4" }, media: { start: picture, end: picture, next: after } });
     expect(all(pinned, "GetVideoComponents")).toEqual([]);
@@ -1705,6 +1717,37 @@ describe("klein: the model and how it samples are the user's to set", () => {
       expect(r.inputs[0], r.id).toMatchObject({ id: "model", type: "model", slot: "unet" });
       expect(r.inputs.filter((i) => i.perModel).map((i) => i.id), r.id).toEqual(expect.arrayContaining(["steps", "cfg", "sampler"]));
     }
+  });
+
+  it("reads the 9B model with Qwen3 8B, never the 4B's encoder, and asks a pod for it", () => {
+    const both = { ...slots, clip8b: "qwen_3_8b_fp8mixed.safetensors" };
+    const with8b = (over: Record<string, unknown>) => picture.build(parseInput(picture, { prompt: "a cat", ...over }), dryContext({ seed: 7, slots: both }));
+    for (const model of ["flux-2-klein-9b.safetensors", "flux-2-klein-base-9b-fp8.safetensors"]) {
+      const nine = with8b({ model });
+      expect(one(nine, "CLIPLoader").clip_name, model).toBe("qwen_3_8b_fp8mixed.safetensors");
+      expect(nine.loads).toContain("text_encoders/qwen_3_8b_fp8mixed.safetensors");
+      expect(nine.loads).not.toContain("text_encoders/qwen_3_4b.safetensors");
+    }
+    // the 9B found as the family's model, none picked
+    const found = picture.build(parseInput(picture, { prompt: "a cat" }), dryContext({ seed: 7, slots: { ...both, unet: "flux-2-klein-9b.safetensors" } }));
+    expect(one(found, "CLIPLoader").clip_name).toBe("qwen_3_8b_fp8mixed.safetensors");
+    // the 4B keeps its own, the 8B there or not
+    expect(one(with8b({ model: "flux-2-klein-4b.safetensors" }), "CLIPLoader").clip_name).toBe("qwen_3_4b.safetensors");
+    // no 8B encoder: refused in words, not a shape error in ComfyUI
+    expect(() => build({ model: "flux-2-klein-9b.safetensors" })).toThrow(/Qwen3 8B.*qwen_3_8b_fp8mixed/);
+    // every Klein operation asks for it with the 9B only, so that a pod is sent it
+    for (const r of recipes.filter((x) => x.family === "klein")) {
+      const needs = (input: { model?: string }, on: Record<string, string>) => r.needsWith?.(input as never, on) ?? [];
+      expect(needs({ model: "flux-2-klein-9b.safetensors" }, slots), r.id).toEqual(["clip8b"]);
+      expect(needs({}, { ...slots, unet: "flux-2-klein-9b.safetensors" }), r.id).toEqual(["clip8b"]);
+      expect(needs({ model: "flux-2-klein-4b.safetensors" }, slots), r.id).toEqual([]);
+    }
+    // the family offers it, found by name and never taken for the 4B's
+    const klein = familyById("klein")!;
+    const slot = klein.slots.find((x) => x.id === "clip8b")!;
+    expect(slot).toMatchObject({ folder: "text_encoders", optional: true, get: { file: "qwen_3_8b_fp8mixed.safetensors" } });
+    expect(new RegExp(slot.detect[0]!, "i").test("qwen_3_8b.safetensors")).toBe(true);
+    expect(klein.slots.find((x) => x.id === "clip")!.detect.some((d) => new RegExp(d, "i").test("qwen_3_8b_fp8mixed.safetensors"))).toBe(false);
   });
 });
 

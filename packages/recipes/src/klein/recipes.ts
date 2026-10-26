@@ -6,7 +6,7 @@ import {
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { redrawInTiles, tileInputs, tileNodes, TILE_NODES, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import {
-  introduce, KLEIN_PRESETS, kleinCond, kleinInputs, kleinModel, kleinSample, kleinSampleLatent, kleinSize, LOAD_NODES, loadKlein, REFERENCE_NODES, SAMPLE_NODES, withIntro,
+  introduce, KLEIN_PRESETS, kleinCond, kleinInputs, kleinModel, kleinNeeds, kleinSample, kleinSampleLatent, kleinSize, LOAD_NODES, loadKlein, REFERENCE_NODES, SAMPLE_NODES, withIntro,
   type KleinBase,
 } from "./common";
 import { DETECTOR_INPUT } from "../shared/detector";
@@ -36,6 +36,7 @@ const SAME = "a high quality photo with sharp natural detail, the same image";
 export const kleinPicture = defineRecipe<KleinPicture>({
   id: "klein.picture",
   family: "klein",
+  needsWith: kleinNeeds,
   version: 1,
   title: "txt2img",
   summary: "Text to image, from a natural-language prompt. With reference images of a person, a place or clothes, it keeps them.",
@@ -120,6 +121,8 @@ export const kleinPicture = defineRecipe<KleinPicture>({
   },
   variants: [
     { name: "from words", input: { prompt: "a" }, slots: files },
+    // a machine set up for the 9B alone: its Qwen3 8B, no 4B encoder
+    { name: "from words on the 9B, with its own encoder", input: { prompt: "a" }, slots: { unet: "flux-2-klein-9b.safetensors", clip8b: "qwen_3_8b_fp8mixed.safetensors", vae: files.vae } },
     { name: "detail boost", input: { prompt: "a", detail: true }, slots: files, has: withoutDaemon },
     { name: "hires fix, whole", input: { prompt: "a", hires: true, hiresUpscaler: "u.pth" }, slots: files },
     { name: "hires fix 2.5× in tiles, with detail boost", input: { prompt: "a", detail: true, hires: true, hiresScale: 2.5, hiresUpscaler: "u.pth" }, slots: files, has: withoutDaemon },
@@ -143,6 +146,7 @@ interface KleinEdit extends KleinBase {
 export const kleinEdit = defineRecipe<KleinEdit>({
   id: "klein.edit",
   family: "klein",
+  needsWith: kleinNeeds,
   version: 1,
   title: "Edit (instruction)",
   summary: "Instruction editing: prompt what to change (the clothes, the place, the light, the pose) and what stays.",
@@ -204,6 +208,7 @@ const FRESH_FROM = 0.9;
 export const kleinPaintOver = defineRecipe<KleinPaintOver>({
   id: "klein.paint-over",
   family: "klein",
+  needsWith: kleinNeeds,
   version: 1,
   title: "Inpaint",
   summary: "Paint a mask over a part of an image and prompt what changes there. Only the masked part is redrawn.",
@@ -294,6 +299,7 @@ interface KleinReshape extends KleinBase {
 export const kleinReshape = defineRecipe<KleinReshape>({
   id: "klein.change-shape",
   family: "klein",
+  needsWith: kleinNeeds,
   version: 2,
   title: "Outpaint",
   summary: "Extends an image to another aspect ratio by generating what is beyond its edges. Nothing is cropped and what was there stays.",
@@ -350,6 +356,7 @@ const REFINE_WHOLE_PIXELS = 2.6e6;
 export const kleinSharper = defineRecipe<KleinSharper>({
   id: "klein.sharper",
   family: "klein",
+  needsWith: kleinNeeds,
   version: 1,
   title: "Upscale 2x",
   summary: "For photos: upscales to twice the size with an upscale model, then a low-denoise img2img pass so it looks photographed, not smeared.",
@@ -445,6 +452,7 @@ const detail = (k: ReturnType<typeof loadKlein>, input: KleinFixFace, cond: { po
 export const kleinFixFace = defineRecipe<KleinFixFace>({
   id: "klein.fix-face",
   family: "klein",
+  needsWith: kleinNeeds,
   version: 1,
   title: "Face refine",
   summary: "For photos, like ADetailer: detects the face and inpaints it sharper, from reference images of the same person so that it stays them. Needs the Impact Pack nodes.",
@@ -537,6 +545,7 @@ const DIFFERS = "a slightly different pose, expression and camera angle";
 export const kleinVariation = defineRecipe<KleinVariation>({
   id: "klein.variation",
   family: "klein",
+  needsWith: kleinNeeds,
   version: 1,
   title: "Variation",
   summary: "The same image regenerated: the same people, place, clothes and light, with a slightly different pose, expression and angle. Generate several and keep the best.",

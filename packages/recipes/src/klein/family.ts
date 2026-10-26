@@ -27,6 +27,12 @@ export const klein = defineFamily({
       get: { file: "qwen_3_4b.safetensors", url: "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors" },
     },
     {
+      // the 9B model's (kleinClipSlot): it reads with Qwen3 8B, of another width than the 4B's
+      id: "clip8b", label: "Text encoder (9B)", folder: "text_encoders", detect: ["qwen_?3_?8b"], optional: true,
+      hint: "For FLUX.2 Klein 9B: put qwen_3_8b_fp8mixed.safetensors (or qwen_3_8b.safetensors) in ComfyUI's models/text_encoders folder.",
+      get: { file: "qwen_3_8b_fp8mixed.safetensors", url: "https://huggingface.co/Comfy-Org/flux2-klein-9B/resolve/main/split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors" },
+    },
+    {
       // or the small decoder ComfyUI's Klein edit templates ship with (the full encoder, a faster decoder)
       id: "vae", label: "VAE", folder: "vae", detect: ["flux-?2.*vae", "flux2", "full_encoder_small_decoder"],
       hint: "Put flux2-vae.safetensors (or full_encoder_small_decoder.safetensors) in ComfyUI's models/vae folder.",
