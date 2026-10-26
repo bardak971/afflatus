@@ -89,6 +89,52 @@ export function foldParts(parts: RemovedPart[], ids: string[], rows: ParkedClip[
   return { parts: left, rows: out };
 }
 
+/**
+ * A stretch made anew (a re-cut, a moved In, a source made anew: card #114) around the parts removed from it: the pieces
+ * left between them, in order, each with the parts that lie just before it (`after`), for its first new clip to be the cut
+ * each is kept with. A part removed stays removed with its takes; one a piece too short for a clip follows goes with the
+ * next piece (the caller's). A part the stretch no longer holds whole (before the new In, or with nothing of it after it)
+ * is `dropped`: its takes go with it, which the editor asks about first. `parts` with their span (removedView's).
+ */
+export function aroundRemoved(fromMs: number, toMs: number, parts: Array<{ part: RemovedPart; fromMs: number; toMs: number }>): { pieces: Array<{ fromMs: number; toMs: number; after: RemovedPart[] }>; dropped: RemovedPart[] } {
+  const sorted = [...parts].sort((a, b) => a.fromMs - b.fromMs);
+  const inside = (p: (typeof parts)[number]) => p.fromMs >= fromMs - 20 && p.toMs < toMs - 50;
+  const pieces: Array<{ fromMs: number; toMs: number; after: RemovedPart[] }> = [];
+  const dropped = sorted.filter((p) => !inside(p)).map((p) => p.part);
+  let at = fromMs;
+  let after: RemovedPart[] = [];
+  for (const p of sorted.filter(inside)) {
+    if (p.fromMs - at > 50) {
+      pieces.push({ fromMs: at, toMs: p.fromMs, after });
+      after = [];
+    }
+    after.push(p.part);
+    at = Math.max(at, p.toMs);
+  }
+  pieces.push({ fromMs: at, toMs, after });
+  return { pieces, dropped };
+}
+
+/**
+ * The parts kept with the first clip of each piece a stretch was made anew in (aroundRemoved; `firsts`: that clip, null for
+ * a piece that made none): its parts go with the next piece that made one, the clip after them; with none after, they are
+ * dropped. Several before one clip are one part, in order. `rejoined`: the part as the new clip keeps it, its join as it
+ * would be carrying on and that form (made a cut, Bring back gives it them back, as for the clip it replaces).
+ */
+export function keptAround(pieces: Array<{ after: RemovedPart[] }>, firsts: Array<string | null>, rejoined: (part: RemovedPart, before: string) => RemovedPart): { kept: RemovedPart[]; dropped: RemovedPart[] } {
+  const kept: RemovedPart[] = [];
+  let waiting: RemovedPart[] = [];
+  for (const [k, piece] of pieces.entries()) {
+    waiting = [...waiting, ...piece.after];
+    const first = firsts[k];
+    if (!first || !waiting.length) continue;
+    const one: RemovedPart = { ...waiting.at(-1)!, rows: waiting.flatMap((p) => p.rows) };
+    kept.push(rejoined(one, first));
+    waiting = [];
+  }
+  return { kept, dropped: waiting };
+}
+
 /** Removed parts as the row keeps them: the readable ones. */
 export function removedOf(raw: unknown): RemovedPart[] {
   if (!Array.isArray(raw)) return [];

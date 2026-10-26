@@ -18,6 +18,7 @@ import type { PlayerHandle } from "./Player";
 import { useClipEdits } from "./useClipEdits";
 import { useMaskPreview, type ClipMask } from "./maskPreview";
 import { useOneTrim } from "./useOneTrim";
+import { droppedRemovedTakes } from "./removedDropped";
 import { useClipSteps } from "./useClipSteps";
 import { useEditorMenus } from "./useEditorMenus";
 import { useBarRequests } from "./useBarRequests";
@@ -247,7 +248,8 @@ export function useTimelineEditor(id: string) {
     run: (recipeId: string, sure = false) => {
       const of = (id: string | null | undefined) => videoRecipes.find((r) => r.id === id);
       const made = t ? madeFromSource(t, videoRecipes) : [];
-      const rendered = made.filter((c) => c.take).length;
+      // made anew, the windows a trim set aside go too, and the parts removed it no longer holds (droppedRemovedTakes)
+      const rendered = made.filter((c) => c.take).length + (t?.source ? (t.source.parkedTakes ?? 0) + droppedRemovedTakes(t.source.removed, t.source.fromMs, t.source.toMs) : 0);
       if (!sure && rendered > 0 && !sameWindowGrid(of(t?.source?.recipe), of(recipeId))) return setFormAsk({ recipe: recipeId, rendered, windows: made.length });
       setFormAsk(null);
       sourceFormMut.mutate(recipeId, { onSuccess: (r) => void (r.clips.length && setToRender({ ids: r.clips, render: false })) });
@@ -284,8 +286,9 @@ export function useTimelineEditor(id: string) {
         return true;
       }, () => false);
       if (oneTrim.busy) return oneTrim.later("source", () => runs.current.stretch.run(fromMs, toMs, sure));
-      // the rendered windows a trim set aside are left behind too: counted with those on the track
-      const rendered = made.filter((c) => c.take).length + (t.source.parkedTakes ?? 0);
+      // the rendered windows a trim set aside are left behind too, and those of a part removed before the new In: counted
+      // with those on the track (a part removed after it stays removed, its takes kept: droppedRemovedTakes)
+      const rendered = made.filter((c) => c.take).length + (t.source.parkedTakes ?? 0) + droppedRemovedTakes(t.source.removed, fromMs, toMs);
       if (!sure && rendered > 0 && Math.round(fromMs) !== t.source.fromMs) {
         setStretchAsk({ fromMs, toMs, rendered, windows: made.length });
         select(made[0]!.id);
@@ -311,7 +314,9 @@ export function useTimelineEditor(id: string) {
       // its clips taken again from the timeline read back: the trim before may have made them anew
       if (oneTrim.busy) return oneTrim.later(`recording:${asset}`, () => runs.current.recordingTrim.run(asset, clipsOfRecording(runs.current.clips, runs.current.videoRecipes, asset), fromMs, toMs, sure));
       const startMs = Math.round(Number(mine[0]?.inputs.recordingStart ?? 0) * 1000);
-      const rendered = mine.filter((c) => c.take).length + (t?.recordings?.find((r) => r.asset.id === asset)?.parkedTakes ?? 0);
+      const rec = t?.recordings?.find((r) => r.asset.id === asset);
+      // with the takes a trim set aside, and those of a part removed before the new In (droppedRemovedTakes)
+      const rendered = mine.filter((c) => c.take).length + (rec?.parkedTakes ?? 0) + droppedRemovedTakes(rec?.removed, fromMs, toMs);
       // asked in the first clip's Recording chapter, opened so the question is in view (its band dragged on the Audio row);
       // in the recording's own panel when it is open
       if (!sure && rendered > 0 && Math.abs(fromMs - startMs) > 20) {
@@ -340,7 +345,12 @@ export function useTimelineEditor(id: string) {
     ask: cutAsk,
     run: (asset: string, seconds: number, snap: boolean, sure = false) => {
       const mine = clipsOfRecording(clips, videoRecipes, asset);
-      const rendered = mine.filter((c) => c.take).length + (t?.recordings?.find((r) => r.asset.id === asset)?.parkedTakes ?? 0);
+      const rec = t?.recordings?.find((r) => r.asset.id === asset);
+      // cut again over the stretch its clips use: a part removed past the last one (kept with a clip a trim set aside) goes
+      const last = mine.at(-1);
+      const fromMs = Number(mine[0]?.inputs.recordingStart ?? 0) * 1000;
+      const toMs = last ? (Number(last.inputs.recordingStart ?? 0) + Number(last.inputs.recordingSeconds ?? 0)) * 1000 : fromMs;
+      const rendered = mine.filter((c) => c.take).length + (rec?.parkedTakes ?? 0) + droppedRemovedTakes(rec?.removed, fromMs, toMs);
       if (!sure && rendered > 0) return setCutAsk({ asset, seconds, snap, rendered, clips: mine.length });
       setCutAsk(null);
       setCutting(true);

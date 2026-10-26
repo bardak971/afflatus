@@ -21,7 +21,7 @@ import { madeOf, takeView, TimelineViews } from "./timelineViews";
 import { draftOf, generationOfTake, ownInputIds, recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
 import { clipsOfSource, patchedSource, planWindows, sourceOfRow, windowFormFor, windowRunUp, type SourcePatch, type SourcePlan } from "./timelineSource";
 import { TimelineTakes } from "./timelineTakes";
-import { foldParts, removalOf, removedOf, removedView, type ParkedClip, type Removal, type RemovedPart } from "./timelineRemoved";
+import { aroundRemoved, foldParts, keptAround, removalOf, removedOf, removedView, type ParkedClip, type Removal, type RemovedPart } from "./timelineRemoved";
 import { unusedSize, unusedTakes } from "./timelineUnused";
 import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, setTrims, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, mirroredPins, mirrorJson, mirrorOfRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow, transitionJson, transitionOfRow } from "./timelineModel";
 
@@ -1021,8 +1021,9 @@ export class Timelines {
       const t = await this.row(timelineId);
       const read = sourceOfRow(t.source);
       if (!read) throw httpError("Drop a video on the Source lane first.");
-      // `stretch`: the source's start moved after Make (trimSource): every window made anew over the new stretch, nothing set aside
-      const plan: SourcePlan = opts.stretch ? { ...read, fromMs: opts.stretch.fromMs, toMs: opts.stretch.toMs, parked: [], shortened: undefined, removed: undefined } : read;
+      // `stretch`: the source's start moved after Make (trimSource): every window made anew over the new stretch, nothing set
+      // aside but the parts removed from it (below)
+      const plan: SourcePlan = opts.stretch ? { ...read, fromMs: opts.stretch.fromMs, toMs: opts.stretch.toMs, parked: [], shortened: undefined } : read;
       // `recipe`: the model it is made anew with, written with the clips (one step for Undo)
       const recipeId = opts.recipe ?? plan.recipe;
       const recipe = recipeId ? this.registry.recipe(recipeId) : undefined;
@@ -1035,7 +1036,25 @@ export class Timelines {
       const all = await this.placed(timelineId);
       // cut again: the source's clips rendered (or in the queue) at its start kept, the rest made anew after them
       const again = opts.anew ? await this.allAnew(all, plan) : opts.append ? this.afterAll(all, plan, driving) : opts.again ? await this.cutAgain(all, plan, driving) : null;
-      const windows = await planWindows(plan, recipe, video, (id) => this.media.scenes(id), again?.after);
+      // made anew or cut again: around the parts removed from the middle of the windows dropped, which stay removed with
+      // their takes, each kept with the first window after it, a cut (card #114); those kept with a window kept stay as they
+      // are. One past the end (kept with a window a trim set aside) or before the new start goes: the editor asks first
+      const anew = Boolean(opts.anew || opts.again);
+      const dropped = new Set(again?.drop ?? []);
+      const removed = anew ? (plan.removed ?? []) : [];
+      const stays = removed.filter((p) => !dropped.has(p.before) && all.some((x) => x.clip.id === p.before));
+      const run = removed.length ? this.runsOf(t, all).find((r) => r.kind === "source") : undefined;
+      const runFps = (read.recipe ? this.registry.recipe(read.recipe)?.traits?.fps : undefined) ?? recipe.traits.fps;
+      // a part's own frames, from after those its first window carried to the end of its last one's whole frames (a part
+      // holds half a frame more: sourceWindows), where the window after it started
+      const spanOf = (row: ParkedClip) => {
+        const s = run!.span(row.clip, false);
+        return { from: s.from, to: s.start + (Math.floor(((s.to - s.start) / 1000) * runFps + 1e-6) * 1000) / runFps };
+      };
+      const { pieces } = aroundRemoved(again?.after ?? plan.fromMs, plan.toMs, run ? removed.filter((p) => dropped.has(p.before)).map((part) => ({ part, ...removedView(part, spanOf) })) : []);
+      const scenes = (id: string) => this.media.scenes(id);
+      const cutUp = await Promise.all(pieces.map((piece, k) => planWindows({ ...plan, fromMs: piece.fromMs, toMs: piece.toMs }, recipe, video, scenes, k === 0 && !piece.after.length ? again?.after : undefined)));
+      const windows = cutUp.flat();
       if (!windows.length) throw httpError(again?.after !== undefined ? "Nothing of the stretch is left after the rendered clips." : "The stretch is too short for one clip: make it longer.");
       // in place of the clip the stretch was taken from (still the same video), or of the empty clip it was dropped for (its
       // model the windows'), else after the last clip
@@ -1065,6 +1084,7 @@ export class Timelines {
           order.splice(replaced, 1);
         }
         const made: string[] = [];
+        const forms: Array<{ recipe: Recipe<any>; inputs: Record<string, unknown> }> = [];
         const owned = ownsOf(windows, again && "owns" in again ? again.owns : [], (1000 / recipe.traits!.fps) / 2);
         for (const [k, w] of windows.entries()) {
           // the first window replaces the person clicked on its first frame, the ones after follow it (h3.swap's pick)
@@ -1080,13 +1100,24 @@ export class Timelines {
           const id = await this.planner.insertClip(timelineId, order, index + k, clip, tx, false);
           order.splice(index + k, 0, { clip: { id } });
           made.push(id);
+          forms.push({ recipe: madeWith, inputs: clip.inputs });
         }
+        // each part removed kept with the first window after it, made a cut: carrying on, as Bring back makes it again, it
+        // starts earlier by the frames it carries (windowRunUp), as the window it replaces did
+        let at = 0;
+        const firsts = cutUp.map((w) => (w.length ? made[(at += w.length) - w.length]! : null));
+        const { kept } = keptAround(pieces, firsts, (part, before) => {
+          const k = made.indexOf(before);
+          const carrying = part.joined === "continue" ? windowRunUp(forms[k]!.recipe, forms[k]!.inputs, "continue") : null;
+          return { before, rows: part.rows, joined: part.joined, take: null, ...(carrying ? { inputs: JSON.stringify(carrying) } : {}) };
+        });
+        const parts = [...stays, ...kept];
         // the clips after them moved along once, all the windows in
         await this.renumber(timelineId, order.map((p) => p.clip.id), tx);
         // the source's start sits where its stretch now plays from; the clip it was taken from is gone. Cut again, it stays where
         // it was, and the clips it no longer has keep nothing apart
         const apart = plan.apart ? Object.fromEntries(Object.entries(plan.apart).filter(([id]) => !again?.drop.includes(id))) : undefined;
-        const placedPlan = { ...(again ? { ...plan, clip: null, ...(apart ? { apart } : {}) } : { ...plan, atMs: startsAt - plan.fromMs, clip: null }), recipe: recipe.id, ...(opts.anew || opts.again ? { parked: [], shortened: undefined, removed: undefined } : {}) };
+        const placedPlan = { ...(again ? { ...plan, clip: null, ...(apart ? { apart } : {}) } : { ...plan, atMs: startsAt - plan.fromMs, clip: null }), recipe: recipe.id, ...(anew ? { parked: [], shortened: undefined, removed: parts.length ? parts : undefined } : {}) };
         await tx.updateTable("timelines").set({ source: JSON.stringify(placedPlan), updated_at: now() }).where("id", "=", timelineId).execute();
         if (picture) await this.keep(picture, tx);
         return made;
@@ -1110,7 +1141,7 @@ export class Timelines {
     if (sound.kind === "video" && !sound.has_sound) throw httpError("That video has no sound: a recording has to be a sound, or a video with sound.");
     const { pauses } = await this.pausesOf(sound);
     const ids = await this.history.oneAtATime(timelineId, async () => {
-      await this.row(timelineId);
+      const t = await this.row(timelineId);
       const all = await this.placed(timelineId);
       // the empty clip it was dropped on: the clips go in its place, with what was written in it (its scene). `replace`: the
       // clips of the recording made anew in their place (its start moved)
@@ -1125,14 +1156,30 @@ export class Timelines {
       const form = this.newClipsForm(cut.form, near?.clip.recipe_id);
       // `fromS` to `toS`: the stretch of the recording its clips are made of (a recording trimmed: trimRecording), all of it by
       // default, cut to what one clip of that form holds
-      const parts = this.recordingPartsOf(recordingSpecOf(form.inputs)!.window.fits, pauses, o.fromS ?? 0, o.toS ?? sound.duration_ms! / 1000, o.seconds, o.snap);
+      // made anew over its clips (a re-cut, a moved start): around the parts removed from their middle, which stay removed
+      // with their takes, each kept with the first clip after it, a cut (card #114). One kept with a clip a trim set aside,
+      // or before the new start, goes (the editor asks first when it holds takes)
+      const fromS = o.fromS ?? 0;
+      const toS = o.toS ?? sound.duration_ms! / 1000;
+      const among = new Set(o.replace ?? []);
+      const removed = o.replace ? (removedRecordings(t)[sound.id] ?? []).filter((p) => among.has(p.before)) : [];
+      const spanOf = this.recordingSpan();
+      const { pieces } = aroundRemoved(fromS * 1000, toS * 1000, removed.map((part) => ({ part, ...removedView(part, spanOf) })));
+      const fits = recordingSpecOf(form.inputs)!.window.fits;
+      const cutUp = pieces.map((piece, k) => this.recordingPartsOf(fits, pauses, piece.fromMs / 1000, piece.toMs / 1000, o.seconds, o.snap).map((p, i) => ({ ...p, ...(i === 0 && (k > 0 || piece.after.length) ? { cut: true } : {}) })));
+      const parts = cutUp.flat();
       if (!parts.length) throw httpError("The recording is too short for a clip.");
       return this.db.transaction().execute(async (tx) => {
         await this.remember(timelineId, o.label ?? `the ${plural(parts.length, "clip")} made from the recording`, undefined, tx);
         const made = await this.recordingClipsIn(tx, timelineId, sound, parts, { gone, was, form: form.id });
         if (cut.form !== form.id && !o.keepCut) await setRecordingCut(tx, timelineId, sound.id, { ...cut, form: form.id });
         // made anew over a moved start: what a trim had set aside of it no longer fits its clips
-        if (o.replace?.length) await setParkedRecording(tx, timelineId, sound.id, [], null, []);
+        if (o.replace?.length) {
+          let at = 0;
+          const firsts = cutUp.map((p) => (p.length ? made[(at += p.length) - p.length]! : null));
+          const { kept } = keptAround(pieces, firsts, (part, before) => ({ before, rows: part.rows, joined: part.joined, take: null }));
+          await setParkedRecording(tx, timelineId, sound.id, [], null, kept);
+        }
         // cut again at another length (the recording's panel): kept for its trims, which cut what they add the same way
         if (o.keepCut) await setRecordingCut(tx, timelineId, sound.id, { ...cut, form: form.id, seconds: o.seconds ?? DEFAULT_CUT.seconds, snap: o.snap ?? true });
         return made;
@@ -1167,7 +1214,7 @@ export class Timelines {
    * change of form, its seed on the first: writtenIn), or the settings of the clip it follows when it is of that form, else
    * of the last clip of it; the first carrying on from the clip before when it can.
    */
-  private async recordingClipsIn(tx: Db, timelineId: string, sound: AssetRow, parts: Array<{ start: number; seconds: number }>, at: { gone: string[]; after?: string; was?: ClipPart[]; form?: string }): Promise<string[]> {
+  private async recordingClipsIn(tx: Db, timelineId: string, sound: AssetRow, parts: Array<{ start: number; seconds: number; cut?: boolean }>, at: { gone: string[]; after?: string; was?: ClipPart[]; form?: string }): Promise<string[]> {
     const { spec } = this.recordingModel();
     const { gone, after } = at;
     const all = await this.placed(timelineId, tx);
@@ -1195,7 +1242,8 @@ export class Timelines {
       const seed = k === 0 && !survives && replaced >= 0 && "seed" in kept ? { seed: kept.seed } : {};
       const form = { ...Object.fromEntries(Object.entries({ ...settingsOf(recipe, all, index), ...kept }).filter(([key]) => own.has(key) && !ofPart.has(key))), ...seed };
       // the first carries on from the clip before when it can (H3 to Lip sync: in the latent), else it starts on its own
-      const opens = k === 0 && (!before || before.clip.kind !== "video" || !before.clip.recipe_id || joinWay(this.registry.recipe(before.clip.recipe_id), recipe) === "cut");
+      // one after a part removed (`cut`: made anew around it) meets nothing before it: a cut
+      const opens = part.cut || (k === 0 && (!before || before.clip.kind !== "video" || !before.clip.recipe_id || joinWay(this.registry.recipe(before.clip.recipe_id), recipe) === "cut"));
       const clip: NewClip = {
         kind: "video", recipeId: recipe.id, joined: opens ? "cut" : "continue", still: null, take: null, asset: undefined, look: null,
         inputs: { ...form, [spec.id]: sound.id, [spec.window.start]: part.start, [spec.window.seconds]: part.seconds },
@@ -1240,9 +1288,9 @@ export class Timelines {
    * them on the Audio row; and how each is cut into clips (`seconds` about, `snap` to its pauses), as its panel shows it.
    */
   private async recordingsView(t: TimelineRow, all: Placed[]) {
-    let spec: ReturnType<Timelines["recordingModel"]>["spec"] | undefined;
+    let spanOf: ReturnType<Timelines["recordingSpan"]>;
     try {
-      spec = this.recordingModel().spec;
+      spanOf = this.recordingSpan();
     } catch {
       return [];
     }
@@ -1252,16 +1300,20 @@ export class Timelines {
     const ids = [...new Set([...used, ...Object.keys(parked)].filter((x): x is string => typeof x === "string" && Boolean(x)))];
     const rows = ids.length ? await this.db.selectFrom("assets").selectAll().where("id", "in", ids).execute() : [];
     const removed = removedRecordings(t);
-    const w = spec!.window;
-    const spanOf = (row: ParkedClip) => {
-      const inputs = JSON.parse(String(row.clip.inputs)) as Record<string, unknown>;
-      return { from: Number(inputs[w.start]) * 1000, to: (Number(inputs[w.start]) + Number(inputs[w.seconds])) * 1000 };
-    };
     return rows.filter((a) => used.includes(a.id)).map((a) => ({
       asset: assetView(a), parked: parked[a.id]?.length ?? 0, parkedTakes: (parked[a.id] ?? []).filter((row) => row.clip.take_id).length, ...cutOf(cuts, a.id),
       // the parts cut out of its middle by removing their clips, each by the clip after it
       removed: (removed[a.id] ?? []).map((p) => removedView(p, spanOf)),
     }));
+  }
+
+  /** A clip under a recording set aside, its part of it in ms (removedView's reading). */
+  private recordingSpan() {
+    const w = this.recordingModel().spec.window;
+    return (row: ParkedClip) => {
+      const inputs = JSON.parse(String(row.clip.inputs)) as Record<string, unknown>;
+      return { from: Number(inputs[w.start]) * 1000, to: (Number(inputs[w.start]) + Number(inputs[w.seconds])) * 1000 };
+    };
   }
 
   /**
@@ -1366,7 +1418,8 @@ export class Timelines {
    * - Its end out (trimOut): the clips set aside back as they were while the stretch holds them (one not held yet stops the
    *   end there, kept aside), then new clips, cut at its pauses, after the last one, none shorter than a clip takes; one
    *   step for Undo, one transaction.
-   * - Its start moved: its clips made anew over the new stretch (the editor asks first when that leaves rendered takes).
+   * - Its start moved: its clips made anew over the new stretch, around the parts removed from it (makeFromRecording; the
+   *   editor asks first when that leaves rendered takes).
    * Read and written in the timeline's turn (trimSource says why). Returns the clips added, and where the end came to rest.
    */
   async trimRecording(timelineId: string, to: { asset: string; fromMs: number; toMs: number }): Promise<{ clips: string[]; toMs: number }> {
@@ -1480,7 +1533,7 @@ export class Timelines {
 
   /**
    * A recording's clips cut again (its panel's Clip length and Snap to pauses): made anew over the stretch they use, about
-   * `seconds` each, ended in its pauses or not, as a moved start makes them (the editor asks first when that leaves
+   * `seconds` each, ended in its pauses or not, as a moved start makes them, the parts removed from it kept removed (the editor asks first when that leaves
    * rendered takes behind); the cut kept, so its trims cut what they add the same way. One step for Undo.
    */
   async cutRecording(timelineId: string, o: { asset: string; seconds: number; snap: boolean }): Promise<{ clips: string[] }> {
