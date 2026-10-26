@@ -67,6 +67,8 @@ interface H3References {
   continues: boolean;
   /** The clip opens on a picture, given as one more picture after the references. */
   opening: boolean;
+  /** That picture is the first one itself rather than one more (a voice alone: who speaks, and the frame the clip opens on). */
+  opensOnFirst?: boolean;
   /** Only a voice and the picture of who speaks: that picture is the person, and the setting too. */
   voiceOnly: boolean;
 }
@@ -94,7 +96,7 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
   const who1 = hasPerson ? "<Subject 1>" : "the character";
   const voiceTag = ref.voice ? `<Audio ${audios + 1}>` : "";
   // the opening picture is the last picture too: its place, outfit and pose are references
-  const opening = ref.opening && !ref.continues ? `<Picture ${pics.length + 1}>` : "";
+  const opening = ref.opening && !ref.continues ? `<Picture ${ref.opensOnFirst ? 1 : pics.length + 1}>` : "";
   const opens = ref.continues
     ? " The video continues seamlessly from the given opening frames."
     : opening

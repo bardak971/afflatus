@@ -24,7 +24,7 @@ export const AUDIO_LOCK = "AfflatusH3AudioLock";
 export const FACE_REFINE_INPUTS: InputSpec[] = [
   {
     id: "faceRefine", type: "toggle", label: "Face refine", default: false, section: "out",
-    note: "after the render, the face is cropped, redrawn at a low denoise against the person's picture (the cast's, else the first reference picture) and pasted back. The pose, light and expression stay the render's. Best on slow-moving shots: when the person moves a lot, the face follows the source's expression less, and arms over the head can be redrawn into the hair",
+    note: "after the render, the face is cropped, redrawn at a low denoise against the person's picture (the cast's, else a person reference picture, else the picture the clip opens on) and pasted back. The pose, light and expression stay the render's. Best on slow-moving shots: when the person moves a lot, the face follows the source's expression less, and arms over the head can be redrawn into the hair",
   },
   {
     id: "faceRefineDenoise", type: "number", label: "Face refine denoise", min: 0.3, max: 0.6, step: 0.05, default: 0.45, showWhen: "faceRefine", advanced: true, section: "out",
@@ -59,16 +59,20 @@ export const FACE_REFINE_H3 = ["MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift
 export type FaceRefineValues = Pick<H3Video, "faceRefine" | "faceRefineDenoise" | "faceRefineSteps" | "references" | "subject" | "quick">;
 
 /**
- * The person's picture the faces are drawn towards: the cast's (a "person" reference), else the clip's first reference
- * picture, else the one the recipe gives (SCAIL's Picture: the person it moves); null when there is none (the toggle then
- * does nothing, and the job says why).
+ * The person's picture the faces are drawn towards: the cast's (a "person" reference), else the one the recipe gives (the
+ * picture the clip opens on, SCAIL's Picture: the person it moves); null when there is none (the toggle then does nothing,
+ * and the job says why). A place, clothing, object or style picture is no face to draw towards: tracked against a place
+ * photo, the faces were redrawn toward it, while the likeness score read the person's alone (B19).
  */
 export function facePicture(input: Pick<H3Video, "references">, ctx: Pick<BuildContext, "uploads">, fallback?: string): string | null {
   const refs = input.references ?? [];
   const person = refs.findIndex((r, i) => r.role === "person" && ctx.uploads[`references.${i}`]);
-  const first = person >= 0 ? person : refs.findIndex((_, i) => ctx.uploads[`references.${i}`]);
-  return first >= 0 ? (ctx.uploads[`references.${first}`] ?? null) : (fallback ?? null);
+  return person >= 0 ? (ctx.uploads[`references.${person}`] ?? null) : (fallback ?? null);
 }
+
+/** The picture an H3 clip opens on, when it opens on one (not carrying on from a clip before): who Face refine follows without a cast. */
+export const openingPicture = (input: Pick<H3Video, "start" | "previous">, ctx: Pick<BuildContext, "uploads">): string | undefined =>
+  input.start && !input.previous ? ctx.uploads.start : undefined;
 
 /**
  * The family's files a clip with Face refine on needs (Recipe.needsWith, and a Finish › Face refine of a take that keeps no
@@ -76,11 +80,11 @@ export function facePicture(input: Pick<H3Video, "references">, ctx: Pick<BuildC
  * (a pod is sent only what its graph loads: SAM only where its nodes are), and with `own` (a recipe that is not H3's) H3's
  * text encoder and VAEs. Optional in the family, they were asked for by no form: on a fresh pod the pass was left out, and
  * a Finish › Face refine was a paid decode of the take as it was. None for a clip with no person's picture to refine
- * towards (a cast person or a reference picture; `picture`: the recipe's own picture stands in, as SCAIL's), which the
+ * towards (a person reference; `picture`: the recipe's own picture stands in, as SCAIL's or the one a clip opens on), which the
  * pass leaves as it is (faceRefineSkipped): a machine without them was held for files it never loads.
  */
 export function faceRefineNeeds(input: Partial<Pick<H3Video, "faceRefine" | "references">>, opts: { own?: boolean; picture?: boolean } = {}): string[] {
-  if (!input.faceRefine || (!(input.references ?? []).length && !opts.picture)) return [];
+  if (!input.faceRefine || (!(input.references ?? []).some((r) => r.role === "person") && !opts.picture)) return [];
   return ["faceRefineUnet", "faceDetector", "faceSeg", "faceSam", ...(opts.own ? ["faceClip", "faceVideoVae", "faceAudioVae"] : [])];
 }
 
@@ -91,7 +95,7 @@ export function faceRefineNeeds(input: Partial<Pick<H3Video, "faceRefine" | "ref
  */
 export function faceRefineSkipped(input: Pick<H3Video, "faceRefine" | "references">, ctx: Pick<BuildContext, "uploads" | "slots"> & Partial<Pick<BuildContext, "has">>, opts: { picture?: string; own?: boolean; audio?: boolean } = {}): string | null {
   if (!input.faceRefine) return null;
-  if (!facePicture(input, ctx, opts.picture)) return "Not face-refined: the clip has no person's picture (a cast person or a reference picture).";
+  if (!facePicture(input, ctx, opts.picture)) return "Not face-refined: the clip has no person's picture (a cast person, a person reference picture, or a picture it opens on).";
   if (opts.own && !(ctx.slots.faceClip && ctx.slots.faceVideoVae && ctx.slots.faceAudioVae)) return "Not face-refined: MiniMax H3's text encoder and VAEs are not on this ComfyUI (Settings › Models has them, with the model's Face refine files).";
   if (!ctx.slots.faceRefineUnet) return "Not face-refined: no fused reference turbo model on this ComfyUI (Settings › Models has it, under MiniMax H3).";
   if (!ctx.slots.faceDetector) return "Not face-refined: no face detector on this ComfyUI (face_yolov8m.pt in models/ultralytics/bbox; Settings › Models has it).";

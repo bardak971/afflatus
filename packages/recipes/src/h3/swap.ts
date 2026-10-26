@@ -598,9 +598,10 @@ export const h3Swap = defineRecipe<H3Swap>({
         slots: all, uploads: { source: "v.mp4", "references.0": "r1.png", "cues.0": "door.wav" }, media: { source: part, "cues.0": { width: 0, height: 0, seconds: 0.6 } },
       },
       {
-        name: "a short part, Turbo, the sound H3 makes",
-        input: { who: "the woman on the left.", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], keepSound: false, fast: true },
-        slots: all, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: { ...part, frames: 90, hasSound: false } },
+        // (a cue there laid into H3's sound, or H3's own kept at it: In the take decides)
+        name: "a short part, Turbo, the sound H3 makes, a sound cue in it",
+        input: { who: "the woman on the left.", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], keepSound: false, fast: true, cues: [{ asset: "s1", start: 0, seconds: 0.6, at: 1.5 }] },
+        slots: all, uploads: { source: "v.mp4", "references.0": "r1.png", "cues.0": "door.wav" }, media: { source: { ...part, frames: 90, hasSound: false }, "cues.0": { width: 0, height: 0, seconds: 0.6 } },
       },
       {
         name: "the lips drawn to the source's own sound, anchored from the first frame",

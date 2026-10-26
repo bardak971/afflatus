@@ -60,9 +60,14 @@ export interface H3Join {
   prevLatent: string | undefined;
   /** The clip after's saved latent, when it was uploaded. */
   nextLatent: string | undefined;
+  /** The clip's frame (frameFor). */
+  width: number;
+  height: number;
+  /** Said on the job when the clip after's latent was there but made at another frame size: landed on its frames. */
+  sizeSaid: string | null;
 }
 
-export function resolveJoin(input: H3Video, ctx: BuildContext): H3Join {
+export function resolveJoin(input: H3Video, ctx: BuildContext, how: H3Uses): H3Join {
   const { uploads, media } = ctx;
   const head = input.previous ? guideFrames(media.previous) : 0;
   const tail = input.next ? guideFrames(media.next) : 0;
@@ -82,12 +87,19 @@ export function resolveJoin(input: H3Video, ctx: BuildContext): H3Join {
   // the clip after's own latent: the clip lands on its first tokens (after that clip's own overlap, when it has one)
   const nextLatent = input.next ? uploads["next.latent"] : undefined;
   const nextAt = media.next?.latentAt ?? 0;
+  const { width, height } = frameFor(input, ctx, how, latentJoin);
+  // made at this clip's frame size: a clip after re-rendered larger (576p before, 768p after) has tokens of another size, which
+  // the pack's landing refuses (an older pack: the sampling, after the model loaded). The frames sent for the join are the
+  // model's own (its raw file when one was kept), so their size is its latent's
+  const next = media.next;
+  const sized = !next || (next.width === width && next.height === height);
   // where one of its chunks begins (frame 17j), with the aligned landing; its very first frame with the head guide of an older
   // pack. Anywhere else the tokens would be placed off their time (see H3_LANDING): its frames
-  const room = nextLatent !== undefined && (media.next?.latentFrames ?? 0) >= nextAt + tail;
+  const room = nextLatent !== undefined && (media.next?.latentFrames ?? 0) >= nextAt + tail && sized;
   const landingAt = room && isChunkStart(nextAt, H3_GRID) && ctx.has(H3_LANDING);
   const latentLanding = landingAt || (room && nextAt === 0 && ctx.has(H3_HEAD_GUIDE));
-  return { head, tail, frames, seconds, ownSeconds, latentJoin, latentLanding, nextAt, landingAt, prevLatent, nextLatent };
+  const sizeSaid = nextLatent !== undefined && !sized ? `The clip after was made at ${next!.width} × ${next!.height}, this one at ${width} × ${height}: it was landed on by its frames, not its latent.` : null;
+  return { head, tail, frames, seconds, ownSeconds, latentJoin, latentLanding, nextAt, landingAt, prevLatent, nextLatent, width, height, sizeSaid };
 }
 
 /** The frame: a timeline's canvas, else the clip it joins, else the picture it opens or ends on, else the shape picked. */
