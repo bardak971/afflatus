@@ -40,6 +40,19 @@ export function plainResizeSaid(input: Pick<H3Video, "upscale" | "upscaleWith">,
 }
 
 /**
+ * The inputs sent to one of the pack's nodes, fitted to the copy this ComfyUI has. PlagueKind's "H3-UltimateUpscale-LD", a
+ * detached fork, registers the same node names with other inputs: its enlarging takes no offload_model, its split none of
+ * the masked-area noise, brightness match or widening fade, and it asks for joint_steps and token_budget. Sent the
+ * upstream pack's, a render on it was refused before it was queued (2026-10-26). What the node does not take is left out;
+ * the fork's own are given where it takes them (`theirs`). Not known (no catalog): the upstream pack's, as they are.
+ */
+function fitted(ctx: BuildContext, node: string, ours: Record<string, unknown>, theirs: Record<string, unknown> = {}): Record<string, unknown> {
+  const takes = ctx.inputs?.(node);
+  if (!takes) return ours;
+  return Object.fromEntries(Object.entries({ ...ours, ...theirs }).filter(([name]) => takes.includes(name)));
+}
+
+/**
  * The upscale pass: the finished latent enlarged, then re-sampled lightly, one stretch of frames and one
  * tile at a time (the node offloads the model between the two, so both fit where one does). The sound
  * is carried through untouched. The same model, sampler and conditioning as the clip. Without the latent
@@ -57,13 +70,15 @@ export function latentUpscalePass(g: GraphBuilder, ctx: BuildContext, input: H3V
   if (!withModel && !ctx.has("MMH3LatentUpscaleParams")) throw new Error(NO_PACK);
   g.phase("upscaling");
   const enlarge = withModel
-    ? g.out("MMH3LatentUpscaleWithModelParams", { model_name: slots.latentUpscaler, ...big, device: "cuda", precision: "fp16", offload_model: true })
+    ? g.out("MMH3LatentUpscaleWithModelParams", fitted(ctx, "MMH3LatentUpscaleWithModelParams", { model_name: slots.latentUpscaler, ...big, device: "cuda", precision: "fp16", offload_model: true }))
     : g.out("MMH3LatentUpscaleParams", { method: "bicubic", ...big });
-  const tiles = g.out("MMH3SpatialSplitParams", {
+  // the fork steps every tile together through each step, one picture denoised (its default, and why it exists); its
+  // token budget is read only by its "auto" tile size, never picked here, and is given at the fork's own default
+  const tiles = g.out("MMH3SpatialSplitParams", fitted(ctx, "MMH3SpatialSplitParams", {
     upscale_width: big.width, upscale_height: big.height, tile_size_mode: "specific_size", tile_width: input.upscaleTile, tile_height: input.upscaleTile, grid_rows: 2, grid_cols: 2,
     spatial_w_overlap: input.upscaleOverlap, spatial_h_overlap: input.upscaleOverlap, fade_width: 64, fade_height: 64, min_tile_size: 256,
     overlap_mode: "later", overlap_blend: "linear", masked_area_noise: 0.05, brightness_match: true, dynamic_fade: "widening", dynamic_fade_min: 32,
-  });
+  }, { joint_steps: true, token_budget: 70000 }));
   const stretches = g.out("MMH3TemporalSplitParams", { chunk_length: input.upscaleChunk, temporal_overlap: 17, anchor_strength: 0.999 });
   g.phase("refining");
   return g.out("MMH3UltimateUpscale", {

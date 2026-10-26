@@ -14,7 +14,7 @@ import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB } from "./timelineModel";
 import { Died, GPU_AT_WORK, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type Running } from "./queueModel";
 import { pictureOnce, resentFor, taken } from "./queueSubmit";
-import { ANY_PACKS, asBuilt, optionsIn, packsSaid, ranWithoutSaid } from "./jobPacks";
+import { ANY_PACKS, asBuilt, inputsIn, optionsIn, packsSaid, ranWithoutSaid } from "./jobPacks";
 
 /** The jobs that need no model of their own: a cut (a copy, a split, a slow-motion, a finish) and an export, done by ffmpeg, with ComfyUI only for RIFE and the upscale routes. */
 
@@ -311,7 +311,7 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
     const parts = g.add("GetVideoComponents", { video: g.out("LoadVideo", { file }) });
     // RTX VSR done without where its pack is not there (not installable, or Run without): an upscale model instead, said on the job
     const options = asBuilt(catalog, (await core.packFacts?.().catch(() => null)) ?? ANY_PACKS, packsSaid(row));
-    const ctx: BuildContext = { seed: Math.floor(Math.random() * 2 ** 31), slots, uploads: {}, media: {}, has: (n: string) => n in catalog, options: optionsIn(catalog), wants: options.wants };
+    const ctx: BuildContext = { seed: Math.floor(Math.random() * 2 ** 31), slots, uploads: {}, media: {}, has: (n: string) => n in catalog, options: optionsIn(catalog), inputs: inputsIn(catalog), wants: options.wants };
     // a continuation's hidden run-up (hiddenRunUp) is not restored: its frames are enlarged plainly to the restored size and
     // put back in front, so that the file keeps every frame, its length and its joins' timing. Counted on the source's own frames
     const sourceFps = fromRaw ? rawFacts!.fps : video.fps ?? 24;
@@ -389,7 +389,7 @@ async function runFaceFinish(core: QueueCore, row: JobRow, run: Running, clips: 
     const fps = doubled ? rawFacts!.fps : video.fps ?? 24;
     const frames = Math.round(((doubled ? rawFacts!.durationMs : video.duration_ms ?? 0) / 1000) * fps);
     const options = asBuilt(catalog, (await core.packFacts?.().catch(() => null)) ?? ANY_PACKS, packsSaid(row));
-    const ctx: BuildContext = { seed: Math.floor(Math.random() * 2 ** 31), slots, uploads: {}, media: {}, has: (n: string) => n in catalog, options: optionsIn(catalog), wants: options.wants };
+    const ctx: BuildContext = { seed: Math.floor(Math.random() * 2 ** 31), slots, uploads: {}, media: {}, has: (n: string) => n in catalog, options: optionsIn(catalog), inputs: inputsIn(catalog), wants: options.wants };
     const values = { faceRefine: true, faceRefineDenoise: opts.faceDenoise ?? 0.35, faceRefineSteps: 4, references: [], subject: "", quick: true };
     const why = faceRefineSkipped(values, ctx, { picture: pictureFile, own: true, audio: Boolean(sound) });
     if (why) throw new Error(why);

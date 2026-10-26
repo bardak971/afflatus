@@ -175,6 +175,11 @@ export interface BuildContext {
   wants?(w: Wanted): string | null;
   /** The files a node's input offers on this ComfyUI (an upscale model to fall back on); left out: not known. */
   options?(node: string, input: string): string[] | null;
+  /**
+   * The inputs a node takes on this ComfyUI (required and optional), for a pack that has forks under the same node names
+   * with other inputs; left out, or null for a node it lacks: not known, the build sends what the upstream pack takes.
+   */
+  inputs?(node: string): string[] | null;
 }
 
 /**

@@ -114,6 +114,12 @@ export const optionsIn = (catalog: NodeCatalog) => (node: string, input: string)
   return def ? choicesOf(def.input.required?.[input] ?? def.input.optional?.[input]) : null;
 };
 
+/** The inputs a node takes on a ComfyUI (BuildContext.inputs): what a fork of a pack under the same node names asks for. */
+export const inputsIn = (catalog: NodeCatalog) => (node: string): string[] | null => {
+  const def = catalog[node];
+  return def ? [...Object.keys(def.input.required ?? {}), ...Object.keys(def.input.optional ?? {})] : null;
+};
+
 /**
  * The packs a job lacks on a machine, from what its graph uses there (jobFiles.ts Loaded): those of the options it asks
  * for (`soft`: it could run without them, its row offers Run without), the others it cannot run without (`hard`), and
