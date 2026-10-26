@@ -201,4 +201,21 @@ describe.skipIf(!url)("on Postgres", () => {
       }
     });
   });
+
+  // 0093 rewrites a model's saved settings (their JSON text) in place, or drops the row it leaves empty.
+  it("0093 drops a saved Wan Hybrid turbo on, keeps the rest and the other families, as on SQLite", async () => {
+    await inSchema(async (db) => {
+      try {
+        await migrate(db, "0092_latent_clock");
+        const at = new Date().toISOString();
+        const row = (family: string, file: string, values: unknown) => ({ owner_id: OWNER, family, file, values: JSON.stringify(values), updated_at: at });
+        await db.insertInto("model_settings").values([row("wan", "a.safetensors", { turboHybrid: true, turboSteps: 6 }), row("wan", "b.safetensors", { turboHybrid: true }), row("h3", "c.safetensors", { turboHybrid: true })] as never).execute();
+        expect(await migrate(db)).toContain("0093_wan_hybrid_saved");
+        const saved = (await db.selectFrom("model_settings").select(["family", "file", "values"]).orderBy("file").execute()).map((r) => [r.family, r.file, JSON.parse(r.values)]);
+        expect(saved).toEqual([["wan", "a.safetensors", { turboSteps: 6 }], ["h3", "c.safetensors", { turboHybrid: true }]]);
+      } finally {
+        await db.destroy().catch(() => {});
+      }
+    });
+  });
 });
