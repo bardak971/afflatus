@@ -266,8 +266,9 @@ export function useTimelineEditor(id: string) {
     run: (recipeId: string, sure = false) => {
       const of = (id: string | null | undefined) => videoRecipes.find((r) => r.id === id);
       const made = t ? madeFromSource(t, videoRecipes) : [];
-      // made anew, the windows a trim set aside go too, and the parts removed it no longer holds (droppedRemovedTakes)
-      const rendered = made.filter((c) => c.take).length + (t?.source ? (t.source.parkedTakes ?? 0) + droppedRemovedTakes(t.source.removed, t.source.fromMs, t.source.toMs) : 0);
+      // made anew on another grid, the windows a trim set aside go too, and every part removed is made anew with the new
+      // model (still removed): their takes go
+      const rendered = made.filter((c) => c.take).length + (t?.source ? (t.source.parkedTakes ?? 0) + (t.source.removed ?? []).reduce((n, p) => n + p.takes, 0) : 0);
       if (!sure && rendered > 0 && !sameWindowGrid(of(t?.source?.recipe), of(recipeId))) return setFormAsk({ recipe: recipeId, rendered, windows: made.length });
       setFormAsk(null);
       sourceFormMut.mutate(recipeId, { onSuccess: (r) => void (r.clips.length && setToRender({ ids: r.clips, render: false })) });

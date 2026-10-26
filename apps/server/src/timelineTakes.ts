@@ -4,6 +4,7 @@ import { newId, now, type Db } from "./db";
 import { precomputeOf } from "./precompute";
 import { lengthOnGrid, setTrims, type AssetRow, type ClipRow, type TimelineCore } from "./timelineModel";
 import type { TakeLinks } from "./timelinePlan";
+import { sourceOfRow } from "./timelineSource";
 
 /**
  * Takes placed on their clips: a render's video when its job is done (and the trims of the clips it joins), a video a
@@ -37,10 +38,12 @@ export class TimelineTakes {
     // plays now. Its draft has them too since setTrims, but a split, trim or hand-over made before that is on it alone
     const playing = from ? await db.selectFrom("clips").innerJoin("takes", "takes.id", "clips.take_id").select(["takes.trim_start_ms as trim_start_ms", "takes.trim_end_ms as trim_end_ms", "takes.finished_from as finished_from"]).where("clips.id", "=", clipId).executeTakeFirst() : undefined;
     const trims = playing && playing.finished_from === from?.id ? playing : from;
+    // a window made to run past a part kept removed stops playing where that part starts (SourcePlan.hidden)
+    const hides = trims ? 0 : await hiddenOf(db, clipId);
     await db
       .insertInto("takes")
       .values({
-        id, clip_id: clipId, asset_id: asset.id, head_ms: from?.head_ms ?? own.headMs, tail_ms: from?.tail_ms ?? own.tailMs, trim_start_ms: trims?.trim_start_ms ?? 0, trim_end_ms: trims?.trim_end_ms ?? 0,
+        id, clip_id: clipId, asset_id: asset.id, head_ms: from?.head_ms ?? own.headMs, tail_ms: from?.tail_ms ?? own.tailMs, trim_start_ms: trims?.trim_start_ms ?? 0, trim_end_ms: trims?.trim_end_ms ?? hides,
         // a finish made from frames joins as its draft did; one rendered again (H3's latent re-sample) as its own render says:
         // seamless only when its join was decoded as one piece with the clip before's re-sampled latent
         join_kind: from && overlap.headMs <= 0 ? from.join_kind : joinKindOf(own),
@@ -137,4 +140,10 @@ export class TimelineTakes {
     });
     if (timeline) await this.core.touch(timeline);
   }
+}
+
+/** The ms at its end a window's take hides (SourcePlan.hidden): its part runs past the start of a part kept removed. */
+async function hiddenOf(db: Db, clipId: string): Promise<number> {
+  const row = await db.selectFrom("clips").innerJoin("timelines", "timelines.id", "clips.timeline_id").select("timelines.source as source").where("clips.id", "=", clipId).executeTakeFirst();
+  return Math.round(sourceOfRow(row?.source)?.hidden?.[clipId] ?? 0);
 }
