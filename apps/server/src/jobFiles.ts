@@ -70,14 +70,33 @@ export function podSlotFiles(
 
 /**
  * Whether a machine has a graph's file: in its model folder's listing (`listed`, read at its last scan, as the scan reads
- * its folders: the node list is kept longer, and still named a file gone since), else in its node list where the graph
- * names it, else, for a family file, as its scan found it. Nothing to tell by: there.
+ * its folders: the node list is kept longer, and still named a file gone since) and among its loader's choices in its node
+ * list, which its submit checks the graph against (core checkGraph); else in its node list where the graph names it, else,
+ * for a family file, as its scan found it. Nothing to tell by: there. A file listed and not yet offered is not there: a Wan
+ * clip went to a pod on the listing's word, SVI's LoRAs just landed, and its submit refused it on the node list's (card #107).
  */
 export function offeredOn(catalog: NodeCatalog, f: GraphFile, there: readonly SlotStatus[] | null, listed: readonly string[] | null = null): boolean {
-  if (listed) return Boolean(sameFile([...listed], f.file));
   const choices = nodeChoices(catalog, f);
+  if (listed) return Boolean(sameFile([...listed], f.file)) && (!choices?.length || Boolean(sameFile(choices, f.file)));
   if (choices?.length) return Boolean(sameFile(choices, f.file));
   return f.slot ? there?.find((x) => x.id === f.slot)?.file === f.file : true;
+}
+
+/**
+ * The files of a graph a machine does not have (offeredOn). One its folders list and its node list does not offer came after
+ * that list was read: the list is read again (Comfy.catalogBehind), and the job waits for it rather than go and be refused.
+ */
+async function absentOn(on: { id: string; comfy: Comfy; scan: Scan }, catalog: NodeCatalog, files: readonly GraphFile[], there: readonly SlotStatus[]): Promise<GraphFile[]> {
+  const absent: GraphFile[] = [];
+  let behind = false;
+  for (const f of files) {
+    const listed = await listingOf(on, f.folder);
+    if (offeredOn(catalog, f, there, listed)) continue;
+    absent.push(f);
+    if (listed && sameFile([...listed], f.file)) behind = true;
+  }
+  if (behind) on.comfy.catalogBehind();
+  return absent;
 }
 
 /**
@@ -195,8 +214,7 @@ export async function loadedOn(
     const got = on ? await graphOn(core, row, recipe, family, raw, on, keys, packs) : await freshGraph(core, row, recipe, family, raw, keys, packs);
     if ("kept" in got) return got.kept;
     const { graph, files, catalog, there, wanted } = got;
-    const absent: GraphFile[] = [];
-    for (const f of on ? files : []) if (!offeredOn(catalog, f, there, await listingOf(on!, f.folder))) absent.push(f);
+    const absent = on ? await absentOn(on, catalog, files, there ?? []) : [];
     const loaded: Loaded = { files, absent: on ? absent : files, ...(on ? { missingNodes: lackedNodes(graph, catalog), ...(wanted.length ? { wanted } : {}) } : {}) };
     keep(keys, loaded);
     return loaded;
@@ -224,8 +242,7 @@ export async function loadedOn(
       if (fresh && !("kept" in fresh)) {
         const catalog = await on.comfy.catalog();
         const there = on.scan.families.find((f) => f.id === recipe.family)?.slots ?? [];
-        const absent: GraphFile[] = [];
-        for (const f of fresh.files) if (!offeredOn(catalog, f, there, await listingOf(on, f.folder))) absent.push(f);
+        const absent = await absentOn(on, catalog, fresh.files, there);
         const missingNodes = lackedNodes(fresh.graph, catalog);
         const wanted = fresh.wanted.filter((w) => !w.nodes.some((n) => n in catalog));
         const loaded: Loaded = { files: fresh.files, absent, missingNodes, ...(wanted.length ? { wanted } : {}), ...(missingNodes.length ? {} : { refused: why }) };
@@ -469,9 +486,7 @@ async function toolLoadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id
  */
 async function relisted(loaded: Loaded | null, on: { id: string; comfy: Comfy; scan: Scan }, catalog: NodeCatalog, there: readonly SlotStatus[]): Promise<Loaded | null> {
   if (!loaded?.files.length) return loaded;
-  const absent: GraphFile[] = [];
-  for (const f of loaded.files) if (!offeredOn(catalog, f, there, await listingOf(on, f.folder))) absent.push(f);
-  return { ...loaded, absent };
+  return { ...loaded, absent: await absentOn(on, catalog, loaded.files, there) };
 }
 
 /**
