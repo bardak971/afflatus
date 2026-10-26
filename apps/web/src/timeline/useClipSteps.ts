@@ -13,7 +13,7 @@ type Mutations = ReturnType<typeof useTimelineMutations>;
  * after, split the clip under it, play the selected clip's take before or after. What happened (or why not) is said in the
  * header's note.
  */
-export function useClipSteps({ clips, slots, clock, player, cursor, split, patch, select, setNote, setSaid, setPreview }: {
+export function useClipSteps({ clips, slots, clock, player, cursor, split, patch, select, setNote, setSaid, setPreview, unsplit }: {
   clips: Clip[];
   slots: Slot[];
   clock: Clock;
@@ -26,6 +26,8 @@ export function useClipSteps({ clips, slots, clock, player, cursor, split, patch
   setNote(text: string | null, more?: string): void;
   setSaid(note: HeaderNote | null): void;
   setPreview(take: Take | null): void;
+  /** Why a clip cannot be split (a recording's clip, a window of the source: unsplittable); null when it can. */
+  unsplit?(c: Clip): string | null;
 }) {
   const clipsNow = useRef(clips);
   clipsNow.current = clips;
@@ -60,6 +62,9 @@ export function useClipSteps({ clips, slots, clock, player, cursor, split, patch
     if (!c) return setNote("No clip under the playhead");
     const n = clips.indexOf(c) + 1;
     if (only && only !== c.id) return setNote(`The playhead is not on clip ${clips.findIndex((x) => x.id === only) + 1}`);
+    // refused by the server: said here, nothing sent
+    const why = unsplit?.(c);
+    if (why) return setNote(`Clip ${n} not split: ${why}`);
     const cut = splitPoint(c, here && here.clip.id === c.id ? here.assetMs : -1);
     if ("why" in cut) return setNote(`Clip ${n} not split: ${cut.why}`);
     splitAt(c, cut.at);

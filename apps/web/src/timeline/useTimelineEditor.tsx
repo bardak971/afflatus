@@ -25,6 +25,7 @@ import { useBarRequests } from "./useBarRequests";
 import { useEditorKeys } from "./useEditorKeys";
 import { useErrorShown, useHeaderNote } from "./useHeaderNote";
 import { usePlayhead } from "./usePlayhead";
+import { unsplittable } from "./runSplit";
 import { useRange } from "./useRange";
 import { useTimelineMutations } from "./useTimelineMutations";
 import { useEditorPanels } from "./useEditorPanels";
@@ -52,7 +53,7 @@ export function useTimelineEditor(id: string) {
   const panelWidth = useEditorColumn((st) => st.width);
   const folded = useEditorColumn((st) => st.folded);
 
-  const { selected, setSelected, picked, setPicked, musicOpen, setMusicOpen, joinOpen, setJoinOpen, sourceOpen, setSourceOpen, recordingOpen, setRecordingOpen, select, openSource, openRecording, openJoin } = useEditorPanels();
+  const { selected, setSelected, picked: pickedAll, setPicked, musicOpen, setMusicOpen, joinOpen, setJoinOpen, sourceOpen, setSourceOpen, recordingOpen, setRecordingOpen, select, openSource, openRecording, openJoin } = useEditorPanels();
   /** The recording open, for what is asked or made after a render of this one (a trim's question, its clips made anew). */
   const recordingOpenNow = useRef(recordingOpen);
   recordingOpenNow.current = recordingOpen;
@@ -90,6 +91,19 @@ export function useTimelineEditor(id: string) {
 
   const t = timeline.data;
   const clips = useMemo(() => t?.clips ?? [], [t]);
+  // the picked clips still on the timeline: an Undo or a removal takes clips away under the pick, and Delete would send
+  // ids no longer there (the whole removal refused), the header and the menus count them; dropped from the pick too, so
+  // a Redo bringing one back does not bring it back picked
+  const picked = useMemo(() => {
+    const here = new Set(clips.map((c) => c.id));
+    const kept = new Set([...pickedAll].filter((id) => here.has(id)));
+    return kept.size === pickedAll.size ? pickedAll : kept;
+  }, [pickedAll, clips]);
+  useEffect(() => {
+    if (picked !== pickedAll) setPicked(picked);
+  }, [picked, pickedAll, setPicked]);
+  /** Why a clip cannot be split (a recording's clip, a window of the source), as the server refuses it: Split greyed with it. */
+  const unsplit = (c: Clip) => unsplittable(c, recipes.data?.recipes ?? NONE, t?.source ?? null);
   // the frame's shape as it is shown (the timeline's, or its first take's while the first clip decides), kept for the
   // placeholder of the next visit: a 9:16 timeline loads into a tall frame, not a landscape one
   const firstTake = clips.find((c) => c.take?.asset.width && c.take.asset.height)?.take?.asset;
@@ -183,7 +197,7 @@ export function useTimelineEditor(id: string) {
   /** Where the playhead stands (playheadNow, set below once the cursor is known), for Play to start there. */
   const playheadRef = useRef<() => { ms: number; held: boolean }>(() => ({ ms: clock.get(), held: false }));
   const { range, setRange, rangeRef, loopRange, loopRef, snapQuiet, toggleSnapQuiet, playingRange, emptyRange, totalRef, toggle, toggleLoop, toggleLoopNow, rangeAct, rangeItems } = useRange({
-    id, clips, durationMs, clock, playhead: playheadRef, player, playing, setPlaying,
+    id, clips, durationMs, clock, playhead: playheadRef, player, playing, setPlaying, unsplit,
     on: { after, select, note: setNote, say, writeBetween: (v) => writeBetween.mutate(v), askRemoval: m.askRemoval },
   });
   // the right-click menus (a clip's, its sound's, a pinned frame's, the music's, the range's) and what a clip's says at its head
@@ -472,7 +486,7 @@ export function useTimelineEditor(id: string) {
   const openExport = useBarRequests({ id, t, shown, clips, slots, missing, ready, render, undo, redo, remove, say, setNote, setSelected, select, setFin, setCursor, player, selectedNow, splitNow, takeNow });
 
   // the playhead's own steps: to the clip before or after, a split at it, the selected clip's take before or after
-  const { jump, splitAt, splitHere, stepTake } = useClipSteps({ clips, slots, clock, player, cursor, split, patch, select, setNote, setSaid, setPreview });
+  const { jump, splitAt, splitHere, stepTake } = useClipSteps({ clips, slots, clock, player, cursor, split, patch, select, setNote, setSaid, setPreview, unsplit });
   jumpNow.current = jump;
   splitNow.current = splitHere;
   takeNow.current = (by) => stepTake(selectedNow.current, by);

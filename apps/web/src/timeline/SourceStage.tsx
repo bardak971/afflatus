@@ -78,21 +78,32 @@ export const SourceStage = forwardRef<PlayerHandle, {
   useEffect(() => {
     onTime(atMs + Math.max(0, Math.min(length, startAt - atMs)));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once, as the stage turns to the source
-    // played with the transport: the playhead follows it, on every frame
+  // played with the transport: the playhead follows it, said 15 times a second
+  const played = useRef(false);
   useEffect(() => {
     const v = el.current;
     if (!v) return;
     if (!playing) {
       v.pause();
+      // stopped between two moments said: the playhead on the frame it stopped on
+      if (played.current) onTime(atMs + v.currentTime * 1000);
+      played.current = false;
       return;
     }
+    played.current = true;
     if (v.currentTime * 1000 >= length - 40) v.currentTime = 0;
     void v.play().catch(() => onPlaying(false));
     let id = 0;
-    const tick = () => {
+    let said = -Infinity;
+    const tick = (now: number) => {
       const ms = v.currentTime * 1000;
       setLocal(ms);
-      onTime(atMs + ms);
+      // said to the editor 15 times a second, as the recording's stage does: the playhead, the readout and the panels redrew at
+      // every frame
+      if (now - said > 66 || v.ended) {
+        said = now;
+        onTime(atMs + ms);
+      }
       if (v.ended) onPlaying(false);
       else id = requestAnimationFrame(tick);
     };

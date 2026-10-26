@@ -15,7 +15,7 @@ import { CardPrompt } from "../../recipeForm/Part";
 import { Select } from "../../Select";
 import { Button, cx, Toggle } from "../../ui";
 import { WritingHelp } from "../../WritingHelp";
-import { useClock, type Clock } from "../clock";
+import { useClockAs, type Clock } from "../clock";
 import { ColumnEdge, FoldButton, useColumnWidth } from "../column";
 import { windowed, type SourcePlace } from "../track/SourceLane";
 import { CloseButton, Slide } from "./parts";
@@ -291,12 +291,12 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
  * only it redraws as the source plays, and its frame is not asked for at every tick.
  */
 function PictureFromFrame({ timeline, place, clock, current, onPick }: { timeline: Timeline; place: SourcePlace | null; clock: Clock; current: string | null; onPick(id: string): void }) {
-  const time = useClock(clock);
-  const made = usePictureSets((s) => (s.of[`source:${timeline.id}`]?.jobs.length ?? 0) > 0);
   const source = timeline.source!;
+  // within the stretch that is made into clips: the playhead on the dimmed rest of the lane gave a frame of a part never
+  // animated; read to the half second, so a tick that leaves it there redraws nothing (the stage ticks at every frame)
+  const at = useClockAs(clock, (time) => Math.round(Math.max(source.fromMs, Math.min(source.toMs, time - (place?.atMs ?? 0))) / 500) * 500);
+  const made = usePictureSets((s) => (s.of[`source:${timeline.id}`]?.jobs.length ?? 0) > 0);
   if (current && !made) return null;
-  // within the stretch that is made into clips: the playhead on the dimmed rest of the lane gave a frame of a part never animated
-  const at = Math.round(Math.max(source.fromMs, Math.min(source.toMs, time - (place?.atMs ?? 0))) / 500) * 500;
   return (
     <PictureMaker
       keyId={`source:${timeline.id}`}

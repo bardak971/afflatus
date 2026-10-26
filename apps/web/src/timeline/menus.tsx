@@ -3,6 +3,7 @@ import type { InputSpec, ReferenceValue } from "@afflatus/core";
 import type { Asset, Clip, ClipPatch, RecipeInfo, Timeline, TimelinePatch } from "../api";
 import { fold, groups, type MenuItem } from "../ContextMenu";
 import { PIN_WORDS, pinInputs, splitPoint, type PinMirror, type TimeRange } from "./model";
+import { unsplittable } from "./runSplit";
 
 /** Where the playhead stands on a clip, as the player says it. */
 type Place = { clip: Clip; localMs: number; assetMs: number };
@@ -12,6 +13,8 @@ export interface ClipMenuActions {
   /** The clips as they are on screen, for a clip's number. */
   clips: Clip[];
   recipes: RecipeInfo[];
+  /** The timeline's source: a window of it does not split (unsplittable). */
+  source?: Timeline["source"];
   inputsOf(c: Clip): Record<string, unknown>;
   /** Where the playhead stands on a clip, when it stands on this one. */
   onClip(c: Clip): Place | null;
@@ -49,7 +52,8 @@ const splitHere = (c: Clip, act: ClipMenuActions): MenuItem => {
   const onIt = act.onClip(c);
   const cut = onIt ? splitPoint(c, onIt.assetMs) : null;
   const at = cut && "at" in cut ? cut.at : null;
-  return { label: "Split at the playhead", key: "S | Ctrl+B", icon: <Split size={14} />, disabled: at === null || act.pending.split, note: !onIt ? "put the playhead on this clip" : at === null ? "move the playhead inside the clip" : "two clips, the second from the playhead on", run: () => at !== null && act.split(c.id, at) };
+  const why = unsplittable(c, act.recipes, act.source ?? null);
+  return { label: "Split at the playhead", key: "S | Ctrl+B", icon: <Split size={14} />, disabled: Boolean(why) || at === null || act.pending.split, note: why ?? (!onIt ? "put the playhead on this clip" : at === null ? "move the playhead inside the clip" : "two clips, the second from the playhead on"), run: () => !why && at !== null && act.split(c.id, at) };
 };
 
 /**

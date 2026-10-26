@@ -96,3 +96,25 @@ describe("a clip moved along the track by the pointer (review 4, P7)", () => {
     expect(onMove).not.toHaveBeenCalled();
   });
 });
+
+describe("the key listener of a drag (B27)", () => {
+  it("is the one function added and removed: none is left on the window after the drag", () => {
+    const added = vi.spyOn(window, "addEventListener");
+    const removed = vi.spyOn(window, "removeEventListener");
+    try {
+      rig();
+      const a = screen.getByRole("button", { name: "clip a" });
+      fireEvent.pointerDown(a, { button: 0, pointerId: 3, clientX: PAD + 50 });
+      // drawn again while held: each render made the key listener anew
+      fireEvent.pointerMove(a, { pointerId: 3, clientX: PAD + 80 });
+      fireEvent.pointerMove(a, { pointerId: 3, clientX: PAD + 160 });
+      fireEvent.pointerUp(a, { pointerId: 3, clientX: PAD + 160 });
+      const keys = (spy: typeof added) => spy.mock.calls.filter(([type, , capture]) => type === "keydown" && capture === true).map(([, fn]) => fn);
+      expect(keys(added)).toHaveLength(1);
+      expect(keys(removed)).toContain(keys(added)[0]);
+    } finally {
+      added.mockRestore();
+      removed.mockRestore();
+    }
+  });
+});

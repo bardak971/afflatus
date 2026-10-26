@@ -113,10 +113,12 @@ export function useClipDrag({ slots, pps, xOf, scroller, onMove }: {
   };
 
   const onKey = useRef<(e: KeyboardEvent) => void>(() => {});
+  // the one function added and removed: onKey is made anew at each render, and the one removed was not the one added
+  const keyHeard = useRef((e: KeyboardEvent) => onKey.current(e)).current;
   const listen = (on: boolean) => {
     // capturing, so that the editor's own Esc (which lets go of the selection) does not hear the one that put a clip back
-    if (on) window.addEventListener("keydown", onKey.current, true);
-    else window.removeEventListener("keydown", onKey.current, true);
+    if (on) window.addEventListener("keydown", keyHeard, true);
+    else window.removeEventListener("keydown", keyHeard, true);
   };
 
   /** All at rest, nothing held: the clips are where the timeline lays them, with no transform left. */
@@ -321,8 +323,8 @@ export function useClipDrag({ slots, pps, xOf, scroller, onMove }: {
 
   useEffect(() => () => {
     if (frame.current !== null) cancelAnimationFrame(frame.current);
-    window.removeEventListener("keydown", onKey.current, true);
-  }, []);
+    window.removeEventListener("keydown", keyHeard, true);
+  }, [keyHeard]);
 
   /** Each clip's wrapper, the one thing moved for it (its parts inside are laid out from its slot). */
   const mount = useCallback((id: string) => {

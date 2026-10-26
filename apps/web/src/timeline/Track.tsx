@@ -246,7 +246,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const { playEnd, measureOf, motion, snapRange, band, rangeMenuAt } = useRangeDrag({ slots, clips, timeline, pps, clock, snapQuiet, range, xOf, onRangeMenu });
 
   useTrackView(scroller, pps, onView);
-  const { zoomTo, fitAll } = useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clock, cursorMs, timelineId: timeline.id, clipCount: clips.length, keys });
+  const { zoomTo, fitAll } = useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clock, cursorMs, timelineId: timeline.id, keys });
 
   /** A Lip sync clip's voice as its face says it: the recording's name, null while it has none; undefined for any other clip. */
   const voiceName = (c: Clip) => {

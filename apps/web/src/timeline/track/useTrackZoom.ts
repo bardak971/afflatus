@@ -12,9 +12,10 @@ export interface TrackKeys {
 /**
  * The track's zoom: Ctrl + wheel around the pointer (a plain wheel scrolls it sideways), a step around the playhead (the
  * editor's - and =, filled into `keys`), Fit all (Shift+Z). The whole timeline is fitted on arriving and when a clip is
- * added; a track showing the whole of it keeps doing so at any width, until it is zoomed by hand.
+ * added (not split, nor brought back by Undo); a track showing the whole of it keeps doing so at any width, until it is
+ * zoomed by hand.
  */
-export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clock, cursorMs, timelineId, clipCount, keys }: {
+export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clock, cursorMs, timelineId, keys }: {
   scroller: RefObject<HTMLDivElement | null>;
   pps: number;
   onZoom(pps: number): void;
@@ -25,7 +26,6 @@ export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clo
   clock: Clock;
   cursorMs: number | null;
   timelineId: string;
-  clipCount: number;
   keys?: RefObject<TrackKeys | null>;
 }) {
   // the whole timeline is in view because it was fitted (on arriving, Fit all, a clip added), not zoomed by hand since:
@@ -119,11 +119,21 @@ export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clo
     return () => seen.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- watched again only when the length changes; fitAll reads the latest through refs
   }, [fitMs]);
-  const counted = useRef(clipCount);
+  // a clip added is one never on this track before that makes the clips longer: a split (S, Ctrl+B, at In / Out) makes a
+  // new clip in the same length, an Undo or Redo brings back clips already seen; the zoom made to cut on a frame is kept
+  const ids = slots.map((s) => s.clip.id).join(" ");
+  const clipsMs = slots.length ? slots.at(-1)!.startMs + slots.at(-1)!.lengthMs : 0;
+  const seen = useRef<{ timeline: string; ids: Set<string>; ms: number } | null>(null);
   const fitAsked = useRef(false);
   useEffect(() => {
-    if (clipCount > counted.current) fitAsked.current = true;
-    counted.current = clipCount;
+    const now = ids ? ids.split(" ") : [];
+    const was = seen.current;
+    if (!was || was.timeline !== timelineId) seen.current = { timeline: timelineId, ids: new Set(now), ms: clipsMs };
+    else {
+      if (clipsMs > was.ms && now.some((id) => !was.ids.has(id))) fitAsked.current = true;
+      for (const id of now) was.ids.add(id);
+      was.ms = clipsMs;
+    }
     if (!fitAsked.current || fitMs <= 0) return;
     const id = requestAnimationFrame(() => {
       fitAsked.current = false;
@@ -131,7 +141,7 @@ export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clo
       fittedAt.current = performance.now();
     });
     return () => cancelAnimationFrame(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fitted when clips come or go or the length changes, not when fitAll is made anew
-  }, [clipCount, fitMs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fitted when clips come or the length changes, not when fitAll is made anew
+  }, [ids, clipsMs, fitMs, timelineId]);
   return { zoomTo, fitAll };
 }
