@@ -233,6 +233,10 @@ def land_guide(positive, next_av_latent, target_av_latent, guide_frames: int, st
     target_video, _target_audio, target_frames = validate_h3_av_window(target_av_latent, name="target_av_latent")
     if guide_frames % 17 != 5:
         raise ValueError("guide_frames must be 5, 22, 39… (17k + 5)")
+    # the clip after made at another frame size: its tokens are not this window's, and sampling would fail only after the
+    # model loaded (or place them wrong). Afflatus lands on its frames then; this says why when a graph asks anyway
+    if next_video.shape[:2] != target_video.shape[:2] or next_video.shape[3:] != target_video.shape[3:]:
+        raise ValueError(f"the clip after's latent {tuple(next_video.shape)} and the window {tuple(target_video.shape)} are not the same frame size")
     guide_t = video_latent_t(guide_frames)
     if start_t + guide_t > int(next_video.shape[2]):
         raise ValueError(f"the clip after's latent has {int(next_video.shape[2])} video tokens: not enough for {guide_frames} guide frames from its frame {start_frame}")
