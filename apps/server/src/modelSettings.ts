@@ -30,6 +30,11 @@ async function saveModelSettings(s: Services, family: string, file: string, valu
   if (!s.registry.family(family)) throw httpError(`there is no model family called ${family}`);
   const allowed = perModelInputs(s.registry.recipes(), family);
   const kept = Object.fromEntries(Object.entries(values).filter(([id]) => allowed.has(id)));
+  // nothing that differs from the file's own start (the form saves only that): nothing saved, as Forget leaves it
+  if (!Object.keys(kept).length) {
+    await s.db.deleteFrom("model_settings").where("owner_id", "=", OWNER).where("family", "=", family).where("file", "=", file).execute();
+    return { family, file, values: kept };
+  }
   const json = JSON.stringify(kept);
   const at = now();
   await s.db

@@ -176,10 +176,11 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
 }) {
   const family = useRecipes().data?.families.find((f) => f.id === recipe.family);
   const settings = useModelSettings();
+  // a model input with nothing to pick on this ComfyUI starts on its family's official file, which the job waits for
+  const setup = useMemo(() => withOfficial(status, recipe.inputs, family), [status, recipe.inputs, family]);
   const { defaults, file, hasSaved } = useMemo(
-    // a model input with nothing to pick on this ComfyUI starts on its family's official file, which the job waits for
-    () => formDefaults(recipe, withOfficial(status, recipe.inputs, family), settings.data?.items ?? [], stored),
-    [recipe, status, settings.data, stored, family],
+    () => formDefaults(recipe, setup, settings.data?.items ?? [], stored),
+    [recipe, setup, settings.data, stored],
   );
   const values = useMemo(() => {
     const all = { ...defaults, ...ownValues(recipe, stored) };
@@ -445,7 +446,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
         }),
         ["sampling", (sampling.length > 0 || afterSampling.length > 0) && (
           <Part key="sampling" id="sampling" title="Sampling" summary={<>{said.samplingSaid}{changedMark([...sampling, ...afterSampling])}</>} needs={Boolean(q)}>
-            {!q && <ModelDefaults recipe={recipe} file={file} hasSaved={hasSaved} values={values} defaults={defaults} onClear={onClear} />}
+            {!q && <ModelDefaults recipe={recipe} setup={setup} file={file} hasSaved={hasSaved} values={values} defaults={defaults} onClear={onClear} />}
             {sampling.map(setting)}
             {/* a picture's hires fix: the second pass, after the sampler it re-samples with */}
             {afterSampling.length > 0 && <Heading title="After sampling" />}

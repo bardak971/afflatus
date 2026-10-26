@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { InputSpec } from "@afflatus/core";
 import { api, type RecipeInfo } from "../api";
 import { sameValue } from "../fields";
+import { modelSaved, type FormSetup } from "../form";
 import { fileLabel, plural } from "../format";
 import { Button, ErrorNote } from "../ui";
 import { queryKeys } from "../queryKeys";
@@ -11,8 +12,10 @@ import { queryKeys } from "../queryKeys";
  * the defaults kept for the model file, with the ways to save them as its defaults, reset them, or forget
  * what was saved.
  */
-export function ModelDefaults({ recipe, file, hasSaved, values, defaults, onClear }: {
+export function ModelDefaults({ recipe, setup, file, hasSaved, values, defaults, onClear }: {
   recipe: RecipeInfo;
+  /** What the form is worked out with (formDefaults'), for what the file starts on with nothing saved. */
+  setup: FormSetup;
   /** The model file the defaults are kept for. */
   file: string;
   hasSaved: boolean;
@@ -25,7 +28,8 @@ export function ModelDefaults({ recipe, file, hasSaved, values, defaults, onClea
   const differs = perModel.filter((i) => !sameValue(values[i.id], defaults[i.id]));
   const refetch = () => client.invalidateQueries({ queryKey: queryKeys.modelSettings() });
   const save = useMutation({
-    mutationFn: () => api.saveModelSettings({ family: recipe.family, file, values: Object.fromEntries(perModel.map((i) => [i.id, values[i.id]])) }),
+    // only what differs from the file's start with nothing saved: the rest follows the recipe's defaults as they change
+    mutationFn: () => api.saveModelSettings({ family: recipe.family, file, values: modelSaved(recipe, setup, values) }),
     onSuccess: async () => {
       await refetch();
       // they are the model's own now: the draft no longer needs to hold them

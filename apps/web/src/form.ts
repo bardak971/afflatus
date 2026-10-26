@@ -136,7 +136,20 @@ export function formDefaults(
   // and what this setup makes right (Recipe.starts): with MiniMax's 4-step reference LoRA a reference clip's Turbo runs
   // 4 steps at its shifts, whatever the model's line or the values saved for the usual model say
   const ruled = ruledDefaults(recipe.starts, { ...layered, ...moved, ...stored }, status?.slots ?? {});
-  return { defaults: { ...layered, ...moved, ...ruled }, file, hasSaved, preset: notes.length ? notes.join(" · ") : undefined };
+  return { defaults: { ...layered, ...moved, ...ruled }, file, hasSaved, preset: notes.length ? notes.join(" · ") : undefined, fromLine: Object.keys(lined) };
+}
+
+/**
+ * What saving a model's defaults keeps of a whole form: its per-model settings that differ from what the file starts on
+ * with nothing saved, so that the ones left alone follow the recipe when its defaults change (Wan's Hybrid turbo stayed on
+ * for every model saved while it was the default, card #109). What the file's line sets is kept even when unchanged: once
+ * something is saved the line no longer applies, and its values would go. Empty when nothing differs: the file starts on
+ * the same values with nothing saved.
+ */
+export function modelSaved(recipe: RecipeInfo, status: FormSetup, values: Record<string, unknown>): Record<string, unknown> {
+  const { defaults, fromLine } = formDefaults(recipe, status, [], values);
+  const line = new Set(fromLine);
+  return Object.fromEntries(recipe.inputs.filter((i) => i.perModel && (line.has(i.id) || !sameValue(values[i.id], defaults[i.id]))).map((i) => [i.id, values[i.id]]));
 }
 
 /**

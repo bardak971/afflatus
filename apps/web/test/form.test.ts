@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { InputSpec } from "@afflatus/core";
 import type { ModelSettings, RecipeInfo } from "../src/api";
-import { formDefaults, layoutOf, matchFiles, pinnable, pinSaid, sectionsOf, whyHidden } from "../src/form";
+import { formDefaults, layoutOf, matchFiles, modelSaved, pinnable, pinSaid, sectionsOf, whyHidden } from "../src/form";
 import { withFamilyPins } from "../src/recipeForm/pinned";
 
 const recipe = (inputs: InputSpec[], presets?: RecipeInfo["presets"]): RecipeInfo =>
@@ -52,6 +52,42 @@ describe("what a form starts from", () => {
     // a distilled file's own shift, from its line, stays
     const lined = recipe(turbo, [{ match: "turbo", note: "a distilled file", values: { fast: true, shift: 8 } }]);
     expect(formDefaults(lined, { options: { model: ["h3_turboV3.safetensors"] } }, [], undefined).defaults).toMatchObject({ fast: true, shift: 8 });
+  });
+});
+
+describe("what saving a model's defaults keeps", () => {
+  const wan = (hybrid: boolean): InputSpec[] => [
+    { id: "model", type: "model", label: "Model", folder: "diffusion_models" },
+    { id: "steps", type: "number", label: "Steps", min: 1, max: 60, step: 1, default: 20, perModel: true },
+    { id: "turboHybrid", type: "toggle", label: "Hybrid turbo", default: hybrid, perModel: true },
+  ];
+  const setup = { options: { model: ["wan-high.safetensors"] } };
+  const whole = (r: RecipeInfo, stored: Record<string, unknown>, at = setup) => ({ ...formDefaults(r, at, [], stored).defaults, ...stored });
+
+  it("is what differs from the file's start: a setting left alone follows the recipe when its default changes (card #109)", () => {
+    const saved = modelSaved(recipe(wan(true)), setup, whole(recipe(wan(true)), { steps: 30 }));
+    expect(saved).toEqual({ steps: 30 });
+    const after = formDefaults(recipe(wan(false)), setup, [{ family: "sdxl", file: "wan-high.safetensors", values: saved }], undefined);
+    expect(after.defaults).toMatchObject({ steps: 30, turboHybrid: false });
+    expect(after.hasSaved).toBe(true);
+  });
+  it("is nothing when nothing differs, so the file starts as it did", () => {
+    expect(modelSaved(recipe(wan(true)), setup, whole(recipe(wan(true)), {}))).toEqual({});
+  });
+  it("keeps what the file's line sets, unchanged too, which no longer applies once something is saved", () => {
+    const lined = recipe(inputs, [{ match: "pony", note: "Pony likes few steps", values: { steps: 12 } }]);
+    expect(modelSaved(lined, { options }, whole(lined, {}, { options }))).toEqual({ steps: 12 });
+  });
+  it("leaves out what a switch moves, which follows the switch", () => {
+    const turbo = recipe([
+      { id: "model", type: "model", label: "Model", folder: "diffusion_models" },
+      { id: "fast", type: "toggle", label: "Turbo", default: false, whenOn: { shift: 12 }, perModel: true },
+      { id: "shift", type: "number", label: "Shift", min: 0, max: 30, step: 0.5, default: 11, perModel: true },
+    ]);
+    const s = { options: { model: ["h3.safetensors"] } };
+    const saved = modelSaved(turbo, s, { ...formDefaults(turbo, s, [], { fast: true }).defaults, fast: true });
+    expect(saved).toEqual({ fast: true });
+    expect(formDefaults(turbo, s, [{ family: "sdxl", file: "h3.safetensors", values: saved }], undefined).defaults).toMatchObject({ fast: true, shift: 12 });
   });
 });
 
