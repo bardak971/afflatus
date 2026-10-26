@@ -49,7 +49,7 @@ export function goBackQuestion(version: string, check: GoBackCheck): { title: st
     : check.unknown ? ` RunPod did not answer: what stays billed there (stopped pods' disks, volumes) could not be read, and ${version} has no Rented GPUs screen.` : "";
   return {
     title: `Go back to ${version}?`,
-    text: `Going back restores the library as it was at the update: what was made since stays in the folder, not in the list. Afflatus restarts on ${version}.${billed}`,
+    text: `Going back restores the library as it was at the update: what was made since is kept out of the list, moved to set-aside in the data folder. Afflatus restarts on ${version}.${billed}`,
     yes: `Go back to ${version}`,
   };
 }

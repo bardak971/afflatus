@@ -10,7 +10,7 @@
 // (versions/trial names it), when versions/previous names another one that is installed, is left for that one, with
 // the library as it was before the update and a note in DATA_DIR/updates/fallback.json for the server to show.
 import { spawn } from "node:child_process";
-import { closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, fsyncSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -115,7 +115,8 @@ export function clearStaleMarkers(versionDir, isAlive = alive) {
  * update took), once that version did not start: it may have migrated the database already, and the previous version
  * refuses a database a newer one has migrated. The database as it is is set aside, not deleted
  * (backups/after-failed-<version>-<time>.db, its -wal beside it). The copy is written under a temporary name first and
- * renamed in last, so that a stop at any point leaves one database or the other in place, never an empty start.
+ * renamed over the database last, so that a stop or a failed rename at any point leaves one database or the other in
+ * place, never an empty start.
  * Returns where the database was set aside (null when there was none), or false when there is no copy to put back.
  */
 export function restoreLibrary(dataDir, version, at = new Date()) {
@@ -131,12 +132,33 @@ export function restoreLibrary(dataDir, version, at = new Date()) {
     closeSync(fd);
   }
   const aside = join(dataDir, "backups", `after-failed-${version}-${at.toISOString().replace(/[:.]/g, "-")}.db`);
-  // the write-ahead log goes with the database it belongs to: left beside the restored one, SQLite would replay it there
-  if (existsSync(`${db}-wal`)) renameSoon(`${db}-wal`, `${aside}-wal`);
-  rmSync(`${db}-shm`, { force: true });
+  // the database kept under its name aside too (a second link to the same file, or a copy where the disk has no links),
+  // so that the copy is renamed straight over it: never a moment with no database
   const had = existsSync(db);
-  if (had) renameSoon(db, aside);
-  renameSoon(tmp, db);
+  if (had) {
+    try {
+      linkSync(db, aside);
+    } catch {
+      copyFileSync(db, aside);
+    }
+  }
+  const wal = existsSync(`${db}-wal`);
+  try {
+    // the write-ahead log goes with the database it belongs to: left beside the restored one, SQLite would replay it there
+    if (wal) renameSoon(`${db}-wal`, `${aside}-wal`);
+    rmSync(`${db}-shm`, { force: true });
+    renameSoon(tmp, db);
+  } catch (err) {
+    // the database as it was stays, its log put back with it
+    if (wal && existsSync(`${aside}-wal`)) {
+      try {
+        renameSoon(`${aside}-wal`, `${db}-wal`);
+      } catch {}
+    }
+    if (had) rmSync(aside, { force: true });
+    rmSync(tmp, { force: true });
+    throw err;
+  }
   return had ? aside : null;
 }
 

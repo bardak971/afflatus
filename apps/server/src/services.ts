@@ -211,7 +211,7 @@ export async function createServices(
   void linked.scanAll();
   // unkept results to the bin after a day, the bin emptied after a week, drafts left empty thrown away: checked at start and every hour
   const runSweep = () =>
-    readSettings(db).then((s) => sweep(db, storage, Date.now(), keepOf(s)))
+    readSettings(db).then((s) => sweep(db, storage, Date.now(), keepOf(s), dirs.dataDir ? join(dirs.dataDir, "backups") : null))
       // what went to the bin, or only out of it for good
       .then((r) => (r.binned || r.erased) && queue.events.emit("library", { change: r.binned ? "binned" : "erased" } satisfies LibraryChange))
       .then(() => sweepIdleDrafts(db, registry))

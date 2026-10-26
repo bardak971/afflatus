@@ -1,3 +1,6 @@
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import type { Kysely } from "kysely";
 import { UNKEPT_MS } from "@afflatus/core";
 import { now, toRun, type Db, type Tables } from "./db";
@@ -191,9 +194,10 @@ export async function eraseUnused(db: Db, storage: Storage, due: (tx: Db) => Pro
  *    (unkept after being kept, taken back from the bin: see assets.countdown_from);
  *  - what has been in the bin its time is erased, file and all.
  * What is still in use (see inUse) is neither binned nor erased. A painted part nothing was made with goes after a week
- * whatever the bin keeps: it is no item of the library. Returns how many items each rule touched.
+ * whatever the bin keeps: it is no item of the library. The files no item names go after a day too (sweepOrphans), but
+ * never one a library set aside in `backups` names. Returns how many items each rule touched.
  */
-export async function sweep(db: Db, storage: Storage, at = Date.now(), keep: Keep = { unkeptMs: UNKEPT_MS, binMs: BIN_MS }): Promise<{ binned: number; erased: number }> {
+export async function sweep(db: Db, storage: Storage, at = Date.now(), keep: Keep = { unkeptMs: UNKEPT_MS, binMs: BIN_MS }, backups: string | null = null): Promise<{ binned: number; erased: number }> {
   // what the Undo steps name, read once for both transactions below and outside them
   const undo = await undoNamed(db);
   // what is in use read in the same transaction as the binning: an item picked into a draft or kept in between stays out
@@ -233,7 +237,7 @@ export async function sweep(db: Db, storage: Storage, at = Date.now(), keep: Kee
     // a job still to run on it) stays, as everywhere
     ...await tx.selectFrom("assets").select(ERASED).where("origin", "=", "scratch").where("kept_at", "is", null).where("created_at", "<", scratchBefore).execute(),
   ], undo);
-  await sweepOrphans(db, storage, at).catch((err) => console.warn("[sweep] files with no item:", (err as Error).message));
+  await sweepOrphans(db, storage, at, backups).catch((err) => console.warn("[sweep] files with no item:", (err as Error).message));
   return { binned, erased: erased.length };
 }
 
@@ -246,34 +250,97 @@ const ITEM_DIRS = ["assets/", "thumbs/"];
  */
 const DERIVED_DIRS = ["strips/", "motion/", "scenes/", "pauses/", "means/", "joins/"];
 const ITEM_FILE = /^([0-9a-f]{32})[.-]/;
+/** The columns of an item's row that name a file of the storage. */
+const KEY_COLUMNS = ["file_key", "thumb_key", "raw_key", "latent_key", "fine_latent_key"] as const;
+
+/** What a library names: its items' ids, and the files their rows name. A file of neither is an orphan to it. */
+export interface Named {
+  ids: Set<string>;
+  keys: Set<string>;
+}
+
+const namedBy = (rows: Array<Record<string, unknown>>, into: Named = { ids: new Set(), keys: new Set() }): Named => {
+  for (const r of rows) {
+    if (typeof r.id === "string") into.ids.add(r.id);
+    for (const c of KEY_COLUMNS) if (typeof r[c] === "string") into.keys.add(r[c]);
+  }
+  return into;
+};
+
+/**
+ * What the library in a SQLite file names, read-only: a library set aside (backups/after-*.db) or the copy a Go back
+ * restores. A copy from an older version may lack the newer key columns: only those it has are read.
+ */
+export function namedIn(file: string, into?: Named): Named {
+  const db = new DatabaseSync(file, { readOnly: true });
+  try {
+    const has = new Set((db.prepare("PRAGMA table_info(assets)").all() as Array<{ name: string }>).map((c) => c.name));
+    if (!has.has("id")) throw new Error(`${file} has no library items table`);
+    const columns = ["id", ...KEY_COLUMNS.filter((c) => has.has(c))];
+    return namedBy(db.prepare(`SELECT ${columns.join(", ")} FROM assets`).all() as Array<Record<string, unknown>>, into);
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * The files in the folders the orphan sweep reads that `named` does not name: a file named after an item id it lacks, or
+ * a ".part" file (`part`). A file not named after an item id is no orphan: it is left alone.
+ */
+export async function* unnamedFiles(storage: Storage, named: Named): AsyncGenerator<{ key: string; part: boolean; mtimeMs(): Promise<number | null> }> {
+  if (!storage.list) return;
+  for (const dir of [...ITEM_DIRS, ...DERIVED_DIRS]) {
+    for await (const f of storage.list(dir)) {
+      if (named.keys.has(f.key)) continue;
+      const name = f.key.slice(f.key.lastIndexOf("/") + 1);
+      const part = name.endsWith(".part");
+      const id = ITEM_FILE.exec(name)?.[1];
+      if (!part && (!id || named.ids.has(id))) continue;
+      yield { key: f.key, part, mtimeMs: f.mtimeMs };
+    }
+  }
+}
+
+/**
+ * What the libraries set aside in `backups` name (after-*.db: put aside by a Go back, updatesGoBack.ts, or by the
+ * launcher when a new version did not start, launch.mjs): what was made after an update that was gone back on. Go back
+ * moves those files out of the swept folders (set-aside/), but one left there is that library's, never an orphan.
+ * Throws when one cannot be read: then nothing can be told an orphan.
+ */
+async function namedAside(backups: string, into: Named): Promise<void> {
+  const names = await readdir(backups).catch(() => [] as string[]);
+  for (const name of names) if (/^after-.+\.db$/.test(name)) namedIn(join(backups, name), into);
+}
 
 /**
  * The files of the library that no item names any more, erased: what was left when a server stopped between writing a
  * file and its row, or when a row went and its file could not be removed then, what was worked out of an item that is
  * gone, and the half-written ".part" files of a write that stopped (storage.ts). Careful by design: only in the folders
  * where items' files and what is derived from them are kept, only a file named after an item id that no row has and that
- * no row names, or a ".part" file, and only a day after it was last written, so that a render or an upload writing its
- * files now is never taken. The names are compared first and only those few files' times read: read for every file, it
- * was a stat per file of the library at every start and every hour. Returns how many were erased.
+ * no row names (here or in a library set aside in `backups`), or a ".part" file, and only a day after it was last
+ * written, so that a render or an upload writing its files now is never taken. The names are compared first and only
+ * those few files' times read: read for every file, it was a stat per file of the library at every start and every
+ * hour. Returns how many were erased.
  */
-export async function sweepOrphans(db: Db, storage: Storage, at = Date.now()): Promise<number> {
+export async function sweepOrphans(db: Db, storage: Storage, at = Date.now(), backups: string | null = null): Promise<number> {
   if (!storage.list) return 0;
-  const rows = await db.selectFrom("assets").select(["id", "file_key", "thumb_key", "raw_key", "latent_key", "fine_latent_key"]).execute();
-  const ids = new Set(rows.map((r) => r.id));
-  const named = new Set(rows.flatMap((r) => [r.file_key, r.thumb_key, r.raw_key, r.latent_key, r.fine_latent_key]));
+  const rows = await db.selectFrom("assets").select(["id", ...KEY_COLUMNS]).execute();
+  const named = namedBy(rows);
+  if (backups) {
+    try {
+      await namedAside(backups, named);
+    } catch (err) {
+      console.warn(`[sweep] a library set aside in backups/ could not be read (${(err as Error).message}): no file with no item erased`);
+      return 0;
+    }
+  }
   const due: string[] = [];
   let items = 0;
-  for (const dir of [...ITEM_DIRS, ...DERIVED_DIRS]) {
-    for await (const f of storage.list(dir)) {
-      if (named.has(f.key)) continue;
-      const name = f.key.slice(f.key.lastIndexOf("/") + 1);
-      const id = ITEM_FILE.exec(name)?.[1];
-      if (!name.endsWith(".part") && (!id || ids.has(id))) continue;
-      const written = await f.mtimeMs();
-      if (written === null || at - written < UNKEPT_MS) continue;
-      due.push(f.key);
-      if (!name.endsWith(".part")) items++;
-    }
+  for await (const f of unnamedFiles(storage, named)) {
+    const written = await f.mtimeMs();
+    if (written === null || at - written < UNKEPT_MS) continue;
+    due.push(f.key);
+    if (!f.part) items++;
   }
   // A database with no item at all beside a folder of items' files is not a library whose items all went: it is a
   // database that is not this folder's (a new one made where the library's went missing, a Go back stopped halfway).

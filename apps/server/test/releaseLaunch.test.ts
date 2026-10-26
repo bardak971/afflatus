@@ -3,9 +3,21 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { clearStaleMarkers, decide, restoreLibrary, versionName } from "../../../scripts/release/launch.mjs";
 import { until } from "./helpers";
+
+/** Renames onto these paths fail, as one a virus scanner holding the file keeps failing past renameSoon's tries. */
+const renameFails = vi.hoisted(() => new Set<string>());
+vi.mock("node:fs", async (original) => {
+  const real = await original<typeof import("node:fs")>();
+  const renameSync = ((from: string, to: string) => {
+    if (renameFails.has(String(to))) throw Object.assign(new Error(`zz-test: ${String(to)} held`), { code: "EIO" });
+    return real.renameSync(from, to);
+  }) as typeof real.renameSync;
+  return { ...real, default: { ...real, renameSync }, renameSync };
+});
+afterEach(() => renameFails.clear());
 
 const base = { code: 1, signal: null, started: false, version: "0.4.1", trial: "0.4.1", previous: "0.4.0", previousInstalled: true };
 
@@ -228,5 +240,26 @@ describe("the bundle's launch, run in a pretend bundle", () => {
     kept.close();
     // no copy to put back: nothing is touched
     expect(restoreLibrary(data, "9.9.9")).toBe(false);
+  });
+
+  it("leaves the library's database in place when the copy cannot be renamed over it: never no database (D4)", () => {
+    const data = join(root, "sqlite-held");
+    mkdirSync(join(data, "backups"), { recursive: true });
+    const before = new DatabaseSync(join(data, "backups", "before-0.4.2.db"));
+    before.exec("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('zz-test before');");
+    before.close();
+    const now = new DatabaseSync(join(data, "afflatus.db"));
+    now.exec("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('zz-test now');");
+    now.close();
+    writeFileSync(join(data, "afflatus.db-wal"), "zz-test log");
+    renameFails.add(join(data, "afflatus.db"));
+    expect(() => restoreLibrary(data, "0.4.2")).toThrow(/zz-test: .* held/);
+    expect(readdirSync(data).sort()).toEqual(["afflatus.db", "afflatus.db-wal", "backups"]);
+    expect(readdirSync(join(data, "backups"))).toEqual(["before-0.4.2.db"]);
+    expect(readFileSync(join(data, "afflatus.db-wal"), "utf8")).toBe("zz-test log");
+    rmSync(join(data, "afflatus.db-wal"));
+    const db = new DatabaseSync(join(data, "afflatus.db"), { readOnly: true });
+    expect(db.prepare("SELECT v FROM t").all()).toEqual([{ v: "zz-test now" }]);
+    db.close();
   });
 });
