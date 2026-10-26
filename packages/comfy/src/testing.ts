@@ -28,6 +28,8 @@ export interface FakeComfy {
   history: Record<string, HistoryEntry>;
   running: string[];
   pending: string[];
+  /** Running prompts that /interrupt does not stop: a node that never reaches ComfyUI's interrupt check (a hang). */
+  deaf: Set<string>;
   /** Files served by GET /view, by filename. */
   files: Record<string, Uint8Array>;
   /** When set, POST /prompt answers 400 with this body. */
@@ -180,7 +182,7 @@ const body = async (req: IncomingMessage) => {
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: FakeState = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, rejectNext: [], uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], packUploaded: [], removed: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, podDied: null, ram: null, bootLog: null, printed: [], alive: [],
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], deaf: new Set(), files: {}, rejectWith: null, rejectNext: [], uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], packUploaded: [], removed: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, podDied: null, ram: null, bootLog: null, printed: [], alive: [],
     folderPaths: init.folderPaths ?? null, hideFolderPaths: init.hideFolderPaths ?? false,
     catalog: init.catalog ?? {},
     models: init.models ?? {},

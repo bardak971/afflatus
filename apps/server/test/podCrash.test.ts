@@ -200,6 +200,101 @@ describe("a pod's ComfyUI that dies during a render", () => {
     expect((await jobOf(jobId)).status).toBe("failed");
   });
 
+  /** Its render failed as stuck, its prompt still running in the pod's ComfyUI after the stop (a node that never reaches the interrupt check). */
+  async function hungOnAPod(): Promise<{ id: string; pod: FakeRunpod["pods"][number]; jobId: string; promptId: string }> {
+    const on = await renderingOnAPod();
+    const promptId = running(on.id)!.promptId!;
+    if (!on.pod.comfy.running.includes(promptId)) on.pod.comfy.running.push(promptId);
+    on.pod.comfy.deaf.add(promptId);
+    expect(await t.services.queue.endStuck(on.id, "Stuck: no progress from ComfyUI for 20 min, its GPU idle")).toBe(true);
+    await until(async () => (await jobOf(on.jobId)).status === "failed");
+    expect(on.pod.comfy.running).toContain(promptId);
+    return { ...on, promptId };
+  }
+  const later = (ms: number) => {
+    const real = Date.now;
+    t.services.rented.now = () => real() + ms;
+  };
+
+  it("a render failed as stuck that still runs in a deployed pod's ComfyUI a minute after: the pod is terminated as hung (M2)", async () => {
+    const { id, pod, jobId } = await hungOnAPod();
+    expect((await jobOf(jobId)).error).toMatch(/^Stuck: /);
+    // its own, not work from outside Afflatus that would hold the pod busy
+    expect(await t.services.queue.busyOutside(id)).toBe(false);
+    // the stop given a minute to reach it
+    later(20_000);
+    await t.services.rented.poll();
+    expect(pod.status).toBe("RUNNING");
+    later(90_000);
+    await t.services.rented.poll();
+    await until(async () => (await t.services.rented.poll(), pod.status === "TERMINATED"));
+    expect((await rowOf(id))!.rented).toMatchObject({ stoppedBy: "crash" });
+    expect((await rowOf(id))!.rented!.crash).toMatch(/hung in a render failed as stuck/);
+  });
+
+  it("the same across a restart of Afflatus: the stuck prompt read back from its job, never taken for outside work (M2)", async () => {
+    const { id, pod } = await hungOnAPod();
+    // Afflatus restarted: what it knew in memory is gone, the jobs are read back
+    const queue = t.services.queue as unknown as { stuckOn: Map<string, unknown>; loadStuck(): Promise<void> };
+    queue.stuckOn.clear();
+    (t.services.rented as unknown as { seen: Map<string, unknown> }).seen.clear();
+    await queue.loadStuck();
+    expect(await t.services.queue.busyOutside(id)).toBe(false);
+    later(3 * 60_000);
+    await until(async () => (await t.services.rented.poll(), pod.status === "TERMINATED"));
+    expect((await rowOf(id))!.rented).toMatchObject({ stoppedBy: "crash" });
+  });
+
+  it("a pod added by hand, hung the same way: said, given no job, its idle stop not held, never terminated as a crash (M2)", async () => {
+    const { id, pod, promptId } = await hungOnAPod();
+    await updateSettings(t.db, (s) => ({ machines: s.machines.map((m) => (m.id === id && m.rented ? { ...m, rented: { ...m.rented, deployed: false } } : m)) }));
+    later(90_000);
+    await t.services.rented.poll();
+    await t.services.rented.poll();
+    expect(pod.status).toBe("RUNNING");
+    expect(t.services.rented.unavailable(id)).toMatch(/^ComfyUI hung in a render failed as stuck/);
+    expect(told.filter((x) => x.title.endsWith("ComfyUI hung"))).toHaveLength(1);
+    // a job waiting is not sent behind it
+    const next = (await post(t.app, "/api/jobs", job())).json().ids[0] as string;
+    await t.services.queue.idle();
+    expect((await jobOf(next)).status).toBe("queued");
+    await t.services.queue.cancel(next);
+    // its ComfyUI restarted by the user: the prompt gone, it takes work again
+    pod.comfy.running = pod.comfy.running.filter((p) => p !== promptId);
+    await t.services.rented.poll();
+    expect(t.services.rented.unavailable(id)).toBeNull();
+    // hung again: its idle time runs all the same, the pod ended as its idle choice says, never as a crash
+    pod.comfy.running.push(promptId);
+    (t.services.queue as unknown as { noteStuck(m: string, p: string, at: number): void }).noteStuck(id, promptId, Date.now() - 2 * 60_000);
+    later(12 * 60_000);
+    await until(async () => (await t.services.rented.poll(), pod.status !== "RUNNING"));
+    expect((await rowOf(id))!.rented).toMatchObject({ stoppedBy: "idle" });
+  });
+
+  it("a render left running by a restart on a machine since removed is queued again, never followed on another pod that is then terminated (M3)", async () => {
+    // pod B, of an image that does not report deaths, first in the machines' order
+    const id = (await post(t.app, "/api/runpod/deploy", ASK)).json().id as string;
+    const pod = runpod.pods[0]!;
+    await withImage(id, "ghcr.io/bardak971/afflatus-pod:0.1.18");
+    await until(async () => (await t.services.rented.poll(), (await rowOf(id))?.rented?.booting === false && pod.status === "RUNNING"));
+    await updateSettings(t.db, (s) => ({ machines: [...s.machines.filter((m) => m.id === id), ...s.machines.filter((m) => m.id !== id)] }));
+    await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: {} });
+    const jobId = (await post(t.app, "/api/jobs", job())).json().ids[0] as string;
+    // as a restart finds it: running on pod A, gone from RunPod and from the settings meanwhile
+    const resume = { promptId: "on-pod-a", seed: 1, outputs: {}, totalSteps: 20, phases: {}, loads: [], startedAt: Date.now() };
+    await t.db.updateTable("jobs").set({ status: "running", machine_id: "rp-gone", attempts: 1, resume: JSON.stringify(resume) }).where("id", "=", jobId).execute();
+    t.services.queue.nudge();
+    await until(async () => (await jobOf(jobId)).status !== "running", 20_000);
+    expect(await jobOf(jobId)).toMatchObject({ status: "queued", error: null });
+    const kept = JSON.parse((await t.db.selectFrom("jobs").select("resume").where("id", "=", jobId).executeTakeFirstOrThrow()).resume ?? "null") as { unsent?: boolean; lostAt?: number } | null;
+    // its prompt id kept, checked on the machine that takes it next, and not held for pod A, which never comes back
+    expect(kept).toMatchObject({ promptId: "on-pod-a", unsent: true });
+    expect(kept?.lostAt).toBeUndefined();
+    await t.services.rented.poll();
+    expect(pod.status).toBe("RUNNING");
+    expect((await rowOf(id))!.rented).toMatchObject({ stoppedBy: null, crash: null });
+  });
+
   it("a pod that merely stops answering mid-render (its proxy out, a stop) is no crash: the render goes again, the pod is kept", async () => {
     const { id, pod, jobId } = await renderingOnAPod();
     // the provider's proxy answers for it, saying no container is there: the render's wait ends on ComfyUI gone (ComfyAway)

@@ -122,6 +122,12 @@ export interface Seen {
    * `render`: a render of Afflatus's was failed by it.
    */
   comfyDied: { said: string; report: Record<string, unknown> | null; from: "pod" | "queue"; handled: boolean; told: boolean; render: boolean } | null;
+  /**
+   * A pod added by hand whose ComfyUI still runs a render failed as stuck, a minute after it was stopped (queue.ts hungOn):
+   * why, said on its card. It takes no job until that prompt leaves its ComfyUI, and its idle time runs. A deployed pod is
+   * terminated for it instead, as a crash.
+   */
+  hung: string | null;
   /** How many reads in a row found no such pod on RunPod. */
   missing: number;
   /** Read at least once: what a later read finds is a change only when it differs. */
@@ -161,7 +167,7 @@ export interface Seen {
 const fresh = (): Seen => ({
   pod: null, rate: null, watchdog: "unknown", answers: null, busyAt: null, busyKept: null, busyRestored: false, stoppedBy: null, stopAfter: false, cappedAt: null,
   stopping: false, stopAction: null, lockTried: false, seenRunningAt: null, sessionFrom: null, epoch: 0, error: null, bootNote: null, secretDropped: false, upAt: null, answered: false, answeredAt: null,
-  read: false, gpuFailed: null, startFailed: null, comfyDied: null, missing: 0, stoppingSince: null, aliveAt: null, startingSince: null,
+  read: false, gpuFailed: null, startFailed: null, comfyDied: null, hung: null, missing: 0, stoppingSince: null, aliveAt: null, startingSince: null,
   handed: false, fillFrom: null, fillProgress: null, fillMovedAt: null, cutWhy: null, pulledKept: false, packsKept: null, containerAt: null,
   pullLines: [], pullReadAt: 0, pull: null, pullKept: false, bootLogKept: null,
 });
@@ -186,6 +192,7 @@ export function resetRun(s: Seen): void {
   s.answeredAt = null;
   s.pulledKept = false;
   s.packsKept = null;
+  s.hung = null;
 }
 
 /**
@@ -216,7 +223,7 @@ export class RentedCore {
 
   constructor(
     protected readonly db: Db,
-    protected readonly queue: { wants(machine: string): Promise<boolean>; runningOn(machine: string): boolean; busyOn(machine: string): boolean; busyOutside(machine: string): Promise<boolean>; waitingBehindOutside(machine: string): boolean; fetching(machine: string): boolean; quietFor(machine: string, now?: number): { ms: number; gpuIdle: boolean }; overrunFor(machine: string, now?: number): { ms: number; forecastMs: number }; endStuck(machine: string, why: string): Promise<boolean>; machineDied(machine: string, why: string, trace: string | null): boolean; answering(machine: string): void },
+    protected readonly queue: { wants(machine: string): Promise<boolean>; runningOn(machine: string): boolean; busyOn(machine: string): boolean; busyOutside(machine: string): Promise<boolean>; waitingBehindOutside(machine: string): boolean; fetching(machine: string): boolean; quietFor(machine: string, now?: number): { ms: number; gpuIdle: boolean }; overrunFor(machine: string, now?: number): { ms: number; forecastMs: number }; endStuck(machine: string, why: string): Promise<boolean>; hungOn(machine: string, now?: number): Promise<string | null | undefined>; machineDied(machine: string, why: string, trace: string | null): boolean; answering(machine: string): void },
     protected readonly events: EventEmitter,
     protected readonly comfyOf: (machine: string) => Promise<Comfy | null>,
   ) {}

@@ -80,7 +80,7 @@ describe("the jobs still to run", () => {
     await db.insertInto("drafts").values({ id: newId(), owner_id: OWNER, project_id: null, recipe_id: "sdxl.text-to-picture", title: "", name: null, count: 1, chat: null, target: "new", forms: "{}", look: null, created_at: at, updated_at: at } as never).execute();
     const notify = new Notify({ db } as never);
     (notify as unknown as { batch: object }).batch = {};
-    const outside = new Outside({ db, events: new EventEmitter(), machineLanes: () => [], stale: () => undefined, stopped: () => false, onOutside: () => {}, pump: () => {} });
+    const outside = new Outside({ db, events: new EventEmitter(), machineLanes: () => [], stale: () => undefined, stuck: () => undefined, stopped: () => false, onOutside: () => {}, pump: () => {} });
     const callers: Record<string, () => Promise<unknown>> = {
       inUse: () => inUse(db),
       unusedDrafts: () => unusedDrafts(db),
@@ -98,7 +98,7 @@ describe("the jobs still to run", () => {
   });
 
   it("and the jobs that ended a moment ago, for ComfyUI's own queue: the same prompts as one read with an `or`", async () => {
-    const outside = new Outside({ db, events: new EventEmitter(), machineLanes: () => [], stale: () => undefined, stopped: () => false, onOutside: () => {}, pump: () => {} });
+    const outside = new Outside({ db, events: new EventEmitter(), machineLanes: () => [], stale: () => undefined, stuck: () => undefined, stopped: () => false, onOutside: () => {}, pump: () => {} });
     const since = new Date(Date.now() - 2 * 60_000).toISOString();
     const rows = await db.selectFrom("jobs").select("resume").where("resume", "is not", null).where((eb) => eb.or([eb("status", "in", ["running", "queued"]), eb("finished_at", ">=", since)])).execute();
     const ids = rows.map((r) => (JSON.parse(r.resume!) as { promptId: string }).promptId);

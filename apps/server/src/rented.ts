@@ -37,11 +37,12 @@ export class Rented extends RentedDeploy {
   /**
    * Whether a machine can take work: a rented one only while its pod runs and is not being stopped, never one filling its
    * volume, and none at a spending cap: the render it runs ends, then it stops, and a job started meanwhile (the queue
-   * starts the next one as soon as a render ends, before the next read) would be billed past the cap. Null: it can.
+   * starts the next one as soon as a render ends, before the next read) would be billed past the cap; nor one added by hand
+   * whose ComfyUI is hung in a render failed as stuck (Seen.hung). Null: it can.
    */
   unavailable(machine: string): string | null {
     if (this.filling.has(machine)) return "filling its volume";
-    return this.podDown(machine) ?? (this.seen.get(machine)?.stopAfter ? CAP_REACHED : null);
+    return this.podDown(machine) ?? (this.seen.get(machine)?.stopAfter ? CAP_REACHED : null) ?? this.seen.get(machine)?.hung ?? null;
   }
 
   /**
@@ -109,7 +110,7 @@ export class Rented extends RentedDeploy {
       booting,
       boot,
       // a start that stopped on an error says so as its pod says it, before the boot limit's words
-      error: s?.error ?? this.error ?? s?.bootNote ?? (s?.stoppedBy === "gpu" ? s.gpuFailed : null) ?? (s?.stoppedBy === "start" ? s.startFailed : null) ?? (s?.comfyDied && (s.stoppedBy === "crash" || s.answers === false) ? diedSaid(s) : null) ?? (boot?.failed && boot.step ? `Start failed: ${stepSaid(boot.step)}. Terminated now, nothing billed after; its last lines are in its log (Queue › Log).` : null) ?? this.unanswered(machine, s ?? null, status, bootLimit(machine)),
+      error: s?.error ?? this.error ?? s?.hung ?? s?.bootNote ?? (s?.stoppedBy === "gpu" ? s.gpuFailed : null) ?? (s?.stoppedBy === "start" ? s.startFailed : null) ?? (s?.comfyDied && (s.stoppedBy === "crash" || s.answers === false) ? diedSaid(s) : null) ?? (boot?.failed && boot.step ? `Start failed: ${stepSaid(boot.step)}. Terminated now, nothing billed after; its last lines are in its log (Queue › Log).` : null) ?? this.unanswered(machine, s ?? null, status, bootLimit(machine)),
     };
   }
 
@@ -222,6 +223,12 @@ export class Rented extends RentedDeploy {
     // one running pod per volume, as for a deploy: a stopped pod's volume may have gone to another pod meanwhile
     if (s.runpodKey) await this.volumeFree(m, s);
     const unprepared = await this.prepareBoot(m, s.runpodKey);
+    // stopped during its first boot: still a first boot (its deploy's files handed at its first answer), its deadline from
+    // this Start, never from its deploy hours ago (terminated at its first read as a boot that never came up)
+    if (m.rented.deployedAt) {
+      const at = new Date(this.now()).toISOString();
+      await updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id && x.rented?.deployedAt ? { ...x, rented: { ...x.rented, deployedAt: at } } : x)) }));
+    }
     await this.act(m, "start", null).catch((err: Error & { statusCode?: number }) => {
       // its GPU was taken while it was stopped: a stopped pod is bound to its host, and RunPod has none free there
       if (/not enough free gpus|no longer available|no gpus? (are )?available|insufficient (gpu )?capacity/i.test(err.message)) {
