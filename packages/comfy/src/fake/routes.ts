@@ -88,7 +88,7 @@ export function fakeRoutes(fake: FakeState, hooks: { queued(promptId: string, cl
     }
     if (path === "/interrupt") {
       const id = (JSON.parse(raw.toString("utf-8")) as { prompt_id?: string }).prompt_id;
-      fake.running = fake.running.filter((r) => r !== id);
+      fake.running = fake.running.filter((r) => r !== id || fake.deaf.has(r));
       return json(200, {});
     }
     if (path === "/free") return json(200, {});

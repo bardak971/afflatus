@@ -813,6 +813,29 @@ describe("a deployed pod the user stopped", () => {
     await post(t.app, `/api/machines/${id}/start`, {});
     expect((await readSettings(t.db)).machines.find((m) => m.id === id)?.rented?.userStopped).toBe(false);
   });
+
+  it("stopped during its first boot and started hours later: its boot limit counts from the Start, never terminated at once (B6)", async () => {
+    runpod.bootMs = 10_000_000;
+    const id = (await deploy({ volume: "vol-ro", idleDo: "stop" })).json().id as string;
+    const pod = runpod.pods[0]!;
+    await t.services.rented.poll();
+    expect(pod.status).toBe("PROVISIONING");
+    expect((await post(t.app, `/api/machines/${id}/stop`, { how: "stop" })).statusCode).toBe(200);
+    await until(async () => (await t.services.rented.poll(), pod.status === "EXITED"));
+    const real = Date.now;
+    t.services.rented.now = () => real() + 3 * 60 * 60_000;
+    await t.services.rented.poll();
+    expect((await post(t.app, `/api/machines/${id}/start`, {})).statusCode).toBe(200);
+    expect(pod.status).toBe("STARTING");
+    await t.services.rented.poll();
+    await t.services.rented.poll();
+    expect(pod.status).toBe("STARTING");
+    expect(runpod.calls.filter((c) => c.endsWith("action terminate"))).toEqual([]);
+    // still a first boot: its limit from the Start
+    t.services.rented.now = () => real() + 3 * 60 * 60_000 + 21 * 60_000;
+    await t.services.rented.poll();
+    expect(pod.status).toBe("TERMINATED");
+  });
 });
 
 describe("a deployed pod gone from RunPod", () => {

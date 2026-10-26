@@ -1046,6 +1046,7 @@ export class RentedFollow extends RentedBilling {
    * cannot be read (pingAll), as it asks nothing of RunPod.
    */
   private async endIfStuck(m: Machine, now: number): Promise<void> {
+    await this.hungIf(m, now);
     const quiet = this.queue.quietFor(m.id, now);
     const why = quiet.gpuIdle ? "its GPU idle" : "past its forecast";
     if (quiet.ms >= this.stuckMs && (await this.queue.endStuck(m.id, `Stuck: no progress from ComfyUI for ${Math.round(quiet.ms / 60_000)} min, ${why}, on the rented GPU ${m.name || m.id}; failed so that the pod is not billed for a render that never ends`))) {
@@ -1057,6 +1058,36 @@ export class RentedFollow extends RentedBilling {
     if (over.ms > 0 && (await this.queue.endStuck(m.id, `Stuck: still running at ${Math.round((over.ms + overrunAllowed(over.forecastMs)) / 60_000)} min, against ${Math.round(over.forecastMs / 60_000)} min forecast, on the rented GPU ${m.name || m.id}; failed so that the pod is not billed for a render that never ends`))) {
       console.log(`[rented] ${m.name || m.id}: a render past three times its forecast failed`);
     }
+  }
+
+  /**
+   * A render failed as stuck that its ComfyUI still runs a minute after it was stopped there (queue.ts hungOn): that ComfyUI
+   * is hung, and every job sent there would wait behind it and fail as stuck in turn, the pod billed meanwhile (M2). A
+   * deployed pod is terminated as a crash; one added by hand is the user's: said, and given no job until the prompt leaves
+   * its ComfyUI (the prompt is Afflatus's own, so its idle time runs).
+   */
+  private async hungIf(m: Machine, now: number): Promise<void> {
+    const s = this.seenOf(m.id);
+    const hung = await this.queue.hungOn(m.id, now);
+    // its ComfyUI's queue not read now: as it was
+    if (hung === undefined) return;
+    if (!hung) {
+      if (s.hung) {
+        s.hung = null;
+        this.events.emit("queue");
+      }
+      return;
+    }
+    const why = "ComfyUI hung in a render failed as stuck: still running a minute after it was stopped";
+    if (m.rented!.deployed) {
+      this.podCrashed(m.id, why);
+      return;
+    }
+    if (s.hung) return;
+    s.hung = `${why}. It takes no job until that render leaves its ComfyUI: restart its ComfyUI (a pod added by hand is not terminated by Afflatus)`;
+    console.warn(`[rented] ${m.name || m.id}: ${why} (prompt ${hung})`);
+    this.events.emit("queue");
+    this.tell?.("renderStuck", { title: `${machineSaid(m)}: ComfyUI hung`, body: `${why}. It takes no job until it leaves; a pod added by hand is not terminated by Afflatus: restart its ComfyUI, or stop the pod.`, key: `${m.id}:hung` });
   }
 
   /** Idle long enough, or a cap reached once its render ends: stopped (or deleted, as its idle choice says). */

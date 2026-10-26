@@ -20,7 +20,7 @@ import { reportsDeath } from "./runpod";
 import type { Storage } from "./storage";
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
-import { CAP_REACHED, DEFAULT_QUEUE_OPTIONS, Died, GPU_AT_WORK, overrunAllowed, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type Lane, type QueueOptions, type Resume, type Running } from "./queueModel";
+import { CAP_REACHED, DEFAULT_QUEUE_OPTIONS, Died, GPU_AT_WORK, overrunAllowed, readJson, SHUTDOWN, Stuck, STUCK_SAID, type JobRow, type QueueCore, type Lane, type QueueOptions, type Resume, type Running } from "./queueModel";
 import * as bulk from "./queueBulk";
 import { needsComfy, Offline } from "./queueOffline";
 import * as submitting from "./queueSubmit";
@@ -82,6 +82,13 @@ const STATUS_RECENT_MS = 2_000;
 const PLAN_KEPT_MS = 15_000;
 /** A machine found away again and again is asked at one pass in this many (see pump's answers): every minute at the retries' 15 s. */
 const AWAY_ASK_EVERY = 4;
+/**
+ * How long a prompt failed as stuck may still run in its pod's ComfyUI after it was stopped there (endStuck) before that
+ * ComfyUI is taken for hung (hungOn): a node that never reaches ComfyUI's interrupt check, or an interrupt that never got there.
+ */
+const HUNG_AFTER_MS = 60_000;
+/** How far back a start reads the renders failed as stuck for their prompts (stuckOn): a pod hung under one meanwhile. */
+const STUCK_KEPT_MS = 24 * 60 * 60_000;
 /** Whether a render was lost because its machine stopped answering (silent past the wait, or not reached at all), not because its ComfyUI answered without the prompt. */
 const awayErr = (err: Error) => err instanceof ComfyAway || err instanceof ComfyUnreachable;
 
@@ -254,6 +261,7 @@ export class Queue {
       db, events: this.events,
       machineLanes: () => this.machineLanes(),
       stale: (machine) => this.stale.get(machine),
+      stuck: (machine) => this.stuckOn.get(machine)?.keys(),
       stopped: () => this.stopped,
       onOutside: (machine, outside) => this.onOutside?.(machine, outside),
       pump: () => void this.pump(),
@@ -382,6 +390,7 @@ export class Queue {
   /** After a restart: jobs that were mid-run without a prompt id start over; the others are waited on again. */
   async start(): Promise<void> {
     await this.load();
+    await this.loadStuck();
     // a finish or a RIFE pass that had sent its prompt (cut short by a crash, or queued again by the last shutdown) waits for
     // the machine that has it (Resume.lostAt, heldOn), which may still render it, and follows it there (queueTools followed):
     // sent to another machine meanwhile, it ran twice, the first one billed on a pod for a result nobody collected
@@ -1068,7 +1077,16 @@ export class Queue {
         // a job a ComfyUI already has goes first, paused or not: it is rendering anyway, on the machine it was sent to
         for (const r of active) {
           if (r.status !== "running" || taken.has(r.id) || !needsComfy(r)) continue;
-          const lane = lanes.find((l) => l.id === (r.machine_id ?? this.firstId)) ?? lanes[0];
+          const lane = lanes.find((l) => l.id === (r.machine_id ?? this.firstId)) ?? (r.machine_id ? undefined : lanes[0]);
+          // its machine removed since (a pod gone from RunPod while this process was away): never followed on another one,
+          // which does not have its prompt (a pod there was taken for crashed and terminated, M3). Queued again with its prompt
+          // id, asked of the machine that takes it next, not held for the one that is gone (no lostAt); no attempt counted
+          if (!lane && r.machine_id && lanes.length) {
+            const kept = readJson<Resume | null>(r.resume, null);
+            await this.requeueLost(r, kept, r.attempts, false);
+            this.dirty = true;
+            continue;
+          }
           // its machine taken out, and none left: it waits for one, as a queued job does
           if (!lane || !free(lane)) continue;
           if (!(await answers(lane, Boolean(r.resume), true))) {
@@ -1463,9 +1481,55 @@ export class Queue {
     const lane = this.lanes.get(machine);
     const run = lane?.running;
     if (!run?.promptId || run.abort.signal.aborted) return false;
-    run.abort.abort(new Stuck(why));
+    run.abort.abort(new Stuck(why.startsWith(STUCK_SAID) ? why : `${STUCK_SAID} ${why}`));
+    this.noteStuck(machine, run.promptId, Date.now());
     await lane!.comfy?.client.interrupt(run.promptId).catch(() => {});
     return true;
+  }
+
+  /**
+   * The prompts failed as stuck, by machine, with when (ms): followed until they leave its ComfyUI (hungOn). Afflatus's own
+   * all the same (queueOutside ownPrompts): one still running there after a restart of Afflatus was taken for work from
+   * outside it, which held the pod busy, billed with no end (M2). Read back from the jobs at a start (loadStuck).
+   */
+  private readonly stuckOn = new Map<string, Map<string, number>>();
+  private noteStuck(machine: string, promptId: string, at: number): void {
+    const stuck = this.stuckOn.get(machine) ?? new Map<string, number>();
+    stuck.set(promptId, at);
+    this.stuckOn.set(machine, stuck);
+  }
+
+  private async loadStuck(): Promise<void> {
+    const since = new Date(Date.now() - STUCK_KEPT_MS).toISOString();
+    const rows = await this.db.selectFrom("jobs").select(["machine_id", "resume", "finished_at"]).where("status", "=", "failed").where("finished_at", ">=", since)
+      .where("error", "like", `${STUCK_SAID}%`).where("machine_id", "is not", null).where("resume", "is not", null).execute();
+    for (const r of rows) {
+      const id = readJson<{ promptId?: unknown }>(r.resume, {}).promptId;
+      if (typeof id === "string" && r.machine_id) this.noteStuck(r.machine_id, id, Date.parse(r.finished_at ?? "") || Date.now());
+    }
+  }
+
+  /**
+   * A prompt failed as stuck on a machine that its ComfyUI still runs HUNG_AFTER_MS after: that ComfyUI is hung, and takes
+   * nothing more (a job sent there waits behind it, and fails as stuck in its turn, billed each time). Asked at each read of
+   * a rented pod (rentedFollow): until then, one still there is stopped again (the first stop may not have reached it), and
+   * one gone from its queue is forgotten. Null: none; undefined: its queue cannot be read now (nothing known either way).
+   */
+  async hungOn(machine: string, now = Date.now()): Promise<string | null | undefined> {
+    const stuck = this.stuckOn.get(machine);
+    const client = this.lanes.get(machine)?.comfy?.client;
+    if (!stuck?.size) return null;
+    const q = client?.queue ? await client.queue().catch(() => null) : null;
+    if (!client || !q) return undefined;
+    let hung: string | null = null;
+    for (const [id, at] of stuck) {
+      const running = q.running.some((e) => e.promptId === id);
+      if (running && now - at >= HUNG_AFTER_MS) hung ??= id;
+      else if (running || q.pending.some((e) => e.promptId === id)) void client.interrupt(id).catch(() => {});
+      else stuck.delete(id);
+    }
+    if (!stuck.size) this.stuckOn.delete(machine);
+    return hung;
   }
 
   /**

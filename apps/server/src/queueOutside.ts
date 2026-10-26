@@ -29,6 +29,8 @@ interface OutsideDeps {
   machineLanes(): Lane[];
   /** The prompts a machine may still render for jobs gone elsewhere (queue.ts `stale`): Afflatus's own all the same. */
   stale(machine: string): ReadonlySet<string> | undefined;
+  /** The prompts failed as stuck there that may still run in it (queue.ts stuckOn): Afflatus's own too. */
+  stuck(machine: string): Iterable<string> | undefined;
   stopped(): boolean;
   onOutside(machine: string, outside: Lane["outside"]): void;
   pump(): void;
@@ -63,11 +65,12 @@ export class Outside {
    * across a restart of Afflatus, whose client id is then another), the jobs queued again with the prompt their machine may
    * still have (sent without an answer, lost from sight, a finish stopped by a restart: the next attempt asks for it and
    * follows it), the ones that ended a moment ago (a stopped prompt leaves ComfyUI's queue just after), the prompts dropped
-   * there for a job gone elsewhere, and what this client sent. Taken for work from outside Afflatus, such a prompt held its
-   * own machine as busy: the job waiting to follow it was never started there, and the pod's idle time counted it as used.
+   * there for a job gone elsewhere, the ones failed as stuck that may still run there, and what this client sent. Taken for
+   * work from outside Afflatus, such a prompt held its own machine as busy: the job waiting to follow it was never started
+   * there, and the pod's idle time counted it as used.
    */
   async ownPrompts(lane: Lane): Promise<(promptId: string) => boolean> {
-    const ids = new Set<string>(this.d.stale(lane.id) ?? []);
+    const ids = new Set<string>([...(this.d.stale(lane.id) ?? []), ...(this.d.stuck(lane.id) ?? [])]);
     if (lane.running?.promptId) ids.add(lane.running.promptId);
     const since = new Date(Date.now() - OWN_KEPT_MS).toISOString();
     // asked as two reads, each through its own index (jobs_to_run, jobs_by_finish): asked as one, with an `or`, SQLite read

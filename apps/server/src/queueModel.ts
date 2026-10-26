@@ -47,6 +47,9 @@ export class Stuck {
   constructor(readonly message: string) {}
 }
 
+/** How every Stuck's message starts (rentedFollow endIfStuck): the renders failed as stuck are found by it (queue.ts loadStuck). */
+export const STUCK_SAID = "Stuck:";
+
 /**
  * The reason a render fails with when the ComfyUI it ran on died under it: a pod's report of it (rentedFollow), or a pod's
  * ComfyUI found started again without it. Never queued again on its own, as a machine merely gone is: a render that killed
