@@ -1086,6 +1086,13 @@ export class Queue {
         // the line as the machines see it: what waits for nothing, and may start (an update holds back what was asked after it)
         const startable = active.filter((r) => r.status === "queued" && !taken.has(r.id) && !(r.depends_on && waitingOn.has(r.depends_on)) && !(this.only && !this.only.has(r.id)));
         const gpuRows = startable.filter(needsComfy);
+        // the renders waiting for another job to end (a timeline clip after the one it carries on from): none starts now, but
+        // one bound for a pod has its files sent there ahead (sendAfter), judged in the same turn as the others. Left out of
+        // the plan, a Wan clip's SVI LoRAs were never asked for, and the clip went to the pod without them (card #107)
+        const after = this.podFetch && lanes.some((l) => l.machine?.rented)
+          ? active.filter((r) => r.status === "queued" && needsComfy(r) && r.depends_on && waitingOn.has(r.depends_on) && !(this.only && !this.only.has(r.id)))
+          : [];
+        let judged: Map<string, Able> | null = null;
         const open = lanes.filter((l) => !l.paused && l.machine);
         let where = new Map<string, { lane: string; startsInMs: number }>();
         let sent = new Map<string, Set<string>>();
@@ -1100,7 +1107,8 @@ export class Queue {
           // and one that answers, whether its ComfyUI has work of someone else's (its own page, another tool): it takes nothing then
           for (const l of open) if (free(l) && (await answers(l))) await this.outside.freshOutside(l);
           // every machine away or off: nothing can be planned, started or sent ahead (L-22)
-          const able = lanes.some((l) => l.reachable !== false && !this.unavailable(l.id)) ? await this.planner.ableOf(gpuRows) : null;
+          const able = lanes.some((l) => l.reachable !== false && !this.unavailable(l.id)) ? await this.planner.ableOf([...gpuRows, ...after]) : null;
+          judged = able;
           if (able) {
             where = plan(await this.planner.schedulable(open), await this.forecasts.heldIf(recorded, () => this.planner.planned(gpuRows, able)));
             sent = this.planner.sendFiles(gpuRows, able, where);
@@ -1125,6 +1133,10 @@ export class Queue {
             // the awaits above gave the packs' timer its turn: a pack come in meanwhile holds the machine for its restart
             // (checked again here, in the same step as the start, which the restart waits for: podPacks.ts restartWhenIn)
             if (!next || this.ownPacks.holding(lane.id)) continue;
+            // on a pod, files it waited for came: its folders and node list, read before them, are read again for its submit,
+            // which builds on the one and checks the graph against the other. podFiles has them read again once a file lands,
+            // but a step later: a Wan clip started meanwhile was built on SVI's LoRAs and refused for them (card #107)
+            if (lane.machine?.rented && able?.get(next.id)?.fetch[lane.id]?.files.length) lane.comfy?.forgetFiles();
             this.startOn(lane, next);
             taken.add(next.id);
             started = true;
@@ -1134,7 +1146,12 @@ export class Queue {
         } else if (gpuRows.length) {
           // Pause all: nothing starts, but a pod (one deployed meanwhile) is sent the waiting jobs' files ahead, so that it
           // is ready on Resume. Its idle time is held while they move (podFiles.ts moving), and runs again once they are in
-          sent = this.planner.sendFiles(gpuRows, await this.planner.ableOf(gpuRows), where);
+          judged = await this.planner.ableOf([...gpuRows, ...after]);
+          sent = this.planner.sendFiles(gpuRows, judged, where);
+        }
+        if (after.length) {
+          judged ??= lanes.some((l) => l.reachable !== false && !this.unavailable(l.id)) ? await this.planner.ableOf(after) : null;
+          if (judged) for (const [id, on] of this.planner.sendAfter(after, judged, this.boundFor(active, where))) sent.set(id, on);
         }
         // what rented pods were sent for jobs that may no longer run there goes, at every pass (nothing waiting too)
         this.planner.dropUnsought(active, sent);
@@ -1916,6 +1933,24 @@ export class Queue {
     // given up: the prompt its machine had is dropped there once it answers, not rendered on unseen
     else if (await this.finish(r.id, "failed", { error: "ComfyUI went offline during the render" }, "running") && kept?.promptId) this.interruptOn(r.machine_id, kept.promptId, true);
     return true;
+  }
+
+  /**
+   * The machine a job waiting for another is bound for, as far as this pass can tell: its pin (or the machine it was lost
+   * on), else that of the job it waits for, which runs there, is planned there (`where`) or is bound there in its turn. A
+   * clip carries on where the clip before it renders, in a series pinned to a pod or not. Undefined: not told yet.
+   */
+  private boundFor(active: readonly JobRow[], where: ReadonlyMap<string, { lane: string }>): (r: JobRow) => string | undefined {
+    const byId = new Map(active.map((r) => [r.id, r]));
+    const lanes = [...this.lanes.values()];
+    const of = (r: JobRow, depth: number): string | undefined => {
+      const own = r.pin_machine ?? this.heldOn(r) ?? lanes.find((l) => l.running?.id === r.id || l.starting === r.id)?.id ?? where.get(r.id)?.lane;
+      if (own) return own;
+      const before = r.depends_on ? byId.get(r.depends_on) : undefined;
+      // (a chain is followed back a long way at most: a loop of depends_on, never made, would not hold the pass)
+      return before && depth < 100 ? of(before, depth + 1) : undefined;
+    };
+    return (r) => of(r, 0);
   }
 
   /**

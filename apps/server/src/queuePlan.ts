@@ -409,6 +409,27 @@ export class Planner {
   }
 
   /**
+   * The files of the jobs waiting for another job to end, sent ahead to the pod each is bound for (`boundFor`: its pin, else
+   * where the job it waits for runs or is planned): they come while the jobs before it render, not once it may start. Left
+   * to the pass that may start it, a Wan clip queued behind four jobs on a pod never had SVI's LoRAs asked for, and it went
+   * to the pod 13 s after the clip before ended, refused for want of them (card #107). Nothing for a job bound for this PC,
+   * or not bound anywhere yet: it may never run on a pod. What comes back: for each, the pod its files may be on now.
+   */
+  sendAfter(rows: JobRow[], able: ReadonlyMap<string, Able>, boundFor: (r: JobRow) => string | undefined): Map<string, Set<string>> {
+    const sent = new Map<string, Set<string>>();
+    if (!this.d.podFetch) return sent;
+    for (const r of rows) {
+      const lane = boundFor(r);
+      const fetch = lane ? able.get(r.id)?.fetch[lane] : undefined;
+      if (!lane || !fetch || !this.d.lane(lane)?.machine?.rented) continue;
+      // its node packs come once it may start there (a restart is not made ahead)
+      if (fetch.files.length) this.d.podFetch.want(lane, fetch.files, "ahead", r.id);
+      sent.set(r.id, new Set([lane]));
+    }
+    return sent;
+  }
+
+  /**
    * What the plan sent rented pods and no job may use there any more is dropped, at every pass (with nothing waiting too: a
    * job cancelled last kept its 40 GB coming): a job that is gone (`active`: the queued and running ones), pinned to another
    * machine, or whose files now belong on other pods (`sent`, this pass's sendFiles). A job not looked at this pass (running,

@@ -9,6 +9,8 @@ const SCAN_TTL_MS = 60_000;
 const CATALOG_TTL_MS = 10 * 60_000;
 /** How long a node list that could not be read is answered as not read (see catalog). */
 const CATALOG_FAILED_MS = 15_000;
+/** How long a node list just read is kept, though the folders list a file it does not offer (see catalogBehind). */
+const CATALOG_BEHIND_MS = 10_000;
 /** How often a machine's GPU power is read at most, whoever asks: as often as the open pages read the load. */
 const POWER_EVERY_MS = 1_800;
 /** A node pack without the power route is asked again after this (it may have been updated without ComfyUI's socket closing). */
@@ -145,6 +147,19 @@ export class Comfy {
   forgetCatalog(): void {
     this.lastCatalog = null;
   }
+
+  /**
+   * Its folders list a model file its node list does not offer: the node list was read before the file came (it is kept ten
+   * minutes, the folders read every minute), so it is read again, unless it was read in the last catalogBehindMs (a file
+   * a loader never offers would have it read at every pass). A job's graph is checked against the node list at its submit:
+   * released on the folders' word, a Wan clip was refused there for SVI LoRAs that had just landed (card #107).
+   */
+  catalogBehind(): void {
+    if (this.lastCatalog && Date.now() - this.lastCatalog.at >= this.catalogBehindMs) this.lastCatalog = null;
+  }
+
+  /** How long a node list just read is kept whatever its folders list (catalogBehind; shorter in tests). */
+  catalogBehindMs = CATALOG_BEHIND_MS;
 
   /**
    * Its node list, kept CATALOG_TTL_MS. One that could not be read is kept CATALOG_FAILED_MS, as the queue retries a machine

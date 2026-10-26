@@ -278,7 +278,10 @@ describe("LTX 2.3's one checkpoint picked as the Model, on a pod (card #103)", (
     const fresh = await loadedOn(core, job("ltx.video"), null);
     expect(fresh?.files.map((f) => `${f.folder}/${f.file}`).sort()).toEqual([`checkpoints/${ltxGet("checkpoint")}`, `text_encoders/${ltxGet("clip")}`]);
     // the pod once they landed, as #100's re-check pod had them (with the projection and the video VAE it was sent too)
-    const other = await startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: [ltxGet("checkpoint")], text_encoders: [ltxGet("clip"), ltxGet("projection")], vae: [ltxGet("videoVae")], diffusion_models: [] } });
+    // (its checkpoint loader offering the checkpoint it holds, as a real ComfyUI's does: a file a loader does not offer is not there, card #107)
+    const catalog = referenceCatalog();
+    catalog.CheckpointLoaderSimple!.input.required!.ckpt_name = [[ltxGet("checkpoint")]];
+    const other = await startFakeComfy({ catalog, models: { checkpoints: [ltxGet("checkpoint")], text_encoders: [ltxGet("clip"), ltxGet("projection")], vae: [ltxGet("videoVae")], diffusion_models: [] } });
     try {
       const comfy = new Comfy(other.url, t.services.registry);
       const on = { id: "pod", comfy, scan: await comfy.scan() };
