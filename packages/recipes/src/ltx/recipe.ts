@@ -572,8 +572,9 @@ function guided(run: LtxRun, on: Ref, wide: number, high: number, opening?: stri
   // the first picture as a guide (the one-pass route; the two-pass one puts it in the latent itself)
   else if (opening) add(ltxFrame(g, input, opening, wide, high), 0, input.startStrength);
   if (input.mid) add(ltxFrame(g, input, ctx.uploads.mid, wide, high), midFrame(input, spec.fps, run.frame.frames, run.head), input.midStrength);
-  // the clip after's first frames at the clip's end, held as exactly as the clip before's: the clip lands on them (a tail of
-  // 8n + 1 frames ending a clip of 8m + 1 starts on the model's 8-frame steps)
+  // the clip after's first frames at the clip's end, held as exactly as the clip before's: the clip lands on them. ComfyUI keeps
+  // 8n of the 8n + 1 handed over and puts a guide of several frames on 8k + 1 (it moves one at 8k back 7 frames): the tail
+  // counts the 8n kept, so that it starts on 8k + 1 of a clip of 8m + 1 and ends on the clip's last frame
   if (run.next) add(ltxGuideFrames(g, input, run.next, wide, high), run.frame.frames - run.tail, CARRY_STRENGTH);
   return { positive, negative, latent, any: Boolean(run.msr || run.previous || opening || input.mid || run.next) };
 }
@@ -1118,7 +1119,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
             ? ltxCanvas(like.width, like.height, input.short)
             : ltxCanvas(input.shape.width, input.shape.height, input.short);
       // the frames shared with the clips before and after are theirs: the clip is made that much longer, within the 20 s the model takes
-      const tail = lands ? joinFramesOf(media.next, "next") : 0;
+      // (the frames ComfyUI lands on: one fewer than handed over, see guided)
+      const tail = lands ? joinFramesOf(media.next, "next") - 1 : 0;
       // under a recording (card #2): the clip lasts as long as its part (Lip sync's moment before the words and the pad after
       // them in it), brought down to the model's 8n + 1 frames with those of the clips it joins: the pad outlasts that step
       const lead = spec.lipSync ? Math.round((input.speechAt ?? 0) * fps) : 0;

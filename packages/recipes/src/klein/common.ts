@@ -62,19 +62,43 @@ export const LOAD_NODES = (input: KleinBase) => [...unetNodes(input.model), "CLI
 export const SAMPLE_NODES = ["CLIPTextEncode", "Flux2Scheduler", "CFGGuider", "KSamplerSelect", "RandomNoise", "SamplerCustomAdvanced", "VAEDecode"];
 export const REFERENCE_NODES = ["LoadImage", "ImageScaleToTotalPixels", "VAEEncode", "ReferenceLatent"];
 
+/** Whether a Klein file is the 9B model by its name (flux-2-klein-9b, flux-2-klein-base-9b, a fine-tune named so). */
+const isNineB = (file: string | undefined) => /(^|[^0-9])9b/i.test(file ?? "");
+
+/**
+ * The text encoder slot the model reads with: the 9B reads Qwen3 8B, the 4B (and a fine-tune not named 9B) Qwen3 4B. Each
+ * reads only its own: the other one's width fails the render in ComfyUI.
+ */
+export const kleinClipSlot = (input: { model?: string }, slots?: Record<string, string>) => (isNineB(input.model ?? slots?.unet) ? "clip8b" : "clip");
+
+/** The 9B's encoder, which the family can do without (Recipe.needsWith): a pod is sent it, a machine without it does not take the job. */
+export const kleinNeeds = (input: { model?: string }, slots?: Record<string, string>) => {
+  const slot = kleinClipSlot(input, slots);
+  return slot === "clip" ? [] : [slot];
+};
+
 /** The model with its LoRAs, the text reader and the picture decoder. */
 export function loadKlein(g: GraphBuilder, input: KleinBase, ctx: BuildContext): Klein {
   const unet = input.model ?? ctx.slots.unet;
+  const slot = kleinClipSlot(input, ctx.slots);
+  const clip = ctx.slots[slot];
+  if (!clip) {
+    throw new Error(
+      slot === "clip8b"
+        ? "FLUX.2 Klein 9B reads with the Qwen3 8B text encoder: put qwen_3_8b_fp8mixed.safetensors in ComfyUI's models/text_encoders folder (Settings › Models has it)."
+        : "FLUX.2 Klein reads with the Qwen3 4B text encoder: put qwen_3_4b.safetensors in ComfyUI's models/text_encoders folder (Settings › Models has it).",
+    );
+  }
   let model = loadUnet(g, ctx, unet);
   for (const l of input.loras) {
     if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
   }
   return {
     model,
-    clip: g.out("CLIPLoader", { clip_name: ctx.slots.clip, type: "flux2", device: "default" }),
+    clip: g.out("CLIPLoader", { clip_name: clip, type: "flux2", device: "default" }),
     vae: g.out("VAELoader", { vae_name: ctx.slots.vae }),
     input,
-    loads: [`diffusion_models/${unet}`, `text_encoders/${ctx.slots.clip}`, `vae/${ctx.slots.vae}`],
+    loads: [`diffusion_models/${unet}`, `text_encoders/${clip}`, `vae/${ctx.slots.vae}`],
   };
 }
 
