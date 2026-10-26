@@ -74,6 +74,7 @@ export function playerProps(e: LoadedEditor): ComponentPropsWithoutRef<typeof Pl
     onPlaying: e.setPlaying,
     onTime: e.onTime,
     stopAt: e.stopAt,
+    playhead: () => e.cursor ?? e.clock.get(),
     preview: e.preview,
     live: e.liveShown,
     onStop: (job) => e.stop.mutate(job),
