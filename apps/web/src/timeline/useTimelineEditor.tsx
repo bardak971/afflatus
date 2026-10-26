@@ -9,7 +9,7 @@ import { useQueueOf } from "../screens/studio/queueOf";
 import { useNewClock } from "./clock";
 import { rememberAspect } from "./EditorSkeleton";
 import type { ExportAsk } from "./ExportDialog";
-import { layout, moveAfter, otherShape, ZOOM } from "./model";
+import { layout, moveAfter, otherShape, playOfTrack, ZOOM } from "./model";
 import { madeFromSource, sourcePlace } from "./track/SourceLane";
 import { clipsOfRecording } from "./track/RecordingBand";
 import { recordingPlace, stageEnd } from "./recordingPlace";
@@ -180,8 +180,10 @@ export function useTimelineEditor(id: string) {
   }, [removeMany]);
   const say = useBanners((b) => b.push);
   const durationMs = t?.durationMs ?? 0;
+  /** Where the playhead stands (playheadNow, set below once the cursor is known), for Play to start there. */
+  const playheadRef = useRef<() => { ms: number; held: boolean }>(() => ({ ms: clock.get(), held: false }));
   const { range, setRange, rangeRef, loopRange, loopRef, snapQuiet, toggleSnapQuiet, playingRange, emptyRange, totalRef, toggle, toggleLoop, toggleLoopNow, rangeAct, rangeItems } = useRange({
-    id, clips, durationMs, clock, player, playing, setPlaying,
+    id, clips, durationMs, clock, playhead: playheadRef, player, playing, setPlaying,
     on: { after, select, note: setNote, say, writeBetween: (v) => writeBetween.mutate(v), askRemoval: m.askRemoval },
   });
   // the right-click menus (a clip's, its sound's, a pinned frame's, the music's, the range's) and what a clip's says at its head
@@ -420,6 +422,18 @@ export function useTimelineEditor(id: string) {
   useSelectedClipBridge({ id, t, clips, current, recipes: recipes.data?.recipes, patch, inputsOf, rangeAct, edit, openSource });
 
   const { volume, muted, onVolume, onMute, cursor, setCursor, onTime, stopAt, frameMs } = usePlayhead({ clock, clips, endMs: t ? Math.max(total, stageEnd(sourceOpen, place, recordingAt) ?? 0) : null, player, rangeRef, loopRef, playingRange, setPlaying });
+  /**
+   * Where the playhead stands, in the time the stage takes (as the track's clicks seek it, editorProps onSeek): the track's
+   * own when it plays the source or a recording, else what plays; put by hand on a clip with nothing to play yet, `held`:
+   * what plays there is the clip after's start, and the playhead stays where it was put.
+   */
+  const playheadNow = () => {
+    if (cursor === null) return { ms: clock.get(), held: false };
+    if (sourceOpen || recordingAt) return { ms: cursor, held: false };
+    const at = playOfTrack(slots, cursor);
+    return { ms: at.ms, held: at.planned };
+  };
+  playheadRef.current = playheadNow;
   // a key held down sends one undo at a time: the next only once the last is back
   const stepping = undo.isPending || redo.isPending;
   // the keys' refs for what is set below: Ctrl+Enter renders, [ and ] jump, S and Ctrl+B split, Alt+[ and Alt+] step the take; - and =, Shift+Z: the track's zoom (filled by the track)
@@ -526,7 +540,7 @@ export function useTimelineEditor(id: string) {
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, typeSource, sourceTyped, inputsOf, editInputs, formOf, ready, keptToClip, keepToClip, sayOf, say, m, range, setRange, loopRange, snapQuiet,
     toggleSnapQuiet, emptyRange, toggle, toggleLoop, rangeAct, rangeItems, clipMenu, soundMenu, pinMenu, musicMenu, rangeMenu, onClip,
-    newClip, move, missing, renderable, takes, takesOn, allMs, allOn, allBlocked, checks, volume, muted, onVolume, onMute, cursor, setCursor, onTime, stopAt,
+    newClip, move, missing, renderable, takes, takesOn, allMs, allOn, allBlocked, checks, volume, muted, onVolume, onMute, cursor, setCursor, playheadNow, onTime, stopAt,
     trackKeys, jump, splitAt, stepTake, continueFrom, continueHere, misfits, finishedSize, fixFirst, exportNow, clipHead,
     after, render, patch, fix, edit, add, remove, removeMany, bringBack, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan,
   };

@@ -88,6 +88,18 @@ export function placeOf(slots: Slot[], playMs: number): { slot: Slot; x: number;
 }
 
 /**
+ * The moment of what plays at a moment of the track's own time (where the playhead is put by hand: clips with nothing to play
+ * yet are drawn at the length they will have, and take none of what plays), and whether it falls on such a clip: what plays
+ * there is the start of the clip that plays after it.
+ */
+export function playOfTrack(slots: Slot[], trackMs: number): { ms: number; planned: boolean } {
+  const slot = slots.find((s) => trackMs < s.startMs + s.lengthMs) ?? slots.at(-1);
+  if (!slot) return { ms: 0, planned: false };
+  if (slot.planned) return { ms: slot.clip.atMs, planned: true };
+  return { ms: slot.clip.atMs + Math.max(0, Math.min(slot.clip.lengthMs, trackMs - slot.startMs)), planned: false };
+}
+
+/**
  * Where a split at the playhead cuts a clip, in its video's own time: only inside what plays of it, never on a cut (a frame,
  * FRAME_SLACK_MS, from either end); else why not, for the note.
  */

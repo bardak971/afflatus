@@ -14,11 +14,13 @@ import { rangeRemoves } from "./removalWords";
  * The range: In and Out on the clock of what plays, what is done with it, and the transport that knows
  * about it (Play plays the range, Loop goes back to In).
  */
-export function useRange({ id, clips, durationMs, clock, player, playing, setPlaying, on }: {
+export function useRange({ id, clips, durationMs, clock, playhead, player, playing, setPlaying, on }: {
   id: string;
   clips: Clip[];
   durationMs: number;
   clock: Clock;
+  /** Where the playhead stands, in the time the stage takes (the editor's playheadNow): Play starts there. */
+  playhead?: RefObject<() => { ms: number }>;
   player: RefObject<PlayerHandle | null>;
   playing: boolean;
   setPlaying: Dispatch<SetStateAction<boolean>>;
@@ -78,15 +80,22 @@ export function useRange({ id, clips, durationMs, clock, player, playing, setPla
   totalRef.current = durationMs;
   const toggle = useCallback(() => {
     const r = rangeRef.current;
-    const time = clock.get();
+    // the playhead as it is seen: put by hand, it can stand away from the clock (on a clip with nothing to play yet, or put
+    // there while the stage showed the source, whose clock stays at its own start); Play read the clock alone and started
+    // from the clip it said, or from the top when it said the end
+    const time = playhead?.current().ms ?? clock.get();
+    const from = time !== clock.get() ? time : null;
     if (playing) playingRange.current = false;
     else if (r && r.outMs - r.inMs >= FRAME_SLACK_MS) {
       // with a range, Play plays it: from the playhead when it stands inside, else from In; it stops at Out
       playingRange.current = true;
       if (time < r.inMs || time >= r.outMs - 15) player.current?.seek(r.inMs);
+      else if (from !== null) player.current?.seek(from);
     } else if (totalRef.current && time >= totalRef.current - 30) player.current?.seek(0);
+    // (where nothing plays yet, the player goes on to the next clip that does, and the playhead with it)
+    else if (from !== null) player.current?.seek(from);
     setPlaying((p) => !p);
-  }, [playing, clock, player, setPlaying]);
+  }, [playing, clock, playhead, player, setPlaying]);
   /** Loop on or off; turning it on goes to In at once and plays the range round (playing or not, wherever the playhead was). */
   const toggleLoop = useCallback(() => {
     const r = rangeRef.current;
