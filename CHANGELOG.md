@@ -4,6 +4,10 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-26
+
+Sound and LTX: LTX Lip sync and seamless LTX joins, every clip under a recording in the form it needs, sound cues, LTX 2.5 with the cast's pictures and voice, Wan carrying on through SVI, a voice recorded from the microphone, and the files of a render checked together before it runs.
+
 ### Added
 - **LTX Lip sync, on LTX 2.3 and 2.5, and LTX under a recording.** A recording on the timeline can now be cut into LTX clips: each Lip sync clip's frame count comes from its part (on LTX's 8n+1 grid, 1 to 15 s), the part is encoded with LTX's audio VAE and pinned into the audio latent on every pass, and the take's sound is that sound, not a decoded copy. A sung run carries on across clips as with H3: the head of the clip after is pinned to the song the clip before sang. A recording is cut by family: its New clips form is the Lip sync of the clip it was dropped on or comes after (else H3's), kept for its re-cuts and longer Outs. A recording dropped on an empty clip of another form keeps what was written there (prompt, model, LoRAs and settings; into another family, only the prompts).
 - **Each clip under a recording picks its form:** Lip sync, or a form the recording plays over unchanged (H3 · Video with audio, LTX 2.3 and 2.5 · Video with audio, Wan 2.2 · Video), its part laid in as the take's sound with the mouth left free. "♫ plays over" on the track, hatched on the stage and the band; the clip's Recording chapter, its model list and its Duration (set by its part) say so. The song's hand-over runs across both kinds of clip, a re-cut keeps each clip's form where its part survives, and the recording's panel sets the form of its New clips. A model change never takes a clip out of its recording; a model that cannot be under one is refused with what to do.
@@ -15,6 +19,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **Model set check before a render:** the files a render loads are checked together, by name and by Settings › Models' hashes. Refused, in words: a VAE, text encoder, diffusion model or checkpoint of another LTX version, the Wan 5B or its VAE among the 14B's. Warned on the job (it runs): LTX 2.3's 1.0 upscaler or distilled LoRA, Wan's high and low files swapped, a LoRA's two files swapped, a LoRA trained for another version or model (its Civitai base model, read during the hash pass; the picker lists another LTX version's LoRA with the other models). The form shows the notes before Render.
 - **Wan carries on through SVI 2.0 Pro:** a clip after a Wan clip continues its motion (the clip before's last frames as SVI's anchor and motion latent, a colour match to its last frame, a hidden head faded over), with Kijai's SVI LoRAs as a Download (pods are sent them). Without them, the clip opens on the clip before's last frame, a cut, said on the track and the job. Wan can also be under a recording (Frame rate held at 16 there).
 - **H3 reference videos take roles,** as the pictures do: a place, clothes, an object or a look as well as a person, each its own subject with how it moves (a place: how the camera moves through it; clothes: how the cloth sways). A place video sets the scene. Only a person's video gives its sound; the "?" points a place's sound to the music lane or a sound cue.
+- **Record a voice from the microphone:** a 🎙 beside every sound slot (a Lip sync recording, a voice sample on every form, the Prompt kit person's voice, a clip's Audio, the recording lane's end cell). It opens a dialog with the live waveform, the time and a level meter ("Too loud: it clips"); then Listen, Retake, **Trim the silence** (proposed at both ends, hatched, its edges draggable, kept only when you keep it), Save to the library or Use it. One take at a time; the microphone list shows when there are several. A voice is taken without the browser's echo cancellation, noise suppression or auto gain, and kept as a WAV. The browser gives the microphone only to this computer or https: elsewhere the 🎙 says why. Space, R, Enter, Esc.
 - **A take shows what it was made with:** thumbnails of its pinned frames (↩ for a carried one), its references, voice or sound and its prompt, with an amber line of what differs from the form. **Use this take's settings** (on the card and in its ···) puts them back in the form in one Undo step; Inputs says when the take that plays was made with others.
 
 ### Changed
@@ -27,6 +32,11 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **CI tests the ffmpeg the bundles and the image ship** (BtbN's GPL 9.0 build, its SHA-256 checked every run) instead of Ubuntu's.
 
 ### Fixed
+- **H3's latent upscale on another copy of its node pack:** a ComfyUI with PlagueKind's fork of MMH3-UltimateUpscale (the same node names, other inputs) refused the job; the nodes are now given the inputs the copy on that machine takes.
+- **The files of a render are checked as it is queued, on every path** (a timeline's Render, naming the clip, with nothing of the batch queued; Retry; Render's copies), not only when it is sent: a mix that gives black frames no longer has a pod fetch its files first. A pod is sent no files for such a job.
+- **A clip waiting on another has its files sent to its pod ahead**, while earlier jobs render, and **a job is never sent to a pod before the pod's ComfyUI offers its files**: a Wan SVI clip 2 queued behind other jobs reached the pod without SVI's LoRAs and failed.
+- **LTX 2.3: its one checkpoint picked as the Model is loaded as the checkpoint**, and its files counted in what a pod is sent: a job could be released to a pod before a file its graph needed.
+- **LTX 2.5's temporal upscaler is no longer taken for 2.3's:** Lightricks ships the same bytes for both, and a hash listed under several versions now resolves to the version of the line it is in.
 - **LTX 2.5's dev transformer has a Download** (Settings › Models, Find models) and a rented pod fetches it for a job that picks it as the Model: no site was known for it, so a pod could only get it from this computer's ComfyUI.
 - **A job on a rented pod no longer waits forever on a file it is not sent for**, billing the pod idle: it was held by every file ever sent for it, so an old failed entry (a file put on the pod by other means since) kept it from ever starting. It now waits only on the files its plan sends for now. A file first asked without an address (the model picked in a form) takes the deploy's address, Civitai id and size when the deploy names it, rather than failing with no source.
 - **LTX slots never take another version's file:** on a pod with only LTX 2.5's transformer, LTX 2.3's diffusion model slot took it by its weights, and a 2.3 clip with no Model picked rendered on 2.5's transformer with nothing sent. A file named as another version stays out of a slot (listed last, as a choice), and another version's model is refused at Render.
@@ -526,7 +536,8 @@ The 0.6.0 cycle: the timeline reworked around sources, recordings and joins, H3 
 
 The first release: the Studio and its library, a form per model family, timelines, the prompt kit, imported workflows, the queue, the node pack, the Docker image, the Helm chart and the desktop bundles.
 
-[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.6.3...HEAD
+[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/bardak971/afflatus/releases/tag/v0.7.0
 [0.6.3]: https://github.com/bardak971/afflatus/releases/tag/v0.6.3
 [0.6.2]: https://github.com/bardak971/afflatus/releases/tag/v0.6.2
 [0.6.1]: https://github.com/bardak971/afflatus/releases/tag/v0.6.1

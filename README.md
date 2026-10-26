@@ -23,6 +23,20 @@ You keep ComfyUI, your models and your node packs; they do all the rendering. Af
 
 It is one small server and a folder of data, on your PC or in a container.
 
+## What's new in 0.7
+
+- **LTX Lip sync on 2.3 and 2.5**, and a recording cut into LTX clips, each as long as its part.
+- **Seamless LTX joins:** the next clip carries on in the clip before's latent, with its sound and colour, and a run-up of 9, 25 or 41 frames.
+- **Any form under a recording:** a clip can be Lip sync, or a Video with audio (H3, LTX) or Wan clip the recording plays over unchanged.
+- **Sound cues:** a part of a sound file pinned at a moment of the clip, on every H3 form and on LTX.
+- **LTX 2.5 with the cast's pictures and voice** (MSR), the face score on LTX and Wan takes, Face refine on LTX 2.5.
+- **Wan carries on** from the clip before through SVI 2.0 Pro instead of restarting on a still frame.
+- **Record a voice from the microphone** into any sound slot, with Trim the silence.
+- **The files of a render checked together** before it runs: another version's VAE, encoder or LoRA said in words.
+- **Each take shows what it was made with**, and Use this take's settings.
+
+Everything else is in the [changelog](CHANGELOG.md).
+
 ## Make
 
 <p align="center"><img src="docs/media/make.webp" alt="A Krea 2 picture of a night market, and a frame of the MiniMax H3 video it became" width="820"><br><sub>A picture, then the video made from it.</sub></p>
