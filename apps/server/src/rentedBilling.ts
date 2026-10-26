@@ -106,8 +106,11 @@ export const capReached = (caps: { day: number; month: number }, spent: { today:
  */
 export class RentedBilling extends RentedCore {
   private balanceSeen: { at: number; value: number | null; spendPerHr: number | null } | null = null;
-  /** RunPod's bill since the start of the month, as last read (null: RunPod did not give it). */
-  private billSeen: { at: number; from: number; records: BillRecord[] | null } | null = null;
+  /**
+   * RunPod's bill since the start of the month, as last asked (`at`): the records of its last good read of that month
+   * (`readAt`), kept when a read fails (null: RunPod never gave it this month).
+   */
+  private billSeen: { at: number; from: number; records: BillRecord[] | null; readAt: number | null } | null = null;
 
   /** RunPod's reads under way, by what they read: a second ask while one is out waits for it rather than asking again. */
   private asking = new Map<string, Promise<unknown>>();
@@ -266,21 +269,27 @@ export class RentedBilling extends RentedCore {
     return times.map((t) => (t < month ? null : records.reduce((n, r) => n + r.amount * shareIn(r, t, t + step), 0)));
   }
 
-  /** When RunPod's bill was last read (ms), and whether it answered: the Costs tab says how old its totals are. */
+  /** When the bill in use was read (ms), and whether RunPod gave one: the Costs tab says how old its totals are. */
   get billRead(): { at: number; ok: boolean } | null {
-    return this.billSeen ? { at: this.billSeen.at, ok: this.billSeen.records !== null } : null;
+    const seen = this.billSeen;
+    return seen ? { at: seen.readAt ?? seen.at, ok: seen.records !== null } : null;
   }
 
-  /** RunPod's bill since `from` (ms), read again every few minutes; null when RunPod does not give it. */
+  /**
+   * RunPod's bill since `from` (ms), read again every few minutes; null when RunPod does not give it. A read that fails
+   * keeps the month's last records read, as the volumes' bill does: a month cap is never let go for one refused read.
+   */
   private async bill(key: string, from: number): Promise<BillRecord[] | null> {
-    if (this.billSeen && this.billSeen.from === from && (this.now() - this.billSeen.at < BILL_EVERY_MS || this.now() < this.quietUntil)) return this.billSeen.records;
+    const seen = this.billSeen;
+    if (seen && seen.from === from && (this.now() - seen.at < BILL_EVERY_MS || this.now() < this.quietUntil)) return seen.records;
     return this.once(`bill:${from}`, async () => {
       const records = await this.client(key).billing(from, this.now()).catch((err: Error) => {
         console.warn(`[rented] RunPod's bill not read: ${err.message}`);
         return null;
       });
-      this.billSeen = { at: this.now(), from, records };
-      return records;
+      const kept = seen?.from === from ? seen : null;
+      this.billSeen = records ? { at: this.now(), from, records, readAt: this.now() } : { at: this.now(), from, records: kept?.records ?? null, readAt: kept?.readAt ?? null };
+      return this.billSeen.records;
     });
   }
 

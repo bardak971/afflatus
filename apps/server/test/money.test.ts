@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
 import { shareIn } from "../src/rentedBilling";
 import { runningRate } from "../src/runpod";
-import { get, makeApp, makeFake, post, until, type TestApp } from "./helpers";
+import { get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /**
  * The money rules of the rented GPUs (the pre-0.5.0 review's M-1 to M-9, W-1 and the disk in a pod's rate): what a pod
@@ -179,6 +179,40 @@ describe("a cap", () => {
     await t.services.rented.poll();
     expect(pod.status).toBe("TERMINATED");
     expect(told.map((x) => x.kind)).toEqual(["capReached", "podStopped"]);
+  });
+
+  it("a read of RunPod's bill that fails holds a reached month cap: no fresh grace hour, Deploy and Start refused (M1)", async () => {
+    // a pod outside Afflatus billed $2 this month: over the $1 cap, where Afflatus's own count is cents
+    const d = new Date();
+    const month = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+    runpod.bill = [{ podId: "elsewhere", startTime: new Date(month).toISOString(), endTime: new Date().toISOString(), totalAmount: 2 }];
+    const id = await add(podA().id);
+    const other = await add(podB().id);
+    await startUp(id, podA);
+    await post(t.app, "/api/jobs", { ...job(), machine: id });
+    await until(() => a.calls.includes("POST /prompt"));
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 0, month: 1 } } });
+    await t.services.rented.poll();
+    // reached while it renders: kept for its render, an hour at most from the cap
+    const cappedAt = () => (t.services.rented as unknown as { seen: Map<string, { cappedAt: number | null }> }).seen.get(id)?.cappedAt;
+    const at = cappedAt();
+    expect(at).toEqual(expect.any(Number));
+    expect(podA().status).toBe("RUNNING");
+    // RunPod down: its bill answers 500 when read again, a few minutes on
+    runpod.failBill = 500;
+    later(t, 6 * MIN);
+    await t.services.rented.poll();
+    expect(runpod.calls.filter((c) => c.startsWith("GET /v2/billing/pods")).length).toBeGreaterThan(1);
+    expect(cappedAt()).toBe(at);
+    expect(await t.services.rented.capped()).toBe(true);
+    const s = await spending();
+    expect(s.month).toBeGreaterThanOrEqual(2);
+    // the month is still RunPod's bill, the one last read
+    expect(s.billed).toBe(true);
+    const deploy = await post(t.app, "/api/runpod/deploy", { gpu: "NVIDIA A40", cloud: "SECURE", template: "afflatus", volume: "", disk: 120, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15 });
+    expect(deploy.json().error).toMatch(/spending cap is reached/);
+    expect((await post(t.app, `/api/machines/${other}/start`, {})).statusCode).toBe(409);
+    expect(podB().status).toBe("EXITED");
   });
 
   it("stops a pod the user added while it starts", async () => {
