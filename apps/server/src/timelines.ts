@@ -21,7 +21,7 @@ import { madeOf, takeView, TimelineViews } from "./timelineViews";
 import { draftOf, generationOfTake, ownInputIds, recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
 import { clipsOfSource, patchedSource, planWindows, sourceOfRow, windowFormFor, windowRunUp, windowsOf, windowsReaching, type SourcePatch, type SourcePlan } from "./timelineSource";
 import { TimelineTakes } from "./timelineTakes";
-import { aroundRemoved, foldParts, keptAround, removalOf, removedOf, removedView, type ParkedClip, type Removal, type RemovedPart } from "./timelineRemoved";
+import { aroundRemoved, foldParts, keptAround, removalOf, removedOf, removedView, renderedSince, type ParkedClip, type Removal, type RemovedPart } from "./timelineRemoved";
 import { unusedSize, unusedTakes } from "./timelineUnused";
 import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, setTrims, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, mirroredPins, mirrorJson, mirrorOfRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow, transitionJson, transitionOfRow } from "./timelineModel";
 
@@ -1945,6 +1945,14 @@ export class Timelines {
     if (patch.after !== undefined) {
       order = all.map((p) => p.clip.id).filter((x) => x !== id);
       order.splice(this.indexAfter(all, patch.after, id), 0, id);
+      // a recording's clips and the source's windows keep their order: their In is the first one's part, their Out the
+      // last one's, and a removal or a trim reads them in turn. Put out of order, an Out dragged made clips of words
+      // already sung, and a re-cut was refused as too short. Another clip may still go between them
+      const runs = this.runsOf(await this.row(clip.timeline_id), all);
+      const run = runs.find((r) => r.ids.includes(id));
+      if (run && order.filter((x) => run.ids.includes(x)).some((x, i) => x !== run.ids[i])) {
+        throw httpError(run.kind === "source" ? "The windows of the source play in its order: this one cannot move past another of them." : "The clips of a recording play in its order: this one cannot move past another of them.");
+      }
     }
     // the picture newly pinned on its form, if any
     const recipe = patch.inputs ? this.registry.recipe(patch.recipe ?? clip.recipe_id ?? "") : undefined;
@@ -2124,7 +2132,7 @@ export class Timelines {
       }
       const after = placedOf(m.before);
       const moved = await rejoin(after, "cut");
-      parts.push({ before: m.before, rows: folded.rows, joined: after.clip.joined, take: after.clip.take_id, ...(moved ? { inputs: after.clip.inputs } : {}) });
+      parts.push({ before: m.before, rows: folded.rows, joined: after.clip.joined, take: after.clip.take_id, takes: after.takes.map((x) => x.take.id), ...(moved ? { inputs: after.clip.inputs } : {}) });
     }
     let toMs = plan?.toMs;
     if (removal.tail.length) {
@@ -2161,7 +2169,7 @@ export class Timelines {
       const all = await this.placed(timelineId);
       if (!all.some((p) => p.clip.id === before)) throw httpError("The clip after the cut is set aside too: move the Out back out first, then bring the part back.", 409);
       const after = all.find((p) => p.clip.id === before)!;
-      const same = (after.clip.take_id ?? null) === (part.take ?? null) && !(await this.busyOf([before])).size;
+      const same = !renderedSince({ clip: after.clip, takes: [] }, part) && !(await this.busyOf([before])).size;
       await this.db.transaction().execute(async (tx) => {
         await this.remember(timelineId, "the part brought back", undefined, tx);
         const order = all.map((p) => p.clip.id);

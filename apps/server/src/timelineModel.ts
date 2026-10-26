@@ -225,15 +225,19 @@ export const takeLandsOn = (a: TakeRow, b: Taken) => landsOn({ nextTakeId: a.nex
  * that take's frames) plays on into its guided tail, four frames, and the clip after starts as much later: cut where it
  * is guided, the landing does not step; cut before, in the frames the model drew freely, it did (×5 the motion, measured
  * 2026-10-07). Only while both ends are where the landing put them: trimmed off its guided tail, or the clip after moved,
- * it is a plain cut. A seamless take plays as a plain cut only after the take it was decoded with, still ending where it
- * did; after another take, or that one trimmed, its join is faded like any other. A clip followed by a seamless take
- * gives it back its take-over point (leadOf). A finished take stands for its draft throughout.
+ * it is a plain cut; so too under a transition on the join. A seamless take plays as a plain cut only after the take it
+ * was decoded with, still ending where it did; after another take, or that one trimmed, its join is faded like any other.
+ * A clip followed by a seamless take gives it back its take-over point (leadOf). A finished take stands for its draft
+ * throughout.
  */
 export function markJoins(placed: Placed[]): void {
   for (let i = 0; i < placed.length - 1; i++) {
     const next = placed[i + 1]!;
     const mine = placed[i]!.active;
-    if (mine && next.active && mine.take.tail_ms >= 2 * LEAD_MS && takeLandsOn(mine.take, next.active)) {
+    // a transition on the join plays over the cut instead: the landing's shared moments would show twice around it, and
+    // the export run longer than the timeline (the clip before playing on into its tail, the clip after from its own start)
+    const crossed = next.clip.joined === "cut" && transitionOfRow(next.clip) !== null;
+    if (mine && next.active && !crossed && mine.take.tail_ms >= 2 * LEAD_MS && takeLandsOn(mine.take, next.active)) {
       mine.give = -LEAD_MS;
       next.active.landed = LEAD_MS;
       continue;

@@ -555,6 +555,51 @@ describe.skipIf(!ffmpegThere)("a clip under a recording, in any H3 form (card #7
     expect((await forms(id)).at(-1)).toBe("scail.motion");
   });
 
+  it("refuses a split of one of its clips, at the playhead or by a range inside it: both halves would keep its whole part (B10)", async () => {
+    const { id, clips } = await dropped("zz-test split refused");
+    await t.db.insertInto("assets").values(newAssetRow({
+      id: "zz-split-v", kind: "video", origin: "generated", name: "zz-test split", file_key: "assets/zz/zz-split-v", thumb_key: null, mime: "video/mp4", bytes: 1000,
+      width: 576, height: 1024, duration_ms: 4000, fps: 24, has_sound: 1, folder_id: null, generation_id: null, kept_at: now(),
+    })).execute();
+    const asset = await t.db.selectFrom("assets").selectAll().where("id", "=", "zz-split-v").executeTakeFirstOrThrow();
+    await t.services.timelines.takes.add(clips[0]!.id, asset, { headMs: 0, tailMs: 0 }, {});
+    const steps = async () => (await t.db.selectFrom("timeline_history").select("seq").where("timeline_id", "=", id).execute()).length;
+    const before = await steps();
+    const split = await t.app.inject({ method: "POST", url: `/api/clips/${clips[0]!.id}/split`, payload: { atMs: 2000 } });
+    expect(split.statusCode).toBe(400);
+    expect(split.json().error).toMatch(/one of a recording's: its part of it cannot be split in two/);
+    for (const action of ["split", "remove"]) {
+      const res = await t.app.inject({ method: "POST", url: `/api/timelines/${id}/range`, payload: { inMs: 1000, outMs: 2000, action } });
+      expect(res.statusCode).toBe(400);
+    }
+    expect(((await view(id)).clips as ViewClip[]).map((c) => c.id)).toEqual(clips.map((c) => c.id));
+    expect(await steps()).toBe(before);
+  });
+
+  it("keeps its clips in its order: a move past another of them is refused, another clip may go between them (B9)", async () => {
+    const { id, clips } = await dropped("zz-test order kept");
+    const ids = () => view(id).then((v) => (v.clips as ViewClip[]).map((c) => c.id));
+    const steps = async () => (await t.db.selectFrom("timeline_history").select("seq").where("timeline_id", "=", id).execute()).length;
+    const before = await steps();
+    for (const [moved, after] of [[clips[2]!.id, null], [clips[0]!.id, clips[2]!.id], [clips[1]!.id, clips[2]!.id]] as const) {
+      const res = await t.app.inject({ method: "PATCH", url: `/api/clips/${moved}`, payload: { after } });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toMatch(/clips of a recording play in its order/);
+    }
+    expect(await ids()).toEqual(clips.map((c) => c.id));
+    expect(await steps()).toBe(before);
+    // a clip of its own goes between two of them, and back out
+    await call("POST", `/api/timelines/${id}/clips`, { recipe: "h3.video" });
+    const free = (await ids()).at(-1)!;
+    await call("PATCH", `/api/clips/${free}`, { after: clips[0]!.id });
+    expect(await ids()).toEqual([clips[0]!.id, free, clips[1]!.id, clips[2]!.id]);
+    await call("PATCH", `/api/clips/${free}`, { after: null });
+    expect(await ids()).toEqual([free, ...clips.map((c) => c.id)]);
+    // one of them moved where it keeps its place among them goes: the first before the clip of its own
+    await call("PATCH", `/api/clips/${clips[0]!.id}`, { after: null });
+    expect(await ids()).toEqual([clips[0]!.id, free, clips[1]!.id, clips[2]!.id]);
+  });
+
   it("re-cut, keeps each clip's form where its part survives; a part no clip had takes the recording's New clips form", async () => {
     const { id, sound, clips } = await dropped("zz-test any form re-cut");
     await call("PATCH", `/api/clips/${clips[0]!.id}`, { recipe: "h3.video" });

@@ -73,3 +73,29 @@ describe("a join that carries the clip before's sound (LTX)", () => {
     expect(carried(trimmed[1]!.active)).toBe(false);
   });
 });
+
+describe("a landing under a transition (B8)", () => {
+  const placedWith = (transition: string | null): Placed[] => {
+    const b = { take: take("b1", "B", "vb"), asset: asset("vb") };
+    const a = { take: take("a1", "A", "va", { tail_ms: 500, next_take_id: "b1", next_at_ms: plays(b).start }), asset: asset("va") };
+    return [
+      { clip: clip("A", "cut"), takes: [a], active: a, still: null, sound: null, pictures: [] },
+      { clip: { ...clip("B", "cut"), transition }, takes: [b], active: b, still: null, sound: null, pictures: [] },
+    ] as Placed[];
+  };
+  it("is a landing on a plain cut: the clip before plays into its tail, the clip after starts as much later", () => {
+    const placed = placedWith(null);
+    markJoins(placed);
+    expect(placed[1]!.active!.landed).toBeGreaterThan(0);
+    expect(placed[0]!.active!.give).toBeLessThan(0);
+  });
+  it("is a plain cut under a transition: the shared moments are not shown twice, nor the join made longer", () => {
+    const placed = placedWith(JSON.stringify({ kind: "dissolve", ms: 500, sound: "on" }));
+    const before = { a: visible(placed[0]!.active!), b: visible(placed[1]!.active!) };
+    markJoins(placed);
+    expect(placed[1]!.active!.landed).toBeUndefined();
+    expect(placed[0]!.active!.give ?? 0).toBe(0);
+    expect(visible(placed[0]!.active!)).toEqual(before.a);
+    expect(visible(placed[1]!.active!)).toEqual(before.b);
+  });
+});

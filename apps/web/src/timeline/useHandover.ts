@@ -23,7 +23,8 @@ const HOLD_MS = 300;
  * frame ("hold", a dissolve here). Within both clips' lengths; null when there is no fade.
  */
 export function fadeIn(c: Clip | undefined, from: Clip | undefined): { ms: number; mode: "hold" | "overlap" } | null {
-  if (!c?.take || !from) return null;
+  // a cut's transition plays over the join in its place, as in the export
+  if (!c?.take || !from || crossingOf(c, from)) return null;
   const f = joinFade({ landedMs: c.take.landedMs, joined: c.joined === "continue" && Boolean(from.take), seamless: Boolean(c.take.seamless), sharedMs: c.take.headMs - c.take.trimStartMs, moving: c.take.joinKind === "window" });
   if (!f) return null;
   const ms = Math.min(f.ms, c.lengthMs - FRAME_SLACK_MS, ...(f.mode === "overlap" ? [from.lengthMs - FRAME_SLACK_MS] : []));

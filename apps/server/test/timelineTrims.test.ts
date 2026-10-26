@@ -633,6 +633,37 @@ describe("a clip removed from a recording cuts its part out (card #75)", () => {
     expect((await view(tl)).recordings[0].removed.map((p: { before: string }) => p.before)).toEqual([ids[3]]);
   });
 
+  it("counts only a take newer than the cut as rendered since: the take it played then removed, Bring back gives the clip after its join back (B25)", async () => {
+    const { tl, ids } = await song();
+    const older = await takeFor(ids[3]!);
+    await t.db.updateTable("takes").set({ created_at: "2000-01-01T00:00:00.000Z" }).where("id", "=", older).execute();
+    const playing = await takeFor(ids[3]!);
+    await call("DELETE", `/api/clips/${ids[2]}`);
+    expect((await joins(tl))[2]).toEqual([ids[3], "cut"]);
+    // the take it played when cut removed: it plays the older one, made before the cut as it carried on
+    await call("DELETE", `/api/takes/${playing}`);
+    expect((await recordingState(tl)).clips[2]).toMatchObject({ id: ids[3], take: older });
+    await call("POST", `/api/timelines/${tl}/removed/back`, { before: ids[3] });
+    expect((await joins(tl))[3]).toEqual([ids[3], "continue"]);
+    // with none left at all, the same
+    await call("DELETE", `/api/clips/${ids[2]}`);
+    await call("DELETE", `/api/takes/${older}`);
+    await call("POST", `/api/timelines/${tl}/removed/back`, { before: ids[3] });
+    expect((await joins(tl))[3]).toEqual([ids[3], "continue"]);
+  });
+
+  it("folds a part back under an Out moved out when the clip after it only lost the take it played (B25)", async () => {
+    const { tl, sound, made, ids } = await song();
+    const take = await takeFor(ids[3]!);
+    await call("DELETE", `/api/clips/${ids[2]}`);
+    await call("DELETE", `/api/takes/${take}`);
+    await call("POST", `/api/timelines/${tl}/recording/trim`, { asset: sound, fromMs: 0, toMs: Math.round((made.clips[1]!.s + made.clips[1]!.n) * 1000) });
+    await call("POST", `/api/timelines/${tl}/recording/trim`, { asset: sound, fromMs: 0, toMs: 30000 });
+    expect((await joins(tl)).map(([id]) => id)).toEqual(ids);
+    expect((await joins(tl))[3]).toEqual([ids[3], "continue"]);
+    expect(await removedState(tl)).toEqual([]);
+  });
+
   it("cuts the part out when In / Out's Remove range takes a clip whole: set aside with its takes, the clip after it a cut", async () => {
     const { tl, ids } = await song();
     const takes = [];
