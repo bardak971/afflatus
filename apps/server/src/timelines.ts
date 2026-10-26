@@ -1051,10 +1051,28 @@ export class Timelines {
         const s = run!.span(row.clip, false);
         return { from: s.from, to: s.start + (Math.floor(((s.to - s.start) / 1000) * runFps + 1e-6) * 1000) / runFps };
       };
-      const { pieces } = aroundRemoved(again?.after ?? plan.fromMs, plan.toMs, run ? removed.filter((p) => dropped.has(p.before)).map((part) => ({ part, ...removedView(part, spanOf) })) : []);
+      const start = again?.after ?? plan.fromMs;
+      const spans = new Map(run ? removed.filter((p) => dropped.has(p.before)).map((part) => [part, removedView(part, spanOf)] as const) : []);
+      const { pieces } = aroundRemoved(start, plan.toMs, [...spans].map(([part, span]) => ({ part, ...span })));
+      // a part whose clips are of another grid (the source made anew with a model that cuts it otherwise) is made anew too:
+      // windows of the new model over its span, set aside at once as its clips. It stays removed, and Bring back puts back
+      // windows of the model the source has, carrying on from the one before; its old clips' takes go (the editor asks first)
+      const ofGrid = (row: ParkedClip) => {
+        const r = typeof row.clip.recipe_id === "string" ? this.registry.recipe(row.clip.recipe_id) : undefined;
+        return Boolean(r && (r.id === recipe.id || sameWindowGrid(recipe, r)));
+      };
+      const segments = pieces.flatMap((piece, k) => [
+        ...piece.after.filter((part) => !part.rows.every(ofGrid)).map((part) => ({ aside: part, k, fromMs: spans.get(part)!.fromMs, toMs: spans.get(part)!.toMs })),
+        { aside: null, k, fromMs: piece.fromMs, toMs: piece.toMs },
+      ]);
       const scenes = (id: string) => this.media.scenes(id);
-      const cutUp = await Promise.all(pieces.map((piece, k) => planWindows({ ...plan, fromMs: piece.fromMs, toMs: piece.toMs }, recipe, video, scenes, k === 0 && !piece.after.length ? again?.after : undefined)));
+      const cutUp = await Promise.all(segments.map((g) => {
+        const carries = g.aside ? (g.fromMs > start + 50 ? g.fromMs : undefined) : g.k === 0 && !pieces[0]!.after.length ? again?.after : undefined;
+        return planWindows({ ...plan, fromMs: g.fromMs, toMs: g.toMs }, recipe, video, scenes, carries);
+      }));
       const windows = cutUp.flat();
+      // the first window of the stretch made, not of a part set aside: the one the click on its first frame goes to
+      const firstOwn = cutUp.slice(0, segments.findIndex((g) => !g.aside)).flat().length;
       if (!windows.length) throw httpError(again?.after !== undefined ? "Nothing of the stretch is left after the rendered clips." : "The stretch is too short for one clip: make it longer.");
       // in place of the clip the stretch was taken from (still the same video), or of the empty clip it was dropped for (its
       // model the windows'), else after the last clip
@@ -1088,7 +1106,7 @@ export class Timelines {
         const owned = ownsOf(windows, again && "owns" in again ? again.owns : [], (1000 / recipe.traits!.fps) / 2);
         for (const [k, w] of windows.entries()) {
           // the first window replaces the person clicked on its first frame, the ones after follow it (h3.swap's pick)
-          const inputs = { ...form, [driving.id]: { asset: plan.asset, ...(k === 0 && !again?.kept && plan.pick && driving.pick ? { pick: plan.pick } : {}) }, [driving.window!.start]: w.start, [driving.window!.seconds]: w.seconds, ...(seed !== null ? { seed } : {}) };
+          const inputs = { ...form, [driving.id]: { asset: plan.asset, ...(k === firstOwn && !again?.kept && plan.pick && driving.pick ? { pick: plan.pick } : {}) }, [driving.window!.start]: w.start, [driving.window!.seconds]: w.seconds, ...(seed !== null ? { seed } : {}) };
           // cut again: what the windows dropped kept their own (ownsOf); one that carries on where one lay before keeps the
           // form it was given (card #42), when it is of the grid
           const { own: itsOwn, form: theirs } = owned[k]!;
@@ -1105,22 +1123,33 @@ export class Timelines {
         // each part removed kept with the first window after it, made a cut: carrying on, as Bring back makes it again, it
         // starts earlier by the frames it carries (windowRunUp), as the window it replaces did
         let at = 0;
-        const firsts = cutUp.map((w) => (w.length ? made[(at += w.length) - w.length]! : null));
-        const { kept } = keptAround(pieces, firsts, (part, before) => {
+        const ofSegment = cutUp.map((w) => made.slice(at, (at += w.length)));
+        const firsts = pieces.map((_, k) => ofSegment[segments.findIndex((g) => !g.aside && g.k === k)]![0] ?? null);
+        // the windows made over a part of another grid set aside as its clips (none made: it keeps its own)
+        const remade = new Map<RemovedPart, ParkedClip[]>();
+        const aside: string[] = [];
+        for (const [g, segment] of segments.entries()) {
+          const part = segment.aside;
+          if (!part || !ofSegment[g]!.length) continue;
+          remade.set(part, await parkClips(tx, ofSegment[g]!));
+          aside.push(...ofSegment[g]!);
+        }
+        const around = pieces.map((piece) => ({ ...piece, after: piece.after.map((p) => (remade.has(p) ? { ...p, rows: remade.get(p)! } : p)) }));
+        const { kept } = keptAround(around, firsts, (part, before) => {
           const k = made.indexOf(before);
           const carrying = part.joined === "continue" ? windowRunUp(forms[k]!.recipe, forms[k]!.inputs, "continue") : null;
           return { before, rows: part.rows, joined: part.joined, take: null, ...(carrying ? { inputs: JSON.stringify(carrying) } : {}) };
         });
         const parts = [...stays, ...kept];
-        // the clips after them moved along once, all the windows in
-        await this.renumber(timelineId, order.map((p) => p.clip.id), tx);
+        // the clips after them moved along once, all the windows in (those set aside out)
+        await this.renumber(timelineId, order.map((p) => p.clip.id).filter((id) => !aside.includes(id)), tx);
         // the source's start sits where its stretch now plays from; the clip it was taken from is gone. Cut again, it stays where
         // it was, and the clips it no longer has keep nothing apart
         const apart = plan.apart ? Object.fromEntries(Object.entries(plan.apart).filter(([id]) => !again?.drop.includes(id))) : undefined;
         const placedPlan = { ...(again ? { ...plan, clip: null, ...(apart ? { apart } : {}) } : { ...plan, atMs: startsAt - plan.fromMs, clip: null }), recipe: recipe.id, ...(anew ? { parked: [], shortened: undefined, removed: parts.length ? parts : undefined } : {}) };
         await tx.updateTable("timelines").set({ source: JSON.stringify(placedPlan), updated_at: now() }).where("id", "=", timelineId).execute();
         if (picture) await this.keep(picture, tx);
-        return made;
+        return made.filter((id) => !aside.includes(id));
       });
     });
     await this.touch(timelineId);
