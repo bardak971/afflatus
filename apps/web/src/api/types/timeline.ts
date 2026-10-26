@@ -114,6 +114,8 @@ export interface Clip {
   join: "fresh" | "stale" | "cut" | null;
   recipe: string | null;
   inputs: Record<string, unknown>;
+  /** A source window run past a part kept removed: what its take will hide of its end, so it meets that part (card #114). */
+  hiddenMs?: number;
   /** The take that plays: one of `takes` (sent by its id, found there by api.ts). */
   take: Take | null;
   takes: Take[];

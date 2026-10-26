@@ -30,6 +30,11 @@ describe("the clips laid along the track", () => {
     const slots = layout([clip({ id: "a", recipe: "scail.motion", inputs: { drivingStart: 3, drivingSeconds: 3.3 } }), clip({ id: "b", recipe: "h3.lipsync", inputs: { recordingStart: 0, recordingSeconds: 7.5 } })], 10, [scail, lip]);
     expect(slots.map((s) => s.lengthMs)).toEqual([3300, 7500]);
   });
+  it("draws a window run past a part kept removed as long as its take will play, the end it hides left out (card #114)", () => {
+    const scail = { ...(recipeById("scail.motion") as unknown as RecipeInfo), traits: null };
+    const slots = layout([clip({ id: "a", recipe: "scail.motion", inputs: { drivingStart: 3, drivingSeconds: 3.3 }, hiddenMs: 250 }), clip({ id: "b", recipe: "scail.motion", inputs: { drivingStart: 6.5, drivingSeconds: 3 } })], 10, [scail]);
+    expect(slots.map((s) => [s.startMs, s.lengthMs])).toEqual([[0, 3050], [3050, 3000]]);
+  });
   it("gives a clip not rendered yet the length its form asks for, five seconds without one", () => {
     const slots = layout([clip({ id: "a", inputs: { seconds: 3 } }), clip({ id: "b", recipe: "gone" })], 10, [h3]);
     expect(slots.map((s) => [s.lengthMs, s.planned])).toEqual([[3000, true], [5000, true]]);

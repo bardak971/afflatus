@@ -904,7 +904,12 @@ describe("a re-cut, a moved In or a source made anew keeps the parts removed rem
     // a take landed on a window that hides its end stops playing that much before it
     const video = await t.db.selectFrom("assets").selectAll().where("id", "=", await asset("video")).executeTakeFirstOrThrow();
     const src = JSON.parse(String(row.source)) as Record<string, unknown>;
+    const plannedOf = async () => (await t.services.timelines.leaves()).find((x) => x.id === tl)!.plannedMs;
+    const planned = await plannedOf();
     await t.db.updateTable("timelines").set({ source: JSON.stringify({ ...src, hidden: { [last.id]: 375 } }) }).where("id", "=", tl).execute();
+    // not rendered yet, it is told as long as its take will play: the end it hides left out
+    expect((await view(tl)).clips.find((c: { id: string }) => c.id === last.id).hiddenMs).toBe(375);
+    expect(await plannedOf()).toBe(planned - 375);
     await t.services.timelines.takes.add(last.id, video, { headMs: 0, tailMs: 0 }, {});
     expect((await t.db.selectFrom("takes").select("trim_end_ms").where("clip_id", "=", last.id).executeTakeFirstOrThrow()).trim_end_ms).toBe(375);
     // the window after the part opens where it ends

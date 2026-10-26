@@ -350,7 +350,7 @@ export class Timelines {
       return {
         id: t.id, name: t.name, projectId: t.project_id, folderId: t.folder_id, clips: all.length, durationMs: all.reduce((sum, p) => sum + lengthOf(p), 0),
         // what the editor's header says: the clips with nothing rendered yet at the length their form asks for
-        plannedMs: all.reduce((sum, p) => sum + plannedLengthOf(p, p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined), 0),
+        plannedMs: all.reduce((sum, p) => sum + plannedLengthOf(p, p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined, sourceOfRow(t.source)?.hidden?.[p.clip.id]), 0),
         bytes: [...sizes.values()].reduce((a, b) => a + b, 0), exported, createdAt: t.created_at, updatedAt: t.updated_at,
       };
     });
@@ -417,6 +417,7 @@ export class Timelines {
       return takeView(x, r, laid(r?.recipe ?? clipRecipe, own?.inputs), madeOf(this.registry.recipe(drafted?.recipe ?? ""), drafted, draft.take.prev_take_id));
     };
     let at = 0;
+    const hidden = sourceOfRow(t.source)?.hidden;
     const clips = all.map((p, i) => {
       const length = lengthOf(p);
       const job = live.get(p.clip.id);
@@ -424,6 +425,8 @@ export class Timelines {
       const view = {
         id: p.clip.id, kind: p.clip.kind, joined: p.clip.joined, join: this.joinState(all, i), recipe: p.clip.recipe_id,
         inputs: JSON.parse(p.clip.inputs) as Record<string, unknown>,
+        /** What its take will hide of its end (a window run past a part kept removed): drawn that much shorter until it plays. */
+        ...(hidden?.[p.clip.id] ? { hiddenMs: hidden[p.clip.id] } : {}),
         take: p.active ? viewOf(p.takes, p.clip.recipe_id)(p.active) : null,
         takes: p.takes.map(viewOf(p.takes, p.clip.recipe_id)),
         still: p.still ? assetView(p.still) : null,
@@ -514,7 +517,8 @@ export class Timelines {
       const video = await this.assetRow(patch.source.asset ?? sourceOfRow(before.source)?.asset ?? null);
       if (!video || video.kind !== "video") throw httpError("The source has to be a video of the library.");
       const all = await this.placed(id);
-      const end = all.reduce((sum, p) => sum + plannedLengthOf(p, p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined), 0);
+      const hidden = sourceOfRow(before.source)?.hidden;
+      const end = all.reduce((sum, p) => sum + plannedLengthOf(p, p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined, hidden?.[p.clip.id]), 0);
       source = JSON.stringify(patchedSource(sourceOfRow(before.source), patch.source, video, end));
     }
     // the source taken away takes the clips it made with it, rendered or not (Undo brings back the source, its clips and their takes)
@@ -1099,7 +1103,7 @@ export class Timelines {
       // model the windows'), else after the last clip
       const replaced = again ? -1 : plan.clip ? all.findIndex((p) => p.clip.id === plan.clip && (p.active ? p.active.asset.id === plan.asset : !p.clip.take_id)) : -1;
       const index = again ? again.index : replaced >= 0 ? replaced : all.length;
-      const startsAt = all.slice(0, index).reduce((sum, p) => sum + plannedLengthOf(p, p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined), 0);
+      const startsAt = all.slice(0, index).reduce((sum, p) => sum + plannedLengthOf(p, p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined, plan.hidden?.[p.clip.id]), 0);
       // a seed only when one was typed on the source form: else each render draws its own, as for a new clip (the shared
       // Picture keeps the person the same from window to window, not a seed). One drawn here would be a typed seed to the
       // seed mode, every New take sent with it again
