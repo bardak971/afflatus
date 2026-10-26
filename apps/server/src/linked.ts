@@ -12,6 +12,7 @@ import { extOf, mimeOfDiskFile, newAssetRow } from "./media";
 import type { Storage } from "./storage";
 import { missingFiles } from "./missingFiles";
 import { inUse } from "./sweep";
+import { oneAtATime } from "./keyedLock";
 
 /**
  * Folders linked to a directory of the disk the server runs on (a mounted volume, in a container).
@@ -83,13 +84,24 @@ export function whyNotLinkable(dir: string, env: NodeJS.ProcessEnv = environment
   if (inside(d, data) || inside(data, d)) return "Afflatus's own data folder cannot be linked, nor a folder around it.";
   const nodes = comfyDir.trim() ? norm(resolve(comfyDir.trim(), "custom_nodes")) : "";
   if (nodes && (inside(d, nodes) || inside(nodes, d))) return "ComfyUI's custom_nodes folder holds code: it cannot be linked, nor a folder around it.";
-  const roots = (env.LINK_ROOTS ?? "").split(delimiter).map((r) => r.trim()).filter(Boolean).map((r) => norm(resolve(r)));
+  const roots = linkRoots(env).map((r) => norm(resolve(r)));
   const host = loadConfig(env).host.toLowerCase();
   if (!roots.length && !LOOPBACK.has(host) && !host.startsWith("127.")) return "Afflatus listens on the network (HOST): set LINK_ROOTS to the folders that may be linked before linking one.";
   if (roots.length && !roots.some((r) => inside(d, r))) return `Linking is limited to the folders named in LINK_ROOTS (${roots.join(", ")}) and what is inside them.`;
   return null;
 }
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+const linkRoots = (env: NodeJS.ProcessEnv) => (env.LINK_ROOTS ?? "").split(delimiter).map((r) => r.trim()).filter(Boolean);
+
+/**
+ * Whether a request may link a folder from where it comes (`here`: hostCheck.ts fromThisComputer). Behind a proxy or a
+ * tunnel on this same machine (Caddy, cloudflared, Tailscale serve) HOST stays loopback while every device reaches the
+ * server, so the HOST rule above does not hold them back: another device links nothing until LINK_ROOTS names what it may.
+ */
+export function whyNotLinkableFrom(here: boolean, env: NodeJS.ProcessEnv = environment()): string | null {
+  if (here || linkRoots(env).length) return null;
+  return "A folder is linked from the computer Afflatus runs on: set LINK_ROOTS to the folders that may be linked to let other devices link them.";
+}
 
 /** The files of Afflatus's own storage, and the files of linked folders, behind one door. */
 export class RoutedStorage implements Storage {
@@ -318,7 +330,11 @@ export class Linked {
   async unlink(rootId: string): Promise<void> {
     const root = await this.db.selectFrom("folders").selectAll().where("id", "=", rootId).executeTakeFirst();
     if (!root?.path) throw httpError("This folder is not linked to the disk.");
-    const dir = resolve(root.path);
+    // not while a reading registers files into the folders it takes away
+    await inTurnOf(this.db, [root.path], () => this.unlinkNow(root));
+  }
+  private async unlinkNow(root: Folder): Promise<void> {
+    const dir = resolve(root.path!);
     const folders = (await this.db.selectFrom("folders").selectAll().where("path", "is not", null).execute()).filter((f) => under(resolve(f.path!), dir));
     const ids = folders.map((f) => f.id);
     const files = await this.db.selectFrom("assets").select(["id", "name", "file_key", "thumb_key"]).where("folder_id", "in", ids).execute();
@@ -332,7 +348,7 @@ export class Linked {
     // all of it or none: a stop halfway would leave folders without their files, or files in folders that are gone
     await this.db.transaction().execute(async (tx) => {
       for (const a of files) {
-        if (isLinked(a.file_key)) await this.forgetRow(a.id, tx);
+        if (isLinked(a.file_key)) await this.forgetRows([a.id], tx);
         // a result that was waiting there to be kept stays in the library, in no folder
         else await tx.updateTable("assets").set({ folder_id: null }).where("id", "=", a.id).execute();
       }
@@ -345,13 +361,39 @@ export class Linked {
     this.events.emit("library");
   }
 
-  private async forget(a: Pick<Asset, "id" | "thumb_key">): Promise<void> {
-    if (a.thumb_key) await this.storage.delete(a.thumb_key).catch(() => {});
-    await this.forgetRow(a.id, this.db);
+  private async forgetRows(ids: string[], db: Db): Promise<void> {
+    await db.deleteFrom("generation_inputs").where("asset_id", "in", ids).execute();
+    await db.deleteFrom("assets").where("id", "in", ids).execute();
   }
-  private async forgetRow(id: string, db: Db): Promise<void> {
-    await db.deleteFrom("generation_inputs").where("asset_id", "=", id).execute();
-    await db.deleteFrom("assets").where("id", "=", id).execute();
+
+  /**
+   * The rows of files gone from their directory forgotten, a slice at a time in one transaction each (one commit per file
+   * held a reading of thousands for minutes). Only a row still as the reading found it goes: one taken to the bin, moved or
+   * filed elsewhere since says another file_key or a deleted_at, and is the user's file still. Their small pictures after.
+   */
+  private async forgetGone(gone: Array<Pick<Asset, "id" | "file_key">>): Promise<void> {
+    for (let i = 0; i < gone.length; i += SLICE) {
+      const part = new Map(gone.slice(i, i + SLICE).map((a) => [a.id, a.file_key]));
+      const forgotten = await this.db.transaction().execute(async (tx) => {
+        const rows = await tx.selectFrom("assets").select(["id", "file_key", "thumb_key"]).where("id", "in", [...part.keys()]).where("deleted_at", "is", null).execute();
+        const still = rows.filter((a) => part.get(a.id) === a.file_key);
+        if (still.length) await this.forgetRows(still.map((a) => a.id), tx);
+        return still;
+      });
+      for (const a of forgotten) if (a.thumb_key) await this.storage.delete(a.thumb_key).catch(() => {});
+    }
+  }
+
+  /**
+   * The files being dropped into a linked folder (importFile), by key, with when: a reading meanwhile leaves them to the
+   * upload, which registers each once its small picture is made, rather than registering a second row (or half a file) itself.
+   */
+  private readonly arriving = new Map<string, number>();
+  private isArriving(key: string): boolean {
+    const at = this.arriving.get(key);
+    if (at !== undefined && Date.now() - at < ARRIVING_MS) return true;
+    this.arriving.delete(key);
+    return false;
   }
 
   /** Read a linked folder's directory again: what is new appears, what is gone disappears. One reading at a time per folder. */
@@ -367,6 +409,11 @@ export class Linked {
     const start = await this.db.selectFrom("folders").selectAll().where("id", "=", folderId).executeTakeFirst();
     if (!start?.path) throw httpError("This folder is not linked to the disk.");
     const root = await this.rootOf(start);
+    // in the folder's turn: a file taken to the bin, put back or filed while the directory was walked was forgotten or registered twice
+    return inTurnOf(this.db, [root.path!], () => this.readRoot(root));
+  }
+
+  private async readRoot(root: Folder): Promise<{ files: number; folders: number }> {
     const dir = resolve(root.path!);
     if (!(await stat(dir).catch(() => null))?.isDirectory()) throw httpError(`"${dir}" cannot be read: it was moved or deleted, or its disk is not there.`);
 
@@ -424,15 +471,17 @@ export class Linked {
         files++;
         const had = byKey.get(key);
         if (had) {
-          // changed since it was read: its small picture, what was measured of it and what the timelines derived from it (strips,
-          // motion, scenes: forgotten while the row still says how long the old file was) are made again when it is next looked at
+          // changed since it was read: its small picture, what was measured of it, what it holds (a paste of the old content was
+          // found as this file by its digest) and what the timelines derived from it (strips, motion, scenes: forgotten while the
+          // row still says how long the old file was) are made again when it is next looked at
           if (had.bytes !== info.size || had.created_at !== made) {
             if (had.thumb_key) await this.storage.delete(had.thumb_key).catch(() => {});
             await this.derived.forgetDerived(had.id).catch(() => {});
-            await this.db.updateTable("assets").set({ bytes: info.size, created_at: made, thumb_key: null, width: null, height: null, duration_ms: null }).where("id", "=", had.id).execute();
+            await this.db.updateTable("assets").set({ bytes: info.size, created_at: made, thumb_key: null, width: null, height: null, duration_ms: null, digest: null }).where("id", "=", had.id).execute();
           }
           continue;
         }
+        if (this.isArriving(key)) continue;
         fresh.push({ full, name: e.name, folder, size: info.size, made, kind, mime });
       }
     };
@@ -440,6 +489,8 @@ export class Linked {
 
     // not where they were: the known files not seen, but for those under a directory that could not be read
     const missing = [...byKey].filter(([key]) => !seenFiles.has(key) && !inUnknown(resolve(diskPath(key)))).map(([, a]) => a);
+    const followed: Array<{ id: string; set: { file_key: string; name: string; folder_id: string } }> = [];
+    const added: Array<ReturnType<typeof newAssetRow>> = [];
     for (const f of fresh) {
       // the same size and the same time of last writing as a file that went: that file, renamed or moved within the folder. Its
       // row follows it, with its id, and so do its name, its tags and the timeline takes that play it
@@ -449,18 +500,25 @@ export class Linked {
         missing.splice(missing.indexOf(was), 1);
         // a name given in Afflatus stays; the file's own name follows the file
         const name = was.name === basename(diskPath(was.file_key)) ? f.name.slice(0, 200) : was.name;
-        await this.db.updateTable("assets").set({ file_key: LINKED + f.full, name, folder_id: f.folder.id }).where("id", "=", was.id).execute();
+        followed.push({ id: was.id, set: { file_key: LINKED + f.full, name, folder_id: f.folder.id } });
         continue;
       }
-      await this.db
-        .insertInto("assets")
-        .values(newAssetRow({
-          id: newId(), kind: f.kind, origin: "uploaded", name: f.name.slice(0, 200), file_key: LINKED + f.full, thumb_key: null, mime: f.mime, bytes: f.size,
-          // what is measured of it (its size in pixels, its length) is read when it is first looked at
-          width: null, height: null, duration_ms: null, fps: null, has_sound: f.kind === "audio" ? 1 : 0,
-          folder_id: f.folder.id, generation_id: null, kept_at: now(), linked_path: null, created_at: f.made,
-        }))
-        .execute();
+      added.push(newAssetRow({
+        id: newId(), kind: f.kind, origin: "uploaded", name: f.name.slice(0, 200), file_key: LINKED + f.full, thumb_key: null, mime: f.mime, bytes: f.size,
+        // what is measured of it (its size in pixels, its length) is read when it is first looked at
+        width: null, height: null, duration_ms: null, fps: null, has_sound: f.kind === "audio" ? 1 : 0,
+        folder_id: f.folder.id, generation_id: null, kept_at: now(), linked_path: null, created_at: f.made,
+      }));
+    }
+    // a slice of rows per transaction, not a commit per file: linking ten thousand files made ten thousand commits (each an
+    // fsync, and the search index's triggers) while the request waited and every other query of the app queued behind them
+    for (let i = 0; i < Math.max(followed.length, added.length); i += SLICE) {
+      const moves = followed.slice(i, i + SLICE);
+      const rows = added.slice(i, i + SLICE);
+      await this.db.transaction().execute(async (tx) => {
+        for (const m of moves) await tx.updateTable("assets").set(m.set).where("id", "=", m.id).execute();
+        if (rows.length) await tx.insertInto("assets").values(rows).execute();
+      });
     }
 
     // gone from the disk: gone from the folder (nothing of it is in Afflatus's storage but its small picture). Unless something
@@ -469,12 +527,11 @@ export class Linked {
     const used = missing.length ? await inUse(this.db, { undo: true }) : new Map<string, string>();
     const staying = new Set<string>();
     for (const a of missing) {
-      if (!used.has(a.id)) await this.forget(a);
-      else {
-        missingFiles.mark(a.file_key);
-        if (a.folder_id) staying.add(a.folder_id);
-      }
+      if (!used.has(a.id)) continue;
+      missingFiles.mark(a.file_key);
+      if (a.folder_id) staying.add(a.folder_id);
     }
+    await this.forgetGone(missing.filter((a) => !used.has(a.id)));
     // the folder of such a file stays too, and the folders around it, so that it is still found where it was
     const parentOf = new Map(knownFolders.map((f) => [f.id, f.parent_id]));
     for (const id of [...staying]) for (let at = parentOf.get(id); at; at = parentOf.get(at)) staying.add(at);
@@ -532,8 +589,16 @@ export class Linked {
    * File an item into a linked folder: it becomes a file in that folder's directory. One of Afflatus's
    * own storage is written there under a readable name; one that is already a linked file is moved.
    */
-  async into(a: Asset, folder: Folder): Promise<void> {
+  async into(item: Asset, folder: Folder): Promise<void> {
     const dir = resolve(folder.path!);
+    await inTurnOf(this.db, isLinked(item.file_key) ? [dir, diskPath(item.file_key)] : [dir], async () => {
+      // as it is when its turn comes: a reading may have followed it to another name meanwhile
+      const a = await this.db.selectFrom("assets").selectAll().where("id", "=", item.id).executeTakeFirst();
+      if (!a) throw httpError("This item is not in the library any more.", 404);
+      await this.intoNow(a, dir, folder);
+    });
+  }
+  private async intoNow(a: Asset, dir: string, folder: Folder): Promise<void> {
     if (isLinked(a.file_key)) {
       const from = resolve(diskPath(a.file_key));
       if (dirname(from) === dir) return;
@@ -569,11 +634,14 @@ export class Linked {
       const full = join(dir, n === 1 ? name : `${stem} (${n})${ext}`);
       // the name never leads anywhere but into the folder itself
       if (dirname(full) !== dir) throw httpError(`"${wanted}" is not a file name that can be written into a folder.`);
+      for (const [key, at] of this.arriving) if (Date.now() - at >= ARRIVING_MS) this.arriving.delete(key);
+      this.arriving.set(LINKED + full, Date.now());
       try {
         // EXCL: a file that appeared there since is never written over, whoever made it
         await copyFile(from, full, constants.COPYFILE_EXCL);
       } catch (err) {
         const e = err as NodeJS.ErrnoException;
+        this.arriving.delete(LINKED + full);
         if (e.code === "EEXIST") continue;
         // a copy that failed half way (a full disk, a read error) leaves half a file: not to be read back as one
         await rm(full, { force: true }).catch(() => {});
@@ -591,7 +659,16 @@ export class Linked {
   }
 
   /** Back from the bin: into the directory it was in when that is still there, else it stays in the library as an item of its own. */
-  async restore(a: Asset): Promise<void> {
+  async restore(item: Asset): Promise<void> {
+    if (!item.linked_path) return this.restoreNow(item);
+    await inTurnOf(this.db, [item.linked_path], async () => {
+      const a = await this.db.selectFrom("assets").selectAll().where("id", "=", item.id).executeTakeFirst();
+      // put back already (two Put back at once), or erased meanwhile by an Empty the bin
+      if (!a?.deleted_at || !a.linked_path) return;
+      await this.restoreNow(a);
+    });
+  }
+  private async restoreNow(a: Asset): Promise<void> {
     const dir = a.linked_path ? dirname(a.linked_path) : null;
     const folder = dir ? (await this.db.selectFrom("folders").selectAll().where("path", "is not", null).execute()).find((f) => resolve(f.path!) === dir) : undefined;
     if (!dir || !folder || !(await stat(dir).catch(() => null))?.isDirectory()) {
@@ -607,12 +684,40 @@ export class Linked {
 
 /**
  * A stored file written out to `to` on the disk: copied there by the file system when the storage has it on this disk, else
- * written from its bytes. Read whole into memory first, a 515 MB video moved into a linked folder held 521 MB more.
+ * written from its bytes. Read whole into memory first, a 515 MB video moved into a linked folder held 521 MB more. Written
+ * under a hidden name beside it (a reading skips it) and renamed once whole: a copy that failed half way (a full disk, a
+ * read error) left half a file in the user's folder, which the next reading registered as an item.
  */
 async function writeOut(storage: Storage, key: string, to: string): Promise<void> {
-  const path = storage.localPath?.(key);
-  if (path) await copyFile(path, to);
-  else await writeFile(to, await storage.get(key));
+  const part = join(dirname(to), `.${basename(to)}.part`);
+  try {
+    const path = storage.localPath?.(key);
+    if (path) await copyFile(path, part);
+    else await writeFile(part, await storage.get(key));
+    await rename(part, to);
+  } catch (err) {
+    await rm(part, { force: true }).catch(() => {});
+    throw err;
+  }
+}
+
+/** Rows written per transaction by a reading of a linked folder. */
+const SLICE = 200;
+/** How long a file dropped into a linked folder is left to its upload to register (its small picture is made first). */
+const ARRIVING_MS = 10 * 60_000;
+
+/**
+ * Work in the turn of the linked folders the paths are in, one at a time per folder linked (keyedLock.ts). A reading lists
+ * the files it knows, then walks the disk for seconds or minutes: a file taken to the bin in between was not found by the
+ * walk, and its row was forgotten with the bin copy only that row named, the user's file already gone from the folder; one
+ * put back or filed there meanwhile was registered a second time. Readings and the moves of linked files take turns.
+ * Several folders (a file moved from one to another) are taken in one order everywhere, so two moves never wait on each other.
+ */
+async function inTurnOf<T>(db: Db, paths: string[], work: () => Promise<T>): Promise<T> {
+  const linked = await db.selectFrom("folders").select(["id", "parent_id", "path"]).where("path", "is not", null).execute();
+  const tops = linked.filter((f) => !linked.some((p) => p.id === f.parent_id)).map((f) => resolve(f.path!));
+  const keys = [...new Set(paths.map((p) => tops.find((t) => under(resolve(p), t)) ?? resolve(p)))].sort();
+  return keys.reduceRight<() => Promise<T>>((next, key) => () => oneAtATime(db, `linked:${key}`, next), work)();
 }
 
 /**
@@ -621,7 +726,15 @@ async function writeOut(storage: Storage, key: string, to: string): Promise<void
  * the copy is dropped: the row never says "in the bin" while the file still sits in the folder, where the next reading
  * would find it and register it a second time. Also for a video taken apart by a cut (timelineRange.ts).
  */
-export async function linkedToBin(db: Db, storage: Storage, a: Pick<Asset, "id" | "mime" | "file_key">): Promise<void> {
+export async function linkedToBin(db: Db, storage: Storage, item: Pick<Asset, "id" | "mime" | "file_key">): Promise<void> {
+  await inTurnOf(db, [diskPath(item.file_key)], async () => {
+    // as it is when its turn comes: a reading may have followed it to another name meanwhile
+    const a = await db.selectFrom("assets").select(["id", "mime", "file_key", "deleted_at"]).where("id", "=", item.id).executeTakeFirst();
+    if (!a || a.deleted_at || !isLinked(a.file_key)) throw httpError("This file is not in its folder any more: press Look again on its folder.", 409);
+    await toBinNow(db, storage, a);
+  });
+}
+async function toBinNow(db: Db, storage: Storage, a: Pick<Asset, "id" | "mime" | "file_key">): Promise<void> {
   const from = resolve(diskPath(a.file_key));
   const key = `assets/${a.id.slice(0, 2)}/${a.id}.${extOf(a.mime)}`;
   const path = storage.localPath?.(a.file_key);

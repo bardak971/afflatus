@@ -1,10 +1,11 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { httpError } from "./errors";
 import { newId, now, OWNER } from "./db";
 import { foldersOf, type LibraryChange } from "./events";
 import { oneAtATime } from "./keyedLock";
-import { isLinked } from "./linked";
+import { fromThisComputer } from "./hostCheck";
+import { isLinked, whyNotLinkableFrom } from "./linked";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
 
@@ -46,8 +47,15 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
     };
   });
 
+  // linking serves and bins what is in the folder: from another device, only what LINK_ROOTS names (linked.ts whyNotLinkableFrom)
+  const fromHere = (req: FastifyRequest) => {
+    const refused = whyNotLinkableFrom(fromThisComputer(req));
+    if (refused) throw httpError(refused, 403);
+  };
+
   /** Link a directory of the disk the server runs on: it becomes a folder, with its sub-directories as sub-folders. */
   app.post("/api/folders/link", async (req) => {
+    fromHere(req);
     // `project`: the project it goes to the top of (null or left out: the Inbox)
     const body = z.strictObject({ path: z.string().trim().min(1).max(1000), name: z.string().trim().max(120).optional(), project: z.string().nullable().optional() }).parse(req.body);
     const row = await s.linked.link(body.path, body.name, (await readSettings(s.db)).comfyDir, body.project ?? null);
@@ -60,6 +68,7 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
 
   /** A linked folder pointed at where its directory is now; read again at once. */
   app.post<{ Params: { id: string } }>("/api/folders/:id/relink", async (req) => {
+    fromHere(req);
     await mustExist(req.params.id);
     const body = z.strictObject({ path: z.string().trim().min(1).max(1000) }).parse(req.body);
     const row = await s.linked.relink(req.params.id, body.path, (await readSettings(s.db)).comfyDir);
