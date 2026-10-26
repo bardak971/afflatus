@@ -1,6 +1,8 @@
 import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
+import { loadedOn } from "../src/jobFiles";
+import type { QueueCore } from "../src/queueModel";
 import { makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
 /**
@@ -29,6 +31,11 @@ afterEach(async () => {
   await t.close();
   await fake.close();
 });
+
+/** A plain picture in the library: Wan's 5B is refused only where the build takes it, from a picture. */
+const picture = async () =>
+  ((await t.app.inject({ method: "POST", url: "/api/assets", headers: { "content-type": "image/png" }, payload: await sharp({ create: { width: 64, height: 64, channels: 3, background: { r: 90, g: 120, b: 150 } } }).png().toBuffer() })).json() as { id: string }).id;
+const jobs = async () => (await t.db.selectFrom("jobs").select(["id", "label"]).execute());
 
 const form = (input: Record<string, unknown>) => ({ recipe: "wan.video", input: { prompt: "A lighthouse at dusk, the camera pushes in slowly.", ...input } });
 
@@ -68,5 +75,50 @@ describe("a render's files held together", () => {
     expect(info.items["film_grain.safetensors"]).toMatchObject({ base: "SDXL", civitaiBase: "SDXL 1.0" });
     const said = (await post(t.app, "/api/form/set-check", form({ model: HIGH, modelLow: LOW, loras: [{ file: "film_grain.safetensors", weight: 1 }] }))).json();
     expect(said.findings).toEqual([expect.objectContaining({ at: "loras", black: false, text: "This LoRA was trained for SDXL: on Wan 2.2 it does nothing." })]);
+  });
+
+  it("refuses a timeline's Render when one clip is a black mix, naming the clip and queueing none of the clips (card #97)", async () => {
+    // held: a clip queued is only looked at here, never sent
+    await t.services.queue.setPaused(true);
+    const p = (await post(t.app, "/api/projects", { name: "zz-test set" })).json() as { id: string };
+    const tl = (await post(t.app, "/api/timelines", { name: "zz-test set", project: p.id })).json() as { id: string };
+    const clip = async () => ((await post(t.app, `/api/timelines/${tl.id}/clips`, { recipe: "wan.video" })).json() as { clip: string }).clip;
+    const good = await clip();
+    const bad = await clip();
+    const prompt = "A lighthouse at dusk, the camera pushes in slowly.";
+    const render = (clips: Array<{ id: string; input: Record<string, unknown> }>) => post(t.app, `/api/timelines/${tl.id}/render`, { clips });
+    const res = await render([{ id: good, input: { prompt, model: HIGH, modelLow: LOW } }, { id: bad, input: { prompt, model: FIVE_B, modelLow: I2V_LOW, start: await picture() } }]);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/^Clip 2: This model is Wan 2\.2 5B \(TI2V\).*It would give black or garbled frames, so it was not sent\.$/);
+    // the good clip before it was not left queued on its own
+    expect(await jobs()).toEqual([]);
+    // the good clip alone still queues
+    const ok = await render([{ id: good, input: { prompt, model: HIGH, modelLow: LOW } }]);
+    expect(ok.statusCode).toBe(200);
+    expect(await jobs()).toEqual([expect.objectContaining({ label: "zz-test set · clip 1" })]);
+  });
+
+  it("refuses a job done again with a black mix, and lets it go again as it was", async () => {
+    const res = await post(t.app, "/api/jobs", form({ model: HIGH, modelLow: LOW }));
+    const [id] = (res.json() as { ids: string[] }).ids;
+    const again = await post(t.app, `/api/jobs/${id}/retry`, { input: { model: FIVE_B, modelLow: I2V_LOW, start: await picture() } });
+    expect(again.statusCode).toBe(400);
+    expect(again.json().error).toMatch(/^This model is Wan 2\.2 5B \(TI2V\)/);
+    expect((await jobs()).map((j) => j.id)).toEqual([id]);
+    // the same job done again as it was still queues
+    expect((await post(t.app, `/api/jobs/${id}/retry`, {})).statusCode).toBe(200);
+    expect(await jobs()).toHaveLength(2);
+  });
+
+  it("sends a pod none of the files of a black mix queued before the check", async () => {
+    const start = await picture();
+    const row = { id: "zz-test-old", recipe_id: "wan.video", inputs: JSON.stringify({ prompt: "A lighthouse at dusk.", model: FIVE_B, modelLow: I2V_LOW, start }), finished_from: null, clip_id: null, clip_fit: 0, clip_mirror: null };
+    const core = (t.services.queue as unknown as { core: QueueCore }).core;
+    const loaded = await loadedOn(core, row, null);
+    expect(loaded).toMatchObject({ files: [], refused: expect.stringMatching(/This model is Wan 2\.2 5B \(TI2V\).*black or garbled/) });
+    // a good pair is planned as before, with its files
+    const fine = await loadedOn(core, { ...row, id: "zz-test-fine", inputs: JSON.stringify({ prompt: "A lighthouse at dusk.", model: HIGH, modelLow: LOW }) }, null);
+    expect(fine?.refused).toBeUndefined();
+    expect(fine?.files.map((f) => f.file)).toEqual(expect.arrayContaining([HIGH, LOW]));
   });
 });

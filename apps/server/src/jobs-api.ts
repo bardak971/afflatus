@@ -7,7 +7,6 @@ import type { Services } from "./services";
 import { draftLabel, promptOf } from "./autoName";
 import { findDraft, writeDraft } from "./drafts";
 import { paged } from "./queueView";
-import { refusedSaid } from "./modelSetCheck";
 
 /** The queue: jobs sent to it, models loaded ahead, and the queue's own controls (pause, order, retry, cancel, previews). */
 
@@ -53,10 +52,6 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
     const recipe = s.registry.recipe(body.recipe);
     // a job pinned to a machine there is not would wait for ever
     if (body.machine && !(await s.machines()).some((m) => m.machine.id === body.machine)) throw httpError("there is no ComfyUI with that id");
-    // a mix of files known to give black frames is refused before it is queued; the job checks again on the machine it runs on
-    const found = await s.queue.setCheck(body.recipe, body.input);
-    if (found.some((f) => f.black)) throw httpError(refusedSaid(found));
-    const ids: string[] = [];
     const seed = typedSeed(body.input.seed);
     // sent from a blank draft: it is written now, so that what comes out is filed under it
     if (body.draft) await writeDraft(s.db, body.draft);
@@ -68,13 +63,17 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
       const prompts = (recipe.inputs as InputSpec[]).filter((i) => i.type === "prompt" && !i.optional).map((i) => i.id);
       if (d) label = draftLabel({ name: d.name, title: d.title, prompt: promptOf(body.input, prompts), recipe: recipe.title });
     }
-    for (let i = 0; i < body.count; i++) {
-      // with a cast: each copy's {a|b} choices settled before it is worked in, so that what was asked and what renders pick the same
-      const own = recipe && body.look ? settledTexts(recipe, body.input) : body.input;
-      const input = recipe && body.look ? (await compose(s.db, recipe, own, body.look)).input : own;
-      const each = body.seedMode && seed !== null ? { ...input, seed: movedSeed(seed, body.seedMode, i) } : input;
-      ids.push(await s.queue.enqueue(body.recipe, each, { label, draft: body.draft, folder: body.folder, look: body.look, asked: input === own ? undefined : askedOf(own, input), machine: body.machine ?? null }));
-    }
+    // every copy queued, or none: a mix of files known to give black frames is refused as it is queued (Queue.enqueue), on
+    // the form as the cast made it, and the job checks again on the machine it runs on
+    const ids = await s.queue.enqueueAll(async (ask) => {
+      for (let i = 0; i < body.count; i++) {
+        // with a cast: each copy's {a|b} choices settled before it is worked in, so that what was asked and what renders pick the same
+        const own = recipe && body.look ? settledTexts(recipe, body.input) : body.input;
+        const input = recipe && body.look ? (await compose(s.db, recipe, own, body.look)).input : own;
+        const each = body.seedMode && seed !== null ? { ...input, seed: movedSeed(seed, body.seedMode, i) } : input;
+        await ask.render(body.recipe, each, { label, draft: body.draft, folder: body.folder, look: body.look, asked: input === own ? undefined : askedOf(own, input), machine: body.machine ?? null });
+      }
+    });
     return { ids };
   });
 

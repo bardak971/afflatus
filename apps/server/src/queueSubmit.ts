@@ -806,18 +806,20 @@ async function slots(core: QueueCore, comfy: Comfy, recipe: Recipe<any>): Promis
 /**
  * A form's files held against its family's (modelSetCheck.ts) before it is queued, as the first machine has them: what the
  * form says under its fields, and a mix known to give black frames refused at Render. Nothing when the form cannot be built
- * or ComfyUI does not answer: the job's own check, on the machine it runs on, still comes.
+ * or ComfyUI does not answer: the job's own check, on the machine it runs on, still comes. Every render queued is checked
+ * (Queue.enqueue), so a family that declares nothing to check is told at once, with nothing built and ComfyUI not asked.
  */
 export async function setCheckOf(core: QueueCore, recipeId: string, raw: unknown): Promise<SetFinding[]> {
   const recipe = core.registry.recipe(recipeId);
-  if (!recipe) return [];
+  const family = recipe ? core.registry.family(recipe.family) : undefined;
+  if (!recipe || !family || (!family.line && !family.wrong?.length)) return [];
   try {
     const comfy = await core.comfy();
     const { files } = await slots(core, comfy, recipe);
     const built = await builtOf(core, recipeId, raw, { comfy, slots: files, relocate: false });
     if (!built) return [];
     const input = parseInput(recipe, withTexts(recipe, raw)) as Record<string, unknown>;
-    return await setFindings(core.db, core.registry.family(recipe.family), recipe, input, built, files);
+    return await setFindings(core.db, family, recipe, input, built, files);
   } catch {
     return [];
   }
