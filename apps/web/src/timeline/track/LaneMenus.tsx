@@ -1,8 +1,9 @@
 import { useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { Clapperboard, FileUp, Library, SlidersHorizontal } from "lucide-react";
+import { Clapperboard, FileUp, Library, Mic, SlidersHorizontal } from "lucide-react";
 import type { Clip } from "../../api";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { Picker } from "../../PictureField";
+import { MicDialog } from "../../mic/MicRecord";
 
 /**
  * What an empty lane, or a Lip sync clip's Audio cell while it has no voice, is asked for: a long video for the Source
@@ -32,6 +33,8 @@ export function useLaneMenus({ onSource, onRecording, onMusic, onVoice, onUpload
 }) {
   const menu = useMenu<LaneAsk>();
   const [picking, setPicking] = useState<LaneAsk | null>(null);
+  // a voice recorded from the microphone, for a recording past the clips or a clip's voice: placed as one chosen is
+  const [recording, setRecording] = useState<LaneAsk | null>(null);
   const file = useRef<HTMLInputElement>(null);
   /** The ask a file dialog was opened for: read when the file comes back. */
   const fileFor = useRef<LaneAsk | null>(null);
@@ -70,6 +73,7 @@ export function useLaneMenus({ onSource, onRecording, onMusic, onVoice, onUpload
         items: [
           { label: `Choose a recording for clip ${ask.n}…`, icon: <Library size={14} />, run: () => setPicking(ask) },
           ...(onUpload ? [{ label: "Open an audio file…", ...open }] : []),
+          { label: "Record from the microphone…", icon: <Mic size={14} />, run: () => setRecording(ask) },
           ...(to ? ["—" as const, { label: `Switch clip ${ask.n} to ${to.title}`, icon: <Clapperboard size={14} />, run: to.run }] : []),
         ],
       };
@@ -80,6 +84,7 @@ export function useLaneMenus({ onSource, onRecording, onMusic, onVoice, onUpload
       items: [
         { label: ask.kind === "music" ? "Choose music from the library…" : "Choose a recording from the library…", icon: <Library size={14} />, run: () => setPicking(ask) },
         ...(onUpload ? [{ label: "Open an audio file…", ...open }] : []),
+        ...(ask.kind === "recording" ? [{ label: "Record from the microphone…", icon: <Mic size={14} />, run: () => setRecording(ask) }] : []),
       ],
     };
   };
@@ -100,6 +105,7 @@ export function useLaneMenus({ onSource, onRecording, onMusic, onVoice, onUpload
           }}
         />
       )}
+      {recording && <MicDialog slot={recording.kind === "voice" ? `Clip ${recording.n}'s voice` : "Voice recording"} onTake={(asset) => place(recording, asset)} onClose={() => setRecording(null)} />}
       <input
         ref={file}
         type="file"

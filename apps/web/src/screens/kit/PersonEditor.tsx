@@ -23,6 +23,7 @@ import { useFlip } from "../../useFlip";
 import { entryOf, field, modelRows, outfitsOf, withEntry } from "./shared";
 import { queryKeys } from "../../queryKeys";
 import { useBanners } from "../../store";
+import { MicButton } from "../../mic/MicRecord";
 
 /** A small fact of a row: what a model takes of the person. */
 function Takes({ children, tip }: { children: string; tip: string }) {
@@ -214,15 +215,20 @@ function Voice({ value, part, onChange, onPart }: {
               <SoundRange asset={value} total={total} start={shown.start} seconds={shown.seconds} min={VOICE_PART.min} most={VOICE_PART.most} label="Voice sample: the part used" playhead={now} onSeek={playFrom} onCommit={(start, seconds) => onPart({ start, seconds })} />
             ) : undefined}
           >
+            <MicButton slot="Voice sample" kit onTake={onChange} />
             <Button size="sm" onClick={() => setPicking(true)}>Change</Button>
             <Button size="sm" onClick={() => onChange(null)}>Remove</Button>
           </AudioPlayer>
         </div>
       ) : (
-        <button type="button" {...drop.props} onClick={() => setPicking(true)} className={cx("flex h-8 min-w-0 items-center gap-2 rounded-control border border-dashed px-2.5 text-body text-ink-2 hover:text-ink", drop.zone || "border-line-strong")}>
-          <Music size={14} className="shrink-0" />
-          <span className="truncate">{upload.isPending ? "Adding…" : "Choose or drop an audio file"}</span>
-        </button>
+        // the 🎙 beside it records one, kept with the person as a file dropped here is
+        <div className="flex min-w-0 items-center gap-1.5">
+          <button type="button" {...drop.props} onClick={() => setPicking(true)} className={cx("flex h-8 min-w-0 grow items-center gap-2 rounded-control border border-dashed px-2.5 text-body text-ink-2 hover:text-ink", drop.zone || "border-line-strong")}>
+            <Music size={14} className="shrink-0" />
+            <span className="truncate">{upload.isPending ? "Adding…" : "Choose or drop an audio file"}</span>
+          </button>
+          <MicButton slot="Voice sample" kit size={32} onTake={onChange} />
+        </div>
       )}
       {(pasted ?? upload.error?.message) && <span role="alert" className="text-xs text-warn-ink">{pasted ?? upload.error?.message}</span>}
       {picking && <Picker title="Voice sample" kind="audio" onClose={() => setPicking(false)} onPick={(id) => { onChange(id); setPicking(false); }} />}

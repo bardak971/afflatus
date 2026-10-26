@@ -283,13 +283,13 @@ describe("right-click on every lane, empty or full", () => {
   it("answers on the end column's Audio cell", () => {
     const { container } = track([clip("a", 0)]);
     fireEvent.contextMenu(container.querySelector('[data-end-column="audio"]')!);
-    expect(items()).toEqual(["Choose a recording from the library…", "Open an audio file…"]);
+    expect(items()).toEqual(["Choose a recording from the library…", "Open an audio file…", "Record from the microphone…"]);
   });
 
   it("answers on a Lip sync clip's Audio cell without a voice: its voice, or Video with audio", () => {
     const { container, asked } = track([clip("a", 0), clip("b", 5000, lipSync.id)]);
     fireEvent.contextMenu(container.querySelector('[data-voice-cell="b"]')!);
-    expect(items()).toEqual(["Choose a recording for clip 2…", "Open an audio file…", "Switch clip 2 to Video with audio"]);
+    expect(items()).toEqual(["Choose a recording for clip 2…", "Open an audio file…", "Record from the microphone…", "Switch clip 2 to Video with audio"]);
     fireEvent.click(screen.getByRole("menuitem", { name: "Switch clip 2 to Video with audio" }));
     expect(asked).toEqual([`b to ${video.id}`]);
   });

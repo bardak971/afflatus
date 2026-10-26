@@ -1,9 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { createReadStream } from "node:fs";
-import { open as openFile, readFile, rm } from "node:fs/promises";
+import { open as openFile, readFile, rm, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { z } from "zod";
 import type { AssetLookup } from "./assets-api";
-import { probeMediaFile } from "./cut";
+import { FfmpegMissing, probeMediaFile, recordingWav } from "./cut";
 import { newId, now } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError } from "./errors";
@@ -17,20 +18,37 @@ import { firstFrame } from "./video";
 
 /** A file brought into the library from the user's computer. */
 
+/** A moment of a take, in seconds. */
+const seconds = z.coerce.number().finite().min(0).optional();
+
 /** What an upload's address may say. A name given twice comes as a list, which is refused here rather than used as a name. */
 /** `same=use`: a file the library already holds kept in the folder it goes to (sameContent.ts) is answered with that item, `found: true`, and not added again. */
-const uploadQuery = z.object({ name: z.string().optional(), as: z.string().optional(), folder: z.string().optional(), project: z.string().optional(), same: z.literal("use").optional() });
+/** `take=wav`: a take recorded from the microphone (the browser's webm/opus), kept as the WAV the models are given, cut to `from`–`to` (seconds) when the silence at its ends was trimmed off. */
+const uploadQuery = z.object({ name: z.string().optional(), as: z.string().optional(), folder: z.string().optional(), project: z.string().optional(), same: z.literal("use").optional(), take: z.literal("wav").optional(), from: seconds, to: seconds })
+  .refine((q) => (q.from === undefined) === (q.to === undefined) && (q.from === undefined || q.to! > q.from), "a trim needs both from and to, to after from");
+
+/** The take sent, as a WAV in the upload's own temporary folder (removed with it). */
+async function asWav(sent: { path: string; dir: string; bytes: number }, trim?: { from: number; to: number }) {
+  const path = join(sent.dir, "take.wav");
+  await recordingWav(sent.path, path, trim);
+  return { ...sent, path, bytes: (await stat(path)).size };
+}
 
 export function registerAssetUpload(app: FastifyInstance, s: Services, { asset }: AssetLookup): void {
   /**
    * A picture, a video or a sound from the user's computer, sent as the request body. It is theirs, so
    * it is kept from the start and never goes to the bin on its own.
    */
-  app.post<{ Querystring: { name?: string; as?: string; folder?: string; project?: string; same?: "use" } }>("/api/assets", async (req) => {
-    uploadQuery.parse(req.query);
-    const up = isUpload(req.body) ? req.body : null;
+  app.post<{ Querystring: { name?: string; as?: string; folder?: string; project?: string; same?: "use"; take?: "wav"; from?: string; to?: string } }>("/api/assets", async (req) => {
+    const asked = uploadQuery.parse(req.query);
+    const sent = isUpload(req.body) ? req.body : null;
     const unreadable = () => httpError("This file is not an image, a video or an audio file Afflatus can read. Images: PNG, JPEG, WebP. Video and audio are read with ffmpeg, which has to be installed where Afflatus runs.");
-    if (!up) throw unreadable();
+    if (!sent) throw unreadable();
+    // a take from the microphone becomes a WAV before anything else reads it: the webm the browser records is no sound
+    // file the library takes as it is, and the models are given WAV. Written in the upload's own folder, removed with it
+    const up = asked.take === "wav" ? await asWav(sent, asked.from !== undefined ? { from: asked.from, to: asked.to! } : undefined).catch((err: unknown) => {
+      throw err instanceof FfmpegMissing ? err : httpError("This take could not be made into a WAV: ffmpeg did not read it as a sound.");
+    }) : sent;
     // what the file is comes from its bytes, not from what the browser says it is. A picture is read whole (its size and
     // its thumbnail come from its bytes); a video or a sound stays on the disk and is probed there, once
     const head = await openFile(up.path, "r").then(async (f) => {

@@ -106,6 +106,7 @@ const BROWSER: Record<string, string> = {
   "afflatus.timeline.snapQuiet": "internal: the editor's range snapping, switched where it acts",
   "afflatus.timeline.takes": "internal: how many takes a clip's panel shows",
   "afflatus.volume": "internal: the viewer's volume, set on it",
+  "afflatus.mic": "internal: the microphone picked last in the record dialog, set on it",
   "afflatus.check.": "internal: a start-up check already said, per check",
   "afflatus.updates.seen": "internal: the new version About was last seen with, for the rail's dot",
   "afflatus.updates.security": "internal: the security fix whose banner was closed",

@@ -589,6 +589,16 @@ export async function soundPart(source: Media, ext: string, opts: { start: numbe
 }
 
 /**
+ * A take recorded from the microphone (the browser's webm/opus, or whatever its recorder makes) as the WAV the models are
+ * given: 48 kHz 16-bit, its channels as recorded, cut to `trim` (seconds) when the silence at its ends was trimmed off.
+ * Written beside the upload, so that it is removed with it.
+ */
+export async function recordingWav(input: string, out: string, trim?: { from: number; to: number }): Promise<void> {
+  const cut = trim ? ["-ss", trim.from.toFixed(3), "-to", trim.to.toFixed(3)] : [];
+  await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, ...cut, "-vn", "-ar", "48000", "-c:a", "pcm_s16le", out]);
+}
+
+/**
  * The pauses of a whole sound (a voice recording to cut into Lip sync clips), in seconds: quiet for at least 0.2 s, quiet
  * being 30 dB under its loudest, as quietAfter reads it, so a recording made quietly has pauses too.
  */

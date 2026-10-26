@@ -10,6 +10,7 @@ import { severalMachines } from "../machines";
 import { FormModel } from "../ModelLoad";
 import { phaseLabel, timeLeft, whyTone } from "../format";
 import { Picker } from "../PictureField";
+import { MicButton } from "../mic/MicRecord";
 import { Bar, Button, cx, ErrorNote, Help, SectionTitle, Segmented, Toggle } from "../ui";
 import { Keys } from "../Keys";
 import { ColumnEdge, useColumnWidth } from "./column";
@@ -280,6 +281,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
                 Needs a voice recording<span className="text-xs text-ink-3">·</span><span className="text-xs text-ink-2">clip {index + 1}</span>
               </span>
               <Button size="sm" onClick={() => setPicking("voice")} data-tip="The recording this clip is made around: the mouth follows it. Or drop one on the clip's Audio cell on the track">Choose a recording…</Button>
+              {voiceSpec && <MicButton slot="Recording" size={32} onTake={(asset) => onInputs({ ...stored, [voiceSpec.id]: asset })} />}
             </div>
           </section>
         )}

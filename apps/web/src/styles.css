@@ -111,6 +111,8 @@
   --animate-peek-fade: peek-fade var(--t-pop) ease-out;
   --animate-bar-in: bar-in var(--t-pop) var(--ease-snap);
   --animate-bar-fade: bar-fade var(--t-pop) ease-out;
+  /* the record dialog's dot while it records (motion-safe only: still under reduced motion) */
+  --animate-rec-blink: rec-blink 1s ease-in-out infinite;
 }
 
 html {
@@ -190,6 +192,12 @@ input[type="range"] {
     transform: translateY(6px);
   }
 }
+@keyframes rec-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
 @keyframes peek-fade {
   from {
     opacity: 0;

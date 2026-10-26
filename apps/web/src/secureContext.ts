@@ -56,5 +56,13 @@ async function asPng(blob: Blob): Promise<Blob> {
   return new Promise((done, fail) => canvas.toBlob((b) => (b ? done(b) : fail(new Error("the picture could not be made into a PNG"))), "image/png"));
 }
 
+/**
+ * Whether the microphone can be asked for here. The browser gives it to a secure page alone (https, or this computer at
+ * 127.0.0.1 or localhost): opened by its LAN address over http the page has no `navigator.mediaDevices` at all, and the
+ * 🎙 of a sound slot says why rather than record.
+ */
+export const canRecord = (): boolean =>
+  typeof window !== "undefined" && window.isSecureContext && typeof navigator.mediaDevices?.getUserMedia === "function" && typeof MediaRecorder !== "undefined";
+
 /** An id made in the page, for something that is only told apart from its siblings (an outfit): `crypto.randomUUID` is a secure page's alone. */
 export const localId = (): string => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
