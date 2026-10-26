@@ -347,3 +347,34 @@ describe("migration 0087, the record of render times by family", () => {
     await db.destroy();
   });
 });
+
+describe("migration 0093, Wan's Hybrid turbo off where a model's saved settings held the old default", () => {
+  it("drops a saved Hybrid turbo on from Wan's models only, keeps every other value, and is taken back without putting it back", async () => {
+    const db = openSqlite(":memory:");
+    await migrate(db, "0092_latent_clock");
+    const at = new Date().toISOString();
+    const row = (family: string, file: string, values: unknown) => ({ owner_id: OWNER, family, file, values: JSON.stringify(values), updated_at: at });
+    await db.insertInto("model_settings").values([
+      row("wan", "wan-high.safetensors", { turboHybrid: true, turboSteps: 6, turboStrength: 0.7, shift: 8 }),
+      row("wan", "only-hybrid.safetensors", { turboHybrid: true }),
+      row("wan", "kept-off.safetensors", { turboHybrid: false, turboSteps: 4 }),
+      row("h3", "h3.safetensors", { turboHybrid: true, steps: 8 }),
+      row("sdxl", "sdxl.safetensors", { sampler: "euler", cfg: 5 }),
+    ] as never).execute();
+    const saved = async () => Object.fromEntries((await db.selectFrom("model_settings").select(["family", "file", "values"]).execute()).map((r) => [`${r.family}/${r.file}`, JSON.parse(r.values)]));
+    expect(await migrate(db, "0093_wan_hybrid_saved")).toEqual(["0093_wan_hybrid_saved"]);
+    const after = await saved();
+    expect(after).toEqual({
+      "wan/wan-high.safetensors": { turboSteps: 6, turboStrength: 0.7, shift: 8 },
+      // nothing left saved: no row, as Forget saved defaults leaves it
+      "wan/kept-off.safetensors": { turboHybrid: false, turboSteps: 4 },
+      "h3/h3.safetensors": { turboHybrid: true, steps: 8 },
+      "sdxl/sdxl.safetensors": { sampler: "euler", cfg: 5 },
+    });
+    await migrate(db, "0092_latent_clock");
+    expect(await saved()).toEqual(after);
+    expect(await migrate(db)).toContain("0093_wan_hybrid_saved");
+    expect(await saved()).toEqual(after);
+    await db.destroy();
+  });
+});
