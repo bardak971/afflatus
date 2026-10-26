@@ -60,6 +60,13 @@ const spec: LtxSpec = {
         media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX_FPS, hasSound: true, latentFrames: 97, latentCut: 97, latentSize: { width: 704, height: 1280 } } },
       },
       {
+        // the temporal upscaler's settle pass would remake the frames at the join (card #40): RIFE, said on the job
+        name: "carries on in the clip before's own latent, the temporal upscaler asked for: RIFE instead, its join decoded as one piece",
+        input: { prompt: "a", previous: { asset: "c1" }, smooth: true, smoothWith: "LTX temporal (latent)" },
+        slots: { ...one, ...temporal }, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors" },
+        media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX_FPS, hasSound: true, latentFrames: 97, latentSize: { width: 704, height: 1280 } } },
+      },
+      {
         name: "carries on in the clip before's own latent with a long run-up (41 frames, 6 tokens)",
         input: { prompt: "a", previous: { asset: "c1" }, context: "41" },
         slots: { ...one, ...extras }, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors" },
@@ -102,7 +109,7 @@ const spec: LtxSpec = {
         slots: { ...one, ...extras }, uploads: { "cues.0": "clap.wav" }, media: { "cues.0": { width: 0, height: 0, seconds: 0.6 } },
       },
       {
-        name: "two sound cues carrying on from a clip, its sound under the head: LTX's own sound in the take",
+        name: "two sound cues carrying on from a clip, its sound under the head, saved with LTX's own sound: the files' in the take",
         input: { prompt: "a", previous: { asset: "c1" }, cues: [{ asset: "s1", start: 0, seconds: 0.6, at: 2.4 }, { asset: "s2", start: 1, seconds: 0.5, at: 0 }], cueSound: "LTX 2.3's own" },
         slots: { ...one, ...extras }, uploads: { previous: "a.mp4", "cues.0": "clap.wav", "cues.1": "door.wav" },
         media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX_FPS, hasSound: true }, "cues.0": { width: 0, height: 0, seconds: 0.6 }, "cues.1": { width: 0, height: 0, seconds: 0.5 } },

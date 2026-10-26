@@ -31,6 +31,15 @@ export const ltx25 = defineFamily({
       get: { file: "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors", url: `${HF}/diffusion_models/ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors` },
     },
     {
+      // The full (dev) transformer, picked as the Model by hand (with the distilled LoRA, or at full steps): a slot of its own
+      // so that its address is known, a pod fetches it for a job that loads it and Settings › Models offers it (it had no site
+      // known, card #81's re-check, 2026-10-26). Optional: no form loads it unless it is picked. 21,504,034,224 bytes on
+      // Hugging Face; its SHA-256 is hidden there behind the licence gate
+      id: "dev", label: "Dev transformer (full model, optional)", folder: "diffusion_models", detect: ["ltx.?2[._]?5.*dev.*transformer"], optional: true, choiceOf: "unet",
+      hint: `Optional: the full model, for more steps or the distilled LoRA. Put ltx-2.5-22b-dev-transformer-*.safetensors in ComfyUI's models/diffusion_models folder and pick it as the Model. ${GATED}.`,
+      get: { file: "ltx-2.5-22b-dev-transformer-comfy-int8-convrot.safetensors", url: `${HF}/diffusion_models/ltx-2.5-22b-dev-transformer-comfy-int8-convrot.safetensors` },
+    },
+    {
       id: "clip", label: "Text encoder (Gemma 4 12B, with the projection)", folder: "text_encoders", detect: ["gemma.?4.*ltx.?2[._]?5", "gemma.?4.*with.?proj"],
       hint: `Put gemma4-12b-with-proj-ltx-2.5-*.safetensors in ComfyUI's models/text_encoders folder (LTX 2.5's text projection is inside it). ${GATED}.`,
       get: { file: "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors", url: `${HF}/text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors` },

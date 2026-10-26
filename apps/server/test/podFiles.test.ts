@@ -15,6 +15,7 @@ import { estimateFiles, GUESSED, measuredRange, recordMeasure, MEASURED_FROM } f
 import { forgetHuggingFace } from "../src/huggingface";
 import { localCopy, measureKind, podSource } from "../src/podSources";
 import { writeSettings } from "../src/settings";
+import { families } from "@afflatus/recipes";
 import { makeApp, referenceCatalog, until, type TestApp } from "./helpers";
 
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex").toUpperCase();
@@ -355,6 +356,13 @@ describe("where a pod's file comes from", () => {
     expect(await podSource(lookup(), { file: "paged.safetensors", folder: "loras" })).toEqual({ kind: "civitai", version: 55, pick: "paged.safetensors" });
     expect(await podSource(lookup(), { file: "mine.safetensors", folder: "loras" })).toEqual({ kind: "upload", path: join(home, "models", "loras", "mine.safetensors") });
     expect(await podSource(lookup(), { file: "none.safetensors", folder: "loras" })).toBeNull();
+  });
+
+  // card #105: a pod had no site for it (the re-check series put it there by hand)
+  it("knows where LTX 2.5's dev transformer is had: its family's Hugging Face address", async () => {
+    const file = "ltx-2.5-22b-dev-transformer-comfy-int8-convrot.safetensors";
+    expect(await podSource(lookup({ families: () => families }), { file, folder: "diffusion_models" }))
+      .toEqual({ kind: "url", url: `https://huggingface.co/Lightricks/LTX-2.5/resolve/main/diffusion_models/${file}` });
   });
 
   it("reads the presets, a folder's hashes, Civitai matches and pages once for the many files a search or a set asks about", async () => {

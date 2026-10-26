@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { checkGraph, choicesOf, dryContext, joinFrames, joinKindOf, madeAroundRecording, recordingSpecOf, parseInput, pickChoice, ruledDefaults, schemaFor, type ChoiceInput, type NodeCatalog, type Wanted } from "@afflatus/core";
-import { seedvrChunk, families, familyById, krea2Picture, h3Canvas, h3Frames, h3Prompt, h3Video, introduce, kleinSize, padsFor, recipeById, recipes, sdxlTextToPicture, wanCanvas, wanFrames, wanVideo, ltxCanvas, ltxFrames, ltxLipSync, ltxVideo, ltx25LipSync, LTX_REFINE_SIGMAS, LTX_SIGMAS, fluxEdit, fluxPicture, qwenEdit, qwenPicture, flux, qwen, wan, ltx, zimage, zimagePicture } from "../src";
+import { seedvrChunk, families, familyById, krea2Picture, h3Canvas, h3Frames, h3Prompt, h3Video, introduce, kleinSize, padsFor, recipeById, recipes, sdxlTextToPicture, wanCanvas, wanFrames, wanVideo, ltxCanvas, ltxFrames, ltxLipSync, ltxVideo, ltx25LipSync, ltx25Video, LTX_REFINE_SIGMAS, LTX_SIGMAS, fluxEdit, fluxPicture, qwenEdit, qwenPicture, flux, qwen, wan, ltx, zimage, zimagePicture } from "../src";
 
 const catalog = JSON.parse(
   readFileSync(fileURLToPath(new URL("../../../reference/comfy-object-info.json", import.meta.url)), "utf-8"),
@@ -800,15 +800,20 @@ describe("wan.video", () => {
     expect(all(build({}, { slots: { ...turbo, rife: "r.pth" } }), "VHS_VideoCombine")[0]!.inputs.frame_rate).toBe(32);
   });
 
-  it("runs Hybrid turbo as a 3-sampler split: two full steps without the turbo LoRA in front of Turbo's four", () => {
+  it("runs Hybrid turbo as 0.6.3's 3-sampler split: Turbo's first step without the turbo LoRA, of its own four", () => {
+    // 0.7.0's two steps added in front (a 6-step schedule) ghosted (card #82): the lead is taken out of Turbo's steps again
     const [lead, high, low] = passes(build({ fast: true }));
-    expect(lead).toMatchObject({ steps: 6, cfg: 3.5, start_at_step: 0, end_at_step: 2, add_noise: "enable" });
-    expect(high).toMatchObject({ steps: 6, cfg: 1, start_at_step: 2, end_at_step: 3, add_noise: "disable" });
-    expect(low).toMatchObject({ steps: 6, cfg: 1, start_at_step: 3, end_at_step: 10000 });
-    expect(build({ fast: true }).passes!.map((p) => p.steps)).toEqual([2, 1, 3]);
-    // the high-noise model with its LoRA keeps a step, however few Turbo's are
-    const [, short] = passes(build({ fast: true, turboSteps: 2 }));
-    expect(short).toMatchObject({ steps: 4, start_at_step: 2, end_at_step: 3 });
+    expect(lead).toMatchObject({ steps: 4, cfg: 3.5, start_at_step: 0, end_at_step: 1, add_noise: "enable", return_with_leftover_noise: "enable" });
+    expect(high).toMatchObject({ steps: 4, cfg: 1, start_at_step: 1, end_at_step: 2, add_noise: "disable", return_with_leftover_noise: "enable" });
+    expect(low).toMatchObject({ steps: 4, cfg: 1, start_at_step: 2, end_at_step: 10000, add_noise: "disable" });
+    expect(build({ fast: true }).passes!.map((p) => p.steps)).toEqual([1, 1, 2]);
+    // the noise and the seed once, on the lead
+    expect(lead!.noise_seed).toBe(7);
+    expect([high!.noise_seed, low!.noise_seed]).toEqual([0, 0]);
+    // two of 6, and the high-noise model with its LoRA keeps a step, however few Turbo's are
+    expect(build({ fast: true, turboSteps: 6 }).passes!.map((p) => p.steps)[0]).toBe(2);
+    const short = passes(build({ fast: true, turboSteps: 2 }));
+    expect(short.length).toBe(2);
   });
 
   describe("carrying on from the clip before", () => {
@@ -1149,15 +1154,15 @@ describe("ltx.video", () => {
     expect(all(one, "LTXVAddGuide")).toEqual([]);
   });
 
-  it("decodes a join carried on in the latent alone when the temporal upscaler doubles its frames", () => {
+  it("interpolates a join carried on in the latent with RIFE, the temporal upscaler asked for or not, its seam decoded (card #105)", () => {
     const prev = { width: 704, height: 1280, frames: 25, fps: 25, hasSound: true, latentFrames: 121, latentSize: { width: 704, height: 1280 } };
-    const b = build({ previous: { asset: "c" }, smooth: true, smoothWith: "LTX temporal (latent)" }, { slots: { ...one, ...extras, temporal: "t.safetensors" }, uploads: { previous: "c.mp4", "previous.latent": "c.safetensors" }, media: { previous: prev } });
+    const b = build({ previous: { asset: "c" }, smooth: true, smoothWith: "LTX temporal (latent)" }, { slots: { ...one, ...extras, temporal: "t.safetensors", rife: "r.pth" }, uploads: { previous: "c.mp4", "previous.latent": "c.safetensors" }, media: { previous: prev } });
     expect(all(b, "LTXVAddLatentGuide")).toHaveLength(1);
-    expect(all(b, "AfflatusLTXSeamLatent")).toEqual([]);
-    expect(all(b, "ImageFromBatch")).toEqual([]);
-    expect(b.overlap).toEqual({ headMs: 1000, tailMs: 0, latent: true });
-    // the pin put back on the settling pass too
-    expect(all(b, "SetLatentNoiseMask")).toHaveLength(2);
+    expect(all(b, "AfflatusLTXSeamLatent")).toHaveLength(1);
+    expect(all(b, "FrameInterpolate")).toHaveLength(1);
+    expect(b.overlap).toEqual({ headMs: 1000, tailMs: 0, latent: true, seam: true });
+    expect(b.loads).not.toContain("latent_upscale_models/t.safetensors");
+    expect(b.warnings).toContain("Interpolated with RIFE, not LTX's temporal upscaler: this clip carries on in the clip before's latent, where the upscaler's settle pass makes the frames at the join anew and the join jumps.");
   });
 
   it("carries a chain's colour match on, at the head's last frame, when the clip before's chain was matched", () => {
@@ -1418,11 +1423,25 @@ describe("LTX under a recording (card #2)", () => {
     const take = ref(b, save(b).audio);
     expect(take.class_type).toBe("AudioConcat");
     expect(ref(b, ref(b, ref(b, take.inputs.audio1).inputs.audio1).inputs.audio)).toMatchObject({ class_type: "LTXVAudioVAEDecode" });
-    // the model's own asked for: its decoded sound alone in the take, the cue still held for it to hear
+    // the model's own is no longer offered (card #105): a clip saved with it still loads, and lays the file's part in
     const own = build(ltxVideo, { recording: undefined, seconds: 5, cues: [cue], cueSound: "LTX 2.3's own" }, { uploads: { "cues.0": "clap.wav" }, media: cueMedia });
-    expect(ref(own, save(own).audio).class_type).toBe("LTXVAudioVAEDecode");
-    expect(all(own, "MaskComposite")).toHaveLength(1);
-    expect(ltxVideo.inputs.find((i) => i.id === "cueSound")).toMatchObject({ options: ["The file's sound", "LTX 2.3's own"] });
+    expect(ref(own, save(own).audio).class_type).toBe("AudioConcat");
+    expect(own.graph).toEqual(b.graph);
+  });
+
+  it("the cues' choice of sound in the take, per family: H3 the file's or its own, LTX the file's alone and not drawn", () => {
+    const choice = (r: { inputs: readonly { id: string }[] }) => r.inputs.find((i) => i.id === "cueSound") as { options: string[]; internal?: boolean; renamed?: Record<string, string> } | undefined;
+    expect(choice(h3Video)).toMatchObject({ options: ["The file's sound", "H3's own"] });
+    expect(choice(h3Video)!.internal).toBeUndefined();
+    for (const [recipe, name] of [[ltxVideo, "LTX 2.3"], [ltx25Video, "LTX 2.5"]] as const) {
+      expect(choice(recipe)).toMatchObject({ options: ["The file's sound"], internal: true, renamed: { [`${name}'s own`]: "The file's sound" } });
+      expect(parseInput(recipe, { prompt: "a", cueSound: `${name}'s own` }).cueSound).toBe("The file's sound");
+      expect(recipe.inputs.find((i) => i.id === "cues")!.note).toMatch(/LTX tends to repeat the action around a cue/);
+    }
+    for (const recipe of [ltxLipSync, ltx25LipSync]) {
+      expect(choice(recipe)).toBeUndefined();
+      expect(recipe.inputs.find((i) => i.id === "cues")!.note).toMatch(/LTX tends to repeat the action around a cue/);
+    }
   });
 
   it("Video with audio's cues carrying on: the clip before's sound under the head from its file, head and cue held", () => {

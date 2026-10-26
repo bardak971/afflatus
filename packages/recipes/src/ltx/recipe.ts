@@ -7,7 +7,7 @@ import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import { colourCarried, colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, openingStart, rifeNeeds, rifeSkippedSaid, type ColourMatch } from "../shared/finish";
 import { applyLoras, livePreview, loraLoads } from "../shared/model";
 import { recordingInputs, recordingNodes, recordingOnClip, type Recording, type RecordingFrames } from "../shared/recording";
-import { CUE_SOUND, cuesFor, H3_CUES, layCues, laysCues } from "../h3/cue";
+import { CUE_SOUND, cuesFor, H3_CUES, layCues } from "../h3/cue";
 import { FACE_PHOTO, FACE_NODE, facePhotos, faceScore } from "../shared/face";
 import { FACE_REFINE_H3, FACE_REFINE_OPTIONAL, FACE_REFINE_TAKE_INPUTS, faceRefined, faceRefineNeeds, faceRefineSkipped } from "../h3/faceRefine";
 
@@ -656,6 +656,17 @@ function ltxOnePass(run: LtxRun): { video: Ref; audio: Ref } {
 const doublesInLatent = (input: LtxVideo, there: boolean): boolean =>
   input.smooth && input.smoothWith !== SMOOTH_RIFE && there && !(input.smoothWith === SMOOTH_AUTO && input.upscale === UPSCALE.seedvr);
 
+/**
+ * A clip carried on in the clip before's latent is interpolated with RIFE, never with the temporal upscaler (card #40,
+ * 2026-10-26): each clip is doubled on its own, its settle pass (fresh noise) remaking all its frames, the head too, so the
+ * two clips' frames at the cut come from two different passes and the join jumps (a step ×10, ΔE 1.44), and the seam decode
+ * cannot be had on doubled tokens. With RIFE the seam decode holds (ΔE 0.4 to 0.7). Auto takes RIFE there without a word;
+ * the temporal upscaler asked for by name, this line on the job. Whether a clip carries on in the latent is only known in the
+ * build (the clip before's kept latent, as sent): the files and nodes lists ask for RIFE's, and Face refine's, for any clip
+ * that carries on from one.
+ */
+const LATENT_RIFE_SAID = "Interpolated with RIFE, not LTX's temporal upscaler: this clip carries on in the clip before's latent, where the upscaler's settle pass makes the frames at the join anew and the join jumps.";
+
 /** Twice the frames with LTX's temporal upscaler: the latent's frames doubled (the sound untouched), then a short pass settles them. */
 function ltxTemporal(run: LtxRun, made: { video: Ref; audio: Ref }): { video: Ref; audio: Ref } {
   const { g, ctx, loaded, cond, sampler, passes } = run;
@@ -737,19 +748,25 @@ function pinnedSound(g: GraphBuilder, audioVae: Ref, wave: Ref, frames: number, 
  * The sound cues (card #2), as H3's forms take them (card #71): each a part of a file at a moment of the clip's own time. On
  * Lip sync they are added into the sound the clip is made to, over the recording, and held there with it: the take carries
  * them as they are, so there is no "In the take" choice to make. On Video with audio each one's stretch of the clip's sound is
- * held as the file, the rest left to the model (cuedSound), and the take carries the file's part or the model's.
+ * held as the file, the rest left to the model (cuedSound), and the take carries the file's part. The model's own sound at a
+ * cue ("LTX's own", H3's other choice) is not offered (card #105, 2026-10-26): LTX made the action again and again around
+ * the cue there (claps every fifth of a second, in the sound and the picture), where the file's sound was measured fine.
  */
 function ltxCues(spec: LtxSpec): InputSpec[] {
+  // the line every LTX cue's "?" ends on: what the model does around one
+  const repeats = "LTX tends to repeat the action around a cue (a clap made several times over)";
   const cues: InputSpec = {
     id: "cues", type: "cues", label: "Sound cues", max: H3_CUES,
     note: spec.lipSync
-      ? "sounds that land at moments of the clip: a door slam, a clap, a music hit. Each one is a part of its file and the moment it lands, in the clip's own time, added over the recording and held with it, so the take carries it as it is; the picture meets it when What happens names it at that moment (\"she claps her hands once\")"
-      : `sounds that land at moments of the clip: a door slam, a clap, a line, a music hit. Each one is a part of its file and the moment it lands, in the clip's own time. ${spec.name} hears it there as the clip's own sound and makes the rest around it; the picture meets it when the prompt names it at that moment ("she claps her hands once")`,
+      ? `sounds that land at moments of the clip: a door slam, a clap, a music hit. Each one is a part of its file and the moment it lands, in the clip's own time, added over the recording and held with it, so the take carries it as it is; the picture meets it when What happens names it at that moment ("she claps her hands once"). ${repeats}`
+      : `sounds that land at moments of the clip: a door slam, a clap, a line, a music hit. Each one is a part of its file and the moment it lands, in the clip's own time. ${spec.name} hears it there as the clip's own sound and makes the rest around it, and the take carries the file's part there; the picture meets it when the prompt names it at that moment ("she claps her hands once"). ${repeats}`,
   };
   if (spec.lipSync) return [cues];
+  // The file's sound only, never drawn: a clip or take saved with "<model>'s own" (0.7.0's test builds) still loads, read as
+  // the file's sound when it is rendered again; the take made with it stays as it was made
   return [cues, {
-    id: "cueSound", type: "choice", label: "In the take", options: [CUE_SOUND[0], `${spec.name}'s own`], default: CUE_SOUND[0], showWhen: "cues",
-    note: `the file's sound: each cue's part is laid into the take at its moment, over ${spec.name}'s own sound there (added over a recording that plays over the clip, which plays on unchanged under it). ${spec.name}'s own: the sound it decodes there, the cue as it heard it`,
+    id: "cueSound", type: "choice", label: "In the take", options: [CUE_SOUND[0]], renamed: { [`${spec.name}'s own`]: CUE_SOUND[0] }, default: CUE_SOUND[0], internal: true,
+    note: `each cue's part is laid into the take at its moment, over ${spec.name}'s own sound there (added over a recording that plays over the clip, which plays on unchanged under it)`,
   }];
 }
 
@@ -866,7 +883,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
     // without it), and SeedVR2's files for its upscale: the build refuses either missing. Asked by name, the temporal file is
     // there or the build refuses, so it counts as there
     needsWith: (input, slots = {}, where = {}) => {
-      const temporal = doublesInLatent(input, input.smoothWith === SMOOTH_LTX || Boolean(slots.temporal));
+      // a clip that carries on may do so in the latent, which takes RIFE (LATENT_RIFE_SAID): its files too
+      const temporal = doublesInLatent(input, input.smoothWith === SMOOTH_LTX || Boolean(slots.temporal)) && !input.previous;
       return [
         ...rifeNeeds(input.smooth && !temporal),
         ...(input.smooth && input.smoothWith === SMOOTH_LTX ? ["temporal"] : []),
@@ -1008,7 +1026,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       { id: "smooth", type: "toggle", label: "Interpolate ×2", note: `frame interpolation, from ${fps} to ${fps * 2} frames a second: with LTX's own temporal upscaler in latent space when its file is there (motion-aware, then a short refine), else RIFE on the pixels`, default: false, advanced: true },
       {
         id: "smoothWith", type: "choice", label: "Interpolate with", options: [SMOOTH_AUTO, SMOOTH_LTX, SMOOTH_RIFE], default: SMOOTH_AUTO, showWhen: "smooth", advanced: true,
-        note: "Auto takes LTX's temporal upscaler when its file is there, else RIFE. The temporal upscaler doubles the latent's frames and a 2-step pass settles them: experimental, the refine after it is not Lightricks' published setting",
+        note: "Auto takes LTX's temporal upscaler when its file is there, else RIFE. The temporal upscaler doubles the latent's frames and a 2-step pass settles them: experimental, the refine after it is not Lightricks' published setting. A clip that carries on in the clip before's latent always takes RIFE: the settle pass remakes its frames at the join, which then jumps",
       },
       { id: "loras", type: "loras", label: "LoRAs", max: 6 },
       { id: "seed", type: "seed", label: "Seed" },
@@ -1026,7 +1044,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         // Lip sync's cues: each part loaded and fitted, then added over the recording on its own stretch
         ...(spec.lipSync && input.cues?.length ? ["LoadAudio", "TrimAudioDuration", "AudioMerge", "AudioConcat"] : []),
         // Video with audio's: pinned in the clip's own sound, mixed over a recording that plays over it in the take
-        ...(!spec.lipSync && input.cues?.length ? [...CUED_SOUND_NODES, ...(input.recording && laysCues(input) ? ["AudioMerge"] : [])] : []),
+        ...(!spec.lipSync && input.cues?.length ? [...CUED_SOUND_NODES, ...(input.recording ? ["AudioMerge"] : [])] : []),
         ...(input.model ? unetNodes(input.model).filter((n) => n !== "UNETLoader") : []),
         ...(spec.loader === "split" ? ["UNETLoader", "CLIPLoader", "VAELoader"] : []),
         ...(input.schedule === BY_STEPS ? ["LTXVScheduler"] : []),
@@ -1034,7 +1052,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         ...(input.previous || input.next ? ["LoadVideo", "GetVideoComponents", "ImageScale", "LTXVPreprocess"] : []),
         // Face refine: H3's nodes, the clip's 8n + 1 frames made up to H3's grid and cut back (not with the temporal upscaler
         // asked for by name: the pass is left out at 48 a second). Auto's choice hangs on files this list is not given: asked
-        ...(spec.faceRefine && input.faceRefine && !doublesInLatent(input, input.smoothWith === SMOOTH_LTX) ? [...FACE_REFINE_H3, "BasicScheduler", "VAEDecode", "CLIPLoader", "VAELoader", "ImageFromBatch", "ImageBatch", "RepeatImageBatch"] : []),
+        ...(spec.faceRefine && input.faceRefine && !(doublesInLatent(input, input.smoothWith === SMOOTH_LTX) && !input.previous) ? [...FACE_REFINE_H3, "BasicScheduler", "VAEDecode", "CLIPLoader", "VAELoader", "ImageFromBatch", "ImageBatch", "RepeatImageBatch"] : []),
       ];
     },
     // which loaders, and which way the clip is made, depend on the files this ComfyUI has
@@ -1193,28 +1211,31 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       const sampled = how.twoPass ? ltxTwoPass(run) : ltxOnePass(run);
       let made = sampled;
 
-      // twice the frames: LTX's temporal upscaler doubles the latent's frames; else RIFE on the decoded pictures
+      // twice the frames: LTX's temporal upscaler doubles the latent's frames; else RIFE on the decoded pictures, as for a
+      // clip carried on in the clip before's latent (LATENT_RIFE_SAID)
       const canTemporal = Boolean(slots.temporal) && ctx.has("LTXVLatentUpsampler") && ctx.has("LatentUpscaleModelLoader");
-      if (input.smooth && input.smoothWith === SMOOTH_LTX && !canTemporal) throw new Error(`LTX's temporal upscaler was not found: put ${spec.temporalFile} in ComfyUI's models/latent_upscale_models folder (one click in Settings → Models), or interpolate with RIFE.`);
-      const temporal = doublesInLatent(input, canTemporal);
+      const askedTemporal = input.smooth && input.smoothWith === SMOOTH_LTX;
+      if (askedTemporal && before) warnings.push(LATENT_RIFE_SAID);
+      else if (askedTemporal && !canTemporal) throw new Error(`LTX's temporal upscaler was not found: put ${spec.temporalFile} in ComfyUI's models/latent_upscale_models folder (one click in Settings → Models), or interpolate with RIFE.`);
+      const temporal = doublesInLatent(input, canTemporal) && !before;
       if (temporal) made = ltxTemporal(run, made);
       g.phase("decoding");
       const decode = (samples: Ref): Ref => g.out("VAEDecodeTiled", { samples, vae: loaded.vae, tile_size: input.tile, overlap: 64, temporal_size: input.tileFrames, temporal_overlap: spec.decode.overlap });
       // carried on in the latent, at the model's rate: decoded as one piece with the clip before's own last tokens (its run-up and
       // a few before it), the frames of those few dropped, so that the join is the whole chain's decoded at once and the head
-      // shows the clip before's real frames. Doubled by the temporal upscaler, its tokens are no longer the clip before's: alone
-      const context = kept && !temporal ? Math.max(0, Math.min(SEAM_CONTEXT, ((kept.cut || kept.frames) - 1) / 8 + 1 - (head + 7) / 8)) : 0;
-      const seam = before && !temporal ? g.add("AfflatusLTXSeamLatent", { previous_av_latent: before, sampled: made.video, overlap_frames: head, context }) : null;
+      // shows the clip before's real frames. Never doubled by the temporal upscaler (LATENT_RIFE_SAID): RIFE comes after
+      const context = kept ? Math.max(0, Math.min(SEAM_CONTEXT, ((kept.cut || kept.frames) - 1) / 8 + 1 - (head + 7) / 8)) : 0;
+      const seam = before ? g.add("AfflatusLTXSeamLatent", { previous_av_latent: before, sampled: made.video, overlap_frames: head, context }) : null;
       const decodedFrames = seam ? g.out("ImageFromBatch", { image: decode([seam, 0]), batch_index: 8 * context, length: frames }) : decode(made.video);
       const images = seam && previous && spec.seamColour ? seamColour(g, ctx, decodedFrames, previous, head, frames, fps) : decodedFrames;
       // the take's sound: Lip sync's is the sound it was made to; one a recording plays over carries its part after the head
       // (card #72's rule: the model's own sound there is dropped); else the model's
       const decoded = wave ? null : g.out("LTXVAudioVAEDecode", { samples: made.audio, audio_vae: loaded.audioVae });
-      // Video with audio's cues laid into it as the files, unless the model's own sound there is asked for: in place of it, or
-      // added over the recording it plays under
+      // Video with audio's cues laid into it as the files (the model's own sound there is no longer offered: ltxCues): in place
+      // of it, or added over the recording it plays under
       const theirs = (): Ref => {
         const own = laid ? laid.sound(g, decoded, at) : decoded!;
-        return cues && laysCues(input) ? layCues(g, own, cues.placed, cues.parts, { frames, over: Boolean(laid), fps }) : own;
+        return cues ? layCues(g, own, cues.placed, cues.parts, { frames, over: Boolean(laid), fps }) : own;
       };
       const heard = wave ?? theirs();
       // Face refine (2.5): H3's pass on the frames as decoded, before the colour match, an upscale or RIFE (whose in-between

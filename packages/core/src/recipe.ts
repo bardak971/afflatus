@@ -21,6 +21,11 @@ interface ModelSlot {
    * file or as several has a slot for each way, and is ready with either.
    */
   unless?: string;
+  /**
+   * Another slot whose input this file is one choice of (LTX 2.5's dev transformer, a choice of its Model): a slot of its
+   * own only so that its address is known and it is offered for download; its file stays in that input's list.
+   */
+  choiceOf?: string;
   /** Where its usual file can be had, when that is known: the name to save it under and its address. */
   get?: { file: string; url: string };
   /**

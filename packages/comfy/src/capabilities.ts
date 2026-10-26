@@ -175,7 +175,9 @@ async function recipeChoices(
       // needs it: it is not a choice for this one. A slot of one recipe's own (Swap's model) is that recipe's choice
       // among all of them: the family's video model included (a hybrid turbo fine-tune, 2026-10-17)
       const own = family?.slots.find((s) => s.id === input.slot);
-      const taken = input.slot && !own?.onlyFor ? slots.filter((s) => s.id !== input.slot && s.folder === input.folder && s.file && s.file !== usual).map((s) => s.file) : [];
+      // (a slot that is only one more choice of this input's, choiceOf, is not another use)
+      const choices = new Set(family?.slots.filter((s) => s.choiceOf === input.slot).map((s) => s.id));
+      const taken = input.slot && !own?.onlyFor ? slots.filter((s) => s.id !== input.slot && !choices.has(s.id) && s.folder === input.folder && s.file && s.file !== usual).map((s) => s.file) : [];
       options[input.id] = [...new Set([...(usual ? [usual] : []), ...fits, ...all.filter((f) => !foreign.includes(f)), ...foreign])].filter((f) => !taken.includes(f));
       // with a slot, a missing file is the slot's to report; with a file of its own (an imported workflow's), the list is not needed
       if (!options[input.id]!.length && !input.slot && !input.default) emptyInputs.push(input.id);
