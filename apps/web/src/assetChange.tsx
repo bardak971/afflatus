@@ -1,13 +1,13 @@
 import { useCallback } from "react";
-import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { api, type Folder, type Project } from "./api";
-import { applyChange, itemsWord, placeName, placesBefore, rollback, type Seats } from "./assetCache";
+import { applyChange, itemsWord, listShows, madeOf, placeName, placesBefore, rollback, type Made, type Seats } from "./assetCache";
 import { clearDraftUse } from "./draftUse";
 import type { AssetChange } from "./queryKeys";
 import { moves } from "./leave";
 import { failedBanner } from "./sayFailed";
 import { useBanners } from "./store";
-import { libraryReads, queryKeys, type LibraryChange } from "./queryKeys";
+import { isAssets, libraryReads, queryKeys, type LibraryChange } from "./queryKeys";
 
 /**
  * Keep, unkeep, bin, put back, move and rename, as every place of the app does them: the screen changes first (every
@@ -24,6 +24,29 @@ export const leavingNow = new Set<string>();
 let inFlight = 0;
 /** The changes done while others were on their way: what they touched is read once the last is done. */
 let done: LibraryChange[] = [];
+/**
+ * Of those, the moves, bins and put backs the server took whole, each as it was made: a list that holds no page limit (the
+ * Studio grid, every page scrolled through) and shows them already is only marked as not fresh, not read again page by
+ * page. Null once one of them was refused, or done only in part.
+ */
+let shown: Made[] | null = [];
+/**
+ * The changes made here lately, as the server's "library" events say them, with until when: their event is not read again
+ * (live.ts), the change's own read stands for it. A change on its way is kept until a while after it is done.
+ */
+const ownChanges: Array<{ change: LibraryChange; until: number }> = [];
+const OWN_EVENT_MS = 10_000;
+
+/**
+ * Whether a "library" event is one of a change made here (the same change, of no item it did not change): what it can
+ * touch was read once the change was done.
+ */
+export function madeHere(c: LibraryChange | null): boolean {
+  if (!c?.change || !c.items?.length) return false;
+  const at = Date.now();
+  for (let i = ownChanges.length - 1; i >= 0; i--) if (ownChanges[i]!.until < at) ownChanges.splice(i, 1);
+  return ownChanges.some(({ change: own }) => own.change === c.change && c.items!.every((id) => own.items?.includes(id)));
+}
 /** A change made here, as the server's "library" event says it (queryKeys.ts libraryReads): what it can touch. */
 const asLibraryChange = (c: AssetChange): LibraryChange =>
   c.kind === "rename" ? { change: "fields", items: c.ids, name: c.name }
@@ -100,6 +123,10 @@ export async function changeAssets(client: QueryClient, c: AssetChange, opts: Ch
   // where each item was, for the Undo of a move: known only before the change is made on screen
   const before = c.kind === "move" ? placesBefore(client, c.ids) : [];
   inFlight++;
+  const own = { change: asLibraryChange(c), until: Infinity };
+  ownChanges.push(own);
+  let whole = false;
+  let made: Made | null = null;
   if (c.kind === "move" || c.kind === "bin" || c.kind === "restore") {
     for (const id of c.ids) leavingNow.add(id);
     setTimeout(() => c.ids.forEach((id) => leavingNow.delete(id)), 1000);
@@ -108,6 +135,7 @@ export async function changeAssets(client: QueryClient, c: AssetChange, opts: Ch
     // a read on its way would land over the change with what was true before it
     await Promise.all([client.cancelQueries({ queryKey: queryKeys.assets.all() }), client.cancelQueries({ queryKey: queryKeys.folders() })]);
     const left: Seats = [];
+    made = madeOf(client, c);
     const snap = applyChange(client, c, undefined, { left, back: opts.back });
     // said at once with the change, not when the server answers: on a slow line the item left and nothing said so for
     // seconds; a refusal takes this banner back and says why instead
@@ -117,7 +145,7 @@ export async function changeAssets(client: QueryClient, c: AssetChange, opts: Ch
       // several at once: what something else still uses (a timeline, the kit, a job to run) stayed where it was
       if (c.kind === "bin" && answer?.inUse) {
         say({ id: bannerId("spared"), tone: "bad", title: `${itemsWord(answer.inUse)} stayed out of the bin`, text: "Still in use by a timeline, the Prompt kit or a job still to run." });
-      }
+      } else whole = true;
     } catch (err) {
       rollback(client, snap);
       if (said) useBanners.getState().dismiss(said);
@@ -131,12 +159,19 @@ export async function changeAssets(client: QueryClient, c: AssetChange, opts: Ch
     return true;
   } finally {
     inFlight--;
-    done.push(asLibraryChange(c));
+    own.until = Date.now() + OWN_EVENT_MS;
+    done.push(own.change);
+    if (shown && whole && made && (c.kind === "move" || c.kind === "bin" || c.kind === "restore")) shown.push(made);
+    else shown = null;
     if (!inFlight) {
       // only what the changes can touch, as their live events read it: a rename or a keep is already written on screen
       const reads = libraryReads(done);
+      const took = shown;
       done = [];
-      void client.invalidateQueries({ predicate: (q) => reads(q.queryKey) });
+      shown = [];
+      const fresh = (key: QueryKey) => took !== null && isAssets(key, "list") && key[4] === false && took.every((m) => listShows(client, key, m));
+      void client.invalidateQueries({ predicate: (q) => reads(q.queryKey) && !fresh(q.queryKey) });
+      void client.invalidateQueries({ predicate: (q) => reads(q.queryKey) && fresh(q.queryKey), refetchType: "none" });
     }
   }
 }

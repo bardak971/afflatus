@@ -61,23 +61,37 @@ function SetEditor({ set, onChanged, onGone }: { set: ModelSet; onChanged(): voi
   const machines = settings.data?.machines ?? [];
   const files = useQuery({ queryKey: queryKeys.modelSets.files(set.id), queryFn: ({ signal }) => api.modelSetFiles(set.id, { signal }) });
   const sayFailed = useSayFailed({ href: "/settings/models", go: "Open Settings › Models" });
-  // each change is made on the set as it stands after the ones before (not as the page last read it), and sent after them:
-  // two quick changes never undo each other
+  // each change is made on the set as the server took the ones before (not as the page last read it), and sent after them:
+  // two quick changes never undo each other, and a change refused is not carried into the next ones. `latest` is the set as
+  // the changes under way will leave it, `saved` as the server last took it, `waiting` the changes not sent yet.
   const latest = useRef<Body>(bodyOf(set));
+  const saved = useRef<Body>(bodyOf(set));
+  const waiting = useRef<Array<(b: Body) => Body>>([]);
   const saving = useRef(0);
   const queue = useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
-    if (!saving.current) latest.current = bodyOf(set);
+    if (!saving.current) latest.current = saved.current = bodyOf(set);
   }, [set]);
   const change = (next: (b: Body) => Body) => {
-    const body = (latest.current = next(latest.current));
+    latest.current = next(latest.current);
+    waiting.current.push(next);
     saving.current++;
     queue.current = queue.current
-      .then(() => api.saveModelSet(set.id, body))
-      .then(() => {
+      .then(async () => {
+        const body = waiting.current.shift()!(saved.current);
+        try {
+          await api.saveModelSet(set.id, body);
+        } catch (err) {
+          // the changes still waiting start again from the set as saved; a name refused goes back in its box
+          latest.current = waiting.current.reduce((b, f) => f(b), saved.current);
+          if (body.name !== saved.current.name) setName(latest.current.name);
+          sayFailed("The set was not saved")(err);
+          return;
+        }
+        saved.current = body;
         onChanged();
         void client.invalidateQueries({ queryKey: queryKeys.modelSets.files(set.id) });
-      }, sayFailed("The set was not saved"))
+      })
       .finally(() => void saving.current--);
   };
   const [name, setName] = useState(set.name);

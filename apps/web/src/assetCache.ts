@@ -21,6 +21,8 @@ interface Page {
 }
 /** The filters of a library list (data.ts useAssets), the parts that decide whether an item belongs. */
 interface ListFilter {
+  /** The order: by name or size, a list pages by position, which an item taken out shifts. */
+  sort?: string;
   bin?: boolean;
   folder?: string;
   kept?: boolean;
@@ -67,6 +69,44 @@ export function fits(f: ListFilter, project: string | undefined, a: Asset, proje
   return true;
 }
 
+/** Which project a folder is in, as the folders read say (null: the Inbox); undefined when it is not known. */
+const projectsOf = (folders: Folder[] | undefined) => (folder: string): string | null | undefined => {
+  if (!folders) return undefined;
+  const f = folders.find((x) => x.id === folder);
+  return f ? f.projectId : undefined;
+};
+
+/** A change's items as it made them, those some copy on screen held (madeOf): what a list is weighed against (listShows). */
+export type Made = { ids: readonly string[]; items: ReadonlyMap<string, Asset> };
+
+/** The items of a change as it makes them, read before it is made on screen (after it, one taken out of every list is nowhere). */
+export function madeOf(client: QueryClient, c: AssetChange, now = new Date().toISOString()): Made {
+  return { ids: c.ids, items: new Map(c.ids.flatMap((id) => {
+    const a = findAsset(client, id);
+    return a ? [[id, changed(a, c, now)] as const] : [];
+  })) };
+}
+
+/**
+ * Whether a library list on screen already shows what a change made of its items, so that reading its pages again would
+ * bring nothing: each one is in it, or is known and does not belong in it. An item that comes into a list is not added in
+ * place (applyChange), and a list in an order paged by position (name, size) has its pages shifted by one taken out:
+ * neither is shown as the server would.
+ */
+export function listShows(client: QueryClient, key: QueryKey, made: Made): boolean {
+  const list = client.getQueryData<InfiniteData<Page>>(key);
+  const filter = (key[3] ?? {}) as ListFilter;
+  if (!list || filter.sort === "name" || filter.sort === "size") return false;
+  const here = new Set(list.pages.flatMap((p) => p.items.map((a) => a.id)));
+  const projectOf = projectsOf(client.getQueryData<{ items: Folder[] }>(queryKeys.folders())?.items);
+  const project = typeof key[2] === "string" ? key[2] : undefined;
+  return made.ids.every((id) => {
+    if (here.has(id)) return true;
+    const a = made.items.get(id);
+    return a !== undefined && !fits(filter, project, a, projectOf);
+  });
+}
+
 /** The item as some copy on screen has it now: its details, else a list that holds it. */
 export function findAsset(client: QueryClient, id: string): Asset | undefined {
   const one = client.getQueryData<Asset>(queryKeys.assets.one(id));
@@ -104,11 +144,7 @@ export function applyChange(client: QueryClient, c: AssetChange, now = new Date(
     snap.push([key, was, client.setQueryData(key, next), ids]);
   };
   const folders = client.getQueryData<{ items: Folder[] }>(queryKeys.folders())?.items;
-  const projectOf = (folder: string) => {
-    if (!folders) return undefined;
-    const f = folders.find((x) => x.id === folder);
-    return f ? f.projectId : undefined;
-  };
+  const projectOf = projectsOf(folders);
 
   for (const [key, data] of client.getQueriesData<unknown>({ queryKey: queryKeys.assets.all() })) {
     if (!data) continue;

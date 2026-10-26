@@ -30,6 +30,8 @@ const listQuery = z.object({
   q: z.string().max(200).transform((q) => q.replace(/[\u0000-\u001f\u007f]/g, " ")).optional(),
   /** Only what was made with this model family. */
   family: z.string().optional(),
+  /** Only the videos with sound and the audio files ("1"): what an audio slot takes (a video's sound is what is used). */
+  sound: z.string().optional(),
   /** Only what was kept ("1"); "0": only what was not. */
   kept: z.string().optional(),
   /** Only what was made with this model file (a checkpoint, a diffusion model), or with this LoRA. */
@@ -62,6 +64,7 @@ async function filterAssets(s: Services, q: ListQuery) {
     const own = await folderIdsOf(s.db, q.project);
     query = own.length ? query.where("folder_id", "in", own) : query.where("folder_id", "=", "-");
   }
+  if (q.sound) query = query.where("has_sound", "=", 1);
   if (q.kept === "0") query = query.where("kept_at", "is", null);
   else if (q.kept) query = query.where("kept_at", "is not", null);
   if (q.since) query = query.where("created_at", ">=", q.since);
@@ -217,7 +220,7 @@ class AssetSearch {
    * library's words where there is one (SQLite), else by reading the library (a search by files alone, or on Postgres).
    */
   private searched(filtered: Filtered, q: ListQuery): Promise<Ranked[]> {
-    const key = JSON.stringify([q.q, q.model, q.lora, q.kind, q.bin, q.folder, q.project, q.kept, q.since, q.family, q.draft]);
+    const key = JSON.stringify([q.q, q.model, q.lora, q.kind, q.bin, q.folder, q.project, q.kept, q.sound, q.since, q.family, q.draft]);
     const had = this.ranked.get(key);
     if (had && Date.now() - had.at < RANKED_MS) return had.rows;
     const words = wordsOf(q.q ?? "");

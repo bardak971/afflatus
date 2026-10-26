@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import type { CostsView, PodSession, TimesSummary } from "../../src/api";
 import { Costs } from "../../src/screens/queue/Costs";
@@ -53,6 +53,32 @@ describe("the Costs tab's pod sessions", () => {
     const asked = fakeApi.calls("GET", "/costs");
     expect(asked.filter((a) => a.path.includes("sessions=all"))).toHaveLength(1);
     expect(asked[0]!.path).not.toContain("sessions=all");
+  });
+
+  it("are not all read again each minute once shown (P6): the newest come with the tab's own read, over the ones read before", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let gpu = "A40";
+      const session = (i: number): PodSession => ({
+        id: `zz${i}`, machine: "rp-a", gpu: i === 0 ? gpu : "A40", cuda: null, hostCuda: null, dataCenter: null, pull: null, bootLog: false, rate: 0.6, from: now - (i + 1) * 3_600_000, to: now - (i + 1) * 3_600_000 + 600_000,
+        open: false, usd: 0.1, parts: { ...zero, idle: 600_000 }, boot: zeroBoot, startFailed: null, crash: null, packs: [], estimated: [], why: "", idleMinutes: 10, fetched: { files: 0, bytes: 0 }, renders: [],
+      } as unknown as PodSession);
+      const all = () => Array.from({ length: 30 }, (_, i) => session(i));
+      fakeApi.on("GET /costs", () => (fakeApi.calls("GET", "/costs").at(-1)!.path.includes("sessions=all") ? { ...costs, runpod: true, sessions: all() } : { ...costs, runpod: true, sessions: all().slice(0, 12), sessionsAll: { count: 30, longestMs: 600_000 } }));
+      draw(<Costs />);
+      fireEvent.click(await screen.findByRole("button", { name: "Show all 30" }));
+      await waitFor(() => expect(screen.getAllByText(/^A40/).length).toBe(30));
+      // the newest session changes; a minute and a half later the tab has read its head again, never every session
+      gpu = "zz-test H100";
+      await vi.advanceTimersByTimeAsync(90_000);
+      await waitFor(() => expect(screen.getAllByText(/^zz-test H100/)).toHaveLength(1));
+      expect(screen.getAllByText(/^A40/)).toHaveLength(29);
+      const asked = fakeApi.calls("GET", "/costs");
+      expect(asked.filter((a) => a.path.includes("sessions=all"))).toHaveLength(1);
+      expect(asked.filter((a) => !a.path.includes("sessions=all")).length).toBeGreaterThanOrEqual(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

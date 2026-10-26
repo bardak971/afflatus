@@ -212,7 +212,7 @@ function sendWhere(machine: string): void {
 }
 
 /** A list of the library: its filters, its page and its order. */
-export type AssetFilter = { /** A project ("none": the Inbox), in place of the one the app looks at. */ project?: string; kind?: string; bin?: boolean; folder?: string; after?: string; before?: string; q?: string; family?: string; kept?: boolean; /** Only what was not kept (kept wins when both are said). */ unkept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean; /** A page's size: 40 when not said. */ limit?: number; /** The order (newest first when not said); `dir` turns name and size around. */ sort?: "new" | "old" | "name" | "size"; dir?: "asc" | "desc" };
+export type AssetFilter = { /** A project ("none": the Inbox), in place of the one the app looks at. */ project?: string; kind?: string; bin?: boolean; folder?: string; after?: string; before?: string; q?: string; family?: string; kept?: boolean; /** Only what was not kept (kept wins when both are said). */ unkept?: boolean; /** Only what has sound: the videos with sound and the audio files. */ sound?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean; /** A page's size: 40 when not said. */ limit?: number; /** The order (newest first when not said); `dir` turns name and size around. */ sort?: "new" | "old" | "name" | "size"; dir?: "asc" | "desc" };
 /** The query of a list of the library (`api.assets`), and of what sums one up (`api.unkept`). */
 function assetParams(opts: AssetFilter): URLSearchParams {
   const q = new URLSearchParams({ limit: String(opts.limit ?? 40) });
@@ -229,6 +229,7 @@ function assetParams(opts: AssetFilter): URLSearchParams {
   if (opts.family) q.set("family", opts.family);
   if (opts.kept) q.set("kept", "1");
   else if (opts.unkept) q.set("kept", "0");
+  if (opts.sound) q.set("sound", "1");
   if (opts.model) q.set("model", opts.model);
   if (opts.lora) q.set("lora", opts.lora);
   if (opts.draft) q.set("draft", opts.draft);
