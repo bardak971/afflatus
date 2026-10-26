@@ -14,7 +14,9 @@ Three ways in:
   - `?token=<token>` on /ws only, for a WebSocket that cannot carry a header (a browser's; Afflatus before 0.5.0): an
     address can end up in the logs of a proxy in front, so Afflatus now sends the header on its socket too;
   - the `afflatus_lock_<port>` cookie the login page sets: a value made from the token, never the token, HttpOnly and
-    SameSite=Lax; and taken only from ComfyUI's own page. SameSite does not tell ports apart: a page served by any other
+    SameSite=Lax; and taken only from ComfyUI's own page (below). It names the login it was given to: one opened from
+    Afflatus is that Afflatus sign-in's, and holds while Afflatus says that sign-in does (below); one made by pasting the
+    token holds as long as the token. SameSite does not tell ports apart: a page served by any other
     program of the same computer (localhost:3000) is the "same site" as localhost:8188, and its browser would send the
     cookie with a request of that page's own (a plain-text POST to /prompt needs no preflight). So the cookie counts only
     on a request the browser says is same-origin (Sec-Fetch-Site), or one whose Origin is ComfyUI's own address.
@@ -25,13 +27,25 @@ not sent by a page of another origin: a page open in this computer's browser cal
 it, so only ComfyUI's own page and Afflatus's (the address it locked from) count, not one of another program on
 another port of the same computer.
 
+A login opened from Afflatus (Open ComfyUI) is tied to the Afflatus sign-in that asked for it: signing that device out,
+Sign out everywhere, a new password, or the sign-in's own end ends its ComfyUI login too. ComfyUI cannot ask Afflatus (a
+rented pod does not reach the computer Afflatus runs on), so Afflatus tells it: the logins still good, sent with each
+login code, at each sign-out, and every minute (POST /afflatus/logins), kept in `afflatus-logins.json` next to the lock.
+A login Afflatus has not named for LEASE_S is refused: a sign-out Afflatus could not tell (ComfyUI did not answer then,
+and Afflatus stopped before it could) ends by that time at the latest, and with Afflatus away for longer, ComfyUI's page
+asks for a login again (Open ComfyUI from Afflatus, or the token). Refusing is the safe side: a login that holds while
+nobody can say whether its sign-in still does is what this is here to end.
+
 Routes (a JSON body only, which a page of another site cannot send without asking first):
   GET  /afflatus/lock    → {locked, local, fixed}
   POST /afflatus/lock    {token, local, origin?}  → locks with this token (the first lock: anyone; after: only through
                                the lock); `origin` is Afflatus's page (http://localhost:8721), let in by "from this PC"
   POST /afflatus/unlock  → opens it again
-  POST /afflatus/login-code  → {code}: a one-time code for /afflatus/login?code=, a minute long, so that Afflatus can open
-                               ComfyUI's page logged in without the token ever being in an address
+  POST /afflatus/login-code  {login?, keep?}  → {code}: a one-time code for /afflatus/login?code=, a minute long, so that
+                               Afflatus can open ComfyUI's page logged in without the token ever being in an address;
+                               the login it gives is `login`'s (one of `keep`, the logins still good); with none (an
+                               Afflatus before 0.7.1), the token's
+  POST /afflatus/logins  {keep}  → the logins still good, all others ended (Afflatus's sign-ins, as ids made from them)
   GET  /afflatus/login[?code=&next=], POST /afflatus/login (a form with the token)  → the login page; `next`, a path of
                                this server, is where a login lands (a workflow Afflatus opened in ComfyUI)
 
@@ -55,6 +69,14 @@ LOCK_FILE = "afflatus-lock.json"
 # a token is what Afflatus makes (43 characters of base64url); a value far longer or shorter is no token of its
 MIN_TOKEN, MAX_TOKEN = 16, 200
 CODE_S = 60
+LOGINS_FILE = "afflatus-logins.json"
+# Afflatus names the logins still good every minute: one it has not named for this long is refused
+LEASE_S = 600
+# a login's id, as Afflatus makes it (an HMAC of its sign-in under the token, cut to 128 bits); "token" is the login made
+# by pasting the token, which holds as long as the token does
+LOGIN_ID_LEN = 32
+TOKEN_LOGIN = "token"
+MAX_LOGINS = 2000
 LOGIN = "/afflatus/login"
 # the routes of this module, reached through the lock like any other (the lock's own state tells nothing to a stranger)
 PROXY_HEADERS = ("X-Forwarded-For", "X-Forwarded-Host", "X-Real-IP", "Forwarded", "CF-Connecting-IP")
@@ -64,9 +86,25 @@ def hash_of(token):
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def cookie_of(digest):
-    """The cookie's value: made from the token's hash, so the cookie never holds the token, and a new token ends it."""
-    return hmac.new(digest.encode("ascii"), b"afflatus-lock-cookie", hashlib.sha256).hexdigest()
+def cookie_of(digest, login):
+    """The cookie's value: the login it was given to, and a MAC of it under the token's hash, so the cookie never holds the
+    token, no one makes one for another login, and a new token ends them all."""
+    mac = hmac.new(digest.encode("ascii"), f"afflatus-lock-login:{login}".encode("ascii"), hashlib.sha256).hexdigest()
+    return f"{login}.{mac}"
+
+
+def login_id_ok(login):
+    return isinstance(login, str) and len(login) == LOGIN_ID_LEN and all(c in "0123456789abcdef" for c in login)
+
+
+def login_of(value, digest):
+    """The login a cookie names, when its MAC holds under this token; else None."""
+    if not isinstance(value, str) or len(value) > 120:
+        return None
+    login = value.partition(".")[0]
+    if login != TOKEN_LOGIN and not login_id_ok(login):
+        return None
+    return login if same(value, cookie_of(digest, login)) else None
 
 
 def same(a, b):
@@ -126,6 +164,47 @@ class Lock:
         self._state = None
         self._mutex = threading.Lock()
         self._codes = {}
+        self.logins_path = os.path.join(folder, LOGINS_FILE)
+        self._keep, self._heard, self._written = self._read_logins()
+
+    def _read_logins(self):
+        """The logins Afflatus last named and when, as kept across a restart of ComfyUI: none when the file does not read."""
+        try:
+            with open(self.logins_path, encoding="utf-8") as f:
+                got = json.load(f)
+            keep = {x for x in got.get("keep", []) if login_id_ok(x)}
+            at = float(got.get("at", 0))
+            return keep, at, at
+        except (OSError, ValueError, TypeError, AttributeError):
+            return set(), 0.0, 0.0
+
+    def keep(self, logins, now=None):
+        """The logins still good, as Afflatus names them: every other one ends at once. Written down when they change, and
+        every LEASE_S / 4 besides, so that a ComfyUI started again finds them still named."""
+        now = time.time() if now is None else now
+        keep = set(logins)
+        with self._mutex:
+            changed = keep != self._keep
+            self._keep, self._heard = keep, now
+            if changed or now - self._written >= LEASE_S / 4:
+                try:
+                    os.makedirs(os.path.dirname(self.logins_path), exist_ok=True)
+                    part = self.logins_path + ".part"
+                    with open(part, "w", encoding="utf-8") as f:
+                        json.dump({"keep": sorted(keep), "at": now}, f)
+                    os.replace(part, self.logins_path)
+                    self._written = now
+                except OSError:
+                    # held in memory all the same: a user folder that cannot be written only loses them at a restart
+                    pass
+
+    def login_ok(self, login, now=None):
+        """Whether a login holds: the token's always (while the token does); one of Afflatus's while it is named, and named
+        lately (LEASE_S)."""
+        if login == TOKEN_LOGIN:
+            return True
+        now = time.time() if now is None else now
+        return login in self._keep and now - self._heard < LEASE_S
 
     def state(self):
         """{hash, local} when locked, else None."""
@@ -169,6 +248,8 @@ class Lock:
             self._state = {"hash": hash_of(token), "local": bool(local), "origin": origin_ok(origin)}
             self._seen = (st.st_mtime_ns, st.st_size)
             self._codes.clear()
+        # a new token makes every login's id and cookie anew: the ones named under the old token name nothing now
+        self.keep([])
 
     def remove(self):
         with self._mutex:
@@ -178,20 +259,23 @@ class Lock:
                 pass
             self._seen, self._state = None, None
             self._codes.clear()
+        self.keep([])
 
-    def code(self, now=None):
+    def code(self, login=TOKEN_LOGIN, now=None):
+        """A one-time code for the login page, giving `login` (the token's when Afflatus names none)."""
         now = time.time() if now is None else now
         with self._mutex:
-            self._codes = {c: t for c, t in self._codes.items() if t > now}
+            self._codes = {c: t for c, t in self._codes.items() if t[0] > now}
             code = secrets.token_urlsafe(24)
-            self._codes[code] = now + CODE_S
+            self._codes[code] = (now + CODE_S, login)
             return code
 
     def use_code(self, code, now=None):
+        """The login a code gives, once and within its minute; else None."""
         now = time.time() if now is None else now
         with self._mutex:
-            until = self._codes.pop(code, None) if isinstance(code, str) else None
-            return until is not None and until > now
+            got = self._codes.pop(code, None) if isinstance(code, str) else None
+            return got[1] if got is not None and got[0] > now else None
 
 
 def cookie_name(request):
@@ -213,16 +297,17 @@ def own_page(request):
     return origin != "null" and (urllib.parse.urlsplit(origin).netloc or "").lower() == (request.host or "").lower()
 
 
-def let_in(request, state):
-    """Whether a request gets through the lock: by the token, the login cookie (from ComfyUI's own page only), or (said so)
-    as a call from this computer."""
+def let_in(request, state, login_ok):
+    """Whether a request gets through the lock: by the token, the login cookie (from ComfyUI's own page only, and while its
+    login holds: `login_ok`), or (said so) as a call from this computer."""
     digest = state["hash"]
     auth = request.headers.get("Authorization", "")
     if auth[:7].lower() == "bearer " and same(hash_of(auth[7:].strip()), digest):
         return True
     if request.path == "/ws" and same(hash_of(request.rel_url.query.get("token", "")), digest):
         return True
-    if same(request.cookies.get(cookie_name(request), ""), cookie_of(digest)) and own_page(request):
+    login = login_of(request.cookies.get(cookie_name(request)), digest)
+    if login is not None and own_page(request) and login_ok(login):
         return True
     return bool(state.get("local")) and from_this_pc(request, state.get("origin"))
 
@@ -287,12 +372,12 @@ ONWARD = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta htt
 <title>ComfyUI</title></head><body style="background:#202020"><script>location.replace({js})</script></body></html>"""
 
 
-def logged_in(web, request, state):
+def logged_in(web, request, state, login):
     """The cookie set, and on to ComfyUI's page from a page of ComfyUI's own: a redirect would go on in the name of the page
     that sent the browser here (Afflatus's), and the cookie, taken only from ComfyUI's own page, would not count."""
     where = landing(request)
     res = web.Response(text=ONWARD.format(url=html.escape(where, quote=True), js=json.dumps(where).replace("<", "\\u003c")), content_type="text/html", headers={"Cache-Control": "no-store"})
-    res.set_cookie(cookie_name(request), cookie_of(state["hash"]), httponly=True, samesite="Lax", path="/", secure=request.scheme == "https")
+    res.set_cookie(cookie_name(request), cookie_of(state["hash"], login), httponly=True, samesite="Lax", path="/", secure=request.scheme == "https")
     return res
 
 
@@ -306,7 +391,7 @@ def make_middleware(lock, web):
             return await handler(request)
         if request.path == LOGIN:
             return await login(request, state)
-        if let_in(request, state):
+        if let_in(request, state, lock.login_ok):
             return await handler(request)
         # a person opening ComfyUI's page lands on the login; anything else is told it is locked, and by whom
         if request.method == "GET" and request.path == "/" and "text/html" in request.headers.get("Accept", ""):
@@ -318,8 +403,9 @@ def make_middleware(lock, web):
             code = request.rel_url.query.get("code")
             if code is None:
                 return page(web)
-            if lock.use_code(code):
-                return logged_in(web, request, state)
+            login = lock.use_code(code)
+            if login is not None:
+                return logged_in(web, request, state, login)
             return page(web, "That link was used already or is too old: open ComfyUI from Afflatus again, or paste the token.")
         if request.method == "POST":
             # a token is short: a large form is refused before it is read (it would be held in memory, asked by anyone)
@@ -327,7 +413,7 @@ def make_middleware(lock, web):
                 return web.Response(status=413, text="too large")
             form = await request.post()
             if same(hash_of(str(form.get("token", "")).strip()), state["hash"]):
-                return logged_in(web, request, state)
+                return logged_in(web, request, state, TOKEN_LOGIN)
             return page(web, "That is not this ComfyUI's token.")
         return web.Response(status=405)
 
@@ -376,13 +462,39 @@ def register(routes, web, lock):
         lock.remove()
         return web.json_response({"locked": False})
 
+    def logins_of(got):
+        """A list of logins as Afflatus sends it, or None when it is not one."""
+        if not isinstance(got, list) or len(got) > MAX_LOGINS or not all(login_id_ok(x) for x in got):
+            return None
+        return got
+
     @routes.post("/afflatus/login-code")
     async def _afflatus_login_code(request):
-        if await body_of(request) is None:
+        body = await body_of(request)
+        if body is None:
             return web.Response(status=415, text="a JSON body is expected")
         if lock.state() is None:
             return web.Response(status=409, text="not locked: the page opens without a code")
-        return web.json_response({"code": lock.code(), "seconds": CODE_S})
+        login = body.get("login")
+        if login is None:
+            # an Afflatus before 0.7.1 names no login: the code gives the token's, as it always did (its caller holds the token)
+            return web.json_response({"code": lock.code(), "seconds": CODE_S})
+        keep = logins_of(body.get("keep"))
+        if not login_id_ok(login) or keep is None or login not in keep:
+            return web.Response(status=400, text="a login is one of the logins still good (keep)")
+        lock.keep(keep)
+        return web.json_response({"code": lock.code(login), "seconds": CODE_S})
+
+    @routes.post("/afflatus/logins")
+    async def _afflatus_logins(request):
+        body = await body_of(request)
+        if body is None:
+            return web.Response(status=415, text="a JSON body is expected")
+        keep = logins_of(body.get("keep"))
+        if keep is None:
+            return web.Response(status=400, text=f"keep is a list of at most {MAX_LOGINS} logins")
+        lock.keep(keep)
+        return web.json_response({"kept": len(set(keep))})
 
 
 def install(server, web, folder_paths):

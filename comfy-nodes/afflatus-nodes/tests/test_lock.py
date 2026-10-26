@@ -345,6 +345,97 @@ def test_the_cookie_counts_only_from_comfyuis_own_page(lock, mw):
     assert call(mw, Request(headers={**bearer(TOKEN), "Sec-Fetch-Site": "same-site"})).text == "handled"
 
 
+A, B = "a" * 32, "b" * 32
+
+
+def login_cookie(mw, code):
+    return {"afflatus_lock_8188": call(mw, Request(L.LOGIN, query={"code": code})).cookies["afflatus_lock_8188"][0]}
+
+
+def test_a_login_opened_from_afflatus_ends_with_its_sign_in(lock, mw):
+    lock.write(TOKEN, local=False)
+    lock.keep([A, B])
+    a, b = login_cookie(mw, lock.code(A)), login_cookie(mw, lock.code(B))
+    token = {"afflatus_lock_8188": call(mw, Request(L.LOGIN, "POST", form={"token": TOKEN})).cookies["afflatus_lock_8188"][0]}
+    assert a != b and TOKEN not in a["afflatus_lock_8188"]
+    assert call(mw, Request(cookies=a)).text == "handled" and call(mw, Request(cookies=b)).text == "handled"
+    # A's device signed out in Afflatus: Afflatus names B alone, and A's ComfyUI login ends at once
+    lock.keep([B])
+    assert call(mw, Request(cookies=a)).status == 401
+    assert call(mw, Request(cookies=b)).text == "handled"
+    # Sign out everywhere: none named; the login made by pasting the token holds as long as the token
+    lock.keep([])
+    assert call(mw, Request(cookies=b)).status == 401
+    assert call(mw, Request(cookies=token)).text == "handled"
+
+
+def test_a_cookie_names_its_login_and_no_other(lock, mw):
+    lock.write(TOKEN, local=False)
+    lock.keep([A, B])
+    value = login_cookie(mw, lock.code(B))["afflatus_lock_8188"]
+    mac = value.partition(".")[2]
+    # B's MAC under A's name, the token's name, or the cookie of the pack before (the token's hash alone): refused
+    for forged in (f"{A}.{mac}", f"{L.TOKEN_LOGIN}.{mac}", hmac_old(L.hash_of(TOKEN)), A, ""):
+        assert call(mw, Request(cookies={"afflatus_lock_8188": forged})).status == 401
+
+
+def hmac_old(digest):
+    import hashlib
+    import hmac
+
+    return hmac.new(digest.encode("ascii"), b"afflatus-lock-cookie", hashlib.sha256).hexdigest()
+
+
+def test_logins_not_named_lately_are_refused(lock, mw):
+    lock.write(TOKEN, local=False)
+    lock.keep([A])
+    a = login_cookie(mw, lock.code(A))
+    # Afflatus away (stopped, or ComfyUI out of its reach) for the lease: what it last named no longer holds
+    lock.keep([A], now=L.time.time() - L.LEASE_S - 1)
+    assert call(mw, Request(cookies=a)).status == 401
+    assert not lock.login_ok(A)
+    lock.keep([A])
+    assert call(mw, Request(cookies=a)).text == "handled"
+
+
+def test_logins_are_kept_across_a_restart_and_end_with_the_token(tmp_path):
+    first = L.Lock(str(tmp_path), env={})
+    first.write(TOKEN, local=False)
+    first.keep([A])
+    a = login_cookie(L.make_middleware(first, web), first.code(A))
+    again = L.Lock(str(tmp_path), env={})
+    assert call(L.make_middleware(again, web), Request(cookies=a)).text == "handled"
+    # a file that does not read names none
+    with open(again.logins_path, "w", encoding="utf-8") as f:
+        f.write("[1, 2")
+    assert not L.Lock(str(tmp_path), env={}).login_ok(A)
+    # a new token: what was named under the old one is forgotten
+    again.keep([A])
+    again.write(OTHER, local=False)
+    assert not again.login_ok(A)
+    assert not L.Lock(str(tmp_path), env={}).login_ok(A)
+
+
+def test_routes_for_logins(lock):
+    routes = Routes()
+    L.register(routes, web, lock)
+    lock.write(TOKEN, local=False)
+    # a login code for one of the logins named with it
+    got = route(routes, "POST", "/afflatus/login-code", Request(body={"login": A, "keep": [A, B]}))
+    assert lock.use_code(got.data["code"]) == A and lock.login_ok(B)
+    # a login not among them, or not one Afflatus makes: refused, and nothing named changes
+    for body in ({"login": A, "keep": [B]}, {"login": "x" * 32, "keep": ["x" * 32]}, {"login": A}, {"login": A, "keep": A}):
+        assert route(routes, "POST", "/afflatus/login-code", Request(body=body)).status == 400
+    assert lock.login_ok(A)
+    # an Afflatus before 0.7.1 names none: the token's login, as before
+    assert lock.use_code(route(routes, "POST", "/afflatus/login-code", Request(body={})).data["code"]) == L.TOKEN_LOGIN
+    assert route(routes, "POST", "/afflatus/logins", Request(body={"keep": [B, B]})).data == {"kept": 1}
+    assert not lock.login_ok(A) and lock.login_ok(B)
+    for body in (None, {"keep": "a"}, {"keep": [A.upper()]}, {"keep": [A] * (L.MAX_LOGINS + 1)}, {}):
+        assert route(routes, "POST", "/afflatus/logins", Request(body=body)).status in (400, 415)
+    assert lock.login_ok(B)
+
+
 def _lock_fails_to_go_in(monkeypatch, tmp_path, env):
     """The pack's start with the lock failing to go in (an aiohttp or ComfyUI change): whether ComfyUI was stopped."""
     import sys

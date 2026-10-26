@@ -33,6 +33,7 @@ import { Updates } from "./modelUpdates";
 import { Precompute, type PrecomputeOptions } from "./precompute";
 import { Notify } from "./notify";
 import { Access } from "./access";
+import { followComfyLogins } from "./comfyLogins";
 import { Hunt } from "./hunt";
 import { OfficialSizes } from "./officialSizes";
 
@@ -199,6 +200,8 @@ export async function createServices(
   notify.watch();
   // the reset codes and the sign-ins go to the data folder's log file as well as the console (none in the tests)
   const access = new Access(db, notify, { logFile: dirs.dataDir ? join(dirs.dataDir, "logs", "afflatus.log") : undefined });
+  // each locked ComfyUI told which of its logins opened from Afflatus still hold: a device signed out loses its ComfyUI too
+  const comfyLogins = followComfyLogins({ access, machines, down: (id) => rented.podDown(id) !== null });
   const timelines = new Timelines(db, storage, registry, queue.events);
   queue.clips = timelines;
   const precompute = dirs.precompute === false ? null : new Precompute(db, timelines.media, dirs.precompute);
@@ -332,6 +335,8 @@ export async function createServices(
       rented.stop();
       notify.stop();
       access.stop();
+      comfyLogins.stop();
+      await comfyLogins.settled();
       await precompute?.stop();
       // a hash pass under way (a checkpoint read in full takes a minute) ends before the database closes under it
       clearTimeout(firstHashes);

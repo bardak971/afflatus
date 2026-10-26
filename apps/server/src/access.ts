@@ -201,6 +201,10 @@ export function deviceName(ua: string): string {
 /** A session's row, as read. */
 interface SessionRow { id: string; device_id: string; created_at: string; last_seen_at: string; expires_at: string; ip: string; user_agent: string; remember: number }
 
+/** A ComfyUI login opened with no password set, and one opened from this computer while it needs none (comfyLoginKeys). */
+export const OPEN_LOGIN = "open";
+export const HERE_LOGIN = "here";
+
 /** Who a request is, for the lock: a session's id when it has a good one; `bypass` when it is this computer's and that needs no password. */
 export interface Who { session: string | null; bypass: boolean }
 
@@ -520,6 +524,17 @@ export class Access extends EventEmitter {
       .select(["sessions.id", "sessions.ip", "sessions.user_agent", "sessions.last_seen_at", "sessions.created_at", "sessions.remember", "devices.first_seen_at"])
       .where("sessions.expires_at", ">", t).orderBy("sessions.last_seen_at", "desc").execute();
     return rows.map((r) => ({ id: r.id, name: deviceName(r.user_agent), firstSeen: r.first_seen_at ?? r.created_at, ip: r.ip, lastSeen: r.last_seen_at, remember: r.remember === 1, here: r.id === here }));
+  }
+
+  /**
+   * The ComfyUI logins still good, by what they were opened under (comfyLogins.ts): each session not ended; "here" while
+   * this computer needs no password; "open" while there is no password at all. A login opened under anything else ends.
+   */
+  async comfyLoginKeys(): Promise<string[]> {
+    const a = await this.settings();
+    if (!a.password) return [OPEN_LOGIN];
+    const rows = await this.db.selectFrom("sessions").select("id").where("expires_at", ">", new Date(this.now()).toISOString()).execute();
+    return [...rows.map((r) => r.id), ...(this.bypassOn(a) ? [HERE_LOGIN] : [])];
   }
 
   /** Sign out one device of the list. */

@@ -239,10 +239,11 @@ export function AccessCard() {
             {list.length > 0 && <TwoStep label="Sign out everywhere" title="Sign out every device, this one too" note="Every device, this one too" yes="Sign out everywhere" busy={out.isPending} onYes={() => out.mutate("everywhere")} />}
           </div>
           {list.map((d) => <DeviceRow key={d.id} d={d} busy={out.isPending} onOut={() => out.mutate(d)} />)}
-          {/* ComfyUI's login cookie comes from its token alone (the node pack's lock.py): nothing signed out here ends it */}
+          {/* a ComfyUI login opened from Afflatus belongs to the sign-in that asked for it (comfyLogins.ts, lock.py's logins);
+              an older node pack's cookie comes from the token alone, and only a new token ends it */}
           {list.length > 0 && (
             <span className="px-gutter py-2 text-xs text-ink-3">
-              A ComfyUI opened from a device (Open ComfyUI) stays open in that browser once it is signed out here: renew that machine's token in Settings › ComfyUI to end it.
+              Signing a device out here also ends the ComfyUI it opened (Open ComfyUI). With a node pack before 0.42.0, that ComfyUI stays open in its browser until the machine's token is renewed in Settings › ComfyUI.
             </span>
           )}
           {session.data?.localNoPassword && !session.data.session && (

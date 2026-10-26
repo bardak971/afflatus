@@ -25,9 +25,9 @@ export type Opened = { url: string; direct: true } | { url: string; direct: fals
 /**
  * Put `file` (the editor's format) where ComfyUI shows it, and say what address to open. `name` is the
  * file's name in the pack (letters, digits, "-", "_" and "." only: ComfyUI's page takes nothing else);
- * `title` names it in the sidebar.
+ * `title` names it in the sidebar; `key`, the sign-in asking, which the ComfyUI login opened ends with (comfyLogins.ts).
  */
-export async function openInComfy(s: Services, name: string, title: string, file: unknown): Promise<Opened> {
+export async function openInComfy(s: Services, key: string, name: string, title: string, file: unknown): Promise<Opened> {
   const comfy = await s.comfy();
   const toSidebar = async (): Promise<string> => {
     const path = `workflows/afflatus/${title.replace(/[\\/:*?"<>|]+/g, " ").trim().slice(0, 80) || name}.json`;
@@ -41,7 +41,7 @@ export async function openInComfy(s: Services, name: string, title: string, file
   };
   const { comfyDir } = await readSettings(s.db);
   // ComfyUI's folder on a network share is never reached for (see isNetworkPath): the file goes through ComfyUI itself
-  if (!comfyDir.trim() || isNetworkPath(comfyDir)) return { url: await pageUrl(comfy), direct: false, path: await toSidebar() };
+  if (!comfyDir.trim() || isNetworkPath(comfyDir)) return { url: await pageUrl(s, comfy, key), direct: false, path: await toSidebar() };
 
   const dir = comfyDir.trim();
   if (!(await exists(join(dir, "custom_nodes")))) throw httpError(`"${dir}" is not a ComfyUI folder: it has no custom_nodes folder. Check the ComfyUI folder in Settings.`);
@@ -55,6 +55,6 @@ export async function openInComfy(s: Services, name: string, title: string, file
     throw err;
   });
   // locked (the node pack's lock): through its login, landing on the workflow
-  if (served) return { url: await pageUrl(comfy, `/?template=${encodeURIComponent(name)}&source=${PACK}`), direct: true };
-  return { url: await pageUrl(comfy), direct: false, path: await toSidebar(), restart: true };
+  if (served) return { url: await pageUrl(s, comfy, key, `/?template=${encodeURIComponent(name)}&source=${PACK}`), direct: true };
+  return { url: await pageUrl(s, comfy, key), direct: false, path: await toSidebar(), restart: true };
 }

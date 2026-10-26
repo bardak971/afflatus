@@ -7,6 +7,7 @@ import { isRef, type Graph } from "@afflatus/core";
 import { bindings, fromEditor, graph as graphSchema, inspect, isEditorFormat, paintSwitches, slug, toEditor, UnreadableWorkflow, wiring as wiringSchema, workflowDef, type Bindings, type FileSource, type WorkflowDef } from "@afflatus/workflows";
 import type { Services } from "./services";
 import { openInComfy } from "./comfyOpen";
+import { loginKeyOf } from "./comfyLogins";
 import { made } from "./registry";
 import { installPacks, packStatus } from "./packs";
 import { readSettings } from "./settings";
@@ -214,7 +215,7 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
       file = toEditor(def.graph as Graph, await comfy.catalog(), { titles });
     }
     // the nodes each switch made here covers are coloured: the reach of a switch, seen where such things are checked
-    return openInComfy(s, def.id.replace(/^workflow\./, ""), def.title, paintSwitches(file, def.bindings.toggles));
+    return openInComfy(s, loginKeyOf(req.access), def.id.replace(/^workflow\./, ""), def.title, paintSwitches(file, def.bindings.toggles));
   });
 
   /** What was made with it stays in the library; drafts on it stay too, and say the workflow is gone. */

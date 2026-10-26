@@ -77,6 +77,11 @@ With the pack loaded, ComfyUI answers:
   `AFFLATUS_TOKEN=<token>` locks it from its start. **To take the lock off by hand,** delete `afflatus-lock.json`, or
   start ComfyUI with `AFFLATUS_LOCK=off`. A ComfyUI locked so whose lock cannot be put in front of its server (an
   aiohttp or ComfyUI change) stops at its start rather than run open, and says the same two ways out (0.20.0).
+- `POST /afflatus/logins` (0.42.0): the logins still good. A login opened from Afflatus (Open ComfyUI) belongs to the
+  Afflatus sign-in that asked for it; Afflatus names the ones still good with each login code, on each sign-out and every
+  minute, so signing a device out of Afflatus, Sign out everywhere or a new password ends its ComfyUI login too. A login
+  not named for 10 minutes is refused (Afflatus away: open ComfyUI from it again, or paste the token). Kept in
+  `afflatus-logins.json` beside the lock. The login made by pasting the token holds as long as the token.
 
 - `GET /afflatus/power` (0.18.0): the GPU's power draw in watts (NVML through `nvidia-ml-py`, else `nvidia-smi`), for this PC's electricity; null where neither reads it.
 - `GET /afflatus/disk` and `POST /afflatus/models/remove` (0.19.0): the disk the model folders are on (bytes free and in all), and a model file taken off it to make room on a rented pod.

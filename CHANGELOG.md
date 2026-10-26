@@ -17,7 +17,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **A microphone take is read only as a recording.** A DASH manifest sent in its place made ffmpeg read the video or sound files it named on the server's disk, by path, into the take; the take is now read only as webm, ogg, mp4 or WAV.
 - **A picture larger than 256 MB is refused** (413) as an upload or a file to read settings from: it was read into memory whole, and a few at once could take the server down. A video sent to read its settings is read where it was written, not into memory.
 - **Changing the Discord webhook asks for a recent sign-in or the password**, as Telegram's bot and chat do, and the webhook before is told of the change.
-- **Settings › Access says that a ComfyUI opened from a device outlives its sign-out** there; renewing the machine's token ends it.
+- **Signing a device out of Afflatus also ends the ComfyUI it opened.** A ComfyUI login given by Open ComfyUI used to come from the machine's token alone, so it outlived the device's sign-out, Sign out everywhere and a new password. It now belongs to the sign-in that asked for it, and ends with it; a login Afflatus has not confirmed for 10 minutes (Afflatus stopped) asks again. Needs the node pack 0.42.0 (pod image 0.1.40); with an older pack, renewing the machine's token ends it, as Settings › Access says.
 
 ## [0.7.0] - 2026-10-26
 

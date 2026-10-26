@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ComfyClient, LOCKED_HEADER } from "@afflatus/comfy";
 import type { Comfy, MachineComfy } from "./comfy";
+import { loginKeyOf, loginsFor } from "./comfyLogins";
 import { httpError } from "./errors";
 import type { Services } from "./services";
 import { fromThisComputer } from "./hostCheck";
@@ -83,12 +84,17 @@ export async function accessOf(comfy: Comfy, online: boolean, locked: boolean, p
 /**
  * The address that opens ComfyUI's own page at `path` (its editor, a workflow in it): locked, its login with a one-time
  * code (a minute long) that lands there, so the browser is logged in and the token is never in an address bar or a
- * history; open, the page itself.
+ * history; open, the page itself. The login is the one of `key`, the Afflatus sign-in asking (comfyLogins.ts), and ends
+ * with it.
  */
-export async function pageUrl(comfy: Comfy, path = "/"): Promise<string> {
+export async function pageUrl(s: Pick<Services, "access">, comfy: Comfy, key: string, path = "/"): Promise<string> {
   const plainUrl = `${comfy.client.baseUrl}${path === "/" ? "" : path}`;
-  if (!comfy.client.token) return plainUrl;
-  const res = await comfy.client.raw("/afflatus/login-code", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: AbortSignal.timeout(5000) }).catch(() => null);
+  const token = comfy.client.token;
+  if (!token) return plainUrl;
+  const logins = await loginsFor(s.access, token, key);
+  if (!logins) throw httpError("Sign in first: this Afflatus has a password.", 401);
+  // the logins still good go with it: a ComfyUI not told lately (lock.py's LEASE_S) is told now
+  const res = await comfy.client.raw("/afflatus/login-code", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(logins), signal: AbortSignal.timeout(5000) }).catch(() => null);
   // not locked after all (opened by hand): the page opens as it is
   if (res?.status === 409) return plainUrl;
   if (!res?.ok) throw httpError("ComfyUI did not give a login code: is it running, and is its token still the one Afflatus has?", 502);
@@ -202,6 +208,6 @@ export function registerLock(app: FastifyInstance, s: Services): void {
   /** Where to open ComfyUI's own page (pageUrl). */
   app.post("/api/machines/:id/open", async (req) => {
     const { id } = params.parse(req.params);
-    return { url: await pageUrl((await machineOf(id)).comfy) };
+    return { url: await pageUrl(s, (await machineOf(id)).comfy, loginKeyOf(req.access)) };
   });
 }

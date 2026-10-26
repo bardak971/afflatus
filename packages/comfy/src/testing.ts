@@ -74,6 +74,8 @@ export interface FakeComfy {
   lock: { token: string; local: boolean; fixed?: boolean; /** Afflatus's page, let in by "from this PC" (lock.py). */ origin?: string } | null;
   /** The calls the lock refused, as "METHOD /path". */
   refused: string[];
+  /** The logins Afflatus last named as still good (POST /afflatus/logins, or with a login code), as lock.py keeps them. */
+  logins: string[];
   /** What the pretend ComfyUI-Manager says its version is (GET /v2/manager/version). */
   managerVersion: string;
   /** An older ComfyUI whose page answers every address: a POST to a route it does not have is refused 405, not 404. */
@@ -182,7 +184,7 @@ const body = async (req: IncomingMessage) => {
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: FakeState = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], deaf: new Set(), files: {}, rejectWith: null, rejectNext: [], uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], packUploaded: [], removed: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, podDied: null, ram: null, bootLog: null, printed: [], alive: [],
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], deaf: new Set(), files: {}, rejectWith: null, rejectNext: [], uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], logins: [], packFetched: [], packUploaded: [], removed: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, podDied: null, ram: null, bootLog: null, printed: [], alive: [],
     folderPaths: init.folderPaths ?? null, hideFolderPaths: init.hideFolderPaths ?? false,
     catalog: init.catalog ?? {},
     models: init.models ?? {},

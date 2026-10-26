@@ -9,6 +9,7 @@ import { registerAssetSearch, withShownName } from "./assetSearch";
 import { registerAssetsBin } from "./assetsBin";
 import { registerAssetUpload } from "./assetUpload";
 import { openInComfy } from "./comfyOpen";
+import { loginKeyOf } from "./comfyLogins";
 import { tagMatches } from "./compress";
 import { markedVideoFile, silentOf, soundOf } from "./cut";
 import { newId, now, type Tables } from "./db";
@@ -198,7 +199,7 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     const built = await s.queue.builtOf(g.recipe_id, JSON.parse(g.inputs), { seed: resolved.seed, names });
     if (!built) throw httpError("the graph of this result could not be built again");
     const file = toEditor(built.graph, await (await s.comfy()).catalog());
-    return openInComfy(s, `render-${a.id.replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 24)}`, `Render ${a.name.trim() || a.id.slice(0, 8)}`, file);
+    return openInComfy(s, loginKeyOf(req.access), `render-${a.id.replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 24)}`, `Render ${a.name.trim() || a.id.slice(0, 8)}`, file);
   });
 
   /** One item, with how it was made. */
