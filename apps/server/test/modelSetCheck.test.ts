@@ -110,6 +110,27 @@ describe("a render's files held together", () => {
     expect(await jobs()).toHaveLength(2);
   });
 
+  it("checks a render pinned to a machine against that machine's files; the first's while it cannot be asked (card #119, B18)", async () => {
+    const other = await startFakeComfy({ catalog: referenceCatalog(), models: { diffusion_models: [HIGH, LOW, FIVE_B, I2V_LOW], vae: ["wan_2.1_vae.safetensors"], text_encoders: ["umt5_xxl_fp8_e4m3fn_scaled.safetensors"] } });
+    try {
+      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ id: "m1", url: fake.url }, { id: "m2", url: other.url }] } });
+      const fiveB = { ...form({ model: FIVE_B, modelLow: I2V_LOW, start: await picture() }), machine: "m2" };
+      // the first machine away: the pinned one's own files are read, and the mix is refused there
+      await fake.close();
+      const there = await post(t.app, "/api/jobs", fiveB);
+      expect(there.statusCode).toBe(400);
+      expect(there.json().error).toMatch(/This model is Wan 2\.2 5B \(TI2V\).*black or garbled/);
+      // the pinned one away (a pod booting) and the first back: the first's files, as before, rather than none checked
+      fake = await startFakeComfy({ catalog: referenceCatalog(), models: { diffusion_models: [HIGH, LOW, FIVE_B, I2V_LOW], vae: ["wan_2.1_vae.safetensors"], text_encoders: ["umt5_xxl_fp8_e4m3fn_scaled.safetensors"] } });
+      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ id: "m1", url: fake.url }, { id: "m2", url: other.url }] } });
+      await other.close();
+      expect((await post(t.app, "/api/jobs", fiveB)).statusCode).toBe(400);
+      expect(await jobs()).toEqual([]);
+    } finally {
+      await other.close().catch(() => {});
+    }
+  });
+
   it("sends a pod none of the files of a black mix queued before the check", async () => {
     const start = await picture();
     const row = { id: "zz-test-old", recipe_id: "wan.video", inputs: JSON.stringify({ prompt: "A lighthouse at dusk.", model: FIVE_B, modelLow: I2V_LOW, start }), finished_from: null, clip_id: null, clip_fit: 0, clip_mirror: null };

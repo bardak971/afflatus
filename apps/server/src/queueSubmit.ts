@@ -804,12 +804,17 @@ async function slots(core: QueueCore, comfy: Comfy, recipe: Recipe<any>): Promis
 }
 
 /**
- * A form's files held against its family's (modelSetCheck.ts) before it is queued, as the first machine has them: what the
+ * A form's files held against its family's (modelSetCheck.ts) before it is queued, as the core's machine has them: what the
  * form says under its fields, and a mix known to give black frames refused at Render. Nothing when the form cannot be built
  * or ComfyUI does not answer: the job's own check, on the machine it runs on, still comes. Every render queued is checked
  * (Queue.enqueue), so a family that declares nothing to check is told at once, with nothing built and ComfyUI not asked.
  */
 export async function setCheckOf(core: QueueCore, recipeId: string, raw: unknown): Promise<SetFinding[]> {
+  return (await setCheckOn(core, recipeId, raw)) ?? [];
+}
+
+/** The same, null when that machine could not be asked (a render pinned to a pod still booting is checked on the first's). */
+export async function setCheckOn(core: QueueCore, recipeId: string, raw: unknown): Promise<SetFinding[] | null> {
   const recipe = core.registry.recipe(recipeId);
   const family = recipe ? core.registry.family(recipe.family) : undefined;
   if (!recipe || !family || (!family.line && !family.wrong?.length)) return [];
@@ -821,7 +826,7 @@ export async function setCheckOf(core: QueueCore, recipeId: string, raw: unknown
     const input = parseInput(recipe, withTexts(recipe, raw)) as Record<string, unknown>;
     return await setFindings(core.db, family, recipe, input, built, files);
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -968,8 +973,11 @@ async function probed(source: Media, ext: string): Promise<{ facts: VideoFacts |
   return inTemp(async (dir) => probeVideo(await onDisk(dir, `in.${ext}`, source)));
 }
 
-/** The facts of a render's own frames, shared by the forecast's look (clipFacts) and the join's upload (uploadJoinClip). */
-function rawFactsOf(storage: Storage, key: string, mime: string): Promise<VideoFacts | null> {
+/**
+ * The facts of a render's own frames, shared by the forecast's look (clipFacts), the join's upload (uploadJoinClip) and a
+ * finish's needs (queueTools toolNeeds). The last 256 files are kept, as the sibling caches are (card #119, P7).
+ */
+export function rawFactsOf(storage: Storage, key: string, mime: string): Promise<VideoFacts | null> {
   let got = rawFacts.get(key);
   if (!got) {
     // a read that failed is not kept: ffprobe out of time under load would have every later join take the finished frames
@@ -978,6 +986,7 @@ function rawFactsOf(storage: Storage, key: string, mime: string): Promise<VideoF
       return facts;
     });
     rawFacts.set(key, got);
+    if (rawFacts.size > 256) rawFacts.delete(rawFacts.keys().next().value!);
   }
   return got;
 }
