@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { SoundField } from "../../src/PictureField";
 import { MicButton } from "../../src/mic/MicRecord";
-import { fakeApi } from "./fakeApi";
+import { fakeApi, later } from "./fakeApi";
 import { draw } from "./render";
 
 /**
@@ -19,6 +19,14 @@ const mic = {
   asked: [] as unknown[],
   refuse: null as string | null,
   track: null as (EventTarget & { stop(): void }) | null,
+  /** The browser's answer to its question about the microphone, held until the test gives it. */
+  asking: null as ReturnType<typeof later<void>> | null,
+  /** How many recorders were made, and what makes the next one refuse: being made, or starting. */
+  recorders: 0,
+  recorderFails: null as "make" | "start" | null,
+  /** The state the waveform's context is made in (Safari makes it suspended), and whether it was resumed. */
+  contextState: "running" as "running" | "suspended",
+  resumed: false,
 };
 
 class FakeRecorder {
@@ -27,7 +35,12 @@ class FakeRecorder {
   mimeType = "audio/webm;codecs=opus";
   ondataavailable: ((e: { data: Blob }) => void) | null = null;
   onstop: (() => void) | null = null;
+  constructor() {
+    mic.recorders++;
+    if (mic.recorderFails === "make") throw new DOMException("no encoder for this stream", "NotSupportedError");
+  }
   start() {
+    if (mic.recorderFails === "start") throw new DOMException("the recorder could not start", "InvalidStateError");
     this.state = "recording";
   }
   stop() {
@@ -38,6 +51,12 @@ class FakeRecorder {
 }
 
 class FakeContext {
+  state = mic.contextState;
+  resume() {
+    mic.resumed = true;
+    this.state = "running";
+    return Promise.resolve();
+  }
   createAnalyser() {
     return {
       fftSize: 256,
@@ -68,6 +87,7 @@ function page(secure: boolean) {
     value: secure ? {
       getUserMedia: async (c: unknown) => {
         mic.asked.push(c);
+        if (mic.asking) await mic.asking.promise;
         if (mic.refuse) throw new DOMException("refused", mic.refuse);
         return stream();
       },
@@ -83,6 +103,12 @@ beforeEach(() => {
   mic.devices = [{ kind: "audioinput", deviceId: "usb", label: "Headset (USB)" }];
   mic.asked = [];
   mic.refuse = null;
+  mic.track = null;
+  mic.asking = null;
+  mic.recorders = 0;
+  mic.recorderFails = null;
+  mic.contextState = "running";
+  mic.resumed = false;
   vi.stubGlobal("MediaRecorder", FakeRecorder);
   vi.stubGlobal("AudioContext", FakeContext);
   URL.createObjectURL = () => "blob:take";
@@ -238,14 +264,18 @@ describe("a sound slot's 🎙", () => {
     expect(await screen.findByText(/No microphone was found/)).toBeTruthy();
   });
 
-  it("says when the microphone goes away while recording", async () => {
-    const { user } = draw(<SoundField label="Voice sample" optional value={null} onChange={() => {}} />);
+  it("says when the microphone goes away while recording, and keeps the take as far as it goes", async () => {
+    const onChange = vi.fn();
+    const { user } = draw(<SoundField label="Voice sample" optional value={null} onChange={onChange} />);
     await user.click(screen.getByRole("button", { name: /from the microphone/ }));
     await user.click(within(dialog()).getByRole("button", { name: /Record/ }));
     await screen.findByRole("button", { name: /Stop/ });
+    await sleep(150);
     mic.track!.dispatchEvent(new Event("ended"));
-    expect(await screen.findByText(/The microphone went away while recording/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Use it/ })).toBeNull();
+    expect(await screen.findByText(/The microphone went away while recording: the take ends where it was lost/)).toBeTruthy();
+    // what was recorded up to the loss is listened to, and can be used
+    await user.click(await screen.findByRole("button", { name: /Use it/ }));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith("zz-test-take"));
   });
 
   it("goes with the Prompt kit's person when opened from the kit", async () => {
@@ -255,6 +285,133 @@ describe("a sound slot's 🎙", () => {
     await user.click(screen.getByRole("button", { name: /Use it/ }));
     await waitFor(() => expect(onTake).toHaveBeenCalledWith("zz-test-take"));
     expect(uploads()[0]!.path).toContain("as=kit");
+  });
+});
+
+describe("the microphone let go of (card #102)", () => {
+  it("is let go of when the dialog closed while the browser asked for it", async () => {
+    mic.asking = later<void>();
+    const { user } = draw(<SoundField label="Voice sample" optional value={null} onChange={() => {}} />);
+    await user.click(screen.getByRole("button", { name: /from the microphone/ }));
+    await user.click(within(dialog()).getByRole("button", { name: /Record/ }));
+    expect(await within(dialog()).findByText(/Waiting for the browser's microphone/)).toBeTruthy();
+    // Esc while the browser's question shows: the dialog closes; then the person allows it
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: /Record a voice/ })).toBeNull();
+    mic.asking.answer();
+    await waitFor(() => expect(mic.track?.stop).toHaveBeenCalled());
+    // nothing records in the closed dialog
+    expect(mic.recorders).toBe(0);
+  });
+
+  it("is let go of, and says why, when the browser cannot make its recorder", async () => {
+    mic.recorderFails = "make";
+    const { user } = draw(<SoundField label="Voice sample" optional value={null} onChange={() => {}} />);
+    await user.click(screen.getByRole("button", { name: /from the microphone/ }));
+    await user.click(within(dialog()).getByRole("button", { name: /Record/ }));
+    expect(await screen.findByText(/The browser could not record the microphone: no encoder for this stream/)).toBeTruthy();
+    expect(mic.track!.stop).toHaveBeenCalled();
+    // back to Record, not stuck waiting
+    expect((within(dialog()).getByRole("button", { name: /Record/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("is let go of, and says why, when the recorder cannot start", async () => {
+    mic.recorderFails = "start";
+    const { user } = draw(<SoundField label="Voice sample" optional value={null} onChange={() => {}} />);
+    await user.click(screen.getByRole("button", { name: /from the microphone/ }));
+    await user.click(within(dialog()).getByRole("button", { name: /Record/ }));
+    expect(await screen.findByText(/The browser could not record the microphone: the recorder could not start/)).toBeTruthy();
+    expect(mic.track!.stop).toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /Stop/ })).toBeNull();
+  });
+
+  it("wakes a waveform context the browser made suspended (Safari)", async () => {
+    mic.contextState = "suspended";
+    const { user } = draw(<SoundField label="Voice sample" optional value={null} onChange={() => {}} />);
+    await user.click(screen.getByRole("button", { name: /from the microphone/ }));
+    await user.click(within(dialog()).getByRole("button", { name: /Record/ }));
+    await screen.findByRole("button", { name: /Stop/ });
+    expect(mic.resumed).toBe(true);
+  });
+});
+
+describe("a take being sent (card #102)", () => {
+  it("fills nothing once the dialog closed during the upload, and gives the upload up", async () => {
+    const held = later<object>();
+    fakeApi.on("POST /assets", () => held.promise);
+    const signals: Array<AbortSignal | null | undefined> = [];
+    const fetched = globalThis.fetch;
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      signals.push(init?.signal);
+      return fetched(input, init);
+    });
+    const onChange = vi.fn();
+    const { user } = draw(<SoundField label="Voice sample" optional value={null} onChange={onChange} />);
+    await recordTake(user, { quiet: 400, loud: 400 });
+    await user.click(screen.getByRole("button", { name: /Use it/ }));
+    await screen.findByRole("button", { name: /Adding…/ });
+    // while it is sent, the take cannot change under it
+    expect((screen.getByRole("button", { name: /Trim the silence/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: /Retake/ }) as HTMLButtonElement).disabled).toBe(true);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: /Record a voice/ })).toBeNull();
+    expect(signals.at(-1)?.aborted).toBe(true);
+    // the server answers all the same: the slot stays empty
+    held.answer({ id: "zz-test-take", kind: "audio", name: "Recording · Voice sample", mime: "audio/wav", durationMs: 1500 });
+    await sleep(30);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("Enter and Space on a control holding the focus (card #102)", () => {
+  it("Enter on Save to the library saves, not Use it", async () => {
+    const onChange = vi.fn();
+    const { user } = draw(<SoundField label="Voice sample" optional value={null} onChange={onChange} />);
+    await recordTake(user);
+    screen.getByRole("button", { name: /Save to the library/ }).focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Record a voice/ })).toBeNull());
+    expect(uploads()).toHaveLength(1);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("Enter on the × closes, filling nothing", async () => {
+    const onChange = vi.fn();
+    const { user } = draw(<SoundField label="Voice sample" optional value={null} onChange={onChange} />);
+    await recordTake(user);
+    within(dialog()).getByRole("button", { name: /Close/ }).focus();
+    await user.keyboard("{Enter}");
+    expect(screen.queryByRole("dialog", { name: /Record a voice/ })).toBeNull();
+    expect(uploads()).toHaveLength(0);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("Space on the microphone's list opens it, and records nothing", async () => {
+    mic.devices = [{ kind: "audioinput", deviceId: "usb", label: "Headset (USB)" }, { kind: "audioinput", deviceId: "desk", label: "Desk mic" }];
+    const { user } = draw(<SoundField label="Voice sample" optional value={null} onChange={() => {}} />);
+    await user.click(screen.getByRole("button", { name: /from the microphone/ }));
+    const picker = await within(dialog()).findByRole("button", { name: /Microphone/ });
+    picker.focus();
+    await user.keyboard(" ");
+    expect(await screen.findByRole("option", { name: /Desk mic/ })).toBeTruthy();
+    expect(mic.asked).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: /Stop/ })).toBeNull();
+  });
+
+  it("Space and Enter still do what Record and Use it say when they hold the focus", async () => {
+    const onChange = vi.fn();
+    const { user } = draw(<SoundField label="Voice sample" optional value={null} onChange={onChange} />);
+    await user.click(screen.getByRole("button", { name: /from the microphone/ }));
+    // the dialog opens on Record
+    expect(document.activeElement).toBe(within(dialog()).getByRole("button", { name: /Record/ }));
+    await user.keyboard(" ");
+    await screen.findByRole("button", { name: /Stop/ });
+    await sleep(150);
+    await user.keyboard(" ");
+    screen.getByRole("button", { name: /Use it/ }).focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith("zz-test-take"));
+    expect(uploads()).toHaveLength(1);
   });
 });
 
@@ -278,7 +435,7 @@ describe("the microphone picker", () => {
     expect(localStorage.getItem("afflatus.mic")).toBe("desk");
     await user.click(within(dialog()).getByRole("button", { name: /^Record/ }));
     await screen.findByRole("button", { name: /Stop/ });
-    expect(mic.asked.at(-1)).toEqual({ audio: { deviceId: { exact: "desk" } } });
+    expect(mic.asked.at(-1)).toEqual({ audio: { deviceId: { exact: "desk" }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
   });
 });
 

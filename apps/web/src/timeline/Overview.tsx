@@ -13,6 +13,7 @@ import { FieldRow } from "../fields";
 import { lookWords } from "../LookBar";
 import { clock, plural, spell } from "../format";
 import { Picker } from "../PictureField";
+import { MicButton } from "../mic/MicRecord";
 import { PartHead } from "../recipeForm/Part";
 import { Select } from "../Select";
 import { Button, Chip, CloseButton, cx, Help, SectionTitle, Segmented } from "../ui";
@@ -274,6 +275,8 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
               {/* the action and its × wrap together, under the words, never the × alone on a line */}
               <span className="ml-auto flex shrink-0 items-center gap-1">
                 {r.act && <ActButton act={r.act} kind={r.kind} disabled={rendering} onClick={() => run(r.act!)} />}
+                {/* the clip's Recording, recorded from the microphone: placed as one chosen is */}
+                {r.act?.do === "voice" && onVoice && <VoiceMic clip={r.act.clip} onVoice={onVoice} />}
                 {canDismiss(r) && (
                   <CloseButton size={28} label="Hide this row" tip="Hide this row: nothing changes on the timeline, and it is not listed again until its clips play another take" onClose={() => dismiss(r)} className="-mr-1.5 text-ink-3" />
                 )}
@@ -414,6 +417,11 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
       )}
     </>
   );
+}
+
+/** The 🎙 of a Lip sync clip's row that waits for its Recording. */
+function VoiceMic({ clip, onVoice }: { clip: string; onVoice(clip: string, asset: string): void }) {
+  return <MicButton slot="Recording" onTake={(asset) => onVoice(clip, asset)} />;
 }
 
 /** One figure of the facts grid: a dim label over its value (amber when it needs a look); a shape of the value's size while it is not known. */
