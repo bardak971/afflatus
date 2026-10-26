@@ -63,7 +63,10 @@ export interface LtxSpec {
    * 2.5, its own audio VAE, did not with the same recording.
    */
   roomTone?: boolean;
-  /** A seam's first own frames brought to the clip before's last as filed, then let go over a second (seamColour): 2.5's decoder. */
+  /**
+   * A seam's first own frames brought to the clip before's last as filed, then let go over a second (seamColour): 2.5's decoder.
+   * A landing's last shown second likewise brought to the clip after's first frame (landColour).
+   */
   seamColour?: boolean;
   variants: Variant<LtxVideo>[];
 }
@@ -835,6 +838,32 @@ function seamColour(g: GraphBuilder, ctx: BuildContext, images: Ref, previous: R
   }
   return own > span ? g.out("ImageBatch", { image1: out, image2: part(images, head + span, own - span) }) : out;
 }
+/**
+ * LTX 2.5's landing (card #115): the last second the clip shows brought to the colours the clip after opens on, the mirror
+ * of seamColour. On the 0.7.1 pod check, a 2.5 clip landed on a 2.5 take ended about four grey levels darker than that take
+ * began (ΔE 1.54 at the cut, its tail never taking the guide's colours); 2.3's, on 2.3's take, 0.6. One transform (ColorTransfer,
+ * Lab mean and spread) takes the last shown frame to the clip after's first as handed over; it is laid at full strength on
+ * the last quarter second before the cut, then three quarters, half and a quarter going back, and on the hidden tail, so
+ * that the file has no step where the timeline cuts. Done on the CPU on that take: ΔE 1.54 to 0.15, no frame-to-frame
+ * change larger than without it (0.51 against 0.50). `shown`: the frames the timeline plays, the tail after them.
+ */
+function landColour(g: GraphBuilder, ctx: BuildContext, images: Ref, next: Ref, shown: number, frames: number, fps: number): Ref {
+  const chunk = Math.max(1, Math.round((SEAM_COLOUR_S * fps) / SEAM_COLOUR_STEPS));
+  const span = chunk * SEAM_COLOUR_STEPS;
+  const tail = frames - shown;
+  if (tail < 1 || shown < span || !SEAM_COLOUR_NODES.every((n) => ctx.has(n))) return images;
+  const part = (from: Ref, at: number, length: number): Ref => g.out("ImageFromBatch", { image: from, batch_index: at, length });
+  const from = shown - span;
+  const brought = g.out("ColorTransfer", { image_target: part(images, from, span + tail), image_ref: part(next, 0, 1), method: "reinhard_lab", source_stats: "target_frame", "source_stats.target_index": span - 1, strength: 1 });
+  let out = part(images, 0, from);
+  for (let i = 0; i < SEAM_COLOUR_STEPS; i++) {
+    const strength = (i + 1) / SEAM_COLOUR_STEPS;
+    // the last piece at full strength runs on through the hidden tail
+    const piece = strength === 1 ? part(brought, i * chunk, chunk + tail) : g.out("ImageBlend", { image1: part(images, from + i * chunk, chunk), image2: part(brought, i * chunk, chunk), blend_factor: strength, blend_mode: "normal" });
+    out = g.out("ImageBatch", { image1: out, image2: piece });
+  }
+  return out;
+}
 const SEAM_COLOUR_S = 1;
 const SEAM_COLOUR_STEPS = 4;
 const SEAM_COLOUR_NODES = ["ImageFromBatch", "ColorTransfer", "ImageBlend", "ImageBatch"];
@@ -1085,7 +1114,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       ...(spec.references ? [...MSR_NODES, FACE_FRAME, FACE_CROP, FACE_BACKDROP,...(spec.lipSync ? [] : ["LoadAudio"])] : []),
       // the clip before's last frame as it was filed, loaded when the server sends it (its chain was colour-matched: colourCarried)
       "LoadImage",
-      // 2.5: a seam's first own frames brought to the clip before's last as filed, then let go (seamColour)
+      // 2.5: a seam's first own frames brought to the clip before's last as filed, then let go (seamColour); a landing's last
+      // shown second to the clip after's first frame (landColour)
       ...(spec.seamColour ? SEAM_COLOUR_NODES : []),
       // under a recording: what goes before its part (the clip before's sound under the head, silence before the words)
       "AudioConcat", "AudioAdjustVolume",
@@ -1279,7 +1309,12 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       // frame is the clip before's last moment, brought to how that clip was filed). Doubled by the temporal upscaler (T tokens
       // to 2T - 1, so frame i is frame 2i), that frame and Colour Follow's rate are twice the model's
       const rate = temporal ? 2 * fps : fps;
-      const looked = colourCarried(g, ctx, colourMatched(g, ctx, faces.images, openingStart(input), rate), temporal ? 2 * (head - 1) : head - 1, rate);
+      const matched = colourCarried(g, ctx, colourMatched(g, ctx, faces.images, openingStart(input), rate), temporal ? 2 * (head - 1) : head - 1, rate);
+      // 2.5: landed on the clip after, its last shown second brought to that clip's first frame, last of all so that what is
+      // filed meets it (landColour). Doubled, the clip's last shown frame is 2 (frames - tail - 1) of 2 frames - 1
+      const looked = run.next && spec.seamColour
+        ? landColour(g, ctx, matched, run.next, temporal ? 2 * (frames - tail) - 1 : frames - tail, temporal ? 2 * frames - 1 : frames, rate)
+        : matched;
       const done = finishFrames(g, ctx, looked, input, { frame: { width, height }, rife: input.smooth && !temporal, fps, audio: heard, doubled: temporal });
       const unsmoothed = rifeSkippedSaid(input.smooth && !temporal, ctx);
       if (unsmoothed) warnings.push(unsmoothed);
