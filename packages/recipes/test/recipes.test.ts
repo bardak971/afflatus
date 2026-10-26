@@ -2087,6 +2087,24 @@ describe("H3's upscale pass", () => {
     expect(needs({}).some((n) => n.startsWith("MMH3"))).toBe(false);
   });
 
+  it("fits the upscale nodes to the copy of the pack this ComfyUI has: upstream's as they are, the LD fork's own inputs", () => {
+    const enlarge = ["model_name", "width", "height", "device", "precision"];
+    const split = ["upscale_width", "upscale_height", "tile_size_mode", "tile_width", "tile_height", "grid_rows", "grid_cols", "spatial_w_overlap", "spatial_h_overlap", "fade_width", "fade_height", "min_tile_size", "overlap_mode", "overlap_blend"];
+    const on = (inputs: Record<string, string[]>) =>
+      h3Video.build(parseInput(h3Video, { description: "a", upscale: "Latent: re-sampled" }), dryContext({ slots: { ...slots, latentUpscaler: "minimax_h3_latent_upscaler_3d.safetensors" }, inputs: (n) => inputs[n] ?? null }));
+    // PlagueKind's H3-UltimateUpscale-LD: no offload_model, no masked-area noise or widening fade, joint_steps and token_budget asked for
+    const fork = on({ MMH3LatentUpscaleWithModelParams: enlarge, MMH3SpatialSplitParams: [...split, "joint_steps", "token_budget"] });
+    expect(Object.keys(node(fork, "MMH3LatentUpscaleWithModelParams")[0]!.inputs).sort()).toEqual([...enlarge].sort());
+    const tiles = node(fork, "MMH3SpatialSplitParams")[0]!.inputs;
+    expect(Object.keys(tiles).sort()).toEqual([...split, "joint_steps", "token_budget"].sort());
+    expect(tiles).toMatchObject({ joint_steps: true, token_budget: 70000, tile_size_mode: "specific_size" });
+    // the upstream pack: everything it takes, nothing of the fork's
+    const upstream = on({ MMH3LatentUpscaleWithModelParams: [...enlarge, "offload_model"], MMH3SpatialSplitParams: [...split, "masked_area_noise", "brightness_match", "dynamic_fade", "dynamic_fade_min"] });
+    expect(node(upstream, "MMH3LatentUpscaleWithModelParams")[0]!.inputs).toMatchObject({ offload_model: true });
+    expect(node(upstream, "MMH3SpatialSplitParams")[0]!.inputs).toMatchObject({ masked_area_noise: 0.05, dynamic_fade: "widening" });
+    expect(node(upstream, "MMH3SpatialSplitParams")[0]!.inputs).not.toHaveProperty("joint_steps");
+  });
+
   it("the frame: the short side in the shape's proportions, past 768p when asked, and a picture decides it instead", () => {
     expect(h3Canvas(576, 1024, 1088, 1088 * 1920)).toEqual({ width: 1088, height: 1920 });
     // the old cap still holds where nothing asked for more (a timeline's canvas)

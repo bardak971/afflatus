@@ -13,7 +13,7 @@ import { addPart, timedPart } from "./serverMetrics";
 import { maskBox, mirrorPicture, readPicture } from "./thumbs";
 import { ffmpegPool } from "./pool";
 import { probeVideo, readVideo, videoFacts, type VideoFacts } from "./video";
-import { ANY_PACKS, asBuilt, cannotWhy, optionsIn, packsSaid, ranWithoutSaid } from "./jobPacks";
+import { ANY_PACKS, asBuilt, cannotWhy, inputsIn, optionsIn, packsSaid, ranWithoutSaid } from "./jobPacks";
 import { CATALOG_WAIT_MS, readJson, within, type JobRow, type QueueCore, type Resume } from "./queueModel";
 import type { Registry } from "./registry";
 import type { Placed } from "./timelineModel";
@@ -267,7 +267,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   // what the build reads of the media not chosen yet (a clip's frames, a sound's seconds), cut away with everything but the loaders
   const stood = bare ? standIns(recipe, input) : null;
   const options = asBuilt(catalog, facts, packsSaid(row));
-  const whole = recipe.build(chosen, { seed, slots: slotFiles, uploads: { ...uploads, ...stood?.uploads }, media: { ...media, ...stood?.media }, canvas: plan?.canvas, has: (cls) => cls in catalog, options: optionsIn(catalog), wants: options.wants });
+  const whole = recipe.build(chosen, { seed, slots: slotFiles, uploads: { ...uploads, ...stood?.uploads }, media: { ...media, ...stood?.media }, canvas: plan?.canvas, has: (cls) => cls in catalog, options: optionsIn(catalog), inputs: inputsIn(catalog), wants: options.wants });
   const loaders = bare ? warmGraph({ ...whole, passes: [] }, { unread: [NO_MEDIA] }) : null;
   if (bare && !loaders) throw new Error("this loads no model: there is nothing to preload");
   const built: BuiltGraph = loaders ? { ...whole, graph: loaders.graph, phases: loaders.phases, passes: [], outputs: [] } : whole;
@@ -893,7 +893,7 @@ export async function builtOf(core: QueueCore, recipeId: string, rawInput: unkno
   // a finish that re-samples the draft's own latent is built on it, as submit builds it: else it is built as the draft and its finish both
   if (opts.finishedFrom && recipe.finishing?.(input)?.latent === "own") uploads["self.latent"] = "stand-in";
   const own = opts.slots ? null : await slots(core, comfy, recipe);
-  const built = recipe.build(settled(recipe, input, catalog), { seed: opts.seed ?? 1, slots: opts.slots ?? own!.files, uploads, media, canvas: opts.canvas, has: opts.has ?? ((cls: string) => cls in catalog), options: optionsIn(catalog), ...(opts.wants ? { wants: opts.wants } : {}) });
+  const built = recipe.build(settled(recipe, input, catalog), { seed: opts.seed ?? 1, slots: opts.slots ?? own!.files, uploads, media, canvas: opts.canvas, has: opts.has ?? ((cls: string) => cls in catalog), options: optionsIn(catalog), inputs: inputsIn(catalog), ...(opts.wants ? { wants: opts.wants } : {}) });
   // with this ComfyUI's own files (a forecast, Open in ComfyUI), a graph reading one it does not have is refused as before:
   // it named afflatus-missing-slot.… in ComfyUI's editor, and a forecast was keyed on it
   if (own) refuseGap(built.graph, own.gaps);
