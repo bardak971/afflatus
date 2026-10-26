@@ -666,6 +666,40 @@ describe("Telegram's bot and chat", () => {
   });
 });
 
+describe("the Discord webhook", () => {
+  it("changes only with a recent sign-in or the password, and the webhook before is told", async () => {
+    const heard: Array<{ url: string; text: string }> = [];
+    const site: Server = createServer((req, res) => {
+      const parts: Buffer[] = [];
+      req.on("data", (c: Buffer) => parts.push(c));
+      req.on("end", () => {
+        heard.push({ url: req.url ?? "", text: (JSON.parse(Buffer.concat(parts).toString() || "{}") as { content?: string }).content ?? "" });
+        res.writeHead(204).end();
+      });
+    });
+    await new Promise<void>((r) => site.listen(0, "127.0.0.1", r));
+    try {
+      const base = `http://127.0.0.1:${(site.address() as AddressInfo).port}/api/webhooks`;
+      vi.stubEnv("DISCORD_URL", base);
+      await setPassword();
+      expect((await ask("PUT", "/api/settings", { cookie: owner, body: { notify: { discordWebhook: `${base}/1/mine` } } })).statusCode).toBe(200);
+      await age();
+      const refused = await ask("PUT", "/api/settings", { cookie: owner, body: { notify: { discordWebhook: `${base}/2/theirs` } } });
+      expect(refused.statusCode).toBe(403);
+      expect(refused.json()).toMatchObject({ needPassword: true });
+      // taken off counts too: a session taken over would silence it
+      expect((await ask("PUT", "/api/settings", { cookie: owner, body: { notify: { discordWebhook: "" } } })).statusCode).toBe(403);
+      expect((await readSettings(t.db)).notify.discordWebhook).toBe(`${base}/1/mine`);
+      heard.length = 0;
+      expect((await ask("PUT", "/api/settings", { cookie: owner, headers: { "x-afflatus-password": PASSWORD }, body: { notify: { discordWebhook: `${base}/3/new` } } })).statusCode).toBe(200);
+      await vi.waitFor(() => expect(heard.some((h) => h.url.endsWith("/1/mine") && h.text.includes("Discord webhook was changed"))).toBe(true));
+      expect(heard.some((h) => h.url.endsWith("/3/new"))).toBe(false);
+    } finally {
+      await new Promise((r) => site.close(r));
+    }
+  });
+});
+
 describe("the body of a request nobody may make", () => {
   it("is never read: an address with no route, or a locked change without a session, is answered first", async () => {
     // a temporary folder of this test's own, where the upload parser would write: other tests' uploads land elsewhere

@@ -354,6 +354,17 @@ export class Notify {
     }
   }
 
+  /** A message to a Discord webhook given here, not the one saved: the webhook before a change is told of it (access.ts discordChanged). */
+  async toDiscordAt(discordWebhook: string, notice: Notice): Promise<void> {
+    const n = (await readSettings(this.deps.db)).notify;
+    const at = { ...n, discordWebhook };
+    try {
+      await this.post("discord", at, notice, null);
+    } catch (err) {
+      throw httpError(redacted(err, secretsOf(at)), 502);
+    }
+  }
+
   /** A message to a bot and chat given here, not the ones saved: the chat before a change is told of it (access.ts telegramChanged). */
   async toTelegramAt(to: { telegramToken: string; telegramChat: string }, notice: Notice): Promise<void> {
     const n = (await readSettings(this.deps.db)).notify;

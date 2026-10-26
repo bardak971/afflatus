@@ -8,7 +8,7 @@ import { FfmpegMissing, probeMediaFile, recordingWav } from "./cut";
 import { newId, now } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError } from "./errors";
-import { assetView, extOf, looksLikePicture, newAssetRow } from "./media";
+import { assetView, extOf, looksLikePicture, newAssetRow, PICTURE_MOST, pictureTooLarge } from "./media";
 import { rootFolderOf } from "./projects";
 import { fileDigest, findSame, pictureDigest } from "./sameContent";
 import type { Services } from "./services";
@@ -56,7 +56,9 @@ export function registerAssetUpload(app: FastifyInstance, s: Services, { asset }
       const { bytesRead } = await f.read(b, 0, 12, 0).finally(() => f.close());
       return b.subarray(0, bytesRead);
     });
-    const bytes = looksLikePicture(head) ? new Uint8Array(await readFile(up.path)) : null;
+    // up to PICTURE_MOST: a larger one in memory (the upload takes 4 GB) would weigh on everything the server runs
+    if (looksLikePicture(head) && up.bytes > PICTURE_MOST) throw pictureTooLarge();
+    const bytes = looksLikePicture(head) ? await readFile(up.path) : null;
     const picture = bytes && (await readPicture(bytes));
     const media = picture ? null : await probeMediaFile(up.path);
     if (!picture && !media) throw unreadable();

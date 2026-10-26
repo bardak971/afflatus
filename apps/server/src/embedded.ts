@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, open as openFile, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inflateSync } from "node:zlib";
 import { modelStem } from "@afflatus/core";
+import { PICTURE_MOST, pictureTooLarge } from "./media";
 import { localInputs, tools } from "./video";
 
 /**
@@ -481,6 +482,26 @@ export async function readEmbedded(bytes: Uint8Array): Promise<Embedded> {
   }
   // a video ComfyUI saved: the graph and the workflow are in its tags (videoTexts)
   if (!isPicture) texts = videoTexts(await mediaTags(bytes));
+  return fromTexts(texts, comment);
+}
+
+/**
+ * The same for a file on this machine's disk (an upload written as it arrived, a library file): a picture is read whole, up
+ * to PICTURE_MOST (over it, refused with a 413); a video is never read into memory, ffprobe reads its tags where it is.
+ */
+export async function readEmbeddedFile(file: string): Promise<Embedded> {
+  const head = await openFile(file, "r").then(async (f) => {
+    const b = Buffer.alloc(16);
+    const { bytesRead } = await f.read(b, 0, 16, 0).finally(() => f.close());
+    return b.subarray(0, bytesRead);
+  });
+  if (!isPictureBytes(head)) return fromTexts(videoTexts(await tagsOfFile(file)), null);
+  if ((await stat(file)).size > PICTURE_MOST) throw pictureTooLarge();
+  return readEmbedded(await readFile(file));
+}
+
+/** What the texts found in a file (and a JPEG's or a WebP's comment) say: settings, a workflow, or why neither. */
+function fromTexts(texts: Record<string, string>, comment: string | null): Embedded {
   const graph = json(texts.prompt);
   const workflow = workflowOf(texts);
   const infotext = texts.parameters ?? (comment && /Steps:\s*\d+/.test(comment) ? comment : null);
