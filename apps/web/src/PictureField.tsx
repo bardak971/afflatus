@@ -23,6 +23,7 @@ import { VideoRange } from "./VideoRange";
 import { VideoPlayer } from "./VideoPlayer";
 import { queryKeys } from "./queryKeys";
 import { sortPasted, STILL_ADDING, usePasteTarget } from "./paste";
+import { MicButton } from "./mic/MicRecord";
 
 /**
  * Send files from this computer to the library, one after another, then hand them over: to the `onDone` of the moment
@@ -246,8 +247,11 @@ function Slot({ label, note, aside, kind, drags, kit, room = 1, onAsset, onAsset
   onAsset(id: string): void;
   /** Several at once (files pasted, picked in its Picker), in place of `onAsset`. */
   onAssets?(ids: string[]): void;
-  /** What it holds, drawn in its box (a drop on it replaces it); `pick` opens the Picker. Left out: it holds nothing. */
-  filled?: { className: string; body(pick: () => void): ReactNode };
+  /**
+   * What it holds, drawn in its box (a drop on it replaces it); `pick` opens the Picker, `mic` is a sound slot's 🎙 (a take
+   * recorded replaces it), for its row of buttons. Left out: it holds nothing.
+   */
+  filled?: { className: string; body(pick: () => void, mic: ReactNode): ReactNode };
   /** The place to choose or drop one while it can take one: its icon, its words, what a drop says, and its height. */
   empty?: { icon: ReactNode; text: string; says: string; tall?: boolean };
   /** What it shows above that place: the references chosen, and the viewer one of them opens in. */
@@ -285,6 +289,20 @@ function Slot({ label, note, aside, kind, drags, kit, room = 1, onAsset, onAsset
     if (!upload.isPending) setWrong((w) => (w === STILL_ADDING ? null : w));
   }, [upload.isPending]);
   const failed = wrong ?? upload.error?.message;
+  // a sound slot records one from the microphone too: the take lands as a file brought in does
+  const mic = kind === "audio" ? <MicButton slot={label} kit={kit} size={32} onTake={(id) => { setWrong(null); onAsset(id); }} /> : null;
+  const box = empty && (
+    <button
+      type="button"
+      {...drop.props}
+      onClick={pick}
+      disabled={upload.isPending}
+      className={cx("flex items-center justify-center rounded-lg border-[1.5px] text-ink-2 hover:text-ink", empty.tall ? "h-[72px] gap-2.5" : "h-10 gap-2", mic && "min-w-0 grow", LEAN_MOTION, drop.lean || "border-dashed border-line-strong")}
+    >
+      {empty.icon}
+      <span>{upload.isPending ? upload.adding : drop.over ? empty.says : empty.text}</span>
+    </button>
+  );
   return (
     <div ref={root} className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
@@ -294,21 +312,12 @@ function Slot({ label, note, aside, kind, drags, kit, room = 1, onAsset, onAsset
       {children}
       {filled ? (
         <div {...drop.props} className={cx("relative rounded-lg border bg-raised p-2", filled.className, LEAN_MOTION, drop.lean || "border-line")}>
-          {filled.body(pick)}
+          {filled.body(pick, mic)}
           {drop.over ? empty && <DropSays>{empty.says}</DropSays> : upload.isPending && <DropSays>{upload.adding}</DropSays>}
         </div>
-      ) : empty ? (
-        <button
-          type="button"
-          {...drop.props}
-          onClick={pick}
-          disabled={upload.isPending}
-          className={cx("flex items-center justify-center rounded-lg border-[1.5px] text-ink-2 hover:text-ink", empty.tall ? "h-[72px] gap-2.5" : "h-10 gap-2", LEAN_MOTION, drop.lean || "border-dashed border-line-strong")}
-        >
-          {empty.icon}
-          <span>{upload.isPending ? upload.adding : drop.over ? empty.says : empty.text}</span>
-        </button>
-      ) : null}
+      ) : box && mic ? (
+        <div className="flex items-center gap-1.5">{box}{mic}</div>
+      ) : box || null}
       {failed && <ErrorNote>{failed}</ErrorNote>}
       {explain && <Note text={note} />}
       {picking && (
@@ -620,7 +629,7 @@ export function SoundField({ label, note, optional, value, onChange, part, cast 
       empty={{ icon: <Music size={15} />, text: "Choose an audio file, or drop one here", says: `Drop to use as ${label.toLowerCase()}` }}
       filled={shown ? {
         className: "flex flex-col gap-2",
-        body: (choose) => (
+        body: (choose, mic) => (
           <>
             {/* with a part set, the player plays that part, on the whole sound's waveform where it is chosen */}
             <AudioPlayer
@@ -646,7 +655,8 @@ export function SoundField({ label, note, optional, value, onChange, part, cast 
                   />
                 </>
               )}
-              <span className="ml-auto flex gap-1.5">
+              <span className="ml-auto flex items-center gap-1.5">
+                {mic}
                 <Button size="sm" onClick={choose}>{fromCast ? "Use another" : "Change"}</Button>
                 {/* as on a picture: a sound the form must have can be emptied too, the form then says what is missing; the cast's
                     is not the form's to remove (take the person out of the cast) */}
