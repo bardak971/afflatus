@@ -157,6 +157,18 @@ describe("the end column (the lanes mock, 2026-10-22)", () => {
     }
   });
 
+  it("gives its Audio cell the 🎙 every sound slot has, a drop on it the cell's (card #102)", () => {
+    const { container, asked } = track([clip("a", 0)]);
+    const mic = screen.getByRole("button", { name: "Record from the microphone: Voice recording" });
+    const audio = container.querySelector<HTMLElement>('[data-end-column="audio"]')!;
+    // over the cell's right end, inside it
+    const at = px(mic.parentElement!, "left");
+    expect(at).toBeGreaterThan(px(audio, "left"));
+    expect(at + 24).toBeLessThanOrEqual(px(audio, "left") + NEW_CLIP);
+    dropSound(mic.parentElement!, "zz-test-voice");
+    expect(asked).toEqual(["recording zz-test-voice"]);
+  });
+
   it("adds after the last clip what is dropped on its Audio and Source cells", () => {
     const { container, asked } = track([clip("a", 0)]);
     dropSound(container.querySelector('[data-end-column="audio"]')!, "zz-test-voice");

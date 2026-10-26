@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { barsOf, levelOf, LEVELS, proposedTrim, takeClock, trimSaid, type Level } from "../src/mic/take";
+import { barsOf, evenly, levelOf, LEVELS, proposedTrim, takeName, trimSaid, type Level, type Reading } from "../src/mic/take";
 
 /** A take read at LEVELS a second: `quiet` seconds of silence, `voice` of speech, `after` of silence. */
 function take(quiet: number, voice: number, after: number): { levels: Level[]; total: number } {
@@ -39,6 +39,40 @@ describe("the trim proposed for a take", () => {
   });
 });
 
+describe("the trim of a take read late (a busy PC, a hidden tab)", () => {
+  /** Readings `every` seconds apart: silence, then a voice from `from` to `to`, then silence, over `total` seconds. */
+  const late = (every: number, from: number, to: number, total: number): Reading[] =>
+    Array.from({ length: Math.floor(total / every) }, (_, k) => {
+      const at = (k + 1) * every;
+      // a reading hears the last moment before it: the voice while it lasts
+      return { at, level: at > from && at <= to + 0.02 ? { peak: 0.5, db: -12 } : { peak: 0.001, db: -70 } };
+    });
+
+  it("trims at the voice's own times with fewer readings than LEVELS a second", () => {
+    // 8 readings a second, not 20: counted as 20 a second the voice would end at 1.2 s and the trim cut its last words
+    const total = 4;
+    const levels = evenly(late(1 / 8, 1, 3, total), total);
+    expect(levels).toHaveLength(total * LEVELS);
+    const trim = proposedTrim(levels, total)!;
+    expect(trim.from).toBeGreaterThan(0.7);
+    expect(trim.from).toBeLessThanOrEqual(1);
+    expect(trim.to).toBeGreaterThanOrEqual(3);
+    expect(trim.to).toBeLessThan(3.4);
+  });
+
+  it("counts a gap in the readings next to the voice as the voice, so a word is never cut", () => {
+    // read once a second (a hidden tab): the voice from 1.5 s to 2.5 s is heard by the reading at 2 s only
+    const readings: Reading[] = [1, 2, 3, 4].map((at) => ({ at, level: at === 2 ? { peak: 0.5, db: -12 } : { peak: 0.001, db: -70 } }));
+    const trim = proposedTrim(evenly(readings, 4), 4)!;
+    expect(trim.from).toBeLessThanOrEqual(1.5);
+    expect(trim.to).toBeGreaterThanOrEqual(2.5);
+  });
+
+  it("gives nothing for a take with no reading", () => {
+    expect(evenly([], 3)).toEqual([]);
+  });
+});
+
 describe("a take's numbers", () => {
   it("reads a window's loudest sample and loudness", () => {
     expect(levelOf([0.5, -0.5, 0.5, -0.5])).toEqual({ peak: 0.5, db: expect.closeTo(-6.02, 1) as number });
@@ -54,9 +88,9 @@ describe("a take's numbers", () => {
     expect(barsOf(levels.slice(0, 10), 180)).toHaveLength(10);
   });
 
-  it("says a time to the tenth", () => {
-    expect(takeClock(4.76)).toBe("0:04.7");
-    expect(takeClock(65.2)).toBe("1:05.2");
-    expect(takeClock(0)).toBe("0:00.0");
+  it("names a take with nothing a file name cannot hold", () => {
+    const name = takeName("Clip 3's voice", new Date(2026, 9, 26, 14, 3));
+    expect(name).toMatch(/^Recording · Clip 3's voice · .+ 14\.03$/);
+    expect(name).not.toMatch(/[:*?"<>|\/]/);
   });
 });

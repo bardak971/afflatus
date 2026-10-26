@@ -357,6 +357,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
               onRecordingOver={onRecording ? (e) => hover(e, draggedOf(e) === "sound" ? { kind: "recording" } : null) : undefined}
               onSourceOver={onSource && !timeline.source ? (e) => hover(e, draggedOf(e) === "video" ? { kind: "source" } : null) : undefined}
               onRecordingMenu={(e) => lanes.open(e, { kind: "recording" })}
+              onRecordingTake={onRecording ? (asset) => onRecording(asset) : undefined}
               onSourceMenu={(e) => lanes.open(e, { kind: "source" })}
             />
 

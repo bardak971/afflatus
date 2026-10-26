@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Circle, Mic, Pause, Play, RotateCcw, Scissors, Square } from "lucide-react";
 import { api } from "../api";
 import { Dialog, DIALOG } from "../Dialog";
+import { clock, seconds } from "../format";
 import { Kbd, typing } from "../Keys";
 import { projectForNew } from "../project";
 import { queryKeys } from "../queryKeys";
 import { canRecord } from "../secureContext";
 import { Select } from "../Select";
 import { Button, CloseButton, cx, ErrorNote, IconButton } from "../ui";
-import { barHeight, barsOf, takeClock, takeName, trimSaid, type Trim } from "./take";
+import { barHeight, barsOf, LIVE_BARS, takeName, trimSaid, type Trim } from "./take";
 import { useMicTake, type Take } from "./useMicTake";
 
 /**
@@ -60,16 +61,34 @@ export function MicDialog({ slot, kit, onTake, onClose }: { slot: string; kit?: 
   }, [take]);
   const player = usePlayer(take);
 
+  // closed while the take is being sent (Esc, the ×): the upload is given up on, and an answer that comes all the same
+  // fills nothing (a mutation's own callbacks run after its dialog is gone)
+  const closed = useRef(false);
+  const sending = useRef<AbortController | null>(null);
+  useEffect(() => {
+    closed.current = false;
+    return () => {
+      closed.current = true;
+      sending.current?.abort();
+    };
+  }, []);
   const send = useMutation({
     mutationFn: async ({ use }: { use: boolean }) => {
       const file = new File([take!.blob], takeName(slot, new Date()), { type: take!.blob.type || "audio/webm" });
       const asked = { take: kept ? { trim: kept } : {} };
-      return { use, asset: await api.upload(file, use && kit ? { kit: true, ...asked } : { project: projectForNew(), ...asked }) };
+      const stop = new AbortController();
+      sending.current = stop;
+      return { use, asset: await api.upload(file, { ...(use && kit ? { kit: true } : { project: projectForNew() }), ...asked, signal: stop.signal }) };
     },
     onSuccess: ({ use, asset }) => {
+      // a take that reached the library before the upload could be given up on is listed there, and nothing more
       if (!(use && kit)) void client.invalidateQueries({ queryKey: queryKeys.assets.all() });
+      if (closed.current) return;
       if (use) onTake(asset.id);
       onClose();
+    },
+    onSettled: () => {
+      sending.current = null;
     },
   });
 
@@ -86,9 +105,12 @@ export function MicDialog({ slot, kit, onTake, onClose }: { slot: string; kit?: 
     player.stop();
   };
 
-  // Space, R, Enter as the buttons say; Esc is the dialog's (onEscape below). Not while a list is open over the dialog
+  // Space, R, Enter as the buttons say; Esc is the dialog's (onEscape below). Not while a list is open over the dialog, and
+  // Enter and Space not on a control holding the focus (Save to the library, Undo the trim, the ×, the microphone's list):
+  // the focus says what is meant there. The buttons these keys stand for (Record, Stop, Use it) keep them
   const keys = useRef<(e: KeyboardEvent) => boolean>(() => false);
   keys.current = (e) => {
+    if ((e.key === " " || e.key === "Enter") && e.target instanceof Element && e.target.closest(OWN_KEYS) && !e.target.closest("[data-mic-key]")) return false;
     if (e.key === " ") {
       if (phase.at === "ready") record();
       else if (phase.at === "recording") mic.stop();
@@ -158,7 +180,7 @@ export function MicDialog({ slot, kit, onTake, onClose }: { slot: string; kit?: 
           <Wave mic={mic} take={take} now={player.now} trimming={trimming} kept={kept} onTrim={setTrimming} />
           <div className="flex min-h-8 items-center gap-3">
             <span className="min-w-[92px] font-mono text-xl text-ink-strong" data-mic-time="">
-              {take ? `${takeClock(player.now ?? 0)} / ${takeClock(take.seconds)}` : takeClock(phase.at === "recording" ? mic.live.seconds : 0)}
+              {take ? `${tenths(player.now ?? 0)} / ${tenths(take.seconds)}` : tenths(phase.at === "recording" ? mic.live.seconds : 0)}
             </span>
             {phase.at === "recording" && (
               <>
@@ -170,45 +192,48 @@ export function MicDialog({ slot, kit, onTake, onClose }: { slot: string; kit?: 
                 <span className="min-w-40 text-xs text-warn-ink" role="status">{mic.clipping ? "Too loud: it clips" : ""}</span>
               </>
             )}
-            {take && kept && !trimming && <span className="text-xs text-ink-2">Trimmed: {(kept.to - kept.from).toFixed(1)} s kept</span>}
+            {take && kept && !trimming && <span className="text-xs text-ink-2">Trimmed: {seconds((kept.to - kept.from) * 1000)} kept</span>}
           </div>
           {trimming && take && <span className="text-sm text-ink-2"><Scissors size={13} className="mr-1.5 inline" />{trimSaid(trimming, take.seconds)} Drag either edge to adjust.</span>}
           {(mic.error ?? send.error?.message) && <ErrorNote>{mic.error ?? send.error?.message}</ErrorNote>}
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* each step its own buttons (keyed): a button kept from one step to the next would keep the focus, Record turning
+                into Stop then into Listen, and Enter would play the take rather than use it */}
             {phase.at === "ready" || phase.at === "asking" ? (
-              <>
-                <Button tone="primary" onClick={record} disabled={phase.at === "asking"}><Circle size={12} className="fill-current" />Record <Kbd>Space</Kbd></Button>
+              <Fragment key="ready">
+                <Button tone="primary" onClick={record} disabled={phase.at === "asking"} autoFocus data-mic-key=""><Circle size={12} className="fill-current" />Record <Kbd>Space</Kbd></Button>
                 <span className="text-sm text-ink-2">{phase.at === "asking" ? "Waiting for the browser's microphone…" : "Press Record, then speak. Space starts and stops."}</span>
-              </>
+              </Fragment>
             ) : phase.at === "recording" ? (
-              <>
-                <Button tone="primary" onClick={mic.stop}><Square size={12} className="fill-current" />Stop <Kbd>Space</Kbd></Button>
+              <Fragment key="recording">
+                <Button tone="primary" onClick={mic.stop} data-mic-key=""><Square size={12} className="fill-current" />Stop <Kbd>Space</Kbd></Button>
                 <Button onClick={mic.drop}>Cancel <Kbd>Esc</Kbd></Button>
-              </>
+              </Fragment>
             ) : trimming ? (
-              <>
+              <Fragment key="trimming">
                 <Button onClick={() => player.toggle(trimming)}>{player.playing ? <Pause size={13} /> : <Play size={13} />}Listen to the trimmed take <Kbd>Space</Kbd></Button>
                 <Button tone="primary" onClick={keepTrim}>Keep the trim</Button>
                 <Button onClick={() => { setTrimming(null); player.stop(); }}>Undo the trim</Button>
                 <Button onClick={retake} className="ml-auto"><RotateCcw size={13} />Retake <Kbd>R</Kbd></Button>
-              </>
+              </Fragment>
             ) : take ? (
-              <>
+              <Fragment key="listen">
                 <Button onClick={() => player.toggle(kept)}>{player.playing ? <Pause size={13} /> : <Play size={13} />}Listen <Kbd>Space</Kbd></Button>
                 <Button onClick={retake} disabled={send.isPending}><RotateCcw size={13} />Retake <Kbd>R</Kbd></Button>
                 {kept ? (
-                  <Button onClick={() => setKept(null)}>Undo the trim</Button>
+                  <Button onClick={() => setKept(null)} disabled={send.isPending}>Undo the trim</Button>
                 ) : (
-                  <Button disabled={!take.proposed} data-tip={take.proposed ? "Proposes a cut of the silence at both ends: nothing is cut until it is kept" : "No silence at either end to trim"} onClick={() => { player.stop(); setTrimming(take.proposed); }}>
+                  // not while the take is sent: what is sent is the take as it was when Use it or Save was pressed
+                  <Button disabled={!take.proposed || send.isPending} data-tip={take.proposed ? "Proposes a cut of the silence at both ends: nothing is cut until it is kept" : "No silence at either end to trim"} onClick={() => { player.stop(); setTrimming(take.proposed); }}>
                     <Scissors size={13} />Trim the silence
                   </Button>
                 )}
                 <span className="ml-auto flex gap-2">
                   <Button onClick={() => send.mutate({ use: false })} disabled={send.isPending} data-tip="Kept in the library; nothing is filled">{send.isPending && !send.variables?.use ? "Saving…" : "Save to the library"}</Button>
-                  <Button tone="primary" onClick={fillSlot} disabled={send.isPending}>{send.isPending && send.variables?.use ? "Adding…" : "Use it"} <Kbd>Enter</Kbd></Button>
+                  <Button tone="primary" onClick={fillSlot} disabled={send.isPending} data-mic-key="">{send.isPending && send.variables?.use ? "Adding…" : "Use it"} <Kbd>Enter</Kbd></Button>
                 </span>
-              </>
+              </Fragment>
             ) : null}
           </div>
         </>
@@ -216,6 +241,12 @@ export function MicDialog({ slot, kit, onTake, onClose }: { slot: string; kit?: 
     </Dialog>
   );
 }
+
+/** A time of the take as the dialog shows it, from seconds: 0:04.7. */
+const tenths = (s: number) => clock(s * 1000, { decimals: 1 });
+
+/** What takes Enter and Space for itself while it holds the focus. */
+const OWN_KEYS = "button, a[href], input, select, textarea, [role=button], [role=combobox], [role=checkbox], [role=switch], [role=radio], [role=tab]";
 
 /** The take played in the page, from where to where: the whole of it, or the trim. `now`: the playhead, in seconds. */
 function usePlayer(take: Take | null) {
@@ -263,8 +294,6 @@ function usePlayer(take: Take | null) {
   return { now, playing, stop, toggle: (range: Trim | null) => (playing ? stop() : play(range)) };
 }
 
-/** The bars the live waveform shows at most: the last seconds of a long take, as it scrolls. */
-const LIVE_BARS = 220;
 /** The bars the whole take is drawn with. */
 const TAKE_BARS = 180;
 /** The shortest part a trim keeps, in seconds. */

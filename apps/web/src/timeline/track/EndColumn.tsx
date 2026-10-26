@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useRef, type DragEvent, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
-import { Film, Mic, Plus } from "lucide-react";
+import { AudioLines, Film, Plus } from "lucide-react";
+import { MicButton } from "../../mic/MicRecord";
 import { cx, IconButton } from "../../ui";
 import { NEW_CLIP } from "../model";
 import { ROW, SOUND, SOURCE } from "./rows";
@@ -44,6 +45,8 @@ type Props = {
   onSourceOver?(e: DragEvent): void;
   onRecordingMenu?(e: ReactMouseEvent): void;
   onSourceMenu?(e: ReactMouseEvent): void;
+  /** A voice recorded from the microphone (the Audio cell's 🎙), added after the last clip as one dropped there is. */
+  onRecordingTake?(asset: string): void;
 };
 
 /**
@@ -98,7 +101,7 @@ export function EndColumnLive({ scroller, end, pad, ...props }: Omit<Props, "lef
  */
 export function EndColumn(props: Props) {
   if (props.pinned) return <EndStrip {...props} />;
-  const { left, busy, overRecording, overSource, onNewClip, onRecordingOver, onSourceOver, onRecordingMenu, onSourceMenu } = props;
+  const { left, busy, overRecording, overSource, onNewClip, onRecordingOver, onSourceOver, onRecordingMenu, onSourceMenu, onRecordingTake } = props;
   const cell = (on: boolean) => cx("absolute flex items-center gap-1.5 overflow-hidden rounded border border-dashed border-line-strong px-2 text-left text-body whitespace-nowrap text-ink-2 hover:text-ink bg-panel", on && "outline outline-2 outline-accent");
   return (
     <>
@@ -123,11 +126,17 @@ export function EndColumn(props: Props) {
           onClick={onRecordingMenu}
           onContextMenu={onRecordingMenu}
           style={{ left, width: NEW_CLIP, top: SOUND.top, height: SOUND.height }}
-          className={cell(overRecording)}
+          className={cx(cell(overRecording), onRecordingTake && "pr-8")}
         >
-          <Mic size={13} className="shrink-0" />
+          <AudioLines size={13} className="shrink-0" />
           <span className="truncate">{WORDS.audio}</span>
         </button>
+      )}
+      {/* the 🎙 every sound slot has, over the cell's right end (a button cannot hold another); a drop on it is the cell's */}
+      {onRecordingOver && onRecordingTake && (
+        <span onDragOver={onRecordingOver} style={{ left: left + NEW_CLIP - 26, top: SOUND.top + (SOUND.height - 24) / 2 }} className="absolute flex">
+          <MicButton slot="Voice recording" size={24} onTake={onRecordingTake} />
+        </span>
       )}
       {onSourceOver && (
         <button
@@ -170,7 +179,7 @@ function EndStrip({ left, busy, overRecording, overSource, onNewClip, onRecordin
       </IconButton>
       {onRecordingOver && (
         <IconButton size={28} tone="outline" label={LABELS.audio} tip={WORDS.audio} onDragOver={onRecordingOver} onClick={onRecordingMenu} onContextMenu={onRecordingMenu} data-end-column="audio" data-paste="recording" {...cell(SOUND, overRecording)}>
-          <Mic size={13} className="shrink-0" />
+          <AudioLines size={13} className="shrink-0" />
           {overRecording && <span className="truncate text-body">{WORDS.audio}</span>}
         </IconButton>
       )}

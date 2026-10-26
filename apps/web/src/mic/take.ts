@@ -1,5 +1,5 @@
 import { pausesIn } from "../pauses";
-import { dayMonth, hourMinute } from "../format";
+import { dayMonth, hourMinute, seconds } from "../format";
 
 /**
  * A take recorded from the microphone, as numbers: its loudness read live (LEVELS a second, the waveform and the trim's
@@ -7,13 +7,49 @@ import { dayMonth, hourMinute } from "../format";
  * the trim's own run without a microphone.
  */
 
-/** How many levels a second the take is read at while it is recorded: one bar of its waveform each. */
+/**
+ * How many levels a second a take is drawn and trimmed at: one bar of its waveform each. The microphone is read about as
+ * often while it records, but a timer drifts (a busy PC, a hidden tab): the readings are timed, and spread back on this
+ * even grid once the take stops (`evenly`).
+ */
 export const LEVELS = 20;
+
+/** The bars the live waveform shows at most: the last seconds of a long take, as it scrolls. */
+export const LIVE_BARS = 220;
 
 /** One reading of the microphone: its loudest sample (0 to 1, 1 = it clips) and its loudness (dB, about -60 = silence). */
 export interface Level {
   peak: number;
   db: number;
+}
+
+/** A level as the microphone was read while recording: `at`, seconds from the take's start. */
+export interface Reading {
+  at: number;
+  level: Level;
+}
+
+const louder = (a: Level, b: Level): Level => ({ peak: Math.max(a.peak, b.peak), db: Math.max(a.db, b.db) });
+const SILENT: Level = { peak: 0, db: -90 };
+
+/**
+ * The timed readings of a take of `total` seconds, as LEVELS a second on an even grid: each step the loudest reading made
+ * in it. A step no reading fell in (the timer late) takes the louder of the readings either side of it, so that a gap next
+ * to a word counts as the word and the trim never cuts into it.
+ */
+export function evenly(readings: readonly Reading[], total: number): Level[] {
+  if (!readings.length || total <= 0) return [];
+  const steps = Math.max(1, Math.round(total * LEVELS));
+  const out: Level[] = [];
+  let k = 0;
+  for (let i = 0; i < steps; i++) {
+    const end = (i + 1) / LEVELS;
+    let got: Level | null = null;
+    // the last step takes whatever was read up to the stop
+    while (k < readings.length && (readings[k]!.at < end || i === steps - 1)) got = louder(got ?? SILENT, readings[k++]!.level);
+    out.push(got ?? louder(readings[k - 1]?.level ?? SILENT, readings[k]?.level ?? SILENT));
+  }
+  return out;
 }
 
 /** A level read off one window of samples (-1 to 1), as the AnalyserNode gives them. */
@@ -69,24 +105,20 @@ export function proposedTrim(levels: readonly Level[], total: number): Trim | nu
 }
 
 const round = (s: number) => Math.round(s * 100) / 100;
-const s1 = (s: number) => `${s.toFixed(1)} s`;
 
 /** What a trim cuts, in words: "Cuts 0.5 s of silence at the start and 0.7 s at the end: 3.5 s left." */
 export function trimSaid(trim: Trim, total: number): string {
-  const start = trim.from;
-  const end = Math.max(0, total - trim.to);
-  const cut = start >= 0.05 && end >= 0.05 ? `${s1(start)} of silence at the start and ${s1(end)} at the end` : start >= 0.05 ? `${s1(start)} of silence at the start` : `${s1(end)} of silence at the end`;
-  return `Cuts ${cut}: ${s1(trim.to - trim.from)} left.`;
+  const start = trim.from * 1000;
+  const end = Math.max(0, total - trim.to) * 1000;
+  const cut = start >= 50 && end >= 50 ? `${seconds(start)} of silence at the start and ${seconds(end)} at the end` : start >= 50 ? `${seconds(start)} of silence at the start` : `${seconds(end)} of silence at the end`;
+  return `Cuts ${cut}: ${seconds((trim.to - trim.from) * 1000)} left.`;
 }
 
-/** The take's name in the library: "Recording · Voice sample · 26 Oct 14:03". */
-export const takeName = (slot: string, at: Date) => `Recording · ${slot} · ${dayMonth(at)} ${hourMinute(at)}`;
-
-/** A time of the take as the dialog shows it: 0:04.7. */
-export function takeClock(s: number): string {
-  const tenths = Math.floor(Math.max(0, s) * 10);
-  return `${Math.floor(tenths / 600)}:${String(Math.floor(tenths / 10) % 60).padStart(2, "0")}.${tenths % 10}`;
-}
+/**
+ * The take's name in the library: "Recording · Voice sample · 26 Oct 14.03". Nothing a file name cannot hold (a ":"), so
+ * that in a linked folder the file is named as the library item is.
+ */
+export const takeName = (slot: string, at: Date) => `Recording · ${slot} · ${dayMonth(at)} ${hourMinute(at).replace(":", ".")}`.replace(/[:*?"<>|\\/]/g, "");
 
 /** `levels` drawn as `n` bars, each the loudest of its share (the listen view's whole take, whatever its length). */
 export function barsOf(levels: readonly Level[], n: number): number[] {

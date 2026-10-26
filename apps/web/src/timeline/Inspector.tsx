@@ -306,12 +306,17 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
         {(take || still) && (
           <div className="flex flex-col gap-2">
             <span className="flex items-center gap-1.5"><SectionTitle>Audio</SectionTitle>{!still && !hasOwn && heard !== "file" && <Help title="No audio of its own" text="This clip has no audio of its own. Drop an audio file on it, or choose one." />}</span>
-            <Segmented
-              label="Audio source"
-              value={heard}
-              options={[{ value: "own", label: still ? "Silent" : hasOwn ? "Own audio" : "Silent" }, { value: "file", label: "Audio file" }, ...(hasOwn ? [{ value: "muted" as const, label: "Muted" }] : [])]}
-              onChange={(v) => (v === "file" ? (clip.soundAsset ? onPatch({ sound: "file" }) : setPicking("sound")) : onPatch({ sound: v }))}
-            />
+            <div className="flex items-center gap-1.5">
+              <Segmented
+                label="Audio source"
+                value={heard}
+                options={[{ value: "own", label: still ? "Silent" : hasOwn ? "Own audio" : "Silent" }, { value: "file", label: "Audio file" }, ...(hasOwn ? [{ value: "muted" as const, label: "Muted" }] : [])]}
+                onChange={(v) => (v === "file" ? (clip.soundAsset ? onPatch({ sound: "file" }) : setPicking("sound")) : onPatch({ sound: v }))}
+                className="min-w-0 grow"
+              />
+              {/* a take from the microphone is the clip's audio file, as one chosen is */}
+              <MicButton slot={`Audio of clip ${index + 1}`} onTake={(soundAsset) => onPatch({ soundAsset })} />
+            </div>
             {heard === "file" && clip.soundAsset && (
               <div className="flex items-center gap-2 rounded-lg border border-line bg-raised py-1.5 pr-1.5 pl-3">
                 <Music size={13} className="shrink-0 text-ink-2" />
