@@ -597,6 +597,7 @@ export function clipActs(e: LoadedEditor): ClipMenuActions {
   return {
     clips: e.shown.clips,
     recipes: e.recipes.data?.recipes ?? [],
+    source: e.t.source,
     inputsOf: e.inputsOf,
     onClip: e.onClip,
     pending: { render: render.isPending, split: split.isPending, duplicate: duplicate.isPending, loop: loop.isPending, add: add.isPending, frame: frame.isPending, range: rangeAct.isPending },

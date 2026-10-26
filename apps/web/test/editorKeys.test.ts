@@ -53,6 +53,20 @@ describe("the timeline editor's keys: playing and moving about", () => {
     expect(a.toggle).toHaveBeenCalledOnce();
   });
 
+  it("leaves Space to a dialog open with the focus fallen to the page, plays once while it is held down, and not with a modifier (B26)", () => {
+    const { a } = editor();
+    expect(playbackKey(key(" ", { code: "Space" }), place({ open: true }), a)).toBe(false);
+    expect(playbackKey(key(" ", { code: "Space", ctrl: true }), place(), a)).toBe(false);
+    expect(playbackKey(key(" ", { code: "Space", alt: true }), place(), a)).toBe(false);
+    expect(a.toggle).not.toHaveBeenCalled();
+    expect(playbackKey(key(" ", { code: "Space" }), place(), a)).toBe(true);
+    const held = key(" ", { code: "Space", repeat: true });
+    // the repeats are taken (the page does not scroll) but toggle nothing
+    expect(playbackKey(held, place(), a)).toBe(true);
+    expect(held.preventDefault).toHaveBeenCalled();
+    expect(a.toggle).toHaveBeenCalledOnce();
+  });
+
   it("marks In and Out at the playhead, one alone reaching to the end or from the start, and Shift goes to them", () => {
     const { a, seek, range } = editor({ at: 2000 });
     playbackKey(key("i"), place(), a);

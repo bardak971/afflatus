@@ -33,3 +33,12 @@ export const useNewClock = (): Clock => useMemo(makeClock, []);
 
 /** The clock's moment, redrawn on every tick: for the parts that show it. */
 export const useClock = (clock: Clock): number => useSyncExternalStore(clock.subscribe, clock.get, clock.get);
+
+/**
+ * What a part makes of the clock's moment (rounded, clamped), redrawn only when that changes: a tick that leaves it the same
+ * draws nothing.
+ */
+export const useClockAs = <T,>(clock: Clock, of: (ms: number) => T): T => {
+  const now = () => of(clock.get());
+  return useSyncExternalStore(clock.subscribe, now, now);
+};

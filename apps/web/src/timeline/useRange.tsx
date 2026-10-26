@@ -9,12 +9,13 @@ import type { Clock } from "./clock";
 import type { PlayerHandle } from "./Player";
 import type { TimeRange } from "./model";
 import { rangeRemoves } from "./removalWords";
+import { clipInside } from "./runSplit";
 
 /**
  * The range: In and Out on the clock of what plays, what is done with it, and the transport that knows
  * about it (Play plays the range, Loop goes back to In).
  */
-export function useRange({ id, clips, durationMs, clock, playhead, player, playing, setPlaying, on }: {
+export function useRange({ id, clips, durationMs, clock, playhead, player, playing, setPlaying, unsplit, on }: {
   id: string;
   clips: Clip[];
   durationMs: number;
@@ -24,6 +25,8 @@ export function useRange({ id, clips, durationMs, clock, playhead, player, playi
   player: RefObject<PlayerHandle | null>;
   playing: boolean;
   setPlaying: Dispatch<SetStateAction<boolean>>;
+  /** Why a clip cannot be split (a recording's clip, a window of the source: unsplittable); null when it can. */
+  unsplit?(c: Clip): string | null;
   /** What the range's actions reach beyond the range: the editor's own state. */
   on: {
     /** The timeline and the queue, read again. */
@@ -172,7 +175,18 @@ export function useRange({ id, clips, durationMs, clock, playhead, player, playi
     // why a row is off, said on it: a range of no length (In and Out at one moment) is widened by dragging either end
     const empty = emptyRange ? "In and Out are the same moment" : undefined;
     const why = empty ?? (busy ? "busy…" : undefined);
-    const slowWhy = why ?? (withinOne ? undefined : "nothing in the range plays a video");
+    // a clip under In or Out that would be split there and cannot be (a recording's, a window of the source): the server
+    // refuses the split, the slow motion, the loop back (split at Out) and a removal inside that one clip
+    const cannot = (ms: number) => {
+      const c = clipInside(clips, ms);
+      const no = c && unsplit?.(c);
+      return no ? `${ms === range.inMs ? "In" : "Out"} is inside clip ${clips.indexOf(c) + 1}, ${no}` : undefined;
+    };
+    const splitWhy = why ?? cannot(range.inMs) ?? cannot(range.outMs);
+    const outWhy = why ?? cannot(range.outMs);
+    const inOne = clips.find((c) => c.lengthMs > 0 && c.atMs < range.inMs && c.atMs + c.lengthMs > range.outMs);
+    const removeWhy = why ?? (inOne && unsplit?.(inOne) ? `the range is inside clip ${clips.indexOf(inOne) + 1}, ${unsplit(inOne)}` : undefined);
+    const slowWhy = splitWhy ?? (withinOne ? undefined : "nothing in the range plays a video");
     return groups(
       [
         { label: "Play range", key: "Space", icon: <Play size={14} />, disabled: emptyRange, note: empty, run: playRange },
@@ -180,16 +194,16 @@ export function useRange({ id, clips, durationMs, clock, playhead, player, playi
       ],
       [
         { label: emptyRange ? "Insert a clip here" : "Regenerate range", icon: <RefreshCw size={14} />, disabled: busy, note: busy ? "busy…" : emptyRange ? "a clip between the two, pinned to their frames" : "a new clip pinned to the frames at In and Out; it replaces what is between", run: () => rangeAct.mutate("regenerate") },
-        { label: "Loop back to In", icon: <Repeat size={14} />, disabled: emptyRange || busy, note: why ?? "a short new clip after Out that returns to the frame at In: the range plays round", run: () => rangeAct.mutate("loop") },
+        { label: "Loop back to In", icon: <Repeat size={14} />, disabled: emptyRange || Boolean(outWhy), note: outWhy ?? "a short new clip after Out that returns to the frame at In: the range plays round", run: () => rangeAct.mutate("loop") },
         { label: "Copy to library", icon: <Copy size={14} />, disabled: emptyRange || busy, note: why ?? "one video of this part, through the queue", run: () => rangeAct.mutate("copy") },
       ],
       [
-        { label: "Split at In and Out", icon: <Split size={14} />, disabled: emptyRange || busy, note: why ?? "the clips under them become two", run: () => rangeAct.mutate("split") },
+        { label: "Split at In and Out", icon: <Split size={14} />, disabled: emptyRange || Boolean(splitWhy), note: splitWhy ?? "the clips under them become two", run: () => rangeAct.mutate("split") },
         { label: "Slow motion ×2", icon: <Gauge size={14} />, disabled: Boolean(slowWhy), note: slowWhy ?? "each part becomes a clip of its own and gets the slowed video as a take, sound slowed too; stills are held longer", run: () => rangeAct.mutate({ slow: 2 }) },
         { label: "Slow motion ×4", icon: <Gauge size={14} />, disabled: Boolean(slowWhy), note: slowWhy ?? "a quarter speed", run: () => rangeAct.mutate({ slow: 4 }) },
       ],
       [{ label: "Clear the range", key: "Esc", icon: <X size={14} />, run: () => setRange(null) }],
-      [{ label: "Remove range", icon: <Scissors size={14} />, danger: true, disabled: emptyRange || busy, note: why ?? "the clips after close the gap; Undo brings it back", run: () => void removeRange() }],
+      [{ label: "Remove range", icon: <Scissors size={14} />, danger: true, disabled: emptyRange || Boolean(removeWhy), note: removeWhy ?? "the clips after close the gap; Undo brings it back", run: () => void removeRange() }],
     );
   };
   return { range, setRange, rangeRef, loopRange, loopRef, snapQuiet, toggleSnapQuiet, playingRange, emptyRange, totalRef, toggle, toggleLoop, toggleLoopNow, playRange, rangeAct, rangeItems };

@@ -77,9 +77,11 @@ export function keyPlace(e: KeyboardEvent): KeyPlace {
  * True when the key was one of these.
  */
 export function playbackKey(e: KeyboardEvent, { el, typing, open, held, plain }: KeyPlace, a: KeyActions): boolean {
-  if (e.code === "Space" && !typing && !el.closest("button, [role=listbox], [role=dialog]")) {
+  // Space: not under a dialog, a menu or a list open (the focus fallen to the page, as when the Record dialog asks for the
+  // microphone), with no modifier, and once a press (held down, it toggled at every repeat)
+  if (e.code === "Space" && !typing && !open && !e.ctrlKey && !e.metaKey && !e.altKey && !el.closest("button, [role=listbox], [role=dialog]")) {
     e.preventDefault();
-    a.toggle();
+    if (!e.repeat) a.toggle();
     return true;
   }
   if (plain && (e.key === "[" || e.key === "]")) {
