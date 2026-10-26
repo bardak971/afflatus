@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
 import { dryContext, graphFiles, missingSlotFile, missingSlotIn, nodesOfPack, packOfNode, parseInput, type GraphFile } from "@afflatus/core";
-import { h3, h3Video, ltxVideo, recipeById, UPSCALE, wan, wanVideo } from "@afflatus/recipes";
+import { h3, h3Video, ltx, ltxVideo, recipeById, UPSCALE, wan, wanVideo } from "@afflatus/recipes";
 import { newId, now, OWNER } from "../src/db";
 import { loadedOn, offeredOn, podSlotFiles } from "../src/jobFiles";
 import { packsLacked } from "../src/jobPacks";
@@ -265,6 +265,32 @@ describe("a GGUF model on a machine", () => {
     fake.models.unet_gguf = [];
     const again = await loadedOn(core, row("h3.video", { description: "a red ball rolls", seconds: 5, model: GGUF }), { ...on, scan: { ...on.scan, at: "later" } });
     expect(again?.absent.map((f) => f.file)).toContain(GGUF);
+  });
+});
+
+describe("LTX 2.3's one checkpoint picked as the Model, on a pod (card #103)", () => {
+  const ltxGet = (id: string) => ltx.slots.find((s) => s.id === id)!.get!.file;
+  const job = (recipe: string, over: Record<string, unknown> = {}) => row(recipe, { prompt: "a red ball rolls. The audio is wind.", model: ltxGet("checkpoint"), ...over });
+
+  it("is sent the checkpoint and Gemma alone, and once they are there it lacks nothing its graph loads (it was given UNETLoader and the split files, its audio VAE never fetched)", async () => {
+    const core = (t.services.queue as unknown as { core: QueueCore }).core;
+    // the files a fresh pod is sent: the checkpoint into checkpoints, Gemma, none of the split files
+    const fresh = await loadedOn(core, job("ltx.video"), null);
+    expect(fresh?.files.map((f) => `${f.folder}/${f.file}`).sort()).toEqual([`checkpoints/${ltxGet("checkpoint")}`, `text_encoders/${ltxGet("clip")}`]);
+    // the pod once they landed, as #100's re-check pod had them (with the projection and the video VAE it was sent too)
+    const other = await startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: [ltxGet("checkpoint")], text_encoders: [ltxGet("clip"), ltxGet("projection")], vae: [ltxGet("videoVae")], diffusion_models: [] } });
+    try {
+      const comfy = new Comfy(other.url, t.services.registry);
+      const on = { id: "pod", comfy, scan: await comfy.scan() };
+      for (const r of [job("ltx.video"), job("ltx.lipsync", { recording: "a1", recordingSeconds: 5 })]) {
+        const loaded = await loadedOn(core, r, on);
+        expect(loaded?.files.map((f) => f.classType)).toContain("CheckpointLoaderSimple");
+        expect(loaded?.files.map((f) => f.classType)).not.toContain("UNETLoader");
+        expect(loaded?.absent).toEqual([]);
+      }
+    } finally {
+      await other.close();
+    }
   });
 });
 
