@@ -608,6 +608,19 @@ export class Access extends EventEmitter {
   }
 
   /**
+   * The Discord webhook changed: written in the access log, and the webhook before (when there was one) told, so that a
+   * session taken over cannot quietly point the new-device notices and the alarms at its own Discord.
+   */
+  async discordChanged(before: { discordWebhook: string }, ip: string): Promise<void> {
+    const at = new Date(this.now());
+    await this.audit(`The Discord webhook changed, from ${ip}`, true);
+    if (before.discordWebhook && this.notify) {
+      await this.notify.toDiscordAt(before.discordWebhook, { title: "Afflatus: Discord changed", body: `Afflatus's Discord webhook was changed to another one at ${at.toISOString().slice(0, 16).replace("T", " ")} UTC from ${ip}. Not you? Change the password, then Sign out everywhere.` })
+        .catch((err: Error) => this.log.warn(`[access] the webhook before was not told: ${err.message}`));
+    }
+  }
+
+  /**
    * Codes are refused for the rest of a 15-minute window once too many wrong ones came in it, and for the rest of the day
    * past 100 in a day: the wait, and whether it is the day's.
    */

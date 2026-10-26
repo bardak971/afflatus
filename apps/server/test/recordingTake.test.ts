@@ -74,4 +74,29 @@ describe.skipIf(!ffmpegThere)("a take from the microphone", () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toMatch(/could not be made into a WAV/);
   });
+
+  it("is refused when it is a DASH manifest naming a file on the disk, whose sound would come back as the take", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "afflatus-take-dash-"));
+    try {
+      const secret = join(dir, "private.mp4").replaceAll("\\", "/");
+      await writeFile(secret, await ffmpegMade(["-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-c:a", "aac"], "mp4"));
+      const mpd = `<?xml version="1.0"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT2S" minBufferTime="PT1S" profiles="urn:mpeg:dash:profile:isoff-on-demand:2011">
+ <Period><AdaptationSet mimeType="audio/mp4"><Representation id="a" bandwidth="128000"><BaseURL>${secret}</BaseURL></Representation></AdaptationSet></Period>
+</MPD>`;
+      const res = await t.app.inject({ method: "POST", url: "/api/assets?name=x&take=wav", headers: { "content-type": "audio/webm" }, payload: Buffer.from(mpd) });
+      expect(res.statusCode).toBe(400);
+      expect(await t.services.db.selectFrom("assets").select("id").execute()).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, FFMPEG_TIMEOUT);
+
+  it("is read from the containers each browser's recorder makes: Firefox's ogg, Safari's mp4", async () => {
+    for (const [args, ext] of [[["-c:a", "libopus"], "ogg"], [["-c:a", "aac"], "mp4"]] as const) {
+      const made = await ffmpegMade(["-f", "lavfi", "-i", "sine=frequency=220:duration=2", "-ac", "1", ...args], ext);
+      const res = await t.app.inject({ method: "POST", url: "/api/assets?name=x&take=wav", headers: { "content-type": `audio/${ext}` }, payload: Buffer.from(made) });
+      expect(res.json()).toMatchObject({ kind: "audio", mime: "audio/wav" });
+    }
+  }, FFMPEG_TIMEOUT);
 });
