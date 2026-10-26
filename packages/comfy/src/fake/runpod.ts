@@ -124,6 +124,8 @@ export interface FakeRunpod {
   comfyStaysDown: boolean;
   /** What RunPod billed, hour by hour (GET /v2/billing/pods): set by a test, as RunPod writes it some hours late; null: refused (403). */
   bill: Array<{ podId: string; startTime: string; endTime: string; totalAmount: number; diskAmount?: number }> | null;
+  /** The bill's reads answer this status (a 500: RunPod down a while), the bill set kept for after. */
+  failBill: number | null;
   /** What RunPod billed the volumes, day by day (GET /v2/billing/network-volumes): set by a test or the demo. */
   volumeBill: Array<{ networkVolumeId: string; startTime: string; endTime: string; totalAmount: number }>;
   close(): Promise<void>;
@@ -208,7 +210,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
   const fake: Omit<FakeRunpod, "url" | "close"> = {
     key: o.key, pods, calls: [], balance: o.balance ?? 23.4, userId: "user_fake", s3DataCenters: ["EU-RO-1", "EU-CZ-1", "US-KS-2"], autoBill: false, billLagMs: 0, bootMs: o.bootMs ?? 1500, pullMs: o.pullMs ?? 0, startMs: o.startMs ?? 0, bootFails: null, uptimeHidden: false,
     failAction: {}, failDetail: null, secrets: {}, failSecrets: false, stopMs: 0, failPatch: null, hideEnv: false, failList: null, unlisted: new Set(), failOne: null, oddList: false, actionDelayMs: 0, latencyMs: 0,
-    gpus: o.gpus ?? FAKE_GPUS, volumes: o.volumes ?? [], noCapacity: new Set(), failCreate: null, createThenFail: null, bill: [], comfyStaysDown: false, volumeBill: [],
+    gpus: o.gpus ?? FAKE_GPUS, volumes: o.volumes ?? [], noCapacity: new Set(), failCreate: null, createThenFail: null, bill: [], failBill: null, comfyStaysDown: false, volumeBill: [],
   };
   let volumesMade = 0;
   const timers = new Set<NodeJS.Timeout>();
@@ -385,6 +387,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
       return json(200, { data: { myself: { clientBalance: fake.balance - spent(), currentSpendPerHr: perHr } } });
     }
     if (req.method === "GET" && url.pathname === "/v2/billing/pods") {
+      if (fake.failBill) return json(fake.failBill, { title: "Error", status: fake.failBill, detail: "unavailable" });
       if (!fake.bill) return json(403, { title: "Forbidden", status: 403, detail: "this key cannot read billing" });
       // as RunPod: both ends of the period, or neither
       if (url.searchParams.has("startTime") !== url.searchParams.has("endTime")) return json(400, { title: "Bad Request", status: 400, detail: "startTime and endTime must be provided together" });

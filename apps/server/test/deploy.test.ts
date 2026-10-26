@@ -610,12 +610,12 @@ describe("what the rented GPUs cost: RunPod's bill as the truth", () => {
     runpod.bill = [{ podId: pod.id, startTime: hourAgo(1), endTime: new Date().toISOString(), totalAmount: 0.3 }];
     t.services.rented.now = (() => { const real = Date.now; return () => real() + 6 * 60_000; })();
     expect((await spending()).month).toBeGreaterThanOrEqual(0.3);
-    // RunPod's bill not readable: Afflatus's count alone, said so
+    // RunPod's bill not readable now: the one last read this month is kept, a cap is never let go for a refused read (M1)
     runpod.bill = null;
     t.services.rented.now = (() => { const real = Date.now; return () => real() + 12 * 60_000; })();
     const s = await spending();
-    expect(s.billed).toBe(false);
-    expect(s.month).toBeGreaterThan(0);
+    expect(s.billed).toBe(true);
+    expect(s.month).toBeGreaterThanOrEqual(0.3);
   });
 
   it("a deployed pod's run starts at its deploy", async () => {
