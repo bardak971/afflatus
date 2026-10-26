@@ -23,10 +23,17 @@ export const LTX_VERSIONS: LineVersion[] = [
       "f5d4953f3386197a4b4f5abdb17616ff256171e8075c111d6e7d2dfa6e823b3a", // ltx-2.3-22b-distilled-lora-384-1.1
       "5f416311fa8172b65af67530758964708d29a317b830d689a51143b7f91913ed", // ltx-2.3-spatial-upscaler-x2-1.1
       "b2b3193e68cb04b4701e1d59bec4ed5d5e3e84506d9a42d5a129d37d39823df7", // ltx-2.3-spatial-upscaler-x1.5-1.0
-      "2bc3300f2b3c3c1834d72164fbf13a3b9fd73e5a741e8a2c3f4035f89a75c3fe", // ltx-2.3-temporal-upscaler-x2-1.0
+      "2bc3300f2b3c3c1834d72164fbf13a3b9fd73e5a741e8a2c3f4035f89a75c3fe", // ltx-2.3-temporal-upscaler-x2-1.0 (and 2.5's)
     ],
   },
-  { is: "LTX 2.5", name: ["ltx[\\s._-]*v?[\\s._-]*2[\\s._-]*5(?![0-9])"] },
+  {
+    // its temporal upscaler only: Lightricks ships 2.3's again under 2.5's name, the same bytes (read 2026-10-26, card
+    // #104). Under both versions, it goes with either; none of 2.5's other files is another version's
+    is: "LTX 2.5", name: ["ltx[\\s._-]*v?[\\s._-]*2[\\s._-]*5(?![0-9])"],
+    sha256: [
+      "2bc3300f2b3c3c1834d72164fbf13a3b9fd73e5a741e8a2c3f4035f89a75c3fe", // ltx-2.5-latent-temporal-upscaler-x2-bf16-1.0 (2.3's)
+    ],
+  },
   {
     // after 2.3 and 2.5, and never before a 3 or a 5: "ltx-2-19b", "LTX2_video_vae", Civitai's "LTXV2"
     is: "LTX-2", name: ["ltx[\\s._-]*v?[\\s._-]*2(?![\\s._-]*[35](?![0-9]))(?![0-9])"],

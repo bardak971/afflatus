@@ -68,6 +68,22 @@ describe("a slot and another version's file", () => {
     expect(podSlotFiles(ltxVideo, {}, ltx.slots, slotsOf(pod, "ltx"), slotsOf(pod, "ltx")).unet).toBe(missingSlotFile("unet"));
   });
 
+  it("fills each temporal upscaler slot by its file's name, though 2.3's and 2.5's are the same bytes (card #104)", async () => {
+    // a slot is told its files' versions by name and weights only, never by a hash Settings › Models has read: the 2.5 file,
+    // whose hash is also 2.3's, stays 2.5's slot file and is not 2.3's
+    const T23 = "ltx-2.3-temporal-upscaler-x2-1.0.safetensors";
+    const T25 = "ltx-2.5-latent-temporal-upscaler-x2-bf16-1.0.safetensors";
+    const temporalOf = async (files: string[], family: string) => {
+      const fake = await startFakeComfy({ catalog: referenceCatalog(), models: { ...POD, diffusion_models: [T25], latent_upscale_models: files } });
+      fakes.push(fake);
+      return slotsOf(await scan(new ComfyClient(fake.url), [ltx, ltx25], [ltxVideo, ltx25Video], {}, infoOf()), family).find((x) => x.id === "temporal")!;
+    };
+    expect(await temporalOf([T23, T25], "ltx25")).toMatchObject({ file: T25, choices: [T25] });
+    expect(await temporalOf([T23, T25], "ltx")).toMatchObject({ file: T23, choices: [T23] });
+    expect(await temporalOf([T25], "ltx")).toMatchObject({ file: null, choices: [] });
+    expect(await temporalOf([T23], "ltx25")).toMatchObject({ file: null, choices: [] });
+  });
+
   it("takes a nameless LTX file by its weights only when its version is told as well", async () => {
     // "LTX" alone could be any of them: a choice, not the slot's file
     const unsure = await scanOf(["nameless.safetensors"]);
