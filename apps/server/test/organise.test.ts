@@ -55,6 +55,12 @@ describe("model settings", () => {
     expect((await get(t.app, "/api/model-settings")).json().items).toEqual([{ family: "sdxl", file: FILE, values: { steps: 30 } }]);
   });
 
+  it("saved with nothing to keep, are no longer saved: the file starts on the recipe's own", async () => {
+    await put("/api/model-settings", { family: "sdxl", file: FILE, values: { steps: 24 } });
+    expect((await put("/api/model-settings", { family: "sdxl", file: FILE, values: { prompt: "a cat" } })).json().values).toEqual({});
+    expect((await get(t.app, "/api/model-settings")).json().items).toEqual([]);
+  });
+
   it("keep only what belongs to a model: not the prompt, the seed or the LoRAs", async () => {
     const res = await put("/api/model-settings", { family: "sdxl", file: FILE, values: { steps: 24, prompt: "a cat", seed: 7, loras: [], nonsense: 1 } });
     expect(res.json().values).toEqual({ steps: 24 });
