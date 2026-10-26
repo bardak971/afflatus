@@ -190,10 +190,11 @@ export const lengthOf = (p: Placed) => (p.clip.kind === "still" ? (p.still ? p.c
  * seconds when it says none, one at least). The same sum as the editor's layout (apps/web/src/timeline/model.ts), so the
  * command bar says the length the editor's header does.
  */
-export const plannedLengthOf = (p: Placed, recipe: Recipe<any> | undefined) => {
+export const plannedLengthOf = (p: Placed, recipe: Recipe<any> | undefined, hiddenMs = 0) => {
   const plays = lengthOf(p);
   if (plays > 0) return plays;
-  return Math.max(1000, ((recipe ? plannedSeconds(recipe.inputs, JSON.parse(p.clip.inputs) as Record<string, unknown>) : null) ?? 5) * 1000);
+  // `hiddenMs`: what its take will hide of its end (a window run past a part kept removed: SourcePlan.hidden)
+  return Math.max(1000, ((recipe ? plannedSeconds(recipe.inputs, JSON.parse(p.clip.inputs) as Record<string, unknown>) : null) ?? 5) * 1000 - hiddenMs);
 };
 
 /**
