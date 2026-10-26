@@ -124,7 +124,8 @@ export class TimelineExport {
     // shows the same moments) fades over those moments with both moving, and so does a window whose head is the clip before's own
     // last moments made again (a SCAIL-2 window, its join kind "window"); any other continuation of a video fades in over the
     // clip before held on its last frame; a seamless join (decoded as one piece with the clip before) is a plain cut
-    const fade = afterVideo && from === 0 ? joinFade(x, p.clip.joined === "continue") : null;
+    // a transition plays over the join in its place (markJoins marks no landing there either)
+    const fade = afterVideo && from === 0 && !heard.transitionIn ? joinFade(x, p.clip.joined === "continue") : null;
     const landed = fade?.mode === "overlap";
     // a join made in the latent: the clip before plays to its end, held there while this one dissolves in (DISSOLVE_MS), the
     // sound straight on ("hybrid": takes made before 2026-10-08 joined in the latent too; none are made now). So too a join

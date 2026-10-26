@@ -15,10 +15,10 @@ export type ParkedClip = { clip: Record<string, unknown>; takes: Array<Record<st
 /**
  * A stretch cut out of the middle of a recording or a source: its clips set aside in order (`rows`), and the clip after it
  * (`before`) with its join as it was (`joined`) and, when the cut moved its part of a source (a window that carried on
- * starts later as a cut: windowRunUp), its form as it was (`inputs`, the row's JSON); `take`: the take it played then (one
- * rendered since was made as a cut, and keeps its join when the part comes back).
+ * starts later as a cut: windowRunUp), its form as it was (`inputs`, the row's JSON); `take`: the take it played then, and
+ * `takes`: all it had then (one rendered since was made as a cut, and keeps its join when the part comes back).
  */
-export type RemovedPart = { before: string; rows: ParkedClip[]; joined: "cut" | "continue"; inputs?: string; take?: string | null };
+export type RemovedPart = { before: string; rows: ParkedClip[]; joined: "cut" | "continue"; inputs?: string; take?: string | null; takes?: string[] };
 
 /** What removing some of a run's clips does to it, the run in its order (each clip's part, in ms of the recording or source). */
 export interface Removal {
@@ -55,9 +55,15 @@ export function removalOf(run: string[], gone: ReadonlySet<string>): Removal {
 /**
  * The clip after a cut rendered since it was made one (`row`: that clip; `part`: the cut): its take was made as a cut, of
  * its part as it is now, so it keeps its join and form (as Bring back keeps them), and the part no longer lies end to end
- * with it.
+ * with it. Only a take newer than the cut counts: the one it played then removed (as the ask after a cut suggests), the
+ * clip plays an older one, or none, made carrying on as it did before the cut. A part kept before its takes were noted
+ * (`takes`) knows only the one it played.
  */
-export const renderedSince = (row: ParkedClip, part: RemovedPart): boolean => (row.clip.take_id ?? null) !== (part.take ?? null);
+export function renderedSince(row: ParkedClip, part: RemovedPart): boolean {
+  const playing = (row.clip.take_id as string | null | undefined) ?? null;
+  if (playing === null || playing === (part.take ?? null)) return false;
+  return part.takes ? !part.takes.includes(playing) : true;
+}
 
 /** A clip set aside back to the join and form it had before a cut made it the clip after one (`part`: that cut). */
 export function asItWas(row: ParkedClip, part: RemovedPart): ParkedClip {
