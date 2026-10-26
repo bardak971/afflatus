@@ -4,17 +4,20 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { sql } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { startFakeRunpod } from "@afflatus/comfy/testing";
+import { makePng, startFakeRunpod } from "@afflatus/comfy/testing";
 import { buildApp } from "../src/app";
 import { migrate, openSqlite } from "../src/db";
 import { createServices, type Services } from "../src/services";
 import { writeSettings } from "../src/settings";
 import { check, NewerLibraryError, start } from "../src/start";
 import { LocalStorage } from "../src/storage";
+import { sweepOrphans, UNKEPT_MS } from "../src/sweep";
 import { AfflatusUpdates } from "../src/updates";
+import { restoreDatabase } from "../src/updatesGoBack";
 import { compareVersions, readRelease } from "../src/updatesCheck";
 import { AFTER_KEPT, nodeIn, readSums, systemTar, verifySignature, versionName } from "../src/updatesInstall";
 import type { InstallKind, UpdatesView } from "../src/updatesModel";
@@ -34,6 +37,10 @@ import { FAST, job, makeApp, makeFake, NOWHERE, post, until } from "./helpers";
  */
 const copies = vi.hoisted(() => [] as Array<{ to: string; dbThere: boolean }>);
 const inPlace = vi.hoisted(() => [] as string[]);
+/** The renames, each with whether a database (afflatus.db beside where the file came from) was in place as it was made. */
+const renamed = vi.hoisted(() => [] as Array<{ to: string; dbThere: boolean }>);
+/** Renames onto these paths fail, as one a virus scanner holding the file keeps failing past renameSoon's tries. */
+const renameFails = vi.hoisted(() => new Set<string>());
 vi.mock("node:fs/promises", async (original) => {
   const real = await original<typeof import("node:fs/promises")>();
   const { existsSync: there } = await import("node:fs");
@@ -46,7 +53,12 @@ vi.mock("node:fs/promises", async (original) => {
     inPlace.push(String(file));
     return real.writeFile(file, ...rest);
   }) as typeof real.writeFile;
-  return { ...real, default: { ...real, copyFile, writeFile }, copyFile, writeFile };
+  const rename = (async (from: string, to: string) => {
+    renamed.push({ to: String(to), dbThere: there(under(dir(String(from)), "afflatus.db")) });
+    if (renameFails.has(String(to))) throw Object.assign(new Error(`zz-test: ${String(to)} held`), { code: "EIO" });
+    return real.rename(from, to);
+  }) as typeof real.rename;
+  return { ...real, default: { ...real, copyFile, writeFile, rename }, copyFile, writeFile, rename };
 });
 
 /** The notes under data/updates written in place rather than renamed in whole. */
@@ -158,12 +170,21 @@ interface Rig {
   updates: AfflatusUpdates;
   /** How many restarts were asked (each would exit with 75). */
   restarts: number;
+  /** What failed in the restart's `between`, which start.ts logs before exiting all the same. */
+  failedBetween?: Error;
   view(remoteAddress?: string): Promise<UpdatesView>;
   post(path: string, remoteAddress?: string, headers?: Record<string, string>): Promise<{ statusCode: number; json(): unknown }>;
   close(): Promise<void>;
 }
 
 const rigs: Rig[] = [];
+
+/** A picture uploaded to the rig's library, as the page does: its item's id. */
+async function upload(r: Rig, name: string): Promise<string> {
+  const res = await r.app.inject({ method: "POST", url: `/api/assets?name=${name}`, headers: { "content-type": "image/png", "x-afflatus": "1" }, remoteAddress: "127.0.0.1", payload: Buffer.from(makePng(16, 24, [10, 20, 30], [40, 50, 60])) });
+  if (res.statusCode !== 200) throw new Error(`upload: ${res.statusCode} ${res.body}`);
+  return (res.json() as { id: string }).id;
+}
 
 async function rig(o: { running?: string; version?: string; install?: InstallKind; free?: (dir: string) => Promise<number>; ownNode?: boolean; before?: (r: { base: string; root: string; versions: string; data: string }) => void } = {}): Promise<Rig> {
   const running = o.running ?? "0.4.1";
@@ -192,7 +213,8 @@ async function rig(o: { running?: string; version?: string; install?: InstallKin
       await r.app.close();
       await services.close();
       closed = true;
-      await between?.();
+      // what fails there is logged by start.ts, and the exit still comes
+      await between?.().catch((err: Error) => void (r.failedBetween = err));
     },
   });
   await r.updates.init();
@@ -218,6 +240,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   delete process.env.UPDATES_URL;
+  renameFails.clear();
   for (const r of rigs.splice(0)) await r.close().catch(() => {});
   await gh.close();
 });
@@ -665,6 +688,108 @@ describe("after an update", () => {
     expect(notesInPlace(r.data)).toEqual([]);
   });
 
+  it("sets aside the files made since the update, so that the previous version's orphan sweep never erases them (D1)", async () => {
+    const r = await rig({
+      running: "0.7.0",
+      before: ({ versions }) => {
+        mkdirSync(join(versions, "0.6.3"));
+        writeFileSync(join(versions, "previous"), "0.6.3");
+      },
+    });
+    const files = join(r.data, "files");
+    const before = await upload(r, "zz-test-before.png");
+    mkdirSync(join(r.data, "backups"));
+    await sql`VACUUM INTO ${join(r.data, "backups", "before-0.7.0.db")}`.execute(r.services.db);
+    // made with 0.7.0: an upload's file and thumbnail, and a film strip the timeline worked out of it
+    const since = await upload(r, "zz-test-since.png");
+    const strip = `strips/${since.slice(0, 2)}/${since}-2.jpg`;
+    await r.services.storage.put(strip, new Uint8Array([1]));
+    const keysOf = async (id: string) => {
+      const row = await r.services.db.selectFrom("assets").select(["file_key", "thumb_key"]).where("id", "=", id).executeTakeFirstOrThrow();
+      return [row.file_key, row.thumb_key].filter((k): k is string => Boolean(k));
+    };
+    const sinceKeys = [...await keysOf(since), strip];
+    const beforeKeys = await keysOf(before);
+    expect(sinceKeys.length).toBe(3);
+    // all of them written days ago: the sweep's day is long past
+    const then = new Date(Date.now() - 3 * UNKEPT_MS);
+    for (const key of [...sinceKeys, ...beforeKeys]) utimesSync(join(files, key), then, then);
+    expect((await r.post("go-back")).statusCode).toBe(200);
+    await until(() => r.restarts > 0 && existsSync(join(r.data, "updates", "last.json")));
+    expect(JSON.parse(readFileSync(join(r.data, "updates", "last.json"), "utf8"))).toMatchObject({ kind: "went-back", from: "0.7.0", to: "0.6.3" });
+    const aside = readdirSync(join(r.data, "backups")).find((n) => /^after-0\.7\.0-.+\.db$/.test(n))!;
+    const kept = join(r.data, "set-aside", aside.slice(0, -".db".length), "files");
+    // 0.6.3 starts on the library as it was at the update and runs its orphan sweep (the same as this one's, which knows
+    // nothing of a library set aside): nothing of the library is left for it to take
+    const restored = openSqlite(join(r.data, "afflatus.db"));
+    try {
+      expect(await sweepOrphans(restored, new LocalStorage(files), Date.now())).toBe(0);
+    } finally {
+      await restored.destroy();
+    }
+    for (const key of sinceKeys) {
+      expect(existsSync(join(files, key)), key).toBe(false);
+      expect(existsSync(join(kept, key)), key).toBe(true);
+    }
+    for (const key of beforeKeys) expect(existsSync(join(files, key)), key).toBe(true);
+  });
+
+  it("leaves the database and the files as they were when the copy cannot be put in place, never no database (D4)", async () => {
+    const r = await rig({
+      running: "0.7.0",
+      before: ({ versions }) => {
+        mkdirSync(join(versions, "0.6.3"));
+        writeFileSync(join(versions, "previous"), "0.6.3");
+      },
+    });
+    const files = join(r.data, "files");
+    await writeSettings(r.services.db, { comfyDir: "zz-test-at-the-update" });
+    mkdirSync(join(r.data, "backups"));
+    await sql`VACUUM INTO ${join(r.data, "backups", "before-0.7.0.db")}`.execute(r.services.db);
+    await writeSettings(r.services.db, { comfyDir: "zz-test-since" });
+    const id = await upload(r, "zz-test-since.png");
+    const since = (await r.services.db.selectFrom("assets").select("file_key").where("id", "=", id).executeTakeFirstOrThrow()).file_key;
+    renameFails.add(join(r.data, "afflatus.db"));
+    expect((await r.post("go-back")).statusCode).toBe(200);
+    await until(() => r.failedBetween !== undefined);
+    expect(JSON.parse(readFileSync(join(r.data, "updates", "last.json"), "utf8"))).toMatchObject({ kind: "failed", error: expect.stringMatching(/^Going back did not go through: zz-test: .* held$/) });
+    // the next start is this version's again, on its own library and files
+    expect(readFileSync(join(r.versions, "current"), "utf8")).toBe("0.7.0");
+    const db = openSqlite(join(r.data, "afflatus.db"));
+    try {
+      const row = await db.selectFrom("settings").select("value").where("key", "=", "comfyDir").executeTakeFirst();
+      expect(JSON.parse(row!.value)).toBe("zz-test-since");
+    } finally {
+      await db.destroy();
+    }
+    expect(existsSync(join(files, since))).toBe(true);
+    expect(existsSync(join(r.data, "afflatus.db.tmp"))).toBe(false);
+    expect(readdirSync(join(r.data, "backups")).filter((n) => n.startsWith("after-"))).toEqual([]);
+  });
+
+  it("puts the copy straight over the database, the old one and its -wal set aside: a database is there at every step", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "afflatus-zz-test-restore-"));
+    try {
+      const db = join(dir, "afflatus.db");
+      const copy = join(dir, "copy.db");
+      const aside = join(dir, "backups", "after-zz-test.db");
+      writeFileSync(db, "zz-test now");
+      writeFileSync(`${db}-wal`, "zz-test log");
+      writeFileSync(`${db}-shm`, "zz-test index");
+      writeFileSync(copy, "zz-test then");
+      renamed.length = 0;
+      await restoreDatabase(db, copy, aside);
+      // every rename was made with a database in place
+      expect(renamed.map((r) => r.dbThere)).toEqual([true, true]);
+      expect(readFileSync(db, "utf8")).toBe("zz-test then");
+      expect(readFileSync(aside, "utf8")).toBe("zz-test now");
+      expect(readFileSync(`${aside}-wal`, "utf8")).toBe("zz-test log");
+      expect(readdirSync(dir).sort()).toEqual(["afflatus.db", "backups", "copy.db"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("goes back to a version with the Rented GPUs screen while a rented GPU runs: that version stops it itself", async () => {
     const r = await rig({
       running: "0.5.1",
@@ -819,7 +944,9 @@ describe("the server's side of the launcher's contract", () => {
     writeFileSync(join(root, "versions", "current"), "0.4.0");
     // the library's copy taken at the update, which Go back puts in place
     mkdirSync(join(data, "backups"), { recursive: true });
-    writeFileSync(join(data, "backups", "before-0.4.0.db"), "zz-test library at the update");
+    const copy = new DatabaseSync(join(data, "backups", "before-0.4.0.db"));
+    copy.exec("CREATE TABLE assets (id text primary key); CREATE TABLE zz (v text); INSERT INTO zz VALUES ('zz-test library at the update')");
+    copy.close();
     const marker = join(root, "versions", "0.4.0", ".started-1");
     // the first start after the update to 0.4.0, which also had a previous version
     writeFileSync(join(root, "versions", "trial"), "0.4.0");
@@ -852,7 +979,9 @@ describe("the server's side of the launcher's contract", () => {
       await until(() => exits.length > 0, 15_000);
       stream.abort();
       expect(exits).toEqual([75]);
-      expect(readFileSync(join(data, "afflatus.db"), "utf8")).toBe("zz-test library at the update");
+      const restored = new DatabaseSync(join(data, "afflatus.db"), { readOnly: true });
+      expect(restored.prepare("SELECT v FROM zz").all()).toEqual([{ v: "zz-test library at the update" }]);
+      restored.close();
       expect(readFileSync(join(root, "versions", "current"), "utf8")).toBe("0.3.9");
       expect(started.app.server.listening).toBe(false);
     } finally {

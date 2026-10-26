@@ -1,20 +1,24 @@
 import { existsSync } from "node:fs";
-import { copyFile, open, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { copyFile, link, mkdir, open, rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { hasRentedScreen } from "@afflatus/core";
 import { now } from "./db";
 import { httpError } from "./errors";
 import { readSettings } from "./settings";
+import { LocalStorage } from "./storage";
+import { type Named, namedIn, unnamedFiles } from "./sweep";
 import { renameSoon, type UpdatesView, writeAtomic } from "./updatesModel";
 import { bareVersion } from "./updatesCheck";
 import { readVersion, UpdatesInstall } from "./updatesInstall";
 
 /**
  * A copy of the library put in place of its database (Go back): the copy written beside it under a temporary name and
- * flushed first, then the database set aside (its -wal with it, which must not be replayed into the copy), then the copy
- * renamed in. A stop at any point leaves one database or the other in place: never none, which a start would take for
- * an empty library.
+ * flushed first, the database kept under its name aside too (a second link to the same file, or a copy where the disk
+ * has no links), its -wal set aside (it must not be replayed into the copy), then the copy renamed over the database.
+ * There is never a moment with no database, which a start would take for an empty library: a stop at any point leaves
+ * one database or the other in place, and a rename that keeps failing (a virus scanner on the copy) leaves the database
+ * as it was, its -wal put back.
  */
 export async function restoreDatabase(db: string, copy: string, aside: string): Promise<void> {
   const tmp = `${db}.tmp`;
@@ -25,10 +29,59 @@ export async function restoreDatabase(db: string, copy: string, aside: string): 
   } finally {
     await file.close();
   }
-  if (existsSync(`${db}-wal`)) await renameSoon(`${db}-wal`, `${aside}-wal`);
-  await rm(`${db}-shm`, { force: true });
-  if (existsSync(db)) await renameSoon(db, aside);
-  await renameSoon(tmp, db);
+  const had = existsSync(db);
+  if (had) {
+    await mkdir(dirname(aside), { recursive: true });
+    await link(db, aside).catch(() => copyFile(db, aside));
+  }
+  const wal = existsSync(`${db}-wal`);
+  try {
+    if (wal) await renameSoon(`${db}-wal`, `${aside}-wal`);
+    await rm(`${db}-shm`, { force: true });
+    await renameSoon(tmp, db);
+  } catch (err) {
+    if (wal && existsSync(`${aside}-wal`)) await renameSoon(`${aside}-wal`, `${db}-wal`).catch(() => {});
+    if (had) await rm(aside, { force: true }).catch(() => {});
+    await rm(tmp, { force: true }).catch(() => {});
+    throw err;
+  }
+}
+
+/** Files moved by setAsideUnnamed: each from where it was to where it went. */
+export type Moves = Array<[from: string, to: string]>;
+
+/**
+ * The files of the library (data/files) that the library copy a Go back restores does not name, moved into `to` under
+ * the same paths: what was made since the update. Left in place, the previous version's orphan sweep would erase them a
+ * day later, as files no item of its library names; and the versions already released run their own sweep, whatever
+ * this one does. Out of the folders any sweep reads, they wait beside the library set aside with them. A move that fails
+ * puts back the ones done and throws: going back is then not done.
+ */
+export async function setAsideUnnamed(files: string, named: Named, to: string): Promise<Moves> {
+  const keys: string[] = [];
+  // the ".part" of a write that stopped is no one's file: the sweep takes it either way
+  for await (const f of unnamedFiles(new LocalStorage(files), named)) if (!f.part) keys.push(f.key);
+  const moves: Moves = [];
+  try {
+    for (const key of keys) {
+      const from = join(files, key);
+      const there = join(to, key);
+      await mkdir(dirname(there), { recursive: true });
+      await renameSoon(from, there);
+      moves.push([from, there]);
+    }
+  } catch (err) {
+    await putBack(moves);
+    throw err;
+  }
+  return moves;
+}
+
+/** Files set aside by setAsideUnnamed put back where they were, when going back did not go through after all. */
+export async function putBack(moves: Moves): Promise<void> {
+  for (const [from, there] of [...moves].reverse()) {
+    await renameSoon(there, from).catch((err: Error) => console.warn(`[updates] ${there} not put back in ${from}: ${err.message}`));
+  }
 }
 
 /**
@@ -122,11 +175,17 @@ export class UpdatesGoBack extends UpdatesInstall {
     const at = now();
     // after the reply has gone out: the page hears that it restarts before the server closes
     setTimeout(() => void this.o.restart(async () => {
-      // the database as it is now is set aside, not deleted: what was made since stays on disk
-      const aside = join(this.o.dataDir, "backups", `after-${from}-${at.replace(/[:.]/g, "-")}.db`);
+      // the database as it is now is set aside, not deleted, and the files only it names with it (set-aside/<its name>):
+      // what was made since stays on disk, out of the previous version's sweep
+      const name = `after-${from}-${at.replace(/[:.]/g, "-")}`;
+      const aside = join(this.o.dataDir, "backups", `${name}.db`);
+      let moved: Moves = [];
       try {
+        moved = await setAsideUnnamed(join(this.o.dataDir, "files"), namedIn(backup), join(this.o.dataDir, "set-aside", name, "files"));
         await restoreDatabase(db, backup, aside);
+        if (moved.length) console.log(`[updates] ${moved.length} files made since the update set aside in set-aside/${name}`);
       } catch (err) {
+        await putBack(moved);
         await this.note({ kind: "failed", from, to: prev.version, at, error: `Going back did not go through: ${(err as Error).message}` });
         throw err;
       }

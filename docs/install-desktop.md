@@ -42,7 +42,7 @@ Once a day Afflatus asks GitHub for its latest release (one request, nothing abo
 3. Afflatus waits for the renders already in the queue; nothing new starts meanwhile. **Not now** stops the update until it switches.
 4. A copy of the database goes to `data/backups/before-<version>.db`, `versions/current` names the new version, and Afflatus restarts on it. The page follows by itself.
 
-The version before is kept in `versions/` (one, never more). **Go back** in Settings → About restarts on it and restores the database copy taken at the update: what was made since stays in the `data` folder, not in the list. If a new version stops before it is up, the launcher starts the one before again and About says so.
+The version before is kept in `versions/` (one, never more). **Go back** in Settings → About restarts on it and restores the database copy taken at the update: what was made since is kept out of the list: its files are moved to `data/set-aside/after-<version>-<time>/`, beside the database as it was (`data/backups/after-<version>-<time>.db`), so that the version before never takes them for leftovers. If a new version stops before it is up, the launcher starts the one before again and About says so.
 
 Update and Go back are done on the computer Afflatus runs on: another computer on your network sees the notice, not the buttons.
 

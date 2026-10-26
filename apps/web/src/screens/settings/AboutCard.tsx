@@ -237,7 +237,7 @@ function UpdatesPart({ v, startupUnchecked }: { v: UpdatesView; startupUnchecked
             {!v.previous.restoresLibrary
               ? "The copy of the library taken at the update is not there: going back is not offered."
               : v.here
-                ? "Going back restores the library as it was at the update: what was made since stays in the folder, not in the list."
+                ? "Going back restores the library as it was at the update: what was made since is kept out of the list, moved to set-aside in the data folder."
                 : "Going back is done on the computer Afflatus runs on."}
           </span>
         </Block>

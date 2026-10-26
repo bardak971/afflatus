@@ -4,6 +4,10 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Fixed
+- **Go back no longer loses what was made since the update.** The previous version's hourly sweep took the files of renders, uploads, cuts and exports made since the update for leftovers (its library does not name them) and erased them a day on. Go back now moves them to `data/set-aside/after-<version>-<time>/`, beside the database as it was (`data/backups/after-<version>-<time>.db`), before the previous version starts; versions already released, which run their own sweep, are covered too. The sweep also leaves alone every file a library set aside names.
+- **Go back never leaves the data folder without a database.** The copy is now renamed straight over `afflatus.db` (the current one kept aside as a second link to it); a rename that keeps failing (a virus scanner on the copy) leaves the library as it was, where the next start used to open an empty one. Same for the launcher's return to the previous version.
+
 ## [0.7.0] - 2026-10-26
 
 Sound and LTX: LTX Lip sync and seamless LTX joins, every clip under a recording in the form it needs, sound cues, LTX 2.5 with the cast's pictures and voice, Wan carrying on through SVI, a voice recorded from the microphone, and the files of a render checked together before it runs.

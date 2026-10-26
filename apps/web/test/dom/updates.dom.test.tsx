@@ -203,7 +203,7 @@ describe("Go back", () => {
     const { user } = draw(<><AboutCard /><ConfirmHost /></>);
     await user.click(await screen.findByRole("button", { name: "Go back to 0.4.1…" }));
     const question = await screen.findByRole("dialog", { name: "Go back to 0.4.1?" });
-    expect(question.textContent).toContain("what was made since stays in the folder, not in the list");
+    expect(question.textContent).toContain("what was made since is kept out of the list, moved to set-aside in the data folder");
     // what keeps billing on RunPod after it, which 0.4.1 has no screen for
     expect(question.textContent).toContain("Still billed on RunPod after it, with no Rented GPUs screen in 0.4.1 to see or remove them: volume zz-test (50 GB, $3.50/month).");
     expect(fakeApi.calls("POST", "/updates/go-back")).toHaveLength(0);

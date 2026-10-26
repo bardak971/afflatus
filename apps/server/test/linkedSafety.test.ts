@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { sql } from "kysely";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { makePng } from "@afflatus/comfy/testing";
 import { newId, now, OWNER } from "../src/db";
@@ -353,6 +354,34 @@ describe("the files of Afflatus's own storage", () => {
     expect(await t.db.selectFrom("assets").select("id").execute()).toEqual([]);
     expect(await sweepOrphans(t.db, t.services.storage)).toBe(0);
     for (const id of ids) expect(existsSync(join(t.dir, "assets", id.slice(0, 2), `${id}.png`))).toBe(true);
+  });
+
+  it("that a library set aside by a Go back names stay; none is erased while such a library cannot be read", async () => {
+    const backups = mkdtempSync(join(tmpdir(), "afflatus-zz-test-backups-"));
+    try {
+      // an item both libraries have: the restored one is no empty database
+      await t.app.inject({ method: "POST", url: "/api/assets?name=zz-test-both.png", headers: { "content-type": "image/png" }, payload: picture(1) });
+      const since = (await t.app.inject({ method: "POST", url: "/api/assets?name=zz-test.png", headers: { "content-type": "image/png" }, payload: picture() })).json() as { id: string };
+      const orphan = newId();
+      await t.services.storage.put(`assets/${orphan.slice(0, 2)}/${orphan}.png`, picture());
+      // the library as the newer version left it, set aside; the one restored never had the item
+      await sql`VACUUM INTO ${join(backups, "after-0.7.0-zz-test.db")}`.execute(t.db);
+      await sql`DELETE FROM assets WHERE id = ${since.id}`.execute(t.db);
+      const file = join(t.dir, "assets", since.id.slice(0, 2), `${since.id}.png`);
+      old(file);
+      old(join(t.dir, "assets", orphan.slice(0, 2), `${orphan}.png`));
+      // a library set aside that cannot be read: nothing can be told an orphan
+      writeFileSync(join(backups, "after-0.6.0-zz-test.db"), "not a database");
+      expect(await sweepOrphans(t.db, t.services.storage, Date.now(), backups)).toBe(0);
+      expect(existsSync(join(t.dir, "assets", orphan.slice(0, 2), `${orphan}.png`))).toBe(true);
+      rmSync(join(backups, "after-0.6.0-zz-test.db"));
+      // the orphan goes, the item of the library set aside stays
+      expect(await sweepOrphans(t.db, t.services.storage, Date.now(), backups)).toBe(1);
+      expect(existsSync(file)).toBe(true);
+      expect(existsSync(join(t.dir, "assets", orphan.slice(0, 2), `${orphan}.png`))).toBe(false);
+    } finally {
+      rmSync(backups, { recursive: true, force: true });
+    }
   });
 
   it("have their times read only when no item names them: the files of the library's items are not stat'ed", async () => {
