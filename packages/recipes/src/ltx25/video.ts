@@ -66,6 +66,25 @@ const spec: LtxSpec = {
         slots: { ...parts, ...temporal }, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors" },
         media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX25_FPS, hasSound: true, latentFrames: 121, latentSize: { width: 704, height: 1280 } } },
       },
+      // a chain of three carried on in the latent, Interpolate ×2 on Auto with the temporal upscaler there: RIFE throughout
+      // (card #108), the first clip told by the timeline that the clip after carries on in its latent; the third is the one above
+      {
+        name: "a latent chain on Auto, clip 1 of 3: the clip after carries on in its latent, RIFE",
+        input: { prompt: "a", smooth: true, latentAfter: true },
+        slots: { ...parts, ...temporal },
+      },
+      {
+        name: "a latent chain on Auto, clip 2 of 3: carried on in the clip before's latent and carried on in its own, RIFE",
+        input: { prompt: "a", previous: { asset: "c1" }, smooth: true, latentAfter: true },
+        slots: { ...parts, ...temporal }, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors" },
+        media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX25_FPS, hasSound: true, latentFrames: 121, latentSize: { width: 704, height: 1280 } } },
+      },
+      {
+        // nothing carries on from it: the temporal upscaler as before
+        name: "Interpolate ×2 on Auto, nothing carried on from it: LTX's temporal upscaler",
+        input: { prompt: "a", smooth: true },
+        slots: { ...parts, ...temporal },
+      },
       {
         name: "between two clips: the clip before's sound carried on, its chain's colour match carried on, landing on the clip after, smooth",
         input: { prompt: "a", previous: { asset: "c1" }, next: { asset: "c2", at: 0 }, smooth: true },
