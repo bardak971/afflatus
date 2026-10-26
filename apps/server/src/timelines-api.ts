@@ -829,12 +829,12 @@ const FACE_DENOISE = 0.45;
 
 /**
  * The picture a take's own frames are refined towards, as its render would have (facePicture): the cast's (a person
- * reference), else the first reference picture, else the recipe's Picture (SCAIL's: the person it moves), else the picture
- * the clip opened on (LTX's; not one that carried on from a clip).
+ * reference), else the recipe's Picture (SCAIL's and a Motion transfer's: the person it moves), else the picture the clip
+ * opened on (not one that carried on from a clip). A place, clothing, object or style picture is no face to follow.
  */
 function refinedTowards(inputs: Record<string, unknown>): string | undefined {
   const refs = Array.isArray(inputs.references) ? (inputs.references as ReferenceValue[]) : [];
-  const ref = refs.find((r) => r.role === "person") ?? refs[0];
+  const ref = refs.find((r) => r.role === "person");
   if (ref?.asset) return ref.asset;
   if (typeof inputs.picture === "string") return inputs.picture;
   return typeof inputs.start === "string" && inputs.start !== FROM_PREVIOUS && !inputs.previous ? inputs.start : undefined;

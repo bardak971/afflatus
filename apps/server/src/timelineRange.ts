@@ -1,4 +1,4 @@
-import { FRAME_SLACK_MS, joinFrames, latentClockOf, latentFrameAtOrBefore, recordingPlaceOf, secondsInput, type Recipe } from "@afflatus/core";
+import { FRAME_SLACK_MS, joinFrames, latentClockOf, latentFrameAtOrBefore, recordingPlaceOf, recordingSpecOf, secondsInput, type Recipe } from "@afflatus/core";
 import { fromName, nameOf } from "./autoName";
 import { stat } from "node:fs/promises";
 import { CutError, rangeKeep, slowMotion, type Media } from "./cut";
@@ -13,7 +13,7 @@ import { inUse } from "./sweep";
 import { readVideo, readVideoFile, videoFacts } from "./video";
 import { clockOf, laidOut, landingOnGrid, lengthOf, lengthOnGrid, plays, setTrims, STILL_MS, visible, type AssetRow, type ClipRow, type Laid, type Placed, type TimelineCore } from "./timelineModel";
 import { precomputeOf } from "./precompute";
-import { windowRunUp } from "./timelineSource";
+import { clipsOfSource, sourceOfRow, windowRunUp } from "./timelineSource";
 
 /**
  * Cuts, on the timeline's clock and in a video's own time: a clip split or duplicated, a range of the
@@ -213,6 +213,7 @@ export class TimelineRange {
    * The second clip takes the first's model, form, sound and look, and starts as a cut.
    */
   private async splitAt(timelineId: string, p: Placed, localMs: number, db: Db): Promise<string> {
+    await this.refuseRunSplit(timelineId, p.clip, db);
     const all = await this.core.placed(timelineId, db);
     const index = all.findIndex((x) => x.clip.id === p.clip.id);
     const clip = p.clip;
@@ -265,6 +266,27 @@ export class TimelineRange {
     // the first half stops at the moment
     await setTrims(db, take.id, { trim_end_ms: Math.max(0, Math.round(lengthOnGrid(asset) - take.tail_ms - atMs)) });
     return id;
+  }
+
+  /**
+   * A clip of a recording (its Lip sync clips) or a window of the source is not split: both halves would keep its whole
+   * part, the second one singing (or moving) from the part's start again on a New take, and the run's parts would no
+   * longer meet. Where its take's moment falls in the part depends on the model (its head, the moment before the words, the
+   * frames it carries), so it is not worked out here: Remove takes a clip out of its run, a re-cut cuts the run anew.
+   */
+  private async refuseRunSplit(timelineId: string, clip: ClipRow, db: Db): Promise<void> {
+    if (clip.kind !== "video" || !clip.recipe_id) return;
+    const recipe = this.core.registry.recipe(clip.recipe_id);
+    const spec = recipe && recordingSpecOf(recipe.inputs);
+    const under = spec ? (JSON.parse(clip.inputs) as Record<string, unknown>)[spec.id] : undefined;
+    if (typeof under === "string" && under) {
+      throw httpError("This clip is one of a recording's: its part of it cannot be split in two. Remove the clip (its part is cut out), or cut the recording again from its panel.");
+    }
+    const t = await db.selectFrom("timelines").select("source").where("id", "=", timelineId).executeTakeFirst();
+    const plan = sourceOfRow(t?.source ?? null);
+    if (plan && clipsOfSource(plan, [clip], (r) => this.core.registry.recipe(r)).length) {
+      throw httpError("This clip is a window of the source: its part of it cannot be split in two. Remove the window (its part is cut out), or set its windows anew in Source settings.");
+    }
   }
 
   // ---------------------------------------------------------------- a range of the timeline

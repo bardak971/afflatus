@@ -115,7 +115,7 @@ export const h3Inputs: InputSpec[] = [
   },
   {
     id: "cueSound", type: "choice", label: "In the take", options: [...CUE_SOUND], default: CUE_SOUND[0], showWhen: "cues",
-    note: "the file's sound: each cue's part is laid into the take at its moment, over H3's own sound there (added over a recording or a source's sound, which play on unchanged under it). H3's own: H3 makes the sound it hears at the cue, which may or may not be the file, and the file only guides it",
+    note: "the file's sound: each cue's part is laid into the take at its moment, over H3's own sound there (added over a recording or a source's sound, which play on unchanged under it). H3's own: H3 makes the sound it hears at the cue, which may or may not be the file, and the file only guides it. Over a recording or a source's sound kept, the part is laid in either way: H3's sound is not in that file",
   },
   {
     id: "previous", type: "clip", role: "previous", label: "Previous clip", optional: true, frames: H3_JOIN_FRAMES, framesFrom: "context", fps: H3_FPS, look: "matched",

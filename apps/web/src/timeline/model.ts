@@ -39,9 +39,12 @@ export interface Slot {
   planned: boolean;
 }
 
-/** How long a clip that is not rendered yet will be: the length its form asks for (or its window's), or five seconds. */
+/**
+ * How long a clip that is not rendered yet will be: the length its form asks for (or its window's), or five seconds; less
+ * what its take will hide of its end (`hiddenMs`: a window run past a part kept removed).
+ */
 function plannedMs(clip: Clip, recipe: RecipeInfo | undefined): number {
-  return Math.max(1000, ((recipe ? plannedSeconds(recipe.inputs, clip.inputs) : null) ?? 5) * 1000);
+  return Math.max(1000, ((recipe ? plannedSeconds(recipe.inputs, clip.inputs) : null) ?? 5) * 1000 - (clip.hiddenMs ?? 0));
 }
 
 /**

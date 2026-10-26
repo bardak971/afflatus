@@ -299,6 +299,16 @@ describe("a timeline's source lane", () => {
       expect(photo.id).not.toBe(other.id);
     });
 
+    it("refuses a split of one of its windows: both halves would keep its whole part of the source (B10)", async () => {
+      const { tl, v } = await mixed("zz-test window split");
+      const video = await asset("video", { duration_ms: 4000 });
+      await t.services.timelines.takes.add(v.clips[1].id, video, { headMs: 0, tailMs: 0 }, {});
+      const res = await t.app.inject({ method: "POST", url: `/api/clips/${v.clips[1].id}/split`, payload: { atMs: 2000 } });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toMatch(/a window of the source: its part of it cannot be split in two/);
+      expect((await view(tl.id)).clips.map((c: { id: string }) => c.id)).toEqual(v.clips.map((c: { id: string }) => c.id));
+    });
+
     it("gives one window another form of its grid in place: its part, its takes and the other windows kept, one Undo step", async () => {
       const { tl, v } = await mixed("zz-test window form");
       const video = await asset("video");

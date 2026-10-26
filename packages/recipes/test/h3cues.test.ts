@@ -86,7 +86,9 @@ describe("H3 sound cues", () => {
     for (const recipe of [h3Video, h3LipSync, h3Swap]) {
       const ids = recipe.inputs.map((i) => i.id);
       expect(ids, recipe.id).toContain("cues");
-      expect(ids.indexOf("cueSound"), recipe.id).toBe(ids.indexOf("cues") + 1);
+      // Lip sync's file is always its recording: each part is laid over it, there is no choice to make (B12)
+      if (recipe === h3LipSync) expect(ids, recipe.id).not.toContain("cueSound");
+      else expect(ids.indexOf("cueSound"), recipe.id).toBe(ids.indexOf("cues") + 1);
     }
     const ids = h3Video.inputs.map((i) => i.id);
     expect(ids.indexOf("cues")).toBe(ids.indexOf("midAt") + 1);
@@ -163,6 +165,26 @@ describe("H3 sound cues", () => {
     expect(sound.slice(landsAt + 600, landsAt + 2000)).toEqual(recording.slice(landsAt + 600, landsAt + 2000));
     const mixed = recording.slice(landsAt, landsAt + 600).map((v, k) => v + files["door.wav"][k]!);
     expect(corr(sound.slice(landsAt, landsAt + 600), mixed)).toBeGreaterThan(0.999);
+  });
+
+  it("adds a cue over the recording a clip plays under with H3's own asked for too, and says why: H3's sound is not in that file (B12)", () => {
+    const input = parseInput(h3Video, { description: "She listens and claps once.", recording: "a1", cues: [door], cueSound: "H3's own" });
+    const built = h3Video.build(input, dryContext({ slots, uploads: { recording: "rec.wav", "cues.0": "door.wav" }, media: { recording: { width: 0, height: 0, seconds: 5.9, after: 4 }, "cues.0": cueFacts(0.6) } }));
+    const graph = built.graph as Graph;
+    const frames = of(graph, "MiniMaxH3ImageToVideo")[0]!.inputs.length as number;
+    const recording = noise(5.9 + 4, 7);
+    const files = { "rec.wav": recording, "door.wav": noise(0.6, 2) };
+    const sound = soundOf(graph, { decoded: noise(frames / H3_FPS, 1), files });
+    const landsAt = Math.round(Math.round(2.4 * H3_FPS) / H3_FPS * RATE);
+    const mixed = recording.slice(landsAt, landsAt + 600).map((v, k) => v + files["door.wav"][k]!);
+    expect(corr(sound.slice(landsAt, landsAt + 600), mixed)).toBeGreaterThan(0.999);
+    expect(built.warnings).toContainEqual(expect.stringMatching(/^In the take was H3's own, but this take's sound is not H3's/));
+    // what the graph holds is asked for
+    for (const cls of ["AudioMerge", "AudioConcat"]) expect(h3Video.nodes(input)).toContain(cls);
+    // a swap's source sound kept is such a file too
+    expect(h3Swap.nodes(parseInput(h3Swap, { who: "the man", source: { asset: "v1" }, cues: [door], cueSound: "H3's own" }))).toEqual(expect.arrayContaining(["AudioMerge", "AudioConcat"]));
+    // a clip with H3's own sound keeps it, and says nothing
+    expect(h3Video.build(parseInput(h3Video, { description: "a", cues: [door], cueSound: "H3's own" }), dryContext({ slots, uploads: { "cues.0": "door.wav" }, media: { "cues.0": cueFacts(0.6) } })).warnings ?? []).not.toContainEqual(expect.stringMatching(/^In the take/));
   });
 
   it("adds a cue over the recording a Video with audio clip plays under, which plays on under it unchanged", () => {

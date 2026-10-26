@@ -19,6 +19,12 @@ describe("the fade the player shows at a join, the export's", () => {
     expect(blendOf(clip({ id: "b", take: take({ landedMs: 167 }) }), before)).toBe(167);
     expect(blendOf(clip({ id: "b", take: take({ landedMs: 167 }) }), clip({ id: "a", lengthMs: 100, take: take() }))).toBe(0);
   });
+  it("leaves a cut's transition to play alone, a take landed on or not (B8)", () => {
+    const crossed = clip({ id: "b", joined: "cut", transition: { kind: "dissolve", ms: 500, sound: "on" }, take: take({ landedMs: 167 }) });
+    expect(crossingOf(crossed, before)?.ms).toBe(500);
+    expect(fadeIn(crossed, before)).toBeNull();
+    expect(blendOf(crossed, before)).toBe(0);
+  });
   it("cuts plainly at a seamless join, a cut, after a still, or with too little shared", () => {
     expect(fadeIn(clip({ id: "b", take: take({ seamless: true }) }), before)).toBeNull();
     expect(fadeIn(clip({ id: "b", joined: "cut", take: take() }), before)).toBeNull();
