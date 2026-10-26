@@ -507,15 +507,18 @@ export class Queue {
     // Again, a tool): left to the job's own check at submit, a rented pod had fetched its files (22 GB for LTX 2.5's model)
     // and was billed for nothing. A load ahead is not refused: it is asked while the form is being filled in, and its job
     // checks the whole form at submit as any other
+    // a pin to a machine no longer in the settings (a job done again after its pod was terminated) would wait for ever: no
+    // machine takes it, and unpinGone frees pins only when the machines change
+    const pin = opts.machine && (await this.machines()).some((m) => m.machine.id === opts.machine) ? opts.machine : null;
     if (!opts.warm) {
-      const found = await submitting.setCheckOf(this.core, recipe.id, input);
+      // with the files of the machine it is pinned to, not the first's: a render pinned to a pod with a clean set was refused
+      // for this PC's (card #119, B18). The first's still, while that one cannot be asked (a pod booting): its files would
+      // be fetched before the job's own check
+      const found = (pin && pin !== this.firstId ? await submitting.setCheckOn(this.lane(pin).core, recipe.id, input) : null) ?? (await submitting.setCheckOf(this.core, recipe.id, input));
       if (found.some((f) => f.black)) throw httpError(opts.who ? `${opts.who}: ${refusedSaid(found)}` : refusedSaid(found));
     }
     // the person's own form beside it, when a cast was worked in: the fields the cast changed, as they were (JSON leaves out the ones that were not there)
     const asked = opts.asked && Object.keys(opts.asked).length ? JSON.stringify({ ...input, ...opts.asked }) : null;
-    // a pin to a machine no longer in the settings (a job done again after its pod was terminated) would wait for ever: no
-    // machine takes it, and unpinGone frees pins only when the machines change
-    const pin = opts.machine && (await this.machines()).some((m) => m.machine.id === opts.machine) ? opts.machine : null;
     const id = newId();
     const at = now();
     return {
@@ -529,7 +532,8 @@ export class Queue {
 
   /**
    * Put a timeline together as one video. It needs no model and no ComfyUI, only ffmpeg; it waits in the
-   * same line so that it comes after the renders that were asked for before it, and shows with them.
+   * same line so that it comes after the renders that were asked for before it and its own timeline's (needsAhead), and
+   * shows with them.
    */
   async enqueueExport(opts: ExportOptions, label: string): Promise<string> {
     const id = newId();
@@ -1189,20 +1193,24 @@ export class Queue {
         // what needs no ComfyUI (an export, a cut by ffmpeg) goes on in its turn: after the renders before it, unless those
         // cannot start (paused, every machine away or paused, or none takes them); an update holds back what was asked after it
         if (free(tools)) {
+          // a render before it that runs, that a machine has taken (every running render is) or that a machine is planned to
+          // take; or one waiting for the machine it was lost on (heldOn), which may still render it there
+          const ahead: JobRow[] = [];
           for (const r of active) {
             if (r.depends_on && waitingOn.has(r.depends_on)) continue;
             if (this.only && r.status === "queued" && !this.only.has(r.id)) continue;
             if (!needsComfy(r)) {
               if (taken.has(r.id) || r.status !== "queued") continue;
+              // one of them keeps it waiting (an export after it would be made without that clip), unless it was asked after
+              // it, in its usual place (not dragged ahead of it), for another timeline or none (card #119, B17). The first
+              // tool job that waits holds back the ones after it, as before
+              if (await this.needsAhead(r, ahead)) break;
               this.startOn(tools, r);
               taken.add(r.id);
               started = true;
               break;
             }
-            // a render before it that runs, that a machine has taken (every running render is) or that a machine is
-            // planned to take, keeps it waiting; so does one waiting for the machine it was lost on (heldOn), which may
-            // still render it there: an export after it would be made without that clip
-            if (taken.has(r.id) || r.status === "running" || where.has(r.id) || this.heldOn(r)) break;
+            if (taken.has(r.id) || r.status === "running" || where.has(r.id) || this.heldOn(r)) ahead.push(r);
           }
         }
 
@@ -2015,6 +2023,23 @@ export class Queue {
       return before && depth < 100 ? of(before, depth + 1) : undefined;
     };
     return (r) => of(r, 0);
+  }
+
+  /**
+   * Whether a tool job (an export, a cut) waits for one of the renders `ahead` of it in the line. Renders finish before an
+   * export (the owner's rule): every one asked before it, every one of its own timeline, and every one dragged ahead of it
+   * (Queue › reorder gives a hand's place, below 0). Only a render asked after it, in its usual place, for another timeline
+   * or none, is not waited for: it cannot change what this job is made from.
+   */
+  private async needsAhead(tool: JobRow, ahead: readonly JobRow[]): Promise<boolean> {
+    const later = (r: JobRow) => r.created_at > tool.created_at && r.priority >= 0;
+    if (ahead.some((r) => !later(r))) return true;
+    if (!ahead.length || !tool.timeline_id) return false;
+    // a render's timeline is its clip's (renders are written without one)
+    const clipIds = ahead.flatMap((r) => (r.clip_id && !r.timeline_id ? [r.clip_id] : []));
+    const clips = clipIds.length ? await this.db.selectFrom("clips").select(["id", "timeline_id"]).where("id", "in", clipIds).execute() : [];
+    const timelineOf = new Map(clips.map((c) => [c.id, c.timeline_id]));
+    return ahead.some((r) => (r.timeline_id ?? (r.clip_id ? timelineOf.get(r.clip_id) : null)) === tool.timeline_id);
   }
 
   /**

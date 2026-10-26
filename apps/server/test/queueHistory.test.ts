@@ -86,3 +86,22 @@ describe("the queue's history", () => {
     }
   });
 });
+
+describe("taking finished jobs off the list", () => {
+  it("keeps one a waiting or running job continues from, until that one has ended (card #119, B5)", async () => {
+    // a Face refine that ended, the finish cut queued behind it (it reads the refine's video when it starts), and another
+    await t.db.insertInto("jobs").values([
+      job("refine", "done", 1, { clip_id: "c1" }), job("cut", "queued", null, { recipe_id: "afflatus.cut", depends_on: "refine" }), job("other", "done", 2),
+    ] as never).execute();
+    const ids = async () => (await t.db.selectFrom("jobs").select("id").orderBy("id").execute()).map((r) => r.id);
+    expect(await t.services.queue.dismissAll(["refine", "other"])).toBe(1);
+    expect(await ids()).toEqual(["cut", "refine"]);
+    expect(await t.services.queue.dismiss("refine")).toBe(false);
+    // running, it is kept the same; ended, the refine goes
+    await t.db.updateTable("jobs").set({ status: "running" }).where("id", "=", "cut").execute();
+    expect(await t.services.queue.dismissAll(["refine"])).toBe(0);
+    await t.db.updateTable("jobs").set({ status: "done" }).where("id", "=", "cut").execute();
+    expect(await t.services.queue.dismissAll(["refine"])).toBe(1);
+    expect(await ids()).toEqual(["cut"]);
+  });
+});

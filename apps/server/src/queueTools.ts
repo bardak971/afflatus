@@ -7,13 +7,13 @@ import { slowSoundOnto } from "./cut";
 import { finishedName, nameOf } from "./autoName";
 import { now, type Db, type Tables } from "./db";
 import { extOf } from "./media";
-import { readVideo } from "./video";
+import type { VideoFacts } from "./video";
 import { folderForMade, timelineOfClip } from "./timelineFolder";
 import { paceOn, recordTool, toolPace, toolPaces, type ToolPaces } from "./renders";
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB } from "./timelineModel";
 import { Died, GPU_AT_WORK, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type Running } from "./queueModel";
-import { pictureOnce, resentFor, taken } from "./queueSubmit";
+import { pictureOnce, rawFactsOf, resentFor, taken } from "./queueSubmit";
 import { ANY_PACKS, asBuilt, inputsIn, optionsIn, packsSaid, ranWithoutSaid } from "./jobPacks";
 
 /** The jobs that need no model of their own: a cut (a copy, a split, a slow-motion, a finish) and an export, done by ffmpeg, with ComfyUI only for RIFE and the upscale routes. */
@@ -213,7 +213,7 @@ export async function toolNeeds(core: Pick<QueueCore, "db" | "storage">, row: Pi
   const video = await core.db.selectFrom("assets").select(["fps", "mime", "raw_key", "has_sound"]).where("id", "=", opts.asset).executeTakeFirst();
   if (!video) return null;
   const route = opts.route ?? "seedvr";
-  const rife = interpolatedFrom(video, await rawFactsOf(core, video));
+  const rife = interpolatedFrom(video, await rawFactsOfTake(core, video));
   // Face refine (runFaceFinish): its own pack's nodes, offered for install where they lack as a render's are, the audio lock
   // that holds the take's sound, and its family's files. It fell to SeedVR2's nodes, and asked for neither its pack nor its files
   if (route === "face") {
@@ -229,22 +229,9 @@ export async function toolNeeds(core: Pick<QueueCore, "db" | "storage">, row: Pi
   };
 }
 
-/** What a take's kept frames are (size, rate), read once per file: a file kept under a key never changes. */
-const rawFactsKept = new Map<string, Promise<{ width?: number; fps?: number } | null>>();
-function rawFactsOf(core: Pick<QueueCore, "storage">, video: Pick<AssetRow, "raw_key" | "mime">): Promise<{ width?: number; fps?: number } | null> {
-  if (!video.raw_key) return Promise.resolve(null);
-  let got = rawFactsKept.get(video.raw_key);
-  if (!got) {
-    // a read that failed is not kept: once, it left an interpolated take's finish without RIFE on a pod for good
-    const key = video.raw_key;
-    got = core.storage.get(key).then((raw) => readVideo(raw, extOf(video.mime))).then((v) => v.facts, () => {
-      rawFactsKept.delete(key);
-      return null;
-    });
-    rawFactsKept.set(video.raw_key, got);
-    if (rawFactsKept.size > 256) rawFactsKept.delete(rawFactsKept.keys().next().value!);
-  }
-  return got;
+/** What a take's kept frames are (size, rate): queueSubmit's, read once per file in place by ffprobe alone (card #119, U3). */
+function rawFactsOfTake(core: Pick<QueueCore, "storage">, video: Pick<AssetRow, "raw_key" | "mime">): Promise<VideoFacts | null> {
+  return video.raw_key ? rawFactsOf(core.storage, video.raw_key, video.mime) : Promise.resolve(null);
 }
 
 /** Whether a tool job runs on ComfyUI's GPU (a finish, a RIFE slow-motion): it waits for ComfyUI and for the end of a pause, as a render does. */
@@ -299,7 +286,7 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
     // upscale of what the model made, not of an upscale, and for an interpolated take half the frames, RIFE run again after.
     // The factor is on the draft's own size: ×2 is twice what plays, whichever file the frames come from
     const raw = video.raw_key ? await core.storage.get(video.raw_key).catch(() => null) : null;
-    const rawFacts = raw ? (await readVideo(raw, extOf(video.mime)).catch(() => null))?.facts ?? null : null;
+    const rawFacts = raw ? await rawFactsOfTake(core, video) : null;
     const fromRaw = Boolean(raw && rawFacts?.width && rawFacts.fps);
     const doubled = fromRaw && interpolatedFrom(video, rawFacts);
     const rife = doubled ? rifeModelIn(catalog) : null;
@@ -341,16 +328,22 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
     const output = await followed(core, comfy, run, row, g, outNode, [...done.loads, ...(rife ? [`frame_interpolation/${rife}`] : [])], note);
     const bytes = await comfy.client.view(output);
     // named after the take it finishes ("Big Air · c2 · t5 · finished ×2"), worked out from its clip when that video has no name
-    let kept = await clips.range.keepCut(video, bytes, finishedName(await nameOf(core.db, video), by), 0, video.duration_ms ?? 0, folder);
-    // the draft's frames, enlarged: its length on the model's frame grid is the draft's (lengthOnGrid), or an interpolated
-    // finish plays one frame short and a seamless join skips it. The latent itself stays the draft's (renderedOf)
-    if (video.latent_frames && Math.abs((kept.duration_ms ?? 0) - (video.duration_ms ?? 0)) <= 42) {
-      kept = await core.db.updateTable("assets").set({ latent_frames: video.latent_frames, latent_clock: video.latent_clock }).where("id", "=", kept.id).returningAll().executeTakeFirstOrThrow();
-    }
+    const kept = await onDraftGrid(core, video, await clips.range.keepCut(video, bytes, finishedName(await nameOf(core.db, video), by), 0, video.duration_ms ?? 0, folder));
     await noteTool(core, note, "done", kept);
     return kept;
   }));
   if (opts.clip) await place(core, clips, opts.clip, made, "the finished take", opts.finishedFrom ?? null);
+}
+
+/**
+ * A finish of a draft's own frames on the draft's frame grid: its length on the model's grid is the draft's (lengthOnGrid),
+ * or an interpolated finish plays one frame short and a seamless join skips it; and a continuation from it hands over on
+ * that grid (finishLatent). The latent itself stays the draft's (renderedOf). Every finish of the frames keeps it, the Face
+ * refine's too (card #119, B7), when the lengths match within a frame.
+ */
+async function onDraftGrid(core: QueueCore, video: AssetRow, kept: AssetRow): Promise<AssetRow> {
+  if (!video.latent_frames || Math.abs((kept.duration_ms ?? 0) - (video.duration_ms ?? 0)) > 42) return kept;
+  return core.db.updateTable("assets").set({ latent_frames: video.latent_frames, latent_clock: video.latent_clock }).where("id", "=", kept.id).returningAll().executeTakeFirstOrThrow();
 }
 
 /**
@@ -366,7 +359,7 @@ async function runFaceFinish(core: QueueCore, row: JobRow, run: Running, clips: 
     const slots = opts.family ? await toolSlots(core, comfy, opts.family, (x) => x.id.startsWith("face")) : {};
     run.gpu = true;
     const raw = video.raw_key ? await core.storage.get(video.raw_key).catch(() => null) : null;
-    const rawFacts = raw ? (await readVideo(raw, extOf(video.mime)).catch(() => null))?.facts ?? null : null;
+    const rawFacts = raw ? await rawFactsOfTake(core, video) : null;
     const doubled = Boolean(raw && rawFacts?.fps) && interpolatedFrom(video, rawFacts);
     const rife = doubled ? rifeModelIn(catalog) : null;
     if (doubled && !rife) throw new Error("This take was interpolated, and ComfyUI has no RIFE model left to interpolate the refined frames again (models/frame_interpolation).");
@@ -409,7 +402,7 @@ async function runFaceFinish(core: QueueCore, row: JobRow, run: Running, clips: 
     const note = await toolNote(core, row, "tool.finish.face", slots.faceRefineUnet ?? "Face refine", `route=face;denoise=${values.faceRefineDenoise}`, (video.width ?? 0) * (video.height ?? 0) * Math.max(1, frames));
     const output = await followed(core, comfy, run, row, g, outNode, [...faces.loads, ...(rife ? [`frame_interpolation/${rife}`] : [])], note, resend);
     const bytes = await comfy.client.view(output);
-    const kept = await clips.range.keepCut(video, bytes, `${await nameOf(core.db, video)} · face refined`, 0, video.duration_ms ?? 0, folder);
+    const kept = await onDraftGrid(core, video, await clips.range.keepCut(video, bytes, `${await nameOf(core.db, video)} · face refined`, 0, video.duration_ms ?? 0, folder));
     await noteTool(core, note, "done", kept);
     return kept;
   }));
