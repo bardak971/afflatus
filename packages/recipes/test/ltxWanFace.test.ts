@@ -113,6 +113,26 @@ describe("LTX 2.5 · Face refine", () => {
     expect(built.warnings?.join(" ")).toMatch(/temporal upscaler doubled the frames/);
   });
 
+  it("asks for none of its files or nodes when the temporal upscaler leaves it out (a pod would fetch H3's ~38 GB for nothing)", () => {
+    const values = { prompt: "a", references: [{ asset: "r1", role: "person" }], faceRefine: true, smooth: true };
+    const faceSlots = (needs: string[]) => needs.filter((n) => n.startsWith("face"));
+    const needs = (smoothWith: string, slots: Record<string, string> = {}, more: Record<string, unknown> = {}) =>
+      ltx25Video.needsWith!(parseInput(ltx25Video, { ...values, smoothWith, ...more }), slots);
+    const temporal = { temporal: "ltx-2.5-latent-temporal-upscaler-x2-bf16-1.0.safetensors" };
+    // asked for by name, or Auto with the temporal file there: the pass is left out, so are its files
+    expect(faceSlots(needs("LTX temporal (latent)"))).toEqual([]);
+    expect(needs("LTX temporal (latent)")).toContain("temporal");
+    expect(faceSlots(needs("Auto", temporal))).toEqual([]);
+    // with RIFE, Auto without the temporal file, or Auto with SeedVR2 (RIFE after it): refined, its files asked
+    for (const asked of [needs("RIFE (pixels)", temporal), needs("Auto"), needs("Auto", temporal, { upscale: "Video: SeedVR2 (restores)" })]) {
+      expect(asked).toEqual(expect.arrayContaining(["faceRefineUnet", "faceDetector", "faceClip", "faceVideoVae", "faceAudioVae"]));
+    }
+    // its nodes: none when the temporal upscaler is asked for by name; with RIFE they are
+    const nodes = (smoothWith: string) => ltx25Video.nodes(parseInput(ltx25Video, { ...values, smoothWith }));
+    expect(nodes("LTX temporal (latent)")).not.toContain("MiniMaxH3ReferenceToVideo");
+    expect(nodes("RIFE (pixels)")).toContain("MiniMaxH3ReferenceToVideo");
+  });
+
   it("says why without its files", () => {
     const { built, graph } = build(ltx25Video, { prompt: "a", start: "p1", faceRefine: true }, { slots: ltx25Parts, uploads: { start: "a.png" }, media: { start: picture } });
     expect(of(graph, "H3FaceStitch")).toHaveLength(0);
