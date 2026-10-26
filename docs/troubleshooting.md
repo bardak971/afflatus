@@ -28,7 +28,7 @@ Start with **Settings → About**: it runs the start-up checks (ffmpeg, ffprobe,
 
 **Videos do not play or exports fail on a Mac.** The Mac bundle has no ffmpeg: `brew install ffmpeg` ([details](install-desktop.md#macos-and-ffmpeg)).
 
-**Linking a folder is refused.** Once Afflatus is reachable from other machines, only folders under `LINK_ROOTS` can be linked ([configuration](configuration.md)).
+**Linking a folder is refused.** From another device than the computer Afflatus runs on (through a proxy or a tunnel too), or once Afflatus listens on the network, only folders under `LINK_ROOTS` can be linked ([configuration](configuration.md)).
 
 **Something renders on a model you did not pick.** Look at the waiting job in the Queue: each one says which model it loads. A preset or a person from the Prompt kit can bring their own model or LoRA.
 
