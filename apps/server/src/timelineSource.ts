@@ -1,4 +1,4 @@
-import { gridAtOrBefore, sourceWindows, windowShapeOf, type Recipe, type SourceWindow } from "@afflatus/core";
+import { gridAtOrBefore, sourceWindows, windowBounds, windowShapeOf, type Recipe, type SourceWindow } from "@afflatus/core";
 import { z } from "zod";
 import { httpError } from "./errors";
 import type { AssetRow } from "./timelineModel";
@@ -46,6 +46,13 @@ export interface SourcePlan {
   shortened?: { clip: string; seconds: number };
   /** Stretches cut out of the middle by removing their windows, each kept with the window after it (timelineRemoved.ts). */
   removed?: RemovedPart[];
+  /**
+   * The ms at the end of a window's part that its take hides, by clip id: made anew before a part kept removed, its part runs
+   * past where that part starts to the frame grid's next count (one on the grid cannot end there), and its take, landed,
+   * stops playing there (its end trimmed by as much: TimelineTakes.add). It meets the part exactly, brought back or not,
+   * and the window after it carries on from where it stops (TimelinePlan: from where the take before plays to).
+   */
+  hidden?: Record<string, number>;
 }
 
 /** What a timeline's PATCH takes of it: a new source (its video), or changes to the one there; null takes it away. */
@@ -82,6 +89,7 @@ export function sourceOfRow(raw: string | null | undefined): SourcePlan | null {
       ...(Array.isArray(x.parked) && x.parked.length ? { parked: x.parked.filter((p) => p && typeof p.clip === "object" && Array.isArray(p.takes)) } : {}),
       ...(x.shortened && typeof x.shortened.clip === "string" && Number(x.shortened.seconds) > 0 ? { shortened: { clip: x.shortened.clip, seconds: Number(x.shortened.seconds) } } : {}),
       ...(removedOf(x.removed).length ? { removed: removedOf(x.removed) } : {}),
+      ...(x.hidden && typeof x.hidden === "object" ? { hidden: Object.fromEntries(Object.entries(x.hidden).filter(([, ms]) => typeof ms === "number" && ms > 0)) } : {}),
     };
   } catch {
     return null;
@@ -181,6 +189,37 @@ export async function planWindows(plan: SourcePlan, recipe: Recipe<any>, video: 
   const cutsMs = plan.snap ? (await scenes(video.id)).cuts : [];
   // cut again after the clips kept: from where the last of them ends, carrying on from it
   return sourceWindows({ fromMs: after ?? plan.fromMs, toMs: plan.toMs, windowMs: plan.windowMs, shape, cutsMs, ...(after !== undefined ? { continues: true } : {}) });
+}
+
+/**
+ * The windows of a stretch that must reach `edgeMs`, the start of a part kept removed (its windows fixed, card #114):
+ * windows on the grid seldom end exactly there, and the ones asked for (planWindows) end short of it, by up to a step of
+ * the grid (17 frames on H3) or a window's fewest frames (the rest too short for one). Tried with the stretch asked to end
+ * a frame further each time, within the part (`limitMs`), and with windows asked a frame longer or shorter than asked
+ * (within what one job takes, the nearest first), the plan whose last window runs least past the edge: that much is hidden on its take
+ * (SourcePlan.hidden), rendered for nothing. Null when none reaches it.
+ */
+export async function windowsReaching(plan: SourcePlan, recipe: Recipe<any>, video: AssetRow, scenes: (assetId: string) => Promise<{ cuts: number[] }>, o: { fromMs: number; edgeMs: number; limitMs: number; after?: number }): Promise<SourceWindow[] | null> {
+  const shape = windowsOf(recipe, plan.inputs);
+  if (!shape) return null;
+  const cutsMs = plan.snap ? (await scenes(video.id)).cuts : [];
+  const frameMs = 1000 / shape.fps;
+  const { leastMs, mostMs } = windowBounds(shape);
+  // every length a window may be asked for, a frame apart, the one asked first, then the nearest to it
+  const lengths = [plan.windowMs, ...Array.from({ length: Math.floor((mostMs - leastMs) / frameMs) + 1 }, (_, k) => leastMs + k * frameMs)]
+    .sort((a, b) => Math.abs(a - plan.windowMs) - Math.abs(b - plan.windowMs));
+  let best: { windows: SourceWindow[]; over: number } | null = null;
+  for (const windowMs of lengths) {
+    for (let more = 0; o.edgeMs + more * frameMs < o.limitMs; more++) {
+      const windows = sourceWindows({ fromMs: o.after ?? o.fromMs, toMs: o.edgeMs + more * frameMs, windowMs, shape, cutsMs, ...(o.after !== undefined ? { continues: true } : {}) });
+      const over = (windows.at(-1)?.toMs ?? -Infinity) - o.edgeMs;
+      if (over < -frameMs / 2) continue;
+      if (!best || over < best.over - 1) best = { windows, over };
+      break;
+    }
+    if (best && best.over <= frameMs / 2) break;
+  }
+  return best?.windows ?? null;
 }
 
 /**

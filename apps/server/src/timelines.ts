@@ -1,7 +1,7 @@
 import { chatJson } from "./llm";
 import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
-import { carriedOf, carryOver, joinWay, laysSound, madeAroundRecording, musicPlan, recordingSpecOf, sungHead, plural, recordingPart, recordingParts, sameWindowGrid, trimIn, typedSeed, type ClipMusic, type InputSpec, type Recipe, type Transition } from "@afflatus/core";
+import { carriedOf, carryOver, joinWay, laysSound, madeAroundRecording, musicPlan, recordingSpecOf, sungHead, plural, recordingPart, recordingParts, sameWindowGrid, trimIn, typedSeed, type ClipMusic, type SourceWindow, type InputSpec, type Recipe, type Transition } from "@afflatus/core";
 import { newId, now, OWNER, type Db } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError, notFound } from "./errors";
@@ -19,7 +19,7 @@ import { clipColumns, takeColumns, TimelineHistory } from "./timelineHistory";
 import { TimelineRange } from "./timelineRange";
 import { madeOf, takeView, TimelineViews } from "./timelineViews";
 import { draftOf, generationOfTake, ownInputIds, recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
-import { clipsOfSource, patchedSource, planWindows, sourceOfRow, windowFormFor, windowRunUp, type SourcePatch, type SourcePlan } from "./timelineSource";
+import { clipsOfSource, patchedSource, planWindows, sourceOfRow, windowFormFor, windowRunUp, windowsOf, windowsReaching, type SourcePatch, type SourcePlan } from "./timelineSource";
 import { TimelineTakes } from "./timelineTakes";
 import { aroundRemoved, foldParts, keptAround, removalOf, removedOf, removedView, type ParkedClip, type Removal, type RemovedPart } from "./timelineRemoved";
 import { unusedSize, unusedTakes } from "./timelineUnused";
@@ -1066,10 +1066,31 @@ export class Timelines {
         { aside: null, k, fromMs: piece.fromMs, toMs: piece.toMs },
       ]);
       const scenes = (id: string) => this.media.scenes(id);
-      const cutUp = await Promise.all(segments.map((g) => {
-        const carries = g.aside ? (g.fromMs > start + 50 ? g.fromMs : undefined) : g.k === 0 && !pieces[0]!.after.length ? again?.after : undefined;
-        return planWindows({ ...plan, fromMs: g.fromMs, toMs: g.toMs }, recipe, video, scenes, carries);
-      }));
+      // planned in order: windows on the grid seldom end exactly where they are asked to (a step of 17 frames on H3), so a
+      // part made anew starts where the windows before it end, and the piece after it where its own end: they meet. The
+      // last window before a part kept as it was (its edge fixed) runs past its start to the grid's next count instead,
+      // its take hiding that much (`hidden`): it meets the part exactly, and the window after a part brought back carries
+      // on from there
+      const shape = windowsOf(recipe, plan.inputs);
+      const cutUp: SourceWindow[][] = [];
+      const hiddenAt = new Map<number, number>();
+      let reached: number | undefined;
+      for (const [g, segment] of segments.entries()) {
+        const chained = reached !== undefined && (segment.aside || segments[g - 1]?.aside) ? reached : undefined;
+        const fromMs = chained ?? segment.fromMs;
+        const carries = segment.aside ? (fromMs > start + 50 ? fromMs : undefined) : segment.k === 0 && !pieces[0]!.after.length ? again?.after : undefined;
+        let made = await planWindows({ ...plan, fromMs, toMs: segment.toMs }, recipe, video, scenes, carries);
+        const next = segments[g + 1];
+        const keptNext = !segment.aside && next && !next.aside ? pieces[next.k]!.after[0] : undefined;
+        const span = keptNext ? spans.get(keptNext) : undefined;
+        if (shape && span && made.length && made.at(-1)!.toMs < span.fromMs - 500 / shape.fps) {
+          made = (await windowsReaching(plan, recipe, video, scenes, { fromMs, edgeMs: span.fromMs, limitMs: span.toMs, after: carries })) ?? made;
+          const over = made.at(-1)!.toMs - span.fromMs;
+          if (over > 500 / shape.fps) hiddenAt.set(cutUp.flat().length + made.length - 1, Math.round(over));
+        }
+        cutUp.push(made);
+        reached = made.length ? made.at(-1)!.toMs : chained;
+      }
       const windows = cutUp.flat();
       // the first window of the stretch made, not of a part set aside: the one the click on its first frame goes to
       const firstOwn = cutUp.slice(0, segments.findIndex((g) => !g.aside)).flat().length;
@@ -1141,12 +1162,17 @@ export class Timelines {
           return { before, rows: part.rows, joined: part.joined, take: null, ...(carrying ? { inputs: JSON.stringify(carrying) } : {}) };
         });
         const parts = [...stays, ...kept];
+        // what each window's take hides of its end: those kept (cut again) keep theirs, those made say theirs
+        const hidden = Object.fromEntries([
+          ...Object.entries(plan.hidden ?? {}).filter(([id]) => order.some((p) => p.clip.id === id) && !made.includes(id)),
+          ...[...hiddenAt].map(([k, ms]) => [made[k]!, ms] as const),
+        ]);
         // the clips after them moved along once, all the windows in (those set aside out)
         await this.renumber(timelineId, order.map((p) => p.clip.id).filter((id) => !aside.includes(id)), tx);
         // the source's start sits where its stretch now plays from; the clip it was taken from is gone. Cut again, it stays where
         // it was, and the clips it no longer has keep nothing apart
         const apart = plan.apart ? Object.fromEntries(Object.entries(plan.apart).filter(([id]) => !again?.drop.includes(id))) : undefined;
-        const placedPlan = { ...(again ? { ...plan, clip: null, ...(apart ? { apart } : {}) } : { ...plan, atMs: startsAt - plan.fromMs, clip: null }), recipe: recipe.id, ...(anew ? { parked: [], shortened: undefined, removed: parts.length ? parts : undefined } : {}) };
+        const placedPlan = { ...(again ? { ...plan, clip: null, ...(apart ? { apart } : {}) } : { ...plan, atMs: startsAt - plan.fromMs, clip: null }), recipe: recipe.id, ...(anew ? { parked: [], shortened: undefined, removed: parts.length ? parts : undefined, hidden: Object.keys(hidden).length ? hidden : undefined } : {}) };
         await tx.updateTable("timelines").set({ source: JSON.stringify(placedPlan), updated_at: now() }).where("id", "=", timelineId).execute();
         if (picture) await this.keep(picture, tx);
         return made.filter((id) => !aside.includes(id));

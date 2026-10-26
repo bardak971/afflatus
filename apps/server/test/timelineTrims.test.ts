@@ -852,9 +852,11 @@ describe("a re-cut, a moved In or a source made anew keeps the parts removed rem
     const s = await sourceState(tl);
     expect(s.clips.every((c) => c.recipe === "scail.motion")).toBe(true);
     expect(s.clips.map((c) => c.id)).toEqual(r.clips);
-    // the part's span in no window placed
+    // the part's span (made anew, its edges where the windows on each side meet it) in no window placed
     const frame = 1000 / 16;
-    for (const c of s.clips) expect(c.s * 1000 >= mark.toMs - frame || c.s * 1000 + c.n * 1000 <= mark.fromMs + 2 * frame).toBe(true);
+    const now = (await view(tl)).source.removed[0] as { fromMs: number; toMs: number };
+    expect(Math.abs(now.fromMs - mark.fromMs)).toBeLessThan(500);
+    for (const c of s.clips) expect(c.s * 1000 >= now.toMs - frame || c.s * 1000 + c.n * 1000 <= now.fromMs + 2 * frame).toBe(true);
     const parts = await removedState(tl);
     expect(parts).toHaveLength(1);
     // made anew with the new model, set aside: its old window and take gone from it
@@ -867,6 +869,46 @@ describe("a re-cut, a moved In or a source made anew keeps the parts removed rem
     expect(back.clips.length).toBe(s.clips.length + parts[0]!.ids.length);
     expect((await joins(tl)).find(([id]) => id === parts[0]!.before)![1]).toBe("continue");
     expect((await joins(tl)).find(([id]) => id === parts[0]!.ids[0])![1]).toBe("continue");
+    // made anew, the part and the windows on each side of it meet end to end: no part of the source left between them
+    const ownEnd = (c: { s: number; n: number }) => c.s * 1000 + (Math.floor(c.n * 16 + 1e-6) * 1000) / 16;
+    const at = back.clips.findIndex((c) => c.id === parts[0]!.ids[0]);
+    const gap = (await view(tl)).source.removed as unknown[];
+    expect(gap).toEqual([]);
+    const own = (c: { s: number }, j: number) => (j === 0 ? c.s * 1000 : c.s * 1000 + (5 * 1000) / 16);
+    for (const j of [at, at + parts[0]!.ids.length]) expect(Math.abs(own(back.clips[j]!, j) - ownEnd(back.clips[j - 1]!))).toBeLessThanOrEqual(1000 / 16);
+  });
+
+  it("a source cut again around a part kept as it was: the windows before it reach it exactly, or run past it with their take hiding that much", async () => {
+    const tl = await madeSwap(28000);
+    const ids = (await sourceState(tl)).clips.map((c) => c.id);
+    const take = await takeFor(ids[2]!);
+    await call("DELETE", `/api/clips/${ids[2]}`);
+    const mark = (await view(tl)).source.removed[0] as { fromMs: number; toMs: number };
+    await call("PATCH", `/api/timelines/${tl}`, { source: { windowMs: 3000 } });
+    await call("POST", `/api/timelines/${tl}/source/make`, { again: true });
+    const parts = await removedState(tl);
+    expect(parts).toEqual([expect.objectContaining({ ids: [ids[2]], takes: [take] })]);
+    const s = await sourceState(tl);
+    const frame = 1000 / 24;
+    const k = s.clips.findIndex((c) => c.id === parts[0]!.before);
+    const last = s.clips[k - 1]!;
+    const end = last.s * 1000 + Math.floor(last.n * 24 + 1e-6) * frame;
+    const row = await t.db.selectFrom("timelines").select("source").where("id", "=", tl).executeTakeFirstOrThrow();
+    const hidden = (JSON.parse(String(row.source)) as { hidden?: Record<string, number> }).hidden ?? {};
+    // never short of the part: its windows shared so that the last one meets it within half a frame, or runs past it by
+    // less than a grid step (17 frames) with that much hidden
+    expect(end).toBeGreaterThanOrEqual(mark.fromMs - frame / 2);
+    expect(end - mark.fromMs).toBeLessThan(17 * frame);
+    if (end - mark.fromMs > frame / 2) expect(Math.abs(hidden[last.id]! - (end - mark.fromMs))).toBeLessThanOrEqual(1);
+    else expect(hidden).toEqual({});
+    // a take landed on a window that hides its end stops playing that much before it
+    const video = await t.db.selectFrom("assets").selectAll().where("id", "=", await asset("video")).executeTakeFirstOrThrow();
+    const src = JSON.parse(String(row.source)) as Record<string, unknown>;
+    await t.db.updateTable("timelines").set({ source: JSON.stringify({ ...src, hidden: { [last.id]: 375 } }) }).where("id", "=", tl).execute();
+    await t.services.timelines.takes.add(last.id, video, { headMs: 0, tailMs: 0 }, {});
+    expect((await t.db.selectFrom("takes").select("trim_end_ms").where("clip_id", "=", last.id).executeTakeFirstOrThrow()).trim_end_ms).toBe(375);
+    // the window after the part opens where it ends
+    expect(Math.abs(s.clips[k]!.s * 1000 - mark.toMs)).toBeLessThanOrEqual(frame);
   });
 
   it("a source's start moved: the part removed after the new In stays removed with its take", async () => {
