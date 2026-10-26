@@ -3,6 +3,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { NoticeEvent, ProgressUpdate, QueueStatus, UpdateFlow, UpdatesView } from "./api";
 import { readHistoryHead, readLibraryTop } from "./data";
 import { applyChange, readsTop } from "./assetCache";
+import { madeHere } from "./assetChange";
 import { endedSince, greetings, mergeProgress, notifyTag, systemAfter, throttle } from "./liveState";
 import { useBanners, useLive, useNotify, useSystem } from "./store";
 import { useBar } from "./bar/store";
@@ -121,10 +122,13 @@ export function useLiveEvents(): void {
     }, 1000);
     const readLibrary = (data: string) => {
       const change = parse(data) as LibraryChange | null;
-      const inPlace = libraryInPlace(change);
-      if (inPlace) applyChange(client, inPlace);
-      libraryWaiting.push(change);
-      libraryRead();
+      // a change made in this tab: written on screen already, and what it touches read once it was done (assetChange.tsx)
+      if (!madeHere(change)) {
+        const inPlace = libraryInPlace(change);
+        if (inPlace) applyChange(client, inPlace);
+        libraryWaiting.push(change);
+        libraryRead();
+      }
       if (change) for (const heard of libraryHeard) heard(change);
     };
 

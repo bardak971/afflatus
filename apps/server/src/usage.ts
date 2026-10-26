@@ -1,10 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import type { Kysely } from "kysely";
+import { sql, type Kysely } from "kysely";
 import { z } from "zod";
 import { now, type Tables } from "./db";
 import { foldersOf, type LibraryChange } from "./events";
 import type { Services } from "./services";
-import { resetCountdown, spaceOf } from "./media";
+import { resetCountdown, SPACE } from "./media";
 import { ERASED, eraseUnused } from "./sweep";
 import { inUseShown, unusedTakes } from "./timelineUnused";
 
@@ -18,23 +18,35 @@ async function idleTakes(db: Kysely<Tables>, used?: Promise<Map<string, string>>
  * and empty the bin now instead of waiting a week.
  */
 export function registerUsage(app: FastifyInstance, s: Services): void {
+  // read on each change of the library by every page open (the command bar): summed by SQL in a few groups, never each item sent
   app.get("/api/storage", async () => {
-    const assets = await s.db.selectFrom("assets").select(["id", "kind", "bytes", "kept_bytes", "deleted_at", "kept_at", "origin"]).execute();
-    const idle = new Set((await idleTakes(s.db, inUseShown(s))).map((t) => t.asset_id));
-    const sum = (rows: typeof assets) => rows.reduce((n, a) => n + spaceOf(a), 0);
-    const live = assets.filter((a) => !a.deleted_at);
-    const bin = assets.filter((a) => a.deleted_at);
-    const unused = live.filter((a) => idle.has(a.id));
+    const binned = sql<number>`case when deleted_at is null then 0 else 1 end`;
+    const unkept = sql<number>`case when kept_at is null and origin = 'generated' then 1 else 0 end`;
+    const groups = (await s.db.selectFrom("assets")
+      .select(["kind", binned.as("binned"), unkept.as("unkept"), (eb) => eb.fn.countAll<number>().as("count"), sql<number>`sum(${SPACE})`.as("bytes")])
+      .groupBy(["kind", binned, unkept])
+      .execute()).map((g) => ({ ...g, binned: Number(g.binned), unkept: Number(g.unkept), count: Number(g.count), bytes: Number(g.bytes ?? 0) }));
+    // the takes that never play, and of them the ones not in the bin: by their ids alone
+    const idle = [...new Set((await idleTakes(s.db, inUseShown(s))).map((t) => t.asset_id))];
+    const unused: Array<{ kind: string; count: number; bytes: number }> = [];
+    for (let i = 0; i < idle.length; i += 500) {
+      const part = await s.db.selectFrom("assets").select(["kind", (eb) => eb.fn.countAll<number>().as("count"), sql<number>`sum(${SPACE})`.as("bytes")])
+        .where("id", "in", idle.slice(i, i + 500)).where("deleted_at", "is", null).groupBy("kind").execute();
+      unused.push(...part.map((g) => ({ kind: g.kind, count: Number(g.count), bytes: Number(g.bytes ?? 0) })));
+    }
+    const sum = <T extends { count: number; bytes: number }>(rows: T[], keep: (g: T) => boolean = () => true) =>
+      rows.filter(keep).reduce((n, g) => ({ count: n.count + g.count, bytes: n.bytes + g.bytes }), { count: 0, bytes: 0 });
+    const live = (g: (typeof groups)[number]) => !g.binned;
     return {
-      total: sum(assets),
-      pictures: sum(live.filter((a) => a.kind === "image")),
-      videos: sum(live.filter((a) => a.kind === "video" && !idle.has(a.id))),
-      sounds: sum(live.filter((a) => a.kind === "audio")),
+      total: sum(groups).bytes,
+      pictures: sum(groups, (g) => live(g) && g.kind === "image").bytes,
+      videos: sum(groups, (g) => live(g) && g.kind === "video").bytes - sum(unused, (g) => g.kind === "video").bytes,
+      sounds: sum(groups, (g) => live(g) && g.kind === "audio").bytes,
       /** Takes that never play: videos kept only because a clip once rendered them. */
-      idleTakes: { count: unused.length, bytes: sum(unused) },
-      bin: { count: bin.length, bytes: sum(bin) },
+      idleTakes: sum(unused),
+      bin: sum(groups, (g) => Boolean(g.binned)),
       /** Results nobody kept: they go to the bin a day after they were made. */
-      unkept: { count: live.filter((a) => !a.kept_at && a.origin === "generated").length, bytes: sum(live.filter((a) => !a.kept_at && a.origin === "generated")) },
+      unkept: sum(groups, (g) => live(g) && Boolean(g.unkept)),
     };
   });
 

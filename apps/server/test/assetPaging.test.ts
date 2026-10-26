@@ -11,17 +11,17 @@ afterEach(() => t.close());
 type Page = { items: Array<{ id: string }>; next: string | null; prev: string | null };
 
 /** Items made one a minute apart, newest last; every third shares the moment of the one before (ids break the tie). */
-async function addAssets(n: number, of: (i: number) => { kind?: "image" | "audio"; name?: string } = () => ({})): Promise<string[]> {
+async function addAssets(n: number, of: (i: number) => { kind?: "image" | "audio" | "video"; name?: string; sound?: boolean } = () => ({})): Promise<string[]> {
   const ids: string[] = [];
   // recent: a result nobody kept goes to the bin after a day
   let at = Date.now() - 3_600_000;
   for (let i = 0; i < n; i++) {
     if (i % 3) at += 60_000;
     const id = newId();
-    const { kind = "image", name = "" } = of(i);
+    const { kind = "image", name = "", sound = false } = of(i);
     await t.db.insertInto("assets").values({
-      id, owner_id: OWNER, kind, origin: "generated", name, file_key: `assets/${id}`, thumb_key: null, mime: kind === "audio" ? "audio/mpeg" : "image/png",
-      bytes: 1, width: 1, height: 1, duration_ms: null, fps: null, has_sound: 0, folder_id: null, generation_id: null,
+      id, owner_id: OWNER, kind, origin: "generated", name, file_key: `assets/${id}`, thumb_key: null, mime: kind === "audio" ? "audio/mpeg" : kind === "video" ? "video/mp4" : "image/png",
+      bytes: 1, width: 1, height: 1, duration_ms: null, fps: null, has_sound: sound ? 1 : 0, folder_id: null, generation_id: null,
       kept_at: null, deleted_at: null, created_at: new Date(at).toISOString(),
     }).execute();
     ids.push(id);
@@ -77,5 +77,15 @@ describe("paging the library both ways", () => {
     expect(down[0]!.prev).toBeNull();
     expect(up.map((p) => p.items.map((i) => i.id))).toEqual(down.slice(0, -1).map((p) => p.items.map((i) => i.id)));
     expect(up[0]!.prev).toBeNull();
+  });
+});
+
+describe("the videos with sound", () => {
+  it("are paged by the server: a page of silent renders above them does not hide them (B14)", async () => {
+    // the oldest two have sound, the newest five are silent renders
+    const made = await addAssets(7, (i) => ({ kind: "video", sound: i < 2 }));
+    const { down } = await walk("&kind=video&sound=1");
+    expect(ids(down)).toEqual([made[1], made[0]]);
+    expect((await get(t.app, "/api/assets/count?kind=video&sound=1")).json().count).toBe(2);
   });
 });

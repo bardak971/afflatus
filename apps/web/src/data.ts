@@ -196,7 +196,7 @@ export type AssetsPageParam = { after?: string; before?: string };
  * the Studio's grid, which keeps every page read and draws only the rows in view (MediaGrid.tsx): scrolled back up, the
  * user finds the pages as they were, with no read and no jump.
  */
-export function useAssets(filter: { kind?: string; bin?: boolean; folder?: string; q?: string; family?: string; kept?: boolean; unkept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean }, enabled = true, capped = false) {
+export function useAssets(filter: { kind?: string; bin?: boolean; folder?: string; q?: string; family?: string; kept?: boolean; unkept?: boolean; sound?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean }, enabled = true, capped = false) {
   const project = useProject((s) => s.id);
   return useInfiniteQuery({
     queryKey: queryKeys.assets.list(project, filter, capped),

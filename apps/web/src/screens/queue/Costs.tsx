@@ -291,9 +291,11 @@ function SessionRow({ s, longest, split }: { s: PodSession; longest: number; spl
 
 function Sessions({ d, more }: { d: CostsView; more: { key: string; ask: (signal: AbortSignal) => Promise<CostsView> } }) {
   const [all, setAll] = useState(false);
-  const whole = useQuery({ queryKey: queryKeys.costs.of(more.key), queryFn: ({ signal }) => more.ask(signal), enabled: all && Boolean(d.sessionsAll), refetchInterval: 60_000 });
+  // every session read once when asked, not each minute (a megabyte): the newest ones, which change, come with the tab's own
+  // read each minute and are put over it
+  const whole = useQuery({ queryKey: queryKeys.costs.of(more.key), queryFn: ({ signal }) => more.ask(signal), enabled: all && Boolean(d.sessionsAll) });
   if (!d.sessions.length) return null;
-  const list = all && d.sessionsAll && whole.data ? whole.data.sessions : d.sessions;
+  const list = all && d.sessionsAll && whole.data ? [...d.sessions, ...whole.data.sessions.filter((s) => !d.sessions.some((x) => x.id === s.id))] : d.sessions;
   const count = d.sessionsAll?.count ?? d.sessions.length;
   const longest = d.sessionsAll?.longestMs ?? Math.max(...d.sessions.map((s) => s.to - s.from));
   const shown = all ? list : list.slice(0, 12);
