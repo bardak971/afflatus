@@ -52,7 +52,9 @@ export const Player = forwardRef<PlayerHandle, {
   timeline?: string;
   /** The editor's transport, shown over the picture while the player fills the screen. */
   screen?: ScreenControls;
-}>(function Player({ clips, music, frame, playing, onPlaying, onTime, stopAt, preview, live, onStop, timeline, master = 1, onPickPreview, screen }, ref) {
+  /** Where the playhead stands (put by hand, or where what plays is): the player goes there when it comes on the page and when the clips that play change under it. */
+  playhead?: () => number;
+}>(function Player({ clips, music, frame, playing, onPlaying, onTime, stopAt, preview, live, onStop, timeline, master = 1, onPickPreview, screen, playhead }, ref) {
   // what the live preview is, a picture or a clip: read on its own, so that a step of the render does not draw the player again
   const liveKind = useQueueOf((q) => (live && q.running?.clipId === live.clipId ? (q.running.previewMime?.startsWith("video/") ? "video" : "picture") : null)) ?? null;
   const masterRef = useRef(master);
@@ -166,7 +168,8 @@ export const Player = forwardRef<PlayerHandle, {
   );
 
   const place = useCallback(
-    (index: number, local: number, onward = false) => {
+    /** `quiet`: put there without saying the moment (the playhead stands elsewhere, where nothing plays; see the re-placing below). */
+    (index: number, local: number, onward = false, quiet = false) => {
       const c = seq[index];
       if (!c) return;
       pos.current = { key: keyOf(c), local, at: performance.now() };
@@ -194,19 +197,49 @@ export const Player = forwardRef<PlayerHandle, {
       if (clipSound.current) clipSound.current.currentTime = local / 1000;
       // the music goes on as it plays when the clips hand over; a jump is only for a seek
       tuneMusic(c.atMs + local, !onward);
-      onTime(c.atMs + local);
+      if (!quiet) onTime(c.atMs + local);
     },
     [seq, onTime, tuneMusic, stopCross],
   );
+
+  /** The clip a moment of what plays is in (the first one after it when it falls where nothing plays), and how far into it. */
+  const indexAt = useCallback((ms: number) => {
+    let i = seq.findIndex((c) => ms < c.atMs + c.lengthMs);
+    if (i < 0) i = seq.length - 1;
+    const c = seq[i];
+    return c ? { i, local: Math.max(0, Math.min(c.lengthMs, ms - c.atMs)) } : null;
+  }, [seq]);
+
+  // Put at the playhead when it comes on the page (the stage back from the source or a recording) and when the clips that
+  // play change under it (an Undo, a clip removed, added or split before it): it kept the index it stood at, now another
+  // clip's, and Play ran that one and pulled the playhead to it (review B4). Playing, the clip on screen goes on where it is
+  // now in the list (a seek would show); paused, or when it is gone, the player goes to the playhead. That moment is said
+  // (Play starts from what was said: the clock), unless the playhead stands where nothing plays: it then stays where it was
+  // put, as after a click on a clip with nothing to play yet.
+  const placedFor = useRef<Clip[] | null>(null);
+  useLayoutEffect(() => {
+    if (placedFor.current === seq) return;
+    const first = placedFor.current === null;
+    placedFor.current = seq;
+    if (playingRef.current && !first) {
+      const i = seq.findIndex((c) => keyOf(c) === pos.current.key);
+      if (i >= 0) {
+        setCur(i);
+        return;
+      }
+    }
+    const ms = playhead?.();
+    const p = ms === undefined ? null : indexAt(ms);
+    if (p) place(p.i, p.local, false, seq[p.i]!.atMs + p.local !== ms);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- placed again only for a new list of what plays (place and indexAt follow it)
+  }, [seq]);
 
   useImperativeHandle(
     ref,
     () => ({
       seek(ms) {
-        let i = seq.findIndex((c) => ms < c.atMs + c.lengthMs);
-        if (i < 0) i = seq.length - 1;
-        const c = seq[i];
-        if (c) place(i, Math.max(0, Math.min(c.lengthMs, ms - c.atMs)));
+        const p = indexAt(ms);
+        if (p) place(p.i, p.local);
       },
       fullscreen() {
         // the picture alone: the stage with what plays on it
@@ -220,7 +253,7 @@ export const Player = forwardRef<PlayerHandle, {
         return { clip: c, localMs: local, assetMs: startOf(c) + local };
       },
     }),
-    [seq, at, place],
+    [seq, at, place, indexAt],
   );
 
   // the clip on screen redrawn as the one that plays: the opacity set by hand at the take-over is the page's again
