@@ -355,6 +355,8 @@ export interface LtxVideo extends ColourMatch, Partial<Recording> {
   compression: number;
   smooth: boolean;
   smoothWith: string;
+  /** Set by a timeline (traits.latentAfter): the clip after carries on in this clip's latent, so it is doubled with RIFE. */
+  latentAfter?: boolean;
   upscale: string;
   upscaleBy: number;
   upscaleModel: string;
@@ -664,8 +666,18 @@ const doublesInLatent = (input: LtxVideo, there: boolean): boolean =>
  * the temporal upscaler asked for by name, this line on the job. Whether a clip carries on in the latent is only known in the
  * build (the clip before's kept latent, as sent): the files and nodes lists ask for RIFE's, and Face refine's, for any clip
  * that carries on from one.
+ *
+ * The clip before such a join takes RIFE too (card #108, 2026-10-26), so that a whole chain in the latent does: doubled by
+ * the temporal upscaler, its last frames were the settle pass's, not the latent the clip after carries on in, and the join
+ * still stepped (×7.6, ΔE 0.34). The timeline says so (`latentAfter`, set on every clip from the clip after); a clip nothing
+ * carries on from keeps the temporal upscaler.
  */
-const LATENT_RIFE_SAID = "Interpolated with RIFE, not LTX's temporal upscaler: this clip carries on in the clip before's latent, where the upscaler's settle pass makes the frames at the join anew and the join jumps.";
+const latentRifeSaid = (side: "before" | "after") => side === "before"
+  ? "Interpolated with RIFE, not LTX's temporal upscaler: this clip carries on in the clip before's latent, where the upscaler's settle pass makes the frames at the join anew and the join jumps."
+  : "Interpolated with RIFE, not LTX's temporal upscaler: the clip after carries on in this clip's latent, where the upscaler's settle pass makes the frames at the join anew and the join jumps.";
+
+/** Whether a clip's frames are kept off the temporal upscaler for a join in the latent: on either side of one (latentRifeSaid). */
+const inLatentChain = (input: LtxVideo, before: boolean): boolean => before || Boolean(input.latentAfter);
 
 /** Twice the frames with LTX's temporal upscaler: the latent's frames doubled (the sound untouched), then a short pass settles them. */
 function ltxTemporal(run: LtxRun, made: { video: Ref; audio: Ref }): { video: Ref; audio: Ref } {
@@ -883,11 +895,12 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
     // without it), and SeedVR2's files for its upscale: the build refuses either missing. Asked by name, the temporal file is
     // there or the build refuses, so it counts as there
     needsWith: (input, slots = {}, where = {}) => {
-      // a clip that carries on may do so in the latent, which takes RIFE (LATENT_RIFE_SAID): its files too
-      const temporal = doublesInLatent(input, input.smoothWith === SMOOTH_LTX || Boolean(slots.temporal)) && !input.previous;
+      // a clip that carries on may do so in the latent, which takes RIFE (latentRifeSaid): its files too; and so does one the
+      // clip after carries on in, which the timeline says. That one is known: it is sent no temporal file it would not use
+      const temporal = doublesInLatent(input, input.smoothWith === SMOOTH_LTX || Boolean(slots.temporal)) && !inLatentChain(input, Boolean(input.previous));
       return [
         ...rifeNeeds(input.smooth && !temporal),
-        ...(input.smooth && input.smoothWith === SMOOTH_LTX ? ["temporal"] : []),
+        ...(input.smooth && input.smoothWith === SMOOTH_LTX && !input.latentAfter ? ["temporal"] : []),
         ...upscaleNeeds(input),
         // the distilled LoRA for a model that is not distilled: a pod is sent it, a machine of the user's own renders without it
         // (said on the job). Asked as the build loads it: the form's model, else the family's found on that machine
@@ -907,7 +920,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
     output: "video",
     traits: {
       startFrame: true, endFrame: true, midFrames: true, continues: "clip", endAnchor: true, sound: true,
-      latentNodes: LTX_CONTINUATION_NODES, latentTrim: LTX_TRIM,
+      latentNodes: LTX_CONTINUATION_NODES, latentTrim: LTX_TRIM, latentAfter: "latentAfter",
       fps, frameGrid: { step: 8, offset: 1 },
       // H3's Face refine on its own frames: a finish of a take redraws the take's frames (its kept latent is LTX's, not H3's)
       ...(spec.faceRefine ? { faceRefine: "faceRefine" } : {}),
@@ -1026,8 +1039,10 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       { id: "smooth", type: "toggle", label: "Interpolate ×2", note: `frame interpolation, from ${fps} to ${fps * 2} frames a second: with LTX's own temporal upscaler in latent space when its file is there (motion-aware, then a short refine), else RIFE on the pixels`, default: false, advanced: true },
       {
         id: "smoothWith", type: "choice", label: "Interpolate with", options: [SMOOTH_AUTO, SMOOTH_LTX, SMOOTH_RIFE], default: SMOOTH_AUTO, showWhen: "smooth", advanced: true,
-        note: "Auto takes LTX's temporal upscaler when its file is there, else RIFE. The temporal upscaler doubles the latent's frames and a 2-step pass settles them: experimental, the refine after it is not Lightricks' published setting. A clip that carries on in the clip before's latent always takes RIFE: the settle pass remakes its frames at the join, which then jumps",
+        note: "Auto takes LTX's temporal upscaler when its file is there, else RIFE. The temporal upscaler doubles the latent's frames and a 2-step pass settles them: experimental, the refine after it is not Lightricks' published setting. A clip that carries on in the clip before's latent always takes RIFE, and so does the clip before it: the settle pass remakes their frames at the join, which then jumps",
       },
+      // set by a timeline on every clip, never drawn: whether the clip after carries on in this clip's latent (TimelinePlan.plan)
+      { id: "latentAfter", type: "toggle", label: "The clip after carries on in this clip's latent", default: false, internal: true },
       { id: "loras", type: "loras", label: "LoRAs", max: 6 },
       { id: "seed", type: "seed", label: "Seed" },
     ]),
@@ -1052,7 +1067,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         ...(input.previous || input.next ? ["LoadVideo", "GetVideoComponents", "ImageScale", "LTXVPreprocess"] : []),
         // Face refine: H3's nodes, the clip's 8n + 1 frames made up to H3's grid and cut back (not with the temporal upscaler
         // asked for by name: the pass is left out at 48 a second). Auto's choice hangs on files this list is not given: asked
-        ...(spec.faceRefine && input.faceRefine && !(doublesInLatent(input, input.smoothWith === SMOOTH_LTX) && !input.previous) ? [...FACE_REFINE_H3, "BasicScheduler", "VAEDecode", "CLIPLoader", "VAELoader", "ImageFromBatch", "ImageBatch", "RepeatImageBatch"] : []),
+        ...(spec.faceRefine && input.faceRefine && !(doublesInLatent(input, input.smoothWith === SMOOTH_LTX) && !inLatentChain(input, Boolean(input.previous))) ? [...FACE_REFINE_H3, "BasicScheduler", "VAEDecode", "CLIPLoader", "VAELoader", "ImageFromBatch", "ImageBatch", "RepeatImageBatch"] : []),
       ];
     },
     // which loaders, and which way the clip is made, depend on the files this ComfyUI has
@@ -1212,18 +1227,19 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       let made = sampled;
 
       // twice the frames: LTX's temporal upscaler doubles the latent's frames; else RIFE on the decoded pictures, as for a
-      // clip carried on in the clip before's latent (LATENT_RIFE_SAID)
+      // clip on either side of a join in the latent (latentRifeSaid)
       const canTemporal = Boolean(slots.temporal) && ctx.has("LTXVLatentUpsampler") && ctx.has("LatentUpscaleModelLoader");
       const askedTemporal = input.smooth && input.smoothWith === SMOOTH_LTX;
-      if (askedTemporal && before) warnings.push(LATENT_RIFE_SAID);
+      const chained = inLatentChain(input, Boolean(before));
+      if (askedTemporal && chained) warnings.push(latentRifeSaid(before ? "before" : "after"));
       else if (askedTemporal && !canTemporal) throw new Error(`LTX's temporal upscaler was not found: put ${spec.temporalFile} in ComfyUI's models/latent_upscale_models folder (one click in Settings → Models), or interpolate with RIFE.`);
-      const temporal = doublesInLatent(input, canTemporal) && !before;
+      const temporal = doublesInLatent(input, canTemporal) && !chained;
       if (temporal) made = ltxTemporal(run, made);
       g.phase("decoding");
       const decode = (samples: Ref): Ref => g.out("VAEDecodeTiled", { samples, vae: loaded.vae, tile_size: input.tile, overlap: 64, temporal_size: input.tileFrames, temporal_overlap: spec.decode.overlap });
       // carried on in the latent, at the model's rate: decoded as one piece with the clip before's own last tokens (its run-up and
       // a few before it), the frames of those few dropped, so that the join is the whole chain's decoded at once and the head
-      // shows the clip before's real frames. Never doubled by the temporal upscaler (LATENT_RIFE_SAID): RIFE comes after
+      // shows the clip before's real frames. Never doubled by the temporal upscaler (latentRifeSaid): RIFE comes after
       const context = kept ? Math.max(0, Math.min(SEAM_CONTEXT, ((kept.cut || kept.frames) - 1) / 8 + 1 - (head + 7) / 8)) : 0;
       const seam = before ? g.add("AfflatusLTXSeamLatent", { previous_av_latent: before, sampled: made.video, overlap_frames: head, context }) : null;
       const decodedFrames = seam ? g.out("ImageFromBatch", { image: decode([seam, 0]), batch_index: 8 * context, length: frames }) : decode(made.video);

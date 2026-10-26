@@ -230,7 +230,8 @@ function wanLatent(g: GraphBuilder, ctx: BuildContext, input: WanVideo, frame: {
  * the full CFG scale, where the motion is decided. One of Turbo's 4 (two from 6), so the high-noise model with its LoRA keeps
  * one after it: 0.6.3's split, render-checked on 2026-10-11 (about a fifth more motion). 0.7.0 tried two steps added in front
  * of the 4 (a 6-step schedule); its clips ghosted, a double exposure from about 1.8 s (card #82, 2026-10-26), so the split is
- * back to this one.
+ * back to this one. This one ghosted as much on the pod re-check (card #108, 2026-10-26), where only Turbo without the split
+ * came out clean: the split is now off by default, a choice whose "?" says it can ghost.
  */
 const turboLead = (steps: number, handover: number) => Math.min(handover - 1, steps >= 6 ? 2 : 1);
 
@@ -353,8 +354,10 @@ export const wanVideo = defineRecipe<WanVideo>({
       note: "the turbo LoRA's strength on the high-noise model. 1 is the LoRAs' own. 0.6 to 0.8 on the high-noise half brings back motion the 4-step LoRA flattens; the low-noise half stays at 1",
     },
     {
-      id: "turboHybrid", type: "toggle", label: "Hybrid turbo", default: true, showWhen: "fast", advanced: true, perModel: true,
-      note: "the 3-sampler split: Turbo's first step (two from 6) runs on the high-noise model WITHOUT the turbo LoRA, at the full CFG scale (the motion is decided there), then the LoRAs take over at CFG 1 for the rest. The turbo LoRAs alone make Wan's motion slow, close to slow motion; with the split it moves like a full render, for the same steps, a little slower each. Only with the turbo LoRAs, not with a distilled model",
+      // off by default since card #108 (2026-10-26): every split tried ghosted. A draft, a model's saved settings or a take's
+      // inputs that hold it on keep it on; a draft that never touched it follows the default, as a draft's other settings do
+      id: "turboHybrid", type: "toggle", label: "Hybrid turbo", default: false, showWhen: "fast", advanced: true, perModel: true,
+      note: "the 3-sampler split: Turbo's first step (two from 6) runs on the high-noise model WITHOUT the turbo LoRA, at the full CFG scale (the motion is decided there), then the LoRAs take over at CFG 1 for the rest. The turbo LoRAs alone make Wan's motion slower (about four fifths of a full render's); the split brings it back, but can ghost on some clips: a double exposure of the person from about 2 s, which is why it is off by default. Only with the turbo LoRAs, not with a distilled model",
     },
     {
       id: "nag", type: "toggle", label: "NAG", default: true, showWhen: "fast", advanced: true, perModel: true,
@@ -527,7 +530,9 @@ export const wanVideo = defineRecipe<WanVideo>({
       { name: "Turbo with NAG off", input: { prompt: "a", start: "p1", fast: true, nag: false }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
       { name: "Turbo with the high-noise LoRA eased", input: { prompt: "a", start: "p1", fast: true, turboStrength: 0.7 }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
       { name: "hybrid Turbo: the motion decided without the LoRA first", input: { prompt: "a", start: "p1", fast: true, turboHybrid: true, turboSteps: 6 }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
-      // 0.6.3's split, the default: Turbo's first step of 4 without the LoRA, one with it on the high-noise model, two on the low (card #105)
+      // the default since card #108: Turbo's LoRAs on all its steps, no split (the one setting seen without ghosting)
+      { name: "Turbo as it starts: Hybrid off, the turbo LoRAs on all 4 steps", input: { prompt: "a", start: "p1", fast: true }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
+      // 0.6.3's split, asked for: Turbo's first step of 4 without the LoRA, one with it on the high-noise model, two on the low (card #105)
       { name: "hybrid Turbo on its 4 steps: 1 lead, 1 high, 2 low", input: { prompt: "a", start: "p1", fast: true, turboHybrid: true, turboSteps: 4 }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
       { name: "a GGUF model, SeedVR2 upscale, ComfyUI's own video output", input: { prompt: "a", start: "p1", model: "wan2.2_i2v_high_noise_14B_Q5_K_M.gguf", modelLow: "wan2.2_i2v_low_noise_14B_Q5_K_M.gguf", upscale: "Video: SeedVR2 (restores)", smooth: false }, slots: { ...all, seedvr: "seedvr2_3b_int8_convrot.safetensors", seedvrVae: "seedvr2_ema_vae_fp16.safetensors" }, uploads: { start: "a.png" }, media: { start: picture }, has: (n: string) => n !== "VHS_VideoCombine" },
       {

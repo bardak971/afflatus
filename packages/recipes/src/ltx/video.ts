@@ -67,6 +67,12 @@ const spec: LtxSpec = {
         media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX_FPS, hasSound: true, latentFrames: 97, latentSize: { width: 704, height: 1280 } } },
       },
       {
+        // the clip after carries on in this one's latent (card #108): RIFE too, said on the job
+        name: "the clip after carries on in its latent, the temporal upscaler asked for: RIFE instead",
+        input: { prompt: "a", smooth: true, smoothWith: "LTX temporal (latent)", latentAfter: true },
+        slots: { ...one, ...temporal },
+      },
+      {
         name: "carries on in the clip before's own latent with a long run-up (41 frames, 6 tokens)",
         input: { prompt: "a", previous: { asset: "c1" }, context: "41" },
         slots: { ...one, ...extras }, uploads: { previous: "a.mp4", "previous.latent": "a.safetensors" },

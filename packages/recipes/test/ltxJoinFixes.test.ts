@@ -178,3 +178,57 @@ describe("Interpolate ×2 on a clip carried on in the clip before's latent: RIFE
     expect(ltx25Video.nodes(alone)).not.toContain("MiniMaxH3ReferenceToVideo");
   });
 });
+
+// card #108: the clip before a join in the latent takes RIFE too, so a whole chain in the latent does (the join after a clip
+// the temporal upscaler doubled still stepped ×7.6 on the pod re-check)
+describe("Interpolate ×2 on a clip the clip after carries on in, in its latent: RIFE", () => {
+  const withBoth = { ...parts, temporal: "t.safetensors", rife: "rife49.pth" };
+  const temporalLoads = (b: Built) => all(b, "LatentUpscaleModelLoader").filter(([, n]) => n.inputs.model_name === "t.safetensors");
+  const said = "Interpolated with RIFE, not LTX's temporal upscaler: the clip after carries on in this clip's latent, where the upscaler's settle pass makes the frames at the join anew and the join jumps.";
+
+  it("Auto takes RIFE there without a word; a clip nothing carries on from keeps the temporal upscaler", () => {
+    const first = build(ltx25Video, { seconds: 5, smooth: true, latentAfter: true }, { slots: withBoth });
+    expect(temporalLoads(first)).toEqual([]);
+    expect(all(first, "FrameInterpolate")).toHaveLength(1);
+    expect(first.warnings ?? []).not.toContain(said);
+    const alone = build(ltx25Video, { seconds: 5, smooth: true }, { slots: withBoth });
+    expect(temporalLoads(alone)).toHaveLength(1);
+    expect(all(alone, "FrameInterpolate")).toEqual([]);
+  });
+
+  it("a chain of three on Auto: RIFE on each clip, the joins decoded as one piece", () => {
+    const inLatentCtx = { uploads: { previous: "c.mp4", "previous.latent": "c.safetensors" }, media: { previous: inLatent(24) }, slots: withBoth };
+    const chain = [
+      build(ltx25Video, { seconds: 5, smooth: true, latentAfter: true }, { slots: withBoth }),
+      build(ltx25Video, { previous: { asset: "c" }, seconds: 5, smooth: true, latentAfter: true }, inLatentCtx),
+      build(ltx25Video, { previous: { asset: "c" }, seconds: 5, smooth: true }, inLatentCtx),
+    ];
+    for (const b of chain) {
+      expect(temporalLoads(b)).toEqual([]);
+      expect(all(b, "FrameInterpolate")).toHaveLength(1);
+    }
+    for (const b of chain.slice(1)) expect(b.overlap).toMatchObject({ latent: true, seam: true });
+  });
+
+  it("the temporal upscaler asked for by name: RIFE, one line on the job says why, even without its file", () => {
+    for (const recipe of [ltx25Video, ltxVideo]) {
+      const slots = recipe === ltxVideo ? { ...one, temporal: "t.safetensors", rife: "rife49.pth" } : withBoth;
+      const b = build(recipe, { seconds: 5, smooth: true, smoothWith: "LTX temporal (latent)", latentAfter: true }, { slots });
+      expect(temporalLoads(b)).toEqual([]);
+      expect(all(b, "FrameInterpolate")).toHaveLength(1);
+      expect(b.warnings!.filter((w) => w === said)).toHaveLength(1);
+    }
+    const without = build(ltx25Video, { seconds: 5, smooth: true, smoothWith: "LTX temporal (latent)", latentAfter: true }, { slots: { ...parts, rife: "rife49.pth" } });
+    expect(all(without, "FrameInterpolate")).toHaveLength(1);
+  });
+
+  it("is sent RIFE's files and Face refine's, not the temporal file it would not use", () => {
+    const values = parseInput(ltx25Video, { prompt: "a", smooth: true, smoothWith: "LTX temporal (latent)", faceRefine: true, latentAfter: true });
+    const needs = ltx25Video.needsWith!(values, { temporal: "t.safetensors" });
+    expect(needs).toContain("rife");
+    expect(needs).not.toContain("temporal");
+    expect(ltx25Video.nodes(values)).toContain("MiniMaxH3ReferenceToVideo");
+    const auto = parseInput(ltx25Video, { prompt: "a", smooth: true, latentAfter: true });
+    expect(ltx25Video.needsWith!(auto, { temporal: "t.safetensors" })).toContain("rife");
+  });
+});

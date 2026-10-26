@@ -800,19 +800,27 @@ describe("wan.video", () => {
     expect(all(build({}, { slots: { ...turbo, rife: "r.pth" } }), "VHS_VideoCombine")[0]!.inputs.frame_rate).toBe(32);
   });
 
-  it("runs Hybrid turbo as 0.6.3's 3-sampler split: Turbo's first step without the turbo LoRA, of its own four", () => {
+  it("runs Turbo without the split by default: its LoRAs on all its steps, the high-noise model then the low", () => {
+    // every split tried ghosted, 0.6.3's too; only Turbo without it came out clean (card #108)
+    const b = build({ fast: true });
+    expect(b.passes!.map((p) => p.steps)).toEqual([2, 2]);
+    expect(passes(b).map((p) => p.cfg)).toEqual([1, 1]);
+  });
+
+  it("runs Hybrid turbo, asked for, as 0.6.3's 3-sampler split: Turbo's first step without the turbo LoRA, of its own four", () => {
     // 0.7.0's two steps added in front (a 6-step schedule) ghosted (card #82): the lead is taken out of Turbo's steps again
-    const [lead, high, low] = passes(build({ fast: true }));
+    const hybrid = { fast: true, turboHybrid: true };
+    const [lead, high, low] = passes(build(hybrid));
     expect(lead).toMatchObject({ steps: 4, cfg: 3.5, start_at_step: 0, end_at_step: 1, add_noise: "enable", return_with_leftover_noise: "enable" });
     expect(high).toMatchObject({ steps: 4, cfg: 1, start_at_step: 1, end_at_step: 2, add_noise: "disable", return_with_leftover_noise: "enable" });
     expect(low).toMatchObject({ steps: 4, cfg: 1, start_at_step: 2, end_at_step: 10000, add_noise: "disable" });
-    expect(build({ fast: true }).passes!.map((p) => p.steps)).toEqual([1, 1, 2]);
+    expect(build(hybrid).passes!.map((p) => p.steps)).toEqual([1, 1, 2]);
     // the noise and the seed once, on the lead
     expect(lead!.noise_seed).toBe(7);
     expect([high!.noise_seed, low!.noise_seed]).toEqual([0, 0]);
     // two of 6, and the high-noise model with its LoRA keeps a step, however few Turbo's are
-    expect(build({ fast: true, turboSteps: 6 }).passes!.map((p) => p.steps)[0]).toBe(2);
-    const short = passes(build({ fast: true, turboSteps: 2 }));
+    expect(build({ ...hybrid, turboSteps: 6 }).passes!.map((p) => p.steps)[0]).toBe(2);
+    const short = passes(build({ ...hybrid, turboSteps: 2 }));
     expect(short.length).toBe(2);
   });
 
@@ -823,7 +831,7 @@ describe("wan.video", () => {
     const ref = (b: ReturnType<typeof build>, r: unknown) => b.graph[(r as [string, number])[0]]!;
 
     it("goes through SVI 2.0 Pro: the clip before's last frame the anchor, its last latent frame the motion", () => {
-      const b = carry({ fast: true });
+      const b = carry({ fast: true, turboHybrid: true });
       const node = all(b, "WanImageToVideoSVIPro")[0]!.inputs;
       // 5 s: the 2 frames dropped, the 4 frames of the head, and its own 79
       expect(node).toMatchObject({ length: 85, motion_latent_count: 1 });

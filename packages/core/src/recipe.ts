@@ -94,6 +94,12 @@ export interface VideoTraits {
    */
   latentNodes?: string[];
   /**
+   * The id of an internal toggle a timeline sets on each clip: whether the clip after carries on in this clip's kept latent
+   * (it continues from it, in a recipe of the same family, rate and grid that joins in a latent). LTX doubles such a clip's
+   * frames with RIFE rather than its temporal upscaler, whose settle pass remakes the frames the join is made of.
+   */
+  latentAfter?: string;
+  /**
    * A recipe that makes a long source window by window (Motion transfer on a timeline's source lane): the most and fewest
    * frames a job takes, and the frames of the clip before a window carries on from (sourceWindows.ts).
    */

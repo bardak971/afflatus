@@ -1,4 +1,4 @@
-import { FRAME_SLACK_MS, joinFrames, joinWay, latentClockOf, latentFrameAtOrBefore, leadInBefore, leadInCovers, madeAroundRecording, recordingPlaceOf, recordingSpecOf, type Recipe } from "@afflatus/core";
+import { clockFits, FRAME_SLACK_MS, joinFrames, joinWay, latentClockOf, latentFrameAtOrBefore, leadInBefore, leadInCovers, madeAroundRecording, recordingPlaceOf, recordingSpecOf, type Recipe } from "@afflatus/core";
 import { FfmpegMissing } from "./cut";
 import { frozenTailAt } from "./measure";
 import { newId, now, toRun, type Db } from "./db";
@@ -280,6 +280,10 @@ export class TimelinePlan {
       throw httpError("This clip extends the previous clip from its last frame, and that clip has no take yet.");
     }
     const after = i < all.length - 1 ? all[i + 1]! : null;
+    // said here for every clip, never kept from its form (as the recording's goesOn): whether the clip after carries on in
+    // this clip's latent, which LTX doubles with RIFE rather than its temporal upscaler (card #108)
+    const latentAfter = recipe.traits?.latentAfter;
+    if (latentAfter) plan.input[latentAfter] = this.carriesOnInLatent(recipe, after);
     const nextSpec = recipe.inputs.find((s) => s.type === "clip" && s.role === "next");
     // a clip with its own last frame pinned ends on that picture: given the next clip's video too, both would guide the
     // same last frames (the take bends toward the next clip, then the pinned frame snaps in), so the pin wins
@@ -293,6 +297,20 @@ export class TimelinePlan {
     // a frame carried on from the clip before, or landed on in the clip after, is never flipped: the join would no longer meet
     plan.mirror = mirroredPins(recipe, plan.input, flips, { carries: clip.joined === "continue" && i > 0, lands: Boolean(plan.links.next) });
     return plan;
+  }
+
+  /**
+   * Whether the clip after carries on in the latent a clip of `recipe` keeps: it continues from it in a recipe that joins in a
+   * kept latent of this one's family, rate and grid (as the queue's finishLatent sends it), from its clip input. Its take not
+   * made yet, this is what its join will be when it is, on a machine with the node pack.
+   */
+  private carriesOnInLatent(recipe: Recipe<any>, after: Placed | null): boolean {
+    if (!after || after.clip.joined !== "continue" || after.clip.kind === "still" || !after.clip.recipe_id) return false;
+    const theirs = this.core.registry.recipe(after.clip.recipe_id);
+    const prevSpec = theirs?.inputs.find((s) => s.type === "clip" && s.role === "previous");
+    if (!theirs?.traits?.latentNodes?.length || prevSpec?.type !== "clip" || prevSpec.framesOnly || !recipe.traits) return false;
+    const { fps, frameGrid } = recipe.traits;
+    return clockFits({ family: recipe.family, fps, grid: frameGrid }, theirs);
   }
 
   /** Whether a clip has a render waiting or running, its take to come. */
