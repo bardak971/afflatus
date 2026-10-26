@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ExternalLink } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { shortGpu } from "@afflatus/core";
@@ -18,6 +18,7 @@ import { Block, Card, Row } from "./Rows";
 import { tabHref } from "./settingsIndex";
 import { COLUMNS } from "./wide";
 import { capAmount } from "./capAmount";
+import { useCapsSave } from "../../rentCaps";
 import { openDeploy } from "../../deploy";
 import { idleEndSaid, podsAdded, rateParts } from "../../machines";
 import { BootNote, STARTING_DOT } from "../../machineBits";
@@ -108,8 +109,6 @@ export function RentRow() {
   );
 }
 
-type CapKey = "day" | "month";
-
 /** What each cap weighs: the day's is compute alone, the month's everything RunPod bills (rented.ts spent says the same). */
 export const CAP_DAY_WHY = "Compute only: what your pods cost today while they run, their GPU and their disk. A stopped pod's disk and the network volumes are not in it: they bill whether anything runs or not, and the month cap has them.";
 const BOOT_LOGS_WHY = "A deployed pod's boot log, kept with its run in Queue › Costs (its row's \"boot log\"): RunPod's system log of the image's pull, layer by layer, and the pod's own boot log, up to ComfyUI's first answer. RunPod drops both when the pod is terminated; kept, they tell a pull that never began (RunPod's side) from one that crawled (the host's link). Dropped after the days set. The pull's speed and size are kept with each run either way.";
@@ -119,8 +118,8 @@ export const CAP_MONTH_WHY = "Everything RunPod bills this month: the pods, the 
 const against = (value: number, cap: number) => `${usd(value, true)}${cap > 0 ? ` of ${usd(cap)}` : ""}`;
 
 /**
- * A cap in dollars: a small box, saved when it is left. Empty or 0: no cap. Its parent remounts it (a new `key`) when a
- * save of it failed, so that it shows the cap as saved again rather than the amount typed, which is not in force. Its "?"
+ * A cap in dollars: a small box, saved when it is left. Empty or 0: no cap. Its parent remounts it (a new `key`, useCapsSave
+ * resets) when a save of it failed, so that it shows the cap as saved again rather than the amount typed, which is not in force. Its "?"
  * says what it weighs: the two caps do not weigh the same bill.
  */
 export function CapBox({ label, value, help, onSave }: { label: string; value: number; help: string; onSave(v: number): void }) {
@@ -163,13 +162,6 @@ function RunpodAccount() {
   // read again every 10 s while a pod runs (its cost goes on), every minute otherwise
   const running = useQueue().data?.machines.some((m) => m.rented?.status === "RUNNING") ?? false;
   const spending = useQuery({ queryKey: queryKeys.rentedSpending(), queryFn: ({ signal }) => api.rentedSpending({ signal }), enabled: any, refetchInterval: running ? 10_000 : 60_000 });
-  const saveCaps = useMutation({
-    mutationFn: (rentCaps: { day: number; month: number }) => api.saveSettings({ rentCaps }),
-    onSuccess: (saved) => {
-      client.setQueryData(queryKeys.settings(), saved);
-      void client.invalidateQueries({ queryKey: queryKeys.rentedSpending() });
-    },
-  });
   const sayFailed = useSayFailed({ href: "/settings/rented", go: "Open Rented GPUs" });
   const saveUnused = useMutation({
     mutationFn: (volumeUnusedDays: number) => api.saveSettings({ volumeUnusedDays }),
@@ -189,32 +181,7 @@ function RunpodAccount() {
   const now = s ? runwayNowSaid({ spendPerHr: s.spendPerHr, runwayNowMs: s.runwayMs, perDay: s.perDay.pods + s.perDay.storage }) : null;
   // the caps as saved (written in at once on a save), not as the spending read some seconds ago: two edits in a row each keep the other
   const caps = settings.data?.rentCaps ?? s?.caps ?? { day: 0, month: 0 };
-  // each edit made on the caps as the edits before it left them, and sent after them: a second edit within one round trip
-  // never brings the first one's old value back (a cap is money)
-  const latestCaps = useRef<{ day: number; month: number } | null>(null);
-  const capsQueue = useRef<Promise<unknown>>(Promise.resolve());
-  // a cap whose save failed: said under the boxes until that same cap saves (a save of the other one says nothing of it),
-  // and its box remounted (`resets`) to show the cap as saved, not the amount typed, which is not in force
-  const [notSaved, setNotSaved] = useState<Partial<Record<CapKey, string>>>({});
-  const [resets, setResets] = useState<Record<CapKey, number>>({ day: 0, month: 0 });
-  const changeCaps = (key: CapKey, value: number) => {
-    const next = { ...(latestCaps.current ?? caps), [key]: value };
-    latestCaps.current = next;
-    capsQueue.current = capsQueue.current
-      .then(() => saveCaps.mutateAsync(next))
-      .then(
-        () => setNotSaved(({ [key]: _was, ...rest }) => rest),
-        (err: unknown) => {
-          // the edits queued after this one were made on top of it: they start again from the caps as saved
-          latestCaps.current = null;
-          setNotSaved((was) => ({ ...was, [key]: err instanceof Error ? err.message : String(err) }));
-          setResets((was) => ({ ...was, [key]: was[key] + 1 }));
-        },
-      )
-      .finally(() => {
-        if (latestCaps.current === next) latestCaps.current = null;
-      });
-  };
+  const capsSave = useCapsSave(caps);
   return (
     <Card
       title="RunPod account"
@@ -246,8 +213,8 @@ function RunpodAccount() {
       {has && (
         // today and this month under the caps, which they are weighed against
         <Row setting="comfy.rentcaps" label="Caps" sub={s ? `today ${against(s.today, caps.day)} · this month ${against(s.month, caps.month)}` : undefined} help="At a cap, the render running finishes, then the pods stop; what waits goes to your other machines, and Start and Deploy say the cap is reached. Empty: no cap. The day cap is compute only, the month cap the whole bill. Both are RunPod's bill, its last hours counted here.">
-          <CapBox key={`day-${resets.day}`} label="a day" value={caps.day} help={CAP_DAY_WHY} onSave={(day) => changeCaps("day", day)} />
-          <CapBox key={`month-${resets.month}`} label="a month" value={caps.month} help={CAP_MONTH_WHY} onSave={(month) => changeCaps("month", month)} />
+          <CapBox key={`day-${capsSave.resets.day}`} label="a day" value={caps.day} help={CAP_DAY_WHY} onSave={(day) => capsSave.change("day", day)} />
+          <CapBox key={`month-${capsSave.resets.month}`} label="a month" value={caps.month} help={CAP_MONTH_WHY} onSave={(month) => capsSave.change("month", month)} />
         </Row>
       )}
       {has && <S3Key />}
@@ -264,13 +231,13 @@ function RunpodAccount() {
           </span>
         </Row>
       )}
-      {(s?.lowBalance || spending.isError || Object.keys(notSaved).length > 0 || Boolean(s?.storage?.unused.length) || Boolean(s?.storage?.stoppedDisks)) && (
+      {(s?.lowBalance || spending.isError || capsSave.notes.length > 0 || Boolean(s?.storage?.unused.length) || Boolean(s?.storage?.stoppedDisks)) && (
         <Block>
           {s?.lowBalance && <ErrorNote>Your RunPod balance is low: RunPod stops pods at zero, and may delete their disks after a while.</ErrorNote>}
           {Boolean(s?.storage?.stoppedDisks) && <ErrorNote>{s!.storage!.stoppedDisks === 1 ? "1 stopped pod with a disk: billed while it waits. Terminate it if you will not start it again." : `${s!.storage!.stoppedDisks} stopped pods with a disk: billed while they wait. Terminate them if you will not start them again.`}</ErrorNote>}
           {s?.storage?.unused.map((v) => <ErrorNote key={v.id}>The volume {v.name} is unused {v.usedAt ? `since ${when(v.usedAt)}` : "since Afflatus first saw it"}: {usd(v.perMonth)} a month for nothing. Delete it under Network volumes if you will not deploy on it soon.</ErrorNote>)}
           {spending.isError && <ErrorNote>{spending.error.message}</ErrorNote>}
-          {(Object.keys(notSaved) as CapKey[]).map((key) => <ErrorNote key={key}>{`The ${key} cap was not saved (still ${caps[key] ? usd(caps[key]) : "none"}): ${notSaved[key]}`}</ErrorNote>)}
+          {capsSave.notes.map((n) => <ErrorNote key={n.key}>{n.text}</ErrorNote>)}
         </Block>
       )}
     </Card>

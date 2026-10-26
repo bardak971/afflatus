@@ -1,12 +1,13 @@
 import { lazy, Suspense } from "react";
 import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { shortGpu } from "@afflatus/core";
+import { forCuda, shortGpu } from "@afflatus/core";
 import { create } from "zustand";
 import { api, type DeployAsk } from "./api";
 import { ask } from "./Confirm";
 import { useSettings } from "./data";
 import { DEPLOYED_READS, huntReads } from "./deployReads";
 import { usd } from "./format";
+import { diskPerHour } from "./machines";
 import { useSayFailed } from "./sayFailed";
 
 /**
@@ -55,12 +56,21 @@ export function useDeployAgain() {
       // free where it would run: anywhere, or where its volume is
       const [gpus, volumes] = await Promise.all([api.runpodGpus(last.cloud).catch(() => null), last.volume ? api.runpodVolumes().catch(() => null) : null]);
       const at = last.volume ? volumes?.volumes.find((v) => v.id === last.volume)?.dataCenter : null;
-      const offer = (last.volume && !at) ? undefined : gpus?.gpus.find((g) => g.id === last.gpu && (at ? g.dataCenters.some((d) => d.id === at && d.availability !== "NONE") : g.availability !== "NONE"));
+      // with the Afflatus image on CUDA 13.0, a GPU whose free hosts all have an older driver is not free (the server would
+      // refuse it): the dialog opens, which offers it on CUDA 12.8
+      const found = gpus?.gpus.find((g) => g.id === last.gpu);
+      const seen = found && last.template === "afflatus" ? forCuda(found, last.cuda) : found;
+      const offer = (last.volume && !at) || !seen ? undefined : (at ? seen.dataCenters.some((d) => d.id === at && d.availability !== "NONE") : seen.availability !== "NONE") ? seen : undefined;
       if (!offer) {
         openDeploy();
         return null;
       }
-      if (!(await ask({ title: `Deploy another ${offer.name}?`, text: `${lastSaid(last, offer.name)}, on RunPod at ${usd(offer.price)}/h: billed from now until it is ${last.idleDo === "stop" ? "stopped" : "terminated"} (${last.idleMinutes ? `after ${last.idleMinutes} min idle, or ` : ""}by you).`, yes: "Deploy" }))) return null;
+      // the rate as the Deploy dialog says it: the GPU and the pod's own disk while it runs (with a volume, its container disk
+      // is 40 GB at most: rented.ts deploy)
+      const diskGb = last.volume ? Math.min(last.disk, 40) : last.disk;
+      const rate = offer.price + diskPerHour(diskGb);
+      const rateTip = `GPU ${usd(offer.price)} + its ${diskGb} GB disk ${usd(diskPerHour(diskGb), true)} an hour while it runs, as RunPod bills it${last.volume ? "; the network volume is billed apart, every month" : ""}.`;
+      if (!(await ask({ title: `Deploy another ${offer.name}?`, text: `${lastSaid(last, offer.name)}, on RunPod at ${usd(rate)}/h: billed from now until it is ${last.idleDo === "stop" ? "stopped" : "terminated"} (${last.idleMinutes ? `after ${last.idleMinutes} min idle, or ` : ""}by you).`, help: rateTip, yes: "Deploy" }))) return null;
       // its Model set's files come again (the server reads the set as it is now)
       return api.deployGpu({ ...last, again: true });
     },
