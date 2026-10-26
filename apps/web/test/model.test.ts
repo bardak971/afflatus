@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { InputSpec } from "@afflatus/core";
 import { recipeById } from "@afflatus/recipes";
 import type { Asset, Clip, RecipeInfo, Take } from "../src/api";
-import { layout, otherShape, PAD, pinInputs, placeOf, playAt, shapeOf, stamp, takeTrouble, titleOf } from "../src/timeline/model";
+import { layout, otherShape, PAD, pinInputs, placeOf, playAt, playOfTrack, shapeOf, stamp, takeTrouble, titleOf } from "../src/timeline/model";
 
 const recipe = (inputs: InputSpec[], id = "h3.video"): RecipeInfo => ({ id, family: "h3", version: 1, title: "Video", summary: "A clip.", output: "video", inputs, traits: null });
 const h3 = recipe([
@@ -55,6 +55,15 @@ describe("the playhead on the track", () => {
   it("turns a point of the track back into a moment, and a planned clip into where it would start", () => {
     expect(playAt(slots, PAD + 30)).toBe(3000);
     expect(playAt(slots, PAD + 45)).toBe(4000);
+  });
+  it("turns a moment of the track (a playhead put by hand) into a moment of what plays, a planned clip into where the next starts", () => {
+    expect(playOfTrack(slots, 3000)).toEqual({ ms: 3000, planned: false });
+    // on the planned clip (drawn at 5 s from 1 s): nothing plays there; what plays next starts at 2 s
+    const laid = layout([clip({ id: "a", lengthMs: 1000, atMs: 0 }), clip({ id: "p", atMs: 1000 }), clip({ id: "b", lengthMs: 2000, atMs: 1000 })], 10, [h3]);
+    expect(playOfTrack(laid, 3500)).toEqual({ ms: 1000, planned: true });
+    expect(playOfTrack(laid, 6500)).toEqual({ ms: 1500, planned: false });
+    expect(playOfTrack(laid, 99_000)).toEqual({ ms: 3000, planned: false });
+    expect(playOfTrack([], 5)).toEqual({ ms: 0, planned: false });
   });
 });
 
