@@ -13,9 +13,19 @@ export const cueNodes = (input: { cues?: CueValue[]; cueSound?: string }): strin
 /**
  * What the cues add where they are mixed over a sound that is a file of its own (a lip sync's recording, a swap's or a Motion
  * transfer's source sound kept): said by those recipes' nodes(), which know their forms. nodes() sees the form alone: a source
- * with no sound of its own is listed as one with it, as their own nodes list it.
+ * with no sound of its own is listed as one with it, as their own nodes list it. Each part is laid in whatever In the take
+ * says: H3's own sound is not in such a file to be kept at the cue (B12)
  */
-export const cueMixNodes = (input: { cues?: CueValue[]; cueSound?: string }): string[] => (input.cues?.length && laysCues(input) ? ["AudioMerge"] : []);
+export const cueMixNodes = (input: { cues?: CueValue[] }): string[] => (input.cues?.length ? ["AudioMerge", "AudioConcat"] : []);
+
+/**
+ * Said on the job when In the take asks for H3's own sound at the cues and the file's sound is another's (a recording, a
+ * source's sound kept): H3's is not in the file, so each cue's part is laid over it as with "The file's sound".
+ */
+export const cueOwnSoundSaid = (input: { cues?: CueValue[]; cueSound?: string }): string | null =>
+  input.cues?.length && !laysCues(input)
+    ? "In the take was H3's own, but this take's sound is not H3's (a recording, or the source's sound kept): each sound cue's part was laid over it instead."
+    : null;
 
 /** Whether the take's file carries each cue's own part (the usual), rather than H3's own sound at it. */
 export const laysCues = (input: { cueSound?: string }) => (input.cueSound ?? CUE_SOUND[0]) === CUE_SOUND[0];

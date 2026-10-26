@@ -287,7 +287,7 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
     if (afterSwap(input)) return [...(h3Swap.needsWith?.(asSwap(input), slots) ?? []).filter((n) => n !== "swapSam"), ...motionNeeds(input), ...(input.swapModel ? [] : ["swapUnet"])];
     const framesAlone = where.own && !slots.refUnet && !(input.references ?? []).length;
     const clip = framesAlone ? asClip(input, SWAP_FRAMES, input.previous ? MOTION_CARRIED : 0) : asWindow(input);
-    return [...turboNeeds(clip, slots), ...referenceNeeds(clip, slots), ...vedaNeeds(clip, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...motionNeeds(input), ...faceRefineNeeds(input)];
+    return [...turboNeeds(clip, slots), ...referenceNeeds(clip, slots), ...vedaNeeds(clip, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...motionNeeds(input), ...faceRefineNeeds(input, { picture: Boolean(input.picture && !input.previous) })];
   },
   nodes: (input) => afterSwap(input) ? nodesAfterSwap(input) : [...new Set([
     // carrying on, the clip before's last frame is a picture of who moves: the reference route (with H3's reference model there)
@@ -379,9 +379,10 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
         slots: all, uploads: { picture: "p.png", source: "v.mp4", "references.0": "r1.png" }, media: { picture, source: part },
       },
       {
-        name: "a window that carries on from the one before, a short run-up, the sound H3 makes",
-        input: { picture: "p1", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, context: "5", keepSound: false },
-        slots: all, uploads: { picture: "p.png", source: "v.mp4", previous: "w.mp4" }, media: { picture, source: { ...part, frames: 124 }, previous: { ...before, frames: 5 } },
+        // (a cue there laid into H3's sound, or H3's own kept at it: In the take decides)
+        name: "a window that carries on from the one before, a short run-up, the sound H3 makes, a sound cue in it",
+        input: { picture: "p1", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, context: "5", keepSound: false, cues: [{ asset: "s1", start: 0, seconds: 0.6, at: 2.4 }] },
+        slots: all, uploads: { picture: "p.png", source: "v.mp4", previous: "w.mp4", "cues.0": "clap.wav" }, media: { picture, source: { ...part, frames: 124 }, previous: { ...before, frames: 5 }, "cues.0": { width: 0, height: 0, seconds: 0.6 } },
       },
       // a window after a swap (Swap motion's that carried on, card #42): the swap's model, no Picture of its own
       ...((): Variant<H3MotionTransfer>[] => {

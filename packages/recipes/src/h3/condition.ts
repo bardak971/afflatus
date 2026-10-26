@@ -35,7 +35,7 @@ export interface MorePicture {
 function referenceStart(g: GraphBuilder, ctx: BuildContext, input: H3Video, how: H3Uses, frame: Frame, clip: Ref, length: number | Ref, fixed?: (pictures: number) => string, more: MorePicture[] = []): { start: string; positive: Ref } {
   const { uploads, media } = ctx;
   const { width, height, vae, audioVae } = frame;
-  // a voice with a picture to open on and nothing else: that picture is who speaks, not a frame
+  // a voice with a picture to open on and nothing else: that picture is who speaks, and the clip still opens on it (B20)
   const voiceOnly = input.references.length === 0 && input.refVideos.length === 0;
   // reference videos: their frames, and a person's sound as their voice when no voice sample is given. Another role's
   // sound is left out: H3 lays a lone sound reference into the take as it is and ignores it beside a voice (card #79)
@@ -48,11 +48,14 @@ function referenceStart(g: GraphBuilder, ctx: BuildContext, input: H3Video, how:
   const pictures: Array<{ file?: string; image?: Ref; role: string }> = voiceOnly && !more.length
     ? (how.start ? [{ file: uploads.start, role: "person" }] : [])
     : [...input.references.map((r, i) => ({ file: uploads[`references.${i}`], role: r.role })), ...more];
-  // with references, the clip can still open on its picture: it is given as one more picture and pinned at the first frame
-  const opening = !voiceOnly && how.start;
-  const files: Array<{ file?: string; image?: Ref }> = [...pictures, ...(opening ? [{ file: uploads.start }] : [])];
+  // the clip opens on its picture: with references it is given as one more picture, and pinned at the first frame. With a
+  // voice alone it is already the first picture (who speaks), pinned all the same: the First frame was not the opening frame
+  // there, and nothing said so (B20)
+  const opening = how.start;
+  const opensOnFirst = opening && voiceOnly && !more.length;
+  const files: Array<{ file?: string; image?: Ref }> = [...pictures, ...(opening && !opensOnFirst ? [{ file: uploads.start }] : [])];
   // a recipe made on this one can say the prompt itself (a swap: its LoRA's short trained caption)
-  const prompt = fixed ? fixed(files.length) : h3ReferencePrompt(input, { roles: pictures.map((p) => p.role), videos: videos.map(({ role, sound }) => ({ role, sound })), voice: Boolean(input.voice), continues: Boolean(input.previous), opening, voiceOnly });
+  const prompt = fixed ? fixed(files.length) : h3ReferencePrompt(input, { roles: pictures.map((p) => p.role), videos: videos.map(({ role, sound }) => ({ role, sound })), voice: Boolean(input.voice), continues: Boolean(input.previous), opening, opensOnFirst, voiceOnly });
   const start = g.add("MiniMaxH3ReferenceToVideo", {
     clip, vae, audio_vae: audioVae, prompt, width, height, length, ref_image_size: input.sharpRefs ? "max" : "match",
     // inputs of a group that grows are named "<group>.<prefix><n>", counting from 0
@@ -144,5 +147,7 @@ export function conditionFor(g: GraphBuilder, ctx: BuildContext, input: H3Video,
   }
   const latent: Ref = window ? [window, 0] : [start, 1];
   positive = pinNeighbours(g, ctx, input, join, frame, positive, latent, continued);
-  return { positive, latent, previous: window ? continued.prev : null, plain: plain ?? (how.reference ? positive : [start, 0]), clip };
+  // on the reference route the clip's own conditioning, before any frame is pinned on it: the references, the voice and the
+  // words carry over to any size, the opening picture and the neighbours' frames were pinned for the sampled frame (B11)
+  return { positive, latent, previous: window ? continued.prev : null, plain: plain ?? [start, 0], clip };
 }

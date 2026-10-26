@@ -25,6 +25,17 @@ describe("MiniMax H3 · Lip sync", () => {
     expect(h3LipSync.inputs.find((i) => i.id === "description")?.label).toBe("What happens");
   });
 
+  it("asks for the words to be spoken in the description, also in a prompt pasted in H3's own layout (B21)", () => {
+    const promptOf = (graph: Graph) => String(of(graph, "MiniMaxH3ReferenceToVideo")[0]!.inputs.prompt);
+    const speaks = "The person speaks throughout, the lips moving with every word.";
+    expect(promptOf(build({}).graph)).toContain(`a café terrace ${speaks}`);
+    // pasted in H3's layout, sent as written: the sentence ends its description section, not its music
+    const layout = "subject_definitions:\n<Picture 1> is S1.\n\ndetailed_description: [Shot 1] A man at a café, talking.\n\noverall_soundscape: street noise\n\nnon_diegetic_music: soft jazz";
+    const sent = promptOf(build({ description: layout }).graph);
+    expect(sent).toContain(`detailed_description: [Shot 1] A man at a café, talking. ${speaks}\n\noverall_soundscape: street noise`);
+    expect(sent.endsWith("non_diegetic_music: soft jazz")).toBe(true);
+  });
+
   it("takes no voice sample: the recording is the voice, and the cast's sample is not added", () => {
     const ids = h3LipSync.inputs.map((i) => i.id);
     expect(ids).not.toContain("voice");

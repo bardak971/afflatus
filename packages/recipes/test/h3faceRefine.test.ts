@@ -76,10 +76,36 @@ describe("MiniMax H3 · Face refine", () => {
     expect(built.warnings ?? []).toEqual([]);
   });
 
-  it("takes the clip's first reference picture when no cast person is in it", () => {
-    const { graph } = build({ faceRefine: true, references: [{ asset: "r0", role: "clothing" }] });
-    const track = of(graph, "H3FaceTrackCrop")[0]!;
-    expect(node(graph, node(graph, track.inputs.identity_reference).inputs.image).inputs.image).toBe("place.png");
+  it("draws no face towards a place, clothing, object or style picture: with no person, it is done without and says why (B19)", () => {
+    const { built, graph } = build({ faceRefine: true, references: [{ asset: "r0", role: "clothing" }] });
+    expect(of(graph, "H3FaceTrackCrop")).toHaveLength(0);
+    expect(built.warnings).toContainEqual(expect.stringMatching(/^Not face-refined: the clip has no person's picture/));
+    // nor scored against it, as before
+    expect(of(graph, "AfflatusFaceMatch")).toHaveLength(0);
+    // and asks for none of its files
+    expect(h3Video.needsWith!(parseInput(h3Video, { description: "a", faceRefine: true, references: [{ asset: "r0", role: "place" }] }), {}).filter((x) => x.startsWith("face"))).toEqual([]);
+  });
+
+  it("without a cast person, follows the picture the clip opens on and scores against it, as the LTX and SCAIL forms do (R1)", () => {
+    const opening = build({ faceRefine: true, start: "p1", references: [{ asset: "r0", role: "place" }] }, { uploads: { ...uploads, start: "open.png" }, media: { start: { width: 576, height: 1024 } } });
+    const track = of(opening.graph, "H3FaceTrackCrop")[0]!;
+    expect(node(opening.graph, node(opening.graph, track.inputs.identity_reference).inputs.image).inputs.image).toBe("open.png");
+    const score = of(opening.graph, "AfflatusFaceMatch")[0]!;
+    expect(node(opening.graph, score.inputs.photo_1).inputs.image).toBe("open.png");
+    expect(h3Video.needsWith!(parseInput(h3Video, { description: "a", faceRefine: true, start: "p1" }), {})).toEqual(expect.arrayContaining(["faceRefineUnet", "faceDetector"]));
+    // the cast's picture comes first
+    const cast = build({ faceRefine: true, start: "p1", references: people }, { uploads: { ...uploads, start: "open.png" }, media: { start: { width: 576, height: 1024 } } });
+    expect(node(cast.graph, node(cast.graph, of(cast.graph, "H3FaceTrackCrop")[0]!.inputs.identity_reference).inputs.image).inputs.image).toBe("person.png");
+    // a Motion transfer's Picture is who it moves
+    const motion = recipeById("h3.motion")!;
+    const moved = motion.build(parseInput(motion, { picture: "p", source: { asset: "v" }, faceRefine: true }), dryContext({
+      slots: { ...slots, h3Control: "minimax_h3_fun_controlnet_union_2.0.safetensors" }, uploads: { picture: "who.png", source: "drive.mp4" },
+      media: { picture: { width: 576, height: 1024 }, source: { width: 576, height: 1024, frames: 141, fps: 24, hasSound: true } },
+    }));
+    const movedGraph = moved.graph as Graph;
+    expect(moved.warnings ?? []).not.toContainEqual(expect.stringMatching(/no person's picture/));
+    expect(node(movedGraph, node(movedGraph, of(movedGraph, "H3FaceTrackCrop")[0]!.inputs.identity_reference).inputs.image).inputs.image).toBe("who.png");
+    expect(motion.needsWith!(parseInput(motion, { picture: "p", source: { asset: "v" }, faceRefine: true }), {})).toEqual(expect.arrayContaining(["faceRefineUnet", "faceDetector"]));
   });
 
   it("pastes over the face's box without SAM, and follows no body without the person detector", () => {
@@ -181,8 +207,10 @@ describe("MiniMax H3 · Face refine", () => {
       const r = recipeById(id)!;
       expect(r.needsWith!(parseInput(r, { ...values, faceRefine: true, references: [{ asset: "r1", role: "person" }] }), {}), id).toEqual(expect.arrayContaining(face));
       expect(r.needsWith!(parseInput(r, { ...values, references: [{ asset: "r1", role: "person" }] }), {}).filter((x) => x.startsWith("face")), id).toEqual([]);
-      // with no person's picture the pass leaves the clip as it is: none of its files is asked for
-      expect(r.needsWith!(parseInput(r, { ...values, faceRefine: true, references: [] }), {}).filter((x) => x.startsWith("face")), id).toEqual([]);
+      // with no person's picture the pass leaves the clip as it is: none of its files is asked for (a Motion transfer's Picture
+      // is one: who it moves)
+      const towards = id === "h3.motion" && "picture" in values && !("previous" in values);
+      expect(r.needsWith!(parseInput(r, { ...values, faceRefine: true, references: [] }), {}).filter((x) => x.startsWith("face")), id).toEqual(towards ? expect.arrayContaining(face) : []);
     }
     const scail = recipeById("scail.motion24")!;
     expect(scail.needsWith!(parseInput(scail, { picture: "p", driving: { asset: "v" }, faceRefine: true }), {})).toEqual(expect.arrayContaining([...face, "faceClip", "faceVideoVae", "faceAudioVae"]));

@@ -391,6 +391,24 @@ describe("h3.video with references", () => {
     expect(one(b, "MiniMaxH3AddGuide").map((n) => n.inputs.frame_idx)).toEqual([0]);
   });
 
+  it("with a voice and no references, opens on the First frame, which is also who speaks (B20, the owner's call)", () => {
+    const b = build({ start: "p", voice: "v", references: [] }, { media: { start: { width: 576, height: 1024 } } });
+    const node = one(b, "MiniMaxH3ReferenceToVideo")[0]!;
+    // given once, as the person, and pinned at the first frame
+    expect(Object.keys(node.inputs).filter((k) => k.startsWith("ref_images."))).toEqual(["ref_images.ref_image_0"]);
+    const guides = one(b, "MiniMaxH3AddGuide");
+    expect(guides.map((n) => n.inputs.frame_idx)).toEqual([0]);
+    expect(b.graph[(guides[0]!.inputs.image as [string, number])[0]]!.inputs.image).toBe("s.png");
+    const prompt = String(node.inputs.prompt);
+    expect(prompt).toContain("<Subject 1> is the character in <Picture 1>.");
+    expect(prompt).toContain("<Picture 1> is the first frame of [Shot 1]: the video opens exactly on it");
+    expect(prompt).toContain("<Picture 1> is the opening-frame anchor for [Shot 1].");
+    expect(prompt).not.toContain("<Picture 2>");
+    // carrying on from a clip, it opens on that clip's frames, not on a picture
+    const carried = build({ start: "p", voice: "v", references: [], previous: { asset: "c" } }, { uploads: { start: "s.png", voice: "v.wav", previous: "a.mp4" }, media: { previous: { width: 576, height: 1024, frames: 22, fps: 24, hasSound: true } } });
+    expect(one(carried, "MiniMaxH3AddGuide").some((n) => n.inputs.image && n.inputs.frame_idx === 0 && !n.inputs.audio)).toBe(false);
+  });
+
   it("is refused in words when the reference model is not installed, and the step cache stays off with Fast", () => {
     const { refUnet: _none, ...without } = slots;
     expect(() => build({}, { slots: without })).toThrow(/reference model/);
@@ -2031,6 +2049,15 @@ describe("H3's upscale pass", () => {
     const older = (latentAt: number) => h3Video.build(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, next: { asset: "c2" }, seconds: 5 }), dryContext({ slots, uploads, media: { previous: joined, next: { ...joined, latentAt } }, has: (c) => c !== "AfflatusH3LatentLanding" }));
     expect(node(older(0), "AfflatusH3LatentHeadGuide")[0]!.inputs).toMatchObject({ guide_frames: 22, skip_frames: 0 });
     expect(node(older(34), "AfflatusH3LatentHeadGuide")).toHaveLength(0);
+    // the clip after re-rendered larger (768p, this one continuing a 576p clip): its tokens are not this window's size, so it
+    // is landed on by its frames, and the job says why (B13)
+    const larger = h3Video.build(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, next: { asset: "c2" }, seconds: 5 }), dryContext({ slots, uploads, media: { previous: joined, next: { ...joined, width: 768, height: 1376, latentAt: 0 } } }));
+    expect(node(larger, "AfflatusH3LatentLanding")).toHaveLength(0);
+    expect(node(larger, "AfflatusH3LatentHeadGuide")).toHaveLength(0);
+    expect(node(larger, "MiniMaxH3AddGuide")).toHaveLength(1);
+    expect(node(larger, "MiniMaxH3LatentTailGuide")).toHaveLength(1);
+    expect(larger.warnings).toContain("The clip after was made at 768 × 1376, this one at 576 × 1024: it was landed on by its frames, not its latent.");
+    expect(b.warnings ?? []).not.toContainEqual(expect.stringMatching(/clip after was made at/));
     expect(node(b, "AfflatusLoadH3Latent").map((n) => n.inputs.latent).sort()).toEqual(["a.safetensors [temp]", "b.safetensors [temp]"]);
     expect(node(b, "MiniMaxH3AddGuide")).toHaveLength(0);
     // the window holds the overlap, the clip's own frames and the frames it lands on: the last 22 are the clip after's
@@ -2067,6 +2094,22 @@ describe("H3's upscale pass", () => {
     expect(b.totalSteps).toBe(2 * 2 * 4 * 2);
     // its latent comes from a file, which says no frame count: the clip's frames are said by the recipe
     expect(b.frames).toBe(124);
+    expect(checkGraph(b, catalog)).toEqual([]);
+  });
+
+  it("re-samples a reference clip guided by its references and words, without the pictures pinned at frames (B11)", () => {
+    // the cast, an opening picture and one it passes through, and the clip before's tail: pinned for the draft's frame, none
+    // of them guides the re-sample at the larger one (the hazy first frames of 2026-10-08)
+    const joined = { width: 576, height: 1024, frames: 22, fps: 24, hasSound: true };
+    const b = h3Video.build(
+      parseInput(h3Video, { description: "a", start: "s1", mid: "m1", midAt: 2, previous: { asset: "c1" }, references: [{ asset: "r1", role: "person" }], seconds: 5, upscale: "Latent: re-sampled", upscaleBy: 1.5 }),
+      dryContext({ slots: { ...slots, refUnet: "ref.safetensors" }, uploads: { start: "s.png", mid: "m.png", previous: "a.mp4", "references.0": "r.png", "self.latent": "own.safetensors [temp]" }, media: { previous: joined, start: { width: 576, height: 1024 } }, has: () => true }),
+    );
+    expect(node(b, "MiniMaxH3AddGuide").length).toBeGreaterThan(0);
+    const upscale = node(b, "MMH3UltimateUpscale")[0]!;
+    const guide = b.graph[(upscale.inputs.conditioning as [string, number])[0]]!;
+    expect(guide.class_type).toBe("MiniMaxH3ReferenceToVideo");
+    expect(guide.inputs["ref_images.ref_image_0"]).toBeDefined();
     expect(checkGraph(b, catalog)).toEqual([]);
   });
 

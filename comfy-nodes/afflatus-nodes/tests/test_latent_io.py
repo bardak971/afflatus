@@ -90,6 +90,13 @@ def test_landing_refuses_a_frame_off_the_chunks():
         AfflatusH3LatentLanding.execute(conditioning(), av(90, "next"), av(73, "window"), 22, 22)
 
 
+@pytest.mark.parametrize("node, at", [(AfflatusH3LatentLanding, 0), (AfflatusH3LatentHeadGuide, 0)])
+def test_landing_refuses_a_clip_after_made_at_another_frame_size(node, at):
+    # clip 3 re-rendered at 768p, the window at 576p: its tokens would not be this window's
+    with pytest.raises(ValueError, match="not the same frame size"):
+        node.execute(conditioning(), av(90, "next", width=6, height=8), av(73, "window"), 22, at)
+
+
 def test_head_guide_skips_the_clip_afters_own_overlap_on_the_17k_plus_5_grid():
     out = AfflatusH3LatentHeadGuide.execute(conditioning(), av(90, "next"), av(73, "window"), 22, 22)
     (guide,) = out.args[0][0][1]["minimax_keyframes"]

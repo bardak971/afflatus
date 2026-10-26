@@ -12,6 +12,12 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **A file written into a linked folder that fails half way (a full disk) leaves nothing there**, where the next reading registered the half file as an item.
 - **A linked file changed on disk is no longer found by its old content**: Look again forgets its digest, so pasting the old picture again imports it.
 - **Linking a large folder is much quicker**: its files are registered a few hundred per transaction, not one commit each, and the rest of the app is no longer held up meanwhile.
+- **H3 · A Voice sample with a First frame and no references: the clip opens on the First frame**, which is also who speaks. It was only a picture of the person, and the clip did not open on it.
+- **H3 · Latent re-sample of a clip with references or a voice** is guided by them and the words only, as a clip without them is: the opening picture, a keyframe and the neighbours' frames were pinned for the draft's size, the cause of the hazy first frames fixed on the other clips.
+- **H3 · A clip put between two others made at another frame size** lands on the clip after by its frames, and the job says so: landed on in its latent, it failed once the model had loaded. Node pack 0.42.0 refuses such a landing too.
+- **H3 · Face refine draws the faces towards a person's picture only.** A place, clothing, object or style picture no longer stands in for one. Without a cast person it follows the picture the clip opens on (a Motion transfer's Picture, a First frame), and the take's face score reads it too, as on LTX and SCAIL.
+- **H3 · A sound cue over a recording or a source's sound kept is in the take** with In the take on H3's own too, and the job says so: H3's sound is not in that file, and the cue was dropped. Lip sync no longer offers the choice.
+- **H3 · Lip sync's "speaks throughout" line goes at the end of the description** of a prompt pasted in H3's layout, not into its music.
 
 ### Security
 - **A microphone take is read only as a recording.** A DASH manifest sent in its place made ffmpeg read the video or sound files it named on the server's disk, by path, into the take; the take is now read only as webm, ogg, mp4 or WAV.
