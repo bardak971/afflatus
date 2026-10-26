@@ -120,8 +120,6 @@ export function FirstLaunch() {
     setComfy("none");
     setRent("yes");
   };
-  // done: the settings say so, and the Studio takes its place (App.tsx useFirstLaunch)
-  const end = () => save.mutate({ firstLaunch: "done" }, { onError: sayFailed("The first launch was not closed") });
 
   const first = own[0];
   const answered = comfy === "added" || comfy === "none" || comfy === "install";
@@ -131,10 +129,16 @@ export function FirstLaunch() {
   const caps = settings.data?.rentCaps ?? { day: 0, month: 0 };
   // queued as in Settings › Rented GPUs: a second cap saved before the first answers never sets the first one back
   const capsSave = useCapsSave(caps);
+  // done: the settings say so, and the Studio takes its place (App.tsx useFirstLaunch). A cap still saving is waited for
+  // first; refused, the page stays, its note under the boxes (a cap is money: never left unsaid)
+  const end = async () => {
+    if (!(await capsSave.settled())) return;
+    save.mutate({ firstLaunch: "done" }, { onError: sayFailed("The first launch was not closed") });
+  };
 
   return (
     <main aria-label="Where you render" className="relative flex grow justify-center overflow-y-auto">
-      <Button tone="quiet" className="absolute top-5 right-7 bg-transparent text-ink-2" onClick={end}>Skip</Button>
+      <Button tone="quiet" className="absolute top-5 right-7 bg-transparent text-ink-2" onClick={() => void end()}>Skip</Button>
       <div className="flex w-[680px] max-w-full flex-col gap-4 px-6 py-10">
         <div>
           <h1 className="text-display font-bold text-ink-strong">Where you render</h1>
@@ -251,7 +255,7 @@ export function FirstLaunch() {
             <span className="grow text-ink-3">
               Renders on: <b className="text-ink">{where || "nothing yet: jobs wait until a machine is added"}</b>.{settings.data?.allFamilies && " Every family is on: what is not here is listed greyed, and comes when a job needs it."}
             </span>
-            <Button tone="primary" disabled={save.isPending} onClick={end}>Done</Button>
+            <Button tone="primary" disabled={save.isPending} onClick={() => void end()}>Done</Button>
           </div>
         )}
       </div>
