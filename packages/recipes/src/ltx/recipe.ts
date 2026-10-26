@@ -642,6 +642,14 @@ function ltxOnePass(run: LtxRun): { video: Ref; audio: Ref } {
   return { video: any ? [g.add("LTXVCropGuides", { positive, negative, latent: [done, 0] }), 2] : [done, 0], audio: [done, 1] };
 }
 
+/**
+ * Whether LTX's temporal upscaler doubles the frames, as the build picks (`there`: its file, and in the build its nodes, are
+ * there): Interpolate ×2 on, not with RIFE, and not Auto with SeedVR2 (RIFE after it: SeedVR2 would restore twice the frames).
+ * The files and nodes are asked by the same rule, so that a pod is not sent Face refine's files for a pass left out.
+ */
+const doublesInLatent = (input: LtxVideo, there: boolean): boolean =>
+  input.smooth && input.smoothWith !== SMOOTH_RIFE && there && !(input.smoothWith === SMOOTH_AUTO && input.upscale === UPSCALE.seedvr);
+
 /** Twice the frames with LTX's temporal upscaler: the latent's frames doubled (the sound untouched), then a short pass settles them. */
 function ltxTemporal(run: LtxRun, made: { video: Ref; audio: Ref }): { video: Ref; audio: Ref } {
   const { g, ctx, loaded, cond, sampler, passes } = run;
@@ -849,19 +857,24 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
   return defineRecipe<LtxVideo>({
     // RIFE when the frames are interpolated with it: asked for, or Auto without LTX's temporal upscaler (or with SeedVR2,
     // which takes RIFE after it), as the build below picks. The temporal upscaler when it is asked for by name (Auto does
-    // without it), and SeedVR2's files for its upscale: the build refuses either missing
-    needsWith: (input, slots = {}, where = {}) => [
-      ...rifeNeeds(input.smooth && input.smoothWith !== SMOOTH_LTX && (input.smoothWith === SMOOTH_RIFE || !slots.temporal || (input.smoothWith === SMOOTH_AUTO && input.upscale === UPSCALE.seedvr))),
-      ...(input.smooth && input.smoothWith === SMOOTH_LTX ? ["temporal"] : []),
-      ...upscaleNeeds(input),
-      // the distilled LoRA for a model that is not distilled: a pod is sent it, a machine of the user's own renders without it
-      // (said on the job). Asked as the build loads it: the form's model, else the family's found on that machine
-      ...(where.own !== true && !modelOf(spec, input, slots).distilled ? ["turbo"] : []),
-      // the MSR LoRA for the cast's pictures or voice: a pod is sent it, a machine of the user's own renders without (SOFT_SLOTS)
-      ...(spec.references && (input.references?.length || (!spec.lipSync && input.voice)) ? ["msr"] : []),
-      // Face refine's files (H3's, its text encoder and VAEs too), with a picture of the person to refine towards
-      ...(spec.faceRefine ? faceRefineNeeds(input, { own: true, picture: Boolean(input.start && !input.previous) }) : []),
-    ],
+    // without it), and SeedVR2's files for its upscale: the build refuses either missing. Asked by name, the temporal file is
+    // there or the build refuses, so it counts as there
+    needsWith: (input, slots = {}, where = {}) => {
+      const temporal = doublesInLatent(input, input.smoothWith === SMOOTH_LTX || Boolean(slots.temporal));
+      return [
+        ...rifeNeeds(input.smooth && !temporal),
+        ...(input.smooth && input.smoothWith === SMOOTH_LTX ? ["temporal"] : []),
+        ...upscaleNeeds(input),
+        // the distilled LoRA for a model that is not distilled: a pod is sent it, a machine of the user's own renders without it
+        // (said on the job). Asked as the build loads it: the form's model, else the family's found on that machine
+        ...(where.own !== true && !modelOf(spec, input, slots).distilled ? ["turbo"] : []),
+        // the MSR LoRA for the cast's pictures or voice: a pod is sent it, a machine of the user's own renders without (SOFT_SLOTS)
+        ...(spec.references && (input.references?.length || (!spec.lipSync && input.voice)) ? ["msr"] : []),
+        // Face refine's files (H3's, its text encoder and VAEs too), with a picture of the person to refine towards; none when
+        // the temporal upscaler doubles the frames, which leaves the pass out (some 38 GB a pod would fetch for nothing)
+        ...(spec.faceRefine && !temporal ? faceRefineNeeds(input, { own: true, picture: Boolean(input.start && !input.previous) }) : []),
+      ];
+    },
     id: spec.id,
     family: spec.family,
     version: 1,
@@ -1014,8 +1027,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         ...((input.start && !input.previous) || input.end || input.mid ? ["LoadImage", "ImageScale", "LTXVPreprocess"] : []),
         ...(input.previous || input.next ? ["LoadVideo", "GetVideoComponents", "ImageScale", "LTXVPreprocess"] : []),
         // Face refine: H3's nodes, the clip's 8n + 1 frames made up to H3's grid and cut back (not with the temporal upscaler
-        // asked for by name: the pass is left out at 48 a second)
-        ...(spec.faceRefine && input.faceRefine && !(input.smooth && input.smoothWith === SMOOTH_LTX) ? [...FACE_REFINE_H3, "BasicScheduler", "VAEDecode", "CLIPLoader", "VAELoader", "ImageFromBatch", "ImageBatch", "RepeatImageBatch"] : []),
+        // asked for by name: the pass is left out at 48 a second). Auto's choice hangs on files this list is not given: asked
+        ...(spec.faceRefine && input.faceRefine && !doublesInLatent(input, input.smoothWith === SMOOTH_LTX) ? [...FACE_REFINE_H3, "BasicScheduler", "VAEDecode", "CLIPLoader", "VAELoader", "ImageFromBatch", "ImageBatch", "RepeatImageBatch"] : []),
       ];
     },
     // which loaders, and which way the clip is made, depend on the files this ComfyUI has
@@ -1177,8 +1190,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       // twice the frames: LTX's temporal upscaler doubles the latent's frames; else RIFE on the decoded pictures
       const canTemporal = Boolean(slots.temporal) && ctx.has("LTXVLatentUpsampler") && ctx.has("LatentUpscaleModelLoader");
       if (input.smooth && input.smoothWith === SMOOTH_LTX && !canTemporal) throw new Error(`LTX's temporal upscaler was not found: put ${spec.temporalFile} in ComfyUI's models/latent_upscale_models folder (one click in Settings → Models), or interpolate with RIFE.`);
-      // Auto with SeedVR2: RIFE after it, not the latent doubling before it (SeedVR2 would restore twice the frames); asked for, as asked
-      const temporal = input.smooth && input.smoothWith !== SMOOTH_RIFE && canTemporal && !(input.smoothWith === SMOOTH_AUTO && input.upscale === UPSCALE.seedvr);
+      const temporal = doublesInLatent(input, canTemporal);
       if (temporal) made = ltxTemporal(run, made);
       g.phase("decoding");
       const decode = (samples: Ref): Ref => g.out("VAEDecodeTiled", { samples, vae: loaded.vae, tile_size: input.tile, overlap: 64, temporal_size: input.tileFrames, temporal_overlap: spec.decode.overlap });
@@ -1219,8 +1231,10 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       ].filter((x): x is string => Boolean(x));
       warnings.push(...facesSaid);
       // matched to the first frame (a clip that opens a chain), or carrying that match on (one that continues it: its head's last
-      // frame is the clip before's last moment, brought to how that clip was filed)
-      const looked = colourCarried(g, ctx, colourMatched(g, ctx, faces.images, openingStart(input), fps), head - 1, fps);
+      // frame is the clip before's last moment, brought to how that clip was filed). Doubled by the temporal upscaler (T tokens
+      // to 2T - 1, so frame i is frame 2i), that frame and Colour Follow's rate are twice the model's
+      const rate = temporal ? 2 * fps : fps;
+      const looked = colourCarried(g, ctx, colourMatched(g, ctx, faces.images, openingStart(input), rate), temporal ? 2 * (head - 1) : head - 1, rate);
       const done = finishFrames(g, ctx, looked, input, { frame: { width, height }, rife: input.smooth && !temporal, fps, audio: heard, doubled: temporal });
       const unsmoothed = rifeSkippedSaid(input.smooth && !temporal, ctx);
       if (unsmoothed) warnings.push(unsmoothed);

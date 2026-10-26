@@ -119,4 +119,18 @@ describe("LTX 2.5's seam: its first own frames brought to the clip before's last
     const bare = build(ltx25Video, { previous: { asset: "c" }, seconds: 5 }, { ...latentCtx(24), has: (n: string) => n !== "ColorTransfer" });
     expect(all(bare, "ImageBlend")).toEqual([]);
   });
+
+  it("the chain's colour match carried on through the temporal upscaler: the run-up's last frame and Colour Follow's rate doubled", () => {
+    const at = (b: Built) => all(b, "ColorTransfer")[0]![1].inputs["source_stats.target_index"] as number;
+    const noFollow = { has: (n: string) => n !== "AfflatusColorFollow" };
+    const asIs = build(ltx25Video, { previous: { asset: "c" }, seconds: 5 }, { ...latentCtx(24, { "previous.look": "look.png" }), ...noFollow });
+    const doubledCtx = { ...latentCtx(24, { "previous.look": "look.png" }), slots: { ...parts, temporal: "t.safetensors" } };
+    const doubled = build(ltx25Video, { previous: { asset: "c" }, seconds: 5, smooth: true, smoothWith: "LTX temporal (latent)" }, { ...doubledCtx, ...noFollow });
+    // T tokens become 2T - 1: frame i of the model's is frame 2i of the doubled clip
+    expect(at(asIs)).toBeGreaterThan(0);
+    expect(at(doubled)).toBe(2 * at(asIs));
+    const radius = (b: Built) => all(b, "AfflatusColorFollow")[0]![1].inputs.radius;
+    expect(radius(build(ltx25Video, { previous: { asset: "c" }, seconds: 5 }, latentCtx(24, { "previous.look": "look.png" })))).toBe(12);
+    expect(radius(build(ltx25Video, { previous: { asset: "c" }, seconds: 5, smooth: true, smoothWith: "LTX temporal (latent)" }, doubledCtx))).toBe(24);
+  });
 });
