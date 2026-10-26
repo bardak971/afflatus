@@ -21,6 +21,12 @@ export interface GraphFile {
 
 type Graph = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
 
+/** The loaders whose file input reads one folder only: the input, and that folder. */
+const FIXED_FOLDER: Record<string, [input: string, folder: string]> = {
+  UNETLoader: ["unet_name", "diffusion_models"],
+  CheckpointLoaderSimple: ["ckpt_name", "checkpoints"],
+};
+
 /**
  * Every file a graph names, each once. An input is a file when the build was handed it as a slot's file (`slots`, with
  * each slot's folder in `folders`: our own loaders' inputs, a Veda predictor, a tiny VAE, are not known by name), or when
@@ -34,8 +40,13 @@ export function graphFiles(graph: Graph, slots: Readonly<Record<string, string>>
   for (const [node, n] of Object.entries(graph)) {
     for (const [input, value] of Object.entries(n.inputs)) {
       if (typeof value !== "string" || !value) continue;
-      const slot = bySlot.get(value);
-      const folder = slot ? folders[slot]! : isModelFile(value) ? folderOfFileInput(n.class_type, input) : null;
+      // ComfyUI's own two model loaders read one folder each, whatever slot the name is also the file of: LTX 2.3's one
+      // checkpoint given to UNETLoader was counted in checkpoints, a pod had it there and was taken to have what the
+      // graph loads, and UNETLoader found no such diffusion model (card #103, 2026-10-26)
+      const fixed = FIXED_FOLDER[n.class_type]?.[0] === input ? FIXED_FOLDER[n.class_type]![1] : null;
+      const named = bySlot.get(value);
+      const slot = named && (!fixed || folders[named] === fixed) ? named : undefined;
+      const folder = slot ? folders[slot]! : fixed ?? (isModelFile(value) ? folderOfFileInput(n.class_type, input) : null);
       if (!folder) continue;
       const key = `${folder}|${value.toLowerCase()}`;
       if (seen.has(key)) continue;

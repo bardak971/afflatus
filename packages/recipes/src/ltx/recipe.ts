@@ -1,4 +1,4 @@
-import { defineRecipe, gridAtOrBefore, GraphBuilder, plural, type BuildContext, type ClipValue, type CueValue, type InputSpec, type LoraValue, type MediaFacts, type Recipe, type ReferenceRole, type ReferenceValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
+import { defineRecipe, gridAtOrBefore, GraphBuilder, plural, sameFile, type BuildContext, type ClipValue, type CueValue, type InputSpec, type LoraValue, type MediaFacts, type Recipe, type ReferenceRole, type ReferenceValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
 import { LTX_CANVAS_SHORT, LTX_MAX_PIXELS, ltxCanvas, ltxFramesAt, MSR_DETECT } from "./family";
 import { UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNeeds, upscaleNodes } from "../video/upscale";
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
@@ -388,9 +388,15 @@ const namedDistilled = /distill|turbo|lightning|lightspeed|dmd|dragonleap|solsti
 /**
  * How the model is loaded. In separate files when a diffusion model is picked or found; otherwise (LTX 2.3) from
  * the one checkpoint. Whether it is distilled decides if the distilled LoRA goes on top of it.
+ *
+ * A picked model that is the one checkpoint's file (the checkpoint slot's, by name) is that checkpoint, unless this
+ * ComfyUI offers it as a diffusion model (`offered`: a PC that keeps a copy in diffusion_models, where UNETLoader reads
+ * it). Taken as a diffusion model, a fresh pod was sent it into checkpoints and the split files counted as not needed,
+ * its audio VAE never fetched, and the job refused at its submit for both (card #103, 2026-10-26).
  */
-const modelOf = (spec: LtxSpec, input: LtxVideo, slots: Record<string, string>) => {
-  const unet = input.model ?? slots.unet;
+const modelOf = (spec: LtxSpec, input: LtxVideo, slots: Record<string, string>, offered?: string[] | null) => {
+  const whole = spec.loader === "checkpoint" && Boolean(input.model && slots.checkpoint && sameFile([slots.checkpoint], input.model) && !(offered && sameFile(offered, input.model)));
+  const unet = whole ? undefined : (input.model ?? slots.unet);
   const checkpoint = spec.loader === "checkpoint" && !unet ? slots.checkpoint : undefined;
   const name = (unet ?? checkpoint)?.split(/[\\/]/).pop() ?? "";
   return { unet, checkpoint, distilled: input.turboIn === "Yes" || (input.turboIn !== "No" && namedDistilled.test(name)) };
@@ -1055,7 +1061,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
 
     build(input, ctx) {
       const { slots, media } = ctx;
-      const picked = modelOf(spec, input, slots);
+      const picked = modelOf(spec, input, slots, ctx.options?.("UNETLoader", "unet_name"));
       const how = uses(input, slots);
       if (!picked.unet && !picked.checkpoint) throw new Error(spec.missing.model);
       if (picked.unet && (!slots.videoVae || !slots.audioVae || (spec.loader === "checkpoint" && !slots.projection))) throw new Error(spec.missing.parts);
