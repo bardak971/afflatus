@@ -1,6 +1,6 @@
 import type { LeadPart } from "../../RecipeForm";
 import { clock as mmss, plural } from "../../format";
-import { Button, NumberBox } from "../../ui";
+import { Button, Help, NumberBox } from "../../ui";
 
 /**
  * A clip under a recording dropped on the track (the rethink's step 6), whatever its form, as its panel shows it: the
@@ -34,8 +34,9 @@ export function recordingLead(r: ClipRecording): LeadPart {
     node: (
       <div className="flex flex-col gap-3">
         {r.over && (
-          <span className="text-xs text-ink-2">
-            <span className="font-semibold text-ink">Plays over this clip</span>, unchanged: the take keeps the recording's part as its sound, and the model's own sound is dropped. Back to Lip sync, the mouth follows it again.
+          <span className="flex items-center gap-1.5 text-xs font-semibold">
+            Plays over this clip
+            <Help title="Plays over this clip" text="Unchanged: the take keeps the recording's part as its sound, and the model's own sound is dropped. Back to Lip sync, the mouth follows it again." />
           </span>
         )}
         <span className="text-xs text-ink-2">

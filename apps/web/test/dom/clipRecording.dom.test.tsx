@@ -33,7 +33,8 @@ describe("a Lip sync clip's Recording chapter", () => {
 
   it("on a clip the recording plays over (Video with audio, card #72), says so plainly, the why in its \"?\"", () => {
     const { lead } = chapter({ over: true });
-    expect(screen.getByText(/Plays over this clip/).parentElement!.textContent).toBe("Plays over this clip, unchanged: the take keeps the recording's part as its sound, and the model's own sound is dropped. Back to Lip sync, the mouth follows it again.");
+    expect(screen.getByText(/Plays over this clip/).textContent).toBe("Plays over this clip?"); // the status and its "?", the why only in it
+    expect(screen.getByRole("button", { name: /^Plays over this clip: Unchanged: the take keeps the recording's part as its sound, and the model's own sound is dropped/ })).toBeTruthy();
     expect(lead.summary).toBe("0:00.0–0:15.0 · 3 clips · plays over");
     expect(lead.help).toMatch(/^The clip stays one of the recording's: its part, its place in the recording's list, the join and the song's hand-over stay/);
     // the stretch's In and Out stay, as on a Lip sync clip
