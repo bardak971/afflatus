@@ -2,7 +2,7 @@ import { chatJson } from "./llm";
 import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
 import { carriedOf, carryOver, joinWay, laysSound, madeAroundRecording, musicPlan, recordingSpecOf, sungHead, plural, recordingPart, recordingParts, sameWindowGrid, trimIn, typedSeed, type ClipMusic, type SourceWindow, type InputSpec, type Recipe, type Transition } from "@afflatus/core";
-import { newId, now, OWNER, type Db } from "./db";
+import { newId, now, OWNER, toRun, type Db } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError, notFound } from "./errors";
 import { CutError } from "./cut";
@@ -2265,6 +2265,26 @@ export class Timelines {
       if (!got) read.set(timelineId, (got = this.placed(timelineId)));
       return got;
     };
+  }
+  /**
+   * What a clip's render queued again (Queue.again) waits for, as the timeline's Render has it wait: a clip that carries on
+   * from a video clip waits for the job that clip's next take comes out of, while one waits or runs, its join then cut from
+   * that take; else it carries on from the take that plays when it starts. A clip before with neither is refused: sent
+   * then, a latent landing opened on nothing and rendered as a clip of its own (card #127). Undefined: it waits for nothing.
+   */
+  async againAfter(clipId: string): Promise<string | undefined> {
+    const clip = await this.db.selectFrom("clips").select(["timeline_id", "joined"]).where("id", "=", clipId).executeTakeFirst();
+    // a clip taken off its timeline since: its job says so when it starts
+    if (!clip || clip.joined !== "continue") return undefined;
+    const all = await this.placed(clip.timeline_id);
+    const i = all.findIndex((p) => p.clip.id === clipId);
+    const prior = i > 0 ? all[i - 1]! : null;
+    if (!prior || prior.clip.kind === "still") return undefined;
+    // the newest: of several takes asked at once, the last one queued is the one that plays once they are all in
+    const coming = await this.db.selectFrom("jobs").select("id").where("clip_id", "=", prior.clip.id).where(toRun).orderBy("created_at", "desc").executeTakeFirst();
+    if (coming) return coming.id;
+    if (prior.active) return undefined;
+    throw httpError(`Clip ${i + 1} carries on from clip ${i}, which has no take: render clip ${i} first, or make their join a cut.`);
   }
   /** A clip's job is done: its video becomes a take, and plays (TimelineTakes.finished). */
   finished(...args: Parameters<TimelineTakes["finished"]>): Promise<void> { return this.takes.finished(...args); }

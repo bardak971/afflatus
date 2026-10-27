@@ -31,15 +31,18 @@ export async function dismissAll(core: QueueCore, ids: readonly string[]): Promi
 /**
  * Several finished jobs again, in the order given (a "Retry all failed"): one request, each queued as `again` (the
  * queue's) does it. With `dismiss`, the ones queued again leave the history in the same go. A job not finished is left
- * alone; one that cannot be queued again (its workflow was deleted) is counted, not thrown.
+ * alone; one that cannot be queued again (its workflow was deleted) is counted, not thrown. A job that continued another
+ * of them goes after it, whatever the order given: queued first, a clip found the clip before with no job to wait for, and
+ * carried on from its old take or was refused (card #127).
  */
 export async function againAll(core: QueueCore, again: (id: string) => Promise<string>, ids: readonly string[], opts: { dismiss?: boolean } = {}): Promise<{ ids: string[]; failed: number }> {
   if (!ids.length) return { ids: [], failed: 0 };
-  const finished = new Set((await core.db.selectFrom("jobs").select("id").where("id", "in", [...ids]).where("status", "in", ["done", "failed", "cancelled"]).execute()).map((r) => r.id));
+  const rows = await core.db.selectFrom("jobs").select(["id", "depends_on"]).where("id", "in", [...ids]).where("status", "in", ["done", "failed", "cancelled"]).execute();
+  const finished = new Set(rows.map((r) => r.id));
   const queued: string[] = [];
   const retried: string[] = [];
   let failed = 0;
-  for (const id of ids) {
+  for (const id of afterWhatTheyContinue(ids, new Map(rows.map((r) => [r.id, r.depends_on])))) {
     if (!finished.has(id)) continue;
     try {
       queued.push(await again(id));
@@ -50,6 +53,22 @@ export async function againAll(core: QueueCore, again: (id: string) => Promise<s
   }
   if (opts.dismiss && retried.length) await dismissAll(core, retried);
   return { ids: queued, failed };
+}
+
+/** `ids` in their order, each moved after the one among them it waited for (`after`), and that one's own, and so on. */
+function afterWhatTheyContinue(ids: readonly string[], after: ReadonlyMap<string, string | null>): string[] {
+  const out: string[] = [];
+  const placed = new Set<string>();
+  const place = (id: string, seen: Set<string>) => {
+    if (placed.has(id) || seen.has(id)) return;
+    seen.add(id);
+    const before = after.get(id);
+    if (before && ids.includes(before)) place(before, seen);
+    placed.add(id);
+    out.push(id);
+  };
+  for (const id of ids) place(id, new Set());
+  return out;
 }
 
 /**
