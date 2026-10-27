@@ -410,5 +410,5 @@ export interface McpToken {
   /** Its jobs waiting or running now. */
   working: number;
 }
-/** A line of a token's activity: a call, what it touched, refused or not and why. */
-export interface McpActivity { id: string; at: string; tool: string; said: string; refused: boolean; why: string | null }
+/** A line of a token's activity: a call, what it touched, refused (scope, limit, check) or failed (the server's side) and why. */
+export interface McpActivity { id: string; at: string; tool: string; said: string; refused: boolean; failed: boolean; why: string | null }

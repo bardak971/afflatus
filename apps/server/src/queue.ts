@@ -110,6 +110,8 @@ export interface EnqueueOptions {
   warm?: boolean; look?: unknown; finishedFrom?: string | null; asked?: Record<string, unknown>; machine?: string | null;
   /** What the job is to the person when its files are refused ("Clip 3" of a timeline's Render): the refusal starts with it. */
   who?: string;
+  /** The MCP token whose call queued it (mcpTokens.ts): its limits count it, and a token without Spend keeps it off rented pods. */
+  mcpToken?: string | null;
 }
 
 export class Queue {
@@ -542,6 +544,7 @@ export class Queue {
       status: "queued", warm: opts.warm ? 1 : 0, look: opts.look ? JSON.stringify(opts.look) : null, priority: recipe.output === "image" ? 0 : 10, depends_on: opts.dependsOn ?? null,
       attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip?.id ?? null, clip_fit: opts.clip?.fit ? 1 : 0, clip_mirror: opts.clip?.mirror?.length ? JSON.stringify(opts.clip.mirror) : null,
       draft_id: opts.draft ?? null, folder_id: opts.folder ?? null, finished_from: opts.finishedFrom ?? null, pin_machine: pin,
+      mcp_token_id: opts.mcpToken ?? null,
       created_at: at, started_at: null, finished_at: null, updated_at: at,
     } satisfies Insertable<Tables["jobs"]>;
   }
@@ -780,7 +783,7 @@ export class Queue {
   }
 
   /** The same job again (after a failure, or because it was stopped), with some inputs changed if asked. */
-  async again(id: string, change: Record<string, unknown> = {}): Promise<string> {
+  async again(id: string, change: Record<string, unknown> = {}, by: { mcpToken?: string | null } = {}): Promise<string> {
     const row = await this.db.selectFrom("jobs").selectAll().where("id", "=", id).executeTakeFirst();
     if (!row) throw httpError("this job was not found");
     if (row.recipe_id === EXPORT_JOB) return this.enqueueExport(JSON.parse(row.inputs) as ExportOptions, row.label);
@@ -809,6 +812,8 @@ export class Queue {
       asked: row.asked ? { ...readJson<Record<string, unknown>>(row.asked, {}), ...change } : undefined,
       // pinned by hand, it goes back where it was pinned
       machine: row.pin_machine ?? null,
+      // done again by whoever asked now: a token's call counts against that token, the page's against none
+      mcpToken: by.mcpToken ?? null,
     });
   }
 

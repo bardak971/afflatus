@@ -23,6 +23,8 @@ export interface Job {
   clipId: string | null;
   /** The draft it was sent from, when it was sent from one. */
   draftId: string | null;
+  /** Of a waiting or running job: the MCP token whose call queued it, and how many of that token's renders wait or run now; null: the page queued it. */
+  by?: { name: string; jobs: number } | null;
   /** Of a clip render, once its graph is built: how it joins the clip before (in the latent, or on pinned frames); null when it starts on its own. */
   join: "seamless" | "latent" | "hybrid" | "pixels" | "carried" | "window" | "still" | null;
   /** "export": it puts a timeline together as one video instead of rendering. "load": it only loads the models of a render. "cut": a range of a video kept as new videos. */
@@ -130,7 +132,7 @@ export interface PodFile {
   jobs: string[];
 }
 /** A finished job as the queue's history shows it: with what it made and how. (Not how long it would take, nor how a clip joined: GET /api/jobs leaves those out.) */
-export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" | "pinned" | "startsInMs" | "runsOn" | "lacks" | "fetch" | "packs"> {
+export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" | "pinned" | "startsInMs" | "runsOn" | "lacks" | "fetch" | "packs" | "by"> {
   tookMs: number | null;
   /** Of a job that failed in a ComfyUI node: the end of its Python traceback; null otherwise. */
   trace?: string | null;

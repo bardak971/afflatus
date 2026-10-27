@@ -23,12 +23,18 @@ import type { Services } from "./services";
  * same errors the web gives (the services throw them), and every call written to the token's activity.
  */
 
-/** An error said as the web says it: its message when it was written to be read, else the server's plain line (logged). */
-function errorSaid(err: unknown, tool: string): string {
-  if (err instanceof ZodError) return err.issues.map((i) => `${i.path.join(".") || "arguments"}: ${i.message}`).join("; ");
-  if ((err as { statusCode?: number }).statusCode) return (err as Error).message;
+/**
+ * An error said as the web says it: its message when it was written to be read, else the server's plain line (logged).
+ * `failed`: the server's own failure (a 5xx, or an error nobody wrote to be read), written so in the activity; anything
+ * else is a refusal (a scope, the never-list, a limit, a value the form would refuse, the app's own checks).
+ */
+function errorSaid(err: unknown, tool: string): { why: string; failed: boolean } {
+  if (err instanceof ZodError) return { why: err.issues.map((i) => `${i.path.join(".") || "arguments"}: ${i.message}`).join("; "), failed: false };
+  const code = (err as { statusCode?: number }).statusCode;
+  if (code && code < 500) return { why: (err as Error).message, failed: false };
+  if (code) return { why: (err as Error).message, failed: true };
   console.error(`[mcp] ${tool} failed:`, err);
-  return "something went wrong on the server";
+  return { why: "something went wrong on the server", failed: true };
 }
 
 /** The answer of a call, as MCP sends it. */
@@ -61,8 +67,8 @@ async function call(t: Tool, args: Record<string, unknown>, s: Services, token: 
     await s.mcp.tokens.record({ tokenId: token.id, tool: t.name, said, refused: false });
     return resultOf(value);
   } catch (err) {
-    const why = errorSaid(err, t.name);
-    await s.mcp.tokens.record({ tokenId: token.id, tool: t.name, said, refused: true, why }).catch((e) => console.warn("[mcp] activity not written:", (e as Error).message));
+    const { why, failed } = errorSaid(err, t.name);
+    await s.mcp.tokens.record({ tokenId: token.id, tool: t.name, said, refused: !failed, failed, why }).catch((e) => console.warn("[mcp] activity not written:", (e as Error).message));
     return { content: [{ type: "text", text: why }], isError: true };
   }
 }

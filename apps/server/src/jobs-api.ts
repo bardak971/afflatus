@@ -10,7 +10,7 @@ import { paged } from "./queueView";
 
 /** The queue: jobs sent to it, models loaded ahead, and the queue's own controls (pause, order, retry, cancel, previews). */
 
-const jobBody = z.strictObject({
+export const jobBody = z.strictObject({
   recipe: z.string().min(1),
   input: z.record(z.string(), z.unknown()),
   label: z.string().max(200).optional(),
@@ -46,36 +46,40 @@ export function askedOf(own: Record<string, unknown>, composed: Record<string, u
   return changed;
 }
 
-export function registerJobs(app: FastifyInstance, s: Services): void {
-  app.post("/api/jobs", async (req) => {
-    const body = jobBody.parse(req.body);
-    const recipe = s.registry.recipe(body.recipe);
-    // a job pinned to a machine there is not would wait for ever
-    if (body.machine && !(await s.machines()).some((m) => m.machine.id === body.machine)) throw httpError("there is no ComfyUI with that id");
-    const seed = typedSeed(body.input.seed);
-    // sent from a blank draft: it is written now, so that what comes out is filed under it
-    if (body.draft) await writeDraft(s.db, body.draft);
-    // a job with no label of its own is said by the draft it came from ("Portrait done"), as its results are named
-    // (autoName.ts), rather than by its recipe's title ("txt2img done"), which every draft on that model shares
-    let label = body.label;
-    if (!label?.trim() && body.draft && recipe) {
-      const d = await findDraft(s.db, body.draft);
-      const prompts = (recipe.inputs as InputSpec[]).filter((i) => i.type === "prompt" && !i.optional).map((i) => i.id);
-      if (d) label = draftLabel({ name: d.name, title: d.title, prompt: promptOf(body.input, prompts), recipe: recipe.title });
+/**
+ * A render sent to the queue, as Render sends it (POST /api/jobs) and MCP's render (mcpRender.ts): every copy queued, or
+ * none, refused as the queue refuses a job. `by`: the MCP token whose call sent it (jobs.mcp_token_id). Its job ids.
+ */
+export async function queueRender(s: Services, body: z.output<typeof jobBody>, by: { mcpToken?: string } = {}): Promise<string[]> {
+  const recipe = s.registry.recipe(body.recipe);
+  // a job pinned to a machine there is not would wait for ever
+  if (body.machine && !(await s.machines()).some((m) => m.machine.id === body.machine)) throw httpError("there is no ComfyUI with that id");
+  const seed = typedSeed(body.input.seed);
+  // sent from a blank draft: it is written now, so that what comes out is filed under it
+  if (body.draft) await writeDraft(s.db, body.draft);
+  // a job with no label of its own is said by the draft it came from ("Portrait done"), as its results are named
+  // (autoName.ts), rather than by its recipe's title ("txt2img done"), which every draft on that model shares
+  let label = body.label;
+  if (!label?.trim() && body.draft && recipe) {
+    const d = await findDraft(s.db, body.draft);
+    const prompts = (recipe.inputs as InputSpec[]).filter((i) => i.type === "prompt" && !i.optional).map((i) => i.id);
+    if (d) label = draftLabel({ name: d.name, title: d.title, prompt: promptOf(body.input, prompts), recipe: recipe.title });
+  }
+  // every copy queued, or none: a mix of files known to give black frames is refused as it is queued (Queue.enqueue), on
+  // the form as the cast made it, and the job checks again on the machine it runs on
+  return s.queue.enqueueAll(async (ask) => {
+    for (let i = 0; i < body.count; i++) {
+      // with a cast: each copy's {a|b} choices settled before it is worked in, so that what was asked and what renders pick the same
+      const own = recipe && body.look ? settledTexts(recipe, body.input) : body.input;
+      const input = recipe && body.look ? (await compose(s.db, recipe, own, body.look)).input : own;
+      const each = body.seedMode && seed !== null ? { ...input, seed: movedSeed(seed, body.seedMode, i) } : input;
+      await ask.render(body.recipe, each, { label, draft: body.draft, folder: body.folder, look: body.look, asked: input === own ? undefined : askedOf(own, input), machine: body.machine ?? null, mcpToken: by.mcpToken ?? null });
     }
-    // every copy queued, or none: a mix of files known to give black frames is refused as it is queued (Queue.enqueue), on
-    // the form as the cast made it, and the job checks again on the machine it runs on
-    const ids = await s.queue.enqueueAll(async (ask) => {
-      for (let i = 0; i < body.count; i++) {
-        // with a cast: each copy's {a|b} choices settled before it is worked in, so that what was asked and what renders pick the same
-        const own = recipe && body.look ? settledTexts(recipe, body.input) : body.input;
-        const input = recipe && body.look ? (await compose(s.db, recipe, own, body.look)).input : own;
-        const each = body.seedMode && seed !== null ? { ...input, seed: movedSeed(seed, body.seedMode, i) } : input;
-        await ask.render(body.recipe, each, { label, draft: body.draft, folder: body.folder, look: body.look, asked: input === own ? undefined : askedOf(own, input), machine: body.machine ?? null });
-      }
-    });
-    return { ids };
   });
+}
+
+export function registerJobs(app: FastifyInstance, s: Services): void {
+  app.post("/api/jobs", async (req) => ({ ids: await queueRender(s, jobBody.parse(req.body)) }));
 
   /**
    * Load the models a form would render with, ahead of the render: a job in the queue like any other,

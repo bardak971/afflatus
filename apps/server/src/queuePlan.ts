@@ -117,8 +117,25 @@ interface PlanDeps {
   packsCannot(lane: Lane, packs: string[]): Promise<string | null>;
 }
 
+/** Why a job queued by an MCP token without Spend goes to no rented pod (its Queue row says it). */
+export const NO_SPEND = "it was sent by an MCP token without Spend, which never renders on a rented pod";
+
 export class Planner {
   constructor(private readonly d: PlanDeps) {}
+
+  /**
+   * The jobs among these that an MCP token without Spend queued (mcpTokens.ts): they run on the user's own machines only,
+   * whether pinned or picked by the queue. The token's scopes as they are now, not when it queued: Spend unticked since, or
+   * the token revoked, keeps its waiting jobs off the pods from the next pass (a money path: a job never lands on a pod
+   * nobody allowed it to bill).
+   */
+  async ownOnly(rows: ReadonlyArray<Pick<JobRow, "id" | "mcp_token_id">>): Promise<Set<string>> {
+    const ids = [...new Set(rows.map((r) => r.mcp_token_id).filter((id): id is string => Boolean(id)))];
+    if (!ids.length) return new Set();
+    const tokens = await this.d.db.selectFrom("mcp_tokens").select(["id", "scopes", "revoked_at"]).where("id", "in", ids).execute();
+    const spends = new Set(tokens.filter((t) => !t.revoked_at && t.scopes.split(",").includes("spend")).map((t) => t.id));
+    return new Set(rows.filter((r) => r.mcp_token_id && !spends.has(r.mcp_token_id)).map((r) => r.id));
+  }
 
   /** The machines that may take work now, as the scheduler reads them: free in how long, what they hold, their learned pace. */
   async schedulable(open: Lane[]): Promise<Schedulable[]> {
@@ -166,6 +183,7 @@ export class Planner {
     const out = new Map<string, Able>();
     const lanes = this.d.machineLanes().filter((l) => l.machine && l.comfy);
     if (!rows.length) return out;
+    const ownOnly = await this.ownOnly(rows);
     // what is kept of each job on each machine has room for the whole line (jobFiles.ts)
     roomFor(rows.length * Math.max(1, lanes.length));
     // a lone machine of the user's own is judged only for the files it may be given (downloaded on its row's say-so)
@@ -215,6 +233,10 @@ export class Planner {
       const pin = r.pin_machine ?? this.d.heldOn(r);
       // every machine of a job worked out at once (its balance, its files' time on a pod)
       await Promise.all(scans.map(async ({ lane, scan }) => {
+        if (lane.machine!.rented && ownOnly.has(r.id)) {
+          lacks[lane.id] = { off: false, files: [], sendable: false, why: NO_SPEND };
+          return;
+        }
         // a rented pod whose ComfyUI cannot be read now (booting, restarting for node packs, away) starts with nothing: what
         // it has is not known, so it is not given the job (a ComfyUI of the user's own is not held against a job for that)
         // A pod at a spending cap says so beside the job: it takes nothing new, and stops once its render ends
@@ -320,10 +342,13 @@ export class Planner {
   async planned(rows: JobRow[], able: ReadonlyMap<string, Able> = new Map()): Promise<Planned[]> {
     const paces = await this.d.paces();
     const finishes = await view.finishesOf(this.d.db, rows, this.d.machineLanes().map((l) => ({ id: l.id, pace: paces.get(l.id) ?? 1 })));
+    // a job kept off the pods that ableOf did not judge (its settings unread) may still go to no pod: the user's own machines only
+    const ownOnly = await this.ownOnly(rows.filter((r) => !able.get(r.id)?.can));
+    const own = new Set(this.d.machineLanes().filter((l) => l.machine && !l.machine.rented).map((l) => l.id));
     return Promise.all(rows.map(async (r): Promise<Planned> => {
       const fetch = able.get(r.id)?.fetch ?? {};
       const fetchMs = Object.keys(fetch).length ? new Map(Object.entries(fetch).map(([lane, f]) => [lane, f.ms])) : undefined;
-      const base = { id: r.id, makes: this.makes(r), pin: r.pin_machine ?? this.d.heldOn(r), can: able.get(r.id)?.can, ...(fetchMs ? { fetchMs } : {}), ...(r.depends_on ? { after: r.depends_on } : {}) };
+      const base = { id: r.id, makes: this.makes(r), pin: r.pin_machine ?? this.d.heldOn(r), can: able.get(r.id)?.can ?? (ownOnly.has(r.id) ? own : undefined), ...(fetchMs ? { fetchMs } : {}), ...(r.depends_on ? { after: r.depends_on } : {}) };
       const recipe = r.recipe_id === CUT_JOB ? undefined : this.d.registry.recipe(r.recipe_id);
       const finish = finishes.get(r.id);
       if (!recipe) return { ...base, model: null, renderMs: finish?.ms ?? null, loadMs: null, ...(finish?.on.size ? { renderOn: finish.on } : {}), frees: r.recipe_id === CUT_JOB && tools.usesGpu(r) };

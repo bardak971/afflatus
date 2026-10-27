@@ -17,7 +17,7 @@ import { unwrittenOf } from "./unwrittenDrafts";
  */
 
 const forms = z.record(z.string(), z.record(z.string(), z.unknown()));
-const createBody = z.strictObject({
+export const createBody = z.strictObject({
   recipe: z.string().min(1),
   forms: forms.default({}),
   count: z.number().int().min(1).max(8).default(1),
@@ -189,8 +189,10 @@ const full = (d: Tables["drafts"]) => ({
   chat: d.chat ? (JSON.parse(d.chat) as unknown[]) : [],
   designer: d.designer ? (JSON.parse(d.designer) as { llm?: string; instruction?: string }) : null,
 });
-/** A draft as GET /api/drafts/:id answers it: what the web's types are held against (test/apiTypes.test.ts). @internal */
+/** A draft as GET /api/drafts/:id answers it, and MCP's draft tools read it: what the web's types are held against (test/apiTypes.test.ts). */
 export type DraftView = ReturnType<typeof full>;
+/** A draft row as the API and MCP read it. */
+export const draftView = (d: Tables["drafts"]): DraftView => full(d);
 
 /**
  * The drafts list (GET /api/drafts). `project`: only the drafts of that project; "none": the Inbox; left out: all. Each
@@ -252,12 +254,77 @@ export async function draftsList(s: Services, project: string | undefined, limit
   };
 }
 
+/** A new draft (POST /api/drafts, MCP's new_draft): written once it holds something worth keeping, else held in memory (unwrittenDrafts.ts). */
+export async function createDraft(s: Services, body: z.output<typeof createBody>): Promise<DraftView> {
+  const pending = unwrittenOf(s.db);
+  const json = JSON.stringify(body.forms);
+  if (json.length > MAX_BYTES) throw tooBig();
+  const look = await liveLook(s.db, body.look);
+  const at = now();
+  // `target` is a column of the old Edit-draft flow (0003, not null): every draft is a new one now, and the rows from
+  // then keep theirs unread, so that nothing they held is lost
+  const row: Tables["drafts"] = {
+    id: newId(), owner_id: OWNER, target: "new", recipe_id: body.recipe, title: titleOf(s.registry.recipe(body.recipe), body.forms),
+    name: body.name?.trim() || null, forms: json, count: body.count, chat: null, look: look ? JSON.stringify(look) : null, project_id: body.project ?? null, created_at: at, updated_at: at,
+  };
+  if (holdsSomething(s.registry, row)) await s.db.insertInto("drafts").values(row).execute();
+  else {
+    pending.set(row.id, row);
+    if (pending.size > UNWRITTEN_MAX) pending.delete(pending.keys().next().value!);
+  }
+  return full(row);
+}
+
+/**
+ * A draft saved (PUT /api/drafts/:id while typing, MCP's edit_draft): only what is sent changes. One save of a draft at a
+ * time: each reads the draft and writes it whole, so two at once (the form and the name, two tabs) had the second put back
+ * what the first had changed, or, on a draft not written yet, answer 404 while the first was writing it. A look sent is
+ * also saved in the kit's turn (entities.ts): someone deleted between its check and its writing would stay in it.
+ * `edit`: worked out from the draft as it is in its turn (an agent's edit, laid over what the page saved last) rather
+ * than sent whole; it may throw to refuse, nothing written.
+ */
+export function saveDraft(s: Services, id: string, body: z.output<typeof saveBody> | ((d: DraftView) => z.output<typeof saveBody> | Promise<z.output<typeof saveBody>>)): Promise<DraftView> {
+  const save = () => oneAtATime(s.db, `draft:${id}`, async () => {
+    const current = await findDraft(s.db, id);
+    if (!current) throw draftNotFound();
+    return saved(s, current, typeof body === "function" ? saveBody.parse(await body(full(current))) : body);
+  });
+  return typeof body === "function" || body.look !== undefined ? oneAtATime(s.db, "kit", save) : save();
+}
+
+async function saved(s: Services, current: Tables["drafts"], body: z.output<typeof saveBody>): Promise<DraftView> {
+  const pending = unwrittenOf(s.db);
+  // moved to another project (or the Inbox, null): it alone moves
+  if (body.project && !(await s.db.selectFrom("projects").select("id").where("id", "=", body.project).executeTakeFirst())) throw httpError("this project was not found", 404);
+  const recipe = body.recipe ?? current.recipe_id;
+  const all = body.forms ?? (JSON.parse(current.forms) as Record<string, Record<string, unknown>>);
+  const json = JSON.stringify(all);
+  if (json.length > MAX_BYTES) throw tooBig();
+  const look = body.look === undefined ? undefined : await liveLook(s.db, body.look);
+  const next = {
+    recipe_id: recipe, forms: json, count: body.count ?? current.count, title: titleOf(s.registry.recipe(recipe), all), updated_at: now(),
+    ...(body.project !== undefined ? { project_id: body.project } : {}),
+    ...(look !== undefined ? { look: look ? JSON.stringify(look) : null } : {}),
+    ...(body.chat !== undefined ? { chat: chatJson(body.chat, MAX_BYTES) } : {}),
+    ...(body.designer !== undefined ? { designer: body.designer ? JSON.stringify(body.designer) : null } : {}),
+    ...(body.name !== undefined ? { name: body.name.trim() || null } : {}),
+  };
+  const after = { ...current, ...next };
+  if (!pending.has(current.id)) await s.db.updateTable("drafts").set(next).where("id", "=", current.id).execute();
+  else if (holdsSomething(s.registry, after)) {
+    pending.delete(current.id);
+    await s.db.insertInto("drafts").values(after).onConflict((oc) => oc.column("id").doUpdateSet(next)).execute();
+  } else pending.set(current.id, after);
+  return full(after);
+}
+
+const draftNotFound = () => httpError("this draft was not found", 404);
+const tooBig = () => httpError("this draft is too large to save", 413);
+
 export function registerDrafts(app: FastifyInstance, s: Services): void {
-  const notFound = () => httpError("this draft was not found", 404);
-  const tooBig = () => httpError("this draft is too large to save", 413);
   const get = async (id: string) => {
     const d = await findDraft(s.db, id);
-    if (!d) throw notFound();
+    if (!d) throw draftNotFound();
     return d;
   };
   const pending = unwrittenOf(s.db);
@@ -276,64 +343,12 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
     return { deleted: gone.length };
   });
 
-  app.post("/api/drafts", async (req) => {
-    const body = createBody.parse(req.body);
-    const json = JSON.stringify(body.forms);
-    if (json.length > MAX_BYTES) throw tooBig();
-    const look = await liveLook(s.db, body.look);
-    const at = now();
-    // `target` is a column of the old Edit-draft flow (0003, not null): every draft is a new one now, and the rows from
-    // then keep theirs unread, so that nothing they held is lost
-    const row: Tables["drafts"] = {
-      id: newId(), owner_id: OWNER, target: "new", recipe_id: body.recipe, title: titleOf(s.registry.recipe(body.recipe), body.forms),
-      name: body.name?.trim() || null, forms: json, count: body.count, chat: null, look: look ? JSON.stringify(look) : null, project_id: body.project ?? null, created_at: at, updated_at: at,
-    };
-    if (holdsSomething(s.registry, row)) await s.db.insertInto("drafts").values(row).execute();
-    else {
-      pending.set(row.id, row);
-      if (pending.size > UNWRITTEN_MAX) pending.delete(pending.keys().next().value!);
-    }
-    return full(row);
-  });
+  app.post("/api/drafts", async (req) => createDraft(s, createBody.parse(req.body)));
 
   app.get<{ Params: { id: string } }>("/api/drafts/:id", async (req) => full(await get(req.params.id)));
 
-  /**
-   * Saved while typing: only what is sent changes. One save of a draft at a time: each reads the draft and writes it
-   * whole, so two at once (the form and the name, two tabs) had the second put back what the first had changed, or,
-   * on a draft not written yet, answer 404 while the first was writing it. A look sent is also saved in the kit's turn
-   * (entities.ts): someone deleted between its check and its writing would stay in it.
-   */
-  app.put<{ Params: { id: string } }>("/api/drafts/:id", async (req) => {
-    const body = saveBody.parse(req.body);
-    const save = () => oneAtATime(s.db, `draft:${req.params.id}`, () => saved(req.params.id, body));
-    return body.look === undefined ? save() : oneAtATime(s.db, "kit", save);
-  });
-  const saved = async (id: string, body: z.infer<typeof saveBody>) => {
-    const current = await get(id);
-    // moved to another project (or the Inbox, null): it alone moves
-    if (body.project && !(await s.db.selectFrom("projects").select("id").where("id", "=", body.project).executeTakeFirst())) throw httpError("this project was not found", 404);
-    const recipe = body.recipe ?? current.recipe_id;
-    const all = body.forms ?? (JSON.parse(current.forms) as Record<string, Record<string, unknown>>);
-    const json = JSON.stringify(all);
-    if (json.length > MAX_BYTES) throw tooBig();
-    const look = body.look === undefined ? undefined : await liveLook(s.db, body.look);
-    const next = {
-      recipe_id: recipe, forms: json, count: body.count ?? current.count, title: titleOf(s.registry.recipe(recipe), all), updated_at: now(),
-      ...(body.project !== undefined ? { project_id: body.project } : {}),
-      ...(look !== undefined ? { look: look ? JSON.stringify(look) : null } : {}),
-      ...(body.chat !== undefined ? { chat: chatJson(body.chat, MAX_BYTES) } : {}),
-      ...(body.designer !== undefined ? { designer: body.designer ? JSON.stringify(body.designer) : null } : {}),
-      ...(body.name !== undefined ? { name: body.name.trim() || null } : {}),
-    };
-    const after = { ...current, ...next };
-    if (!pending.has(current.id)) await s.db.updateTable("drafts").set(next).where("id", "=", current.id).execute();
-    else if (holdsSomething(s.registry, after)) {
-      pending.delete(current.id);
-      await s.db.insertInto("drafts").values(after).onConflict((oc) => oc.column("id").doUpdateSet(next)).execute();
-    } else pending.set(current.id, after);
-    return full(after);
-  };
+  /** Saved while typing: only what is sent changes (saveDraft). */
+  app.put<{ Params: { id: string } }>("/api/drafts/:id", async (req) => saveDraft(s, req.params.id, saveBody.parse(req.body)));
 
   /**
    * The drafts that use these library items, asked before deleting them (the bin refuses an item a draft still uses):

@@ -9,7 +9,7 @@ import { useAsset, useProjects, useQueue, useSettings } from "./data";
 import { Keys } from "./Keys";
 import { BAR_DEFAULT } from "./keys/barDefault";
 import { DownloadsChip } from "./DownloadsLine";
-import { elapsed, gb, phaseLabel, timeLeft, when } from "./format";
+import { elapsed, gb, phaseLabel, plural, timeLeft, when } from "./format";
 import { StripModel, StripPlace, stripGhost } from "./ModelLoad";
 import { LoadPanelHost } from "./loadPanelHost";
 import { MachinesPill, OPEN_MACHINES } from "./MachinesPill";
@@ -192,6 +192,9 @@ function Running({ run }: { run: RunningJob }) {
         data-tip={`${run.progress > 0 ? `${pct} % of this render` : "No step count from this phase yet"}${run.eta ? ` · ${timeLeft(run.eta)}` : ""} · running for ${ran}`}
       >
         <Spinner size={12} />
+        {/* a job an MCP token queued says whose it is: "Claude Desktop rendering 2 takes" */}
+        {run.by && <span className="shrink-0 font-semibold whitespace-nowrap text-picture">{run.by.name} rendering {plural(run.by.jobs, "take")}</span>}
+        {run.by && <Sep />}
         <span className="min-w-16 truncate font-semibold">{what}</span>
         {/* the first thing to go when the strip is short of room */}
         {of && <span className="max-w-48 min-w-0 truncate text-ink-2 max-[1440px]:hidden">{of}</span>}

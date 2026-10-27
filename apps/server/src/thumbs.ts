@@ -126,6 +126,34 @@ export async function maskBox(bytes: Uint8Array): Promise<{ width: number; heigh
   }
 }
 
+/**
+ * Pictures side by side in one JPEG, each brought to `height` and numbered in its corner (1, 2…), on black: what MCP's
+ * compare shows an agent, which sees one picture more easily than four. Null when it cannot be made (no image library, a
+ * picture that does not open).
+ */
+export async function sideBySide(pictures: readonly Uint8Array[], height = 512): Promise<Uint8Array | null> {
+  const lib = await sharp();
+  if (!lib || !pictures.length) return null;
+  try {
+    const gap = 8;
+    const each = await Promise.all(pictures.map(async (bytes) => {
+      const { data, info } = await lib(bytes).rotate().resize({ height, withoutEnlargement: false }).png().toBuffer({ resolveWithObject: true });
+      return { data, width: info.width };
+    }));
+    const width = each.reduce((sum, e) => sum + e.width, 0) + gap * (each.length - 1);
+    let left = 0;
+    const layers = each.flatMap((e, i) => {
+      const at = left;
+      left += e.width + gap;
+      const label = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44"><rect width="44" height="44" rx="8" fill="#000" fill-opacity="0.7"/><text x="22" y="31" font-family="sans-serif" font-size="26" font-weight="700" fill="#fff" text-anchor="middle">${i + 1}</text></svg>`);
+      return [{ input: e.data, left: at, top: 0 }, { input: label, left: at + 8, top: 8 }];
+    });
+    return new Uint8Array(await lib({ create: { width, height, channels: 3, background: "#000" } }).composite(layers).jpeg({ quality: 82 }).toBuffer());
+  } catch {
+    return null;
+  }
+}
+
 export const thumbKey = (assetId: string) => `thumbs/${assetId.slice(0, 2)}/${assetId}.webp`;
 /**
  * The small thumbnail's key, beside the other: made from it on first ask (thumb route), never named in the item's row, so

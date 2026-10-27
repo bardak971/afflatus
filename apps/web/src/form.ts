@@ -1,5 +1,8 @@
-import { chosenDefaults, modelStart, frameOf, ruledDefaults, withoutOldZeros, fuzzyScore, isShown, latentUpscaleSize, megapixels, pickChoice, RANDOM_SEED, secondsInput, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
-import type { ModelSettings, RecipeInfo, RecipeStatus } from "./api";
+import { frameOf, fuzzyScore, isShown, latentUpscaleSize, megapixels, RANDOM_SEED, secondsInput, formDefaults, ownValues, type FormSetup, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
+import type { ModelSettings, RecipeInfo } from "./api";
+
+// what a form starts on is the server's too (an MCP render of a draft): kept in core (formStart.ts)
+export { formDefaults, matchFiles, notFilled, ownValues, sentForm, type FormSetup } from "@afflatus/core";
 import { fileLabel, plural } from "./format";
 
 /**
@@ -15,74 +18,7 @@ export function thumbsOf(chosen: InputSpec[], values: Record<string, unknown>): 
   });
 }
 
-/** The value an input starts with, given what this ComfyUI offers for it. */
-function defaultOf(spec: InputSpec, options: string[] | undefined): unknown {
-  switch (spec.type) {
-    // an example is shown, not filled in
-    case "prompt": return spec.example ? "" : spec.default ?? "";
-    case "model": return spec.default ?? options?.[0] ?? "";
-    case "loras": return spec.default ?? [];
-    case "size": {
-      const s = spec.shapes.find((x) => x.id === spec.default) ?? spec.shapes[0]!;
-      return { width: s.width, height: s.height };
-    }
-    case "number":
-    case "toggle": return spec.default;
-    // a file choice starts on a file this ComfyUI has
-    case "choice": return pickChoice(spec, options);
-    case "seed": return RANDOM_SEED;
-    case "image": return undefined;
-    case "clip": return undefined;
-    case "references": return [];
-    case "audio": return undefined;
-    case "cues": return [];
-  }
-}
-
 export const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-
-const baseName = (f: string) => (f.split(/[\\/]/).pop() ?? f).toLowerCase();
-
-/**
- * A preset's model files, as this ComfyUI names them: a preset made elsewhere says "model.safetensors",
- * ComfyUI here may keep it as "High\\model.safetensors". The same file by name is taken for the same file.
- */
-export function matchFiles(recipe: RecipeInfo, options: Record<string, string[]> | undefined, inputs: Record<string, unknown>): Record<string, unknown> {
-  const out = { ...inputs };
-  for (const i of recipe.inputs) {
-    if (i.type !== "model" || typeof out[i.id] !== "string") continue;
-    const list = options?.[i.id] ?? [];
-    const value = out[i.id] as string;
-    if (!list.includes(value)) {
-      const same = list.find((o) => baseName(o) === baseName(value));
-      if (same) out[i.id] = same;
-    }
-  }
-  return out;
-}
-
-/**
- * What stops a form from being sent, in the user's words, or null: a picture, a clip or a sound it must
- * have and has not (by its label), or a prompt that only shows an example (nothing is made from somebody
- * else's text by accident). Reference lists may stay empty.
- */
-export function notFilled(recipe: RecipeInfo, input: Record<string, unknown>): string | null {
-  const empty = (v: unknown) => v === undefined || v === null || v === "";
-  const media = recipe.inputs.find((i) => (i.type === "image" || i.type === "clip" || i.type === "audio") && !i.optional && empty(input[i.id]));
-  if (media) return `Select the ${media.label.toLowerCase()} first.`;
-  const unwritten = recipe.inputs.find((i) => i.type === "prompt" && i.example && !String(input[i.id] ?? "").trim());
-  if (unwritten) return `Fill in the ${unwritten.label.toLowerCase()} first.`;
-  return null;
-}
-
-/** The whole form as it is sent: the starting values for what was never touched, plus what the draft holds, less what the recipe no longer has. */
-export function sentForm(recipe: RecipeInfo, defaults: Record<string, unknown>, stored: Record<string, unknown> | undefined): Record<string, unknown> {
-  const input: Record<string, unknown> = { ...defaults, ...stored };
-  // a draft outlives a workflow whose settings were changed since
-  const has = new Set(recipe.inputs.map((i) => i.id));
-  for (const id of Object.keys(input)) if (input[id] === undefined || !has.has(id)) delete input[id];
-  return input;
-}
 
 /** The whole form: what it starts from (`formDefaults`), with what is stored over it. What a render or a load is sent from. */
 export function wholeForm(
@@ -92,44 +28,6 @@ export function wholeForm(
   stored: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
   return { ...formDefaults(recipe, status, settings, stored).defaults, ...ownValues(recipe, stored) };
-}
-
-/** What a form is worked out with of its recipe's status here: what each input offers, and the files its family uses. */
-export type FormSetup = Pick<RecipeStatus, "options" | "slots"> | undefined;
-
-/** What a draft holds, without the 0s older drafts saved for "the recipe picks it": those settings follow the form. */
-export const ownValues = (recipe: RecipeInfo, stored: Record<string, unknown> | undefined): Record<string, unknown> =>
-  stored ? withoutOldZeros(recipe.inputs, stored) : {};
-
-/**
- * What a form starts from, in two layers: the recipe's own defaults, then what was saved for the model
- * file that is picked. A draft holds only what differs from this, so a draft follows its model's
- * settings until something is changed on purpose.
- */
-export function formDefaults(
-  recipe: RecipeInfo,
-  status: FormSetup,
-  settings: ModelSettings[],
-  given: Record<string, unknown> | undefined,
-) {
-  const options = status?.options;
-  const stored = ownValues(recipe, given);
-  const base = Object.fromEntries(recipe.inputs.map((i) => [i.id, defaultOf(i, options?.[i.id])]));
-  const modelInput = recipe.inputs.find((i) => i.type === "model");
-  const file = modelInput ? String(stored?.[modelInput.id] ?? base[modelInput.id] ?? "") : "";
-  // what was saved for this file, else what its line's authors recommend, read from its name (Pony, NoobAI v-pred, Krea…):
-  // every preset that matches counts, each setting from the first that has it (an Illustrious DMD2 merge takes the
-  // few-step sampling and Illustrious's quality tags)
-  const { lined, perModel, hasSaved, notes } = modelStart(recipe, file, settings.find((s) => s.family === recipe.family && s.file === file)?.values ?? {});
-  const layered = { ...base, ...lined, ...perModel };
-  // last, what the choices made move (a hand detector picked: the denoise, crop and prompt start on hands); what the
-  // draft holds is its own and stays, so only the settings still at their starting values follow the choice. What the
-  // model's line or the values saved for it set stays too: a distilled H3 file's own shifts, not Turbo's usual ones
-  const moved = Object.fromEntries(Object.entries(chosenDefaults(recipe.inputs, { ...layered, ...stored })).filter(([id]) => !(id in lined) && !(id in perModel)));
-  // and what this setup makes right (Recipe.starts): with MiniMax's 4-step reference LoRA a reference clip's Turbo runs
-  // 4 steps at its shifts, whatever the model's line or the values saved for the usual model say
-  const ruled = ruledDefaults(recipe.starts, { ...layered, ...moved, ...stored }, status?.slots ?? {});
-  return { defaults: { ...layered, ...moved, ...ruled }, file, hasSaved, preset: notes.length ? notes.join(" · ") : undefined, fromLine: Object.keys(lined) };
 }
 
 /**
