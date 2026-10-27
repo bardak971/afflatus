@@ -11,6 +11,7 @@ Each file in this folder is listed in every Afflatus as a read-only "built in" p
 | `krea2-turbo` | Krea 2 Turbo, fp8 (pictures) | Krea 2 Community License |
 | `zimage-turbo` | Z-Image Turbo, bf16 (pictures) | Apache 2.0 |
 | `klein-4b` | FLUX.2 Klein 4B base (pictures, edit by instruction) | Apache 2.0 |
+| `klein-9b` | FLUX.2 Klein 9B, fp8, 4 steps (pictures, edit by instruction) | FLUX Non-Commercial License: gated on Hugging Face |
 | `qwen-image-2512` | Qwen Image 2512, fp8, with its Lightning LoRA (pictures, text in the picture) | Apache 2.0 |
 | `qwen-image-21` | Qwen Image 2.1, int8 (pictures up to 2K, edit) | Qwen Research License: research use only |
 | `minimax-h3` | MiniMax H3, int8 (video with sound, seamless timeline joins) | MiniMax H3 Community License: read its excluded territories |

@@ -982,7 +982,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       },
       {
         id: "next", type: "clip", role: "next", label: "Next clip", optional: true, frames: LTX_JOIN_FRAMES, fps, advanced: true, framesOnly: true,
-        note: "this clip ends exactly where that one begins: its first second (25 frames) guides this clip's last ones. Not used with a last frame",
+        note: "this clip ends exactly where that one begins: its first second (25 frames) guides this clip's last ones. A clip after shorter than a second gives only 9: the landing is looser, and the cut can show a small reframe. Not used with a last frame",
       },
       { id: "end", type: "image", role: "end", label: "Last frame", note: "the last frame. With one, the clip is made in one pass at full size", optional: true },
       { id: "mid", type: "image", role: "mid", at: "midAt", label: "Keyframe", note: "a picture the clip passes through, at the time set below", optional: true, advanced: true },

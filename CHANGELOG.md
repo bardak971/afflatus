@@ -4,7 +4,11 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+- **A FLUX.2 Klein 9B preset** in the Prompt kit: Black Forest Labs' distilled 9B in fp8 (4 steps, CFG 1) with the Qwen3 8B text encoder it reads with, fetched in one click like the 4B's. Its files are gated on Hugging Face under BFL's non-commercial licence: accept the terms there with the account whose token is in Settings › Models.
+
 ### Fixed
+- **LTX 2.5 · A clip landed on the clip after ends in that clip's colours**: its last second and its hidden tail are brought to the clip after's first frame, where it ended a little darker. The Next clip's ? says that a clip after under a second gives a looser landing (9 frames), with a small reframe at the cut.
 - **Go back no longer loses what was made since the update.** The previous version's hourly sweep took the files of renders, uploads, cuts and exports made since the update for leftovers (its library does not name them) and erased them a day on. Go back now moves them to `data/set-aside/after-<version>-<time>/`, beside the database as it was (`data/backups/after-<version>-<time>.db`), before the previous version starts; versions already released, which run their own sweep, are covered too. The sweep also leaves alone every file a library set aside names.
 - **Go back never leaves the data folder without a database.** The copy is now renamed straight over `afflatus.db` (the current one kept aside as a second link to it); a rename that keeps failing (a virus scanner on the copy) leaves the library as it was, where the next start used to open an empty one. Same for the launcher's return to the previous version.
 - **A device behind a proxy or a tunnel can no longer link your folders.** With Afflatus on loopback behind Caddy, cloudflared or Tailscale serve, a signed-in phone could link any folder of the disk and have its files served, written and binned. Linking (and Link again) from another device now needs `LINK_ROOTS`, whatever `HOST` is; this computer links as before.
