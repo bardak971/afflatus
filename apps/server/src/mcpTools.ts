@@ -2,6 +2,8 @@ import { plural } from "@afflatus/core";
 import { VERSION } from "./config";
 import { DRAFT_TOOLS } from "./mcpDrafts";
 import { FORM_TOOLS } from "./mcpForms";
+import { KIT_TOOLS } from "./mcpKit";
+import { LIBRARY_TOOLS } from "./mcpLibrary";
 import { RENDER_TOOLS } from "./mcpRender";
 import { SEE_TOOLS } from "./mcpSee";
 import { tool, type Tool } from "./mcpTool";
@@ -80,4 +82,4 @@ const whatsOpen = tool({
 });
 
 /** Every tool, in the order the client lists them. */
-export const TOOLS: readonly Tool[] = [whatsOpen, overview, ...FORM_TOOLS, ...DRAFT_TOOLS, ...RENDER_TOOLS, ...SEE_TOOLS] as readonly Tool[];
+export const TOOLS: readonly Tool[] = [whatsOpen, overview, ...FORM_TOOLS, ...DRAFT_TOOLS, ...RENDER_TOOLS, ...SEE_TOOLS, ...LIBRARY_TOOLS, ...KIT_TOOLS] as readonly Tool[];

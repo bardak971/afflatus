@@ -1,7 +1,7 @@
 import { expandWildcards, movedSeed, typedSeed, type InputSpec, type Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { compose, lookSchema } from "./entities";
+import { compose, lookSchema, withMentions, type Look } from "./entities";
 import { httpError, notFound } from "./errors";
 import type { Services } from "./services";
 import { draftLabel, promptOf } from "./autoName";
@@ -46,6 +46,11 @@ export function askedOf(own: Record<string, unknown>, composed: Record<string, u
   return changed;
 }
 
+/** The cast a form's "@Name" mentions make (entities.ts withMentions), when they name anyone in the Prompt kit; else undefined. */
+async function mentioned(s: Services, recipe: Recipe<any>, input: Record<string, unknown>): Promise<Look | undefined> {
+  return (await withMentions(s.db, recipe, input, null)).look ?? undefined;
+}
+
 /**
  * A render sent to the queue, as Render sends it (POST /api/jobs) and MCP's render (mcpRender.ts): every copy queued, or
  * none, refused as the queue refuses a job. `by`: the MCP token whose call sent it (jobs.mcp_token_id). Its job ids.
@@ -67,13 +72,16 @@ export async function queueRender(s: Services, body: z.output<typeof jobBody>, b
   }
   // every copy queued, or none: a mix of files known to give black frames is refused as it is queued (Queue.enqueue), on
   // the form as the cast made it, and the job checks again on the machine it runs on
+  // "@Name" in a text casts that Prompt kit person whether or not a cast was picked: with none, the form is worked through
+  // the cast its mentions make (a draft whose cast was empty sent no look, and its "@Mira" went to the model as typed)
+  const look = body.look ?? (recipe ? (await mentioned(s, recipe, body.input)) : undefined);
   return s.queue.enqueueAll(async (ask) => {
     for (let i = 0; i < body.count; i++) {
       // with a cast: each copy's {a|b} choices settled before it is worked in, so that what was asked and what renders pick the same
-      const own = recipe && body.look ? settledTexts(recipe, body.input) : body.input;
-      const input = recipe && body.look ? (await compose(s.db, recipe, own, body.look)).input : own;
+      const own = recipe && look ? settledTexts(recipe, body.input) : body.input;
+      const input = recipe && look ? (await compose(s.db, recipe, own, look)).input : own;
       const each = body.seedMode && seed !== null ? { ...input, seed: movedSeed(seed, body.seedMode, i) } : input;
-      await ask.render(body.recipe, each, { label, draft: body.draft, folder: body.folder, look: body.look, asked: input === own ? undefined : askedOf(own, input), machine: body.machine ?? null, mcpToken: by.mcpToken ?? null });
+      await ask.render(body.recipe, each, { label, draft: body.draft, folder: body.folder, look, asked: input === own ? undefined : askedOf(own, input), machine: body.machine ?? null, mcpToken: by.mcpToken ?? null });
     }
   });
 }
@@ -88,7 +96,8 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
   // the cast is worked in as for a render: a person with reference pictures can call for another model
   const withCast = async (body: z.infer<typeof warmBody>) => {
     const recipe = s.registry.recipe(body.recipe);
-    return recipe && body.look ? (await compose(s.db, recipe, body.input, body.look).catch(() => null))?.input ?? body.input : body.input;
+    const look = body.look ?? (recipe ? await mentioned(s, recipe, body.input) : undefined);
+    return recipe && look ? (await compose(s.db, recipe, body.input, look).catch(() => null))?.input ?? body.input : body.input;
   };
   app.post("/api/jobs/warm", async (req) => {
     const body = warmBody.parse(req.body);

@@ -33,6 +33,7 @@ import { Updates } from "./modelUpdates";
 import { Precompute, type PrecomputeOptions } from "./precompute";
 import { Notify } from "./notify";
 import { Access } from "./access";
+import { capHeld } from "./mcpRender";
 import { McpTokens } from "./mcpTokens";
 import { WhereNow } from "./whatsOpen";
 import { followComfyLogins } from "./comfyLogins";
@@ -322,6 +323,8 @@ export async function createServices(
   // what pods are getting is followed every second, while any is
   const podFilesTimer = setInterval(() => void podFiles.tick().catch((err) => console.warn("[pod files]", (err as Error).message)), 1000);
   podFilesTimer.unref();
+  // a token with Spend has its jobs handed to a pod only while its cap has room (a money path: mcpRender.ts capHeld)
+  queue.capHeld = (rows) => capHeld(services, rows);
   const services: Services = {
     db, dbKind, storage, linked, registry, comfy, machines, comfyOf, comfyFolder: () => comfyFolder(), queue, timelines, rented, notify, access, mcp: { tokens: new McpTokens(db), where: new WhereNow(db) }, podFiles, podOutside, downloads,
     shippedPresets,

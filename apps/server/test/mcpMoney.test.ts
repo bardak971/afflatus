@@ -3,12 +3,13 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CAP_FULL } from "../src/mcpRender";
 import { NO_SPEND } from "../src/queuePlan";
 import { updateSettings } from "../src/settings";
 import { CHECKPOINT, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /**
- * MCP renders where money is at stake (mcpRender.ts, queuePlan.ts ownOnly), against a pretend RunPod with a running pod at
+ * MCP renders where money is at stake (mcpRender.ts, queuePlan.ts offPods), against a pretend RunPod with a running pod at
  * $0.69 an hour beside the user's own ComfyUI: a token without Spend never lands on the pod, pinned (refused) or picked by
  * the queue (kept off at every pass, until Spend is ticked); a token with Spend is held to its cap with its waiting work
  * counted; renders an hour hold; Again and Load the model keep the same rules.
@@ -147,6 +148,53 @@ describe("a token with Spend", () => {
     const own = await call(c, "render", { ...FORM, takes: 2, machine: "m1" });
     expect(own.isError, textOf(own)).toBeFalsy();
     expect((await jobsOf(id)).length).toBe(4);
+    await c.close();
+  });
+
+  it("has its waiting jobs handed to a pod started later only while its cap has room, each held one saying why", async () => {
+    // the pod stopped: four takes queued cost nothing then (no pod to land on), with the user's own machine paused
+    const { token, id } = await made("spend", { spendCapUsd: 1 });
+    const c = await connect(token);
+    await pause("m1");
+    expect((await post(t.app, `/api/machines/${pod}/stop`, {})).statusCode).toBe(200);
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]!.status === "EXITED"));
+    await t.services.rented.poll();
+    const r = await call(c, "render", { ...FORM, takes: 4 });
+    expect(r.isError, textOf(r)).toBeFalsy();
+    expect(JSON.parse(textOf(r)).mayCostUsd).toBeUndefined();
+    const jobs = JSON.parse(textOf(r)).jobs as string[];
+    // the user starts the pod: the first goes there, the second still fits ($0.35 each at the queue's floor), the other two
+    // would pass $1 and wait, said so on their rows
+    expect((await post(t.app, `/api/machines/${pod}/start`, {})).statusCode).toBe(200);
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]!.status === "RUNNING"));
+    await t.services.rented.poll();
+    await until(() => a.prompts.size > 0);
+    // a pass after the first went: the rows as the next plan says them
+    await until(async () => (await t.services.queue.status()).waiting.filter((w) => w.lacks?.[pod]?.why === CAP_FULL).length === 2, 10_000, 50);
+    const rows = (await t.services.queue.status()).waiting;
+    const why = (job: string) => rows.find((w) => w.id === job)?.lacks?.[pod]?.why;
+    expect((await jobsOf(id)).filter((j) => j.status === "running").map((j) => j.machine_id)).toEqual([pod]);
+    expect(why(jobs[1]!)).toBeUndefined();
+    expect(why(jobs[2]!)).toBe(CAP_FULL);
+    expect(why(jobs[3]!)).toBe(CAP_FULL);
+    // the cap raised: from the next pass they may go
+    expect((await t.app.inject({ method: "POST", url: `/api/mcp/tokens/${id}`, payload: { spendCapUsd: 5 } })).statusCode).toBe(200);
+    await until(async () => !(await t.services.queue.status()).waiting.some((w) => w.lacks?.[pod]?.why === CAP_FULL), 10_000, 50);
+    await c.close();
+  });
+
+  it("has its waiting jobs kept off the pods when Spend is unticked after they were queued", async () => {
+    const { token, id } = await made("spend");
+    const c = await connect(token);
+    await pause();
+    const job = JSON.parse(textOf(await call(c, "render", FORM))).jobs[0] as string;
+    expect((await t.app.inject({ method: "POST", url: `/api/mcp/tokens/${id}`, payload: { scopes: ["look", "make"] } })).statusCode).toBe(200);
+    await pause("m1");
+    expect((await t.app.inject({ method: "POST", url: "/api/queue/resume", payload: { machine: pod } })).statusCode).toBe(200);
+    await new Promise((go) => setTimeout(go, 150));
+    await t.services.queue.idle();
+    expect(a.prompts.size).toBe(0);
+    expect((await t.services.queue.status()).waiting.find((w) => w.id === job)?.lacks?.[pod]?.why).toBe(NO_SPEND);
     await c.close();
   });
 

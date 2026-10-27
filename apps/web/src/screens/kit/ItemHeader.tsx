@@ -1,7 +1,7 @@
 import { Check, FileDown, Link2, MoreHorizontal, Play } from "lucide-react";
 import type { Entity } from "../../api";
 import { savePresetFile } from "../../presetFile";
-import { Button, Chip, CloseButton, IconButton } from "../../ui";
+import { Button, Chip, CloseButton, cx, IconButton } from "../../ui";
 import { kitHref } from "./link";
 import { useCopied } from "../../hooks";
 
@@ -20,8 +20,10 @@ export function CopyLink({ item }: { item: Entity }) {
 }
 
 /** The head of the item open in the Prompt kit: its name to change, whether it is saved, and what can be done with it. */
-export function ItemHeader({ item, saved, failure, onRename, onRetry, onApply, onMenu, onClose }: {
+export function ItemHeader({ item, saved, failure, by, onRename, onRetry, onApply, onMenu, onClose }: {
   item: Entity;
+  /** Its name was changed by an MCP token, and the user has not edited it since: ringed, the token's name after it (agentEdits.ts). */
+  by?: string;
   saved: "saved" | "saving" | "failed";
   /** Why the last save failed, in the server's words. */
   failure: string | null;
@@ -35,7 +37,8 @@ export function ItemHeader({ item, saved, failure, onRename, onRetry, onApply, o
 }) {
   return (
     <div className="flex items-center gap-3">
-      <input aria-label="Name" value={item.name} onChange={(e) => onRename(e.target.value)} className="h-11 min-w-0 grow rounded-lg border border-transparent bg-transparent -ml-2 px-2 text-display font-bold hover:border-line focus:border-accent focus:bg-raised" />
+      <input aria-label="Name" data-agent={by} value={item.name} onChange={(e) => onRename(e.target.value)} className={cx("h-11 min-w-0 grow rounded-lg border border-transparent bg-transparent -ml-2 px-2 text-display font-bold hover:border-line focus:border-accent focus:bg-raised", by && "ring-1 ring-picture/55")} />
+      {by && <span className="shrink-0 text-meta font-medium text-picture">· {by}</span>}
       <Chip tone={saved === "failed" ? "warn" : saved === "saved" ? "good" : "neutral"} tip={saved === "failed" ? failure ?? undefined : undefined}>
         {saved === "saved" ? "Saved" : saved === "saving" ? "Saving…" : `Could not save${failure ? `: ${failure}` : ""}`}
         {saved === "failed" && <button type="button" onClick={onRetry} className="font-semibold underline underline-offset-2">Retry</button>}

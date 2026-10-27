@@ -115,26 +115,45 @@ interface PlanDeps {
   loaded(r: JobRow, lane: Lane, scan: Scan): Promise<Loaded | null>;
   /** Why one of these node packs cannot come to a machine of the user's own (no Manager, its install failed); null when they all can. */
   packsCannot(lane: Lane, packs: string[]): Promise<string | null>;
+  /**
+   * The jobs among these, queued by an MCP token with Spend, that no rented pod takes this pass, each with why: the token's
+   * spend cap has no room for it beside its running work and the waiting work ahead of it, or a pod's price is not known
+   * yet (mcpRender.ts capHeld). Set by services.ts; null: none is held.
+   */
+  readonly capHeld: ((rows: ReadonlyArray<Pick<JobRow, "id" | "mcp_token_id">>) => Promise<Map<string, string>>) | null;
 }
 
 /** Why a job queued by an MCP token without Spend goes to no rented pod (its Queue row says it). */
 export const NO_SPEND = "it was sent by an MCP token without Spend, which never renders on a rented pod";
 
+/** Why a Spend token's job goes to no rented pod when its cap could not be read this pass. */
+const CAP_UNREAD = "it was sent by an MCP token whose spend cap could not be read just now";
+
 export class Planner {
   constructor(private readonly d: PlanDeps) {}
 
   /**
-   * The jobs among these that an MCP token without Spend queued (mcpTokens.ts): they run on the user's own machines only,
-   * whether pinned or picked by the queue. The token's scopes as they are now, not when it queued: Spend unticked since, or
-   * the token revoked, keeps its waiting jobs off the pods from the next pass (a money path: a job never lands on a pod
-   * nobody allowed it to bill).
+   * The jobs among these that an MCP token queued and no rented pod may take this pass, each with why (its Queue row says
+   * it): they run on the user's own machines only, whether pinned or picked by the queue. A token without Spend: never on a
+   * pod. The token's scopes as they are now, not when it queued: Spend unticked since, or the token revoked, keeps its
+   * waiting jobs off the pods from the next pass. A token with Spend: while its spend cap has room for the job (capHeld),
+   * so that a job queued with no pod up does not land, uncounted, on a pod the user starts later (a money path: a job
+   * never lands on a pod nobody allowed it to bill).
    */
-  async ownOnly(rows: ReadonlyArray<Pick<JobRow, "id" | "mcp_token_id">>): Promise<Set<string>> {
+  async offPods(rows: ReadonlyArray<Pick<JobRow, "id" | "mcp_token_id">>): Promise<Map<string, string>> {
     const ids = [...new Set(rows.map((r) => r.mcp_token_id).filter((id): id is string => Boolean(id)))];
-    if (!ids.length) return new Set();
+    if (!ids.length) return new Map();
     const tokens = await this.d.db.selectFrom("mcp_tokens").select(["id", "scopes", "revoked_at"]).where("id", "in", ids).execute();
     const spends = new Set(tokens.filter((t) => !t.revoked_at && t.scopes.split(",").includes("spend")).map((t) => t.id));
-    return new Set(rows.filter((r) => r.mcp_token_id && !spends.has(r.mcp_token_id)).map((r) => r.id));
+    const out = new Map<string, string>(rows.filter((r) => r.mcp_token_id && !spends.has(r.mcp_token_id)).map((r) => [r.id, NO_SPEND]));
+    const spending = rows.filter((r) => r.mcp_token_id && spends.has(r.mcp_token_id));
+    // a cap that cannot be read holds them all: better a job waiting than one billed past what its token may spend
+    const held = spending.length ? await (this.d.capHeld?.(spending) ?? Promise.resolve(new Map<string, string>())).catch((err) => {
+      console.warn("[queue] a token's spend cap could not be read:", (err as Error).message);
+      return new Map(spending.map((r) => [r.id, CAP_UNREAD] as const));
+    }) : new Map<string, string>();
+    for (const [id, why] of held) out.set(id, why);
+    return out;
   }
 
   /** The machines that may take work now, as the scheduler reads them: free in how long, what they hold, their learned pace. */
@@ -183,7 +202,7 @@ export class Planner {
     const out = new Map<string, Able>();
     const lanes = this.d.machineLanes().filter((l) => l.machine && l.comfy);
     if (!rows.length) return out;
-    const ownOnly = await this.ownOnly(rows);
+    const offPods = await this.offPods(rows);
     // what is kept of each job on each machine has room for the whole line (jobFiles.ts)
     roomFor(rows.length * Math.max(1, lanes.length));
     // a lone machine of the user's own is judged only for the files it may be given (downloaded on its row's say-so)
@@ -233,8 +252,8 @@ export class Planner {
       const pin = r.pin_machine ?? this.d.heldOn(r);
       // every machine of a job worked out at once (its balance, its files' time on a pod)
       await Promise.all(scans.map(async ({ lane, scan }) => {
-        if (lane.machine!.rented && ownOnly.has(r.id)) {
-          lacks[lane.id] = { off: false, files: [], sendable: false, why: NO_SPEND };
+        if (lane.machine!.rented && offPods.has(r.id)) {
+          lacks[lane.id] = { off: false, files: [], sendable: false, why: offPods.get(r.id)! };
           return;
         }
         // a rented pod whose ComfyUI cannot be read now (booting, restarting for node packs, away) starts with nothing: what
@@ -343,12 +362,12 @@ export class Planner {
     const paces = await this.d.paces();
     const finishes = await view.finishesOf(this.d.db, rows, this.d.machineLanes().map((l) => ({ id: l.id, pace: paces.get(l.id) ?? 1 })));
     // a job kept off the pods that ableOf did not judge (its settings unread) may still go to no pod: the user's own machines only
-    const ownOnly = await this.ownOnly(rows.filter((r) => !able.get(r.id)?.can));
+    const offPods = await this.offPods(rows.filter((r) => !able.get(r.id)?.can));
     const own = new Set(this.d.machineLanes().filter((l) => l.machine && !l.machine.rented).map((l) => l.id));
     return Promise.all(rows.map(async (r): Promise<Planned> => {
       const fetch = able.get(r.id)?.fetch ?? {};
       const fetchMs = Object.keys(fetch).length ? new Map(Object.entries(fetch).map(([lane, f]) => [lane, f.ms])) : undefined;
-      const base = { id: r.id, makes: this.makes(r), pin: r.pin_machine ?? this.d.heldOn(r), can: able.get(r.id)?.can ?? (ownOnly.has(r.id) ? own : undefined), ...(fetchMs ? { fetchMs } : {}), ...(r.depends_on ? { after: r.depends_on } : {}) };
+      const base = { id: r.id, makes: this.makes(r), pin: r.pin_machine ?? this.d.heldOn(r), can: able.get(r.id)?.can ?? (offPods.has(r.id) ? own : undefined), ...(fetchMs ? { fetchMs } : {}), ...(r.depends_on ? { after: r.depends_on } : {}) };
       const recipe = r.recipe_id === CUT_JOB ? undefined : this.d.registry.recipe(r.recipe_id);
       const finish = finishes.get(r.id);
       if (!recipe) return { ...base, model: null, renderMs: finish?.ms ?? null, loadMs: null, ...(finish?.on.size ? { renderOn: finish.on } : {}), frees: r.recipe_id === CUT_JOB && tools.usesGpu(r) };

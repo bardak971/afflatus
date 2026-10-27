@@ -138,44 +138,75 @@ async function unpin(db: Db, id: string): Promise<void> {
 /** A "library" event for a change of projects and folders alone: no item came, went or moved. */
 const PLACES: LibraryChange = { change: "places" };
 
-export function registerProjects(app: FastifyInstance, s: Services): void {
-  const mustExist = async (id: string) => {
-    const p = await s.db.selectFrom("projects").selectAll().where("id", "=", id).executeTakeFirst();
-    if (!p) throw httpError("this project was not found", 404);
-    return p;
-  };
-  /**
-   * The drafts, timelines and items of every project, and of the Inbox (under null): one grouped query each, so the list costs the
-   * same few statements however many projects there are (it is read on first load and after every library event). An item counts
-   * for the project of its folder; a loose item, or one in a folder of no project, is the Inbox's.
-   */
-  const countsOf = async () => {
-    const tally = (rows: Array<{ project_id: string | null; n: unknown }>) => new Map(rows.map((r) => [r.project_id, Number(r.n)]));
-    const drafts = tally(await s.db.selectFrom("drafts").select((eb) => ["project_id", eb.fn.countAll().as("n")]).groupBy("project_id").execute());
-    const timelines = tally(await s.db.selectFrom("timelines").select((eb) => ["project_id", eb.fn.countAll().as("n")]).groupBy("project_id").execute());
-    const assets = tally(
-      await s.db
-        .selectFrom("assets")
-        .leftJoin("folders", "folders.id", "assets.folder_id")
-        .select((eb) => ["folders.project_id as project_id", eb.fn.countAll().as("n")])
-        .where("assets.deleted_at", "is", null)
-        // an item whose folder is gone counts nowhere, as it is in no list
-        .where((eb) => eb.or([eb("assets.folder_id", "is", null), eb("folders.id", "is not", null)]))
-        .groupBy("folders.project_id")
-        .execute(),
-    );
-    return (id: string | null) => ({ drafts: drafts.get(id) ?? 0, timelines: timelines.get(id) ?? 0, assets: assets.get(id) ?? 0 });
-  };
-  type ProjectRow = { id: string; name: string; folder_id: string | null; archived_at: string | null; created_at: string; updated_at: string };
-  const shape = (p: ProjectRow, counts: { drafts: number; timelines: number; assets: number }) => ({ id: p.id, name: p.name, folderId: p.folder_id, archivedAt: p.archived_at, createdAt: p.created_at, updatedAt: p.updated_at, ...counts });
-  const view = async (p: ProjectRow) => shape(p, (await countsOf())(p.id));
+const mustExist = async (s: Services, id: string) => {
+  const p = await s.db.selectFrom("projects").selectAll().where("id", "=", id).executeTakeFirst();
+  if (!p) throw httpError("this project was not found", 404);
+  return p;
+};
 
-  app.get("/api/projects", async () => {
-    const rows = await s.db.selectFrom("projects").selectAll().where("owner_id", "=", OWNER).orderBy("archived_at").orderBy("name").execute();
-    const counts = await countsOf();
-    // the Inbox: what is in no project
-    return { items: rows.map((p) => shape(p, counts(p.id))), inbox: counts(null) };
-  });
+/**
+ * The drafts, timelines and items of every project, and of the Inbox (under null): one grouped query each, so the list costs the
+ * same few statements however many projects there are (it is read on first load and after every library event). An item counts
+ * for the project of its folder; a loose item, or one in a folder of no project, is the Inbox's.
+ */
+const countsOf = async (s: Services) => {
+  const tally = (rows: Array<{ project_id: string | null; n: unknown }>) => new Map(rows.map((r) => [r.project_id, Number(r.n)]));
+  const drafts = tally(await s.db.selectFrom("drafts").select((eb) => ["project_id", eb.fn.countAll().as("n")]).groupBy("project_id").execute());
+  const timelines = tally(await s.db.selectFrom("timelines").select((eb) => ["project_id", eb.fn.countAll().as("n")]).groupBy("project_id").execute());
+  const assets = tally(
+    await s.db
+      .selectFrom("assets")
+      .leftJoin("folders", "folders.id", "assets.folder_id")
+      .select((eb) => ["folders.project_id as project_id", eb.fn.countAll().as("n")])
+      .where("assets.deleted_at", "is", null)
+      // an item whose folder is gone counts nowhere, as it is in no list
+      .where((eb) => eb.or([eb("assets.folder_id", "is", null), eb("folders.id", "is not", null)]))
+      .groupBy("folders.project_id")
+      .execute(),
+  );
+  return (id: string | null) => ({ drafts: drafts.get(id) ?? 0, timelines: timelines.get(id) ?? 0, assets: assets.get(id) ?? 0 });
+};
+type ProjectRow = { id: string; name: string; folder_id: string | null; archived_at: string | null; created_at: string; updated_at: string };
+const shape = (p: ProjectRow, counts: { drafts: number; timelines: number; assets: number }) => ({ id: p.id, name: p.name, folderId: p.folder_id, archivedAt: p.archived_at, createdAt: p.created_at, updatedAt: p.updated_at, ...counts });
+const view = async (s: Services, p: ProjectRow) => shape(p, (await countsOf(s))(p.id));
+
+/** The projects with what each holds, and the Inbox's (GET /api/projects, MCP's list_places). */
+export async function projectsList(s: Services) {
+  const rows = await s.db.selectFrom("projects").selectAll().where("owner_id", "=", OWNER).orderBy("archived_at").orderBy("name").execute();
+  const counts = await countsOf(s);
+  // the Inbox: what is in no project
+  return { items: rows.map((p) => shape(p, counts(p.id))), inbox: counts(null) };
+}
+
+/** A new project, with its root folder of the same name (POST /api/projects, MCP's new_project). */
+export async function projectNew(s: Services, name: string) {
+  const at = now();
+  const id = newId();
+  const folder = { id: newId(), owner_id: OWNER, parent_id: null, name, path: null, project_id: id, created_at: at };
+  await s.db.insertInto("folders").values(folder).execute();
+  await s.db.insertInto("projects").values({ id, owner_id: OWNER, name, folder_id: folder.id, archived_at: null, created_at: at, updated_at: at }).execute();
+  s.queue.events.emit("library", PLACES);
+  return view(s, await mustExist(s, id));
+}
+
+/** A project renamed (its root folder follows), or archived and back (PATCH /api/projects/:id, MCP's rename_project). */
+export async function projectEdit(s: Services, id: string, body: { name?: string; archived?: boolean }) {
+  const p = await mustExist(s, id);
+  await s.db
+    .updateTable("projects")
+    .set({ ...(body.name !== undefined ? { name: body.name } : {}), ...(body.archived !== undefined ? { archived_at: body.archived ? now() : null } : {}), updated_at: now() })
+    .where("id", "=", p.id)
+    .execute();
+  // the root folder keeps the project's name, unless it is a directory of the disk (its name is the directory's)
+  if (body.name !== undefined && p.folder_id) await s.db.updateTable("folders").set({ name: body.name }).where("id", "=", p.folder_id).where("path", "is", null).execute();
+  if (body.archived) await unpin(s.db, p.id);
+  // archived or back: what it holds leaves the lists or comes back; renamed, only the names of places change
+  s.queue.events.emit("library", body.archived === undefined ? PLACES : undefined);
+  return view(s, await mustExist(s, p.id));
+}
+
+export function registerProjects(app: FastifyInstance, s: Services): void {
+  app.get("/api/projects", async () => projectsList(s));
 
   /** The projects panel: every project and the Inbox, their folders, timelines, counts and sizes (projectsTree). */
   app.get("/api/projects/tree", async (req) => {
@@ -189,7 +220,7 @@ export function registerProjects(app: FastifyInstance, s: Services): void {
    */
   app.post<{ Params: { id: string } }>("/api/projects/:id/root", async (req) => {
     const body = z.strictObject({ folderId: z.string().optional() }).parse(req.body ?? {});
-    const p = await mustExist(req.params.id);
+    const p = await mustExist(s, req.params.id);
     let folder = body.folderId;
     if (folder) {
       const f = await s.db.selectFrom("folders").selectAll().where("id", "=", folder).executeTakeFirst();
@@ -202,41 +233,18 @@ export function registerProjects(app: FastifyInstance, s: Services): void {
     }
     await s.db.updateTable("projects").set({ folder_id: folder, updated_at: now() }).where("id", "=", p.id).execute();
     s.queue.events.emit("library", PLACES);
-    return view(await mustExist(p.id));
+    return view(s, await mustExist(s, p.id));
   });
 
   /** A new project, with its root folder of the same name. */
-  app.post("/api/projects", async (req) => {
-    const body = z.strictObject({ name }).parse(req.body);
-    const at = now();
-    const id = newId();
-    const folder = { id: newId(), owner_id: OWNER, parent_id: null, name: body.name, path: null, project_id: id, created_at: at };
-    await s.db.insertInto("folders").values(folder).execute();
-    await s.db.insertInto("projects").values({ id, owner_id: OWNER, name: body.name, folder_id: folder.id, archived_at: null, created_at: at, updated_at: at }).execute();
-    s.queue.events.emit("library", PLACES);
-    return view(await mustExist(id));
-  });
+  app.post("/api/projects", async (req) => projectNew(s, z.strictObject({ name }).parse(req.body).name));
 
   /** Rename it (its root folder follows), or archive / unarchive it. */
-  app.patch<{ Params: { id: string } }>("/api/projects/:id", async (req) => {
-    const body = z.strictObject({ name: name.optional(), archived: z.boolean().optional() }).parse(req.body);
-    const p = await mustExist(req.params.id);
-    await s.db
-      .updateTable("projects")
-      .set({ ...(body.name !== undefined ? { name: body.name } : {}), ...(body.archived !== undefined ? { archived_at: body.archived ? now() : null } : {}), updated_at: now() })
-      .where("id", "=", p.id)
-      .execute();
-    // the root folder keeps the project's name, unless it is a directory of the disk (its name is the directory's)
-    if (body.name !== undefined && p.folder_id) await s.db.updateTable("folders").set({ name: body.name }).where("id", "=", p.folder_id).where("path", "is", null).execute();
-    if (body.archived) await unpin(s.db, p.id);
-    // archived or back: what it holds leaves the lists or comes back; renamed, only the names of places change
-    s.queue.events.emit("library", body.archived === undefined ? PLACES : undefined);
-    return view(await mustExist(p.id));
-  });
+  app.patch<{ Params: { id: string } }>("/api/projects/:id", async (req) => projectEdit(s, req.params.id, z.strictObject({ name: name.optional(), archived: z.boolean().optional() }).parse(req.body)));
 
   /** The project goes; its drafts, timelines and folders go to the Inbox. Nothing is removed. */
   app.delete<{ Params: { id: string } }>("/api/projects/:id", async (req) => {
-    const p = await mustExist(req.params.id);
+    const p = await mustExist(s, req.params.id);
     await s.db.transaction().execute(async (tx) => {
       await tx.updateTable("folders").set({ project_id: null }).where("project_id", "=", p.id).execute();
       await tx.updateTable("drafts").set({ project_id: null }).where("project_id", "=", p.id).execute();

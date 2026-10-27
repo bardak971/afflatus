@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Draft, Look } from "./api";
+import type { Draft, Entity, Look } from "./api";
 
 /**
  * A draft changed from outside, by an MCP token (the server's mcpDrafts.ts DraftEdit, a "draft" live event): the fields it
@@ -120,3 +120,91 @@ export function ringsOf(rings: Record<string, string> | undefined, form: string)
   const prefix = `${form}:`;
   return Object.fromEntries(Object.entries(rings).flatMap(([k, by]) => (k.startsWith(prefix) ? [[k.slice(prefix.length), by]] : [])));
 }
+
+/**
+ * An item of the Prompt kit changed from outside, by an MCP token (the server's mcpKit.ts KitEdit, a "kit" live event): the
+ * parts of its def it changed with their values before and after, and its name when that changed. The kit open on it
+ * shows it at once (useEntityDraft), rings those parts with the token's name until the user edits them, and says it in a
+ * toast with Undo, as a draft's edit does.
+ */
+export interface KitEdit {
+  id: string;
+  kind: Entity["kind"];
+  by: string;
+  token: string;
+  at: string;
+  fields: Array<{ key: string; had: boolean; was?: unknown; now: unknown }>;
+  name?: { was: string; now: string };
+  /** An item just made: the lists read again, nothing to show. */
+  made?: true;
+}
+
+/** How many things the toast says the token changed: the parts and the name. */
+export const kitEditCount = (e: KitEdit) => e.fields.length + (e.name ? 1 : 0);
+
+const defOf = (e: Entity) => e.def as unknown as Record<string, unknown>;
+const withDef = (e: Entity, def: Record<string, unknown>, name = e.name): Entity => ({ ...e, name, def }) as unknown as Entity;
+
+/** A kit edit laid over what the page holds of the item. `keep`: the parts (and "name") the user changed and has not saved yet: theirs stay. */
+export function kitLaidOver(e: Entity, edit: KitEdit, keep: ReadonlySet<string> = new Set()): Entity {
+  const def = { ...defOf(e) };
+  for (const f of edit.fields) if (!keep.has(f.key)) def[f.key] = f.now;
+  return withDef(e, def, edit.name && !keep.has("name") ? edit.name.now : e.name);
+}
+
+/** The item put back as it was before an edit: each part it changed as it was (taken out when it held nothing), its name. */
+export function kitUndone(e: Entity, edit: KitEdit): Entity {
+  const def = { ...defOf(e) };
+  for (const f of edit.fields) {
+    if (f.had) def[f.key] = f.was;
+    else delete def[f.key];
+  }
+  return withDef(e, def, edit.name ? edit.name.was : e.name);
+}
+
+/** The parts (and "name") where what the page holds of an item differs from the item as last saved. */
+export function kitUnsaved(unsaved: Entity | null | undefined, saved: Entity | null | undefined): Set<string> {
+  const out = new Set<string>();
+  if (!unsaved || !saved || unsaved.id !== saved.id) return out;
+  const a = defOf(unsaved);
+  const b = defOf(saved);
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) out.add(k);
+  if (unsaved.name !== saved.name) out.add("name");
+  return out;
+}
+
+/** The kit edits heard and the rings they leave: by item, each ringed part (or "name") and the token's name. `seq` moves with each edit heard. */
+export const useKitEdits = create<{
+  seq: number;
+  last: KitEdit | null;
+  rings: Record<string, Record<string, string>>;
+  heard(e: KitEdit): void;
+  /** These parts edited by the user: their rings go. */
+  clear(item: string, keys: readonly string[]): void;
+  /** An edit undone: the rings it left go. */
+  forget(e: KitEdit): void;
+}>()((set) => ({
+  seq: 0,
+  last: null,
+  rings: {},
+  heard: (e) => set((s) => {
+    const rings = { ...s.rings[e.id] };
+    for (const f of e.fields) rings[f.key] = e.by;
+    if (e.name) rings.name = e.by;
+    return { seq: s.seq + 1, last: e, rings: kitEditCount(e) ? { ...s.rings, [e.id]: rings } : s.rings };
+  }),
+  clear: (item, keys) => set((s) => {
+    const was = s.rings[item];
+    if (!was || !keys.some((k) => k in was)) return s;
+    return { rings: { ...s.rings, [item]: Object.fromEntries(Object.entries(was).filter(([k]) => !keys.includes(k))) } };
+  }),
+  forget: (e) => set((s) => {
+    const was = s.rings[e.id];
+    if (!was) return s;
+    const gone = new Set([...e.fields.map((f) => f.key), ...(e.name ? ["name"] : [])]);
+    return { rings: { ...s.rings, [e.id]: Object.fromEntries(Object.entries(was).filter(([k]) => !gone.has(k) || was[k] !== e.by)) } };
+  }),
+}));
+
+/** Who changed one of these parts of a kit item and left its ring (the first ringed), for a card that shows them together. */
+export const ringBy = (rings: Readonly<Record<string, string>> | undefined, ...keys: string[]): string | undefined => keys.map((k) => rings?.[k]).find(Boolean);

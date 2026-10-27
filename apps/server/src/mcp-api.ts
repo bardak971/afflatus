@@ -51,9 +51,9 @@ export function registerMcpTokens(app: FastifyInstance, s: Services): void {
     if (loosens) await s.access.mayChange(req.access.session, password, ip(req));
     const view = await tokens.change(id, { ...b, ...(spendCapUsd !== undefined ? { spendCapCents: Math.round(spendCapUsd * 100) } : {}) });
     if (loosens) await s.access.audit(`MCP token "${view.name}" changed: ${JSON.stringify({ ...b, ...(spendCapUsd !== undefined ? { spendCapUsd } : {}) })}, from ${ip(req)}`);
-    // its jobs waiting may go to a rented pod now, or no longer (queuePlan.ts ownOnly): the queue makes a pass, as when a
-    // machine's families change ("setup" starts one)
-    if (b.scopes) s.queue.events.emit("setup");
+    // its jobs waiting may go to a rented pod now, or no longer (queuePlan.ts offPods: its Spend, its cap): the queue makes a
+    // pass, as when a machine's families change ("setup" starts one)
+    if (b.scopes || spendCapUsd !== undefined) s.queue.events.emit("setup");
     return { token: view };
   });
 

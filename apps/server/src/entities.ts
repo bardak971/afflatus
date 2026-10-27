@@ -113,6 +113,8 @@ const defs = {
   }),
 };
 export type EntityKind = keyof typeof defs;
+/** Each kind's def, as a save checks it (MCP's new_kit_item and edit_kit_item check theirs with them). */
+export const kitDefs = defs;
 type PersonDef = z.infer<typeof defs.person>;
 type PlaceDef = z.infer<typeof defs.place>;
 type StyleDef = z.infer<typeof defs.style>;
@@ -417,8 +419,67 @@ async function dropFromLooks(db: Db, id: string): Promise<{ drafts: number; time
   return { drafts, timelines };
 }
 
-const body = z.strictObject({ kind: z.enum(["person", "place", "style", "preset", "snippet"]), name: z.string().trim().min(1).max(120), def: z.unknown().optional() });
+export const kitBody = z.strictObject({ kind: z.enum(["person", "place", "style", "preset", "snippet"]), name: z.string().trim().min(1).max(120), def: z.unknown().optional() });
 const patch = z.strictObject({ name: z.string().trim().min(1).max(120).optional(), def: z.unknown().optional() });
+
+/**
+ * The kit is changed one change at a time: a person's pictures taken off go to the bin unless someone else names them,
+ * which is read across the whole kit, and a change saved from the row as read put back what another had changed meanwhile.
+ */
+const inTurn = <T>(s: Services, work: () => Promise<T>) => oneAtATime(s.db, "kit", work);
+
+/** Their pictures and voices are wanted: they never go to the bin on their own. */
+async function keepTheirs(s: Services, kind: string, def: string): Promise<void> {
+  if (kind !== "person" && kind !== "place") return;
+  const d = JSON.parse(def) as { pictures: string[]; voice?: string | null; outfits?: Array<{ picture: string | null }> };
+  const used = [...d.pictures, d.voice, ...(d.outfits ?? []).map((o) => o.picture)].filter((x): x is string => Boolean(x));
+  if (used.length) await s.db.updateTable("assets").set({ kept_at: now() }).where("id", "in", used).where("kept_at", "is", null).execute();
+}
+
+const builtIn = () => httpError("a built-in preset cannot be changed: copy it to your presets first");
+
+/** An item of the kit as the page reads it. */
+export type KitItem = ReturnType<typeof view>;
+
+/** The kit, of one kind or all, the shipped presets after the user's own (GET /api/entities, MCP's list_kit). */
+export async function kitList(s: Services, kind?: EntityKind): Promise<Array<KitItem & { source?: "shipped" }>> {
+  let q = s.db.selectFrom("entities").selectAll().where("owner_id", "=", OWNER);
+  if (kind) q = q.where("kind", "=", kind);
+  const items: Array<KitItem & { source?: "shipped" }> = (await q.orderBy("name").execute()).map(view);
+  // the presets that ship with Afflatus come after the user's own: read-only, to apply or to copy
+  if (!kind || kind === "preset") items.push(...s.shippedPresets.list().map((p) => s.shippedPresets.entity(p)));
+  return items;
+}
+
+/** A new item of the kit (POST /api/entities, MCP's new_kit_item): its def checked as its kind takes it, its pictures kept. */
+export const kitNew = (s: Services, b: z.output<typeof kitBody>) => inTurn(s, async () => {
+  const def = defs[b.kind].parse(b.def ?? {});
+  const at = now();
+  const row: Tables["entities"] = { id: newId(), owner_id: OWNER, kind: b.kind, name: b.name, def: JSON.stringify(def), created_at: at, updated_at: at };
+  await s.db.insertInto("entities").values(row).execute();
+  await keepTheirs(s, row.kind, row.def);
+  s.queue.events.emit("entities");
+  return view(row);
+});
+
+/**
+ * An item of the kit changed (PUT /api/entities/:id, the page's autosave; MCP's edit_kit_item): its name, or its whole
+ * def checked as its kind takes it. `change` works the def out from the item as it is in the kit's turn (an agent's
+ * change laid over what the page saved meanwhile). Answers it before and after.
+ */
+export const kitEdit = (s: Services, id: string, change: (row: KitItem) => z.output<typeof patch>) => inTurn(s, async () => {
+  if (id.startsWith(SHIPPED)) throw builtIn();
+  const row = await s.db.selectFrom("entities").selectAll().where("id", "=", id).executeTakeFirst();
+  if (!row) throw httpError("this was not found", 404);
+  const b = change(view(row));
+  const next = { name: b.name ?? row.name, def: b.def === undefined ? row.def : JSON.stringify(defs[row.kind].parse(b.def)), updated_at: now() };
+  await s.db.updateTable("entities").set(next).where("id", "=", row.id).execute();
+  // a picture uploaded for them and taken off again, wanted by no one else: to the bin
+  if (b.def !== undefined) await binUnwantedKit(s.db, filesOf(row.def).filter((f) => !filesOf(next.def).includes(f)));
+  if (b.def !== undefined) await keepTheirs(s, row.kind, next.def);
+  s.queue.events.emit("entities");
+  return { before: view(row), after: view({ ...row, ...next }) };
+});
 
 export function registerEntities(app: FastifyInstance, s: Services): void {
   const missing = () => httpError("this was not found", 404);
@@ -426,56 +487,17 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
 
   app.get("/api/entities", async (req) => {
     const { kind } = z.object({ kind: z.enum(Object.keys(defs) as [EntityKind, ...EntityKind[]]).optional() }).parse(req.query);
-    let q = s.db.selectFrom("entities").selectAll().where("owner_id", "=", OWNER);
-    if (kind) q = q.where("kind", "=", kind);
-    const items: Array<ReturnType<typeof view> & { source?: "shipped" }> = (await q.orderBy("name").execute()).map(view);
-    // the presets that ship with Afflatus come after the user's own: read-only, to apply or to copy
-    if (!kind || kind === "preset") items.push(...s.shippedPresets.list().map((p) => s.shippedPresets.entity(p)));
-    return { items };
+    return { items: await kitList(s, kind) };
   });
 
-  /**
-   * The kit is changed one change at a time: a person's pictures taken off go to the bin unless someone else names them,
-   * which is read across the whole kit, and a change saved from the row as read put back what another had changed meanwhile.
-   */
-  const inTurn = <T>(work: () => Promise<T>) => oneAtATime(s.db, "kit", work);
+  app.post("/api/entities", async (req) => kitNew(s, kitBody.parse(req.body)));
 
-  app.post("/api/entities", async (req) => inTurn(async () => {
-    const b = body.parse(req.body);
-    const def = defs[b.kind].parse(b.def ?? {});
-    const at = now();
-    const row: Tables["entities"] = { id: newId(), owner_id: OWNER, kind: b.kind, name: b.name, def: JSON.stringify(def), created_at: at, updated_at: at };
-    await s.db.insertInto("entities").values(row).execute();
-    await keepTheirs(row.kind, row.def);
-    changed();
-    return view(row);
-  }));
-
-  /** Their pictures and voices are wanted: they never go to the bin on their own. */
-  const keepTheirs = async (kind: string, def: string) => {
-    if (kind !== "person" && kind !== "place") return;
-    const d = JSON.parse(def) as { pictures: string[]; voice?: string | null; outfits?: Array<{ picture: string | null }> };
-    const used = [...d.pictures, d.voice, ...(d.outfits ?? []).map((o) => o.picture)].filter((x): x is string => Boolean(x));
-    if (used.length) await s.db.updateTable("assets").set({ kept_at: now() }).where("id", "in", used).where("kept_at", "is", null).execute();
-  };
-
-  const builtIn = () => httpError("a built-in preset cannot be changed: copy it to your presets first");
-
-  app.put<{ Params: { id: string } }>("/api/entities/:id", async (req) => inTurn(async () => {
-    if (req.params.id.startsWith(SHIPPED)) throw builtIn();
+  app.put<{ Params: { id: string } }>("/api/entities/:id", async (req) => {
     const b = patch.parse(req.body);
-    const row = await s.db.selectFrom("entities").selectAll().where("id", "=", req.params.id).executeTakeFirst();
-    if (!row) throw missing();
-    const next = { name: b.name ?? row.name, def: b.def === undefined ? row.def : JSON.stringify(defs[row.kind].parse(b.def)), updated_at: now() };
-    await s.db.updateTable("entities").set(next).where("id", "=", row.id).execute();
-    // a picture uploaded for them and taken off again, wanted by no one else: to the bin
-    if (b.def !== undefined) await binUnwantedKit(s.db, filesOf(row.def).filter((id) => !filesOf(next.def).includes(id)));
-    if (b.def !== undefined) await keepTheirs(row.kind, next.def);
-    changed();
-    return view({ ...row, ...next });
-  }));
+    return (await kitEdit(s, req.params.id, () => b)).after;
+  });
 
-  app.delete<{ Params: { id: string } }>("/api/entities/:id", async (req) => inTurn(async () => {
+  app.delete<{ Params: { id: string } }>("/api/entities/:id", async (req) => inTurn(s, async () => {
     if (req.params.id.startsWith(SHIPPED)) throw builtIn();
     const row = await s.db.selectFrom("entities").select("def").where("id", "=", req.params.id).executeTakeFirst();
     const r = await s.db.deleteFrom("entities").where("id", "=", req.params.id).executeTakeFirst();

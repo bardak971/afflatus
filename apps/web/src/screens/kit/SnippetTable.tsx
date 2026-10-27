@@ -5,6 +5,7 @@ import { ContextMenu, headLine, useMenu, type MenuItem } from "../../ContextMenu
 import { ask } from "../../Confirm";
 import { fuzzyFilter } from "@afflatus/core";
 import { api, raw, type Entity } from "../../api";
+import { ringBy, useKitEdits } from "../../agentEdits";
 import { useAutosave } from "../../autosave";
 import { Select } from "../../Select";
 import { AutoText, Button, Checkbox, cx, Empty, ErrorNote, fieldClass, Segmented, TwoStep } from "../../ui";
@@ -46,6 +47,13 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
     },
     keepalive: (next) => void raw("PUT", `/entities/${snippet.id}`, next, { keepalive: true }).catch(() => {}),
   });
+  // its text changed by an MCP token: the row follows, unless the user has typed something not saved yet (theirs goes after)
+  useEffect(() => {
+    if (!save.pending.current) setText(snippet.def.text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the saved text alone; what waits to be saved is read as it is
+  }, [snippet.def.text]);
+  // changed by an MCP token, not edited by the user since: ringed with its name (agentEdits.ts)
+  const by = useKitEdits((st) => ringBy(st.rings[snippet.id], "text", "category", "style", "name"));
   const remove = useMutation({ mutationFn: () => api.deleteEntity(snippet.id), onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.entities() }) });
   /** The row as it is now, with `over` changed, waits to be saved; `now`: sent at once (a field left, a style chosen). */
   const commit = (over: { name?: string; category?: string; text?: string; style?: Snippet["def"]["style"] } = {}, now = true) => {
@@ -56,6 +64,7 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
     const same = next.name === snippet.name && next.def.text === snippet.def.text && next.def.category === snippet.def.category && next.def.style === snippet.def.style;
     // a change typed and then undone by hand still goes: the one before it is waiting, or on its way
     if (same && !save.pending.current) return;
+    useKitEdits.getState().clear(snippet.id, ["text", "category", "style", "name"]);
     save.queue(next);
     if (now) void save.flush();
   };
@@ -74,7 +83,7 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
     { label: "Delete…", icon: <Trash2 size={14} />, danger: true, run: () => void ask({ title: `Delete the snippet ${snippet.name}?`, text: "It goes from every draft that uses it.", yes: "Delete" }).then((yes) => yes && remove.mutate()) },
   ];
   return (
-    <div onContextMenu={(e) => { if (!(e.target as HTMLElement).closest("input, textarea")) menu.open(e, true); }} className={cx("grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_148px_auto] items-start gap-1.5 rounded-lg px-1.5 py-0.5", ticked ? "bg-accent-wash" : "hover:bg-panel")}>
+    <div onContextMenu={(e) => { if (!(e.target as HTMLElement).closest("input, textarea")) menu.open(e, true); }} data-agent={by} data-tip={by ? `Changed by ${by}` : undefined} className={cx("grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_148px_auto] items-start gap-1.5 rounded-lg px-1.5 py-0.5", ticked ? "bg-accent-wash" : "hover:bg-panel", by && "ring-1 ring-picture/55")}>
       {menu.menu && <ContextMenu at={menu.menu.at} label={`Snippet ${snippet.name}`} head={{ title: snippet.name, sub: headLine("Snippet", snippet.def.category || "no category") }} items={items} onClose={menu.close} />}
       <span className="flex h-8 w-7 items-center justify-center">
         <Checkbox label={`Tick ${snippet.name}`} checked={ticked} onChange={onTick} />

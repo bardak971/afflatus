@@ -232,6 +232,7 @@ export class Queue {
       lane: (id) => this.lanes.get(id),
       unavailable: (machine) => this.unavailable(machine),
       get podFetch() { return self.podFetch; },
+      get capHeld() { return self.capHeld; },
       heldOn: (r) => this.heldOn(r),
       allPaused: () => this.allPaused(),
       retryLater: () => this.retryLater(),
@@ -1334,6 +1335,9 @@ export class Queue {
 
   /** Rented pods' files: set by services.ts. */
   podFetch: PodFetch | null = null;
+
+  /** The waiting jobs of MCP tokens with Spend that no pod takes this pass, each with why (mcpRender.ts capHeld): set by services.ts. */
+  capHeld: ((rows: ReadonlyArray<Pick<JobRow, "id" | "mcp_token_id">>) => Promise<Map<string, string>>) | null = null;
 
   /** What can come to a rented pod: its card, and the node packs that failed there (podPacks.ts, failed for good on a pod). */
   private podPackFacts(lane: Lane): PackFacts {

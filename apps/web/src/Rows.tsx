@@ -15,13 +15,18 @@ const Dense = createContext(false);
  * `dense`: the Prompt kit's look, an 11px upper-case head and 150px names. `help`: what the card is for,
  * behind a ? right after its title (as a row's ? follows its name); `status` stays on the right.
  */
-export function Card({ title, status, sub, help, dense, id, label, setting, children }: { title?: ReactNode; status?: ReactNode; /** A quiet line under the head, in it (a machine's facts). */ sub?: ReactNode; help?: string; dense?: boolean; id?: string; label?: string; setting?: string; children: ReactNode }) {
+export function Card({ title, status, sub, help, dense, id, label, setting, by, children }: {
+  title?: ReactNode; status?: ReactNode; /** A quiet line under the head, in it (a machine's facts). */ sub?: ReactNode; help?: string; dense?: boolean; id?: string; label?: string; setting?: string;
+  /** What it holds was changed by an MCP token, and the user has not edited it since: its name, after the title, and the card ringed in the agent's blue (agentEdits.ts). */
+  by?: string;
+  children: ReactNode;
+}) {
   return (
-    <section id={id} aria-label={label} data-setting={setting} className="overflow-hidden rounded-card border border-line bg-panel shadow-card">
+    <section id={id} aria-label={label} data-setting={setting} data-agent={by} className={cx("overflow-hidden rounded-card border bg-panel shadow-card", by ? "border-picture/55 ring-1 ring-picture/55" : "border-line")}>
       {title && (
         <div className={cx("flex flex-col gap-1.5 border-b border-line", dense ? "min-h-[42px] px-4 py-2" : "min-h-[48px] px-[18px] py-2.5", Boolean(sub) && "pb-3")}>
           <div className="flex min-h-[28px] items-center gap-2.5">
-            <h2 className={cx("min-w-0", dense ? "text-meta font-bold tracking-label text-ink-3 uppercase" : "text-title font-bold")}>{title}</h2>
+            <h2 className={cx("min-w-0", dense ? "text-meta font-bold tracking-label text-ink-3 uppercase" : "text-title font-bold")}>{title}{by && <span className="ml-1.5 font-medium normal-case tracking-normal text-picture">· {by}</span>}</h2>
             {help && <Help text={help} title={typeof title === "string" ? title : label} className="-ml-1" />}
             <span className="grow" />
             {status}
