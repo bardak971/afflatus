@@ -9,7 +9,7 @@ import type { ExportOptions } from "./ExportDialog";
 import { pinInputs, type ShownPatch } from "./model";
 import { sourceKey, type useClipEdits } from "./useClipEdits";
 import { queryKeys } from "../queryKeys";
-import { latestFailure } from "../sayFailed";
+import { latestFailure, useSayFailed } from "../sayFailed";
 import { ask } from "../Confirm";
 import { removalAsk } from "./removalWords";
 
@@ -53,6 +53,9 @@ export function useTimelineMutations(id: string, o: {
   // the same, a mutation pending until the timeline is read back: the trims wait for it before they take another one
   // (useOneTrim), the next one worked out from the change the last one made
   const readBack = () => Promise.all([refresh(), client.invalidateQueries({ queryKey: queryKeys.queue() })]);
+  // a Render refused (a clip carrying on from one with no take, files known to give black frames) is said whichever clip
+  // is open: the clip panel says it too, but only for its own clip. On the mutation itself, so said after the editor is left
+  const renderFailed = useSayFailed({ id: `render:${id}`, once: true, href: `/timelines/${id}`, go: "Open the timeline" });
   const render = useMutation({
     mutationFn: async (v: { clips: Clip[]; takes?: number; machine?: string }) => {
       await save();
@@ -74,6 +77,7 @@ export function useTimelineMutations(id: string, o: {
       return made;
     },
     onSuccess: after,
+    onError: (err) => renderFailed(`Clips of ${o.timeline?.name ?? "this timeline"} could not be rendered`)(err),
   });
   // what was typed over the clip is saved first, then the patch, in the forms' turn: a pin's Mirror sent within half a
   // second of the pin was refused (no picture there yet on the server), or dropped by the inputs' save that came after it

@@ -604,6 +604,10 @@ async function renderClips(s: Services, timeline: string, clips: z.infer<typeof 
       // a recipe that picks up from the last frame of the clip before: that frame is its opening picture, taken when the job starts
       const opening = recipe.inputs.find((x) => x.type === "image" && x.role === "start");
       if (opening && !input[opening.id] && before && clip.joined === "continue" && (recipe.traits?.continues === "frame" || before.kind === "still")) input[opening.id] = FROM_PREVIOUS;
+      // a clip that carries on waits for the take of the clip before queued here, else as Again has it (Timelines.againAfter):
+      // for one on its way, or refused with no take there and none coming, a latent landing opening on nothing (card #128).
+      // Thrown inside enqueueAll, the whole batch is refused, named by the clip
+      const waitFor = before && clip.joined === "continue" ? (pending.get(before.id) ?? (await s.timelines.againAfter(clip.id))) : undefined;
       const next = view.clips[i + 1];
       const count = ask.takes ?? 1;
       const seed = typedSeed(input.seed);
@@ -612,7 +616,7 @@ async function renderClips(s: Services, timeline: string, clips: z.infer<typeof 
         const id = await queue.render(recipe.id, each, {
           label: `${view.name} · clip ${i + 1}${count > 1 ? ` · take ${k + 1} of ${count}` : ""}`,
           who: `Clip ${i + 1}`,
-          dependsOn: before && clip.joined === "continue" ? pending.get(before.id) : undefined,
+          dependsOn: waitFor,
           // a clip rendered together with the one after it has nothing to fit: that one is made to follow it
           // with its Mirror as it is now: a flip changed while it waits is for the next render
           clip: { id: clip.id, fit: ask.fit ?? (clip.fitNext && !(next && wanted.has(next.id))), mirror: clip.pinMirror },
