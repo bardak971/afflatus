@@ -410,11 +410,10 @@ async function partChains(parts: ExportPart[], files: string[], which: number[],
         // its parts, from what plays of it (its own time): the song from its recording, its own sound elsewhere, end to end
         const from = soundFrom - p.soundParts.offsetMs;
         const to = soundTo - p.soundParts.offsetMs;
-        const cutTo = p.soundParts.parts.flatMap((s) => {
-          const a = Math.max(from, s.fromMs);
-          const b = Math.min(to, s.toMs);
-          return b - a >= 0.5 ? [{ ...s, a, b }] : [];
-        });
+        const within = p.soundParts.parts.filter((s) => s.toMs > from && s.fromMs < to);
+        // the first and the last stretched to where its sound is cut, on its frames (up to half a frame past its parts' ends,
+        // 895.83 against 896 ms): left short, ffmpeg padded the difference with silence and the song stepped there
+        const cutTo = within.map((s, k) => ({ ...s, a: k === 0 ? from : Math.max(from, s.fromMs), b: k === within.length - 1 ? to : Math.min(to, s.toMs) }));
         // the song carried on from exactly where the part before left it, when they meet within a frame: each part's sound is
         // cut on its own frames (5166.67 ms) and its part of the song was set to the millisecond (5167), and the song stepped by
         // a third of a millisecond at every join. A shift that small is no lip sync's
@@ -427,7 +426,7 @@ async function partChains(parts: ExportPart[], files: string[], which: number[],
         const labels: string[] = [];
         for (const [k, s] of pieces.entries()) {
           const src = s.kind === "own" ? main : (await inputs.add(`song${i}-${k}.${s.ext}`, s.source)).index;
-          chains.push(`[${src}:a]atrim=start=${fine(s.atS * 1000 + s.a - s.fromMs)}:duration=${fine(s.b - s.a)},asetpts=PTS-STARTPTS,${STEREO},volume=${s.gainDb.toFixed(2)}dB,${loud}[as${i}_${k}]`);
+          chains.push(`[${src}:a]atrim=start=${fine(Math.max(0, s.atS * 1000 + s.a - s.fromMs))}:duration=${fine(s.b - s.a)},asetpts=PTS-STARTPTS,${STEREO},volume=${s.gainDb.toFixed(2)}dB,${loud}[as${i}_${k}]`);
           labels.push(`[as${i}_${k}]`);
         }
         chains.push(labels.length
