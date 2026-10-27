@@ -51,12 +51,12 @@ describe("sweep", () => {
     expect((await row(restarted))!.deleted_at).toBeNull();
   });
 
-  it("erases what the timeline worked out of a video along with it: its film strips, motion, scene cuts, a sound's pauses, colour along it, join scores and a take's sound end", async () => {
+  it("erases what the timeline worked out of a video along with it: its film strips, motion, scene cuts, a sound's pauses, colour along it, join scores, a take's sound end and a recording's gain", async () => {
     const old = await add({ madeAgo: 0, kept: true, binnedAgo: BIN_MS + HOUR, durationMs: 30_000 });
     const keys = derivedKeys({ id: old, duration_ms: 30_000 });
     const dir = old.slice(0, 2);
     // the strips under their names since `-2`, and under the names before
-    expect(keys).toEqual([`strips/${dir}/${old}-2.jpg`, `strips/${dir}/${old}-30x48-2.jpg`, `strips/${dir}/${old}.jpg`, `strips/${dir}/${old}-30x48.jpg`, `motion/${dir}/${old}.json`, `scenes/${dir}/${old}.json`, `pauses/${dir}/${old}.json`, `means/${dir}/${old}.json`, `joins/${dir}/${old}.json`, `sounds/${dir}/${old}.json`]);
+    expect(keys).toEqual([`strips/${dir}/${old}-2.jpg`, `strips/${dir}/${old}-30x48-2.jpg`, `strips/${dir}/${old}.jpg`, `strips/${dir}/${old}-30x48.jpg`, `motion/${dir}/${old}.json`, `scenes/${dir}/${old}.json`, `pauses/${dir}/${old}.json`, `means/${dir}/${old}.json`, `joins/${dir}/${old}.json`, `sounds/${dir}/${old}.json`, `gains/${dir}/${old}.json`]);
     for (const key of keys) await t.services.storage.put(key, new Uint8Array([1]));
 
     expect(await sweep(t.db, t.services.storage)).toEqual({ binned: 0, erased: 1 });

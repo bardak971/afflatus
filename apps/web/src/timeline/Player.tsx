@@ -9,7 +9,7 @@ import { FullscreenBar, type ScreenControls } from "./FullscreenBar";
 import { cx } from "../ui";
 import { playSignature } from "./model";
 import { useHandover } from "./useHandover";
-import { useSoundFill } from "./useSoundFill";
+import { heardByVideo, useSong } from "./useSong";
 import { PLAYER_FRAMES } from "./transitionLook";
 import { useRunningOf } from "./useRunning";
 import { useQueueOf } from "../screens/studio/queueOf";
@@ -86,6 +86,8 @@ export const Player = forwardRef<PlayerHandle, {
   const musicEl = useRef<HTMLAudioElement>(null);
   /** Where the clip on screen is, and when that was last worked out (a picture has no clock of its own). */
   const pos = useRef({ key: "", local: 0, at: 0 });
+  /** How many times it was put somewhere by a seek (not by going on to the next clip): the song is put back there (useSong). */
+  const seeks = useRef(0);
   const said = useRef(0);
   const at = Math.min(cur, Math.max(0, seq.length - 1));
   const now = seq[at];
@@ -184,6 +186,7 @@ export const Player = forwardRef<PlayerHandle, {
       armed.current = false;
       // a seek ends a dissolve; the hand-over to the clip after starts one (see step)
       if (!onward) {
+        seeks.current++;
         window.clearTimeout(thaw.current);
         setFrozen(null);
         stopCross();
@@ -272,9 +275,10 @@ export const Player = forwardRef<PlayerHandle, {
     if (!now?.take) return;
     const el = els.current.get(now.take.id);
     if (!el) return;
-    el.muted = now.sound !== "own";
+    // muted for good where its sound plays as parts (heardByVideo)
+    el.muted = now.sound !== "own" || Boolean(now.soundParts);
     el.volume = Math.max(0, Math.min(1, (now.volume / 100) * master));
-  }, [now?.take, now?.sound, now?.volume, nowKey, master]);
+  }, [now?.take, now?.sound, now?.soundParts, now?.volume, nowKey, master]);
   useEffect(() => {
     if (clipSound.current) clipSound.current.volume = Math.max(0, Math.min(1, ((now?.volume ?? 100) / 100) * master));
     // the music too, at once (it is retuned as it plays)
@@ -317,8 +321,15 @@ export const Player = forwardRef<PlayerHandle, {
 
   // the frame loop while it plays, and the hand-over from one clip to the next (useHandover.ts)
   const step = useHandover({ seq, at, playing, els, pos, said, masterRef, fadeOn, fadedIn, handReady, armed, thaw, crossOn, cross, setFrozen, setFading, place, onPlaying, onTime, stopAt, tuneMusic, keyOf, startOf });
-  // a take's sound that stops short of its frames before a cut, filled from its recording as the export does (useSoundFill.ts)
-  useSoundFill({ seq, at, playing, els, masterRef });
+  // the song under Lip sync clips played from its recording as one track, as the export lays it (useSong.ts): from the
+  // playhead, read off the clip on screen
+  const whereNow = () => {
+    const c = seq[at];
+    if (!c) return 0;
+    const el = c.take ? els.current.get(c.take.id) : undefined;
+    return c.atMs + (el && el.readyState >= 1 ? el.currentTime * 1000 - startOf(c) : pos.current.local);
+  };
+  useSong({ seq, at, playing, els, masterRef, where: whereNow, seeks });
 
   // the screen: as large as fits, in the timeline's shape
   const box = useRef<HTMLDivElement>(null);
@@ -378,7 +389,7 @@ export const Player = forwardRef<PlayerHandle, {
                 onLoadedMetadata={(e) => {
                   e.currentTarget.currentTime = (c.take!.startMs + (pos.current.key === c.take!.id ? pos.current.local : 0)) / 1000;
                   if (c === now) {
-                    e.currentTarget.muted = c.sound !== "own";
+                    e.currentTarget.muted = !heardByVideo(c);
                     e.currentTarget.volume = Math.max(0, Math.min(1, (c.volume / 100) * masterRef.current));
                   }
                 }}

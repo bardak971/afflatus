@@ -38,6 +38,7 @@ export function derivedKeys(asset: { id: string; duration_ms: number | null }): 
     `means/${dir}/${asset.id}.json`,
     `joins/${dir}/${asset.id}.json`,
     `sounds/${dir}/${asset.id}.json`,
+    `gains/${dir}/${asset.id}.json`,
   ];
 }
 

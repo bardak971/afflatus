@@ -662,31 +662,14 @@ async function reportOf(args: string[], whole = false): Promise<string> {
 }
 
 /**
- * Where a take's own sound ends (ms of its file), and the gain (dB) that brings its recording to the take's level there: a
- * take under a recording carries that recording as its sound, evened out by one gain (soundPart's `even`) and encoded,
- * and its sound track ends a little before its frames (the encoder's last packet: 30 ms on Timeline 6's clip 7). What fills
- * that end (core soundFill) is the recording itself, at the take's level: both read over the last second the take sounds,
- * the recording from `songAt(soundMs)` back. Null when either has no sound to read.
+ * The gain (dB) a recording cut into clips was evened out by (soundPart's `even` with `evenWhole`): evenGain over all of it,
+ * the same figure each clip's part was laid at. Null when its loudness could not be measured.
  */
-export async function soundTailOf(take: Media, takeExt: string, recording: Media, recordingExt: string, songAt: (soundMs: number) => number): Promise<{ soundMs: number; gainDb: number } | null> {
-  return inTemp(async (dir) => {
-    const input = await onDisk(dir, `take.${takeExt}`, take);
-    const rec = await onDisk(dir, `rec.${recordingExt}`, recording);
-    const said = (await must(tools.ffprobe, ["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=duration", "-of", "csv=p=0", input]).catch(() => "")).trim();
-    const soundMs = Math.round(Number(said) * 1000);
-    if (!(soundMs > 0)) return null;
-    const span = Math.min(1, soundMs / 1000);
-    const end = songAt(soundMs);
-    if (!(end - span >= 0)) return null;
-    const mean = async (file: string, from: number) => Number(/mean_volume:\s*(-?[\d.]+) dB/.exec(await reportOf(["-ss", from.toFixed(6), "-t", span.toFixed(6), "-i", file, "-vn", "-af", "volumedetect"]))?.[1] ?? NaN);
-    const own = await mean(input, soundMs / 1000 - span);
-    const theirs = await mean(rec, end - span);
-    if (!Number.isFinite(own) || !Number.isFinite(theirs) || own < -80 || theirs < -80) return { soundMs, gainDb: 0 };
-    return { soundMs, gainDb: Math.round((own - theirs) * 100) / 100 };
-  });
+export async function wholeGainOf(source: Media, ext: string): Promise<number | null> {
+  return inTemp(async (dir) => evenGain(await onDisk(dir, `in.${ext}`, source)));
 }
 
-/** A moment of a sound as WAV (48 kHz, stereo): `ms` from `fromS` seconds. What the player fills a take's end with (useSoundFill). */
+/** A moment of a sound as WAV (48 kHz, stereo): `ms` from `fromS` seconds. What the player plays the song under Lip sync clips from (useSong). */
 export async function soundSlice(source: Media, ext: string, fromS: number, ms: number): Promise<Uint8Array> {
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);

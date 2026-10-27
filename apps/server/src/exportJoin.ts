@@ -45,11 +45,11 @@ export interface ExportPart {
    */
   headSoundMs?: number;
   /**
-   * Its take's own sound stops short of its frames at `fromMs` (its video's time) and the part after does not carry on: the
-   * rest is its recording itself from `songS` (seconds into it), at the take's level there (`gainDb`), not silence
-   * (Timelines.soundFillFor, timelineSoundFill.ts). Never on a part whose sound hands over to the part after.
+   * What is heard of it, as parts (timelineSong.ts): the song under Lip sync clips from its recording, else the take's own
+   * sound, each from `atS` of its source at its gain, over the clip's own time (ms from where it starts playing, the video's
+   * `offsetMs`). The player plays the same parts (useSong): the song runs on across joins and cuts to the sample.
    */
-  soundFill?: { source: Media; ext: string; fromMs: number; songS: number; gainDb: number };
+  soundParts?: { offsetMs: number; parts: Array<{ kind: "song" | "own"; fromMs: number; toMs: number; atS: number; gainDb: number; source: Media; ext: string }> };
   /** Its video's frame means as kept beside it (TimelineMedia.means): the colour match reads them rather than measure the file again. */
   means?: FrameMeans | null;
   /**
@@ -361,9 +361,13 @@ async function colourLooks(parts: ExportPart[], files: string[], match: boolean)
 async function partChains(parts: ExportPart[], files: string[], which: number[], inputs: Inputs, size: { W: number; H: number }, fps: number, looks: string[]): Promise<string[]> {
   const { W, H } = size;
   const chains: string[] = [];
+  /** Where the song stopped at the end of the part before (soundParts): the next part's song carries on from there. */
+  let songLeft: { source: Media; endS: number } | null = null;
   for (const i of which) {
     const p = parts[i]!;
     const length = sec(p.endMs - p.startMs);
+    const carried: { source: Media; endS: number } | null = songLeft;
+    songLeft = null;
     const { index: main } = await inputs.add(`part${i}.${p.ext}`, files[i]!, p.kind === "still" ? ["-loop", "1", "-t", length] : []);
     const fit = p.fill
       ? `scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H}`
@@ -402,13 +406,33 @@ async function partChains(parts: ExportPart[], files: string[], which: number[],
         chains.push(`[${main}:a]atrim=start=${t(soundFrom)}:end=${t(soundTo - hand)},asetpts=PTS-STARTPTS,${STEREO},${loud},apad,atrim=duration=${own}[ao${i}]`);
         chains.push(`[${head}:a]atrim=start=${t(nextFrom - hand)}:end=${t(nextFrom)},asetpts=PTS-STARTPTS,${STEREO},volume=${Math.max(0, next!.volume).toFixed(2)},apad,atrim=duration=${t(hand)}[ah${i}]`);
         chains.push(`[ao${i}][ah${i}]concat=n=2:v=0:a=1,apad,atrim=duration=${t(heardMs)}${fades}[a${i}]`);
-      } else if (p.soundFill && p.soundFill.fromMs > soundFrom && p.soundFill.fromMs < soundTo) {
-        // its own sound to where it stops, then its recording for the rest, at the take's level: the song goes on to the cut
-        const f = p.soundFill;
-        const rec = (await inputs.add(`fill${i}.${f.ext}`, f.source)).index;
-        chains.push(`[${main}:a]atrim=start=${t(soundFrom)}:end=${t(f.fromMs)},asetpts=PTS-STARTPTS,${STEREO},${loud}[ao${i}]`);
-        chains.push(`[${rec}:a]atrim=start=${(f.songS).toFixed(6)}:duration=${t(soundTo - f.fromMs)},asetpts=PTS-STARTPTS,${STEREO},volume=${f.gainDb.toFixed(2)}dB,${loud}[af${i}]`);
-        chains.push(`[ao${i}][af${i}]concat=n=2:v=0:a=1,apad,atrim=duration=${t(heardMs)}${fades}[a${i}]`);
+      } else if (p.soundParts) {
+        // its parts, from what plays of it (its own time): the song from its recording, its own sound elsewhere, end to end
+        const from = soundFrom - p.soundParts.offsetMs;
+        const to = soundTo - p.soundParts.offsetMs;
+        const cutTo = p.soundParts.parts.flatMap((s) => {
+          const a = Math.max(from, s.fromMs);
+          const b = Math.min(to, s.toMs);
+          return b - a >= 0.5 ? [{ ...s, a, b }] : [];
+        });
+        // the song carried on from exactly where the part before left it, when they meet within a frame: each part's sound is
+        // cut on its own frames (5166.67 ms) and its part of the song was set to the millisecond (5167), and the song stepped by
+        // a third of a millisecond at every join. A shift that small is no lip sync's
+        const first = cutTo[0];
+        const firstS = first ? first.atS + (first.a - first.fromMs) / 1000 : 0;
+        const shift: number = first?.kind === "song" && carried && carried.source === first.source && Math.abs(carried.endS - firstS) < 0.025 ? carried.endS - firstS : 0;
+        const pieces = cutTo.map((s) => (s.kind === "song" ? { ...s, atS: s.atS + shift } : s));
+        const last = pieces.at(-1);
+        if (last?.kind === "song") songLeft = { source: last.source, endS: last.atS + (last.b - last.fromMs) / 1000 };
+        const labels: string[] = [];
+        for (const [k, s] of pieces.entries()) {
+          const src = s.kind === "own" ? main : (await inputs.add(`song${i}-${k}.${s.ext}`, s.source)).index;
+          chains.push(`[${src}:a]atrim=start=${fine(s.atS * 1000 + s.a - s.fromMs)}:duration=${fine(s.b - s.a)},asetpts=PTS-STARTPTS,${STEREO},volume=${s.gainDb.toFixed(2)}dB,${loud}[as${i}_${k}]`);
+          labels.push(`[as${i}_${k}]`);
+        }
+        chains.push(labels.length
+          ? `${labels.join("")}concat=n=${labels.length}:v=0:a=1,apad,atrim=duration=${t(heardMs)}${fades}[a${i}]`
+          : `anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=${t(heardMs)}[a${i}]`);
       } else chains.push(`[${main}:a]atrim=start=${t(soundFrom)}:end=${t(soundTo)},asetpts=PTS-STARTPTS,${STEREO},${loud},apad,atrim=duration=${t(heardMs)}${fades}[a${i}]`);
     } else if (p.sound === "file" && p.soundFile) {
       const sound = (await inputs.add(`sound${i}.${p.soundFile.ext}`, p.soundFile.source)).index;

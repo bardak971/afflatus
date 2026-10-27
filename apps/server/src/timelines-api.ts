@@ -517,9 +517,9 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     return cached(req, reply).send(await t.media.scenes(req.params.id));
   });
 
-  /** A moment of a sound as WAV, a second at most: what the player fills the end of a take with before a cut (its clip's soundFill). */
+  /** A moment of a sound as WAV, six seconds at most: what the player plays the song under Lip sync clips from, a few seconds at a time (its clips' soundParts). */
   app.get<{ Params: { id: string }; Querystring: { from?: string; ms?: string } }>("/api/assets/:id/slice", async (req, reply) => {
-    const q = z.object({ from: z.coerce.number().min(0), ms: z.coerce.number().min(1).max(1000) }).parse(req.query);
+    const q = z.object({ from: z.coerce.number().min(0), ms: z.coerce.number().min(1).max(6000) }).parse(req.query);
     return cached(req, reply).header("Content-Type", "audio/wav").send(Buffer.from(await t.media.slice(req.params.id, q.from, q.ms)));
   });
 

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { frameName, nameOf } from "./autoName";
-import { CutError, filmStrip, frameAt, KEYFRAME_STRIP_MS, linesOf, pausesOf, peekAt, soundSlice, soundTailOf } from "./cut";
+import { CutError, filmStrip, frameAt, KEYFRAME_STRIP_MS, linesOf, pausesOf, peekAt, soundSlice, wholeGainOf } from "./cut";
 import { colourNudge, MATCH, type FrameMeans, type Means, measureOf, meansAlong, meansWithin, MOTION_RATE, scenesOf, takeMeasures } from "./measure";
 import { joinJump, lastFrameAt, LEAST_MOTION } from "./joinScore";
 import { newId, now } from "./db";
@@ -47,7 +47,7 @@ export const keptKey = {
   motion: (id: string) => `motion/${id.slice(0, 2)}/${id}.json`,
   strip: (id: string) => stripKey(id),
   means: (id: string) => `means/${id.slice(0, 2)}/${id}.json`,
-  sound: (id: string) => `sounds/${id.slice(0, 2)}/${id}.json`,
+  gain: (id: string) => `gains/${id.slice(0, 2)}/${id}.json`,
 };
 
 /** The motion and loudness of a video as they are kept (TimelineMedia.motion): ten samples a second, the motion to a tenth. */
@@ -182,33 +182,31 @@ export class TimelineMedia {
     return made;
   }
 
-  /** A take's sound end and level against its recording, as being read or once read: the files do not change. The last two hundred. */
-  private tails = new Map<string, Promise<{ soundMs: number; gainDb: number } | null>>();
+  /** Each recording's whole gain, as being read or once read: the files do not change. The last two hundred. */
+  private gains = new Map<string, Promise<number | null>>();
 
   /**
-   * Where a take's own sound ends and the gain bringing its recording to its level there (cut.ts soundTailOf), worked out
-   * once and kept beside the take: what fills a cut after it from the recording (timelineSoundFill.ts). `songAt` reads the
-   * moment of the recording at a time of the take's file. Null when it could not be read: asked again next time.
+   * The gain a recording cut into clips was evened out by (cut.ts wholeGainOf), worked out once and kept beside it: the
+   * level the song under its Lip sync clips plays at (timelineSong.ts). Null when it could not be measured: asked again
+   * next time.
    */
-  soundTail(take: AssetRow, recording: AssetRow, songAt: (fileMs: number) => number): Promise<{ soundMs: number; gainDb: number } | null> {
-    const id = `${take.id}:${recording.id}`;
-    let got = this.tails.get(id);
+  songGain(recording: AssetRow): Promise<number | null> {
+    let got = this.gains.get(recording.id);
     if (!got) {
       const { storage } = this.core;
-      const key = keptKey.sound(take.id);
+      const key = keptKey.gain(recording.id);
       got = (async () => {
         const have = await storage.get(key).catch(() => null);
-        const kept = have ? readKept<{ recording: string; soundMs: number; gainDb: number }>(have) : null;
-        if (kept && kept.recording === recording.id && Number.isFinite(kept.soundMs) && Number.isFinite(kept.gainDb)) return { soundMs: kept.soundMs, gainDb: kept.gainDb };
-        const made = await soundTailOf(await this.source(take), extOf(take.mime), await this.source(recording), extOf(recording.mime), songAt);
-        if (made) await storage.put(key, new TextEncoder().encode(JSON.stringify({ recording: recording.id, ...made })));
+        const kept = have ? readKept<{ gainDb: number }>(have) : null;
+        if (kept && Number.isFinite(kept.gainDb)) return kept.gainDb;
+        const made = await wholeGainOf(await this.source(recording), extOf(recording.mime));
+        if (made !== null) await storage.put(key, new TextEncoder().encode(JSON.stringify({ gainDb: made })));
         return made;
       })().catch(() => null);
-      this.tails.set(id, got);
-      capped(this.tails, 200);
-      // a failure is not kept: read again at the next ask
+      this.gains.set(recording.id, got);
+      capped(this.gains, 200);
       const settling = got;
-      void settling.then((v) => { if (v === null && this.tails.get(id) === settling) this.tails.delete(id); });
+      void settling.then((v) => { if (v === null && this.gains.get(recording.id) === settling) this.gains.delete(recording.id); });
     }
     return got;
   }
@@ -432,7 +430,7 @@ export class TimelineMedia {
   }
 
   /** One small picture of a moment of a video, for a hover over the trim bar. Not kept. */
-  /** A moment of a sound (or a video's sound) as WAV: what the player fills a take's end with (cut.ts soundSlice). */
+  /** A moment of a sound (or a video's sound) as WAV: what the player plays the song under Lip sync clips from (cut.ts soundSlice). */
   async slice(assetId: string, fromS: number, ms: number): Promise<Uint8Array> {
     const sound = await this.core.assetRow(assetId);
     if (!sound || (sound.kind !== "audio" && sound.kind !== "video")) throw notFound("this sound");
