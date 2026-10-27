@@ -355,6 +355,15 @@ def face_frame(box, width: int, height: int, wide: int, high: int, factor: float
     return int(left), int(top), int(w), int(h)
 
 
+def centre_frame(width: int, height: int, wide: int, high: int) -> tuple[int, int, int, int]:
+    """The box (left, top, w, h) of the clip's frame shape (`wide` x `high`), as large as the picture holds, in its middle:
+    the cut of a picture with no face found."""
+    fit = min(width / wide, height / high)
+    w = max(1, min(round(wide * fit), width))
+    h = max(1, min(round(high * fit), height))
+    return (width - w) // 2, (height - h) // 2, w, h
+
+
 def _scaled(image, wide: int, high: int):
     """A ComfyUI image batch brought to wide x high (bilinear, as MSR's guide resizes)."""
     import comfy.utils
@@ -369,7 +378,7 @@ class AfflatusFaceFrame(io.ComfyNode):
     (landscape, square, portrait); any other it fits whole on a white canvas. Face Crop's square in a 16:9 clip was laid
     between white bars, and a clip that did not carry on from the one before copied them into its frames (Timeline 10,
     2026-10-25, card #91). Cut to the frame's shape at its size, the picture fills the slot. Without a face found, or when
-    InsightFace fails, the picture goes on whole, as Face Crop's.
+    InsightFace fails, it is cut to the frame's shape in its middle: given whole, a portrait was laid between the bars again.
     """
 
     @classmethod
@@ -378,7 +387,7 @@ class AfflatusFaceFrame(io.ComfyNode):
             node_id="AfflatusFaceFrame",
             display_name="Afflatus: Face Crop to Frame",
             category="Afflatus",
-            description="The picture cut around its largest face (InsightFace's detector, on the CPU) to the frame's shape, its short side 2.5 face heights, kept inside the picture, then brought to the frame's size. Without a face found, the picture as it is.",
+            description="The picture cut around its largest face (InsightFace's detector, on the CPU) to the frame's shape, its short side 2.5 face heights, kept inside the picture, then brought to the frame's size. Without a face found, cut to the frame's shape in its middle.",
             inputs=[
                 io.Image.Input("image", tooltip="A person's picture: its first image is read, the batch cut where its face is."),
                 io.Int.Input("width", default=1280, min=16, max=8192, step=8, tooltip="The clip's frame width."),
@@ -390,15 +399,18 @@ class AfflatusFaceFrame(io.ComfyNode):
 
     @classmethod
     def execute(cls, image, width: int, height: int, factor: float = FACE_SQUARE) -> io.NodeOutput:
-        # a better reference, never a failed render: whatever goes wrong here, the picture goes on as it was given
+        # a better reference, never a failed render: whatever goes wrong here, the picture is still cut to the frame's shape
+        # (MSR would lay it whole between white bars), in its middle
+        pw, ph = int(image.shape[2]), int(image.shape[1])
         try:
             box = AfflatusFaceCrop._largest(image)
         except Exception as err:  # noqa: BLE001 — any error of InsightFace or of a picture it cannot read
-            print(f"[afflatus-nodes] Face Crop to Frame: the picture is taken whole ({str(err)[:200]})")
-            return io.NodeOutput(image)
-        if box is None:
-            return io.NodeOutput(image)
-        left, top, w, h = face_frame(box, int(image.shape[2]), int(image.shape[1]), width, height, factor)
+            print(f"[afflatus-nodes] Face Crop to Frame: no face read, the picture is cut in its middle ({str(err)[:200]})")
+            box = None
+        else:
+            if box is None:
+                print("[afflatus-nodes] Face Crop to Frame: no face found, the picture is cut in its middle")
+        left, top, w, h = face_frame(box, pw, ph, width, height, factor) if box is not None else centre_frame(pw, ph, width, height)
         cut = image[:, top : top + h, left : left + w, :]
         return io.NodeOutput(cut if (w, h) == (width, height) else _scaled(cut, width, height))
 

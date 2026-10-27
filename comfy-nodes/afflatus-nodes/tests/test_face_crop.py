@@ -149,16 +149,37 @@ def test_the_frame_cut_of_the_frame_size_already_is_not_scaled(monkeypatch):
     assert cut.shape == (1, 704, 1280, 3)
 
 
-def test_the_frame_cut_without_a_face_or_when_insightface_fails_leaves_the_picture_whole(monkeypatch):
+def test_the_frame_cut_without_a_face_or_when_insightface_fails_is_the_frame_shape_in_the_middle(monkeypatch):
+    # B23 (review 2026-10-27): given whole, a picture with no face found (a person from behind) was laid between white bars
     picture = portrait(800, 600)
+    asked = []
+
+    def scaled(image, wide, high):
+        asked.append((image.shape, int(image.a[0, 0, 0, 1]), wide, high))
+        return Batch(np.zeros((1, high, wide, 3), dtype=np.float32))
+
+    monkeypatch.setattr(face_match, "_scaled", scaled)
     found(monkeypatch, [10, 10, 300, 300, 0.3])
-    assert face_match.AfflatusFaceFrame.execute(picture, 1280, 704).args == (picture,)
+    (cut,) = face_match.AfflatusFaceFrame.execute(picture, 1280, 704).args
+    assert cut.shape == (1, 704, 1280, 3)
 
     def broken():
         raise RuntimeError("no model files")
 
     monkeypatch.setattr(face_match, "_face_app", broken)
-    assert face_match.AfflatusFaceFrame.execute(picture, 1280, 704).args == (picture,)
+    (cut,) = face_match.AfflatusFaceFrame.execute(picture, 1280, 704).args
+    assert cut.shape == (1, 704, 1280, 3)
+    # both times an 800 x 440 cut of the 800 x 600 picture: its whole width, of the frame's shape, from row 80
+    assert asked == [((1, 440, 800, 3), 80, 1280, 704)] * 2
+
+
+def test_the_middle_cut_is_the_largest_of_the_frame_shape_the_picture_holds():
+    # a 600 x 800 portrait in a 1280 x 704 clip: its whole width, 330 px tall, in the middle
+    assert face_match.centre_frame(600, 800, 1280, 704) == (0, 235, 600, 330)
+    # a wide picture in a portrait clip: its whole height
+    assert face_match.centre_frame(4000, 1000, 704, 1280) == (1725, 0, 550, 1000)
+    # the frame's shape already: the whole picture
+    assert face_match.centre_frame(1280, 704, 1280, 704) == (0, 0, 1280, 704)
 
 
 # Face Backdrop (card #81): MSR redid a reference photo's own setting rather than the scene asked
