@@ -208,3 +208,60 @@ export const useKitEdits = create<{
 
 /** Who changed one of these parts of a kit item and left its ring (the first ringed), for a card that shows them together. */
 export const ringBy = (rings: Readonly<Record<string, string>> | undefined, ...keys: string[]): string | undefined => keys.map((k) => rings?.[k]).find(Boolean);
+
+/**
+ * A timeline changed from outside, by an MCP token (the server's mcpTimelines.ts TimelineEdit, a "timelineEdit" live event):
+ * what it did in a few words, the clips it touched, and the step Undo would take back now. The editor open on it reads
+ * the timeline again as on any change ("timeline"), says this one in a toast whose Undo takes that step alone back, and
+ * rings the clips until the user selects them.
+ */
+export interface TimelineEdit {
+  id: string;
+  by: string;
+  token: string;
+  at: string;
+  said: string;
+  clips: string[];
+  step: string | null;
+  /** Sent before the change is made: a token is changing the timeline now (nothing to say yet; the zoom is left alone). */
+  going?: true;
+}
+
+/** How long after a token's change was heard the clips it adds are taken for its own (useTrackZoom leaves the zoom then). */
+export const AGENT_MS = 15_000;
+
+/**
+ * The timeline edits heard and the rings they leave: by timeline, each ringed clip and the token's name. `seq` moves with
+ * each edit heard; `going`, by timeline, when a token was last heard changing it.
+ */
+export const useTimelineEdits = create<{
+  seq: number;
+  last: TimelineEdit | null;
+  rings: Record<string, Record<string, string>>;
+  going: Record<string, number>;
+  heard(e: TimelineEdit): void;
+  /** These clips touched by the user (selected): their rings go. */
+  clear(timeline: string, clips: readonly string[]): void;
+  /** An edit undone: the rings it left go. */
+  forget(e: TimelineEdit): void;
+}>()((set) => ({
+  seq: 0,
+  last: null,
+  rings: {},
+  going: {},
+  heard: (e) => set((s) => {
+    const going = { ...s.going, [e.id]: Date.now() };
+    if (e.going) return { going };
+    return { seq: s.seq + 1, last: e, going, rings: e.clips.length ? { ...s.rings, [e.id]: { ...s.rings[e.id], ...Object.fromEntries(e.clips.map((c) => [c, e.by])) } } : s.rings };
+  }),
+  clear: (timeline, clips) => set((s) => {
+    const was = s.rings[timeline];
+    if (!was || !clips.some((c) => c in was)) return s;
+    return { rings: { ...s.rings, [timeline]: Object.fromEntries(Object.entries(was).filter(([c]) => !clips.includes(c))) } };
+  }),
+  forget: (e) => set((s) => {
+    const was = s.rings[e.id];
+    if (!was) return s;
+    return { rings: { ...s.rings, [e.id]: Object.fromEntries(Object.entries(was).filter(([c, by]) => !e.clips.includes(c) || by !== e.by)) } };
+  }),
+}));

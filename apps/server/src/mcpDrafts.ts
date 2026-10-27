@@ -135,7 +135,7 @@ export async function checkedValue(s: Services, at: Seen, recipe: Recipe<any>, i
 }
 
 /** The cast asked by names ("@Nicolas", "Nicolas") or Prompt kit ids: the people of the kit, refused for a name that is no one's. */
-async function castOf(s: Services, asked: string[]): Promise<Look["cast"]> {
+export async function castOf(s: Services, asked: string[]): Promise<Look["cast"]> {
   const people = await s.db.selectFrom("entities").select(["id", "name"]).where("kind", "=", "person").execute();
   const key = (n: string) => n.toLowerCase().replace(/^@/, "").replace(/[^\p{L}\d]+/gu, "");
   return asked.map((a) => {

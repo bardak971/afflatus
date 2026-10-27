@@ -357,6 +357,13 @@ export class Timelines {
     });
   }
 
+  /** How long each clip of a timeline is drawn, by clip: what it plays, else the length its form asks for (plannedLengthOf, the editor's header's sum). */
+  async plannedOf(id: string): Promise<Map<string, number>> {
+    const t = await this.row(id);
+    const hidden = sourceOfRow(t.source)?.hidden;
+    return new Map((await this.placed(id)).map((p) => [p.clip.id, plannedLengthOf(p, p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined, hidden?.[p.clip.id])]));
+  }
+
   /** `project`: only the timelines of that project; "none": the Inbox; left out: all. */
   async list(project?: string) {
     let q = this.db.selectFrom("timelines").selectAll().where("owner_id", "=", OWNER);
@@ -1873,7 +1880,7 @@ export class Timelines {
    * A change to a clip, checked whole before anything is kept or written: a refused change leaves no empty step, keeps
    * what Redo could do, and writes nothing. The clip and its take change together, or not at all.
    */
-  async editClip(id: string, patch: ClipPatch): Promise<{ inputs?: Record<string, unknown> }> {
+  async editClip(id: string, patch: ClipPatch, opts: { step?: string } = {}): Promise<{ inputs?: Record<string, unknown> }> {
     const row = await this.clipRow(id);
     const timelineId = row.timeline_id;
     const keys = Object.keys(patch).filter((k) => patch[k as keyof ClipPatch] !== undefined);
@@ -1892,13 +1899,14 @@ export class Timelines {
     const part = ask ? await this.voicePart(ask) : null;
     // in the timeline's turn, from the reading of the clips to the writing: a move worked out from the clips as read put
     // a clip added meanwhile at the same place as another
-    const filled = await this.history.oneAtATime(timelineId, () => this.editClipInTurn(id, patch, keys, ask && part ? { ask, part } : null));
+    const filled = await this.history.oneAtATime(timelineId, () => this.editClipInTurn(id, patch, keys, ask && part ? { ask, part } : null, opts.step));
     await this.touch(timelineId);
     // the form as kept, when the server worked out some of it: the editor shows it in place of what it sent
     return filled ? { inputs: filled } : {};
   }
 
-  private async editClipInTurn(id: string, asked: ClipPatch, keys: string[], voice: { ask: VoiceAsk; part: { start: number; seconds: number } } | null): Promise<Record<string, unknown> | null> {
+  /** `step`: the change kept as a step of its own under this label (an MCP token's edit of a form), never folded into the one being typed. */
+  private async editClipInTurn(id: string, asked: ClipPatch, keys: string[], voice: { ask: VoiceAsk; part: { start: number; seconds: number } } | null, step?: string): Promise<Record<string, unknown> | null> {
     // read again in the turn: the clip may have changed while the turn was waited for
     const clip = await this.clipRow(id);
     // its voice's part, laid on the form when the clip as it is now still asks for the one worked out (Timelines.voicePart)
@@ -1907,7 +1915,8 @@ export class Timelines {
     const patch: ClipPatch = fill ? { ...asked, inputs: { ...asked.inputs, ...fill } } : asked;
     const all = await this.placed(clip.timeline_id);
     const checked = await this.checkClipPatch(clip, patch, all);
-    if (keys.every((k) => k === "inputs" || k === "share") && patch.inputs !== undefined && !patch.share) await this.rememberWriting(clip, all);
+    if (step && keys.length) await this.remember(clip.timeline_id, step);
+    else if (keys.every((k) => k === "inputs" || k === "share") && patch.inputs !== undefined && !patch.share) await this.rememberWriting(clip, all);
     else if (patch.settingsOf !== undefined) await this.remember(clip.timeline_id, `the settings of take ${checked.settingsOf}`);
     else if (keys.length) await this.remember(clip.timeline_id, labelOf(patch));
 

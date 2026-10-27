@@ -142,7 +142,15 @@ export async function capHeld(s: Services, rows: ReadonlyArray<{ id: string; mcp
  * on rented pods its Spend and its cap with what it has waiting and running counted. Answers what they may cost (USD).
  */
 export async function mayQueue(s: Services, ctx: ToolCtx, at: Seen, o: { recipe: string; input: unknown; takes: number; machine?: Machine; renders: boolean }): Promise<number> {
-  if (o.renders) await ctx.mayRender(o.takes);
+  return mayQueueAll(s, ctx, at, [o], { machine: o.machine, renders: o.renders ? o.takes : 0 });
+}
+
+/**
+ * The same for several jobs sent together (a timeline's clips, a finish): each `takes` times, `renders` of them counted
+ * against the renders an hour, their costs on rented pods added up before the cap is asked. What they may cost (USD).
+ */
+export async function mayQueueAll(s: Services, ctx: ToolCtx, at: Seen, jobs: ReadonlyArray<{ recipe: string; input: unknown; takes: number }>, o: { machine?: Machine; renders: number }): Promise<number> {
+  if (o.renders) await ctx.mayRender(o.renders);
   const rates = podsOf(s, at.machines.map((m) => m.machine));
   // the pods the queue may send it to: those up now (a stopped pod takes nothing until it is started)
   const pods = at.machines.map((m) => m.machine).filter((m) => m.rented && rates.get(m.id)?.up);
@@ -153,7 +161,8 @@ export async function mayQueue(s: Services, ctx: ToolCtx, at: Seen, o: { recipe:
   }
   const may = o.machine ? (o.machine.rented ? [o.machine] : []) : pods;
   if (!may.length) return 0;
-  const usd = (await mayCostEach(s, o.recipe, o.input, may, rates)) * o.takes;
+  let usd = 0;
+  for (const j of jobs) usd += (await mayCostEach(s, j.recipe, j.input, may, rates)) * j.takes;
   await ctx.maySpend(usd + (await committedSpend(s, at.machines.map((m) => m.machine), ctx.token.id)));
   return usd;
 }

@@ -713,7 +713,7 @@ export const api = {
   windowForm: (id: string, clip: string, recipe: string) => call<{ ok: true }>("POST", `/timelines/${id}/source/window`, { clip, recipe }),
   /** The source split at a moment of it (its own time): the part before, a clip playing it as it is. */
   splitSource: (id: string, atMs: number) => call<{ clip: string }>("POST", `/timelines/${id}/source/split`, { atMs: Math.round(atMs) }),
-  undoTimeline: (id: string) => call<{ undone: string; said?: string }>("POST", `/timelines/${id}/undo`),
+  undoTimeline: (id: string, step?: string) => call<{ undone: string; said?: string }>("POST", `/timelines/${id}/undo`, step ? { step } : undefined),
   redoTimeline: (id: string) => call<{ redone: string; said?: string }>("POST", `/timelines/${id}/redo`),
   /** A copy of the clip right after it, with its takes. */
   duplicateClip: (id: string) => call<{ clip: string }>("POST", `/clips/${id}/duplicate`),

@@ -131,24 +131,43 @@ export async function maskBox(bytes: Uint8Array): Promise<{ width: number; heigh
  * compare shows an agent, which sees one picture more easily than four. Null when it cannot be made (no image library, a
  * picture that does not open).
  */
-export async function sideBySide(pictures: readonly Uint8Array[], height = 512): Promise<Uint8Array | null> {
+export function sideBySide(pictures: readonly Uint8Array[], height = 512): Promise<Uint8Array | null> {
+  return contactSheet(pictures.map((bytes, i) => ({ bytes, label: String(i + 1) })), { height, perRow: pictures.length });
+}
+
+/**
+ * Pictures in rows of `perRow`, each brought to `height` with its label in its corner ("3", "2→3"), on black: a timeline's
+ * contact sheet (MCP's view_timeline), and compare's row. A row is as wide as its pictures; the sheet as wide as its widest
+ * row. Null when it cannot be made (no image library, a picture that does not open).
+ */
+export async function contactSheet(cells: ReadonlyArray<{ bytes: Uint8Array; label: string }>, o: { height: number; perRow: number }): Promise<Uint8Array | null> {
   const lib = await sharp();
-  if (!lib || !pictures.length) return null;
+  if (!lib || !cells.length) return null;
   try {
     const gap = 8;
-    const each = await Promise.all(pictures.map(async (bytes) => {
-      const { data, info } = await lib(bytes).rotate().resize({ height, withoutEnlargement: false }).png().toBuffer({ resolveWithObject: true });
-      return { data, width: info.width };
+    const { height } = o;
+    const each = await Promise.all(cells.map(async (c) => {
+      const { data, info } = await lib(c.bytes).rotate().resize({ height, withoutEnlargement: false }).png().toBuffer({ resolveWithObject: true });
+      return { data, width: info.width, label: c.label };
     }));
-    const width = each.reduce((sum, e) => sum + e.width, 0) + gap * (each.length - 1);
-    let left = 0;
-    const layers = each.flatMap((e, i) => {
-      const at = left;
-      left += e.width + gap;
-      const label = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44"><rect width="44" height="44" rx="8" fill="#000" fill-opacity="0.7"/><text x="22" y="31" font-family="sans-serif" font-size="26" font-weight="700" fill="#fff" text-anchor="middle">${i + 1}</text></svg>`);
-      return [{ input: e.data, left: at, top: 0 }, { input: label, left: at + 8, top: 8 }];
+    const rows: Array<typeof each> = [];
+    for (let i = 0; i < each.length; i += Math.max(1, o.perRow)) rows.push(each.slice(i, i + Math.max(1, o.perRow)));
+    const width = Math.max(...rows.map((r) => r.reduce((sum, e) => sum + e.width, 0) + gap * (r.length - 1)));
+    const layers = rows.flatMap((row, k) => {
+      let left = 0;
+      const top = k * (height + gap);
+      return row.flatMap((e) => {
+        const at = left;
+        left += e.width + gap;
+        // as wide as its words: "12→13" does not fit the square a single number does
+        const w = Math.max(44, 18 + 16 * e.label.length);
+        const text = e.label.replace(/[<&>]/g, "");
+        const label = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="44"><rect width="${w}" height="44" rx="8" fill="#000" fill-opacity="0.7"/><text x="${w / 2}" y="31" font-family="sans-serif" font-size="26" font-weight="700" fill="#fff" text-anchor="middle">${text}</text></svg>`);
+        return [{ input: e.data, left: at, top }, { input: label, left: at + 8, top: top + 8 }];
+      });
     });
-    return new Uint8Array(await lib({ create: { width, height, channels: 3, background: "#000" } }).composite(layers).jpeg({ quality: 82 }).toBuffer());
+    const total = rows.length * height + gap * (rows.length - 1);
+    return new Uint8Array(await lib({ create: { width, height: total, channels: 3, background: "#000" } }).composite(layers).jpeg({ quality: 82 }).toBuffer());
   } catch {
     return null;
   }

@@ -102,7 +102,7 @@ const STRIP_WAIT_MS = 8000;
 /** Half the join's dot (24 px round): a press let go of within it, on the edge drawn over it, is a click on the dot. */
 const DOT_HALF = 12;
 
-export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, misfit, on, edged, picked, rendering, stretch, over, pinOn, ownSound, fileSound, renderMs, lift, moving, nearJoin, voice, playsOver, acts }: {
+export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, misfit, on, edged, picked, rendering, stretch, over, pinOn, ownSound, fileSound, renderMs, lift, moving, nearJoin, voice, playsOver, by, acts }: {
   s: Slot;
   /** Under a recording in a form it plays over (Video with audio, card #72): the part it plays (overPart), said on its face, its own sound dropped. */
   playsOver?: string | null;
@@ -113,6 +113,8 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
   voice?: string | null;
   /** It is the clip moved by the pointer: held, or landing in its slot after the release. */
   lift?: "held" | "landing";
+  /** The MCP token that changed it last, until the user selects it: ringed in the agent's blue, its name in the tip (useAgentTimeline). */
+  by?: string;
   /** A clip is being moved: the joins are not drawn meanwhile (each says how its clip follows the one before, which changes). */
   moving: boolean;
   /** The join the pointer is near: before this clip, its "+" shows. */
@@ -258,6 +260,8 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
           onMenu(c, e);
         }}
         aria-pressed={on}
+        data-agent={by}
+        data-tip={by ? `Changed by ${by}` : undefined}
         data-hint={HINTS.clip}
         // a clip that has its picture is read over it: the colours of the dark stage
         data-stage={s.planned ? undefined : ""}
@@ -268,6 +272,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
           lift === "held" ? "cursor-grabbing shadow-pop" : "cursor-grab",
           on ? "border-accent" : picked ? "border-accent/60" : s.planned ? (c.failed ? "border-dashed border-warn/50" : "border-dashed border-line-strong") : "border-line-strong",
           picked && "ring-2 ring-accent/40",
+          by && !picked && "ring-2 ring-picture/70",
           s.planned && "bg-raised",
         )}
       >

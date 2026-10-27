@@ -226,12 +226,13 @@ export class TimelineHistory {
    * One step, Undo (`from` the history) or Redo (from the future): the state now kept on the other side, the one taken put
    * back, in one transaction. Refused, nothing of it is written: a state kept on the other side first was one too many.
    */
-  private step(timelineId: string, from: "timeline_history" | "timeline_future"): Promise<{ label: string; said?: string }> {
+  private step(timelineId: string, from: "timeline_history" | "timeline_future", only?: string): Promise<{ label: string; said?: string }> {
     const undo = from === "timeline_history";
     return this.oneAtATime(timelineId, async () => {
       // the last step alone: without the limit every kept step of the timeline was read (40 snapshots, 11 MB at 150 clips) to use one
       const last = await this.db.selectFrom(from).selectAll().where("timeline_id", "=", timelineId).orderBy("seq", "desc").limit(1).executeTakeFirst();
       if (!last) throw httpError(undo ? "There is nothing to undo." : "There is nothing to redo.");
+      if (only && last.id !== only) throw httpError(`The timeline changed since: Undo would now take back ${last.label}. Use the editor's Undo to go back step by step.`, 409);
       const was = JSON.parse(last.snapshot) as Kept;
       const { said, linked } = await this.db.transaction().execute(async (tx) => {
         await this.snapshot(undo ? "timeline_future" : "timeline_history", timelineId, last.label, was.added, tx);
@@ -247,9 +248,18 @@ export class TimelineHistory {
     });
   }
 
-  /** Take the last change back. What it took back can be done again, until the next change. */
-  undo(timelineId: string): Promise<{ label: string; said?: string }> {
-    return this.step(timelineId, "timeline_history");
+  /**
+   * Take the last change back. What it took back can be done again, until the next change. `only`: that step alone (its
+   * row's id, see last): refused when another change came after it (an agent's change undone from its toast, the user
+   * having changed the timeline since).
+   */
+  undo(timelineId: string, only?: string): Promise<{ label: string; said?: string }> {
+    return this.step(timelineId, "timeline_history", only);
+  }
+
+  /** The step Undo would take back now: its row's id and its label; null when there is none. */
+  async last(timelineId: string): Promise<{ id: string; label: string } | null> {
+    return (await this.db.selectFrom("timeline_history").select(["id", "label"]).where("timeline_id", "=", timelineId).orderBy("seq", "desc").limit(1).executeTakeFirst()) ?? null;
   }
 
   /** Do again what Undo took back. */
