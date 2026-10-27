@@ -7,7 +7,6 @@ import type { PlayerHandle } from "./Player";
 import type { useClipEdits } from "./useClipEdits";
 import type { useTimelineMutations } from "./useTimelineMutations";
 import { plural } from "../format";
-import { failedBanner } from "../sayFailed";
 import { clipWords } from "./attention";
 
 type Mutations = ReturnType<typeof useTimelineMutations>;
@@ -114,10 +113,8 @@ export function useBarRequests({ id, t, shown, clips, slots, missing, ready, ren
         // sent to the top of the queue: the bar says so once they are there
         if (!request.top) say({ id: `bar-render:${Date.now()}`, tone: "good", title: `${plural(list.length, "clip")} of ${t.name} queued`, href: "/queue", go: "Open queue" });
       },
-      (err: unknown) => {
-        asked?.reply(null);
-        say(failedBanner({ id: "bar-render", href: `/timelines/${id}`, go: "Open the timeline" }, `Clips of ${t.name} could not be rendered`, err));
-      },
+      // the refusal is said by the render mutation (useTimelineMutations), for every way it is asked
+      () => asked?.reply(null),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per request: the rest is read as it stands then
   }, [request, id, t, shown]);

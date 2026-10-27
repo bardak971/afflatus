@@ -16,6 +16,7 @@ import { usePlayhead } from "../../src/timeline/usePlayhead";
 import { useRange } from "../../src/timeline/useRange";
 import { rangeRemoves } from "../../src/timeline/removalWords";
 import { useTimelineMutations } from "../../src/timeline/useTimelineMutations";
+import { useBanners } from "../../src/store";
 import { fakeApi, jsonAnswer, later } from "./fakeApi";
 import { draw } from "./render";
 
@@ -68,6 +69,14 @@ describe("the timeline editor's mutations, drawn", () => {
     act(() => now().m.splitSource.mutate(3000));
     // the latest failure, not the first of the list
     await waitFor(() => expect(now().m.error?.message).toBe("zz-test: the playhead is not in the stretch"));
+  });
+
+  it("says a refused Render in the failure banner, whichever clip is open (card #128)", async () => {
+    const why = "Clip 2 carries on from clip 1, which has no take: render clip 1 first, or make their join a cut.";
+    fakeApi.on("POST /timelines/:id/render", () => refused(why, 400));
+    const { now } = rig();
+    act(() => now().m.render.mutate({ clips: [clip] }));
+    await waitFor(() => expect(useBanners.getState().items.find((b) => b.id === `render:${timeline.id}`)).toMatchObject({ tone: "bad", title: "Clips of zz-test timeline could not be rendered", text: why }));
   });
 
   it("keeps what was typed while Loop clip's first frame was being saved (W-5)", async () => {
