@@ -353,10 +353,11 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
    * Take the last change to the timeline back. Answers with what was undone, in a few words, and what to tell of the takes
    * rendered since that do not fit their clips at that step (`said`). Refused (409) over a clip in the queue.
    */
-  // `step`: that step alone (an agent's change undone from its toast), refused when the timeline changed after it
+  // `step`: that step alone (an agent's change undone from its toast), refused when the timeline changed after it; `steps`:
+  // those, in the order they were made (an agent's list of actions), taken back together, refused when they are not the last
   app.post<{ Params: { id: string } }>("/api/timelines/:id/undo", async (req) => {
-    const { step } = z.strictObject({ step: z.string().min(1).optional() }).parse(req.body ?? {});
-    const { label, said } = await t.history.undo(req.params.id, step);
+    const { step, steps } = z.strictObject({ step: z.string().min(1).optional(), steps: z.array(z.string().min(1)).min(1).max(100).optional() }).parse(req.body ?? {});
+    const { label, said } = await t.history.undo(req.params.id, steps ?? step);
     return { undone: label, ...(said ? { said } : {}) };
   });
   app.post<{ Params: { id: string } }>("/api/timelines/:id/redo", async (req) => {

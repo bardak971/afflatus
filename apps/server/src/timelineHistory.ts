@@ -253,13 +253,43 @@ export class TimelineHistory {
    * row's id, see last): refused when another change came after it (an agent's change undone from its toast, the user
    * having changed the timeline since).
    */
-  undo(timelineId: string, only?: string): Promise<{ label: string; said?: string }> {
-    return this.step(timelineId, "timeline_history", only);
+  undo(timelineId: string, only?: string | readonly string[]): Promise<{ label: string; said?: string }> {
+    if (typeof only !== "string" && only?.length) return this.undoAll(timelineId, only);
+    return this.step(timelineId, "timeline_history", typeof only === "string" ? only : undefined);
+  }
+
+  /**
+   * Several steps taken back together, the last first, down to the first of them (`steps`, in the order they were made: an
+   * agent's list of actions undone from its toast). Refused (409), nothing undone, unless they are the last steps of the
+   * timeline: a change made after them, or between them, would be taken back with them, or left over a state it was not made on.
+   */
+  private undoAll(timelineId: string, steps: readonly string[]): Promise<{ label: string; said?: string }> {
+    return this.oneAtATime(timelineId, async () => {
+      const top = await this.db.selectFrom("timeline_history").select(["id", "label"]).where("timeline_id", "=", timelineId).orderBy("seq", "desc").limit(steps.length).execute();
+      const mine = [...steps].reverse();
+      if (top.length !== mine.length || top.some((r, i) => r.id !== mine[i])) {
+        const other = top.find((r) => !steps.includes(r.id));
+        throw httpError(`The timeline changed since: ${other ? `${other.label} came after` : "those steps are no longer the last ones"}. Use the editor's Undo to go back step by step.`, 409);
+      }
+      const said: string[] = [];
+      for (const r of top) {
+        const out = await this.step(timelineId, "timeline_history", r.id);
+        if (out.said) said.push(out.said);
+      }
+      return { label: top.length > 1 ? `${top.length} changes` : top[0]!.label, ...(said.length ? { said: said.join(" ") } : {}) };
+    });
+  }
+
+  /** The steps kept after `seq` (null: all of them), the oldest first: what a change made in the timeline's turn kept. */
+  async keptSince(timelineId: string, seq: number | null): Promise<string[]> {
+    let q = this.db.selectFrom("timeline_history").select("id").where("timeline_id", "=", timelineId);
+    if (seq !== null) q = q.where("seq", ">", seq);
+    return (await q.orderBy("seq", "asc").execute()).map((r) => r.id);
   }
 
   /** The step Undo would take back now: its row's id and its label; null when there is none. */
-  async last(timelineId: string): Promise<{ id: string; label: string } | null> {
-    return (await this.db.selectFrom("timeline_history").select(["id", "label"]).where("timeline_id", "=", timelineId).orderBy("seq", "desc").limit(1).executeTakeFirst()) ?? null;
+  async last(timelineId: string): Promise<{ id: string; label: string; seq: number } | null> {
+    return (await this.db.selectFrom("timeline_history").select(["id", "label", "seq"]).where("timeline_id", "=", timelineId).orderBy("seq", "desc").limit(1).executeTakeFirst()) ?? null;
   }
 
   /** Do again what Undo took back. */

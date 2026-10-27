@@ -34,6 +34,11 @@ export interface DraftEdit {
   count?: { was: number; now: number };
   name?: { was: string | null; now: string | null };
   made?: true;
+  /**
+   * When the draft was saved with it (its updatedAt then): a save of the page's answered with a later one was written after
+   * it, over it, and the page saves the edit again.
+   */
+  saved?: string;
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -50,7 +55,7 @@ export function editOf(before: DraftView, after: DraftView, ctx: Pick<ToolCtx, "
     }
   }
   return {
-    id: after.id, by: ctx.token.name, token: ctx.token.id, at: new Date().toISOString(), fields,
+    id: after.id, by: ctx.token.name, token: ctx.token.id, at: new Date().toISOString(), fields, saved: after.updatedAt,
     ...(before.recipe !== after.recipe ? { recipe: { was: before.recipe, now: after.recipe } } : {}),
     ...(!same(before.look, after.look) ? { look: { was: before.look, now: after.look } } : {}),
     ...(before.count !== after.count ? { count: { was: before.count, now: after.count } } : {}),
@@ -156,7 +161,7 @@ async function draftOf(s: Services, id: string) {
  * A draft changed by an agent: worked out in the draft's own save turn from what it holds then (the page may have saved
  * meanwhile), written through saveDraft, and said to the open pages as a "draft" event. Nothing is sent when nothing changed.
  */
-export async function agentSave(s: Services, ctx: ToolCtx, id: string, change: (d: DraftView) => z.output<typeof saveBody>): Promise<{ draft: DraftView; edit: DraftEdit }> {
+export async function agentSave(s: Services, ctx: ToolCtx, id: string, change: (d: DraftView) => z.output<typeof saveBody> | Promise<z.output<typeof saveBody>>): Promise<{ draft: DraftView; edit: DraftEdit }> {
   let before: DraftView | null = null;
   const draft = await saveDraft(s, id, (d) => {
     before = d;
@@ -252,26 +257,28 @@ const editDraft = tool({
   async run(args, ctx) {
     const { s } = ctx;
     const at = await seen(s);
-    const current = await draftOf(s, args.draft);
-    const recipe = formOf(s, args.form ?? current.recipe_id);
-    const set: Record<string, unknown> = { ...(args.set ?? {}) };
-    const listInput = (type: InputSpec["type"]) => shownInputs(recipe).find((i) => i.type === type)?.id;
-    for (const [key, type] of [["loras", "loras"], ["references", "references"]] as const) {
-      if (args[key] === undefined) continue;
-      const id = listInput(type);
-      if (!id) throw httpError(`${recipe.title} takes no ${key === "loras" ? "LoRAs" : "reference pictures"}.`);
-      set[id] = args[key];
-    }
-    const checked: Record<string, unknown> = {};
-    const out: string[] = [];
-    for (const [id, v] of Object.entries(set)) {
-      if (v === null) {
-        if (!shownInputs(recipe).some((i) => i.id === id)) throw httpError(`${recipe.title} has no input ${id}.`);
-        out.push(id);
-      } else checked[id] = await checkedValue(s, at, recipe, id, v);
-    }
+    await draftOf(s, args.draft);
     const cast = args.cast ? await castOf(s, args.cast) : undefined;
-    const { draft, edit } = await agentSave(s, ctx, args.draft, (d) => {
+    // the form, and the values checked against it, picked in the draft's save turn: the user may have switched the draft
+    // to another form meanwhile, and values checked against the one read before landed in a form that takes other inputs
+    const { draft, edit } = await agentSave(s, ctx, args.draft, async (d) => {
+      const recipe = formOf(s, args.form ?? d.recipe);
+      const set: Record<string, unknown> = { ...(args.set ?? {}) };
+      const listInput = (type: InputSpec["type"]) => shownInputs(recipe).find((i) => i.type === type)?.id;
+      for (const [key, type] of [["loras", "loras"], ["references", "references"]] as const) {
+        if (args[key] === undefined) continue;
+        const id = listInput(type);
+        if (!id) throw httpError(`${recipe.title} takes no ${key === "loras" ? "LoRAs" : "reference pictures"}.`);
+        set[id] = args[key];
+      }
+      const checked: Record<string, unknown> = {};
+      const out: string[] = [];
+      for (const [id, v] of Object.entries(set)) {
+        if (v === null) {
+          if (!shownInputs(recipe).some((i) => i.id === id)) throw httpError(`${recipe.title} has no input ${id}.`);
+          out.push(id);
+        } else checked[id] = await checkedValue(s, at, recipe, id, v);
+      }
       const form = Object.fromEntries(Object.entries({ ...d.forms[recipe.id], ...checked }).filter(([id]) => !out.includes(id)));
       return {
         forms: { ...d.forms, [recipe.id]: form },

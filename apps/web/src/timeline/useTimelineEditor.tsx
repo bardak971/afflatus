@@ -151,7 +151,7 @@ export function useTimelineEditor(id: string) {
     if (recordingOpen && t && !recordingAt) setRecordingOpen(null);
   }, [recordingOpen, t, recordingAt, setRecordingOpen]);
 
-  const { dropEdits, saveFailed, save, turn, inputsOf, editInputs, savedElsewhere, typeSource, sourceTyped, shown, formOf, ready, keptToClip, keepToClip } = useClipEdits({ timeline: t, clips, recipes, setup, settings, comfyOnline });
+  const { dropEdits, saveFailed, save, turn, inputsOf, editInputs, savedElsewhere, agentLaid, typeSource, sourceTyped, shown, formOf, ready, keptToClip, keepToClip } = useClipEdits({ timeline: t, clips, recipes, setup, settings, comfyOnline });
   /** What a clip says happens, in a few words, for the designer: its main text, or what it is. */
   const sayOf = (c: Clip) => {
     if (c.kind === "still") return `(a picture held on screen for ${(c.lengthMs / 1000).toFixed(1)} s${c.still?.name ? `: ${c.still.name}` : ""})`;
@@ -175,7 +175,7 @@ export function useTimelineEditor(id: string) {
   });
   const { after, readBack, render, patch, fix, edit, makeSource: makeSourceMut, cutSource: cutSourceMut, sourceForm: sourceFormMut, recording: recordingMut, cutRecording: cutRecordingMut, recordingForm: recordingFormMut, trimSource: trimSourceMut, trimRecording: trimRecordingMut, splitSource, add, remove, removeMany, bringBack, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
   // a change an MCP token made: said with Undo (that step alone), its clips ringed
-  useAgentTimeline(id, { undo: (step) => undo.mutate(step), selected });
+  useAgentTimeline(id, { undo: (steps) => undo.mutate(steps), laid: agentLaid, selected });
   const pickedNow = useRef(picked);
   pickedNow.current = picked;
   /** The source taken away with the clips it made, rendered or not (one step for Undo), its panel closed. */

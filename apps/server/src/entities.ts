@@ -428,12 +428,18 @@ const patch = z.strictObject({ name: z.string().trim().min(1).max(120).optional(
  */
 const inTurn = <T>(s: Services, work: () => Promise<T>) => oneAtATime(s.db, "kit", work);
 
-/** Their pictures and voices are wanted: they never go to the bin on their own. */
+/**
+ * Their pictures and voices are wanted: they never go to the bin on their own. One uploaded for the kit that a change had
+ * sent to the bin (binUnwantedKit) and that is named again (that change undone) comes back out of it: left there, the
+ * person named a picture the bin empties. One of the library the user binned stays where the user put it.
+ */
 async function keepTheirs(s: Services, kind: string, def: string): Promise<void> {
   if (kind !== "person" && kind !== "place") return;
   const d = JSON.parse(def) as { pictures: string[]; voice?: string | null; outfits?: Array<{ picture: string | null }> };
   const used = [...d.pictures, d.voice, ...(d.outfits ?? []).map((o) => o.picture)].filter((x): x is string => Boolean(x));
-  if (used.length) await s.db.updateTable("assets").set({ kept_at: now() }).where("id", "in", used).where("kept_at", "is", null).execute();
+  if (!used.length) return;
+  await s.db.updateTable("assets").set({ kept_at: now() }).where("id", "in", used).where("kept_at", "is", null).execute();
+  await s.db.updateTable("assets").set({ deleted_at: null }).where("id", "in", used).where("origin", "=", "kit").where("deleted_at", "is not", null).execute();
 }
 
 const builtIn = () => httpError("a built-in preset cannot be changed: copy it to your presets first");

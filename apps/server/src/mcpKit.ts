@@ -32,6 +32,8 @@ export interface KitEdit {
   fields: KitField[];
   name?: { was: string; now: string };
   made?: true;
+  /** When the item was saved with it (its updatedAt then): a save of the page's answered with a later one was written over it. */
+  saved?: string;
 }
 
 const KINDS = ["person", "place", "style", "snippet", "preset"] as const satisfies readonly EntityKind[];
@@ -111,13 +113,13 @@ export function kitEditOf(before: KitItem, after: KitItem, ctx: Pick<ToolCtx, "t
     fields.push({ key, had: key in was, ...(key in was ? { was: was[key] } : {}), now: now[key] });
   }
   return {
-    id: after.id, kind: after.kind, by: ctx.token.name, token: ctx.token.id, at: new Date().toISOString(), fields,
+    id: after.id, kind: after.kind, by: ctx.token.name, token: ctx.token.id, at: new Date().toISOString(), fields, saved: after.updatedAt,
     ...(before.name !== after.name ? { name: { was: before.name, now: after.name } } : {}),
   };
 }
 
 /** The shape of each kind's def, said to the agent (the parts it may set). */
-const DEF_HELP = "person: pictures (library picture ids, the first is the main one), voice (a sound's id, or a video with sound), voicePart ({start, seconds}), tags, sentence (how they look, as tags and as natural language), models ({family: {lora, weight, trigger}}), outfits ([{id, name, tags, sentence, picture}]). place: pictures, tags, sentence. style: models ({family: {loras: [{file, weight}], words}}). snippet: text, category, style (\"tags\" | \"sentences\" | null). preset: recipe (a form's id), inputs ({input: value}), look ({cast: [{id}], style, snippets}).";
+const DEF_HELP = "person: pictures (library picture ids, the first is the main one), voice (a sound's id, or a video with sound), voicePart ({start, seconds}), tags, sentence (how they look, as tags and as natural language), models ({family: {lora, weight, trigger}}), outfits ([{id, name, tags, sentence, picture}]). place: pictures, tags, sentence. style: models ({family: {loras: [{file, weight}], words}}). snippet: text, category, style (\"tags\" | \"sentences\" | null). preset: recipe (a form's id), inputs ({input: value}), look ({cast: [{id}], style, snippets}), files (the model files it is made for: [{file, folder, url | civitai: {version}}]).";
 
 const listKit = tool({
   name: "list_kit",
@@ -181,15 +183,22 @@ const editKitItem = tool({
     const found = await kitItem(s, a.item);
     if (found.source === "shipped" || found.id.startsWith(SHIPPED)) throw refusal(`${found.name} ships with Afflatus and cannot be changed: new_kit_item with its def makes a copy of the user's own.`);
     const kind = found.kind as EntityKind;
-    // the parts asked, laid over the item as it is in the kit's turn (the page may have saved meanwhile); null: the part's empty start
+    // the parts asked, laid over the item as it is in the kit's turn (the page may have saved meanwhile); null: the part's
+    // empty start, or taken out for one that may be left out (a preset's form, cast, files). The parts are the def's shape:
+    // an empty def leaves the optional ones out, which refused a preset's recipe, look and files
     const starts = checkedDef(kind, {});
+    const parts = Object.keys(kitDefs[kind].shape);
     const lay = (def: Record<string, unknown>) => {
       const next = { ...def };
       for (const [k, v] of Object.entries(a.set ?? {})) {
-        if (!(k in starts)) throw httpError(`A ${kind} has no part ${k}: its parts are ${Object.keys(starts).join(", ")}.`);
-        next[k] = v === null ? starts[k] : v;
+        if (!parts.includes(k)) throw httpError(`A ${kind} has no part ${k}: its parts are ${parts.join(", ")}.`);
+        if (v !== null) next[k] = v;
+        else if (k in starts) next[k] = starts[k];
+        else delete next[k];
       }
-      return checkedDef(kind, next);
+      const checked = checkedDef(kind, next);
+      if (kind === "preset" && a.set && typeof a.set.recipe === "string" && !s.registry.recipe(a.set.recipe)) throw httpError(`There is no form ${a.set.recipe}: list_forms gives the forms.`);
+      return checked;
     };
     // checked before the save turn too: a picture of the wrong kind is refused with nothing written
     if (a.set) await checkMedia(s, kind, lay(defOf(found)));

@@ -19,6 +19,8 @@ export interface DraftEdit {
   name?: { was: string | null; now: string | null };
   /** A draft just made: the lists read again, nothing to show in a form. */
   made?: true;
+  /** When the draft was saved with it: a save of the page's answered with a later time was written over it (draft.ts saves it again). */
+  saved?: string;
 }
 
 /** A field's key in the rings: its form and its input. */
@@ -53,12 +55,34 @@ export function laidOver(d: Draft, e: DraftEdit, keep: ReadonlySet<string> = new
   };
 }
 
-/** The draft put back as it was before an edit: each field it changed as it was (or taken out when it held nothing), its form, cast and batch. */
-export function undone(d: Draft, e: DraftEdit): Draft {
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * The draft put back as it was before an edit: each field it changed as it was (or taken out when it held nothing), its
+ * form, cast and batch; each only while it still holds what the edit left. One changed since (typed over, set by another
+ * edit) is newer than the edit: it stays, counted in `kept`, so that Undo never writes an old value over newer work.
+ */
+export function undone(d: Draft, e: DraftEdit): { draft: Draft; kept: number } {
   let forms = d.forms;
-  for (const f of e.fields) forms = withField(forms, f.form, f.input, f.had ? { set: true, to: f.was } : { set: false });
-  return { ...d, forms, ...(e.recipe ? { recipe: e.recipe.was } : {}), ...(e.look ? { look: e.look.was } : {}), ...(e.count ? { count: e.count.was } : {}) };
+  let kept = 0;
+  const still = (holds: boolean) => holds || (kept++, false);
+  for (const f of e.fields) {
+    const form = d.forms[f.form] ?? {};
+    if (!still(f.gone ? !(f.input in form) : f.input in form && same(form[f.input], f.now))) continue;
+    forms = withField(forms, f.form, f.input, f.had ? { set: true, to: f.was } : { set: false });
+  }
+  const draft = {
+    ...d, forms,
+    ...(e.recipe && still(d.recipe === e.recipe.now) ? { recipe: e.recipe.was } : {}),
+    ...(e.look && still(same(d.look, e.look.now)) ? { look: e.look.was } : {}),
+    ...(e.count && still(d.count === e.count.now) ? { count: e.count.was } : {}),
+  };
+  return { draft, kept };
 }
+
+/** What an Undo that left newer changes as they were says of them, in a toast (null: it took everything back). */
+export const keptSaid = (kept: number): string | null =>
+  !kept ? null : kept === 1 ? "One field was changed again since: it stays as it is now." : `${kept} fields were changed again since: they stay as they are now.`;
 
 /**
  * The fields the user changed and has not saved yet: where what the page holds (`unsaved`) differs from the draft as last
@@ -67,7 +91,6 @@ export function undone(d: Draft, e: DraftEdit): Draft {
 export function unsavedFields(unsaved: Draft | null, saved: Draft | undefined): Set<string> {
   const out = new Set<string>();
   if (!unsaved || !saved || unsaved.id !== saved.id) return out;
-  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
   for (const form of new Set([...Object.keys(unsaved.forms), ...Object.keys(saved.forms)])) {
     const a = unsaved.forms[form] ?? {};
     const b = saved.forms[form] ?? {};
@@ -79,28 +102,39 @@ export function unsavedFields(unsaved: Draft | null, saved: Draft | undefined): 
   return out;
 }
 
+/** How many of the last edits heard are kept, for a save that was out while they came (draft.ts). */
+const KEPT_EDITS = 20;
+
 /**
  * The edits heard, and the rings they leave: by draft, each ringed field's key and the token's name. `seq` moves with each
- * edit heard (the open draft follows it); `last` is that edit.
+ * edit heard (the open draft follows it); `last` is that edit, `recent` the last few.
  */
 export const useAgentEdits = create<{
   seq: number;
   last: DraftEdit | null;
+  recent: DraftEdit[];
   rings: Record<string, Record<string, string>>;
   heard(e: DraftEdit): void;
+  /** The edits heard after `seq` was read, the oldest first. */
+  since(seq: number): DraftEdit[];
   /** These fields edited by the user: their rings go. */
   clear(draft: string, keys: readonly string[]): void;
   /** An edit undone: the rings it left go. */
   forget(e: DraftEdit): void;
-}>()((set) => ({
+}>()((set, get) => ({
   seq: 0,
   last: null,
+  recent: [],
   rings: {},
   heard: (e) => set((s) => {
     const rings = { ...s.rings[e.id] };
     for (const f of e.fields) rings[fieldKey(f.form, f.input)] = e.by;
-    return { seq: s.seq + 1, last: e, rings: e.fields.length ? { ...s.rings, [e.id]: rings } : s.rings };
+    return { seq: s.seq + 1, last: e, recent: [...s.recent, e].slice(-KEPT_EDITS), rings: e.fields.length ? { ...s.rings, [e.id]: rings } : s.rings };
   }),
+  since: (seq) => {
+    const { seq: now, recent } = get();
+    return now > seq ? recent.slice(-Math.min(now - seq, recent.length)) : [];
+  },
   clear: (draft, keys) => set((s) => {
     const was = s.rings[draft];
     if (!was || !keys.some((k) => k in was)) return s;
@@ -137,6 +171,8 @@ export interface KitEdit {
   name?: { was: string; now: string };
   /** An item just made: the lists read again, nothing to show. */
   made?: true;
+  /** When the item was saved with it: a save of the page's answered with a later time was written over it (saved again). */
+  saved?: string;
 }
 
 /** How many things the toast says the token changed: the parts and the name. */
@@ -152,14 +188,21 @@ export function kitLaidOver(e: Entity, edit: KitEdit, keep: ReadonlySet<string> 
   return withDef(e, def, edit.name && !keep.has("name") ? edit.name.now : e.name);
 }
 
-/** The item put back as it was before an edit: each part it changed as it was (taken out when it held nothing), its name. */
-export function kitUndone(e: Entity, edit: KitEdit): Entity {
+/**
+ * The item put back as it was before an edit: each part it changed as it was (taken out when it held nothing), its name;
+ * each only while it still holds what the edit left. One changed since is newer: it stays, counted in `kept`.
+ */
+export function kitUndone(e: Entity, edit: KitEdit): { item: Entity; kept: number } {
   const def = { ...defOf(e) };
+  let kept = 0;
   for (const f of edit.fields) {
-    if (f.had) def[f.key] = f.was;
+    if (!same(def[f.key], f.now)) kept++;
+    else if (f.had) def[f.key] = f.was;
     else delete def[f.key];
   }
-  return withDef(e, def, edit.name ? edit.name.was : e.name);
+  const back = edit.name && e.name === edit.name.now;
+  if (edit.name && !back) kept++;
+  return { item: withDef(e, def, back ? edit.name!.was : e.name), kept };
 }
 
 /** The parts (and "name") where what the page holds of an item differs from the item as last saved. */
@@ -211,9 +254,9 @@ export const ringBy = (rings: Readonly<Record<string, string>> | undefined, ...k
 
 /**
  * A timeline changed from outside, by an MCP token (the server's mcpTimelines.ts TimelineEdit, a "timelineEdit" live event):
- * what it did in a few words, the clips it touched, and the step Undo would take back now. The editor open on it reads
- * the timeline again as on any change ("timeline"), says this one in a toast whose Undo takes that step alone back, and
- * rings the clips until the user selects them.
+ * what it did in a few words, the clips it touched, and the steps it kept. The editor open on it reads the timeline again
+ * as on any change ("timeline"), lays the forms it changed over what is typed there, says it in a toast whose Undo takes
+ * those steps back (refused once the timeline changed after them), and rings the clips until the user selects them.
  */
 export interface TimelineEdit {
   id: string;
@@ -222,7 +265,12 @@ export interface TimelineEdit {
   at: string;
   said: string;
   clips: string[];
+  /** The last of `steps`. */
   step: string | null;
+  /** The steps of the timeline's Undo it kept, in the order they were made: the toast's Undo takes them all back. */
+  steps?: string[];
+  /** The forms of the clips it changed, before and after: laid over what the editor holds typed over them (useClipEdits). */
+  inputs?: Record<string, { was: Record<string, unknown>; now: Record<string, unknown> }>;
   /** Sent before the change is made: a token is changing the timeline now (nothing to say yet; the zoom is left alone). */
   going?: true;
 }

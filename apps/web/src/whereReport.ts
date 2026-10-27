@@ -6,8 +6,8 @@ import { useOpenDraft } from "./store";
 
 /**
  * Where this page is, said to the server for an agent's `whats_open` (server whatsOpen.ts): the address, and the draft,
- * timeline or clip open there. Cheap: said a moment after it changes, and again when the page comes to the front (the
- * device used last is the one an agent works with), at most every 30 s when nothing changed.
+ * timeline or clip open there. Cheap: said a moment after it changes, and again each time the page comes to the front (the
+ * device used last is the one an agent works with: with a wait of 30 s there, a phone used meanwhile stayed the one said).
  */
 
 /** A key of this browser's own, kept: what tells its reports from another browser's when there is no session. */
@@ -26,7 +26,8 @@ function browserKey(): string {
 }
 
 const SETTLE_MS = 800;
-const AGAIN_MS = 30_000;
+/** The focus and the page shown come together as the page comes to the front: said once. */
+const FRONT_MS = 2_000;
 
 /** What a page says of itself, from its address, its open draft and its selected clip. */
 export function whereOf(path: string, draft: string | null, clip: { timeline: string; id: string } | null): { path: string; draft: string | null; timeline: string | null; clip: string | null } {
@@ -51,7 +52,7 @@ export function useWhereReport(): void {
   useEffect(() => {
     const send = (force: boolean) => {
       const at = Date.now();
-      if (now.current === last.current.said && (!force || at - last.current.at < AGAIN_MS)) return;
+      if (now.current === last.current.said && (!force || at - last.current.at < FRONT_MS)) return;
       last.current = { said: now.current, at };
       // nothing to say when it does not go: an agent then reads where the page was before
       api.where({ key: browserKey(), ...(JSON.parse(now.current) as ReturnType<typeof whereOf>) }).catch(() => {});

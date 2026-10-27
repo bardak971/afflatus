@@ -68,7 +68,7 @@ describe("an MCP token's change to the timeline open", () => {
 
     // the toast's Undo: that step alone, the rings it left gone
     act(() => newest()!.action!.run());
-    await waitFor(() => expect(undone).toEqual([{ step: "zz-test-step" }]));
+    await waitFor(() => expect(undone).toEqual([{ steps: ["zz-test-step"] }]));
     await waitFor(async () => expect((await clipButton(3)).getAttribute("data-agent")).toBeNull());
   });
 

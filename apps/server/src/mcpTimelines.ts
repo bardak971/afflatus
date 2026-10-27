@@ -31,8 +31,9 @@ type TakeView = NonNullable<ClipView["take"]>;
 
 /**
  * What a "timelineEdit" live event says (events.ts relays it whole): the timeline, the token behind the change, what it did
- * in a few words, the clips it touched (still there), and the step Undo would take back now (its row's id): the toast's
- * Undo takes that step alone back, and is refused once the timeline changed after it.
+ * in a few words, the clips it touched (still there), and the steps of the timeline's Undo it kept: the toast's Undo takes
+ * them all back, and is refused once the timeline changed after them. `inputs`: the forms of the clips it changed, before
+ * and after, so that an editor holding typing over one of them lays the agent's values over it (its next save keeps them).
  */
 export interface TimelineEdit {
   id: string;
@@ -41,7 +42,11 @@ export interface TimelineEdit {
   at: string;
   said: string;
   clips: string[];
+  /** The last of `steps` (null: none kept). */
   step: string | null;
+  /** The steps it kept, in the order they were made. */
+  steps?: string[];
+  inputs?: Record<string, { was: Record<string, unknown>; now: Record<string, unknown> }>;
   /** Sent before the change is made: a token is changing the timeline now (an open editor leaves the user's zoom alone). */
   going?: true;
 }
@@ -493,13 +498,46 @@ function touched(before: View, after: View): string[] {
   }).map((c) => c.id);
 }
 
-/** An agent's change said to the editors open on the timeline: the toast with its Undo, the clips ringed. Nothing when nothing changed. */
-async function saidLive(s: Services, ctx: ToolCtx, before: View, said: string): Promise<void> {
+/**
+ * An agent's change, said to the editors open on the timeline: the toast with its Undo (the steps it kept), the clips it
+ * touched ringed, the forms it changed. Nothing when nothing changed.
+ */
+async function saidLive(s: Services, ctx: ToolCtx, before: View, said: string, steps: string[]): Promise<void> {
   const after = await s.timelines.view(before.id);
   const clips = touched(before, after);
-  const step = await s.timelines.history.last(before.id);
   if (!clips.length && JSON.stringify({ ...before, clips: null, updatedAt: null }) === JSON.stringify({ ...after, clips: null, updatedAt: null })) return;
-  s.queue.events.emit("timelineEdit", { id: before.id, by: ctx.token.name, token: ctx.token.id, at: new Date().toISOString(), said, clips, step: step?.id ?? null } satisfies TimelineEdit);
+  const was = new Map(before.clips.map((c) => [c.id, c]));
+  const inputs = Object.fromEntries(after.clips.flatMap((c) => {
+    const w = was.get(c.id);
+    return w && JSON.stringify(w.inputs) !== JSON.stringify(c.inputs) ? [[c.id, { was: w.inputs, now: c.inputs }]] : [];
+  }));
+  s.queue.events.emit("timelineEdit", {
+    id: before.id, by: ctx.token.name, token: ctx.token.id, at: new Date().toISOString(), said, clips, step: steps.at(-1) ?? null, steps,
+    ...(Object.keys(inputs).length ? { inputs } : {}),
+  } satisfies TimelineEdit);
+}
+
+/**
+ * An agent's change to a timeline, made in the timeline's turn from its reading to the reading of what it did (the turn is
+ * re-entrant: the change's own turns run inside it). What it works from is the timeline as it is then, not as read before
+ * the turn (a clip's form written whole put back what the user saved meanwhile); the clips it rings and the steps its Undo
+ * takes back are its own, never a change the user made in between. `said`: what it did in a few words, once done or
+ * refused (null: nothing to say; a refused list still says the actions done before it).
+ */
+async function agentChange<T>(s: Services, ctx: ToolCtx, id: string, work: (before: View) => Promise<T>, said: (out: T | undefined) => string | null): Promise<T> {
+  going(s, ctx, id);
+  return s.timelines.history.oneAtATime(id, async () => {
+    const before = await viewOf(s, id);
+    const top = await s.timelines.history.last(id);
+    let out: T | undefined;
+    try {
+      out = await work(before);
+      return out;
+    } finally {
+      const words = said(out);
+      if (words !== null) await saidLive(s, ctx, before, words, await s.timelines.history.keptSince(id, top?.seq ?? null));
+    }
+  });
 }
 
 const editTimeline = tool({
@@ -517,9 +555,9 @@ const editTimeline = tool({
   async run({ timeline, actions }, ctx) {
     const { s } = ctx;
     const before = await viewOf(s, timeline);
-    going(s, ctx, timeline);
     const done: string[] = [];
-    try {
+    // the whole list in one turn: the toast's Undo takes all of it back, and no step of the user's lands between its actions
+    await agentChange(s, ctx, timeline, async () => {
       for (const [k, a] of actions.entries()) {
         try {
           done.push(await runAction(s, ctx, timeline, a));
@@ -530,9 +568,7 @@ const editTimeline = tool({
           throw e.statusCode ? httpError(why, e.statusCode) : e;
         }
       }
-    } finally {
-      if (done.length) await saidLive(s, ctx, before, done.length > 1 ? `${plural(done.length, "change")}` : done[0]!);
-    }
+    }, () => (!done.length ? null : done.length > 1 ? plural(done.length, "change") : done[0]!));
     ctx.said(`Changed “${before.name}”: ${done.join("; ")}`);
     return { done, undo: (await s.timelines.history.last(timeline))?.label ?? null };
   },
@@ -555,32 +591,36 @@ const editClip = tool({
   async run(args, ctx) {
     const { s } = ctx;
     const view = await viewOf(s, args.timeline);
-    const { clip: c, i } = clipAt(view, args.clip);
-    if (c.kind === "still" && (args.form || args.set)) throw httpError(`Clip ${i + 1} is a still: it has no form. Make it a clip to render by adding the picture again as a clip (edit_timeline add, as: clip).`);
-    const recipe = formOf(s, args.form ?? c.recipe ?? "");
+    const asked = clipAt(view, args.clip).clip.id;
     const at = await seen(s);
-    const inputs: Record<string, unknown> = { ...c.inputs };
-    const changed: string[] = [];
-    for (const [k, v] of Object.entries(args.set ?? {})) {
-      if (v === null) {
-        if (!(recipe.inputs as InputSpec[]).some((x) => x.id === k)) throw httpError(`${recipe.title} has no input ${k}.`);
-        delete inputs[k];
-      } else inputs[k] = await checkedValue(s, at, recipe, k, v);
-      changed.push(k);
-    }
-    const patch: ClipPatch = {
-      ...(args.form && args.form !== c.recipe ? { recipe: recipe.id } : {}),
-      ...(args.set ? { inputs } : {}),
-      ...(args.cast !== undefined ? { look: args.cast === null ? null : { cast: await castOf(s, args.cast), style: c.look?.style ?? view.look?.style ?? null, snippets: c.look?.snippets ?? view.look?.snippets ?? [] } } : {}),
-      ...(args.landsOnNext !== undefined ? { fitNext: args.landsOnNext } : {}),
-      ...(args.share ? { share: args.share } : {}),
-    };
-    if (!Object.keys(patch).length) throw httpError("Say what to change: form, set, cast, landsOnNext or share.");
-    // a step of its own, named for the agent: never folded into what the user is typing in the same clip
-    const said = `${ctx.token.name}'s change to clip ${i + 1}`;
-    going(s, ctx, view.id);
-    const kept = await s.timelines.editClip(c.id, patch, { step: said });
-    await saidLive(s, ctx, view, `clip ${i + 1}: ${[...(patch.recipe ? ["form"] : []), ...changed, ...(patch.look !== undefined ? ["cast"] : []), ...(patch.fitNext !== undefined ? ["lands on next"] : [])].join(", ")}`);
+    // worked out in the timeline's turn from the clip as it is then: its form written whole from a reading made before put
+    // back what the user saved meanwhile
+    const { c, i, kept } = await agentChange(s, ctx, view.id, async (then) => {
+      const { clip: c, i } = clipAt(then, asked);
+      if (c.kind === "still" && (args.form || args.set)) throw httpError(`Clip ${i + 1} is a still: it has no form. Make it a clip to render by adding the picture again as a clip (edit_timeline add, as: clip).`);
+      const recipe = formOf(s, args.form ?? c.recipe ?? "");
+      const inputs: Record<string, unknown> = { ...c.inputs };
+      const changed: string[] = [];
+      for (const [k, v] of Object.entries(args.set ?? {})) {
+        if (v === null) {
+          if (!(recipe.inputs as InputSpec[]).some((x) => x.id === k)) throw httpError(`${recipe.title} has no input ${k}.`);
+          delete inputs[k];
+        } else inputs[k] = await checkedValue(s, at, recipe, k, v);
+        changed.push(k);
+      }
+      const patch: ClipPatch = {
+        ...(args.form && args.form !== c.recipe ? { recipe: recipe.id } : {}),
+        ...(args.set ? { inputs } : {}),
+        ...(args.cast !== undefined ? { look: args.cast === null ? null : { cast: await castOf(s, args.cast), style: c.look?.style ?? then.look?.style ?? null, snippets: c.look?.snippets ?? then.look?.snippets ?? [] } } : {}),
+        ...(args.landsOnNext !== undefined ? { fitNext: args.landsOnNext } : {}),
+        ...(args.share ? { share: args.share } : {}),
+      };
+      if (!Object.keys(patch).length) throw httpError("Say what to change: form, set, cast, landsOnNext or share.");
+      // a step of its own, named for the agent: never folded into what the user is typing in the same clip
+      const kept = await s.timelines.editClip(c.id, patch, { step: `${ctx.token.name}'s change to clip ${i + 1}` });
+      const said = `clip ${i + 1}: ${[...(patch.recipe ? ["form"] : []), ...changed, ...(patch.look !== undefined ? ["cast"] : []), ...(patch.fitNext !== undefined ? ["lands on next"] : [])].join(", ")}`;
+      return { c, i, kept, said };
+    }, (out) => out?.said ?? null);
     ctx.said(`Changed clip ${i + 1} of “${view.name}”`);
     const now = clipAt(await s.timelines.view(view.id), c.id).clip;
     const why = whyNot(s, await s.timelines.view(view.id), i, now.recipe ? await formSent(s, at, formOf(s, now.recipe), now.inputs) : now.inputs);
@@ -664,9 +704,7 @@ const useTake = tool({
     if (!take) throw httpError(`Clip ${i + 1} has no take ${args.take}: it has ${plural(c.takes.length, "take")}.`, 404);
     const n = c.takes.indexOf(take) + 1;
     if (c.take?.id === take.id) return { clip: i + 1, playing: `take ${n}`, said: "it was playing already" };
-    going(s, ctx, view.id);
-    await s.timelines.editClip(c.id, { take: take.id });
-    await saidLive(s, ctx, view, `clip ${i + 1} plays take ${n}`);
+    await agentChange(s, ctx, view.id, () => s.timelines.editClip(c.id, { take: take.id }), (out) => (out ? `clip ${i + 1} plays take ${n}` : null));
     ctx.said(`Clip ${i + 1} of “${view.name}” plays take ${n}`);
     const now = clipAt(await s.timelines.view(view.id), c.id);
     return { clip: i + 1, playing: `take ${n}`, lengthMs: now.clip.lengthMs, join: now.clip.join };
@@ -795,9 +833,7 @@ const timelineRange = tool({
       // Nothing under the range is left to slowRangeOf to refuse in its own words
       return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
         const usd = parts.length ? await mayQueueAll(s, ctx, at, parts, { renders: parts.length }) : 0;
-        going(s, ctx, view.id);
-        const r = (await rangeAction(s, view.id, body, { mcpToken: token.id })) as { clips: string[]; jobs: string[]; engine: string };
-        await saidLive(s, ctx, view, `${span} slowed ×${factor}`);
+        const r = await agentChange(s, ctx, view.id, async () => (await rangeAction(s, view.id, body, { mcpToken: token.id })) as { clips: string[]; jobs: string[]; engine: string }, (out) => (out ? `${span} slowed ×${factor}` : null));
         ctx.said(`Slowed ${span} of “${view.name}” ×${factor}`);
         const now = await s.timelines.view(view.id);
         return {
@@ -809,11 +845,11 @@ const timelineRange = tool({
         };
       });
     }
-    going(s, ctx, view.id);
     // each of these is one step done whole or refused whole: nothing to say live when it is refused
+    let said = "";
+    let answer: Record<string, unknown> = {};
+    await agentChange(s, ctx, view.id, async () => {
     const r = await rangeAction(s, view.id, body);
-    let said: string;
-    let answer: Record<string, unknown>;
     if (args.action === "split") {
       said = `split at ${span}`;
       answer = { done: said };
@@ -831,7 +867,7 @@ const timelineRange = tool({
         said: `clip ${n} is new and not rendered: render_clips renders it (edit_clip changes its form first). undo takes it back`,
       };
     }
-    await saidLive(s, ctx, view, said);
+    }, () => said || null);
     ctx.said(`${args.action === "split" ? "Split" : args.action === "remove" ? "Removed" : args.action === "loop" ? "Looped" : "Regenerated"} ${span} of “${view.name}”`);
     return { ...answer, undo: (await s.timelines.history.last(view.id))?.label ?? null };
   },
@@ -854,12 +890,14 @@ const planClips = tool({
     const at = await seen(s);
     // each text checked as the form checks it, before anything is made: a wrong id is refused with the form's inputs
     for (const texts of args.clips) for (const [k, v] of Object.entries(texts)) await checkedValue(s, at, recipe, k, v);
-    going(s, ctx, view.id);
-    const made = await s.timelines.planner.planClips(view.id, recipe.id, args.clips);
-    const now = await s.timelines.view(view.id);
-    const numbers = made.map((id) => now.clips.findIndex((c) => c.id === id) + 1);
-    const said = `planned ${plural(made.length, "clip")} (${numbers.length > 1 ? `clips ${numbers[0]}–${numbers.at(-1)}` : `clip ${numbers[0]}`})`;
-    await saidLive(s, ctx, view, said);
+    let said = "";
+    const { made, numbers } = await agentChange(s, ctx, view.id, async () => {
+      const made = await s.timelines.planner.planClips(view.id, recipe.id, args.clips);
+      const now = await s.timelines.view(view.id);
+      const numbers = made.map((id) => now.clips.findIndex((c) => c.id === id) + 1);
+      said = `planned ${plural(made.length, "clip")} (${numbers.length > 1 ? `clips ${numbers[0]}–${numbers.at(-1)}` : `clip ${numbers[0]}`})`;
+      return { made, numbers };
+    }, () => said || null);
     ctx.said(`Planned ${plural(made.length, "clip")} of ${recipe.title} on “${view.name}”`);
     return { clips: numbers, ids: made, said: `${said}, each carrying on from the one before: nothing rendered yet (render_clips renders them in order). undo takes them all back` };
   },
@@ -935,9 +973,10 @@ const removeTake = tool({
     const take = typeof args.take === "number" ? c.takes[args.take - 1] : c.takes.find((x) => x.id === args.take);
     if (!take) throw httpError(`Clip ${i + 1} has no take ${args.take}: it has ${plural(c.takes.length, "take")}.`, 404);
     const n = c.takes.indexOf(take) + 1;
-    going(s, ctx, view.id);
-    await s.timelines.removeTake(take.id);
-    await saidLive(s, ctx, view, `removed take ${n} of clip ${i + 1}`);
+    await agentChange(s, ctx, view.id, async () => {
+      await s.timelines.removeTake(take.id);
+      return true;
+    }, (out) => (out ? `removed take ${n} of clip ${i + 1}` : null));
     // removeTake says nothing of the video: whether it went to the bin is read from it
     const binned = Boolean((await s.db.selectFrom("assets").select("deleted_at").where("id", "=", take.asset.id).executeTakeFirst())?.deleted_at);
     const now = clipAt(await s.timelines.view(view.id), c.id).clip;
@@ -960,13 +999,11 @@ const binUnusedTakes = tool({
   async run({ timeline }, ctx) {
     const { s } = ctx;
     const view = await viewOf(s, timeline);
-    going(s, ctx, view.id);
-    const r = await s.timelines.binUnusedTakes(view.id);
+    const r = await agentChange(s, ctx, view.id, () => s.timelines.binUnusedTakes(view.id), (out) => (out?.binned ? `binned ${plural(out.binned, "unused take")}` : null));
     if (!r.binned) {
       ctx.said(`Looked for unused takes on “${view.name}”: none`);
       return { binned: 0, said: "no take of this timeline is unused: nothing went" };
     }
-    await saidLive(s, ctx, view, `binned ${plural(r.binned, "unused take")}`);
     ctx.said(`Binned ${plural(r.binned, "unused take")} of “${view.name}”`);
     return { binned: r.binned, bytes: r.bytes, mb: Math.round(r.bytes / 2 ** 20), said: `${plural(r.binned, "take")} went, ${r.binned > 1 ? "their videos" : "its video"} to the bin. undo brings ${r.binned > 1 ? "them" : "it"} back; restore brings a video back to the library alone` };
   },

@@ -4,7 +4,7 @@ import { useLocation } from "wouter";
 import { create } from "zustand";
 import { formsWithout } from "@afflatus/core";
 import { api, failure, lookAdds, raw, type Draft } from "./api";
-import { editCount, laidOver, undone, unsavedFields, useAgentEdits } from "./agentEdits";
+import { editCount, fieldKey, keptSaid, laidOver, undone, unsavedFields, useAgentEdits } from "./agentEdits";
 import { KEEPALIVE_MAX, useAutosave } from "./autosave";
 import { useDrafts } from "./data";
 import { plural } from "./format";
@@ -139,9 +139,13 @@ export function useDraft(firstRecipe: string | undefined) {
 
   // the edits on screen, saved half a second after the last one (autosave.ts); the saves of drafts go one at a time (see
   // autosave.ts inTurn), the edits of a draft that is not on screen too
+  // the page's last save as the server answered it (its id and updatedAt): an agent's edit saved before it was written over
+  // by it, and is saved again (see the "draft" live event below)
+  const lastSaved = useRef<{ id: string; at: string } | null>(null);
   const save = useAutosave<Draft>({
     delayMs: SAVE_AFTER_MS,
     save: async (d) => {
+      const heard = useAgentEdits.getState().seq;
       let saved = await putDraft(d.id, saveBodyOf(d));
       if (saved === "gone") {
         // swept or deleted elsewhere: made again with what is unsaved, which goes on under the new id
@@ -160,6 +164,10 @@ export function useDraft(firstRecipe: string | undefined) {
         client.removeQueries({ queryKey: queryKeys.drafts.one(from) });
         if (useOpenDraft.getState().id === from) open(to);
       }
+      lastSaved.current = { id: saved.id, at: saved.updatedAt };
+      // an agent's edit heard while this save was out is already laid over the copy kept of the draft: the answer, written
+      // before or after it, gets it too, else the fields it changed read as the user's unsaved typing at the next edit
+      for (const e of useAgentEdits.getState().since(heard)) if (e.id === saved.id && !e.made) saved = laidOver(saved, e);
       client.setQueryData(queryKeys.drafts.one(saved.id), saved);
       void client.invalidateQueries({ queryKey: queryKeys.drafts.lists() });
     },
@@ -250,8 +258,10 @@ export function useDraft(firstRecipe: string | undefined) {
   }, [changedElsewhere]);
 
   // a draft an MCP token changed (a "draft" live event, agentEdits.ts): the open one shows it at once, the fields the user
-  // changed and has not saved yet kept as typed, with a toast whose Undo puts the draft back as before those changes;
-  // another is read again when it is next opened
+  // changed and has not saved yet kept as typed, with a toast whose Undo puts back what the token changed (what was changed
+  // again since stays); another is read again when it is next opened. A save of the page's still out, or answered after the
+  // edit was written, sent the whole draft as the page held it before the edit, over it on the server: what the page holds
+  // now, the edit laid in, is saved again
   const agentSeq = useAgentEdits((s) => s.seq);
   useEffect(() => {
     const e = useAgentEdits.getState().last;
@@ -266,18 +276,42 @@ export function useDraft(firstRecipe: string | undefined) {
     const saved = client.getQueryData<Draft>(queryKeys.drafts.one(e.id));
     const keep = unsavedFields(unsaved.current, saved);
     setDraft((x) => (x && x.id === e.id ? laidOver(x, e, keep) : x));
-    if (unsaved.current?.id === e.id) unsaved.current = laidOver(unsaved.current, e, keep);
+    const over = Boolean(e.saved && lastSaved.current?.id === e.id && lastSaved.current.at >= e.saved);
+    if (unsaved.current?.id === e.id) {
+      unsaved.current = laidOver(unsaved.current, e, keep);
+      schedule();
+    } else if (over) {
+      unsaved.current = laidOver(d, e, keep);
+      schedule();
+    }
     if (saved) client.setQueryData<Draft>(queryKeys.drafts.one(e.id), laidOver(saved, e));
     const n = editCount(e);
     if (!n) return;
+    // the user's typing kept over some of it: said, the token's change to those fields is not on screen
+    const yours = e.fields.filter((f) => keep.has(fieldKey(f.form, f.input))).length + (["recipe", "look", "count"] as const).filter((k) => e[k] && keep.has(k)).length;
     say({
       id: `agent-edit:${e.id}`, tone: "good", title: `${e.by} changed ${plural(n, "field")}`,
+      ...(yours ? { text: `What you were typing in ${plural(yours, "field")} was kept over it.` } : {}),
       action: {
         label: "Undo", key: "Ctrl+Z", undo: true,
         run: () => {
           useAgentEdits.getState().forget(e);
-          if (shown.current?.id === e.id) change((x) => undone(x, e));
-          else void editDraft(e.id, (x) => undone(x, e));
+          // the fields changed again since (typed over, or by another edit) stay as they are now: said
+          const tell = (kept: number) => {
+            const text = keptSaid(kept);
+            if (text) say({ id: `agent-undo:${e.id}`, tone: "good", title: `${e.by}'s change undone, in part`, text });
+          };
+          const open = shown.current;
+          if (open?.id === e.id) {
+            tell(undone(open, e).kept);
+            change((x) => undone(x, e).draft);
+          } else {
+            void editDraft(e.id, (x) => {
+              const r = undone(x, e);
+              tell(r.kept);
+              return r.draft;
+            }, { fresh: true });
+          }
         },
       },
     });
@@ -286,12 +320,14 @@ export function useDraft(firstRecipe: string | undefined) {
 
   /**
    * An edit for one draft by its id, whichever is open when it lands: the open one is changed on screen; another
-   * (the designer answered, or a seed moved, after a switch) is changed where it is kept, never the open one.
+   * (the designer answered, or a seed moved, after a switch) is changed where it is kept, never the open one. `fresh`: read
+   * from the server rather than the copy kept here, which may be older (an Undo that must see what changed since).
    */
   const editDraft = useCallback(
-    async (id: string, edit: (d: Draft) => Draft) => {
+    async (id: string, edit: (d: Draft) => Draft, o: { fresh?: boolean } = {}) => {
       if (shown.current?.id === id) return change(edit);
-      const base = unsaved.current?.id === id ? unsaved.current : (client.getQueryData<Draft>(queryKeys.drafts.one(id)) ?? (await api.draft(id)));
+      const kept = o.fresh ? undefined : client.getQueryData<Draft>(queryKeys.drafts.one(id));
+      const base = unsaved.current?.id === id ? unsaved.current : (kept ?? (await api.draft(id)));
       const next = edit(base);
       if (unsaved.current?.id === id) unsaved.current = null;
       const saved = await turn(() => putDraft(id, saveBodyOf(next)));
