@@ -90,7 +90,8 @@ describe("people, places and styles", () => {
     await until(() => fake.prompts.size === 1);
     const graph = [...fake.prompts.values()][0]!;
     expect(Object.values(graph).filter((n) => n.class_type === "LoraLoader").map((n) => n.inputs.lora_name)).toEqual(["her_illustrious.safetensors", "film.safetensors"]);
-    expect(Object.values(graph).some((n) => String(n.inputs.text ?? "").startsWith("her_character, brown hair"))).toBe(true);
+    // after the quality tags the checkpoint's line starts on (an Illustrious file: the form's own start, card #125)
+    expect(Object.values(graph).some((n) => String(n.inputs.text ?? "").includes("her_character, brown hair"))).toBe(true);
   });
 
   it("are worked into the job, while what was typed is kept beside what it became, for a tool to carry on with", async () => {

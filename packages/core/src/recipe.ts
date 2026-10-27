@@ -331,6 +331,28 @@ export interface Preset {
   note?: string;
 }
 
+/**
+ * What a model file starts on over its recipe's defaults: the values saved for it (its per-model inputs), or, with
+ * nothing saved, what its line's presets set by its name, each setting from the first preset that has it. The form
+ * starts there (web formDefaults), and a job sent without a form is filled from it (Queue.renderJob): sent through the
+ * API, a distilled Klein file rendered at the base model's 20 steps and CFG 5 (card #125).
+ */
+export function modelStart(recipe: { inputs: readonly InputSpec[]; presets?: readonly Preset[] }, file: string, savedValues: Record<string, unknown>) {
+  const saved = withoutOldZeros(recipe.inputs, savedValues);
+  const hasSaved = Object.keys(saved).length > 0;
+  const name = file.split(/[\\/]/).pop() ?? "";
+  const matched = !hasSaved && name ? (recipe.presets ?? []).filter((p) => new RegExp(p.match, "i").test(name)) : [];
+  const values: Record<string, unknown> = Object.assign({}, ...[...matched].reverse().map((p) => p.values));
+  return {
+    /** What the file's line sets. */
+    lined: Object.fromEntries(recipe.inputs.filter((i) => i.id in values).map((i) => [i.id, values[i.id]])),
+    /** What was saved for the file. */
+    perModel: Object.fromEntries(recipe.inputs.filter((i) => i.perModel && i.id in saved).map((i) => [i.id, saved[i.id]])),
+    hasSaved,
+    notes: matched.map((p) => p.note).filter((n): n is string => Boolean(n)),
+  };
+}
+
 export const defineFamily = (f: Family): Family => f;
 export const defineRecipe = <In>(r: Recipe<In>): Recipe<In> => r;
 

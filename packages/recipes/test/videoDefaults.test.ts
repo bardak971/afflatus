@@ -127,7 +127,7 @@ describe("LTX 2.5's reference pictures and voice (the MSR LoRA)", () => {
   // the picture's file, through the cut to the face a person's picture goes through
   const loadOf = (graph: Graph, ref: unknown): unknown => {
     const n = graph[(ref as [string, number])[0]]!;
-    return ["AfflatusFaceFrame", "AfflatusFaceCrop", "AfflatusFaceBackdrop"].includes(n.class_type) ? loadOf(graph, n.inputs.image) : n.inputs.image;
+    return ["AfflatusFaceFrame", "AfflatusFaceCrop", "AfflatusFaceBackdrop", "ImageScale"].includes(n.class_type) ? loadOf(graph, n.inputs.image) : n.inputs.image;
   };
 
   it("lays the pictures in MSR's slots, a place as the background, the voice with the first, in both passes, as its authors do", () => {
@@ -273,6 +273,27 @@ describe("LTX 2.5's reference pictures and voice (the MSR LoRA)", () => {
     const old = build({ references: r.references }, r.uploads, { msr }, (t) => t !== "AfflatusFaceCrop" && t !== "AfflatusFaceFrame");
     expect(cuts(old.graph as Graph)).toEqual([]);
     expect(old.warnings).toEqual(["The people's pictures go in whole, not cut to the face: this ComfyUI lacks Afflatus's Face Crop (node pack 0.38, with insightface)."]);
+  });
+
+  // card #125: a picture that is not a person's was never cut, so a tall object or place in a wide clip went between MSR's white bars
+  it("cuts a picture that is not a person's to the frame's shape in its middle when its shape is of another family, and only then", () => {
+    const r = refs(["person", "object", "clothing", "place"]);
+    const media = { "references.0": { width: 896, height: 1152 }, "references.1": { width: 424, height: 1408 }, "references.2": { width: 1920, height: 1080 }, "references.3": { width: 768, height: 1344 } };
+    const graph = ltx25Video.build(parseInput(ltx25Video, { prompt: "They talk.", references: r.references, shape: { width: 1280, height: 704 }, short: 704 }), dryContext({ slots: { ...slots, msr }, uploads: r.uploads, media })).graph as Graph;
+    for (const g of of(graph, "ComfyUILTX25MSRMultiReferenceGuide")) {
+      const node = (slot: string) => graph[(g.inputs[slot] as [string, number])[0]]!;
+      // the person's through the face cut, as before; the tall object and the tall place cut in their middle at the frame's size
+      expect(node("pic1").class_type).toBe("AfflatusFaceBackdrop");
+      expect([node("pic2").class_type, node("pic2").inputs]).toEqual(["ImageScale", expect.objectContaining({ width: 1280, height: 704, crop: "center" })]);
+      expect(loadOf(graph, node("pic2").inputs.image)).toBe("r1.png");
+      // the wide clothes picture is of the frame's family: as it is (MSR's guide cover-crops it)
+      expect(node("pic3").class_type).toBe("LoadImage");
+      expect(node("background").class_type).toBe("ImageScale");
+      expect(loadOf(graph, node("background").inputs.image)).toBe("r3.png");
+    }
+    // a size not known: as it is
+    const unknown = build({ references: r.references, shape: { width: 1280, height: 704 }, short: 704 }, r.uploads).graph as Graph;
+    expect(of(unknown, "ImageScale")).toEqual([]);
   });
 
   // card #91: MSR's guide fits a picture of another shape family than its slot whole on a white canvas; Face Crop's square in
