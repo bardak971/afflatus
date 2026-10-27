@@ -21,6 +21,7 @@ import { Slider } from "../../Slider";
 import { dropped, moved } from "../queue/order";
 import { useFlip } from "../../useFlip";
 import { entryOf, field, modelRows, outfitsOf, withEntry } from "./shared";
+import { ringBy } from "../../agentEdits";
 import { queryKeys } from "../../queryKeys";
 import { useBanners } from "../../store";
 import { MicButton } from "../../mic/MicRecord";
@@ -239,10 +240,10 @@ function Voice({ value, part, onChange, onPart }: {
 const WORDS_HELP = "Some models read danbooru tags, others natural-language prompts. Afflatus uses the one the model needs.";
 
 /** The prompt text of a person or a place: tags and natural language, one row each. */
-function Words({ tags, sentence, onChange, place }: { tags: string; sentence: string; onChange(patch: { tags?: string; sentence?: string }): void; place?: boolean }) {
+function Words({ tags, sentence, onChange, place, by }: { tags: string; sentence: string; onChange(patch: { tags?: string; sentence?: string }): void; place?: boolean; by?: string }) {
   const id = useId();
   return (
-    <Card dense title="Prompt text" help={WORDS_HELP}>
+    <Card dense title="Prompt text" help={WORDS_HELP} by={by}>
       <Row label="Tags" htmlFor={`${id}-tags`}>
         <AutoText id={`${id}-tags`} rows={1} value={tags} placeholder={place ? "forest, morning fog, dirt path" : "brown hair, green eyes, freckles"} onChange={(e) => onChange({ tags: e.target.value })} className={field} />
       </Row>
@@ -296,7 +297,10 @@ function OutfitPicture({ value, onChange, what }: { value: string | null; onChan
   );
 }
 
-export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: string; onChange(def: PersonDef): void }) {
+/** The parts of an item an MCP token changed, ringed with its name until the user edits them (agentEdits.ts useKitEdits). */
+type Rings = Readonly<Record<string, string>> | undefined;
+
+export function PersonEditor({ def, name, onChange, rings }: { def: PersonDef; name: string; onChange(def: PersonDef): void; rings?: Rings }) {
   const recipes = useRecipes();
   const setup = useSetup();
   const rows = modelRows(recipes.data?.families ?? [], recipes.data?.recipes ?? []);
@@ -309,7 +313,7 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
   return (
     <Halves>
       <div className="flex min-w-0 flex-col gap-3">
-        <Card dense title={`Reference images · ${def.pictures.length}`} status={def.pictures.length > 1 && <span className="text-meta text-ink-3">drag to reorder</span>} help={`Used by models that take reference images: the first ${LIMITS.sentPictures.person} are sent, the first being the face. Two or three angles hold a face better than one. Drop pictures on the row, from the computer or the library; drag one, or Alt + ← → on a focused one, to change the order.`}>
+        <Card dense by={ringBy(rings, "pictures", "voice", "voicePart")} title={`Reference images · ${def.pictures.length}`} status={def.pictures.length > 1 && <span className="text-meta text-ink-3">drag to reorder</span>} help={`Used by models that take reference images: the first ${LIMITS.sentPictures.person} are sent, the first being the face. Two or three angles hold a face better than one. Drop pictures on the row, from the computer or the library; drag one, or Alt + ← → on a focused one, to change the order.`}>
           <Pictures value={def.pictures} onChange={(pictures) => onChange({ ...def, pictures })} what={name} sent={LIMITS.sentPictures.person} face />
           <Row label="Voice sample" help="A few seconds of them speaking. Models that generate audio give the person this voice. Under it, the part they are given, in the accent: drag on the waveform for another part, its ends snap to the pauses (Alt: anywhere); a click plays from there. Optional.">
             {/* the part belongs to the sample: another sample starts from the form's own part again */}
@@ -317,11 +321,11 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
           </Row>
         </Card>
 
-        <Words tags={def.tags} sentence={def.sentence} onChange={(p) => onChange({ ...def, ...p })} />
+        <Words tags={def.tags} sentence={def.sentence} onChange={(p) => onChange({ ...def, ...p })} by={ringBy(rings, "tags", "sentence")} />
       </div>
 
       <div className="flex min-w-0 flex-col gap-3">
-        <Card dense title="LoRA per model" status={<span className="text-meta text-ink-3">optional</span>} help={`A LoRA is a file you already have: Afflatus does not train one. The chips say what each model takes of ${name}: reference images, tags or natural language, the voice sample. A model that takes neither reference images nor a LoRA gets only the prompt text.`}>
+        <Card dense by={ringBy(rings, "models")} title="LoRA per model" status={<span className="text-meta text-ink-3">optional</span>} help={`A LoRA is a file you already have: Afflatus does not train one. The chips say what each model takes of ${name}: reference images, tags or natural language, the voice sample. A model that takes neither reference images nor a LoRA gets only the prompt text.`}>
           {rows.map(({ family: f, ids, can }) => {
             const m = entryOf(def.models, ids) ?? { lora: null, weight: 0.8, trigger: "" };
             const set = (patch: Partial<typeof m>) => onChange({ ...def, models: withEntry(def.models, ids, { ...m, ...patch }) });
@@ -372,6 +376,7 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
 
         <Card
           dense
+          by={ringBy(rings, "outfits")}
           title={`Outfits · ${outfitsOf(def.outfits).length}`}
           help={`Pick one when you add ${name} to an image or a clip. Each has prompt text (tags and natural language) and, if you like, a reference image of the clothes. Without an outfit, ${name} is "as in the reference images": nothing about clothes is added to the prompt.`}
           status={
@@ -396,13 +401,13 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
   );
 }
 
-export function PlaceEditor({ def, name, onChange }: { def: PlaceDef; name: string; onChange(def: PlaceDef): void }) {
+export function PlaceEditor({ def, name, onChange, rings }: { def: PlaceDef; name: string; onChange(def: PlaceDef): void; rings?: Rings }) {
   return (
     <Halves>
-      <Card dense title={`Reference images · ${def.pictures.length}`} status={def.pictures.length > 1 && <span className="text-meta text-ink-3">drag to reorder</span>} help={`Used by models that take reference images: the clip happens there. The first ${LIMITS.sentPictures.place} are sent. Drop pictures on the row, from the computer or the library; drag one, or Alt + ← → on a focused one, to change the order.`}>
+      <Card dense by={ringBy(rings, "pictures")} title={`Reference images · ${def.pictures.length}`} status={def.pictures.length > 1 && <span className="text-meta text-ink-3">drag to reorder</span>} help={`Used by models that take reference images: the clip happens there. The first ${LIMITS.sentPictures.place} are sent. Drop pictures on the row, from the computer or the library; drag one, or Alt + ← → on a focused one, to change the order.`}>
         <Pictures value={def.pictures} onChange={(pictures) => onChange({ ...def, pictures })} what={name} sent={LIMITS.sentPictures.place} />
       </Card>
-      <Words place tags={def.tags} sentence={def.sentence} onChange={(p) => onChange({ ...def, ...p })} />
+      <Words place tags={def.tags} sentence={def.sentence} onChange={(p) => onChange({ ...def, ...p })} by={ringBy(rings, "tags", "sentence")} />
     </Halves>
   );
 }

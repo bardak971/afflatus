@@ -310,6 +310,8 @@ describe("the tools, through the SDK's client over HTTP", () => {
     expect((await client.listTools()).tools.map((x) => x.name)).toEqual([
       "whats_open", "overview", "list_forms", "describe_form", "estimate", "list_drafts", "read_draft", "new_draft", "edit_draft", "apply_preset",
       "render", "queue_status", "job", "cancel", "retry", "pause_machine", "resume_machine", "load_model", "view_item", "compare",
+      "search_library", "keep", "unkeep", "bin", "restore", "move", "rename", "list_places", "new_folder", "edit_folder", "new_project", "rename_project",
+      "import_from_url", "cut_range", "find_scenes", "extract_scenes", "save_frame", "list_kit", "read_kit_item", "new_kit_item", "edit_kit_item",
     ]);
     const r = await client.callTool({ name: "overview" });
     expect(r.isError).toBeFalsy();

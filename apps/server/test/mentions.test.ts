@@ -3,7 +3,7 @@ import { recipeById } from "@afflatus/recipes";
 import { newId, now, OWNER } from "../src/db";
 import { compose, withMentions } from "../src/entities";
 import { newAssetRow } from "../src/media";
-import { makeApp, type TestApp } from "./helpers";
+import { CHECKPOINT, makeApp, post, type TestApp } from "./helpers";
 
 /**
  * "@Nicolas" in a prompt part (the rethink's prompt parts, card #34): the Prompt kit person of that name cast for the
@@ -45,5 +45,15 @@ describe("a Prompt kit person named in a part", () => {
     expect(look).toBeNull();
     const plain = { happens: "he waves" };
     expect((await withMentions(t.db, swap, plain, null)).input).toBe(plain);
+  });
+
+  it("casts them for a render sent with no cast picked (a draft's look empty), and the job keeps the cast it made", async () => {
+    const { id: mira } = await person("zz-test Mira", "a woman with long red hair.");
+    await post(t.app, "/api/queue/pause", {});
+    const sent = await post(t.app, "/api/jobs", { recipe: "sdxl.text-to-picture", input: { prompt: "@zz_test_Mira reading", checkpoint: CHECKPOINT } });
+    expect(sent.statusCode, sent.body).toBe(200);
+    const job = await t.db.selectFrom("jobs").select(["inputs", "look"]).where("id", "=", sent.json().ids[0]).executeTakeFirstOrThrow();
+    expect(JSON.parse(job.inputs).prompt).toContain("a woman with long red hair");
+    expect(JSON.parse(job.look!).cast).toEqual([{ id: mira }]);
   });
 });

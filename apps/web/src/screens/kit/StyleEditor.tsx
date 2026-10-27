@@ -6,14 +6,15 @@ import { AutoText } from "../../ui";
 import { entryOf, field, modelRows, withEntry } from "./shared";
 
 /** A style per model family: one row of prompt text each, its LoRAs under it where the model takes them. */
-export function StyleEditor({ def, onChange }: { def: StyleDef; onChange(def: StyleDef): void }) {
+/** `rings`: the parts an MCP token changed, ringed with its name until the user edits them (agentEdits.ts useKitEdits). */
+export function StyleEditor({ def, onChange, rings }: { def: StyleDef; onChange(def: StyleDef): void; rings?: Readonly<Record<string, string>> }) {
   const recipes = useRecipes();
   const setup = useSetup();
   const rows = modelRows(recipes.data?.families ?? [], recipes.data?.recipes ?? []);
   // the LoRAs of every family of a row, each once
   const lorasOf = (ids: string[]) => [...new Set(ids.flatMap((family) => setup.data?.recipes.find((s) => recipes.data?.recipes.find((r) => r.id === s.id)?.family === family && s.options.loras)?.options.loras ?? []))];
   return (
-    <Card dense title="Per model" help="A style is LoRAs and prompt text. Set it up for the models you use it with; for the others it adds nothing. Each model gets its prompt text as it reads it: tags or natural language.">
+    <Card dense by={rings?.models} title="Per model" help="A style is LoRAs and prompt text. Set it up for the models you use it with; for the others it adds nothing. Each model gets its prompt text as it reads it: tags or natural language.">
       {rows.map(({ family: f, ids, can }) => {
         const m = entryOf(def.models, ids) ?? { loras: [], words: "" };
         const set = (patch: Partial<typeof m>) => onChange({ ...def, models: withEntry(def.models, ids, { ...m, ...patch }) });

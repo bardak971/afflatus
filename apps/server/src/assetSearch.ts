@@ -461,9 +461,18 @@ class AssetSearch {
   }
 }
 
-/** The library's routes, on one AssetSearch. */
+const searches = new WeakMap<Services, AssetSearch>();
+
+/** The library's search: one per server, its readings and rankings shared by the page's lists and MCP's search_library. */
+export function searchOf(s: Services): AssetSearch {
+  let search = searches.get(s);
+  if (!search) searches.set(s, (search = new AssetSearch(s)));
+  return search;
+}
+
+/** The library's routes, on the one AssetSearch. */
 export function registerAssetSearch(app: FastifyInstance, s: Services): void {
-  const search = new AssetSearch(s);
+  const search = searchOf(s);
   app.get("/api/assets", async (req) => search.list(req.query));
   /** The items not kept of a view (AssetSearch.unkept). */
   app.get("/api/assets/unkept", async (req) => search.unkept(req.query));

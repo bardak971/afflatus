@@ -30,7 +30,7 @@ import { firstFrame, inVideoFile, probeVideo, tools } from "./video";
  */
 
 /** An item by its id (a 404 when there is none), and an item of Afflatus's own storage moved into the linked folder it sits in: for the library's route modules. */
-function assetLookup(s: Services) {
+export function assetLookup(s: Services) {
   const asset = async (id: string) => {
     const a = await s.db.selectFrom("assets").selectAll().where("id", "=", id).executeTakeFirst();
     if (!a) throw notFound("this item");
@@ -147,6 +147,14 @@ export async function assetDetail(s: Services, a: Tables["assets"]) {
   };
 }
 
+/** An item given a name of its own (PATCH /api/assets/:id, MCP's rename): the open pages told. */
+export async function renameItem(s: Services, { asset }: AssetLookup, id: string, name: string) {
+  await asset(id);
+  await s.db.updateTable("assets").set({ name }).where("id", "=", id).execute();
+  s.queue.events.emit("library", { items: [id], change: "fields", name } satisfies LibraryChange);
+  return assetView(await asset(id));
+}
+
 export function registerAssets(app: FastifyInstance, s: Services): void {
   const lookup = assetLookup(s);
   const { asset, addBeside } = lookup;
@@ -157,10 +165,7 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
   /** A new name for a picture, a video or a sound: what the library shows and searches by. The file on the disk keeps its own. */
   app.patch<{ Params: { id: string } }>("/api/assets/:id", async (req) => {
     const { name } = z.strictObject({ name: z.string().trim().max(200) }).parse(req.body ?? {});
-    await asset(req.params.id);
-    await s.db.updateTable("assets").set({ name }).where("id", "=", req.params.id).execute();
-    s.queue.events.emit("library", { items: [req.params.id], change: "fields", name } satisfies LibraryChange);
-    return assetView(await asset(req.params.id));
+    return renameItem(s, lookup, req.params.id, name);
   });
 
   /**

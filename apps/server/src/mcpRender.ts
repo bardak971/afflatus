@@ -1,7 +1,7 @@
 import { notFilled, plural, type Recipe } from "@afflatus/core";
 import { z } from "zod";
 import type { Tables } from "./db";
-import { compose, lookSchema, type Look } from "./entities";
+import { compose, lookSchema, withMentions, type Look } from "./entities";
 import { httpError } from "./errors";
 import { jobBody, queueRender } from "./jobs-api";
 import { oneAtATime } from "./keyedLock";
@@ -11,7 +11,7 @@ import { tool, type ToolCtx } from "./mcpTool";
 import { refusal } from "./mcpTokens";
 import { runwayNeed } from "./rentedBilling";
 import type { Services } from "./services";
-import type { Machine } from "./settings";
+import { readSettings, type Machine } from "./settings";
 
 /**
  * Rendering and the queue, from outside (MCP): a draft (or a form with values) rendered through the same path as the
@@ -19,10 +19,11 @@ import type { Machine } from "./settings";
  * again, a machine paused or resumed, a model loaded ahead.
  *
  * A money path (memory money-paths-critical): a token without Spend never lands on a rented pod, pinned there (refused
- * here) or picked by the queue (queuePlan.ts ownOnly keeps its jobs off the pods at every pass, whatever its scopes become);
+ * here) or picked by the queue (queuePlan.ts offPods keeps its jobs off the pods at every pass, whatever its scopes become);
  * a token with Spend is held to its own cap with its queued and running work counted, not only its finished renders
- * (mcpTokens.ts spentThisMonth counts those), and the app's own caps hold over it as over anyone. A token's checks and
- * its queueing go one call at a time (`mcp-render:<token>`): two renders at once both passed a cap that holds one.
+ * (mcpTokens.ts spentThisMonth counts those), checked when it queues and again where the queue hands a job to a pod
+ * (capHeld), and the app's own caps hold over it as over anyone. A token's checks and its queueing go one call at a time
+ * (`mcp-render:<token>`): two renders at once both passed a cap that holds one.
  */
 
 const HOUR = 3_600_000;
@@ -35,13 +36,16 @@ const IDLE_POD = new Set(["EXITED", "TERMINATED", "GONE", "ERROR"]);
  * pods are watched (rented.ts view, in memory: never the queue's last status, which may predate a pod just started). A pod
  * not read yet counts as up with no known price: a render that may land there is refused rather than counted as free.
  */
-function podsOf(s: Services, at: Seen): Map<string, { rate: number | null; up: boolean }> {
-  return new Map(at.machines.flatMap(({ machine }) => {
+function podsOf(s: Services, machines: readonly Machine[]): Map<string, { rate: number | null; up: boolean }> {
+  return new Map(machines.flatMap((machine) => {
     if (!machine.rented) return [];
     const v = s.rented.view(machine);
     return [[machine.id, { rate: v?.rate ?? null, up: !v || !IDLE_POD.has(v.status) }] as const];
   }));
 }
+
+/** Why a pod is not counted when its price is not known (said by a refused render, and on a held job's Queue row). */
+const unpriced = (pod: Machine) => `${machineName(pod)}'s price is not known yet, so this token's spend cap cannot be held`;
 
 /**
  * What one render of a form may cost on the rented pods it may land on (USD): its forecast there, else the queue's floor
@@ -57,27 +61,80 @@ async function mayCostEach(s: Services, recipe: string, input: unknown, pods: re
     const ms = runwayNeed({ renderMs: f ? f.ms + f.loadMs : null, fetchMs: 0, sure: (got?.forecast.samples ?? 0) >= 3 });
     // a pod whose price is not known yet cannot be held to a cap: nothing goes there through a token until it is
     const rate = rates.get(pod.id)?.rate;
-    if (rate === null || rate === undefined) throw refusal(`${machineName(pod)}'s price is not known yet, so this token's spend cap cannot be held: pin the render to another machine, or wait until the pod is up.`);
+    if (rate === null || rate === undefined) throw refusal(`${unpriced(pod)}: pin the render to another machine, or wait until the pod is up.`);
     most = Math.max(most, (ms / HOUR) * rate);
   }
   return most;
 }
 
+/** A token's renders waiting or running now, the running first, then in the queue's order (a model load alone is no render). */
+const activeJobs = (s: Services, tokenId: string) => s.db.selectFrom("jobs").select(["id", "recipe_id", "inputs", "pin_machine", "machine_id", "status"])
+  .where("mcp_token_id", "=", tokenId).where("status", "in", ["queued", "running"]).where("warm", "=", 0)
+  .orderBy("priority").orderBy("created_at").execute();
+
+/** Where a token's job is or may go: the pod it runs on, else its pin, else any pod up that the queue may send it to. */
+function podsFor(j: { status: string; machine_id?: string | null; pin_machine?: string | null }, pods: readonly Machine[], rates: ReadonlyMap<string, { up: boolean }>): Machine[] {
+  const on = j.status === "running" ? j.machine_id : j.pin_machine;
+  return on ? pods.filter((p) => p.id === on) : pods.filter((p) => rates.get(p.id)?.up);
+}
+
 /** What this token's renders waiting or running now may still cost on rented pods (USD): its work counted before it is billed. */
-export async function committedSpend(s: Services, at: Seen, tokenId: string): Promise<number> {
-  const jobs = await s.db.selectFrom("jobs").select(["recipe_id", "inputs", "pin_machine", "machine_id", "status"])
-    .where("mcp_token_id", "=", tokenId).where("status", "in", ["queued", "running"]).where("warm", "=", 0).execute();
+export async function committedSpend(s: Services, machines: readonly Machine[], tokenId: string): Promise<number> {
+  const jobs = await activeJobs(s, tokenId);
   if (!jobs.length) return 0;
-  const rates = podsOf(s, at);
-  const pods = at.machines.map((m) => m.machine).filter((m) => m.rented);
+  const rates = podsOf(s, machines);
+  const pods = machines.filter((m) => m.rented);
   let sum = 0;
-  for (const j of jobs) {
-    // where it is or will be: the machine it runs on, else its pin, else any pod up that it may be sent to
-    const on = j.status === "running" ? j.machine_id : j.pin_machine;
-    const may = on ? pods.filter((p) => p.id === on) : pods.filter((p) => rates.get(p.id)?.up);
-    sum += await mayCostEach(s, j.recipe_id, readJson(j.inputs, {}), may, rates);
-  }
+  for (const j of jobs) sum += await mayCostEach(s, j.recipe_id, readJson(j.inputs, {}), podsFor(j, pods, rates), rates);
   return sum;
+}
+
+/** Why a Spend token's job waits for its cap (its Queue row says it). */
+export const CAP_FULL = "its MCP token's spend cap has no room for it on a rented pod (its renders running and waiting ahead counted): raise the cap in Settings › Interface › Access, or it runs on a machine of the user's own";
+
+/**
+ * The jobs among these, queued by MCP tokens with Spend, that no rented pod takes this pass, each with why (the planner,
+ * queuePlan.ts offPods, keeps them off the pods and their Queue rows say it). render checks a token's cap when it queues;
+ * this checks it again where the queue hands a job to a pod, since a job queued with no pod up cost nothing then and would
+ * land, uncounted, on a pod the user starts later. Each token's month so far and its running renders are counted first,
+ * then its waiting ones in the queue's order: a job whose cost there would pass the cap waits (on the user's own machines
+ * it may still run), as does one that may go only to a pod whose price is not known yet. A money path.
+ */
+export async function capHeld(s: Services, rows: ReadonlyArray<{ id: string; mcp_token_id?: string | null }>): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const asked = new Set(rows.map((r) => r.id));
+  const tokenIds = [...new Set(rows.map((r) => r.mcp_token_id).filter((id): id is string => Boolean(id)))];
+  if (!tokenIds.length) return out;
+  const machines = (await readSettings(s.db)).machines;
+  const pods = machines.filter((m) => m.rented);
+  if (!pods.length) return out;
+  const rates = podsOf(s, machines);
+  for (const id of tokenIds) {
+    const token = await s.mcp.tokens.get(id);
+    if (!token) continue;
+    const cap = token.spendCapCents / 100;
+    let total = await s.mcp.tokens.spentThisMonth(id);
+    for (const j of await activeJobs(s, id)) {
+      const may = podsFor(j, pods, rates);
+      if (!may.length) continue;
+      if (j.status === "running") {
+        total += await mayCostEach(s, j.recipe_id, readJson(j.inputs, {}), may, rates).catch(() => 0);
+        continue;
+      }
+      const unknown = may.find((p) => rates.get(p.id)?.rate == null);
+      if (unknown) {
+        if (asked.has(j.id)) out.set(j.id, `${unpriced(unknown)} for the MCP token that sent it`);
+        continue;
+      }
+      const cost = await mayCostEach(s, j.recipe_id, readJson(j.inputs, {}), may, rates);
+      if (total + cost > cap) {
+        if (asked.has(j.id)) out.set(j.id, CAP_FULL);
+        continue;
+      }
+      total += cost;
+    }
+  }
+  return out;
 }
 
 /**
@@ -86,7 +143,7 @@ export async function committedSpend(s: Services, at: Seen, tokenId: string): Pr
  */
 export async function mayQueue(s: Services, ctx: ToolCtx, at: Seen, o: { recipe: string; input: unknown; takes: number; machine?: Machine; renders: boolean }): Promise<number> {
   if (o.renders) await ctx.mayRender(o.takes);
-  const rates = podsOf(s, at);
+  const rates = podsOf(s, at.machines.map((m) => m.machine));
   // the pods the queue may send it to: those up now (a stopped pod takes nothing until it is started)
   const pods = at.machines.map((m) => m.machine).filter((m) => m.rented && rates.get(m.id)?.up);
   if (!spends(ctx)) {
@@ -97,7 +154,7 @@ export async function mayQueue(s: Services, ctx: ToolCtx, at: Seen, o: { recipe:
   const may = o.machine ? (o.machine.rented ? [o.machine] : []) : pods;
   if (!may.length) return 0;
   const usd = (await mayCostEach(s, o.recipe, o.input, may, rates)) * o.takes;
-  await ctx.maySpend(usd + (await committedSpend(s, at, ctx.token.id)));
+  await ctx.maySpend(usd + (await committedSpend(s, at.machines.map((m) => m.machine), ctx.token.id)));
   return usd;
 }
 
@@ -151,7 +208,9 @@ const loadModel = tool({
     const input = await wholeOf(s, at, asked.recipe, asked.stored);
     const machine = args.machine ? machineOf(at, args.machine) : undefined;
     await mayQueue(s, ctx, at, { recipe: asked.recipe.id, input, takes: 1, machine, renders: false });
-    const look = asked.draft?.look ? (lookSchema.nullable().catch(null).parse(asked.draft.look) as Look | null) : null;
+    const picked = asked.draft?.look ? (lookSchema.nullable().catch(null).parse(asked.draft.look) as Look | null) : null;
+    // "@Name" in a text casts that person here too, as it does for the render (jobs-api.ts queueRender)
+    const look = picked ?? (await withMentions(s.db, asked.recipe, input, null)).look;
     const withCast = look ? (await compose(s.db, asked.recipe, input, look).catch(() => null))?.input ?? input : input;
     const id = await s.queue.enqueue(asked.recipe.id, withCast, { label: `Load the model: ${asked.recipe.title}`, warm: true, machine: machine?.id ?? null, mcpToken: token.id });
     ctx.said(`Loaded the model of ${asked.name}${machine ? ` on ${machineName(machine)}` : ""}`);

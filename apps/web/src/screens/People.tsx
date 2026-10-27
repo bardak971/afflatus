@@ -25,6 +25,7 @@ import { outfitsOf, remember, remembered, textOf } from "./kit/shared";
 import { SnippetTable, type Snippet } from "./kit/SnippetTable";
 import { StyleEditor } from "./kit/StyleEditor";
 import { useEntityDraft } from "./kit/useEntityDraft";
+import { useKitEdits } from "../agentEdits";
 import { plural } from "../format";
 import { queryKeys } from "../queryKeys";
 
@@ -64,7 +65,8 @@ export function People() {
   const [freshSnippet, setFreshSnippet] = useState<string | null>(null);
   const stored = all.find((e) => e.id === open) ?? null;
 
-  const { edit, saved, failure, flush, retry, change, dropPending } = useEntityDraft({ stored, loading: entities.isLoading });
+  // an MCP token's change is said with Undo where it shows: the item open, or a snippet while the Snippets tab is
+  const { edit, saved, failure, flush, retry, change, dropPending } = useEntityDraft({ stored, loading: entities.isLoading, shows: (e) => e.id === open || (tab === "snippet" && e.kind === "snippet") });
   /** Another item, or none, with what was changed kept. */
   const select = (id: string | null) => void flush().then(() => setOpen(id));
   /** Another tab, with an item of it open or none. */
@@ -191,6 +193,8 @@ export function People() {
   }, [ready, tab, open, firstOf]);
   const found = query.trim() ? fuzzyFilter(mine, query, textOf) : mine;
   const editing = edit && open === edit.id && edit.kind !== "snippet" ? edit : null;
+  // the parts of it an MCP token changed, ringed until the user edits them (agentEdits.ts)
+  const rings = useKitEdits((st) => (editing ? st.rings[editing.id] : undefined));
   // a preset that ships with Afflatus: shown, not changed
   const shipped = editing && editing.kind === "preset" && editing.source === "shipped" ? editing : null;
   const recipeList = recipes.data?.recipes ?? [];
@@ -280,12 +284,12 @@ export function People() {
               <div className={cx("@container/editor flex flex-col gap-3", editing.kind === "preset" ? "max-w-[820px]" : "max-w-[1600px]")}>
                 {/* each editor is keyed by its item: another item opens a fresh one, so an upload or a picker left open never lands on it */}
                 <ItemHeader
-                  item={editing} saved={saved} failure={failure} onRename={(name) => change({ ...editing, name })} onRetry={retry}
+                  item={editing} saved={saved} failure={failure} by={rings?.name} onRename={(name) => change({ ...editing, name })} onRetry={retry}
                   onApply={() => void flush().then(() => applyInStudio(editing.id))} onMenu={(ev) => rowMenu.open(ev, editing)} onClose={() => select(null)}
                 />
-                {editing.kind === "person" && <PersonEditor key={editing.id} def={editing.def} name={editing.name || "this person"} onChange={(def) => change({ ...editing, def })} />}
-                {editing.kind === "place" && <PlaceEditor key={editing.id} def={editing.def} name={editing.name || "this place"} onChange={(def) => change({ ...editing, def })} />}
-                {editing.kind === "style" && <StyleEditor key={editing.id} def={editing.def} onChange={(def) => change({ ...editing, def })} />}
+                {editing.kind === "person" && <PersonEditor key={editing.id} def={editing.def} name={editing.name || "this person"} rings={rings} onChange={(def) => change({ ...editing, def })} />}
+                {editing.kind === "place" && <PlaceEditor key={editing.id} def={editing.def} name={editing.name || "this place"} rings={rings} onChange={(def) => change({ ...editing, def })} />}
+                {editing.kind === "style" && <StyleEditor key={editing.id} def={editing.def} rings={rings} onChange={(def) => change({ ...editing, def })} />}
                 {editing.kind === "preset" && <PresetEditor key={editing.id} id={editing.id} def={editing.def} onChange={(def) => change({ ...editing, def })} />}
               </div>
             ) : (
