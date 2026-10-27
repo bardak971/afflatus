@@ -1,7 +1,7 @@
 import { chatJson } from "./llm";
 import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
-import { carriedOf, carryOver, joinWay, laysSound, madeAroundRecording, musicPlan, recordingSpecOf, sungHead, plural, recordingPart, recordingParts, sameWindowGrid, CUT_WINDOW, type CutMarks, trimIn, typedSeed, type ClipMusic, type SourceWindow, type InputSpec, type Recipe, type Transition } from "@afflatus/core";
+import { carriedOf, carryOver, joinFrames, joinWay, laysSound, madeAroundRecording, musicPlan, recordingSpecOf, sungHead, plural, recordingPart, recordingParts, sameWindowGrid, CUT_WINDOW, type ClipGrid, type CutMarks, trimIn, typedSeed, type ClipMusic, type SourceWindow, type InputSpec, type Recipe, type Transition } from "@afflatus/core";
 import { newId, now, OWNER, toRun, type Db } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError, notFound } from "./errors";
@@ -1225,7 +1225,17 @@ export class Timelines {
       const spanOf = this.recordingSpan();
       const { pieces } = aroundRemoved(fromS * 1000, toS * 1000, removed.map((part) => ({ part, ...removedView(part, spanOf) })));
       const fits = recordingSpecOf(form.inputs)!.window.fits;
-      const cutUp = pieces.map((piece, k) => this.recordingPartsOf(fits, marks, piece.fromMs / 1000, piece.toMs / 1000, o.seconds, o.window).map((p, i) => ({ ...p, ...(i === 0 && (k > 0 || piece.after.length) ? { cut: true } : {}) })));
+      // each part ends where a clip of the form can (ClipGrid): the first carries on from the clip before as recordingClipsIn
+      // will make it (its run-up, and its own moment before the words), or opens on a cut; one after a part removed, on a cut
+      const index = gone.length ? all.findIndex((p) => gone.includes(p.clip.id)) : all.length;
+      const left = all.filter((p) => !gone.includes(p.clip.id));
+      const firstOpensCut = this.opensOnCut(index > 0 ? left[index - 1] : undefined, form);
+      const firstForm = was.find((c) => c.from <= fromS * 1000 + 1 && c.to > fromS * 1000)?.inputs ?? settingsOf(form, all, index);
+      const cutUp = pieces.map((piece, k) => {
+        const opensCut = k > 0 || piece.after.length > 0 || firstOpensCut;
+        const grid = this.clipGridOf(form, opensCut, k === 0 ? firstForm : {});
+        return this.recordingPartsOf(fits, marks, piece.fromMs / 1000, piece.toMs / 1000, o.seconds, o.window, grid).map((p, i) => ({ ...p, ...(i === 0 && (k > 0 || piece.after.length) ? { cut: true } : {}) }));
+      });
       const parts = cutUp.flat();
       if (!parts.length) throw httpError("The recording is too short for a clip.");
       return this.db.transaction().execute(async (tx) => {
@@ -1264,9 +1274,36 @@ export class Timelines {
     return { pauses, lines, levels };
   }
 
-  /** The parts `fromS` to `toS` of a recording is cut into for the Lip sync model's clips (recordingParts), about `seconds` each, within `window` of that. */
-  private recordingPartsOf(fits: VoiceWindow["fits"], marks: CutMarks, fromS: number, toS: number, seconds = DEFAULT_CUT.seconds, window = DEFAULT_CUT.window) {
-    return recordingParts({ fromS, toS, wantS: seconds, ...this.clipBounds(fits), ...marks, windowS: window });
+  /**
+   * The parts `fromS` to `toS` of a recording is cut into for the Lip sync model's clips (recordingParts), about `seconds`
+   * each, within `window` of that, each ending where a clip of the form can (`grid`, clipGridOf).
+   */
+  private recordingPartsOf(fits: VoiceWindow["fits"], marks: CutMarks, fromS: number, toS: number, seconds = DEFAULT_CUT.seconds, window = DEFAULT_CUT.window, grid?: ClipGrid) {
+    return recordingParts({ fromS, toS, wantS: seconds, ...this.clipBounds(fits), ...marks, windowS: window, ...(grid ? { clipGrid: grid } : {}) });
+  }
+
+  /**
+   * Where a clip of `form` can end (core ClipGrid): its model's frame counts, less the run-up it carries on from (the form's
+   * own, or `first`'s: the settings its first clip is made with), and for the first part its moment before the words too,
+   * which the clip plays before its part as it plays the run-up. None when `opensCut`: the first then plays from its start.
+   * Undefined for a form with no frame grid.
+   */
+  private clipGridOf(form: Recipe<any>, opensCut: boolean, first: Record<string, unknown> = {}): ClipGrid | undefined {
+    const { fps, frameGrid } = form.traits ?? {};
+    const fits = recordingSpecOf(form.inputs)?.window.fits;
+    if (!fps || !frameGrid) return undefined;
+    const head = joinFrames(form, "previous", first);
+    const given = (id: string) => {
+      const spec = form.inputs.find((i) => i.id === id);
+      return Number(first[id] ?? (spec && "default" in spec ? spec.default : 0)) || 0;
+    };
+    const lead = Math.round((fits?.less ?? []).reduce((sum, id) => sum + given(id), 0) * fps);
+    return { fps, grid: frameGrid, head, firstHead: (opensCut ? 0 : head) + lead };
+  }
+
+  /** Whether a clip of `form` placed after `before` opens on a cut (nothing to carry on from, or a form it cannot carry on from), as recordingClipsIn makes its first. */
+  private opensOnCut(before: Placed | undefined, form: Recipe<any>): boolean {
+    return !before || before.clip.kind !== "video" || !before.clip.recipe_id || joinWay(this.registry.recipe(before.clip.recipe_id), form) === "cut";
   }
 
   /** The fewest and most seconds of a recording one Lip sync clip takes. */
@@ -1311,7 +1348,7 @@ export class Timelines {
       const form = { ...Object.fromEntries(Object.entries({ ...settingsOf(recipe, all, index), ...kept }).filter(([key]) => own.has(key) && !ofPart.has(key))), ...seed };
       // the first carries on from the clip before when it can (H3 to Lip sync: in the latent), else it starts on its own
       // one after a part removed (`cut`: made anew around it) meets nothing before it: a cut
-      const opens = part.cut || (k === 0 && (!before || before.clip.kind !== "video" || !before.clip.recipe_id || joinWay(this.registry.recipe(before.clip.recipe_id), recipe) === "cut"));
+      const opens = part.cut || (k === 0 && this.opensOnCut(before, recipe));
       const clip: NewClip = {
         kind: "video", recipeId: recipe.id, joined: opens ? "cut" : "continue", still: null, take: null, asset: undefined, look: null,
         inputs: { ...form, [spec.id]: sound.id, [spec.window.start]: part.start, [spec.window.seconds]: part.seconds },
@@ -1543,7 +1580,9 @@ export class Timelines {
         const grow = trimOut({ start: lastPart.start, end: curTo, free: !last.clip.take_id && !busy.has(last.clip.id), reach }, parked.map((p) => ({ ...part(p.clip), fits: true, taken: p.takes.length > 0, cut: cuts.has(String(p.clip.id)) })), toMs, { fromMs: curFrom, leastMs: (fits?.min ?? 1) * 1000, mostMs: mostS * 1000 });
         const { back } = grow;
         const end = Math.round(grow.end);
-        const parts = grow.more && toMs > end + 50 ? this.recordingPartsOf(fits, marks, end / 1000, toMs / 1000, cutAs.seconds, cutAs.window) : [];
+        // the new parts carry on from the clip before them: each ends where a clip of the New clips form can (clipGridOf)
+        const grid = this.clipGridOf(this.newClipsForm(cutAs.form, mine.at(-1)!.clip.recipe_id), false);
+        const parts = grow.more && toMs > end + 50 ? this.recordingPartsOf(fits, marks, end / 1000, toMs / 1000, cutAs.seconds, cutAs.window, grid) : [];
         if (grow.lastEnd === undefined && !back && !parts.length) return { clips: [], toMs: curTo };
         const after = back ? String(parked[back - 1]!.clip.id) : last.clip.id;
         const rest = grow.keep ? parked.slice(back) : [];

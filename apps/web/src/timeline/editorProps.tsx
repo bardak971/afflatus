@@ -361,6 +361,7 @@ export function recordingPanelProps(e: LoadedEditor, place: NonNullable<LoadedEd
       within,
       leastMs: input.leastMs,
       mostMs: input.mostMs,
+      stepMs: recipe.traits?.frameGrid && recipe.traits.fps ? (recipe.traits.frameGrid.step * 1000) / recipe.traits.fps : null,
       run: (s, w) => e.recordingCut.run(asset, s, w),
       ask: cutAsk ? { rendered: cutAsk.rendered, clips: cutAsk.clips, change: () => e.recordingCut.run(asset, cutAsk.seconds, cutAsk.within, true), keep: e.recordingCut.keep } : null,
       pending: e.recordingCut.pending,

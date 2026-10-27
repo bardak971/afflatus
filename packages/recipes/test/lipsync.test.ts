@@ -65,6 +65,16 @@ describe("MiniMax H3 · Lip sync", () => {
     expect(build({}, recordingOf(1.5)).built.frames).toBeGreaterThanOrEqual(4 * H3_FPS);
   });
 
+  it("lasts its part exactly when the recording goes on in the next clip: the clips meet where the cut put them", () => {
+    // 8 s from the start, cut on H3's frame counts (192): with the quarter second after the words it ran on to 209
+    expect(build({}, recordingOf(8)).built.frames).toBe(209);
+    expect(build({ recordingGoesOn: true }, recordingOf(8)).built.frames).toBe(192);
+    // carrying on from 22 frames, 7.79 s (11 steps of 17): 209 in all, not 226
+    const after = (goesOn: boolean) => build({ previous: { asset: "c1" }, recordingGoesOn: goesOn }, { previous: joined, ...recordingOf(7.79) }, { previous: "a.mp4" }).built.frames;
+    expect(after(false)).toBe(226);
+    expect(after(true)).toBe(209);
+  });
+
   it("lays the recording on the sound where the clip's own part begins, after the clip before's frames and the lead-in", () => {
     const { graph } = build({ previous: { asset: "c1" }, speechAt: 0.5 }, { previous: joined, ...recordingOf(4.2) }, { previous: "a.mp4" });
     // (the clip before's frames are pinned with their own sound too, at frame 0, when there is no saved latent to continue)

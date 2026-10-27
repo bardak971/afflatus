@@ -38,6 +38,8 @@ export type RecordingPanelProps = {
     within: number;
     leastMs: number;
     mostMs: number;
+    /** One step of the model's frame counts: a clip ends that many whole steps after it starts (core onClipGrid). */
+    stepMs: number | null;
     run(seconds: number, within: number): void;
     ask: { rendered: number; clips: number; change(): void; keep(): void } | null;
     pending: boolean;
@@ -75,7 +77,7 @@ export function RecordingPanel(p: RecordingPanelProps) {
   const leastMs = Math.ceil(cut.leastMs / 100) * 100;
   const mostMs = Math.max(leastMs, Math.floor(cut.mostMs / 100) * 100);
   const lengths = place.parts.map((x) => ((x.endMs - x.startMs) / 1000).toFixed(1));
-  const landed = useLanded(recording.id, place, cut.within);
+  const landed = useLanded(recording.id, place, cut.within, cut.stepMs);
   // how many it plays over (another form than Lip sync), said beside how many follow it with the mouth
   const over = place.parts.filter((x) => x.over).length;
   const forms = over ? ` · ${place.parts.length - over} lip sync, ${over === 1 ? "1 plays over" : `${over} play over`}` : "";
@@ -116,7 +118,7 @@ export function RecordingPanel(p: RecordingPanelProps) {
           {p.trimming && <span className="text-xs text-ink-2">Trimming the recording…</span>}
         </Section>
 
-        <Section title="Clips" help={`How the stretch is cut into clips. Each clip ends within ± that many seconds of Clip length, at the best spot there: a pause in the voice (its middle), else the end of a timed lyric line the file carries (Suno's m4a has them), else the quietest moment, a breath between phrases on a song. ± 0: every clip exactly that length, wherever the words are. Always within what one clip of the model takes. Changed, its clips are made anew over the same stretch: each keeps its form where its part survives, new parts take New clips' form.${landed ? ` Here: ${landed}.` : ""}`}>
+        <Section title="Clips" help={`How the stretch is cut into clips. Each clip ends within ± that many seconds of Clip length, at the best spot there: a pause in the voice (its middle), else the end of a timed lyric line the file carries (Suno's m4a has them), else the quietest moment, a breath between phrases on a song. ± 0: every clip that length, wherever the words are. Then on the model's frame steps: a clip that carries on ends a whole number of them after it starts (H3: 0.71 s), so the cut is the step nearest the spot, and the clips meet there once rendered. Always within what one clip of the model takes. Changed, its clips are made anew over the same stretch: each keeps its form where its part survives, new parts take New clips' form.${landed ? ` Here: ${landed}.` : ""}`}>
           {cut.ask && (
             <Ask
               title="Cutting it again makes its clips anew:"
@@ -188,12 +190,14 @@ const LANDED: Array<[CutOn, string]> = [["pause", "on a pause"], ["line", "on a 
 
 /**
  * What its clips' ends were cut at (cutOn), counted: "3 on a pause, 20 on a lyric line, 7 on the quietest moment". The last
- * clip ends at the Out, at none of them. Null while the recording's pauses and lines are read, or with a single clip.
+ * clip ends at the Out, at none of them. Null while the recording's pauses and lines are read, or with a single clip. An
+ * end brought onto the model's frame steps (`stepMs`) is on its mark within half a step.
  */
-function useLanded(asset: string, place: RecordingPlace, within: number): string | null {
+function useLanded(asset: string, place: RecordingPlace, within: number, stepMs: number | null): string | null {
   const marks = useQuery({ queryKey: queryKeys.pauses(asset), queryFn: () => api.pauses(asset), staleTime: Infinity, retry: 0 });
   if (!marks.data || place.parts.length < 2) return null;
-  const on = place.parts.slice(0, -1).map((x) => cutOn(x.endMs / 1000, marks.data, within));
+  const near = stepMs ? stepMs / 2000 : undefined;
+  const on = place.parts.slice(0, -1).map((x) => cutOn(x.endMs / 1000, marks.data, within, near));
   return LANDED.map(([kind, said]) => [on.filter((k) => k === kind).length, said] as const).filter(([n]) => n > 0).map(([n, said], i) => `${i === 0 ? plural(n, "clip") : n} ${said}`).join(", ");
 }
 
