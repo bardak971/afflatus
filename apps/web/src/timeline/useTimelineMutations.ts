@@ -219,11 +219,12 @@ export function useTimelineMutations(id: string, o: {
       after();
     },
   });
+  // `step`: that step alone (an agent's change undone from its toast), refused by the server once the timeline changed after it
   const undo = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (step?: string) => {
       o.on.stepping?.();
       await save();
-      return api.undoTimeline(id);
+      return api.undoTimeline(id, typeof step === "string" ? step : undefined);
     },
     onSuccess: (r) => {
       // what the server has now is what counts: what was typed was saved before the undo

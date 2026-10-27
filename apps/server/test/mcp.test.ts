@@ -312,6 +312,7 @@ describe("the tools, through the SDK's client over HTTP", () => {
       "render", "queue_status", "job", "cancel", "retry", "pause_machine", "resume_machine", "load_model", "view_item", "compare",
       "search_library", "keep", "unkeep", "bin", "restore", "move", "rename", "list_places", "new_folder", "edit_folder", "new_project", "rename_project",
       "import_from_url", "cut_range", "find_scenes", "extract_scenes", "save_frame", "list_kit", "read_kit_item", "new_kit_item", "edit_kit_item",
+      "list_timelines", "read_timeline", "view_timeline", "new_timeline", "edit_timeline", "edit_clip", "render_clips", "use_take", "finish", "export", "undo", "redo",
     ]);
     const r = await client.callTool({ name: "overview" });
     expect(r.isError).toBeFalsy();

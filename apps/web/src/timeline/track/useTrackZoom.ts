@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from "react";
+import { AGENT_MS, useTimelineEdits } from "../../agentEdits";
 import type { Clock } from "../clock";
 import { PAD, placeOf, ZOOM, type Slot } from "../model";
 import { STRIP } from "./EndColumn";
@@ -12,8 +13,8 @@ export interface TrackKeys {
 /**
  * The track's zoom: Ctrl + wheel around the pointer (a plain wheel scrolls it sideways), a step around the playhead (the
  * editor's - and =, filled into `keys`), Fit all (Shift+Z). The whole timeline is fitted on arriving and when a clip is
- * added (not split, nor brought back by Undo); a track showing the whole of it keeps doing so at any width, until it is
- * zoomed by hand.
+ * added (not split, nor brought back by Undo; nor added by an MCP token while the zoom is the user's); a track showing the
+ * whole of it keeps doing so at any width, until it is zoomed by hand.
  */
 export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clock, cursorMs, timelineId, keys }: {
   scroller: RefObject<HTMLDivElement | null>;
@@ -130,7 +131,10 @@ export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clo
     const was = seen.current;
     if (!was || was.timeline !== timelineId) seen.current = { timeline: timelineId, ids: new Set(now), ms: clipsMs };
     else {
-      if (clipsMs > was.ms && now.some((id) => !was.ids.has(id))) fitAsked.current = true;
+      // one an MCP token added while the user zoomed by hand leaves their zoom as it is: they did not add it, and may be
+      // working elsewhere on the track (a track showing the whole timeline goes on showing all of it)
+      const agent = Date.now() - (useTimelineEdits.getState().going[timelineId] ?? -Infinity) < AGENT_MS;
+      if (clipsMs > was.ms && now.some((id) => !was.ids.has(id)) && (whole.current || !agent)) fitAsked.current = true;
       for (const id of now) was.ids.add(id);
       was.ms = clipsMs;
     }

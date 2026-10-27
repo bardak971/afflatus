@@ -104,6 +104,12 @@ export function gpuOf(device: string | null, gpus: ReadonlyArray<{ name: string 
   return gpus.length === 1 ? gpus[0]!.name : null;
 }
 
+/** What a cut's job is queued with besides its options (Queue.enqueueCut): the job it waits for, the MCP token whose call queued it. */
+export interface CutExtra {
+  dependsOn?: string;
+  mcpToken?: string | null;
+}
+
 /** What a render's job is queued with (Queue.enqueue). */
 export interface EnqueueOptions {
   label?: string; dependsOn?: string; clip?: { id: string; fit: boolean; mirror?: readonly string[] }; draft?: string | null; folder?: string | null;
@@ -479,7 +485,7 @@ export class Queue {
    * and says why, rather than half a finish. Their ids, in the order asked. One commit for all of them: one each, a finish
    * of 103 jobs wrote 4.3 MB to the database's log.
    */
-  async enqueueAll(build: (ask: { render: (recipeId: string, rawInput: unknown, opts?: EnqueueOptions) => Promise<string>; cut: (opts: CutOptions, label: string, extra?: { dependsOn?: string }) => Promise<string> }) => Promise<void>): Promise<string[]> {
+  async enqueueAll(build: (ask: { render: (recipeId: string, rawInput: unknown, opts?: EnqueueOptions) => Promise<string>; cut: (opts: CutOptions, label: string, extra?: CutExtra) => Promise<string> }) => Promise<void>): Promise<string[]> {
     const rows: Array<Insertable<Tables["jobs"]> & { id: string }> = [];
     await build({
       render: async (recipeId, rawInput, opts = {}) => (rows.push(await this.renderJob(recipeId, rawInput, opts)), rows.at(-1)!.id),
@@ -574,7 +580,7 @@ export class Queue {
   }
 
   /** A range of a video kept as new videos (see Timelines.cutRange): ffmpeg only, no model, no ComfyUI. */
-  async enqueueCut(opts: CutOptions, label: string, extra: { dependsOn?: string } = {}): Promise<string> {
+  async enqueueCut(opts: CutOptions, label: string, extra: CutExtra = {}): Promise<string> {
     const row = await this.cutJob(opts, label, extra);
     await this.db.insertInto("jobs").values(row).execute();
     this.events.emit("queue");
@@ -584,7 +590,7 @@ export class Queue {
   }
 
   /** A cut's job as enqueueCut writes it. */
-  private async cutJob(opts: CutOptions, label: string, extra: { dependsOn?: string }) {
+  private async cutJob(opts: CutOptions, label: string, extra: CutExtra) {
     const id = newId();
     const at = now();
     // a cut made for a clip works on that clip's timeline
@@ -594,6 +600,8 @@ export class Queue {
       // a cut made for a clip (a finish, a slow motion) is that clip's job: the editor shows the clip busy with it, and a
       // second Finish skips the clip while it waits or runs
       attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip ?? null, clip_fit: 0, timeline_id: timeline, draft_id: null, folder_id: null,
+      // a finish on the GPU sent by an MCP token: kept off rented pods without Spend, and counted against its cap with it (queuePlan.ts offPods)
+      mcp_token_id: extra.mcpToken ?? null,
       created_at: at, started_at: null, finished_at: null, updated_at: at,
     } satisfies Insertable<Tables["jobs"]>;
   }

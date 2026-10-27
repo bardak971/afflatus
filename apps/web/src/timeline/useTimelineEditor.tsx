@@ -28,6 +28,7 @@ import { usePlayhead } from "./usePlayhead";
 import { unsplittable } from "./runSplit";
 import { useRange } from "./useRange";
 import { useTimelineMutations } from "./useTimelineMutations";
+import { useAgentTimeline } from "./useAgentTimeline";
 import { useEditorPanels } from "./useEditorPanels";
 import { useRenderPlan } from "./useRenderPlan";
 import { useSelectedClipBridge } from "./useSelectedClipBridge";
@@ -173,6 +174,8 @@ export function useTimelineEditor(id: string) {
     on: { note: setNote, select, unpick: () => setPicked(new Set()), writing: setWriting, open: setOpened, stepping: () => oneTrim.drop() },
   });
   const { after, readBack, render, patch, fix, edit, makeSource: makeSourceMut, cutSource: cutSourceMut, sourceForm: sourceFormMut, recording: recordingMut, cutRecording: cutRecordingMut, recordingForm: recordingFormMut, trimSource: trimSourceMut, trimRecording: trimRecordingMut, splitSource, add, remove, removeMany, bringBack, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
+  // a change an MCP token made: said with Undo (that step alone), its clips ringed
+  useAgentTimeline(id, { undo: (step) => undo.mutate(step), selected });
   const pickedNow = useRef(picked);
   pickedNow.current = picked;
   /** The source taken away with the clips it made, rendered or not (one step for Undo), its panel closed. */

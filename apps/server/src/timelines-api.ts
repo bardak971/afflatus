@@ -112,7 +112,7 @@ export const clipPatch = z.strictObject({
     .optional(),
 });
 
-const renderBody = z.strictObject({
+export const renderBody = z.strictObject({
   clips: z
     .array(z.strictObject({
       id: z.string(),
@@ -138,7 +138,7 @@ const projectQuery = z.strictObject({
   out: z.coerce.number().min(0).optional(),
 });
 
-const exportBody = z.strictObject({
+export const exportBody = z.strictObject({
   /** Enlarge every frame at the end. Nothing is rendered again. */
   scale: z.union([z.literal(1), z.literal(1.5), z.literal(2)]).default(1),
   /** "largest": at the size of the largest take (the finished ones). */
@@ -157,7 +157,7 @@ const exportBody = z.strictObject({
 });
 
 /** How the clips are finished: the route, how much larger, its settings; `redo` finishes again the clips finished already. */
-const finishBody = z.strictObject({
+export const finishBody = z.strictObject({
   route: z.enum(["seedvr", "latent", "rtx", "model", "face"]), factor: z.number().min(1).max(4), colour: z.enum(["lab", "wavelet", "adain", "none"]).optional(), upscaleModel: z.string().max(200).optional(), seedvrFrames: z.number().int().min(0).max(49).optional(),
   sharpen: z.number().min(0).max(1).optional(), latentDenoise: z.number().min(0.05).max(0.6).optional(), latentSteps: z.number().int().min(1).max(6).optional(),
   faceDenoise: z.number().min(0.3).max(0.6).optional(), face: z.boolean().optional(),
@@ -279,8 +279,10 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
    * Take the last change to the timeline back. Answers with what was undone, in a few words, and what to tell of the takes
    * rendered since that do not fit their clips at that step (`said`). Refused (409) over a clip in the queue.
    */
+  // `step`: that step alone (an agent's change undone from its toast), refused when the timeline changed after it
   app.post<{ Params: { id: string } }>("/api/timelines/:id/undo", async (req) => {
-    const { label, said } = await t.history.undo(req.params.id);
+    const { step } = z.strictObject({ step: z.string().min(1).optional() }).parse(req.body ?? {});
+    const { label, said } = await t.history.undo(req.params.id, step);
     return { undone: label, ...(said ? { said } : {}) };
   });
   app.post<{ Params: { id: string } }>("/api/timelines/:id/redo", async (req) => {
@@ -377,16 +379,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   });
 
   /** Export the timeline as one video. It runs in the queue, after the renders that are already waiting. */
-  app.post<{ Params: { id: string } }>("/api/timelines/:id/export", async (req) => {
-    const opts = exportBody.parse(req.body ?? {});
-    // looked at and queued one request at a time: two tabs asking at once get the one export
-    return t.history.oneAtATime(`export:${req.params.id}`, async () => {
-      const view = await t.view(req.params.id);
-      if (!view.durationMs) throw httpError("There is nothing to export yet: no clip of this timeline has a take.");
-      if (view.exporting) return { id: view.exporting.id };
-      return { id: await s.queue.enqueueExport({ timeline: view.id, scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range, blend: opts.blend, match: opts.match, fit: opts.fit, webMb: opts.webMb }, `${view.name} · ${opts.webMb ? "web copy" : "export"}`) };
-    });
-  });
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/export", async (req) => exportTimeline(s, req.params.id, exportBody.parse(req.body ?? {})));
 
   /**
    * The timeline for a video editor, as a download: a zip of its clips' files, the music as heard, and the project files
@@ -465,7 +458,10 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   app.post<{ Params: { id: string } }>("/api/timelines/:id/finish", async (req) => {
     const b = finishBody.parse(req.body);
     // looked at and queued one request at a time, as an export is: two quick Finish clicks queued two finishes of each clip
-    const done = await t.history.oneAtATime(`finish:${req.params.id}`, () => finishClips(s, req.params.id, b));
+    const done = await t.history.oneAtATime(`finish:${req.params.id}`, async () => {
+      const { plan, skipped } = await finishPlan(s, req.params.id, b);
+      return finishClips(s, plan, skipped);
+    });
     s.queue.events.emit("timeline");
     return done;
   });
@@ -589,10 +585,25 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
 }
 
 /**
- * The jobs that render clips of a timeline, queued in the order the clips play: each with its own form worked through the
- * cast and the mood, a clip that carries on from one being rendered too waiting for that one. Their ids.
+ * A timeline exported as one video (POST /api/timelines/:id/export, MCP's export): queued after the renders already waiting
+ * (its own timeline's among them), looked at and queued one request at a time, so that two tabs asking at once get the one
+ * export. Its job's id.
  */
-async function renderClips(s: Services, timeline: string, clips: z.infer<typeof renderBody>["clips"], machine?: string): Promise<string[]> {
+export function exportTimeline(s: Services, id: string, opts: z.output<typeof exportBody>): Promise<{ id: string }> {
+  return s.timelines.history.oneAtATime(`export:${id}`, async () => {
+    const view = await s.timelines.view(id);
+    if (!view.durationMs) throw httpError("There is nothing to export yet: no clip of this timeline has a take.");
+    if (view.exporting) return { id: view.exporting.id };
+    return { id: await s.queue.enqueueExport({ timeline: view.id, scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range, blend: opts.blend, match: opts.match, fit: opts.fit, webMb: opts.webMb }, `${view.name} · ${opts.webMb ? "web copy" : "export"}`) };
+  });
+}
+
+/**
+ * The jobs that render clips of a timeline, queued in the order the clips play: each with its own form worked through the
+ * cast and the mood, a clip that carries on from one being rendered too waiting for that one. Their ids. `by`: the MCP
+ * token whose call sent them (its limits count them; without Spend they stay off rented pods).
+ */
+export async function renderClips(s: Services, timeline: string, clips: z.infer<typeof renderBody>["clips"], machine?: string, by: { mcpToken?: string } = {}): Promise<string[]> {
   const view = await s.timelines.view(timeline);
   const wanted = new Map(clips.map((c) => [c.id, c]));
   /** The job a clip's next take will come out of: one queued here, or one that was already on its way. */
@@ -637,6 +648,7 @@ async function renderClips(s: Services, timeline: string, clips: z.infer<typeof 
           // the render lands in the timeline's folder: its own, else its project's root
           folder: (await folderOfTimeline(s.db, { folder_id: view.folderId, project_id: view.projectId })) ?? undefined,
           machine: machine ?? null,
+          mcpToken: by.mcpToken ?? null,
         });
         pending.set(clip.id, id);
       }
@@ -650,23 +662,26 @@ async function renderClips(s: Services, timeline: string, clips: z.infer<typeof 
  * One job of a finish, as it would be queued: a latent re-sample (a render), or a cut on the draft's video with what that
  * video is. A render with `then`: a Face refine, and the cut that finishes its result after it (Face refine first).
  */
-type FinishJob =
+export type FinishJob =
   | { kind: "render"; recipe: string; input: Record<string, unknown>; opts: Parameters<Services["queue"]["enqueue"]>[2]; then?: { cut: CutOptions; label: string } }
   | { kind: "cut"; cut: CutOptions; label: string; video: { width: number | null; height: number | null; durationMs: number | null; fps: number | null } };
 
-/** The jobs that finish a timeline's clips (see the finish route), one each, and the clips skipped with why. */
-async function finishClips(s: Services, timeline: string, b: z.infer<typeof finishBody>): Promise<{ jobs: string[]; skipped: Array<{ clip: number; why: string }> }> {
-  const { plan, skipped } = await finishPlan(s, timeline, b);
+/**
+ * The jobs that finish a timeline's clips (a finishPlan's, see the finish route), one each, and the clips skipped with why.
+ * `by`: the MCP token whose call sent them, on each of its jobs (its limits count them; without Spend they stay off rented pods).
+ */
+export async function finishClips(s: Services, plan: FinishJob[], skipped: Array<{ clip: number; why: string }>, by: { mcpToken?: string } = {}): Promise<{ jobs: string[]; skipped: Array<{ clip: number; why: string }> }> {
+  const mcpToken = by.mcpToken ?? null;
   // all of the finish queued, or none of it: a job refused part way leaves no half finish behind, and says why
   const jobs = await s.queue.enqueueAll(async (ask) => {
     for (const j of plan) {
       if (j.kind !== "render") {
-        await ask.cut(j.cut, j.label);
+        await ask.cut(j.cut, j.label, { mcpToken });
         continue;
       }
-      const id = await ask.render(j.recipe, j.input, j.opts);
+      const id = await ask.render(j.recipe, j.input, { ...j.opts, mcpToken });
       // the pixel route after the Face refine, on what it makes: queued behind it
-      if (j.then) await ask.cut({ ...j.then.cut, fromJob: id }, j.then.label, { dependsOn: id });
+      if (j.then) await ask.cut({ ...j.then.cut, fromJob: id }, j.then.label, { dependsOn: id, mcpToken });
     }
   });
   return { jobs, skipped };
@@ -684,7 +699,7 @@ async function finishEstimate(s: Services, timeline: string, b: z.infer<typeof f
 }
 
 /** The jobs a finish would queue, in order, and the clips skipped with why: nothing is queued here. */
-async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finishBody>): Promise<{ plan: FinishJob[]; skipped: Array<{ clip: number; why: string }> }> {
+export async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finishBody>): Promise<{ plan: FinishJob[]; skipped: Array<{ clip: number; why: string }> }> {
   const t = s.timelines;
   const view = await t.view(timeline);
   const plan: FinishJob[] = [];

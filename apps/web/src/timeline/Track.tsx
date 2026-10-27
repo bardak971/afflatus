@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { Minus, Plus } from "lucide-react";
 import { newTransition, TRANSITIONS, type ClipMusic, type Transition } from "@afflatus/core";
+import { useTimelineEdits } from "../agentEdits";
 import type { Asset, Clip, RecipeInfo, Timeline, TimelinePatch } from "../api";
 import { Keys } from "../Keys";
 import { useKeysHere } from "../keys/here";
@@ -159,6 +160,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   // the keys sheet's "Here now": the track is the timeline editor's, its keys act while it is shown
   useKeysHere("editor");
   const clips = timeline.clips;
+  // the clips an MCP token changed, ringed until selected (useAgentTimeline)
+  const agentRings = useTimelineEdits((st) => st.rings[timeline.id]);
   const floor = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
@@ -334,6 +337,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                   nearJoin={near}
                   voice={voiceName(c)}
                   playsOver={overPart(c, recipes)}
+                  by={agentRings?.[c.id]}
                   acts={acts}
                 />
               );

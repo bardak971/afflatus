@@ -6,6 +6,7 @@ import { KIT_TOOLS } from "./mcpKit";
 import { LIBRARY_TOOLS } from "./mcpLibrary";
 import { RENDER_TOOLS } from "./mcpRender";
 import { SEE_TOOLS } from "./mcpSee";
+import { TIMELINE_TOOLS } from "./mcpTimelines";
 import { tool, type Tool } from "./mcpTool";
 import { dollars } from "./notifyWords";
 import { readSettings } from "./settings";
@@ -82,4 +83,4 @@ const whatsOpen = tool({
 });
 
 /** Every tool, in the order the client lists them. */
-export const TOOLS: readonly Tool[] = [whatsOpen, overview, ...FORM_TOOLS, ...DRAFT_TOOLS, ...RENDER_TOOLS, ...SEE_TOOLS, ...LIBRARY_TOOLS, ...KIT_TOOLS] as readonly Tool[];
+export const TOOLS: readonly Tool[] = [whatsOpen, overview, ...FORM_TOOLS, ...DRAFT_TOOLS, ...RENDER_TOOLS, ...SEE_TOOLS, ...LIBRARY_TOOLS, ...KIT_TOOLS, ...TIMELINE_TOOLS] as readonly Tool[];
