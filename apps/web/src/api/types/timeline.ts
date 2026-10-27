@@ -153,10 +153,10 @@ export interface Timeline {
   source: TimelineSource | null;
   /**
    * Its voice recordings, each made into Lip sync clips (drawn under them on the Audio row), how many of its clips a trim set
-   * aside, and of those the rendered; how it is cut into them (about `seconds` a clip, in its pauses when `snap`).
+   * aside, and of those the rendered; how it is cut into them (about `seconds` a clip, ± `window`).
    */
   /** `form`: the form its new clips are made in (its panel's New clips), the recording model's when none was set. */
-  recordings?: Array<{ asset: Asset; parked: number; parkedTakes?: number; seconds?: number; snap?: boolean; form?: string; removed?: RemovedPart[] }>;
+  recordings?: Array<{ asset: Asset; parked: number; parkedTakes?: number; seconds?: number; window?: number; form?: string; removed?: RemovedPart[] }>;
 }
 /**
  * A stretch cut out of the middle of a recording or the source by removing its clips (card #75): set aside with its clips

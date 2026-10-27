@@ -365,18 +365,18 @@ export function useTimelineEditor(id: string) {
   runs.current = { stretch, recordingTrim, clips, videoRecipes };
 
   /**
-   * A recording's clips cut again from its panel (Clip length, Snap to pauses): asked first when that leaves rendered takes
+   * A recording's clips cut again from its panel (Clip length ± its window): asked first when that leaves rendered takes
    * behind (`ask`: Change or Keep), as its moved start is. What was typed in its clips is saved first: they are made anew
    * with their forms as the server has them.
    */
-  const [cutAsk, setCutAsk] = useState<{ asset: string; seconds: number; snap: boolean; rendered: number; clips: number } | null>(null);
-  // under way from the click on, not from the cut's request: while what was typed is saved first, a Snap to pauses
-  // clicked sent a second cut with the Clip length from before the first
+  const [cutAsk, setCutAsk] = useState<{ asset: string; seconds: number; within: number; rendered: number; clips: number } | null>(null);
+  // under way from the click on, not from the cut's request: while what was typed is saved first, a window typed sent a
+  // second cut with the Clip length from before the first
   const [cutting, setCutting] = useState(false);
   const recordingCut = {
     pending: cutting || cutRecordingMut.isPending,
     ask: cutAsk,
-    run: (asset: string, seconds: number, snap: boolean, sure = false) => {
+    run: (asset: string, seconds: number, within: number, sure = false) => {
       const mine = clipsOfRecording(clips, videoRecipes, asset);
       const rec = t?.recordings?.find((r) => r.asset.id === asset);
       // cut again over the stretch its clips use: a part removed past the last one (kept with a clip a trim set aside) goes
@@ -384,12 +384,12 @@ export function useTimelineEditor(id: string) {
       const fromMs = Number(mine[0]?.inputs.recordingStart ?? 0) * 1000;
       const toMs = last ? (Number(last.inputs.recordingStart ?? 0) + Number(last.inputs.recordingSeconds ?? 0)) * 1000 : fromMs;
       const rendered = mine.filter((c) => c.take).length + (rec?.parkedTakes ?? 0) + droppedRemovedTakes(rec?.removed, fromMs, toMs);
-      if (!sure && rendered > 0) return setCutAsk({ asset, seconds, snap, rendered, clips: mine.length });
+      if (!sure && rendered > 0) return setCutAsk({ asset, seconds, within, rendered, clips: mine.length });
       setCutAsk(null);
       setCutting(true);
       // a failure is the mutation's own, said with the editor's others (latestFailure); a save that failed is said by the autosave
       void save()
-        .then(() => cutRecordingMut.mutateAsync({ asset, seconds, snap }).then((r) => trimmed(r.clips)))
+        .then(() => cutRecordingMut.mutateAsync({ asset, seconds, window: within }).then((r) => trimmed(r.clips)))
         .catch(() => {})
         .finally(() => setCutting(false));
     },

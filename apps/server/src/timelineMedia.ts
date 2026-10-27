@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { frameName, nameOf } from "./autoName";
-import { CutError, filmStrip, frameAt, KEYFRAME_STRIP_MS, pausesOf, peekAt } from "./cut";
+import { CutError, filmStrip, frameAt, KEYFRAME_STRIP_MS, linesOf, pausesOf, peekAt } from "./cut";
 import { colourNudge, MATCH, type FrameMeans, type Means, measureOf, meansAlong, meansWithin, MOTION_RATE, scenesOf, takeMeasures } from "./measure";
 import { joinJump, lastFrameAt, LEAST_MOTION } from "./joinScore";
 import { newId, now } from "./db";
@@ -181,18 +181,24 @@ export class TimelineMedia {
     return made;
   }
 
-  /** The pauses of a sound (or a video's sound), read once and kept beside it, as its scene cuts are: where a recording is cut into Lip sync clips. */
-  async pauses(assetId: string): Promise<{ pauses: Array<{ start: number; end: number }> }> {
+  /**
+   * The pauses of a sound (or a video's sound) and the timed lines it carries (its lyrics), read once and kept beside it, as
+   * its scene cuts are: where a recording is cut into Lip sync clips. Kept before the lines were read: they are read, once.
+   * Lines that could not be read are given as none and read again next time.
+   */
+  async pauses(assetId: string): Promise<{ pauses: Array<{ start: number; end: number }>; lines: Array<{ start: number; end: number }> }> {
     const { storage } = this.core;
     const asset = await this.core.assetRow(assetId);
     if (!asset || (asset.kind !== "audio" && asset.kind !== "video")) throw notFound("this recording");
     const key = `pauses/${asset.id.slice(0, 2)}/${asset.id}.json`;
     const have = await storage.get(key).catch(() => null);
-    const kept = have ? readKept<{ pauses: Array<{ start: number; end: number }> }>(have) : null;
-    if (kept && Array.isArray(kept.pauses)) return kept;
-    const made = { pauses: await pausesOf(await this.source(asset), extOf(asset.mime)) };
+    const kept = have ? readKept<{ pauses: Array<{ start: number; end: number }>; lines?: Array<{ start: number; end: number }> }>(have) : null;
+    if (kept && Array.isArray(kept.pauses) && Array.isArray(kept.lines)) return { pauses: kept.pauses, lines: kept.lines };
+    const pauses = kept && Array.isArray(kept.pauses) ? kept.pauses : await pausesOf(await this.source(asset), extOf(asset.mime));
+    const lines = await linesOf(await this.source(asset), extOf(asset.mime));
+    const made = { pauses, ...(lines ? { lines } : {}) };
     await storage.put(key, new TextEncoder().encode(JSON.stringify(made)));
-    return made;
+    return { pauses, lines: lines ?? [] };
   }
 
   /** The colour along each video, by video, as it is being read or once read: the files do not change. The last two hundred. */

@@ -1,6 +1,7 @@
 /**
- * A long recording (a voice) cut into Lip sync clips: each part ends in the pause nearest the length asked, never inside a
- * word, within what one clip takes. Pure: the pauses are read from the sound by the server (ffmpeg's silencedetect).
+ * A long recording (a voice, a song) cut into Lip sync clips: each part ends at the best spot within the length asked ± a
+ * window, within what one clip takes: a pause, else the end of a timed lyric line, else the quietest moment. Pure: the
+ * pauses (ffmpeg's silencedetect), the lines (the file's subtitle track) and the loudness are read by the server.
  */
 
 /** A pause of the recording, in seconds from its start. */
@@ -9,27 +10,56 @@ export interface Pause {
   end: number;
 }
 
+/** A timed line the sound file carries (Suno's m4a: a mov_text track of its lyrics), in seconds from its start. */
+export interface LyricLine {
+  start: number;
+  end: number;
+}
+
+/** The recording's loudness, `rate` samples a second, in dB (about -60 is silence). */
+export interface Loudness {
+  rate: number;
+  db: number[];
+}
+
 /** One clip's part of the recording: where it starts and how long it lasts, in seconds. */
 export interface RecordingPart {
   start: number;
   seconds: number;
 }
 
+/** Where a part ended: in a pause, at a lyric line's end, at the quietest moment of its window, or at the length asked. */
+export type CutOn = "pause" | "line" | "quiet" | "length";
+
+/** The window a recording is cut in as it is dropped: the length asked ± 1.5 s. */
+export const CUT_WINDOW = 1.5;
+/** The widest window the recording's panel takes: past it, a clip's length is anything its model holds. */
+export const CUT_WINDOW_MOST = 5;
+
+/** What a recording is cut at, besides its length: its pauses, its timed lines, its loudness. */
+export interface CutMarks {
+  pauses: Pause[];
+  lines?: LyricLine[];
+  levels?: Loudness | null;
+}
+
 /**
  * The parts `fromS` to `toS` of a recording is cut into, each about `wantS` long and within `leastS` to `mostS`. A part ends
- * in the middle of the pause nearest its asked end, among the pauses that keep it within its bounds; with none there, at the
- * length asked (a song's music never pauses: cut at the most, its parts were all 14.8 s whatever length was asked). A last
- * part shorter than the least is taken by the part before when one clip holds both, else the two share what is left evenly.
- * `snap` false (the recording's panel, Snap to pauses off): every part the length asked, wherever the words are.
+ * within `windowS` of its asked end (CUT_WINDOW by default; 0: every part the length asked, wherever the words are), at the
+ * best spot there: the middle of the pause nearest the asked end, else the end of the lyric line nearest it, else the
+ * quietest moment of the window (a song's breath between phrases), else the length asked. Only within the window: a pause
+ * anywhere within the bounds won before, and the closing pause of a song, 13 s away, made a last part of 14 s. A last part
+ * shorter than the least is taken by the part before when one clip holds both, else the two share what is left evenly.
  */
-export function recordingParts(o: { fromS: number; toS: number; wantS: number; leastS: number; mostS: number; pauses: Pause[]; snap?: boolean }): RecordingPart[] {
+export function recordingParts(o: { fromS: number; toS: number; wantS: number; leastS: number; mostS: number; windowS?: number } & CutMarks): RecordingPart[] {
   const { fromS, toS, leastS, mostS } = o;
   const want = Math.min(Math.max(o.wantS, leastS), mostS);
+  const window = Math.max(0, o.windowS ?? CUT_WINDOW);
   const round = (s: number) => Math.round(s * 100) / 100;
   const parts: RecordingPart[] = [];
   let at = fromS;
   for (let guard = 0; guard < 1000 && toS - at > 0.05; guard++) {
-    const end = o.snap === false ? evenEnd(at, toS, want, leastS, mostS) : endOf(at, toS, want, leastS, mostS, o.pauses);
+    const end = endOf(at, toS, want, leastS, mostS, window, o);
     parts.push({ start: at, seconds: end - at });
     if (end >= toS) break;
     at = end;
@@ -56,22 +86,62 @@ export function recordingParts(o: { fromS: number; toS: number; wantS: number; l
  */
 export function recordingPart(o: { fromS: number; toS: number; leastS: number; mostS: number; pauses: Pause[] }): RecordingPart | null {
   if (o.toS - o.fromS <= 0.05) return null;
-  const end = endOf(o.fromS, o.toS, o.mostS, o.leastS, o.mostS, o.pauses);
+  // its window is all one clip takes: any pause from the least to the most, the one nearest the most
+  const end = endOf(o.fromS, o.toS, o.mostS, o.leastS, o.mostS, o.mostS - o.leastS, { pauses: o.pauses });
   return { start: Math.round(o.fromS * 100) / 100, seconds: Math.round((end - o.fromS) * 100) / 100 };
 }
 
-/** Where the part from `at` ends when it is not snapped to a pause: `want` later, or the end when what is left fits one clip. */
-function evenEnd(at: number, toS: number, want: number, leastS: number, mostS: number): number {
-  return toS - at <= mostS && toS - at - want < leastS ? toS : Math.min(at + want, toS);
+/** Where a part ends within a second of a mark: a part's ends are kept to the hundredth, and a mark is read to the millisecond. */
+const ON_MARK = 0.03;
+
+/**
+ * What a part's end was cut at, read back from where it lies (the recording's panel counts its clips by it): a pause's
+ * middle, a lyric line's end, else the quietest moment when it was cut in a window, else the length asked.
+ */
+export function cutOn(endS: number, marks: CutMarks, windowS: number): CutOn {
+  if (marks.pauses.some((p) => Math.abs((p.start + p.end) / 2 - endS) <= ON_MARK)) return "pause";
+  if (lineEnds(marks.lines).some((m) => Math.abs(m - endS) <= ON_MARK)) return "line";
+  return windowS > 0 ? "quiet" : "length";
 }
 
-/** Where the part from `at`, about `want` long, ends (in seconds of the recording). */
-function endOf(at: number, toS: number, want: number, leastS: number, mostS: number, pauses: Pause[]): number {
+/** The ends of the lines that are sung: a section's name ([Intro], [Couplet 1]) is a line of no length, at no break. */
+function lineEnds(lines: LyricLine[] | undefined): number[] {
+  return (lines ?? []).filter((l) => l.end - l.start > 0.05).map((l) => l.end);
+}
+
+/** Where the part from `at`, about `want` long, ends (in seconds of the recording), within `window` of that. */
+function endOf(at: number, toS: number, want: number, leastS: number, mostS: number, window: number, marks: CutMarks): number {
   // what is left fits one clip, and a cut near the length asked would leave less than a clip after it: one part
   if (toS - at <= mostS && toS - at - want < leastS) return toS;
-  // a pause past the end (a recording trimmed, its Out before the words go on) is no place to cut: a part made to it
+  const asked = Math.min(at + want, toS);
+  if (window <= 0) return asked;
+  // a mark past the end (a recording trimmed, its Out before the words go on) is no place to cut: a part made to it
   // would render the words trimmed off, and one past the recording's end would say a length the sound has not
-  const cuts = pauses.map((p) => (p.start + p.end) / 2).filter((m) => m - at >= leastS && m - at <= mostS && m < toS);
-  // no pause within reach: the length asked, as with Snap to pauses off (a single clip's part asks for the most: recordingPart)
-  return cuts.length ? cuts.reduce((best, m) => (Math.abs(m - at - want) < Math.abs(best - at - want) ? m : best)) : Math.min(at + want, toS);
+  const lo = at + Math.max(leastS, want - window);
+  const hi = Math.min(at + Math.min(mostS, want + window), toS);
+  const nearest = (xs: number[]) => xs.filter((m) => m >= lo && m <= hi && m < toS).reduce<number | null>((best, m) => (best === null || Math.abs(m - at - want) < Math.abs(best - at - want) ? m : best), null);
+  return nearest(marks.pauses.map((p) => (p.start + p.end) / 2)) ?? nearest(lineEnds(marks.lines)) ?? quietest(marks.levels, lo, hi, at + want) ?? asked;
+}
+
+/** How much quieter than the rest a moment has to be to be one: on a level stretch (a held note, a tone) none is. */
+const QUIET_DB = 3;
+
+/**
+ * The quietest moment from `lo` to `hi`: among the samples within QUIET_DB of the quietest there, the one nearest `near`,
+ * `near` itself when its own sample is one of them (a level stretch is cut at the length asked, not a sample off it); null
+ * with no loudness there.
+ */
+function quietest(levels: Loudness | null | undefined, lo: number, hi: number, near: number): number | null {
+  if (!levels?.db.length || !(levels.rate > 0)) return null;
+  const samples: Array<{ i: number; t: number; db: number }> = [];
+  for (let i = Math.max(0, Math.ceil(lo * levels.rate - 0.5)); i < levels.db.length; i++) {
+    const t = (i + 0.5) / levels.rate;
+    if (t > hi) break;
+    samples.push({ i, t, db: levels.db[i]! });
+  }
+  if (!samples.length) return null;
+  const least = Math.min(...samples.map((x) => x.db));
+  const quiet = samples.filter((x) => x.db <= least + QUIET_DB);
+  if (quiet.some((x) => x.i === Math.floor(near * levels.rate))) return near;
+  return quiet.reduce((best, x) => (Math.abs(x.t - near) < Math.abs(best.t - near) ? x : best)).t;
 }

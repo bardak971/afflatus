@@ -20,7 +20,7 @@ const AT_A_CUT_MS = 150;
  * A recording open on the stage (its band on the Audio row clicked), as the source lane opens: its sound played and
  * scrubbed with the timeline's own transport, the playhead following it in the track's own time. Drawn as a big waveform
  * from the loudness the server keeps (GET /assets/:id/motion), with its clips' parts named (the one under the playhead in
- * the accent), the pauses it was cut at (those not used faint), its In and Out (dimmed outside them), and, when the clip
+ * the accent), where it was cut (the pauses not used faint), its In and Out (dimmed outside them), and, when the clip
  * under the playhead has a take, that take's picture faint behind it, in step, to check the mouth against the words.
  */
 export const RecordingStage = forwardRef<PlayerHandle, {
@@ -130,7 +130,8 @@ export const RecordingStage = forwardRef<PlayerHandle, {
   const share = (ms: number) => `${ratio(ms) * 100}%`;
   const shareIn = (ms: number) => `${Math.max(0, Math.min(1, ratio(ms))) * 100}%`;
   const sizeOf = (ms: number) => `${span > 0 ? (ms / span) * 100 : 0}%`;
-  // the pauses it was cut at: where a part ends and the next one starts; the others are pauses it was not cut at
+  // where it was cut (a pause, a lyric line's end, the quietest moment): where a part ends and the next one starts; the
+  // others are pauses it was not cut at
   const marks = useMemo(() => {
     const cuts = place.parts.slice(0, -1).map((p) => p.endMs);
     return [
@@ -315,7 +316,7 @@ export const RecordingStage = forwardRef<PlayerHandle, {
       <div aria-hidden className="mx-9 flex justify-between font-mono text-micro text-ink-3">
         {ticks.map((ms) => <span key={ms}>{clock(ms, span < 20_000 ? { decimals: 1 } : undefined)}</span>)}
       </div>
-      <span className="py-2 text-center text-xs text-ink-3">Click or drag: the playhead · I / O: In and Out · ◆ the pauses it was cut at (faint: pauses not used)</span>
+      <span className="py-2 text-center text-xs text-ink-3">Click or drag: the playhead · I / O: In and Out · ◆ where it was cut (faint: pauses not used)</span>
     </div>
   );
 });

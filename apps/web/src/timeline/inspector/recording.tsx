@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
-import type { Asset, Clip } from "../../api";
+import { useQuery } from "@tanstack/react-query";
+import { CUT_WINDOW_MOST, cutOn, type CutOn } from "@afflatus/core";
+import { api, type Asset, type Clip } from "../../api";
 import { timelineKey } from "../../draftMachine";
 import { clock as mmss, plural } from "../../format";
 import { RenderOn } from "../../GenerateOn";
 import { severalMachines } from "../../machines";
 import { useQueue } from "../../data";
+import { queryKeys } from "../../queryKeys";
 import { Select, type Option } from "../../Select";
-import { AutoText, Button, cx, fieldClass, Help, NumberBox, Segmented, Toggle } from "../../ui";
+import { AutoText, Button, cx, fieldClass, Help, NumberBox, Segmented } from "../../ui";
 import { useClock, type Clock } from "../clock";
 import { ColumnEdge, FoldButton, useColumnWidth } from "../column";
 import type { RecordingPlace } from "../recordingPlace";
@@ -29,13 +32,13 @@ export type RecordingPanelProps = {
   /** Its start moved, rendered clips in the way: Change or Keep. */
   trimAsk: { fromMs: number; rendered: number; clips: number; change(): void; keep(): void } | null;
   trimming: boolean;
-  /** How it is cut into clips: about `seconds` each, in its pauses when `snap`; changed, its clips are made anew. */
+  /** How it is cut into clips: about `seconds` each, ± `within` (0: exactly that); changed, its clips are made anew. */
   cut: {
     seconds: number;
-    snap: boolean;
+    within: number;
     leastMs: number;
     mostMs: number;
-    run(seconds: number, snap: boolean): void;
+    run(seconds: number, within: number): void;
     ask: { rendered: number; clips: number; change(): void; keep(): void } | null;
     pending: boolean;
   };
@@ -56,7 +59,7 @@ export type RecordingPanelProps = {
 
 /**
  * A recording open in the column (its band on the Audio row clicked), as the source lane opens its own panel: the form its
- * new clips are made in, the stretch of it they use (In → Out), how it is cut into them (Clip length, Snap to pauses),
+ * new clips are made in, the stretch of it they use (In → Out), how it is cut into them (Clip length ± a window),
  * its clips with their parts, forms and takes (Lip sync, or one it plays over: card #72), how the first one opens, what
  * they share, and Render N clips at the foot. A clip's own Recording chapter stays as it is; the edits here go through
  * the same paths.
@@ -72,6 +75,7 @@ export function RecordingPanel(p: RecordingPanelProps) {
   const leastMs = Math.ceil(cut.leastMs / 100) * 100;
   const mostMs = Math.max(leastMs, Math.floor(cut.mostMs / 100) * 100);
   const lengths = place.parts.map((x) => ((x.endMs - x.startMs) / 1000).toFixed(1));
+  const landed = useLanded(recording.id, place, cut.within);
   // how many it plays over (another form than Lip sync), said beside how many follow it with the mouth
   const over = place.parts.filter((x) => x.over).length;
   const forms = over ? ` · ${place.parts.length - over} lip sync, ${over === 1 ? "1 plays over" : `${over} play over`}` : "";
@@ -112,7 +116,7 @@ export function RecordingPanel(p: RecordingPanelProps) {
           {p.trimming && <span className="text-xs text-ink-2">Trimming the recording…</span>}
         </Section>
 
-        <Section title="Clips" help="How the stretch is cut into clips. Changed, its clips are made anew over the same stretch: each keeps its form where its part survives, new parts take New clips' form.">
+        <Section title="Clips" help={`How the stretch is cut into clips. Each clip ends within ± that many seconds of Clip length, at the best spot there: a pause in the voice (its middle), else the end of a timed lyric line the file carries (Suno's m4a has them), else the quietest moment, a breath between phrases on a song. ± 0: every clip exactly that length, wherever the words are. Always within what one clip of the model takes. Changed, its clips are made anew over the same stretch: each keeps its form where its part survives, new parts take New clips' form.${landed ? ` Here: ${landed}.` : ""}`}>
           {cut.ask && (
             <Ask
               title="Cutting it again makes its clips anew:"
@@ -121,14 +125,16 @@ export function RecordingPanel(p: RecordingPanelProps) {
               keep={cut.ask.keep}
             />
           )}
-          <Slide label="Clip length" value={Math.min(Math.max(cut.seconds * 1000, leastMs), mostMs)} min={leastMs} max={mostMs} step={100} show={(ms) => `about ${(ms / 1000).toFixed(1)} s`} onCommit={(ms) => cut.run(ms / 1000, cut.snap)} disabled={cut.pending} />
-          <Toggle
-            on={cut.snap}
-            disabled={cut.pending}
-            onChange={(snap) => cut.run(cut.seconds, snap)}
-            label="Snap to pauses"
-            note={cut.snap ? `each clip ends in the pause nearest that length, never inside a word: ${lengths.join(", ")} s here` : `every clip that length, wherever the words are: ${lengths.join(", ")} s here`}
-          />
+          <div className="flex items-end gap-2">
+            <div className="min-w-0 grow">
+              <Slide label="Clip length" value={Math.min(Math.max(cut.seconds * 1000, leastMs), mostMs)} min={leastMs} max={mostMs} step={100} show={(ms) => `${(ms / 1000).toFixed(1)} s`} onCommit={(ms) => cut.run(ms / 1000, cut.within)} disabled={cut.pending} />
+            </div>
+            <span className="flex shrink-0 items-center gap-1 text-ink-2">
+              ±
+              <NumberBox label="Window (± s of Clip length)" value={cut.within} min={0} max={CUT_WINDOW_MOST} step={0.1} unit=" s" onCommit={(v) => !cut.pending && v !== cut.within && cut.run(cut.seconds, v)} />
+            </span>
+          </div>
+          <span className="text-xs text-ink-2">{landed ? `${landed} · ` : ""}{lengths.join(", ")} s</span>
           {cut.pending && <span className="text-xs text-ink-2">Cutting the recording again…</span>}
         </Section>
 
@@ -175,6 +181,20 @@ export function RecordingPanel(p: RecordingPanelProps) {
       </div>
     </aside>
   );
+}
+
+/** What each kind of cut is said as, in the order the cut looks for them. */
+const LANDED: Array<[CutOn, string]> = [["pause", "on a pause"], ["line", "on a lyric line"], ["quiet", "on the quietest moment"], ["length", "at the length"]];
+
+/**
+ * What its clips' ends were cut at (cutOn), counted: "3 on a pause, 20 on a lyric line, 7 on the quietest moment". The last
+ * clip ends at the Out, at none of them. Null while the recording's pauses and lines are read, or with a single clip.
+ */
+function useLanded(asset: string, place: RecordingPlace, within: number): string | null {
+  const marks = useQuery({ queryKey: queryKeys.pauses(asset), queryFn: () => api.pauses(asset), staleTime: Infinity, retry: 0 });
+  if (!marks.data || place.parts.length < 2) return null;
+  const on = place.parts.slice(0, -1).map((x) => cutOn(x.endMs / 1000, marks.data, within));
+  return LANDED.map(([kind, said]) => [on.filter((k) => k === kind).length, said] as const).filter(([n]) => n > 0).map(([n, said], i) => `${i === 0 ? plural(n, "clip") : n} ${said}`).join(", ");
 }
 
 function Section({ title, note, help, children }: { title: string; note?: string; help?: string; children: React.ReactNode }) {

@@ -7,6 +7,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 ### Added
 - **A FLUX.2 Klein 9B preset** in the Prompt kit: Black Forest Labs' distilled 9B in fp8 (4 steps, CFG 1) with the Qwen3 8B text encoder it reads with, fetched in one click like the 4B's. Its files are gated on Hugging Face under BFL's non-commercial licence: accept the terms there with the account whose token is in Settings › Models.
 
+### Changed
+- **A recording cut into clips: Clip length ± a window** replaces Snap to pauses (± 1.5 s by default; ± 0 cuts every clip at exactly the length asked; a timeline saved with Snap to pauses on reads as ± 1.5, off as ± 0). A clip ends at the best spot in the window: a pause, else the end of a timed lyric line the file carries (Suno's m4a has them), else the quietest moment, always within what one clip of the model takes. Its "?" counts the clips on each. A pause far from the length asked no longer wins: a song with a single closing pause had its last clip cut at 14 s.
+
 ### Fixed
 - **LTX 2.5 · A clip landed on the clip after ends in that clip's colours**: its last second and its hidden tail are brought to the clip after's first frame, where it ended a little darker. The Next clip's ? says that a clip after under a second gives a looser landing (9 frames), with a small reframe at the cut.
 - **Render no longer sends a clip that carries on from a clip with no take.** An H3 or LTX clip landed in the latent of the clip before, or a Wan SVI clip, opened on nothing and rendered as a clip of its own when the clip before had no take and none on its way. Render now refuses it, as Again does: "Clip N carries on from clip N-1, which has no take: render clip N-1 first, or make their join a cut." A Render of several clips with one such clip queues none of them; one that renders the clip before too still waits for it. The refusal is said in a banner, whichever clip is open.
