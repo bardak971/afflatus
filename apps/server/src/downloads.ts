@@ -97,6 +97,20 @@ export interface DownloadView {
  */
 export const PASSING = /not answering|cannot be reached|no longer knows the (download|upload)|did not answer|does not answer with|\((429|5\d\d)[:)]|answered (429|5\d\d)\)|fetch failed|ECONN|Errno -?\d+|reset by peer|Remote end closed|EOF occurred|socket|timed? ?out|aborted/i;
 
+/** A path on a disk in a line: quoted (it may hold spaces), a drive's or a share's, or a Unix one of two parts or more. */
+const DISK_PATH = /(['"])((?:[A-Za-z]:[\\/]|\\\\|\/)[^'"]*)\1|(?<!\w)(?:[A-Za-z]:[\\/]|\\\\)[^\s'"<>|*?]*|(?<![\w.:/\\-])\/(?:[^\s'"<>|/]+\/)+[^\s'"<>|/]*/g;
+
+/**
+ * A line of what went wrong without the folders on a disk it names, each path made its file's name: what a download says
+ * reaches the page and agents (MCP), and where the user keeps models on this computer is not theirs to read.
+ */
+export function withoutPaths(text: string): string {
+  return text.replace(DISK_PATH, (whole, quote: string | undefined, inner: string | undefined) => {
+    const base = (inner ?? whole).split(/[\\/]/).filter(Boolean).pop() ?? "…";
+    return quote ? `${quote}${base}${quote}` : base;
+  });
+}
+
 /** How long a node pack whose line is full (429: its downloads at once under way) is waited for before the download is given up. */
 export const PACK_BUSY_MS = 120_000;
 
@@ -411,7 +425,8 @@ export class Downloads {
   private fail(d: Download, error: string): void {
     if (d.status === "done" || d.status === "error" || d.status === "stopped") return;
     d.status = "error";
-    d.error = error;
+    // an fs error names the file's whole path (EACCES, ENOSPC on "D:\models\loras\x.part"): said by its name only
+    d.error = withoutPaths(error);
     d.finishedAt = Date.now();
     delete d.waiting;
     delete d.note;

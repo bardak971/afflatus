@@ -115,6 +115,53 @@ describe("deploy_pod: every money refusal", () => {
   });
 });
 
+describe("deploy_pod and start_pod: the pods already up", () => {
+  it("count the next hour of the token's own pods against its cap", async () => {
+    // the A40 at about $0.456 an hour: one fits a $0.80 cap, a second with the first's next hour does not
+    const { token } = await made("spend", { spendCapUsd: 0.8 });
+    const c = await connect(token);
+    await ok(c, "deploy_pod", DEPLOY);
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]?.status === "RUNNING"));
+    await t.services.rented.poll();
+    await refusedWith(c, "deploy_pod", DEPLOY, /This token's cap is \$0\.80/);
+    expect(creates()).toBe(1);
+    await c.close();
+  });
+
+  it("count the next hour of every pod up against the app's caps", async () => {
+    await updateSettings(t.db, () => ({ rentCaps: { day: 0.8, month: 0 } }));
+    const first = await connect((await made("spend", { spendCapUsd: 5 })).token);
+    await ok(first, "deploy_pod", DEPLOY);
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]?.status === "RUNNING"));
+    await t.services.rented.poll();
+    // another token: its own cap has room, the app's day does not with the first pod's next hour
+    const second = await connect((await made("spend", { spendCapUsd: 5 })).token);
+    await refusedWith(second, "deploy_pod", DEPLOY, /no room for this pod's first hour \(\$0\.46, with the next hour of the pods up: \$0\.46\)/);
+    expect(creates()).toBe(1);
+    await first.close();
+    await second.close();
+  });
+
+  it("start_pod refuses a pod set to never stop when idle, or without a watchdog", async () => {
+    const { token } = await made("spend", { spendCapUsd: 5 });
+    const c = await connect(token);
+    const machine = (await ok(c, "deploy_pod", { ...DEPLOY, idleDo: "stop" })).machine as string;
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]?.status === "RUNNING"));
+    await t.services.rented.poll();
+    await ok(c, "stop_pod", { machine, how: "stop" });
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]?.status === "EXITED"));
+    const set = (rented: Record<string, unknown>) => updateSettings(t.db, (x) => ({ machines: x.machines.map((m) => (m.id === machine && m.rented ? { ...m, rented: { ...m.rented, ...rented } } : m)) }));
+    const starts = () => runpod.calls.filter((x) => x.includes("start")).length;
+    const before = starts();
+    await set({ idleMinutes: 0 });
+    await refusedWith(c, "start_pod", { machine }, /set to never stop when idle/);
+    await set({ idleMinutes: 2, watchdogMinutes: 0 });
+    await refusedWith(c, "start_pod", { machine }, /run without a watchdog/);
+    expect(starts()).toBe(before);
+    await c.close();
+  });
+});
+
 describe("a pod a token deployed", () => {
   it("is its run: counted whole against its cap, stopped once the cap is reached; terminated by stop_pod", async () => {
     const { token, id } = await made("spend", { spendCapUsd: 1 });
@@ -163,6 +210,30 @@ describe("a pod a token deployed", () => {
     await c.close();
   });
 
+  it("is stopped when its token's cap cannot be read, or once the token is gone", async () => {
+    const { token, id } = await made("spend", { spendCapUsd: 5 });
+    const c = await connect(token);
+    await ok(c, "deploy_pod", DEPLOY);
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]?.status === "RUNNING"));
+    await t.services.rented.poll();
+    expect(runpod.pods[0]!.status).toBe("RUNNING");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const read = vi.spyOn(t.services.mcp.tokens, "spentThisMonth").mockRejectedValue(new Error("database is locked"));
+    await until(async () => (await t.services.rented.poll(), !runpod.pods.some((p) => p.status === "RUNNING")));
+    read.mockRestore();
+    // the same once the token is gone (revoked a month ago, let go with its activity)
+    const second = await made("spend", { spendCapUsd: 5 });
+    const c2 = await connect(second.token);
+    await ok(c2, "deploy_pod", DEPLOY);
+    await until(async () => (await t.services.rented.poll(), runpod.pods.some((p) => p.status === "RUNNING")));
+    await t.services.rented.poll();
+    await t.db.deleteFrom("mcp_tokens").where("id", "=", second.id).execute();
+    await until(async () => (await t.services.rented.poll(), !runpod.pods.some((p) => p.status === "RUNNING")));
+    expect(id).toBeTruthy();
+    await c.close();
+    await c2.close();
+  });
+
   it("a pod running a render this token did not send is not stopped from here", async () => {
     const { token } = await made("spend", { spendCapUsd: 5 });
     const c = await connect(token);
@@ -176,7 +247,7 @@ describe("a pod a token deployed", () => {
 });
 
 describe("the machines", () => {
-  it("lists them without a token or a folder; adds, changes, asks again and removes one of the user's own", async () => {
+  it("lists them without a token or a folder; changes, asks again and removes one of the user's own", async () => {
     const c = await connect((await made("all")).token);
     const listed = await ok(c, "list_machines");
     expect(listed.machines).toHaveLength(1);
@@ -184,12 +255,12 @@ describe("the machines", () => {
     expect(JSON.stringify(listed)).not.toMatch(/token|vram|"dir"/i);
     const other = await makeFake();
     try {
-      const added = await ok(c, "add_machine", { url: other.url, name: "zz-test second", takes: "image" });
-      expect(added.online).toBe(true);
+      // added by the user, in Afflatus
+      await updateSettings(t.db, (x) => ({ machines: [...x.machines, { id: "m2", name: "zz-test second", url: other.url, takes: "image" }] }));
       const changed = await ok(c, "edit_machine", { machine: "zz-test second", takes: "video", families: { sdxl: false } });
       expect(changed).toMatchObject({ takes: "video", families: { sdxl: false } });
-      expect(await ok(c, "reconnect", { machine: added.added })).toMatchObject({ online: true });
-      await ok(c, "remove_machine", { machine: added.added });
+      expect(await ok(c, "reconnect", { machine: "m2" })).toMatchObject({ online: true });
+      await ok(c, "remove_machine", { machine: "m2" });
       expect((await readSettings(t.db)).machines.map((m) => m.id)).toEqual(["m1"]);
     } finally {
       await other.close();
@@ -199,14 +270,52 @@ describe("the machines", () => {
     await c.close();
   });
 
-  it("a pod's longer idle needs Spend; a shorter one is Manage's", async () => {
-    const spend = await connect((await made("spend", { spendCapUsd: 5 })).token);
-    const machine = (await ok(spend, "deploy_pod", { ...DEPLOY, idleMinutes: 5 })).machine as string;
+  it("is never added, nor its address changed, through MCP (owner: only in Afflatus)", async () => {
+    const c = await connect((await made("all")).token);
+    const tools = (await c.listTools()).tools;
+    expect(tools.map((x) => x.name)).not.toContain("add_machine");
+    expect(Object.keys((tools.find((x) => x.name === "edit_machine")!.inputSchema.properties ?? {}) as object)).not.toContain("url");
+    await refusedWith(c, "add_machine", { url: "http://192.168.1.50:8188" }, /There is no tool called “add_machine”/);
+    // an address sent anyway is no argument of edit_machine's: the machine keeps its own
+    const before = (await readSettings(t.db)).machines[0]!.url;
+    await ok(c, "edit_machine", { machine: "m1", url: "http://192.168.1.50:8188" });
+    expect((await readSettings(t.db)).machines[0]!.url).toBe(before);
+    await refusedWith(c, "change_setting", { key: "machines", value: [] }, /machines is changed through .*in Afflatus itself/);
+    await refusedWith(c, "change_setting", { key: "comfyUrl", value: "http://192.168.1.50:8188" }, /in Afflatus itself/);
+    await c.close();
+  });
+
+  it("a pod's idle rule and watchdog need Spend, longer or shorter", async () => {
+    const all = await connect((await made("all", { spendCapUsd: 5 })).token);
+    const machine = (await ok(all, "deploy_pod", { ...DEPLOY, idleMinutes: 5 })).machine as string;
     const manage = await connect((await made("look", { scopes: ["look", "manage"] })).token);
-    await refusedWith(manage, "edit_machine", { machine, idleMinutes: 30 }, /cannot spend on rented GPUs, and a longer idle time/);
-    expect((await ok(manage, "edit_machine", { machine, idleMinutes: 3 })).pod.idleMinutes).toBe(3);
-    expect((await readSettings(t.db)).machines.find((m) => m.id === machine)!.rented!.idleMinutes).toBe(3);
-    await refusedWith(manage, "edit_machine", { machine, watchdogMinutes: 0 }, /watchdogMinutes/);
+    await refusedWith(manage, "edit_machine", { machine, idleMinutes: 30 }, /cannot spend on rented GPUs, and a pod's idle time/);
+    await refusedWith(manage, "edit_machine", { machine, idleMinutes: 3 }, /cannot spend on rented GPUs/);
+    await refusedWith(manage, "edit_machine", { machine, idleDo: "stop" }, /cannot spend on rented GPUs/);
+    expect((await readSettings(t.db)).machines.find((m) => m.id === machine)!.rented!.idleMinutes).toBe(5);
+    expect((await ok(all, "edit_machine", { machine, idleMinutes: 3 })).pod.idleMinutes).toBe(3);
+    await refusedWith(all, "edit_machine", { machine, watchdogMinutes: 0 }, /watchdogMinutes/);
+    await all.close();
+    await manage.close();
+  });
+
+  it("what a machine takes, its families, and removing one of the user's own need Spend while a pod is up", async () => {
+    const spend = await connect((await made("spend", { spendCapUsd: 5 })).token);
+    await ok(spend, "deploy_pod", DEPLOY);
+    const manage = await connect((await made("look", { scopes: ["look", "make", "manage"] })).token);
+    await refusedWith(manage, "edit_machine", { machine: "m1", takes: "image" }, /cannot spend on rented GPUs, and changing what .* takes while .* is up/);
+    await refusedWith(manage, "edit_machine", { machine: "m1", families: { sdxl: false } }, /cannot spend on rented GPUs/);
+    const other = await makeFake();
+    try {
+      await updateSettings(t.db, (x) => ({ machines: [...x.machines, { id: "m2", name: "zz-test second", url: other.url }] }));
+      await refusedWith(manage, "remove_machine", { machine: "m2" }, /cannot spend on rented GPUs, and removing .* while .* is up/);
+      expect((await readSettings(t.db)).machines.some((m) => m.id === "m2")).toBe(true);
+    } finally {
+      await other.close();
+    }
+    // a name is no steering
+    expect((await ok(manage, "edit_machine", { machine: "m1", name: "zz-test home" })).name).toBe("zz-test home");
+    expect((await readSettings(t.db)).machines.find((m) => m.id === "m1")!.takes).toBe("all");
     await spend.close();
     await manage.close();
   });
@@ -224,6 +333,19 @@ describe("what it costs", () => {
     expect(costs).toHaveProperty("month");
     expect(costs.caps).toEqual({ day: 4, month: 40 });
     await refusedWith(c, "change_setting", { key: "rentCaps.day", value: 10 }, /needs Manage/);
+    // Manage alone lowers a cap, or sets one where there was none; raising or taking one off needs Spend too
+    const manage = await connect((await made("look", { scopes: ["look", "manage"] })).token);
+    expect(await ok(manage, "change_setting", { key: "rentCaps.day", value: 2 })).toMatchObject({ was: 4, now: 2 });
+    await refusedWith(manage, "change_setting", { key: "rentCaps.day", value: 3 }, /cannot spend on rented GPUs, and raising the app's daily cap/);
+    await refusedWith(manage, "change_setting", { key: "rentCaps.month", value: 0 }, /taking off the app's monthly cap/);
+    await refusedWith(manage, "change_setting", { key: "rentCaps", value: { day: 2, month: 400 } }, /raising the app's monthly cap/);
+    expect((await readSettings(t.db)).rentCaps).toEqual({ day: 2, month: 40 });
+    await updateSettings(t.db, () => ({ rentCaps: { day: 0, month: 40 } }));
+    expect(await ok(manage, "change_setting", { key: "rentCaps.day", value: 5 })).toMatchObject({ was: 0, now: 5 });
+    const both = await connect((await made("all")).token);
+    expect(await ok(both, "change_setting", { key: "rentCaps.month", value: 0 })).toMatchObject({ was: 40, now: 0 });
+    await manage.close();
+    await both.close();
     const gpus = await ok(c, "pods", { gpus: "SECURE" });
     expect(gpus.gpus.find((g: { name: string }) => g.name === "A40")).toMatchObject({ usdPerHour: 0.44 });
     expect(JSON.stringify(gpus.gpus)).not.toMatch(/memory/);

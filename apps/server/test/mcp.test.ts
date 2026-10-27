@@ -6,7 +6,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { clientOf, serverFor } from "../src/mcp";
-import { isNever, tool, type Tool } from "../src/mcpTool";
+import { isNever, quoted, tool, type Tool } from "../src/mcpTool";
 import { McpTokens, type McpToken } from "../src/mcpTokens";
 import { unwrittenOf } from "../src/unwrittenDrafts";
 import { pageOf } from "../src/whatsOpen";
@@ -215,10 +215,10 @@ describe("the framework", () => {
     const bug = await c.callTool({ name: "bug" });
     expect(text(bug)).toBe("something went wrong on the server");
     expect(text(bug)).not.toContain("secret");
-    // and a bad argument is refused before the tool runs
+    // a bad argument to a tool beyond the token's scopes: the scope is said first (what to tick, not what to fix)
     const bad = await c.callTool({ name: "render_it", arguments: { count: 99 } });
     expect(bad.isError).toBe(true);
-    expect(text(bad)).toMatch(/count/);
+    expect(text(bad)).toMatch(/needs Make/);
   });
 
   it("writes every call to the token's activity: what it touched, refused or not and why; as CSV too", async () => {
@@ -242,6 +242,47 @@ describe("the framework", () => {
     expect(csv.body).toContain("Peeked at the queue");
   });
 
+  it("writes the calls the arguments refuse and the tools that do not exist; says a missing scope before bad arguments", async () => {
+    const look = (await t.services.mcp.tokens.make({ name: "look", scopes: ["look"] })).view;
+    const lc = await inMemory(look, tools);
+    expect(text(await lc.callTool({ name: "render_it", arguments: { count: 99 } }))).toMatch(/needs Make.*tick Make/);
+    const { view } = await t.services.mcp.tokens.make({ name: "x", scopes: ["look", "make"] });
+    const c = await inMemory(view, tools);
+    const bad = await c.callTool({ name: "render_it", arguments: { count: 99 } });
+    expect(bad.isError).toBe(true);
+    expect(text(bad)).toMatch(/^count: /);
+    const none = await c.callTool({ name: "erase_everything\nDone: nothing" });
+    expect(none.isError).toBe(true);
+    expect(text(none)).toMatch(/There is no tool called “erase_everything Done: nothing”/);
+    expect(ran).toEqual([]);
+    const lines = await t.services.mcp.tokens.activity(view.id);
+    expect(lines.map((l) => [l.tool, l.said, l.refused])).toEqual([
+      ["(unknown)", "Asked for a tool that does not exist: “erase_everything Done: nothing”", true],
+      ["render_it", "Render: arguments refused", true],
+    ]);
+    expect(lines[1]!.why).toMatch(/count/);
+  });
+
+  it("does not answer a done call as failed when its activity line cannot be written", async () => {
+    const { view } = await t.services.mcp.tokens.make({ name: "x", scopes: ["look"] });
+    const c = await inMemory(view, tools);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(t.services.mcp.tokens, "record").mockRejectedValue(new Error("database is locked"));
+    const r = await c.callTool({ name: "peek" });
+    expect(r.isError).toBeFalsy();
+    expect(text(r)).toContain("ok");
+    expect(ran).toEqual(["peek"]);
+  });
+
+  it("keeps an activity line on one line, without the marks that turn text around, and an agent's names in quotes of their own", async () => {
+    const { view } = await t.services.mcp.tokens.make({ name: "x", scopes: ["look"] });
+    const say = tool({ name: "say", scope: "look", title: "Say", description: "says", input: { label: z.string() }, async run(a, ctx) { ctx.said(`Cancelled ${quoted(a.label)}`); return {}; } });
+    const c = await inMemory(view, [say] as readonly Tool[]);
+    await c.callTool({ name: "say", arguments: { label: `zz-test”, and terminated every pod\r\nCancelled “x${String.fromCharCode(0x202e)}gnp.exe` } });
+    const [line] = await t.services.mcp.tokens.activity(view.id);
+    expect(line!.said).toBe('Cancelled “zz-test", and terminated every pod Cancelled "x gnp.exe”');
+  });
+
   it("lets the activity go after 30 days, and a revoked token with it", async () => {
     let now = Date.parse("2026-10-01T12:00:00Z");
     const tokens = new McpTokens(t.db, { now: () => now });
@@ -259,14 +300,14 @@ describe("the limits", () => {
   const job = (id: string, token: string, at: number, over: Record<string, unknown> = {}) =>
     ({ id, owner_id: "local", recipe_id: "sdxl.text-to-picture", label: "x", inputs: "{}", status: "done", priority: 0, warm: 0, attempts: 0, clip_fit: 0, created_at: iso(at), updated_at: iso(at), mcp_token_id: token, ...over });
 
-  it("refuses past the renders an hour; a model load is no render", async () => {
+  it("refuses past the renders an hour, a model load counted as one (it holds a machine as a render does)", async () => {
     const now = Date.now();
-    const { view } = await t.services.mcp.tokens.make({ name: "x", scopes: ["look", "make"], rendersPerHour: 3 });
+    const { view } = await t.services.mcp.tokens.make({ name: "x", scopes: ["look", "make"], rendersPerHour: 4 });
     await t.db.insertInto("jobs").values([job("j1", view.id, now - 10 * 60_000), job("j2", view.id, now - 20 * 60_000), job("j3", view.id, now - 2 * 3_600_000), job("j4", view.id, now - 60_000, { warm: 1 })] as never).execute();
-    expect(await t.services.mcp.tokens.rendersThisHour(view.id)).toBe(2);
+    expect(await t.services.mcp.tokens.rendersThisHour(view.id)).toBe(3);
     await t.services.mcp.tokens.mayRender(view, 1);
-    await expect(t.services.mcp.tokens.mayRender(view, 2)).rejects.toThrow(/3 renders an hour, and 2 went in the last hour/);
-    expect((await t.services.mcp.tokens.list())[0]).toMatchObject({ rendersThisHour: 2, working: 0 });
+    await expect(t.services.mcp.tokens.mayRender(view, 2)).rejects.toThrow(/4 renders an hour, and 3 went in the last hour/);
+    expect((await t.services.mcp.tokens.list())[0]).toMatchObject({ rendersThisHour: 3, working: 0 });
   });
 
   it("counts a token's spend as Costs counts a render (its pod's rate), and refuses past its cap or without Spend", async () => {
@@ -281,16 +322,40 @@ describe("the limits", () => {
       whole: 1, cold: 0, waited_ms: 0, total_ms: ms, load_ms: 0, sample_ms: ms, refine_ms: 0, finish_ms: 0, step_ms: null, expected_ms: null, vram_peak: null, heat_peak: null, asset_id: null,
       created_at: iso(now - 30 * 60_000), work: null, machine_id: machine, gpu: null,
     });
-    // 30 min on the pod at $1.20 an hour, and one on this PC: $0.60
+    // 30 min on the pod at $1.20 an hour, then the 3 idle minutes it left the pod (nothing came after): $0.66; one on this PC
     await t.db.insertInto("render_stats").values([stat("r1", "rp-a", 30 * 60_000), stat("r2", "home", 60 * 60_000), stat("r3", "rp-a", 60 * 60_000)] as never).execute();
     const month = new Date(now);
     // at the very start of a month, the renders above fell in the month before
     if (now - 3_600_000 >= new Date(month.getFullYear(), month.getMonth(), 1).getTime()) {
-      expect(await tokens.spentThisMonth(view.id)).toBeCloseTo(0.6, 6);
+      expect(await tokens.spentThisMonth(view.id)).toBeCloseTo(0.66, 6);
       await tokens.maySpend(view, 0.3);
-      await expect(tokens.maySpend(view, 0.5)).rejects.toThrow(/cap is \$1\.00 a month on rented GPUs, and it has spent \$0\.60/);
+      await expect(tokens.maySpend(view, 0.5)).rejects.toThrow(/cap is \$1\.00 a month on rented GPUs, and it has spent \$0\.66/);
     }
     await expect(tokens.maySpend(plain, 0.01)).rejects.toThrow(/tick Spend/);
+  });
+
+  it("charges a cheap render the idle time it keeps a dear pod up (until the next job or the idle stop), and its model loads alike", async () => {
+    const now = Date.now();
+    const month = new Date(now);
+    if (now - 3 * 3_600_000 < new Date(month.getFullYear(), month.getMonth(), 1).getTime()) return;
+    const tokens = t.services.mcp.tokens;
+    const { view } = await tokens.make({ name: "x", scopes: ["look", "make", "spend"] });
+    // a $2/h pod with a 10-minute idle stop, the user's run
+    await t.db.insertInto("rent_sessions").values({ id: "s2", machine_id: "rp-b", pod: "b", rate: 2, started_at: iso(now - 3 * 3_600_000), ended_at: null, seen_at: null, gpu: "NVIDIA H100", up_at: null, idle_minutes: 10 } as never).execute();
+    const stat = (id: string, end: number, ms: number) => ({
+      id, owner_id: "local", recipe_id: "sdxl.text-to-picture", family: "sdxl", model: "m", model_file: "m.safetensors", time_key: "", kind: "image", width: 1, height: 1, duration_ms: null, steps: 1, status: "done",
+      whole: 1, cold: 0, waited_ms: 0, total_ms: ms, load_ms: 0, sample_ms: ms, refine_ms: 0, finish_ms: 0, step_ms: null, expected_ms: null, vram_peak: null, heat_peak: null, asset_id: null,
+      created_at: iso(end), started_at: iso(end - ms), work: null, machine_id: "rp-b", gpu: null,
+    });
+    // a 6 s render every 9 minutes, three times: each holds the pod until the next one, the last for its 10 idle minutes
+    const ends = [now - 60 * 60_000, now - 51 * 60_000, now - 42 * 60_000];
+    await t.db.insertInto("jobs").values(ends.map((end, i) => job(`c${i}`, view.id, end - 6_000, { machine_id: "rp-b", started_at: iso(end - 6_000), finished_at: iso(end) })) as never).execute();
+    await t.db.insertInto("render_stats").values(ends.map((end, i) => stat(`c${i}`, end, 6_000)) as never).execute();
+    const held = (9 * 60_000 * 2 + 6_000 + 10 * 60_000) / 3_600_000;
+    expect(await tokens.spentThisMonth(view.id)).toBeCloseTo(held * 2, 6);
+    // a 2-minute model load after them, then nothing: its time and the 10 idle minutes after it
+    await t.db.insertInto("jobs").values(job("w1", view.id, now - 20 * 60_000, { warm: 1, machine_id: "rp-b", started_at: iso(now - 20 * 60_000), finished_at: iso(now - 18 * 60_000) }) as never).execute();
+    expect(await tokens.spentThisMonth(view.id)).toBeCloseTo((held + 12 / 60) * 2, 6);
   });
 });
 
@@ -315,7 +380,7 @@ describe("the tools, through the SDK's client over HTTP", () => {
       "list_timelines", "read_timeline", "view_timeline", "new_timeline", "edit_timeline", "edit_clip", "render_clips", "use_take", "finish", "export", "undo", "redo",
       "timeline_range", "plan_clips", "mask_preview", "remove_take", "bin_unused_takes", "list_workflows", "import_workflow", "run_workflow",
       "list_models", "find_models", "download", "downloads", "change_downloads", "model_sets", "edit_model_set", "model_settings", "change_model_settings",
-      "read_settings", "change_setting", "list_machines", "add_machine", "edit_machine", "remove_machine", "reconnect", "pods", "deploy_pod", "start_pod", "stop_pod", "costs", "caps",
+      "read_settings", "change_setting", "list_machines", "edit_machine", "remove_machine", "reconnect", "pods", "deploy_pod", "start_pod", "stop_pod", "costs", "caps",
     ]);
     const r = await client.callTool({ name: "overview" });
     expect(r.isError).toBeFalsy();

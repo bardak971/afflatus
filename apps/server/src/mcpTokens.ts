@@ -97,8 +97,14 @@ const viewOf = (r: Row): McpToken => ({
   createdAt: r.created_at, expiresAt: r.expires_at, revokedAt: r.revoked_at, lastUsedAt: r.last_used_at, lastIp: r.last_ip, lastClient: r.last_client,
 });
 
+/**
+ * A line as the activity keeps it: control characters (a newline that would fake a second line) and the marks that turn
+ * text around or hide it (bidi overrides, zero-width ones) made a space. An agent writes much of what a line says.
+ */
+export const cleanLine = (text: string) => text.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2069\ufeff]+/g, " ");
+
 /** A name as kept: one line, trimmed, not too long. */
-const cleanName = (name: string) => name.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, NAME_MAX);
+const cleanName = (name: string) => cleanLine(name).trim().slice(0, NAME_MAX);
 
 export class McpTokens {
   private readonly now: () => number;
@@ -149,7 +155,7 @@ export class McpTokens {
     const t = this.now();
     const ids = rows.map((r) => r.id);
     const hour = await this.db.selectFrom("jobs").select(["mcp_token_id"]).select((eb) => eb.fn.countAll<number>().as("n"))
-      .where("mcp_token_id", "in", ids).where("warm", "=", 0).where("created_at", ">=", this.iso(t - HOUR)).groupBy("mcp_token_id").execute();
+      .where("mcp_token_id", "in", ids).where("created_at", ">=", this.iso(t - HOUR)).groupBy("mcp_token_id").execute();
     const working = await this.db.selectFrom("jobs").select(["mcp_token_id"]).select((eb) => eb.fn.countAll<number>().as("n"))
       .where("mcp_token_id", "in", ids).where("status", "in", ["queued", "running"]).groupBy("mcp_token_id").execute();
     const spent = await this.spentThisMonthOf(ids);
@@ -210,7 +216,7 @@ export class McpTokens {
   async record(line: { tokenId: string; tool: string; said: string; refused: boolean; failed?: boolean; why?: string | null }): Promise<void> {
     await this.db.insertInto("mcp_activity").values({
       // its moment first, then a count of this run's: lines written in the same millisecond keep their order
-      id: `${this.iso()}#${String(this.seq++ % 1e6).padStart(6, "0")}${newId().slice(0, 8)}`, token_id: line.tokenId, at: this.iso(), tool: line.tool, said: line.said.slice(0, 500), refused: line.failed ? 2 : line.refused ? 1 : 0, why: line.why?.slice(0, 500) ?? null,
+      id: `${this.iso()}#${String(this.seq++ % 1e6).padStart(6, "0")}${newId().slice(0, 8)}`, token_id: line.tokenId, at: this.iso(), tool: cleanLine(line.tool).slice(0, 80), said: cleanLine(line.said).slice(0, 500), refused: line.failed ? 2 : line.refused ? 1 : 0, why: line.why ? cleanLine(line.why).slice(0, 500) : null,
     }).execute();
     if (this.now() - this.prunedAt > HOUR) await this.prune();
   }
@@ -243,18 +249,19 @@ export class McpTokens {
 
   // ---------------------------------------------------------------- the limits
 
-  /** Its renders sent in the last hour (a model load alone is no render). */
+  /** Its renders sent in the last hour, its model loads among them (each holds a machine as a render does). */
   async rendersThisHour(id: string): Promise<number> {
     const row = await this.db.selectFrom("jobs").select((eb) => eb.fn.countAll<number>().as("n"))
-      .where("mcp_token_id", "=", id).where("warm", "=", 0).where("created_at", ">=", this.iso(this.now() - HOUR)).executeTakeFirstOrThrow();
+      .where("mcp_token_id", "=", id).where("created_at", ">=", this.iso(this.now() - HOUR)).executeTakeFirstOrThrow();
     return Number(row.n);
   }
 
   /**
    * What it spent on rented GPUs since the start of this month (USD): the whole runs of the pods it started (deploy_pod,
    * start_pod: boot, idle and all, at their rate, an open run counted to now), and its renders elsewhere on rented GPUs as
-   * Costs counts a render, its length at the hourly rate of the pod session it ran in. A render on a run it started is in
-   * that run already; one on a machine of the user's own costs nothing here.
+   * Costs counts a render, its length at the hourly rate of the pod session it ran in, its model loads alike, each with the
+   * idle time it left the pod (until its next job or its idle stop). Work on a run it started is in that run already; work
+   * on a machine of the user's own costs nothing here.
    */
   async spentThisMonth(id: string): Promise<number> {
     return (await this.spentThisMonthOf([id])).get(id) ?? 0;
@@ -273,20 +280,37 @@ export class McpTokens {
       const end = Math.min(r.ended_at ? Date.parse(r.ended_at) : now, now);
       if (end > start) out.set(r.mcp_token_id!, (out.get(r.mcp_token_id!) ?? 0) + ((end - start) / HOUR) * r.rate);
     }
+    // its work on machines: its renders as Costs counts them, and its model loads (load_model), which hold a pod as long
     const renders = await this.db.selectFrom("render_stats").innerJoin("jobs", "jobs.id", "render_stats.id")
-      .select(["jobs.mcp_token_id", "render_stats.total_ms", "render_stats.machine_id", "render_stats.created_at", "render_stats.started_at"])
+      .select(["jobs.id", "jobs.mcp_token_id", "render_stats.total_ms", "render_stats.machine_id", "render_stats.created_at", "render_stats.started_at"])
       .where("jobs.mcp_token_id", "in", ids).where("render_stats.created_at", ">=", from).execute();
-    const machines = [...new Set(renders.map((r) => r.machine_id).filter((m): m is string => Boolean(m)))];
+    const loads = await this.db.selectFrom("jobs").select(["id", "mcp_token_id", "machine_id", "started_at", "finished_at"])
+      .where("mcp_token_id", "in", ids).where("warm", "=", 1).where("machine_id", "is not", null).where("started_at", "is not", null).where("finished_at", ">=", from).execute();
+    const work = [
+      ...renders.map((r) => {
+        const start = r.started_at ? Date.parse(r.started_at) : Date.parse(r.created_at) - r.total_ms;
+        return { id: r.id, token: r.mcp_token_id, machine: r.machine_id, start, end: start + r.total_ms };
+      }),
+      ...loads.map((l) => ({ id: l.id, token: l.mcp_token_id, machine: l.machine_id, start: Date.parse(l.started_at!), end: Date.parse(l.finished_at!) })),
+    ].filter((w) => w.token && w.machine && Number.isFinite(w.start) && w.end >= w.start);
+    const machines = [...new Set(work.map((w) => w.machine!))];
     if (!machines.length) return out;
-    // the sessions of those machines that may hold one of them: begun before the render's end, not ended before the month
-    const sessions = await this.db.selectFrom("rent_sessions").select(["machine_id", "rate", "started_at", "ended_at", "mcp_token_id"])
+    // the sessions of those machines that may hold one of them: begun before the work's end, not ended before the month
+    const sessions = await this.db.selectFrom("rent_sessions").select(["machine_id", "rate", "started_at", "ended_at", "mcp_token_id", "idle_minutes"])
       .where("machine_id", "in", machines).where((eb) => eb.or([eb("ended_at", "is", null), eb("ended_at", ">=", from)])).execute();
-    for (const r of renders) {
-      const at = Date.parse(r.started_at ?? r.created_at);
-      const s = sessions.find((x) => x.machine_id === r.machine_id && Date.parse(x.started_at) <= at && (!x.ended_at || Date.parse(x.ended_at) >= at));
-      // a render on a run this token started is counted with that run
-      if (!s || !r.mcp_token_id || s.mcp_token_id === r.mcp_token_id) continue;
-      out.set(r.mcp_token_id, (out.get(r.mcp_token_id) ?? 0) + (r.total_ms / HOUR) * s.rate);
+    // when each of those machines took its next job (anyone's): what ends the idle time a token's work left there
+    const starts = await this.db.selectFrom("jobs").select(["id", "machine_id", "started_at"])
+      .where("machine_id", "in", machines).where("started_at", ">=", from).execute();
+    for (const w of work) {
+      const s = sessions.find((x) => x.machine_id === w.machine && Date.parse(x.started_at) <= w.start && (!x.ended_at || Date.parse(x.ended_at) >= w.start));
+      // work on a run this token started is counted with that run
+      if (!s || s.mcp_token_id === w.token) continue;
+      // the pod's idle time after it, until its next job, its idle stop or the run's end, whichever came first: a cheap
+      // render every few minutes keeps a dear pod up, and that is this token's doing (nothing when it never stops idle)
+      const next = Math.min(...starts.filter((j) => j.machine_id === w.machine && j.id !== w.id && j.started_at && Date.parse(j.started_at) > w.start).map((j) => Date.parse(j.started_at!)));
+      const stop = Math.min(next, s.ended_at ? Date.parse(s.ended_at) : now, now, w.end + (s.idle_minutes ?? 0) * 60_000);
+      const tail = (s.idle_minutes ?? 0) > 0 ? Math.max(0, stop - w.end) : 0;
+      out.set(w.token!, (out.get(w.token!) ?? 0) + ((w.end - w.start + tail) / HOUR) * s.rate);
     }
     return out;
   }

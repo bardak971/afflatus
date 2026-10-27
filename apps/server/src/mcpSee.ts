@@ -4,7 +4,7 @@ import { z } from "zod";
 import { assetDetail } from "./assets-api";
 import type { Tables } from "./db";
 import { httpError } from "./errors";
-import { Rich, tool } from "./mcpTool";
+import { quoted, Rich, tool } from "./mcpTool";
 import type { Services } from "./services";
 import { makeStill, sideBySide } from "./thumbs";
 
@@ -113,7 +113,7 @@ const viewItem = tool({
       content.push({ type: "audio", data: Buffer.from(await s.storage.get(a.file_key)).toString("base64"), mimeType: a.mime });
     }
     content.unshift(text({ ...factsOf(a), madeWith: made }));
-    ctx.said(`Viewed ${a.name || a.id} (${a.kind}${a.kind === "video" ? `, ${plural(content.filter((c) => c.type === "image").length, "frame")}` : ""})`);
+    ctx.said(`Viewed ${quoted(a.name || a.id)} (${a.kind}${a.kind === "video" ? `, ${plural(content.filter((c) => c.type === "image").length, "frame")}` : ""})`);
     return new Rich(content);
   },
 });

@@ -238,9 +238,16 @@ export class RentedFollow extends RentedBilling {
    */
   tokenCapped: (token: string) => Promise<boolean> = async () => false;
 
-  /** Whether the token that started this pod's run has reached its cap: a token's cap holds over the pod it started. */
+  /**
+   * Whether the token that started this pod's run has reached its cap: a token's cap holds over the pod it started. A cap
+   * that cannot be read counts as reached: better a pod stopped once its render ends than one billing past what its token
+   * may spend (a money path).
+   */
   private async overTokenCap(m: Machine): Promise<boolean> {
-    return m.rented?.mcpToken ? this.tokenCapped(m.rented.mcpToken).catch(() => false) : false;
+    return m.rented?.mcpToken ? this.tokenCapped(m.rented.mcpToken).catch((err) => {
+      console.warn(`[rented] ${m.name || m.id}: its MCP token's spend cap could not be read, counted as reached:`, (err as Error).message);
+      return true;
+    }) : false;
   }
 
   /** What was spent, read once per poll and shared by every pod's cap check in it. */

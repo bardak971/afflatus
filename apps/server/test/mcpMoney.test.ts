@@ -132,15 +132,16 @@ describe("a token without Spend", () => {
 describe("a token with Spend", () => {
   it("is held to its own cap with its waiting work counted, not only what it was billed", async () => {
     // $1 a month; nothing like it rendered yet: each render on the pod is weighed at the queue's floor, 30 min at the pod's
-    // rate ($0.69 for its GPU, a little more with its disk: about $0.35)
+    // rate ($0.69 for its GPU, a little more with its disk: about $0.35), and the pod's 10 idle minutes after them once
+    // (about $0.12): the user's pod, kept up by this token's work
     const { token, id } = await made("spend", { spendCapUsd: 1 });
     const c = await connect(token);
     await pause();
     const first = await call(c, "render", { ...FORM, takes: 2 });
     expect(first.isError, textOf(first)).toBeFalsy();
     const cost = JSON.parse(textOf(first)).mayCostUsd as number;
-    expect(cost).toBeGreaterThan(0.68);
-    expect(cost).toBeLessThan(0.8);
+    expect(cost).toBeGreaterThan(0.8);
+    expect(cost).toBeLessThan(0.9);
     // two more would make about $1.40 with the two waiting, past the cap: refused, though nothing was billed yet
     await refusedWith(c, "render", { ...FORM, takes: 2 }, /cap is \$1(\.00)? a month/);
     await refusedWith(c, "render", { ...FORM, takes: 2, machine: pod }, /cap is/);
@@ -205,6 +206,88 @@ describe("a token with Spend", () => {
     const both = await Promise.all([call(c, "render", FORM), call(c, "render", FORM)]);
     expect(both.filter((r) => r.isError)).toHaveLength(1);
     expect((await jobsOf(id)).length).toBe(1);
+    await c.close();
+  });
+});
+
+describe("a model load (load_model)", () => {
+  it("counts against the renders an hour", async () => {
+    const { token } = await made("make", { rendersPerHour: 1 });
+    const c = await connect(token);
+    await pause();
+    expect((await call(c, "load_model", { ...FORM, machine: "m1" })).isError).toBeFalsy();
+    await refusedWith(c, "render", FORM, /limit is 1 render an hour, and 1 went/);
+    await c.close();
+  });
+
+  it("on a pod counts against the token's cap, waiting or running, and takes the token's turn", async () => {
+    // $0.50: a load on the pod (the queue's floor, about $0.35, and the pod's idle time after it, about $0.12) fits once
+    const { token, id } = await made("spend", { spendCapUsd: 0.5 });
+    const c = await connect(token);
+    await pause();
+    expect((await call(c, "load_model", { ...FORM, machine: pod })).isError).toBeFalsy();
+    await refusedWith(c, "render", { ...FORM, machine: pod }, /cap is \$0\.50/);
+    await refusedWith(c, "load_model", { ...FORM, machine: pod }, /cap is \$0\.50/);
+    expect(await jobsOf(id)).toHaveLength(1);
+    await c.close();
+  });
+
+  it("two at once cannot both pass a cap that holds one", async () => {
+    const { token, id } = await made("spend", { spendCapUsd: 0.5 });
+    const c = await connect(token);
+    await pause();
+    const both = await Promise.all([call(c, "load_model", { ...FORM, machine: pod }), call(c, "load_model", { ...FORM, machine: pod })]);
+    expect(both.filter((r) => r.isError)).toHaveLength(1);
+    expect(await jobsOf(id)).toHaveLength(1);
+    await c.close();
+  });
+});
+
+describe("what steers work onto a pod that is up", () => {
+  it("needs Spend: pausing the user's own machine, resuming the queue or the pod; pausing everything or the pod does not", async () => {
+    const { token } = await made("make");
+    const c = await connect(token);
+    await refusedWith(c, "pause_machine", { machine: "m1" }, /cannot spend on rented GPUs, and pausing .* while .* is up would send work onto it/);
+    expect((await call(c, "pause_machine", { machine: pod })).isError).toBeFalsy();
+    expect((await call(c, "pause_machine", {})).isError).toBeFalsy();
+    await refusedWith(c, "resume_machine", {}, /resuming the queue while .* is up/);
+    await refusedWith(c, "resume_machine", { machine: pod }, /cannot spend on rented GPUs/);
+    // the user's own machine resumed takes work off the pod: free
+    expect((await call(c, "resume_machine", { machine: "m1" })).isError).toBeFalsy();
+    const st = await t.services.queue.statusRecent();
+    expect(st.machines.find((m) => m.id === pod)?.paused).toBe(true);
+    // with Spend, as before
+    const spend = await connect((await made("spend")).token);
+    expect((await call(spend, "resume_machine", {})).isError).toBeFalsy();
+    expect((await call(spend, "pause_machine", { machine: "m1" })).isError).toBeFalsy();
+    await spend.close();
+    await c.close();
+  });
+
+  it("needs nothing more once the pod is stopped", async () => {
+    expect((await post(t.app, `/api/machines/${pod}/stop`, {})).statusCode).toBe(200);
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]!.status === "EXITED"));
+    await t.services.rented.poll();
+    const c = await connect((await made("make")).token);
+    expect((await call(c, "pause_machine", { machine: "m1" })).isError).toBeFalsy();
+    expect((await call(c, "resume_machine", {})).isError).toBeFalsy();
+    await c.close();
+  });
+});
+
+describe("an ended token", () => {
+  it("has its waiting jobs kept off the pods as a revoked one", async () => {
+    const { token, id } = await made("spend");
+    const c = await connect(token);
+    await pause();
+    const job = JSON.parse(textOf(await call(c, "render", FORM))).jobs[0] as string;
+    await t.db.updateTable("mcp_tokens").set({ expires_at: new Date(Date.now() - 1000).toISOString() }).where("id", "=", id).execute();
+    await pause("m1");
+    expect((await t.app.inject({ method: "POST", url: "/api/queue/resume", payload: { machine: pod } })).statusCode).toBe(200);
+    await new Promise((go) => setTimeout(go, 150));
+    await t.services.queue.idle();
+    expect(a.prompts.size).toBe(0);
+    expect((await t.services.queue.status()).waiting.find((w) => w.id === job)?.lacks?.[pod]?.why).toBe(NO_SPEND);
     await c.close();
   });
 });

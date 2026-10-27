@@ -2,7 +2,8 @@ import type { AddressInfo } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { FakeComfy } from "@afflatus/comfy/testing";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { withoutPaths } from "../src/downloads";
 import { readSettings, updateSettings } from "../src/settings";
 import { CHECKPOINT, makeApp, makeFake, type TestApp } from "./helpers";
 
@@ -105,12 +106,48 @@ describe("download", () => {
     await c.close();
   });
 
+  it("with no machine named goes to the first, a pod in a setup with rented GPUs only: needs Spend there too", async () => {
+    await updateSettings(t.db, () => ({ downloadModels: true, civitaiLookups: true, machines: [{ id: "rp", url: pod.url, rented: { provider: "runpod", pod: "pod-1" } }] }));
+    const c = await connect(MANAGE);
+    expect(await refused(c, "download", { folder: "loras", file: "zz-test.safetensors", url: "https://huggingface.co/o/r/resolve/main/zz-test.safetensors" })).toMatch(/cannot spend on rented GPUs, and .* is one/);
+    const set = await ok(c, "edit_model_set", { action: "new", name: "zz-test set", files: [{ file: "zz-test-vae.safetensors", folder: "vae", url: "https://huggingface.co/o/r/resolve/main/zz-test-vae.safetensors" }] });
+    expect(await refused(c, "edit_model_set", { action: "get", set: set.id })).toMatch(/cannot spend on rented GPUs/);
+    // a failed download asked again goes where it was first asked: the first machine, the pod
+    vi.spyOn(t.services.downloads, "list").mockReturnValue([{ id: "d1", file: "zz-test.safetensors", folder: "loras", title: "zz-test", status: "error", bytes: 0, total: 0, error: "x" } as never]);
+    vi.spyOn(t.services.downloads, "askOf").mockReturnValue({ ask: { folder: "loras", file: "zz-test.safetensors", url: "https://huggingface.co/o/r/resolve/main/zz-test.safetensors" } } as never);
+    expect(await refused(c, "change_downloads", { action: "again", id: "d1" })).toMatch(/cannot spend on rented GPUs/);
+    expect(t.services.podFiles.view("rp")).toEqual([]);
+    vi.restoreAllMocks();
+    await c.close();
+  });
+
+  it("says what went wrong without the folders on the disk", async () => {
+    vi.spyOn(t.services.downloads, "list").mockReturnValue([{ id: "d1", file: "x.safetensors", folder: "loras", title: "x", status: "error", bytes: 0, total: 0, error: "EACCES: permission denied, open 'D:\\Models\\My LoRAs\\x.safetensors.part'" } as never]);
+    const c = await connect(["look"]);
+    const said = JSON.stringify(await ok(c, "downloads"));
+    expect(said).toContain("x.safetensors.part");
+    expect(said).not.toMatch(/My LoRAs|D:/);
+    vi.restoreAllMocks();
+    await c.close();
+  });
+
   it("lists the downloads line without where on disk; clears it", async () => {
     const c = await connect(MANAGE);
     expect(await ok(c, "downloads")).toEqual({ downloadModels: false, items: [] });
     expect(await ok(c, "change_downloads", { action: "clear" })).toEqual({ cleared: 0 });
     expect(await refused(c, "change_downloads", { action: "cancel", id: "nope" })).toMatch(/no such download/);
     await c.close();
+  });
+});
+
+describe("withoutPaths", () => {
+  it("makes each path on a disk its file's name, and leaves addresses and plain words alone", () => {
+    expect(withoutPaths("EACCES: permission denied, open 'D:\\models\\loras\\x.part'")).toBe("EACCES: permission denied, open 'x.part'");
+    expect(withoutPaths("open \"C:\\My Models\\a b.gguf\" failed")).toBe("open \"a b.gguf\" failed");
+    expect(withoutPaths("ENOENT: no such file, stat C:\\ComfyUI\\models\\vae")).toBe("ENOENT: no such file, stat vae");
+    expect(withoutPaths("open /home/me/ComfyUI/models/loras/x.part failed")).toBe("open x.part failed");
+    expect(withoutPaths("\\\\nas\\share\\models\\x.gguf is gone")).toBe("x.gguf is gone");
+    for (const kept of ["https://huggingface.co/o/r/resolve/main/x.safetensors (404)", "ENOSPC: no space left on device, write", "(409: that file is there already)", "and/or 3/4 done"]) expect(withoutPaths(kept)).toBe(kept);
   });
 });
 
