@@ -16,10 +16,82 @@ import { ffmpegGetter } from "./ffmpegGet";
 import { said as ffmpegSaid } from "./ffmpegCheck";
 import { withMedia } from "./queueSubmit";
 import type { Services } from "./services";
-import { publicSettings, readSettings, writeSettings } from "./settings";
+import { publicSettings, readSettings, writeSettings, type Settings } from "./settings";
 import { installKind } from "./updatesModel";
 
 /** Afflatus itself and its ComfyUI: whether it is alive, what it can make, the settings, the setup scan, the log, and advice on a form. */
+
+/**
+ * The settings saved as the Settings page saves them (PUT /api/settings, and MCP's change_setting): under the Access
+ * settings' rule (access.ts mayChange: a sign-in of the last 10 minutes, or the password, `by`) for the new-device notice,
+ * which would hide a sign-in from elsewhere, Telegram's bot and chat, where reset codes and alarms go, and the Discord
+ * webhook, where alarms go (a session taken over would point them at its own bot or its own Discord); then what follows a
+ * change (scans forgotten, the queue told, ComfyUI's folder found, the node pack written).
+ */
+export async function saveSettings(s: Services, body: unknown, by: { session: string | null; password: string | undefined; ip: string }): Promise<Settings> {
+  const ip = by.ip;
+  const sent = body as { notify?: { events?: { newDevice?: unknown }; telegramToken?: unknown; telegramChat?: unknown; discordWebhook?: unknown } } | null;
+  const telegram = sent?.notify?.telegramToken !== undefined || sent?.notify?.telegramChat !== undefined;
+  const discord = sent?.notify?.discordWebhook !== undefined;
+  if (sent?.notify?.events?.newDevice !== undefined || telegram || discord) {
+    await s.access.mayChange(by.session, by.password, ip);
+  }
+  const before = (await readSettings(s.db)).notify;
+  let saved = await writeSettings(s.db, body);
+  if (telegram && (saved.notify.telegramToken !== before.telegramToken || saved.notify.telegramChat !== before.telegramChat)) await s.access.telegramChanged(before, ip);
+  if (discord && saved.notify.discordWebhook !== before.discordWebhook) await s.access.discordChanged(before, ip);
+  // a file chosen by hand for a family: what is ready is worked out again
+  if (body && typeof body === "object" && "slotFiles" in body) for (const { comfy } of await s.machines()) comfy.forgetScan();
+  // a family switched, on every machine or on one: what each machine may run changed (the queue looks again, the pages read it again)
+  if (body && typeof body === "object" && ("families" in body || "machines" in body)) s.queue.events.emit("setup");
+  // the user's ComfyUI given by its address alone (the first launch, Add): its folder found from what it says, when it
+  // runs on this machine, so that the node pack goes in by itself (written in there too). Off now: looked for again once it answers
+  const asked = body && typeof body === "object" && ("comfyUrl" in body || "machines" in body);
+  const found = asked && !("comfyDir" in (body as object)) ? await s.comfyFolder() : null;
+  if (found) saved = found;
+  // ComfyUI's folder set: Afflatus's node pack goes into its custom_nodes (ComfyUI loads it at its next start)
+  if (body && typeof body === "object" && "comfyDir" in body && saved.comfyDir.trim()) {
+    await installNodePack(saved.comfyDir).catch((err: Error) => console.warn(`[node-pack] not written: ${err.message}`));
+  }
+  return saved;
+}
+
+/**
+ * What ComfyUI can do: the setup page, and what the composer offers. Read-only on ComfyUI. Each list of what an input
+ * offers is sent once (core's listOptions), and each recipe names the ones it offers. `machine`: that ComfyUI's alone
+ * (Settings › Models, its tab); without, what every machine together can do (machineScans.ts), with one the same.
+ */
+export async function setupOf(s: Services, machine: string | undefined, fresh: boolean) {
+  const all = await s.machines();
+  if (machine) {
+    const one = all.find((m) => m.machine.id === machine);
+    if (!one) throw httpError("there is no ComfyUI with that id");
+    return listOptions(await one.comfy.scan(fresh));
+  }
+  const scans = await Promise.all(all.map(async ({ machine: m, comfy }) => ({ machine: m, scan: await comfy.scan(fresh) })));
+  // no ComfyUI of the user's own and no pod answering (a rented-only start, a new install before its first launch): what
+  // a pod would offer, so that the forms work and their jobs wait for a GPU. One of their own that is off says it is off
+  if (!scans.some((x) => x.scan.comfy.online) && !scans.some((x) => !x.machine.rented)) return listOptions(await plannedScan(s.registry.families(), s.registry.recipes()));
+  return listOptions(mergeScans(scans, await readSettings(s.db), (id) => s.registry.recipe(id)?.family));
+}
+
+/**
+ * Each ComfyUI of the settings asked now, side by side: whether it answers (and why not), its version, its GPU and the
+ * Afflatus node pack it loaded. Read-only: what Settings › ComfyUI shows on each machine's card, and MCP's list_machines.
+ */
+export async function machinesNow(s: Services) {
+  const all = await s.machines();
+  return Promise.all(all.map(async ({ machine, comfy }) => {
+    try {
+      const [st, pack] = await Promise.all([comfy.client.status(), comfy.client.packVersion().catch(() => null)]);
+      return { id: machine.id, online: true as const, error: null, version: st.version, device: st.device, vramTotal: st.vramTotal, vramFree: st.vramFree, pack, access: await accessOf(comfy, true, false, pack), tokenEnd: machine.token.slice(-4) };
+    } catch (e) {
+      // locked against Afflatus's token: it answered, so the access line says so (a token to paste), not "not answering"
+      const locked = e instanceof ComfyLocked;
+      return { id: machine.id, online: false as const, error: e instanceof Error ? e.message : String(e), version: null, device: null, vramTotal: null, vramFree: null, pack: null, access: await accessOf(comfy, false, locked, null), tokenEnd: machine.token.slice(-4) };
+    }
+  }));
+}
 
 export function registerSetup(app: FastifyInstance, s: Services, version: string): void {
   /**
@@ -96,96 +168,34 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
 
   app.get("/api/settings", async () => publicSettings(await readSettings(s.db), onThisMachine));
   app.put("/api/settings", async (req) => {
-    // under the Access settings' rule (access.ts mayChange: a sign-in of the last 10 minutes, or the password in the
-    // X-Afflatus-Password header): the new-device notice, which would hide a sign-in from elsewhere, Telegram's bot and
-    // chat, where reset codes and alarms go, and the Discord webhook, where alarms go (a session taken over would point them
-    // at its own bot or its own Discord)
-    const sent = req.body as { notify?: { events?: { newDevice?: unknown }; telegramToken?: unknown; telegramChat?: unknown; discordWebhook?: unknown } } | null;
-    const ip = req.socket.remoteAddress ?? "";
-    const telegram = sent?.notify?.telegramToken !== undefined || sent?.notify?.telegramChat !== undefined;
-    const discord = sent?.notify?.discordWebhook !== undefined;
-    if (sent?.notify?.events?.newDevice !== undefined || telegram || discord) {
-      // the page sends it URI-encoded: a header takes no character past U+00FF (a Cyrillic or emoji password threw there)
-      const typed = req.headers["x-afflatus-password"];
-      let password: string | undefined;
-      try {
-        password = typeof typed === "string" ? decodeURIComponent(typed) : undefined;
-      } catch {
-        password = typeof typed === "string" ? typed : undefined;
-      }
-      await s.access.mayChange(req.access.session, password, ip);
+    // the page sends it URI-encoded: a header takes no character past U+00FF (a Cyrillic or emoji password threw there)
+    const typed = req.headers["x-afflatus-password"];
+    let password: string | undefined;
+    try {
+      password = typeof typed === "string" ? decodeURIComponent(typed) : undefined;
+    } catch {
+      password = typeof typed === "string" ? typed : undefined;
     }
-    const before = (await readSettings(s.db)).notify;
-    let saved = await writeSettings(s.db, req.body);
-    if (telegram && (saved.notify.telegramToken !== before.telegramToken || saved.notify.telegramChat !== before.telegramChat)) await s.access.telegramChanged(before, ip);
-    if (discord && saved.notify.discordWebhook !== before.discordWebhook) await s.access.discordChanged(before, ip);
-    // a file chosen by hand for a family: what is ready is worked out again
-    if (req.body && typeof req.body === "object" && "slotFiles" in req.body) for (const { comfy } of await s.machines()) comfy.forgetScan();
-    // a family switched, on every machine or on one: what each machine may run changed (the queue looks again, the pages read it again)
-    if (req.body && typeof req.body === "object" && ("families" in req.body || "machines" in req.body)) s.queue.events.emit("setup");
-    // the user's ComfyUI given by its address alone (the first launch, Add): its folder found from what it says, when it
-    // runs on this machine, so that the node pack goes in by itself (written in there too). Off now: looked for again once it answers
-    const asked = req.body && typeof req.body === "object" && ("comfyUrl" in req.body || "machines" in req.body);
-    const found = asked && !("comfyDir" in (req.body as object)) ? await s.comfyFolder() : null;
-    if (found) saved = found;
-    // ComfyUI's folder set: Afflatus's node pack goes into its custom_nodes (ComfyUI loads it at its next start)
-    if (req.body && typeof req.body === "object" && "comfyDir" in req.body && saved.comfyDir.trim()) {
-      await installNodePack(saved.comfyDir).catch((err: Error) => console.warn(`[node-pack] not written: ${err.message}`));
-    }
-    return publicSettings(saved, onThisMachine);
+    return publicSettings(await saveSettings(s, req.body, { session: req.access.session, password, ip: req.socket.remoteAddress ?? "" }), onThisMachine);
   });
 
-  /**
-   * What ComfyUI can do: the setup page, and what the composer offers. Read-only on ComfyUI. Each list of what an input
-   * offers is sent once (core's listOptions), and each recipe names the ones it offers. `machine`: that ComfyUI's alone
-   * (Settings › Models, its tab); without, what every machine together can do (machineScans.ts), with one the same.
-   */
-  const setupOf = async (machine: string | undefined, fresh: boolean) => {
-    const all = await s.machines();
-    if (machine) {
-      const one = all.find((m) => m.machine.id === machine);
-      if (!one) throw httpError("there is no ComfyUI with that id");
-      return listOptions(await one.comfy.scan(fresh));
-    }
-    const scans = await Promise.all(all.map(async ({ machine: m, comfy }) => ({ machine: m, scan: await comfy.scan(fresh) })));
-    // no ComfyUI of the user's own and no pod answering (a rented-only start, a new install before its first launch): what
-    // a pod would offer, so that the forms work and their jobs wait for a GPU. One of their own that is off says it is off
-    if (!scans.some((x) => x.scan.comfy.online) && !scans.some((x) => !x.machine.rented)) return listOptions(await plannedScan(s.registry.families(), s.registry.recipes()));
-    return listOptions(mergeScans(scans, await readSettings(s.db), (id) => s.registry.recipe(id)?.family));
-  };
   const machineQuery = z.object({ machine: z.string().max(40).optional() });
-  app.get("/api/setup", async (req) => setupOf(machineQuery.parse(req.query).machine, false));
+  app.get("/api/setup", async (req) => setupOf(s, machineQuery.parse(req.query).machine, false));
   /** The same, asked of ComfyUI afresh rather than from what was learned a moment ago ("Test" in Settings). */
   app.post("/api/setup/rescan", async (req) => {
-    const fresh = await setupOf(machineQuery.parse(req.query).machine, true);
+    const fresh = await setupOf(s, machineQuery.parse(req.query).machine, true);
     // a file put in by hand is seen now: a job that waited for it may start
     s.queue.events.emit("setup");
     return fresh;
   });
+
+  app.get("/api/machines", async () => machinesNow(s));
 
   /**
    * ComfyUI's terminal log, the last few hundred lines: the Queue page's log tab reads it every couple of seconds.
    * `since`: the stamp of the last line the page has; only the lines from that moment on come back (that one again
    * among them, as lines can share a stamp: the page drops what it has).
    */
-  /**
-   * Each ComfyUI of the settings asked now, side by side: whether it answers (and why not), its version, its GPU and the
-   * Afflatus node pack it loaded. Read-only: what Settings › ComfyUI shows on each machine's card.
-   */
-  app.get("/api/machines", async () => {
-    const all = await s.machines();
-    return Promise.all(all.map(async ({ machine, comfy }) => {
-      try {
-        const [st, pack] = await Promise.all([comfy.client.status(), comfy.client.packVersion().catch(() => null)]);
-        return { id: machine.id, online: true as const, error: null, version: st.version, device: st.device, vramTotal: st.vramTotal, vramFree: st.vramFree, pack, access: await accessOf(comfy, true, false, pack), tokenEnd: machine.token.slice(-4) };
-      } catch (e) {
-        // locked against Afflatus's token: it answered, so the access line says so (a token to paste), not "not answering"
-        const locked = e instanceof ComfyLocked;
-        return { id: machine.id, online: false as const, error: e instanceof Error ? e.message : String(e), version: null, device: null, vramTotal: null, vramFree: null, pack: null, access: await accessOf(comfy, false, locked, null), tokenEnd: machine.token.slice(-4) };
-      }
-    }));
-  });
-
   app.get("/api/comfy/logs", async (req) => {
     // `of`: whose log `since` is a stamp of (the pod's boot log's, or ComfyUI's): a stamp of the one never cuts the other's
     const { since, of, machine } = z.object({ since: z.string().max(64).optional(), of: z.enum(["boot", "comfy"]).optional(), machine: z.string().max(40).optional() }).parse(req.query ?? {});

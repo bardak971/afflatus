@@ -10,8 +10,8 @@ import { Rich, tool, type ToolCtx } from "./mcpTool";
 import { rootFolderOf } from "./projects";
 import type { Services } from "./services";
 import { contactSheet } from "./thumbs";
-import { exportBody, exportTimeline, finishBody, finishClips, finishPlan, renderClips } from "./timelines-api";
-import { CUT_JOB } from "./timelineModel";
+import { exportBody, exportTimeline, finishBody, finishClips, finishPlan, maskPreview, maskPreviewOf, rangeAction, renderClips, timelineRangeBody } from "./timelines-api";
+import { clockOf, CUT_JOB } from "./timelineModel";
 import type { ClipPatch, TimelinePatch, Timelines } from "./timelines";
 
 /**
@@ -737,6 +737,241 @@ const exportTool = tool({
   },
 });
 
+// ------------------------------------------------------------------------------------------------- In and Out, plans, masks, takes
+
+/** What a regenerated or looped clip is pinned to, in the editor's words (timelineRange.ts RangeContext). */
+const pinnedSaid = (x: { start: string; end: string }) => [
+  x.start === "clip" ? "it carries on from the clip before" : x.start === "frame" ? "it opens on the frame before In" : null,
+  x.end === "clip" ? "the clip after carries on from it" : x.end === "frame" ? "it ends on the frame at Out" : null,
+].filter(Boolean).join("; ") || "nothing";
+
+/**
+ * The parts a slow motion of In–Out would slow, read before the timeline is changed: the video clips with a take under the
+ * range, each with the stretch of its take that would be slowed. slowRangeOf makes the same ones (split at In and Out), so
+ * the token's limits are asked for what will be queued, and a refusal leaves the timeline as it was.
+ */
+function slowParts(view: View, inMs: number, outMs: number, factor: 2 | 4) {
+  return view.clips.flatMap((c) => {
+    if (c.kind !== "video" || !c.take || c.atMs >= outMs || c.atMs + c.lengthMs <= inMs) return [];
+    const startMs = Math.round(c.take.startMs + Math.max(0, inMs - c.atMs));
+    const endMs = Math.round(c.take.startMs + Math.min(c.lengthMs, outMs - c.atMs));
+    return [{ recipe: CUT_JOB, input: { asset: c.take.asset.id, startMs, endMs, action: "slow", factor }, takes: 1 }];
+  });
+}
+
+const timelineRange = tool({
+  name: "timeline_range",
+  scope: "make",
+  title: "In and Out",
+  description: [
+    "What the editor's In and Out do to the range between them, on the timeline's clock (read_timeline gives each clip's atMs and lengthMs): split (the clips under In and Out each become two there); remove (what plays between them goes, the clips after close the gap; undo brings it back);",
+    "regenerate (the range replaced by a new clip to render, pinned to the frame before In and the frame at Out, on a model that takes them; In = Out on a cut puts a clip between the two); loop (a new clip after Out that returns to the frame at In, so that the range plays round). Both answer a clip that is not rendered: render_clips renders it, edit_clip changes its form first.",
+    "copy (that part of the timeline as one video in the library, through the export queue: ffmpeg, no GPU); slow (factor 2 or 4: the range made clips of their own, each slowed video arriving as a new take of its clip; RIFE on the GPU where ComfyUI has it, so it is held to the token's limits as a render is: renders an hour, rented pods only with Spend and within its cap).",
+    "Each change is a step of the timeline's Undo; an editor open on it shows it at once, with Undo.",
+  ].join(" "),
+  input: {
+    timeline: z.string().min(1),
+    action: z.enum(["split", "remove", "regenerate", "loop", "copy", "slow"]),
+    inMs: z.number().min(0).describe("In, in ms on the timeline's clock."),
+    outMs: z.number().min(0).describe("Out, likewise."),
+    factor: z.union([z.literal(2), z.literal(4)]).optional().describe("Of slow: how many times slower (2 when left out)."),
+    scale: z.number().min(1).max(2).optional().describe("Of copy: every frame enlarged this much."),
+  },
+  async run(args, ctx) {
+    const { s, token } = ctx;
+    const view = await viewOf(s, args.timeline);
+    const body = timelineRangeBody.parse({ inMs: args.inMs, outMs: args.outMs, action: args.action, ...(args.factor ? { factor: args.factor } : {}), ...(args.scale ? { scale: args.scale } : {}) });
+    const span = `${clockOf(args.inMs)}–${clockOf(args.outMs)}`;
+    if (args.action === "copy") {
+      const r = await rangeAction(s, view.id, body);
+      ctx.said(`Copied ${span} of “${view.name}” to the library`);
+      return { job: "job" in r ? r.job : null, said: "the range as one video in the library once the job is done (job follows it)" };
+    }
+    if (args.action === "slow") {
+      const factor = args.factor ?? 2;
+      const parts = slowParts(view, args.inMs, args.outMs, factor);
+      const at = await seen(s);
+      // the checks and the queueing in one turn per token, as render's: a slowed part is a render when RIFE makes it.
+      // Nothing under the range is left to slowRangeOf to refuse in its own words
+      return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
+        const usd = parts.length ? await mayQueueAll(s, ctx, at, parts, { renders: parts.length }) : 0;
+        going(s, ctx, view.id);
+        const r = (await rangeAction(s, view.id, body, { mcpToken: token.id })) as { clips: string[]; jobs: string[]; engine: string };
+        await saidLive(s, ctx, view, `${span} slowed ×${factor}`);
+        ctx.said(`Slowed ${span} of “${view.name}” ×${factor}`);
+        const now = await s.timelines.view(view.id);
+        return {
+          clips: r.clips.map((id) => now.clips.findIndex((c) => c.id === id) + 1), jobs: r.jobs,
+          by: r.engine === "rife" ? "RIFE on the GPU" : "ffmpeg on this computer (this ComfyUI has no RIFE)",
+          said: "each slowed video arrives as a new take of its clip; the joins into and out of the range are cuts now. undo takes the split back",
+          on: spends(ctx) ? "wherever the queue ends each first" : "the user's own machines (this token has no Spend)",
+          ...(usd ? { mayCostUsd: Math.round(usd * 100) / 100 } : {}),
+        };
+      });
+    }
+    going(s, ctx, view.id);
+    // each of these is one step done whole or refused whole: nothing to say live when it is refused
+    const r = await rangeAction(s, view.id, body);
+    let said: string;
+    let answer: Record<string, unknown>;
+    if (args.action === "split") {
+      said = `split at ${span}`;
+      answer = { done: said };
+    } else if (args.action === "remove") {
+      said = `removed ${span}`;
+      answer = { done: `${said}: the clips after closed the gap. undo brings it back` };
+    } else {
+      const made = r as { clip: string; context: { start: string; end: string }; widenedMs?: number; longerMs?: number };
+      const n = (await s.timelines.view(view.id)).clips.findIndex((c) => c.id === made.clip) + 1;
+      said = args.action === "loop" ? `clip ${n} loops back to ${clockOf(args.inMs)}` : `clip ${n} to render in place of ${span}`;
+      answer = {
+        clip: n, id: made.clip, pinned: pinnedSaid(made.context),
+        ...(made.widenedMs ? { widenedMs: made.widenedMs, widened: "the range was widened to a length its model makes" } : {}),
+        ...(made.longerMs ? { longerMs: made.longerMs, longer: "its model makes no clip that short: what follows it moved by that much" } : {}),
+        said: `clip ${n} is new and not rendered: render_clips renders it (edit_clip changes its form first). undo takes it back`,
+      };
+    }
+    await saidLive(s, ctx, view, said);
+    ctx.said(`${args.action === "split" ? "Split" : args.action === "remove" ? "Removed" : args.action === "loop" ? "Looped" : "Regenerated"} ${span} of “${view.name}”`);
+    return { ...answer, undo: (await s.timelines.history.last(view.id))?.label ?? null };
+  },
+});
+
+const planClips = tool({
+  name: "plan_clips",
+  scope: "make",
+  title: "Plan clips",
+  description: "A scene written as several clips, as the designer's plan lays it: one new clip for each, at the end of the timeline, each carrying on from the one before, all in one form, each with its own texts (its prompt inputs by id → words: describe_form says which; you write them). Up to 12 at once. Nothing is rendered: render_clips does. One step of Undo for them all; an editor open on the timeline shows them at once, with Undo.",
+  input: {
+    timeline: z.string().min(1),
+    form: z.string().min(1).describe("A form's id (list_forms)."),
+    clips: z.array(z.record(z.string(), z.string())).min(1).max(12).describe("One per clip, in order: input id → its text."),
+  },
+  async run(args, ctx) {
+    const { s } = ctx;
+    const view = await viewOf(s, args.timeline);
+    const recipe = formOf(s, args.form);
+    const at = await seen(s);
+    // each text checked as the form checks it, before anything is made: a wrong id is refused with the form's inputs
+    for (const texts of args.clips) for (const [k, v] of Object.entries(texts)) await checkedValue(s, at, recipe, k, v);
+    going(s, ctx, view.id);
+    const made = await s.timelines.planner.planClips(view.id, recipe.id, args.clips);
+    const now = await s.timelines.view(view.id);
+    const numbers = made.map((id) => now.clips.findIndex((c) => c.id === id) + 1);
+    const said = `planned ${plural(made.length, "clip")} (${numbers.length > 1 ? `clips ${numbers[0]}–${numbers.at(-1)}` : `clip ${numbers[0]}`})`;
+    await saidLive(s, ctx, view, said);
+    ctx.said(`Planned ${plural(made.length, "clip")} of ${recipe.title} on “${view.name}”`);
+    return { clips: numbers, ids: made, said: `${said}, each carrying on from the one before: nothing rendered yet (render_clips renders them in order). undo takes them all back` };
+  },
+});
+
+/** Frames of a mask video along it, to see: as many as it is long, a few. */
+const MASK_FRAMES = 4;
+
+const maskPreviewTool = tool({
+  name: "mask_preview",
+  scope: "make",
+  title: "Show the mask",
+  description: "A Swap character clip's Show the mask, as its panel's: the window's tracking and masks alone drawn over its frames, as a short video kept out of the library (gone after a day); no take is made. A job on the GPU, held to the token's limits as a render is (renders an hour, rented pods only with Spend and within its cap), with the clip's form as its Render would send it. Answers the job; called again with `job`, where it stands and, once it is done, frames of the mask video to see.",
+  input: {
+    timeline: z.string().min(1),
+    clip: clipRef,
+    job: z.string().optional().describe("A job this tool answered: where it stands, and its frames once done."),
+  },
+  async run(args, ctx) {
+    const { s, token } = ctx;
+    const view = await viewOf(s, args.timeline);
+    const { clip: c, i } = clipAt(view, args.clip);
+    if (args.job) {
+      const r = await maskPreviewOf(s, args.job);
+      const said = { job: args.job, clip: i + 1, status: r.status, ...(r.error ? { error: r.error } : {}) };
+      if (!r.video) {
+        ctx.said(`Followed the mask of clip ${i + 1} of “${view.name}”: ${r.status}`);
+        return { ...said, ...(r.status === "done" ? { said: "it made no video" } : {}) };
+      }
+      const ms = r.video.durationMs ?? 0;
+      const cells: Array<{ bytes: Uint8Array; label: string }> = [];
+      for (let k = 0; k < MASK_FRAMES; k++) {
+        const at = Math.round(((k + 0.5) / MASK_FRAMES) * ms);
+        const bytes = await s.timelines.media.peek(r.video.id, at, SHEET_HEIGHT).catch(() => null);
+        if (bytes) cells.push({ bytes, label: clockOf(at) });
+      }
+      const sheet = await contactSheet(cells, { height: SHEET_HEIGHT, perRow: MASK_FRAMES });
+      const content: Content = [{ type: "text", text: JSON.stringify({ ...said, durationMs: ms, frames: cells.length }, null, 2) }];
+      if (sheet) content.push({ type: "image", data: Buffer.from(sheet).toString("base64"), mimeType: "image/jpeg" });
+      ctx.said(`Saw the mask of clip ${i + 1} of “${view.name}”`);
+      return new Rich(content);
+    }
+    const recipe = c.recipe ? s.registry.recipe(c.recipe) : undefined;
+    if (!recipe?.inputs.some((x) => x.id === "maskPreview")) throw httpError(`Clip ${i + 1} is not a swap's clip: only a Swap character clip has a mask to show.`);
+    const at = await seen(s);
+    const input = await formSent(s, at, recipe, c.inputs);
+    // greyed in the panel as its Render is: a form not filled shows no mask either
+    const why = whyNot(s, view, i, input);
+    if (why) throw httpError(`Clip ${i + 1} cannot show its mask: ${why.why}.`);
+    return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
+      const usd = await mayQueueAll(s, ctx, at, [{ recipe: recipe.id, input: { ...input, maskPreview: true }, takes: 1 }], { renders: 1 });
+      const { job } = await maskPreview(s, c.id, input, { mcpToken: token.id });
+      ctx.said(`Showed the mask of clip ${i + 1} of “${view.name}”`);
+      return {
+        job, clip: i + 1, said: "mask_preview with this job says where it stands and shows its frames once it is done",
+        on: spends(ctx) ? "wherever the queue ends it first" : "the user's own machines (this token has no Spend)",
+        ...(usd ? { mayCostUsd: Math.round(usd * 100) / 100 } : {}),
+      };
+    });
+  },
+});
+
+const removeTake = tool({
+  name: "remove_take",
+  scope: "make",
+  title: "Remove a take",
+  description: "Remove one of a clip's takes, as its takes' Remove does: the video rendered for it goes to the bin with it, unless it was brought in from the library, something else still uses it, or it is a file of a linked folder (those stay where they are). The newest of the other takes plays instead when it was playing. Refused for the draft of a finished take (remove the finish first). undo brings the take back and its video out of the bin; restore brings the video back to the library alone.",
+  input: { timeline: z.string().min(1), clip: clipRef, take: z.union([z.string().min(1), z.number().int().min(1)]).describe("The take's id, or its number among the clip's takes.") },
+  async run(args, ctx) {
+    const { s } = ctx;
+    const view = await viewOf(s, args.timeline);
+    const { clip: c, i } = clipAt(view, args.clip);
+    const take = typeof args.take === "number" ? c.takes[args.take - 1] : c.takes.find((x) => x.id === args.take);
+    if (!take) throw httpError(`Clip ${i + 1} has no take ${args.take}: it has ${plural(c.takes.length, "take")}.`, 404);
+    const n = c.takes.indexOf(take) + 1;
+    going(s, ctx, view.id);
+    await s.timelines.removeTake(take.id);
+    await saidLive(s, ctx, view, `removed take ${n} of clip ${i + 1}`);
+    // removeTake says nothing of the video: whether it went to the bin is read from it
+    const binned = Boolean((await s.db.selectFrom("assets").select("deleted_at").where("id", "=", take.asset.id).executeTakeFirst())?.deleted_at);
+    const now = clipAt(await s.timelines.view(view.id), c.id).clip;
+    ctx.said(`Removed take ${n} of clip ${i + 1} of “${view.name}”${binned ? ": its video to the bin" : ""}`);
+    return {
+      removed: `take ${n} of clip ${i + 1}`,
+      video: binned ? `${take.asset.id} went to the bin: restore brings it back to the library (not onto the clip)` : `${take.asset.id} stays in the library (brought in from it, used elsewhere, or a linked folder's file)`,
+      playing: now.take ? `take ${now.takes.findIndex((x) => x.id === now.take!.id) + 1} of ${now.takes.length}` : "no take: the clip has nothing rendered now",
+      undo: "undo brings the take back, and its video out of the bin",
+    };
+  },
+});
+
+const binUnusedTakes = tool({
+  name: "bin_unused_takes",
+  scope: "make",
+  title: "Bin the unused takes",
+  description: "The timeline's unused takes go, their videos to the bin with them, as its Bin unused takes does: the takes no clip plays and nothing needs (not a draft a kept take was finished from or carries on from, nor a video another clip, timeline, person, preset or waiting job uses, nor a linked folder's file). Answers how many went and the space their videos take. One step: undo brings the takes back and their videos out of the bin; restore brings a video back to the library alone, until the user empties the bin.",
+  input: { timeline: z.string().min(1) },
+  async run({ timeline }, ctx) {
+    const { s } = ctx;
+    const view = await viewOf(s, timeline);
+    going(s, ctx, view.id);
+    const r = await s.timelines.binUnusedTakes(view.id);
+    if (!r.binned) {
+      ctx.said(`Looked for unused takes on “${view.name}”: none`);
+      return { binned: 0, said: "no take of this timeline is unused: nothing went" };
+    }
+    await saidLive(s, ctx, view, `binned ${plural(r.binned, "unused take")}`);
+    ctx.said(`Binned ${plural(r.binned, "unused take")} of “${view.name}”`);
+    return { binned: r.binned, bytes: r.bytes, mb: Math.round(r.bytes / 2 ** 20), said: `${plural(r.binned, "take")} went, ${r.binned > 1 ? "their videos" : "its video"} to the bin. undo brings ${r.binned > 1 ? "them" : "it"} back; restore brings a video back to the library alone` };
+  },
+});
+
 // ------------------------------------------------------------------------------------------------- seeing, undoing
 
 type Content = CallToolResult["content"];
@@ -827,4 +1062,4 @@ const redo = tool({
   },
 });
 
-export const TIMELINE_TOOLS = [listTimelines, readTimeline, viewTimeline, newTimeline, editTimeline, editClip, renderClipsTool, useTake, finish, exportTool, undo, redo];
+export const TIMELINE_TOOLS = [listTimelines, readTimeline, viewTimeline, newTimeline, editTimeline, editClip, renderClipsTool, useTake, finish, exportTool, undo, redo, timelineRange, planClips, maskPreviewTool, removeTake, binUnusedTakes];

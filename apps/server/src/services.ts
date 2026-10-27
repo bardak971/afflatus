@@ -325,6 +325,11 @@ export async function createServices(
   podFilesTimer.unref();
   // a token with Spend has its jobs handed to a pod only while its cap has room (a money path: mcpRender.ts capHeld)
   queue.capHeld = (rows) => capHeld(services, rows);
+  // a pod whose run a token started (deploy_pod, start_pod) stops once that token's cap is reached, as at the app's caps
+  rented.tokenCapped = async (id) => {
+    const token = await services.mcp.tokens.get(id);
+    return token !== null && (await services.mcp.tokens.spentThisMonth(id)) >= token.spendCapCents / 100;
+  };
   const services: Services = {
     db, dbKind, storage, linked, registry, comfy, machines, comfyOf, comfyFolder: () => comfyFolder(), queue, timelines, rented, notify, access, mcp: { tokens: new McpTokens(db), where: new WhereNow(db) }, podFiles, podOutside, downloads,
     shippedPresets,

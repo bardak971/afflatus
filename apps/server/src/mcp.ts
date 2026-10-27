@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { z, ZodError } from "zod";
 import { VERSION } from "./config";
 import { isNever, NEVER, Rich, type NeverSubject, type Tool, type ToolCtx } from "./mcpTool";
+import { selfUrl } from "./fetchFile";
 import { refusal, SCOPE_WORDS, type McpToken } from "./mcpTokens";
 import { TOOLS } from "./mcpTools";
 import type { Services } from "./services";
@@ -44,10 +45,10 @@ function resultOf(value: unknown): CallToolResult {
 }
 
 /** One call of a tool, checked, run and written down. */
-async function call(t: Tool, args: Record<string, unknown>, s: Services, token: McpToken, ip: string): Promise<CallToolResult> {
+async function call(t: Tool, args: Record<string, unknown>, s: Services, token: McpToken, ip: string, self: string): Promise<CallToolResult> {
   let said = t.title;
   const ctx: ToolCtx = {
-    s, token, ip,
+    s, token, ip, self,
     said: (text) => void (said = text),
     never: (subject) => {
       if (!isNever(subject)) return;
@@ -74,7 +75,8 @@ async function call(t: Tool, args: Record<string, unknown>, s: Services, token: 
 }
 
 /** The MCP server of one request: every tool, bound to the token that asked. */
-export function serverFor(s: Services, token: McpToken, ip: string, tools: readonly Tool[] = TOOLS): McpServer {
+/** `self`: the address the request reached Afflatus at (fetchFile.ts selfUrl). */
+export function serverFor(s: Services, token: McpToken, ip: string, tools: readonly Tool[] = TOOLS, self = "http://127.0.0.1"): McpServer {
   const server = new McpServer({ name: "afflatus", title: "Afflatus", version: VERSION }, {
     instructions: "Afflatus is a self-hosted studio in front of ComfyUI. Start with whats_open (where the user is) and overview (machines, queue, caps). A tool this token's scopes do not cover is refused with what to tick.",
   });
@@ -84,7 +86,7 @@ export function serverFor(s: Services, token: McpToken, ip: string, tools: reado
       description: t.scope === "look" ? t.description : `${t.description} Needs ${SCOPE_WORDS[t.scope]}.`,
       inputSchema: t.input ?? {},
       annotations: { title: t.title, readOnlyHint: t.scope === "look", openWorldHint: false },
-    }, (args: Record<string, unknown>) => call(t, args, s, token, ip));
+    }, (args: Record<string, unknown>) => call(t, args, s, token, ip, self));
   }
   return server;
 }
@@ -108,7 +110,7 @@ export function registerMcp(app: FastifyInstance, s: Services): void {
     }
     const ip = req.socket.remoteAddress ?? "";
     await s.mcp.tokens.touch(token, ip, clientOf(req.body));
-    const server = serverFor(s, token, ip);
+    const server = serverFor(s, token, ip, TOOLS, selfUrl(req));
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     // the transport writes the answer itself
     reply.hijack();

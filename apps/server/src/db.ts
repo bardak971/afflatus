@@ -411,6 +411,8 @@ export interface Tables {
     split?: string | null;
     /** Its split is kept up to this moment only (0085, ISO, costs.ts keepSplitsUntil): its renders before it were deleted while it ran. Null: kept whole, or not kept. */
     split_until?: string | null;
+    /** The MCP token whose deploy_pod or start_pod started this run (0095): its whole run is that token's spend. Null: the user's, the hunt's, or from before. */
+    mcp_token_id?: string | null;
   };
   /** Each model file a pod got (podFiles.ts): from when its bytes started to when it was whole, the Costs tab's "Fetching files". Bytes as a number (bigint on Postgres). */
   pod_fetches: { id: string; machine_id: string; file: string; folder: string; via: string; bytes: number | string; started_at: string; ended_at: string };

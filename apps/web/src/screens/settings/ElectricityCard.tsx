@@ -6,6 +6,7 @@ import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
 import { Button, cx, fieldClass } from "../../ui";
 import { Card, Row } from "./Rows";
+import { SETTING_HELP } from "@afflatus/core";
 
 /**
  * This PC's electricity: a kWh's price and the symbol of its money, which the Queue's Costs tab multiplies its renders'
@@ -77,7 +78,7 @@ export function ElectricityCard() {
     <Card title="Electricity">
       <Row
         setting="costs.kwh" label="Price a kWh"
-        help="What a kWh costs you, in your own money. Queue › Costs multiplies it by the energy the GPU drew while each render ran on this PC (read by the Afflatus node pack on an NVIDIA GPU). Empty: the energy alone is shown. Rented GPUs are priced by the hour, not by this."
+        help={SETTING_HELP.costs}
       >
         <KwhForm />
       </Row>

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { ExternalLink } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { shortGpu } from "@afflatus/core";
+import { shortGpu, SETTING_HELP } from "@afflatus/core";
 import { Link, useLocation } from "wouter";
 import { api, type RunpodPod } from "../../api";
 import { useQueue, useSettings } from "../../data";
@@ -111,7 +111,7 @@ export function RentRow() {
 
 /** What each cap weighs: the day's is compute alone, the month's everything RunPod bills (rented.ts spent says the same). */
 export const CAP_DAY_WHY = "Compute only: what your pods cost today while they run, their GPU and their disk. A stopped pod's disk and the network volumes are not in it: they bill whether anything runs or not, and the month cap has them.";
-const BOOT_LOGS_WHY = "A deployed pod's boot log, kept with its run in Queue › Costs (its row's \"boot log\"): RunPod's system log of the image's pull, layer by layer, and the pod's own boot log, up to ComfyUI's first answer. RunPod drops both when the pod is terminated; kept, they tell a pull that never began (RunPod's side) from one that crawled (the host's link). Dropped after the days set. The pull's speed and size are kept with each run either way.";
+const BOOT_LOGS_WHY = SETTING_HELP.bootLogDays;
 export const CAP_MONTH_WHY = "Everything RunPod bills this month: the pods, the disks of stopped pods and the network volumes. At it the pods stop, and Start, Deploy, Make volume and Grow are refused.";
 
 /** A figure against its cap, in a few words: "$1.18 of $5", or the figure alone without a cap. */
@@ -212,14 +212,14 @@ function RunpodAccount() {
         )}
       {has && (
         // today and this month under the caps, which they are weighed against
-        <Row setting="comfy.rentcaps" label="Caps" sub={s ? `today ${against(s.today, caps.day)} · this month ${against(s.month, caps.month)}` : undefined} help="At a cap, the render running finishes, then the pods stop; what waits goes to your other machines, and Start and Deploy say the cap is reached. Empty: no cap. The day cap is compute only, the month cap the whole bill. Both are RunPod's bill, its last hours counted here.">
+        <Row setting="comfy.rentcaps" label="Caps" sub={s ? `today ${against(s.today, caps.day)} · this month ${against(s.month, caps.month)}` : undefined} help={SETTING_HELP.rentCaps}>
           <CapBox key={`day-${capsSave.resets.day}`} label="a day" value={caps.day} help={CAP_DAY_WHY} onSave={(day) => capsSave.change("day", day)} />
           <CapBox key={`month-${capsSave.resets.month}`} label="a month" value={caps.month} help={CAP_MONTH_WHY} onSave={(month) => capsSave.change("month", month)} />
         </Row>
       )}
       {has && <S3Key />}
       {has && (
-        <Row setting="rented.unused" label="Unused volumes" help="A network volume no pod ran on for this long is flagged here and on the tab: it bills every month all the same.">
+        <Row setting="rented.unused" label="Unused volumes" help={SETTING_HELP.volumeUnusedDays}>
           <span className="w-[120px]"><Select size="sm" label="Flag a volume unused after" value={String(settings.data?.volumeUnusedDays ?? 7)} onChange={(v) => !saveUnused.isPending && saveUnused.mutate(Number(v))} options={UNUSED_DAYS.map((n) => ({ value: String(n), label: n ? `after ${plural(n, "day")}` : "never" }))} /></span>
         </Row>
       )}

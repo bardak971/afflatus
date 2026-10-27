@@ -12,6 +12,7 @@ import { AccessRow } from "./AccessRow";
 import { AddMachineCard, MachineCards, MachinesHead, PacksRow, SetAsideNote, useMachineProbes, useSaveMachines } from "./MachinesCard";
 import { COLUMNS } from "./wide";
 import { FirstLaunchCard, NoComfyCard } from "./NoComfyCard";
+import { SETTING_HELP } from "@afflatus/core";
 
 const WHY_PACK = "It lets MiniMax H3 clips on a timeline continue from the clip before's own latent (the motion, the look and the voice carry across the join), and lets Afflatus read model files' headers through ComfyUI when it cannot read its disk.";
 
@@ -106,7 +107,7 @@ export function ComfyCard() {
   const comfy = setup.data?.comfy;
   const vram = settings.data && (
     <Card title="VRAM">
-      <Row setting="comfy.unload" label="Unload models after" help={`Minutes without a render, then ComfyUI's models are unloaded and the VRAM is freed; the next render loads them again. 0 = never: they stay loaded until something else needs the VRAM. "Unload models" in the Queue does it by hand. With several ComfyUIs, each counts from its own last render.`}>
+      <Row setting="comfy.unload" label="Unload models after" help={SETTING_HELP.unloadAfterMinutes}>
         {/* a stepped scale: the slider walks the stops, what is saved is the stop's minutes */}
         <Slider label="Minutes without a render before ComfyUI's models are unloaded" value={stopOf(minutes)} min={0} max={UNLOAD.length - 1} box={false} format={(i) => unloadSaid(UNLOAD[i]!)} onChange={(i) => setMinutes(UNLOAD[i]!)} onCommit={(i) => unload.mutate(UNLOAD[i]!)} className="max-w-[320px] grow" />
         <span className="w-16 shrink-0 text-right font-mono text-xs text-ink">{unloadSaid(minutes)}</span>

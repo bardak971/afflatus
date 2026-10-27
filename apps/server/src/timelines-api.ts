@@ -194,9 +194,10 @@ export const rangeBody = z.strictObject({ startMs: z.number().min(0), endMs: z.n
  * A range of a video kept as new videos: copied, split out, or removed (see Timelines.cutRange), or slowed. Done in the
  * queue, by ffmpeg (a slow motion by RIFE where ComfyUI has it); the job's label says what it does. A sound the same way
  * (not slowed), `even` evening out the loudness of what it makes. Split and remove take the source to the bin, as a bin
- * does: never one that something still uses.
+ * does: never one that something still uses. `by`: the MCP token whose call sent a slow motion (RIFE on the GPU: its limits
+ * count it, and without Spend it stays off rented pods).
  */
-export async function cutRange(s: Services, id: string, body: z.output<typeof rangeBody>): Promise<{ id: string; engine?: string }> {
+export async function cutRange(s: Services, id: string, body: z.output<typeof rangeBody>, by: { mcpToken?: string | null } = {}): Promise<{ id: string; engine?: string }> {
   const video = await s.db.selectFrom("assets").selectAll().where("id", "=", id).executeTakeFirst();
   const sound = video?.kind === "audio";
   if (!video || (video.kind !== "video" && !sound)) throw httpError("this video was not found", 404);
@@ -214,10 +215,83 @@ export async function cutRange(s: Services, id: string, body: z.output<typeof ra
   if (body.action === "slow") {
     const factor = body.factor ?? 2;
     const engine = await slowEngine(s);
-    return { id: await s.queue.enqueueCut({ asset: video.id, startMs: body.startMs, endMs: body.endMs, action: "slow", factor, engine, crf: body.crf, timeline: body.timeline }, `${name} · slow ×${factor} ${clockOf(body.startMs)}–${clockOf(body.endMs)}`), engine };
+    return { id: await s.queue.enqueueCut({ asset: video.id, startMs: body.startMs, endMs: body.endMs, action: "slow", factor, engine, crf: body.crf, timeline: body.timeline }, `${name} · slow ×${factor} ${clockOf(body.startMs)}–${clockOf(body.endMs)}`, { mcpToken: by.mcpToken ?? null }), engine };
   }
   const said = body.action === "copy" ? `${name} · ${clockOf(body.startMs)}–${clockOf(body.endMs)} → library` : body.action === "split" ? `${name} · split at ${clockOf(body.startMs)} and ${clockOf(body.endMs)}` : `${name} · remove ${clockOf(body.startMs)}–${clockOf(body.endMs)}`;
   return { id: await s.queue.enqueueCut({ asset: video.id, startMs: body.startMs, endMs: body.endMs, action: body.action, crf: body.crf, ...(sound && body.even ? { even: true } : {}), timeline: body.timeline }, said) };
+}
+
+/** What POST /api/timelines/:id/range takes (MCP's timeline_range): In and Out on the timeline's clock, and what is done between them. */
+export const timelineRangeBody = z.strictObject({ inMs: z.number().min(0), outMs: z.number().min(0), action: z.enum(["split", "remove", "regenerate", "loop", "copy", "slow"]), scale: z.number().min(1).max(2).optional(), factor: z.union([z.literal(2), z.literal(4)]).optional() });
+
+/**
+ * The range between In and Out acted on (POST /api/timelines/:id/range, MCP's timeline_range): split, removed, regenerated
+ * or looped (the new clip answered, not rendered), copied to the library through the export queue, or slowed (its parts made
+ * clips of their own, each slowed video arriving as the take of its clip). `by`: the MCP token whose call sent a slow motion
+ * (RIFE on the GPU: its limits count it, and without Spend it stays off rented pods).
+ */
+export async function rangeAction(s: Services, id: string, body: z.output<typeof timelineRangeBody>, by: { mcpToken?: string | null } = {}) {
+  const t = s.timelines;
+  if (body.action === "slow") {
+    // the parts become clips of their own; each slowed video arrives as the take of its clip
+    const factor = body.factor ?? 2;
+    const parts = await t.range.slowRangeOf(id, body.inMs, body.outMs, factor);
+    const engine = await slowEngine(s);
+    const view = await t.view(id);
+    const jobs: string[] = [];
+    for (const made of parts) {
+      const index = view.clips.findIndex((c) => c.id === made.clip);
+      jobs.push(await s.queue.enqueueCut({ asset: made.asset.id, startMs: made.startMs, endMs: made.endMs, action: "slow", factor, engine, clip: made.clip }, `${view.name} · clip ${index + 1} · slow ×${factor}`, { mcpToken: by.mcpToken ?? null }));
+    }
+    s.queue.events.emit("timeline");
+    return { clips: parts.map((p) => p.clip), jobs, engine };
+  }
+  if (body.action === "split") await t.range.splitRange(id, body.inMs, body.outMs);
+  else if (body.action === "remove") await t.range.removeRange(id, body.inMs, body.outMs);
+  else if (body.action === "regenerate") {
+    const made = await t.range.regenerateRange(id, body.inMs, body.outMs);
+    s.queue.events.emit("timeline");
+    return made;
+  } else if (body.action === "loop") {
+    const made = await t.range.loopRange(id, body.inMs, body.outMs);
+    s.queue.events.emit("timeline");
+    return made;
+  } else {
+    const view = await t.view(id);
+    return { job: await s.queue.enqueueExport({ timeline: id, scale: body.scale ?? 1, music: false, range: { inMs: body.inMs, outMs: body.outMs } }, `${view.name} · copy ${clockOf(body.inMs)}–${clockOf(body.outMs)}`) };
+  }
+  s.queue.events.emit("timeline");
+  return { ok: true as const };
+}
+
+/**
+ * A swap clip's Show the mask (the owner's mock, 2026-10-18; POST /api/clips/:id/mask-preview, MCP's mask_preview): its
+ * window's tracking and masks alone, drawn over its frames, as a short video kept out of the library (a scratch file, gone
+ * after a day). No take is made: the job is the clip's timeline's, not the clip's. `input` is its form as a render would
+ * send it. `by`: the MCP token whose call sent it (a job on the GPU: its limits count it, without Spend it stays off rented pods).
+ */
+export async function maskPreview(s: Services, clipId: string, input: Record<string, unknown>, by: { mcpToken?: string | null } = {}): Promise<{ job: string }> {
+  const row = await s.db.selectFrom("clips").select(["timeline_id", "recipe_id"]).where("id", "=", clipId).executeTakeFirst();
+  if (!row) throw httpError("this clip was not found", 404);
+  const recipe = row.recipe_id ? s.registry.recipe(row.recipe_id) : undefined;
+  if (!recipe?.inputs.some((i) => i.id === "maskPreview")) throw httpError("Only a swap's clip has a mask to show.");
+  const view = await s.timelines.view(row.timeline_id);
+  const own = ownInputIds(recipe);
+  const typed = Object.fromEntries(Object.entries(input).filter(([k]) => own.has(k)));
+  const job = await s.queue.enqueue(recipe.id, { ...typed, maskPreview: true }, {
+    label: `${view.name} · mask of clip ${view.clips.findIndex((c) => c.id === clipId) + 1}`,
+    folder: (await folderOfTimeline(s.db, { folder_id: view.folderId, project_id: view.projectId })) ?? undefined,
+    mcpToken: by.mcpToken ?? null,
+  });
+  return { job };
+}
+
+/** Where a Show the mask stands, and once done its video (GET /api/clips/:id/mask-preview/:job, MCP's mask_preview). */
+export async function maskPreviewOf(s: Services, jobId: string) {
+  const job = await s.db.selectFrom("jobs").select(["status", "error", "generation_id"]).where("id", "=", jobId).executeTakeFirst();
+  if (!job) throw httpError("this mask was not found", 404);
+  const asset = job.generation_id ? await s.db.selectFrom("assets").selectAll().where("generation_id", "=", job.generation_id).where("kind", "=", "video").executeTakeFirst() : undefined;
+  return { status: job.status, error: job.error, video: asset ? assetView(asset) : null };
 }
 
 export function registerTimelines(app: FastifyInstance, s: Services): void {
@@ -290,33 +364,10 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     return { redone: label, ...(said ? { said } : {}) };
   });
   /** A copy of the clip right after it. */
-  /**
-   * A swap clip's Show the mask (the owner's mock, 2026-10-18): its window's tracking and masks alone, drawn over its frames,
-   * as a short video kept out of the library (a scratch file, gone after a day). No take is made: the job is the clip's
-   * timeline's, not the clip's. `input` is its form as a render would send it.
-   */
-  app.post<{ Params: { id: string } }>("/api/clips/:id/mask-preview", async (req) => {
-    const { input } = z.strictObject({ input: z.record(z.string(), z.unknown()) }).parse(req.body);
-    const row = await s.db.selectFrom("clips").select(["timeline_id", "recipe_id"]).where("id", "=", req.params.id).executeTakeFirst();
-    if (!row) throw httpError("this clip was not found", 404);
-    const recipe = row.recipe_id ? s.registry.recipe(row.recipe_id) : undefined;
-    if (!recipe?.inputs.some((i) => i.id === "maskPreview")) throw httpError("Only a swap's clip has a mask to show.");
-    const view = await s.timelines.view(row.timeline_id);
-    const own = ownInputIds(recipe);
-    const typed = Object.fromEntries(Object.entries(input).filter(([k]) => own.has(k)));
-    const job = await s.queue.enqueue(recipe.id, { ...typed, maskPreview: true }, {
-      label: `${view.name} · mask of clip ${view.clips.findIndex((c) => c.id === req.params.id) + 1}`,
-      folder: (await folderOfTimeline(s.db, { folder_id: view.folderId, project_id: view.projectId })) ?? undefined,
-    });
-    return { job };
-  });
+  /** A swap clip's Show the mask (maskPreview): a job of its timeline's, no take made. `input` is its form as a render would send it. */
+  app.post<{ Params: { id: string } }>("/api/clips/:id/mask-preview", async (req) => maskPreview(s, req.params.id, z.strictObject({ input: z.record(z.string(), z.unknown()) }).parse(req.body).input));
   /** Where a Show the mask stands, and once done its video. */
-  app.get<{ Params: { id: string; job: string } }>("/api/clips/:id/mask-preview/:job", async (req) => {
-    const job = await s.db.selectFrom("jobs").select(["status", "error", "generation_id"]).where("id", "=", req.params.job).executeTakeFirst();
-    if (!job) throw httpError("this mask was not found", 404);
-    const asset = job.generation_id ? await s.db.selectFrom("assets").selectAll().where("generation_id", "=", job.generation_id).where("kind", "=", "video").executeTakeFirst() : undefined;
-    return { status: job.status, error: job.error, video: asset ? assetView(asset) : null };
-  });
+  app.get<{ Params: { id: string; job: string } }>("/api/clips/:id/mask-preview/:job", async (req) => maskPreviewOf(s, req.params.job));
 
   app.post<{ Params: { id: string } }>("/api/clips/:id/duplicate", async (req) => {
     const clip = await t.range.duplicateClip(req.params.id);
@@ -485,40 +536,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
    * that returns to the frame at In, so the range plays round. "copy": that part of the timeline as one
    * video in the library, through the export queue.
    */
-  app.post<{ Params: { id: string } }>("/api/timelines/:id/range", async (req) => {
-    const body = z.strictObject({ inMs: z.number().min(0), outMs: z.number().min(0), action: z.enum(["split", "remove", "regenerate", "loop", "copy", "slow"]), scale: z.number().min(1).max(2).optional(), factor: z.union([z.literal(2), z.literal(4)]).optional() }).parse(req.body);
-    const id = req.params.id;
-    if (body.action === "slow") {
-      // the parts become clips of their own; each slowed video arrives as the take of its clip
-      const factor = body.factor ?? 2;
-      const parts = await t.range.slowRangeOf(id, body.inMs, body.outMs, factor);
-      const engine = await slowEngine(s);
-      const view = await t.view(id);
-      const jobs: string[] = [];
-      for (const made of parts) {
-        const index = view.clips.findIndex((c) => c.id === made.clip);
-        jobs.push(await s.queue.enqueueCut({ asset: made.asset.id, startMs: made.startMs, endMs: made.endMs, action: "slow", factor, engine, clip: made.clip }, `${view.name} · clip ${index + 1} · slow ×${factor}`));
-      }
-      s.queue.events.emit("timeline");
-      return { clips: parts.map((p) => p.clip), jobs, engine };
-    }
-    if (body.action === "split") await t.range.splitRange(id, body.inMs, body.outMs);
-    else if (body.action === "remove") await t.range.removeRange(id, body.inMs, body.outMs);
-    else if (body.action === "regenerate") {
-      const made = await t.range.regenerateRange(id, body.inMs, body.outMs);
-      s.queue.events.emit("timeline");
-      return made;
-    } else if (body.action === "loop") {
-      const made = await t.range.loopRange(id, body.inMs, body.outMs);
-      s.queue.events.emit("timeline");
-      return made;
-    } else {
-      const view = await t.view(id);
-      return { job: await s.queue.enqueueExport({ timeline: id, scale: body.scale ?? 1, music: false, range: { inMs: body.inMs, outMs: body.outMs } }, `${view.name} · copy ${clockOf(body.inMs)}–${clockOf(body.outMs)}`) };
-    }
-    s.queue.events.emit("timeline");
-    return { ok: true as const };
-  });
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/range", async (req) => rangeAction(s, req.params.id, timelineRangeBody.parse(req.body)));
 
   /** Frames of a video side by side in one picture: what a clip shows on the timeline. */
   app.get<{ Params: { id: string }; Querystring: { frames?: string; height?: string; from?: string; to?: string; v?: string } }>("/api/assets/:id/strip", async (req, reply) => {

@@ -1,4 +1,5 @@
 import type { NotifyKind, Settings, SettingsPatch } from "../api";
+import { SETTING_HELP } from "@afflatus/core";
 import { INDEX, settingHref, TABS, type Tab } from "../screens/settings/settingsIndex";
 import { allowNotifications, useBanners, useCompareResult, useExplain, useHoverPlay, useNotify } from "../store";
 import { DEFAULT_PROGRESS, PROGRESS_STYLES, type ProgressStyle } from "../progress/style";
@@ -139,7 +140,7 @@ export const SETTINGS: SettingEntry[] = [
   server("tagCheck", "Danbooru tag check", "prompts", "Tags written for an anime model are compared with danbooru's list: another name or a typo is pointed out under the prompt.", "typo tags anime"),
   server("civitaiLookups", "Search Hugging Face and Civitai", "models", "Missing model files, trigger words and model pages may be looked for on Hugging Face and Civitai (file hashes are sent).", "civitai lookups trigger words lora names"),
   server("downloadModels", "Download missing models", "models", "Missing model files may be fetched into ComfyUI's model folders: by Afflatus itself when it can write them, else by the Afflatus node pack or ComfyUI-Manager.", "download missing files into comfyui manager fetch node pack"),
-  server("updateChecks", "Newer versions on Civitai: check once a day", "models", "Once a day, Civitai is asked for newer versions of the models here (with Search Hugging Face and Civitai on; hashes are sent).", "check for newer versions of your models update civitai version"),
+  server("updateChecks", "Newer versions on Civitai: check once a day", "models", SETTING_HELP.updateChecks, "check for newer versions of your models update civitai version"),
   { id: "bar.learn", label: "Learn what I use", page: "bar", words: "command bar ranking recent frequency", scope: "this browser", kind: "switch", about: "What you open often and lately comes first in the bar. Kept in this browser.", get: () => useBar.getState().learn, set: (_c, v) => useBar.getState().setLearn(Boolean(v)) },
   { id: "bar.preview", label: "Preview", page: "bar", words: "preview in the bar command bar shift", scope: "this browser", kind: "switch", about: "The selected result shown beside the list. Shift shows or hides it.", get: () => useBar.getState().preview, set: (_c, v) => useBar.getState().setPreview(Boolean(v)) },
   barPart("snippets", "Prompt snippets", "Type ; and a snippet's name in any prompt box: a space or Tab puts its text there.", "typed by name command bar ; expand kit"),

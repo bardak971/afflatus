@@ -1,0 +1,370 @@
+import { plural } from "@afflatus/core";
+import { z } from "zod";
+import { costsOf } from "./costs-api";
+import { deployFiles } from "./deployModels";
+import { httpError } from "./errors";
+import { oneAtATime } from "./keyedLock";
+import { machineName, machineOf, seen } from "./mcpForms";
+import { committedSpend } from "./mcpRender";
+import { tool, type ToolCtx } from "./mcpTool";
+import { refusal } from "./mcpTokens";
+import { dollars } from "./notifyWords";
+import { addPod } from "./rented-api";
+import { runningRate } from "./runpod";
+import type { Services } from "./services";
+import { deploySchema, readSettings, type Machine } from "./settings";
+import { machinesNow, saveSettings, setupOf } from "./setup-api";
+
+/**
+ * The machines and the rented GPUs, from outside (MCP): the ComfyUIs listed, added, changed, removed and asked again
+ * (Settings › ComfyUI), and the pods of RunPod deployed, started, stopped or terminated, with what they cost (Settings ›
+ * Rented GPUs, Queue › Costs). Each goes through the route's own code (setup-api.ts, rented-api.ts, rented.ts), with the
+ * same refusals.
+ *
+ * A money path (memory money-paths-critical). What starts a pod (deploy_pod, start_pod) needs Spend, and is refused when
+ * the token's own cap or the app's caps have no room for the pod's first hour at its price (its waiting and running renders
+ * counted, as render counts them). The run it starts is then the token's (rentedSchema.mcpToken): its whole time, boot and
+ * idle included, counts against the token's cap (mcpTokens.ts spentThisMonth), and the pod stops once that cap is reached
+ * as at the app's caps (rentedFollow.ts tokenCapped). An agent's pod always has an idle stop and a watchdog: neither is
+ * set to "never" from here. What lengthens a pod's run (its idle minutes, its watchdog) needs Spend too. Stop and
+ * Terminate need Spend (the rented GPUs are its scope), and a pod running a render this token did not send is not stopped
+ * from here. A token's checks and its starts go one call at a time, with its renders (`mcp-render:<token>`).
+ */
+
+/** Whether this token has Spend: what starts a rented GPU, lengthens its run or stops it needs it. */
+function mustSpend(ctx: ToolCtx, what: string): void {
+  if (!ctx.token.scopes.includes("spend")) throw refusal(`This token cannot spend on rented GPUs, and ${what}: tick Spend on it in Settings › Interface › Access.`);
+}
+
+/** A machine as the tools say it: never its token, its folder on this computer, nor figures of its card's memory. */
+function machineSaid(s: Services, m: Machine, now?: { online: boolean; error: string | null; version: string | null; device: string | null; pack: string | null }, paused?: boolean) {
+  const v = m.rented ? s.rented.view(m) : null;
+  return {
+    id: m.id, name: machineName(m), kind: m.rented ? "rented pod" : "ComfyUI",
+    ...(m.rented ? {} : { url: m.url }),
+    takes: m.takes,
+    ...(m.rented ? {} : { nodePacks: m.packs }),
+    ...(Object.keys(m.families).length ? { families: m.families } : {}),
+    ...(now ? { online: now.online, ...(now.error ? { error: now.error } : {}), ...(now.version ? { comfyui: now.version } : {}), ...(now.device ? { gpu: now.device } : {}), ...(now.pack ? { nodePack: now.pack } : {}) } : {}),
+    ...(paused !== undefined ? { paused } : {}),
+    ...(m.rented ? { pod: podSaid(m, v) } : {}),
+  };
+}
+
+/** A pod as the tools say it: its state on RunPod, its price, what this run cost, its idle rule, whose run it is. */
+function podSaid(m: Machine, v: ReturnType<Services["rented"]["view"]>) {
+  const r = m.rented!;
+  return {
+    pod: r.pod, status: v?.status ?? "UNKNOWN", gpu: v?.gpu ?? null, usdPerHour: v?.rate ?? null,
+    ...(v?.since ? { runningSince: new Date(v.since).toISOString(), spentThisRun: Math.round(v.spent * 100) / 100 } : {}),
+    ...(v?.answers !== null && v?.answers !== undefined ? { comfyAnswers: v.answers } : {}),
+    ...(v?.idleLeftMs ? { stopsIdleInMs: v.idleLeftMs } : {}),
+    ...(v?.capped ? { capped: true } : {}),
+    ...(v?.stopping ? { stopping: true } : {}),
+    idleMinutes: r.idleMinutes, idleDo: r.idleDo, watchdogMinutes: r.watchdogMinutes, volume: Boolean(v?.volume),
+    ...(r.mcpToken ? { startedByToken: r.mcpToken } : {}),
+  };
+}
+
+const listMachines = tool({
+  name: "list_machines",
+  scope: "look",
+  title: "Machines",
+  description: "Every ComfyUI the queue sends work to (this PC's, another computer's, rented pods), asked now: whether it answers and why not, its ComfyUI version, GPU and Afflatus node pack, what it takes (everything, pictures or videos), paused or not, its families switched by hand; a pod's state on RunPod, price, this run's cost and idle rule.",
+  async run(_args, ctx) {
+    const { s } = ctx;
+    const [settings, now, st] = await Promise.all([readSettings(s.db), machinesNow(s), s.queue.statusRecent()]);
+    ctx.said(`Looked at the machines: ${settings.machines.length}`);
+    return {
+      machines: settings.machines.map((m) => machineSaid(s, m, now.find((n) => n.id === m.id), st.machines.find((x) => x.id === m.id)?.paused)),
+      queuePaused: st.paused,
+    };
+  },
+});
+
+const addMachine = tool({
+  name: "add_machine",
+  scope: "manage",
+  title: "Add a machine",
+  description: "Add a ComfyUI the queue may send work to: one of the user's own by its address (a second GPU of this computer started with --cuda-device 1 --port 8189, another computer), or a pod of the user's RunPod account by its id (pods with account: true lists them), added as it is, running or stopped: nothing is started. A locked ComfyUI's token is pasted in Afflatus itself.",
+  input: {
+    url: z.string().url().max(400).regex(/^https?:\/\//i, "an http(s) address").optional().describe("A ComfyUI of the user's own: its address."),
+    pod: z.string().min(1).max(80).optional().describe("Or a RunPod pod's id."),
+    name: z.string().trim().max(40).optional().describe("What it is called (a ComfyUI of the user's own)."),
+    takes: z.enum(["all", "image", "video"]).optional().describe("What the queue gives it: everything, pictures only, or videos only (clips, sounds, finishes, slow motion)."),
+  },
+  async run(a, ctx) {
+    const { s } = ctx;
+    if (Boolean(a.url) === Boolean(a.pod)) throw httpError("Give the address of a ComfyUI of the user's own, or a pod's id: one of the two.");
+    if (a.pod) {
+      const id = await addPod(s, a.pod);
+      ctx.said(`Added the pod ${a.pod}`);
+      return { added: id, said: "Added as it is: nothing was started." };
+    }
+    const settings = await readSettings(s.db);
+    // a new machine's id as Settings › ComfyUI makes one (MachinesCard.tsx)
+    const id = `m${Date.now().toString(36)}`;
+    const machine = { id, name: a.name ?? "", url: a.url!.replace(/\/+$/, ""), dir: "", takes: a.takes ?? "all", packs: "ask" as const, families: {} };
+    await saveSettings(s, { machines: [...settings.machines, machine] }, { session: null, password: undefined, ip: ctx.ip });
+    const now = (await machinesNow(s)).find((m) => m.id === id);
+    ctx.said(`Added the ComfyUI at ${machine.url}`);
+    return { added: id, online: now?.online ?? false, ...(now?.error ? { error: now.error } : {}) };
+  },
+});
+
+const editMachine = tool({
+  name: "edit_machine",
+  scope: "manage",
+  title: "Change a machine",
+  description: "Change a machine as its card in Settings › ComfyUI does: its name, what it takes, its address (a ComfyUI of the user's own; a move to another server drops its lock token), its families switched on or off on it alone; a pod's idle minutes, what it does then (stop: its disk billed on; terminate: deleted on RunPod), its watchdog and Make room. A pod's idle minutes and watchdog need Spend (they lengthen what it bills), and are never set to 0 (never) from here. Node packs installed without asking, open ports and its folder on this computer are set in Afflatus itself.",
+  input: {
+    machine: z.string().min(1).describe("A machine's id or name (list_machines)."),
+    name: z.string().trim().max(40).optional(),
+    takes: z.enum(["all", "image", "video"]).optional(),
+    url: z.string().url().max(400).regex(/^https?:\/\//i, "an http(s) address").optional(),
+    families: z.record(z.string().max(120), z.boolean().nullable()).optional().describe("Family id → on or off on this machine alone; null: back to the switch of every machine."),
+    idleMinutes: z.number().int().min(1).max(24 * 60).optional().describe("A pod: minutes with nothing to render, then idleDo."),
+    idleDo: z.enum(["stop", "terminate"]).optional(),
+    watchdogMinutes: z.number().int().min(1).max(24 * 60).optional().describe("A pod: minutes this PC may be silent before the pod stops itself."),
+    makeRoom: z.boolean().optional().describe("A pod: models it fetched that no waiting job needs are deleted when a file does not fit."),
+  },
+  async run(a, ctx) {
+    const { s } = ctx;
+    const settings = await readSettings(s.db);
+    const m = machineOf(await seen(s), a.machine);
+    const podOnly = a.idleMinutes !== undefined || a.idleDo !== undefined || a.watchdogMinutes !== undefined || a.makeRoom !== undefined;
+    if (podOnly && !m.rented) throw httpError(`${machineName(m)} is not a rented pod: idle minutes, idle action, watchdog and Make room are a pod's.`);
+    if (a.url && m.rented) throw httpError("A pod's address is its own: it is not changed.");
+    // what makes a pod bill longer is Spend's, as starting one is
+    const longer = m.rented && ((a.idleMinutes ?? 0) > m.rented.idleMinutes || (a.watchdogMinutes ?? 0) > m.rented.watchdogMinutes || (a.idleDo === "stop" && m.rented.idleDo === "terminate"));
+    if (longer) mustSpend(ctx, `a longer idle time, a later watchdog or a stop that keeps its disk lengthens what ${machineName(m)} bills`);
+    const families = a.families ? Object.fromEntries(Object.entries({ ...m.families, ...a.families }).filter((e): e is [string, boolean] => e[1] !== null)) : m.families;
+    // a rented machine's own fields the page would send: the server keeps the rest of it (settings.ts written, fromPage)
+    const rented = m.rented ? { idleMinutes: a.idleMinutes ?? m.rented.idleMinutes, idleDo: a.idleDo ?? m.rented.idleDo, watchdogMinutes: a.watchdogMinutes ?? m.rented.watchdogMinutes, openPorts: m.rented.openPorts, makeRoom: a.makeRoom ?? m.rented.makeRoom } : undefined;
+    const next = settings.machines.map((x) => (x.id === m.id ? { ...x, token: undefined, ...(a.name !== undefined ? { name: a.name } : {}), ...(a.takes ? { takes: a.takes } : {}), ...(a.url ? { url: a.url.replace(/\/+$/, "") } : {}), families, ...(rented ? { rented } : {}) } : { ...x, token: undefined }));
+    await saveSettings(s, { machines: next }, { session: null, password: undefined, ip: ctx.ip });
+    const changed = Object.keys(a).filter((k) => k !== "machine");
+    ctx.said(`Changed ${machineName(m)}: ${changed.join(", ") || "nothing"}`);
+    const saved = (await readSettings(s.db)).machines.find((x) => x.id === m.id)!;
+    return machineSaid(s, saved);
+  },
+});
+
+const removeMachine = tool({
+  name: "remove_machine",
+  scope: "manage",
+  title: "Remove a machine",
+  description: "Take a machine out of Afflatus, as its card's Remove does: nothing more is sent there. A pod still billed on RunPod is refused (stop_pod first); a pod stopped is left on RunPod as it is. The last machine is refused.",
+  input: { machine: z.string().min(1).describe("A machine's id or name (list_machines).") },
+  async run({ machine }, ctx) {
+    const m = machineOf(await seen(ctx.s), machine);
+    await ctx.s.rented.remove(m.id);
+    ctx.said(`Removed ${machineName(m)}`);
+    return { removed: m.id, ...(m.rented ? { said: "Its pod is left on RunPod as it is: terminate it there, or add it again with add_machine." } : {}) };
+  },
+});
+
+const reconnect = tool({
+  name: "reconnect",
+  scope: "make",
+  title: "Reconnect",
+  description: "Ask a ComfyUI (or every one) afresh what it has, as the queue's Reconnect does: a model or node pack put in by hand, a ComfyUI restarted, is seen now, and a job that waited for it may start. Answers whether each answers.",
+  input: { machine: z.string().optional().describe("A machine's id or name (list_machines); left out, every one.") },
+  async run({ machine }, ctx) {
+    const { s } = ctx;
+    const m = machine ? machineOf(await seen(s), machine) : undefined;
+    const fresh = await setupOf(s, m?.id, true);
+    s.queue.events.emit("setup");
+    ctx.said(m ? `Asked ${machineName(m)} again` : "Asked every ComfyUI again");
+    return fresh.comfy.online ? { online: true } : { online: false, error: fresh.comfy.error };
+  },
+});
+
+// ---------------------------------------------------------------- rented GPUs
+
+const pods = tool({
+  name: "pods",
+  scope: "look",
+  title: "Rented GPUs",
+  description: "The rented pods Afflatus follows: each one's state on RunPod, price, this run's cost, time left before its idle stop, idle rule, and the token that started its run. `gpus`: the GPUs deploy_pod may take now on that cloud, with their price an hour and whether they are free. `account`: every pod of the RunPod account, added or not (add_machine adds one).",
+  input: {
+    gpus: z.enum(["SECURE", "COMMUNITY"]).optional().describe("List the GPUs offered now on this cloud."),
+    account: z.boolean().optional().describe("List every pod of the RunPod account too."),
+  },
+  async run(a, ctx) {
+    const { s } = ctx;
+    const settings = await readSettings(s.db);
+    const followed = settings.machines.filter((m) => m.rented);
+    const offers = a.gpus ? await s.rented.gpus(a.gpus) : null;
+    const account = a.account ? await s.rented.pods() : null;
+    ctx.said(`Looked at the rented GPUs: ${plural(followed.length, "pod")}${offers ? `, ${offers.length} GPUs offered` : ""}`);
+    return {
+      pods: followed.map((m) => ({ id: m.id, name: machineName(m), ...podSaid(m, s.rented.view(m)) })),
+      ...(offers ? { gpus: offers.map((g) => ({ id: g.id, name: g.name, usdPerHour: g.price, free: g.availability, cuda13: g.cuda13 })).sort((x, y) => x.usdPerHour - y.usdPerHour) } : {}),
+      ...(account ? { account: account.map((p) => ({ pod: p.id, name: p.name, status: p.status, gpu: p.gpu, usdPerHour: p.cost || null, comfyPort: p.comfy, added: p.added })) } : {}),
+      ...(settings.runpodKey ? {} : { said: "No RunPod API key is set: the user sets it in Settings › Rented GPUs." }),
+    };
+  },
+});
+
+/**
+ * Whether this token may start a pod that bills `hour` USD an hour: Spend, its own cap with room for that first hour (its
+ * renders waiting and running counted, as render counts them), and the app's caps with room for it too. A money path.
+ */
+async function mayStart(s: Services, ctx: ToolCtx, hour: number, what: string): Promise<void> {
+  mustSpend(ctx, what);
+  const machines = (await readSettings(s.db)).machines;
+  await ctx.maySpend(hour + (await committedSpend(s, machines, ctx.token.id)));
+  const why = await s.rented.noRoomFor(hour);
+  if (why) throw refusal(`The rented GPUs' spending cap has no room for this pod's first hour (${dollars(hour)}): ${why}. The user raises it in Settings › Rented GPUs.`);
+}
+
+const deployPod = tool({
+  name: "deploy_pod",
+  scope: "spend",
+  title: "Deploy a GPU",
+  description: "Deploy a new pod on RunPod, as Settings › Rented GPUs › Deploy does: billed from now. The choices the dialog gives, the last deploy's when left out: the GPU (pods with gpus lists them with their price), Secure or Community cloud, Afflatus's image or RunPod's ComfyUI, a network volume, its disk, its idle minutes and what it does then (terminate by default here), its watchdog, a Model set whose files it fetches (a preset under a licence must have been accepted in Afflatus first). Refused when this token's cap or the app's caps have no room for its first hour; the pod's whole run then counts against this token's cap, and it stops once that cap is reached. Afflatus's own rules hold: one deploy at a time, a GPU free now, at most 12 machines.",
+  input: {
+    gpu: z.string().min(1).max(120).describe("The GPU's id or name, as pods with gpus lists them."),
+    cloud: z.enum(["SECURE", "COMMUNITY"]).optional(),
+    template: z.enum(["afflatus", "runpod"]).optional().describe("afflatus: ComfyUI with Afflatus's node pack, locked from its first second; runpod: RunPod's own ComfyUI image."),
+    volume: z.string().max(80).optional().describe("A network volume's id; empty: none."),
+    disk: z.number().int().min(20).max(2000).optional().describe("Its container disk, GB."),
+    idleMinutes: z.number().int().min(1).max(120).optional().describe("Minutes with nothing to render, then idleDo (3 when left out)."),
+    idleDo: z.enum(["stop", "terminate"]).optional().describe("terminate when left out: nothing billed after; stop keeps its disk (with a volume only), billed."),
+    watchdogMinutes: z.number().int().min(1).max(120).optional().describe("Minutes this PC may be silent before the pod stops itself."),
+    set: z.string().max(80).optional().describe("A Model set's id (model_sets): its files are fetched onto it."),
+    cuda: z.enum(["13.0", "12.8", "either"]).optional(),
+  },
+  async run(a, ctx) {
+    const { s, token } = ctx;
+    if (s.hunt.deploying()) throw httpError("The GPU hunt is deploying a GPU now: wait for it to end.", 409);
+    const settings = await readSettings(s.db);
+    const last = settings.lastDeploy;
+    const cloud = a.cloud ?? last?.cloud ?? "SECURE";
+    const offers = await s.rented.gpus(cloud);
+    const offer = offers.find((g) => g.id === a.gpu) ?? offers.find((g) => g.name.toLowerCase() === a.gpu.toLowerCase());
+    if (!offer) throw httpError(`RunPod does not offer ${a.gpu} on ${cloud === "COMMUNITY" ? "Community" : "Secure"} Cloud now: pods with gpus lists those it does.`, 404);
+    const ask = deploySchema.parse({
+      ...(last ?? {}), gpu: offer.id, cloud,
+      ...(a.template ? { template: a.template } : {}), ...(a.volume !== undefined ? { volume: a.volume } : {}), ...(a.disk ? { disk: a.disk } : {}),
+      idleMinutes: a.idleMinutes ?? 3, idleDo: a.idleDo ?? "terminate", watchdogMinutes: a.watchdogMinutes ?? Math.min(last?.watchdogMinutes || 15, 120),
+      set: a.set ?? "", ...(a.cuda ? { cuda: a.cuda } : {}),
+      // the set's files come as Deploy again brings them; nothing ticked by hand, no licence accepted from here
+      files: [], leaveOut: [], accept: [], again: Boolean(a.set), cudaOnce: false,
+    });
+    // what it bills an hour while it runs: its GPU and its container disk (with a volume, the disk is kept small: rentedDeploy.ts)
+    const hour = runningRate(offer.price, ask.volume ? Math.min(ask.disk, 40) : ask.disk, 0);
+    return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
+      await mayStart(s, ctx, hour, `deploying ${offer.name} bills ${dollars(hour)} an hour`);
+      const made = await s.rented.deploy(async () => ({ ...ask, files: await deployFiles(s, ask) }), { mcpToken: token.id });
+      ctx.said(`Deployed ${offer.name} (${dollars(hour)}/h, idle ${ask.idleMinutes} min then ${ask.idleDo})`);
+      return {
+        machine: made.id, gpu: offer.name, usdPerHour: Math.round(hour * 1000) / 1000, dataCenter: made.dataCenter, idleMinutes: ask.idleMinutes, idleDo: ask.idleDo,
+        said: `Billed from now. Its first start pulls its image and boots ComfyUI (some minutes): pods says when it answers. Its whole run counts against this token's cap (${dollars(token.spendCapCents / 100)} a month), and it stops once that is reached.`,
+      };
+    });
+  },
+});
+
+/** A rented machine by id or name: refused for a ComfyUI of the user's own. */
+async function podOf(s: Services, asked: string): Promise<Machine> {
+  const m = machineOf(await seen(s), asked);
+  if (!m.rented) throw httpError(`${machineName(m)} is not a rented pod.`, 404);
+  return m;
+}
+
+const startPod = tool({
+  name: "start_pod",
+  scope: "spend",
+  title: "Start a pod",
+  description: "Start a stopped pod, as its card's Start does: billed from now. Refused when this token's cap or the app's caps have no room for its first hour at its last price; its run then counts against this token's cap, and it stops once that cap is reached (or at its idle stop).",
+  input: { machine: z.string().min(1).describe("The pod's machine id or name (pods).") },
+  async run({ machine }, ctx) {
+    const { s, token } = ctx;
+    const m = await podOf(s, machine);
+    const v = s.rented.view(m);
+    // a pod never seen running here has no price to hold a cap with: started in Afflatus itself, not from here
+    if (v?.rate === null || v?.rate === undefined) throw refusal(`${machineName(m)}'s price is not known yet, so this token's spend cap cannot be held: the user starts it in Afflatus.`);
+    const rate = v.rate;
+    return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
+      await mayStart(s, ctx, rate, `starting ${machineName(m)} bills ${dollars(rate)} an hour`);
+      const view = await s.rented.start(m.id, token.id);
+      ctx.said(`Started ${machineName(m)} (${dollars(rate)}/h)`);
+      return { started: m.id, status: view.status, usdPerHour: rate, idleMinutes: m.rented!.idleMinutes, idleDo: m.rented!.idleDo, said: "Billed from now; its run counts against this token's cap." };
+    });
+  },
+});
+
+const stopPod = tool({
+  name: "stop_pod",
+  scope: "spend",
+  title: "Stop or terminate a pod",
+  description: "Stop a pod (its GPU stops billing; its disk goes on billing and it can be started again) or terminate it (deleted on RunPod with its container disk, nothing billed after, and gone from Afflatus; a network volume keeps what it holds). Refused while it renders something this token did not send: that render is the user's (or another token's) to stop.",
+  input: {
+    machine: z.string().min(1).describe("The pod's machine id or name (pods)."),
+    how: z.enum(["stop", "terminate"]),
+  },
+  async run({ machine, how }, ctx) {
+    const { s, token } = ctx;
+    const m = await podOf(s, machine);
+    const running = (await s.queue.statusRecent()).machines.find((x) => x.id === m.id)?.running as { id: string; label: string } | null | undefined;
+    if (running) {
+      const row = await s.db.selectFrom("jobs").select("mcp_token_id").where("id", "=", running.id).executeTakeFirst();
+      if (row?.mcp_token_id !== token.id) throw refusal(`${machineName(m)} is rendering “${running.label}”, which this token did not send: the user stops it in Afflatus, or it stops at its idle time once that render ends.`);
+    }
+    await s.rented.stopBy(m.id, how);
+    ctx.said(`${how === "terminate" ? "Terminated" : "Stopped"} ${machineName(m)}`);
+    return how === "terminate"
+      ? { terminated: m.id, said: "Deleted on RunPod: nothing more is billed for it, and it is gone from Afflatus. This is not undone." }
+      : { stopped: m.id, said: "Its GPU no longer bills; its disk goes on billing until it is terminated. start_pod starts it again." };
+  },
+});
+
+const costsTool = tool({
+  name: "costs",
+  scope: "look",
+  title: "Costs",
+  description: "Queue › Costs: what the rented GPUs cost this month (RunPod's bill where read) and today, against the caps; the pace a day and the month's end at it; RunPod's balance and how long it lasts; where the pods' time went (rendering, idle, booting, fetching files); the costliest projects; the newest pod runs, each with its GPU, length, cost and why it ended; and advice. A window in ms (from, to), else everything.",
+  input: {
+    from: z.number().int().optional().describe("The window's start, ms since 1970."),
+    to: z.number().int().optional(),
+    runs: z.number().int().min(0).max(50).optional().describe("How many of the newest pod runs to list (8 when left out)."),
+  },
+  async run(a, ctx) {
+    const { view: v } = await costsOf(ctx.s, { from: a.from, to: a.to });
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    ctx.said(`Looked at the costs: ${dollars(v.month)} this month`);
+    return {
+      window: { from: new Date(v.from).toISOString(), to: new Date(v.to).toISOString() },
+      billedByRunpod: v.billed,
+      month: r2(v.month), today: r2(v.today.usd), caps: v.caps,
+      pacePerDay: r2(v.pace7 + v.storageDay), monthEndAtPace: r2(v.monthEnd),
+      balance: v.balance === null ? null : r2(v.balance), runwayDays: v.runwayDays === null ? null : Math.round(v.runwayDays * 10) / 10,
+      podTime: Object.fromEntries(Object.entries(v.where.usd).map(([k, usd]) => [k, { usd: r2(usd), ms: v.where.ms[k as keyof typeof v.where.ms] }])),
+      projects: v.projects.slice(0, 8).map((p) => ({ name: p.name, usd: r2(p.usd), renders: p.renders })),
+      runs: v.sessions.slice(0, a.runs ?? 8).map((x) => ({ machine: x.machine, gpu: x.gpu, from: new Date(x.from).toISOString(), to: x.open ? null : new Date(x.to).toISOString(), usdPerHour: x.rate, usd: r2(x.usd), ended: x.open ? "running" : x.why, renders: x.renders.length })),
+      advice: v.advice.map((x) => ({ title: x.title, why: x.why, ...(x.save !== null ? { wouldSave: r2(x.save) } : {}) })),
+    };
+  },
+});
+
+const caps = tool({
+  name: "caps",
+  scope: "look",
+  title: "Spending caps",
+  description: "The rented GPUs' spending caps (a day, a month; 0: none) with what is spent against them, RunPod's balance, and this token's own cap and spend this month. At a cap the running render ends, then the pods stop, and a deploy or Start is refused. The app's caps are changed with change_setting (rentCaps.day, rentCaps.month: Manage); this token's own in Afflatus only.",
+  async run(_args, ctx) {
+    const { s, token } = ctx;
+    const settings = await readSettings(s.db);
+    const spending = settings.runpodKey || settings.machines.some((m) => m.rented) ? await s.rented.spending().catch(() => null) : null;
+    const spent = await s.mcp.tokens.spentThisMonth(token.id);
+    ctx.said("Looked at the spending caps");
+    return {
+      app: { day: settings.rentCaps.day || "none", month: settings.rentCaps.month || "none", ...(spending ? { spentToday: dollars(spending.today), spentThisMonth: dollars(spending.month), balance: spending.balance === null ? null : dollars(spending.balance) } : {}) },
+      thisToken: token.scopes.includes("spend") ? { cap: dollars(token.spendCapCents / 100), spentThisMonth: dollars(spent) } : "Spend is not ticked: no rented GPU",
+    };
+  },
+});
+
+export const MACHINE_TOOLS = [listMachines, addMachine, editMachine, removeMachine, reconnect, pods, deployPod, startPod, stopPod, costsTool, caps];

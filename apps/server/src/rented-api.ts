@@ -16,6 +16,33 @@ import { deploySchema, readSettings, updateSettings } from "./settings";
  * Start and Deploy are routes of their own, each a click.
  */
 
+/**
+ * A pod of the account added as a machine, as it is (running or stopped): its ComfyUI's address worked out from it.
+ * Nothing is started. Settings › Rented GPUs' Add, and MCP's add_machine. Answers its machine id.
+ */
+export async function addPod(s: Services, pod: string): Promise<string> {
+  const found = (await s.rented.pods()).find((p) => p.id === pod);
+  if (!found) throw httpError("RunPod has no such pod on this account.", 404);
+  if (!found.comfy) throw httpError("This pod does not expose ComfyUI's port (8188, HTTP): add it on RunPod, then add the pod here.", 409);
+  if (found.added) throw httpError("This pod is added already.", 409);
+  let id = "";
+  await updateSettings(s.db, (current) => {
+    // its id is the pod's: never one a machine had before (whose pause and learned speed it would take on), and the same
+    // when the pod is removed and added again, so that it keeps its own history
+    id = podMachineId(found.id);
+    if (current.machines.some((m) => m.id === id)) throw httpError("This pod is added already.", 409);
+    // idle: without a volume, a stop keeps nothing (its container disk is erased) and its GPU may be taken meanwhile, so that
+    // it cannot start again: terminated then; with one, stopped (its disk kept, billed)
+    const volume = found.networkVolume || found.diskGb > 0;
+    const rented = { provider: "runpod" as const, pod: found.id, idleMinutes: 10, idleDo: volume ? ("stop" as const) : ("terminate" as const), watchdogMinutes: 15, openPorts: false, closedPorts: [], secret: "", deployed: false, deployedAt: "" };
+    // added again: its secret is its own once more, not one to delete when it goes
+    return { machines: [...current.machines, { id, name: found.name.slice(0, 40), url: podUrl(found.id), dir: "", takes: "all", packs: "ask", families: {}, rented }], leftSecrets: current.leftSecrets.filter((l) => l.pod !== found.id) };
+  });
+  s.queue.events.emit("setup");
+  await s.rented.poll().catch(() => {});
+  return id;
+}
+
 export function registerRented(app: FastifyInstance, s: Services): void {
   const params = z.object({ id: z.string().max(40) });
 
@@ -135,29 +162,7 @@ export function registerRented(app: FastifyInstance, s: Services): void {
   });
 
   /** A pod added as a machine, as it is (running or stopped): its ComfyUI's address worked out from it. Nothing is started. */
-  app.post("/api/runpod/add", async (req) => {
-    const { pod } = z.object({ pod: z.string().min(1).max(80) }).parse(req.body);
-    const found = (await s.rented.pods()).find((p) => p.id === pod);
-    if (!found) throw httpError("RunPod has no such pod on this account.", 404);
-    if (!found.comfy) throw httpError("This pod does not expose ComfyUI's port (8188, HTTP): add it on RunPod, then add the pod here.", 409);
-    if (found.added) throw httpError("This pod is added already.", 409);
-    let id = "";
-    await updateSettings(s.db, (current) => {
-      // its id is the pod's: never one a machine had before (whose pause and learned speed it would take on), and the same
-      // when the pod is removed and added again, so that it keeps its own history
-      id = podMachineId(found.id);
-      if (current.machines.some((m) => m.id === id)) throw httpError("This pod is added already.", 409);
-      // idle: without a volume, a stop keeps nothing (its container disk is erased) and its GPU may be taken meanwhile, so that
-      // it cannot start again: terminated then; with one, stopped (its disk kept, billed)
-      const volume = found.networkVolume || found.diskGb > 0;
-      const rented = { provider: "runpod" as const, pod: found.id, idleMinutes: 10, idleDo: volume ? ("stop" as const) : ("terminate" as const), watchdogMinutes: 15, openPorts: false, closedPorts: [], secret: "", deployed: false, deployedAt: "" };
-      // added again: its secret is its own once more, not one to delete when it goes
-      return { machines: [...current.machines, { id, name: found.name.slice(0, 40), url: podUrl(found.id), dir: "", takes: "all", packs: "ask", families: {}, rented }], leftSecrets: current.leftSecrets.filter((l) => l.pod !== found.id) };
-    });
-    s.queue.events.emit("setup");
-    await s.rented.poll().catch(() => {});
-    return { id };
-  });
+  app.post("/api/runpod/add", async (req) => ({ id: await addPod(s, z.object({ pod: z.string().min(1).max(80) }).parse(req.body).pod) }));
 
   /**
    * A stored machine that could not be read, set aside (Settings › ComfyUI's note), forgotten: its row deleted. One with a

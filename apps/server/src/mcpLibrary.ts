@@ -13,12 +13,15 @@ import { takeIn } from "./assetUpload";
 import type { Tables } from "./db";
 import { httpError } from "./errors";
 import { createBody, editBody, folderEdit, folderNew, foldersList, itemsMove } from "./folders";
+import { oneAtATime } from "./keyedLock";
 import { NOT_IN_LIBRARY } from "./library";
+import { seen, spends } from "./mcpForms";
+import { mayQueueAll } from "./mcpRender";
 import { tool, type ToolCtx } from "./mcpTool";
 import { assertPublicUrl, fetchPublic } from "./outbound";
 import { projectEdit, projectNew, projectsList, rootFolderOf } from "./projects";
 import type { Services } from "./services";
-import { clockOf } from "./timelineModel";
+import { clockOf, CUT_JOB } from "./timelineModel";
 import { cutRange, rangeBody } from "./timelines-api";
 
 /**
@@ -323,18 +326,36 @@ const cutRangeTool = tool({
   name: "cut_range",
   scope: "make",
   title: "Cut a range",
-  description: "A range of a video or a sound, as Trim does it: copy (the range as a new item, this one kept as it is), split (the range and what is before and after it as new items) or remove (what is left without the range as a new item). Split and remove put this one in the bin once they are done (restore brings it back); one that something still uses is refused. A job of the queue, ffmpeg on this computer, no GPU; `even` evens out a sound's loudness. Answers the job (job follows it).",
+  description: "A range of a video or a sound, as Trim does it: copy (the range as a new item, this one kept as it is), split (the range and what is before and after it as new items) or remove (what is left without the range as a new item); of a video, slow (the range slowed `factor` times, 2 or 4, as a new item). Split and remove put this one in the bin once they are done (restore brings it back); one that something still uses is refused. A job of the queue: copy, split and remove are ffmpeg on this computer, no GPU (`even` evens out a sound's loudness); slow is RIFE on the GPU where ComfyUI has it, so it is held to the token's limits as a render is (renders an hour, rented pods only with Spend and within its cap). Answers the job (job follows it).",
   input: {
     item: z.string().min(1),
     startMs: z.number().min(0),
     endMs: z.number().min(0),
-    action: z.enum(["copy", "split", "remove"]),
+    action: z.enum(["copy", "split", "remove", "slow"]),
+    factor: z.union([z.literal(2), z.literal(4)]).optional().describe("Of slow: how many times slower (2 when left out)."),
     even: z.boolean().optional().describe("Of a sound: its loudness evened out."),
   },
   async run(a, ctx) {
-    const item = await timed(ctx.s, a.item);
-    const job = await cutRange(ctx.s, item.id, rangeBody.parse({ startMs: a.startMs, endMs: a.endMs, action: a.action, ...(a.even ? { even: true } : {}) }));
+    const { s, token } = ctx;
+    const item = await timed(s, a.item, a.action === "slow");
     const span = `${clockOf(a.startMs)}–${clockOf(a.endMs)}`;
+    if (a.action === "slow") {
+      const factor = a.factor ?? 2;
+      const body = rangeBody.parse({ startMs: a.startMs, endMs: a.endMs, action: "slow", factor });
+      const at = await seen(s);
+      // the checks and the queueing in one turn per token, as render's: a slow motion is a render when RIFE makes it
+      return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
+        const usd = await mayQueueAll(s, ctx, at, [{ recipe: CUT_JOB, input: { asset: item.id, startMs: a.startMs, endMs: a.endMs, action: "slow", factor }, takes: 1 }], { renders: 1 });
+        const job = await cutRange(s, item.id, body, { mcpToken: token.id });
+        ctx.said(`Slowed ${span} of ${named(item)} ×${factor}`);
+        return {
+          job: job.id, by: job.engine === "rife" ? "RIFE on the GPU" : "ffmpeg on this computer (this ComfyUI has no RIFE)",
+          on: spends(ctx) ? "wherever the queue ends it first" : "the user's own machines (this token has no Spend)",
+          ...(usd ? { mayCostUsd: Math.round(usd * 100) / 100 } : {}),
+        };
+      });
+    }
+    const job = await cutRange(s, item.id, rangeBody.parse({ startMs: a.startMs, endMs: a.endMs, action: a.action, ...(a.even ? { even: true } : {}) }));
     ctx.said(`${a.action === "copy" ? "Copied" : a.action === "split" ? "Split out" : "Removed"} ${span} of ${named(item)}`);
     return { job: job.id, ...(a.action !== "copy" ? { then: `${named(item)} goes to the bin once it is done; restore brings it back.` } : {}) };
   },

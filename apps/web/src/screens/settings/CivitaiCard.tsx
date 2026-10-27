@@ -8,6 +8,7 @@ import { MANAGER_CAUTION, NO_ROUTE } from "../../useGetFile";
 import { Button, buttonClass, cx, ErrorNote, fieldClass, Toggle } from "../../ui";
 import { Block, Card, Row, Status } from "./Rows";
 import { queryKeys } from "../../queryKeys";
+import { SETTING_HELP } from "@afflatus/core";
 
 const MANAGER_HOWTO = "ComfyUI has ComfyUI-Manager built in since 0.3.7x, off until asked for: in ComfyUI's folder run pip install -r manager_requirements.txt with its own Python (the venv's, or python_embeded in the portable build), then start ComfyUI with --enable-manager. On an older ComfyUI, clone https://github.com/Comfy-Org/ComfyUI-Manager into its custom_nodes folder instead. Either way, restart ComfyUI, then Test again in the ComfyUI tab. The desktop build has it on already. A ComfyUI that listens on the network (--listen) also needs network_mode = personal_cloud in Manager's config.ini, or it refuses the download.";
 
@@ -38,7 +39,7 @@ export function CivitaiCard() {
         setting="server.downloadModels"
         label="Download missing models"
         sub={via === "afflatus" ? "straight into ComfyUI's model folders" : via === "pack" ? "through the Afflatus node pack" : via === "manager" ? "through ComfyUI-Manager" : undefined}
-        help={`On: a missing model file gets a "Download" button, from the URL the workflow's author gave, or from Civitai once it is found there. When Afflatus can write ComfyUI's model folders (ComfyUI on this machine), it downloads the file there itself: straight to disk, resumed after a cut, named only once complete, two at a time. Otherwise the Afflatus node pack does the same on ComfyUI's machine, or, last, ComfyUI-Manager saves it (the file passes through Afflatus, which shows the progress). Nothing is downloaded until you press the button. Off: Afflatus never downloads anything; missing models only get links to open in your browser.`}
+        help={SETTING_HELP.downloadModels}
       >
         <Toggle bare on={fetching} onChange={(v) => save.mutate({ downloadModels: v })} label="Download missing models into ComfyUI" />
       </Row>
@@ -55,7 +56,7 @@ export function CivitaiCard() {
       <Row
         setting="server.civitaiLookups"
         label="Search Hugging Face and Civitai"
-        help={`On: when a model file is missing, "Search" asks Hugging Face for a file of exactly that name, and Civitai (civitai.com and civitai.red) for models with a close name. What is found is shown with a link, and with a Download button when downloading is on. Your own model files are also matched once to the site that has them, so that a rented GPU fetches them from there instead of from this PC: Civitai is sent each file's SHA-256 (a fingerprint of its content, not the file), Hugging Face its name. Off: Afflatus never contacts Hugging Face or Civitai; missing models still get links that open a search in your browser.`}
+        help={SETTING_HELP.civitaiLookups}
       >
         <Toggle bare on={on} onChange={(v) => save.mutate({ civitaiLookups: v })} label="Search Hugging Face and Civitai for missing models" />
       </Row>

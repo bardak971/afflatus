@@ -8,6 +8,7 @@ import { Block, Card, Row } from "./Rows";
 import { queryKeys } from "../../queryKeys";
 import { plural } from "../../format";
 import { COLUMNS } from "./wide";
+import { SETTING_HELP } from "@afflatus/core";
 
 const shortId = () => Math.random().toString(36).slice(2, 10);
 
@@ -149,7 +150,7 @@ export function DesignerCard() {
       <div className="flex flex-col gap-4">
         <Card
           setting="designer.notes"
-          title={<span className="flex items-center gap-1.5">System prompts <Help title="System prompts" text={`Standing instructions of your own, each under a name, picked in the designer's panel for a draft or a clip; the one picked holds for every answer of that conversation. They are added after the model's prompting guide (Settings › Prompts) and WIN over it: an instruction that says "always name the focal length" brings the lens back into every prompt, which the guides now avoid unless the picture calls for it. Say what the guide cannot know: your taste, your subject matter, your limits.`} /></span>}
+          title={<span className="flex items-center gap-1.5">System prompts <Help title="System prompts" text={SETTING_HELP.designerInstructions} /></span>}
           status={<span className="font-mono text-xs text-ink-3">{notes.length || "none"}</span>}
         >
           {notes.map((n) => (

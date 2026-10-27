@@ -313,6 +313,9 @@ describe("the tools, through the SDK's client over HTTP", () => {
       "search_library", "keep", "unkeep", "bin", "restore", "move", "rename", "list_places", "new_folder", "edit_folder", "new_project", "rename_project",
       "import_from_url", "cut_range", "find_scenes", "extract_scenes", "save_frame", "list_kit", "read_kit_item", "new_kit_item", "edit_kit_item",
       "list_timelines", "read_timeline", "view_timeline", "new_timeline", "edit_timeline", "edit_clip", "render_clips", "use_take", "finish", "export", "undo", "redo",
+      "timeline_range", "plan_clips", "mask_preview", "remove_take", "bin_unused_takes", "list_workflows", "import_workflow", "run_workflow",
+      "list_models", "find_models", "download", "downloads", "change_downloads", "model_sets", "edit_model_set", "model_settings", "change_model_settings",
+      "read_settings", "change_setting", "list_machines", "add_machine", "edit_machine", "remove_machine", "reconnect", "pods", "deploy_pod", "start_pod", "stop_pod", "costs", "caps",
     ]);
     const r = await client.callTool({ name: "overview" });
     expect(r.isError).toBeFalsy();

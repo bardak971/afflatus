@@ -5,6 +5,7 @@ import { useSettings } from "../../data";
 import { AutoText, Button, Chip, ErrorNote, Help, Toggle } from "../../ui";
 import { Block, Card, Fact, Row } from "./Rows";
 import { queryKeys } from "../../queryKeys";
+import { SETTING_HELP } from "@afflatus/core";
 
 /** The prompting guides, one per model family, folded; each opens to its text. */
 function Guides({ own, onSave }: { own: Record<string, string>; onSave(id: string, text: string): Promise<unknown> }) {
@@ -74,7 +75,7 @@ export function PromptsCard() {
   const put = async (patch: SettingsPatch) => client.setQueryData(queryKeys.settings(), await api.saveSettings(patch));
   const s = settings.data;
   return (
-    <Card setting="prompts.guides" title={<span className="flex items-center gap-1.5">Prompting guides <Help title="Prompting guides" text="How each model family's prompts are written, as the designer is told first: the rules of the model's own guide, and one example of the form. Change a family's text and yours replaces the built-in one for that family; the eye in the designer panel shows the whole system prompt as it is sent." /></span>}>
+    <Card setting="prompts.guides" title={<span className="flex items-center gap-1.5">Prompting guides <Help title="Prompting guides" text={SETTING_HELP.designerGuides} /></span>}>
       <Guides own={s?.designerGuides ?? {}} onSave={(id, text) => put({ designerGuides: { ...(s?.designerGuides ?? {}), [id]: text } })} />
     </Card>
   );
@@ -87,7 +88,7 @@ export function WritingCard() {
   const save = useMutation({ mutationFn: api.saveSettings, onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved) });
   return (
     <Card title="Writing prompts">
-      <Row setting="server.tagCheck" label="Danbooru tag check" help="For tag prompts (SDXL: Illustrious, NoobAI, Pony). Anime models learned danbooru's tags: another word does little, a typo nothing. One line under the prompt says how many tags are not on the list and opens the fixes; what the designer writes is put right the same way. The list is a file of Afflatus's: nothing is sent anywhere.">
+      <Row setting="server.tagCheck" label="Danbooru tag check" help={SETTING_HELP.tagCheck}>
         <Toggle bare on={settings.data?.tagCheck ?? true} onChange={(v) => save.mutate({ tagCheck: v })} label="Check tags against the danbooru tag list" />
       </Row>
       <Row setting="prompts.wildcards" label="Wildcards and weights" help="In every prompt: {red|black|white} is a wildcard that picks one of the choices for each output, and Ctrl + ↑ or ↓ changes the weight of the tag the cursor is in (not for MiniMax H3, which has no prompt weights).">

@@ -10,6 +10,7 @@ import { Block, Card } from "./Rows";
 import { ModelsCard } from "./ModelsTab";
 import { queryKeys } from "../../queryKeys";
 import { COLUMNS } from "./wide";
+import { SETTING_HELP } from "@afflatus/core";
 
 /** Past this many machines the tabs become a dropdown, as Render times has it. */
 const TABS_UP_TO = 4;
@@ -116,7 +117,7 @@ function AllGrid({ machines, scans, onOpen }: { machines: Machine[]; scans: Arra
     <Card
       id="models"
       setting="models.families"
-      title={<span className="flex items-center gap-1.5">Models <Help title="Models" text="Each model family on each machine: ready, how many of its operations are, off there (switched off, its files there), no files there, or away (not answering). Click a cell for that machine's tab. The switch turns the family off on every machine (out of the model lists), or back on wherever its files are." /></span>}
+      title={<span className="flex items-center gap-1.5">Models <Help title="Models" text={SETTING_HELP.families} /></span>}
     >
       {/* one grid, the machines' names its head (on two lines when narrow): each column as wide as the room allows, up to a
           chip's width, the family's name keeping room to be read; past what fits (a narrow window) it scrolls sideways
