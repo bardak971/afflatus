@@ -250,7 +250,8 @@ export const RecordingStage = forwardRef<PlayerHandle, {
               )}
               style={{ left: share(p.startMs), width: sizeOf(p.endMs - p.startMs) }}
             >
-              <span className={cx("absolute top-0 text-xs whitespace-nowrap", here ? "font-semibold text-accent" : "text-ink-2")} style={{ left: `calc(${into * 100}% + 0.375rem)` }}>
+              {/* within its own part: a long name (the one playing, in bold) ran over the next clip's on short parts */}
+              <span className={cx("absolute top-0 right-1.5 overflow-hidden text-xs text-ellipsis whitespace-nowrap", here ? "font-semibold text-accent" : "text-ink-2")} style={{ left: `calc(${into * 100}% + 0.375rem)` }}>
                 Clip {p.number}{p.over ? " · ♫ over" : ""} · {((p.endMs - p.startMs) / 1000).toFixed(1)} s{here && playing ? " · playing" : ""}
               </span>
             </div>
