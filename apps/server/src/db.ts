@@ -347,7 +347,7 @@ export interface Tables {
     created_at: string;
   };
   /** Imported ComfyUI workflows: the workflow and its mapping, as one JSON document each. */
-  workflows: { id: string; owner_id: string; def: string; created_at: string; updated_at: string };
+  workflows: { id: string; owner_id: string; def: string; created_at: string; updated_at: string; pending_token?: string | null; pending_name?: string | null };
   /**
    * What a model file says about itself (read once from its header, through ComfyUI), as JSON. `read_at` is written and
    * never read, on purpose: what was read is told stale by its `v` (MODEL_INFO_VERSION), and the date says when, for

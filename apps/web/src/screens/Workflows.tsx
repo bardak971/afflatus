@@ -7,7 +7,7 @@ import { ContextMenu, headLine, useMenu, type MenuItem } from "../ContextMenu";
 import { ask } from "../Confirm";
 import { guessModel, readBindings, type Bindings } from "@afflatus/workflows";
 import { useOpenInComfy } from "../actions";
-import { api, ApiError, type RecipeStatus, type WorkflowBrief } from "../api";
+import { api, ApiError, type RecipeStatus, type WorkflowBrief, type WorkflowReach } from "../api";
 import { useRecipes, useSettings, useSetup, useWorkflows } from "../data";
 import { useOpenNewDraft } from "../draft";
 import { notReady, plural, recipeLabel } from "../format";
@@ -210,6 +210,34 @@ function Readiness({ known, why, get, broken }: { known: boolean; why: string | 
   );
 }
 
+/** A node that reaches outside ComfyUI's folders, in a few words: its title or type, then each input and what it is set to. */
+const reachWords = (r: WorkflowReach) =>
+  `${r.title ?? r.type}${r.inputs.length ? " · " : ""}${r.inputs.map((i) => `${i.input}${i.value !== undefined ? ` = ${i.value || "(empty)"}` : i.from ? ` ← node ${i.from}` : ""}${i.onForm ? " (on the form)" : ""}`).join(", ")}`;
+
+/**
+ * A workflow an agent imported (MCP), waiting for the user's Approve: who imported it, and its nodes that read or write a
+ * path or fetch a URL, each said in full (they are what is approved). The plain words are in the "?".
+ */
+function Waiting({ by, reaches }: { by: string; reaches: WorkflowReach[] }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pl-[70px] text-xs text-ink-2">
+      <Chip tone="attention" size="xs">from {by}, waiting for you</Chip>
+      {reaches.length ? (
+        <>
+          <span>Reads, writes or fetches:</span>
+          {reaches.map((r) => <span key={r.node} className="max-w-full truncate font-mono text-ink" data-tip={reachWords(r)}>{reachWords(r)}</span>)}
+        </>
+      ) : (
+        <span>No node reads or writes a path or fetches a URL.</span>
+      )}
+      <Help
+        title="Waiting for you"
+        text={`An agent imported this workflow through MCP, with the token “${by}”. A workflow runs its nodes' code on your machines, so it does not render (from the agent or from here) until you approve it once. Listed: the nodes that read or write a file or folder, or fetch an address, with what is typed in; “on the form” means whoever renders it picks that value. Edit shows the whole graph.`}
+      />
+    </div>
+  );
+}
+
 /** A card of rows still on its way: a few placeholder bars in the shape the rows will take. */
 function Placeholder({ rows, tall }: { rows: number; tall?: boolean }) {
   return (
@@ -301,6 +329,10 @@ export function Workflows() {
     "—",
     { label: "Remove…", icon: <Trash2 size={14} />, danger: true, note: "what it made stays in the library", run: () => void ask({ title: `Remove ${w.title}?`, text: "What you generated with it stays in your library.", yes: "Remove" }).then((yes) => yes && remove.mutate(w.id)) },
   ];
+  const approve = useMutation({
+    mutationFn: api.approveWorkflow,
+    onSuccess: () => Promise.all([queryKeys.recipes(), queryKeys.setup(), queryKeys.workflows()].map((queryKey) => client.invalidateQueries({ queryKey }))),
+  });
   const remove = useMutation({
     mutationFn: api.deleteWorkflow,
     onSuccess: () => Promise.all([queryKeys.recipes(), queryKeys.setup(), queryKeys.workflows()].map((queryKey) => client.invalidateQueries({ queryKey }))),
@@ -310,7 +342,7 @@ export function Workflows() {
   const why = (recipeId: string) => (setup.isSuccess ? notReady(setup.data.recipes.find((r) => r.id === recipeId), comfyOnline) : null);
   const builtIn = (recipes.data?.families ?? []).filter((f) => !f.imported);
   // the error of the last action only: one that went through since clears an older one
-  const last = [open, shareIt, tryIt, remove, openInComfy].reduce((a, m) => (m.submittedAt > a.submittedAt ? m : a));
+  const last = [open, shareIt, tryIt, approve, remove, openInComfy].reduce((a, m) => (m.submittedAt > a.submittedAt ? m : a));
   // the list's own error is said in its place, under "Your workflows". What an editor that could not open left to say
   // stands until the first action here.
   const error = last.error?.message ?? (last.submittedAt ? null : note);
@@ -403,7 +435,8 @@ export function Workflows() {
                 const menuHere = Boolean(cardMenu.menu && fromMore && menuOf?.id === w.id);
                 // not ready: the fix comes first, and Try it stays (the form opens; Generate waits for the fix). Every row button is
                 // quiet: coral is the page's one main action, Import
-                const fix = comfyOnline || w.problem ? fixOf(status, w.problem) : null;
+                // waiting for the user's approval: Approve takes the fix's place (the fix is still Edit, in the ···)
+                const fix = !w.waiting && (comfyOnline || w.problem) ? fixOf(status, w.problem) : null;
                 return (
                   <div key={w.id} className={cx("flex flex-col gap-1.5 px-4 py-3", i > 0 && "border-t border-line")} onContextMenu={(e) => { setFromMore(false); cardMenu.open(e, w); }}>
                     <div className="grid grid-cols-[56px_minmax(0,1fr)_170px_184px] items-center gap-3.5">
@@ -418,10 +451,11 @@ export function Workflows() {
                       </Link>
                       <Readiness known={setup.isSuccess || Boolean(w.problem)} why={problem} get={w.problem ? null : toGet(status)} broken={Boolean(w.problem || status?.problems?.length)} />
                       <div className="flex items-center justify-end gap-1.5">
+                        {w.waiting && <Button size="sm" tone="quiet" onClick={() => approve.mutate(w.id)} disabled={approve.isPending} data-tip="Lets it render, from here and from the agent" className="whitespace-nowrap">Approve</Button>}
                         {fix && <Button size="sm" tone="quiet" onClick={() => editIt(w.id)} data-tip={fix.tip} className="whitespace-nowrap">{fix.label}</Button>}
                         <Button size="sm" tone="quiet" onClick={() => tryIt.mutate(w.id)} disabled={tryIt.isPending} data-tip={fix ? "Opens the form with this workflow picked, on a new draft. It renders once it is ready." : "Opens the form with this workflow picked, on a new draft."} className="whitespace-nowrap">Try it</Button>
                         {/* the fix opens the editor already: a second button for it would say the same */}
-                        {!fix && <Button size="sm" tone="quiet" onClick={() => editIt(w.id)}>Edit</Button>}
+                        {!fix && !w.waiting && <Button size="sm" tone="quiet" onClick={() => editIt(w.id)}>Edit</Button>}
                         <button
                           type="button"
                           aria-label={`More actions on ${w.title}`}
@@ -435,6 +469,7 @@ export function Workflows() {
                         </button>
                       </div>
                     </div>
+                    {w.waiting && <Waiting by={w.waiting.by} reaches={w.waiting.reaches} />}
                     {opened?.id === w.id && !opened.direct && (
                       <div className="flex items-center gap-1.5 pl-[70px] text-xs text-ink-2">
                         Saved in ComfyUI as <span className="font-mono text-ink">{opened.path}</span>

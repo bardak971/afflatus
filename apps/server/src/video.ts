@@ -37,6 +37,21 @@ export function localInputs(args: string[]): string[] {
   return args.includes("-i") ? args.flatMap((a) => (a === "-i" ? [...only, a] : [a])) : [...only, ...args];
 }
 
+/**
+ * The containers a file from a stranger may be read as (an upload, MCP's import_from_url, a workflow fetched from an
+ * address): videos and sounds, by ffmpeg's demuxer names. Lists of other files (HLS, DASH, concat, an image sequence),
+ * lavfi and the rest are refused before anything is opened: with only `file` allowed, a DASH or HLS manifest still opened
+ * files elsewhere on the disk, and a frame of one would have come back into the library. Afflatus's own runs (an export's
+ * concat list, lavfi's silence) are not held to it.
+ */
+const STRANGER_FORMATS = "mov,mp4,matroska,webm,avi,mpegts,mpeg,flv,ogg,wav,w64,aiff,mp3,flac,aac,asf";
+
+/** A run's arguments with its input read only as one of STRANGER_FORMATS: before each `-i` of ffmpeg, first for ffprobe. */
+export function strangerInput(args: string[]): string[] {
+  const only = ["-format_whitelist", STRANGER_FORMATS];
+  return args.includes("-i") ? args.flatMap((a) => (a === "-i" ? [...only, a] : [a])) : [...only, ...args];
+}
+
 /** The major version in ffmpeg's `-version` line ("ffmpeg version 9.0.2-full_build…" → 9); null when it names none (a nightly names a commit, "N-112345-g…"). */
 export function majorOf(line: string): number | null {
   const m = /version\s+n?(\d+)\./i.exec(line);
@@ -179,7 +194,7 @@ export function factsOf(info: ProbeInfo): VideoFacts | null {
 /** The first frame of a video file, as a PNG; null when ffmpeg is not there or could not read it. */
 export async function firstFrame(file: string): Promise<Uint8Array | null> {
   const out = join(dirname(file), `${basename(file)}.frame.png`);
-  const made = await run(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", file, "-frames:v", "1", out], "utf8");
+  const made = await run(tools.ffmpeg, strangerInput(["-y", "-loglevel", "error", "-i", file, "-frames:v", "1", out]), "utf8");
   const frame = made.out === null ? null : await readFile(out).then((b) => new Uint8Array(b), () => null);
   await rm(out, { force: true }).catch(() => {});
   return frame;

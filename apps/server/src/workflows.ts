@@ -8,10 +8,11 @@ import { bindings, fromEditor, graph as graphSchema, inspect, isEditorFormat, pa
 import type { Services } from "./services";
 import { openInComfy } from "./comfyOpen";
 import { loginKeyOf } from "./comfyLogins";
-import { made } from "./registry";
+import { made, type Pending } from "./registry";
 import { installPacks, packStatus } from "./packs";
 import { readSettings } from "./settings";
 import { sourcesFor } from "./sources";
+import { reachOf } from "./workflowReach";
 
 /**
  * Importing a ComfyUI workflow: read it, show what was found, save it with the mapping the user
@@ -82,6 +83,15 @@ function checkBindings(graph: Graph, b: Bindings): void {
 
 export const brief = (d: WorkflowDef, problem?: string) => ({ id: d.id, title: d.title, model: d.model, source: d.source, output: d.bindings.result.kind, nodes: Object.keys(d.graph).length, ...(problem ? { problem } : {}) });
 
+/**
+ * A workflow as the lists give it (Studio › Workflows, MCP's list_workflows): its brief, why it cannot be built when it
+ * cannot, and, when an agent imported it and the user has not approved it yet, which token did and what it reaches.
+ */
+export function listed(s: Services, d: WorkflowDef) {
+  const waits = s.registry.pending(d.id);
+  return { ...brief(d, s.registry.problem(d.id)), ...(waits ? { waiting: { by: waits.name, reaches: reachOf(d) } } : {}) };
+}
+
 /** The workflow is built once, as mapped, before it is kept: one that cannot be built is refused here, not found at the next start. */
 function mustBuild(def: WorkflowDef): void {
   try {
@@ -144,8 +154,11 @@ export async function inspectWorkflow(s: Services, body: unknown) {
   return { ...(await withElsewhere(inspect(exported!, catalog))), graph: exported };
 }
 
-/** A new workflow kept as mapped (the web's Save, and MCP's import_workflow): checked, built once, given an id from its title. */
-export async function createWorkflow(s: Services, raw: unknown) {
+/**
+ * A new workflow kept as mapped (the web's Save, and MCP's import_workflow): checked, built once, given an id from its
+ * title. `by`: the MCP token importing it, which leaves it waiting for the user's approval.
+ */
+export async function createWorkflow(s: Services, raw: unknown, by?: Pending) {
   const body = saveBody.parse(raw);
   checkBindings(body.graph as Graph, body.bindings);
   // the id comes from the title and stays: generations and drafts refer to it
@@ -154,14 +167,21 @@ export async function createWorkflow(s: Services, raw: unknown) {
   for (let n = 2; s.registry.recipe(id); n++) id = `${base}-${n}`;
   const def = workflowDef.parse({ id, ...body });
   mustBuild(def);
-  await s.registry.save(def);
+  await s.registry.save(def, by);
   return brief(def);
 }
 
 export function registerWorkflows(app: FastifyInstance, s: Services): void {
   app.post("/api/workflows/inspect", async (req) => inspectWorkflow(s, req.body));
 
-  app.get("/api/workflows", async () => ({ items: s.registry.workflows().map((d) => brief(d, s.registry.problem(d.id))) }));
+  app.get("/api/workflows", async () => ({ items: s.registry.workflows().map((d) => listed(s, d)) }));
+
+  /** The user's approval of a workflow an agent imported (its card's Approve): it renders from then on. Never reachable through MCP. */
+  app.post<{ Params: { id: string } }>("/api/workflows/:id/approve", async (req) => {
+    if (!(await s.registry.approve(req.params.id))) throw httpError("this workflow was not found", 404);
+    s.queue.events.emit("setup");
+    return { ok: true };
+  });
 
   /** The ComfyUI a pack install goes to: the one named (Settings › Models, a machine's tab), else the first. A machine named and gone is not the first one. */
   const comfyOf = async (machine?: string) => {

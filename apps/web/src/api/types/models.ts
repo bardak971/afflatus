@@ -150,6 +150,15 @@ export interface WorkflowBrief {
   nodes: number;
   /** Why it is not offered as a form: it could not be built (a newer node's format, say). Still listed, so it can be fixed or removed. */
   problem?: string;
+  /** An agent imported it (MCP) and it waits for the user's Approve before it renders: the token's name, and what it reaches. */
+  waiting?: { by: string; reaches: WorkflowReach[] };
+}
+/** A node of a workflow that reads or writes a path or fetches an address (server workflowReach.ts), with the inputs that do. */
+export interface WorkflowReach {
+  node: string;
+  type: string;
+  title?: string;
+  inputs: Array<{ input: string; value?: string; from?: string; onForm?: true }>;
 }
 /** What is saved for a workflow: the workflow itself and which of its parts Afflatus fills in. */
 export interface WorkflowBody {

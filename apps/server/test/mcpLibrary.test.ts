@@ -4,6 +4,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { makePng } from "@afflatus/comfy/testing";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KitEdit } from "../src/mcpKit";
+import { importLimits } from "../src/mcpLibrary";
 import { FFMPEG_TIMEOUT, ffmpegThere, patternClip } from "./clipKit";
 import { get, makeApp, post, until, type TestApp } from "./helpers";
 
@@ -15,12 +16,30 @@ import { get, makeApp, post, until, type TestApp } from "./helpers";
 
 // an address on the internet that answers a picture, without the internet: the rest of outbound.ts as it is
 const PICTURE_URL = "https://pictures.example/zz-test/lamp.png";
+// one that answers only once let go (two imports at once), one of 120 kB that says no length, one that says 90 kB
+const SLOW_URL = "https://pictures.example/zz-test/slow.png";
+const NOLEN_URL = "https://pictures.example/zz-test/nolen.bin";
+const SAID_URL = "https://pictures.example/zz-test/said.bin";
+const slow = { asked: false, go: () => {} };
+const picture = () => new Response(Buffer.from(makePng(24, 16, [9, 9, 9], [200, 10, 10])), { headers: { "content-type": "image/png" } });
 vi.mock("../src/outbound", async (actual) => {
   const real = await actual<typeof import("../src/outbound")>();
   return {
     ...real,
-    fetchPublic: vi.fn(async (url: string, ...rest: Parameters<typeof real.fetchPublic> extends [string, ...infer R] ? R : never) =>
-      url === PICTURE_URL ? new Response(Buffer.from(makePng(24, 16, [9, 9, 9], [200, 10, 10])), { headers: { "content-type": "image/png" } }) : real.fetchPublic(url, ...rest)),
+    fetchPublic: vi.fn(async (url: string, ...rest: Parameters<typeof real.fetchPublic> extends [string, ...infer R] ? R : never) => {
+      if (url === PICTURE_URL) return picture();
+      if (url === SLOW_URL) {
+        slow.asked = true;
+        await new Promise<void>((go) => (slow.go = go));
+        return picture();
+      }
+      if (url === NOLEN_URL) {
+        let sent = 0;
+        return new Response(new ReadableStream({ pull(c) { if (sent >= 2) return c.close(); sent++; c.enqueue(new Uint8Array(60_000).fill(7)); } }));
+      }
+      if (url === SAID_URL) return new Response(new Uint8Array(10), { headers: { "content-length": "90000" } });
+      return real.fetchPublic(url, ...rest);
+    }),
   };
 });
 
@@ -163,6 +182,33 @@ describe("the library", () => {
     await refused(c, "import_from_url", { url: "http://192.168.1.20/a.png" }, /inside your own network/);
     await refused(c, "import_from_url", { url: "http://127.0.0.1:8188/view?filename=a.png" }, /inside your own network/);
     await c.close();
+  });
+
+  it("imports one file at a time per token, each held to an agent's most, and no more than the token's bytes of the day", async () => {
+    const was = { ...importLimits };
+    Object.assign(importLimits, { file: 100_000, day: 150_000 });
+    try {
+      const c = await connect();
+      // a second import while the first is under way is refused; once it ends, the next goes
+      const first = ok(c, "import_from_url", { url: SLOW_URL });
+      await until(() => slow.asked);
+      await refused(c, "import_from_url", { url: PICTURE_URL }, /already importing a file: one at a time/);
+      slow.go();
+      expect((await first).kind).toBe("image");
+      // past the most of a file: stopped as it comes when no length is said, at once when one is
+      await refused(c, "import_from_url", { url: NOLEN_URL }, /an agent imports at most/);
+      // what it fetched counts: 120 kB of the day's 150 kB, so 90 kB said goes past what is left
+      await refused(c, "import_from_url", { url: SAID_URL }, /goes past what this token may still fetch today/);
+      expect((await ok(c, "import_from_url", { url: PICTURE_URL })).kind).toBe("image");
+      await refused(c, "import_from_url", { url: NOLEN_URL }, /may still fetch today/);
+      await refused(c, "import_from_url", { url: PICTURE_URL }, /over the last 24 hours, the most it may/);
+      // another token has a day of its own
+      const other = await connect();
+      expect((await ok(other, "import_from_url", { url: PICTURE_URL })).kind).toBe("image");
+      await Promise.all([c.close(), other.close()]);
+    } finally {
+      Object.assign(importLimits, was);
+    }
   });
 });
 
