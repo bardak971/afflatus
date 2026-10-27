@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import { notFilled, plural, type Recipe } from "@afflatus/core";
 import { z } from "zod";
 import type { Tables } from "./db";
@@ -10,6 +11,7 @@ import { formArgs, formAsked, machineName, machineOf, seen, spends, wholeOf, typ
 import { tool, type ToolCtx } from "./mcpTool";
 import { refusal } from "./mcpTokens";
 import { runwayNeed } from "./rentedBilling";
+import { EXPORT_JOB } from "./timelineModel";
 import type { Services } from "./services";
 import { readSettings, type Machine } from "./settings";
 
@@ -181,7 +183,7 @@ const render = tool({
   name: "render",
   scope: "make",
   title: "Render",
-  description: "Render a draft as it stands (or a form with values): N takes, on a machine or wherever the queue would end it first. The same path as Create's Render, with the same refusals (an unfilled input, files that give black frames). The token's renders-an-hour limit holds; a rented pod needs Spend (a token without it never lands on one, picked or pinned) and stays within the token's spend cap, its waiting and running work counted. Answers the job ids (job, queue_status follow them) and what it may cost.",
+  description: "Render a draft as it stands (or a form with values): N takes, on a machine or wherever the queue would end it first. The same path as Create's Render, with the same refusals (an unfilled input, files that give black frames). The token's renders-an-hour limit holds; a rented pod needs Spend (a token without it never lands on one, picked or pinned) and stays within the token's spend cap, its waiting and running work counted. Answers the job ids (job, queue_status follow them; job with wait waits for the end) and what it may cost. Render a draft when the user should be able to open and change what made the take in Create (new_draft, edit_draft); a form with values leaves no draft. A video comes out on the model's own frame count, a little off the seconds asked (H3's 6 s: 5.875 s): not a failure.",
   input: {
     ...formArgs,
     takes: z.number().int().min(1).max(8).optional().describe("How many takes (1–8); a draft's own batch when left out."),
@@ -273,6 +275,9 @@ const queueStatus = tool({
 });
 
 /** A job's row, refused with where to find the ids when there is none. */
+/** The longest `job` waits for a job to end: under the minute a client's call is given. */
+const JOB_WAIT_MOST_S = 50;
+
 async function jobRow(s: Services, id: string): Promise<Tables["jobs"]> {
   const row = await s.db.selectFrom("jobs").selectAll().where("id", "=", id).executeTakeFirst();
   if (!row) throw httpError("There is no such job: queue_status and render give the ids.", 404);
@@ -283,11 +288,19 @@ const job = tool({
   name: "job",
   scope: "look",
   title: "Job",
-  description: "One job: waiting (when it starts, how long it takes), running (progress, time left, phase), or ended (done with the library items it made, which view_item shows; failed with why; cancelled).",
-  input: { job: z.string().min(1) },
-  async run({ job: id }, ctx) {
+  description: "One job: waiting (when it starts, how long it takes), running (progress, time left, phase), or ended (done with the library items it made, which view_item shows; failed with why; cancelled). `wait` holds the answer until the job ends or that many seconds pass, rather than asking again and again.",
+  input: {
+    job: z.string().min(1),
+    wait: z.number().int().min(0).max(JOB_WAIT_MOST_S).optional().describe(`Seconds to wait for the job to end before answering (at most ${JOB_WAIT_MOST_S}); left out, it answers at once. Ask again with wait if it is still going.`),
+  },
+  async run({ job: id, wait }, ctx) {
     const { s } = ctx;
-    const row = await jobRow(s, id);
+    let row = await jobRow(s, id);
+    // a client's call times out after a minute or so: the wait stays under it, the job read again each second
+    for (const until = Date.now() + (wait ?? 0) * 1000; (row.status === "queued" || row.status === "running") && Date.now() < until;) {
+      await sleep(Math.min(1000, until - Date.now()));
+      row = await jobRow(s, id);
+    }
     const names = await machineNames(s);
     if (row.status === "queued" || row.status === "running") {
       const st = await s.queue.statusRecent();
@@ -297,10 +310,17 @@ const job = tool({
     }
     const page = await s.queue.history({ ids: [id] });
     const h = page.items[0];
+    const made = h?.made.map((a) => ({ item: a.id, kind: a.kind, width: a.width, height: a.height, durationMs: a.durationMs })) ?? [];
+    // an export makes no generation: its video is the timeline's export (the newest, the one this job made unless another came since)
+    if (row.status === "done" && row.recipe_id === EXPORT_JOB && row.timeline_id && !made.length) {
+      const exported = (await s.timelines.view(row.timeline_id).catch(() => null))?.exported;
+      if (exported) made.push({ item: exported.id, kind: exported.kind, width: exported.width, height: exported.height, durationMs: exported.durationMs });
+    }
     ctx.said(`Followed the job “${row.label}”: ${row.status}`);
     return {
       ...jobSaid({ id, label: row.label, recipe: row.recipe_id, status: row.status, machine: row.machine_id, error: row.error }, names),
-      ...(h ? { tookMs: h.tookMs, seed: h.seed, made: h.made.map((a) => ({ item: a.id, kind: a.kind, width: a.width, height: a.height, durationMs: a.durationMs })) } : {}),
+      ...(h ? { tookMs: h.tookMs, seed: h.seed } : {}),
+      ...(h || made.length ? { made } : {}),
     };
   },
 });

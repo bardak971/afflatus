@@ -200,7 +200,13 @@ describe("render, follow and see", () => {
     const st = (await t.app.inject({ method: "GET", url: "/api/queue" })).json();
     expect([st.running, ...st.waiting].filter(Boolean)[0].by).toEqual({ name: "Claude Desktop", jobs: 2 });
     await until(() => fake.prompts.size >= 1);
+    // job's wait: still going after a second, it answers as it stands; it answers the end as soon as the job ends
+    const t0 = Date.now();
+    expect(json(await call(c, "job", { job: r.jobs[0], wait: 1 })).status).toMatch(/running|waiting/);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(900);
+    const waited = call(c, "job", { job: r.jobs[0], wait: 30 });
     await finish([...fake.prompts.keys()][0]!, "#c33");
+    expect(json(await waited)).toMatchObject({ status: "done", made: [expect.objectContaining({ kind: "image" })] });
     await until(() => fake.prompts.size >= 2);
     await finish([...fake.prompts.keys()][1]!, "#33c");
     await t.services.queue.idle();
