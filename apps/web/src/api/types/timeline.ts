@@ -122,12 +122,22 @@ export interface Clip {
   atMs: number;
   lengthMs: number;
   /**
-   * Its take's sound stops short of its frames before a cut: the rest is its recording itself, `ms` long from `fromMs` of
-   * its video, from `songS` of the recording, at `gainDb` (the server's timelineSoundFill.ts; the player's useSoundFill).
+   * What is heard of it, as parts over its own time (ms from where it starts playing): the song under Lip sync clips played
+   * from its recording, else its take's own sound, each from `atS` of `asset` at `gainDb` (the server's timelineSong.ts).
+   * The player plays them on the sound card's clock (useSong), its video's own sound muted; the export lays the same.
    */
-  soundFill?: { asset: string; fromMs: number; ms: number; songS: number; gainDb: number };
+  soundParts?: SoundPart[];
   job: { id: string; status: "queued" | "running" } | null;
   failed: string | null;
+}
+/** One part of what is heard of a clip (Clip.soundParts). */
+export interface SoundPart {
+  kind: "song" | "own";
+  asset: string;
+  fromMs: number;
+  toMs: number;
+  atS: number;
+  gainDb: number;
 }
 export interface Timeline {
   id: string;

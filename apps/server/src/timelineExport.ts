@@ -1,5 +1,5 @@
 import { fromRender } from "./aiMark";
-import { CutError } from "./cut";
+import { CutError, type Media } from "./cut";
 import { type FrameMeans } from "./measure";
 import { BLEND_MS, DISSOLVE_MS, type ExportMusic, type ExportPart, joinVideosInto } from "./exportJoin";
 import { newId, now } from "./db";
@@ -13,7 +13,7 @@ import { generationOfTake } from "./timelinePlan";
 import { fewAtATime } from "./timelineMedia";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideoFile } from "./video";
-import type { SoundFill } from "./timelineSoundFill";
+import type { SoundPart } from "./timelineSong";
 import { carried, clockOf, joinFade, laidOut, sameMaking, seamless, visible, type AssetRow, type Laid, type Placed, type Taken, type TimelineCore, type TimelineRow, musicBaseOf, musicClipsOf, transitionOfRow } from "./timelineModel";
 
 /** A timeline as one video: its clips that play joined in order, with their sounds, its music and the joins softened. */
@@ -36,8 +36,8 @@ export class TimelineExport {
     private readonly core: TimelineCore,
     /** A video's frame means, kept beside it (TimelineMedia.means): the colour match reads them rather than measure each join. */
     private readonly means: (asset: AssetRow) => Promise<FrameMeans | null> = async () => null,
-    /** What fills the end of a clip's take from its recording before a cut (Timelines.soundFillFor): the player's fill, laid exactly. */
-    private readonly fill: (p: Placed, next: Placed | undefined) => Promise<SoundFill | null> = async () => null,
+    /** What is heard of a clip as parts, the song played from its recording (Timelines.soundPartsFor): the player's, laid exactly. */
+    private readonly songParts: (p: Placed, prior: Placed | undefined, next: Placed | undefined) => Promise<SoundPart[] | null> = async () => null,
   ) {}
 
   /**
@@ -47,12 +47,23 @@ export class TimelineExport {
   async export(id: string, opts: ExportAsk = {}) {
     const { t, shown, win, frame, fps, music } = await this.layout(id, opts);
     const parts: ExportPart[] = [];
+    // each clip's neighbours on the timeline (not only those in a range): what is heard of it is the player's (soundPartsFor)
+    const all = await this.core.placed(id);
+    const index = new Map(all.map((p, k) => [p.clip.id, k]));
     for (const [i, l] of shown.entries()) {
       const part = await this.partFor(l, partWindow(l, win), parts.at(-1), shown[i - 1]?.p, opts.blend !== false, fps);
-      // its take's sound filled from its recording at its end, before a cut (Timelines.soundFillFor): only a part played to its clip's end
-      const fill = part.kind === "video" && partWindow(l, win).to === l.lengthMs ? await this.fill(l.p, shown[i + 1]?.p) : null;
-      const recording = fill ? await this.core.assetRow(fill.asset) : undefined;
-      if (fill && recording) part.soundFill = { source: await sourceOf(this.core.storage, recording.file_key), ext: extOf(recording.mime), fromMs: fill.fromMs, songS: fill.songS, gainDb: fill.gainDb };
+      const k = index.get(l.p.clip.id) ?? -1;
+      const heard = part.kind === "video" && k >= 0 ? await this.songParts(l.p, all[k - 1], all[k + 1]) : null;
+      if (heard && l.p.active) {
+        const sources = new Map<string, { source: Media; ext: string }>();
+        for (const id of new Set(heard.map((h) => h.asset))) {
+          const row = await this.core.assetRow(id);
+          if (row) sources.set(id, { source: await sourceOf(this.core.storage, row.file_key), ext: extOf(row.mime) });
+        }
+        if (heard.every((h) => sources.has(h.asset))) part.soundParts = { offsetMs: visible(l.p.active).start, parts: heard.map((h) => ({ ...h, ...sources.get(h.asset)! })) };
+      }
+      // the song played as one track on either side of a join: no early hand-over into the head (its own copy of the song)
+      if (part.soundParts || parts.at(-1)?.soundParts) delete part.headSoundMs;
       parts.push(part);
     }
     // the colour match reads every video's kept frame means, a few at a time (worked out and kept where missing, as the

@@ -1,6 +1,7 @@
 import { useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { FRAME_SLACK_MS, joinFade, MIN_FADE_MS, soundHandover, TRANSITIONS, transitionSpan } from "@afflatus/core";
 import type { Clip } from "../api";
+import { heardByVideo } from "./useSong";
 
 /**
  * How long before a clip ends the clip after starts running hidden, so that it takes over with frames ready and in step. Over
@@ -40,7 +41,8 @@ export const dissolveOf = (c: Clip | undefined, from: Clip | undefined) => (fade
  * `c` runs hidden over its head meanwhile (PREROLL_MS), the same moments as `from`'s last ones, whose own sound ends silent.
  */
 export function soundHandoverOf(c: Clip | undefined, from: Clip | undefined): number {
-  if (!c?.take || !from?.take || c.joined !== "continue" || c.transition) return 0;
+  // the song played as one track on either side (useSong): nothing to hand over, it runs on
+  if (!c?.take || !from?.take || c.joined !== "continue" || c.transition || c.soundParts || from.soundParts) return 0;
   return soundHandover({
     seamless: Boolean(c.take.seamless),
     carried: Boolean(c.take.carried),
@@ -225,7 +227,7 @@ export function useHandover(h: Handover) {
         fadeOn.current = true;
         // silent by its volume, not muted: unmuted at the take-over, a playing video starts its sound and its picture stalled
         // there for two or three frames (its first frame stayed up ~45 ms, measured 2026-10-08); a volume change costs nothing
-        nextEl.muted = after?.sound !== "own";
+        nextEl.muted = !heardByVideo(after);
         nextEl.volume = 0;
         if (nextEl.playbackRate !== 1) nextEl.playbackRate = 1;
         // all but invisible, not invisible: a video at opacity 0 is not kept drawn, and shown it put its first frame up a display

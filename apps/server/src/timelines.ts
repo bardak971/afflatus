@@ -1,7 +1,7 @@
 import { chatJson } from "./llm";
 import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
-import { carriedOf, carryOver, joinFrames, joinWay, laysSound, madeAroundRecording, musicPlan, recordingSpecOf, sungHead, plural, recordingPart, recordingParts, sameWindowGrid, CUT_WINDOW, type ClipGrid, type CutMarks, trimIn, typedSeed, type ClipMusic, type SourceWindow, type InputSpec, type Recipe, type Transition } from "@afflatus/core";
+import { carriedOf, carryOver, joinFrames, joinWay, laysSound, madeAroundRecording, musicPlan, recordingSpecOf, sungHead, plural, recordingPart, recordingParts, sameWindowGrid, CUT_WINDOW, type ClipGrid, type CueValue, type CutMarks, trimIn, typedSeed, type ClipMusic, type SourceWindow, type InputSpec, type Recipe, type Transition } from "@afflatus/core";
 import { newId, now, OWNER, toRun, type Db } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError, notFound } from "./errors";
@@ -21,10 +21,10 @@ import { madeOf, takeView, TimelineViews } from "./timelineViews";
 import { draftOf, generationOfTake, ownInputIds, recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
 import { clipsOfSource, patchedSource, planWindows, sourceOfRow, windowFormFor, windowRunUp, windowsOf, windowsReaching, type SourcePatch, type SourcePlan } from "./timelineSource";
 import { TimelineTakes } from "./timelineTakes";
-import { carriesOn, laidSong, soundFillOf, type SoundFill } from "./timelineSoundFill";
+import { cueStretches, laidSong, soundPartsOf, type SoundPart } from "./timelineSong";
 import { aroundRemoved, foldParts, keptAround, removalOf, removedOf, removedView, renderedSince, type ParkedClip, type Removal, type RemovedPart } from "./timelineRemoved";
 import { unusedSize, unusedTakes } from "./timelineUnused";
-import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, setTrims, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, mirroredPins, mirrorJson, mirrorOfRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow, transitionJson, transitionOfRow, visible } from "./timelineModel";
+import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, setTrims, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, mirroredPins, mirrorJson, mirrorOfRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow, transitionJson, transitionOfRow, visible, joinFade } from "./timelineModel";
 
 /**
  * Timelines: clips played one after the other. A clip is a place on the timeline with a form (what to
@@ -208,7 +208,7 @@ export class Timelines {
     };
     this.range = new TimelineRange(core);
     this.media = new TimelineMedia(core);
-    this.exporter = new TimelineExport(core, (asset) => this.media.means(asset), (p, next) => this.soundFillFor(p, next));
+    this.exporter = new TimelineExport(core, (asset) => this.media.means(asset), (p, prior, next) => this.soundPartsFor(p, prior, next));
     this.takes = new TimelineTakes(core);
     this.planner = new TimelinePlan(core, this.takes, this.media);
     this.history = new TimelineHistory(db, (id) => this.row(id), () => this.changed(), (id) => this.partKeys(id));
@@ -419,7 +419,7 @@ export class Timelines {
     };
     let at = 0;
     const hidden = sourceOfRow(t.source)?.hidden;
-    const fills = await Promise.all(all.map((p, i) => this.soundFillFor(p, all[i + 1])));
+    const songParts = await Promise.all(all.map((p, i) => this.soundPartsFor(p, all[i - 1], all[i + 1])));
     const clips = all.map((p, i) => {
       const length = lengthOf(p);
       const job = live.get(p.clip.id);
@@ -450,8 +450,8 @@ export class Timelines {
         mirrorChanged: this.mirrorChanged(all, i, flipped),
         /** Where it starts on the timeline, and how long it plays. */
         atMs: at, lengthMs: length,
-        /** Its take's sound filled from its recording where it stops short, before a cut (timelineSoundFill.ts): the player plays it as the export does. */
-        ...(fills[i] ? { soundFill: fills[i] } : {}),
+        /** What is heard of it as parts: the song under it played from its recording, else its take's own (timelineSong.ts), the player's and the export's alike. */
+        ...(songParts[i] ? { soundParts: songParts[i] } : {}),
         job: job ? { id: job.id, status: job.status } : null,
         /** Why the last render gave nothing, until another one is asked for. */
         failed: !job && ended?.status === "failed" ? ended.error : null,
@@ -468,23 +468,29 @@ export class Timelines {
   }
 
   /**
-   * What fills the end of a clip's take from its recording, where its own sound stops short of its frames and the clip
-   * after does not carry on from it (timelineSoundFill.ts), as the view gives it to the player and the export lays it.
-   * The cheap reasons first: most clips carry on, or have no recording laid. Its render's record says what was laid (a
-   * finish made by a cut reads its draft's), the take's sound end and level are measured once (TimelineMedia.soundTail).
+   * What is heard of a clip, as parts (timelineSong.ts): its take's recording played from the recording itself, its own
+   * sound where the file is not that recording (a cue, the model's moment before the words, a last clip's faded tail). Null
+   * where its sound stays its take's own as before: not its own sound heard, no recording laid in it, a transition into it
+   * or out of it (their sound fades), a fade from or to a landing or a dissolve, or the recording's gain unknown. The view
+   * gives the player these parts and the export lays the same ones.
    */
-  async soundFillFor(p: Placed, next: Placed | undefined): Promise<SoundFill | null> {
+  async soundPartsFor(p: Placed, prior: Placed | undefined, next: Placed | undefined): Promise<SoundPart[] | null> {
     const x = p.active;
     if (!x || p.clip.kind !== "video" || p.clip.sound !== "own" || !x.asset.has_sound) return null;
-    if (carriesOn(next && { kind: next.clip.kind, joined: next.clip.joined, transition: transitionOfRow(next.clip) })) return null;
+    if ((prior && transitionOfRow(p.clip)) || (next && transitionOfRow(next.clip))) return null;
+    if (joinFade(x, p.clip.joined === "continue" && prior?.clip.kind === "video")) return null;
+    if (next?.active && next.clip.kind === "video" && joinFade(next.active, next.clip.joined === "continue")) return null;
     const genId = generationOfTake(x, p.takes);
     const gen = genId ? await this.db.selectFrom("generations").select(["recipe_id", "inputs"]).where("id", "=", genId).executeTakeFirst() : undefined;
-    const inputs = this.registry.recipe(gen?.recipe_id ?? p.clip.recipe_id ?? "")?.inputs ?? [];
-    const song = laidSong(inputs, gen ? (JSON.parse(gen.inputs) as Record<string, unknown>) : undefined, x.take.head_ms);
+    const recipe = this.registry.recipe(gen?.recipe_id ?? p.clip.recipe_id ?? "");
+    const made = gen ? (JSON.parse(gen.inputs) as Record<string, unknown>) : undefined;
+    const song = laidSong(recipe?.inputs ?? [], made, x.take.head_ms);
     const recording = song ? await this.assetRow(song.asset) : undefined;
     if (!song || !recording) return null;
-    const tail = await this.media.soundTail(x.asset, recording, song.at);
-    return soundFillOf({ sound: p.clip.sound, hasSound: true, song, endMs: visible(x).end, nextCarriesOn: false, tail });
+    const gainDb = song.even ? await this.media.songGain(recording) : 0;
+    if (gainDb === null) return null;
+    const cues = cueStretches(made?.cues as CueValue[] | undefined, x.take.head_ms, recipe?.traits?.fps ?? 24);
+    return soundPartsOf({ song, take: x.asset.id, shown: visible(x), gainDb: Math.round(gainDb * 100) / 100, cues });
   }
 
   // ---------------------------------------------------------------- editing
