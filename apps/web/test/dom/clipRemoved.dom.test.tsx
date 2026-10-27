@@ -42,7 +42,7 @@ const clips = [
 const timeline = {
   id: "zz-test-rec", name: "zz-test recording", width: 576, height: 1024, clips, durationMs: 20_000, look: null, mood: "", music: null, source: null,
   undo: null, redo: null, exporting: null, exported: null, exportFailed: null, folderId: null, projectId: null,
-  recordings: [{ asset: sound, parked: 0, parkedTakes: 0, seconds: 5, snap: true, removed: [] }],
+  recordings: [{ asset: sound, parked: 0, parkedTakes: 0, seconds: 5, window: 1.5, removed: [] }],
 } as unknown as Timeline;
 const recipes = [video, lipSync];
 

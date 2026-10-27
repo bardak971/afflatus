@@ -15,7 +15,7 @@ import { pinMenuItems, placeItems, type ClipMenuActions } from "./menus";
 import type { ContextMenu } from "../ContextMenu";
 import type { LoadedEditor } from "./useTimelineEditor";
 import { plural } from "../format";
-import { carriedOf, sameWindowGrid, windowBounds } from "@afflatus/core";
+import { carriedOf, CUT_WINDOW, sameWindowGrid, windowBounds } from "@afflatus/core";
 import { madeFromSource, sourceDropClip, windowed } from "./track/SourceLane";
 import type { ClipSource } from "./inspector/clipSource";
 import type { ClipRecording } from "./inspector/clipRecording";
@@ -325,7 +325,7 @@ export function recordingPanelProps(e: LoadedEditor, place: NonNullable<LoadedEd
   const trimAsk = e.recordingTrim.ask?.asset === asset ? e.recordingTrim.ask : null;
   const cutAsk = e.recordingCut.ask?.asset === asset ? e.recordingCut.ask : null;
   const seconds = recording.seconds ?? 5;
-  const snap = recording.snap ?? true;
+  const within = recording.window ?? CUT_WINDOW;
   // what the clips share: the scene and how they look, as each clip's form holds it now (what was typed with it); of every
   // form its clips are in (card #72), each field read off the clips whose form has it
   const formsIn = [...new Set(mine.map((c) => c.recipe))].map((id) => e.videoRecipes.find((r) => r.id === id)).filter((r): r is RecipeInfo => Boolean(r));
@@ -358,11 +358,11 @@ export function recordingPanelProps(e: LoadedEditor, place: NonNullable<LoadedEd
     trimming: e.recordingTrim.pending || e.recordingTrim.waits(asset),
     cut: {
       seconds,
-      snap,
+      within,
       leastMs: input.leastMs,
       mostMs: input.mostMs,
-      run: (s, on) => e.recordingCut.run(asset, s, on),
-      ask: cutAsk ? { rendered: cutAsk.rendered, clips: cutAsk.clips, change: () => e.recordingCut.run(asset, cutAsk.seconds, cutAsk.snap, true), keep: e.recordingCut.keep } : null,
+      run: (s, w) => e.recordingCut.run(asset, s, w),
+      ask: cutAsk ? { rendered: cutAsk.rendered, clips: cutAsk.clips, change: () => e.recordingCut.run(asset, cutAsk.seconds, cutAsk.within, true), keep: e.recordingCut.keep } : null,
       pending: e.recordingCut.pending,
     },
     onSelectClip: (id) => e.select(id),

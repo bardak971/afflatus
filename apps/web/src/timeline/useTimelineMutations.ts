@@ -136,8 +136,8 @@ export function useTimelineMutations(id: string, o: {
       return readBack();
     },
   });
-  /** A recording's clips cut again from its panel, at another length or without its pauses (Timelines.cutRecording). */
-  const cutRecording = useMutation({ mutationFn: (v: { asset: string; seconds: number; snap: boolean }) => api.cutRecording(id, v.asset, v.seconds, v.snap), onSuccess: readBack });
+  /** A recording's clips cut again from its panel, at another length or window (Timelines.cutRecording). */
+  const cutRecording = useMutation({ mutationFn: (v: { asset: string; seconds: number; window: number }) => api.cutRecording(id, v.asset, v.seconds, v.window), onSuccess: readBack });
   /** What a recording's clips share, given to all of them (Timelines.recordingForm). */
   const recordingForm = useMutation({
     mutationFn: (v: { asset: string; inputs: Record<string, unknown> }) => api.recordingForm(id, v.asset, v.inputs),

@@ -42,7 +42,7 @@ const clips = [
 const timeline = {
   id: "zz-test-rec", name: "zz-test recording", width: 576, height: 1024, clips, durationMs: 20_000, look: null, mood: "", music: null, source: null,
   undo: null, redo: null, exporting: null, exported: null, exportFailed: null, folderId: null, projectId: null,
-  recordings: [{ asset: sound, parked: 0, parkedTakes: 0, seconds: 5, snap: true }],
+  recordings: [{ asset: sound, parked: 0, parkedTakes: 0, seconds: 5, window: 1.5 }],
 } as unknown as Timeline;
 
 /** The editor of the timeline above, its recording's loudness and pauses answered. */
@@ -54,6 +54,13 @@ async function editor(tl: Timeline = timeline) {
   const drawn = draw(<TimelineEditor params={{ id: timeline.id }} />, { at: `/timelines/${timeline.id}` });
   const band = await screen.findByRole("button", { name: /^Recording zz-test talk\.wav, 0:00\.0–0:15\.0/ });
   return { ...drawn, band };
+}
+
+/** Its panel's window typed: ± that many seconds of Clip length. */
+async function typeWindow(p: ReturnType<typeof within>, user: ReturnType<typeof draw>["user"], to: string) {
+  const box = p.getByLabelText("Window (± s of Clip length)");
+  await user.clear(box);
+  await user.type(box, `${to}{Enter}`);
 }
 
 const click = (el: Element, x = 100) => {
@@ -77,7 +84,7 @@ describe("a recording on the timeline opened like the source (card #61)", () => 
   it("is not opened by a drag of its band: the drag slips it", async () => {
     fakeApi.on("POST /timelines/:id/recording/trim", { clips: [], toMs: 15000 });
     // a recording longer than its clips use: slipped, a later part of it is taken
-    const { band } = await editor({ ...timeline, recordings: [{ asset: { ...sound, durationMs: 20_000 }, parked: 0, parkedTakes: 0, seconds: 5, snap: true }] } as unknown as Timeline);
+    const { band } = await editor({ ...timeline, recordings: [{ asset: { ...sound, durationMs: 20_000 }, parked: 0, parkedTakes: 0, seconds: 5, window: 1.5 }] } as unknown as Timeline);
     fireEvent.pointerDown(band, { button: 0, clientX: 100 });
     fireEvent.pointerMove(band, { clientX: 60 });
     fireEvent.pointerUp(band, { clientX: 60 });
@@ -196,18 +203,20 @@ describe("a recording on the timeline opened like the source (card #61)", () => 
       expect(sent.clips.map((c) => c.id)).toEqual(["zz-test-a", "zz-test-c"]);
     });
 
-    it("cuts it again at another length, asked first as a rendered take would go, and gives what they share to all", async () => {
+    it("cuts it again at another window, asked first as a rendered take would go, and gives what they share to all", async () => {
       // the clips made anew (here read back as they were): the panel stays open on them, no clip of them selected
       fakeApi.on("POST /timelines/:id/recording/cut", { clips: ["zz-test-a", "zz-test-c"] });
       fakeApi.on("POST /timelines/:id/recording/form", { ok: true });
       const { band, user } = await editor();
       click(band);
       const p = within(panel()!);
-      await user.click(p.getByRole("switch", { name: /Snap to pauses/ }));
+      // both its cuts on a pause (4.7, 10.2), said beside the lengths and in its "?"
+      await waitFor(() => expect(p.getByText("2 clips on a pause · 4.7, 5.5, 4.8 s")).toBeTruthy());
+      await typeWindow(p, user, "0");
       expect(p.getByRole("alert").textContent).toMatch(/1 rendered take go to the library/);
       expect(fakeApi.calls("POST", "/timelines/zz-test-rec/recording/cut")).toHaveLength(0);
       await user.click(p.getByRole("button", { name: "Change" }));
-      await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-rec/recording/cut").map((c) => c.body)).toEqual([{ asset: sound.id, seconds: 5, snap: false }]));
+      await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-rec/recording/cut").map((c) => c.body)).toEqual([{ asset: sound.id, seconds: 5, window: 0 }]));
       await waitFor(() => expect(fakeApi.calls("GET", "/timelines/zz-test-rec").length).toBeGreaterThan(1));
       await act(() => new Promise((done) => setTimeout(done, 50)));
       expect(panel()).toBeTruthy();
@@ -226,7 +235,7 @@ describe("a recording on the timeline opened like the source (card #61)", () => 
       const { band, user } = await editor({ ...timeline, clips: timeline.clips.map((c) => ({ ...c, take: null, takes: [] })) } as unknown as Timeline);
       click(band);
       const p = within(panel()!);
-      await user.click(p.getByRole("switch", { name: /Snap to pauses/ }));
+      await typeWindow(p, user, "0");
       await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-rec/recording/cut")).toHaveLength(1));
       expect(p.getByRole("slider", { name: "Clip length" }).closest("[aria-disabled]")).toBeTruthy();
       cut.answer({ clips: ["zz-test-a", "zz-test-b", "zz-test-c"] });
@@ -243,7 +252,7 @@ describe("a recording on the timeline opened like the source (card #61)", () => 
       expect(look.value).toBe("zz-test round glasses");
     });
 
-    it("holds Clip length and Snap to pauses from the click on, while what was typed is saved before the cut", async () => {
+    it("holds Clip length and its window from the change on, while what was typed is saved before the cut", async () => {
       const saved = later<unknown>();
       fakeApi.on("PATCH /clips/:id", () => saved.promise);
       fakeApi.on("POST /timelines/:id/recording/cut", { clips: ["zz-test-a", "zz-test-b", "zz-test-c"] });
@@ -254,15 +263,15 @@ describe("a recording on the timeline opened like the source (card #61)", () => 
       await user.type(await screen.findByLabelText("What happens"), " and laughs");
       click(band);
       const p = within(panel()!);
-      await user.click(p.getByRole("switch", { name: /Snap to pauses/ }));
+      await typeWindow(p, user, "0");
       await waitFor(() => expect(fakeApi.calls("PATCH", "/clips/zz-test-a")).toHaveLength(1));
       expect(p.getByRole("slider", { name: "Clip length" }).closest("[aria-disabled]")).toBeTruthy();
-      // clicked again meanwhile: no second cut with the length from before the first
-      await user.click(p.getByRole("switch", { name: /Snap to pauses/ }));
+      // typed again meanwhile: no second cut with the length from before the first
+      await typeWindow(p, user, "2");
       saved.answer({ id: "zz-test-a" });
       await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-rec/recording/cut")).toHaveLength(1));
       await act(() => new Promise((done) => setTimeout(done, 50)));
-      expect(fakeApi.calls("POST", "/timelines/zz-test-rec/recording/cut").map((c) => c.body)).toEqual([{ asset: sound.id, seconds: 5, snap: false }]);
+      expect(fakeApi.calls("POST", "/timelines/zz-test-rec/recording/cut").map((c) => c.body)).toEqual([{ asset: sound.id, seconds: 5, window: 0 }]);
     });
 
     it("shows the Clip length let go on while it is cut again, not the old one until the read back", () => {

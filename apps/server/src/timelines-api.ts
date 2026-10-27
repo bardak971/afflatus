@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { RANDOM_SEED, TRANSITION_KINDS, TRANSITION_MS, hiddenRunUp, movedSeed, resamplesLatent, typedSeed, type InputSpec, type Recipe, type ReferenceValue } from "@afflatus/core";
+import { CUT_WINDOW_MOST, RANDOM_SEED, TRANSITION_KINDS, TRANSITION_MS, hiddenRunUp, movedSeed, resamplesLatent, typedSeed, type InputSpec, type Recipe, type ReferenceValue } from "@afflatus/core";
 import { fromRender, markPng } from "./aiMark";
 import { nameOf } from "./autoName";
 import { VERSION } from "./config";
@@ -214,8 +214,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   app.post<{ Params: { id: string } }>("/api/timelines/:id/source/trim", async (req) => t.trimSource(req.params.id, z.strictObject({ fromMs: z.number().min(0), toMs: z.number().min(0) }).parse(req.body)));
   // a recording's clips trimmed: its end in (clips go) or out (clips added at its pauses), its start moved (made anew)
   app.post<{ Params: { id: string } }>("/api/timelines/:id/recording/trim", async (req) => t.trimRecording(req.params.id, z.strictObject({ asset: z.string().min(1), fromMs: z.number().min(0), toMs: z.number().min(0) }).parse(req.body)));
-  // a recording's clips cut again at another length, in its pauses or not (its panel: Timelines.cutRecording)
-  app.post<{ Params: { id: string } }>("/api/timelines/:id/recording/cut", async (req) => t.cutRecording(req.params.id, z.strictObject({ asset: z.string().min(1), seconds: z.number().min(1).max(60), snap: z.boolean() }).parse(req.body)));
+  // a recording's clips cut again at another length or window (its panel: Timelines.cutRecording)
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/recording/cut", async (req) => t.cutRecording(req.params.id, z.strictObject({ asset: z.string().min(1), seconds: z.number().min(1).max(60), window: z.number().min(0).max(CUT_WINDOW_MOST) }).parse(req.body)));
   // what a recording's clips share, given to all of them at once (its panel's Shared by its clips: Timelines.recordingForm)
   app.post<{ Params: { id: string } }>("/api/timelines/:id/recording/form", async (req) => {
     const clips = await t.recordingForm(req.params.id, z.strictObject({ asset: z.string().min(1), inputs: z.record(z.string(), z.unknown()) }).parse(req.body));
@@ -507,7 +507,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     return cached(req, reply).send(await t.media.motion(req.params.id));
   });
 
-  /** The pauses of a sound, in seconds (ffmpeg's silencedetect, read once and kept): where a recording is cut into Lip sync clips, marked on its stage. */
+  /** The pauses of a sound and the timed lines it carries (its lyrics), in seconds, read once and kept: where a recording is cut into Lip sync clips, marked on its stage. */
   app.get<{ Params: { id: string } }>("/api/assets/:id/pauses", async (req, reply) => {
     return cached(req, reply).send(await t.media.pauses(req.params.id));
   });

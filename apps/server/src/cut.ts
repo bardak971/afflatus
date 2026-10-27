@@ -622,6 +622,34 @@ export async function pausesOf(source: Media, ext: string): Promise<Array<{ star
   });
 }
 
+/** The subtitle codecs that are timed text, which ffmpeg writes out as SRT: a picture subtitle (a DVD's) has no lines to read. */
+const TEXT_SUBTITLES = new Set(["mov_text", "subrip", "srt", "ass", "ssa", "webvtt", "text"]);
+
+/**
+ * The timed lines a sound file carries in its first text subtitle track (Suno's m4a: its lyrics as mov_text, a line from
+ * where it is sung to where the next one is), in seconds: where a recording without pauses (a song) is cut into clips.
+ * None when it has no such track; null when the file could not be read for them, so that they are not kept as none.
+ */
+export async function linesOf(source: Media, ext: string): Promise<Array<{ start: number; end: number }> | null> {
+  return inTemp(async (dir) => {
+    const input = await onDisk(dir, `in.${ext}`, source);
+    const probed = await must(tools.ffprobe, ["-v", "error", "-select_streams", "s", "-show_entries", "stream=index,codec_name", "-of", "json", input], { timeout: 30_000 }).catch(() => null);
+    if (probed === null) return null;
+    let streams: Array<{ index?: number; codec_name?: string }> = [];
+    try {
+      streams = (JSON.parse(probed) as { streams?: typeof streams }).streams ?? [];
+    } catch {
+      return null;
+    }
+    const text = streams.find((st) => typeof st.index === "number" && TEXT_SUBTITLES.has(String(st.codec_name)));
+    if (!text) return [];
+    const srt = await must(tools.ffmpeg, ["-v", "error", "-i", input, "-map", `0:${text.index}`, "-f", "srt", "-"], { timeout: 30_000 }).catch(() => null);
+    if (srt === null) return null;
+    const at = (h: string, m: string, s: string, ms: string) => Number(h) * 3600 + Number(m) * 60 + Number(s) + Number(ms) / 1000;
+    return [...srt.matchAll(/(\d+):(\d\d):(\d\d)[,.](\d{3})\s*-->\s*(\d+):(\d\d):(\d\d)[,.](\d{3})/g)].map((m) => ({ start: at(m[1]!, m[2]!, m[3]!, m[4]!), end: at(m[5]!, m[6]!, m[7]!, m[8]!) }));
+  });
+}
+
 /**
  * What ffmpeg writes about a sound as it reads it (its own report, on stderr): volumedetect's and silencedetect's figures.
  * `whole`: a run that failed or was stopped at its time limit throws (failureOf) rather than giving the report so far.

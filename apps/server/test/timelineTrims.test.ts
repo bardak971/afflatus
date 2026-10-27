@@ -818,7 +818,7 @@ describe("a re-cut, a moved In or a source made anew keeps the parts removed rem
     const take = await takeFor(ids[2]!);
     await call("DELETE", `/api/clips/${ids[2]}`);
     const gap = made.clips[2]!;
-    await call("POST", `/api/timelines/${tl}/recording/cut`, { asset: sound, seconds: 3, snap: false });
+    await call("POST", `/api/timelines/${tl}/recording/cut`, { asset: sound, seconds: 3, window: 0 });
     const after = await around(tl, gap.s, gap.s + gap.n);
     expect(after).not.toBe(ids[3]);
     expect(await removedState(tl)).toEqual([{ before: after, joined: "continue", moved: false, ids: [ids[2]], takes: [take] }]);

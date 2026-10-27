@@ -46,7 +46,7 @@ const clips = [
 const timeline = {
   id: "zz-test-any", name: "zz-test any form", width: 576, height: 1024, clips, durationMs: 15750, look: null, mood: "", music: null, source: null,
   undo: null, redo: null, exporting: null, exported: null, exportFailed: null, folderId: null, projectId: null,
-  recordings: [{ asset: sound, parked: 0, parkedTakes: 0, seconds: 5, snap: true }],
+  recordings: [{ asset: sound, parked: 0, parkedTakes: 0, seconds: 5, window: 1.5 }],
 } as unknown as Timeline;
 
 async function editor(more: RecipeInfo[] = []) {

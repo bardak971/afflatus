@@ -690,8 +690,8 @@ export const api = {
   trimSource: (id: string, fromMs: number, toMs: number) => call<{ clips: string[]; toMs: number; said?: string }>("POST", `/timelines/${id}/source/trim`, { fromMs, toMs }),
   /** A recording's clips trimmed: its end in (clips go) or out (clips added at its pauses), its start moved (made anew). */
   trimRecording: (id: string, asset: string, fromMs: number, toMs: number) => call<{ clips: string[]; toMs: number }>("POST", `/timelines/${id}/recording/trim`, { asset, fromMs, toMs }),
-  /** A recording's clips cut again from its panel: about `seconds` each, in its pauses or not (their ids). */
-  cutRecording: (id: string, asset: string, seconds: number, snap: boolean) => call<{ clips: string[] }>("POST", `/timelines/${id}/recording/cut`, { asset, seconds, snap }),
+  /** A recording's clips cut again from its panel: about `seconds` each, ± `window` (their ids). */
+  cutRecording: (id: string, asset: string, seconds: number, window: number) => call<{ clips: string[] }>("POST", `/timelines/${id}/recording/cut`, { asset, seconds, window }),
   /** What a recording's clips share given to all of them at once (null takes a setting away): one step for Undo. */
   recordingForm: (id: string, asset: string, inputs: Record<string, unknown>) => call<{ ok: true; clips?: Array<{ id: string; inputs: Record<string, unknown> }> }>("POST", `/timelines/${id}/recording/form`, { asset, inputs }),
   /** The form a recording's new clips are made in (its panel's New clips): Lip sync, or one it plays over. One step for Undo. */
@@ -752,8 +752,8 @@ export const api = {
   /** How much moves along a video and how loud it is, `rate` samples a second (motion 0 = still; sound in dB, about -60 = silence): the curves on the track, the quiet moments and pauses a range snaps to. */
   /** Where a video cuts between shots, as moments in milliseconds (ffmpeg's scene change; one shot gives none). */
   scenes: (asset: string) => call<{ cuts: number[] }>("GET", `/assets/${asset}/scenes`),
-  /** The pauses of a sound, in seconds, as a recording is cut at them (ffmpeg's silencedetect): marked on the recording's stage. */
-  pauses: (asset: string) => call<{ pauses: Array<{ start: number; end: number }> }>("GET", `/assets/${asset}/pauses`),
+  /** The pauses of a sound (ffmpeg's silencedetect) and the timed lines it carries (its lyrics), in seconds, as a recording is cut at them: marked on the recording's stage. */
+  pauses: (asset: string) => call<{ pauses: Array<{ start: number; end: number }>; lines?: Array<{ start: number; end: number }> }>("GET", `/assets/${asset}/pauses`),
   motion: (asset: string) => call<{ rate: number; values: number[]; sound: number[] | null; speech: number[] | null }>("GET", `/assets/${asset}/motion`),
   /** The music ducked under speech: its gain along the timeline, as the export applies it (null: no music, or not ducked). */
   duck: (timeline: string) => call<{ curve: { rate: number; gains: number[] } | null }>("GET", `/timelines/${timeline}/duck`),

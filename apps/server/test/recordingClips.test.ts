@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -31,20 +31,33 @@ const view = async (id: string) => withTakes((await get(t.app, `/api/timelines/$
 const tone = (s: number) => `sine=frequency=220:duration=${s}`;
 const quiet = (s: number) => `anullsrc=r=48000:cl=mono,atrim=duration=${s}`;
 
-/** 15 s by default: words to 4.5 s, a pause to 4.9, words to 10.0, a pause to 10.4, words to the end. */
-async function recording(parts = [tone(4.5), quiet(0.4), tone(5.1), quiet(0.4), tone(4.6)], ms = 15000): Promise<string> {
+/** A moment as an SRT file writes it: 00:00:04,200. */
+const srtTime = (s: number) => `00:${String(Math.floor(s / 60)).padStart(2, "0")}:${(s % 60).toFixed(3).padStart(6, "0").replace(".", ",")}`;
+
+/**
+ * 15 s by default: words to 4.5 s, a pause to 4.9, words to 10.0, a pause to 10.4, words to the end. `lyrics` (an SRT):
+ * an m4a carrying them as a mov_text track, as Suno's songs do.
+ */
+async function recording(parts = [tone(4.5), quiet(0.4), tone(5.1), quiet(0.4), tone(4.6)], ms = 15000, lyrics?: string): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), "zz-test-recording-"));
   try {
-    const out = join(dir, "talk.wav");
+    const wav = join(dir, "talk.wav");
     const inputs = parts.flatMap((p) => ["-f", "lavfi", "-i", p]);
     const filter = `${parts.map((_, k) => `[${k}:a]aresample=48000,aformat=channel_layouts=mono[a${k}]`).join(";")};${parts.map((_, k) => `[a${k}]`).join("")}concat=n=${parts.length}:v=0:a=1[out]`;
-    const r = spawnSync("ffmpeg", ["-y", "-loglevel", "error", ...inputs, "-filter_complex", filter, "-map", "[out]", out]);
+    const r = spawnSync("ffmpeg", ["-y", "-loglevel", "error", ...inputs, "-filter_complex", filter, "-map", "[out]", wav]);
     if (r.status !== 0) throw new Error(String(r.stderr));
+    let out = wav;
+    if (lyrics !== undefined) {
+      writeFileSync(join(dir, "lyrics.srt"), lyrics);
+      out = join(dir, "song.m4a");
+      const m = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-i", wav, "-i", join(dir, "lyrics.srt"), "-map", "0:a", "-map", "1:s", "-c:a", "aac", "-c:s", "mov_text", out]);
+      if (m.status !== 0) throw new Error(String(m.stderr));
+    }
     const id = newId();
     const key = `assets/${id.slice(0, 2)}/${id}`;
     await t.services.storage.put(key, new Uint8Array(readFileSync(out)));
     await t.db.insertInto("assets").values(newAssetRow({
-      id, kind: "audio", origin: "uploaded", name: "zz-test talking.wav", file_key: key, thumb_key: null, mime: "audio/wav", bytes: 1000,
+      id, kind: "audio", origin: "uploaded", name: lyrics !== undefined ? "zz-test song.m4a" : "zz-test talking.wav", file_key: key, thumb_key: null, mime: lyrics !== undefined ? "audio/mp4" : "audio/wav", bytes: 1000,
       width: null, height: null, duration_ms: ms, fps: null, has_sound: 1, folder_id: null, generation_id: null, kept_at: now(),
     })).execute();
     return id;
@@ -270,19 +283,19 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
     const parts = (v: { clips: Array<{ inputs: Record<string, number> }> }) => v.clips.map((c) => [c.inputs.recordingStart, c.inputs.recordingSeconds]);
     let v = await view(tl.id);
-    expect(v.recordings).toEqual([expect.objectContaining({ seconds: 5, snap: true })]);
+    expect(v.recordings).toEqual([expect.objectContaining({ seconds: 5, window: 1.5 })]);
     await call("PATCH", `/api/clips/${v.clips[0].id}`, { inputs: { ...v.clips[0].inputs, description: "zz-test a woman talks to the camera" } });
-    // about 7 s, in its pauses (4.7 and 10.2): 4.7 is the nearer, and what is left after it fits one clip
-    await call("POST", `/api/timelines/${tl.id}/recording/cut`, { asset: sound, seconds: 7, snap: true });
+    // about 7 s ± 2.5, in its pauses (4.7 and 10.2): 4.7 is within it, and what is left after it fits one clip
+    await call("POST", `/api/timelines/${tl.id}/recording/cut`, { asset: sound, seconds: 7, window: 2.5 });
     v = await view(tl.id);
     expect(parts(v).map(([a, b]) => [a, Math.round((a! + b!) * 10) / 10])).toEqual([[0, 4.7], [4.7, 15]]);
     expect(v.clips[0].inputs.description).toBe("zz-test a woman talks to the camera");
-    expect(v.recordings[0]).toEqual(expect.objectContaining({ seconds: 7, snap: true }));
-    // 6 s, its pauses passed by
-    await call("POST", `/api/timelines/${tl.id}/recording/cut`, { asset: sound, seconds: 6, snap: false });
+    expect(v.recordings[0]).toEqual(expect.objectContaining({ seconds: 7, window: 2.5 }));
+    // 6 s ± 0, its pauses passed by
+    await call("POST", `/api/timelines/${tl.id}/recording/cut`, { asset: sound, seconds: 6, window: 0 });
     v = await view(tl.id);
     expect(parts(v)).toEqual([[0, 6], [6, 9]]);
-    expect(v.recordings[0]).toEqual(expect.objectContaining({ seconds: 6, snap: false }));
+    expect(v.recordings[0]).toEqual(expect.objectContaining({ seconds: 6, window: 0 }));
     // its start moved: made anew as it is cut now, not at its pauses
     await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 1000, toMs: 15000 });
     expect(parts(await view(tl.id))).toEqual([[1, 6], [7, 8]]);
@@ -291,7 +304,44 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     await call("POST", `/api/timelines/${tl.id}/undo`);
     v = await view(tl.id);
     expect(v.clips).toHaveLength(2);
-    expect(v.recordings[0]).toEqual(expect.objectContaining({ seconds: 7, snap: true }));
+    expect(v.recordings[0]).toEqual(expect.objectContaining({ seconds: 7, window: 2.5 }));
+  });
+
+  it("cut ± 1.5 s passes by a pause outside the window, and ends at the length asked on a level sound", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test recording window" });
+    const sound = await recording();
+    await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
+    // 7 s ± 1.5: the pauses (4.7, 10.2) are outside 5.5 to 8.5, and the tone is level there: 7 s, then the rest
+    await call("POST", `/api/timelines/${tl.id}/recording/cut`, { asset: sound, seconds: 7, window: 1.5 });
+    const v = await view(tl.id);
+    expect(v.clips.map((c: { inputs: Record<string, number> }) => [c.inputs.recordingStart, c.inputs.recordingSeconds])).toEqual([[0, 7], [7, 8]]);
+    // past the widest window the panel takes: refused
+    const wide = await t.app.inject({ method: "POST", url: `/api/timelines/${tl.id}/recording/cut`, payload: { asset: sound, seconds: 7, window: 6 } });
+    expect(wide.statusCode).toBe(400);
+  });
+
+  it("reads a cut kept before the window: Snap to pauses on as ± 1.5 s, off as ± 0", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test recording old cut" });
+    const sound = await recording();
+    await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
+    for (const [snap, window] of [[true, 1.5], [false, 0]] as const) {
+      await t.db.updateTable("timelines").set({ recordings: JSON.stringify({ cut: { [sound]: { seconds: 6, snap, form: "h3.lipsync" } } }) }).where("id", "=", tl.id).execute();
+      expect((await view(tl.id)).recordings[0]).toEqual(expect.objectContaining({ seconds: 6, window, form: "h3.lipsync" }));
+    }
+  });
+
+  it("that never pauses but carries timed lyrics (Suno's m4a): each clip ends at the end of the line nearest the length asked", async () => {
+    // a level tone of 30 s, its lines ending at 4.2, 9.6, 14.1, 20 and 25.5 s; a section's name between them, of no length
+    const srt = [[0, 4.2, "line one"], [4.2, 4.2, "[Chorus]"], [4.2, 9.6, "line two"], [9.6, 14.1, "line three"], [14.1, 20, "line four"], [20, 25.5, "line five"], [25.5, 29, "line six"]]
+      .map(([a, b, text], k) => `${k + 1}\n${srtTime(Number(a))} --> ${srtTime(Number(b))}\n${text}\n`).join("\n");
+    const sound = await recording([tone(30)], 30000, srt);
+    const marks = (await get(t.app, `/api/assets/${sound}/pauses`)).json() as { pauses: unknown[]; lines: Array<{ start: number; end: number }> };
+    expect(marks.pauses).toEqual([]);
+    expect(marks.lines.map((l) => l.end)).toEqual([4.2, 4.2, 9.6, 14.1, 20, 25.5, 29]);
+    const tl = await call("POST", "/api/timelines", { name: "zz-test recording lyrics" });
+    await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
+    const v = await view(tl.id);
+    expect(v.clips.map((c: { inputs: Record<string, number> }) => [c.inputs.recordingStart, Math.round((c.inputs.recordingStart! + c.inputs.recordingSeconds!) * 100) / 100])).toEqual([[0, 4.2], [4.2, 9.6], [9.6, 14.1], [14.1, 20], [20, 25.5], [25.5, 30]]);
   });
 
   it("gives what its clips share to all of them at once, one step for Undo; never their parts of it", async () => {
@@ -316,7 +366,7 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     const tl = await call("POST", "/api/timelines", { name: "zz-test song" });
     const sound = await recording([tone(24)], 24000);
     await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
-    await call("POST", `/api/timelines/${tl.id}/recording/cut`, { asset: sound, seconds: 8, snap: true });
+    await call("POST", `/api/timelines/${tl.id}/recording/cut`, { asset: sound, seconds: 8, window: 1.5 });
     const v = await view(tl.id);
     const clips = v.clips as Array<{ id: string; inputs: Record<string, unknown> }>;
     expect(clips.map((c) => [c.inputs.recordingStart, c.inputs.recordingSeconds])).toEqual([[0, 8], [8, 8], [16, 8]]);
@@ -359,7 +409,7 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     const tl = await call("POST", "/api/timelines", { name: "zz-test song run" });
     const sound = await recording([tone(24)], 24000);
     await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
-    await call("POST", `/api/timelines/${tl.id}/recording/cut`, { asset: sound, seconds: 8, snap: true });
+    await call("POST", `/api/timelines/${tl.id}/recording/cut`, { asset: sound, seconds: 8, window: 1.5 });
     const clips = (await view(tl.id)).clips as Array<{ id: string; inputs: Record<string, unknown> }>;
     const recipe = t.services.registry.recipe("h3.lipsync")!;
     const planOf = (k: number, raw: Record<string, unknown> = clips[k]!.inputs, finishedFrom: string | null = null) => t.services.timelines.plan(clips[k]!.id, recipe, raw, false, finishedFrom, true);
@@ -401,10 +451,11 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     expect([finish.input.recordingStart, finish.input.recordingSeconds, finish.input.recordingGoesOn, finish.input.recordingLeadIn]).toEqual([8.687, 7.313, true, true]);
   });
 
-  it("says its pauses, as it is cut at them", async () => {
+  it("says its pauses, as it is cut at them, and no lines for a file that carries none", async () => {
     const sound = await recording();
-    const { pauses } = (await get(t.app, `/api/assets/${sound}/pauses`)).json() as { pauses: Array<{ start: number; end: number }> };
+    const { pauses, lines } = (await get(t.app, `/api/assets/${sound}/pauses`)).json() as { pauses: Array<{ start: number; end: number }>; lines: unknown[] };
     expect(pauses.map((p) => Math.round(((p.start + p.end) / 2) * 10) / 10)).toEqual([4.7, 10.2]);
+    expect(lines).toEqual([]);
   });
 });
 
@@ -604,14 +655,14 @@ describe.skipIf(!ffmpegThere)("a clip under a recording, in any H3 form (card #7
     const { id, sound, clips } = await dropped("zz-test any form re-cut");
     await call("PATCH", `/api/clips/${clips[0]!.id}`, { recipe: "h3.video" });
     await call("PATCH", `/api/clips/${clips[0]!.id}`, { inputs: { ...clips[0]!.inputs, description: "zz-test she listens, her mouth closed" } });
-    // about 7 s in its pauses: [0, 4.7] is clip 1's part (Video with audio), [4.7, 15] clips 2 and 3's (Lip sync)
-    await call("POST", `/api/timelines/${id}/recording/cut`, { asset: sound, seconds: 7, snap: true });
+    // about 7 s ± 2.5, in its pauses: [0, 4.7] is clip 1's part (Video with audio), [4.7, 15] clips 2 and 3's (Lip sync)
+    await call("POST", `/api/timelines/${id}/recording/cut`, { asset: sound, seconds: 7, window: 2.5 });
     let v = await view(id);
     expect(v.clips.map((c: ViewClip) => c.recipe)).toEqual(["h3.video", "h3.lipsync"]);
     expect(v.clips[0].inputs.description).toBe("zz-test she listens, her mouth closed");
     // New clips set to Video with audio: kept with the cut, and refused for a model none of them is
     await call("POST", `/api/timelines/${id}/recording/new-clips`, { asset: sound, recipe: "h3.video" });
-    expect((await view(id)).recordings[0]).toEqual(expect.objectContaining({ seconds: 7, snap: true, form: "h3.video" }));
+    expect((await view(id)).recordings[0]).toEqual(expect.objectContaining({ seconds: 7, window: 2.5, form: "h3.video" }));
     const wrong = await t.app.inject({ method: "POST", url: `/api/timelines/${id}/recording/new-clips`, payload: { asset: sound, recipe: "scail.motion" } });
     expect(wrong.statusCode).toBe(400);
     // its start moved in to 4.7 s, then back to 0: the part before 4.7 s is new, no clip had it, made in New clips' form
@@ -622,8 +673,8 @@ describe.skipIf(!ffmpegThere)("a clip under a recording, in any H3 form (card #7
     expect(v.clips[0].recipe).toBe("h3.video");
     expect(v.clips.slice(1).every((c: ViewClip) => c.recipe === "h3.lipsync")).toBe(true);
     // a cut again keeps New clips' form; Undo takes the form back with the step that set it
-    await call("POST", `/api/timelines/${id}/recording/cut`, { asset: sound, seconds: 6, snap: false });
-    expect((await view(id)).recordings[0]).toEqual(expect.objectContaining({ seconds: 6, snap: false, form: "h3.video" }));
+    await call("POST", `/api/timelines/${id}/recording/cut`, { asset: sound, seconds: 6, window: 0 });
+    expect((await view(id)).recordings[0]).toEqual(expect.objectContaining({ seconds: 6, window: 0, form: "h3.video" }));
   });
 
   it("gives what its clips share to each clip whose form has it: Speech starts at to Lip sync only, Even out the loudness to all", async () => {
@@ -638,7 +689,7 @@ describe.skipIf(!ffmpegThere)("a clip under a recording, in any H3 form (card #7
 
   it("hands a song on across a Video with audio clip: its tail is the recording, and the clip after starts where it stops playing", async () => {
     const { id, sound } = await dropped("zz-test any form song", [tone(24)], 24000);
-    await call("POST", `/api/timelines/${id}/recording/cut`, { asset: sound, seconds: 8, snap: true });
+    await call("POST", `/api/timelines/${id}/recording/cut`, { asset: sound, seconds: 8, window: 1.5 });
     const clips = (await view(id)).clips as ViewClip[];
     await call("PATCH", `/api/clips/${clips[1]!.id}`, { recipe: "h3.video" });
     const recipeOf = (k: number) => t.services.registry.recipe(k === 1 ? "h3.video" : "h3.lipsync")!;
@@ -669,7 +720,7 @@ describe.skipIf(!ffmpegThere)("a clip under a recording, in any H3 form (card #7
 
   it("takes Wan as a form the recording plays over (card #82): its part, a re-cut keeping it, the song handed on across it", async () => {
     const { id, sound } = await dropped("zz-test any form wan", [tone(24)], 24000);
-    await call("POST", `/api/timelines/${id}/recording/cut`, { asset: sound, seconds: 8, snap: true });
+    await call("POST", `/api/timelines/${id}/recording/cut`, { asset: sound, seconds: 8, window: 1.5 });
     let clips = (await view(id)).clips as ViewClip[];
     await call("PATCH", `/api/clips/${clips[1]!.id}`, { recipe: "wan.video" });
     clips = (await view(id)).clips as ViewClip[];
@@ -681,7 +732,7 @@ describe.skipIf(!ffmpegThere)("a clip under a recording, in any H3 form (card #7
     expect((await planOf(0)).input.recordingGoesOn).toBe(true);
     expect((await planOf(1)).input).toMatchObject({ recording: sound, recordingStart: 8, recordingSeconds: 8, recordingGoesOn: true });
     // a re-cut keeps it where its part survives
-    await call("POST", `/api/timelines/${id}/recording/cut`, { asset: sound, seconds: 8, snap: false });
+    await call("POST", `/api/timelines/${id}/recording/cut`, { asset: sound, seconds: 8, window: 0 });
     expect(((await view(id)).clips as ViewClip[]).map((c) => c.recipe)).toEqual(["h3.lipsync", "wan.video", "h3.lipsync"]);
     // and New clips can be made in it
     await call("POST", `/api/timelines/${id}/recording/new-clips`, { asset: sound, recipe: "wan.video" });

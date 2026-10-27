@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { recordingPart, recordingParts } from "../src/recordingParts";
+import { cutOn, recordingPart, recordingParts } from "../src/recordingParts";
 
 /** A recording cut into Lip sync clips at its pauses (the mock's "cut at its pauses", 2026-10-20). */
 describe("a recording cut into clips", () => {
@@ -72,17 +72,67 @@ describe("a recording's part for one clip", () => {
   });
 });
 
-/** Snap to pauses off (the recording's panel): the parts the length asked, the pauses passed by. */
-describe("a recording cut without its pauses", () => {
+/** The window ± 0 (the recording's panel): the parts the length asked, the pauses passed by. */
+describe("a recording cut without a window", () => {
   const bounds = { leastS: 4, mostS: 14.83 };
   const pauses = [{ start: 4.5, end: 4.9 }, { start: 10, end: 10.4 }];
   it("is cut every length asked, the last part taking what is left", () => {
-    expect(recordingParts({ fromS: 0, toS: 15, wantS: 6, ...bounds, pauses, snap: false })).toEqual([{ start: 0, seconds: 6 }, { start: 6, seconds: 9 }]);
-    expect(recordingParts({ fromS: 1, toS: 21, wantS: 5, ...bounds, pauses, snap: false }).map((p) => p.seconds)).toEqual([5, 5, 5, 5]);
-    expect(recordingParts({ fromS: 0, toS: 13, wantS: 5, ...bounds, pauses, snap: false })).toEqual([{ start: 0, seconds: 5 }, { start: 5, seconds: 8 }]);
+    expect(recordingParts({ fromS: 0, toS: 15, wantS: 6, ...bounds, pauses, windowS: 0 })).toEqual([{ start: 0, seconds: 6 }, { start: 6, seconds: 9 }]);
+    expect(recordingParts({ fromS: 1, toS: 21, wantS: 5, ...bounds, pauses, windowS: 0 }).map((p) => p.seconds)).toEqual([5, 5, 5, 5]);
+    expect(recordingParts({ fromS: 0, toS: 13, wantS: 5, ...bounds, pauses, windowS: 0 })).toEqual([{ start: 0, seconds: 5 }, { start: 5, seconds: 8 }]);
   });
 
-  it("snapped, as before: in the pauses", () => {
+  it("with the window, as before: in the pauses", () => {
     expect(recordingParts({ fromS: 0, toS: 15, wantS: 5, ...bounds, pauses }).map((p) => p.start)).toEqual([0, 4.7, 10.2]);
+  });
+});
+
+/** The length asked ± a window (card #130): a pause, else a lyric line's end, else the quietest moment, only within it. */
+describe("a recording cut within a window", () => {
+  const bounds = { leastS: 4, mostS: 14.83 };
+  /** Loudness at ten samples a second: -20 dB everywhere but the dips given (seconds → dB). */
+  const levels = (seconds: number, dips: Record<number, number> = {}) => {
+    const db = Array.from({ length: seconds * 10 }, () => -20);
+    for (const [t, v] of Object.entries(dips)) db[Math.floor(Number(t) * 10)] = v;
+    return { rate: 10, db };
+  };
+
+  it("never takes a pause outside the window: a song's closing pause made a last part of 14 s", () => {
+    // Timeline 6's song: 174 s, one pause at its very end (172.7–174.0), 5 s asked
+    const parts = recordingParts({ fromS: 0, toS: 174, wantS: 5, ...bounds, pauses: [{ start: 172.695562, end: 173.9735 }] });
+    for (const p of parts) expect(p.seconds).toBeLessThanOrEqual(6.5 + 1e-9);
+    expect(parts.reduce((s, p) => s + p.seconds, 0)).toBeCloseTo(174, 1);
+    // a pause 8 s past the length asked is passed by, as any outside the window
+    expect(recordingParts({ fromS: 0, toS: 20, wantS: 5, ...bounds, pauses: [{ start: 12.9, end: 13.1 }] })[0]).toEqual({ start: 0, seconds: 5 });
+  });
+
+  it("ends at the end of the lyric line nearest the length asked when no pause is there", () => {
+    const lines = [{ start: 0, end: 0 }, { start: 0, end: 3.2 }, { start: 3.2, end: 5.9 }, { start: 5.9, end: 9.1 }, { start: 9.1, end: 13 }, { start: 13, end: 17 }];
+    const parts = recordingParts({ fromS: 0, toS: 20, wantS: 5, ...bounds, pauses: [], lines, levels: levels(20, { 4.5: -50 }) });
+    // 5.9 (not 3.2: outside the window), then 9.1 from 5.9 asks 10.9 (9.1 and 13 are 1.8 and 2.1 away: none), the quietest
+    expect(parts[0]).toEqual({ start: 0, seconds: 5.9 });
+    expect(cutOn(5.9, { pauses: [], lines }, 1.5)).toBe("line");
+    // a pause in the window wins over a line nearer
+    expect(recordingParts({ fromS: 0, toS: 20, wantS: 5, ...bounds, pauses: [{ start: 3.9, end: 4.3 }], lines })[0]).toEqual({ start: 0, seconds: 4.1 });
+    // a section's name, a line of no length, is no break
+    expect(recordingParts({ fromS: 0, toS: 20, wantS: 5, ...bounds, pauses: [], lines: [{ start: 5, end: 5 }] })[0]).toEqual({ start: 0, seconds: 5 });
+  });
+
+  it("ends at the quietest moment of the window with neither", () => {
+    const parts = recordingParts({ fromS: 0, toS: 20, wantS: 5, ...bounds, pauses: [], levels: levels(20, { 4.0: -60, 6.2: -45, 8: -70 }) });
+    // 4.05 is the quietest within 3.5 to 6.5 (8 is outside it)
+    expect(parts[0]).toEqual({ start: 0, seconds: 4.05 });
+    expect(cutOn(4.05, { pauses: [] }, 1.5)).toBe("quiet");
+    expect(cutOn(4.05, { pauses: [] }, 0)).toBe("length");
+    // all alike: the one nearest the length asked
+    expect(recordingParts({ fromS: 0, toS: 20, wantS: 5, ...bounds, pauses: [], levels: levels(20) })[0]!.seconds).toBeCloseTo(5, 1);
+  });
+
+  it("keeps the window within what one clip takes", () => {
+    // 4 s asked ± 1.5: never under the 4 s a clip takes, a dip at 3 s passed by
+    const parts = recordingParts({ fromS: 0, toS: 30, wantS: 4, ...bounds, pauses: [{ start: 2.9, end: 3.1 }], levels: levels(30, { 3: -80 }) });
+    for (const p of parts) expect(p.seconds).toBeGreaterThanOrEqual(4);
+    // 14.5 asked ± 1.5: never over the most
+    for (const p of recordingParts({ fromS: 0, toS: 60, wantS: 14.5, ...bounds, pauses: [], levels: levels(60, { 15.5: -80 }) })) expect(p.seconds).toBeLessThanOrEqual(14.83);
   });
 });
