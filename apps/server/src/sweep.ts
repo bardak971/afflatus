@@ -283,10 +283,10 @@ export async function sweep(db: Db, storage: Storage, at = Date.now(), keep: Kee
 const ITEM_DIRS = ["assets/", "thumbs/"];
 /**
  * Where what the timeline works out of a video is kept, each named after the item's id too (timelineModel.ts derivedKeys):
- * its film strips at every size asked, its motion, scene cuts, pauses, colour and join scores. Erasing an item takes the
+ * its film strips at every size asked, its motion, scene cuts, pauses, colour, join scores and sound end. Erasing an item takes the
  * ones derivedKeys names, but not a strip of a size asked once, nor anything of a linked file forgotten (linked.ts).
  */
-const DERIVED_DIRS = ["strips/", "motion/", "scenes/", "pauses/", "means/", "joins/"];
+const DERIVED_DIRS = ["strips/", "motion/", "scenes/", "pauses/", "means/", "joins/", "sounds/"];
 const ITEM_FILE = /^([0-9a-f]{32})[.-]/;
 /** The columns of an item's row that name a file of the storage. */
 const KEY_COLUMNS = ["file_key", "thumb_key", "raw_key", "latent_key", "fine_latent_key"] as const;

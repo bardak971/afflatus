@@ -21,9 +21,10 @@ import { madeOf, takeView, TimelineViews } from "./timelineViews";
 import { draftOf, generationOfTake, ownInputIds, recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
 import { clipsOfSource, patchedSource, planWindows, sourceOfRow, windowFormFor, windowRunUp, windowsOf, windowsReaching, type SourcePatch, type SourcePlan } from "./timelineSource";
 import { TimelineTakes } from "./timelineTakes";
+import { carriesOn, laidSong, soundFillOf, type SoundFill } from "./timelineSoundFill";
 import { aroundRemoved, foldParts, keptAround, removalOf, removedOf, removedView, renderedSince, type ParkedClip, type Removal, type RemovedPart } from "./timelineRemoved";
 import { unusedSize, unusedTakes } from "./timelineUnused";
-import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, setTrims, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, mirroredPins, mirrorJson, mirrorOfRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow, transitionJson, transitionOfRow } from "./timelineModel";
+import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, setTrims, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, mirroredPins, mirrorJson, mirrorOfRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow, transitionJson, transitionOfRow, visible } from "./timelineModel";
 
 /**
  * Timelines: clips played one after the other. A clip is a place on the timeline with a form (what to
@@ -207,7 +208,7 @@ export class Timelines {
     };
     this.range = new TimelineRange(core);
     this.media = new TimelineMedia(core);
-    this.exporter = new TimelineExport(core, (asset) => this.media.means(asset));
+    this.exporter = new TimelineExport(core, (asset) => this.media.means(asset), (p, next) => this.soundFillFor(p, next));
     this.takes = new TimelineTakes(core);
     this.planner = new TimelinePlan(core, this.takes, this.media);
     this.history = new TimelineHistory(db, (id) => this.row(id), () => this.changed(), (id) => this.partKeys(id));
@@ -418,6 +419,7 @@ export class Timelines {
     };
     let at = 0;
     const hidden = sourceOfRow(t.source)?.hidden;
+    const fills = await Promise.all(all.map((p, i) => this.soundFillFor(p, all[i + 1])));
     const clips = all.map((p, i) => {
       const length = lengthOf(p);
       const job = live.get(p.clip.id);
@@ -448,6 +450,8 @@ export class Timelines {
         mirrorChanged: this.mirrorChanged(all, i, flipped),
         /** Where it starts on the timeline, and how long it plays. */
         atMs: at, lengthMs: length,
+        /** Its take's sound filled from its recording where it stops short, before a cut (timelineSoundFill.ts): the player plays it as the export does. */
+        ...(fills[i] ? { soundFill: fills[i] } : {}),
         job: job ? { id: job.id, status: job.status } : null,
         /** Why the last render gave nothing, until another one is asked for. */
         failed: !job && ended?.status === "failed" ? ended.error : null,
@@ -461,6 +465,26 @@ export class Timelines {
     const ofSource = this.runsOf(t, all).find((r) => r.kind === "source");
     const source = head.source && { ...head.source, removed: ofSource ? (head.source.removed ?? []).map((p) => removedView(p, (row) => ofSource.span(row.clip, false))) : [] };
     return { ...head, source, durationMs: at, clips, recordings: await this.recordingsView(t, all) };
+  }
+
+  /**
+   * What fills the end of a clip's take from its recording, where its own sound stops short of its frames and the clip
+   * after does not carry on from it (timelineSoundFill.ts), as the view gives it to the player and the export lays it.
+   * The cheap reasons first: most clips carry on, or have no recording laid. Its render's record says what was laid (a
+   * finish made by a cut reads its draft's), the take's sound end and level are measured once (TimelineMedia.soundTail).
+   */
+  async soundFillFor(p: Placed, next: Placed | undefined): Promise<SoundFill | null> {
+    const x = p.active;
+    if (!x || p.clip.kind !== "video" || p.clip.sound !== "own" || !x.asset.has_sound) return null;
+    if (carriesOn(next && { kind: next.clip.kind, joined: next.clip.joined, transition: transitionOfRow(next.clip) })) return null;
+    const genId = generationOfTake(x, p.takes);
+    const gen = genId ? await this.db.selectFrom("generations").select(["recipe_id", "inputs"]).where("id", "=", genId).executeTakeFirst() : undefined;
+    const inputs = this.registry.recipe(gen?.recipe_id ?? p.clip.recipe_id ?? "")?.inputs ?? [];
+    const song = laidSong(inputs, gen ? (JSON.parse(gen.inputs) as Record<string, unknown>) : undefined, x.take.head_ms);
+    const recording = song ? await this.assetRow(song.asset) : undefined;
+    if (!song || !recording) return null;
+    const tail = await this.media.soundTail(x.asset, recording, song.at);
+    return soundFillOf({ sound: p.clip.sound, hasSound: true, song, endMs: visible(x).end, nextCarriesOn: false, tail });
   }
 
   // ---------------------------------------------------------------- editing

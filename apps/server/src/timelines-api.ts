@@ -517,6 +517,12 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     return cached(req, reply).send(await t.media.scenes(req.params.id));
   });
 
+  /** A moment of a sound as WAV, a second at most: what the player fills the end of a take with before a cut (its clip's soundFill). */
+  app.get<{ Params: { id: string }; Querystring: { from?: string; ms?: string } }>("/api/assets/:id/slice", async (req, reply) => {
+    const q = z.object({ from: z.coerce.number().min(0), ms: z.coerce.number().min(1).max(1000) }).parse(req.query);
+    return cached(req, reply).header("Content-Type", "audio/wav").send(Buffer.from(await t.media.slice(req.params.id, q.from, q.ms)));
+  });
+
   /** One small picture of a moment: what a hover over the trim bar shows. */
   app.get<{ Params: { id: string }; Querystring: { at?: string } }>("/api/assets/:id/peek", async (req, reply) => {
     const q = z.object({ at: z.coerce.number().min(0), h: z.coerce.number().int().min(48).max(480).optional() }).parse(req.query);

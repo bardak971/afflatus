@@ -9,6 +9,7 @@ import { FullscreenBar, type ScreenControls } from "./FullscreenBar";
 import { cx } from "../ui";
 import { playSignature } from "./model";
 import { useHandover } from "./useHandover";
+import { useSoundFill } from "./useSoundFill";
 import { PLAYER_FRAMES } from "./transitionLook";
 import { useRunningOf } from "./useRunning";
 import { useQueueOf } from "../screens/studio/queueOf";
@@ -316,6 +317,8 @@ export const Player = forwardRef<PlayerHandle, {
 
   // the frame loop while it plays, and the hand-over from one clip to the next (useHandover.ts)
   const step = useHandover({ seq, at, playing, els, pos, said, masterRef, fadeOn, fadedIn, handReady, armed, thaw, crossOn, cross, setFrozen, setFading, place, onPlaying, onTime, stopAt, tuneMusic, keyOf, startOf });
+  // a take's sound that stops short of its frames before a cut, filled from its recording as the export does (useSoundFill.ts)
+  useSoundFill({ seq, at, playing, els, masterRef });
 
   // the screen: as large as fits, in the timeline's shape
   const box = useRef<HTMLDivElement>(null);

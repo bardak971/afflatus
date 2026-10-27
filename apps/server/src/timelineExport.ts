@@ -13,6 +13,7 @@ import { generationOfTake } from "./timelinePlan";
 import { fewAtATime } from "./timelineMedia";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideoFile } from "./video";
+import type { SoundFill } from "./timelineSoundFill";
 import { carried, clockOf, joinFade, laidOut, sameMaking, seamless, visible, type AssetRow, type Laid, type Placed, type Taken, type TimelineCore, type TimelineRow, musicBaseOf, musicClipsOf, transitionOfRow } from "./timelineModel";
 
 /** A timeline as one video: its clips that play joined in order, with their sounds, its music and the joins softened. */
@@ -35,6 +36,8 @@ export class TimelineExport {
     private readonly core: TimelineCore,
     /** A video's frame means, kept beside it (TimelineMedia.means): the colour match reads them rather than measure each join. */
     private readonly means: (asset: AssetRow) => Promise<FrameMeans | null> = async () => null,
+    /** What fills the end of a clip's take from its recording before a cut (Timelines.soundFillFor): the player's fill, laid exactly. */
+    private readonly fill: (p: Placed, next: Placed | undefined) => Promise<SoundFill | null> = async () => null,
   ) {}
 
   /**
@@ -44,7 +47,14 @@ export class TimelineExport {
   async export(id: string, opts: ExportAsk = {}) {
     const { t, shown, win, frame, fps, music } = await this.layout(id, opts);
     const parts: ExportPart[] = [];
-    for (const [i, l] of shown.entries()) parts.push(await this.partFor(l, partWindow(l, win), parts.at(-1), shown[i - 1]?.p, opts.blend !== false, fps));
+    for (const [i, l] of shown.entries()) {
+      const part = await this.partFor(l, partWindow(l, win), parts.at(-1), shown[i - 1]?.p, opts.blend !== false, fps);
+      // its take's sound filled from its recording at its end, before a cut (Timelines.soundFillFor): only a part played to its clip's end
+      const fill = part.kind === "video" && partWindow(l, win).to === l.lengthMs ? await this.fill(l.p, shown[i + 1]?.p) : null;
+      const recording = fill ? await this.core.assetRow(fill.asset) : undefined;
+      if (fill && recording) part.soundFill = { source: await sourceOf(this.core.storage, recording.file_key), ext: extOf(recording.mime), fromMs: fill.fromMs, songS: fill.songS, gainDb: fill.gainDb };
+      parts.push(part);
+    }
     // the colour match reads every video's kept frame means, a few at a time (worked out and kept where missing, as the
     // player's matching does): 20 clips measured join by join were 39 ffmpeg runs before the encode
     if (opts.match !== false) {
