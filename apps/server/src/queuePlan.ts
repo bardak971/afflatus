@@ -135,7 +135,7 @@ export class Planner {
   /**
    * The jobs among these that an MCP token queued and no rented pod may take this pass, each with why (its Queue row says
    * it): they run on the user's own machines only, whether pinned or picked by the queue. A token without Spend: never on a
-   * pod. The token's scopes as they are now, not when it queued: Spend unticked since, or the token revoked, keeps its
+   * pod. The token's scopes as they are now, not when it queued: Spend unticked since, or the token revoked or ended, keeps its
    * waiting jobs off the pods from the next pass. A token with Spend: while its spend cap has room for the job (capHeld),
    * so that a job queued with no pod up does not land, uncounted, on a pod the user starts later (a money path: a job
    * never lands on a pod nobody allowed it to bill).
@@ -143,8 +143,10 @@ export class Planner {
   async offPods(rows: ReadonlyArray<Pick<JobRow, "id" | "mcp_token_id">>): Promise<Map<string, string>> {
     const ids = [...new Set(rows.map((r) => r.mcp_token_id).filter((id): id is string => Boolean(id)))];
     if (!ids.length) return new Map();
-    const tokens = await this.d.db.selectFrom("mcp_tokens").select(["id", "scopes", "revoked_at"]).where("id", "in", ids).execute();
-    const spends = new Set(tokens.filter((t) => !t.revoked_at && t.scopes.split(",").includes("spend")).map((t) => t.id));
+    const tokens = await this.d.db.selectFrom("mcp_tokens").select(["id", "scopes", "revoked_at", "expires_at"]).where("id", "in", ids).execute();
+    // an ended token is refused at /mcp as a revoked one is (mcpTokens.ts byBearer): no more Spend than it
+    const now = Date.now();
+    const spends = new Set(tokens.filter((t) => !t.revoked_at && !(t.expires_at && Date.parse(t.expires_at) <= now) && t.scopes.split(",").includes("spend")).map((t) => t.id));
     const out = new Map<string, string>(rows.filter((r) => r.mcp_token_id && !spends.has(r.mcp_token_id)).map((r) => [r.id, NO_SPEND]));
     const spending = rows.filter((r) => r.mcp_token_id && spends.has(r.mcp_token_id));
     // a cap that cannot be read holds them all: better a job waiting than one billed past what its token may spend

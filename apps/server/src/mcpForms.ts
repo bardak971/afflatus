@@ -6,7 +6,7 @@ import { builtInGuide, guideOf, guidedFamily } from "./designerPrompt";
 import { findDraft } from "./drafts";
 import { httpError } from "./errors";
 import { familyOn, mergeScans } from "./machineScans";
-import { tool, type ToolCtx } from "./mcpTool";
+import { quoted, tool, type ToolCtx } from "./mcpTool";
 import { refusal } from "./mcpTokens";
 import { dollars } from "./notifyWords";
 import type { Services } from "./services";
@@ -227,7 +227,7 @@ const describeForm = tool({
     const status = statusOf(at, recipe.id);
     const presets = (await kitPresets(s)).filter((p) => !p.recipe || p.recipe === recipe.id);
     const fileInputs = shownInputs(recipe).filter((i) => i.type === "model" || i.type === "loras");
-    ctx.said(`Described ${recipe.title}`);
+    ctx.said(`Described ${quoted(recipe.title)}`);
     return {
       id: recipe.id, title: recipe.title, summary: recipe.summary, makes: recipe.output, family: family ? { id: family.id, name: family.name, promptStyle: family.promptStyle, ...(family.help ? { help: family.help } : {}) } : recipe.family,
       inputs: shownInputs(recipe).map((i) => inputSaid(i, status?.options[i.id])),
@@ -278,7 +278,7 @@ const estimate = tool({
     const machine = args.machine ? machineOf(at, args.machine) : undefined;
     const takes = args.takes ?? count;
     const got = await estimateOf(s, at, ctx, recipe, input, takes, machine);
-    ctx.said(`Estimated ${plural(takes, "take")} of ${name}`);
+    ctx.said(`Estimated ${plural(takes, "take")} of ${quoted(name)}`);
     return got;
   },
 });

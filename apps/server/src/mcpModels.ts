@@ -1,11 +1,11 @@
 import { plural } from "@afflatus/core";
 import { z } from "zod";
 import { browseCivitai, browseHuggingFace, civitaiQuery, huggingFaceQuery, known, lookupsOnFor, repoFiles, type BrowseCard, type BrowseFile } from "./browse";
-import type { DownloadView } from "./downloads";
+import { withoutPaths, type DownloadView } from "./downloads";
 import { httpError } from "./errors";
 import { beginDownload, downloadBody } from "./fetchFile";
 import { familyIsOn, formArgs, formAsked, machineName, machineOf, seen, statusOf } from "./mcpForms";
-import { tool, type ToolCtx } from "./mcpTool";
+import { quoted, tool, type ToolCtx } from "./mcpTool";
 import { refusal } from "./mcpTokens";
 import { modelSetsOf } from "./modelSets";
 import { saveModelSettings } from "./modelSettings";
@@ -49,14 +49,14 @@ const listModels = tool({
         const hits = files?.filter((f) => words.every((w) => f.toLowerCase().includes(w))) ?? null;
         return { id: machine.id, name: machineName(machine), files: hits?.slice(0, FILES_SHOWN) ?? null, ...(hits && hits.length > FILES_SHOWN ? { more: hits.length - FILES_SHOWN } : {}), ...(files ? {} : { said: "not answering" }) };
       }));
-      ctx.said(`Looked at the ${a.folder} files${a.q ? ` with “${a.q}”` : ""}`);
+      ctx.said(`Looked at the ${quoted(a.folder)} files${a.q ? ` with ${quoted(a.q)}` : ""}`);
       return { folder: a.folder, machines };
     }
     const families = s.registry.families().filter((f) => !f.imported && (!a.family || f.id === a.family));
     if (a.family && !families.length) throw httpError(`There is no model family called ${a.family}: list_models without arguments lists them.`, 404);
     const accepted = new Set(at.settings.acceptedPresets);
     const licences = (await presetsWithFiles(s)).filter((p) => p.licence && accepted.has(p.id)).map((p) => ({ preset: p.name, licence: p.licence!.name }));
-    ctx.said(a.family ? `Looked at the family ${a.family}` : `Looked at the models: ${plural(families.length, "family", "families")}`);
+    ctx.said(a.family ? `Looked at the family ${quoted(a.family)}` : `Looked at the models: ${plural(families.length, "family", "families")}`);
     return {
       families: families.map((f) => ({
         id: f.id, name: f.name, on: familyIsOn(s, at, f.id),
@@ -113,24 +113,24 @@ const findModels = tool({
     const { s } = ctx;
     if (a.site === "civitai") {
       const got = await browseCivitai(s, civitaiQuery.parse({ q: a.q ?? "", ...(a.types ? { types: a.types } : {}), ...(a.bases ? { bases: a.bases } : {}), ...(a.sort ? { sort: a.sort } : {}), ...(a.cursor ? { cursor: a.cursor } : {}) }));
-      ctx.said(`Searched Civitai${a.q ? ` for “${a.q}”` : ""}: ${got.items.length}`);
+      ctx.said(`Searched Civitai${a.q ? ` for ${quoted(a.q)}` : ""}: ${got.items.length}`);
       return { items: got.items.map(cardSaid), next: got.next };
     }
     if (a.site === "huggingface") {
       const got = await browseHuggingFace(s, huggingFaceQuery.parse({ q: a.q ?? "", ...(a.kind ? { kind: a.kind } : {}), ...(a.sort ? { sort: a.sort } : {}), ...(a.cursor ? { cursor: a.cursor } : {}) }));
-      ctx.said(`Searched Hugging Face${a.q ? ` for “${a.q}”` : ""}: ${got.items.length}`);
+      ctx.said(`Searched Hugging Face${a.q ? ` for ${quoted(a.q)}` : ""}: ${got.items.length}`);
       return { items: got.items.map(cardSaid), next: got.next, said: "repo with a repository's id lists its model files." };
     }
     if (a.site === "repo") {
       if (!a.q || !/^[\w.-]+\/[\w.-]+$/.test(a.q)) throw httpError("A repository is owner/name, as huggingface lists it.");
       const settings = await lookupsOnFor(s);
       const files = await repoFiles(a.q, settings.huggingFaceToken, await known(s));
-      ctx.said(`Opened the repository ${a.q}: ${plural(files.length, "file")}`);
+      ctx.said(`Opened the repository ${quoted(a.q)}: ${plural(files.length, "file")}`);
       return { repo: a.q, files: files.map(fileSaid) };
     }
     if (a.site === "yours") {
       const got = await modelSetsOf(s).search(a.q ?? "", true);
-      ctx.said(`Looked through the user's models${a.q ? ` for “${a.q}”` : ""}`);
+      ctx.said(`Looked through the user's models${a.q ? ` for ${quoted(a.q)}` : ""}`);
       return got;
     }
     // what a form lacks: its family's files, the files and node packs it names, as Create's lacks line says them
@@ -139,7 +139,7 @@ const findModels = tool({
     const st = statusOf(at, asked.recipe.id);
     const fam = at.machines.flatMap((m) => m.scan?.families.filter((f) => f.id === asked.recipe.family) ?? [])[0];
     const slots = fam?.slots.filter((x) => st?.missingSlots.includes(x.id)) ?? [];
-    ctx.said(`Looked at what ${asked.name} lacks`);
+    ctx.said(`Looked at what ${quoted(asked.name)} lacks`);
     return {
       form: asked.recipe.id, ready: st?.ready ?? false,
       files: [...slots.map((x) => ({ slot: x.label, folder: x.folder, ...(x.get ? { file: x.get.file, url: x.get.url } : {}) })), ...(st?.missing ?? []).map((f) => ({ file: f.file, folder: f.folder, ...(f.url ? { url: f.url } : {}) }))],
@@ -150,9 +150,19 @@ const findModels = tool({
   },
 });
 
+/**
+ * The machine a download or a Model set's Get goes to: the one asked for, else the first machine, as the downloads line
+ * and the sets pick it (fetchFile.ts downloadTarget, modelSets.ts get). Worked out before the Spend check: the first
+ * machine of a setup with rented GPUs only is a pod.
+ */
+async function targetOf(s: Services, asked: string | undefined): Promise<Machine | undefined> {
+  if (asked) return machineOf(await seen(s), asked);
+  return (await s.machines())[0]?.machine;
+}
+
 /** Whether this token may have files fetched onto a rented pod: Spend, and room left under its cap. A pod fetching is busy, billed. */
-async function mayFetchOnto(ctx: ToolCtx, m: Machine): Promise<void> {
-  if (!m.rented) return;
+async function mayFetchOnto(ctx: ToolCtx, m: Machine | undefined): Promise<void> {
+  if (!m?.rented) return;
   if (!ctx.token.scopes.includes("spend")) throw refusal(`This token cannot spend on rented GPUs, and ${machineName(m)} is one: a pod fetching files is busy, billed. Tick Spend on it in Settings › Interface › Access, or fetch onto a machine of the user's own.`);
   await ctx.maySpend(0);
 }
@@ -163,10 +173,10 @@ async function licenceFree(s: Services, files: Array<{ folder: string; file: str
   if (pending.length) throw refusal(`${pending.map((p) => `${p.name} comes under the ${p.licence!.name}`).join("; ")}: the user accepts it in Afflatus (the preset, a Model set's Get, or the Deploy dialog), never an agent for them.`);
 }
 
-/** A download as the tools say it: never the folder on disk it is written into. */
+/** A download as the tools say it: never the folder on disk it is written into, nor one in what went wrong. */
 const downloadSaid = (d: DownloadView) => ({
   id: d.id, file: d.file, folder: d.folder, title: d.title, status: d.status, bytes: d.bytes, total: d.total,
-  ...(d.error ? { error: d.error } : {}), ...(d.waiting ? { waiting: d.waiting } : {}), ...(d.via ? { via: d.via } : {}), ...(d.note ? { note: d.note } : {}), ...(d.machine ? { machine: d.machine } : {}),
+  ...(d.error ? { error: withoutPaths(d.error) } : {}), ...(d.waiting ? { waiting: withoutPaths(d.waiting) } : {}), ...(d.via ? { via: d.via } : {}), ...(d.note ? { note: withoutPaths(d.note) } : {}), ...(d.machine ? { machine: d.machine } : {}),
 });
 
 const download = tool({
@@ -181,16 +191,16 @@ const download = tool({
     civitai: z.number().int().positive().optional().describe("A Civitai version's id."),
     pick: z.string().max(400).optional().describe("Of a Civitai version with several files: the one, by name."),
     sha256: z.string().regex(/^[0-9a-fA-F]{64}$/).optional(),
-    machine: z.string().optional().describe("A machine's id or name (list_machines); left out, the first ComfyUI."),
+    machine: z.string().optional().describe("A machine's id or name (list_machines); left out, the first machine."),
   },
   async run(a, ctx) {
     const { s } = ctx;
-    const m = a.machine ? machineOf(await seen(s), a.machine) : undefined;
-    if (m) await mayFetchOnto(ctx, m);
+    const m = await targetOf(s, a.machine);
+    await mayFetchOnto(ctx, m);
     const name = a.file || a.pick;
     if (name) await licenceFree(s, [{ folder: a.folder, file: name }]);
-    const view = await beginDownload(s, ctx.self, downloadBody.parse({ folder: a.folder, file: a.file ?? "", ...(a.url ? { url: a.url } : {}), ...(a.civitai ? { civitai: a.civitai } : {}), ...(a.pick ? { pick: a.pick } : {}), ...(a.sha256 ? { sha256: a.sha256 } : {}), ...(m ? { machine: m.id } : {}) }));
-    ctx.said(`Downloading ${view.file} into ${a.folder}${m ? ` on ${machineName(m)}` : ""}`);
+    const view = await beginDownload(s, ctx.self, downloadBody.parse({ folder: a.folder, file: a.file ?? "", ...(a.url ? { url: a.url } : {}), ...(a.civitai ? { civitai: a.civitai } : {}), ...(a.pick ? { pick: a.pick } : {}), ...(a.sha256 ? { sha256: a.sha256 } : {}), ...(a.machine && m ? { machine: m.id } : {}) }));
+    ctx.said(`Downloading ${quoted(view.file)} into ${quoted(a.folder)}${m ? ` on ${quoted(machineName(m))}` : ""}`);
     return downloadSaid(view);
   },
 });
@@ -232,12 +242,12 @@ const changeDownloads = tool({
       const stopped = d.stop(a.id);
       if (stopped === "late") throw httpError("Download complete: ComfyUI is saving the file now.", 409);
       if (stopped === "manager") throw httpError("ComfyUI-Manager downloads this one on its own: it cannot be stopped from Afflatus.", 409);
-      ctx.said(`Cancelled the download of ${was.file}`);
+      ctx.said(`Cancelled the download of ${quoted(was.file)}`);
       return { cancelled: a.id };
     }
     if (a.action === "move") {
       if (!d.move(a.id, a.before ?? null)) throw httpError("Only a download still waiting its turn moves, before another one waiting on the same ComfyUI.", 409);
-      ctx.said(`Moved the download of ${was.file}`);
+      ctx.said(`Moved the download of ${quoted(was.file)}`);
       return { moved: a.id };
     }
     // again: as the card's Try again, through the same checks (a pod's Spend among them)
@@ -245,11 +255,11 @@ const changeDownloads = tool({
     const kept = d.askOf(a.id);
     if (!kept) throw httpError("It was not asked from a page of Afflatus: download it again from where it was found.", 409);
     const ask = downloadBody.parse(kept.ask);
-    if (ask.machine) await mayFetchOnto(ctx, machineOf(await seen(ctx.s), ask.machine));
+    await mayFetchOnto(ctx, await targetOf(ctx.s, ask.machine));
     await licenceFree(ctx.s, [{ folder: ask.folder, file: ask.file || ask.pick || "" }]);
     const started = await beginDownload(ctx.s, ctx.self, ask);
     d.stop(a.id);
-    ctx.said(`Asked again for ${was.file}`);
+    ctx.said(`Asked again for ${quoted(was.file)}`);
     return downloadSaid(started);
   },
 });
@@ -265,7 +275,7 @@ const modelSets = tool({
     if (set) {
       const row = await sets.find(set);
       const { items } = await sets.files(set);
-      ctx.said(`Looked at the Model set “${row.name}”`);
+      ctx.said(`Looked at the Model set ${quoted(row.name)}`);
       return { id: set, name: row.name, files: items };
     }
     const { items } = await sets.list();
@@ -290,7 +300,7 @@ const editModelSet = tool({
     action: z.enum(["new", "edit", "duplicate", "delete", "get"]),
     set: z.string().max(80).optional().describe("The set's id (not for new)."),
     ...setFields,
-    machine: z.string().optional().describe("get: the machine's id or name; left out, the first ComfyUI."),
+    machine: z.string().optional().describe("get: the machine's id or name; left out, the first machine."),
   },
   async run(a, ctx) {
     const { s } = ctx;
@@ -298,34 +308,34 @@ const editModelSet = tool({
     if (a.action === "new") {
       if (!a.name) throw httpError("A new set needs a name.");
       const made = await sets.save(null, { name: a.name, presets: a.presets ?? [], files: a.files ?? [], off: a.off ?? [] });
-      ctx.said(`Made the Model set “${made.name}”`);
+      ctx.said(`Made the Model set ${quoted(made.name)}`);
       return made;
     }
     if (!a.set) throw httpError("Which set: model_sets gives the ids.");
     const row = await sets.find(a.set);
     if (a.action === "delete") {
       await sets.remove(a.set);
-      ctx.said(`Deleted the Model set “${row.name}”`);
+      ctx.said(`Deleted the Model set ${quoted(row.name)}`);
       return { deleted: a.set, said: "Deleted for good; the model files it named stay where they are." };
     }
     if (a.action === "duplicate") {
       const made = await sets.duplicate(a.set);
-      ctx.said(`Duplicated the Model set “${row.name}”`);
+      ctx.said(`Duplicated the Model set ${quoted(row.name)}`);
       return made;
     }
     if (a.action === "edit") {
       const def = JSON.parse(row.def) as { presets: string[]; files: unknown[]; off: string[] };
       const saved = await sets.save(a.set, { name: a.name ?? row.name, presets: a.presets ?? def.presets, files: a.files ?? def.files, off: a.off ?? def.off });
-      ctx.said(`Changed the Model set “${saved.name}”`);
+      ctx.said(`Changed the Model set ${quoted(saved.name)}`);
       return saved;
     }
-    const m = a.machine ? machineOf(await seen(s), a.machine) : undefined;
-    if (m) await mayFetchOnto(ctx, m);
+    const m = await targetOf(s, a.machine);
+    await mayFetchOnto(ctx, m);
     // its files under licences not accepted yet are refused here as for the route, said as the user's to accept
     const { items } = await sets.files(a.set);
     await licenceFree(s, items.filter((f) => !f.off));
-    const got = await sets.get(ctx.self, a.set, { ...(m ? { machine: m.id } : {}), accept: false });
-    ctx.said(`Fetching the Model set “${row.name}”${m ? ` onto ${machineName(m)}` : ""}: ${plural(got.sent, "file")}`);
+    const got = await sets.get(ctx.self, a.set, { ...(a.machine && m ? { machine: m.id } : {}), accept: false });
+    ctx.said(`Fetching the Model set ${quoted(row.name)}${m ? ` onto ${quoted(machineName(m))}` : ""}: ${plural(got.sent, "file")}`);
     return got;
   },
 });
@@ -358,7 +368,7 @@ const changeModelSettings = tool({
   },
   async run(a, ctx) {
     const saved = await saveModelSettings(ctx.s, a.family, a.file, a.values ?? {});
-    ctx.said(Object.keys(saved.values).length ? `Saved ${plural(Object.keys(saved.values).length, "value")} with ${a.file}` : `Forgot the values saved with ${a.file}`);
+    ctx.said(Object.keys(saved.values).length ? `Saved ${plural(Object.keys(saved.values).length, "value")} with ${quoted(a.file)}` : `Forgot the values saved with ${quoted(a.file)}`);
     return saved;
   },
 });

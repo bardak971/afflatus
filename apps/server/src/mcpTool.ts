@@ -1,6 +1,6 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { z } from "zod";
-import type { McpToken, Scope } from "./mcpTokens";
+import { cleanLine, type McpToken, type Scope } from "./mcpTokens";
 import type { Services } from "./services";
 
 /**
@@ -30,6 +30,12 @@ export type NeverSubject = keyof typeof NEVER;
 
 /** Whether a subject is on the never-list (a dotted subject by its first part: "access.stayDays" is "access"). */
 export const isNever = (subject: string): subject is NeverSubject => (subject.split(".")[0] ?? "") in NEVER;
+
+/**
+ * A name an agent gave (a label, a file, a folder, a tool it asked for) as an activity line or a refusal says it: in quotes
+ * of its own, its own curly quotes made straight, so that it cannot close them and go on as if Afflatus said the rest.
+ */
+export const quoted = (name: string) => `“${cleanLine(name).replace(/[“”]/g, '"').trim().slice(0, 120)}”`;
 
 /** What a tool's run is given. */
 export interface ToolCtx {

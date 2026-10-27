@@ -91,6 +91,27 @@ describe("read_settings", () => {
   });
 });
 
+describe("read_settings: folders on a disk", () => {
+  it("says comfyDir and downloadPlaces set or not, never the path; no value read looks like a path on a disk", async () => {
+    await updateSettings(t.db, () => ({ comfyDir: "D:\\zz-test\\ComfyUI", downloadPlaces: { m1: { loras: "E:\\zz-test\\loras" } } }));
+    const c = await connect(["look"]);
+    const all = await ok(c, "read_settings");
+    const by = new Map((all.settings as Array<{ key: string; value: unknown }>).map((x) => [x.key, x]));
+    expect(by.get("comfyDir")!.value).toEqual({ set: true });
+    expect(by.get("downloadPlaces")!.value).toEqual({ set: true });
+    expect(JSON.stringify(all)).not.toContain("zz-test");
+    const strings: string[] = [];
+    const walk = (v: unknown): void => {
+      if (typeof v === "string") strings.push(v);
+      else if (v && typeof v === "object") for (const x of Object.values(v)) walk(x);
+    };
+    for (const x of all.settings as Array<{ value: unknown }>) walk(x.value);
+    for (const v of strings) expect(v, v).not.toMatch(/^(?:[A-Za-z]:[\\/]|\\\\|\/(?!\/))/);
+    expect((await ok(c, "read_settings", { key: "comfyDir" })).value).toEqual({ set: true });
+    await c.close();
+  });
+});
+
 describe("change_setting", () => {
   it("saves as the page does, with the schema's checks; a dotted path reaches inside one; null takes a family's key out", async () => {
     const c = await connect(ALL);

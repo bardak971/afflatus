@@ -1,10 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { FastifyInstance } from "fastify";
 import { z, ZodError } from "zod";
 import { VERSION } from "./config";
-import { isNever, NEVER, Rich, type NeverSubject, type Tool, type ToolCtx } from "./mcpTool";
+import { isNever, NEVER, quoted, Rich, type NeverSubject, type Tool, type ToolCtx } from "./mcpTool";
 import { selfUrl } from "./fetchFile";
 import { refusal, SCOPE_WORDS, type McpToken } from "./mcpTokens";
 import { TOOLS } from "./mcpTools";
@@ -45,7 +45,7 @@ function resultOf(value: unknown): CallToolResult {
 }
 
 /** One call of a tool, checked, run and written down. */
-async function call(t: Tool, args: Record<string, unknown>, s: Services, token: McpToken, ip: string, self: string): Promise<CallToolResult> {
+async function call(t: Tool, raw: unknown, s: Services, token: McpToken, ip: string, self: string): Promise<CallToolResult> {
   let said = t.title;
   const ctx: ToolCtx = {
     s, token, ip, self,
@@ -58,20 +58,37 @@ async function call(t: Tool, args: Record<string, unknown>, s: Services, token: 
     mayRender: (count = 1) => s.mcp.tokens.mayRender(token, count),
     maySpend: (usd) => s.mcp.tokens.maySpend(token, usd),
   };
+  let value: unknown;
   try {
+    // the scope first: a token that may not use the tool is told what to tick, not that its arguments are wrong
     if (!token.scopes.includes(t.scope)) {
       said = `${t.title}: needs ${SCOPE_WORDS[t.scope]}`;
       throw refusal(`This token cannot ${t.scope === "spend" ? "spend on rented GPUs" : `do this (it needs ${SCOPE_WORDS[t.scope]})`}: tick ${SCOPE_WORDS[t.scope]} on it in Settings › Interface › Access.`);
     }
+    // the arguments checked here rather than by the SDK, so that a refused one is in the activity too
+    const parsed = z.object(t.input ?? {}).safeParse(raw ?? {});
+    if (!parsed.success) {
+      said = `${t.title}: arguments refused`;
+      throw parsed.error;
+    }
+    const args = parsed.data as Record<string, unknown>;
     for (const subject of typeof t.touches === "function" ? t.touches(args) : (t.touches ?? [])) ctx.never(subject);
-    const value = await t.run(args, ctx);
-    await s.mcp.tokens.record({ tokenId: token.id, tool: t.name, said, refused: false });
-    return resultOf(value);
+    value = await t.run(args, ctx);
   } catch (err) {
     const { why, failed } = errorSaid(err, t.name);
     await s.mcp.tokens.record({ tokenId: token.id, tool: t.name, said, refused: !failed, failed, why }).catch((e) => console.warn("[mcp] activity not written:", (e as Error).message));
     return { content: [{ type: "text", text: why }], isError: true };
   }
+  // done: a line that cannot be written must not say a done action failed (the agent would do it again: a render, a pod)
+  await s.mcp.tokens.record({ tokenId: token.id, tool: t.name, said, refused: false }).catch((e) => console.warn("[mcp] activity not written:", (e as Error).message));
+  return resultOf(value);
+}
+
+/** A call of a tool this server does not have: refused, and written to the token's activity like any other. */
+async function unknownTool(name: string, s: Services, token: McpToken): Promise<CallToolResult> {
+  const why = `There is no tool called ${quoted(name)}: the client's tool list has them.`;
+  await s.mcp.tokens.record({ tokenId: token.id, tool: "(unknown)", said: `Asked for a tool that does not exist: ${quoted(name)}`, refused: true, why }).catch((e) => console.warn("[mcp] activity not written:", (e as Error).message));
+  return { content: [{ type: "text", text: why }], isError: true };
 }
 
 /** The MCP server of one request: every tool, bound to the token that asked. */
@@ -88,6 +105,14 @@ export function serverFor(s: Services, token: McpToken, ip: string, tools: reado
       annotations: { title: t.title, readOnlyHint: t.scope === "look", openWorldHint: false },
     }, (args: Record<string, unknown>) => call(t, args, s, token, ip, self));
   }
+  // tools/call answered here rather than by the SDK, which checks the arguments (and refuses an unknown tool) before any
+  // of ours runs: those refusals went unwritten in the activity, and a token without the scope was told its arguments were
+  // wrong. The tool list (tools/list, with each one's schema) stays the SDK's
+  const byName = new Map(tools.map((t) => [t.name, t]));
+  server.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const t = byName.get(request.params.name);
+    return t ? call(t, request.params.arguments, s, token, ip, self) : unknownTool(request.params.name, s, token);
+  });
   return server;
 }
 
