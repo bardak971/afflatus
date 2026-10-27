@@ -16,6 +16,7 @@ import { refusal } from "./reservedKeys";
 import { Block, Card, Fact, Row } from "./Rows";
 import { queryKeys } from "../../queryKeys";
 import { COLUMNS } from "./wide";
+import { SETTING_HELP } from "@afflatus/core";
 
 const DEFAULT: BarSettings = { shortcut: "Ctrl+K", snippets: false, cast: false };
 
@@ -98,7 +99,7 @@ export function BarCard() {
     <div className={COLUMNS}>
       <div className="flex flex-col gap-4">
         <Card title="The bar" label="The bar">
-          <Row setting="bar.shortcut" label="Shortcut" help="Opens the bar from anywhere, a text box included. Click it, then press the keys of the new one; Escape leaves it as it was.">
+          <Row setting="bar.shortcut" label="Shortcut" help={SETTING_HELP["bar.shortcut"]}>
             {bar.shortcut !== DEFAULT.shortcut && <Button size="sm" tone="quiet" onClick={() => saveBar({ shortcut: DEFAULT.shortcut })}>Back to Ctrl+K</Button>}
             <ShortcutRecorder value={bar.shortcut || DEFAULT.shortcut} onChange={(shortcut) => saveBar({ shortcut })} />
           </Row>
@@ -115,7 +116,7 @@ export function BarCard() {
       </div>
       <div className="flex flex-col gap-4">
         <Card title="Optional parts" label="Optional parts" status={<span className="text-xs text-ink-3">off until you turn them on</span>}>
-          <Row setting="bar.snippets" label="Prompt snippets" help="Type ;name in any prompt box, then a space or Tab: the snippet's text goes there.">
+          <Row setting="bar.snippets" label="Prompt snippets" help={SETTING_HELP["bar.snippets"]}>
             <Toggle bare on={bar.snippets} onChange={(snippets) => saveBar({ snippets })} label="Prompt snippets" />
           </Row>
           {bar.snippets && (
@@ -140,7 +141,7 @@ export function BarCard() {
               </div>
             </Block>
           )}
-          <Row setting="bar.cast" label="Cast with @" help="Type @ in the bar to add a person of the Prompt kit to the clip selected in the timeline editor, else to the open draft.">
+          <Row setting="bar.cast" label="Cast with @" help={SETTING_HELP["bar.cast"]}>
             <Toggle bare on={bar.cast} onChange={(cast) => saveBar({ cast })} label="Cast with @" />
           </Row>
           {error && <Block><ErrorNote>{error}</ErrorNote></Block>}

@@ -8,6 +8,7 @@ import { AccessCard } from "./AccessCard";
 import { WhatCard, WhereCard } from "./NotifyCards";
 import { Block, Card, Row } from "./Rows";
 import { COLUMNS } from "./wide";
+import { SETTING_HELP } from "@afflatus/core";
 
 /** Settings › Interface: how Afflatus looks and behaves in this browser, who may open it (Access), and what it tells you about. */
 export function InterfaceTab() {
@@ -42,7 +43,7 @@ export function InterfaceTab() {
             setting="interface.pins"
             label="Forget pinned fields"
             sub={pins.fields ? `${plural(pins.fields, "field")} pinned, over ${plural(pins.families, "model family", "model families")}` : "None pinned"}
-            help="The settings pinned to the top of the model forms (right-click a setting's name: Pin to the top), kept per model family and shared by every browser. Forget takes every pin off: the forms lose their Pinned card; no value changes."
+            help={SETTING_HELP.pinnedFields}
           >
             <Button size="sm" disabled={!pins.fields} onClick={pins.forget}>Forget</Button>
           </Row>

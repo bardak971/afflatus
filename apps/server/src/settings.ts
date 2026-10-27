@@ -117,6 +117,12 @@ export const rentedSchema = z.object({
    * are deleted first, the longest unused first (podFiles.ts). Never a file Afflatus did not fetch. Off: such a job goes elsewhere.
    */
   makeRoom: z.boolean().default(false),
+  /**
+   * The MCP token whose deploy_pod or start_pod started its current run, by id (mcpMachines.ts); empty: the user's Start or
+   * Deploy, or the GPU hunt's. Its run is then that token's spend, and it stops once that token's cap is reached. The
+   * server's alone: what the page sends of it is not taken (writeSettings keeps only the idle choices of a rented machine).
+   */
+  mcpToken: z.string().max(80).default(""),
 });
 
 /** What a GPU is deployed with (Settings › Rented GPUs › Deploy a GPU): the dialog's choices. */

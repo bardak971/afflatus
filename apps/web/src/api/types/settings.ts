@@ -187,6 +187,8 @@ export interface RentedMachine {
   leaveOut: Array<{ file: string; folder: string }>;
   /** Make room: the models Afflatus fetched there that no waiting job needs are deleted when a needed file does not fit. */
   makeRoom: boolean;
+  /** The MCP token whose deploy_pod or start_pod started its current run, by id; empty: the user's or the GPU hunt's. */
+  mcpToken: string;
 }
 
 /** What a GPU is deployed with: the Deploy dialog's choices, kept as the next deploy's (Settings.lastDeploy). */

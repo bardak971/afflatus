@@ -800,7 +800,8 @@ export class Queue {
       const cut = JSON.parse(row.inputs) as CutOptions;
       // a finish cut behind a Face refine still to end waits for it again: started first, it would fail with nothing to finish
       const refine = cut.fromJob ? await this.db.selectFrom("jobs").select("id").where("id", "=", cut.fromJob).where(toRun).executeTakeFirst() : undefined;
-      return this.enqueueCut(cut, row.label, refine ? { dependsOn: refine.id } : {});
+      // done again by whoever asked now, as a render is: a token's slow motion (RIFE on the GPU) stays under its rules
+      return this.enqueueCut(cut, row.label, { ...(refine ? { dependsOn: refine.id } : {}), mcpToken: by.mcpToken ?? null });
     }
     // a workflow whose settings were changed since no longer has some of what the job was sent with
     const has = new Set(this.registry.recipe(row.recipe_id)?.inputs.map((i) => i.id));

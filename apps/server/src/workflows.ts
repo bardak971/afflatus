@@ -80,7 +80,7 @@ function checkBindings(graph: Graph, b: Bindings): void {
   }
 }
 
-const brief = (d: WorkflowDef, problem?: string) => ({ id: d.id, title: d.title, model: d.model, source: d.source, output: d.bindings.result.kind, nodes: Object.keys(d.graph).length, ...(problem ? { problem } : {}) });
+export const brief = (d: WorkflowDef, problem?: string) => ({ id: d.id, title: d.title, model: d.model, source: d.source, output: d.bindings.result.kind, nodes: Object.keys(d.graph).length, ...(problem ? { problem } : {}) });
 
 /** The workflow is built once, as mapped, before it is kept: one that cannot be built is refused here, not found at the next start. */
 function mustBuild(def: WorkflowDef): void {
@@ -91,60 +91,75 @@ function mustBuild(def: WorkflowDef): void {
   }
 }
 
-export function registerWorkflows(app: FastifyInstance, s: Services): void {
-  /**
-   * What Afflatus finds in a workflow, before anything is saved. Takes the file ComfyUI's editor saves, a
-   * workflow saved with Export (API), or one Afflatus already holds. Reads ComfyUI's node list, nothing else.
-   * The answer carries the workflow in the form Afflatus keeps: that is what gets saved.
-   */
-  app.post("/api/workflows/inspect", async (req) => {
-    const body = req.body;
-    // what the file is gets settled first: a file that is no workflow is refused without asking ComfyUI
-    const fromFile = isEditorFormat(body);
-    const held = !fromFile && body && typeof body === "object" && "graph" in body ? heldBody.safeParse(body) : null;
-    const exported = fromFile || held?.success ? null : mustBeWorkflow(body);
-    let catalog;
+/**
+ * What Afflatus finds in a workflow, before anything is saved. Takes the file ComfyUI's editor saves, a
+ * workflow saved with Export (API), or one Afflatus already holds. Reads ComfyUI's node list, nothing else.
+ * The answer carries the workflow in the form Afflatus keeps: that is what gets saved.
+ */
+export async function inspectWorkflow(s: Services, body: unknown) {
+  // what the file is gets settled first: a file that is no workflow is refused without asking ComfyUI
+  const fromFile = isEditorFormat(body);
+  const held = !fromFile && body && typeof body === "object" && "graph" in body ? heldBody.safeParse(body) : null;
+  const exported = fromFile || held?.success ? null : mustBeWorkflow(body);
+  let catalog;
+  try {
+    catalog = await (await s.comfy()).catalog();
+  } catch (err) {
+    if (err instanceof ComfyUnreachable) throw httpError("ComfyUI has to be running to read a workflow: its node list says what each setting is.", 503);
+    throw err;
+  }
+  /** For each file that is missing: the other model folders of ComfyUI that hold a file of that name. */
+  /** … and, when lookups are on, where each can be had (the author's notes, the author's other models, Manager's list of standard files). */
+  const withElsewhere = async <T extends ReturnType<typeof inspect>>(found: T) => {
+    if (!found.missingFiles.length) return { ...found, elsewhere: {} as Record<string, string[]> };
+    const index = await modelIndex(await s.comfy());
+    const elsewhere: Record<string, string[]> = {};
+    for (const m of found.missingFiles) {
+      const hits = index.find(m.file).map((hit) => hit.folder);
+      if (hits.length) elsewhere[m.file] = hits;
+    }
+    const settings = await readSettings(s.db);
+    if (settings.civitaiLookups) {
+      const sources: Record<string, FileSource> = await sourcesFor(found.missingFiles, found.links, settings.civitaiKey).catch(() => ({}));
+      for (const m of found.missingFiles) {
+        const source = sources[`${m.node}.${m.input}`];
+        if (source) m.source = source;
+      }
+    }
+    return { ...found, elsewhere };
+  };
+  if (fromFile) {
+    let read;
     try {
-      catalog = await (await s.comfy()).catalog();
+      read = fromEditor(body, catalog);
     } catch (err) {
-      if (err instanceof ComfyUnreachable) throw httpError("ComfyUI has to be running to read a workflow: its node list says what each setting is.", 503);
+      // a file that is not what it says (its shape, names no editor writes, group nodes that never end): said, not a 500
+      if (err instanceof UnreadableWorkflow) throw httpError(err.message);
       throw err;
     }
-    /** For each file that is missing: the other model folders of ComfyUI that hold a file of that name. */
-    /** … and, when lookups are on, where each can be had (the author's notes, the author's other models, Manager's list of standard files). */
-    const withElsewhere = async <T extends ReturnType<typeof inspect>>(found: T) => {
-      if (!found.missingFiles.length) return { ...found, elsewhere: {} as Record<string, string[]> };
-      const index = await modelIndex(await s.comfy());
-      const elsewhere: Record<string, string[]> = {};
-      for (const m of found.missingFiles) {
-        const hits = index.find(m.file).map((hit) => hit.folder);
-        if (hits.length) elsewhere[m.file] = hits;
-      }
-      const settings = await readSettings(s.db);
-      if (settings.civitaiLookups) {
-        const sources: Record<string, FileSource> = await sourcesFor(found.missingFiles, found.links, settings.civitaiKey).catch(() => ({}));
-        for (const m of found.missingFiles) {
-          const source = sources[`${m.node}.${m.input}`];
-          if (source) m.source = source;
-        }
-      }
-      return { ...found, elsewhere };
-    };
-    if (fromFile) {
-      let read;
-      try {
-        read = fromEditor(body, catalog);
-      } catch (err) {
-        // a file that is not what it says (its shape, names no editor writes, group nodes that never end): said, not a 500
-        if (err instanceof UnreadableWorkflow) throw httpError(err.message);
-        throw err;
-      }
-      if (!Object.keys(read.graph).length) throw httpError("No node that ComfyUI can run was found in this file.");
-      return { ...(await withElsewhere(inspect(read.graph, catalog, read.wiring, read.notes))), graph: read.graph, wiring: read.wiring, editor: body };
-    }
-    if (held?.success) return { ...(await withElsewhere(inspect(held.data.graph as Graph, catalog, held.data.wiring))), graph: held.data.graph, wiring: held.data.wiring };
-    return { ...(await withElsewhere(inspect(exported!, catalog))), graph: exported };
-  });
+    if (!Object.keys(read.graph).length) throw httpError("No node that ComfyUI can run was found in this file.");
+    return { ...(await withElsewhere(inspect(read.graph, catalog, read.wiring, read.notes))), graph: read.graph, wiring: read.wiring, editor: body };
+  }
+  if (held?.success) return { ...(await withElsewhere(inspect(held.data.graph as Graph, catalog, held.data.wiring))), graph: held.data.graph, wiring: held.data.wiring };
+  return { ...(await withElsewhere(inspect(exported!, catalog))), graph: exported };
+}
+
+/** A new workflow kept as mapped (the web's Save, and MCP's import_workflow): checked, built once, given an id from its title. */
+export async function createWorkflow(s: Services, raw: unknown) {
+  const body = saveBody.parse(raw);
+  checkBindings(body.graph as Graph, body.bindings);
+  // the id comes from the title and stays: generations and drafts refer to it
+  const base = `workflow.${slug(body.title)}`;
+  let id = base;
+  for (let n = 2; s.registry.recipe(id); n++) id = `${base}-${n}`;
+  const def = workflowDef.parse({ id, ...body });
+  mustBuild(def);
+  await s.registry.save(def);
+  return brief(def);
+}
+
+export function registerWorkflows(app: FastifyInstance, s: Services): void {
+  app.post("/api/workflows/inspect", async (req) => inspectWorkflow(s, req.body));
 
   app.get("/api/workflows", async () => ({ items: s.registry.workflows().map((d) => brief(d, s.registry.problem(d.id))) }));
 
@@ -177,18 +192,7 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
     return def;
   });
 
-  app.post("/api/workflows", async (req) => {
-    const body = saveBody.parse(req.body);
-    checkBindings(body.graph as Graph, body.bindings);
-    // the id comes from the title and stays: generations and drafts refer to it
-    const base = `workflow.${slug(body.title)}`;
-    let id = base;
-    for (let n = 2; s.registry.recipe(id); n++) id = `${base}-${n}`;
-    const def = workflowDef.parse({ id, ...body });
-    mustBuild(def);
-    await s.registry.save(def);
-    return brief(def);
-  });
+  app.post("/api/workflows", async (req) => createWorkflow(s, req.body));
 
   app.put<{ Params: { id: string } }>("/api/workflows/:id", async (req) => {
     const current = s.registry.workflow(req.params.id);

@@ -7,6 +7,7 @@ import { Block, Card, Row } from "./Rows";
 import { daysSaid, insteadOfWaiting } from "../../keepFor";
 import { queryKeys } from "../../queryKeys";
 import { COLUMNS } from "./wide";
+import { SETTING_HELP } from "@afflatus/core";
 
 /** Where the space goes, and the two ways to get some back. */
 export function StorageCard() {
@@ -70,13 +71,13 @@ export function StorageCard() {
               {s.bin.count > 0 && <TwoStep label="Empty the bin" tone="danger" title={`Everything in the bin is erased now, files and all, instead of ${insteadOfWaiting(binDays)}`} note="This cannot be undone." yes={`Erase ${size(s.bin.bytes)}`} busy={empty.isPending} onYes={() => empty.mutate()} />}
             </Row>
           )}
-          <Row setting="storage.unkeptDays" label="Unkept renders go to the bin after" help="A render nobody kept (S keeps one) goes to the bin by itself this long after it was made, or after it was unkept or put back. Never: nothing goes on its own, and the library keeps everything until you bin it. What is on a timeline is always kept.">
+          <Row setting="storage.unkeptDays" label="Unkept renders go to the bin after" help={SETTING_HELP.unkeptDays}>
             <Segmented oneLine label="Unkept renders go to the bin after" value={String(unkeptDays)} options={UNKEPT_FOR} onChange={(v) => keepFor.mutate({ unkeptDays: Number(v) as 0 | 1 | 3 | 7 })} />
           </Row>
-          <Row setting="storage.binDays" label="Keep what is in the bin" help="How long the bin holds what was moved to it before it is erased, file and all. Until emptied: nothing is erased until you empty the bin (here, in the bin's strip, or > empty the bin).">
+          <Row setting="storage.binDays" label="Keep what is in the bin" help={SETTING_HELP.binDays}>
             <Segmented oneLine label="Keep what is in the bin" value={String(binDays)} options={BIN_FOR} onChange={(v) => keepFor.mutate({ binDays: Number(v) as 0 | 7 | 30 })} />
           </Row>
-          <Row setting="storage.jobDays" label="Keep finished jobs" help="How long a done, failed or stopped job stays in the Queue's history before it is deleted from the database, checked every hour. A job still used is kept whatever its age: one whose result is in the library, on a clip, behind an export or a render time, or from a rented pod still running. The prompt history keeps the pictures and the settings either way. For good: no job is deleted.">
+          <Row setting="storage.jobDays" label="Keep finished jobs" help={SETTING_HELP.jobHistoryDays}>
             <Segmented oneLine label="Keep finished jobs" value={String(jobDays)} options={jobsFor(jobDays)} onChange={(v) => keepFor.mutate({ jobHistoryDays: Number(v) })} />
           </Row>
           {(idle.isError || empty.isError || keepFor.isError) && <Block><ErrorNote>{(idle.error ?? empty.error ?? keepFor.error)?.message}</ErrorNote></Block>}
@@ -146,7 +147,7 @@ function RenderRecord() {
         setting="storage.renderTimes"
         label="Render times kept for"
         sub={r ? `${plural(r.renders, "render")} one by one${r.days ? `, ${plural(r.days, "day")} as figures` : ""}` : undefined}
-        help={`What the Queue's "Render times" and the estimates on the buttons are made from. Older renders are folded into one line per model and day, kept for good: the charts still reach back, the list does not.`}
+        help={SETTING_HELP.renderHistoryDays}
       >
         <Segmented oneLine label="How long each render is kept one by one" value={String(days)} options={KEEP_FOR} onChange={(v) => keep.mutate(Number(v))} />
       </Row>

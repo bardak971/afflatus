@@ -37,6 +37,8 @@ export interface ToolCtx {
   token: McpToken;
   /** The client's address. */
   ip: string;
+  /** The address this request reached Afflatus at (fetchFile.ts selfUrl): where a ComfyUI fetches a download from. */
+  self: string;
   /** What the call touched, in plain words, for the activity ("Looked at the queue: 2 waiting"); the tool's title when not said. */
   said(text: string): void;
   /** Refuses the call at once when `subject` is on the never-list: for a tool whose subject is known only as it runs. */

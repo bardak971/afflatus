@@ -11,7 +11,7 @@ import { NOT_MODELS } from "./modelDownload";
 import { setsWithFiles } from "./modelSets";
 import { fetchPublic } from "./outbound";
 import type { Services } from "./services";
-import { readSettings } from "./settings";
+import { readSettings, type Settings } from "./settings";
 
 /**
  * Find models: Civitai's and Hugging Face's models as cards for the browser (FindModels.tsx), each file with where it goes
@@ -165,7 +165,7 @@ interface Known {
 export const familyPlaces = (s: Pick<Services, "registry">): SlotPlace[] => slotPlaces(s.registry.families().filter((f) => !f.imported));
 
 
-async function known(s: Services): Promise<Known> {
+export async function known(s: Services): Promise<Known> {
   const [hashes, sets, updates, settings] = await Promise.all([
     s.db.selectFrom("model_hashes").select(["folder", "file", "sha256"]).execute(),
     setsWithFiles(s).catch(() => []),
@@ -253,7 +253,7 @@ function huggingFaceCard(r: HfRepo, k: Known, family: Map<string, string>): Brow
 const placed = (p: { folder: string | null; why?: string }) => ({ folder: p.folder, ...(p.why ? { why: p.why } : {}) });
 
 /** A repository's model files with their sizes and SHA-256 (its tree), each with its folder by its path and what the user has. */
-async function repoFiles(repo: string, token: string, k: Known): Promise<BrowseFile[]> {
+export async function repoFiles(repo: string, token: string, k: Known): Promise<BrowseFile[]> {
   const res = await fetchPublic(`${hfSite()}/api/models/${repo}/tree/main?recursive=true`, { headers: hfHeaders(token), signal: AbortSignal.timeout(20_000) }, [hfSite()]).catch(() => null);
   if (!res?.ok) throw httpError(res?.status === 404 ? "Hugging Face has no such repository." : "Hugging Face did not answer.", res?.status === 404 ? 404 : 502);
   const tree = (await res.json().catch(() => [])) as Array<{ type?: string; path?: string; size?: number; lfs?: { oid?: string; size?: number } }>;
@@ -420,12 +420,96 @@ const sayIfSlow = (site: string, from: number, how: string) => {
 
 const csv = z.union([z.string(), z.array(z.string())]).optional().transform((v) => (v === undefined ? [] : Array.isArray(v) ? v : [v]).flatMap((x) => x.split("|")).filter(Boolean).slice(0, 20));
 
+/** The settings, refused when searching Hugging Face and Civitai is off (Settings › Models). */
+export async function lookupsOnFor(s: Services): Promise<Settings> {
+  const settings = await readSettings(s.db);
+  if (!settings.civitaiLookups) throw httpError("Searching Hugging Face and Civitai is off. Turn it on in Settings › Models.", 409);
+  return settings;
+}
+
+/** What Find models' Civitai tab asks: words, its types and base models, its order and period, a page's cursor, one creator's. */
+export const civitaiQuery = z.object({
+      q: z.string().max(200).default(""), types: csv, bases: csv, sort: z.enum(SORTS).default("Most Downloaded"), period: z.enum(PERIODS).default("AllTime"), cursor: z.string().max(400).optional(),
+      all: z.enum(["1", "0"]).default("0"),
+      // one creator's models only (the command bar's by:), by their Civitai name
+      by: z.string().trim().max(80).regex(/^[\w.-]*$/, "a Civitai user name").default(""),
+    }).strict();
+
+/** Civitai's models for words and filters, a page at a time (its cursor), as cards: Find models' Civitai tab, and MCP's find_models. */
+export async function browseCivitai(s: Services, q: z.output<typeof civitaiQuery>): Promise<{ items: BrowseCard[]; next: string | null; timings: string[] }> {
+  await lookupsOnFor(s);
+  const params = new URLSearchParams({ sort: q.sort, period: q.period });
+  if (q.q.trim()) params.set("query", q.q.trim());
+  if (q.by) params.set("username", q.by);
+  for (const t of q.types) params.append("types", t);
+  for (const b of q.bases) params.append("baseModels", b);
+  // Civitai's API leaves part of its models out unless asked for all of them (both its sites alike): the user's switch
+  if (q.all === "1") params.set("nsfw", "true");
+  const { from, at } = blockCursor(q.cursor);
+  const start = performance.now();
+  const block = civitaiBlock(params, from);
+  const got = await block.got;
+  sayIfSlow("Civitai", start, block.how);
+  const site = timing("civitai", start, block.how);
+  const models = got?.items ?? [];
+  const after = got?.metadata?.nextCursor !== undefined ? String(got.metadata.nextCursor) : null;
+  // the block after this one, asked now: here, or on its way, when the list is scrolled to its end
+  if (after) civitaiBlock(params, after, true);
+  const shown = models.slice(at, at + PAGE);
+  const next = at + PAGE < models.length ? `${from}~${at + PAGE}` : after !== null ? `${after}~0` : null;
+  const read = performance.now();
+  const k = await known(s);
+  const knew = timing("known", read);
+  const made = performance.now();
+  // the switch off: what Civitai still sends that is for adults by its rating, name or tags is left out (a page may come
+  // shorter; its cursor still goes on)
+  const items = shown.filter((m) => q.all === "1" || !forAdults(m)).map((m) => civitaiCard(m, k));
+  return { items, next, timings: [site, knew, timing("cards", made), timing("total", start)] };
+}
+
+/** What Find models' Hugging Face tab asks: words, a base model, a kind of files, its order, a page's cursor, one author's. */
+export const huggingFaceQuery = z.object({ q: z.string().max(200).default(""), base: z.string().max(120).refine((b) => Object.values(FAMILY_HF_BASES).flat().includes(b), "a base model the browser offers").optional(), kind: z.enum(["comfyui", "loras", "all"]).default("comfyui"), sort: z.enum(["downloads", "likes", "lastModified", "trendingScore"]).default("downloads"), cursor: z.string().max(400).optional(), by: z.string().trim().max(96).regex(/^[\w.-]*$/, "a Hugging Face user or organisation").default("") }).strict();
+
+/**
+ * Hugging Face's repositories for words, and "made for" one base model (its adapters: Hugging Face takes one such filter
+ * at a time, several meaning all of them at once), a page at a time: Find models' Hugging Face tab, and MCP's find_models.
+ */
+export async function browseHuggingFace(s: Services, q: z.output<typeof huggingFaceQuery>): Promise<{ items: BrowseCard[]; next: string | null; timings: string[] }> {
+  const settings = await lookupsOnFor(s);
+  const params = new URLSearchParams({ sort: q.sort, direction: "-1", limit: String(PAGE), full: "true" });
+  if (q.q.trim()) params.set("search", q.q.trim());
+  // one user's or organisation's repositories only (the command bar's by:)
+  if (q.by) params.set("author", q.by);
+  if (q.base) params.append("filter", `base_model:adapter:${q.base}`);
+  // ComfyUI's kind of files (single-file models, as Comfy-Org's repacks are tagged), LoRAs, or anything (most of the
+  // Hub is text models): Hugging Face reads several filters as all of them at once, so one kind at a time
+  if (q.kind === "comfyui" && !q.base) params.append("filter", "diffusion-single-file");
+  if (q.kind === "loras") params.append("filter", "lora");
+  if (q.cursor) params.set("cursor", q.cursor);
+  // kept by the token too: a gated repository's listing may differ with it
+  const token = settings.huggingFaceToken;
+  const keyOf = (p: URLSearchParams) => `${hfSite()}?${p}#${token ? "token" : ""}`;
+  const start = performance.now();
+  const page = huggingFacePages.get(keyOf(params), () => huggingFacePage(params, token));
+  const { repos, next } = await page.got;
+  sayIfSlow("Hugging Face", start, page.how);
+  const site = timing("huggingface", start, page.how);
+  if (next) {
+    const after = new URLSearchParams(params);
+    after.set("cursor", next);
+    huggingFacePages.ahead(keyOf(after), () => huggingFacePage(after, token));
+  }
+  const read = performance.now();
+  const k = await known(s);
+  const knew = timing("known", read);
+  const made = performance.now();
+  const family = new Map(Object.entries(FAMILY_HF_BASES).flatMap(([id, bases]) => bases.map((b) => [b, s.registry.families().find((f) => f.id === id)?.name ?? id] as [string, string])));
+  const items = repos.map((r) => huggingFaceCard(r, k, family));
+  return { items, next, timings: [site, knew, timing("cards", made), timing("total", start)] };
+}
+
 export function registerBrowse(app: FastifyInstance, s: Services): void {
-  const lookupsOn = async () => {
-    const settings = await readSettings(s.db);
-    if (!settings.civitaiLookups) throw httpError("Searching Hugging Face and Civitai is off. Turn it on in Settings › Models.", 409);
-    return settings;
-  };
+  const lookupsOn = () => lookupsOnFor(s);
 
   /** The filters' choices: Civitai's base models, and the user's families with theirs (the filter starts on those). */
   app.get("/api/browse/bases", async () => {
@@ -436,80 +520,15 @@ export function registerBrowse(app: FastifyInstance, s: Services): void {
 
   /** Civitai's models for words and filters, a page at a time (its cursor), as cards. */
   app.get("/api/browse/civitai", async (req, reply) => {
-    const q = z.object({
-      q: z.string().max(200).default(""), types: csv, bases: csv, sort: z.enum(SORTS).default("Most Downloaded"), period: z.enum(PERIODS).default("AllTime"), cursor: z.string().max(400).optional(),
-      all: z.enum(["1", "0"]).default("0"),
-      // one creator's models only (the command bar's by:), by their Civitai name
-      by: z.string().trim().max(80).regex(/^[\w.-]*$/, "a Civitai user name").default(""),
-    }).strict().parse(req.query);
-    await lookupsOn();
-    const params = new URLSearchParams({ sort: q.sort, period: q.period });
-    if (q.q.trim()) params.set("query", q.q.trim());
-    if (q.by) params.set("username", q.by);
-    for (const t of q.types) params.append("types", t);
-    for (const b of q.bases) params.append("baseModels", b);
-    // Civitai's API leaves part of its models out unless asked for all of them (both its sites alike): the user's switch
-    if (q.all === "1") params.set("nsfw", "true");
-    const { from, at } = blockCursor(q.cursor);
-    const start = performance.now();
-    const block = civitaiBlock(params, from);
-    const got = await block.got;
-    sayIfSlow("Civitai", start, block.how);
-    const site = timing("civitai", start, block.how);
-    const models = got?.items ?? [];
-    const after = got?.metadata?.nextCursor !== undefined ? String(got.metadata.nextCursor) : null;
-    // the block after this one, asked now: here, or on its way, when the list is scrolled to its end
-    if (after) civitaiBlock(params, after, true);
-    const shown = models.slice(at, at + PAGE);
-    const next = at + PAGE < models.length ? `${from}~${at + PAGE}` : after !== null ? `${after}~0` : null;
-    const read = performance.now();
-    const k = await known(s);
-    const knew = timing("known", read);
-    const made = performance.now();
-    // the switch off: what Civitai still sends that is for adults by its rating, name or tags is left out (a page may come
-    // shorter; its cursor still goes on)
-    const items = shown.filter((m) => q.all === "1" || !forAdults(m)).map((m) => civitaiCard(m, k));
-    reply.header("Server-Timing", [site, knew, timing("cards", made), timing("total", start)].join(", "));
+    const { items, next, timings } = await browseCivitai(s, civitaiQuery.parse(req.query));
+    reply.header("Server-Timing", timings.join(", "));
     return { items, next };
   });
 
-  /**
-   * Hugging Face's repositories for words, and "made for" one base model (its adapters: Hugging Face takes one such filter
-   * at a time, several meaning all of them at once), a page at a time.
-   */
+  /** Hugging Face's repositories for words and a base model, a page at a time. */
   app.get("/api/browse/huggingface", async (req, reply) => {
-    const q = z.object({ q: z.string().max(200).default(""), base: z.string().max(120).refine((b) => Object.values(FAMILY_HF_BASES).flat().includes(b), "a base model the browser offers").optional(), kind: z.enum(["comfyui", "loras", "all"]).default("comfyui"), sort: z.enum(["downloads", "likes", "lastModified", "trendingScore"]).default("downloads"), cursor: z.string().max(400).optional(), by: z.string().trim().max(96).regex(/^[\w.-]*$/, "a Hugging Face user or organisation").default("") }).strict().parse(req.query);
-    const settings = await lookupsOn();
-    const params = new URLSearchParams({ sort: q.sort, direction: "-1", limit: String(PAGE), full: "true" });
-    if (q.q.trim()) params.set("search", q.q.trim());
-    // one user's or organisation's repositories only (the command bar's by:)
-    if (q.by) params.set("author", q.by);
-    if (q.base) params.append("filter", `base_model:adapter:${q.base}`);
-    // ComfyUI's kind of files (single-file models, as Comfy-Org's repacks are tagged), LoRAs, or anything (most of the
-    // Hub is text models): Hugging Face reads several filters as all of them at once, so one kind at a time
-    if (q.kind === "comfyui" && !q.base) params.append("filter", "diffusion-single-file");
-    if (q.kind === "loras") params.append("filter", "lora");
-    if (q.cursor) params.set("cursor", q.cursor);
-    // kept by the token too: a gated repository's listing may differ with it
-    const token = settings.huggingFaceToken;
-    const keyOf = (p: URLSearchParams) => `${hfSite()}?${p}#${token ? "token" : ""}`;
-    const start = performance.now();
-    const page = huggingFacePages.get(keyOf(params), () => huggingFacePage(params, token));
-    const { repos, next } = await page.got;
-    sayIfSlow("Hugging Face", start, page.how);
-    const site = timing("huggingface", start, page.how);
-    if (next) {
-      const after = new URLSearchParams(params);
-      after.set("cursor", next);
-      huggingFacePages.ahead(keyOf(after), () => huggingFacePage(after, token));
-    }
-    const read = performance.now();
-    const k = await known(s);
-    const knew = timing("known", read);
-    const made = performance.now();
-    const family = new Map(Object.entries(FAMILY_HF_BASES).flatMap(([id, bases]) => bases.map((b) => [b, s.registry.families().find((f) => f.id === id)?.name ?? id] as [string, string])));
-    const items = repos.map((r) => huggingFaceCard(r, k, family));
-    reply.header("Server-Timing", [site, knew, timing("cards", made), timing("total", start)].join(", "));
+    const { items, next, timings } = await browseHuggingFace(s, huggingFaceQuery.parse(req.query));
+    reply.header("Server-Timing", timings.join(", "));
     return { items, next };
   });
 

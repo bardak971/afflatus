@@ -9,6 +9,7 @@ import { Button, Checkbox, Chip, cx, ErrorNote, fieldClass, Help, Toggle } from 
 import { Block, Card, Row, Status } from "./Rows";
 import { PasswordAsk } from "./PasswordAsk";
 import { SecretField } from "./SecretField";
+import { SETTING_HELP } from "@afflatus/core";
 
 /**
  * Settings › Interface › Notifications: where the notices go (this browser, a Telegram bot, a Discord webhook) and which
@@ -199,7 +200,7 @@ export function WhatCard() {
           <span className="text-xs text-warn-ink">allow them next to the address</span>
         </Row>
       )}
-      <Row setting="notify.picture" label="With a small picture of what it made" help="Telegram and Discord: a render done and the queue empty come with a small still of the result (a video's first frame), at most 1280 px.">
+      <Row setting="notify.picture" label="With a small picture of what it made" help={SETTING_HELP["notify.picture"]}>
         <Toggle bare on={n.picture} onChange={(picture) => save.mutate({ picture })} label="With a small picture of what it made" />
       </Row>
     </Card>

@@ -130,13 +130,13 @@ export class RentedDeploy extends RentedFollow {
    * only ComfyUI's port open; added as a machine at once, and the choices kept for the next deploy. Refused at a spending
    * cap. Billed from now: on the user's click, or by the GPU hunt the user started (hunt.ts), never otherwise.
    */
-  async deploy(ask: DeployAsk | (() => Promise<DeployAsk>), o: { fill?: boolean } = {}): Promise<{ id: string; dataCenter: string | null }> {
+  async deploy(ask: DeployAsk | (() => Promise<DeployAsk>), o: { fill?: boolean; mcpToken?: string } = {}): Promise<{ id: string; dataCenter: string | null }> {
     if (this.deploying) throw refused("A deploy is under way: wait for it to end.", "busy");
     this.deploying = true;
     try {
       // an ask still to be worked out (its files and their licences, deployFiles) is worked out under the lock: a deploy
       // under way from the click on, so that a GPU hunt started or deploying meanwhile cannot make a second pod for it
-      return await this.deployNow(typeof ask === "function" ? await ask() : ask, o.fill ?? false);
+      return await this.deployNow(typeof ask === "function" ? await ask() : ask, o.fill ?? false, o.mcpToken ?? "");
     } finally {
       this.deploying = false;
     }
@@ -166,7 +166,8 @@ export class RentedDeploy extends RentedFollow {
     return this.deploy({ gpu: found.gpu.id, cloud: "SECURE", template: "afflatus", volume, disk: 20, idleMinutes: 5, idleDo: "terminate", watchdogMinutes: 15, set, files, leaveOut: [], accept: [], again: false, makeRoom: false, cuda: "either", cudaOnce: false }, { fill: true });
   }
 
-  private async deployNow(ask: DeployAsk, fill = false): Promise<{ id: string; dataCenter: string | null }> {
+  /** `mcpToken`: the MCP token whose deploy_pod asked for it, whose spend its run is (rentedSchema.mcpToken). */
+  private async deployNow(ask: DeployAsk, fill = false, mcpToken = ""): Promise<{ id: string; dataCenter: string | null }> {
     const s = await readSettings(this.db);
     if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
     // a pod made that cannot be kept as a machine would have to be terminated at once, its first seconds billed
@@ -270,7 +271,7 @@ export class RentedDeploy extends RentedFollow {
         let name = offer.name.slice(0, 36);
         for (let n = 2; names.has(name); n++) name = `${offer.name.slice(0, 36)} ${n}`;
         // without a volume a stop keeps nothing and its GPU may be taken meanwhile: terminated, as for a pod added
-        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString(), image, cloud: ask.cloud, volume: volume?.id ?? "", fill, files: ask.files, leaveOut: ask.leaveOut, makeRoom: ask.makeRoom };
+        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString(), image, cloud: ask.cloud, volume: volume?.id ?? "", fill, files: ask.files, leaveOut: ask.leaveOut, makeRoom: ask.makeRoom, mcpToken };
         const machines = [...current.machines, { id, name, url: podUrl(made.id), dir: "", takes: "all" as const, packs: "ask" as const, families: {}, token, rented }];
         // a machine now: followed as any, its name no longer pending (in the same write, never one without the other)
         const pendingDeploys = current.pendingDeploys.filter((p) => p.name !== spec.name);

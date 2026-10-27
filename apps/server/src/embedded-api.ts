@@ -8,6 +8,15 @@ import { isUpload } from "./uploadBody";
 
 const recipeQuery = z.object({ recipe: z.string().max(120).optional() });
 
+/** What a picture or a video of the library carries, its settings and its workflow (the route below, and MCP's import_workflow). */
+export async function itemEmbedded(s: Services, id: string): Promise<Embedded> {
+  const a = await s.db.selectFrom("assets").select(["file_key"]).where("id", "=", id).executeTakeFirst();
+  if (!a) throw notFound("that item");
+  // read where it is when it is on this machine's disk (a video is not read into memory), else fetched
+  const path = s.storage.localPath?.(a.file_key);
+  return path ? await readEmbeddedFile(path) : await readEmbedded(await s.storage.get(a.file_key));
+}
+
 /**
  * What a file from the computer says about how it was made: settings worked into a form (the one
  * that uses the model it was made with, or the one asked for with ?recipe=), and the workflow it carries.
@@ -29,11 +38,5 @@ export function registerEmbedded(app: FastifyInstance, s: Services): void {
     return embeddedIn(await readEmbeddedFile(req.body.path), recipeQuery.parse(req.query).recipe);
   });
   /** The same for a picture or a video already in the library: what its file carries. */
-  app.get<{ Params: { id: string } }>("/api/assets/:id/embedded", async (req) => {
-    const a = await s.db.selectFrom("assets").select(["file_key"]).where("id", "=", req.params.id).executeTakeFirst();
-    if (!a) throw notFound("that item");
-    // read where it is when it is on this machine's disk (a video is not read into memory), else fetched
-    const path = s.storage.localPath?.(a.file_key);
-    return embeddedIn(path ? await readEmbeddedFile(path) : await readEmbedded(await s.storage.get(a.file_key)), recipeQuery.parse(req.query).recipe);
-  });
+  app.get<{ Params: { id: string } }>("/api/assets/:id/embedded", async (req) => embeddedIn(await itemEmbedded(s, req.params.id), recipeQuery.parse(req.query).recipe));
 }

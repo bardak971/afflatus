@@ -212,8 +212,11 @@ export class Rented extends RentedDeploy {
     return this.deploying;
   }
 
-  /** The user's Start: refused at a cap. */
-  async start(machine: string): Promise<RentedView> {
+  /**
+   * The user's Start: refused at a cap. `mcpToken`: the MCP token whose start_pod asked for it, whose spend this run is
+   * (rentedSchema.mcpToken); the user's own Start makes the run theirs again.
+   */
+  async start(machine: string, mcpToken = ""): Promise<RentedView> {
     const s = await readSettings(this.db);
     const m = s.machines.find((x) => x.id === machine);
     if (!m?.rented) throw httpError("That machine is not a rented pod.", 404);
@@ -223,6 +226,8 @@ export class Rented extends RentedDeploy {
     // one running pod per volume, as for a deploy: a stopped pod's volume may have gone to another pod meanwhile
     if (s.runpodKey) await this.volumeFree(m, s);
     const unprepared = await this.prepareBoot(m, s.runpodKey);
+    // whose run this is, written before RunPod is asked: its session is opened from it at the first read of it running
+    if (m.rented.mcpToken !== mcpToken) await updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id && x.rented ? { ...x, rented: { ...x.rented, mcpToken } } : x)) }));
     // stopped during its first boot: still a first boot (its deploy's files handed at its first answer), its deadline from
     // this Start, never from its deploy hours ago (terminated at its first read as a boot that never came up)
     if (m.rented.deployedAt) {

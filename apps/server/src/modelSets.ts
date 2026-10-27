@@ -102,7 +102,11 @@ export async function setsWithFiles(s: Services): Promise<Array<{ id: string; na
   return list.map((r) => ({ id: r.id, name: r.name, files: filesOf(parseSetDef(r.def), all).filter((f) => !f.off) }));
 }
 
-export function registerModelSets(app: FastifyInstance, s: Services): void {
+/**
+ * The Model sets' doings, shared by the routes below and MCP's model tools (mcpModels.ts): listed, saved, deleted, their
+ * files with where each is, fetched onto a machine, and what may be added to one.
+ */
+export function modelSetsOf(s: Services) {
   const rows = () => s.db.selectFrom("model_sets").selectAll().where("owner_id", "=", OWNER).orderBy("name").execute();
   const find = async (id: string) => {
     const row = await s.db.selectFrom("model_sets").selectAll().where("owner_id", "=", OWNER).where("id", "=", id).executeTakeFirst();
@@ -126,10 +130,10 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
     };
   };
 
-  app.get("/api/model-sets", async () => {
-    const [all, settings, list] = await Promise.all([presets(), readSettings(s.db), rows()]);
-    return { items: list.map((r) => view(r, all, settings.acceptedPresets)) };
-  });
+  const list = async () => {
+    const [all, settings, got] = await Promise.all([presets(), readSettings(s.db), rows()]);
+    return { items: got.map((r) => view(r, all, settings.acceptedPresets)) };
+  };
 
   const save = async (id: string | null, body: unknown) => {
     const b = setBody.parse(body);
@@ -144,21 +148,18 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
     const [all, settings] = await Promise.all([presets(), readSettings(s.db)]);
     return view(await find(id), all, settings.acceptedPresets);
   };
-  app.post("/api/model-sets", async (req) => save(null, req.body));
-  app.put<{ Params: { id: string } }>("/api/model-sets/:id", async (req) => save(req.params.id, req.body));
-  app.delete<{ Params: { id: string } }>("/api/model-sets/:id", async (req) => {
-    await find(req.params.id);
-    await s.db.deleteFrom("model_sets").where("id", "=", req.params.id).execute();
-    return { ok: true };
-  });
-  app.post<{ Params: { id: string } }>("/api/model-sets/:id/duplicate", async (req) => {
-    const row = await find(req.params.id);
+  const remove = async (id: string) => {
+    await find(id);
+    await s.db.deleteFrom("model_sets").where("id", "=", id).execute();
+  };
+  const duplicate = async (id: string) => {
+    const row = await find(id);
     return save(null, { ...parseSetDef(row.def), name: `${row.name} copy`.slice(0, 120) });
-  });
+  };
 
   /** A set's files with where each comes from and which machines have it already (each machine's ComfyUI is asked). */
-  app.get<{ Params: { id: string } }>("/api/model-sets/:id/files", async (req) => {
-    const row = await find(req.params.id);
+  const files = async (id: string): Promise<{ items: SetFileView[] }> => {
+    const row = await find(id);
     const [all, settings, machines] = await Promise.all([presets(), readSettings(s.db), s.machines()]);
     // each machine's folders listed once; a machine that does not answer has none of them, said as not known
     const listed = new Map<string, Promise<string[] | null>>();
@@ -189,16 +190,15 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
       items.push({ ...f, ...(size ? { size } : {}), via: src ? measureKind(src) : about?.via ?? (here ? "upload" : null), on });
     }
     return { items };
-  });
+  };
 
   /**
    * The set's files a machine lacks, fetched there: onto this computer's ComfyUI (or another of its own) through the usual
    * downloads; onto a rented pod through what it gets (podFiles.ts), after what its jobs wait for. A preset's licence must
    * have been accepted first, as for the preset itself.
    */
-  app.post<{ Params: { id: string } }>("/api/model-sets/:id/get", async (req: FastifyRequest<{ Params: { id: string } }>) => {
-    const row = await find(req.params.id);
-    const b = z.strictObject({ machine: z.string().max(40).optional(), accept: z.boolean().optional() }).parse(req.body ?? {});
+  const get = async (from: FastifyRequest | string, id: string, b: { machine?: string; accept?: boolean }) => {
+    const row = await find(id);
     const all = await presets();
     const def = parseSetDef(row.def);
     const machines = await s.machines();
@@ -226,7 +226,7 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
         continue;
       }
       try {
-        await beginDownload(s, req, { file: f.file, folder: f.folder, machine: target.machine.id, ...(f.url ? { url: f.url } : { civitai: f.civitai!.version, pick: f.civitai!.pick }) });
+        await beginDownload(s, from, { file: f.file, folder: f.folder, machine: target.machine.id, ...(f.url ? { url: f.url } : { civitai: f.civitai!.version, pick: f.civitai!.pick }) });
         sent++;
       } catch (err) {
         failed.push({ file: f.file, error: (err as Error).message });
@@ -235,27 +235,15 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
       }
     }
     return { sent, failed, skipped };
-  });
-
-  /** The set as a file: its presets written out as files (with the preset each came from), so that it reads anywhere. */
-  app.get<{ Params: { id: string } }>("/api/model-sets/:id/export", async (req, reply) => {
-    const row = await find(req.params.id);
-    const files = filesOf(parseSetDef(row.def), await presets())
-      .filter((f) => !f.off)
-      .map(({ preset, off: _off, ...f }) => ({ ...f, ...(preset ? { from: preset.name } : {}) }));
-    const body: SetFileExport = { afflatusModelSet: 1, name: row.name, files };
-    void reply.header("Content-Disposition", `attachment; filename="${row.name.replace(/[^\w .-]+/g, "_").slice(0, 80) || "model set"}.json"`);
-    return body;
-  });
+  };
 
   /**
    * What can be added to a set (or to a deploy's files), found by words: presets (their files), families (their usual
    * files, each with its address), and the model files this computer's ComfyUI has, folder by folder.
    */
-  app.get("/api/model-sets/search", async (req) => {
+  const search = async (q: string, many: boolean) => {
     // many: Find models' "Yours" lists more of each than a search box's dropdown does
-    const { q, many } = z.object({ q: z.string().max(200).default(""), many: z.enum(["1", "0"]).default("0") }).parse(req.query);
-    const most = many === "1" ? { presets: 60, families: 30, files: 80 } : { presets: 12, families: 8, files: 30 };
+    const most = many ? { presets: 60, families: 30, files: 80 } : { presets: 12, families: 8, files: 30 };
     // matched as every list of the app is (core fuzzy): a typo, a letter left out, words in any order; the best first
     const words = q.trim();
     // each file with where it comes from, as the server judges it (a preset's own address or version)
@@ -296,6 +284,52 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
       }))));
     }
     return { presets: presetHits, families: familyHits, files };
+  };
+
+  return { list, save, remove, duplicate, files, get, search, find, presets };
+}
+
+export function registerModelSets(app: FastifyInstance, s: Services): void {
+  const sets = modelSetsOf(s);
+  const { find, presets } = sets;
+  app.get("/api/model-sets", async () => sets.list());
+  app.post("/api/model-sets", async (req) => sets.save(null, req.body));
+  app.put<{ Params: { id: string } }>("/api/model-sets/:id", async (req) => sets.save(req.params.id, req.body));
+  app.delete<{ Params: { id: string } }>("/api/model-sets/:id", async (req) => {
+    await sets.remove(req.params.id);
+    return { ok: true };
+  });
+  app.post<{ Params: { id: string } }>("/api/model-sets/:id/duplicate", async (req) => sets.duplicate(req.params.id));
+
+  /** A set's files with where each comes from and which machines have it already (each machine's ComfyUI is asked). */
+  app.get<{ Params: { id: string } }>("/api/model-sets/:id/files", async (req) => sets.files(req.params.id));
+
+  /**
+   * The set's files a machine lacks, fetched there: onto this computer's ComfyUI (or another of its own) through the usual
+   * downloads; onto a rented pod through what it gets (podFiles.ts), after what its jobs wait for. A preset's licence must
+   * have been accepted first, as for the preset itself.
+   */
+  app.post<{ Params: { id: string } }>("/api/model-sets/:id/get", async (req: FastifyRequest<{ Params: { id: string } }>) =>
+    sets.get(req, req.params.id, z.strictObject({ machine: z.string().max(40).optional(), accept: z.boolean().optional() }).parse(req.body ?? {})));
+
+  /**
+   * What can be added to a set (or to a deploy's files), found by words: presets (their files), families (their usual
+   * files, each with its address), and the model files this computer's ComfyUI has, folder by folder.
+   */
+  app.get("/api/model-sets/search", async (req) => {
+    const { q, many } = z.object({ q: z.string().max(200).default(""), many: z.enum(["1", "0"]).default("0") }).parse(req.query);
+    return sets.search(q, many === "1");
+  });
+
+  /** The set as a file: its presets written out as files (with the preset each came from), so that it reads anywhere. */
+  app.get<{ Params: { id: string } }>("/api/model-sets/:id/export", async (req, reply) => {
+    const row = await find(req.params.id);
+    const files = filesOf(parseSetDef(row.def), await presets())
+      .filter((f) => !f.off)
+      .map(({ preset, off: _off, ...f }) => ({ ...f, ...(preset ? { from: preset.name } : {}) }));
+    const body: SetFileExport = { afflatusModelSet: 1, name: row.name, files };
+    void reply.header("Content-Disposition", `attachment; filename="${row.name.replace(/[^\w .-]+/g, "_").slice(0, 80) || "model set"}.json"`);
+    return body;
   });
 
   /** A set file brought in: a new set of its files (none is fetched until asked). */
@@ -309,6 +343,6 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
       const issue = parsed.error.issues[0];
       throw httpError(issue?.path.length ? `That is not a model set file (${issue.path.join(".")}: ${issue.message}).` : "That is not a model set file.");
     }
-    return save(null, { name: parsed.data.name, presets: [], off: [], files: parsed.data.files.map(({ from: _from, ...f }) => f) });
+    return sets.save(null, { name: parsed.data.name, presets: [], off: [], files: parsed.data.files.map(({ from: _from, ...f }) => f) });
   });
 }

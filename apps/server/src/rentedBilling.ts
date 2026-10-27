@@ -402,6 +402,19 @@ export class RentedBilling extends RentedCore {
     return capReached(caps, await this.spent());
   }
 
+  /**
+   * Why the app's caps have no room for `usd` more today and this month (a pod's first hour, for an MCP token's deploy or
+   * Start: mcpMachines.ts), or null when they have. Stricter than `capped`, which only asks whether a cap is reached already.
+   */
+  async noRoomFor(usd: number): Promise<string | null> {
+    const caps = (await readSettings(this.db)).rentCaps;
+    if (caps.day <= 0 && caps.month <= 0) return null;
+    const spent = await this.spent();
+    if (caps.day > 0 && spent.today + usd > caps.day) return `today's cap is ${dollars(caps.day)} and ${dollars(spent.today)} is spent: it has no room for ${dollars(usd)} more`;
+    if (caps.month > 0 && spent.month + usd > caps.month) return `this month's cap is ${dollars(caps.month)} and ${dollars(spent.month)} is spent: it has no room for ${dollars(usd)} more`;
+    return null;
+  }
+
   /** Today's and this month's cost, the caps, RunPod's balance, and what storage costs. */
   async spending(): Promise<Spending> {
     const s = await readSettings(this.db);

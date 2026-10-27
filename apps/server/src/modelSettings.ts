@@ -25,8 +25,8 @@ function perModelInputs(recipes: Recipe<any>[], family: string): Set<string> {
   return ids;
 }
 
-/** Save the settings that travel with a model file: only the family's per-model inputs are kept. */
-async function saveModelSettings(s: Services, family: string, file: string, values: Record<string, unknown>) {
+/** Save the settings that travel with a model file: only the family's per-model inputs are kept (the page's Save, and MCP's change_model_settings). */
+export async function saveModelSettings(s: Services, family: string, file: string, values: Record<string, unknown>) {
   if (!s.registry.family(family)) throw httpError(`there is no model family called ${family}`);
   const allowed = perModelInputs(s.registry.recipes(), family);
   const kept = Object.fromEntries(Object.entries(values).filter(([id]) => allowed.has(id)));

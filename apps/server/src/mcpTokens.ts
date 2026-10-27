@@ -251,8 +251,10 @@ export class McpTokens {
   }
 
   /**
-   * What its renders cost on rented GPUs since the start of this month (USD), as Costs counts a render: its length at the
-   * hourly rate of the pod session it ran in. A render on a machine of the user's own costs nothing here.
+   * What it spent on rented GPUs since the start of this month (USD): the whole runs of the pods it started (deploy_pod,
+   * start_pod: boot, idle and all, at their rate, an open run counted to now), and its renders elsewhere on rented GPUs as
+   * Costs counts a render, its length at the hourly rate of the pod session it ran in. A render on a run it started is in
+   * that run already; one on a machine of the user's own costs nothing here.
    */
   async spentThisMonth(id: string): Promise<number> {
     return (await this.spentThisMonthOf([id])).get(id) ?? 0;
@@ -263,18 +265,27 @@ export class McpTokens {
     if (!ids.length) return out;
     const d = new Date(this.now());
     const from = this.iso(new Date(d.getFullYear(), d.getMonth(), 1).getTime());
+    const now = this.now();
+    const runs = await this.db.selectFrom("rent_sessions").select(["id", "mcp_token_id", "rate", "started_at", "ended_at"])
+      .where("mcp_token_id", "in", ids).where((eb) => eb.or([eb("ended_at", "is", null), eb("ended_at", ">=", from)])).execute();
+    for (const r of runs) {
+      const start = Math.max(Date.parse(r.started_at), Date.parse(from));
+      const end = Math.min(r.ended_at ? Date.parse(r.ended_at) : now, now);
+      if (end > start) out.set(r.mcp_token_id!, (out.get(r.mcp_token_id!) ?? 0) + ((end - start) / HOUR) * r.rate);
+    }
     const renders = await this.db.selectFrom("render_stats").innerJoin("jobs", "jobs.id", "render_stats.id")
       .select(["jobs.mcp_token_id", "render_stats.total_ms", "render_stats.machine_id", "render_stats.created_at", "render_stats.started_at"])
       .where("jobs.mcp_token_id", "in", ids).where("render_stats.created_at", ">=", from).execute();
     const machines = [...new Set(renders.map((r) => r.machine_id).filter((m): m is string => Boolean(m)))];
     if (!machines.length) return out;
     // the sessions of those machines that may hold one of them: begun before the render's end, not ended before the month
-    const sessions = await this.db.selectFrom("rent_sessions").select(["machine_id", "rate", "started_at", "ended_at"])
+    const sessions = await this.db.selectFrom("rent_sessions").select(["machine_id", "rate", "started_at", "ended_at", "mcp_token_id"])
       .where("machine_id", "in", machines).where((eb) => eb.or([eb("ended_at", "is", null), eb("ended_at", ">=", from)])).execute();
     for (const r of renders) {
       const at = Date.parse(r.started_at ?? r.created_at);
       const s = sessions.find((x) => x.machine_id === r.machine_id && Date.parse(x.started_at) <= at && (!x.ended_at || Date.parse(x.ended_at) >= at));
-      if (!s || !r.mcp_token_id) continue;
+      // a render on a run this token started is counted with that run
+      if (!s || !r.mcp_token_id || s.mcp_token_id === r.mcp_token_id) continue;
       out.set(r.mcp_token_id, (out.get(r.mcp_token_id) ?? 0) + (r.total_ms / HOUR) * s.rate);
     }
     return out;

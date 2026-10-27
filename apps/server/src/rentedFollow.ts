@@ -232,6 +232,17 @@ export class RentedFollow extends RentedBilling {
     return this.polling;
   }
 
+  /**
+   * Whether an MCP token's spend cap is reached (mcpTokens.ts, set by services.ts): a pod whose run that token started stops
+   * as at the app's caps, once its render ends. Never reached by default (no token).
+   */
+  tokenCapped: (token: string) => Promise<boolean> = async () => false;
+
+  /** Whether the token that started this pod's run has reached its cap: a token's cap holds over the pod it started. */
+  private async overTokenCap(m: Machine): Promise<boolean> {
+    return m.rented?.mcpToken ? this.tokenCapped(m.rented.mcpToken).catch(() => false) : false;
+  }
+
   /** What was spent, read once per poll and shared by every pod's cap check in it. */
   private spentThisPoll: Promise<{ today: number; month: number }> | null = null;
 
@@ -945,7 +956,7 @@ export class RentedFollow extends RentedBilling {
       const from = !last && Number.isFinite(deployedAt) ? Math.min(started, deployedAt) : started;
       // its GPU and its idle minutes kept with it: the Costs tab says the one and weighs a shorter idle against the other
       // and what it runs on (the build its image is, its host's CUDA, its data center): kept past the pod's end
-      await this.db.insertInto("rent_sessions").values({ id: randomUUID(), machine_id: m.id, pod: pod.id, rate: pod.cost || s.rate || 0, started_at: new Date(Math.min(from, now)).toISOString(), ended_at: null, seen_at: iso, gpu: pod.gpu, up_at: null, idle_minutes: m.rented!.idleMinutes, busy_at: null, volume: pod.volumeId || m.rented!.volume || null, image: m.rented!.image || pod.image || null, host_cuda: pod.hostCuda, data_center: pod.dataCenter }).execute();
+      await this.db.insertInto("rent_sessions").values({ id: randomUUID(), machine_id: m.id, pod: pod.id, rate: pod.cost || s.rate || 0, started_at: new Date(Math.min(from, now)).toISOString(), ended_at: null, seen_at: iso, gpu: pod.gpu, up_at: null, idle_minutes: m.rented!.idleMinutes, busy_at: null, volume: pod.volumeId || m.rented!.volume || null, image: m.rented!.image || pod.image || null, host_cuda: pod.hostCuda, data_center: pod.dataCenter, mcp_token_id: m.rented!.mcpToken || null }).execute();
       s.sessionFrom = Math.min(from, now);
       // a new run pulls (or finds) its image afresh
       Object.assign(s, { pullLines: [], pullReadAt: 0, pull: null, pullKept: false, bootLogKept: null });
@@ -984,6 +995,10 @@ export class RentedFollow extends RentedBilling {
       if (spent || !capped) {
         s.stopAfter = spent ? capReached(caps, spent) : false;
         s.cappedAt = s.stopAfter ? s.cappedAt ?? now : null;
+      }
+      if (!s.stopAfter && (await this.overTokenCap(m))) {
+        s.stopAfter = true;
+        s.cappedAt ??= now;
       }
       await this.endIfStuck(m, now);
       if (s.stopping) continue;
@@ -1104,7 +1119,7 @@ export class RentedFollow extends RentedBilling {
     // the caps first, before anything is asked of its ComfyUI: a slow answer there never holds a cap back
     const spent = await (this.spentThisPoll ??= this.spent());
     this.sayCap(caps, spent);
-    s.stopAfter = capReached(caps, spent);
+    s.stopAfter = capReached(caps, spent) || (await this.overTokenCap(m));
     s.cappedAt = s.stopAfter ? s.cappedAt ?? now : null;
     // at a cap: once its render ends, or an hour after the cap when the render does not end
     // Whether it renders is read again here, the cap now set: a render that ended while the bill was read is not waited for.

@@ -188,21 +188,27 @@ const render = tool({
     machine: z.string().optional().describe("A machine's id or name (overview); left out, the queue picks among those this token may use."),
     label: z.string().max(200).optional(),
   },
-  async run(args, ctx) {
-    const { s, token } = ctx;
-    const at = await seen(s);
-    const form = await sendable(s, at, args);
-    const machine = args.machine ? machineOf(at, args.machine) : undefined;
-    const takes = args.takes ?? form.count;
-    // the checks and the queueing in one turn per token: a second render waits for the first to be counted
-    return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
-      const usd = await mayQueue(s, ctx, at, { recipe: form.recipe.id, input: form.input, takes, machine, renders: true });
-      const ids = await queueRender(s, jobBody.parse({ recipe: form.recipe.id, input: form.input, count: takes, look: form.look, draft: form.draft?.id, label: args.label, machine: machine?.id }), { mcpToken: token.id });
-      ctx.said(`Rendered ${plural(takes, "take")} of ${form.name}${machine ? ` on ${machineName(machine)}` : ""}`);
-      return { jobs: ids, takes, on: machine ? machineName(machine) : spends(ctx) ? "wherever the queue ends it first" : "the user's own machines (this token has no Spend)", ...(usd ? { mayCostUsd: Math.round(usd * 100) / 100 } : {}) };
-    });
-  },
+  run: (args, ctx) => renderForm(args, ctx),
 });
+
+/**
+ * A render of a draft or a form with values, as the render tool sends it (run_workflow too, for an imported workflow's form):
+ * the money rules held in one turn per token, then the web's own queueRender.
+ */
+export async function renderForm(args: { draft?: string; form?: string; values?: Record<string, unknown>; takes?: number; machine?: string; label?: string }, ctx: ToolCtx) {
+  const { s, token } = ctx;
+  const at = await seen(s);
+  const form = await sendable(s, at, args);
+  const machine = args.machine ? machineOf(at, args.machine) : undefined;
+  const takes = args.takes ?? form.count;
+  // the checks and the queueing in one turn per token: a second render waits for the first to be counted
+  return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
+    const usd = await mayQueue(s, ctx, at, { recipe: form.recipe.id, input: form.input, takes, machine, renders: true });
+    const ids = await queueRender(s, jobBody.parse({ recipe: form.recipe.id, input: form.input, count: takes, look: form.look, draft: form.draft?.id, label: args.label, machine: machine?.id }), { mcpToken: token.id });
+    ctx.said(`Rendered ${plural(takes, "take")} of ${form.name}${machine ? ` on ${machineName(machine)}` : ""}`);
+    return { jobs: ids, takes, on: machine ? machineName(machine) : spends(ctx) ? "wherever the queue ends it first" : "the user's own machines (this token has no Spend)", ...(usd ? { mayCostUsd: Math.round(usd * 100) / 100 } : {}) };
+  });
+}
 
 const loadModel = tool({
   name: "load_model",
