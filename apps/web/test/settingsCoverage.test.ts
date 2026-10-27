@@ -98,6 +98,7 @@ const BROWSER: Record<string, string> = {
   "afflatus.find-all": "internal: Find models' All of Civitai switch, remembered in this browser",
   "afflatus.picture-sets": "internal: the pictures made for each Motion transfer form (its photos of who goes in, Relight, the jobs), kept per draft or timeline source",
   "afflatus.projects.sort": "internal: the Projects panel's sort",
+  "afflatus.where-key": "internal: this browser's key for where its page is (an agent's whats_open), without a session",
   "afflatus.reloaded-at": "internal: when the app last reloaded itself for a new version",
   "afflatus.seed-mode": "internal: the form's seed mode, set beside the seed",
   "afflatus.snippets.open": "internal: the snippet menu's open categories",

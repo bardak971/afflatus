@@ -22,6 +22,8 @@ export const queryKeys = {
   /** Whether a password is set and this browser is in (the gate, Access.tsx), and the devices signed in (Settings › Access). */
   session: () => ["session"] as const,
   signedDevices: () => ["session", "devices"] as const,
+  mcpTokens: () => ["mcp", "tokens"] as const,
+  mcpActivity: (id: string, refusedOnly: boolean) => ["mcp", "activity", id, refusedOnly] as const,
   /** Afflatus's own updates (Settings → About, the rail's dot): read again on an "updates" event that changes the phase. */
   updates: () => ["updates"] as const,
   entities: () => ["entities"] as const,

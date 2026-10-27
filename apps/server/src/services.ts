@@ -33,6 +33,8 @@ import { Updates } from "./modelUpdates";
 import { Precompute, type PrecomputeOptions } from "./precompute";
 import { Notify } from "./notify";
 import { Access } from "./access";
+import { McpTokens } from "./mcpTokens";
+import { WhereNow } from "./whatsOpen";
 import { followComfyLogins } from "./comfyLogins";
 import { Hunt } from "./hunt";
 import { OfficialSizes } from "./officialSizes";
@@ -67,6 +69,8 @@ export interface Services {
   notify: Notify;
   /** The optional password: the sessions, the limits, the reset codes (access.ts). */
   access: Access;
+  /** Afflatus from outside: the MCP tokens and their activity (mcpTokens.ts), and where each device is in the app (whatsOpen.ts). */
+  mcp: { tokens: McpTokens; where: WhereNow };
   /** The GPU hunt: a rented GPU deployed the moment one the user wants is free (hunt.ts). */
   hunt: Hunt;
   /** The model files rented pods are getting (podFiles.ts). */
@@ -319,7 +323,7 @@ export async function createServices(
   const podFilesTimer = setInterval(() => void podFiles.tick().catch((err) => console.warn("[pod files]", (err as Error).message)), 1000);
   podFilesTimer.unref();
   const services: Services = {
-    db, dbKind, storage, linked, registry, comfy, machines, comfyOf, comfyFolder: () => comfyFolder(), queue, timelines, rented, notify, access, podFiles, podOutside, downloads,
+    db, dbKind, storage, linked, registry, comfy, machines, comfyOf, comfyFolder: () => comfyFolder(), queue, timelines, rented, notify, access, mcp: { tokens: new McpTokens(db), where: new WhereNow(db) }, podFiles, podOutside, downloads,
     shippedPresets,
     officialSizes: new OfficialSizes(db, () => registry.families(), async () => (await readSettings(db)).civitaiLookups),
     updates: null as unknown as Updates,

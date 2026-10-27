@@ -381,3 +381,34 @@ export interface SignedDevices {
   alarm: { at: string; said: string } | null;
   devices: SignedDevice[];
 }
+
+/** What an MCP token may do (mcpTokens.ts): Look always; Make, Spend (rented GPUs), Manage ticked per token. */
+export type McpScope = "look" | "make" | "spend" | "manage";
+/** The new-token line's starting sets. */
+export type McpStart = "look" | "make" | "spend" | "all";
+/** A personal MCP token as Settings › Access lists it (never the token itself: shown once, when made). */
+export interface McpToken {
+  id: string;
+  name: string;
+  scopes: McpScope[];
+  rendersPerHour: number;
+  spendCapCents: number;
+  /** Its last four characters. */
+  tail: string;
+  createdAt: string;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  lastUsedAt: string | null;
+  lastIp: string | null;
+  /** The client's name from its MCP initialize ("Claude Code"). */
+  lastClient: string | null;
+  /** live: used in the last 5 minutes (its dot). */
+  state: "live" | "idle" | "ended" | "revoked";
+  rendersThisHour: number;
+  /** USD on rented GPUs this month. */
+  spentThisMonth: number;
+  /** Its jobs waiting or running now. */
+  working: number;
+}
+/** A line of a token's activity: a call, what it touched, refused or not and why. */
+export interface McpActivity { id: string; at: string; tool: string; said: string; refused: boolean; why: string | null }

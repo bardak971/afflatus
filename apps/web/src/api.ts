@@ -7,7 +7,7 @@ import type { Advice, DeployOverhead, FillPlan, FormPacks, SetFinding, GpuOffer,
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
-import type { DeployAsk, FfmpegGetView, Health, FinishRedo, FinishSettings, MachineProbe, SessionState, Settings, SettingsPatch, SignedDevices } from "./api/types/settings";
+import type { DeployAsk, FfmpegGetView, Health, FinishRedo, FinishSettings, MachineProbe, McpActivity, McpScope, McpStart, McpToken, SessionState, Settings, SettingsPatch, SignedDevices } from "./api/types/settings";
 import { signedOut } from "./access/signedOut";
 import type { GoBackCheck, UpdatesView } from "./api/types/updates";
 import type { CostsView } from "./api/types/costs";
@@ -294,6 +294,15 @@ export const api = {
   accessSettings: (patch: { localNoPassword?: boolean; stayDays?: 1 | 7 | 30 | 90; resetTelegram?: boolean; newDevice?: { telegram?: boolean; discord?: boolean } }, current?: string) => call<{ ok: true }>("POST", "/session/settings", { ...patch, ...(current ? { current } : {}) }),
   /** The metrics token made (its only showing) or taken off, under the same rule. */
   metricsToken: (make: boolean, current?: string) => call<{ token: string | null }>("POST", "/session/metrics-token", { make, ...(current ? { current } : {}) }),
+  /** The MCP tokens (mcp-api.ts): made (its only showing), changed, revoked under the same rule; a name alone needs no password. */
+  mcpTokens: () => call<{ tokens: McpToken[] }>("GET", "/mcp/tokens"),
+  makeMcpToken: (name: string, start: McpStart, current?: string) => call<{ token: string; view: McpToken }>("POST", "/mcp/tokens", { name, start, ...(current ? { current } : {}) }),
+  changeMcpToken: (id: string, patch: { name?: string; scopes?: McpScope[]; rendersPerHour?: number; spendCapUsd?: number; endsDays?: null | 30 | 90 }, current?: string) =>
+    call<{ token: McpToken }>("POST", `/mcp/tokens/${id}`, { ...patch, ...(current ? { current } : {}) }),
+  revokeMcpToken: (id: string, current?: string) => call<{ ok: true }>("POST", `/mcp/tokens/${id}/revoke`, current ? { current } : {}),
+  mcpActivity: (id: string, refusedOnly: boolean) => call<{ lines: McpActivity[] }>("GET", `/mcp/tokens/${id}/activity${refusedOnly ? "?refused=1" : ""}`),
+  /** Where this page is, for an agent's `whats_open` (App.tsx useWhereReport). */
+  where: (body: { key: string; path: string; draft?: string | null; timeline?: string | null; clip?: string | null }) => call<{ ok: true }>("POST", "/where", body),
   testNotify: (channel: "telegram" | "discord") => call<{ ok: true }>("POST", "/notify/test", { channel }),
   /** The chats that wrote to the saved bot lately (Telegram's getUpdates, read once). */
   /** A picture or a video sent as it is to the Telegram chat or Discord channel of the notifications. */

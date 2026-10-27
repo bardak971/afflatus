@@ -234,6 +234,8 @@ export interface Tables {
     pin_machine?: string | null;
     /** What its Queue row said of the node packs it lacks (JSON: { install?, without? }, pack names; jobPacks.ts); null: the machine's rule. */
     packs?: string | null;
+    /** The MCP token whose call queued it (mcpTokens.ts), for its limits, Costs and the status bar; null: the page, or from before 0094. */
+    mcp_token_id?: string | null;
     created_at: string;
     started_at: string | null;
     finished_at: string | null;
@@ -433,6 +435,16 @@ export interface Tables {
   sessions: { id: string; device_id: string; created_at: string; last_seen_at: string; expires_at: string; ip: string; user_agent: string; remember: number };
   /** Every device that ever signed in, by the SHA-256 of its own cookie: a sign-in from one not here is told of (newDevice). */
   devices: { id: string; first_seen_at: string; name: string };
+  /**
+   * The personal tokens MCP clients use (mcpTokens.ts): `hash` the SHA-256 of the token, `scopes` comma-separated, the spend
+   * cap in cents; `expires_at` null: never; `revoked_at` set: refused, kept for its activity.
+   */
+  mcp_tokens: {
+    id: string; owner_id: string; hash: string; tail: string; name: string; scopes: string; renders_per_hour: number; spend_cap_cents: number;
+    created_at: string; expires_at: string | null; revoked_at: string | null; last_used_at: string | null; last_ip: string | null; last_client: string | null;
+  };
+  /** Each MCP call (mcp.ts): its token, its tool, what it touched in plain words, refused (1) or not and why. Kept 30 days. */
+  mcp_activity: { id: string; token_id: string; at: string; tool: string; said: string; refused: number; why: string | null };
   /** Named lists of model files (modelSets.ts): presets by reference and files of their own, as JSON in `def`. */
   model_sets: { id: string; owner_id: string; name: string; def: string; created_at: string; updated_at: string };
   /** Unfinished work, saved as it is typed. */
