@@ -2,8 +2,8 @@ apiVersion: v2
 name: afflatus
 description: A self-hosted studio for pictures, videos and timelines, in front of your own ComfyUI.
 type: application
-version: 0.7.1
-appVersion: "0.7.1"
+version: 0.8.0
+appVersion: "0.8.0"
 home: https://github.com/bardak971/afflatus
 sources:
   - https://github.com/bardak971/afflatus

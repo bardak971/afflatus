@@ -23,19 +23,15 @@ You keep ComfyUI, your models and your node packs; they do all the rendering. Af
 
 It is one small server and a folder of data, on your PC or in a container.
 
-## What's new in 0.7
+## What's new in 0.8
 
-- **LTX Lip sync on 2.3 and 2.5**, and a recording cut into LTX clips, each as long as its part.
-- **Seamless LTX joins:** the next clip carries on in the clip before's latent, with its sound and colour, and a run-up of 9, 25 or 41 frames.
-- **Any form under a recording:** a clip can be Lip sync, or a Video with audio (H3, LTX) or Wan clip the recording plays over unchanged.
-- **Sound cues:** a part of a sound file pinned at a moment of the clip, on every H3 form and on LTX.
-- **LTX 2.5 with the cast's pictures and voice** (MSR), the face score on LTX and Wan takes, Face refine on LTX 2.5.
-- **Wan carries on** from the clip before through SVI 2.0 Pro instead of restarting on a still frame.
-- **Record a voice from the microphone** into any sound slot, with Trim the silence.
-- **The files of a render checked together** before it runs: another version's VAE, encoder or LoRA said in words.
-- **Each take shows what it was made with**, and Use this take's settings.
+- **Afflatus from outside (MCP):** Claude Code, Claude Desktop or any MCP client drives the studio at `/mcp` with a token of its own: where you are, every form and setting, renders it can look at and improve, timelines, the library, the Prompt kit, models, machines and rented GPUs.
+- **Tokens with scopes and limits:** Look, Make, Spend (rented GPUs, off unless ticked), Manage; renders an hour, a spend cap a month, and each token's activity, in Settings › Access.
+- **Its changes in the page you have open:** the fields it touched ringed with its name, Undo in the toast, never over what you typed since.
+- **A workflow an agent brings waits for your Approve.**
+- **A recording cut on its lyric lines**, and the song under Lip sync clips played as one track (since 0.7.1).
 
-Everything else is in the [changelog](CHANGELOG.md).
+See [docs/mcp.md](docs/mcp.md). Everything else is in the [changelog](CHANGELOG.md).
 
 ## Make
 
@@ -161,7 +157,7 @@ No GPU at hand? `corepack pnpm demo` runs the real app against a pretend ComfyUI
 
 </details>
 
-More: [installing on a PC](docs/install-desktop.md) · [setting up ComfyUI](docs/comfyui-setup.md) · [using Afflatus](docs/guide.md) · [configuration](docs/configuration.md) · [troubleshooting](docs/troubleshooting.md)
+More: [installing on a PC](docs/install-desktop.md) · [setting up ComfyUI](docs/comfyui-setup.md) · [using Afflatus](docs/guide.md) · [configuration](docs/configuration.md) · [troubleshooting](docs/troubleshooting.md) · [agents (MCP)](docs/mcp.md)
 
 ## The built-in models
 

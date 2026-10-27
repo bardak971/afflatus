@@ -10,6 +10,8 @@ The server is Streamable HTTP, stateless: every call is a `POST /mcp` answered o
 
 ### Claude Code
 
+Afflatus does not install Claude Code: the `claude` command comes with it (`npm install -g @anthropic-ai/claude-code`, or its own installer). Run the line below in a terminal outside your projects' folders, or with `--scope user`, so that it is not tied to one folder.
+
 ```sh
 claude mcp add --transport http afflatus http://127.0.0.1:8721/mcp --header "Authorization: Bearer afl_mcp_…"
 ```
