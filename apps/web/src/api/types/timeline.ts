@@ -121,6 +121,11 @@ export interface Clip {
   takes: Take[];
   atMs: number;
   lengthMs: number;
+  /**
+   * Its take's sound stops short of its frames before a cut: the rest is its recording itself, `ms` long from `fromMs` of
+   * its video, from `songS` of the recording, at `gainDb` (the server's timelineSoundFill.ts; the player's useSoundFill).
+   */
+  soundFill?: { asset: string; fromMs: number; ms: number; songS: number; gainDb: number };
   job: { id: string; status: "queued" | "running" } | null;
   failed: string | null;
 }

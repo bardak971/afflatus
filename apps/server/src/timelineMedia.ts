@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { frameName, nameOf } from "./autoName";
-import { CutError, filmStrip, frameAt, KEYFRAME_STRIP_MS, linesOf, pausesOf, peekAt } from "./cut";
+import { CutError, filmStrip, frameAt, KEYFRAME_STRIP_MS, linesOf, pausesOf, peekAt, soundSlice, soundTailOf } from "./cut";
 import { colourNudge, MATCH, type FrameMeans, type Means, measureOf, meansAlong, meansWithin, MOTION_RATE, scenesOf, takeMeasures } from "./measure";
 import { joinJump, lastFrameAt, LEAST_MOTION } from "./joinScore";
 import { newId, now } from "./db";
@@ -47,6 +47,7 @@ export const keptKey = {
   motion: (id: string) => `motion/${id.slice(0, 2)}/${id}.json`,
   strip: (id: string) => stripKey(id),
   means: (id: string) => `means/${id.slice(0, 2)}/${id}.json`,
+  sound: (id: string) => `sounds/${id.slice(0, 2)}/${id}.json`,
 };
 
 /** The motion and loudness of a video as they are kept (TimelineMedia.motion): ten samples a second, the motion to a tenth. */
@@ -179,6 +180,37 @@ export class TimelineMedia {
     const made = { cuts: await scenesOf(await this.source(asset), extOf(asset.mime)) };
     await storage.put(key, new TextEncoder().encode(JSON.stringify(made)));
     return made;
+  }
+
+  /** A take's sound end and level against its recording, as being read or once read: the files do not change. The last two hundred. */
+  private tails = new Map<string, Promise<{ soundMs: number; gainDb: number } | null>>();
+
+  /**
+   * Where a take's own sound ends and the gain bringing its recording to its level there (cut.ts soundTailOf), worked out
+   * once and kept beside the take: what fills a cut after it from the recording (timelineSoundFill.ts). `songAt` reads the
+   * moment of the recording at a time of the take's file. Null when it could not be read: asked again next time.
+   */
+  soundTail(take: AssetRow, recording: AssetRow, songAt: (fileMs: number) => number): Promise<{ soundMs: number; gainDb: number } | null> {
+    const id = `${take.id}:${recording.id}`;
+    let got = this.tails.get(id);
+    if (!got) {
+      const { storage } = this.core;
+      const key = keptKey.sound(take.id);
+      got = (async () => {
+        const have = await storage.get(key).catch(() => null);
+        const kept = have ? readKept<{ recording: string; soundMs: number; gainDb: number }>(have) : null;
+        if (kept && kept.recording === recording.id && Number.isFinite(kept.soundMs) && Number.isFinite(kept.gainDb)) return { soundMs: kept.soundMs, gainDb: kept.gainDb };
+        const made = await soundTailOf(await this.source(take), extOf(take.mime), await this.source(recording), extOf(recording.mime), songAt);
+        if (made) await storage.put(key, new TextEncoder().encode(JSON.stringify({ recording: recording.id, ...made })));
+        return made;
+      })().catch(() => null);
+      this.tails.set(id, got);
+      capped(this.tails, 200);
+      // a failure is not kept: read again at the next ask
+      const settling = got;
+      void settling.then((v) => { if (v === null && this.tails.get(id) === settling) this.tails.delete(id); });
+    }
+    return got;
   }
 
   /**
@@ -400,6 +432,13 @@ export class TimelineMedia {
   }
 
   /** One small picture of a moment of a video, for a hover over the trim bar. Not kept. */
+  /** A moment of a sound (or a video's sound) as WAV: what the player fills a take's end with (cut.ts soundSlice). */
+  async slice(assetId: string, fromS: number, ms: number): Promise<Uint8Array> {
+    const sound = await this.core.assetRow(assetId);
+    if (!sound || (sound.kind !== "audio" && sound.kind !== "video")) throw notFound("this sound");
+    return soundSlice(await this.source(sound), extOf(sound.mime), fromS, ms);
+  }
+
   async peek(assetId: string, atMs: number, height?: number): Promise<Uint8Array> {
     const video = await this.core.assetRow(assetId);
     if (!video || video.kind !== "video") throw notFound("this video");
