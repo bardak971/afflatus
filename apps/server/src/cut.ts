@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { FRAME_SLACK_MS } from "@afflatus/core";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { factsOf, ffmpegMajor, ffmpegSaid, localInputs, tools, type ProbeInfo, type VideoFacts } from "./video";
+import { factsOf, ffmpegMajor, ffmpegSaid, localInputs, strangerInput, tools, type ProbeInfo, type VideoFacts } from "./video";
 import { ffmpegPool } from "./pool";
 import { aiVideoArgs } from "./aiMark";
 
@@ -146,7 +146,8 @@ const LISTS = new Set(["hls", "applehttp", "dash", "concat"]);
  * ffprobe says everything.
  */
 export async function probeMediaFile(file: string): Promise<ProbedMedia | null> {
-  const out = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height,avg_frame_rate:format=format_name,duration", "-of", "json", file]).catch(() => null);
+  // read only as a real container: a manifest is refused before ffprobe opens what it names (video.ts strangerInput)
+  const out = await must(tools.ffprobe, strangerInput(["-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height,avg_frame_rate:format=format_name,duration", "-of", "json", file])).catch(() => null);
   if (!out) return null;
   try {
     const info = JSON.parse(out) as { streams?: Array<{ codec_type?: string; codec_name?: string }>; format?: { format_name?: string; duration?: string } };

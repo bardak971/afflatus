@@ -10,7 +10,7 @@ import { assetLookup, renameItem } from "./assets-api";
 import { binItem, bulkItems, keepItem, restoreItem, type BulkDone } from "./assetsBin";
 import { searchOf } from "./assetSearch";
 import { takeIn } from "./assetUpload";
-import type { Tables } from "./db";
+import type { Db, Tables } from "./db";
 import { httpError } from "./errors";
 import { createBody, editBody, folderEdit, folderNew, foldersList, itemsMove } from "./folders";
 import { oneAtATime } from "./keyedLock";
@@ -18,6 +18,7 @@ import { NOT_IN_LIBRARY } from "./library";
 import { seen, spends } from "./mcpForms";
 import { mayQueueAll } from "./mcpRender";
 import { tool, type ToolCtx } from "./mcpTool";
+import { refusal } from "./mcpTokens";
 import { assertPublicUrl, fetchPublic } from "./outbound";
 import { projectEdit, projectNew, projectsList, rootFolderOf } from "./projects";
 import type { Services } from "./services";
@@ -269,11 +270,35 @@ const renameProject = tool({
 /** The name a file from an address gets when none is given: the last part of its path, without its extension. */
 const nameOfUrl = (url: URL) => decodeURIComponent(url.pathname.split("/").filter(Boolean).pop() ?? "").replace(/\.[a-z0-9]{2,5}$/i, "").slice(0, 200);
 
+/**
+ * What an agent may bring in from addresses (I2 of the 2026-10-27 review): one import at a time per token, each at most
+ * `file` bytes (an upload from the page takes 4 GB, which an agent repeating itself turns into a full disk), and at most
+ * `day` bytes a token over the last 24 hours, counted as the bytes come (a refused or failed import
+ * counts what it fetched). Kept in memory: a restart starts the day again, and a token cannot restart Afflatus.
+ */
+export const importLimits = { file: 2 ** 30, day: 8 * 2 ** 30 };
+const DAY_MS = 24 * 3600_000;
+interface Imports { busy: Set<string>; fetched: Map<string, Array<{ at: number; bytes: number }>> }
+/** Each database's own (tests run several apps at once). */
+const importsOf = new WeakMap<Db, Imports>();
+function imports(db: Db): Imports {
+  let i = importsOf.get(db);
+  if (!i) importsOf.set(db, (i = { busy: new Set(), fetched: new Map() }));
+  return i;
+}
+/** What a token fetched over the last 24 hours, the older entries let go. */
+function fetchedToday(i: Imports, token: string, at = Date.now()): number {
+  const kept = (i.fetched.get(token) ?? []).filter((x) => at - x.at < DAY_MS);
+  i.fetched.set(token, kept);
+  return kept.reduce((n, x) => n + x.bytes, 0);
+}
+const gb = (bytes: number) => `${(bytes / 2 ** 30).toFixed(1).replace(/\.0$/, "")} GB`;
+
 const importFromUrl = tool({
   name: "import_from_url",
   scope: "make",
   title: "Import from an address",
-  description: "A picture, a video or a sound at a public address (http or https) brought into the library, as an upload from the computer is: read from its bytes, kept, in a folder or a project's root folder when one is named. Addresses inside the user's network are refused, as Afflatus refuses them everywhere.",
+  description: "A picture, a video or a sound at a public address (http or https) brought into the library, as an upload from the computer is: read from its bytes, kept, in a folder or a project's root folder when one is named. Addresses inside the user's network are refused, as Afflatus refuses them everywhere. One at a time per token, each at most 1 GB, and at most 8 GB a token over 24 hours.",
   input: {
     url: z.string().trim().url().max(2000),
     name: z.string().trim().max(200).optional().describe("Its name in the library; left out: the file's name."),
@@ -281,36 +306,50 @@ const importFromUrl = tool({
     project: z.string().optional().describe("A project's id: into its root folder."),
   },
   async run(a, ctx) {
-    const { s } = ctx;
+    const { s, token } = ctx;
     const url = assertPublicUrl(a.url);
-    const res = await fetchPublic(url.href, { headers: { "User-Agent": "afflatus", Accept: "image/*,video/*,audio/*,*/*" }, signal: AbortSignal.timeout(10 * 60_000) });
-    if (!res.ok || !res.body) {
-      await res.body?.cancel().catch(() => {});
-      throw httpError(`${url.hostname} answered ${res.status}: nothing was imported.`, 502);
-    }
-    const said = Number(res.headers.get("content-length") ?? 0);
-    const most = UPLOAD_MAX_BYTES;
-    if (said > most) {
-      await res.body.cancel().catch(() => {});
-      throw httpError(`This file is ${(said / 2 ** 30).toFixed(1)} GB: the most an upload takes is ${most / 2 ** 30} GB.`, 413);
-    }
-    const dir = await mkdtemp(join(tmpdir(), "afflatus-import-"));
+    const mine = imports(s.db);
+    if (mine.busy.has(token.id)) throw refusal("This token is already importing a file: one at a time. Wait for it to end, then import the next.");
+    const left = importLimits.day - fetchedToday(mine, token.id);
+    if (left <= 0) throw refusal(`This token has fetched ${gb(importLimits.day)} over the last 24 hours, the most it may: import again later, or the user uploads it in Afflatus.`);
+    // the smaller of an import's most and what is left of the day: a file past either stops as it comes
+    const most = Math.min(importLimits.file, UPLOAD_MAX_BYTES, left);
+    const tooLarge = (size?: number) => httpError(most < importLimits.file
+      ? `This file${size ? ` is ${gb(size)}, which` : ""} goes past what this token may still fetch today (${gb(left)} of ${gb(importLimits.day)} a day).`
+      : `This file is ${size ? gb(size) : `larger than ${gb(most)}`}: an agent imports at most ${gb(most)} a file. A larger one the user uploads in Afflatus.`, 413);
+    mine.busy.add(token.id);
+    let bytes = 0;
     try {
-      const path = join(dir, "file");
-      let bytes = 0;
-      // counted as it comes: an address that says no length (or a wrong one) is held to the upload's most all the same
-      const count = new Transform({
-        transform(chunk: Buffer, _enc, done) {
-          bytes += chunk.length;
-          done(bytes > most ? httpError(`This file is larger than ${most / 2 ** 30} GB, the most an upload takes.`, 413) : null, chunk);
-        },
-      });
-      await pipeline(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]), count, createWriteStream(path));
-      const view = await takeIn(s, assetLookup(s), { path, dir, bytes }, { name: a.name ?? nameOfUrl(url), folder: a.folder, project: a.project });
-      ctx.said(`Imported ${view.name ? `“${view.name}”` : "a file"} from ${url.hostname}`);
-      return itemSaid(view);
+      const res = await fetchPublic(url.href, { headers: { "User-Agent": "afflatus", Accept: "image/*,video/*,audio/*,*/*" }, signal: AbortSignal.timeout(10 * 60_000) });
+      if (!res.ok || !res.body) {
+        await res.body?.cancel().catch(() => {});
+        throw httpError(`${url.hostname} answered ${res.status}: nothing was imported.`, 502);
+      }
+      const said = Number(res.headers.get("content-length") ?? 0);
+      if (said > most) {
+        await res.body.cancel().catch(() => {});
+        throw tooLarge(said);
+      }
+      const dir = await mkdtemp(join(tmpdir(), "afflatus-import-"));
+      try {
+        const path = join(dir, "file");
+        // counted as it comes: an address that says no length (or a wrong one) is held to the most all the same
+        const count = new Transform({
+          transform(chunk: Buffer, _enc, done) {
+            bytes += chunk.length;
+            done(bytes > most ? tooLarge() : null, chunk);
+          },
+        });
+        await pipeline(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]), count, createWriteStream(path));
+        const view = await takeIn(s, assetLookup(s), { path, dir, bytes }, { name: a.name ?? nameOfUrl(url), folder: a.folder, project: a.project });
+        ctx.said(`Imported ${view.name ? `“${view.name}”` : "a file"} from ${url.hostname}`);
+        return itemSaid(view);
+      } finally {
+        await rm(dir, { recursive: true, force: true }).catch(() => {});
+      }
     } finally {
-      await rm(dir, { recursive: true, force: true }).catch(() => {});
+      mine.busy.delete(token.id);
+      if (bytes) mine.fetched.get(token.id)!.push({ at: Date.now(), bytes });
     }
   },
 });

@@ -10,7 +10,7 @@ import { httpError } from "./errors";
 import type { HuntSummary } from "./hunt";
 import { paceOf } from "./forecast";
 import { gathering, observeAdded, observePart } from "./serverMetrics";
-import type { Registry } from "./registry";
+import { waitingWords, type Registry } from "./registry";
 import { record } from "./renders";
 import { machineSaid, type Say } from "./notifyWords";
 import type { PodFileView } from "./podFiles";
@@ -522,6 +522,9 @@ export class Queue {
   private async renderJob(recipeId: string, rawInput: unknown, opts: EnqueueOptions) {
     const recipe = this.registry.recipe(recipeId);
     if (!recipe) throw httpError(`there is no model or operation called ${recipeId}`);
+    // a workflow an agent imported runs its nodes' code on the user's machines: not before the user approved it once, on
+    // every way in (Render, a timeline's, a load ahead, MCP's run_workflow and render)
+    if (this.registry.pending(recipeId)) throw httpError(waitingWords(recipe.title), 409);
     // loading the models is asked for while the form is still being filled in: a text not written yet is no reason to refuse
     const input = parseInput(recipe, await this.startedOn(recipe, opts.warm ? submitting.withTexts(recipe, rawInput) : rawInput)) as Record<string, unknown>; // throws a ZodError the API turns into a 400
     // choices written in a text ({red|black|white}) are settled now, one per job: what is kept is what was picked

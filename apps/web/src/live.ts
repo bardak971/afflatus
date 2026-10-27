@@ -220,7 +220,8 @@ export function useLiveEvents(): void {
       downloads: on(queryKeys.downloads()),
       // ComfyUI has a file it did not have: what is ready may have changed; or the machines changed (one added, a rented pod
       // that came up or went, a lock): the settings that list them too
-      setup: () => refetch(client, [queryKeys.setup(), queryKeys.settings()]),
+      // the workflows too: one an agent imported, or one approved, changes what Studio › Workflows lists
+      setup: () => refetch(client, [queryKeys.setup(), queryKeys.settings(), queryKeys.workflows(), queryKeys.recipes()]),
       // an update's flow: its progress written in place, the whole view read again when its phase changes (updates.ts)
       updates: (data) => {
         const flow = (parse(data) as { flow?: UpdateFlow | null } | null)?.flow ?? null;

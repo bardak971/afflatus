@@ -165,11 +165,61 @@ describe("workflows from outside", () => {
     await look.close();
   });
 
+  it("keeps one an agent imported waiting for the user's approval: refused on every way in until Approve, named by its token", async () => {
+    await t.services.queue.start();
+    const c = await connect((await made("make")).token);
+    const got = await ok(c, "import_workflow", { json: JSON.stringify(wan), title: "zz-test wan" });
+    expect(got.waitsForApproval).toMatch(/Approve/);
+    expect(got.reaches).toEqual([]);
+    const listed = (await ok(c, "list_workflows")).workflows[0];
+    expect(listed.waiting).toEqual({ by: "zz-test make", reaches: [] });
+    expect((await get(t.app, "/api/workflows")).json().items[0].waiting).toEqual({ by: "zz-test make", reaches: [] });
+    const values = { prompt: "zz-test she waves", seconds: 3 };
+    await refused(c, "run_workflow", { workflow: got.form, values }, /waits for the user's approval/);
+    await refused(c, "render", { form: got.form, values }, /waits for the user's approval/);
+    // from the page too: the user approves it once, where it is listed, before anything renders it
+    const web = await post(t.app, "/api/jobs", { recipe: got.form, input: values });
+    expect(web.statusCode).toBe(409);
+    expect(web.json().error ?? web.json().message).toMatch(/Studio › Workflows › Approve/);
+    expect(await t.db.selectFrom("jobs").select("id").execute()).toEqual([]);
+    expect((await post(t.app, `/api/workflows/${got.form}/approve`, {})).statusCode).toBe(200);
+    expect((await post(t.app, "/api/workflows/workflow.nope/approve", {})).statusCode).toBe(404);
+    expect((await get(t.app, "/api/workflows")).json().items[0].waiting).toBeUndefined();
+    expect((await ok(c, "run_workflow", { workflow: got.form, values })).jobs).toHaveLength(1);
+    await until(() => fake.prompts.size === 1);
+    // the user's own edit of an approved one keeps it approved; the user's own import never waits
+    const def = (await get(t.app, `/api/workflows/${got.form}`)).json();
+    const { id: _id, ...body } = def;
+    expect((await t.app.inject({ method: "PUT", url: `/api/workflows/${got.form}`, payload: body })).statusCode).toBe(200);
+    expect((await post(t.app, "/api/workflows", { ...body, title: "zz-test mine" })).statusCode).toBe(200);
+    expect((await get(t.app, "/api/workflows")).json().items.map((w: { waiting?: unknown }) => w.waiting)).toEqual([undefined, undefined]);
+    await c.close();
+  });
+
+  it("names what a waiting workflow reads, writes or fetches: VideoHelperSuite's path loaders, path inputs, addresses typed in", async () => {
+    const c = await connect((await made("make")).token);
+    const reaching = {
+      ...wan,
+      "90": { class_type: "VHS_LoadVideoPath", inputs: { video: "C:/Users/someone/secret.mp4", force_rate: 0, frame_load_cap: 0 }, _meta: { title: "zz-test reader" } },
+      "91": { class_type: "Some Loader", inputs: { image_url: "https://lan.example/x.png", ckpt_name: "model.safetensors", seed: 1 } },
+      "92": { class_type: "Some Saver", inputs: { output_path: ["90", 0], filename_prefix: "ComfyUI" } },
+    };
+    const got = await ok(c, "import_workflow", { json: JSON.stringify(reaching), title: "zz-test reach" });
+    expect(got.reaches).toEqual([
+      { node: "90", type: "VHS_LoadVideoPath", title: "zz-test reader", inputs: [{ input: "video", value: "C:/Users/someone/secret.mp4" }] },
+      { node: "91", type: "Some Loader", inputs: [{ input: "image_url", value: "https://lan.example/x.png" }] },
+      { node: "92", type: "Some Saver", inputs: [{ input: "output_path", from: "90" }] },
+    ]);
+    expect((await get(t.app, "/api/workflows")).json().items[0].waiting.reaches).toEqual(got.reaches);
+    await c.close();
+  });
+
   it("runs a saved one as a render of its form: the job is the token's, the values go into the workflow", async () => {
     await t.services.queue.start();
     const { token, id } = await made("make");
     const c = await connect(token);
     const { form } = await ok(c, "import_workflow", { json: JSON.stringify(wan), title: "zz-test wan" });
+    await post(t.app, `/api/workflows/${form}/approve`, {});
     const r = await ok(c, "run_workflow", { workflow: "zz-test-wan", values: { prompt: "zz-test she waves at the boat", seconds: 3 } });
     expect(r.jobs).toHaveLength(1);
     const rows = await t.db.selectFrom("jobs").select(["recipe_id", "mcp_token_id"]).where("id", "in", r.jobs).execute();
@@ -216,6 +266,7 @@ describe("running a workflow where money is at stake", () => {
     const { token, id } = await made("make");
     const c = await connect(token);
     const { form } = await ok(c, "import_workflow", { json: JSON.stringify(wan), title: "zz-test wan" });
+    await post(t.app, `/api/workflows/${form}/approve`, {});
     await refused(c, "run_workflow", { workflow: form, values: { prompt: "zz-test" }, machine: pod }, /cannot spend on rented GPUs, and .* is one/);
     expect(await t.db.selectFrom("jobs").select("id").where("mcp_token_id", "=", id).execute()).toEqual([]);
     // left to the queue, it is sent to the user's own machine only

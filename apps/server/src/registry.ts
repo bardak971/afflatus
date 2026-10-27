@@ -3,6 +3,12 @@ import { families as builtInFamilies, recipes as builtInRecipes } from "@afflatu
 import { familyOf, recipeFromWorkflow, workflowDef, type WorkflowDef } from "@afflatus/workflows";
 import { now, OWNER, type Db } from "./db";
 
+/** Who imported a workflow that waits for the user's approval: the MCP token, by id, and its name then. */
+export interface Pending { token: string; name: string }
+
+/** Said when a workflow an agent imported is rendered before the user approved it (queue.ts renderJob). */
+export const waitingWords = (title: string) => `“${title}” was imported by an agent and waits for the user's approval: Studio › Workflows › Approve, in Afflatus. It renders from then on.`;
+
 /** A workflow's recipe, built once as it was saved: what cannot be built is found here, not by every later reader. */
 export function made(def: WorkflowDef): Recipe<any> {
   const recipe = recipeFromWorkflow(def);
@@ -19,6 +25,8 @@ export class Registry {
   private made: Recipe<any>[] = [];
   /** Saved workflows that could not be made into a recipe, with why: listed (to be changed or removed), never run. */
   private broken = new Map<string, string>();
+  /** Workflows an agent imported that wait for the user's approval (Studio › Workflows), by id: the MCP token that imported each. */
+  private waiting = new Map<string, Pending>();
   /** Called when the list changes (what ComfyUI can run has to be worked out again). */
   onChange: () => void = () => {};
 
@@ -30,10 +38,11 @@ export class Registry {
    * keep the server from starting.
    */
   async load(): Promise<void> {
-    const rows = await this.db.selectFrom("workflows").select(["id", "def"]).orderBy("created_at").execute();
+    const rows = await this.db.selectFrom("workflows").select(["id", "def", "pending_token", "pending_name"]).orderBy("created_at").execute();
     this.defs = [];
     this.made = [];
     this.broken = new Map();
+    this.waiting = new Map();
     for (const row of rows) {
       let parsed;
       try {
@@ -46,6 +55,7 @@ export class Registry {
         continue;
       }
       this.defs.push(parsed.data);
+      if (row.pending_token) this.waiting.set(parsed.data.id, { token: row.pending_token, name: row.pending_name ?? "" });
       try {
         this.made.push(made(parsed.data));
       } catch (err) {
@@ -59,6 +69,11 @@ export class Registry {
   /** Why a saved workflow is not offered, when it is not. */
   problem(id: string): string | undefined {
     return this.broken.get(id);
+  }
+
+  /** The MCP token whose import of this workflow waits for the user's approval; undefined: the user's own, or approved. */
+  pending(id: string): Pending | undefined {
+    return this.waiting.get(id);
   }
 
   recipes(): Recipe<any>[] {
@@ -86,15 +101,28 @@ export class Registry {
     return this.defs.find((d) => d.id === id);
   }
 
-  async save(def: WorkflowDef): Promise<void> {
+  /**
+   * Keep a workflow. `by`: the MCP token whose call saved it: the workflow then waits for the user's approval, a new one or
+   * one changed (an approved workflow an agent changes waits again). Left out (the user's own save), whether it waits stays
+   * as it was: editing an agent's import in the editor is not approving it, Approve is.
+   */
+  async save(def: WorkflowDef, by?: Pending): Promise<void> {
     const json = JSON.stringify(def);
     const at = now();
+    const waits = by ? { pending_token: by.token, pending_name: by.name } : {};
     await this.db
       .insertInto("workflows")
-      .values({ id: def.id, owner_id: OWNER, def: json, created_at: at, updated_at: at })
-      .onConflict((oc) => oc.column("id").doUpdateSet({ def: json, updated_at: at }))
+      .values({ id: def.id, owner_id: OWNER, def: json, created_at: at, updated_at: at, ...waits })
+      .onConflict((oc) => oc.column("id").doUpdateSet({ def: json, updated_at: at, ...waits }))
       .execute();
     await this.load();
+  }
+
+  /** The user's approval of a workflow an agent imported: it renders from now on. False when there is no such workflow. */
+  async approve(id: string): Promise<boolean> {
+    const r = await this.db.updateTable("workflows").set({ pending_token: null, pending_name: null }).where("id", "=", id).executeTakeFirst();
+    await this.load();
+    return Number(r.numUpdatedRows) > 0;
   }
 
   async remove(id: string): Promise<boolean> {

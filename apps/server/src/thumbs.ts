@@ -137,8 +137,8 @@ export function sideBySide(pictures: readonly Uint8Array[], height = 512): Promi
 
 /**
  * Pictures in rows of `perRow`, each brought to `height` with its label in its corner ("3", "2→3"), on black: a timeline's
- * contact sheet (MCP's view_timeline), and compare's row. A row is as wide as its pictures; the sheet as wide as its widest
- * row. Null when it cannot be made (no image library, a picture that does not open).
+ * contact sheet (MCP's view_timeline), and compare's row. A row is as wide as its pictures (each at most 4 × `height` wide); the
+ * sheet as wide as its widest row. Null when it cannot be made (no image library, a picture that does not open).
  */
 export async function contactSheet(cells: ReadonlyArray<{ bytes: Uint8Array; label: string }>, o: { height: number; perRow: number }): Promise<Uint8Array | null> {
   const lib = await sharp();
@@ -147,8 +147,9 @@ export async function contactSheet(cells: ReadonlyArray<{ bytes: Uint8Array; lab
     const gap = 8;
     const { height } = o;
     const each = await Promise.all(cells.map(async (c) => {
-      const { data, info } = await lib(c.bytes).rotate().resize({ height, withoutEnlargement: false }).png().toBuffer({ resolveWithObject: true });
-      return { data, width: info.width, label: c.label };
+      // at most 4 × as wide as high: brought to the height alone, a 65000×16 picture became ~268 Mpx in memory (review I3)
+      const { data, info } = await lib(c.bytes).rotate().resize({ width: 4 * height, height, fit: "inside", withoutEnlargement: false }).png().toBuffer({ resolveWithObject: true });
+      return { data, width: info.width, high: info.height, label: c.label };
     }));
     const rows: Array<typeof each> = [];
     for (let i = 0; i < each.length; i += Math.max(1, o.perRow)) rows.push(each.slice(i, i + Math.max(1, o.perRow)));
@@ -163,7 +164,8 @@ export async function contactSheet(cells: ReadonlyArray<{ bytes: Uint8Array; lab
         const w = Math.max(44, 18 + 16 * e.label.length);
         const text = e.label.replace(/[<&>]/g, "");
         const label = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="44"><rect width="${w}" height="44" rx="8" fill="#000" fill-opacity="0.7"/><text x="${w / 2}" y="31" font-family="sans-serif" font-size="26" font-weight="700" fill="#fff" text-anchor="middle">${text}</text></svg>`);
-        return [{ input: e.data, left: at, top }, { input: label, left: at + 8, top: top + 8 }];
+        // a picture held to the width cap is lower than the row: centred in it
+        return [{ input: e.data, left: at, top: top + Math.floor((height - e.high) / 2) }, { input: label, left: at + 8, top: top + 8 }];
       });
     });
     const total = rows.length * height + gap * (rows.length - 1);

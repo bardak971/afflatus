@@ -9,8 +9,10 @@ import { renderForm } from "./mcpRender";
 import { tool } from "./mcpTool";
 import { refusal } from "./mcpTokens";
 import { assertPublicUrl, fetchPublic } from "./outbound";
+import { waitingWords } from "./registry";
 import type { Services } from "./services";
-import { brief, createWorkflow, inspectWorkflow } from "./workflows";
+import { reachOf } from "./workflowReach";
+import { createWorkflow, inspectWorkflow, listed } from "./workflows";
 
 /**
  * Imported ComfyUI workflows, from outside (MCP): listed, imported, run. An import goes through the web's own two steps
@@ -32,14 +34,14 @@ const listWorkflows = tool({
   name: "list_workflows",
   scope: "look",
   title: "Workflows",
-  description: "The ComfyUI workflows the user imported (Studio › Workflows), as that page lists them: each one's form id (workflow.<slug>, what run_workflow, describe_form, new_draft and render take), title, model, the file it came from, what it makes, how many nodes, whether a machine has what it needs, and its inputs by id. One that cannot be built any more says why (problem). describe_form gives an input in full.",
+  description: "The ComfyUI workflows the user imported (Studio › Workflows), as that page lists them: each one's form id (workflow.<slug>, what run_workflow, describe_form, new_draft and render take), title, model, the file it came from, what it makes, how many nodes, whether a machine has what it needs, and its inputs by id. One that cannot be built any more says why (problem). One an agent imported that the user has not approved yet says so (waiting: the token's name, and its nodes that read or write a path or fetch an address); it renders once the user approves it in Afflatus. describe_form gives an input in full.",
   async run(_args, ctx) {
     const { s } = ctx;
     const at = await seen(s);
     const items = s.registry.workflows().map((d) => {
       const recipe: Recipe<any> | undefined = s.registry.recipe(d.id);
       return {
-        ...brief(d, s.registry.problem(d.id)),
+        ...listed(s, d),
         ready: at.machines.some((m) => m.scan?.recipes.find((r) => r.id === d.id)?.ready),
         inputs: recipe ? shownInputs(recipe).map(inputBrief) : [],
       };
@@ -115,7 +117,7 @@ const importWorkflow = tool({
   name: "import_workflow",
   scope: "make",
   title: "Import a workflow",
-  description: "A ComfyUI workflow made into a form of Afflatus, as Studio › Workflows imports one: from its JSON (the file ComfyUI's editor saves, one saved with Export (API), or one shared from another Afflatus), from a public https address (a .json, or a picture or video ComfyUI saved with its workflow inside; at most 16 MB), or from a picture or video of the library that carries one. It is read against ComfyUI's node list, then kept with the mapping the import would start from (the prompt, seeds, size, length, pictures, LoRAs, switches and controls inspect suggests; a shared one keeps its own), unless `bindings` changes parts of it. Answers the new form's id (run_workflow and render take it), its inputs, the other settings that could be controls (addControls), and what is missing on this ComfyUI: node types and the packs they come from, model files (with where else they are, and where to get them when known), choices it lacks. Installing those stays in Afflatus. A workflow runs its nodes' code on the user's machines: import only what the user asked for.",
+  description: "A ComfyUI workflow made into a form of Afflatus, as Studio › Workflows imports one: from its JSON (the file ComfyUI's editor saves, one saved with Export (API), or one shared from another Afflatus), from a public https address (a .json, or a picture or video ComfyUI saved with its workflow inside; at most 16 MB), or from a picture or video of the library that carries one. It is read against ComfyUI's node list, then kept with the mapping the import would start from (the prompt, seeds, size, length, pictures, LoRAs, switches and controls inspect suggests; a shared one keeps its own), unless `bindings` changes parts of it. Answers the new form's id (run_workflow and render take it), its inputs, the other settings that could be controls (addControls), and what is missing on this ComfyUI: node types and the packs they come from, model files (with where else they are, and where to get them when known), choices it lacks. Installing those stays in Afflatus. A workflow runs its nodes' code on the user's machines: import only what the user asked for. It waits for the user's approval (Studio › Workflows › Approve, in Afflatus) before it renders; the answer lists its nodes that read or write a path or fetch an address (reaches), which the user sees there too.",
   input: {
     json: z.string().max(WORKFLOW_MAX_BYTES).optional().describe("The workflow's JSON as text."),
     url: z.string().trim().url().max(2000).optional().describe("Or a public https address of the file."),
@@ -171,7 +173,10 @@ const importWorkflow = tool({
     const model = a.model ?? (typeof shared?.model === "string" ? shared.model : guessModel(found.graph as Parameters<typeof guessModel>[0]));
     if (!model) throw refusal("Name the model it runs (model): nothing in the workflow says.");
     // the web's import, step 2: kept as mapped, with the same checks and the same build
-    const saved = await createWorkflow(s, { title, model, source: (name || from).slice(0, 200), graph: found.graph, wiring: "wiring" in found ? found.wiring : undefined, editor: "editor" in found ? found.editor : undefined, bindings });
+    // kept waiting for the user's approval: it runs code on their machines, and an agent may have been steered by what it read
+    const saved = await createWorkflow(s, { title, model, source: (name || from).slice(0, 200), graph: found.graph, wiring: "wiring" in found ? found.wiring : undefined, editor: "editor" in found ? found.editor : undefined, bindings }, { token: ctx.token.id, name: ctx.token.name });
+    s.queue.events.emit("setup");
+    const def = s.registry.workflow(saved.id)!;
     const recipe: Recipe<any> | undefined = s.registry.recipe(saved.id);
     const onForm = new Set(bindings.controls?.map((c) => c.id) ?? []);
     const packs = [...new Set(Object.values(found.packs))];
@@ -179,6 +184,8 @@ const importWorkflow = tool({
     ctx.said(`Imported the workflow “${saved.title}”${from ? ` from ${from}` : ""}`);
     return {
       form: saved.id, title: saved.title, model: saved.model, makes: saved.output, nodes: saved.nodes,
+      waitsForApproval: "The user approves it once in Afflatus (Studio › Workflows › Approve) before it renders: run_workflow and render refuse it until then.",
+      reaches: reachOf(def),
       inputs: recipe ? shownInputs(recipe).map(inputBrief) : [],
       moreControls: candidates.filter((c) => !onForm.has(c.id)).slice(0, 80).map((c) => ({ id: c.id, label: c.label, node: c.title, ...(c.off ? { off: true } : {}) })),
       missing: {
@@ -201,6 +208,7 @@ function workflowOf(s: Services, asked: string): string {
   if (!d) throw httpError(`There is no workflow called ${asked}: list_workflows gives the ids.`, 404);
   const problem = s.registry.problem(d.id);
   if (problem) throw httpError(`“${d.title}” cannot be run as it is: ${problem}`);
+  if (s.registry.pending(d.id)) throw refusal(waitingWords(d.title));
   return d.id;
 }
 
@@ -208,7 +216,7 @@ const runWorkflow = tool({
   name: "run_workflow",
   scope: "make",
   title: "Run a workflow",
-  description: "Render a saved workflow with values: the same as render with its form (workflow.<slug>), through Create's own path and refusals. Inputs by id (list_workflows, describe_form); the rest start as the form starts them. The token's renders-an-hour limit holds; a rented pod needs Spend (a token without it never lands on one) and stays within the token's spend cap. Answers the job ids (job, queue_status follow them) and what it may cost.",
+  description: "Render a saved workflow with values: the same as render with its form (workflow.<slug>), through Create's own path and refusals. One an agent imported renders only once the user approved it in Afflatus (list_workflows says waiting). Inputs by id (list_workflows, describe_form); the rest start as the form starts them. The token's renders-an-hour limit holds; a rented pod needs Spend (a token without it never lands on one) and stays within the token's spend cap. Answers the job ids (job, queue_status follow them) and what it may cost.",
   input: {
     workflow: z.string().min(1).describe("The workflow's form id (list_workflows), its slug, or its title."),
     values: z.record(z.string(), z.unknown()).optional().describe("Its inputs by id."),

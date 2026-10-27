@@ -662,6 +662,7 @@ export const api = {
   /** Where the queued installs stand. */
   packsStatus: (ids: string[], machine?: string) => call<{ items: PackState[]; installed: number }>("GET", `/workflows/packs?ids=${encodeURIComponent(ids.join(","))}${machine ? `&machine=${encodeURIComponent(machine)}` : ""}`),
   deleteWorkflow: (id: string) => call<{ ok: true }>("DELETE", `/workflows/${id}`),
+  approveWorkflow: (id: string) => call<{ ok: true }>("POST", `/workflows/${id}/approve`),
   /** The timelines of the project the app looks at. */
   timelines: (o?: Asked) => call<{ items: TimelineBrief[] }>("GET", `/timelines${projectParam() ? `?project=${encodeURIComponent(projectParam()!)}` : ""}`, undefined, o?.signal),
   timeline: (id: string, o?: Asked) => call<Sent>("GET", `/timelines/${id}`, undefined, o?.signal).then(withTakes),
