@@ -22,6 +22,8 @@
     "check:player": "tsx scripts/check-player.ts",
     "check:digests": "tsx scripts/check-render-digests.ts",
     "check:cycles": "tsx scripts/check-cycles.ts",
+    "check:mcp-docs": "tsx scripts/mcp-docs.ts",
+    "docs:mcp": "tsx scripts/mcp-docs.ts --write",
     "check:knip": "npx -y knip@6.39.0 --no-progress && npx -y knip@6.39.0 --no-progress --production --include exports,types",
     "restore": "tsx scripts/restore-backup.ts",
     "comfy:scan": "tsx scripts/comfy-scan.ts",

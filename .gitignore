@@ -34,3 +34,6 @@ STATUS.md
 
 # throwaway probe scripts (scripts/zz-*): they hold this machine's paths
 scripts/zz-*
+
+# an MCP client's project config holds its token (docs/mcp.md)
+.mcp.json

@@ -86,5 +86,21 @@ const whatsOpen = tool({
   },
 });
 
+/** The tools by group, in the order the client lists them: docs/mcp.md's list is written from this (scripts/mcp-docs.ts). */
+export const TOOL_GROUPS: ReadonlyArray<{ group: string; tools: readonly Tool[] }> = [
+  { group: "Where the user is", tools: [whatsOpen, overview] },
+  { group: "Forms", tools: FORM_TOOLS },
+  { group: "Drafts", tools: DRAFT_TOOLS },
+  { group: "Render and the queue", tools: RENDER_TOOLS },
+  { group: "See", tools: SEE_TOOLS },
+  { group: "Library", tools: LIBRARY_TOOLS },
+  { group: "Prompt kit", tools: KIT_TOOLS },
+  { group: "Timelines", tools: TIMELINE_TOOLS },
+  { group: "Workflows", tools: WORKFLOW_TOOLS },
+  { group: "Models", tools: MODEL_TOOLS },
+  { group: "Settings", tools: SETTING_TOOLS },
+  { group: "Machines and rented GPUs", tools: MACHINE_TOOLS },
+] as ReadonlyArray<{ group: string; tools: readonly Tool[] }>;
+
 /** Every tool, in the order the client lists them. */
-export const TOOLS: readonly Tool[] = [whatsOpen, overview, ...FORM_TOOLS, ...DRAFT_TOOLS, ...RENDER_TOOLS, ...SEE_TOOLS, ...LIBRARY_TOOLS, ...KIT_TOOLS, ...TIMELINE_TOOLS, ...WORKFLOW_TOOLS, ...MODEL_TOOLS, ...SETTING_TOOLS, ...MACHINE_TOOLS] as readonly Tool[];
+export const TOOLS: readonly Tool[] = TOOL_GROUPS.flatMap((g) => g.tools);

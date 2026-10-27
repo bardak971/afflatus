@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { describe, expect, it, vi } from "vitest";
+import { newAssetRow } from "../src/media";
 import type { TimelineEdit } from "../src/mcpTimelines";
 import { FFMPEG_TIMEOUT, ffmpegThere } from "./clipKit";
 import { timelineSteps, timelineSuite } from "./timelineKit";
@@ -168,6 +169,11 @@ describe.skipIf(!ffmpegThere)("the timelines from outside", { timeout: FFMPEG_TI
     // the export waits in the queue as the editor's does, and is not queued twice
     const ex = await ok(c, "export", { timeline: id });
     expect((await ok(c, "export", { timeline: id })).job).toBe(ex.job);
+    // once done, job names the video it made (an export has no generation: its video is the timeline's export)
+    await s.t.db.insertInto("assets").values(newAssetRow({ id: "exported1", kind: "video", origin: "exported", name: "the export", file_key: "assets/ex/exported1.mp4", mime: "video/mp4", bytes: 1, width: 640, height: 360, duration_ms: 9000, has_sound: 1, created_at: new Date().toISOString() })).execute();
+    await s.t.db.updateTable("timelines").set({ export_asset_id: "exported1" }).where("id", "=", id).execute();
+    await s.t.db.updateTable("jobs").set({ status: "done", finished_at: new Date().toISOString() }).where("id", "=", ex.job).execute();
+    expect((await ok(c, "job", { job: ex.job })).made).toEqual([{ item: "exported1", kind: "video", width: 640, height: 360, durationMs: 9000 }]);
     await c.close();
   });
 
