@@ -4,15 +4,40 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-27
+
+The deep review after 0.7.0, fixed whole: Go back keeping what was made since the update, every money path of rented GPUs (the month cap, a stuck render, a healthy pod terminated, the caps in the web), ComfyUI's access ended with a sign-out, linked folders, and the timeline, queue, H3 and LTX fixes. A recording cut into clips on its lyric lines, the song under Lip sync clips as one track, the prompt designer's own guides for Lip sync and Motion transfer, and FLUX.2 Klein 9B.
+
 ### Added
 - **A FLUX.2 Klein 9B preset** in the Prompt kit: Black Forest Labs' distilled 9B in fp8 (4 steps, CFG 1) with the Qwen3 8B text encoder it reads with, fetched in one click like the 4B's. Its files are gated on Hugging Face under BFL's non-commercial licence: accept the terms there with the account whose token is in Settings › Models.
 
 ### Changed
 - **A recording cut into clips: Clip length ± a window** replaces Snap to pauses (± 1.5 s by default; ± 0 cuts every clip at the length asked; a timeline saved with Snap to pauses on reads as ± 1.5, off as ± 0). A clip ends at the best spot in the window: a pause, else the end of a timed lyric line the file carries (Suno's m4a has them), else the quietest moment, always within what one clip of the model takes. Its "?" counts the clips on each. A pause far from the length asked no longer wins: a song with a single closing pause had its last clip cut at 14 s.
 
+- **Afflatus's pod image is pod-v0.1.41**: 0.1.39 with node pack 0.42.1 (ComfyUI logins tied to Afflatus's sign-ins, H3's landing on a latent of another frame size refused, and Face Crop to Frame's cut of a picture with no face found).
+- **A job sent without a form** (the API, a script) **starts on its model file's values**, as the form does: the values saved for the file, else its line's presets. A distilled Klein ran at the base model's 20 steps and CFG 5.
+
 ### Fixed
 - **The song under Lip sync clips plays as one track, in the player and the export alike.** Each take carried its own copy of the recording: it ended a little before its last frame (30 ms on a real take), started rough after a cut, and the player, switching videos on its own timing at a cut, skipped about 56 ms of the song there. Under a recording, both now play the recording itself across the clips, at the gain each take was laid at (Even out the loudness) and each clip's volume, from the same parts given by the server: joins and cuts run on to the sample, with nothing skipped or doubled. The take's own sound is kept where its file is not the recording: over a sound cue, a moment before the words the model made, and the faded tail of a run's last clip. Clips with a transition, a landing or a dissolve, muted clips and sound files are played as before. Every existing take benefits, with no re-render.
 - **Lip sync clips under a song now meet where the cut put them, on the lyric lines.** Each take ran past its part (a quarter second after the words, then rounded up to the model's frames), the next clip started where it stopped, and the joins slid further off the lines at every clip (+68, +159, +351 ms on three clips). A clip whose recording goes on into the next now lasts its part exactly, and the cut ends each part on a count of frames the model can make: the joins land within half a step of the spot (H3: ± 0.35 s), with no drift. The joins themselves stay as they were, seamless in the latent, with the song unbroken. A clip that still stops short of its part (one cut before this) has the next one sing on from there, where the song between used to be skipped. A part also no longer ends a hundredth past where the next one starts.
+- **Money · One failed read of RunPod's bill no longer lets a reached month cap go for 5 minutes.** Spending fell back to Afflatus's own count until the next read, which let a capped pod start and gave it a fresh grace hour; a failed read now keeps the month's last bill read, as the volumes' does.
+- **Money · A render failed as stuck no longer keeps its pod billing.** It is followed until it leaves the pod's ComfyUI; still running a minute after its stop, a deployed pod is terminated as a crash, and one added by hand is said, takes no job, and its idle time runs.
+- **Money · A job left running on a machine since removed is queued again**, never followed on the first machine, where a healthy pod of an older image was taken for crashed and terminated.
+- **Money · Start on a pod stopped during its first boot** counts its boot limit from the Start, not from the deploy hours before, which terminated it as a boot failure.
+- **Money · Caps in the web:** on the first launch, a second cap saved before the first answered set the first back, and a refused cap kept the amount typed on screen; in Settings › Rented GPUs, an edit queued behind a refused one sent the refused value again. Each save now goes after the one before, a refused cap is said under the boxes and its box shows the cap as saved, and Done and Skip wait for a cap still saving. Deploy again states the GPU and its disk an hour, and a GPU free only on hosts too old for CUDA 13.0 opens the Deploy dialog.
+- **Timeline · A re-cut, a moved In or a source made anew keeps the parts removed removed, with their takes**, where it brought them back and dropped their takes without asking. A source made anew on another model's grid makes its removed parts anew, still removed; a change of the source's window, scene cuts or run-up asks first when it drops rendered takes set aside past its end. Windows made around a removed part meet it, with no stretch of the source left between them, and a window whose take will hide its end is drawn and counted as long as it will play.
+- **Timeline · A landing no longer plays under a transition**: the export showed the shared moments twice and ran longer than the timeline.
+- **Timeline · A recording's clips and the source's windows stay in order and are never split**: a move out of order is refused, and Split is refused (and greyed, with its reason) on them, where trims and re-cuts then read the wrong In and Out, and a split copied the whole part into both halves.
+- **Timeline · Bring back, after the take of the clip following a removed part was removed,** joins that clip back as before, where it left it a cut.
+- **Timeline editor:** picked clips that are gone (an Undo, a removal) are dropped, where Delete sent them and the whole removal was refused; a split or an Undo keeps the zoom instead of going back to Fit all; Space no longer plays behind an open dialog or menu, nor with Ctrl, Alt or Cmd, and toggles once per press; a drag leaves no key listener behind; the source stage says its time 15 times a second, not every frame. Each clip's name on the recording stage stays within its part.
+- **The Player starts from the playhead**, after it comes back on the page, an Undo or clips shifting under it, where Play could start from another clip.
+- **LTX · The Next clip guide lands where it is asked**: ComfyUI put it 7 frames early, so about 0.28 s of the next shot played twice at every landed join.
+- **FLUX.2 Klein 9B reads with the Qwen3 8B text encoder**: it was always given the 4B's, and every 9B render failed. A 9B without the 8B encoder is refused with the reason.
+- **LTX 2.5 · A reference picture of an object, clothing or a place is cut to the clip's frame shape** when its shape differs, rather than laid whole between white bars.
+- **Queue · A Face refine a finish waits on stays in the history once dismissed**, where the finish behind it failed; the face finish keeps the draft's `latent_frames`, so its joins stay in the draft's time.
+- **Queue · An export waits for its own timeline's renders only**, not for every render queued after it on other timelines. The black-frames check of a render pinned to a machine reads that machine's files.
+- **Library · The audio picker reaches every video with sound**, not only those on the first page; a model set change refused is not sent again with the next edit.
+- **Quicker:** thumbnails made on request go through the ffmpeg pool, once per item, a failure remembered; Storage is summed by the database; Costs' Show all reads every session once, not each minute; the Studio grid is not read again after a bin or move made here; a memory cache of the queue is bounded.
 - **The prompt designer no longer writes dialogue for a clip whose sound is a recording.** Lip sync (H3, LTX 2.3 and 2.5) and any clip a recording plays over now get guides of their own: the scene, the framing and how they speak (or, under a recording, the people silent), never a spoken line or a voice, with each model's own form rules kept. The designer is told the recording's length in place of the room for spoken lines, and a `<d>` line, a quoted line or a voice described in such a clip is pointed out. H3 Motion transfer gets its own guide too, walking How they look, What happens and Prompt as sent, where it had H3's 100–150-word shot guide with camera and dialogue.
 - **LTX 2.5 · A clip landed on the clip after ends in that clip's colours**: its last second and its hidden tail are brought to the clip after's first frame, where it ended a little darker. The Next clip's ? says that a clip after under a second gives a looser landing (9 frames), with a small reframe at the cut.
 - **Render no longer sends a clip that carries on from a clip with no take.** An H3 or LTX clip landed in the latent of the clip before, or a Wan SVI clip, opened on nothing and rendered as a clip of its own when the clip before had no take and none on its way. Render now refuses it, as Again does: "Clip N carries on from clip N-1, which has no take: render clip N-1 first, or make their join a cut." A Render of several clips with one such clip queues none of them; one that renders the clip before too still waits for it. The refusal is said in a banner, whichever clip is open.
@@ -39,9 +64,6 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **A picture larger than 256 MB is refused** (413) as an upload or a file to read settings from: it was read into memory whole, and a few at once could take the server down. A video sent to read its settings is read where it was written, not into memory.
 - **Changing the Discord webhook asks for a recent sign-in or the password**, as Telegram's bot and chat do, and the webhook before is told of the change.
 - **Signing a device out of Afflatus also ends the ComfyUI it opened.** A ComfyUI login given by Open ComfyUI used to come from the machine's token alone, so it outlived the device's sign-out, Sign out everywhere and a new password. It now belongs to the sign-in that asked for it, and ends with it; a login Afflatus has not confirmed for 10 minutes (Afflatus stopped) asks again. Needs the node pack 0.42.0 (pod image 0.1.40); with an older pack, renewing the machine's token ends it, as Settings › Access says.
-
-### Changed
-- **Afflatus's pod image is pod-v0.1.41**: 0.1.39 with node pack 0.42.1 (ComfyUI logins tied to Afflatus's sign-ins, H3's landing on a latent of another frame size refused, and Face Crop to Frame's cut of a picture with no face found).
 
 ## [0.7.0] - 2026-10-26
 
@@ -575,7 +597,8 @@ The 0.6.0 cycle: the timeline reworked around sources, recordings and joins, H3 
 
 The first release: the Studio and its library, a form per model family, timelines, the prompt kit, imported workflows, the queue, the node pack, the Docker image, the Helm chart and the desktop bundles.
 
-[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/bardak971/afflatus/releases/tag/v0.7.1
 [0.7.0]: https://github.com/bardak971/afflatus/releases/tag/v0.7.0
 [0.6.3]: https://github.com/bardak971/afflatus/releases/tag/v0.6.3
 [0.6.2]: https://github.com/bardak971/afflatus/releases/tag/v0.6.2
