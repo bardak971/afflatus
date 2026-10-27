@@ -1767,6 +1767,21 @@ describe("klein: the model and how it samples are the user's to set", () => {
     expect(new RegExp(slot.detect[0]!, "i").test("qwen_3_8b.safetensors")).toBe(true);
     expect(klein.slots.find((x) => x.id === "clip")!.detect.some((d) => new RegExp(d, "i").test("qwen_3_8b_fp8mixed.safetensors"))).toBe(false);
   });
+
+  it("ships a 9B preset that fetches the 9B model with the encoder it reads with", () => {
+    const preset = JSON.parse(readFileSync(fileURLToPath(new URL("../../../presets/klein-9b.json", import.meta.url)), "utf-8")) as {
+      recipe: string; inputs: { model: string }; files: Array<{ file: string; folder: string; url?: string }>;
+    };
+    expect(recipeById(preset.recipe)?.family).toBe("klein");
+    const model = preset.inputs.model;
+    expect(preset.files.find((f) => f.file === model)).toMatchObject({ folder: "diffusion_models", url: expect.stringMatching(/^https:\/\/huggingface\.co\/black-forest-labs\//) });
+    // the file it fetches is the one the form loads, and with it the 8B encoder, never the 4B's
+    const on = Object.fromEntries(preset.files.map((f) => [f.folder === "text_encoders" ? "clip8b" : f.folder === "vae" ? "vae" : "unet", f.file]));
+    const made = picture.build(parseInput(picture, { prompt: "a cat", model }), dryContext({ seed: 7, slots: on }));
+    expect(one(made, "UNETLoader").unet_name).toBe(model);
+    expect(one(made, "CLIPLoader").clip_name).toBe("qwen_3_8b_fp8mixed.safetensors");
+    expect(picture.needsWith?.({ model } as never, on)).toEqual(["clip8b"]);
+  });
 });
 
 describe("what was fixed inside the recipes is the user's to set", () => {

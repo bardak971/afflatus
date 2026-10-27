@@ -1,0 +1,36 @@
+{
+  "id": "klein-9b",
+  "name": "FLUX.2 Klein 9B",
+  "author": "Black Forest Labs",
+  "line": "fp8 · 4 steps · pictures and editing",
+  "note": "FLUX.2 Klein 9B, distilled, in Black Forest Labs' own fp8: pictures from sentences in 4 steps at CFG 1, and editing from an instruction with up to four reference pictures. It reads with the Qwen3 8B text encoder, not the 4B's.",
+  "homepage": "https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8",
+  "licence": {
+    "name": "FLUX Non-Commercial License",
+    "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8/blob/main/LICENSE.md",
+    "note": "Black Forest Labs' non-commercial licence for the 9B Klein models, with their acceptable use policy. The file is gated: accept the terms on its Hugging Face page with the account whose token is in Settings › Models, or the download is refused."
+  },
+  "recipe": "klein.picture",
+  "inputs": {
+    "model": "flux-2-klein-9b-fp8.safetensors"
+  },
+  "files": [
+    {
+      "file": "flux-2-klein-9b-fp8.safetensors",
+      "folder": "diffusion_models",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8/resolve/main/flux-2-klein-9b-fp8.safetensors",
+      "size": 9433061528
+    },
+    {
+      "file": "qwen_3_8b_fp8mixed.safetensors",
+      "folder": "text_encoders",
+      "url": "https://huggingface.co/Comfy-Org/flux2-klein-9B/resolve/main/split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors",
+      "size": 8664848742
+    },
+    {
+      "file": "flux2-vae.safetensors",
+      "folder": "vae",
+      "url": "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors"
+    }
+  ]
+}
