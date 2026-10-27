@@ -36,6 +36,23 @@ describe("what the designer wrote, against the model's rules", () => {
     expect(checkOutput(r, familyById("sdxl"), { prompt: "1girl, solo, long hair, red eyes, smile, upper body, indoors, soft lighting" })).toEqual([]);
   });
 
+  it("a clip whose sound is a recording: a spoken line or a voice described is said, on Lip sync and under a recording alike (card #129)", () => {
+    const h = recipe("description", ["soundscape", "music"]);
+    // H3's own speech lines give way to the recording's: the line is said once, for what it is
+    expect(texts(checkOutput(h, familyById("h3"), { description: "He smiles and says: <d>[English] Hello there.</d>" }, {}, "lipSync"))).toEqual([expect.stringMatching(/^A spoken line: the recording is what is said/)]);
+    expect(texts(checkOutput(h, familyById("h3"), { description: 'She turns and says: "Come here."' }, {}, "over"))).toEqual([expect.stringMatching(/^A spoken line: the recording plays over this clip/)]);
+    expect(texts(checkOutput(h, familyById("h3"), { description: "The man (S1) speaks calmly to the camera." }, {}, "lipSync"))).toEqual([expect.stringMatching(/^A voice described/)]);
+    expect(texts(checkOutput(h, familyById("h3"), { description: "He speaks calmly to the camera.", soundscape: "a deep, warm voice in the room" }, {}, "lipSync"))).toEqual([expect.stringMatching(/^A voice described/)]);
+    expect(checkOutput(h, familyById("h3"), { description: "She listens, her lips closed, as the voice-over plays." }, {}, "over")).toEqual([]);
+    // LTX Lip sync's sound is the recording, pinned: no audio sentence asked; a clip it plays over still has one
+    const r = recipe();
+    expect(checkOutput(r, familyById("ltx"), { prompt: "A medium close-up of a man at a café terrace, speaking calmly to the camera." }, {}, "lipSync")).toEqual([]);
+    expect(texts(checkOutput(r, familyById("ltx"), { prompt: "A man walks down a street at dusk." }, {}, "over"))).toEqual([expect.stringMatching(/No audio sentence/)]);
+    expect(texts(checkOutput(r, familyById("ltx25"), { prompt: 'A man at a café terrace says quietly: "What a view."' }, {}, "lipSync"))).toEqual([expect.stringMatching(/^A spoken line/)]);
+    // without a recording nothing of it is said
+    expect(checkOutput(h, familyById("h3"), { description: "The woman (S1) says: <d>[English] Come here.</d>" })).toEqual([]);
+  });
+
   it("a camera phrase carried over from the previous text is pointed out, on prose models only", () => {
     const r = recipe();
     const before = { prompt: "A woman on a terrace, shallow depth of field, golden hour." };

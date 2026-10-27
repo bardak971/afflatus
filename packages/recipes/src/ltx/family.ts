@@ -4,34 +4,77 @@ import { SEEDVR_SLOTS } from "../video/upscale";
 import { RIFE_GET } from "../shared/finish";
 import { LTX23_WRONG, LTX_VERSIONS } from "./versions";
 
+/** The rules every LTX guide shares, word for word (card #129: the recording's guides keep them). */
+const LTX_LITERAL = "reads the prompt literally: what is written happens, in that order.";
+const LTX_FORM = (words: string) => `ONE flowing paragraph in the present tense, chronological, ${words} words, about a sentence per second of clip; no headers, lists or tags.`;
+const LTX_TALKING = "- A talking face needs small motion between phrases (an eyebrow lifts, the eyes move) or it freezes. Camera still or slow while someone speaks.";
+const LTX_TAIL = `- Say the layout outright: left and right, foreground and background, who faces where.
+- Physical cues instead of feelings: "her jaw tightens", not "she is angry".
+- One or two actions per clip; no readable text or logos, no crowds, no many-body physics.
+- A first-frame picture: write only what moves and how the camera moves, never the picture again.
+- A keyframe picture: the clip passes through it at its moment; write the action that leads into it and on from it, in order, never the picture again.
+- The "Negative prompt" part only acts above CFG 1 (the distilled models run at 1): leave it alone unless asked. No weights, no quality words.`;
+const LTX_EXAMPLE = "EXAMPLE, for the form only (its subject, place and words are not to be reused):";
+/** A version's own rules, a line each. */
+const extra = (more: string[]) => more.map((r) => `- ${r}\n`).join("");
+
 /**
  * How LTX reads a prompt, 2.3 and 2.5 alike: the Designer's guide for a version of the model, with any rule that version
  * adds (2.5: several shots in one prompt) before the example.
  */
 export function ltxGuide(name: string, more: string[] = []): string {
-  return `${name} makes the picture AND the sound together, and reads the prompt literally: what is written happens, in that order. ONE flowing paragraph in the present tense, chronological, 60 to 200 words, about a sentence per second of clip; no headers, lists or tags.
+  return `${name} makes the picture AND the sound together, and ${LTX_LITERAL} ${LTX_FORM("60 to 200")}
 RULES
 - Start with the main action, as a cinematographer describing a shot as it plays.
 - In order: shot size, camera move and where it ends; setting, time of day, light; the subject (age, clothing, features); the actions as they happen; the look (palette, film stock, grain); and LAST the audio.
 - The audio sentence is mandatory: "The audio is …" with ambience, effects and any music; "no music" said plainly when wanted. What is not written is not reliably heard.
 - Speech in quotation marks inside the paragraph, with who says it and how ("She says quietly, in English: "What a view.""); the voice described physically (low and resonant, a whisper, an accent). One speaker at a time. The user's words stay as written, never translated.
-- A talking face needs small motion between phrases (an eyebrow lifts, the eyes move) or it freezes. Camera still or slow while someone speaks.
-- Say the layout outright: left and right, foreground and background, who faces where.
-- Physical cues instead of feelings: "her jaw tightens", not "she is angry".
-- One or two actions per clip; no readable text or logos, no crowds, no many-body physics.
-- A first-frame picture: write only what moves and how the camera moves, never the picture again.
-- A keyframe picture: the clip passes through it at its moment; write the action that leads into it and on from it, in order, never the picture again.
-- The "Negative prompt" part only acts above CFG 1 (the distilled models run at 1): leave it alone unless asked. No weights, no quality words.
-${more.map((r) => `- ${r}\n`).join("")}EXAMPLE, for the form only (its subject, place and words are not to be reused):
+${LTX_TALKING}
+${LTX_TAIL}
+${extra(more)}${LTX_EXAMPLE}
 A saxophone player in a wrinkled suit plays a slow melody with his eyes closed, swaying gently, in a dimly lit 1950s New York jazz club. Smoke curls through amber spotlights behind him; a few patrons at small tables to the left cradle drinks in blue shadow. Medium shot from a slightly low angle, the camera pushing in slowly and settling on his face as he opens his eyes mid-phrase. Warm amber light on him, deep blue shadows, a film noir palette with soft grain. The audio is the slow saxophone line over the clink of glasses and low murmured conversation, no other music.`;
 }
 
-/** What the designer wrote, against LTX's guide: one flowing paragraph, an audio sentence, at most 200 words. */
-export const ltxLint: NonNullable<Family["lint"]> = ({ text, main }) => {
+/** Never written under a recording: its words and its voice are the recording's. */
+const LTX_NO_LINE = "- Never write a spoken line, words in quotation marks or what a voice sounds like: the recording is the words and the voice.";
+
+/**
+ * LTX's guides on a clip whose sound is a recording (card #129): Lip sync's, the recording pinned under the clip from the
+ * first step so that the mouth is made to it, and a clip it plays over (card #72), the model's own sound replaced by it in
+ * the take. The family's rules stay; its speech and audio rules give way to the recording. Lip sync is one shot on the
+ * person speaking (the build ends it on that, oneShot), so a version's extra rules (2.5's several shots) are the other's only.
+ */
+export function ltxRecordingGuide(name: string, more: string[] = []): { lipSync: string; over: string } {
+  return {
+    lipSync: `${name} ${LTX_LITERAL} In this clip the sound is a RECORDING, pinned under the clip from the first step so that the picture, the mouth first, is made to it: the recording is what is said and the clip's whole sound, and the text gives the scene and how the person speaks. ${LTX_FORM("40 to 120")}
+RULES
+- Start with the shot: its size, the camera and where it ends; then the setting, time of day, light; the person (age, clothing, features); how they speak as it plays (the tone, the expression, the gestures, where they look); the look (palette, film stock, grain).
+- One continuous shot on the person who speaks, their face in frame for as long as they speak.
+${LTX_NO_LINE} Nor an audio sentence: the recording is the clip's sound. Say how they speak through the face and the body ("she speaks warmly to the camera, smiling between phrases").
+${LTX_TALKING}
+${LTX_TAIL}
+${LTX_EXAMPLE}
+A medium close-up holds still at eye level on a man in his forties with a short grey beard and a dark wool coat, seated at a café terrace table in soft overcast daylight, the street blurred behind him. He looks down at his cup, then lifts his gaze to the camera and speaks calmly, a slight smile, his eyebrows rising between phrases. As he makes his point he opens one hand above the table, then leans back, still speaking, his eyes steady on the lens. Muted blues and warm skin tones, a fine film grain.`,
+    over: `${name} makes the picture AND the sound together, and ${LTX_LITERAL} In this clip a RECORDING plays over the picture unchanged (a song, a voice-over, someone off screen): the take's sound is the recording, the model's own is replaced by it, and the text gives the picture, what is seen and what moves. ${LTX_FORM("60 to 200")}
+RULES
+- Start with the main action, as a cinematographer describing a shot as it plays.
+- In order: shot size, camera move and where it ends; setting, time of day, light; the subject (age, clothing, features); the actions as they happen; the look (palette, film stock, grain); and LAST the audio.
+- The audio sentence is the place's quiet ambience only ("The audio is soft wind and distant gulls, no music."): it keeps the people on screen silent while the model makes the clip.
+- The people on screen are silent under the recording: write them listening, watching, moving or playing, their lips closed ("she listens, her lips closed, swaying gently").
+${LTX_NO_LINE}
+${LTX_TAIL}
+${extra(more)}${LTX_EXAMPLE}
+A young woman in a red scarf walks slowly along a harbour quay at dusk, fishing boats rocking at their moorings to her right. Wide shot, the camera trucking left with her and settling as she stops to watch the water, her lips closed. Warm low sun on the stone, long blue shadows, a soft pastel palette with light grain. The audio is lapping water and a faint breeze, no music.`,
+  };
+}
+
+/** What the designer wrote, against LTX's guide: one flowing paragraph, an audio sentence (not on Lip sync), at most 200 words. */
+export const ltxLint: NonNullable<Family["lint"]> = ({ text, main, recording }) => {
   if (!text?.trim()) return [];
   const out: PromptLine[] = [];
   const n = wordCount(text);
-  if (!/\b(audio|sound|hear|heard|ambien|music|silen)/i.test(text)) out.push({ part: main, text: "No audio sentence: LTX makes the sound too, and what is not written is not reliably heard. End with \"The audio is …\"." });
+  // Lip sync's sound is the recording, pinned: its guide asks for no audio sentence
+  if (recording !== "lipSync" && !/\b(audio|sound|hear|heard|ambien|music|silen)/i.test(text)) out.push({ part: main, text: "No audio sentence: LTX makes the sound too, and what is not written is not reliably heard. End with \"The audio is …\"." });
   if (n > 220) out.push({ part: main, text: `${n} words; the model's guide stops at 200.` });
   if (LIST_LINE.test(text)) out.push({ part: main, text: "A list: LTX wants one flowing paragraph." });
   return out;
@@ -123,6 +166,7 @@ export const ltx = defineFamily({
   line: { own: "LTX 2.3", versions: LTX_VERSIONS },
   wrong: LTX23_WRONG,
   guide: ltxGuide("LTX 2.3"),
+  recordingGuide: ltxRecordingGuide("LTX 2.3"),
   lint: ltxLint,
 });
 

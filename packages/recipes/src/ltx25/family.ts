@@ -1,11 +1,16 @@
 import { defineFamily } from "@afflatus/core";
-import { LTX_SHARED_SLOTS, ltxGuide, ltxLint, MSR_DETECT } from "../ltx/family";
+import { LTX_SHARED_SLOTS, ltxGuide, ltxLint, ltxRecordingGuide, MSR_DETECT } from "../ltx/family";
 import { LTX25_WRONG, LTX_VERSIONS } from "../ltx/versions";
 import { faceRefineSlots } from "../h3/faceSlots";
 
 /** Where Lightricks keeps LTX 2.5's files: a gated repository (the licence accepted on its page, a Hugging Face token in Settings › Models). */
 const HF = "https://huggingface.co/Lightricks/LTX-2.5/resolve/main";
 const GATED = "Lightricks gates the files: accept the licence on huggingface.co/Lightricks/LTX-2.5 and put a Hugging Face token in Settings › Models, then Download works";
+
+/** What 2.5 adds to LTX's rules: several shots in one clip. */
+const LTX25_RULES = [
+  "Several shots (2.5 only): two to four in one clip, each cut named in the prose as it happens (\"Cut to a wide shot of the harbour at dusk.\"), each shot a sentence or two in order; one clip of one shot needs none of this.",
+];
 
 /**
  * LTX 2.5 (Lightricks, 2026-08-11): video with sound as LTX 2.3, on a new latent space and VAE, with a Gemma 4 text
@@ -88,9 +93,8 @@ export const ltx25 = defineFamily({
   loraMatch: ["ltx"],
   line: { own: "LTX 2.5", versions: LTX_VERSIONS },
   wrong: LTX25_WRONG,
-  guide: ltxGuide("LTX 2.5", [
-    "Several shots (2.5 only): two to four in one clip, each cut named in the prose as it happens (\"Cut to a wide shot of the harbour at dusk.\"), each shot a sentence or two in order; one clip of one shot needs none of this.",
-  ]),
+  guide: ltxGuide("LTX 2.5", LTX25_RULES),
+  recordingGuide: ltxRecordingGuide("LTX 2.5", LTX25_RULES),
   lint: ltxLint,
 });
 

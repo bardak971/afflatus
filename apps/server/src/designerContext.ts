@@ -1,4 +1,4 @@
-import { modelOf, secondsOf, type InputSpec, type LoraValue, type Recipe, type ReferenceRole, type ReferenceValue } from "@afflatus/core";
+import { madeAroundRecording, modelOf, plannedSeconds, recordingSpecOf, secondsOf, type InputSpec, type LoraValue, type Recipe, type ReferenceRole, type ReferenceValue } from "@afflatus/core";
 import { compose, emptyLook, type Look } from "./entities";
 import { madeIn } from "./provenance";
 import type { Services } from "./services";
@@ -48,6 +48,11 @@ export interface DesignerContext {
   snippets?: Array<{ name: string; text: string }>;
   /** The model makes the sound too: people can speak in the clip. */
   speaks?: boolean;
+  /**
+   * The clip's sound is a recording (card #129): a form made around it, the mouth following it (Lip sync, `lipSync`), or a
+   * clip it plays over unchanged (card #72). Its words are what is said: the text writes none. `seconds`: its part's length.
+   */
+  recording?: { lipSync: boolean; seconds: number | null };
   /** The model file picked in the form, by name, when the form has a model picker: a guide can speak by lineage. */
   model?: string | null;
   /** Whether the picture is given to the language model with the request. */
@@ -163,10 +168,16 @@ export function designerContext(s: Services) {
     const loras = loraSpec && Array.isArray(values[loraSpec.id]) ? (values[loraSpec.id] as LoraValue[]) : [];
     const trigger = await triggersOf(loras.map((l) => l.file));
     const kit = await kitOf(recipe, values, extra.look);
+    // a form made around a recording is one before the recording is picked; another is under one once a timeline sets it
+    const recordingSpec = recordingSpecOf(specs);
+    const recording = recordingSpec && (madeAroundRecording(specs) || typeof values[recordingSpec.id] === "string")
+      ? { lipSync: madeAroundRecording(specs), seconds: values[recordingSpec.id] ? plannedSeconds(specs, values) : null }
+      : undefined;
     const ticked = extra.look?.snippets?.length ? await s.db.selectFrom("entities").select(["id", "name", "def"]).where("kind", "=", "snippet").where("id", "in", extra.look.snippets).execute() : [];
     return {
       values: text,
-      seconds: secondsOf(specs, values),
+      // under a recording the clip lasts as long as its part, whatever a Duration of its own says
+      seconds: recording?.seconds ?? secondsOf(specs, values),
       // on a timeline the clip before is told by the page; in Studio, a clip that carries on from a video Afflatus made knows that video's text
       previous: extra.previous ?? (await carriedOn(recipe, values)),
       story: extra.story,
@@ -182,6 +193,7 @@ export function designerContext(s: Services) {
       loras: loras.filter((l) => l.weight !== 0).map((l) => ({ name: shortName(l.file), weight: l.weight, trigger: trigger(l.file) })),
       snippets: ticked.map((r) => ({ name: r.name, text: String((JSON.parse(r.def) as { text?: string }).text ?? "") })).filter((x) => x.text.trim()),
       speaks: Boolean(recipe.traits?.sound),
+      recording,
       seesPicture: sees,
       model: modelOf(specs, values),
     };

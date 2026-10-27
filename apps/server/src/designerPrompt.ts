@@ -39,8 +39,11 @@ export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mo
   const boxes = boxesOf(recipe);
   const main = boxes.find((b) => !b.optional) ?? boxes[0];
   const video = recipe.output === "video";
-  // the form's own rules over its family's (a swap's prompt is the Character-Swap LoRA's sentence, not a scene)
-  const guide = recipe.guide ?? family?.guide ?? GENERIC[main?.style === "tags" ? "tags" : "sentences"];
+  // the form's own rules over its family's (a swap's prompt is the Character-Swap LoRA's sentence, not a scene); on a clip
+  // whose sound is a recording, the family's guide for it, Lip sync's or a clip it plays over (card #129), by the
+  // recording being there rather than by the form's id: a Video with audio under a recording is written as one
+  const onRecording = ctx.recording && family?.recordingGuide?.[ctx.recording.lipSync ? "lipSync" : "over"];
+  const guide = recipe.guide ?? onRecording ?? family?.guide ?? GENERIC[main?.style === "tags" ? "tags" : "sentences"];
   const now = boxes.map((b) => `${b.id}: ${ctx.values[b.id]?.trim() || "(empty)"}`).join("\n");
   const parts = boxes.map((b) => `- ${b.id}: "${b.label}"${b.optional ? " (may stay empty)" : ""}, written as ${b.style === "tags" ? "tags" : "sentences"}${b.note ? ` — ${b.note}` : ""}`).join("\n");
   // the LoRAs that will be on it, named as madeFrom names them: a LoRA the source was made with may be on it again
@@ -48,7 +51,12 @@ export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mo
   const where = [
     video && ctx.seconds ? `The clip is ${ctx.seconds} seconds long: it holds about ${Math.max(1, Math.round(ctx.seconds / 3))} main action${ctx.seconds >= 6 ? "s" : ""}. Do not cram a story into it.` : "",
     // how much can be said in it: a figure to fill, not only to stay under (models left to themselves write lines far shorter than fit)
-    video && ctx.seconds && ctx.speaks
+    // a recording is what is said (card #129): its length, in place of the room for lines it would push the designer to fill
+    ctx.recording
+      ? ctx.recording.lipSync
+        ? `THE RECORDING${ctx.recording.seconds ? ` of ${+ctx.recording.seconds.toFixed(1)} seconds` : ""} is what is said: the mouth follows it, and it is the clip's sound. Write no spoken line and no voice: the text gives the scene and how they speak.`
+        : `A RECORDING${ctx.recording.seconds ? ` of ${+ctx.recording.seconds.toFixed(1)} seconds` : ""} plays over this clip and is all that is heard: the people on screen are silent under it. Write no spoken line and no voice: the text gives the picture.`
+      : video && ctx.seconds && ctx.speaks
       ? `SPOKEN LINES: about ${Math.round(ctx.seconds * 2.5)} words fit in this clip in all (speech runs about 2.5 words a second, and people speak while they move: the action does not need silence). A line the user wrote is kept whole when it fits in that. When YOU write what is said, use the room: ${Math.max(3, Math.round(ctx.seconds * 1.7))} to ${Math.round(ctx.seconds * 2.5)} words in all, unless the user asks for less. Do not stop at a few words when the clip has room for a full sentence or two.`
       : "",
     ctx.story && ctx.story.clips.length > 1
@@ -56,8 +64,8 @@ export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mo
           .map((c, i) => `${i + 1}.${i === ctx.story!.index ? " (THIS CLIP)" : ""} ${c.trim().slice(0, 700) || "(nothing written yet)"}`)
           .join("\n")}\nKeep it one story: do not show again what an earlier clip already showed, lead into what the next clip needs, and keep the people, the place, the clothes and the mood the same from clip to clip unless the user says otherwise. You only write clip ${ctx.story.index + 1}.`
       : "",
-    ctx.previous ? `This clip CONTINUES the clip before it (the model is given that clip's last frames): carry the action on from where it ended, nothing resets. Restate how the people look in a short clause, so they stay the same people even if that clip ended on a close-up. What the clip before says, which has ALREADY HAPPENED and is not to be shown or said again:\n${ctx.previous.slice(0, 2500)}\nWrite ONLY what comes after it: the next action, and new words if someone speaks (never the same line a second time). A text that says again what the clip before says is wrong, however it is reworded.` : "",
-    ctx.between ? "This clip is a BRIDGE put between two clips, in place of a stretch that was cut out: it picks up exactly where the clip before stops and must arrive exactly at how the clip after starts. Write only the action of that stretch, as much as fits in the time the clip has: no new scene, no reset, no ending of its own. SPEECH: a line spoken here is finished inside this clip, and it is never the line the clip after says (that line belongs to the clip after: do not start it here). If the clip after opens on speech, this clip ends on a breath, a look or a gesture, not on words." : "",
+    ctx.previous ? `This clip CONTINUES the clip before it (the model is given that clip's last frames): carry the action on from where it ended, nothing resets. Restate how the people look in a short clause, so they stay the same people even if that clip ended on a close-up. What the clip before says, which has ALREADY HAPPENED and is not to be shown or said again:\n${ctx.previous.slice(0, 2500)}\nWrite ONLY what comes after it: the next action${ctx.recording ? "" : ", and new words if someone speaks (never the same line a second time)"}. A text that says again what the clip before says is wrong, however it is reworded.` : "",
+    ctx.between ? `This clip is a BRIDGE put between two clips, in place of a stretch that was cut out: it picks up exactly where the clip before stops and must arrive exactly at how the clip after starts. Write only the action of that stretch, as much as fits in the time the clip has: no new scene, no reset, no ending of its own.${ctx.recording ? "" : " SPEECH: a line spoken here is finished inside this clip, and it is never the line the clip after says (that line belongs to the clip after: do not start it here). If the clip after opens on speech, this clip ends on a breath, a look or a gesture, not on words."}` : "",
     ctx.next ? `The clip AFTER this one is already made (the model is given its first frames, or this clip's last frame is its first): the action has to ARRIVE at how it starts, and none of it is shown here. What the clip after says:\n${ctx.next.slice(0, 2500)}` : "",
     ctx.opensOnPicture && !ctx.previous ? "A picture is the FIRST FRAME: the action starts from exactly what it shows." : "",
     ctx.endsOnPicture ? "A picture is the LAST FRAME: the action has to arrive at it." : "",
@@ -77,7 +85,8 @@ export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mo
     ctx.seesPicture ? "You are shown the picture. Describe what is really in it; do not add a place, props or people it does not show unless the user asks." : "",
     ctx.cast?.length ? `Who is in it. These words are added on their own when it is made, exactly as here: never repeat, reword or contradict them, refer to the people by what they are (the woman, he):\n${ctx.cast.map((c) => `- ${c.name}: ${c.words || "(no words)"}`).join("\n")}` : "",
     ctx.pictures ? pictures(ctx.pictures) : "",
-    ctx.voice ? `The model is given a voice sample${ctx.voice.whose ? ` (${ctx.voice.whose}'s)` : ""}: the person speaks with that voice. Write what is said and how, never what the voice sounds like.` : "",
+    // (under a recording the take's voice is the recording's)
+    ctx.voice && !ctx.recording ? `The model is given a voice sample${ctx.voice.whose ? ` (${ctx.voice.whose}'s)` : ""}: the person speaks with that voice. Write what is said and how, never what the voice sounds like.` : "",
     ctx.mood?.trim() ? `The look and mood of the whole video, which every clip keeps. It is added at the end of the text on its own when it is made: do not write it again or reword it, and write nothing that fights it:\n${ctx.mood.trim()}` : "",
     ctx.style ? `The style ${ctx.style.name} is added at the end of the text on its own when it is made: do not write it again or reword it, and write nothing that fights it:\n${ctx.style.words.slice(0, 600)}` : "",
     ctx.snippets?.length ? `These bits of text are added after the main text on their own when it is made: do not repeat or contradict them.\n${ctx.snippets.map((x) => `- ${x.name}: ${x.text.slice(0, 400)}`).join("\n")}` : "",

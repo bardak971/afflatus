@@ -653,6 +653,30 @@ describe("what the designer is told about writing", () => {
     expect(system()).not.toContain("SPOKEN LINES");
   });
 
+  it("knows a recording is what is said: its length on Lip sync and under a recording, no room for lines, a line written said (card #129)", async () => {
+    const told = async (recipe: string, values: Record<string, unknown>) => String((await post(t.app, "/api/designer/system", { recipe, values })).json().system);
+    const lip = await told("h3.lipsync", { description: "", recording: "a1", recordingStart: 0, recordingSeconds: 5.9 });
+    expect(lip).toContain("THE RECORDING of 5.9 seconds is what is said: the mouth follows it");
+    expect(lip).toContain("In this clip the sound is a RECORDING, laid on it so that the mouth follows its words");
+    expect(lip).not.toContain("SPOKEN LINES");
+    // Lip sync before its recording is picked is still Lip sync
+    expect(await told("h3.lipsync", { description: "" })).toContain("THE RECORDING is what is said");
+    // Video with audio under a recording it plays over: the part's length, not its own Duration
+    const over = await told("h3.video", { description: "", seconds: 8, recording: "a1", recordingStart: 3, recordingSeconds: 6 });
+    expect(over).toContain("A RECORDING of 6 seconds plays over this clip");
+    expect(over).toContain("The clip is 6 seconds long");
+    expect(over).not.toContain("SPOKEN LINES");
+    // not under one, it is the clip it always was
+    const plain = await told("h3.video", { description: "", seconds: 8 });
+    expect(plain).toContain("SPOKEN LINES: about 20 words fit in this clip");
+    expect(plain).not.toContain("RECORDING");
+
+    await useLlm();
+    llm.answers.push("kind: proposal\ndescription: Live-action. A man at a café terrace (S1) says: <d>[English] Hello there.</d>\nnote: done");
+    const reply = (await post(t.app, "/api/designer", { recipe: "h3.lipsync", values: { description: "", recording: "a1", recordingSeconds: 5.9 }, messages: [{ role: "user", content: "a café" }] })).json();
+    expect(reply.checks).toEqual([expect.objectContaining({ part: "description", text: expect.stringMatching(/^A spoken line: the recording is what is said/) })]);
+  });
+
   it("keeps the user's choices in braces, and knows the snippets that are ticked", async () => {
     await useLlm();
     const snippet = (await post(t.app, "/api/entities", { kind: "snippet", name: "Sitting", def: { text: "sitting, crossed legs" } })).json();

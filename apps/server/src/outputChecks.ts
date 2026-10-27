@@ -1,4 +1,4 @@
-import type { Family, PromptLine, Recipe } from "@afflatus/core";
+import { QUOTED_SPEECH, VOICE_DESCRIBED, type Family, type PromptLine, type Recipe } from "@afflatus/core";
 
 /**
  * What the designer wrote, held against the model's own rules, after the fact and without a second call
@@ -15,14 +15,29 @@ export type OutputCheck = PromptLine;
 const CAMERA = /\b(shallow depth of field|bokeh|\d{2,3}\s?mm(?:\s+lens)?|f\/\d(?:\.\d)?|anamorphic|golden hour|rim light(?:ing)?|volumetric light(?:ing)?)\b/gi;
 
 /**
- * The checks for one reply: `changes` is what the designer wrote per part; `before` what the parts held
- * (for a phrase carried over); `family` the recipe's family, whose own rules are its `lint`.
+ * What was written as speech on a clip whose sound is a recording (card #129): a line in H3's <d> tags or in quotes, or a
+ * voice described. The recording is what is said, in its own voice: the model would draw a mouth saying something else.
  */
-export function checkOutput(recipe: Recipe<any>, family: Family | undefined, changes: Record<string, string>, before: Record<string, string> = {}): OutputCheck[] {
+function spokenUnder(changes: Record<string, string>, recording: "lipSync" | "over"): OutputCheck[] {
+  const out: OutputCheck[] = [];
+  const why = recording === "lipSync" ? "the recording is what is said" : "the recording plays over this clip and is all that is heard";
+  for (const [part, text] of Object.entries(changes)) {
+    if (/<d>/i.test(text) || QUOTED_SPEECH.test(text)) out.push({ part, text: `A spoken line: ${why}, so the text says how they speak, never the words.` });
+    else if (VOICE_DESCRIBED.test(text)) out.push({ part, text: `A voice described: ${why}, in its own voice.` });
+  }
+  return out;
+}
+
+/**
+ * The checks for one reply: `changes` is what the designer wrote per part; `before` what the parts held
+ * (for a phrase carried over); `family` the recipe's family, whose own rules are its `lint`; `recording`, the clip's
+ * sound is a recording, made around it or playing over it.
+ */
+export function checkOutput(recipe: Recipe<any>, family: Family | undefined, changes: Record<string, string>, before: Record<string, string> = {}, recording?: "lipSync" | "over"): OutputCheck[] {
   const main = (recipe.inputs as Array<{ id: string; type: string; optional?: boolean; style?: string; label?: string }>).find((i) => i.type === "prompt" && !i.optional);
   const mainId = main?.id ?? "prompt";
   const text = changes[mainId];
-  const own = family?.lint?.({ text, main: mainId, changes }) ?? [];
+  const own = [...(recording ? spokenUnder(changes, recording) : []), ...(family?.lint?.({ text, main: mainId, changes, recording }) ?? [])];
   // the family's lines on the prompt, then a phrase carried over, then its lines on the other parts
   const out: OutputCheck[] = own.filter((c) => c.part === mainId);
   if (text !== undefined && text.trim()) {
