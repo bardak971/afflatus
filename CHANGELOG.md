@@ -29,7 +29,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **Signing a device out of Afflatus also ends the ComfyUI it opened.** A ComfyUI login given by Open ComfyUI used to come from the machine's token alone, so it outlived the device's sign-out, Sign out everywhere and a new password. It now belongs to the sign-in that asked for it, and ends with it; a login Afflatus has not confirmed for 10 minutes (Afflatus stopped) asks again. Needs the node pack 0.42.0 (pod image 0.1.40); with an older pack, renewing the machine's token ends it, as Settings › Access says.
 
 ### Changed
-- **Afflatus's pod image is pod-v0.1.40**: 0.1.39 with node pack 0.42.0 (ComfyUI logins tied to Afflatus's sign-ins, and H3's landing on a latent of another frame size refused).
+- **Afflatus's pod image is pod-v0.1.41**: 0.1.39 with node pack 0.42.1 (ComfyUI logins tied to Afflatus's sign-ins, H3's landing on a latent of another frame size refused, and Face Crop to Frame's cut of a picture with no face found).
 
 ## [0.7.0] - 2026-10-26
 
