@@ -297,10 +297,17 @@ export function AgentsBlock() {
     },
   });
   const ask = (a: Ask) => run.mutate({ ask: a });
-  const list = tokens.data?.tokens ?? [];
+  const all = tokens.data?.tokens ?? [];
+  // revoked tokens fold under one line: next to the live ones they read as tokens still in use (the owner, 2026-10-27)
+  const [showRevoked, setShowRevoked] = useState(false);
+  const revoked = all.filter((t) => t.state === "revoked");
+  const list = showRevoked ? all : all.filter((t) => t.state !== "revoked");
   const make = (e: FormEvent) => {
     e.preventDefault();
-    if (name.trim()) ask({ kind: "make", name: name.trim(), start });
+    // a token made without a name is named after its scopes and the day, so the button is never greyed out
+    // without saying why (the owner did not see it made tokens, 2026-10-27); it can be renamed when opened
+    const said = STARTS.find((s) => s.value === start)?.label ?? start;
+    ask({ kind: "make", name: name.trim() || `${said} · ${new Date().toLocaleDateString(undefined, { day: "numeric", month: "short" })}`, start });
   };
   return (
     <div className="flex flex-col border-t border-line" data-setting="access.mcp">
@@ -326,15 +333,20 @@ export function AgentsBlock() {
         )}
       </div>
       <form onSubmit={make} className="mx-gutter mb-2.5 flex flex-wrap items-center gap-2 rounded-control border border-dashed border-line-strong p-2">
-        <input aria-label="New token's name" placeholder="New token: name it (Claude Desktop, laptop…)" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} className="min-w-[120px] grow bg-transparent px-1 text-body text-ink outline-none placeholder:text-ink-3" />
+        <input aria-label="New token's name" placeholder="New token's name (Claude Desktop, laptop…), optional" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} className="min-w-[120px] grow bg-transparent px-1 text-body text-ink outline-none placeholder:text-ink-3" />
         <Segmented<McpStart> size="sm" label="Its scopes to start with" value={start} options={STARTS} onChange={setStart} />
-        <Button size="sm" tone="primary" type="submit" disabled={!name.trim() || run.isPending}>Make</Button>
+        <Button size="sm" tone="primary" type="submit" disabled={run.isPending}>Create token</Button>
       </form>
       {asking && <PasswordAsk said={asking.said} busy={run.isPending} onConfirm={(password) => run.mutate({ ask: asking.ask, password })} onCancel={() => setAsking(null)} />}
-      {list.length === 0 && !tokens.isLoading && <span className="mx-gutter mb-3.5 text-xs text-ink-3">No token yet: /mcp refuses every client until you make one.</span>}
+      {all.length === revoked.length && !showRevoked && !tokens.isLoading && <span className="mx-gutter mb-3.5 text-xs text-ink-3">No token yet: /mcp refuses every client until you make one.</span>}
       {list.map((t) => (
         <TokenRow key={t.id} t={t} open={opened === t.id} toggle={() => setOpened(opened === t.id ? null : t.id)} fresh={fresh?.id === t.id ? fresh.token : null} busy={run.isPending} ask={ask} />
       ))}
+      {revoked.length > 0 && (
+        <button type="button" onClick={() => setShowRevoked(!showRevoked)} className="mx-gutter mb-2 self-start text-xs text-ink-3 underline decoration-line-strong underline-offset-2 hover:text-ink-2">
+          {showRevoked ? "Hide the revoked tokens" : `${plural(revoked.length, "revoked token")}: show`}
+        </button>
+      )}
       {list.length > 0 && <span className="h-1.5" />}
     </div>
   );

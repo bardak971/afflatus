@@ -41,7 +41,7 @@ describe("Agents (MCP)", () => {
     await screen.findByText(/No token yet/);
     await user.type(screen.getByLabelText("New token's name"), "Cursor");
     await user.click(screen.getByRole("radio", { name: "Look" }));
-    await user.click(screen.getByRole("button", { name: "Make" }));
+    await user.click(screen.getByRole("button", { name: "Create token" }));
     expect(fakeApi.calls("POST", "/mcp/tokens")[0]!.body).toEqual({ name: "Cursor", start: "look" });
     expect(await screen.findByText("afl_mcp_SECRET-shown-once-x9Ld")).toBeTruthy();
     expect(screen.getByText("Shown once:")).toBeTruthy();
@@ -50,6 +50,27 @@ describe("Agents (MCP)", () => {
     // opened at once, on its limits and its (empty) activity
     expect(await screen.findByText("No call yet: kept 30 days.")).toBeTruthy();
     expect((screen.getByLabelText("New token's name") as HTMLInputElement).value).toBe("");
+  });
+
+  it("creates a token with no name typed, named after its scopes and the day: the button is never greyed out", async () => {
+    fakeApi.on("GET /mcp/tokens", { tokens: [] });
+    fakeApi.on("POST /mcp/tokens", ({ body }) => ({ token: "afl_mcp_x", view: token({ name: (body as { name: string }).name }) }));
+    fakeApi.on("GET /mcp/tokens/:id/activity", { lines: [] });
+    const { user } = draw(<AgentsBlock />);
+    await screen.findByText(/No token yet/);
+    const create = screen.getByRole("button", { name: "Create token" });
+    expect(create.hasAttribute("disabled")).toBe(false);
+    await user.click(create);
+    expect((fakeApi.calls("POST", "/mcp/tokens")[0]!.body as { name: string }).name).toMatch(/^Make · /);
+  });
+
+  it("folds revoked tokens under one line, shown on a click", async () => {
+    fakeApi.on("GET /mcp/tokens", { tokens: [token(), token({ id: "c".repeat(32), name: "old pod check", state: "revoked", revokedAt: iso(3_600_000) })] });
+    const { user } = draw(<AgentsBlock />);
+    await screen.findByRole("button", { name: /^Claude Desktop: open/ });
+    expect(screen.queryByRole("button", { name: /^old pod check: open/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "1 revoked token: show" }));
+    expect(screen.getByRole("button", { name: /^old pod check: open/ })).toBeTruthy();
   });
 
   it("draws one line per token: its state, scopes as pills, both meters (a scope off greyed, not hidden), its last use", async () => {
