@@ -7,7 +7,7 @@ import { httpError } from "./errors";
 import { isLinked } from "./linked";
 import { assetView, resetCountdown } from "./media";
 import type { Services } from "./services";
-import { inUse } from "./sweep";
+import { inUse, withUseHeld } from "./sweep";
 
 /**
  * Kept or not, to the bin and back, one item or several. What something still needs (a take on a timeline,
@@ -22,10 +22,11 @@ async function refuseUsed(db: Db, id: string, then: string): Promise<void> {
 }
 
 /**
- * A change to items that must not touch what something uses, made in the same transaction as the check: an item picked
- * into a draft or put on a timeline between the two was unkept or binned all the same.
+ * A change to items that must not touch what something uses, made in the same transaction as the check, with what names
+ * an item held still (withUseHeld): an item picked into a draft or put on a timeline between the two was unkept or binned
+ * all the same.
  */
-const unlessUsed = <T>(s: Services, work: (tx: Db) => Promise<T>) => s.db.transaction().execute(work);
+const unlessUsed = <T>(s: Services, work: (tx: Db) => Promise<T>) => withUseHeld(s.db, work);
 
 export function registerAssetsBin(app: FastifyInstance, s: Services, { asset, fileInLinked }: AssetLookup): void {
   app.post<{ Params: { id: string } }>("/api/assets/:id/keep", async (req) => {
