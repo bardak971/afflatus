@@ -113,7 +113,7 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
     }
     // what it wrote, against the model's rules: said, not changed
     if (reply.kind === "proposal") {
-      const checks = checkOutput(recipe, s.registry.family(recipe.family), reply.changes, ctx.values);
+      const checks = checkOutput(recipe, s.registry.family(recipe.family), reply.changes, ctx.values, ctx.recording && (ctx.recording.lipSync ? "lipSync" : "over"));
       if (checks.length) reply.checks = checks.slice(0, 6);
     }
     return { ...reply, sawPicture: Boolean(picture) };

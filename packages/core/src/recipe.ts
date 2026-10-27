@@ -63,6 +63,12 @@ export interface Family {
   /** How this family's prompts are written, in words for the prompt designer's language model. */
   guide?: string;
   /**
+   * How this family's prompts are written on a clip whose sound is a recording, in place of `guide` (card #129): `lipSync`
+   * for a form made around it (the mouth follows it), `over` for a clip it plays over unchanged (card #72). The recording
+   * is what is said, so the text says the scene and how they speak, never a line or a voice.
+   */
+  recordingGuide?: { lipSync: string; over: string };
+  /**
    * What the designer wrote, held against this family's own rules, after the fact (the server's outputChecks.ts):
    * one plain line per miss, by part. The text is never changed; the user decides.
    */

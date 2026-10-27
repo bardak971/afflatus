@@ -1,4 +1,5 @@
 import { defineRecipe, gridAtOrBefore, type BuildContext, type BuiltGraph, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type Variant } from "@afflatus/core";
+import { H3_MOTION_GUIDE } from "./guide";
 import { H3_FPS, H3_GRID } from "./family";
 import { H3_NO_TAGS, h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video, SHOT_WORDS } from "./video";
@@ -265,6 +266,8 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
   family: "h3",
   version: 1,
   title: "Motion transfer",
+  // its boxes walked in its own guide over H3's shot guide (card #129): the video gives the motion and the camera
+  guide: H3_MOTION_GUIDE,
   summary: "A picture moved like a driving video, H3 held to its pose: the picture's room, light and people kept, the motion the video's. Audio included.",
   output: "video",
   // made from a picture and another video; on a timeline, a window of a long source carrying on from the window before (its
