@@ -4,6 +4,8 @@
  * pauses (ffmpeg's silencedetect), the lines (the file's subtitle track) and the loudness are read by the server.
  */
 
+import { gridAtOrBefore, type FrameGrid } from "./frameGrid";
+
 /** A pause of the recording, in seconds from its start. */
 export interface Pause {
   start: number;
@@ -44,22 +46,40 @@ export interface CutMarks {
 }
 
 /**
+ * Where a clip of the model can end: its frame counts (`grid`, at `fps`) less the frames it shares with the clip before
+ * (`head`: the run-up it carries on from; `firstHead` for the first part, none when it opens on a cut). A clip that carries
+ * on plays from the end of its head to the end of its take, and the next one takes over there, in the kept latent: so a
+ * part can only end that many whole steps after it starts (H3: 17 frames, 0.71 s; a part between two others, a multiple
+ * of it). Cut anywhere else, the take ran on to its next step, the next part started there, and the cuts slid off the
+ * lyric lines further at every clip (+68, +159, +351 ms on three clips of a song, 2026-10-27).
+ */
+export interface ClipGrid {
+  fps: number;
+  grid: FrameGrid;
+  head: number;
+  firstHead: number;
+}
+
+/**
  * The parts `fromS` to `toS` of a recording is cut into, each about `wantS` long and within `leastS` to `mostS`. A part ends
  * within `windowS` of its asked end (CUT_WINDOW by default; 0: every part the length asked, wherever the words are), at the
  * best spot there: the middle of the pause nearest the asked end, else the end of the lyric line nearest it, else the
  * quietest moment of the window (a song's breath between phrases), else the length asked. Only within the window: a pause
  * anywhere within the bounds won before, and the closing pause of a song, 13 s away, made a last part of 14 s. A last part
  * shorter than the least is taken by the part before when one clip holds both, else the two share what is left evenly.
+ * With the model's `clipGrid`, each end but the last is then brought to the nearest moment a clip can end on (onClipGrid).
  */
-export function recordingParts(o: { fromS: number; toS: number; wantS: number; leastS: number; mostS: number; windowS?: number } & CutMarks): RecordingPart[] {
+export function recordingParts(o: { fromS: number; toS: number; wantS: number; leastS: number; mostS: number; windowS?: number; clipGrid?: ClipGrid } & CutMarks): RecordingPart[] {
   const { fromS, toS, leastS, mostS } = o;
   const want = Math.min(Math.max(o.wantS, leastS), mostS);
   const window = Math.max(0, o.windowS ?? CUT_WINDOW);
   const round = (s: number) => Math.round(s * 100) / 100;
   const parts: RecordingPart[] = [];
+  const reach = (at: number, end: number, first: boolean) => (o.clipGrid ? onClipGrid(at, end, o.clipGrid, first ? o.clipGrid.firstHead : o.clipGrid.head, { leastS, mostS, toS }) : end);
   let at = fromS;
   for (let guard = 0; guard < 1000 && toS - at > 0.05; guard++) {
-    const end = endOf(at, toS, want, leastS, mostS, window, o);
+    const cut = endOf(at, toS, want, leastS, mostS, window, o);
+    const end = cut >= toS ? toS : reach(at, cut, parts.length === 0);
     parts.push({ start: at, seconds: end - at });
     if (end >= toS) break;
     at = end;
@@ -71,11 +91,26 @@ export function recordingParts(o: { fromS: number; toS: number; wantS: number; l
     if (before.seconds + last.seconds <= mostS) {
       parts.splice(-2, 2, { start: before.start, seconds: before.seconds + last.seconds });
     } else {
-      const half = (before.seconds + last.seconds) / 2;
-      parts.splice(-2, 2, { start: before.start, seconds: half }, { start: before.start + half, seconds: half });
+      const half = reach(before.start, before.start + (before.seconds + last.seconds) / 2, parts.length === 2) - before.start;
+      parts.splice(-2, 2, { start: before.start, seconds: half }, { start: before.start + half, seconds: before.seconds + last.seconds - half });
     }
   }
-  return parts.map((p) => ({ start: round(p.start), seconds: round(p.seconds) }));
+  // both ends kept to the hundredth, the length between them: rounded on their own, a part ended a hundredth past where the
+  // next one starts (25.54 and 25.53 on a song)
+  return parts.map((p) => ({ start: round(p.start), seconds: round(round(p.start + p.seconds) - round(p.start)) }));
+}
+
+/**
+ * The moment nearest `end` a clip from `at` can end on (ClipGrid), carrying on from `head` frames: a whole count of the
+ * model's frames after it, within what one clip holds and short of the stretch's end (that part would be the last, cut at
+ * `toS`). `end` itself when no count is (a stretch too short for one).
+ */
+export function onClipGrid(at: number, end: number, g: ClipGrid, head: number, bounds: { leastS: number; mostS: number; toS: number }): number {
+  const below = gridAtOrBefore(Math.floor((end - at) * g.fps + head), g.grid);
+  const ends = [below, below + g.grid.step, below - g.grid.step]
+    .map((frames) => at + (frames - head) / g.fps)
+    .filter((e) => e - at >= bounds.leastS - 1e-6 && e - at <= bounds.mostS + 1e-6 && e < bounds.toS - 0.05);
+  return ends.reduce<number | null>((best, e) => (best === null || Math.abs(e - end) < Math.abs(best - end) ? e : best), null) ?? end;
 }
 
 /**
@@ -96,11 +131,13 @@ const ON_MARK = 0.03;
 
 /**
  * What a part's end was cut at, read back from where it lies (the recording's panel counts its clips by it): a pause's
- * middle, a lyric line's end, else the quietest moment when it was cut in a window, else the length asked.
+ * middle, a lyric line's end, else the quietest moment when it was cut in a window, else the length asked. `nearS`: how
+ * far from the mark it may lie, half a step of the model's frames when the cut brought it onto them (onClipGrid).
  */
-export function cutOn(endS: number, marks: CutMarks, windowS: number): CutOn {
-  if (marks.pauses.some((p) => Math.abs((p.start + p.end) / 2 - endS) <= ON_MARK)) return "pause";
-  if (lineEnds(marks.lines).some((m) => Math.abs(m - endS) <= ON_MARK)) return "line";
+export function cutOn(endS: number, marks: CutMarks, windowS: number, nearS = ON_MARK): CutOn {
+  const near = Math.max(ON_MARK, nearS);
+  if (marks.pauses.some((p) => Math.abs((p.start + p.end) / 2 - endS) <= near)) return "pause";
+  if (lineEnds(marks.lines).some((m) => Math.abs(m - endS) <= near)) return "line";
   return windowS > 0 ? "quiet" : "length";
 }
 

@@ -375,9 +375,11 @@ export class TimelinePlan {
   /**
    * A recording that runs on across clips (a song, Lip sync's parts end to end): a clip whose part the next clip's carries on
    * hands over the recording itself after its part (the window's `goesOn`), not its end faded out; and a clip after one made
-   * so starts its part where that clip's sound stops playing, keeping its own end. A clip outlasts its part (the pad and the
+   * so starts its part where that clip's sound stops playing, keeping its own end. A clip outlasted its part (the pad and the
    * frame grid: 0.69 s at 8 s parts); faded, that tail fell silent while its mouth went on, and the next clip sang those
-   * words again (Timeline 24, 2026-10-24). A clip before made without it (before this, or the last of its run) is left as it is.
+   * words again (Timeline 24, 2026-10-24). A clip whose recording goes on now lasts its part, cut on its model's frames (core
+   * onClipGrid), so the next one mostly starts where it was cut; this still catches a part cut before that, or by hand.
+   * A clip before made without it (before this, or the last of its run) is left as it is.
    */
   private async recordingRun(plan: ClipPlan, recipe: Recipe<any>, raw: Record<string, unknown>, all: Placed[], i: number) {
     const spec = recipe.inputs.find((s) => s.type === "audio" && s.window?.goesOn);
@@ -434,8 +436,11 @@ export class TimelinePlan {
     const endMs = Math.min(plan.links.prev?.at ?? plays(prior.active).end, lengthOnGrid(prior.active.asset));
     const reached = Number(was[w.start]) + (endMs - prior.active.take.head_ms) / 1000 - lead;
     const end = own.start + own.seconds;
-    // nothing to skip, or so little left that the clip would be under a second: its part as it was cut
-    if (!Number.isFinite(reached) || reached <= own.start + 0.01 || end - reached < 1) return sungFrom(own.start);
+    // nothing to skip, so little left that the clip would be under a second, or so much that one clip would not hold it: its
+    // part as it was cut. A clip before that stops short of the part (a take sized to its part, core onClipGrid, rounded down
+    // to its model's frames: a part cut before that) is sung on from there too, or the song between was skipped at the join
+    const most = w.fits ? w.fits.frames / w.fits.fps : Infinity;
+    if (!Number.isFinite(reached) || Math.abs(reached - own.start) <= 0.01 || end - reached < 1 || end - reached > most) return sungFrom(own.start);
     // to the microsecond: the clip before ends on its frame grid (124 frames at 24: 5.16667 s), and rounded to the millisecond
     // the song stepped by a third of one where the sound hands over to this clip's head
     plan.input[w.start] = Math.round(reached * 1e6) / 1e6;

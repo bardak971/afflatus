@@ -442,7 +442,7 @@ export const wanVideo = defineRecipe<WanVideo>({
 
     // under a recording it plays over (card #82): the clip lasts as long as its part, at Wan's own 16 a second (another rate
     // would play it off its part), and its files carry the part: Wan makes no sound, so the recording plays on across it
-    const laid = input.recording ? recordingOnClip({ recordingSeconds: input.recordingSeconds ?? 0 }, ctx, 0, WAN_RECORDING) : null;
+    const laid = input.recording ? recordingOnClip({ recordingSeconds: input.recordingSeconds ?? 0, recordingGoesOn: input.recordingGoesOn }, ctx, 0, WAN_RECORDING) : null;
     const fps = laid ? WAN_FPS : input.fps;
     // the frame: a timeline's canvas, else the clip it carries on from, else the picture it opens or ends on, else the shape picked
     const carry = carryOf(input, ctx);

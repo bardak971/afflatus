@@ -94,12 +94,16 @@ export const recordingNodes = (o: { joined: boolean; silent?: boolean }) => ["Lo
  * The recording's part on a clip whose part begins `lead` frames after its head (Lip sync's moment before the words;
  * none on a clip it plays over): how long the clip lasts, the part cut to the clip's frames (Lip sync's guide), and the
  * sound its files carry in place of the decoded one (none from a model that makes no sound: silence before the part).
- * `fit`: the model's frames (H3's by default).
+ * `fit`: the model's frames (H3's by default). A clip whose recording goes on in the next (recordingGoesOn) lasts its part
+ * exactly, with no pad after the words: the next clip sings on from its last frame, and its part was cut to end on a count
+ * of the model's frames (core onClipGrid). With the pad, its take ran on to the next count, the next part started there,
+ * and the cuts slid off the lyric lines further at every clip.
  */
-export function recordingOnClip(input: Pick<Recording, "recordingSeconds">, ctx: BuildContext, lead: number, fit: RecordingFrames = H3_RECORDING) {
+export function recordingOnClip(input: Pick<Recording, "recordingSeconds" | "recordingGoesOn">, ctx: BuildContext, lead: number, fit: RecordingFrames = H3_RECORDING) {
   const fps = fit.fps;
   // the recording's part as it was cut (a sound that ends early gives less than asked), else the length asked for
   const spoken = ctx.media.recording?.seconds ?? input.recordingSeconds;
+  const pad = input.recordingGoesOn ? 0 : (fit.pad ?? RECORDING_PAD);
   // the recording handed over before the part (its lead-in, recordingLeadIn): the part starts this far into the file
   const pre = ctx.media.recording?.before ?? 0;
   let file: Ref | null = null;
@@ -109,7 +113,7 @@ export function recordingOnClip(input: Pick<Recording, "recordingSeconds">, ctx:
   const loaded = (g: GraphBuilder, at: { head: number; frames: number }) =>
     (part ??= g.out("TrimAudioDuration", { audio: whole(g), start_index: pre, duration: (at.frames - at.head - lead) / fps }));
   return {
-    seconds: Math.min(fit.most, Math.max(fit.min, lead / fps + spoken + (fit.pad ?? RECORDING_PAD))),
+    seconds: Math.min(fit.most, Math.max(fit.min, lead / fps + spoken + pad)),
     /** Whether the head and the moment before the words are filed with the recording too (the clip before sang up to the part). */
     sungThrough: (at: { head: number }) => leadInCovers(pre, at.head + lead, fps),
     whole,

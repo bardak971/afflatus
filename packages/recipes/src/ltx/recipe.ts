@@ -1174,7 +1174,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       // under a recording (card #2): the clip lasts as long as its part (Lip sync's moment before the words and the pad after
       // them in it), brought down to the model's 8n + 1 frames with those of the clips it joins: the pad outlasts that step
       const lead = spec.lipSync ? Math.round((input.speechAt ?? 0) * fps) : 0;
-      const laid = input.recording ? recordingOnClip({ recordingSeconds: input.recordingSeconds ?? 0 }, ctx, lead, ltxRecording(fps)) : null;
+      const laid = input.recording ? recordingOnClip({ recordingSeconds: input.recordingSeconds ?? 0, recordingGoesOn: input.recordingGoesOn }, ctx, lead, ltxRecording(fps)) : null;
       const frames = laid
         ? gridAtOrBefore(Math.max(9, head + tail + Math.round(laid.seconds * fps)), { step: 8, offset: 1 })
         : ltxFramesAt(Math.min(input.seconds, LTX_MAX_SECONDS - (head + tail) / fps) + (head + tail) / fps, fps);

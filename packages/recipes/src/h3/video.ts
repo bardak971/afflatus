@@ -87,7 +87,7 @@ export const h3Video = defineRecipe<H3Video & Partial<Recording>>({
   build(input, ctx) {
     if (!input.recording) return buildH3(input, ctx);
     // (its form always has the part's length: the recording's inputs are its own, with their defaults)
-    const laid = recordingOnClip({ recordingSeconds: input.recordingSeconds ?? 0 }, ctx, 0);
+    const laid = recordingOnClip({ recordingSeconds: input.recordingSeconds ?? 0, recordingGoesOn: input.recordingGoesOn }, ctx, 0);
     return buildH3({ ...input, seconds: laid.seconds }, ctx, { sound: laid.sound });
   },
 

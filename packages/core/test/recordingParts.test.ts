@@ -128,6 +128,28 @@ describe("a recording cut within a window", () => {
     expect(recordingParts({ fromS: 0, toS: 20, wantS: 5, ...bounds, pauses: [], levels: levels(20) })[0]!.seconds).toBeCloseTo(5, 1);
   });
 
+  it("ends each part where a clip of the model can, nearest the spot, so that rendered clips meet on the lyric lines", () => {
+    // H3: 17k + 5 frames at 24 a second; the first opens on a cut, the others carry on from 22 frames (steps of 0.71 s)
+    const clipGrid = { fps: 24, grid: { step: 17, offset: 5 }, head: 22, firstHead: 0 };
+    // the owner's song (2026-10-27) from its first sung line: lines end at 15.878, 20.745, 25.532, 30.239, 34.548
+    const lines = [10.851, 12.766, 15.878, 18.032, 20.745, 23.059, 25.532, 27.926, 30.239, 32.633, 34.548, 37.66].map((end, k, all) => ({ start: k ? all[k - 1]! : 2.553, end }));
+    const parts = recordingParts({ fromS: 10.8, toS: 40, wantS: 5, ...bounds, pauses: [], lines, clipGrid });
+    const ends = parts.slice(0, -1).map((p) => p.start + p.seconds);
+    // the first a count of H3's frames, the others whole steps after their run-up
+    expect(Math.round(parts[0]!.seconds * 24 - 5) % 17).toBe(0);
+    for (const p of parts.slice(1, -1)) expect(Math.round(p.seconds * 24) % 17).toBe(0);
+    // each within half a step of a line's end, and the error never carried on: the cuts do not slide off the lines
+    for (const e of ends) expect(Math.min(...[15.878, 20.745, 25.532, 30.239, 34.548, 37.66].map((l) => Math.abs(l - e)))).toBeLessThan(17 / 48);
+    // the panel counts them on the lines within half a step
+    for (const e of ends) expect(cutOn(e, { pauses: [], lines }, 1.5, 17 / 48)).toBe("line");
+    expect(cutOn(ends[0]!, { pauses: [], lines }, 1.5)).toBe("quiet");
+    // the parts meet end to end, to the hundredth
+    for (const [k, p] of parts.slice(1).entries()) expect(p.start).toBeCloseTo(parts[k]!.start + parts[k]!.seconds, 5);
+    // carrying on from a clip before, the first is a whole number of steps too
+    const carried = recordingParts({ fromS: 10.8, toS: 40, wantS: 5, ...bounds, pauses: [], lines, clipGrid: { ...clipGrid, firstHead: 22 } });
+    expect(Math.round(carried[0]!.seconds * 24) % 17).toBe(0);
+  });
+
   it("keeps the window within what one clip takes", () => {
     // 4 s asked ± 1.5: never under the 4 s a clip takes, a dip at 3 s passed by
     const parts = recordingParts({ fromS: 0, toS: 30, wantS: 4, ...bounds, pauses: [{ start: 2.9, end: 3.1 }], levels: levels(30, { 3: -80 }) });

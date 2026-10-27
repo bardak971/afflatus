@@ -74,11 +74,14 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     expect(clips).toHaveLength(3);
     const v = await view(tl.id);
     expect(v.clips.map((c: { recipe: string }) => c.recipe)).toEqual(["h3.lipsync", "h3.lipsync", "h3.lipsync"]);
-    // cut in the middle of each pause (4.7 and 10.2 s), within a tenth
+    // cut at the middle of each pause (4.7 and 10.2 s), brought to the nearest moment a clip can end on: H3's frame counts
+    // (17k + 5 at 24 a second) from the first, 17 frames (0.71 s) at a time after the run-up of the others, within half one
     const parts = v.clips.map((c: { inputs: Record<string, number> }) => [c.inputs.recordingStart, c.inputs.recordingSeconds]);
     expect(parts[0][0]).toBe(0);
-    expect(Math.abs(parts[1][0] - 4.7)).toBeLessThan(0.1);
-    expect(Math.abs(parts[2][0] - 10.2)).toBeLessThan(0.1);
+    expect(Math.abs(parts[1][0] - 4.7)).toBeLessThan(0.36);
+    expect(Math.abs(parts[2][0] - 10.2)).toBeLessThan(0.36);
+    expect(Math.round(parts[0][1] * 24 - 5) % 17).toBe(0);
+    expect(Math.round(parts[1][1] * 24) % 17).toBe(0);
     expect(parts.reduce((s: number, p: number[]) => s + p[1]!, 0)).toBeCloseTo(15, 1);
     for (const c of v.clips) expect(c.inputs.recording).toBe(sound);
     // the first starts on its own (nothing before it), the others carry on
@@ -285,20 +288,22 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     let v = await view(tl.id);
     expect(v.recordings).toEqual([expect.objectContaining({ seconds: 5, window: 1.5 })]);
     await call("PATCH", `/api/clips/${v.clips[0].id}`, { inputs: { ...v.clips[0].inputs, description: "zz-test a woman talks to the camera" } });
-    // about 7 s ± 2.5, in its pauses (4.7 and 10.2): 4.7 is within it, and what is left after it fits one clip
+    // about 7 s ± 2.5, in its pauses (4.7 and 10.2): 4.7 is within it, on H3's nearest frame count (107 frames, 4.46 s), and
+    // what is left after it fits one clip
     await call("POST", `/api/timelines/${tl.id}/recording/cut`, { asset: sound, seconds: 7, window: 2.5 });
     v = await view(tl.id);
-    expect(parts(v).map(([a, b]) => [a, Math.round((a! + b!) * 10) / 10])).toEqual([[0, 4.7], [4.7, 15]]);
+    expect(parts(v).map(([a, b]) => [a, Math.round((a! + b!) * 100) / 100])).toEqual([[0, 4.46], [4.46, 15]]);
     expect(v.clips[0].inputs.description).toBe("zz-test a woman talks to the camera");
     expect(v.recordings[0]).toEqual(expect.objectContaining({ seconds: 7, window: 2.5 }));
     // 6 s ± 0, its pauses passed by
     await call("POST", `/api/timelines/${tl.id}/recording/cut`, { asset: sound, seconds: 6, window: 0 });
     v = await view(tl.id);
-    expect(parts(v)).toEqual([[0, 6], [6, 9]]);
+    // on H3's nearest frame count all the same (141 frames, 5.88 s): the clips meet there once rendered
+    expect(parts(v)).toEqual([[0, 5.88], [5.88, 9.12]]);
     expect(v.recordings[0]).toEqual(expect.objectContaining({ seconds: 6, window: 0 }));
     // its start moved: made anew as it is cut now, not at its pauses
     await call("POST", `/api/timelines/${tl.id}/recording/trim`, { asset: sound, fromMs: 1000, toMs: 15000 });
-    expect(parts(await view(tl.id))).toEqual([[1, 6], [7, 8]]);
+    expect(parts(await view(tl.id))).toEqual([[1, 5.88], [6.88, 8.12]]);
     // each step undone: the cut before comes back with its clips
     await call("POST", `/api/timelines/${tl.id}/undo`);
     await call("POST", `/api/timelines/${tl.id}/undo`);
@@ -311,10 +316,11 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     const tl = await call("POST", "/api/timelines", { name: "zz-test recording window" });
     const sound = await recording();
     await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
-    // 7 s ± 1.5: the pauses (4.7, 10.2) are outside 5.5 to 8.5, and the tone is level there: 7 s, then the rest
+    // 7 s ± 1.5: the pauses (4.7, 10.2) are outside 5.5 to 8.5, and the tone is level there: 7 s, on H3's nearest frame
+    // count (175 frames, 7.29 s), then the rest
     await call("POST", `/api/timelines/${tl.id}/recording/cut`, { asset: sound, seconds: 7, window: 1.5 });
     const v = await view(tl.id);
-    expect(v.clips.map((c: { inputs: Record<string, number> }) => [c.inputs.recordingStart, c.inputs.recordingSeconds])).toEqual([[0, 7], [7, 8]]);
+    expect(v.clips.map((c: { inputs: Record<string, number> }) => [c.inputs.recordingStart, c.inputs.recordingSeconds])).toEqual([[0, 7.29], [7.29, 7.71]]);
     // past the widest window the panel takes: refused
     const wide = await t.app.inject({ method: "POST", url: `/api/timelines/${tl.id}/recording/cut`, payload: { asset: sound, seconds: 7, window: 6 } });
     expect(wide.statusCode).toBe(400);
@@ -341,7 +347,11 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     const tl = await call("POST", "/api/timelines", { name: "zz-test recording lyrics" });
     await call("POST", `/api/timelines/${tl.id}/recording`, { asset: sound });
     const v = await view(tl.id);
-    expect(v.clips.map((c: { inputs: Record<string, number> }) => [c.inputs.recordingStart, Math.round((c.inputs.recordingStart! + c.inputs.recordingSeconds!) * 100) / 100])).toEqual([[0, 4.2], [4.2, 9.6], [9.6, 14.1], [14.1, 20], [20, 25.5], [25.5, 30]]);
+    // each line's end brought to the nearest moment a clip can end on (H3: 17k + 5 frames from the first, then 0.71 s steps),
+    // the drift of one never carried into the next: within half a step of every line
+    const ends = v.clips.map((c: { inputs: Record<string, number> }) => [c.inputs.recordingStart, Math.round((c.inputs.recordingStart! + c.inputs.recordingSeconds!) * 100) / 100]);
+    expect(ends).toEqual([[0, 4.46], [4.46, 9.42], [9.42, 14.38], [14.38, 20.04], [20.04, 25.71], [25.71, 30]]);
+    for (const [k, line] of [4.2, 9.6, 14.1, 20, 25.5].entries()) expect(Math.abs(ends[k]![1]! - line)).toBeLessThan(0.36);
   });
 
   it("gives what its clips share to all of them at once, one step for Undo; never their parts of it", async () => {
@@ -369,7 +379,8 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     await call("POST", `/api/timelines/${tl.id}/recording/cut`, { asset: sound, seconds: 8, window: 1.5 });
     const v = await view(tl.id);
     const clips = v.clips as Array<{ id: string; inputs: Record<string, unknown> }>;
-    expect(clips.map((c) => [c.inputs.recordingStart, c.inputs.recordingSeconds])).toEqual([[0, 8], [8, 8], [16, 8]]);
+    // on H3's frame counts: the first 192 frames (8 s, on the grid as it is), the second 11 steps of 17 after its run-up
+    expect(clips.map((c) => [c.inputs.recordingStart, c.inputs.recordingSeconds])).toEqual([[0, 8], [8, 7.79], [15.79, 8.21]]);
     const recipe = t.services.registry.recipe("h3.lipsync")!;
     const planOf = (k: number) => t.services.timelines.plan(clips[k]!.id, recipe, clips[k]!.inputs, false, null, true);
     // the recording goes on in the next clip for the first two, not for the last
@@ -387,13 +398,13 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     const asset = await t.db.selectFrom("assets").selectAll().where("id", "=", "zz-v1").executeTakeFirstOrThrow();
     await t.services.timelines.takes.add(clips[0]!.id, asset, { headMs: 0, tailMs: 0 }, {});
     let second = await planOf(1);
-    expect([second.input.recordingStart, second.input.recordingSeconds]).toEqual([8, 8]);
+    expect([second.input.recordingStart, second.input.recordingSeconds]).toEqual([8, 7.79]);
     expect(second.input.recordingLeadIn).toBe(false);
-    // made with the recording going on: its tail sang 8 to 8.687, so clip 2 starts there and still ends at 16
+    // made with the recording going on: its tail sang 8 to 8.687, so clip 2 starts there and still ends at 15.79
     await t.db.updateTable("generations").set({ inputs: JSON.stringify({ ...made, recordingGoesOn: true }) }).where("id", "=", "zz-g1").execute();
     second = await planOf(1);
     expect(second.input.recordingStart).toBeCloseTo(8.687, 3);
-    expect(Number(second.input.recordingStart) + Number(second.input.recordingSeconds)).toBeCloseTo(16, 3);
+    expect(Number(second.input.recordingStart) + Number(second.input.recordingSeconds)).toBeCloseTo(15.79, 3);
     // its head (the frames it shares with clip 1) filed with what clip 1 sang there, handed over before its part
     expect(second.input.recordingLeadIn).toBe(true);
     // an H3 render interpolated to 48 a second: 209 model frames (8.708 s on its grid), its file a frame shorter (8.688 s).
@@ -401,8 +412,18 @@ describe.skipIf(!ffmpegThere)("a recording dropped on the track", { timeout: FFM
     await t.db.updateTable("assets").set({ duration_ms: 8688, fps: 48, latent_frames: 209 }).where("id", "=", "zz-v1").execute();
     second = await planOf(1);
     expect(second.input.recordingStart).toBeCloseTo(8.708, 3);
+    // a take that lasts its part (192 frames, rendered with no pad as its recording goes on): clip 2 as it was cut, the
+    // clips meeting at 8 s, where the cut put them
+    await t.db.updateTable("assets").set({ duration_ms: 7979, fps: 48, latent_frames: 192 }).where("id", "=", "zz-v1").execute();
+    second = await planOf(1);
+    expect([second.input.recordingStart, second.input.recordingSeconds]).toEqual([8, 7.79]);
+    // one that stops short of its part (a part cut before the grid, rounded down): clip 2 sings on from there, nothing skipped
+    await t.db.updateTable("assets").set({ duration_ms: 7271, fps: 48, latent_frames: 175 }).where("id", "=", "zz-v1").execute();
+    second = await planOf(1);
+    expect(second.input.recordingStart).toBeCloseTo(7.292, 3);
+    expect(Number(second.input.recordingStart) + Number(second.input.recordingSeconds)).toBeCloseTo(15.79, 3);
     // the clip's own form is left as the cut made it
-    expect((await view(tl.id)).clips[1].inputs).toMatchObject({ recordingStart: 8, recordingSeconds: 8 });
+    expect((await view(tl.id)).clips[1].inputs).toMatchObject({ recordingStart: 8, recordingSeconds: 7.79 });
   });
 
   it("of a song, planned for a finish, a lone clip, the moment before the words: what a clip is told of the run is its own", async () => {
@@ -697,7 +718,8 @@ describe.skipIf(!ffmpegThere)("a clip under a recording, in any H3 form (card #7
     // the recording goes on into the Video with audio clip, and out of it into the third
     expect((await planOf(0)).input.recordingGoesOn).toBe(true);
     const middle = await planOf(1);
-    expect(middle.input).toMatchObject({ recording: sound, recordingStart: 8, recordingSeconds: 8, recordingGoesOn: true, recordingLeadIn: false });
+    // its part 8 s on, 7.79 s long: after its run-up, a whole number of H3's 17-frame steps (11 of them)
+    expect(middle.input).toMatchObject({ recording: sound, recordingStart: 8, recordingSeconds: 7.79, recordingGoesOn: true, recordingLeadIn: false });
     // it is never sent a moment before the words: its form has none
     expect(middle.input).not.toHaveProperty("speechAt");
 
@@ -725,12 +747,12 @@ describe.skipIf(!ffmpegThere)("a clip under a recording, in any H3 form (card #7
     await call("PATCH", `/api/clips/${clips[1]!.id}`, { recipe: "wan.video" });
     clips = (await view(id)).clips as ViewClip[];
     expect(clips.map((c) => c.recipe)).toEqual(["h3.lipsync", "wan.video", "h3.lipsync"]);
-    expect(clips[1]!.inputs).toMatchObject({ recording: sound, recordingStart: 8, recordingSeconds: 8 });
+    expect(clips[1]!.inputs).toMatchObject({ recording: sound, recordingStart: 8, recordingSeconds: 7.79 });
     // the recording goes on into the Wan clip and out of it into the third
     const recipeOf = (k: number) => t.services.registry.recipe(k === 1 ? "wan.video" : "h3.lipsync")!;
     const planOf = (k: number) => t.services.timelines.plan(clips[k]!.id, recipeOf(k), clips[k]!.inputs, false, null, true);
     expect((await planOf(0)).input.recordingGoesOn).toBe(true);
-    expect((await planOf(1)).input).toMatchObject({ recording: sound, recordingStart: 8, recordingSeconds: 8, recordingGoesOn: true });
+    expect((await planOf(1)).input).toMatchObject({ recording: sound, recordingStart: 8, recordingSeconds: 7.79, recordingGoesOn: true });
     // a re-cut keeps it where its part survives
     await call("POST", `/api/timelines/${id}/recording/cut`, { asset: sound, seconds: 8, window: 0 });
     expect(((await view(id)).clips as ViewClip[]).map((c) => c.recipe)).toEqual(["h3.lipsync", "wan.video", "h3.lipsync"]);
