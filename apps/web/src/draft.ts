@@ -4,8 +4,10 @@ import { useLocation } from "wouter";
 import { create } from "zustand";
 import { formsWithout } from "@afflatus/core";
 import { api, failure, lookAdds, raw, type Draft } from "./api";
+import { editCount, laidOver, undone, unsavedFields, useAgentEdits } from "./agentEdits";
 import { KEEPALIVE_MAX, useAutosave } from "./autosave";
 import { useDrafts } from "./data";
+import { plural } from "./format";
 import { useProject, type ProjectChoice } from "./project";
 import { useBanners, useOpenDraft } from "./store";
 import { queryKeys } from "./queryKeys";
@@ -246,6 +248,41 @@ export function useDraft(firstRecipe: string | undefined) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only each change said, not the draft's own edits
   }, [changedElsewhere]);
+
+  // a draft an MCP token changed (a "draft" live event, agentEdits.ts): the open one shows it at once, the fields the user
+  // changed and has not saved yet kept as typed, with a toast whose Undo puts the draft back as before those changes;
+  // another is read again when it is next opened
+  const agentSeq = useAgentEdits((s) => s.seq);
+  useEffect(() => {
+    const e = useAgentEdits.getState().last;
+    if (!agentSeq || !e) return;
+    void client.invalidateQueries({ queryKey: queryKeys.drafts.lists() });
+    const d = shown.current;
+    if (!d || d.id !== e.id) {
+      void client.invalidateQueries({ queryKey: queryKeys.drafts.one(e.id), refetchType: "none" });
+      return;
+    }
+    if (e.made) return;
+    const saved = client.getQueryData<Draft>(queryKeys.drafts.one(e.id));
+    const keep = unsavedFields(unsaved.current, saved);
+    setDraft((x) => (x && x.id === e.id ? laidOver(x, e, keep) : x));
+    if (unsaved.current?.id === e.id) unsaved.current = laidOver(unsaved.current, e, keep);
+    if (saved) client.setQueryData<Draft>(queryKeys.drafts.one(e.id), laidOver(saved, e));
+    const n = editCount(e);
+    if (!n) return;
+    say({
+      id: `agent-edit:${e.id}`, tone: "good", title: `${e.by} changed ${plural(n, "field")}`,
+      action: {
+        label: "Undo", key: "Ctrl+Z", undo: true,
+        run: () => {
+          useAgentEdits.getState().forget(e);
+          if (shown.current?.id === e.id) change((x) => undone(x, e));
+          else void editDraft(e.id, (x) => undone(x, e));
+        },
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- each edit heard once; the draft is read through refs
+  }, [agentSeq]);
 
   /**
    * An edit for one draft by its id, whichever is open when it lands: the open one is changed on screen; another

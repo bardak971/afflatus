@@ -15,8 +15,11 @@ const LOAD_EVERY_MS = 2000;
 const PROGRESS_EVERY_MS = 250;
 /** A beat on every connection, whatever ComfyUI answers: a page that hears nothing for a while knows the stream is dead (a proxy can keep it open after the server went). */
 const PING_EVERY_MS = 10_000;
-/** "notice": what the user is told of (notify.ts), which an open page shows as a browser notification where it is ticked. */
-const RELAYED = ["queue", "library", "models", "timeline", "entities", "downloads", "setup", "updates", "notice"] as const;
+/**
+ * "notice": what the user is told of (notify.ts), which an open page shows as a browser notification where it is ticked.
+ * "draft": a draft an MCP token changed (mcpDrafts.ts DraftEdit), which a page with it open shows at once.
+ */
+const RELAYED = ["queue", "library", "models", "timeline", "entities", "downloads", "setup", "updates", "notice", "draft"] as const;
 /**
  * How much may wait unsent to one page before it is let go: a page that stops reading (a laptop asleep, a stalled proxy)
  * would otherwise have every event kept for it in memory, about 10 MB a day. A page let go reconnects and reads everything again.
@@ -131,7 +134,7 @@ export function registerEvents(app: FastifyInstance, s: Services, version: strin
   // every connection used to add its own listeners: the limit that warns about a leak does not apply to a fan-out
   s.queue.events.setMaxListeners(0);
   // an update's flow goes out as it is (updates.ts emit): the page moves its bar without asking; and a notice, with its words
-  for (const name of RELAYED) s.queue.events.on(name, (said?: unknown) => send(name, name === "library" ? libraryFrame(said) : name === "updates" || name === "notice" ? (said ?? {}) : {}));
+  for (const name of RELAYED) s.queue.events.on(name, (said?: unknown) => send(name, name === "library" ? libraryFrame(said) : name === "updates" || name === "notice" || name === "draft" ? (said ?? {}) : {}));
   let lastProgress = 0;
   let trailing: NodeJS.Timeout | null = null;
   // with the running job's figures (from memory: no query per event): the page changes its queue in place and asks for nothing (live.ts)

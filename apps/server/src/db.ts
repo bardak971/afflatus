@@ -443,7 +443,7 @@ export interface Tables {
     id: string; owner_id: string; hash: string; tail: string; name: string; scopes: string; renders_per_hour: number; spend_cap_cents: number;
     created_at: string; expires_at: string | null; revoked_at: string | null; last_used_at: string | null; last_ip: string | null; last_client: string | null;
   };
-  /** Each MCP call (mcp.ts): its token, its tool, what it touched in plain words, refused (1) or not and why. Kept 30 days. */
+  /** Each MCP call (mcp.ts): its token, its tool, what it touched in plain words, done (0), refused (1) or failed (2, the server's own failure) and why. Kept 30 days. */
   mcp_activity: { id: string; token_id: string; at: string; tool: string; said: string; refused: number; why: string | null };
   /** Named lists of model files (modelSets.ts): presets by reference and files of their own, as JSON in `def`. */
   model_sets: { id: string; owner_id: string; name: string; def: string; created_at: string; updated_at: string };

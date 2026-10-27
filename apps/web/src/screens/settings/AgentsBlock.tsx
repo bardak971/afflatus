@@ -161,9 +161,9 @@ function Activity({ t }: { t: McpToken }) {
           return (
             <li key={l.id} className="grid grid-cols-[46px_minmax(0,1fr)] gap-2.5 px-3.5 py-1 text-xs" data-tip={l.why ?? undefined}>
               <time dateTime={l.at} className="pt-px font-mono text-micro text-ink-3">{new Date(l.at).toDateString() === today ? hourMinute(l.at) : shortDate(l.at)}</time>
-              <span className={cx("min-w-0", l.refused && "text-attention-ink")}>
-                <b className="font-semibold">{l.refused ? "Refused" : first}</b> {l.refused ? l.said : rest.join(" ")}
-                {l.refused && l.why && <span className="text-ink-3">: {l.why}</span>}
+              <span className={cx("min-w-0", (l.refused || l.failed) && "text-attention-ink")}>
+                <b className="font-semibold">{l.refused ? "Refused" : l.failed ? "Failed" : first}</b> {l.refused || l.failed ? l.said : rest.join(" ")}
+                {(l.refused || l.failed) && l.why && <span className="text-ink-3">: {l.why}</span>}
                 <span className="ml-1.5 font-mono text-micro text-ink-3">{l.tool}</span>
               </span>
             </li>

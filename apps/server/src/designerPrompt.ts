@@ -24,6 +24,17 @@ export function guidedFamily(family: Family | undefined, settings: { designerGui
   return own ? { ...family, guide: own } : family;
 }
 
+/**
+ * The guide the designer writes a form's prompt by: the form's own (a swap's), else its family's for a clip whose sound is
+ * a recording (`recording`: Lip sync's, or one it plays over, card #129), else its family's (the user's own from Settings
+ * when `family` went through guidedFamily), else the generic one for its main text's style. MCP's describe_form hands
+ * the same to an agent.
+ */
+export function guideOf(recipe: Recipe<any>, family: Family | undefined, recording?: "lipSync" | "over"): string {
+  const main = boxesOf(recipe).find((b) => !b.optional) ?? boxesOf(recipe)[0];
+  return recipe.guide ?? (recording && family?.recordingGuide?.[recording]) ?? family?.guide ?? GENERIC[main?.style === "tags" ? "tags" : "sentences"];
+}
+
 const ROLE_WORDS: Record<ReferenceRole, string> = { person: "who someone is", place: "the place", clothing: "what is worn", object: "a thing in it", style: "the look" };
 
 /** The reference pictures, said by number: the text points at them, or knows that Afflatus says what each one is. */
@@ -42,8 +53,7 @@ export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mo
   // the form's own rules over its family's (a swap's prompt is the Character-Swap LoRA's sentence, not a scene); on a clip
   // whose sound is a recording, the family's guide for it, Lip sync's or a clip it plays over (card #129), by the
   // recording being there rather than by the form's id: a Video with audio under a recording is written as one
-  const onRecording = ctx.recording && family?.recordingGuide?.[ctx.recording.lipSync ? "lipSync" : "over"];
-  const guide = recipe.guide ?? onRecording ?? family?.guide ?? GENERIC[main?.style === "tags" ? "tags" : "sentences"];
+  const guide = guideOf(recipe, family, ctx.recording ? (ctx.recording.lipSync ? "lipSync" : "over") : undefined);
   const now = boxes.map((b) => `${b.id}: ${ctx.values[b.id]?.trim() || "(empty)"}`).join("\n");
   const parts = boxes.map((b) => `- ${b.id}: "${b.label}"${b.optional ? " (may stay empty)" : ""}, written as ${b.style === "tags" ? "tags" : "sentences"}${b.note ? ` — ${b.note}` : ""}`).join("\n");
   // the LoRAs that will be on it, named as madeFrom names them: a LoRA the source was made with may be on it again

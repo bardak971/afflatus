@@ -74,8 +74,8 @@ export interface McpTokenView extends McpToken {
   working: number;
 }
 
-/** A line of a token's activity. */
-export interface McpActivity { id: string; at: string; tool: string; said: string; refused: boolean; why: string | null }
+/** A line of a token's activity: `refused` by a scope, the never-list, a limit or the app's own checks; `failed` on the server's side. */
+export interface McpActivity { id: string; at: string; tool: string; said: string; refused: boolean; failed: boolean; why: string | null }
 
 /** What the page may change of a token. */
 export interface McpTokenPatch { name?: string; scopes?: Scope[]; rendersPerHour?: number; spendCapCents?: number; endsDays?: Ends }
@@ -207,10 +207,10 @@ export class McpTokens {
   // ---------------------------------------------------------------- the activity
 
   /** A call written to its token's activity; the lines older than 30 days let go now and then, and the revoked tokens with nothing left. */
-  async record(line: { tokenId: string; tool: string; said: string; refused: boolean; why?: string | null }): Promise<void> {
+  async record(line: { tokenId: string; tool: string; said: string; refused: boolean; failed?: boolean; why?: string | null }): Promise<void> {
     await this.db.insertInto("mcp_activity").values({
       // its moment first, then a count of this run's: lines written in the same millisecond keep their order
-      id: `${this.iso()}#${String(this.seq++ % 1e6).padStart(6, "0")}${newId().slice(0, 8)}`, token_id: line.tokenId, at: this.iso(), tool: line.tool, said: line.said.slice(0, 500), refused: line.refused ? 1 : 0, why: line.why?.slice(0, 500) ?? null,
+      id: `${this.iso()}#${String(this.seq++ % 1e6).padStart(6, "0")}${newId().slice(0, 8)}`, token_id: line.tokenId, at: this.iso(), tool: line.tool, said: line.said.slice(0, 500), refused: line.failed ? 2 : line.refused ? 1 : 0, why: line.why?.slice(0, 500) ?? null,
     }).execute();
     if (this.now() - this.prunedAt > HOUR) await this.prune();
   }
@@ -232,13 +232,13 @@ export class McpTokens {
     let q = this.db.selectFrom("mcp_activity").selectAll().where("token_id", "=", id);
     if (o.refusedOnly) q = q.where("refused", "=", 1);
     const rows = await q.orderBy("id", "desc").limit(o.limit ?? 200).execute();
-    return rows.map((r) => ({ id: r.id, at: r.at, tool: r.tool, said: r.said, refused: r.refused === 1, why: r.why }));
+    return rows.map((r) => ({ id: r.id, at: r.at, tool: r.tool, said: r.said, refused: r.refused === 1, failed: r.refused === 2, why: r.why }));
   }
 
   /** A token's activity of the last 30 days as a CSV file (csv.ts). */
   async activityCsv(id: string): Promise<string> {
     const lines = await this.activity(id, { limit: 100_000 });
-    return csvOf(["at_utc", "tool", "said", "refused", "why"], lines.map((l) => [utc(Date.parse(l.at)), l.tool, l.said, l.refused, l.why]));
+    return csvOf(["at_utc", "tool", "said", "refused", "failed", "why"], lines.map((l) => [utc(Date.parse(l.at)), l.tool, l.said, l.refused, l.failed, l.why]));
   }
 
   // ---------------------------------------------------------------- the limits

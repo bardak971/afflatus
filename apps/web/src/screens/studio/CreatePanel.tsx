@@ -6,6 +6,7 @@ import { useEntities, useFamilies, useModelSettings, useRecipes, useSetup } from
 import type { DesignerTurn } from "../../designer/types";
 import { WritingHelp } from "../../WritingHelp";
 import { useDraft } from "../../draft";
+import { fieldKey, ringsOf, useAgentEdits } from "../../agentEdits";
 import { Form, mainTextOf } from "../../RecipeForm";
 import { formDefaults, matchFiles, ownValues } from "../../form";
 import { takePreset } from "../../handoff";
@@ -142,6 +143,12 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
   });
 
   const say = useBanners((b) => b.push);
+  // the fields an MCP token changed, ringed until the user edits them (agentEdits.ts)
+  const draftRings = useAgentEdits((st) => (draft ? st.rings[draft.id] : undefined));
+  const agentRings = useMemo(() => (recipe ? ringsOf(draftRings, recipe.id) : {}), [draftRings, recipe]);
+  const editedHere = (inputs: string[]) => {
+    if (draft && recipe) useAgentEdits.getState().clear(draft.id, inputs.map((i) => fieldKey(recipe.id, i)));
+  };
   const [designing, setDesigning] = useState(false);
   const mainText = recipe ? mainTextOf(recipe) : undefined;
   const titleOf = (x: { id: string; name: string | null; title: string }) =>
@@ -178,8 +185,9 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
             status={status}
             stored={formValues}
             // bound to this draft: a picture still uploading when another draft is opened lands in the one it was put in
-            onChange={(input, value) => void d.editDraft(draft.id, (x) => ({ ...x, forms: { ...x.forms, [recipe.id]: { ...x.forms[recipe.id], [input]: value } } })).catch((err: unknown) => say(failedBanner({ id: "draft:late", once: true, href: "/create", go: "Open the form" }, "A picture could not be put in its draft", err)))}
-            onClear={(inputs) => d.clearValues(recipe.id, inputs)}
+            agentRings={agentRings}
+            onChange={(input, value) => void (editedHere([input]), d.editDraft(draft.id, (x) => ({ ...x, forms: { ...x.forms, [recipe.id]: { ...x.forms[recipe.id], [input]: value } } })).catch((err: unknown) => say(failedBanner({ id: "draft:late", once: true, href: "/create", go: "Open the form" }, "A picture could not be put in its draft", err))))}
+            onClear={(inputs) => (editedHere(inputs), d.clearValues(recipe.id, inputs))}
             made={<ModelPicker pick={pick} recipe={recipe} presets={<PresetMenu presets={presets} current={{ recipe: recipe.id, values: whole }} onApply={applyPreset} onSave={(name) => savePreset.mutate(name)} error={presetError} />} />}
             madeSummary={pick.group ? `${pick.group.name} · ${recipe.title}` : recipe.title}
             look={takesLook ? <LookBar look={draft.look} onChange={d.setLook} recipe={recipe} input={whole} /> : undefined}
@@ -191,7 +199,8 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
                 look={draft.look}
                 onLook={d.setLook}
                 onDesigner={() => setDesigning(true)}
-                head={<PartHead>{mainText?.label ?? "Prompt"}</PartHead>}
+                // the prompt's card is headed apart from its field: an MCP token's name goes after its title, as after a field's
+                head={<PartHead>{mainText?.label ?? "Prompt"}{mainText && agentRings[mainText.id] && <span className="ml-1.5 font-medium normal-case tracking-normal text-picture">· {agentRings[mainText.id]}</span>}</PartHead>}
                 onInsert={(snippet) => {
                   if (mainText?.type === "prompt") d.setValue(recipe.id, mainText.id, appendTo(String(whole[mainText.id] ?? ""), snippet, mainText.style));
                 }}

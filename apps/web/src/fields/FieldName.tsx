@@ -7,7 +7,7 @@ import { cx } from "../ui";
  * setting lives ("· Sampling") or why it is not shown now ("· Hires fix is off"), in grey; in its own section, a small pin
  * when it is pinned. Given by the form around each of its settings; a row drawn outside a model form (a dialog's) has none.
  */
-export const FieldNameNote = createContext<{ from?: string; pinned?: boolean } | null>(null);
+export const FieldNameNote = createContext<{ from?: string; pinned?: boolean; /** The MCP token that changed it, until the user edits it (agentEdits.ts). */ by?: string } | null>(null);
 
 /**
  * The attribute that marks a setting's name, what a right-click on it opens the form's menu from (Pin to the top, Unpin,
@@ -23,6 +23,7 @@ export function FieldNameExtra({ spaced }: { spaced?: boolean }) {
   return (
     <>
       {note.from && <span className={cx("text-xs font-medium whitespace-nowrap text-ink-3", !spaced && "ml-1.5")}>· {note.from}</span>}
+      {note.by && <span className={cx("text-xs font-medium whitespace-nowrap text-picture", !spaced && "ml-1.5")} data-tip={`Changed by ${note.by}: the ring goes once you edit it`}>· {note.by}</span>}
       {note.pinned && <Pin size={11} aria-label="Pinned" role="img" className={cx("inline-block shrink-0 align-middle text-accent", !spaced && "ml-1.5")} />}
     </>
   );

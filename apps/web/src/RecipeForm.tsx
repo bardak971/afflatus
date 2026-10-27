@@ -100,6 +100,8 @@ export function Form(props: {
    * "?" (a Lip sync clip inside a run of its recording: Speech starts at). Never hidden: a row that comes and goes is never learnt.
    */
   off?: Record<string, OffHere>;
+  /** The fields an MCP token changed and the user has not edited since, by input id, with the token's name: ringed, the name after theirs (agentEdits.ts). */
+  agentRings?: Readonly<Record<string, string>>;
 }) {
   const written = useWrittenPrompt(props.recipe, props.stored, props.given);
   const recipe = useMemo(
@@ -129,7 +131,7 @@ export function useWrittenPrompt(recipe: RecipeInfo, stored: Record<string, unkn
   return asked?.into && asked.text ? { into: asked.into, text: asked.text } : null;
 }
 
-function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, chapterExtra, first, keepEmpty, promptInView, machine, noPins, off }: {
+function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, chapterExtra, first, keepEmpty, promptInView, machine, noPins, off, agentRings }: {
   recipe: RecipeInfo;
   status: RecipeStatus | undefined;
   /** What the draft holds for this recipe: only what was touched. */
@@ -173,6 +175,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
    * "?" (a Lip sync clip inside a run of its recording: Speech starts at). Never hidden: a row that comes and goes is never learnt.
    */
   off?: Record<string, OffHere>;
+  agentRings?: Readonly<Record<string, string>>;
 }) {
   const family = useRecipes().data?.families.find((f) => f.id === recipe.family);
   const settings = useModelSettings();
@@ -314,9 +317,13 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
       );
     }
     const pin = pinsOn && pinnable(i);
+    // changed by an MCP token, not edited by the user since: a quiet ring in the theme's blue (the mock's agent colour, apart
+    // from the accent the form's own marks use), and the token's name after the field's
+    const by = agentRings?.[i.id];
+    const note = !pin && !by ? null : { ...(!pin ? {} : copy ? { from: copy.from } : { pinned: pins.has(i.id) }), ...(by ? { by } : {}) };
     return (
-    <div key={i.id} data-input-id={copy ? undefined : i.id} onContextMenu={pin ? menuFor(i) : undefined} className="flex flex-col gap-1 rounded-lg">
-      <FieldNameNote.Provider value={!pin ? null : copy ? { from: copy.from } : { pinned: pins.has(i.id) }}>
+    <div key={i.id} data-input-id={copy ? undefined : i.id} data-agent={by} onContextMenu={pin ? menuFor(i) : undefined} className={by ? "flex flex-col gap-1 rounded-lg ring-1 ring-picture/55 ring-offset-4 ring-offset-panel" : "flex flex-col gap-1 rounded-lg"}>
+      <FieldNameNote.Provider value={note}>
       <Field
         bare={bare}
         standard={defaults[i.id]}

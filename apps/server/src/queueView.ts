@@ -96,6 +96,7 @@ export async function status(
     .limit(20)
     .execute();
   const finishes = await finishesOf(core.db, rows, lanes.flatMap((l) => (l.machine ? [{ id: l.machine.id, pace: paces.get(l.machine.id) ?? 1 }] : [])));
+  const by = await tokensBehind(core.db, rows);
   const renders = await rendersWaiting(core, rows, planned, lanes);
   // a waiting job's forecast on the machine it will probably run on: a render's from that machine's own renders (rendersWaiting),
   // a finish's from that machine's own finishes, else at its pace
@@ -122,6 +123,8 @@ export async function status(
   const plain = (r: JobRow) => ({
     id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, warning: r.warning ?? null, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id, join: joinOf(r),
     kind: kindOf(r),
+    /** The MCP token whose call queued it, by name, and how many renders of that token wait or run now (the status bar's "Claude Desktop rendering 2 takes"); null: the page queued it. */
+    by: r.mcp_token_id ? by.get(r.mcp_token_id) ?? null : null,
     upscaler: upscalerOf(r),
     // what a failed job was asked: a retry can change it (a smaller size after running out of memory)
     input: r.status === "failed" && kindOf(r) !== "export" && kindOf(r) !== "cut" ? inputsOf(r) : null,
@@ -422,6 +425,14 @@ export async function history(core: QueueCore, opts: { status?: "done" | "failed
 function cursorOf(after: string | undefined): { finished: string; created: string; id: string } | null {
   const [finished, created, id] = (after ?? "").split("|");
   return finished && created && id ? { finished, created, id } : null;
+}
+
+/** The MCP tokens behind these jobs: each one's name, and its renders among them (a model load aside). */
+async function tokensBehind(db: QueueCore["db"], rows: readonly JobRow[]): Promise<Map<string, { name: string; jobs: number }>> {
+  const ids = [...new Set(rows.map((r) => r.mcp_token_id).filter((id): id is string => Boolean(id)))];
+  if (!ids.length) return new Map();
+  const tokens = await db.selectFrom("mcp_tokens").select(["id", "name"]).where("id", "in", ids).execute();
+  return new Map(tokens.map((tk) => [tk.id, { name: tk.name, jobs: rows.filter((r) => r.mcp_token_id === tk.id && !r.warm).length }]));
 }
 
 /** How many waiting jobs the queue's answer carries whole: the rest go as a few figures each (paged). */

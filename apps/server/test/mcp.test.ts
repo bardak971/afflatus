@@ -238,7 +238,7 @@ describe("the framework", () => {
     expect(refused.lines).toHaveLength(2);
     const csv = await t.app.inject({ method: "GET", url: `/api/mcp/tokens/${view.id}/activity.csv` });
     expect(csv.headers["content-disposition"]).toBe('attachment; filename="afflatus-mcp-x-activity.csv"');
-    expect(csv.body).toContain("at_utc,tool,said,refused,why");
+    expect(csv.body).toContain("at_utc,tool,said,refused,failed,why");
     expect(csv.body).toContain("Peeked at the queue");
   });
 
@@ -307,7 +307,10 @@ describe("the tools, through the SDK's client over HTTP", () => {
     const { token, id } = await made("make", "Claude Code");
     const client = await connect(token);
     expect(client.getServerVersion()?.name).toBe("afflatus");
-    expect((await client.listTools()).tools.map((x) => x.name)).toEqual(["whats_open", "overview"]);
+    expect((await client.listTools()).tools.map((x) => x.name)).toEqual([
+      "whats_open", "overview", "list_forms", "describe_form", "estimate", "list_drafts", "read_draft", "new_draft", "edit_draft", "apply_preset",
+      "render", "queue_status", "job", "cancel", "retry", "pause_machine", "resume_machine", "load_model", "view_item", "compare",
+    ]);
     const r = await client.callTool({ name: "overview" });
     expect(r.isError).toBeFalsy();
     const o = JSON.parse(text(r)) as Record<string, any>;
