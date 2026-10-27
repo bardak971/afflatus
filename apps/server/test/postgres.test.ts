@@ -17,7 +17,8 @@ import { clear, fold } from "../src/renders";
 import { summary } from "../src/rendersRead";
 import { createServices } from "../src/services";
 import { readSettings, writeSettings } from "../src/settings";
-import { LocalStorage } from "../src/storage";
+import { LocalStorage, type Storage } from "../src/storage";
+import { ERASED, eraseUnused, withUseHeld } from "../src/sweep";
 import { pruneJobs } from "../src/tidy";
 import { FAST, NOWHERE } from "./helpers";
 
@@ -213,6 +214,72 @@ describe.skipIf(!url)("on Postgres", () => {
         expect(await migrate(db)).toContain("0093_wan_hybrid_saved");
         const saved = (await db.selectFrom("model_settings").select(["family", "file", "values"]).orderBy("file").execute()).map((r) => [r.family, r.file, JSON.parse(r.values)]);
         expect(saved).toEqual([["wan", "a.safetensors", { turboSteps: 6 }], ["h3", "c.safetensors", { turboHybrid: true }]]);
+      } finally {
+        await db.destroy().catch(() => {});
+      }
+    });
+  });
+
+  // D6: on READ COMMITTED, a draft saved while the sweep read what names an item was not seen, and the item erased all the same
+  it("a draft saved while an item is erased is waited for and seen: the item stays; a save holding the item's row goes first", async () => {
+    await inSchema(async (db) => {
+      try {
+        await migrate(db);
+        const at = new Date().toISOString();
+        const asset = (id: string) => ({
+          id, owner_id: OWNER, kind: "image", origin: "generated", name: "zz-test", file_key: `k-${id}`, thumb_key: null, mime: "image/png", bytes: 1, width: null, height: null,
+          duration_ms: null, fps: null, has_sound: 0, folder_id: null, generation_id: null, kept_at: null, deleted_at: at, created_at: at,
+        });
+        const draft = (id: string, names: string) => ({ id, owner_id: OWNER, project_id: null, target: "new", recipe_id: "sdxl.text-to-picture", title: "", name: null, forms: JSON.stringify({ r: { image: names } }), count: 1, chat: null, look: null, created_at: at, updated_at: at });
+        const [a, b] = [newId(), newId()];
+        await db.insertInto("assets").values([asset(a), asset(b)] as never).execute();
+        const storage = { delete: async () => {} } as unknown as Storage;
+        const gate = () => {
+          let open!: () => void;
+          return { at: new Promise<void>((r) => (open = r)), open: () => open() };
+        };
+
+        // a save under way when the erase starts: the erase waits for it, and sees what it names
+        const saving = gate();
+        const saved = gate();
+        const save = db.transaction().execute(async (tx) => {
+          await tx.insertInto("drafts").values(draft("d1", a) as never).execute();
+          saving.open();
+          await saved.at;
+        });
+        await saving.at;
+        const erase = eraseUnused(db, storage, (tx) => tx.selectFrom("assets").select(ERASED).where("id", "=", a).execute());
+        await new Promise((r) => setTimeout(r, 200));
+        saved.open();
+        await save;
+        expect((await erase).erased).toEqual([]);
+        expect(await db.selectFrom("assets").select("id").where("id", "=", a).executeTakeFirst()).toBeTruthy();
+
+        // a save that changed the item's row first and then writes a draft: the erase gives way, the save goes through,
+        // and the erase, started again, sees the draft
+        const changed = gate();
+        const go = gate();
+        const second = db.transaction().execute(async (tx) => {
+          await tx.updateTable("assets").set({ name: "zz-test named" }).where("id", "=", b).execute();
+          changed.open();
+          await go.at;
+          await tx.insertInto("drafts").values(draft("d2", b) as never).execute();
+        });
+        await changed.at;
+        let tries = 0;
+        const held = withUseHeld(db, async (tx) => {
+          tries++;
+          go.open();
+          // the save now waits on the lock this side holds, and this side on its row
+          await new Promise((r) => setTimeout(r, 100));
+          const named = (await tx.selectFrom("drafts").select("forms").execute()).some((d) => d.forms.includes(b));
+          if (!named) await tx.deleteFrom("assets").where("id", "=", b).execute();
+          return named;
+        });
+        await second;
+        expect(await held).toBe(true);
+        expect(tries).toBeGreaterThan(1);
+        expect(await db.selectFrom("assets").select("name").where("id", "=", b).executeTakeFirst()).toEqual({ name: "zz-test named" });
       } finally {
         await db.destroy().catch(() => {});
       }

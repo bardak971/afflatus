@@ -31,6 +31,7 @@ a1111_diffusion_models:
 other:
      base_path: ./shared
      unet: big-models
+     clip: encoders
 `;
 
 describe("ComfyUI's model folders on this computer", () => {
@@ -45,6 +46,7 @@ describe("ComfyUI's model folders on this computer", () => {
     // the folder's older name counts, and a relative base path sits under ComfyUI's folder
     expect(extraDirs(yaml, comfy, "diffusion_models").map(norm)).toEqual([abs("/tools/webui/models/Stable-diffusion/Krea2"), abs("/comfy/shared/big-models")]);
     expect(extraDirs(yaml, comfy, "vae").map(norm)).toEqual([abs("/tools/webui/models/VAE")]);
+    expect(extraDirs(yaml, comfy, "text_encoders").map(norm)).toEqual([abs("/comfy/shared/encoders")]);
     expect(extraDirs(yaml, comfy, "embeddings")).toEqual([]);
   });
 

@@ -9,10 +9,8 @@ import { isNetworkPath } from "./linked";
  * past the header is read: a few hundred kilobytes of a file of many gigabytes.
  */
 
-/** ComfyUI's older names for some folders, still read beside the new ones. */
+/** ComfyUI's older names for some folders, still read beside the new ones, and named in extra_model_paths.yaml (A1111's layout among them). */
 const LEGACY: Record<string, string[]> = { diffusion_models: ["unet"], text_encoders: ["clip"] };
-/** The names extra_model_paths.yaml may use for a folder (A1111's layout among them). */
-const ALIASES: Record<string, string[]> = { diffusion_models: ["diffusion_models", "unet"], text_encoders: ["text_encoders", "clip"] };
 
 /** The biggest header read: a safetensors header is small, and a file that claims more is not one. */
 const HEADER_MOST = 64 * 1024 * 1024;
@@ -57,7 +55,7 @@ export async function modelDirsSaid(comfyDir: string, folder: string): Promise<{
  * small reader of its own: the file is simple and a YAML library is not worth carrying for it.
  */
 export function extraDirs(yaml: string, comfyDir: string, folder: string): string[] {
-  const names = ALIASES[folder] ?? [folder];
+  const names = [folder, ...(LEGACY[folder] ?? [])];
   const out: string[] = [];
   let basePath = "";
   let block: boolean = false;

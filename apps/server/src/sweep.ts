@@ -1,9 +1,10 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Kysely } from "kysely";
+import { sql, type Kysely } from "kysely";
 import { UNKEPT_MS } from "@afflatus/core";
 import { now, toRun, type Db, type Tables } from "./db";
+import { onPostgres } from "./migrations/dialect";
 import type { Storage } from "./storage";
 import { SCRATCH_MS } from "./library";
 import { smallThumbKey } from "./thumbs";
@@ -114,6 +115,43 @@ export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean; jobs?: 
 
 const UNDO_TABLES = ["timeline_history", "timeline_future"] as const;
 
+/** The tables inUse reads: what names an item. */
+const NAMING_TABLES = ["clips", "takes", "timelines", "entities", "drafts", "jobs", ...UNDO_TABLES] as const;
+/**
+ * How long a change made with withUseHeld waits for a lock on Postgres before it gives up and starts again: under
+ * Postgres's deadlock_timeout (a second unless set otherwise), so that in a deadlock with a save it is this side that
+ * gives way, and the save that goes through.
+ */
+const HELD_LOCK_WAIT = "500ms";
+/** How many times it starts again before the error is the caller's. */
+const HELD_TRIES = 5;
+
+/**
+ * `work` in a transaction where what names an item (inUse) holds still between the read and the change made from it: a
+ * bin, an unkeep, an erase. On SQLite, the one connection does that already: the transaction has it to itself. On Postgres
+ * (a pool, READ COMMITTED), a draft saved or a clip placed between the read and the change was not seen, and the item went
+ * all the same: the tables inUse reads are locked first in SHARE mode, which waits for a save under way and holds the next
+ * until the commit (the library's own changes, to the assets, go on). A save that took the item's row first and then waits
+ * here would deadlock with the change: this side gives up first (HELD_LOCK_WAIT) and starts again, `work` and all.
+ */
+export async function withUseHeld<T>(db: Db, work: (tx: Db) => Promise<T>): Promise<T> {
+  if (!onPostgres(db)) return db.transaction().execute(work);
+  for (let tries = 1; ; tries++) {
+    try {
+      return await db.transaction().execute(async (tx) => {
+        await sql`set local lock_timeout = ${sql.lit(HELD_LOCK_WAIT)}`.execute(tx);
+        await sql`lock table ${sql.join(NAMING_TABLES.map((t) => sql.table(t)))} in share mode`.execute(tx);
+        return work(tx);
+      });
+    } catch (err) {
+      // 55P03: a lock not had in time; 40P01: a deadlock Postgres broke on this side
+      const code = (err as { code?: string }).code;
+      if (tries >= HELD_TRIES || (code !== "55P03" && code !== "40P01")) throw err;
+      await new Promise((r) => setTimeout(r, 50 * tries));
+    }
+  }
+}
+
 /** What every timeline's Undo and Redo would put back (undoNamed): the ids, and the steps they were read from. */
 export interface UndoNamed {
   ids: Set<string>;
@@ -170,7 +208,7 @@ export const ERASED = ["id", "file_key", "thumb_key", "raw_key", "latent_key", "
  * is). Returns how many `due` picked and the rows erased. `undo`: what the Undo steps name, when read ahead (undoNamed).
  */
 export async function eraseUnused(db: Db, storage: Storage, due: (tx: Db) => Promise<Erased[]>, undo: true | UndoNamed = true): Promise<{ picked: number; erased: Erased[] }> {
-  const { picked, erased } = await db.transaction().execute(async (tx) => {
+  const { picked, erased } = await withUseHeld(db, async (tx) => {
     const used = await inUse(tx, { undo });
     const all = await due(tx);
     const ids = all.filter((a) => !used.has(a.id)).map((a) => a.id);
@@ -201,7 +239,7 @@ export async function sweep(db: Db, storage: Storage, at = Date.now(), keep: Kee
   // what the Undo steps name, read once for both transactions below and outside them
   const undo = await undoNamed(db);
   // what is in use read in the same transaction as the binning: an item picked into a draft or kept in between stays out
-  const binned = keep.unkeptMs === null ? 0 : await db.transaction().execute(async (tx) => {
+  const binned = keep.unkeptMs === null ? 0 : await withUseHeld(db, async (tx) => {
     const unkeptBefore = new Date(at - keep.unkeptMs!).toISOString();
     const used = await inUse(tx, { undo });
     const due = await tx

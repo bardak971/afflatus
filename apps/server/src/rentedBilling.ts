@@ -87,6 +87,15 @@ export function runwayNeed(o: { renderMs: number | null; fetchMs: number; sure: 
   return (Number.isFinite(o.fetchMs) ? Math.max(0, o.fetchMs) : 0) + render;
 }
 /**
+ * What a run (its start and end, ms, at `rate` an hour) cost over its part from `from` to `to` (ms), as Afflatus counts it:
+ * 0 when they do not overlap or a time could not be read. The batch notice, the 7-day pace and the caps all count by it.
+ */
+function runCost(start: number, end: number, rate: number, from: number, to = Infinity): number {
+  const a = Math.max(from, start);
+  const b = Math.min(to, end);
+  return Number.isFinite(a) && Number.isFinite(b) && b > a ? ((b - a) / HOUR) * rate : 0;
+}
+/**
  * The share of a record of RunPod's bill (an hour of a pod) that falls between two moments (ms), by its time: a record
  * across midnight or the 1st (an hour of the bill is UTC's, a day here is the user's) is cut there, not given whole to the
  * day or the month it starts in. A record of no length counts whole where it starts.
@@ -232,13 +241,8 @@ export class RentedBilling extends RentedCore {
   }
 
   /** What the rented GPUs cost between two moments (ms), as Afflatus counts it (rent_sessions): a batch of renders' notice says it. */
-  async costBetween(from: number, to: number): Promise<number> {
-    const rows = await this.db.selectFrom("rent_sessions").select(["started_at", "ended_at", "rate"]).where((eb) => eb.or([eb("ended_at", "is", null), eb("ended_at", ">", new Date(from).toISOString())])).where("started_at", "<", new Date(to).toISOString()).execute();
-    return rows.reduce((sum, r) => {
-      const start = Math.max(from, Date.parse(r.started_at));
-      const end = Math.min(to, r.ended_at ? Date.parse(r.ended_at) : to);
-      return Number.isFinite(start) && Number.isFinite(end) && end > start ? sum + ((end - start) / HOUR) * r.rate : sum;
-    }, 0);
+  costBetween(from: number, to: number): Promise<number> {
+    return this.sessionsCost(from, to, from);
   }
 
   /**
@@ -246,13 +250,14 @@ export class RentedBilling extends RentedCore {
    * overlaps it, from its own start (its boot and its files, which the batch's first render on it waited for, are the
    * batch's) but never from before `notBefore` (the end of the batch before, which counted that), to `to`.
    */
-  async batchCost(from: number, to: number, notBefore: number): Promise<number> {
+  batchCost(from: number, to: number, notBefore: number): Promise<number> {
+    return this.sessionsCost(from, to, notBefore);
+  }
+
+  /** The runs that overlap `from` to `to` (ms), each counted from `startFloor` (or its own start, if later) to `to`, an open one to `to`. */
+  private async sessionsCost(from: number, to: number, startFloor: number): Promise<number> {
     const rows = await this.db.selectFrom("rent_sessions").select(["started_at", "ended_at", "rate"]).where((eb) => eb.or([eb("ended_at", "is", null), eb("ended_at", ">", new Date(from).toISOString())])).where("started_at", "<", new Date(to).toISOString()).execute();
-    return rows.reduce((sum, r) => {
-      const start = Math.max(notBefore, Date.parse(r.started_at));
-      const end = Math.min(to, r.ended_at ? Date.parse(r.ended_at) : to);
-      return Number.isFinite(start) && Number.isFinite(end) && end > start ? sum + ((end - start) / HOUR) * r.rate : sum;
-    }, 0);
+    return rows.reduce((sum, r) => sum + runCost(Date.parse(r.started_at), r.ended_at ? Date.parse(r.ended_at) : to, r.rate, startFloor, to), 0);
   }
 
   /**
@@ -331,11 +336,10 @@ export class RentedBilling extends RentedCore {
       const start = Date.parse(r.started_at);
       const end = r.ended_at ? Date.parse(r.ended_at) : now;
       if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
-      const part = (from: number) => (end > Math.max(from, start) ? ((end - Math.max(from, start)) / HOUR) * r.rate : 0);
       const c = out.get(r.pod) ?? { today: 0, month: 0, open: false, lastEnd: 0, runs: [] };
       c.runs.push({ start, end });
-      c.month += part(month);
-      c.today += part(today);
+      c.month += runCost(start, end, r.rate, month);
+      c.today += runCost(start, end, r.rate, today);
       c.open ||= !r.ended_at;
       c.lastEnd = Math.max(c.lastEnd, end);
       out.set(r.pod, c);
