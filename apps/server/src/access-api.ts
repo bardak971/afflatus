@@ -138,6 +138,12 @@ export function registerAccessHook(app: FastifyInstance, access: Access): void {
     // the path as asked and the route it found are both looked at: a path the router decodes ("/%61pi/…") is still the API
     const api = path === "/api" || path.startsWith("/api/") || Boolean(route?.startsWith("/api/"));
     const metrics = path === "/metrics" || route === "/metrics";
+    // /mcp takes its own token and nothing else (mcp.ts): neither a session nor the lock's 401 applies there, and the token
+    // is never taken anywhere else (this hook reads cookies only)
+    if (path === "/mcp" || route === "/mcp") {
+      req.access = { locked: false, local: false, open: false, session: null };
+      return;
+    }
     const local = fromThisComputer(req);
     const a = await access.settings();
     const locked = a.password !== null;

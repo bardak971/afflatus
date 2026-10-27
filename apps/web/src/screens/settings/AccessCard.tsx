@@ -9,6 +9,7 @@ import { useSayFailed } from "../../sayFailed";
 import { Select } from "../../Select";
 import { useCopied } from "../../hooks";
 import { Button, Checkbox, Chip, cx, ErrorNote, fieldClass, Toggle, TwoStep } from "../../ui";
+import { AgentsBlock } from "./AgentsBlock";
 import { PasswordAsk } from "./PasswordAsk";
 import { Block, Card, Row } from "./Rows";
 
@@ -251,6 +252,7 @@ export function AccessCard() {
           )}
         </div>
       )}
+      <AgentsBlock />
       <Block>
         <span className="text-xs leading-normal text-ink-3">
           Locks Afflatus for anyone who reaches it over the network: the library, renders, the GPUs and pods, the keys it holds. Not the files on this computer: those are your account's and your disk's to protect.

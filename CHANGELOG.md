@@ -4,6 +4,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+- **Afflatus from outside, phase 1: /mcp and personal tokens** (card #23). An MCP client (Claude Code, Claude Desktop, Cursor…) reaches Afflatus at `/mcp` on the same port (Streamable HTTP, stateless) with a token made in Settings › Interface › Access › Agents (MCP): shown once, kept as its SHA-256, with its scopes (Look always; Make, Spend, Manage ticked per token), its renders an hour and a spend cap a month on top of the app's caps, an end (never, 30 or 90 days), its last use (when, from where, the client's name) and the activity of each call in plain words, refused or not and why (kept 30 days, as CSV too). A token works on `/mcp` only, never on the API nor as a sign-in; making one, changing its scopes, limits or end and revoking it ask for the password past a sign-in of 10 minutes. Never through MCP, whatever the scopes: the password, tokens, Lock, sign-outs, where codes go, Show in folder, Get ffmpeg, updates. Two tools so far: `overview` (machines, queue, model loaded, caps and spend, version) and `whats_open` (the page, draft, timeline or clip open on the device used last, which the page now says as it moves). New dependency: `@modelcontextprotocol/sdk` 1.32.2.
+
 ## [0.7.1] - 2026-10-27
 
 The deep review after 0.7.0, fixed whole: Go back keeping what was made since the update, every money path of rented GPUs (the month cap, a stuck render, a healthy pod terminated, the caps in the web), ComfyUI's access ended with a sign-out, linked folders, and the timeline, queue, H3 and LTX fixes. A recording cut into clips on its lyric lines, the song under Lip sync clips as one track, the prompt designer's own guides for Lip sync and Motion transfer, and FLUX.2 Klein 9B.

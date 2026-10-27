@@ -42,6 +42,7 @@ import { queryKeys } from "./queryKeys";
 import { useSettings } from "./data";
 import { failedBanner } from "./sayFailed";
 import { ELSEWHERE, useFollowFfmpegGet } from "./GetFfmpeg";
+import { useWhereReport } from "./whereReport";
 
 /** Where the banners of the start-up checks lead. */
 const ABOUT = { id: "ffmpeg-get", href: "/settings/about", go: "Open About in Settings" };
@@ -140,6 +141,8 @@ export function Screens({ path, firstLaunch }: { path: string; firstLaunch: bool
 
 export function App() {
   useLiveEvents();
+  // where this page is, for an agent's whats_open (whereReport.ts)
+  useWhereReport();
   useSearchKey();
   useTheme();
   useKeepForSync();

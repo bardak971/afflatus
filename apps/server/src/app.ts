@@ -27,6 +27,8 @@ import { registerHunt } from "./hunt";
 import { registerJobs } from "./jobs-api";
 import { registerLookup } from "./lookup-api";
 import { registerMeasures } from "./measures-api";
+import { registerMcp } from "./mcp";
+import { registerMcpTokens } from "./mcp-api";
 import { registerMetrics } from "./metrics";
 import { registerModelInfo } from "./modelInfo";
 import { registerModelPages } from "./modelPages";
@@ -128,7 +130,8 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
       // a file that is not there (a bundle from before a rebuild, still named by an open tab) is a 404, never the page:
       // a browser given a page where it asked for a script refuses it, and the error it shows says nothing about why
       const file = /\.[a-z0-9]{2,8}$/i.test(path);
-      if (req.method === "GET" && !path.startsWith("/api/") && !file) return reply.header("Cache-Control", "no-cache").sendFile("index.html");
+      // an MCP client's look for OAuth (/.well-known/…) is told there is none, not given the page: /mcp takes a token of its own
+      if (req.method === "GET" && !path.startsWith("/api/") && !path.startsWith("/.well-known/") && !file) return reply.header("Cache-Control", "no-cache").sendFile("index.html");
       return reply.status(404).send({ error: file ? "there is no such file: if the page just loaded, reload it, it may name a bundle from before a rebuild" : "there is nothing at this address" });
     });
   }
@@ -153,6 +156,8 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
   });
 
   registerAccess(app, s);
+  registerMcp(app, s);
+  registerMcpTokens(app, s);
   registerSetup(app, s, VERSION);
   registerLock(app, s);
   registerRented(app, s);

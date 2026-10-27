@@ -92,6 +92,7 @@ import m0090 from "./0090-asset-digest";
 import m0091 from "./0091-civitai-base";
 import m0092 from "./0092-latent-clock";
 import m0093 from "./0093-wan-hybrid-saved";
+import m0094 from "./0094-mcp-tokens";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -192,4 +193,5 @@ export const migrations: Record<string, Migration> = {
   "0091_civitai_base": m0091,
   "0092_latent_clock": m0092,
   "0093_wan_hybrid_saved": m0093,
+  "0094_mcp_tokens": m0094,
 };
