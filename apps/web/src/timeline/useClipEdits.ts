@@ -67,7 +67,7 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
     goesWhole: (_, inputs) => JSON.stringify({ inputs }).length <= KEEPALIVE_MAX,
     gone: clipGone,
   });
-  const { pending: unsaved, flush, queue, turn } = autosave;
+  const { pending: unsaved, flush, queue, turn, schedule } = autosave;
   const saveFailed = autosave.state === "failed" ? autosave.failure : null;
   /** What was typed over one clip (over all of them when left out) is saved now, after any save already out. */
   const save = useCallback((only?: string) => flush(only), [flush]);
@@ -94,6 +94,24 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
     if (typed !== undefined && before) unsaved.set(clipId, filledOver(typed, before, inputs));
     setEdits((e) => withServerInputs(e, clipId, inputs, unsaved, before));
   }, [unsaved]);
+  /**
+   * An MCP token changed a clip's form (`was` → `now`, a "timelineEdit" live event): what is typed over the clip takes the
+   * token's values over it, but for the inputs typed over since (filledOver), and is saved again. Its save still out, or
+   * written after the token's change, sent the form as typed before it, over it on the server; left as it was, the next
+   * save wrote it back the same way. A save of a form the clip already holds keeps nothing and no step (the server's editClip).
+   */
+  const agentLaid = useCallback((clipId: string, was: Record<string, unknown>, now: Record<string, unknown>) => {
+    const typed = unsaved.get(clipId);
+    const edit = typed ?? latest.current.edits[clipId];
+    if (edit === undefined) return;
+    const over = filledOver(edit, was, now);
+    if (typed !== undefined) {
+      unsaved.set(clipId, over);
+      schedule(clipId);
+    } else queue(clipId, over);
+    latest.current.edits = { ...latest.current.edits, [clipId]: over };
+    setEdits((e) => ({ ...e, [clipId]: over }));
+  }, [unsaved, schedule, queue]);
   /** A clip's form changed: to these inputs, or to what `next` makes of its inputs as they stand at this moment. */
   const editInputs = (c: Clip, next: Record<string, unknown> | ((was: Record<string, unknown>) => Record<string, unknown>)) => {
     const was = latest.current.edits[c.id] ?? latest.current.clips.find((x) => x.id === c.id)?.inputs ?? c.inputs;
@@ -175,7 +193,7 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
     [recipes.data, setup.data, setup.isSuccess, comfyOnline, inputsOf, settings.data, clips],
   );
 
-  return { edits, dropEdits, saveFailed, save, turn, inputsOf, editInputs, savedElsewhere, typeSource, sourceTyped, shown, formOf, ready, keptToClip, keepToClip };
+  return { edits, dropEdits, saveFailed, save, turn, inputsOf, editInputs, savedElsewhere, agentLaid, typeSource, sourceTyped, shown, formOf, ready, keptToClip, keepToClip };
 }
 
 /** A clip's save answered 404: the clip was removed (here, by Undo, in another tab), and its form has nowhere to go. */
@@ -218,12 +236,13 @@ export function withFilledInputs(edits: Record<string, Record<string, unknown>>,
 
 /**
  * A form typed while its save was out (`edit`), with what the server worked out of the one `sent` laid over it: each input
- * the server changed, unless it was typed over since (a length set by hand meanwhile is the newer).
+ * the server changed, or took out, unless it was typed over since (a length set by hand meanwhile is the newer).
  */
 export function filledOver(edit: Record<string, unknown>, sent: Record<string, unknown>, kept: Record<string, unknown>): Record<string, unknown> {
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
   const next = { ...edit };
   for (const k of Object.keys(kept)) if (!same(kept[k], sent[k]) && same(edit[k], sent[k])) next[k] = kept[k];
+  for (const k of Object.keys(sent)) if (!(k in kept) && same(edit[k], sent[k])) delete next[k];
   return next;
 }
 

@@ -86,7 +86,7 @@ describe("an MCP token's edit of the kit item open", () => {
     const e = edit({ fields: [{ key: "tags", had: false, now: "1girl" }] });
     const over = kitLaidOver(person(), e);
     expect(over).toMatchObject({ name: "zz-test Ann B", def: { tags: "1girl" } });
-    expect((kitUndone(over, e).def as unknown as Record<string, unknown>).tags).toBeUndefined();
+    expect((kitUndone(over, e).item.def as unknown as Record<string, unknown>).tags).toBeUndefined();
     expect(kitLaidOver(person(), e, new Set(["name"])).name).toBe("zz-test Ann");
   });
 });

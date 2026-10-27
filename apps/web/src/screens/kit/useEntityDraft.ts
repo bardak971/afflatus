@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { kitEditCount, kitLaidOver, kitUndone, kitUnsaved, useKitEdits, type KitEdit } from "../../agentEdits";
+import { keptSaid, kitEditCount, kitLaidOver, kitUndone, kitUnsaved, useKitEdits, type KitEdit } from "../../agentEdits";
 import { api, ApiError, raw, type Entity } from "../../api";
 import { useKeyedAutosave } from "../../autosave";
 import { plural } from "../../format";
 import { outfitsOf } from "./shared";
 import { queryKeys } from "../../queryKeys";
+import { failedBanner } from "../../sayFailed";
 import { useBanners } from "../../store";
 
 /**
@@ -36,9 +37,12 @@ export function useEntityDraft({ stored, loading, shows }: {
   const say = useBanners((b) => b.push);
   // what is on screen is saved half a second after the last change (autosave.ts, as a draft is)
   const [edit, setEdit] = useState<Entity | null>(null);
+  // the page's last save as the server answered it: an agent's change saved before it was written over by it (saved again below)
+  const lastSaved = useRef<{ id: string; at: string } | null>(null);
   const save = useKeyedAutosave<Entity>({
     save: async (_, e) => {
-      await api.saveEntity(e.id, bodyOf(e));
+      const saved = await api.saveEntity(e.id, bodyOf(e));
+      lastSaved.current = { id: saved.id, at: saved.updatedAt };
       await client.invalidateQueries({ queryKey: queryKeys.entities() });
     },
     // the tab closed or reloaded: a request that outlives the page
@@ -64,7 +68,8 @@ export function useEntityDraft({ stored, loading, shows }: {
 
   // an item an MCP token changed (a "kit" live event, agentEdits.ts): the open one shows it at once, the parts the user
   // changed and has not saved yet kept as typed (their save goes after, with the agent's other parts), with a toast whose
-  // Undo puts the item back as before those changes; the lists read again
+  // Undo puts back what the token changed (what was changed again since stays); the lists read again. A save of the page's
+  // answered after the change was written sent the item as the page held it before, over it: it is saved again
   const kitSeq = useKitEdits((st) => st.seq);
   useEffect(() => {
     const e = useKitEdits.getState().last;
@@ -78,6 +83,7 @@ export function useEntityDraft({ stored, loading, shows }: {
       const next = kitLaidOver(open, e, keep);
       setEdit(next);
       if (waiting) save.queue(e.id, kitLaidOver(waiting, e, keep));
+      else if (e.saved && lastSaved.current?.id === e.id && lastSaved.current.at >= e.saved) save.queue(e.id, next);
     }
     const n = kitEditCount(e);
     if (!n || !(shows?.(e) ?? open?.id === e.id)) return;
@@ -87,11 +93,25 @@ export function useEntityDraft({ stored, loading, shows }: {
         label: "Undo", key: "Ctrl+Z", undo: true,
         run: () => {
           useKitEdits.getState().forget(e);
+          // the parts changed again since stay as they are now: said
+          const back = (item: Entity) => {
+            const r = kitUndone(item, e);
+            const text = keptSaid(r.kept);
+            if (text) say({ id: `agent-undo:${e.id}`, tone: "good", title: `${e.by}'s change undone, in part`, text });
+            return r.item;
+          };
           const now = shown.current;
-          if (now?.id === e.id) return change(kitUndone(now, e));
-          // not open (a snippet's row, or another item opened since): put back where it is kept
-          const kept = client.getQueryData<{ items: Entity[] }>(queryKeys.entities())?.items.find((x) => x.id === e.id);
-          if (kept) void api.saveEntity(e.id, bodyOf(kitUndone(kept, e))).then(() => client.invalidateQueries({ queryKey: queryKeys.entities() }));
+          if (now?.id === e.id) return change(back(now));
+          // not open (a snippet's row, or another item opened since): its change still waiting here (a failed save) goes
+          // with the Undo in it; else put back as the server has it now, never from the list kept here, which may be older
+          const waiting = pending.get(e.id);
+          if (waiting) return void save.queue(e.id, back(waiting));
+          void (async () => {
+            const item = (await api.entities()).items.find((x) => x.id === e.id);
+            if (!item) return;
+            await api.saveEntity(e.id, bodyOf(back(item)));
+            await client.invalidateQueries({ queryKey: queryKeys.entities() });
+          })().catch((err: unknown) => say(failedBanner({ id: `agent-undo:${e.id}` }, `${e.by}'s change could not be undone`, err)));
         },
       },
     });

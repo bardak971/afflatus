@@ -1913,6 +1913,9 @@ export class Timelines {
     const again = voice && asked.inputs && !clip.take_id ? this.voiceAsked(asked.recipe ?? clip.recipe_id, JSON.parse(clip.inputs) as Record<string, unknown>, asked.inputs) : null;
     const fill = again && voice && again.asset === voice.ask.asset && again.fromS === voice.ask.fromS ? { [again.window.start]: voice.part.start, [again.window.seconds]: voice.part.seconds } : null;
     const patch: ClipPatch = fill ? { ...asked, inputs: { ...asked.inputs, ...fill } } : asked;
+    // the form as the clip holds it already (an editor saving again the typing an agent's change was laid over): nothing
+    // to write, and no step for Undo to take back that changes nothing
+    if (keys.length === 1 && keys[0] === "inputs" && JSON.stringify(patch.inputs) === JSON.stringify(JSON.parse(clip.inputs))) return null;
     const all = await this.placed(clip.timeline_id);
     const checked = await this.checkClipPatch(clip, patch, all);
     if (step && keys.length) await this.remember(clip.timeline_id, step);
