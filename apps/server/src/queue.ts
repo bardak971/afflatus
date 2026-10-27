@@ -768,12 +768,22 @@ export class Queue {
     const row = await this.db.selectFrom("jobs").selectAll().where("id", "=", id).executeTakeFirst();
     if (!row) throw httpError("this job was not found");
     if (row.recipe_id === EXPORT_JOB) return this.enqueueExport(JSON.parse(row.inputs) as ExportOptions, row.label);
-    if (row.recipe_id === CUT_JOB) return this.enqueueCut(JSON.parse(row.inputs) as CutOptions, row.label);
+    if (row.recipe_id === CUT_JOB) {
+      const cut = JSON.parse(row.inputs) as CutOptions;
+      // a finish cut behind a Face refine still to end waits for it again: started first, it would fail with nothing to finish
+      const refine = cut.fromJob ? await this.db.selectFrom("jobs").select("id").where("id", "=", cut.fromJob).where(toRun).executeTakeFirst() : undefined;
+      return this.enqueueCut(cut, row.label, refine ? { dependsOn: refine.id } : {});
+    }
     // a workflow whose settings were changed since no longer has some of what the job was sent with
     const has = new Set(this.registry.recipe(row.recipe_id)?.inputs.map((i) => i.id));
     const was = Object.fromEntries(Object.entries(JSON.parse(row.inputs) as Record<string, unknown>).filter(([k]) => !has.size || has.has(k)));
+    // a clip that carries on from the one before waits for that one's take again, as when it was queued; never sent without
+    // it (it would open on nothing) nor before it lands (it would join onto the take it replaces). A finish re-samples its
+    // draft, which joined onto its clip before already
+    const dependsOn = row.clip_id && !row.finished_from && this.core.clips ? await this.core.clips.againAfter(row.clip_id) : undefined;
     return this.enqueue(row.recipe_id, { ...was, ...change }, {
       label: row.label,
+      dependsOn,
       // with the flips it was sent with: done again, it renders what it was asked to, whatever the clip says now
       clip: row.clip_id ? { id: row.clip_id, fit: Boolean(row.clip_fit), mirror: readJson<string[]>(row.clip_mirror, []) } : undefined,
       draft: row.draft_id, folder: row.folder_id, warm: Boolean(row.warm), look: readJson(row.look, undefined),
