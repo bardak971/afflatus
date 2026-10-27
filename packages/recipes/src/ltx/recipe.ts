@@ -731,17 +731,24 @@ function headSound(g: GraphBuilder, ctx: BuildContext, audioVae: Ref, previous: 
 /**
  * Whether the clip carries on from the clip before's own latent, and what of it: the file the server sent, its frames (cut to
  * the hand-over frame when it was) and its size, which the clip is made at. Only with the node pack's nodes and ComfyUI's
- * latent guide, a run-up of whole tokens, and (two passes) a size the half-size pass can be made at.
+ * latent guide, a run-up of whole tokens, and (two passes) a size the half-size pass can be made at. Else `why` the latent
+ * sent is not taken, for the job to say: null when no latent was sent, or the server said so already (no node pack).
  */
-function latentJoinOf(ctx: BuildContext, input: LtxVideo, head: number, twoPass: boolean): { file: string; frames: number; cut: number; size: { width: number; height: number } } | null {
+function latentJoinOf(ctx: BuildContext, input: LtxVideo, head: number, twoPass: boolean): { file: string; frames: number; cut: number; size: { width: number; height: number } } | { why: string | null } {
   const facts = ctx.media.previous;
   const file = input.previous ? ctx.uploads["previous.latent"] : undefined;
   const size = facts?.latentSize;
   const frames = facts?.latentFrames ?? 0;
   const cut = facts?.latentCut ?? 0;
-  if (!file || !size || frames < head || (head + 7) % 8 !== 0) return null;
-  if (![...LTX_CONTINUATION_NODES, ...LTX_LATENT_CORE].every((n) => ctx.has(n)) || (cut && !ctx.has(LTX_TRIM))) return null;
-  if (size.width % (twoPass ? 64 : 32) || size.height % (twoPass ? 64 : 32)) return null;
+  if (!file) return { why: null };
+  const onFrames = "The join with the clip before was made on frames";
+  if (!size) return { why: `${onFrames}: its latent came without its size.` };
+  if (frames < head || (head + 7) % 8 !== 0) return { why: `${onFrames}: a run-up of ${head} frames is not whole tokens of its latent (8 × n + 1 frames).` };
+  // the pack's nodes missing: the server said so when it sent the latent (queueSubmit's finishLatent)
+  if (![...LTX_CONTINUATION_NODES, ...(cut ? [LTX_TRIM] : [])].every((n) => ctx.has(n))) return { why: null };
+  const core = LTX_LATENT_CORE.find((n) => !ctx.has(n));
+  if (core) return { why: `${onFrames}: this ComfyUI lacks its own ${core}, which a join in the latent takes (ComfyUI from September 2026 has it). Update ComfyUI.` };
+  if (size.width % (twoPass ? 64 : 32) || size.height % (twoPass ? 64 : 32)) return { why: `${onFrames}: its latent's ${size.width} × ${size.height} is not a size the half-size pass can be made at.` };
   return { file, frames, cut, size };
 }
 
@@ -1140,7 +1147,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       const like = input.previous ? media.previous : lands ? media.next : opens ? media.start : input.end ? media.end : input.mid ? media.mid : undefined;
       const head = input.previous ? joinFramesOf(media.previous, "previous") : 0;
       // carried on in the clip before's own latent: made at that latent's size, whatever the canvas (its tokens are pinned as they are)
-      const kept = latentJoinOf(ctx, input, head, how.twoPass);
+      const joined = latentJoinOf(ctx, input, head, how.twoPass);
+      const kept = "file" in joined ? joined : null;
       const { width, height } = kept
         ? kept.size
         : ctx.canvas
@@ -1160,7 +1168,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         : ltxFramesAt(Math.min(input.seconds, LTX_MAX_SECONDS - (head + tail) / fps) + (head + tail) / fps, fps);
 
       const g = new GraphBuilder();
-      const warnings: string[] = [];
+      // a latent sent and not taken: the join falls back to frames, a visible step, said on the job
+      const warnings: string[] = "why" in joined && joined.why ? [joined.why] : [];
       const refs = spec.references ? msrOf(input, ctx, warnings, !spec.lipSync, { width, height }) : null;
       const held = refs ? msrHeld(input, slots.msr, warnings) : null;
       const loaded = ltxLoad(spec, g, ctx, input, picked, held);

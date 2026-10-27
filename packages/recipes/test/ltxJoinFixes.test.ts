@@ -284,3 +284,31 @@ describe("Interpolate ×2 on a clip the clip after carries on in, in its latent:
     expect(ltx25Video.needsWith!(auto, { temporal: "t.safetensors" })).toContain("rife");
   });
 });
+
+// B22 (review 2026-10-27): a latent sent and not taken falls back to frames, a visible step: the job says why
+describe("LTX's join in the clip before's latent, not taken", () => {
+  const sent = (has: (n: string) => boolean, previous: Record<string, unknown> = inLatent(24)) => build(ltx25Video, { previous: { asset: "c" }, seconds: 5 }, { uploads: { previous: "c.mp4", "previous.latent": "c.safetensors" }, media: { previous }, has });
+  const joinSaid = (b: Built) => (b.warnings ?? []).filter((w) => w.startsWith("The join with the clip before was made on frames"));
+
+  it("an older ComfyUI without its own LTXVAddLatentGuide or ImageFromBatch: on frames, the missing node named", () => {
+    for (const core of ["LTXVAddLatentGuide", "ImageFromBatch"]) {
+      const b = sent((n) => n !== core);
+      expect(all(b, "AfflatusLTXContinuation")).toEqual([]);
+      expect(joinSaid(b)).toEqual([expect.stringContaining(`lacks its own ${core}`)]);
+    }
+  });
+
+  it("a latent without its size: on frames, said", () => {
+    const { latentSize: _, ...noSize } = inLatent(24);
+    const b = sent(() => true, noSize);
+    expect(all(b, "AfflatusLTXContinuation")).toEqual([]);
+    expect(joinSaid(b)).toEqual([expect.stringContaining("without its size")]);
+  });
+
+  it("taken: nothing said; no node pack: the server says it, not the recipe; no latent sent: nothing", () => {
+    expect(joinSaid(sent(() => true))).toEqual([]);
+    expect(all(sent(() => true), "AfflatusLTXContinuation")).toHaveLength(1);
+    expect(joinSaid(sent((n) => n !== "AfflatusLoadLTXLatent"))).toEqual([]);
+    expect(joinSaid(build(ltx25Video, { previous: { asset: "c" }, seconds: 5 }, { media: { previous: before(24) } }))).toEqual([]);
+  });
+});
