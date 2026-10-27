@@ -287,7 +287,7 @@ describe("Interpolate ×2 on a clip the clip after carries on in, in its latent:
 
 // B22 (review 2026-10-27): a latent sent and not taken falls back to frames, a visible step: the job says why
 describe("LTX's join in the clip before's latent, not taken", () => {
-  const sent = (has: (n: string) => boolean, previous: Record<string, unknown> = inLatent(24)) => build(ltx25Video, { previous: { asset: "c" }, seconds: 5 }, { uploads: { previous: "c.mp4", "previous.latent": "c.safetensors" }, media: { previous }, has });
+  const sent = (has: (n: string) => boolean, previous: Omit<ReturnType<typeof inLatent>, "latentSize"> = inLatent(24)) => build(ltx25Video, { previous: { asset: "c" }, seconds: 5 }, { uploads: { previous: "c.mp4", "previous.latent": "c.safetensors" }, media: { previous }, has });
   const joinSaid = (b: Built) => (b.warnings ?? []).filter((w) => w.startsWith("The join with the clip before was made on frames"));
 
   it("an older ComfyUI without its own LTXVAddLatentGuide or ImageFromBatch: on frames, the missing node named", () => {
