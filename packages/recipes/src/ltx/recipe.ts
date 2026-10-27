@@ -193,8 +193,8 @@ const msrFamily = (width: number, height: number): string => (width / height >= 
  * alone, and the job says why. `voices`: the form takes a voice sample (Lip sync's voice is its recording).
  */
 interface MsrRefs {
-  numbered: Array<{ upload: string; role: ReferenceRole }>;
-  background: string | null;
+  numbered: Array<{ upload: string; role: ReferenceRole; size?: { width: number; height: number } }>;
+  background: { upload: string; size?: { width: number; height: number } } | null;
   voice: string | null;
   /** The prompt's first lines: what each picture is, by its number. */
   legend: string;
@@ -203,10 +203,11 @@ interface MsrRefs {
   /** What becomes of what is around the people (Face Backdrop's `backdrop`), or null: their pictures as they are. */
   backdrop: string | null;
 }
-function msrOf(input: LtxVideo, ctx: Pick<BuildContext, "slots" | "uploads" | "has">, warnings: string[], voices: boolean, frame: { width: number; height: number }): MsrRefs | null {
+function msrOf(input: LtxVideo, ctx: Pick<BuildContext, "slots" | "uploads" | "media" | "has">, warnings: string[], voices: boolean, frame: { width: number; height: number }): MsrRefs | null {
   const given = (input.references ?? []).flatMap((r, i) => {
     const upload = ctx.uploads[`references.${i}`];
-    return upload ? [{ upload, role: r.role }] : [];
+    const size = ctx.media[`references.${i}`];
+    return upload ? [{ upload, role: r.role, ...(size?.width && size.height ? { size: { width: size.width, height: size.height } } : {}) }] : [];
   });
   const voiced = voices && Boolean(input.voice && ctx.uploads.voice);
   if (!given.length && !voiced) return null;
@@ -225,7 +226,7 @@ function msrOf(input: LtxVideo, ctx: Pick<BuildContext, "slots" | "uploads" | "h
   if (places.length > 1) warnings.push(`${plural(places.length - 1, "place picture")} left out: LTX 2.5 takes one place, as the background.`);
   numbered.splice(MSR_NUMBERED);
   // the guide needs a first picture: a place given alone is that one
-  const background = numbered.length ? (places[0]?.upload ?? null) : null;
+  const background = numbered.length && places[0] ? { upload: places[0].upload, ...(places[0].size ? { size: places[0].size } : {}) } : null;
   if (!numbered.length && places[0]) numbered.push(places[0]);
   let voice: string | null = null;
   if (voiced) {
@@ -246,6 +247,17 @@ function msrOf(input: LtxVideo, ctx: Pick<BuildContext, "slots" | "uploads" | "h
   if (people && asked && !backdrop) warnings.push("What is around the people in their pictures is kept as it is: this ComfyUI lacks Afflatus's Face Backdrop (node pack 0.40, with insightface).");
   const legend = [...roles.map((role, i) => `Image ${i + 1}: ${MSR_SAYS[role]}.`), ...(people && !background ? [SCENE_FROM_WORDS] : [])].join("\n");
   return { numbered, background, voice, legend, faceCrop, backdrop };
+}
+
+/**
+ * A picture that is not a person's, cut to the frame's shape in its middle and brought to its size (ComfyUI's ImageScale)
+ * when its shape is of another family than the frame's: MSR's guide would fit it whole between white bars, which a clip
+ * can copy into its frames (card #91). A person's picture is cut around the face (FACE_FRAME); one of the frame's family,
+ * or of a size not known, goes in as it is (the guide cover-crops it).
+ */
+function toFrame(g: GraphBuilder, pic: Ref, size: { width: number; height: number } | undefined, frame: { width: number; height: number }): Ref {
+  if (!size || msrFamily(size.width, size.height) === msrFamily(frame.width, frame.height)) return pic;
+  return g.out("ImageScale", { image: pic, upscale_method: "lanczos", width: frame.width, height: frame.height, crop: "center" });
 }
 
 /** Whether a LoRA of the list is the MSR LoRA: the file of its slot (under any folder), or a file named as it is. */
@@ -1118,7 +1130,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       ...(spec.lipSync ? [] : HEAD_SOUND_NODES), ...(spec.roomTone ? [ROOM_TONE] : []),
       LTX_SAVE_LATENT, ...LTX_CONTINUATION_NODES, LTX_TRIM, ...LTX_LATENT_CORE,
       // the cast's pictures and voice, when the MSR LoRA and its pack are there (msrOf)
-      ...(spec.references ? [...MSR_NODES, FACE_FRAME, FACE_CROP, FACE_BACKDROP,...(spec.lipSync ? [] : ["LoadAudio"])] : []),
+      ...(spec.references ? [...MSR_NODES, FACE_FRAME, FACE_CROP, FACE_BACKDROP, "ImageScale",...(spec.lipSync ? [] : ["LoadAudio"])] : []),
       // the clip before's last frame as it was filed, loaded when the server sends it (its chain was colour-matched: colourCarried)
       "LoadImage",
       // 2.5: a seam's first own frames brought to the clip before's last as filed, then let go (seamColour); a landing's last
@@ -1247,14 +1259,14 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
               pics: {
                 ...Object.fromEntries(refs.numbered.map((r, i) => {
                   const pic = g.out("LoadImage", { image: r.upload });
-                  if (r.role !== "person") return [`pic${i + 1}`, pic];
+                  if (r.role !== "person") return [`pic${i + 1}`, toFrame(g, pic, r.size, { width, height })];
                   // the node's own 2.5 face heights unless another size is asked (the graph of a form left alone as it was)
                   const sized = input.refFaceSize !== undefined && input.refFaceSize !== 2.5 ? { factor: input.refFaceSize } : {};
                   const cut = !refs.faceCrop ? pic : refs.faceCrop === FACE_FRAME ? g.out(FACE_FRAME, { image: pic, width, height, ...sized }) : g.out(FACE_CROP, { image: pic, ...sized });
                   // the rest blurred or grey once the picture is cut: the oval is laid at the size MSR is given
                   return [`pic${i + 1}`, refs.backdrop ? g.out(FACE_BACKDROP, { image: cut, backdrop: refs.backdrop }) : cut];
                 })),
-                ...(refs.background ? { background: g.out("LoadImage", { image: refs.background }) } : {}),
+                ...(refs.background ? { background: toFrame(g, g.out("LoadImage", { image: refs.background.upload }), refs.background.size, { width, height }) } : {}),
               },
               voice: refs.voice ? g.out("LTXVAudioVAEEncode", { audio: g.out("LoadAudio", { audio: refs.voice }), audio_vae: loaded.audioVae }) : null,
             }

@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { ComfyAway, ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, filesIn, systemLoadFromStatus, waitForOutputs, type Measured } from "@afflatus/comfy";
-import { expandWildcards, modelFileName, modelOf, parseInput, removedSaid, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
+import { expandWildcards, modelFileName, modelOf, modelStart, parseInput, removedSaid, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import { Comfy, NO_COMFY_URL, type MachineComfy } from "./comfy";
 import { fileName } from "./media";
 import type { Insertable } from "kysely";
@@ -493,12 +493,28 @@ export class Queue {
     return rows.map((r) => r.id);
   }
 
+  /**
+   * A form with what its model file starts on (modelStart: the values saved for the file, else its line's) in the inputs
+   * it leaves out, before the recipe's defaults fill the rest. The pages send whole forms, which this leaves as they are;
+   * a job sent without one (the API, a tool) renders as the form would: a distilled Klein file at its 4 steps, CFG 1.
+   */
+  private async startedOn(recipe: Recipe<any>, raw: unknown): Promise<unknown> {
+    if (!raw || typeof raw !== "object") return raw;
+    const given = raw as Record<string, unknown>;
+    const model = (recipe.inputs as InputSpec[]).find((i) => i.type === "model");
+    const file = model ? String(given[model.id] ?? ("default" in model ? model.default ?? "" : "")) : "";
+    if (!file) return raw;
+    const row = await this.db.selectFrom("model_settings").select("values").where("owner_id", "=", OWNER).where("family", "=", recipe.family).where("file", "=", file).executeTakeFirst();
+    const { lined, perModel } = modelStart(recipe, file, row ? (JSON.parse(row.values) as Record<string, unknown>) : {});
+    return { ...lined, ...perModel, ...Object.fromEntries(Object.entries(given).filter(([, v]) => v !== undefined)) };
+  }
+
   /** A render's job as enqueue writes it. */
   private async renderJob(recipeId: string, rawInput: unknown, opts: EnqueueOptions) {
     const recipe = this.registry.recipe(recipeId);
     if (!recipe) throw httpError(`there is no model or operation called ${recipeId}`);
     // loading the models is asked for while the form is still being filled in: a text not written yet is no reason to refuse
-    const input = parseInput(recipe, opts.warm ? submitting.withTexts(recipe, rawInput) : rawInput) as Record<string, unknown>; // throws a ZodError the API turns into a 400
+    const input = parseInput(recipe, await this.startedOn(recipe, opts.warm ? submitting.withTexts(recipe, rawInput) : rawInput)) as Record<string, unknown>; // throws a ZodError the API turns into a 400
     // choices written in a text ({red|black|white}) are settled now, one per job: what is kept is what was picked
     for (const spec of recipe.inputs as InputSpec[]) {
       if (spec.type === "prompt" && typeof input[spec.id] === "string") input[spec.id] = expandWildcards(input[spec.id] as string);

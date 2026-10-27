@@ -1,4 +1,4 @@
-import { chosenDefaults, frameOf, ruledDefaults, withoutOldZeros, fuzzyScore, isShown, latentUpscaleSize, megapixels, pickChoice, RANDOM_SEED, secondsInput, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
+import { chosenDefaults, modelStart, frameOf, ruledDefaults, withoutOldZeros, fuzzyScore, isShown, latentUpscaleSize, megapixels, pickChoice, RANDOM_SEED, secondsInput, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import type { ModelSettings, RecipeInfo, RecipeStatus } from "./api";
 import { fileLabel, plural } from "./format";
 
@@ -117,17 +117,10 @@ export function formDefaults(
   const base = Object.fromEntries(recipe.inputs.map((i) => [i.id, defaultOf(i, options?.[i.id])]));
   const modelInput = recipe.inputs.find((i) => i.type === "model");
   const file = modelInput ? String(stored?.[modelInput.id] ?? base[modelInput.id] ?? "") : "";
-  const saved = withoutOldZeros(recipe.inputs, settings.find((s) => s.family === recipe.family && s.file === file)?.values ?? {});
-  const hasSaved = Object.keys(saved).length > 0;
-  // nothing saved for this file yet: what its line's authors recommend, read from its name (Pony, NoobAI v-pred, Krea…)
-  const name = file.split(/[\\/]/).pop() ?? "";
-  // Every preset that matches counts, each setting from the first that has it: an Illustrious DMD2 merge
-  // takes the few-step sampling and Illustrious's quality tags.
-  const matched = !hasSaved && name ? (recipe.presets ?? []).filter((p) => new RegExp(p.match, "i").test(name)) : [];
-  const values: Record<string, unknown> = Object.assign({}, ...[...matched].reverse().map((p) => p.values));
-  const lined = Object.fromEntries(recipe.inputs.filter((i) => i.id in values).map((i) => [i.id, values[i.id]]));
-  const perModel = Object.fromEntries(recipe.inputs.filter((i) => i.perModel && i.id in saved).map((i) => [i.id, saved[i.id]]));
-  const notes = matched.map((p) => p.note).filter(Boolean);
+  // what was saved for this file, else what its line's authors recommend, read from its name (Pony, NoobAI v-pred, Krea…):
+  // every preset that matches counts, each setting from the first that has it (an Illustrious DMD2 merge takes the
+  // few-step sampling and Illustrious's quality tags)
+  const { lined, perModel, hasSaved, notes } = modelStart(recipe, file, settings.find((s) => s.family === recipe.family && s.file === file)?.values ?? {});
   const layered = { ...base, ...lined, ...perModel };
   // last, what the choices made move (a hand detector picked: the denoise, crop and prompt start on hands); what the
   // draft holds is its own and stays, so only the settings still at their starting values follow the choice. What the
