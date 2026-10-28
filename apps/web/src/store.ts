@@ -208,6 +208,11 @@ export type Display = "Stage" | "S" | "M" | "L";
 export type Scope = "draft" | "all" | "recent";
 export const useStudio = create<{
   form: boolean;
+  /**
+   * The user folded the form away once (its ‹, or N): until then the Studio opens with it open, so a first landing shows a
+   * form ready to render rather than a library with a thin strip at its edge. Remembered in this browser.
+   */
+  folded: boolean;
   /** The last grid size chosen: what a scope with no display of its own shows. */
   size: "S" | "M" | "L";
   /** The display each scope was left on (Stage: the newest large, the others in a strip). */
@@ -219,11 +224,19 @@ export const useStudio = create<{
   timelineSize: "S" | "M" | "L";
   scope: Scope;
   place: Place;
-  set(patch: Partial<{ form: boolean; size: "S" | "M" | "L"; displays: Partial<Record<Scope, Display>>; groupBy: GroupBy; timelineSort: "recent" | "name" | "length"; timelineSize: "S" | "M" | "L"; scope: Scope; place: Place }>): void;
-}>()(persist((set) => ({ form: false, size: "M", displays: {}, groupBy: "none", timelineSort: "recent", timelineSize: "M", scope: "draft", place: { type: "all" }, set: (patch) => set(patch) }), { name: "afflatus.studio" }));
+  set(patch: Partial<{ form: boolean; folded: boolean; size: "S" | "M" | "L"; displays: Partial<Record<Scope, Display>>; groupBy: GroupBy; timelineSort: "recent" | "name" | "length"; timelineSize: "S" | "M" | "L"; scope: Scope; place: Place }>): void;
+}>()(
+  persist((set) => ({ form: true, folded: false, size: "M", displays: {}, groupBy: "none", timelineSort: "recent", timelineSize: "M", scope: "draft", place: { type: "all" }, set: (patch) => set(patch) }), {
+    name: "afflatus.studio",
+    // version 1: the form starts open until folded once. A browser that used the Studio before knows where Create is: it
+    // counts as folded, and opens as it did
+    version: 1,
+    migrate: (saved) => ({ ...(saved as object), folded: true }) as never,
+  }),
+);
 // The address says whether the form is open when the app is loaded ("/create" open, "/" closed), over what was
-// remembered: a reload keeps what the address showed, and a link to either lands as it says.
-if (typeof window !== "undefined" && (window.location.pathname === "/" || window.location.pathname === "/create")) useStudio.setState({ form: window.location.pathname === "/create" });
+// remembered: a reload keeps what the address showed, and a link to either lands as it says. Never folded yet, "/" opens it.
+if (typeof window !== "undefined" && (window.location.pathname === "/" || window.location.pathname === "/create")) useStudio.setState({ form: window.location.pathname === "/create" || !useStudio.getState().folded });
 // the bin is visited, not worked in: the app opens on the project, not on the bin it was left in
 if (typeof window !== "undefined" && useStudio.getState().place.type === "bin") useStudio.setState({ place: { type: "all" } });
 /** What a scope shows: what it was left on, else the stage for "This draft" and the last grid size elsewhere. */

@@ -85,6 +85,15 @@ describe("the first launch", () => {
     expect(fakeApi.calls("PUT", "/settings")).toEqual([]);
   });
 
+  it("says where Deploy a GPU is: not the Queue, which offers it only while no machine is added", async () => {
+    serveSettings(settings({ machines: [own] }));
+    fakeApi.on("GET /setup/find", { found: found(), tried: ["http://127.0.0.1:8188"] });
+    const { user } = draw(<FirstLaunch />);
+    await user.click(await screen.findByRole("button", { name: "Yes, on RunPod" }));
+    expect(await screen.findByText(/Deploy a GPU… is in the status bar at the foot of the screen, in Settings › Rented GPUs and in the command bar/)).toBeTruthy();
+    expect(screen.queryByText(/deploy from the Queue/)).toBeNull();
+  });
+
   it("rented GPUs only after Change: asks before taking out the user's ComfyUI, and keeps it when told no", async () => {
     serveSettings(settings({ machines: [own, pod] }));
     fakeApi.on("GET /setup/find", { found: null, tried: ["http://127.0.0.1:8188"] });

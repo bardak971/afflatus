@@ -48,6 +48,10 @@ export function untouchedMovesTo(draft: { empty: boolean } | null | undefined, r
   return !isOn(recipe.family) && isOn(first.family) ? first.id : null;
 }
 
+/** The first of these recipes that is ready on this ComfyUI (every file and node here), or none. */
+export const firstReady = <R extends { id: string }>(recipes: R[], statuses: ReadonlyArray<{ id: string; ready: boolean }> | undefined): R | undefined =>
+  recipes.find((r) => statuses?.find((x) => x.id === r.id)?.ready);
+
 export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { folder: { id: string; name: string; path: string | null } | null; onClose(): void }) {
   const recipes = useRecipes();
   const setup = useSetup();
@@ -56,8 +60,11 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
   const all = recipes.data?.recipes ?? [];
   // what is offered to choose from: the families that are on. A draft keeps the model it is on, on or off.
   const families = useFamilies();
-  const first = all.find((r) => families.isOn(r.family)) ?? all[0];
-  const d = useDraft(first?.id);
+  // a new install's first draft opens on a family whose files are all here (SDXL with a checkpoint, FLUX with its files),
+  // else the first family that is on: made once the setup is read, so that it is not made on a model that cannot run yet
+  const on = all.filter((r) => families.isOn(r.family));
+  const first = firstReady(on, setup.data?.recipes) ?? on[0] ?? all[0];
+  const d = useDraft(setup.isSuccess || setup.isError ? first?.id : undefined);
   const draft = d.draft;
   // the machine picked in Generate on: the form's node pack notes speak for it
   const pickedOn = usePickedMachine(draft?.id);

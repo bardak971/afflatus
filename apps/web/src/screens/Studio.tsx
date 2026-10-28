@@ -7,7 +7,7 @@ import { Keys } from "../Keys";
 import { useProject } from "../project";
 import { useKeysHere } from "../keys/here";
 import { displayOf, useBanners, useHandover, useOpenDraft, usePanelWidth, useStudio, type Scope } from "../store";
-import { cx, Empty, ErrorNote, IconButton } from "../ui";
+import { cx, Empty, ErrorNote } from "../ui";
 import { Viewer } from "../viewer/LazyViewer";
 import { useTileMenu } from "../TileMenu";
 import { FolderPanel, Tile } from "./Library";
@@ -64,15 +64,19 @@ function RunningTile({ onDraft }: { onDraft(id: string): void }) {
   );
 }
 
-/** The form folded away: a rail at the left edge, as the timeline's media shelf folds, with the way to open it. */
+/**
+ * The form folded away: a rail at the left edge, as the timeline's media shelf folds, the whole of it one way to open it
+ * ("CREATE +", read bottom to top as a spine): the small + alone was missed at a first look.
+ */
 function FormRail({ onOpen }: { onOpen(): void }) {
   return (
-    <aside aria-label="Create (folded)" className="flex w-[46px] shrink-0 flex-col items-center gap-2.5 border-r border-line bg-panel py-3.5">
-      <IconButton tone="primary" label="Create: open the form" keys="N" onClick={onOpen} className="shadow-[0_4px_12px_color-mix(in_srgb,var(--color-accent)_30%,transparent)]">
-        <Plus size={16} strokeWidth={2.6} />
-      </IconButton>
-      {/* read bottom to top, as a spine */}
-      <span aria-hidden className="rotate-180 text-meta font-bold tracking-label text-ink-2 uppercase [writing-mode:vertical-rl]">Create</span>
+    <aside aria-label="Create (folded)" className="flex w-[46px] shrink-0 border-r border-line bg-panel">
+      <button type="button" aria-label="Create: open the form" data-tip="Create: open the form" data-tip-keys="N" onClick={onOpen} className="group flex grow flex-col items-center gap-2.5 py-3.5 transition-colors hover:bg-hover">
+        <span aria-hidden className="inline-flex size-8 items-center justify-center rounded-control bg-accent text-accent-ink shadow-[0_4px_12px_color-mix(in_srgb,var(--color-accent)_30%,transparent)] group-hover:brightness-110">
+          <Plus size={16} strokeWidth={2.6} />
+        </span>
+        <span aria-hidden className="rotate-180 text-meta font-bold tracking-label text-ink-2 uppercase transition-colors [writing-mode:vertical-rl] group-hover:text-ink">Create</span>
+      </button>
     </aside>
   );
 }
@@ -228,7 +232,8 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
 
   // what the Create panel is handed keeps its identity from one draw to the next: the panel is not drawn again for nothing
   const panelFolder = useMemo(() => (folder ? { id: folder.id, name: folder.name, path: folder.path } : null), [folder?.id, folder?.name, folder?.path]); // eslint-disable-line react-hooks/exhaustive-deps -- kept by its fields, so the panel is not drawn again for a new object with the same folder
-  const closePanel = useCallback(() => useStudio.getState().set({ form: false }), []);
+  // folded by hand: the Studio no longer opens with it (store.ts)
+  const closePanel = useCallback(() => useStudio.getState().set({ form: false, folded: true }), []);
   const openRunningDraft = (id: string) => {
     openDraft(id);
     view.set({ form: true, scope: "draft" });
@@ -320,14 +325,20 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   );
 }
 
-/** How an empty library fills: a drop, the form's key, the command bar's key (the one set in Settings › Command bar). */
+/**
+ * How an empty library fills: Create, on the left (a click opens it where it is folded; a key alone was missed at a first
+ * look), a drop, the command bar's key (the one set in Settings › Command bar).
+ */
 function WaysIn() {
   const bar = useSettings().data?.bar?.shortcut ?? "Ctrl+K";
   return (
     <span className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-body">
-      <span>Drop pictures or videos here</span>
+      <span className="inline-flex items-center gap-1.5">
+        <button type="button" data-tip="Open the form" data-tip-keys="N" onClick={() => useStudio.getState().set({ form: true })} className="font-semibold text-accent hover:underline">Create</button>
+        is on the left
+      </span>
       <span className="text-ink-3">·</span>
-      <span className="inline-flex items-center gap-1.5"><Keys keys="N" size="sm" /> opens the form</span>
+      <span>Drop pictures or videos here</span>
       <span className="text-ink-3">·</span>
       <span className="inline-flex items-center gap-1.5"><Keys keys={bar} size="sm" /> finds a model</span>
     </span>
