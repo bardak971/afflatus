@@ -105,7 +105,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
             <NumberBox label="Upscale factor" value={v.factor} min={1} max={4} step={0.25} unit="×" onCommit={(factor) => setV({ ...v, factor })} />
           </FieldRow>}
           {v.route === "face" && (
-            <FieldRow label="Denoise" note="On the smallest faces (30 px and under); a face of 120 px and more gets a third of it. More is closer to the picture and further from the take. H3 and LTX 2.5 clips; a SCAIL-2 clip keeps its own (0.35 unless its form said otherwise)" trail>
+            <FieldRow label="Denoise" note="ComfyUI's denoise at the model's shift, so the face is redrawn strongly: on H3 the whole range starts near 0.84–0.96 of real noise, and a step of 0.05 changes little. In full on the smallest faces (30 px and under); a face of 120 px and more gets about a third of it. More is closer to the picture and further from the take. H3 and LTX 2.5 clips; a SCAIL-2 clip keeps its own (0.35 unless its form said otherwise)" trail>
               <NumberBox label="Face refine denoise" value={v.faceDenoise ?? 0.45} min={0.3} max={0.6} step={0.05} onCommit={(faceDenoise) => setV({ ...v, faceDenoise })} />
             </FieldRow>
           )}
@@ -141,7 +141,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
             </FieldRow>
           )}
           {v.route !== "face" && v.face && refined > 0 && (
-            <FieldRow label="Face denoise" note="On the smallest faces (30 px and under); a face of 120 px and more gets a third of it" trail>
+            <FieldRow label="Face denoise" note="ComfyUI's denoise at the model's shift: on H3 it starts near 0.84–0.96 of real noise. In full on the smallest faces (30 px and under); a face of 120 px and more gets about a third of it" trail>
               <NumberBox label="Face refine denoise" value={v.faceDenoise ?? 0.45} min={0.3} max={0.6} step={0.05} onCommit={(faceDenoise) => setV({ ...v, faceDenoise })} />
             </FieldRow>
           )}

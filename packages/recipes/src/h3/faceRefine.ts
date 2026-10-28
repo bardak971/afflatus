@@ -24,11 +24,14 @@ export const AUDIO_LOCK = "AfflatusH3AudioLock";
 export const FACE_REFINE_INPUTS: InputSpec[] = [
   {
     id: "faceRefine", type: "toggle", label: "Face refine", default: false, section: "out",
-    note: "after the render, the face is cropped, redrawn at a low denoise against the person's picture (the cast's, else a person reference picture, else the picture the clip opens on) and pasted back. The pose, light and expression stay the render's. Best on slow-moving shots: when the person moves a lot, the face follows the source's expression less, and arms over the head can be redrawn into the hair",
+    note: "after the render, the face is cropped, redrawn against the person's picture (the cast's, else a person reference picture, else the picture the clip opens on) and pasted back. The pose, light and expression stay the render's. Best on slow-moving shots: when the person moves a lot, the face follows the source's expression less, and arms over the head can be redrawn into the hair",
   },
   {
     id: "faceRefineDenoise", type: "number", label: "Face refine denoise", min: 0.3, max: 0.6, step: 0.05, default: 0.45, showWhen: "faceRefine", advanced: true, section: "out",
-    note: "on the smallest faces (30 px and under); a face of 120 px and more gets a third of it, as it holds detail of its own. More is closer to the picture and further from the render",
+    // ComfyUI's denoise at the model's shift, kept as it is (card #144, 2026-10-28): on H3 the whole range starts the
+    // redraw near σ 0.84–0.96 (0.45 over 4 steps: 0.92), and that strength is what refines a small face (likeness 0.34 →
+    // 0.63 on Timeline 6's clip 22); a real σ on a karras tail stopped it refining, and the owner preferred this by eye
+    note: "ComfyUI's denoise at the model's shift, so the face is redrawn strongly: on H3 the whole range starts near 0.84–0.96 of real noise, and a step of 0.05 changes little (0.45 and 0.5 are the same). It applies in full to the smallest faces (30 px and under); a face of 120 px and more gets about a third of it, as it holds detail of its own. More is closer to the picture and further from the render",
   },
   { id: "faceRefineSteps", type: "number", label: "Face refine steps", min: 2, max: 8, step: 1, default: 4, showWhen: "faceRefine", advanced: true, section: "out", note: "4 is what it was tested at; 8 kept less of the likeness" },
   // a finish of a kept take (Finish › Face refine): its own latent loaded, nothing sampled, only the faces redrawn
