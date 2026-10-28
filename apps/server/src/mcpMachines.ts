@@ -5,7 +5,7 @@ import { deployFiles } from "./deployModels";
 import { httpError } from "./errors";
 import { oneAtATime } from "./keyedLock";
 import { machineName, machineOf, seen } from "./mcpForms";
-import { committedSpend, mustSpendWhilePodUp, podsUp } from "./mcpRender";
+import { committedSpend, mustSpendWhilePodUp, podsUp, workCommitted } from "./mcpRender";
 import { quoted, tool, type ToolCtx } from "./mcpTool";
 import { refusal } from "./mcpTokens";
 import { dollars } from "./notifyWords";
@@ -186,22 +186,30 @@ const pods = tool({
  * Whether this token may start a pod that bills `hour` USD an hour: Spend, its own cap with room for that first hour and
  * the next hour of each pod it started that is up (its work waiting and running counted, as render counts it), and the
  * app's caps with room for that first hour and the next hour of every pod up. A pod up whose price is not known yet cannot
- * be counted: refused. A money path.
+ * be counted: refused. A money path. `what` says the bill to a token without Spend, `pod` names it in a cap's refusal.
  */
-async function mayStart(s: Services, ctx: ToolCtx, hour: number, what: string): Promise<void> {
+async function mayStart(s: Services, ctx: ToolCtx, hour: number, what: string, pod: string): Promise<void> {
   mustSpend(ctx, what);
   const machines = (await readSettings(s.db)).machines;
   let mine = 0;
   let all = 0;
+  // each pod up and its next hour, named in a refusal: the sum the cap was asked is then seen, not only what was spent
+  const minePods: Array<{ what: string; usd: number }> = [];
+  const allPods: string[] = [];
   for (const pod of podsUp(s, machines)) {
     const rate = s.rented.view(pod)?.rate;
     if (rate === null || rate === undefined) throw refusal(`${machineName(pod)} is up and its price is not known yet, so the spending caps cannot be held: wait until it answers, or the user starts this one in Afflatus.`);
     all += rate;
-    if (pod.rented!.mcpToken === ctx.token.id) mine += rate;
+    allPods.push(`${quoted(machineName(pod))} ${dollars(rate)}`);
+    if (pod.rented!.mcpToken === ctx.token.id) {
+      mine += rate;
+      minePods.push({ what: `the next hour of ${quoted(machineName(pod))}, up (started by this token)`, usd: rate });
+    }
   }
-  await ctx.maySpend(hour + mine + (await committedSpend(s, machines, ctx.token.id)));
+  const work = await committedSpend(s, machines, ctx.token.id);
+  await ctx.maySpend(hour + mine + work.usd, { committed: [workCommitted(work), ...minePods], adds: { what: `the first hour of ${pod}`, usd: hour } });
   const why = await s.rented.noRoomFor(hour + all);
-  if (why) throw refusal(`The rented GPUs' spending cap has no room for this pod's first hour (${dollars(hour)}${all ? `, with the next hour of the pods up: ${dollars(all)}` : ""}): ${why}. The user raises it in Settings › Rented GPUs.`);
+  if (why) throw refusal(`The rented GPUs' spending cap has no room for this pod's first hour (${dollars(hour)}${all ? `, with the next hour of the pods up: ${dollars(all)}` : ""}): ${why}.${allPods.length ? ` Up: ${allPods.join(", ")} an hour.` : ""} The user raises it in Settings › Rented GPUs.`);
 }
 
 const deployPod = tool({
@@ -241,7 +249,7 @@ const deployPod = tool({
     // what it bills an hour while it runs: its GPU and its container disk (with a volume, the disk is kept small: rentedDeploy.ts)
     const hour = runningRate(offer.price, ask.volume ? Math.min(ask.disk, 40) : ask.disk, 0);
     return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
-      await mayStart(s, ctx, hour, `deploying ${offer.name} bills ${dollars(hour)} an hour`);
+      await mayStart(s, ctx, hour, `deploying ${offer.name} bills ${dollars(hour)} an hour`, `a new ${quoted(offer.name)}`);
       const made = await s.rented.deploy(async () => ({ ...ask, files: await deployFiles(s, ask) }), { mcpToken: token.id });
       ctx.said(`Deployed ${quoted(offer.name)} (${dollars(hour)}/h, idle ${ask.idleMinutes} min then ${ask.idleDo})`);
       return {
@@ -275,7 +283,7 @@ const startPod = tool({
     if (v?.rate === null || v?.rate === undefined) throw refusal(`${machineName(m)}'s price is not known yet, so this token's spend cap cannot be held: the user starts it in Afflatus.`);
     const rate = v.rate;
     return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
-      await mayStart(s, ctx, rate, `starting ${machineName(m)} bills ${dollars(rate)} an hour`);
+      await mayStart(s, ctx, rate, `starting ${machineName(m)} bills ${dollars(rate)} an hour`, quoted(machineName(m)));
       const view = await s.rented.start(m.id, token.id);
       ctx.said(`Started ${quoted(machineName(m))} (${dollars(rate)}/h)`);
       return { started: m.id, status: view.status, usdPerHour: rate, idleMinutes: m.rented!.idleMinutes, idleDo: m.rented!.idleDo, said: "Billed from now; its run counts against this token's cap." };

@@ -10,6 +10,7 @@ import { readJson } from "./queueModel";
 import { formArgs, formAsked, machineName, machineOf, seen, spends, wholeOf, type Seen } from "./mcpForms";
 import { quoted, tool, type ToolCtx } from "./mcpTool";
 import { refusal } from "./mcpTokens";
+import { dollars } from "./notifyWords";
 import { runwayNeed } from "./rentedBilling";
 import { EXPORT_JOB } from "./timelineModel";
 import type { Services } from "./services";
@@ -108,11 +109,12 @@ function podsFor(j: { status: string; machine_id?: string | null; pin_machine?: 
 
 /**
  * What this token's work waiting or running now (renders and model loads) may still cost on rented pods (USD), the idle
- * time it leaves on a pod it did not start counted once: its work counted before it is billed.
+ * time it leaves on a pod it did not start counted once: its work counted before it is billed. With how many jobs that is,
+ * for a refusal to say.
  */
-export async function committedSpend(s: Services, machines: readonly Machine[], tokenId: string): Promise<number> {
+export async function committedSpend(s: Services, machines: readonly Machine[], tokenId: string): Promise<{ usd: number; jobs: number }> {
   const jobs = await activeJobs(s, tokenId);
-  if (!jobs.length) return 0;
+  if (!jobs.length) return { usd: 0, jobs: 0 };
   const rates = podsOf(s, machines);
   const pods = machines.filter((m) => m.rented);
   let sum = 0;
@@ -122,11 +124,21 @@ export async function committedSpend(s: Services, machines: readonly Machine[], 
     for (const p of may) landing.add(p);
     sum += await mayCostEach(s, j.recipe_id, readJson(j.inputs, {}), may, rates, Boolean(j.warm));
   }
-  return sum + idleTail([...landing], rates, tokenId);
+  return { usd: sum + idleTail([...landing], rates, tokenId), jobs: jobs.length };
 }
 
-/** Why a Spend token's job waits for its cap (its Queue row says it). */
-export const CAP_FULL = "its MCP token's spend cap has no room for it on a rented pod (its renders running and waiting ahead counted): raise the cap in Settings › Interface › Access, or it runs on a machine of the user's own";
+/** The work a token has running and waiting, as a cap refusal names it (mcpTokens.ts SpendSaid). */
+export const workCommitted = (work: { usd: number; jobs: number }) => ({ what: `its ${plural(work.jobs, "job")} running and waiting on rented pods (idle time after included)`, usd: work.usd });
+
+/** Why a Spend token's job waits for its cap (its Queue row says it, capFull with the figures). */
+export const CAP_FULL = "its MCP token's spend cap has no room for it on a rented pod";
+
+/**
+ * CAP_FULL with the sum the cap was asked: the cap, what the token spent this month, its work running and waiting ahead of
+ * this job, and this job, so that the row says why it waits and not only that it does.
+ */
+const capFull = (cap: number, spent: number, ahead: number, cost: number) =>
+  `${CAP_FULL} (${dollars(cap)} a month): ${dollars(spent)} spent this month, ${dollars(ahead)} for its work running and waiting ahead, ${dollars(cost)} for this one, ${dollars(spent + ahead + cost)} in all. Raise the cap in Settings › Interface › Access, or it runs on a machine of the user's own`;
 
 /**
  * The jobs among these, queued by MCP tokens with Spend, that no rented pod takes this pass, each with why (the planner,
@@ -149,7 +161,8 @@ export async function capHeld(s: Services, rows: ReadonlyArray<{ id: string; mcp
     const token = await s.mcp.tokens.get(id);
     if (!token) continue;
     const cap = token.spendCapCents / 100;
-    let total = await s.mcp.tokens.spentThisMonth(id);
+    const spent = await s.mcp.tokens.spentThisMonth(id);
+    let total = spent;
     // the idle time its work leaves on a pod it did not start, counted once, with its first job there
     let tail = 0;
     const tailMore = (may: readonly Machine[]) => Math.max(0, idleTail(may, rates, id) - tail);
@@ -170,7 +183,7 @@ export async function capHeld(s: Services, rows: ReadonlyArray<{ id: string; mcp
       const more = tailMore(may);
       const cost = (await mayCostEach(s, j.recipe_id, readJson(j.inputs, {}), may, rates, Boolean(j.warm))) + more;
       if (total + cost > cap) {
-        if (asked.has(j.id)) out.set(j.id, CAP_FULL);
+        if (asked.has(j.id)) out.set(j.id, capFull(cap, spent, total - spent, cost));
         continue;
       }
       total += cost;
@@ -208,8 +221,12 @@ export async function mayQueueAll(s: Services, ctx: ToolCtx, at: Seen, jobs: Rea
   let usd = 0;
   for (const j of jobs) usd += (await mayCostEach(s, j.recipe, j.input, may, rates, j.warm)) * j.takes;
   // the pod's idle time once this work ends, on a pod this token did not start (its own run is counted whole as it goes)
-  usd += idleTail(may, rates, ctx.token.id);
-  await ctx.maySpend(usd + (await committedSpend(s, at.machines.map((m) => m.machine), ctx.token.id)));
+  const tail = idleTail(may, rates, ctx.token.id);
+  usd += tail;
+  const work = await committedSpend(s, at.machines.map((m) => m.machine), ctx.token.id);
+  const takes = jobs.reduce((n, j) => n + j.takes, 0);
+  const adds = `${plural(takes, "job")} on ${may.length === 1 ? quoted(machineName(may[0]!)) : `the dearest of ${plural(may.length, "pod")} up`}${tail ? ", with the pod's idle time after" : ""}`;
+  await ctx.maySpend(usd + work.usd, { committed: [workCommitted(work)], adds: { what: adds, usd } });
   return usd;
 }
 
