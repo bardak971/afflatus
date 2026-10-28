@@ -3,18 +3,22 @@ import { AGENT_MS, useTimelineEdits } from "../../agentEdits";
 import type { Clock } from "../clock";
 import { PAD, placeOf, ZOOM, type Slot } from "../model";
 import { STRIP } from "./EndColumn";
+import { keptViewOf, restoredView } from "./KeptZoom";
 
 /** What the editor's keys reach on the track: a zoom step around the playhead, and Fit all. */
 export interface TrackKeys {
   zoom(by: -1 | 1): void;
   fit(): void;
+  /** The track scrolled to have a moment (in its own time) in its middle, the zoom kept: a recording opened there. */
+  centre(ms: number): void;
 }
 
 /**
  * The track's zoom: Ctrl + wheel around the pointer (a plain wheel scrolls it sideways), a step around the playhead (the
- * editor's - and =, filled into `keys`), Fit all (Shift+Z). The whole timeline is fitted on arriving and when a clip is
- * added (not split, nor brought back by Undo; nor added by an MCP token while the zoom is the user's); a track showing the
- * whole of it keeps doing so at any width, until it is zoomed by hand.
+ * editor's - and =, filled into `keys`), Fit all (Shift+Z). Arriving, the view kept for the timeline is brought back
+ * (KeptZoom, card #140), else the whole timeline is fitted; it is fitted again when a clip is added (not split, nor brought
+ * back by Undo; nor added by an MCP token while the zoom is the user's); a track showing the whole of it keeps doing so at
+ * any width, until it is zoomed by hand.
  */
 export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clock, cursorMs, timelineId, keys }: {
   scroller: RefObject<HTMLDivElement | null>;
@@ -88,15 +92,29 @@ export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clo
     onZoom(next);
     requestAnimationFrame(() => { el.scrollLeft = Math.max(0, PAD + (layoutMs / 1000) * next - px); });
   };
-  if (keys) keys.current = { zoom: zoomAtHead, fit: fitAll };
-  // arriving on a timeline, the whole of it is in view; zooming after that is the person's
+  /** A moment (in the track's own time) brought to the middle of the view, the zoom kept. */
+  const centre = (ms: number) => {
+    const el = scroller.current;
+    if (el) el.scrollLeft = Math.max(0, PAD + (ms / 1000) * ppsNow.current - el.clientWidth / 2);
+  };
+  if (keys) keys.current = { zoom: zoomAtHead, fit: fitAll, centre };
+  // arriving on a timeline: the view it was left with (its zoom and scroll, made to fit what it is now), else the whole of
+  // it; zooming after that is the person's
   const fittedFor = useRef<string | null>(null);
   useEffect(() => {
     if (fitMs <= 0 || fittedFor.current === timelineId) return;
     // marked done only once it has run: a frame cancelled (the length settling a render later) asks again
     const id = requestAnimationFrame(() => {
       fittedFor.current = timelineId;
-      fitAll();
+      const kept = keptViewOf(timelineId);
+      if (!kept || kept.whole) return fitAll();
+      const view = restoredView(kept, fitMs, scroller.current?.clientWidth ?? 800);
+      whole.current = false;
+      onZoom(view.pps);
+      // a frame later, once the track is drawn at that zoom (wide enough to scroll that far)
+      requestAnimationFrame(() => {
+        if (scroller.current) scroller.current.scrollLeft = Math.max(0, PAD + (view.fromMs / 1000) * view.pps);
+      });
     });
     return () => cancelAnimationFrame(id);
     // once per timeline, when its length is known
@@ -147,5 +165,5 @@ export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clo
     return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fitted when clips come or the length changes, not when fitAll is made anew
   }, [ids, clipsMs, fitMs, timelineId]);
-  return { zoomTo, fitAll };
+  return { zoomTo, fitAll, kept: { whole: () => whole.current, ready: () => fittedFor.current === timelineId } };
 }

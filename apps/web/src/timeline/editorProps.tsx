@@ -177,7 +177,7 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     recordingOpen: e.recordingOpen,
     stageEndMs: e.recordingAt ? stageEndOf(e) : null,
     onView: e.recordingAt ? e.trackView.set : undefined,
-    onOpenRecording: (asset) => e.openRecording(asset),
+    onOpenRecording: (asset, atMs) => e.openRecordingAt(asset, atMs),
     onSource: (asset) => {
       // the model the windows are made with: that of an empty clip given one that makes a source window by window (the one
       // selected, else the first; the owner picked Swap motion on a new clip, then dropped the source, and got Swap

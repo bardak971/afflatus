@@ -1,4 +1,4 @@
-import { useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Mic } from "lucide-react";
 import { madeAroundRecording, trimIn } from "@afflatus/core";
 import type { Clip, RecipeInfo, Timeline } from "../../api";
@@ -9,7 +9,7 @@ import { RemovedMark } from "./RemovedMark";
 import { SOUND } from "./rows";
 import { edgeGive, resisted } from "./spring";
 import { useSpringBack } from "./useSpringBack";
-import type { Slot } from "../model";
+import { PAD, type Slot } from "../model";
 
 /**
  * The input a model takes a recording in, part by part, and where in it each clip's part starts and lasts: Lip sync's, made
@@ -117,9 +117,11 @@ export function clipsOfRecording(clips: Clip[], recipes: RecipeInfo[], asset: st
  * The voice recordings of a timeline on its Audio row (the rethink's recording lane): each drawn as one band under the Lip
  * sync clips made of it, its name and the stretch of it they use. Its body dragged slips it (the same length, another part
  * of the recording: the clips made anew), its left edge moves its start (made anew), its right edge its end (clips set
- * aside or brought back, more made at its pauses), as the Recording chapter's In and Out do.
+ * aside or brought back, more made at its pauses), as the Recording chapter's In and Out do. A click anywhere on it opens
+ * the recording at the moment clicked (card #140: only its name did, and a long timeline zoomed in was scrolled back to
+ * the recording's start for every look); its clips are clicked on the Video row.
  */
-export function RecordingBands({ timeline, slots, recipes, pps, onTrim, onBringBack, onSelect, onOpen, open = null }: {
+export function RecordingBands({ timeline, slots, recipes, pps, onTrim, onBringBack, onSelect, onOpen, onMenu, open = null, passDrops = false }: {
   timeline: Timeline;
   slots: Slot[];
   recipes: RecipeInfo[];
@@ -133,21 +135,28 @@ export function RecordingBands({ timeline, slots, recipes, pps, onTrim, onBringB
   onBringBack?(before: string): void;
   /** A click on a band without `onOpen`: its first clip opened (its Recording chapter). */
   onSelect(clip: string): void;
-  /** A click on a band: the recording opened on the stage and in the column, as the source lane opens. */
-  onOpen?(asset: string): void;
+  /**
+   * A click on a band: the recording opened on the stage and in the column, as the source lane opens, its playhead at the
+   * moment clicked (`atMs`, in the track's own time); none from the keyboard (where the playhead stands).
+   */
+  onOpen?(asset: string, atMs?: number): void;
+  /** A right-click on a band: the menu of the clip under it, as its Audio cell, which the band covers, gave it. */
+  onMenu?(e: ReactMouseEvent, atMs: number): void;
   /** The recording open (its asset's id): its band outlined. */
   open?: string | null;
+  /** Something is dragged over the track: the bands let it through to the clips' Audio cells under them (their drops). */
+  passDrops?: boolean;
 }) {
   return (
     <>
       {(timeline.recordings ?? []).map((r) => (
-        <Band key={r.asset.id} recording={r} slots={slots} recipes={recipes} pps={pps} onTrim={onTrim} onBringBack={onBringBack} onSelect={onSelect} onOpen={onOpen} open={open === r.asset.id} />
+        <Band key={r.asset.id} recording={r} slots={slots} recipes={recipes} pps={pps} onTrim={onTrim} onBringBack={onBringBack} onSelect={onSelect} onOpen={onOpen} onMenu={onMenu} open={open === r.asset.id} passDrops={passDrops} />
       ))}
     </>
   );
 }
 
-function Band({ recording, slots, recipes, pps, onTrim, onBringBack, onSelect, onOpen, open }: {
+function Band({ recording, slots, recipes, pps, onTrim, onBringBack, onSelect, onOpen, onMenu, open, passDrops }: {
   recording: NonNullable<Timeline["recordings"]>[number];
   slots: Slot[];
   recipes: RecipeInfo[];
@@ -155,10 +164,13 @@ function Band({ recording, slots, recipes, pps, onTrim, onBringBack, onSelect, o
   onTrim?(asset: string, fromMs: number, toMs: number): Promise<boolean> | void;
   onBringBack?(before: string): void;
   onSelect(clip: string): void;
-  onOpen?(asset: string): void;
+  onOpen?(asset: string, atMs?: number): void;
+  onMenu?(e: ReactMouseEvent, atMs: number): void;
   open: boolean;
+  passDrops: boolean;
 }) {
-  const [held, setHeld] = useState<{ kind: "slip" | "start" | "end"; x: number; fromMs: number; toMs: number; moved: boolean; drawFrom?: number; drawTo?: number } | null>(null);
+  const [held, setHeld] = useState<{ kind: "slip" | "start" | "end"; x: number; atMs: number; fromMs: number; toMs: number; moved: boolean; drawFrom?: number; drawTo?: number } | null>(null);
+  const box = useRef<HTMLDivElement>(null);
   /**
    * The stretch released, drawn until its trim settles: back to the old one meanwhile, the band looked as if the drag had
    * not been taken, and invited a second one. Let go on the settle, taken or not (taken, its clips are read back by then):
@@ -209,11 +221,13 @@ function Band({ recording, slots, recipes, pps, onTrim, onBringBack, onSelect, o
       // a pointer that cannot be captured is followed while it stays over the band
     }
     back.stop();
-    setHeld({ kind, x: e.clientX, fromMs: base.fromMs, toMs: base.toMs, moved: false });
+    setHeld({ kind, x: e.clientX, atMs: momentOf(e.clientX), fromMs: base.fromMs, toMs: base.toMs, moved: false });
   };
   const clipsNow = mine.map((s) => s.clip);
-  /** A click (a press let go without a move): the recording opened, else its first clip. */
-  const opened = () => (onOpen ? onOpen(asset) : onSelect(mine[0]!.clip.id));
+  /** The moment of the track under the pointer, in the track's own time (the band starts `left` px into the track). */
+  const momentOf = (clientX: number) => Math.max(0, Math.round(((left + clientX - (box.current?.getBoundingClientRect().left ?? 0) - PAD) / pps) * 1000));
+  /** A click (a press let go without a move): the recording opened at the moment clicked, else its first clip. */
+  const opened = (atMs?: number) => (onOpen ? onOpen(asset, atMs) : onSelect(mine[0]!.clip.id));
   /** Where an end let go of at `to` comes to rest: onto a rendered clip's nearer end. */
   const restOf = (to: number) => (to !== base.toMs ? recordingEndRest(clipsNow, input, toMs, to) : to);
   /** The part dragged as drawn now, in px along the track (what the spring still carries included). */
@@ -267,7 +281,7 @@ function Band({ recording, slots, recipes, pps, onTrim, onBringBack, onSelect, o
         void asked.then(() => setSent((now) => (now === ours ? null : now)));
       }
     }
-    else if (held && !held.moved) opened();
+    else if (held && !held.moved) opened(held.atMs);
     setHeld(null);
   };
   const cancel = () => {
@@ -277,28 +291,42 @@ function Band({ recording, slots, recipes, pps, onTrim, onBringBack, onSelect, o
   // an edge: 8 px lit on hover, 24 px to take (WCAG 2.5.8)
   const edge = "pointer-events-auto absolute top-0 bottom-0 w-2 cursor-ew-resize rounded-sm before:absolute before:inset-y-0 before:-inset-x-2 before:content-[''] hover:bg-accent/40";
   return (
+    // the whole band takes the press (a removed part's mark keeps its own): let go where it was pressed, the recording opens
+    // there; dragged, it slips. The presses on its edges and on its name come up to it, so each is handled once
     <div
+      ref={box}
       aria-label={`Recording ${recording.asset.name}: ${stretch}`}
       style={{ left, width: Math.max(12, right - left), top: SOUND.top - 2, height: SOUND.height + 4 }}
       data-open={open || undefined}
-      className={cx("pointer-events-none absolute z-10 rounded-md", open ? "border-2 border-accent shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_22%,transparent)]" : "border-[1.5px]", !open && (held?.moved ? "border-accent" : "border-accent/60"))}
+      data-recording-band={asset}
+      onPointerDown={onTrim ? down("slip") : undefined}
+      onPointerMove={move}
+      onPointerUp={up}
+      onPointerCancel={cancel}
+      onClick={onTrim ? undefined : (e) => opened(momentOf(e.clientX))}
+      onContextMenu={onMenu ? (e) => onMenu(e, momentOf(e.clientX)) : undefined}
+      className={cx(
+        "absolute z-10 rounded-md",
+        passDrops ? "pointer-events-none" : "pointer-events-auto",
+        onTrim && (held?.moved ? "cursor-grabbing" : "cursor-grab"),
+        open ? "border-2 border-accent shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_22%,transparent)]" : "border-[1.5px]",
+        !open && (held?.moved ? "border-accent" : "border-accent/60"),
+      )}
     >
       {/* the parts of the clips it plays over (another form, card #72): hatched, the recording heard over them unchanged; under its name */}
       {over.map((s) => <span key={s.clip.id} aria-hidden data-plays-over={s.index + 1} style={{ left: s.left - left, width: s.width }} className="pointer-events-none absolute inset-y-0 bg-[repeating-linear-gradient(135deg,color-mix(in_srgb,var(--color-accent)_22%,transparent)_0_5px,transparent_5px_10px)]" />)}
-      {onTrim && <span aria-hidden data-tip="Drag: where the recording starts (its clips made anew)" onPointerDown={down("start")} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} className={cx(edge, "-left-[4px]")} />}
+      {onTrim && <span aria-hidden data-tip="Drag: where the recording starts (its clips made anew)" onPointerDown={down("start")} className={cx(edge, "-left-[4px]")} />}
       <span
         role="button"
         tabIndex={0}
         aria-label={`Recording ${recording.asset.name}, ${stretch}${recording.parked ? `, ${recording.parked} set aside` : ""}`}
         aria-pressed={onOpen ? open : undefined}
-        data-tip={`${recording.asset.name}: ${stretch} of it, under ${plural(mine.length, "clip")}${over.length ? ` (${over.length} it plays over)` : ""}. ${onOpen ? "Click to open it on the stage; drag" : "Drag"} it to slip (another part of it, its clips made anew), its edges to trim${recording.parked ? `; ${recording.parked} set aside past its end, back when it is made longer` : ""}`}
+        data-tip={`${recording.asset.name}: ${stretch} of it, under ${plural(mine.length, "clip")}${over.length ? ` (${over.length} it plays over)` : ""}. ${onOpen ? "Click anywhere on it to open it on the stage from there; drag" : "Drag"} it to slip (another part of it, its clips made anew), its edges to trim${recording.parked ? `; ${recording.parked} set aside past its end, back when it is made longer` : ""}`}
+        // from the keyboard: opened where the playhead stands
         onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && opened()}
-        onPointerDown={onTrim ? down("slip") : undefined}
-        onPointerMove={move}
-        onPointerUp={up}
-        onPointerCancel={cancel}
-        onClick={onTrim ? undefined : opened}
-        className={cx("pointer-events-auto absolute top-1 left-3 flex h-6 max-w-[calc(100%-24px)] items-center gap-1 rounded bg-panel/90 px-1.5 text-micro font-semibold text-accent", onTrim && "cursor-grab active:cursor-grabbing")}
+        // kept in view at the track's left while the band runs on past it (sticky inside the band, in the track's
+        // scroller): a long timeline zoomed in showed it only at the recording's start
+        className="sticky left-3 mt-1 ml-3 flex h-6 w-fit max-w-[calc(100%-24px)] items-center gap-1 rounded bg-panel/90 px-1.5 text-micro font-semibold text-accent"
       >
         <Mic size={11} className="shrink-0" />
         <span className="truncate">{recording.asset.name} · {stretch}{recording.parked ? ` · +${recording.parked}` : ""}{open ? " · open on the stage" : ""}</span>
@@ -308,7 +336,7 @@ function Band({ recording, slots, recipes, pps, onTrim, onBringBack, onSelect, o
         const after = mine.find((s) => s.clip.id === p.before);
         return after ? <RemovedMark key={p.before} part={p} left={after.left - left} number={after.index + 1} onBringBack={onBringBack} /> : null;
       })}
-      {onTrim && <span aria-hidden data-tip="Drag: where the recording ends (clips set aside, or brought back and added at its pauses)" onPointerDown={down("end")} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} className={cx(edge, "-right-[4px]")} />}
+      {onTrim && <span aria-hidden data-tip="Drag: where the recording ends (clips set aside, or brought back and added at its pauses)" onPointerDown={down("end")} className={cx(edge, "-right-[4px]")} />}
     </div>
   );
 }

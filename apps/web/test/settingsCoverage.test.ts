@@ -91,6 +91,7 @@ const BROWSER: Record<string, string> = {
   "afflatus.open-draft": "internal: the open draft",
   "afflatus.panel-width": "internal: the form panel's width, dragged by its edge",
   "afflatus.player.volume": "internal: the player's volume, set on it",
+  "afflatus.track.zoom": "internal: the timeline track's zoom and scroll, per timeline, set on the track",
   "afflatus.project": "internal: the project worked in",
   "afflatus.projects.kind": "internal: the Projects panel's filter",
   "afflatus.projects.open": "internal: the Projects panel's open rows",

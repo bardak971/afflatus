@@ -27,6 +27,7 @@ import { TrackRuler } from "./track/TrackRuler";
 import { useClipDrag, type ClipMove } from "./track/useClipDrag";
 import { useRangeDrag } from "./track/useRangeDrag";
 import { useStretch } from "./track/useStretch";
+import { KeptZoom } from "./track/KeptZoom";
 import { useTrackZoom, type TrackKeys } from "./track/useTrackZoom";
 import { useTrackView, type TrackView } from "./track/useTrackView";
 import { LEGEND, useTrackDrop } from "./track/useTrackDrop";
@@ -126,7 +127,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onBringBack?(before: string): void;
   /** The recording open on the stage (its asset's id; its band outlined), and a band clicked: that recording opened. */
   recordingOpen?: string | null;
-  onOpenRecording?(asset: string): void;
+  /** A recording's band clicked: opened on the stage, from the moment clicked (in the track's own time; none from the keyboard). */
+  onOpenRecording?(asset: string, atMs?: number): void;
   /** The stage plays a recording (in the track's own time, up to here): the playhead stands where it is heard, clips or not. */
   stageEndMs?: number | null;
   /** The stretch of the timeline the track shows, said as its scroll, zoom or width changes (the recording's stage follows it). */
@@ -249,7 +251,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const { playEnd, measureOf, motion, snapRange, band, rangeMenuAt } = useRangeDrag({ slots, clips, timeline, pps, clock, snapQuiet, range, xOf, onRangeMenu });
 
   useTrackView(scroller, pps, onView);
-  const { zoomTo, fitAll } = useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clock, cursorMs, timelineId: timeline.id, keys });
+  const { zoomTo, fitAll, kept } = useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clock, cursorMs, timelineId: timeline.id, keys });
 
   /** A Lip sync clip's voice as its face says it: the recording's name, null while it has none; undefined for any other clip. */
   const voiceName = (c: Clip) => {
@@ -344,7 +346,25 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
             })}
 
             {/* the voice recordings, each a band under the Lip sync clips made of it */}
-            <RecordingBands timeline={timeline} slots={slots} recipes={recipes} pps={pps} onTrim={onRecordingTrim} onBringBack={onBringBack} onSelect={onSelect} onOpen={onOpenRecording} open={recordingOpen} />
+            <RecordingBands
+              timeline={timeline}
+              slots={slots}
+              recipes={recipes}
+              pps={pps}
+              onTrim={onRecordingTrim}
+              onBringBack={onBringBack}
+              onSelect={onSelect}
+              onOpen={onOpenRecording}
+              // right-clicked: the menu of the clip under it, as its Audio cell gave it before the band covered it
+              onMenu={onSoundMenu ? (e, atMs) => {
+                const s = slots.find((k) => atMs < k.startMs + k.lengthMs) ?? slots.at(-1);
+                if (!s) return;
+                onSelect(s.clip.id);
+                onSoundMenu(s.clip, e);
+              } : undefined}
+              open={recordingOpen}
+              passDrops={Boolean(dragging)}
+            />
 
             {/* the end column: New clip, a voice recording, a long video, the three drops that add their clips after the last one.
                 After the last clip, and over the clips only while they run past the view (pinned at its right edge: at 1440 px
@@ -408,6 +428,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
             <Playhead clock={clock} slots={slots} cursorMs={cursorMs} totalMs={totalMs} pps={pps} free={sourceMode || stageEndMs !== null} />
             <FramePeek area={inner} floor={floor} slots={slots} clips={clips} recipes={recipes} pps={pps} totalMs={totalMs} paused={Boolean(pinOver || stretch || dragging || moved)} />
             {lanes.node}
+            <KeptZoom scroller={scroller} pps={pps} timeline={timeline.id} whole={kept.whole} ready={kept.ready} />
             {pinOver && (() => {
               const s = slots.find((x) => x.clip.id === pinOver.clip);
               const r = floor.current?.getBoundingClientRect();
