@@ -62,7 +62,7 @@ export interface H3Video extends ColourMatch {
   upscaleBy: number;
   upscaleModel: string;
   upscaleColour?: string;
-  upscaleDenoise: number;
+  upscaleNoise: number;
   upscaleSteps: number;
   upscaleTile: number;
   upscaleOverlap: number;
@@ -187,10 +187,11 @@ export const h3Inputs: InputSpec[] = [
   ...COLOUR_MATCH_INPUTS,
   ...FACE_REFINE_INPUTS,
   {
-    id: "upscaleDenoise", type: "number", label: "Upscale denoise", min: 0.05, max: 0.6, step: 0.01, default: 0.15, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
-    note: "denoising strength of the re-sampling, on the model's shift: at shift 11, 0.15 starts near sigma 0.66, 0.3 near 0.82. More draws more detail but shifts colour and light and lets each tile decide on its own. A plain resize of the latent (no H3 latent upscaler file) needs 0.3 or more, else it stays soft",
+    id: "upscaleNoise", type: "number", label: "Upscale denoise", min: 0.05, max: 0.95, step: 0.01, default: 0.25, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
+    fromDenoise: { id: "upscaleDenoise", steps: "upscaleSteps", shift: "shiftVideo", oldDefault: { denoise: 0.15, steps: 2 } },
+    note: "the noise level the re-sampling starts at (sigma), whatever the shift: 0.25 re-noises to 25 %, then eases down to 0.012 and 0 over the steps (karras). Higher redraws more detail, but moving edges flicker more and mouths and faces drift from the draft. A plain resize of the latent (no H3 latent upscaler file) needs about 0.8 or more, else it stays soft",
   },
-  { id: "upscaleSteps", type: "number", label: "Upscale steps", min: 1, max: 6, step: 1, default: 2, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "steps of the re-sampling: 1 only sharpens, 2 adds detail, more is rarely worth it; each step is a pass over the whole clip" },
+  { id: "upscaleSteps", type: "number", label: "Upscale steps", min: 1, max: 6, step: 1, default: 3, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "steps of the re-sampling, from its denoise down to 0: 1 goes there in one jump, 3 eases down gently; each step is a pass over the whole clip" },
   {
     id: "upscaleWith", type: "choice", label: "Latent upscaler", options: ["H3's latent upscaler", "Plain resize"], renamed: { Auto: "H3's latent upscaler" }, default: "H3's latent upscaler", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
     note: "H3's own 3D upscaler model; while its file is not in ComfyUI, a plain resize is used instead: a bicubic resize of the latent, which is soft unless the re-sampling has steps and denoise to work with. The file is one click in Settings → Models, under MiniMax H3",

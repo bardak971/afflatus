@@ -55,7 +55,8 @@ export interface FinishSettings {
   factor: number;
   colour: "lab" | "wavelet" | "adain" | "none";
   upscaleModel: string;
-  latentDenoise: number;
+  /** H3's latent re-sample: the σ it starts at, eased to 0 over its steps. */
+  latentNoise: number;
   latentSteps: number;
   /** Face refine's denoise on the smallest faces. */
   faceDenoise?: number;

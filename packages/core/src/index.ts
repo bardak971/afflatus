@@ -33,3 +33,4 @@ export * from "./graphFiles";
 export * from "./modelSet";
 export * from "./trims";
 export * from "./carryOver";
+export * from "./sigmas";

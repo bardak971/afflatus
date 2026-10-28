@@ -1,4 +1,4 @@
-import { latentUpscaleSize, type BuildContext, type GraphBuilder, type Ref } from "@afflatus/core";
+import { latentUpscaleSize, RESAMPLE_SIGMA_FLOOR, type BuildContext, type GraphBuilder, type Ref } from "@afflatus/core";
 import { UPSCALE } from "../video/upscale";
 import type { H3Video } from "./inputs";
 import { AUTO_SAMPLER } from "./model";
@@ -84,7 +84,10 @@ export function latentUpscalePass(g: GraphBuilder, ctx: BuildContext, input: H3V
   return g.out("MMH3UltimateUpscale", {
     model, conditioning: positive, latent, noise: g.out("RandomNoise", { noise_seed: ctx.seed + 1 }),
     sampler: g.out("KSamplerSelect", { sampler_name: input.sampler !== AUTO_SAMPLER ? input.sampler : turbo ? "euler" : "res_multistep" }),
-    sigmas: g.out("BasicScheduler", { model, scheduler: input.scheduler, steps: input.upscaleSteps, denoise: input.upscaleDenoise }),
+    // the denoise is the σ it starts at, eased to 0.012 on a karras curve, then 0. A BasicScheduler denoise at the model's
+    // shift started far higher than it said (0.15 over 2 steps at shift 8: σ 0.593, then 0.400 → 0) and redrew mouths;
+    // from 0.25 the clip flickered 23 % less and kept the draft's likeness (card #138, variant E)
+    sigmas: g.out("KarrasScheduler", { steps: input.upscaleSteps, sigma_max: input.upscaleNoise, sigma_min: RESAMPLE_SIGMA_FLOOR, rho: 7 }),
     cfg: 1, latent_upscale_param: enlarge, temporal_split_param: stretches, spatial_split_param: tiles,
   });
 }

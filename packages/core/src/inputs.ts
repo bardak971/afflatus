@@ -2,6 +2,7 @@ import { z } from "zod";
 import { endsIn, MODEL_EXTS } from "./modelFiles";
 import { withinPixels } from "./frame";
 import { gridAtOrBefore, type FrameGrid } from "./frameGrid";
+import { sigmaOfOldDenoise } from "./sigmas";
 
 /**
  * The closed vocabulary of controls. A recipe declares its inputs as a list of these; the composer
@@ -127,6 +128,13 @@ interface NumberInput extends Base {
    * draft or saved setting holds is read as left alone (the default, or where a choice moves it), never as 0.
    */
   oldZero?: true;
+  /**
+   * The σ a re-sample starts at, once saved under another id as BasicScheduler's denoise (a share of a "simple" schedule's
+   * steps, much more noise than it said at a shift): an older value is read as the σ it really started at, worked out
+   * with the steps and video shift saved beside it (the shift input's default when none is). The pair the form used to
+   * start on (`oldDefault`) was never a choice: it is left out, and the new defaults apply (card #141).
+   */
+  fromDenoise?: { id: string; steps: string; shift: string; oldDefault: { denoise: number; steps: number } };
   /**
    * 0 is taken too, below `min`, and means the recipe picks the value (said as this word): the steps then count from
    * `min`, so that a grid like SeedVR2's 1, 5, 9 … 49 is what the arrows give, with 0 for "by the frame's size".
@@ -573,10 +581,34 @@ export function plannedSeconds(specs: InputSpec[], values: Record<string, unknow
   return null;
 }
 
-/** A form's values without the 0s older drafts saved for "the recipe picks it" (`oldZero`): those settings are left alone. */
+/**
+ * A form's saved values as they read today: without the 0s older drafts saved for "the recipe picks it" (`oldZero`), those
+ * settings left alone, and with an older denoise read as the σ it started at (`fromDenoise`).
+ */
 export function withoutOldZeros(specs: readonly InputSpec[], values: Record<string, unknown>): Record<string, unknown> {
   const old = new Set(specs.filter((s) => s.type === "number" && s.oldZero).map((s) => s.id));
-  return Object.fromEntries(Object.entries(values).filter(([id, v]) => !(old.has(id) && v === 0)));
+  return fromOldDenoise(specs, Object.fromEntries(Object.entries(values).filter(([id, v]) => !(old.has(id) && v === 0))));
+}
+
+function fromOldDenoise(specs: readonly InputSpec[], values: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...values };
+  for (const spec of specs) {
+    const was = spec.type === "number" ? spec.fromDenoise : undefined;
+    if (spec.type !== "number" || !was || !(was.id in out)) continue;
+    const denoise = out[was.id];
+    delete out[was.id];
+    // a value saved under the new id is the one that counts
+    if (spec.id in out || typeof denoise !== "number" || !(denoise > 0)) continue;
+    const steps = typeof out[was.steps] === "number" ? (out[was.steps] as number) : was.oldDefault.steps;
+    const shiftSpec = specs.find((s) => s.id === was.shift);
+    const savedShift = out[was.shift];
+    const shift = typeof savedShift === "number" && savedShift > 0 ? savedShift : shiftSpec?.type === "number" ? shiftSpec.default : 1;
+    const sigma = sigmaOfOldDenoise({ denoise, steps, shift }, was.oldDefault);
+    // the pair the form started on: both left out, the form's new ones apply
+    if (sigma === null) delete out[was.steps];
+    else out[spec.id] = Math.min(spec.max, Math.max(spec.min, sigma));
+  }
+  return out;
 }
 
 /**

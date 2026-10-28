@@ -55,8 +55,9 @@ export const h3Video = defineRecipe<H3Video & Partial<Recording>>({
       ...routeNodes,
       ...(refinesOnly(input) ? ["UNETLoader"] : unetNodes(input.model)), "CLIPLoader", "VAELoader", "MiniMaxH3SigmaShift", how.reference ? "MiniMaxH3ReferenceToVideo" : "MiniMaxH3ImageToVideo", "RandomNoise", "KSamplerSelect",
       // the latent route runs on the third-party H3 nodes (so a ComfyUI without them is refused up front, not quietly left at the
-      // original size), decodes the enlarged latent in tiles, and the model's own frames plainly for the raw side file
-      "BasicScheduler", "BasicGuider", "SamplerCustomAdvanced", ...(input.upscale === UPSCALE.latent ? [...H3_LATENT_UPSCALE_NODES, "VAEDecodeTiled", "VAEDecode"] : ["VAEDecode"]), "VAEDecodeAudio",
+      // original size), eases its noise down on a karras curve, decodes the enlarged latent in tiles, and the model's own frames
+      // plainly for the raw side file
+      "BasicScheduler", "BasicGuider", "SamplerCustomAdvanced", ...(input.upscale === UPSCALE.latent ? [...H3_LATENT_UPSCALE_NODES, "KarrasScheduler", "VAEDecodeTiled", "VAEDecode"] : ["VAEDecode"]), "VAEDecodeAudio",
       ...(input.quick ? ["ModelAttentionBackend"] : []),
       ...(turboLora || input.loras.some((l) => l.weight !== 0) ? ["LoraLoaderModelOnly"] : []),
       ...(how.start || how.end || input.mid || input.references.length ? ["LoadImage"] : []),
