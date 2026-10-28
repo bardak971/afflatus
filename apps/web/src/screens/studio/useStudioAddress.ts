@@ -17,7 +17,8 @@ export function useStudioAddress({ forced, onTimelines }: { forced?: boolean; on
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.key.toLowerCase() !== "n" || e.ctrlKey || e.metaKey || e.altKey || !plainKey(e) || document.querySelector("[role=dialog][aria-modal=true]")) return;
       e.preventDefault();
-      useStudio.getState().set({ form: !useStudio.getState().form });
+      // folded by hand: the Studio no longer opens with it (store.ts)
+      useStudio.getState().set(useStudio.getState().form ? { form: false, folded: true } : { form: true });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
