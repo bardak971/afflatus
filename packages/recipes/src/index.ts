@@ -64,7 +64,7 @@ export { LTX_REFINE_SIGMAS, LTX_SIGMAS } from "./ltx/video";
 export type { LtxVideo } from "./ltx/video";
 export type { WanVideo } from "./wan/video";
 export { h3Canvas, h3Frames, H3_FPS } from "./h3/family";
-export { pixelUpscale, RTX_NODES, seedvrChunk, sharpened, UPSCALE, upscaleNodes } from "./video/upscale";
+export { isSeedvr7b, pixelUpscale, RTX_NODES, seedvrChunk, seedvrWindow, sharpened, UPSCALE, upscaleNodes } from "./video/upscale";
 export { saveVideo } from "./shared/out";
 export { AUDIO_LOCK, FACE_REFINE_MASK, FACE_REFINE_NODES, faceRefined, faceRefineNeeds, faceRefineSkipped } from "./h3/faceRefine";
 export { h3Prompt, h3ReferencePrompt, isH3Layout } from "./h3/prompt";

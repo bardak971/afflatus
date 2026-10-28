@@ -48,6 +48,45 @@ export function seedvrChunk(megapixels: number, asked = 0): number {
   if (asked > 0) return Math.max(1, Math.ceil((Math.round(asked) - 1) / 4 - 0.5) * 4 + 1);
   return fourN1(Math.min(SEEDVR_CHUNK, (SEEDVR_CHUNK * SEEDVR_CHUNK_AT_MPX) / Math.max(0.1, megapixels)));
 }
+/**
+ * SeedVR2 7B's window, the owner's pick from card #148's test (2026-10-28, an A40, 124 frames doubled to 2048 × 1152): 49
+ * frames (13 latent) with 2 latent frames shared by neighbouring passes, which ComfyUI's merge crossfades. Three passes
+ * instead of 25 of 5 frames, the model step the same 27 s, no bump at the joins, and cleaner to his eye.
+ */
+const SEEDVR_7B_FRAMES = 49;
+const SEEDVR_7B_OVERLAP = 2;
+/** The narrowest 7B window: two latent frames, so that each still sees a neighbour. */
+const SEEDVR_7B_FLOOR = 5;
+/**
+ * ComfyUI's own law for its "auto" chunk (comfy/ldm/seedvr/constants.py, fitted on the 3B in fp16): the sampler takes 0.55
+ * GiB per latent frame and megapixel, beside 8.5 GiB for the model and torch and four times a 0.55 GiB spread.
+ */
+const SEEDVR_GIB_PER_MPX_LATENT = 0.55;
+const SEEDVR_RESERVED_GIB = 8.5 + 4 * 0.55;
+
+/** Whether a SeedVR2 model file is the 7B (plain or sharp, any precision): Comfy-Org's and numz's names both say "7b". */
+export const isSeedvr7b = (file: string | undefined): boolean => /(^|[^0-9])7b/i.test(file ?? "");
+
+/**
+ * The window SeedVR2 restores in, and the latent frames neighbouring passes share. The 3B: seedvrChunk, no overlap, as
+ * before card #148 (its window was never tried wider). The 7B: the frames asked for, else SEEDVR_7B_FRAMES where the card
+ * holds them by ComfyUI's law on its whole memory (`vram`, GiB), else the widest 4n + 1 it holds, never under
+ * SEEDVR_7B_FLOOR; a card not known, the 12 GB rule (seedvrChunk) with the same floor. ComfyUI's own "auto" asks what is
+ * free when the chunk is cut, and on a 12 GB card chose one frame a pass. The overlap from 13 frames up, where each pass
+ * still moves on two latent frames or more; below, it would run every frame twice or more.
+ */
+export function seedvrWindow(megapixels: number, opts: { asked?: number; big?: boolean; vram?: number } = {}): { frames: number; overlap: number } {
+  const asked = opts.asked ?? 0;
+  if (!opts.big) return { frames: seedvrChunk(megapixels, asked), overlap: 0 };
+  const frames = asked > 0 ? seedvrChunk(megapixels, asked) : seedvr7bFits(megapixels, opts.vram);
+  return { frames, overlap: frames >= 13 ? SEEDVR_7B_OVERLAP : 0 };
+}
+
+function seedvr7bFits(megapixels: number, vram: number | undefined): number {
+  if (!vram) return Math.max(SEEDVR_7B_FLOOR, seedvrChunk(megapixels));
+  const latents = Math.floor((vram - SEEDVR_RESERVED_GIB) / (SEEDVR_GIB_PER_MPX_LATENT * Math.max(0.1, megapixels)));
+  return Math.max(SEEDVR_7B_FLOOR, Math.min(SEEDVR_7B_FRAMES, 4 * (latents - 1) + 1));
+}
 export const SEEDVR_NODES = ["ResizeImageMaskNode", "SeedVR2Preprocess", "VAEEncode", "SeedVR2Conditioning", "KSampler", "SeedVR2TemporalChunk", "SeedVR2TemporalMerge", "VAEDecode", "SeedVR2PostProcessing", "UNETLoader", "VAELoader"];
 /** What every video family (and the image tools) declare to hold SeedVR2's two files. */
 export const SEEDVR_SLOTS = [
@@ -75,7 +114,7 @@ export interface UpscaleValues {
   upscaleBy: number;
   upscaleModel: string;
   upscaleColour?: string;
-  /** SeedVR2: frames restored together; 0 = by the frame's size (see seedvrChunk). */
+  /** SeedVR2: frames restored together; 0 = the model's own (see seedvrWindow). */
   seedvrFrames?: number;
   /** RCAS after a pixel route, 0 to 1; 0 (the default) = off (see `sharpened`). */
   upscaleSharpen?: number;
@@ -94,8 +133,8 @@ export function upscaleInputs(opts: { latent?: boolean } = {}): InputSpec[] {
       note: "the restored frames matched in colour to the originals: lab (the most faithful), wavelet (keeps the new fine detail), adain (a global tint), none",
     },
     {
-      id: "seedvrFrames", type: "number", label: "SeedVR2 frames together", min: 1, max: 49, step: 4, default: 0, auto: "by size", section: "out", advanced: true, showWhen: { input: "upscale", in: [UPSCALE.seedvr] },
-      note: "how many frames SeedVR2 restores in one pass (1, 5, 9, 13…). By size (the left end): 9 at about 1.7 megapixels and fewer for larger frames. More frames see more of their neighbours (steadier) but need more video memory; past what the card holds it spills into system memory and slows to a crawl, and fewer is then faster",
+      id: "seedvrFrames", type: "number", label: "SeedVR2 frames together", min: 1, max: 49, step: 4, default: 0, auto: "auto", section: "out", advanced: true, showWhen: { input: "upscale", in: [UPSCALE.seedvr] },
+      note: "SeedVR2's window: how many frames it restores together in one pass (1, 5, 9, 13…), each seeing the others. Wider is steadier from frame to frame and has fewer joins. Auto (the left end): the 7B takes 49, with 2 latent frames crossfaded between passes, or the widest the card holds, never under 5; the 3B goes by the frame's size (9 at about 1.7 megapixels, fewer for larger frames). More frames need more video memory; past what the card holds it spills into system memory and slows to a crawl, and fewer is then faster",
     },
     {
       id: "upscaleBy", type: "number", label: "Upscale factor", min: 1.25, max: 3, step: 0.25, default: 2, unit: " ×", section: "out",
@@ -209,9 +248,9 @@ export function seedvrUpscale(g: GraphBuilder, images: Ref, input: { upscaleBy: 
   const vae = g.out("VAELoader", { vae_name: slots.seedvrVae });
   const model = loadUnet(g, ctx, slots.seedvr);
   const latent = g.out("VAEEncode", { pixels: padded, vae });
-  // a fixed number of frames together (see SEEDVR_CHUNK), no overlap (the template's); the merge is a plain join then
-  const frames = seedvrChunk(size ? (size.width * size.height) / 1e6 : SEEDVR_CHUNK_AT_MPX, input.seedvrFrames ?? 0);
-  const chunks = g.add("SeedVR2TemporalChunk", { latent, temporal_overlap: 0, chunking_mode: "manual", "chunking_mode.frames_per_chunk": frames });
+  // a fixed window (see seedvrWindow), counted in pixel frames; the overlap is in latent frames, crossfaded by the merge
+  const { frames, overlap } = seedvrWindow(size ? (size.width * size.height) / 1e6 : SEEDVR_CHUNK_AT_MPX, { asked: input.seedvrFrames ?? 0, big: isSeedvr7b(slots.seedvr), vram: ctx.vram });
+  const chunks = g.add("SeedVR2TemporalChunk", { latent, temporal_overlap: overlap, chunking_mode: "manual", "chunking_mode.frames_per_chunk": frames });
   const cond = g.add("SeedVR2Conditioning", { model, vae_conditioning: [chunks, 0] });
   g.phase("restoring");
   const sampled = g.out("KSampler", { model, positive: [cond, 0], negative: [cond, 1], latent_image: [chunks, 0], seed: ctx.seed, steps: 1, cfg: 1, sampler_name: "euler", scheduler: "simple", denoise: 1 });

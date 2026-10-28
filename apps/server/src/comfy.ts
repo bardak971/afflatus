@@ -180,6 +180,22 @@ export class Comfy {
     return this.lastCatalog!.value;
   }
 
+  private gpuMemory: Promise<number | undefined> | null = null;
+  /**
+   * Its GPU's whole memory in GiB (BuildContext.vram), read once: a card does not change under a running ComfyUI. Not kept
+   * when it could not be read or ComfyUI said none (a CPU run), so the next job asks again; undefined then.
+   */
+  vram(): Promise<number | undefined> {
+    if (!this.gpuMemory) {
+      const read = this.client.status().then((st) => (st.vramTotal > 0 ? st.vramTotal / 2 ** 30 : undefined), () => undefined);
+      this.gpuMemory = read;
+      void read.then((gib) => {
+        if (gib === undefined && this.gpuMemory === read) this.gpuMemory = null;
+      });
+    }
+    return this.gpuMemory;
+  }
+
   /** Whether ComfyUI answered the last `load()`: null before the first. A null load alone does not say (it may have no GPU figures). */
   answered: boolean | null = null;
   /** Whether the last `load()` found it locked against Afflatus's token: there, but a token to paste rather than a ComfyUI to start. */
