@@ -248,10 +248,10 @@ describe("what is refused before anything is queued", () => {
 });
 
 describe("failures say why", () => {
-  it("a model file ComfyUI does not have", async () => {
-    const id = await enqueue({ checkpoint: "missing.safetensors" });
-    await until(async () => (await statusOf(id)).status === "failed");
-    expect((await statusOf(id)).error).toContain('ComfyUI has no file "missing.safetensors"');
+  it("a model file ComfyUI does not have: refused as it is queued, with no pod left to have it (card #139)", async () => {
+    const res = await post(t.app, "/api/jobs", job({ checkpoint: "missing.safetensors" }));
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toContain("missing.safetensors is on no machine: your ComfyUI does not list it in models/checkpoints");
     expect(submitted()).toEqual([]);
   });
 

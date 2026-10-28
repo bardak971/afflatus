@@ -1,12 +1,13 @@
 import { EventEmitter } from "node:events";
 import { ComfyAway, ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, filesIn, systemLoadFromStatus, waitForOutputs, type Measured } from "@afflatus/comfy";
-import { expandWildcards, modelFileName, modelOf, modelStart, parseInput, removedSaid, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
+import { expandWildcards, fileKey, modelFileName, modelOf, modelStart, parseInput, removedSaid, sameFile, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import { Comfy, NO_COMFY_URL, type MachineComfy } from "./comfy";
 import { fileName } from "./media";
 import type { Insertable } from "kysely";
 import { newId, now, OWNER, toRun, type Db, type Tables } from "./db";
 import { addedBy } from "./events";
 import { httpError } from "./errors";
+import { filesAsked } from "./machineScans";
 import type { HuntSummary } from "./hunt";
 import { paceOf } from "./forecast";
 import { gathering, observeAdded, observePart } from "./serverMetrics";
@@ -239,6 +240,7 @@ export class Queue {
       unavailable: (machine) => this.unavailable(machine),
       get podFetch() { return self.podFetch; },
       get capHeld() { return self.capHeld; },
+      get podsHold() { return self.podsHold; },
       heldOn: (r) => this.heldOn(r),
       allPaused: () => this.allPaused(),
       retryLater: () => this.retryLater(),
@@ -538,6 +540,8 @@ export class Queue {
     // a pin to a machine no longer in the settings (a job done again after its pod was terminated) would wait for ever: no
     // machine takes it, and unpinGone frees pins only when the machines change
     const pin = opts.machine && (await this.machines()).some((m) => m.machine.id === opts.machine) ? opts.machine : null;
+    // a file no machine has and none can get (its pod gone, card #139): refused now, not at its build with the job's turn come
+    if (!opts.warm) await this.refuseNowhere(recipe, input);
     if (!opts.warm) {
       // with the files of the machine it is pinned to, not the first's: a render pinned to a pod with a clean set was refused
       // for this PC's (card #119, B18). The first's still, while that one cannot be asked (a pod booting): its files would
@@ -557,6 +561,41 @@ export class Queue {
       mcp_token_id: opts.mcpToken ?? null,
       created_at: at, started_at: null, finished_at: null, updated_at: at,
     } satisfies Insertable<Tables["jobs"]>;
+  }
+
+  /**
+   * A render asking for a model file or LoRA that no machine has and none can be given: with the user's own machines alone
+   * (no rented pod in the settings, the one that had it terminated), each answering, none listing it, and no download known
+   * for it (a family's official file, an imported workflow's at its address). Before, the job went to the lone machine and
+   * failed at its build ("this cannot run on your ComfyUI"). Their lists are read afresh before refusing: a file put in by
+   * hand a moment ago is not refused. One not answering refuses nothing: its files are not known.
+   */
+  private async refuseNowhere(recipe: Recipe<any>, input: Record<string, unknown>): Promise<void> {
+    // an imported workflow's build is looser with its inputs (checkGraph looseInputs): left to it
+    if (recipe.imported) return;
+    const all = await this.machines();
+    if (!all.length || all.some((m) => m.machine.rented)) return;
+    // a pod on its way (a GPU hunt, a deploy under way) is sent the job's files: nothing is refused meanwhile
+    if (await this.podComing?.().catch(() => true)) return;
+    // the files picked in a model or LoRA field: a choice among a loader's files (a hires upscaler) that is not there is
+    // replaced by one that is at the build
+    const picked = new Set(recipe.inputs.filter((i) => i.type === "model" || i.type === "loras").map((i) => i.id));
+    const asked = filesAsked(recipe, input).filter((f) => picked.has(f.input));
+    if (!asked.length) return;
+    const official = new Set(this.registry.families().flatMap((f) => (f.slots ?? []).flatMap((x) => (x.get ? [fileKey({ folder: x.folder, file: x.get.file })] : []))));
+    const gettable = (f: { file: string; folder: string }) => official.has(fileKey(f)) || Boolean(recipe.files?.some((x) => x.url && fileKey({ folder: f.folder, file: x.file }) === fileKey(f)));
+    const nowhere = async (fresh: boolean) => {
+      const scans = await Promise.all(all.map((m) => m.comfy.scan(fresh).catch(() => null)));
+      if (scans.some((x) => !x?.comfy.online)) return null;
+      return asked.find((f) => !gettable(f) && scans.every((x) => {
+        const list = x!.recipes.find((r) => r.id === recipe.id)?.options[f.input];
+        return list !== undefined && !sameFile(list, f.file);
+      })) ?? null;
+    };
+    const gone = (await nowhere(false)) && (await nowhere(true));
+    if (!gone) return;
+    const where = all.length === 1 ? "your ComfyUI does not list it" : "none of your ComfyUIs lists it";
+    throw httpError(`${gone.file} is on no machine: ${where} in models/${gone.folder}, and no rented pod that had it is left. Put it in models/${gone.folder}, or pick another file.`, 409);
   }
 
   /**
@@ -1350,6 +1389,12 @@ export class Queue {
 
   /** The waiting jobs of MCP tokens with Spend that no pod takes this pass, each with why (mcpRender.ts capHeld): set by services.ts. */
   capHeld: ((rows: ReadonlyArray<Pick<JobRow, "id" | "mcp_token_id">>) => Promise<Map<string, string>>) | null = null;
+
+  /** Whether a rented pod is on its way (a GPU hunt, a deploy under way): set by services.ts. */
+  podComing: (() => Promise<boolean>) | null = null;
+
+  /** What each rented pod not up holds or fetches, by pod id (filePlaces.ts downPodFiles): set by services.ts. */
+  podsHold: (() => Promise<Map<string, Set<string>>>) | null = null;
 
   /** What can come to a rented pod: its card, and the node packs that failed there (podPacks.ts, failed for good on a pod). */
   private podPackFacts(lane: Lane): PackFacts {

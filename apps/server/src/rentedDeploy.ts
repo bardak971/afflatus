@@ -271,7 +271,7 @@ export class RentedDeploy extends RentedFollow {
         let name = offer.name.slice(0, 36);
         for (let n = 2; names.has(name); n++) name = `${offer.name.slice(0, 36)} ${n}`;
         // without a volume a stop keeps nothing and its GPU may be taken meanwhile: terminated, as for a pod added
-        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString(), image, cloud: ask.cloud, volume: volume?.id ?? "", fill, files: ask.files, leaveOut: ask.leaveOut, makeRoom: ask.makeRoom, mcpToken };
+        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString(), image, cloud: ask.cloud, volume: volume?.id ?? "", fill, set: fill ? "" : ask.set, setFiles: fill || !ask.set ? [] : ask.files.map((f) => ({ file: f.file, folder: f.folder, ...(f.size ? { size: f.size } : {}) })), files: ask.files, leaveOut: ask.leaveOut, makeRoom: ask.makeRoom, mcpToken };
         const machines = [...current.machines, { id, name, url: podUrl(made.id), dir: "", takes: "all" as const, packs: "ask" as const, families: {}, token, rented }];
         // a machine now: followed as any, its name no longer pending (in the same write, never one without the other)
         const pendingDeploys = current.pendingDeploys.filter((p) => p.name !== spec.name);

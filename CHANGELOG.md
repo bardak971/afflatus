@@ -4,6 +4,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+- **Model lists across machines say where each file is** (card #139). With a rented pod in the settings, the Model and LoRA lists count your ComfyUI's files apart from those only a pod has, list a pod's own under its name, and say which machines have a file that is not on all of them; a pod's file is grouped by what it is for, its header read on the pod. A stopped pod's network volume (as last listed) and the files of the Model set it was deployed with are offered greyed, as official files are (`list_models` with a folder says them too). A render that picks one, with no machine able to run it now, waits for that pod: its Queue row says "waits for pod <name>" with a **Start** that asks first with the pod's rate, as the Rented GPUs page does, greyed and refused past a spending cap; it is never sent to your ComfyUI. With no pod left, a render asking for a file none of your ComfyUIs lists and that has no known download is refused as it is queued, rather than failing at its build.
+
 ## [0.8.0] - 2026-10-28
 
 Afflatus from outside: an MCP server that lets Claude Code, Claude Desktop or any MCP client drive the whole studio with a token of its own (every form and setting, renders it can look at, timelines, the library, the Prompt kit, models, machines and rented GPUs), held to its scopes, its renders an hour and its spend cap, its changes shown live in the page you have open with Undo.

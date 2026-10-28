@@ -77,7 +77,7 @@ export async function status(
   /** Where each waiting job will probably run and when it starts (schedule.ts plan), and each machine's learned pace. */
   planned: ReadonlyMap<string, { lane: string; startsInMs: number }> = new Map(), paces: ReadonlyMap<string, number> = new Map(),
   /** With several machines, the machines that can run each waiting render (queue.ts ableOf). */
-  able: ReadonlyMap<string, { can: ReadonlySet<string>; lacks: Record<string, Lack>; fetch?: Record<string, { files: Lack["files"]; ms: number }> }> = new Map(),
+  able: ReadonlyMap<string, { can: ReadonlySet<string>; lacks: Record<string, Lack>; fetch?: Record<string, { files: Lack["files"]; ms: number }>; startPod?: string }> = new Map(),
   /** Of a waiting job on a machine of the user's own: the node packs it waits for there, and where they stand (queuePacks.ts). */
   packWait: (job: string) => PackWait | undefined = () => undefined,
 ) {
@@ -138,6 +138,8 @@ export async function status(
     runsOn: r.status === "queued" ? onlyOn(r.id) : null,
     /** Of such a render: what keeps it off each other machine (its family off there, the files it lacks there), by machine id. */
     lacks: r.status === "queued" && onlyOn(r.id) ? able.get(r.id)?.lacks ?? null : null,
+    /** Of a waiting render no machine can run now: the stopped pod that holds its files, which its row offers to Start. */
+    startPod: r.status === "queued" ? able.get(r.id)?.startPod ?? null : null,
     /**
      * Of a waiting render: the rented pods it can run on once its files are sent there, with the files and how long they take
      * (ms); and a machine of the user's own it waits on for files to be downloaded there (its row's Download, never unasked).

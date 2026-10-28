@@ -101,6 +101,24 @@ export interface Scan {
     /** Only hidden recipes use it: not shown in Settings › Models (the scan keeps it, for jobs). */
     onlyHidden?: true }> }>;
   recipes: RecipeStatus[];
+  /** Where each file is across the machines (every machine together only; the server's filePlaces.ts). */
+  places?: FilePlaces;
+}
+/** A file a pod holds or fetches that no answering ComfyUI lists: offered greyed, picked as any other. */
+export interface OfferedFile {
+  file: string;
+  /** The pod's machine id. */
+  pod: string;
+  /** On its network volume as last listed, or in the model set it was deployed with (fetched by the pod). */
+  via: "volume" | "set";
+  set?: string;
+  bytes?: number;
+}
+/** Where each model file is: by folder and file, the machines listing it now (only with a pod in the settings); what pods hold beyond that; the pods not up. */
+export interface FilePlaces {
+  on?: Record<string, Record<string, string[]>>;
+  offered: Record<string, OfferedFile[]>;
+  down: Record<string, string>;
 }
 /** A model file and its Civitai version; `newer` when Civitai has a later one. */
 export interface UpdateRow {

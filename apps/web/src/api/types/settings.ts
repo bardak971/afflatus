@@ -175,6 +175,9 @@ export interface RentedMachine {
   userStopped: boolean;
   /** The network volume it was deployed on, by id ("" for none). */
   volume: string;
+  /** The model set it was deployed with, by id ("" for none), and the files of it its deploy asked for. */
+  set: string;
+  setFiles: Array<{ file: string; folder: string; size?: number }>;
   /** Deployed only to fill its volume: it takes no render, and is terminated once its files are in. */
   fill: boolean;
   /** The image it was deployed with, when Afflatus deployed it ("" otherwise). */

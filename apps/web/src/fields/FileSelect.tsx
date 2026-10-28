@@ -7,6 +7,7 @@ import { GetFile } from "../GetFile";
 import { Select, type Option } from "../Select";
 import { Label } from "./Label";
 import { officialFiles, samePath, type Official } from "../officialFiles";
+import { useFilePlaces } from "../filePlaces";
 
 /**
  * A file as a choice: its name to read, beside it the model it is for and the folder it is in. It is
@@ -45,6 +46,8 @@ export function FileSelect({ id, label, value, files, folder, placeholder, match
 }) {
   const known = useModelInfo(folder);
   const info = known.data?.items;
+  // where each file is, with a pod in the settings: a pod's own file says so, and what a stopped pod holds is offered greyed
+  const places = useFilePlaces(folder);
   const updates = useModelUpdates();
   const newerOf = (f: string) => updates.data?.items.find((u) => u.folder === folder && u.file === f && u.newer)?.newer ?? null;
   const options = useMemo(() => {
@@ -57,19 +60,26 @@ export function FileSelect({ id, label, value, files, folder, placeholder, match
       if (base && family && !sameBase(base, family)) return `Made for other models (${base})`;
       return `Everything else in models/${folder}`;
     };
-    // the user's files under a head of their own when official ones follow, so that the divider between them reads
-    const ownHead = absent?.length && files.length ? "On your ComfyUI" : undefined;
+    const offered = places.offered([...files, ...(absent ?? []).map((a) => a.file)]);
+    // a file only pods list goes under its pod's head (grouped by what it is for when the folder is sorted so, its note
+    // saying which pod); the user's own under a head of their own when other sections follow, so that the divider reads
+    const podOnly = files.some((f) => !places.own(f));
+    const ownHead = (absent?.length || offered.length || podOnly) && files.length ? "On your ComfyUI" : undefined;
     const own = files.map((f): Option => {
       const o = fileOption(f, info?.[f]);
       const newer = newerOf(f);
-      const group = made ? groupOf(f) : ownHead;
-      return { ...o, ...(newer ? { note: [o.note, `newer on Civitai: ${newer.name}`].filter(Boolean).join(" · ") } : {}), ...(group ? { group } : {}) };
+      const group = made ? groupOf(f) : (places.podHead(f) ?? ownHead);
+      // which pod has it, when no head of the pod's says it already
+      const note = [o.note, made ? places.said(f) : null, newer ? `newer on Civitai: ${newer.name}` : null].filter(Boolean).join(" · ");
+      return { ...o, ...(note ? { note } : {}), ...(group ? { group } : {}) };
     });
+    // a section's files follow each other (Select): the user's own first, then each pod's, in the order they came
+    if (!made && podOnly) own.sort((a, b) => Number(a.group !== ownHead) - Number(b.group !== ownHead) || (a.group ?? "").localeCompare(b.group ?? ""));
     const notHere = absentGroup?.startsWith("Not here");
     const greyed = (absent ?? []).map((a): Option => ({ ...fileOption(a.file), note: a.bytes ? `${size(a.bytes)}${notHere ? " · not here" : ""}` : "not here", group: absentGroup ?? "Not here", muted: true }));
-    return [...own, ...greyed];
+    return [...own, ...offered, ...greyed];
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the updates' list, not newerOf, which is new at every render and reads it
-  }, [files, info, match, folder, family, updates.data, absent, absentGroup]);
+  }, [files, info, match, folder, family, updates.data, absent, absentGroup, places]);
   return <Select id={id} label={label} value={value} onChange={onChange} options={options} placeholder={placeholder} searchHint={info && options.length > 1 ? `Search ${options.length} by name or model` : undefined} />;
 }
 
@@ -107,7 +117,15 @@ export function ModelField({ id, spec, value, options, family, onChange }: {
   // an official file kept in a sub-folder of the user's own is here, as the server finds it when it builds the job (core sameFile)
   const absent = official.filter((o) => !sameFile(have, o.file));
   const picked = absent.find((o) => samePath(o.file, value));
-  const counted = [have.length ? `${have.length} on your ComfyUI` : null, absent.length ? (where === "pod" ? "official files · fetched by the pod" : `${absent.length} official not here`) : null].filter(Boolean).join(" · ");
+  // the user's own files counted apart from those only a pod lists (one of those was counted "on your ComfyUI", card #139)
+  const places = useFilePlaces(spec.folder);
+  const mine = have.filter((f) => places.own(f)).length;
+  const offered = places.offered([...have, ...absent.map((o) => o.file)]);
+  const pickedOffered = offered.find((o) => samePath(o.value, value));
+  const counted = [
+    mine ? `${mine} on your ComfyUI` : null, have.length > mine ? `${have.length - mine} on ${mine ? "pods only" : "pods"}` : null, offered.length ? `${offered.length} from pod volumes or sets` : null,
+    absent.length ? (where === "pod" ? "official files · fetched by the pod" : `${absent.length} official not here`) : null,
+  ].filter(Boolean).join(" · ");
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={id} note={spec.note} aside={counted || undefined}>{spec.label}</Label>
@@ -124,6 +142,7 @@ export function ModelField({ id, spec, value, options, family, onChange }: {
         </div>
       )}
       {picked && where === "pod" && <span className="text-xs text-ink-3">{picked.bytes ? `${size(picked.bytes)} · ` : ""}the pod fetches it before the job</span>}
+      {pickedOffered && <span className="text-xs text-ink-3" data-tip="No ComfyUI that answers now lists it. Render queues the job for that pod: its Queue row offers Start when the pod is stopped.">{pickedOffered.group} · the job waits for that pod</span>}
     </div>
   );
 }

@@ -10,6 +10,7 @@ import { appendTo, removeFrom, wordsIn } from "../promptText";
 import { Select, type Option } from "../Select";
 import { Chip, CloseButton, cx, fieldClass, NumberBox } from "../ui";
 import { Slider } from "../Slider";
+import { useFilePlaces } from "../filePlaces";
 import { fileOption } from "./FileSelect";
 import { Label } from "./Label";
 import { queryKeys } from "../queryKeys";
@@ -169,10 +170,12 @@ export function Loras({ spec, value, options, family, model, onChange, main }: {
   // what each file says about itself (read once by the server, arriving in the background the first time), and the words kept beside it
   const { known, extra, info, more, failed } = useLoraWordsOf(value.map((v) => v.file));
   const free = options.filter((o) => !value.some((v) => v.file === o));
+  // where each LoRA is with a pod in the settings: a pod's own says so, and a stopped pod's (or its set's) is offered greyed
+  const places = useFilePlaces("loras");
   const set = (i: number, weight: number) => onChange(value.map((v, j) => (j === i ? { ...v, weight } : v)));
   const choices = useMemo(() => {
     const key = [spec.label, family?.id ?? "", model ?? "", free.join("|")].join("\n");
-    const reads = [known.data, extra.data];
+    const reads = [known.data, extra.data, ...places.reads];
     const seen = choicesSeen.get(key);
     if (seen && seen.reads.every((r, i) => r === reads[i])) return seen.choices;
     const made = free.map((file, index) => ({ file, index, about: info[file], fit: family ? loraFit(family, file, info[file]) : 0, near: model ? modelFit(model, file, info[file]) : 0 }));
@@ -192,16 +195,18 @@ export function Loras({ spec, value, options, family, model, onChange, main }: {
     if (sorted) made.sort((a, b) => rank(a) - rank(b) || (half ? Number(half.test(b.file)) - Number(half.test(a.file)) : 0) || b.near - a.near || b.fit - a.fit || a.index - b.index);
     const choices = made.map((m): Option => ({
       ...fileOption(m.file, m.about),
+      ...(places.said(m.file) ? { note: [fileOption(m.file, m.about).note, places.said(m.file)].filter(Boolean).join(" · ") } : {}),
       detail: wordsOf(m.about, more[nameOf(m.file)]).words || undefined,
       ...(more[nameOf(m.file)] ? { search: [fileOption(m.file, m.about).search, more[nameOf(m.file)]!.own, more[nameOf(m.file)]!.found].filter(Boolean).join(" ") } : {}),
       ...(sorted ? { group: titles[rank(m)] } : {}),
     }));
+    choices.push(...places.offered([...options, ...value.map((v) => v.file)]));
     choicesSeen.delete(key);
     choicesSeen.set(key, { reads, choices });
     if (choicesSeen.size > CHOICES_KEPT) choicesSeen.delete(choicesSeen.keys().next().value!);
     return choices;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the reads the options come from; the helpers that read them are new at every render
-  }, [free.join("|"), known.data, extra.data, family?.id, spec.label, model]);
+  }, [free.join("|"), known.data, extra.data, family?.id, spec.label, model, places]);
   return (
     <div className="flex flex-col gap-1.5">
       <Label aside={`${value.length} of ${spec.max}`} note={spec.note}>{spec.label}</Label>

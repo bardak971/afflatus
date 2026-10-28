@@ -7,6 +7,7 @@ import { z } from "zod";
 import { ComfyClient, ComfyLocked, plannedScan } from "@afflatus/comfy";
 import { describeRecipe, listOptions, parseInput, type InputSpec } from "@afflatus/core";
 import { withMentions } from "./entities";
+import { placesFrom } from "./filePlaces";
 import { mergeScans } from "./machineScans";
 import { comfyFolderOf, onThisMachine, Refused } from "./modelDownload";
 import { accessOf } from "./lock-api";
@@ -71,8 +72,10 @@ export async function setupOf(s: Services, machine: string | undefined, fresh: b
   const scans = await Promise.all(all.map(async ({ machine: m, comfy }) => ({ machine: m, scan: await comfy.scan(fresh) })));
   // no ComfyUI of the user's own and no pod answering (a rented-only start, a new install before its first launch): what
   // a pod would offer, so that the forms work and their jobs wait for a GPU. One of their own that is off says it is off
-  if (!scans.some((x) => x.scan.comfy.online) && !scans.some((x) => !x.machine.rented)) return listOptions(await plannedScan(s.registry.families(), s.registry.recipes()));
-  return listOptions(mergeScans(scans, await readSettings(s.db), (id) => s.registry.recipe(id)?.family));
+  // where each file is (filePlaces.ts): a pod's own files said as its, and what a stopped pod holds offered
+  const places = await placesFrom(s, scans);
+  if (!scans.some((x) => x.scan.comfy.online) && !scans.some((x) => !x.machine.rented)) return { ...listOptions(await plannedScan(s.registry.families(), s.registry.recipes())), places };
+  return { ...listOptions(mergeScans(scans, await readSettings(s.db), (id) => s.registry.recipe(id)?.family)), places };
 }
 
 /**
