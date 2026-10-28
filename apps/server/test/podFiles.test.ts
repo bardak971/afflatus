@@ -717,7 +717,7 @@ describe("a rented pod's node packs", () => {
 describe("a rented pod's disk", () => {
   const GB2 = 2 * 2 ** 30;
   /** The pod's files, with its pack saying its disk (0.19.0) and Make room as given. */
-  function withDisk(makesRoom: boolean, onVolume = false) {
+  function withDisk(makesRoom: boolean, onVolume = false, volumeBytes?: number) {
     pod.packVersion = "0.19.0";
     const comfy = new Comfy(pod.url, t.services.registry);
     const made = new PodFiles({
@@ -727,6 +727,7 @@ describe("a rented pod's disk", () => {
       settings: async () => ({ civitaiKey: "", downloadModels: true, civitaiLookups: true }),
       makesRoom: async () => makesRoom,
       onVolume: async () => onVolume,
+      ...(volumeBytes ? { volumeBytes: async () => volumeBytes } : {}),
     });
     made.diskFreshMs = 0;
     return made;
@@ -806,6 +807,27 @@ describe("a rented pod's disk", () => {
     on.want("pod", [{ file: "x.safetensors", folder: "loras", url: `${siteUrl}/files/x.safetensors` }], { tier: "need" });
     await until(async () => (await on.short("pod", [{ file: "a.safetensors", folder: "loras", size: FILE.length }])) !== null);
     expect(await on.short("pod", [{ file: "a.safetensors", folder: "loras", size: FILE.length }])).toMatch(/^its disk is short: .* \(Make room is off\)$/);
+  });
+
+  it("says a network volume's own size and what its models hold, not RunPod's shared storage (card #149)", async () => {
+    const VOLUME = 15 * 2 ** 30;
+    const on = withDisk(false, true, VOLUME);
+    pod.packVersion = "0.21.0";
+    writeFileSync(join(disk, "loras", "held.safetensors"), FILE);
+    // the pack reads the volume's disk as the whole of RunPod's storage there: 2 PB
+    pod.diskFree = 1.6e15;
+    pod.diskTotal = 2.2e15;
+    await on.tick();
+    void on.short("pod", []);
+    await until(() => on.diskOf("pod") !== null);
+    expect(on.diskOf("pod")).toMatchObject({ total: VOLUME, free: VOLUME - FILE.length });
+    // a reading within the volume's size is the pack's own, as it was
+    const within = withDisk(false, true, VOLUME);
+    pod.diskFree = 10 * 2 ** 30;
+    pod.diskTotal = VOLUME;
+    void within.short("pod", []);
+    await until(() => within.diskOf("pod") !== null);
+    expect(within.diskOf("pod")).toMatchObject({ total: VOLUME, free: 10 * 2 ** 30 });
   });
 });
 

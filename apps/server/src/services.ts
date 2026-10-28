@@ -267,6 +267,7 @@ export async function createServices(
     busy: (id) => queue.busyOn(id),
     makesRoom: async (id) => Boolean((await machineOf(id))?.machine.rented?.makeRoom),
     onVolume: async (id) => Boolean((await machineOf(id))?.machine.rented?.volume),
+    volumeBytes: (id) => rented.volumeBytes(id),
     packsTime: (id, from, to) => void keepPacksTime(db, id, from, to).catch((err) => console.warn("[pod packs]", (err as Error).message)),
     // a file there now or gone: the pod's folders and its node list (whose choices name the files) are read again; a file
     // that failed changes neither (49 failed files once gave 43 reads of the node list). Its jobs are looked at again

@@ -72,6 +72,11 @@ export function folderPlaces(places: FilePlaces | undefined, folder: string | un
   };
 }
 
+/** Whether a stopped pod holds or fetches a file of a folder (its volume, its deploy's set) that no answering ComfyUI lists. */
+export function isOffered(places: FilePlaces | undefined, folder: string | undefined, file: string): boolean {
+  return Boolean(folder && places?.offered[folder]?.some((o) => keyOf(o.file) === keyOf(file)));
+}
+
 const NONE: never[] = [];
 
 /** Where a model folder's files are, read from the setup and the settings (FolderPlaces). */

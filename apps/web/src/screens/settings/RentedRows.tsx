@@ -13,6 +13,8 @@ import { Block, Row } from "./Rows";
 
 const IDLE = [0, 5, 10, 15, 30, 60, 120];
 const WATCH = [0, 5, 10, 15, 30, 60];
+/** A list of minutes with the pod's own value among them: one set elsewhere (3 at Deploy, an agent's) read "Choose…" (card #149). */
+const withOwn = (list: readonly number[], own: number) => (list.includes(own) ? list : [...list, own].sort((a, b) => a - b));
 /** A port as the card says it: what a template usually runs on it. */
 const portSaid = (p: string) => {
   const [port, kind] = p.split("/");
@@ -149,7 +151,7 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
             {/* in the Deploy dialog's order: "Terminate it after 10 min idle" (here it was "after 10 min · Terminate it") */}
             <span className="w-[150px] shrink-0"><Select size="sm" label="What then" value={rented.idleDo} onChange={(v) => set({ idleDo: v as RentedMachine["idleDo"] })} options={[{ value: "stop", label: "Stop it", note: "its volume kept and billed" }, { value: "terminate", label: "Terminate it", note: "nothing billed, deploy a new one next time" }]} /></span>
             <span className="text-ink-2">after</span>
-            <span className="w-[104px] shrink-0"><Select size="sm" label="Minutes idle before" value={String(rented.idleMinutes)} onChange={(v) => set({ idleMinutes: Number(v) })} options={IDLE.map((n) => ({ value: String(n), label: minutesSaid(n) }))} /></span>
+            <span className="w-[104px] shrink-0"><Select size="sm" label="Minutes idle before" value={String(rented.idleMinutes)} onChange={(v) => set({ idleMinutes: Number(v) })} options={withOwn(IDLE, rented.idleMinutes).map((n) => ({ value: String(n), label: minutesSaid(n) }))} /></span>
             <span className="text-ink-2">idle</span>
             {r?.idleAt != null ? <IdleLeft at={r.idleAt} /> : r?.status === "RUNNING" && state && gettingFiles(state) && <span className="text-ink-3">· held while its files come</span>}
           </span>
@@ -163,7 +165,7 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
         <Row label="Watchdog" help={WHY_WATCH} sub="stops it when this PC goes silent">
           <span className="flex grow flex-wrap items-center justify-end gap-2 text-body">
             <span className="text-ink-2">stops it if this PC is silent for</span>
-            <span className="w-[104px] shrink-0"><Select size="sm" label="Minutes silent before the pod stops itself" value={String(rented.watchdogMinutes)} onChange={(v) => set({ watchdogMinutes: Number(v) })} options={WATCH.map((n) => ({ value: String(n), label: n === 0 ? "off" : minutesSaid(n) }))} /></span>
+            <span className="w-[104px] shrink-0"><Select size="sm" label="Minutes silent before the pod stops itself" value={String(rented.watchdogMinutes)} onChange={(v) => set({ watchdogMinutes: Number(v) })} options={withOwn(WATCH, rented.watchdogMinutes).map((n) => ({ value: String(n), label: n === 0 ? "off" : minutesSaid(n) }))} /></span>
             {r?.status === "RUNNING" && (r.watchdog === "on"
               ? <span className="font-semibold text-good">· on</span>
               : r.watchdog === "none" ? <span className="text-warn-ink">· no watchdog: the Afflatus node pack 0.13 is not on the pod</span> : null)}

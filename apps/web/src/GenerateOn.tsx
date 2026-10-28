@@ -31,9 +31,15 @@ function said(m: MachineState, waiting: number, holds: boolean): string {
   return [state, waiting > 0 && `${waiting} waiting`, holds && "holds this model"].filter(Boolean).join(" · ");
 }
 
+/** A rented pod that is stopped: it can be picked, its jobs waiting for it with Start on their Queue row (card #149). */
+const stopped = (m: MachineState) => m.rented?.status === "EXITED";
+
+/** What the list says of a stopped pod, in place of what it does. */
+export const STOPPED_SAID = "stopped · waits for it: Start on its Queue row";
+
 /** Why a machine cannot be picked for renders that make `makes`: away, or taking the other kind only. Null: it can. */
 const unpickable = (m: MachineState, makes: "image" | "video") =>
-  m.online === false ? "not answering"
+  m.online === false && !stopped(m) ? "not answering"
   : m.takes !== "all" && m.takes !== makes ? `takes ${m.takes === "image" ? "pictures" : "videos"} only`
   : null;
 
@@ -42,7 +48,8 @@ const unpickable = (m: MachineState, makes: "image" | "video") =>
  * picks where they render. A small list above it: Auto (the button as it always was: the machine that would end it
  * first), then each machine with what it does, what it holds and how long this would take there; one that lacks the
  * form's model, is away, or does not take this kind of render cannot be picked. A rented pod that lacks it can: it fetches
- * it first (a pod deployed with nothing could not be picked, and nothing could be sent to it). The pick stays with the
+ * it first (a pod deployed with nothing could not be picked, and nothing could be sent to it); a stopped pod can too, its
+ * jobs waiting for it with Start on their Queue row. The pick stays with the
  * draft or the timeline (draftMachine.ts). With one ComfyUI, nothing.
  */
 export function GenerateOn({ recipe, pickKey, whole, look, msOn, of, off }: {
@@ -150,7 +157,7 @@ function MachinePick({ pickKey, of, msOn, file, why, note, small, off }: {
                   {m ? <span className={cx("size-[7px] rounded-full", m.online === false ? (m.locked ? "bg-warn" : "bg-attention") : m.paused ? "bg-ink-3" : m.running ? "bg-accent" : "border-[1.5px] border-good")} /> : <Server size={13} className="text-accent" />}
                   <span className="min-w-0 truncate">
                     <span className="font-semibold">{m ? machineLabel(m) : "Any machine"}</span>{" "}
-                    <span className="text-xs text-ink-3">· {m ? off ?? note(m) ?? said(m, waitingOn(m.id), holds) : "the machine that ends it first"}</span>
+                    <span className="text-xs text-ink-3">· {m ? off ?? (stopped(m) ? STOPPED_SAID : note(m) ?? said(m, waitingOn(m.id), holds)) : "the machine that ends it first"}</span>
                   </span>
                   {off === "lacks this model" ? (
                     <Link href={`/settings/models?machine=${encodeURIComponent(m!.id)}`} onClick={() => setOpen(false)} className="text-xs text-ink-3 hover:text-ink hover:underline">Models ›</Link>
