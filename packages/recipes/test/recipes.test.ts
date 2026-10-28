@@ -2193,7 +2193,7 @@ describe("H3's upscale pass", () => {
     expect(node(b, "MMH3SpatialSplitParams")[0]!.inputs).toMatchObject({ upscale_width: 1152, upscale_height: 2048, tile_width: 512, spatial_w_overlap: 128 });
     expect(node(b, "MMH3TemporalSplitParams")[0]!.inputs).toMatchObject({ chunk_length: 85, temporal_overlap: 17 });
     // from σ 0.25, three steps easing down to 0 (card #141)
-    expect(node(b, "KarrasScheduler")[0]!.inputs).toEqual({ steps: 3, sigma_max: 0.25, sigma_min: 0.012, rho: 7 });
+    expect(node(b, "KarrasScheduler")[0]!.inputs).toEqual({ steps: 3, sigma_max: 0.35, sigma_min: 0.012, rho: 7 });
     expect(b.phases[upId]).toBe("refining");
   });
 

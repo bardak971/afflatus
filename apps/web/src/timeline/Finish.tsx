@@ -20,7 +20,7 @@ const ROUTES: Array<{ value: FinishSettings["route"]; label: string; detail: str
   { value: "face", label: "Face refine (H3, SCAIL 24 fps, LTX 2.5)", detail: "H3 and LTX 2.5 clips with a person's picture (the cast's, else the first reference picture; an LTX 2.5 clip's first frame too), and SCAIL-2 clips at 24 fps (towards their Picture): the take's own frames, its faces redrawn closer to the picture, nothing else changed. Best on slow-moving shots. Other clips are skipped" },
 ];
 const COLOURS = ["lab", "wavelet", "adain", "none"] as const;
-const FALLBACK: FinishSettings = { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentNoise: 0.25, latentSteps: 3, faceDenoise: 0.45, seedvrFrames: 0, sharpen: 0 };
+const FALLBACK: FinishSettings = { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentNoise: 0.35, latentSteps: 3, faceDenoise: 0.45, seedvrFrames: 0, sharpen: 0 };
 
 /**
  * Finish all clips: every clip's selected take brought to its final quality by an upscale route, as a
@@ -147,7 +147,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
           )}
           {v.route === "latent" && (
             <>
-              <FieldRow label="Denoise" note="Re-sample denoise: the real noise level it starts at, whatever the model's shift. 0.25 re-noises to 25 %; higher redraws more, and moving edges flicker more, mouths and faces drift from the draft" trail>
+              <FieldRow label="Denoise" note="Re-sample denoise: the real noise level it starts at, whatever the model's shift. 0.35 re-noises to 35 %; higher redraws more, and moving edges flicker more, mouths and faces drift from the draft; lower leaves grain and smooths skin" trail>
                 <NumberBox label="Re-sample denoise" value={v.latentNoise} min={0.05} max={0.95} step={0.01} onCommit={(latentNoise) => setV({ ...v, latentNoise })} />
               </FieldRow>
               <FieldRow label="Steps" note="Re-sample steps, from the denoise down to 0 on a gentle (karras) curve: 1 goes there in one jump; each step is a pass over the whole clip" trail>

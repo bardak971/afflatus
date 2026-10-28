@@ -40,7 +40,7 @@ const finishSchema = z.object({
   /** The pixel route's model file; empty = the first found. */
   upscaleModel: z.string().max(200).default(""),
   /** H3's latent re-sample: the σ it starts at (the dialog's denoise), eased to 0 over its steps on a karras curve. */
-  latentNoise: z.number().min(0.05).max(0.95).default(0.25),
+  latentNoise: z.number().min(0.05).max(0.95).default(0.35),
   latentSteps: z.number().int().min(1).max(6).default(3),
   /** Face refine's denoise on the smallest faces. */
   faceDenoise: z.number().min(0.3).max(0.6).default(0.45),

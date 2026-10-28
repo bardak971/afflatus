@@ -187,9 +187,9 @@ export const h3Inputs: InputSpec[] = [
   ...COLOUR_MATCH_INPUTS,
   ...FACE_REFINE_INPUTS,
   {
-    id: "upscaleNoise", type: "number", label: "Upscale denoise", min: 0.05, max: 0.95, step: 0.01, default: 0.25, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
+    id: "upscaleNoise", type: "number", label: "Upscale denoise", min: 0.05, max: 0.95, step: 0.01, default: 0.35, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
     fromDenoise: { id: "upscaleDenoise", steps: "upscaleSteps", shift: "shiftVideo", oldDefault: { denoise: 0.15, steps: 2 } },
-    note: "the noise level the re-sampling starts at (sigma), whatever the shift: 0.25 re-noises to 25 %, then eases down to 0.012 and 0 over the steps (karras). Higher redraws more detail, but moving edges flicker more and mouths and faces drift from the draft. A plain resize of the latent (no H3 latent upscaler file) needs about 0.8 or more, else it stays soft",
+    note: "the noise level the re-sampling starts at (sigma), whatever the shift: 0.35 re-noises to 35 %, then eases down to 0.012 and 0 over the steps (karras). Higher redraws more detail, but moving edges flicker more and mouths and faces drift from the draft; lower leaves the upscaler's grain and smooths skin. A plain resize of the latent (no H3 latent upscaler file) needs about 0.8 or more, else it stays soft",
   },
   { id: "upscaleSteps", type: "number", label: "Upscale steps", min: 1, max: 6, step: 1, default: 3, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "steps of the re-sampling, from its denoise down to 0: 1 goes there in one jump, 3 eases down gently; each step is a pass over the whole clip" },
   {

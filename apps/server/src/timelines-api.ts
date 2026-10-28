@@ -783,7 +783,7 @@ export async function finishPlan(s: Services, timeline: string, b: z.infer<typeo
       if (!kept?.latent_key) { skipped.push({ clip: i + 1, why: "its latent was not kept (rendered before Afflatus kept them, or without its node pack): finish it with SeedVR2, RTX or a model" }); continue; }
       // with Face refine asked for, on a model that offers it: its faces redrawn in the same job, after the re-sample
       const refine = b.face && refinesFaces(s.registry.recipe(gen.recipe)) ? { faceRefine: true, faceRefineDenoise: b.faceDenoise ?? 0.45 } : {};
-      push({ kind: "render", recipe: gen.recipe, input: { ...asDrafted(gen.inputs, draft.asset), seed: gen.seed, upscale: "Latent: re-sampled", upscaleBy: b.factor, upscaleNoise: b.latentNoise ?? 0.25, upscaleSteps: b.latentSteps ?? 3, ...refine }, opts: {
+      push({ kind: "render", recipe: gen.recipe, input: { ...asDrafted(gen.inputs, draft.asset), seed: gen.seed, upscale: "Latent: re-sampled", upscaleBy: b.factor, upscaleNoise: b.latentNoise ?? 0.35, upscaleSteps: b.latentSteps ?? 3, ...refine }, opts: {
         // the pictures its draft flipped are flipped again: the finish re-samples the draft, made from them as they were sent
         label, clip: { id: clip.id, fit: false, mirror: gen.mirror }, look: clip.look ?? view.look, folder, finishedFrom: from,
       } });

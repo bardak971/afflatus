@@ -86,7 +86,8 @@ export function latentUpscalePass(g: GraphBuilder, ctx: BuildContext, input: H3V
     sampler: g.out("KSamplerSelect", { sampler_name: input.sampler !== AUTO_SAMPLER ? input.sampler : turbo ? "euler" : "res_multistep" }),
     // the denoise is the σ it starts at, eased to 0.012 on a karras curve, then 0. A BasicScheduler denoise at the model's
     // shift started far higher than it said (0.15 over 2 steps at shift 8: σ 0.593, then 0.400 → 0) and redrew mouths;
-    // from 0.25 the clip flickered 23 % less and kept the draft's likeness (card #138, variant E)
+    // from 0.25 the clip flickered 23 % less and kept the draft's likeness (card #138, variant E), but looked grainy and
+    // waxy to the owner on close-ups; 0.35 is the default he picked by eye (2026-10-28: flicker 13-20 % under the old)
     sigmas: g.out("KarrasScheduler", { steps: input.upscaleSteps, sigma_max: input.upscaleNoise, sigma_min: RESAMPLE_SIGMA_FLOOR, rho: 7 }),
     cfg: 1, latent_upscale_param: enlarge, temporal_split_param: stretches, spatial_split_param: tiles,
   });

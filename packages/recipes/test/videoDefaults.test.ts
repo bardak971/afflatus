@@ -80,7 +80,7 @@ describe("H3's re-sample (card #141)", () => {
     dryContext({ slots: { ...h3Slots, latentUpscaler: "up.safetensors" }, uploads: { start: "s.png", "self.latent": "own.safetensors [temp]" }, media: { start: picture }, has: () => true })).graph as Graph;
 
   it("starts on variant E of card #138: σ 0.25 in 3 steps", () => {
-    expect(read({})).toMatchObject({ upscaleNoise: 0.25, upscaleSteps: 3 });
+    expect(read({})).toMatchObject({ upscaleNoise: 0.35, upscaleSteps: 3 });
   });
   it("re-noises to the σ its denoise says, eased to 0.012 on a karras curve (ρ 7), then 0, whatever the shift", () => {
     for (const shiftVideo of [6, 8, 12]) {
@@ -101,8 +101,8 @@ describe("H3's re-sample (card #141)", () => {
     expect("upscaleDenoise" in read({ upscaleDenoise: 0.2 })).toBe(false);
   });
   it("reads the pair the form used to start on (0.15, 2 steps) as the new defaults", () => {
-    expect(read({ upscaleDenoise: 0.15, upscaleSteps: 2, shiftVideo: 8 })).toMatchObject({ upscaleNoise: 0.25, upscaleSteps: 3 });
-    expect(read({ upscaleDenoise: 0.15 })).toMatchObject({ upscaleNoise: 0.25, upscaleSteps: 3 });
+    expect(read({ upscaleDenoise: 0.15, upscaleSteps: 2, shiftVideo: 8 })).toMatchObject({ upscaleNoise: 0.35, upscaleSteps: 3 });
+    expect(read({ upscaleDenoise: 0.15 })).toMatchObject({ upscaleNoise: 0.35, upscaleSteps: 3 });
   });
   it("keeps a value saved under the new id over an older one beside it", () => {
     expect(read({ upscaleDenoise: 0.3, upscaleNoise: 0.2, upscaleSteps: 2 })).toMatchObject({ upscaleNoise: 0.2, upscaleSteps: 2 });
