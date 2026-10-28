@@ -5,7 +5,8 @@ import { said } from "./forecast";
 import { allowedHosts, fromThisComputer, hostAllowed } from "./hostCheck";
 import { z } from "zod";
 import { ComfyClient, ComfyLocked, plannedScan } from "@afflatus/comfy";
-import { describeRecipe, listOptions, parseInput, type InputSpec } from "@afflatus/core";
+import { comfyTooOld, describeRecipe, listOptions, parseInput, type InputSpec } from "@afflatus/core";
+import { updateCommands } from "./comfyUpdate";
 import { withMentions } from "./entities";
 import { placesFrom } from "./filePlaces";
 import { mergeScans } from "./machineScans";
@@ -79,19 +80,32 @@ export async function setupOf(s: Services, machine: string | undefined, fresh: b
 }
 
 /**
- * Each ComfyUI of the settings asked now, side by side: whether it answers (and why not), its version, its GPU and the
- * Afflatus node pack it loaded. Read-only: what Settings › ComfyUI shows on each machine's card, and MCP's list_machines.
+ * What a ComfyUI of this version runs on says of itself beyond its GPU: the PyTorch it runs on, the families its version is
+ * too old for (ComfyUI's own nodes they need came later: comfyNeeds.ts), and what to run to update it when its folder is on
+ * this computer (comfyUpdate.ts). Read from what /system_stats said, and the disk: nothing more is asked of ComfyUI.
+ */
+async function comfyFacts(s: Services, version: string, pytorch: string | undefined, dir: string | null) {
+  const tooOld = comfyTooOld(version, s.registry.families(), s.registry.recipes());
+  return { pytorch: pytorch ?? null, tooOld, update: tooOld && dir ? await updateCommands(dir).catch(() => null) : null };
+}
+
+/**
+ * Each ComfyUI of the settings asked now, side by side: whether it answers (and why not), its version, its PyTorch, its GPU,
+ * the Afflatus node pack it loaded, and the families its version is too old for. Read-only: what Settings › ComfyUI shows on
+ * each machine's card, and MCP's list_machines.
  */
 export async function machinesNow(s: Services) {
   const all = await s.machines();
   return Promise.all(all.map(async ({ machine, comfy }) => {
     try {
       const [st, pack] = await Promise.all([comfy.client.status(), comfy.client.packVersion().catch(() => null)]);
-      return { id: machine.id, online: true as const, error: null, version: st.version, device: st.device, vramTotal: st.vramTotal, vramFree: st.vramFree, pack, access: await accessOf(comfy, true, false, pack), tokenEnd: machine.token.slice(-4) };
+      // a pod's ComfyUI is its image's: updated with the image, never by a command on this computer
+      const facts = await comfyFacts(s, st.version, st.pytorch, machine.rented ? null : machine.dir);
+      return { id: machine.id, online: true as const, error: null, version: st.version, ...facts, device: st.device, vramTotal: st.vramTotal, vramFree: st.vramFree, pack, access: await accessOf(comfy, true, false, pack), tokenEnd: machine.token.slice(-4) };
     } catch (e) {
       // locked against Afflatus's token: it answered, so the access line says so (a token to paste), not "not answering"
       const locked = e instanceof ComfyLocked;
-      return { id: machine.id, online: false as const, error: e instanceof Error ? e.message : String(e), version: null, device: null, vramTotal: null, vramFree: null, pack: null, access: await accessOf(comfy, false, locked, null), tokenEnd: machine.token.slice(-4) };
+      return { id: machine.id, online: false as const, error: e instanceof Error ? e.message : String(e), version: null, pytorch: null, tooOld: null, update: null, device: null, vramTotal: null, vramFree: null, pack: null, access: await accessOf(comfy, false, locked, null), tokenEnd: machine.token.slice(-4) };
     }
   }));
 }
@@ -153,10 +167,10 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
       // its folder, when it runs here: Afflatus then writes its node pack in by itself
       const dir = await comfyFolderOf(client, url).catch(() => null);
       // on this PC or not: one here whose folder was not found is told to set it, not that it is on another computer
-      return { url, online: true as const, version: st.version, device: st.device, locked: false, error: null, dir, local: onThisMachine(url) };
+      return { url, online: true as const, version: st.version, ...(await comfyFacts(s, st.version, st.pytorch, dir)), device: st.device, locked: false, error: null, dir, local: onThisMachine(url) };
     } catch (e) {
       // locked against Afflatus: a ComfyUI is there, its token to paste once added
-      return { url, online: false as const, version: null, device: null, locked: e instanceof ComfyLocked, error: e instanceof Error ? e.message : String(e), dir: null, local: onThisMachine(url) };
+      return { url, online: false as const, version: null, pytorch: null, tooOld: null, update: null, device: null, locked: e instanceof ComfyLocked, error: e instanceof Error ? e.message : String(e), dir: null, local: onThisMachine(url) };
     }
   };
   app.post("/api/setup/probe", async (req) => probe(z.object({ url: z.string().trim().url().max(400).regex(/^https?:\/\//i, "an http(s) address") }).parse(req.body ?? {}).url.replace(/\/+$/, "")));

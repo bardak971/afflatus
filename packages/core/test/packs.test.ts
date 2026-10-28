@@ -20,6 +20,21 @@ describe("a node ComfyUI lacks", () => {
     expect(missingNodesSaid(["SomeOddNode"])).toMatch(/^ComfyUI is missing the node SomeOddNode/);
     expect(packOfNode("KSampler")).toBeUndefined();
   });
+
+  it("says ComfyUI's own nodes as an update of ComfyUI, with the release they came with, never as Install Missing Custom Nodes", () => {
+    const said = missingNodesSaid(["MiniMaxH3SigmaShift", "MiniMaxH3ImageToVideo", "VAEDecodeAudio"], "0.3.10");
+    expect(said).toMatch(/^ComfyUI \(this one is v0\.3\.10\) lacks its own nodes MiniMaxH3SigmaShift, MiniMaxH3ImageToVideo, VAEDecodeAudio, which came with ComfyUI v0\.30\.0: update ComfyUI \(git pull/);
+    expect(said).toMatch(/no custom node pack brings them/);
+    expect(said).not.toMatch(/Install Missing Custom Nodes/);
+    expect(said).toMatch(/Restart ComfyUI after updating\.$/);
+    // without a version it has, the release alone; with a pack's node too, both, each with its own way
+    expect(missingNodesSaid(["LTXVDualCFGGuider"])).toMatch(/^ComfyUI lacks its own node LTXVDualCFGGuider, which came with ComfyUI v0\.32\.0: update ComfyUI/);
+    const mixed = missingNodesSaid(["MiniMaxH3AddGuide", "VedaSparseAttention", "SomeOddNode"], "unknown");
+    expect(mixed).toMatch(/^ComfyUI lacks its own node MiniMaxH3AddGuide, which came with ComfyUI v0\.34\.0/);
+    expect(mixed).toMatch(/It also needs the node pack veda-sparse-attention: in ComfyUI-Manager/);
+    expect(mixed).toMatch(/It also lacks the node SomeOddNode: ComfyUI-Manager's "Install Missing Custom Nodes"/);
+    expect(mixed).toMatch(/Restart ComfyUI after updating and installing\.$/);
+  });
 });
 
 describe("Afflatus's own pack in the catalogue", () => {

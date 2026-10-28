@@ -1,4 +1,5 @@
 /** The settings, the language models they name, and the start-up checks. */
+import type { ComfyTooOld } from "@afflatus/core";
 import type { BarSettings } from "./bar";
 import type { PresetFile } from "./designer";
 
@@ -232,6 +233,12 @@ export interface MachineProbe {
   online: boolean;
   error: string | null;
   version: string | null;
+  /** Its PyTorch as /system_stats says it ("2.10.0+cu130"); null when it does not, or does not answer. */
+  pytorch: string | null;
+  /** The families its version is too old for (ComfyUI's own nodes they need came later); null: none, or not judged. */
+  tooOld: ComfyTooOld | null;
+  /** What to run to update it, as its folder on this computer is installed (portable, git); null: not known here. */
+  update: string | null;
   device: string | null;
   vramTotal: number | null;
   vramFree: number | null;

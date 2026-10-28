@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { envSaid } from "./config";
 import { httpError } from "./errors";
 import { isNetworkPath } from "./linked";
+import { managerOf } from "./lock-api";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
 import { olderThan } from "./version";
@@ -74,7 +75,9 @@ export function registerNodePack(app: FastifyInstance, s: Services): void {
     const loaded = running !== null && (!version || !olderThan(running, version));
     // whether this Afflatus can write it at all: ComfyUI's folder is known and is here
     const canWrite = Boolean(comfyDir.trim()) && (await exists(join(comfyDir.trim(), "custom_nodes")));
-    return { pack: NODE_PACK, path, written, loaded, canWrite, version, running };
+    // written and not loaded: whether Afflatus can restart ComfyUI to load it (ComfyUI-Manager's reboot, POST /api/comfy/restart)
+    const manager = written && !loaded ? (await managerOf(comfy)) !== null : null;
+    return { pack: NODE_PACK, path, written, loaded, canWrite, version, running, manager };
   });
 
   /** The pack as a zip, to unpack into ComfyUI's custom_nodes by hand when Afflatus cannot write there (ComfyUI on another machine). */

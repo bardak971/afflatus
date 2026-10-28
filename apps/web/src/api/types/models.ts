@@ -1,5 +1,5 @@
 /** Models and recipes: what ComfyUI has, what each recipe needs, imported workflows, and where a missing file can be had. */
-import type { Chapter, InputSpec, ModelLine, StartRule, VideoTraits } from "@afflatus/core";
+import type { Chapter, ComfyTooOld, InputSpec, ModelLine, StartRule, VideoTraits } from "@afflatus/core";
 import type { Bindings, Wiring, WorkflowDef } from "@afflatus/workflows";
 import type { PresetFile } from "./designer";
 
@@ -83,6 +83,10 @@ export interface ComfyProbe {
   url: string;
   online: boolean;
   version: string | null;
+  /** What it says of itself beyond its version (the server's comfyFacts): its PyTorch, the families it is too old for, and how to update it. */
+  pytorch: string | null;
+  tooOld: ComfyTooOld | null;
+  update: string | null;
   device: string | null;
   /** It answered, but refused Afflatus: locked by a token to paste once it is added. */
   locked: boolean;
@@ -96,7 +100,7 @@ export interface ComfyProbe {
 export interface Scan {
   at: string;
   comfy:
-    | { online: true; url: string; version: string; device: string; vramTotal: number; vramFree: number; nodes: number }
+    | { online: true; url: string; version: string; pytorch?: string; device: string; vramTotal: number; vramFree: number; nodes: number }
     // `planned`: no ComfyUI answers and none of the user's own is expected: what a pod would offer (the server's plannedScan)
     | { online: false; url: string; error: string; locked?: boolean; planned?: true };
   families: Array<{ id: string; slots: Array<{ id: string; label: string; folder: string; file: string | null; choices: string[]; auto: string | null; chosen: boolean; optional: boolean; hint: string; get?: { file: string; url: string };

@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FAKE_GPUS, startFakeComfy, startFakeRunpod, startFakeS3 } from "@afflatus/comfy/testing";
-import { nodesOfPack, type Graph, type NodeCatalog } from "@afflatus/core";
+import { comfyOlderThan, comfySince, nodesOfPack, type Graph, type NodeCatalog } from "@afflatus/core";
 import { buildApp } from "../apps/server/src/app";
 import { migrate, openSqlite, takeOver } from "../apps/server/src/db";
 import { createServices } from "../apps/server/src/services";
@@ -100,6 +100,11 @@ const lacking = (models: Record<string, string[]>, lacks?: RegExp) => (lacks ? O
 // (queuePacks.ts: the job waits, Install and restart, Run without)
 const noPackNodes = (process.env.DEMO_NO_PACKS ?? "").split(",").map((p) => p.trim()).filter(Boolean).flatMap(nodesOfPack);
 const withoutPacks = Object.fromEntries(Object.entries(catalog).filter(([n]) => !noPackNodes.includes(n)));
+// DEMO_COMFY_VERSION=0.3.10 DEMO_PYTORCH=2.4.0+cu121: the first pretend ComfyUI says an old version and PyTorch, and lacks
+// ComfyUI's own nodes that came later (Settings › ComfyUI's "Too old for", the first launch's, a form's "update ComfyUI")
+const oldComfy = process.env.DEMO_COMFY_VERSION?.trim();
+const pretendPytorch = process.env.DEMO_PYTORCH?.trim();
+const tooNew = (n: string) => Boolean(oldComfy && comfyOlderThan(oldComfy, comfySince([n]) ?? "0.0.1"));
 const packsBack = Object.fromEntries(noPackNodes.flatMap((n) => (catalog[n] ? [[n, catalog[n]!]] : [])));
 
 // DEMO_PACKS_BROKEN=comfyui-impact-pack (with it in DEMO_NO_PACKS): its install script fails on that pretend ComfyUI as
@@ -117,7 +122,7 @@ const brokenPacks = Object.fromEntries((process.env.DEMO_PACKS_BROKEN ?? "").spl
 }]));
 
 const pretendComfy = (lacks?: RegExp, first = false) => startFakeComfy({
-  catalog: first && noPackNodes.length ? withoutPacks : catalog,
+  catalog: Object.fromEntries(Object.entries(first && noPackNodes.length ? withoutPacks : catalog).filter(([n]) => !(first && tooNew(n)))),
   ...(first && noPackNodes.length ? { afterReboot: packsBack, packsBroken: brokenPacks } : {}),
   // a pretend ComfyUI-Manager: "Download" in the demo fetches from the pretend site below
   manager: true,
@@ -138,6 +143,8 @@ const pretendComfy = (lacks?: RegExp, first = false) => startFakeComfy({
   simulate: { stepMs: Number(process.env.DEMO_STEP_MS) || 220, video: pretendClip },
 });
 const fake = await pretendComfy(undefined, true);
+if (oldComfy) fake.version = oldComfy;
+if (pretendPytorch) fake.pytorch = pretendPytorch;
 // DEMO_MACHINES=2 (up to 8): as many pretend ComfyUIs, as if this computer had that many GPUs (Settings › ComfyUI, the queue's lanes)
 // each with files of its own, so that Settings › Models shows a difference: the second has none of MiniMax H3's models nor
 // the Pony checkpoint, the third none of Wan's; the others have everything

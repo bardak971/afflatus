@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { shortGpu } from "@afflatus/core";
+import { plural, shortGpu, torchBuild } from "@afflatus/core";
 import { Check, ExternalLink } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type ComfyProbe, type Settings } from "../api";
@@ -10,6 +10,7 @@ import { useSayFailed } from "../sayFailed";
 import { useCapsSave } from "../rentCaps";
 import { GetFfmpeg } from "../GetFfmpeg";
 import { Button, Chip, cx, ErrorNote, fieldClass } from "../ui";
+import { ComfyCheckLines, tooOldFamilies } from "./settings/ComfyCheck";
 import { INSTALLS } from "./settings/NoComfyCard";
 import { CAP_DAY_WHY, CAP_MONTH_WHY, CapBox } from "./settings/RentedCard";
 import { SecretField } from "./settings/SecretField";
@@ -75,10 +76,12 @@ const packSaid = (dir: string | null | undefined, local?: boolean) =>
       : "On another computer: Afflatus cannot write its node pack there; Settings › ComfyUI has it to put in by hand.";
 
 /** A machine as found: its version, its GPU, its address. */
-const foundSaid = (p: ComfyProbe) => (
+const foundSaid = (p: ComfyProbe, torch = torchBuild(p.pytorch)) => (
   <>
     <b className="text-ink-strong">ComfyUI{p.version ? ` ${p.version}` : ""}</b>
+    {p.tooOld && <Chip tone="attention" tip={`Too old for ${tooOldFamilies(p.tooOld)} (v${p.tooOld.needs} or newer)`}>too old for {p.tooOld.families.length > 2 ? plural(p.tooOld.families.length, "family", "families") : p.tooOld.families.map((f) => f.name).join(", ")}</Chip>}
     {p.device && <Chip>{shortGpu(p.device)}</Chip>}
+    {torch && <Chip tip={`The PyTorch it runs on: ${p.pytorch}`}>PyTorch {torch.torch}{torch.cuda ? ` · CUDA ${torch.cuda}` : ""}</Chip>}
     <span className="font-mono text-xs">{hostOf(p.url)}</span>
     {p.locked && <Chip tone="warn" tip="Its Afflatus node pack refuses calls without its token: once it is added, paste the token in Settings › ComfyUI.">locked</Chip>}
   </>
@@ -122,6 +125,12 @@ export function FirstLaunch() {
   };
 
   const first = own[0];
+  // the ComfyUI added, as it was found or tested: what it is too old for stays said once it is added (the page shown again
+  // from Settings, with nothing found or tested, says it from the machine as Settings asks it)
+  const asked = useQuery({ queryKey: queryKeys.machines(), queryFn: ({ signal }) => api.machines({ signal }), enabled: comfy === "added" && Boolean(first), staleTime: 10_000 });
+  const machineNow = asked.data?.find((m) => m.id === first?.id);
+  const checked = probe?.online ? probe : first && find.data?.found?.url === first.url ? find.data.found : null;
+  const addedFacts = checked ?? (machineNow?.online ? machineNow : null);
   const answered = comfy === "added" || comfy === "none" || comfy === "install";
   const hasKey = Boolean(settings.data?.hasRunpodKey);
   const rentsOn = hasKey || rent === "yes";
@@ -164,6 +173,7 @@ export function FirstLaunch() {
                 <Button tone="primary" size="sm" disabled={save.isPending} onClick={() => add(find.data!.found!.url)}>Render on it</Button>
                 <Button tone="quiet" size="sm" className="bg-transparent text-ink-2" onClick={() => setComfy("have")}>Not this one</Button>
               </div>
+              {find.data.found.version && <ComfyCheckLines facts={{ ...find.data.found, version: find.data.found.version }} />}
               <span className="text-ink-3">{find.data.found.locked ? "It is locked by an Afflatus node pack: once added, paste its token in Settings › ComfyUI." : packSaid(find.data.found.dir, find.data.found.local)}</span>
             </>
           )}
@@ -184,6 +194,7 @@ export function FirstLaunch() {
                 <Button disabled={test.isPending || !url.trim()} onClick={() => test.mutate(url.trim())}>{test.isPending ? "Testing…" : "Test"}</Button>
                 <Button tone="primary" disabled={save.isPending || !url.trim()} onClick={() => add(url.trim())}>Add it</Button>
               </div>
+              {probe?.online && probe.version && <ComfyCheckLines facts={{ ...probe, version: probe.version }} />}
               <span className="text-ink-3">
                 {probe?.online ? <span className="mr-1 inline-flex items-center gap-2 text-ink">{foundSaid(probe)} ·</span> : probe ? <span className={cx("mr-1", probe.locked ? "text-warn-ink" : "text-attention-ink")}>{probe.locked ? "Locked against Afflatus: add it, then paste its token" : "Not answering"} ·</span> : null}
                 Offline is fine: add it now, jobs wait until it answers. Started with <span className="font-mono">--listen</span> on another PC? Its address, port included.
@@ -208,10 +219,11 @@ export function FirstLaunch() {
           )}
           {comfy === "added" && first && (
             <div className="flex items-center gap-2.5 text-ink">
-              {probe?.online || find.data?.found?.url === first.url ? foundSaid(probe?.online ? probe : find.data!.found!) : <span className="font-mono text-xs">{hostOf(first.url)}</span>}
+              {checked ? foundSaid(checked) : <span className="font-mono text-xs">{hostOf(first.url)}</span>}
               <button type="button" className="ml-auto font-semibold text-ink-3 underline underline-offset-2" onClick={() => setComfy("have")}>Change</button>
             </div>
           )}
+          {comfy === "added" && first && addedFacts?.version && <ComfyCheckLines facts={{ ...addedFacts, version: addedFacts.version }} />}
           {comfy === "added" && first && <span className="text-ink-3">{settings.data?.comfyDir ? `Its node pack is written into its custom_nodes folder (${settings.data.comfyDir}): ComfyUI loads it at its next start.` : packSaid(null, first.local)}</span>}
           {comfy === "none" && (
             <div className="flex items-center gap-2.5 text-ink">

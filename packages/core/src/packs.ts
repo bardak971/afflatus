@@ -1,3 +1,5 @@
+import { comfySince, isCoreNode } from "./comfyNeeds";
+
 /**
  * The custom node packs the built-in forms use, and the node types each brings: so that a node ComfyUI lacks is said as the
  * pack to install, and how, rather than as a node type's name. Read from a ComfyUI that has them all (2026-10-08). A form
@@ -107,19 +109,28 @@ export const isBeyondPack = (err: unknown): boolean => Boolean((err as { beyondP
 /** The repository a known pack is cloned from by hand, when ComfyUI-Manager cannot install it; null for one not known. */
 export const repoOfPack = (name: string): string | null => packNamed(name)?.repo ?? null;
 
+/** How a ComfyUI is updated, the ways it is installed: said wherever one is too old for a form. */
+export const UPDATE_COMFY = "git pull in its folder, then pip install -r requirements.txt; on the portable, update\\update_comfyui.bat; ComfyUI Desktop updates itself";
+
 /**
- * Node types ComfyUI lacks, said as what to install: each pack once, with how to get it, then the node types no known pack
- * brings. ComfyUI reads custom_nodes only at start, so it is restarted after.
+ * Node types ComfyUI lacks, said as what to install: each pack once, with how to get it; ComfyUI's own nodes as an update
+ * of ComfyUI, with the release that brought them (`version`: the one it has, when known), never as a pack to look for, which
+ * Manager's "Install Missing Custom Nodes" would not find; then the node types no known pack brings. ComfyUI reads
+ * custom_nodes only at start, so it is restarted after.
  */
-export function missingNodesSaid(missing: string[]): string {
+export function missingNodesSaid(missing: string[], version?: string | null): string {
+  const core = missing.filter(isCoreNode);
   const packs = [...new Set(missing.map(packOfNode).filter((p): p is NodePack => Boolean(p)))];
-  const loose = missing.filter((n) => !packOfNode(n));
+  const loose = missing.filter((n) => !packOfNode(n) && !isCoreNode(n));
   const said = packs.map((p) => (p.own
     ? `Afflatus's own node pack (afflatus-nodes): Settings → ComfyUI writes it into ComfyUI's custom_nodes folder, or unpack the copy offered there`
     : `the node pack ${p.name}: in ComfyUI-Manager, Custom Nodes Manager → search "${p.name}" → Install, or clone ${p.repo} into ComfyUI's custom_nodes folder`));
+  const since = comfySince(core);
+  const yours = version && /^v?\d/.test(version) ? ` (this one is ${version.replace(/^v?/, "v")})` : "";
   const parts = [
-    ...(said.length ? [`ComfyUI needs ${said.length === 1 ? said[0] : `these node packs: ${said.map((s, i) => `(${i + 1}) ${s}`).join("; ")}`}`] : []),
-    ...(loose.length ? [`${said.length ? "It also lacks" : "ComfyUI is missing"} the node${loose.length > 1 ? "s" : ""} ${loose.join(", ")}: ComfyUI-Manager's "Install Missing Custom Nodes" finds the pack${loose.length > 1 ? "s" : ""}`] : []),
+    ...(core.length ? [`ComfyUI${yours} lacks its own node${core.length > 1 ? "s" : ""} ${core.join(", ")}, which came with ComfyUI v${since}: update ComfyUI (${UPDATE_COMFY}); no custom node pack brings ${core.length > 1 ? "them" : "it"}`] : []),
+    ...(said.length ? [`${core.length ? "It also needs" : "ComfyUI needs"} ${said.length === 1 ? said[0] : `these node packs: ${said.map((s, i) => `(${i + 1}) ${s}`).join("; ")}`}`] : []),
+    ...(loose.length ? [`${said.length || core.length ? "It also lacks" : "ComfyUI is missing"} the node${loose.length > 1 ? "s" : ""} ${loose.join(", ")}: ComfyUI-Manager's "Install Missing Custom Nodes" finds the pack${loose.length > 1 ? "s" : ""}`] : []),
   ];
-  return `${parts.join(". ")}. Restart ComfyUI after installing.`;
+  return `${parts.join(". ")}. Restart ComfyUI after ${core.length && !said.length && !loose.length ? "updating" : core.length ? "updating and installing" : "installing"}.`;
 }
