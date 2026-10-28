@@ -159,7 +159,7 @@ export const exportBody = z.strictObject({
 /** How the clips are finished: the route, how much larger, its settings; `redo` finishes again the clips finished already. */
 export const finishBody = z.strictObject({
   route: z.enum(["seedvr", "latent", "rtx", "model", "face"]), factor: z.number().min(1).max(4), colour: z.enum(["lab", "wavelet", "adain", "none"]).optional(), upscaleModel: z.string().max(200).optional(), seedvrFrames: z.number().int().min(0).max(49).optional(),
-  sharpen: z.number().min(0).max(1).optional(), latentDenoise: z.number().min(0.05).max(0.6).optional(), latentSteps: z.number().int().min(1).max(6).optional(),
+  sharpen: z.number().min(0).max(1).optional(), latentNoise: z.number().min(0.05).max(0.95).optional(), latentSteps: z.number().int().min(1).max(6).optional(),
   faceDenoise: z.number().min(0.3).max(0.6).optional(), face: z.boolean().optional(),
   /** Redo the clips finished already: all of them (true), or only those finished with other settings ("changed"). */
   redo: z.union([z.boolean(), z.literal("changed")]).default(false), clips: z.array(z.string()).optional(),
@@ -783,7 +783,7 @@ export async function finishPlan(s: Services, timeline: string, b: z.infer<typeo
       if (!kept?.latent_key) { skipped.push({ clip: i + 1, why: "its latent was not kept (rendered before Afflatus kept them, or without its node pack): finish it with SeedVR2, RTX or a model" }); continue; }
       // with Face refine asked for, on a model that offers it: its faces redrawn in the same job, after the re-sample
       const refine = b.face && refinesFaces(s.registry.recipe(gen.recipe)) ? { faceRefine: true, faceRefineDenoise: b.faceDenoise ?? 0.45 } : {};
-      push({ kind: "render", recipe: gen.recipe, input: { ...asDrafted(gen.inputs, draft.asset), seed: gen.seed, upscale: "Latent: re-sampled", upscaleBy: b.factor, upscaleDenoise: b.latentDenoise ?? 0.15, upscaleSteps: b.latentSteps ?? 2, ...refine }, opts: {
+      push({ kind: "render", recipe: gen.recipe, input: { ...asDrafted(gen.inputs, draft.asset), seed: gen.seed, upscale: "Latent: re-sampled", upscaleBy: b.factor, upscaleNoise: b.latentNoise ?? 0.25, upscaleSteps: b.latentSteps ?? 3, ...refine }, opts: {
         // the pictures its draft flipped are flipped again: the finish re-samples the draft, made from them as they were sent
         label, clip: { id: clip.id, fit: false, mirror: gen.mirror }, look: clip.look ?? view.look, folder, finishedFrom: from,
       } });
@@ -839,8 +839,10 @@ function cutKey(c: CutOptions): string {
 }
 function renderKey(i: Record<string, unknown>): string | null {
   if (i.faceRefineOnly) return JSON.stringify({ route: "face", fd: i.faceRefineDenoise ?? 0.45 });
-  if (i.upscale === "Latent: re-sampled") return JSON.stringify({ route: "latent", f: i.upscaleBy, d: i.upscaleDenoise ?? 0.15, s: i.upscaleSteps ?? 2, face: i.faceRefine ? i.faceRefineDenoise ?? 0.45 : null });
-  return null;
+  if (i.upscale !== "Latent: re-sampled") return null;
+  // one made before card #141 ran BasicScheduler's denoise, another schedule: no finish asked for now is the same
+  const d = typeof i.upscaleNoise === "number" ? i.upscaleNoise : `simple ${i.upscaleDenoise ?? 0.15}`;
+  return JSON.stringify({ route: "latent", f: i.upscaleBy, d, s: i.upscaleSteps ?? (typeof d === "number" ? 3 : 2), face: i.faceRefine ? i.faceRefineDenoise ?? 0.45 : null });
 }
 /** The key of a finish as it would be queued: a Face refine with a cut behind it is that cut's finish. */
 const finishKeyOf = (job: FinishJob): string | null => (job.kind === "cut" ? cutKey(job.cut) : job.then ? cutKey(job.then.cut) : renderKey(job.input));

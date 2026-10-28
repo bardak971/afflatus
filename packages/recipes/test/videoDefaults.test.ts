@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dryContext, parseInput } from "@afflatus/core";
+import { dryContext, karrasSigmas, ownValues, parseInput, RESAMPLE_SIGMA_FLOOR } from "@afflatus/core";
 import { h3Video, ltx25LipSync, ltx25Video, ltxVideo, wanVideo } from "../src";
 
 type Graph = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
@@ -73,11 +73,43 @@ describe("NAG on LTX", () => {
   });
 });
 
-describe("H3's re-sample defaults", () => {
-  it("start light: 0.15 in 2 steps (near sigma 0.66 at shift 11)", () => {
-    const parsed = parseInput(h3Video, { description: "a" }) as { upscaleDenoise: number; upscaleSteps: number };
-    expect(parsed.upscaleDenoise).toBe(0.15);
-    expect(parsed.upscaleSteps).toBe(2);
+describe("H3's re-sample (card #141)", () => {
+  type Resample = { upscaleNoise: number; upscaleSteps: number };
+  const read = (raw: Record<string, unknown>) => parseInput(h3Video, { description: "a", ...raw }) as unknown as Resample & Record<string, unknown>;
+  const finish = (over: Record<string, unknown>) => h3Video.build(parseInput(h3Video, { description: "a", start: "s1", upscale: "Latent: re-sampled", upscaleBy: 1.5, ...over }),
+    dryContext({ slots: { ...h3Slots, latentUpscaler: "up.safetensors" }, uploads: { start: "s.png", "self.latent": "own.safetensors [temp]" }, media: { start: picture }, has: () => true })).graph as Graph;
+
+  it("starts on variant E of card #138: σ 0.25 in 3 steps", () => {
+    expect(read({})).toMatchObject({ upscaleNoise: 0.25, upscaleSteps: 3 });
+  });
+  it("re-noises to the σ its denoise says, eased to 0.012 on a karras curve (ρ 7), then 0, whatever the shift", () => {
+    for (const shiftVideo of [6, 8, 12]) {
+      const graph = finish({ upscaleNoise: 0.25, upscaleSteps: 3, shiftVideo });
+      expect(of(graph, "BasicScheduler").filter((n) => n.inputs.denoise !== undefined && n.inputs.denoise !== 1)).toEqual([]);
+      expect(of(graph, "KarrasScheduler").map((n) => n.inputs)).toEqual([{ steps: 3, sigma_max: 0.25, sigma_min: 0.012, rho: 7 }]);
+    }
+    const sigmas = karrasSigmas(3, 0.25, RESAMPLE_SIGMA_FLOOR);
+    expect(sigmas.map((x) => Math.round(x * 1000) / 1000)).toEqual([0.25, 0.064, 0.012, 0]);
+  });
+  it("reads an older BasicScheduler denoise as the σ it really started at, its steps kept", () => {
+    // what the owner's takes were finished with: 0.2 and 0.25 over 2 steps at shift 7
+    expect(read({ upscaleDenoise: 0.2, upscaleSteps: 2, shiftVideo: 7 })).toMatchObject({ upscaleNoise: 0.64, upscaleSteps: 2 });
+    expect(read({ upscaleDenoise: 0.25, upscaleSteps: 2, shiftVideo: 7 })).toMatchObject({ upscaleNoise: 0.7, upscaleSteps: 2 });
+    // its shift left to the recipe (an older draft's 0): the form's 11
+    expect(read({ upscaleDenoise: 0.3, upscaleSteps: 2, shiftVideo: 0 })).toMatchObject({ upscaleNoise: 0.85, shiftVideo: 11 });
+    expect(read({ upscaleDenoise: 0.15, upscaleSteps: 3, shiftVideo: 8 })).toMatchObject({ upscaleNoise: 0.59, upscaleSteps: 3 });
+    expect("upscaleDenoise" in read({ upscaleDenoise: 0.2 })).toBe(false);
+  });
+  it("reads the pair the form used to start on (0.15, 2 steps) as the new defaults", () => {
+    expect(read({ upscaleDenoise: 0.15, upscaleSteps: 2, shiftVideo: 8 })).toMatchObject({ upscaleNoise: 0.25, upscaleSteps: 3 });
+    expect(read({ upscaleDenoise: 0.15 })).toMatchObject({ upscaleNoise: 0.25, upscaleSteps: 3 });
+  });
+  it("keeps a value saved under the new id over an older one beside it", () => {
+    expect(read({ upscaleDenoise: 0.3, upscaleNoise: 0.2, upscaleSteps: 2 })).toMatchObject({ upscaleNoise: 0.2, upscaleSteps: 2 });
+  });
+  it("reads an older draft the same way when a form opens it", () => {
+    expect(ownValues(h3Video, { upscaleDenoise: 0.2, upscaleSteps: 2, shiftVideo: 7 })).toEqual({ upscaleNoise: 0.64, upscaleSteps: 2, shiftVideo: 7 });
+    expect(ownValues(h3Video, { upscaleDenoise: 0.15, upscaleSteps: 2 })).toEqual({});
   });
 });
 

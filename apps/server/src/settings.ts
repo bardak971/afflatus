@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { LIMITS, presetFileSchema } from "@afflatus/core";
+import { LIMITS, presetFileSchema, sigmaOfOldDenoise } from "@afflatus/core";
 import { envSaid } from "./config";
 import type { Db } from "./db";
 import { httpError } from "./errors";
@@ -39,8 +39,9 @@ const finishSchema = z.object({
   colour: z.enum(["lab", "wavelet", "adain", "none"]).default("lab"),
   /** The pixel route's model file; empty = the first found. */
   upscaleModel: z.string().max(200).default(""),
-  latentDenoise: z.number().min(0.05).max(0.6).default(0.15),
-  latentSteps: z.number().int().min(1).max(6).default(2),
+  /** H3's latent re-sample: the σ it starts at (the dialog's denoise), eased to 0 over its steps on a karras curve. */
+  latentNoise: z.number().min(0.05).max(0.95).default(0.25),
+  latentSteps: z.number().int().min(1).max(6).default(3),
   /** Face refine's denoise on the smallest faces. */
   faceDenoise: z.number().min(0.3).max(0.6).default(0.45),
   /** Face refine with the latent re-sample, in the same job, on the clips whose model offers it (the rethink's Finish, step 10). */
@@ -50,6 +51,24 @@ const finishSchema = z.object({
   /** RCAS after a pixel route (SeedVR2, RTX, a model), 0 to 1; 0 = off. */
   sharpen: z.number().min(0).max(1).default(0),
 });
+
+/**
+ * The Finish settings as they read today. Before card #141 the re-sample's denoise was `latentDenoise`, BasicScheduler's at
+ * the clip's shift: read as the σ it started at, at the H3 forms' default shift (11; the settings know no clip), its steps
+ * kept. The pair the dialog started on (0.15, 2 steps) was never a choice: both left out, the new defaults apply.
+ */
+export function finishNow(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object" || !("latentDenoise" in raw)) return raw;
+  const { latentDenoise, ...rest } = raw as Record<string, unknown>;
+  if ("latentNoise" in rest || typeof latentDenoise !== "number" || !(latentDenoise > 0)) return rest;
+  const steps = typeof rest.latentSteps === "number" ? rest.latentSteps : 2;
+  const sigma = sigmaOfOldDenoise({ denoise: latentDenoise, steps, shift: 11 }, { denoise: 0.15, steps: 2 });
+  if (sigma === null) {
+    const { latentSteps: _, ...left } = rest;
+    return left;
+  }
+  return { ...rest, latentNoise: Math.min(0.95, Math.max(0.05, sigma)) };
+}
 
 /** The command bar (docs/command-bar.md): its shortcut, and its optional parts, each off until turned on. */
 const barSchema = z.object({
@@ -435,6 +454,7 @@ async function load(db: Db): Promise<Settings> {
   // before there was a list, there was one model under "llm": it is the first of the list
   const { llm: one, ...rest } = raw;
   if (rest.llms === undefined && one && typeof one === "object" && (one as { baseUrl?: string }).baseUrl) rest.llms = [{ id: "main", ...one }];
+  rest.finish = finishNow(rest.finish);
   // a list of machines never written is an install from before there could be several (or none): its ComfyUI is the first
   // machine. One written, even empty (a new install's, seedNewInstall; every machine removed), is the list as it is
   const listed = Array.isArray(rest.machines);

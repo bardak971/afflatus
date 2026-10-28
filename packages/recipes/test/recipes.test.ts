@@ -2106,7 +2106,7 @@ describe("H3's upscale pass", () => {
     // no pass named (what loads ahead is its loaders), but the bar counts the re-sample's steps once for every piece:
     // 576 × 1024 made 864 × 1536, in 512-pixel tiles overlapping by 128 (2 × 4), and 124 frames in stretches of 85 overlapping by 17 (2)
     expect(b.passes).toEqual([]);
-    expect(b.totalSteps).toBe(2 * 2 * 4 * 2);
+    expect(b.totalSteps).toBe(3 * 2 * 4 * 2);
     // its latent comes from a file, which says no frame count: the clip's frames are said by the recipe
     expect(b.frames).toBe(124);
     expect(checkGraph(b, catalog)).toEqual([]);
@@ -2192,9 +2192,8 @@ describe("H3's upscale pass", () => {
     expect(node(b, "MMH3LatentUpscaleWithModelParams")).toHaveLength(0);
     expect(node(b, "MMH3SpatialSplitParams")[0]!.inputs).toMatchObject({ upscale_width: 1152, upscale_height: 2048, tile_width: 512, spatial_w_overlap: 128 });
     expect(node(b, "MMH3TemporalSplitParams")[0]!.inputs).toMatchObject({ chunk_length: 85, temporal_overlap: 17 });
-    // two light steps
-    const sigmas = node(b, "BasicScheduler").find((n) => n.inputs.denoise === 0.15)!;
-    expect(sigmas.inputs.steps).toBe(2);
+    // from σ 0.25, three steps easing down to 0 (card #141)
+    expect(node(b, "KarrasScheduler")[0]!.inputs).toEqual({ steps: 3, sigma_max: 0.25, sigma_min: 0.012, rho: 7 });
     expect(b.phases[upId]).toBe("refining");
   });
 

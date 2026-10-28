@@ -368,11 +368,12 @@ export const typedInto = (recipe: Pick<Recipe<any>, "partsStartOn">, text: unkno
 
 /** Raw inputs (from the browser, a draft, a variant) → validated values with defaults filled in. */
 export function parseInput<In>(recipe: Recipe<In>, raw: unknown): In {
-  const parsed = schemaFor(recipe.inputs).parse(raw) as Record<string, unknown>;
+  // read as today first: a job queued or a take made before an input changed meaning holds its older id (card #141)
+  const given = raw && typeof raw === "object" && !Array.isArray(raw) ? withoutOldZeros(recipe.inputs, raw as Record<string, unknown>) : null;
+  const parsed = schemaFor(recipe.inputs).parse(given ?? raw) as Record<string, unknown>;
   // what was left out starts where the choices made move it, as the form starts it (Turbo on: the turbo LoRA's shifts);
   // an older draft's 0 for "the recipe picks it" counts as left out
-  const given = raw && typeof raw === "object" ? withoutOldZeros(recipe.inputs, raw as Record<string, unknown>) : {};
-  const moved = Object.entries(chosenDefaults(recipe.inputs, parsed)).filter(([id]) => given[id] === undefined);
+  const moved = Object.entries(chosenDefaults(recipe.inputs, parsed)).filter(([id]) => given?.[id] === undefined);
   return { ...parsed, ...Object.fromEntries(moved) } as In;
 }
 
