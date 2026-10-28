@@ -34,6 +34,7 @@ import { Precompute, type PrecomputeOptions } from "./precompute";
 import { Notify } from "./notify";
 import { Access } from "./access";
 import { capHeld } from "./mcpRender";
+import { downPodFiles } from "./filePlaces";
 import { McpTokens } from "./mcpTokens";
 import { WhereNow } from "./whatsOpen";
 import { followComfyLogins } from "./comfyLogins";
@@ -325,6 +326,10 @@ export async function createServices(
   podFilesTimer.unref();
   // a token with Spend has its jobs handed to a pod only while its cap has room (a money path: mcpRender.ts capHeld)
   queue.capHeld = (rows) => capHeld(services, rows);
+  // a job whose files a stopped pod holds waits for that pod, its row offering Start (filePlaces.ts, card #139)
+  queue.podsHold = async () => downPodFiles(services, (await readSettings(db)).machines);
+  // with none of the user's machines listing a file, a pod on its way is still sent it: a render is not refused then
+  queue.podComing = async () => Boolean(services.hunt?.view().hunt) || (await readSettings(db)).pendingDeploys.length > 0;
   // a pod whose run a token started (deploy_pod, start_pod) stops once that token's cap is reached, as at the app's caps
   // A token gone from the list (revoked a month ago, its activity let go) has no cap left to hold the pod to: counted as
   // reached, so that nothing keeps that pod billing (the user's own Start makes the run theirs again, rented.ts start)

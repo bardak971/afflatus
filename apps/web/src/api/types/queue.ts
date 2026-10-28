@@ -48,6 +48,8 @@ export interface Job {
   runsOn: string[] | null;
   /** Of such a render: what keeps it off each other machine, by machine id (its family off there, the files it lacks there). */
   lacks: Record<string, MachineLack> | null;
+  /** Of a waiting render no machine can run now: the stopped pod that holds its files (its volume, its set), which its row offers to Start. */
+  startPod?: string | null;
   /** Of a waiting render: the rented pods it can run on once its files are sent there, with them and how long they take (ms). */
   /** The pods it can run on once sent its files, and a ComfyUI of the user's own it waits on for them to be downloaded (with where each is had). */
   fetch: Record<string, { files: Array<{ file: string; folder: string; url?: string }>; ms: number }> | null;
@@ -132,7 +134,7 @@ export interface PodFile {
   jobs: string[];
 }
 /** A finished job as the queue's history shows it: with what it made and how. (Not how long it would take, nor how a clip joined: GET /api/jobs leaves those out.) */
-export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" | "pinned" | "startsInMs" | "runsOn" | "lacks" | "fetch" | "packs" | "by"> {
+export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" | "pinned" | "startsInMs" | "runsOn" | "lacks" | "startPod" | "fetch" | "packs" | "by"> {
   tookMs: number | null;
   /** Of a job that failed in a ComfyUI node: the end of its Python traceback; null otherwise. */
   trace?: string | null;

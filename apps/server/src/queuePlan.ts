@@ -1,9 +1,9 @@
-import { isOfficialFile, modelName, modelOf, type NodeCatalog, type Recipe } from "@afflatus/core";
+import { fileKey, isOfficialFile, modelName, modelOf, sameFile, type NodeCatalog, type Recipe } from "@afflatus/core";
 import type { Db } from "./db";
 import { paceOf } from "./forecast";
 import type { Scan } from "@afflatus/comfy";
 import { roomFor, type Loaded } from "./jobFiles";
-import { lackOn, toolLackOn, toolSlots, type Lack } from "./machineScans";
+import { filesAsked, lackOn, toolLackOn, toolSlots, type Lack } from "./machineScans";
 import type { PodFiles } from "./podFiles";
 import { PACKS_MS } from "./podPacks";
 
@@ -26,6 +26,20 @@ import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
  */
 
 
+/**
+ * The pod not up that a job's files make it wait for, among those `may` allows: every file it asks for is on it (its
+ * volume, its set) or can be sent to it once up (`sent`: a family's official file, one a machine that answers lists), and
+ * one at least is on it (a job that asks for nothing a pod holds waits for no pod in particular). Undefined: none.
+ */
+export function podHolding<F extends { file: string; folder: string }>(asked: readonly F[], held: ReadonlyMap<string, ReadonlySet<string>>, sent: (f: F) => boolean, may: (pod: string) => boolean): string | undefined {
+  if (!asked.length) return undefined;
+  for (const [pod, keys] of held) {
+    if (!may(pod)) continue;
+    if (asked.some((f) => keys.has(fileKey(f))) && asked.every((f) => keys.has(fileKey(f)) || sent(f))) return pod;
+  }
+  return undefined;
+}
+
 /** How many waiting jobs ableOf judges in one turn of the event loop. */
 const YIELD_EVERY = 25;
 
@@ -45,6 +59,11 @@ export type Able = {
    * ahead to another pod, and the first fetched it from zero once back.
    */
   unjudged?: Set<string>;
+  /**
+   * A rented pod not up that holds or fetches the files it asks for (its volume's, its deploy's set's), when no machine can
+   * run it now: it waits for that pod, its row offering Start (card #139), never sent to a machine of the user's own.
+   */
+  startPod?: string;
 };
 
 /**
@@ -121,6 +140,8 @@ interface PlanDeps {
    * yet (mcpRender.ts capHeld). Set by services.ts; null: none is held.
    */
   readonly capHeld: ((rows: ReadonlyArray<Pick<JobRow, "id" | "mcp_token_id">>) => Promise<Map<string, string>>) | null;
+  /** What each rented pod not up holds or fetches, by pod id (filePlaces.ts downPodFiles); null: none is known. */
+  readonly podsHold: (() => Promise<Map<string, Set<string>>>) | null;
 }
 
 /** Why a job queued by an MCP token without Spend goes to no rented pod (its Queue row says it). */
@@ -223,6 +244,11 @@ export class Planner {
     // answered, waited for CATALOG_WAIT_MS at most (unread, it counts as one without the nodes, as a failed read did). Asked
     // per clip, a ComfyUI that accepted and never answered held the Queue screen 60 s per clip, minutes on end, and one away
     // was asked once per clip at every read (the 2026-10-22 review, H-3 and M-10)
+    // what the pods not up hold, read once a pass and only when one is down
+    const held = lanes.some((l) => l.machine!.rented && this.d.unavailable(l.id)) && this.d.podsHold
+      ? await this.d.podsHold().catch(() => new Map<string, Set<string>>())
+      : new Map<string, Set<string>>();
+    const official = new Set(families.flatMap((f) => (f.slots ?? []).flatMap((x) => (x.get ? [fileKey({ folder: x.folder, file: x.get.file })] : []))));
     const catalogOf = new Map<string, Promise<NodeCatalog | null>>();
     const catalogs = (id: string): Promise<NodeCatalog | null> => {
       let got = catalogOf.get(id);
@@ -265,7 +291,8 @@ export class Planner {
           // one that answers but whose scan did not (its node list too slow to come on a fresh pod) is read again soon:
           // nothing else would plan again while it answers, and it would idle toward its stop with its jobs waiting
           if (lane.reachable === true && !this.d.unavailable(lane.id)) this.d.retryLater();
-          lacks[lane.id] = { off: false, files: [], sendable: false, why: this.d.unavailable(lane.id) === CAP_REACHED ? CAP_REACHED : "its ComfyUI is not answering yet" };
+          const down = this.d.unavailable(lane.id);
+          lacks[lane.id] = { off: false, files: [], sendable: false, why: down === CAP_REACHED ? CAP_REACHED : down === "stopped" ? "the pod is stopped" : "its ComfyUI is not answering yet" };
           unjudged.add(lane.id);
           return;
         }
@@ -320,10 +347,16 @@ export class Planner {
         if (lack || balance) lacks[lane.id] = { ...(lack ?? { off: false, files: [], sendable: false }), ...(balance ? { balance } : {}), ...(failed ? { failed } : {}) };
         else can.add(lane.id);
       }));
+      // no machine can run it now, and a pod not up holds what it asks for: it waits for that pod (its row's Start), not for
+      // a Download on a machine of the user's own, and never goes there (card #139)
+      const startPod = !can.size && recipe && !offPods.has(r.id) && held.size ? podHolding(filesAsked(recipe, input).filter((f) => recipe.inputs.some((i) => i.id === f.input && (i.type === "model" || i.type === "loras"))), held, (f) => official.has(fileKey(f)) || scans.some(({ scan }) => {
+        const list = scan?.comfy.online ? scan.recipes.find((x) => x.id === recipe.id)?.options[f.input] : undefined;
+        return Boolean(list && sameFile(list, f.file));
+      }), (id) => !pin || pin === id) : undefined;
       // one that would wait for a download goes to a machine that can run it now, when there is one (the files no time to
       // count: they come when the user says); else it waits there, on its machine, for its Download
       for (const [id, lack] of waitsHere) {
-        if (can.size) {
+        if (can.size || startPod) {
           lacks[id] = lack;
           continue;
         }
@@ -350,7 +383,7 @@ export class Planner {
           }
         }
       }
-      out.set(r.id, { can, lacks, fetch, ...(unjudged.size ? { unjudged } : {}) });
+      out.set(r.id, { can, lacks, fetch, ...(unjudged.size ? { unjudged } : {}), ...(startPod ? { startPod } : {}) });
     }
     return out;
   }

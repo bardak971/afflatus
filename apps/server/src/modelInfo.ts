@@ -4,6 +4,8 @@ import { MODEL_INFO_VERSION } from "@afflatus/core";
 import { now } from "./db";
 import { httpError } from "./errors";
 import { modelDirs, readLocalHeader } from "./modelFiles";
+import type { Comfy } from "./comfy";
+import { filesOn } from "./filePlaces";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
 import { withSite } from "./modelSetCheck";
@@ -28,8 +30,9 @@ export function registerModelInfo(app: FastifyInstance, s: Services): void {
   /** Folders being read right now. */
   const reading = new Map<string, Promise<void>>();
 
-  async function read(folder: string, files: string[]): Promise<void> {
-    const comfy = await s.comfy();
+  /** `from`: the ComfyUI of another machine that lists a file the first one does not (a pod's), its header read there. */
+  async function read(folder: string, files: string[], from: ReadonlyMap<string, Comfy>): Promise<void> {
+    const first = await s.comfy();
     // ComfyUI's folders on this computer, when they are: the whole header is read from the disk then (tensor names
     // and shapes, which say which model a file is for); otherwise ComfyUI gives the metadata alone
     const dirs = await modelDirs((await readSettings(s.db)).comfyDir, folder);
@@ -42,15 +45,16 @@ export function registerModelInfo(app: FastifyInstance, s: Services): void {
         const there = await s.db.selectFrom("model_info").select("info").where("folder", "=", folder).where("file", "=", file).executeTakeFirst();
         if (there && (JSON.parse(there.info) as Kept).v === MODEL_INFO_VERSION) continue;
         let info: ModelInfo;
+        const comfy = from.get(file) ?? first;
         try {
           // the disk when ComfyUI's folders are here; else the node pack's route on ComfyUI (the whole header); else ComfyUI's metadata alone
-          const local = dirs.length ? await readLocalHeader(dirs, file) : null;
+          const local = dirs.length && comfy === first ? await readLocalHeader(dirs, file) : null;
           const header = local ?? (await comfy.client.header(folder, file).catch((err) => { if (err instanceof ComfyUnreachable) throw err; return null; })) ?? (await comfy.client.metadata(folder, file));
           // a file with no header is remembered as saying nothing, so it is not asked again
           info = header ? modelInfoFrom(header, file) : {};
         } catch (err) {
-          // ComfyUI went away: what is left is read the next time someone asks
-          if (err instanceof ComfyUnreachable) stopped = true;
+          // ComfyUI went away: what is left is read the next time someone asks (a pod's file alone is skipped, the others go on)
+          if (err instanceof ComfyUnreachable && comfy === first) stopped = true;
           continue;
         }
         const json = JSON.stringify({ ...info, v: MODEL_INFO_VERSION } satisfies Kept);
@@ -70,11 +74,24 @@ export function registerModelInfo(app: FastifyInstance, s: Services): void {
     if (!/^[\w-]{1,64}$/.test(folder)) throw httpError("there is no such model folder");
     // ComfyUI's list first, what is known second: nothing can be read between the second and the comparison
     let files: string[] | null = null;
+    // a file only another machine lists (a pod's) is read there: grouped as the user's own, it said nothing (card #139)
+    const from = new Map<string, Comfy>();
     try {
       files = (await (await s.comfy()).client.models(folder)).filter((f) => /\.safetensors$/i.test(f));
     } catch {
       // ComfyUI is away or has no such folder: what is already known is still an answer
     }
+    for (const { machine, comfy } of (await s.machines()).slice(1)) {
+      // from its last scan, which answered (a stopped pod's address would hold the list), not asked again at every read
+      const scan = await comfy.scanKept()?.catch(() => null);
+      if (!scan?.comfy.online) continue;
+      const theirs = Object.keys(filesOn([{ machine, scan }], (id) => s.registry.recipe(id))[folder] ?? {});
+      for (const f of theirs) {
+        if (!/\.safetensors$/i.test(f) || files?.includes(f) || from.has(f)) continue;
+        from.set(f, comfy);
+      }
+    }
+    if (from.size) files = [...(files ?? []), ...from.keys()];
     const rows = await s.db.selectFrom("model_info").select(["file", "info"]).where("folder", "=", folder).execute();
     const kept = rows.map((r) => ({ file: r.file, ...(JSON.parse(r.info) as Kept) }));
     const items: Record<string, ModelInfo> = Object.fromEntries(kept.map(({ file, v: _v, ...info }) => [file, info]));
@@ -85,7 +102,7 @@ export function registerModelInfo(app: FastifyInstance, s: Services): void {
       const unread = files.filter((f) => !current.has(f));
       pending = unread.length;
       if (unread.length && !reading.has(folder)) {
-        const job = read(folder, unread)
+        const job = read(folder, unread, from)
           .catch((err) => console.warn(`[models] reading ${folder} stopped: ${(err as Error).message}`))
           .finally(() => reading.delete(folder));
         reading.set(folder, job);

@@ -156,6 +156,9 @@ const RUNPOD_KEY = "demo-runpod-key";
 const podComfys: Array<Awaited<ReturnType<typeof pretendComfy>>> = [];
 const pod = async () => {
   const c = Object.assign(await pretendComfy(), { packVersion: PACK });
+  // a LoRA and a checkpoint this PC's ComfyUI lacks: the lists say which pod has them, and a job that picks one goes there
+  c.models.loras = [...(c.models.loras ?? []), "demo-pod-only-ink.safetensors"];
+  c.models.checkpoints = [...(c.models.checkpoints ?? []), "demo-pod-only-xl.safetensors"];
   podComfys.push(c);
   return c;
 };

@@ -1,3 +1,4 @@
+import { placesFrom } from "./filePlaces";
 import { plural } from "@afflatus/core";
 import { z } from "zod";
 import { browseCivitai, browseHuggingFace, civitaiQuery, huggingFaceQuery, known, lookupsOnFor, repoFiles, type BrowseCard, type BrowseFile } from "./browse";
@@ -32,7 +33,7 @@ const listModels = tool({
   name: "list_models",
   scope: "look",
   title: "Models",
-  description: "The models each machine has. Without arguments: every model family, whether it is on, and on each machine whether it is ready and which of its usual files it lacks; and the presets whose licence the user accepted. `family`: its slots on each machine (the file in use, the ones that fit, its usual file and address). `folder` (checkpoints, loras, diffusion_models, text_encoders, vae, upscale_models…): its files on each machine, filtered by `q`.",
+  description: "The models each machine has. Without arguments: every model family, whether it is on, and on each machine whether it is ready and which of its usual files it lacks; and the presets whose licence the user accepted. `family`: its slots on each machine (the file in use, the ones that fit, its usual file and address). `folder` (checkpoints, loras, diffusion_models, text_encoders, vae, upscale_models…): its files on each machine, filtered by `q`; a rented pod not up says what it holds there all the same (its network volume's files as last listed, the files of the Model set it was deployed with, which it fetches), and a job asking for one waits for that pod.",
   input: {
     family: z.string().max(120).optional().describe("A family's id (list_forms names them)."),
     folder: z.string().max(120).optional().describe("A ComfyUI model folder."),
@@ -43,11 +44,19 @@ const listModels = tool({
     const at = await seen(s);
     if (a.folder) {
       const words = (a.q ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+      // what a pod not up holds there (filePlaces.ts): its volume as last listed, its deploy's set
+      const places = await placesFrom(s, at.machines);
       const machines = await Promise.all(at.machines.map(async ({ machine }) => {
         const comfy = (await s.machines()).find((m) => m.machine.id === machine.id)?.comfy;
         const files = comfy ? await comfy.client.models(a.folder!).catch(() => null) : null;
         const hits = files?.filter((f) => words.every((w) => f.toLowerCase().includes(w))) ?? null;
-        return { id: machine.id, name: machineName(machine), files: hits?.slice(0, FILES_SHOWN) ?? null, ...(hits && hits.length > FILES_SHOWN ? { more: hits.length - FILES_SHOWN } : {}), ...(files ? {} : { said: "not answering" }) };
+        const down = places.down[machine.id];
+        const holds = down ? (places.offered[a.folder!] ?? []).filter((f) => f.pod === machine.id && words.every((w) => f.file.toLowerCase().includes(w))) : [];
+        return {
+          id: machine.id, name: machineName(machine), files: hits?.slice(0, FILES_SHOWN) ?? null, ...(hits && hits.length > FILES_SHOWN ? { more: hits.length - FILES_SHOWN } : {}),
+          ...(files ? {} : { said: down ? `the pod is ${down}` : "not answering" }),
+          ...(holds.length ? { holds: holds.slice(0, FILES_SHOWN).map((f) => ({ file: f.file, ...(f.via === "volume" ? { on: "its network volume, as last listed" } : { on: `the Model set ${f.set ?? ""} it was deployed with, which it fetches` }) })) } : {}),
+        };
       }));
       ctx.said(`Looked at the ${quoted(a.folder)} files${a.q ? ` with ${quoted(a.q)}` : ""}`);
       return { folder: a.folder, machines };

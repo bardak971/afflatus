@@ -4,7 +4,8 @@ import { Link } from "wouter";
 import { ArrowDownToLine, ArrowUpToLine, Layers, Pin, Server, Trash2, X } from "lucide-react";
 import { api, type Job, type MachineLack, type MachineState, type PackWait, type RunningJob } from "../../api";
 import { GetFile } from "../../GetFile";
-import { busyOutside, machineLabel, machineState, NO_ROOM, noGpuYet, OUTSIDE_TIP, rentedUp, volumeHref, volumeOf } from "../../machines";
+import { useRentedOps } from "../../rentedOps";
+import { busyOutside, machineLabel, rentedSaid, machineState, NO_ROOM, noGpuYet, OUTSIDE_TIP, rentedUp, volumeHref, volumeOf } from "../../machines";
 import { useSettings } from "../../data";
 import { JOB_DRAG } from "./MachineLanes";
 import { ContextMenu, groups, useMenu, type MenuItem } from "../../ContextMenu";
@@ -207,7 +208,8 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
             {noGpu && w.kind !== "export" && w.kind !== "cut" && <span className="shrink-0 text-xs text-attention-ink" data-tip="No ComfyUI of your own is added and no rented GPU is up: it starts once one is (Deploy a GPU, above).">waits for a GPU</span>}
             {ownWait(w) && <span className="shrink-0 text-xs text-ink-2">waits for {plural(ownWait(w)!.files.length, "file")} on {ownWait(w)!.name}</span>}
             {w.packs && <PacksNote wait={w.packs} machine={machines.length ? machineLabel(machines.find((m) => m.id === w.packs!.machine) ?? { name: w.packs.machine, url: "" }) : null} onPacks={onPacks && ((what, packs) => onPacks(w.id, what, packs))} />}
-            {machines.length > 0 && !w.pinned && w.runsOn?.length === 0 && (
+            {machines.length > 0 && w.startPod && <StartPod pod={w.startPod} machines={machines} />}
+            {machines.length > 0 && !w.pinned && w.runsOn?.length === 0 && !w.startPod && (
               <Link href={settingHref("models.families")} className="shrink-0">
                 <Chip tone="warn" tip="No machine has its files, or its family is off on every one. Settings › Models says what each machine has; or pin it to one (Run on) to download what it lacks there.">no machine can run it</Chip>
               </Link>
@@ -246,6 +248,35 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
       </div>
       {menu.menu && <ContextMenu at={menu.menu.at} label={`Actions on ${menu.menu.subject.label}`} head={waitingHead(menu.menu.subject)} items={itemsOf(menu.menu.subject)} onClose={menu.close} />}
     </div>
+  );
+}
+
+/**
+ * A render no machine can run now whose files a stopped pod holds (its volume, the set it was deployed with): it waits for
+ * that pod, and Start starts it as the Rented GPUs page does, with its confirm (the rate, how it ends) and the server's caps.
+ */
+function StartPod({ pod, machines }: { pod: string; machines: MachineState[] }) {
+  const ops = useRentedOps();
+  const m = machines.find((x) => x.id === pod);
+  const r = m?.rented;
+  const name = m ? machineLabel(m) : pod;
+  // a pod not stopped (starting, being stopped) is only waited for; a spending cap reached keeps Start greyed, as its card does
+  const can = r && (r.status === "EXITED" || r.status === "ERROR");
+  return (
+    <>
+      <span className="min-w-0 truncate text-xs text-attention-ink" data-tip={`No machine that runs now has its files: ${name} holds them (its volume, or the model set it was deployed with). It runs there once the pod is up.`}>
+        waits for pod {name}{r && !can ? ` · ${rentedSaid(r)}` : ""}
+      </span>
+      {m && can && (
+        <button
+          type="button" disabled={r.capped || ops.start.isPending} onClick={() => void ops.askStart(m)}
+          className="shrink-0 text-xs font-semibold text-accent hover:underline disabled:text-ink-3 disabled:no-underline"
+          data-tip={r.capped ? "A spending cap is reached: no pod starts until it is raised (Settings › Rented GPUs)." : `Start ${name}: its rate is said before it starts.`}
+        >
+          Start
+        </button>
+      )}
+    </>
   );
 }
 

@@ -56,6 +56,11 @@ export class Rented extends RentedDeploy {
     return s.missing >= 2;
   }
 
+  /** The network volume RunPod last said its pod is on: a pod added by hand names none in its settings. Null: none, or not read. */
+  volumeOf(machine: string): string | null {
+    return this.seen.get(machine)?.pod?.volumeId ?? null;
+  }
+
   /** Whether a machine's pod is down: not running, or being stopped. Null: up (or not a rented machine). Its files follow this. */
   podDown(machine: string): string | null {
     const s = this.seen.get(machine);
