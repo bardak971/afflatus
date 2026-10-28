@@ -42,6 +42,8 @@ export interface Job {
   machine: string | null;
   /** The machine it was pinned to by hand; null: whichever the queue picks. */
   pinned: string | null;
+  /** Of a waiting job: pinned to a pod that went (terminated); it runs nowhere else until moved. */
+  pinGone?: boolean;
   /** Of a waiting job: in about how long it starts, when that can be told. */
   startsInMs: number | null;
   /** Of a waiting render, when not every machine can run it: the machines that have its files, with its family on (empty: none). */
@@ -134,7 +136,7 @@ export interface PodFile {
   jobs: string[];
 }
 /** A finished job as the queue's history shows it: with what it made and how. (Not how long it would take, nor how a clip joined: GET /api/jobs leaves those out.) */
-export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" | "pinned" | "startsInMs" | "runsOn" | "lacks" | "startPod" | "fetch" | "packs" | "by"> {
+export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" | "pinned" | "pinGone" | "startsInMs" | "runsOn" | "lacks" | "startPod" | "fetch" | "packs" | "by"> {
   tookMs: number | null;
   /** Of a job that failed in a ComfyUI node: the end of its Python traceback; null otherwise. */
   trace?: string | null;
