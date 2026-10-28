@@ -189,7 +189,9 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   if (missing.length) {
     // a pack that could not come says why, beside how to install it by hand
     const cannot = [...new Set(missing.map((n) => packOfNode(n)?.name).filter((p): p is string => Boolean(p)))].flatMap((p) => (cannotWhy(facts, p) ? [`${p}: ${cannotWhy(facts, p)}`] : []));
-    throw new Error(`${missingNodesSaid(missing)}${cannot.length ? ` Not installed by Afflatus: ${cannot.join("; ")}.` : ""}`);
+    // ComfyUI's own nodes said with the version it has, when a scan of it is kept (one is, once it was ever read)
+    const kept = await comfy.scanKept()?.catch(() => null);
+    throw new Error(`${missingNodesSaid(missing, kept?.comfy.online ? kept.comfy.version : null)}${cannot.length ? ` Not installed by Afflatus: ${cannot.join("; ")}.` : ""}`);
   }
   const { files: slotFiles, gaps } = await timedPart("scan", () => slots(core, comfy, recipe));
   // a family file not here is refused only when this job's graph reads it, seen before anything goes up when it can be

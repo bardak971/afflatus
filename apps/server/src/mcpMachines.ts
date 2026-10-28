@@ -1,4 +1,4 @@
-import { plural } from "@afflatus/core";
+import { plural, tooOldSaid, type ComfyTooOld } from "@afflatus/core";
 import { z } from "zod";
 import { costsOf } from "./costs-api";
 import { deployFiles } from "./deployModels";
@@ -40,7 +40,7 @@ function mustSpend(ctx: ToolCtx, what: string): void {
 }
 
 /** A machine as the tools say it: never its token, its folder on this computer, nor figures of its card's memory. */
-function machineSaid(s: Services, m: Machine, now?: { online: boolean; error: string | null; version: string | null; device: string | null; pack: string | null }, paused?: boolean) {
+function machineSaid(s: Services, m: Machine, now?: { online: boolean; error: string | null; version: string | null; pytorch?: string | null; tooOld?: ComfyTooOld | null; device: string | null; pack: string | null }, paused?: boolean) {
   const v = m.rented ? s.rented.view(m) : null;
   return {
     id: m.id, name: machineName(m), kind: m.rented ? "rented pod" : "ComfyUI",
@@ -48,7 +48,7 @@ function machineSaid(s: Services, m: Machine, now?: { online: boolean; error: st
     takes: m.takes,
     ...(m.rented ? {} : { nodePacks: m.packs }),
     ...(Object.keys(m.families).length ? { families: m.families } : {}),
-    ...(now ? { online: now.online, ...(now.error ? { error: now.error } : {}), ...(now.version ? { comfyui: now.version } : {}), ...(now.device ? { gpu: now.device } : {}), ...(now.pack ? { nodePack: now.pack } : {}) } : {}),
+    ...(now ? { online: now.online, ...(now.error ? { error: now.error } : {}), ...(now.version ? { comfyui: now.version } : {}), ...(now.pytorch ? { pytorch: now.pytorch } : {}), ...(now.tooOld ? { tooOldFor: { needs: now.tooOld.needs, families: tooOldSaid(now.tooOld) } } : {}), ...(now.device ? { gpu: now.device } : {}), ...(now.pack ? { nodePack: now.pack } : {}) } : {}),
     ...(paused !== undefined ? { paused } : {}),
     ...(m.rented ? { pod: podSaid(m, v) } : {}),
   };
@@ -73,7 +73,7 @@ const listMachines = tool({
   name: "list_machines",
   scope: "look",
   title: "Machines",
-  description: "Every ComfyUI the queue sends work to (this PC's, another computer's, rented pods), asked now: whether it answers and why not, its ComfyUI version, GPU and Afflatus node pack, what it takes (everything, pictures or videos), paused or not, its families switched by hand; a pod's state on RunPod, price, this run's cost and idle rule.",
+  description: "Every ComfyUI the queue sends work to (this PC's, another computer's, rented pods), asked now: whether it answers and why not, its ComfyUI version and PyTorch (and the families that version is too old for, with the version they need), GPU and Afflatus node pack, what it takes (everything, pictures or videos), paused or not, its families switched by hand; a pod's state on RunPod, price, this run's cost and idle rule.",
   async run(_args, ctx) {
     const { s } = ctx;
     const [settings, now, st] = await Promise.all([readSettings(s.db), machinesNow(s), s.queue.statusRecent()]);

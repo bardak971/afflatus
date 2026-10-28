@@ -16,7 +16,7 @@ export function fakeRoutes(fake: FakeState, hooks: { queued(promptId: string, cl
     if (method === "GET") {
       if (path === "/system_stats") {
         const ram = fake.ram ? { ram_total: fake.ram.total, ram_free: fake.ram.free } : {};
-        return json(200, { system: { comfyui_version: "0.0.0-fake", ...ram }, devices: [{ name: "fake gpu", vram_total: 12 * 2 ** 30, vram_free: 8 * 2 ** 30 }] });
+        return json(200, { system: { comfyui_version: fake.version, ...(fake.pytorch ? { pytorch_version: fake.pytorch } : {}), ...ram }, devices: [{ name: "fake gpu", vram_total: 12 * 2 ** 30, vram_free: 8 * 2 ** 30 }] });
       }
       if (path === "/object_info") return json(200, fake.catalog);
       // one node type, as ComfyUI answers it: that type alone, or nothing when it does not have it
@@ -28,7 +28,7 @@ export function fakeRoutes(fake: FakeState, hooks: { queued(promptId: string, cl
         const t = started;
         return json(200, { entries: [
           { t, m: "Total VRAM 12288 MB, total RAM 32768 MB" },
-          { t, m: "ComfyUI version: 0.0.0-fake" },
+          { t, m: `ComfyUI version: ${fake.version}` },
           { t, m: "Starting server" },
           { t, m: "To see the GUI go to: http://127.0.0.1:8188" },
           ...Object.keys(fake.history).map((id) => ({ t, m: `got prompt ${id}` })),

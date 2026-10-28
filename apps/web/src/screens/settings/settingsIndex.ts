@@ -46,6 +46,7 @@ export const INDEX: SettingSpot[] = [
   { tab: "rented", label: "Unused volumes", key: "rented.unused", words: "rented runpod volume unused flag days storage" },
   { tab: "rented", label: "Boot logs", key: "rented.bootlogs", words: "rented runpod pod boot log pull system keep days image" },
   { tab: "comfyui", label: "Access", key: "comfy.access", words: "lock locked token password login security botnet listen exposed unlock renew" },
+  { tab: "comfyui", label: "ComfyUI version and PyTorch", key: "comfy.version", near: "comfy.url", words: "update comfyui version too old core nodes git pull portable pytorch torch cuda cu130 cu128 int8 convrot nvfp4" },
   { tab: "comfyui", label: "Node pack", key: "comfy.pack", words: "custom_nodes afflatus-nodes minimax h3 latent install" },
   { tab: "comfyui", label: "Unload models after", key: "comfy.unload", words: "vram free idle minutes never" },
   { tab: "models", label: "Models", key: "models.families", words: "models on or off in the lists families switch hide ready missing files nodes operations" },

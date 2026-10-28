@@ -38,6 +38,8 @@ export interface ComfyStatus {
    */
   ramTotal?: number;
   ramFree?: number;
+  /** The PyTorch it runs on, as its /system_stats says it ("2.10.0+cu130": the CUDA it was built for after the +). Absent when not said. */
+  pytorch?: string;
 }
 
 export interface OutputFile {
@@ -213,19 +215,21 @@ export class ComfyClient {
 
   async status(): Promise<ComfyStatus> {
     const s = (await this.read("/system_stats", (r) => r.json(), undefined, 5_000)) as {
-      system?: { comfyui_version?: string; ram_total?: unknown; ram_free?: unknown };
+      system?: { comfyui_version?: string; pytorch_version?: unknown; ram_total?: unknown; ram_free?: unknown };
       devices?: Array<{ name?: string; vram_total?: number; vram_free?: number }>;
     };
     const gpu = s.devices?.[0];
     const bytes = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined);
     const ramTotal = bytes(s.system?.ram_total);
     const ramFree = bytes(s.system?.ram_free);
+    const pytorch = typeof s.system?.pytorch_version === "string" && s.system.pytorch_version.trim() ? s.system.pytorch_version.trim().slice(0, 60) : undefined;
     return {
       version: s.system?.comfyui_version ?? "unknown",
       device: gpu?.name ?? "cpu",
       vramTotal: gpu?.vram_total ?? 0,
       vramFree: gpu?.vram_free ?? 0,
       ...(ramTotal && ramFree !== undefined ? { ramTotal, ramFree } : {}),
+      ...(pytorch ? { pytorch } : {}),
     };
   }
 

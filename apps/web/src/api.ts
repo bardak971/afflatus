@@ -321,7 +321,7 @@ export const api = {
   /** What Go back would leave on RunPod: refused (why) while a rented GPU runs or a hunt is on; what keeps billing stopped. */
   goBackCheck: () => call<GoBackCheck>("GET", "/updates/go-back"),
   presetFiles: (o?: Asked) => call<{ online: boolean; items: PresetFilesView[] }>("GET", "/presets/files", undefined, o?.signal),
-  nodePack: (o?: Asked) => call<{ pack: string; path: string; written: boolean; loaded: boolean; canWrite: boolean }>("GET", "/comfy/node-pack", undefined, o?.signal),
+  nodePack: (o?: Asked) => call<{ pack: string; path: string; written: boolean; loaded: boolean; canWrite: boolean; /** Written and not loaded: whether ComfyUI-Manager is there to restart ComfyUI. */ manager: boolean | null }>("GET", "/comfy/node-pack", undefined, o?.signal),
   getPresetFiles: (id: string, body: { accept?: boolean; optional?: boolean } = {}) => call<{ started: Download[]; failed: Array<{ file: string; error: string }>; skipped: number }>("POST", `/presets/${encodeURIComponent(id)}/get`, body),
   queue: (o?: Asked) => readQueue(o),
   /** Whole rows of the waiting jobs the queue's answer carries in a few figures (QueueStatus.whole), a page at a time. */

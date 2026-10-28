@@ -57,7 +57,8 @@ async function packLock(comfy: Comfy): Promise<PackLock | null> {
   return (await res.json().catch(() => null)) as PackLock | null;
 }
 
-async function managerOf(comfy: Comfy): Promise<string | null> {
+/** ComfyUI-Manager's version on this ComfyUI, null without it (or when it does not answer). */
+export async function managerOf(comfy: Comfy): Promise<string | null> {
   const res = await comfy.client.raw("/v2/manager/version", { signal: AbortSignal.timeout(5000) }).catch(() => null);
   return res?.ok ? plain((await res.text()).slice(0, 40)) : null;
 }

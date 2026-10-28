@@ -105,6 +105,6 @@ export function Block({ children, className, setting }: { children: ReactNode; c
 }
 
 /** A fact in a row: a version, a size, a count. */
-export function Fact({ children, tip }: { children: ReactNode; tip?: string }) {
-  return <Chip tip={tip} className="font-mono text-meta font-medium">{children}</Chip>;
+export function Fact({ children, tip, tone }: { children: ReactNode; tip?: string; tone?: "attention" }) {
+  return <Chip tip={tip} tone={tone} className="font-mono text-meta font-medium">{children}</Chip>;
 }

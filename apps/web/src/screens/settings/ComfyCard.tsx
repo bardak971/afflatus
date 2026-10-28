@@ -7,11 +7,13 @@ import { Slider } from "../../Slider";
 import { Button, ButtonLink, cx, ErrorNote, fieldClass } from "../../ui";
 import { Block, Card, Fact, Row, Status } from "./Rows";
 import { queryKeys } from "../../queryKeys";
+import { useSayFailed } from "../../sayFailed";
 import { useQueue } from "../../data";
 import { AccessRow } from "./AccessRow";
 import { AddMachineCard, MachineCards, MachinesHead, PacksRow, SetAsideNote, useMachineProbes, useSaveMachines } from "./MachinesCard";
 import { COLUMNS } from "./wide";
 import { FirstLaunchCard, NoComfyCard } from "./NoComfyCard";
+import { ComfyCheckRows, ComfyVersionFacts } from "./ComfyCheck";
 import { SETTING_HELP } from "@afflatus/core";
 
 const WHY_PACK = "It lets MiniMax H3 clips on a timeline continue from the clip before's own latent (the motion, the look and the voice carry across the join), and lets Afflatus read model files' headers through ComfyUI when it cannot read its disk.";
@@ -28,14 +30,38 @@ const unloadSaid = (minutes: number) => (minutes <= 0 ? "never" : minutes < 60 ?
 /** Afflatus's node pack (MiniMax H3 continued in the latent): written into ComfyUI's folder when it is known, loaded after a ComfyUI restart. */
 function NodePackRow() {
   const settings = useSettings();
-  const pack = useQuery({ queryKey: queryKeys.nodePack(settings.data?.comfyDir), queryFn: api.nodePack, enabled: Boolean(settings.data), staleTime: 30_000 });
+  const client = useQueryClient();
+  const sayFailed = useSayFailed({ href: "/settings", go: "Open Settings › ComfyUI" });
+  // asked to restart: the pack's state is read every few seconds until ComfyUI says it loaded it (about 15 s; a minute at most)
+  const [restartedAt, setRestartedAt] = useState(0);
+  const waiting = restartedAt > 0 && Date.now() - restartedAt < 60_000;
+  const pack = useQuery({ queryKey: queryKeys.nodePack(settings.data?.comfyDir), queryFn: api.nodePack, enabled: Boolean(settings.data), staleTime: 30_000, refetchInterval: waiting ? 3_000 : false });
+  // ComfyUI-Manager's reboot (the server's /api/comfy/restart), refused while a render runs; ComfyUI comes back with the same
+  // command line, and with the pack's nodes
+  const restart = useMutation({
+    mutationFn: () => api.restartComfy(),
+    onSuccess: () => {
+      setRestartedAt(Date.now());
+      void client.invalidateQueries({ queryKey: queryKeys.machines() });
+    },
+    onError: sayFailed("Could not restart ComfyUI"),
+  });
+  const loaded = pack.data?.loaded;
+  useEffect(() => {
+    if (loaded && restartedAt) {
+      setRestartedAt(0);
+      // its node list now has the pack's nodes: what each form can do is read again
+      void client.invalidateQueries({ queryKey: queryKeys.setup() });
+    }
+  }, [loaded, restartedAt, client]);
   if (!pack.data) return null;
   const p = pack.data;
   if (p.loaded) return <Row setting="comfy.pack" label="Node pack" help={WHY_PACK}><Status ok>Loaded</Status></Row>;
   if (p.written) {
     return (
-      <Row setting="comfy.pack" tone="warn" label="Node pack: restart ComfyUI" help={`Afflatus's node pack was written to ComfyUI's custom_nodes folder: restart ComfyUI to load it. ${WHY_PACK}`}>
-        <span className="text-xs text-warn-ink">written to custom_nodes</span>
+      <Row setting="comfy.pack" tone="warn" label="Node pack: restart ComfyUI" help={`Afflatus's node pack was written to ComfyUI's custom_nodes folder: ComfyUI loads it at its next start. Restart ComfyUI asks ComfyUI-Manager to restart it, as its own Restart does (the same command line), once nothing renders. Without ComfyUI-Manager, restart it the way you started it. ${WHY_PACK}`}>
+        <span className="min-w-0 grow text-xs text-warn-ink">{waiting ? "ComfyUI is restarting…" : p.manager === false ? "written to custom_nodes: no ComfyUI-Manager to restart it from here, restart ComfyUI the way you started it" : "written to custom_nodes: ComfyUI loads it at its next start"}</span>
+        {p.manager && <Button size="sm" tone="primary" onClick={() => restart.mutate()} disabled={restart.isPending || waiting}>{restart.isPending || waiting ? "Restarting…" : "Restart ComfyUI"}</Button>}
       </Row>
     );
   }
@@ -105,6 +131,8 @@ export function ComfyCard() {
     },
   });
   const comfy = setup.data?.comfy;
+  // the first ComfyUI's version, PyTorch and what it is too old for (the one Connection card's)
+  const probe = probes.data?.find((p) => p.id === machines[0]?.id);
   const vram = settings.data && (
     <Card title="VRAM">
       <Row setting="comfy.unload" label="Unload models after" help={SETTING_HELP.unloadAfterMinutes}>
@@ -162,12 +190,13 @@ export function ComfyCard() {
           </Block>
         )}
         {comfy?.online && (
-          <Row label="ComfyUI" start>
-            <Fact tip="ComfyUI version">v{comfy.version.replace(/^v/, "")}</Fact>
+          <Row setting="comfy.version" label="ComfyUI" start>
+            {probe?.online && probe.version ? <ComfyVersionFacts facts={{ ...probe, version: probe.version }} /> : <Fact tip="ComfyUI version">v{comfy.version.replace(/^v/, "")}</Fact>}
             <Fact tip={`${comfy.device}: ${gb(comfy.vramTotal)} VRAM, ${gb(comfy.vramFree)} free`}><span className="max-w-[340px] truncate">{comfy.device} · {gb(comfy.vramTotal)} · {gb(comfy.vramFree).replace(" GB", "")} free</span></Fact>
             <Fact tip="Node types this ComfyUI has">{comfy.nodes} nodes</Fact>
           </Row>
         )}
+        {comfy?.online && probe?.online && probe.version && <ComfyCheckRows facts={{ ...probe, version: probe.version }} />}
         <Row setting="comfy.folder" label="Folder on this computer" htmlFor="comfy-dir" help={`Optional: ComfyUI's folder, the one that holds custom_nodes and models (beside main.py on a manual or portable install; on ComfyUI Desktop, the base folder chosen when installing it). It lets "Open in ComfyUI" show the workflow straight away, and Afflatus write its node pack into custom_nodes. Leave it empty when ComfyUI runs on another computer.`}>
           <input id="comfy-dir" value={dir} onChange={(e) => setDir(e.target.value)} placeholder="D:\ComfyUI  —  empty when ComfyUI runs elsewhere" spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
           <Button onClick={() => saveDir.mutate()} disabled={saveDir.isPending || dir.trim() === (settings.data?.comfyDir ?? "")}>Save</Button>

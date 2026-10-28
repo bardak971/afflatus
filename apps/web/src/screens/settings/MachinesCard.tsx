@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearch } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { shortGpu } from "@afflatus/core";
+import { shortGpu, torchBuild } from "@afflatus/core";
 import { ChevronDown, ChevronRight, Copy, ExternalLink, Lock, LockOpen, MoreHorizontal, Star, Trash2 } from "lucide-react";
 import { useOpenComfyUI } from "../../actions";
 import { ask } from "../../Confirm";
@@ -21,6 +21,7 @@ import { useSayFailed } from "../../sayFailed";
 import { RentRow } from "./RentedCard";
 import { RentedHead, RentedRows } from "./RentedRows";
 import { CudaChip } from "../../machineBits";
+import { ComfyCheckRows, tooOldFamilies } from "./ComfyCheck";
 import { Block, Card, Row, Status } from "./Rows";
 import { COLUMNS, WIDE } from "./wide";
 import { publicPlainHttp } from "./plainHttp";
@@ -50,12 +51,15 @@ function MachineFacts({ probe, state, rented }: { probe: MachineProbe | undefine
   const r = state?.rented;
   const gpu = probe?.device ? shortGpu(probe.device) : r?.gpu ? shortGpu(r.gpu) : undefined;
   const access = probe?.access;
+  // a pod's CUDA build is its CUDA chip's (the image's), said once
+  const torch = torchBuild(probe?.pytorch);
   const parts: ReactNode[] = [
     gpu && <span key="gpu" className="inline-flex items-center gap-1.5"><span><b className="font-semibold text-ink-2">{gpu}</b>{probe?.vramTotal ? ` · ${gb(probe.vramTotal)}` : ""}</span>{state && <CudaChip m={state} />}</span>,
     r && (r.rate || r.dataCenter) && <span key="rate" data-tip={rateParts(r) ?? undefined}>{r.rate ? <><b className="font-semibold text-ink-2">{usd(r.rate)}</b>/h</> : null}{r.rate && r.dataCenter ? " · " : ""}{r.dataCenter}</span>,
     probe?.online && probe.version && (
-      <span key="versions">
-        ComfyUI <b className="font-mono font-semibold text-ink-2">{probe.version.replace(/^v/, "")}</b>
+      <span key="versions" data-tip={probe.tooOld ? `Too old for ${tooOldFamilies(probe.tooOld)} (v${probe.tooOld.needs} or newer)` : probe.pytorch ? `PyTorch ${probe.pytorch}` : undefined}>
+        ComfyUI <b className={cx("font-mono font-semibold", probe.tooOld ? "text-attention-ink" : "text-ink-2")}>{probe.version.replace(/^v/, "")}</b>
+        {torch && <> · PyTorch <b className="font-mono font-semibold text-ink-2">{torch.torch}{torch.cuda && !rented ? ` · CUDA ${torch.cuda}` : ""}</b></>}
         {probe.pack ? <> · node pack <b className="font-mono font-semibold text-ink-2">{probe.pack}</b></> : rented ? " · no node pack" : null}
       </span>
     ),
@@ -323,6 +327,7 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
           {publicPlainHttp(machine.url) && <ErrorNote>A public address over plain http: anyone who finds it can run code on this ComfyUI. Reach it through Tailscale or an SSH tunnel, or put it behind a proxy that asks for a password.</ErrorNote>}
         </Block>
       )}
+      {probe?.online && probe.version && <ComfyCheckRows facts={{ ...probe, version: probe.version }} rented={rented} />}
       {!rented && <Row label="Folder on this computer" htmlFor={`comfy-dir-${machine.id}`} help="Optional: this ComfyUI's folder, the one that holds custom_nodes and models (on ComfyUI Desktop, the base folder chosen when installing it), when it is on this computer. Leave it empty for another computer or a rented instance.">
         <input id={`comfy-dir-${machine.id}`} value={dir} onChange={(e) => setDir(e.target.value)} placeholder="empty when it runs elsewhere" spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
         {/* saved empty, it is said so: an empty folder in a list sent otherwise is taken as one read before the server found it */}
