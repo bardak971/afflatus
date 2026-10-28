@@ -3,7 +3,7 @@ import { UPLOAD_MAX_BYTES, unlistOptions, WHERE_MOST, type ListedOptions, type M
 import { size } from "./format";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
-import type { Advice, DeployOverhead, FillPlan, FormPacks, SetFinding, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumeFilesView, VolumePlan, Job, QueueAnswer, QueuePart, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
+import type { Advice, DeployOverhead, FillPlan, FormPacks, SetFinding, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumeFilesView, VolumePlan, Job, QueueAnswer, QueuePart, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RedeployOffer, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
@@ -28,9 +28,10 @@ export * from "./api/types/updates";
 export class ApiError extends Error {
   /**
    * The HTTP status the server answered with; absent when it did not answer. `said`: what a refusal of the password's adds
-   * (access.ts): the tries left before a wait, and the wait in seconds.
+   * (access.ts): the tries left before a wait, and the wait in seconds; `redeploy`, a Start RunPod refused for want of a GPU
+   * on the pod's host, which Deploy on its volume answers (rentedOps.ts).
    */
-  constructor(message: string, readonly status?: number, readonly said: { left?: number; wait?: number; needPassword?: boolean } = {}) {
+  constructor(message: string, readonly status?: number, readonly said: { left?: number; wait?: number; needPassword?: boolean; redeploy?: boolean } = {}) {
     super(message);
   }
 }
@@ -67,8 +68,8 @@ export function raw(method: string, path: string, body?: unknown, opts: { keepal
 
 /** What a request that did not succeed says, as `call` throws it: the server's own words, and its status. */
 export async function failure(res: Response): Promise<ApiError> {
-  const data = (await res.json().catch(() => ({}))) as { error?: string; left?: number; wait?: number; needPassword?: boolean };
-  return new ApiError(data.error ?? `the server answered ${res.status}`, res.status, { left: data.left, wait: data.wait, needPassword: data.needPassword });
+  const data = (await res.json().catch(() => ({}))) as { error?: string; left?: number; wait?: number; needPassword?: boolean; redeploy?: boolean };
+  return new ApiError(data.error ?? `the server answered ${res.status}`, res.status, { left: data.left, wait: data.wait, needPassword: data.needPassword, redeploy: data.redeploy });
 }
 
 /** `signal`: a query's, so that a query that is cancelled (refetched, left) also stops its request. */
@@ -132,15 +133,15 @@ async function answer<T>(res: Response): Promise<T> {
     // a refusal whose words were lost is still said by its status, below
     if (res.ok) throw new ApiError(NOT_ANSWERING);
   }
-  let data: { error?: string; left?: number; wait?: number; needPassword?: boolean } = {};
+  let data: { error?: string; left?: number; wait?: number; needPassword?: boolean; redeploy?: boolean } = {};
   try {
-    if (text) data = JSON.parse(text) as { error?: string; left?: number; wait?: number; needPassword?: boolean };
+    if (text) data = JSON.parse(text) as typeof data;
   } catch {
     // a success with a body that is not JSON is not Afflatus answering (a proxy's page, a login wall): said, never handed on
     // as an empty answer the screen would take for real. An empty body (a plain "done") stays {}.
     if (res.ok) throw new ApiError(`the server answered with something that is not Afflatus's (${res.headers.get("content-type") ?? "no type"})`, res.status);
   }
-  if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`, res.status, { left: data.left, wait: data.wait, needPassword: data.needPassword });
+  if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`, res.status, { left: data.left, wait: data.wait, needPassword: data.needPassword, redeploy: data.redeploy });
   return data as T;
 }
 
@@ -397,6 +398,10 @@ export const api = {
   addRunpodPod: (pod: string) => call<{ id: string }>("POST", "/runpod/add", { pod }),
   /** The user's Start of a rented machine: refused at a spending cap. */
   startMachine: (id: string) => call<RentedState>("POST", `/machines/${encodeURIComponent(id)}/start`, {}),
+  /** What Deploy on its volume would make in place of a stopped pod RunPod will not start: read-only. */
+  redeployOffer: (id: string) => call<RedeployOffer>("GET", `/machines/${encodeURIComponent(id)}/redeploy`),
+  /** Deploy on its volume, the GPU the confirm said: billed from now, refused at a cap. The new machine's id. */
+  redeploy: (id: string, gpu: string) => call<{ id: string }>("POST", `/machines/${encodeURIComponent(id)}/redeploy`, { gpu }),
   /** The user's Stop (the disk goes on billing) or Terminate (the pod gone on RunPod, and from Afflatus). */
   stopMachine: (id: string, how: "stop" | "terminate") => call<RentedState | null>("POST", `/machines/${encodeURIComponent(id)}/stop`, { how }),
   /** What the rented GPUs cost today and this month, the caps, RunPod's balance; null without a rented machine. */

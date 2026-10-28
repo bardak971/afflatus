@@ -7,6 +7,7 @@ import { measuredRange, type MeasureKind, type Range } from "./podMeasures";
 import { acceptLicences, presetsWithFiles } from "./presetFiles";
 import { readJson } from "./queueModel";
 import { needsComfy } from "./queueOffline";
+import { isPodMachineId } from "./runpod";
 import type { Services } from "./services";
 import { readSettings, type DeployAsk } from "./settings";
 import { OWNER } from "./db";
@@ -70,8 +71,9 @@ export async function deployModels(s: Services, o: { cloud: string; set: string 
   const rows = (await s.db.selectFrom("jobs").selectAll().where("status", "=", "queued").orderBy("priority").orderBy("created_at").execute()).filter(needsComfy);
   const settings = await readSettings(s.db);
   const machines = new Set(settings.machines.map((m) => m.id));
-  // a job pinned to a machine of its own stays there: not one the pod would take
-  const may = rows.filter((r) => !r.pin_machine || !machines.has(r.pin_machine));
+  // a job pinned to a machine of its own stays there: not one the pod would take; nor one pinned to a pod that went, which
+  // waits for the user to move it (card #150)
+  const may = rows.filter((r) => !r.pin_machine || (!machines.has(r.pin_machine) && !isPodMachineId(r.pin_machine)));
   const scan = await (await s.comfy()).scan().catch(() => null);
   const counted = new Map<string, DeployFile & { jobs: number; first: boolean }>();
   for (const [i, r] of may.entries()) {

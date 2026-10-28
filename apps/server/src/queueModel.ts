@@ -36,6 +36,9 @@ export const SHUTDOWN = "shutting down";
  */
 export const CAP_REACHED = "a spending cap is reached";
 
+/** Why a job pinned to a pod that went (its idle terminate, a Terminate) waits, or is refused when queued (card #150). */
+export const POD_GONE = "its pod was terminated: deploy one, or move it to another machine (Run on)";
+
 /** The GPU's load (percent) from which a render or a tool that says nothing is taken as at work, not stuck. */
 export const GPU_AT_WORK = 30;
 

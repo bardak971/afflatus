@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type QueueStatus, type RentedState, type Settings } from "./api";
+import { api, ApiError, type QueueStatus, type RedeployOffer, type RentedState, type Settings } from "./api";
 import { ask } from "./Confirm";
-import { usd } from "./format";
+import { DEPLOYED_READS } from "./deployReads";
+import { plural, size, usd } from "./format";
 import { idleEndSaid, machineLabel, machineName, rateSaid } from "./machines";
 import { failedBanner } from "./sayFailed";
 import { useBanners } from "./store";
@@ -39,7 +40,24 @@ export function useRentedOps() {
   const nameOf = (id: string) => machineName(client.getQueryData<QueueStatus>(queryKeys.queue()), id) ?? id;
   const failed = (what: string, id: string, err: unknown) =>
     say(failedBanner({ id: `rented-${what}:${id}`, once: true, href: `/settings?machine=${encodeURIComponent(id)}`, go: "Open its card" }, `Could not ${what} ${nameOf(id)}`, err));
-  const start = useMutation({ mutationFn: (machine: string) => api.startMachine(machine), onSuccess: settle, onError: (err, machine) => failed("start", machine, err) });
+  // RunPod refused the Start for want of a GPU on its host (every Start of the 0.8.1 re-check): Deploy on its volume is
+  // offered, with its own confirm, rather than a message that leads nowhere
+  const redeploy = useMutation({
+    mutationFn: async (machine: string) => {
+      const offer = await api.redeployOffer(machine);
+      if (!(await ask(redeployQuestion(offer)))) return null;
+      return api.redeploy(machine, offer.gpu.id);
+    },
+    onSuccess: () => {
+      for (const queryKey of DEPLOYED_READS) void client.invalidateQueries({ queryKey });
+    },
+    onError: (err, machine) => failed("deploy a new pod for", machine, err),
+  });
+  const start = useMutation({
+    mutationFn: (machine: string) => api.startMachine(machine),
+    onSuccess: settle,
+    onError: (err, machine) => (err instanceof ApiError && err.said.redeploy ? redeploy.mutate(machine) : failed("start", machine, err)),
+  });
   const stop = useMutation({ mutationFn: (v: { machine: string; how: "stop" | "terminate" }) => api.stopMachine(v.machine, v.how), onSuccess: settle, onError: (err, v) => failed(v.how, v.machine, err) });
   const askStart = async (m: Pod) => {
     const r = m.rented;
@@ -55,5 +73,22 @@ export function useRentedOps() {
     if (!(await ask({ title: `Stop ${machineLabel(m)}?`, text, yes: "Stop" }))) return;
     stop.mutate({ machine: m.id, how: "stop" });
   };
-  return { start, stop, askStart, askStop };
+  return { start, stop, askStart, askStop, redeploy };
+}
+
+/**
+ * Deploy on its volume's question: what the new pod is (its GPU, or another said plainly), where, at what rate, how it ends;
+ * without a network volume, that its models are fetched again; and that the stopped pod stays as it is.
+ */
+export function redeployQuestion(o: RedeployOffer): { title: string; text: string; help: string; yes: string } {
+  const name = o.name;
+  const gpu = o.same ? o.gpu.name : `${o.gpu.name} (no ${o.was} is free${o.dataCenter ? ` in ${o.dataCenter}` : ""}; ${o.sized ? "this one has as much memory or more" : "RunPod does not list its GPU now: this is the cheapest free there"})`;
+  const where = o.volume ? `on its volume "${o.volume.name}" (its models are there)` : `with no network volume: its models are fetched again${o.refetch?.files ? ` (${plural(o.refetch.files, "file")}${o.refetch.bytes ? `, ${size(o.refetch.bytes)}` : ""})` : ""}`;
+  const cuda = o.cudaChanged ? " On the CUDA 12.8 build: no host of that GPU has CUDA 13." : "";
+  return {
+    title: `Deploy a new pod for ${name}?`,
+    text: `RunPod has no GPU free on its host. A new ${gpu}, ${where}, at ${usd(o.rate)}/h: billed from now until it is ${o.idleDo === "stop" ? "stopped" : "terminated"} (${o.idleMinutes ? `after ${o.idleMinutes} min idle, or ` : ""}by you). The renders pinned to it go to the new pod; ${name} stays stopped.${cuda}`,
+    help: `GPU ${usd(o.gpu.price)} + its ${o.disk} GB disk an hour while it runs, as RunPod bills it${o.volume ? "; the network volume is billed apart, every month" : ""}. Same idle stop, watchdog and image as ${name}. The stopped pod keeps billing its disk until you terminate it.`,
+    yes: "Deploy",
+  };
 }

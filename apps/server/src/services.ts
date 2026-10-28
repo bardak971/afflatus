@@ -10,7 +10,7 @@ import { Downloads } from "./downloads";
 import { ModelHashes } from "./modelHashes";
 import { PodFiles } from "./podFiles";
 import { keepPacksTime, PodOutside } from "./podOutside";
-import { presetsWithFiles } from "./presetFiles";
+import { knownFiles } from "./modelSets";
 import { ShippedPresets, shippedPresetsDir } from "./presetFiles";
 import { DEFAULT_QUEUE_OPTIONS, Queue, type QueueOptions } from "./queue";
 import { podFetchOf } from "./queuePlan";
@@ -258,7 +258,10 @@ export async function createServices(
     db, downloads,
     comfyOf: async (id) => (await machineOf(id))?.comfy ?? null,
     cloudOf: async (id) => (await machineOf(id))?.machine.rented?.cloud ?? null,
-    lookup: { db, presets: () => presetsWithFiles({ db, shippedPresets }), families: () => registry.families(), comfyDir: async () => (await readSettings(db)).comfyDir },
+    // where a file comes from: the presets, and the Model sets' files and the deployed pods' lists too, whichever pod fetches
+    // it: a set's file known only to that set's deploys failed on another pod ("no site is known"), though the queue had
+    // judged it sendable there (card #150)
+    lookup: { db, presets: () => knownFiles({ db, shippedPresets }), families: () => registry.families(), comfyDir: async () => (await readSettings(db)).comfyDir },
     settings: () => readSettings(db),
     // its pod up: a pod filling its volume takes no render, but gets its files
     alive: (id) => rented.podDown(id) === null,

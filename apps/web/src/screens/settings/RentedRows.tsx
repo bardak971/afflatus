@@ -3,7 +3,7 @@ import type { PodFile, PodPack } from "../../api";
 import { minutesSaid, plural, size, usd } from "../../format";
 import { useCopied, useNow, useSecond } from "../../hooks";
 import { Link } from "wouter";
-import { gettingFiles, idleEndSaid, rateSaid, rentedSaid, volumeHref } from "../../machines";
+import { gettingFiles, idleEndSaid, IDLE_MINUTES, rateSaid, rentedSaid, volumeHref } from "../../machines";
 import type { useRentedOps } from "../../rentedOps";
 import { Select } from "../../Select";
 import { Progress } from "../../progress/Progress";
@@ -11,7 +11,7 @@ import { Button, Checkbox, cx, TwoStep } from "../../ui";
 import { BootNote, diskNearlyFull, diskSaid } from "../../machineBits";
 import { Block, Row } from "./Rows";
 
-const IDLE = [0, 5, 10, 15, 30, 60, 120];
+const IDLE = [0, ...IDLE_MINUTES];
 const WATCH = [0, 5, 10, 15, 30, 60];
 /** A list of minutes with the pod's own value among them: one set elsewhere (3 at Deploy, an agent's) read "Choose…" (card #149). */
 const withOwn = (list: readonly number[], own: number) => (list.includes(own) ? list : [...list, own].sort((a, b) => a - b));

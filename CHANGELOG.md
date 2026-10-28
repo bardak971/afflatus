@@ -21,6 +21,10 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ### Fixed
 - **A render pinned to a stopped pod offers Start.** Its Queue row says "waits for pod <name>" with **Start** (the rate and idle stop asked first, refused past a spending cap) whatever else is up, and it never goes to another machine unless you move it; it said "the pod is stopped" with no Start whenever your ComfyUI or another pod could have run it. Render on can now pick a stopped pod ("stopped · waits for it"). A stopped pod's volume or set file picked in a form says only that the job waits for that pod, no longer "ComfyUI does not have it" under it. A pod's card shows its idle and watchdog minutes when they are not in the list (3 min read "Choose…"), and a pod on a network volume says the volume's size and what its models hold rather than RunPod's whole shared storage ("1663254.3/2190892.5 GB").
+- **A Start RunPod refuses offers Deploy on its volume.** When RunPod has no GPU free on a stopped pod's host (which it said at every Start of a real-pod check), Afflatus asks whether to deploy a new pod on the same network volume, its models already there: the same GPU, or when none is free there the cheapest one with as much memory, said plainly; the rate, the idle stop and, with no volume, that its models are fetched again, in the question. It goes through the usual deploy and its spending caps, and the renders pinned to the stopped pod move to the new one; the stopped pod stays as it is.
+- **A render pinned to a pod that went stays pinned.** After its pod's idle terminate or a Terminate, it waits with "its pod was terminated" and Deploy a GPU… on its Queue row, until you move it (Run on); before, it fell to your own ComfyUI and failed at its build. Queuing one pinned to a pod already gone is refused with why.
+- **A Model set's file is fetched by any pod.** Its download address was known only to the deploys of that set; another pod that needed it failed with "no site is known".
+- **A pod's idle stop goes down to 1 min** in Deploy and on its card (the lists started at 5).
 
 ## [0.8.0] - 2026-10-28
 

@@ -145,13 +145,15 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
     // which request: a bug's stack alone does not say which screen or action met it
     if (!status) console.error(`[http] ${req.method} ${req.url} failed:`, err);
     // a refusal of the password's (access.ts) says the tries left and the wait, which the sign-in page counts down
-    const { left, wait, needPassword } = err as { left?: unknown; wait?: unknown; needPassword?: unknown };
+    // a Start RunPod refused for want of a GPU on its host: the page offers Deploy on its volume (rented.ts start)
+    const { left, wait, needPassword, redeploy } = err as { left?: unknown; wait?: unknown; needPassword?: unknown; redeploy?: unknown };
     if (status && typeof wait === "number") reply.header("Retry-After", String(wait));
     return reply.status(status ?? 500).send({
       error: status ? (err as Error).message : "something went wrong on the server",
       ...(status && typeof left === "number" ? { left } : {}),
       ...(status && typeof wait === "number" ? { wait } : {}),
       ...(status && needPassword === true ? { needPassword } : {}),
+      ...(status && redeploy === true ? { redeploy } : {}),
     });
   });
 
