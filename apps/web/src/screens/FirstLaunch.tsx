@@ -256,7 +256,9 @@ export function FirstLaunch() {
                 <CapBox key={`month-${capsSave.resets.month}`} label="a month" value={caps.month} help={CAP_MONTH_WHY} onSave={(month) => capsSave.change("month", month)} />
               </div>
               {capsSave.notes.map((n) => <ErrorNote key={n.key}>{n.text}</ErrorNote>)}
-              <span className="text-ink-3">Nothing deploys by itself: you deploy from the Queue, or when a job waits for a GPU.</span>
+              {/* where Deploy a GPU really is: the Queue offers it only while no machine is added, the status bar always (its
+                  machines' pill once one is), Settings › Rented GPUs and the command bar too */}
+              <span className="text-ink-3">Nothing deploys by itself: Deploy a GPU… is in the status bar at the foot of the screen, in Settings › Rented GPUs and in the command bar.</span>
             </>
           )}
         </Ask>

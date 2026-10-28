@@ -160,7 +160,9 @@ export function GetFile({ file, folder, url, civitai, pick, hints, auto, buttons
 }) {
   const { lookups, fetching, find, search, start, download, mine, busy, noRoute, why, caution } = useGetFile({ file, folder, url, civitai, pick, hints, auto });
   if (!lookups && !fetching) return null;
-  const main = buttons ? buttonClass({ tone: "primary", size: "sm", className: "gap-1.5" }) : cx(link, "flex items-center gap-1 disabled:opacity-60");
+  // nothing can download here: said once above the list (Settings › Models), so its Download is plain grey words, not an
+  // underlined link that does nothing (the #143 audit)
+  const main = buttons ? buttonClass({ tone: noRoute ? "plain" : "primary", size: "sm", className: "gap-1.5" }) : noRoute ? "flex cursor-not-allowed items-center gap-1 font-semibold text-ink-3" : cx(link, "flex items-center gap-1 disabled:opacity-60");
   const other = buttons ? buttonClass({ size: "sm" }) : link;
   // its download coming or done: its state stands where its Download was (In line · 3rd, Downloading, Here), never a
   // second Download (card #60); a failed or stopped one shows its Download again, with why under it

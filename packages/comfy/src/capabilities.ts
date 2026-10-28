@@ -28,6 +28,8 @@ interface SlotStatus {
    * Settings › Models, whose fold listed the swap's files to someone who had them. Kept in the scan all the same: jobs read it.
    */
   onlyHidden?: true;
+  /** Another slot of the family whose file makes this one unneeded (LTX 2.3's split files and its one checkpoint): the family's ModelSlot.unless. */
+  unless?: string;
 }
 
 export interface RecipeStatus {
@@ -133,7 +135,7 @@ async function slotFiles(families: Family[], files: Files, overrides: SlotOverri
           const onlyHidden = Boolean(s.onlyFor?.length) && !s.onlyFor!.some((id) => shown.has(id));
           const offered = s.get && !onlyHidden;
           return {
-            id: s.id, label: s.label, folder: s.folder, optional: Boolean(s.optional), hint: s.hint, ...(offered ? { get: s.get } : {}), ...(onlyHidden ? { onlyHidden: true as const } : {}),
+            id: s.id, label: s.label, folder: s.folder, optional: Boolean(s.optional), hint: s.hint, ...(offered ? { get: s.get } : {}), ...(onlyHidden ? { onlyHidden: true as const } : {}), ...(s.unless ? { unless: s.unless } : {}),
             file: byHand ? chosen! : auto, auto, chosen: byHand,
             choices: [...new Set([...list.filter((x) => patterns.some((re) => re.test(x))), ...byWeights, ...(byHand ? [chosen!] : [])])],
           };

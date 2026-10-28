@@ -122,6 +122,13 @@ describe("the downloads manager", () => {
     await waitFor(() => expect(fakeApi.calls("POST", "/downloads/clear")).toHaveLength(1));
   });
 
+  it("says what goes wrong with a file under way while it tries again, not only \"0 KB\" until it fails", async () => {
+    serve([dl("unet", { status: "downloading", turn: 1, note: "Could not reach huggingface.co: trying again (2 of 5)." })]);
+    draw(<DownloadsCard />);
+    const card = within(await screen.findByRole("region", { name: "Downloads" }));
+    expect(card.getByText("Could not reach huggingface.co: trying again (2 of 5).").className).toMatch(/text-warn-ink/);
+  });
+
   it("is nothing while nothing comes, nothing was done today and no place was chosen", async () => {
     serve([]);
     draw(<><DownloadsChip /><DownloadsCard /></>);

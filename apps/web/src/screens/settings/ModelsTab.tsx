@@ -1,15 +1,17 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown } from "lucide-react";
-import { api, type Machine } from "../../api";
+import { Link } from "wouter";
+import { AlertTriangle, ChevronDown } from "lucide-react";
+import { api, type Machine, type RecipeInfo } from "../../api";
 import { useFamilies, useOfficialSizes, useRecipes, useSettings, useSetup } from "../../data";
 import { plural, size, waitsForGpu } from "../../format";
-import { lacksOnlyFiles, officialFiles } from "../../officialFiles";
+import { lacksOnlyFiles } from "../../officialFiles";
 import { machineLabel } from "../../machines";
-import { DownloadTo } from "../../useGetFile";
-import { Button, Chip, CloseButton, cx, ErrorNote, Help, Toggle } from "../../ui";
+import { DownloadTo, NO_ROUTE, useDownloads } from "../../useGetFile";
+import { settingHref } from "./settingsIndex";
+import { Button, buttonClass, Chip, CloseButton, cx, ErrorNote, Help, Toggle } from "../../ui";
 import { Block, Card } from "./Rows";
-import { DownloadAll, FamilyBody } from "./ModelsFamily";
+import { FamilyBody, FamilyFetch, useFamilyFetch } from "./ModelsFamily";
 import { modelHelp } from "../../modelHelp";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
@@ -55,6 +57,39 @@ function AllOnHint({ off }: { off: number }) {
   );
 }
 
+/**
+ * A family whose operations lack only files, in its head: what its first operation needs ("Video with audio needs 3
+ * files · 31.8 GB"), the same count as Get the minimum beside it; with the minimum here, how many operations are ready.
+ */
+function FirstNeeds({ family, recipes, machine, ready }: { family: string; recipes: RecipeInfo[]; machine?: string; ready: string }) {
+  const f = useFamilyFetch(family, recipes, machine);
+  if (f.minimum.length && f.first) {
+    const weight = f.weight(f.minimum);
+    return <span className="text-ink-2"><b className="font-semibold text-ink">{f.first.title}</b> needs {plural(f.minimum.length, "file")}{weight ? ` · ${weight}` : ""}</span>;
+  }
+  return <span className="font-semibold text-warn-ink">{f.coming ? `getting ${plural(f.coming, "file")}` : ready}</span>;
+}
+
+/**
+ * Nothing can download into this ComfyUI (Afflatus cannot write its model folders, no Afflatus node pack, no
+ * ComfyUI-Manager): said once at the top, with its two ways out, rather than by every Download greyed with the reason
+ * in a hover tip (the #143 audit: a newcomer read greyed links and nothing else).
+ */
+function NoRouteLine({ where }: { where: string | null }) {
+  return (
+    <Block className="flex-row items-center gap-3 bg-warn-wash/40">
+      <AlertTriangle size={15} className="shrink-0 text-warn-ink" />
+      <span className="min-w-0 grow">
+        <b className="font-semibold">Nothing can download into {where ?? "this ComfyUI"} yet:</b>{" "}
+        <span className="text-ink-2">Afflatus doesn't know its folder, no Afflatus node pack is loaded, and ComfyUI-Manager wasn't found.</span>{" "}
+        <Help inside title="Nothing can download here" text={NO_ROUTE} />
+      </span>
+      <Link href={settingHref("comfy.folder")} className={buttonClass({ tone: "primary", size: "sm", className: "h-7 shrink-0" })}>Set the folder</Link>
+      <Link href={settingHref("comfy.runpod")} className={buttonClass({ size: "sm", className: "h-7 shrink-0" })} data-tip="A rented GPU fetches each job's files itself when it starts: nothing comes onto this PC">Or a pod fetches them</Link>
+    </Block>
+  );
+}
+
 /** What a family that is off says of its files: a fact, not a warning (a family left off is not a problem). */
 const offSaid = (found: boolean) => (found ? "has its files" : "files missing");
 
@@ -74,6 +109,7 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
   const setup = useSetup(machine?.id);
   const families = useFamilies(machine?.id);
   const sizes = useOfficialSizes();
+  const downloads = useDownloads(machine?.id);
   const [opened, setOpened] = useState<Record<string, boolean>>({});
   const [offOpen, setOffOpen] = useState(false);
   const client = useQueryClient();
@@ -99,8 +135,6 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
   // with rented GPUs only (no ComfyUI of the user's own answering): the files come with the pod, nothing to download here
   const pod = waitsForGpu(setup.data?.comfy);
   const sizeOf = (url: string | undefined) => (url ? sizes.data?.[url] ?? 0 : 0);
-  /** A family's needed files not here that have an official download: said as files to come, not as a warning. */
-  const toCome = (id: string) => (setup.data?.families.find((x) => x.id === id)?.slots ?? []).filter((x) => !x.optional && !x.file && x.get);
   /** What a family's official files weigh, as a pod fetches them. */
   const podBytes = (id: string) => (recipes.data.families.find((x) => x.id === id)?.slots ?? []).filter((x) => !x.optional && x.get).reduce((n, x) => n + sizeOf(x.get!.url), 0);
 
@@ -114,20 +148,16 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
     const all = good === mine.length;
     // files the family does not need, but some option of it would use: said as what they are
     const extras = (setup.data?.families.find((x) => x.id === f.id)?.slots ?? []).filter((x) => x.optional && !x.file && x.get).length;
-    // what it lacks is only files with an official download: they come (Download all), the family is not broken
-    const info = recipes.data.families.find((x) => x.id === f.id);
+    // what it lacks is only files with an official download: they come (Get the minimum), the family is not broken
+    const own = recipes.data.families.find((x) => x.id === f.id);
+    // a split file with no download of its own (LTX 2.3's diffusion model) is had the other way, its one checkpoint, which
+    // Get the minimum fetches: the family waits for files, it is not "0 of 2 ready"
+    const info = own && { ...own, slots: own.slots?.map((s) => (s.get || !s.unless ? s : { ...s, get: own.slots?.find((x) => x.id === s.unless)?.get })) };
     const statusOf = (id: string) => setup.data?.recipes.find((x) => x.id === id);
     // its operations that lack only files with an official download (they come), and those that lack more (a node pack)
     const waiting = all ? [] : mine.filter((r) => !readyOf(r.id) && lacksOnlyFiles(statusOf(r.id), r, info));
     const stuck = all ? 0 : mine.filter((r) => !readyOf(r.id) && !waiting.includes(r)).length;
     const onlyFiles = waiting.length > 0;
-    // the files to come: the family's not found, and the official file of each model input with nothing to pick
-    const comingUrls = new Set([
-      ...toCome(f.id).map((x) => x.get!.url),
-      ...mine.flatMap((r) => (statusOf(r.id)?.emptyInputs ?? []).flatMap((id) => { const i = r.inputs.find((x) => x.id === id); return i?.type === "model" ? officialFiles(info, i.folder, i.slot).slice(0, 1).map((o) => o.url) : []; })),
-    ]);
-    const coming = onlyFiles ? [...comingUrls] : [];
-    const comingBytes = coming.reduce((n, u) => n + sizeOf(u), 0);
     // every family starts folded, its head saying what it lacks: opened on its own when something was missing, a new install
     // (every family on, nothing downloaded yet) showed them all open, a page of text and download buttons (the owner, 2026-10-23)
     const open = opened[f.id] ?? false;
@@ -146,7 +176,7 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
                   <span className="text-ink-2">fetched by the pod{podBytes(f.id) ? ` · ${size(podBytes(f.id))}` : ""}</span>
                 ) : onlyFiles ? (
                   <>
-                    <span className="text-ink-2">{plural(coming.length, "file")} not here{comingBytes ? ` · ${size(comingBytes)}` : ""}</span>
+                    <FirstNeeds family={f.id} recipes={mine} machine={machine?.id} ready={`${good} of ${mine.length} ready`} />
                     {stuck > 0 && <span className="font-semibold text-warn-ink" data-tip="These operations lack more than files (a node pack, a file of their own): open the family for what each needs">{stuck} not ready</span>}
                   </>
                 ) : (
@@ -162,9 +192,9 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
               </span>
             ))}
           </button>
-          {/* the needed files it lacks, every one in a click: each then has its bar on its line below. Of a family left off
+          {/* the minimum, and everything, in a click: each file then has its bar on its line below. Of a family left off
               (a choice, not a problem), only once opened: ten orange buttons down the folded list read as ten warnings */}
-          {setup.data && !all && !pod && (isOn || open) && <DownloadAll family={f.id} recipes={mine} machine={machine?.id} />}
+          {setup.data && !all && !pod && (isOn || open) && <FamilyFetch family={f.id} recipes={mine} machine={machine?.id} />}
           {f.id in said && (
             <Chip
               tone="link"
@@ -200,6 +230,7 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
         status={setup.isLoading ? <span className="text-xs text-ink-3">Asking ComfyUI…</span> : pod ? <span className="font-mono text-xs text-ink-2">{on.length} on · files fetched by the pod</span> : setup.data && listed.length ? <span className={cx("font-mono text-xs", ready === listed.length ? "text-good" : "text-warn-ink")}>{readySaid(on.length, ready, listed.length)}</span> : null}
       >
         {!machine && !settings.data.allFamilies && off.length > 0 && <AllOnHint off={off.length} />}
+        {setup.data && !pod && downloads.data?.via === "none" && <NoRouteLine where={where} />}
         {setup.isError && <Block><ErrorNote>{setup.error.message}</ErrorNote></Block>}
         {setup.data && !setup.data.comfy.online && where && <Block className="text-ink-2">{where} does not answer: what it has is not known now.</Block>}
         {setup.data && !on.length && (

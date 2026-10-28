@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, raw, type Clip, type Timeline } from "../api";
+import { api, ApiError, raw, type Clip, type FamilyInfo, type RecipeInfo, type Timeline } from "../api";
 import { KEEPALIVE_MAX, useKeyedAutosave } from "../autosave";
 import type { useModelSettings, useRecipes, useSetup } from "../data";
 import { wholeForm } from "../form";
 import { notReady } from "../format";
+import { lacksOnlyFiles, withOfficial } from "../officialFiles";
 import { queryKeys } from "../queryKeys";
 import { voiceInput } from "./track/RecordingBand";
 
@@ -147,8 +148,8 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
     () => once(seenFor(formsSeen, [recipes.data, setup.data, setup.isSuccess, comfyOnline, settings.data]), inputsOf, (c: Clip): Record<string, unknown> | null => {
       const recipe = c.kind === "still" ? undefined : recipes.data?.recipes.find((r) => r.id === c.recipe);
       if (!recipe) return null;
-      const status = setup.data?.recipes.find((r) => r.id === recipe.id);
-      if (setup.isSuccess && notReady(status, comfyOnline)) return null;
+      const { status, blocked } = clipSetup(recipe, recipes.data?.families, { data: setup.data, isSuccess: setup.isSuccess }, comfyOnline);
+      if (blocked) return null;
       const stored = inputsOf(c);
       const input = wholeForm(recipe, status, settings.data?.items ?? [], stored);
       for (const i of recipe.inputs) if (input[i.id] === undefined || (i.type === "clip" && i.role !== "source")) delete input[i.id];
@@ -167,8 +168,7 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
       if (c.kind === "still") return { why: "A still is not rendered." };
       const recipe = recipes.data?.recipes.find((r) => r.id === c.recipe);
       if (!recipe) return { why: c.recipe ? "The model this clip was generated with is no longer here. Choose another one." : "Choose a model for this clip." };
-      const status = setup.data?.recipes.find((r) => r.id === recipe.id);
-      const blocked = setup.isSuccess ? notReady(status, comfyOnline) : null;
+      const { status, blocked } = clipSetup(recipe, recipes.data?.families, { data: setup.data, isSuccess: setup.isSuccess }, comfyOnline);
       if (blocked) return { why: blocked };
       const stored = inputsOf(c);
       const input = wholeForm(recipe, status, settings.data?.items ?? [], stored);
@@ -194,6 +194,18 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
   );
 
   return { edits, dropEdits, saveFailed, save, turn, inputsOf, editInputs, savedElsewhere, agentLaid, typeSource, sourceTyped, shown, formOf, ready, keptToClip, keepToClip };
+}
+
+/**
+ * A clip's model as this ComfyUI has it, and why it cannot render here, as Studio's form says it: a model that lacks only
+ * files with an official download is not refused, its job queued and waiting for them where it runs (the queue's "Waits for
+ * N files"), its form starting from those files where ComfyUI has nothing to pick.
+ */
+export function clipSetup(recipe: RecipeInfo, families: FamilyInfo[] | undefined, setup: Pick<ReturnType<typeof useSetup>, "data" | "isSuccess">, comfyOnline: boolean) {
+  const family = families?.find((f) => f.id === recipe.family);
+  const status = setup.data?.recipes.find((r) => r.id === recipe.id);
+  const blocked = setup.isSuccess && !(comfyOnline && lacksOnlyFiles(status, recipe, family)) ? notReady(status, comfyOnline) : null;
+  return { status: withOfficial(status, recipe.inputs, family), blocked };
 }
 
 /** A clip's save answered 404: the clip was removed (here, by Undo, in another tab), and its form has nowhere to go. */
