@@ -35,3 +35,19 @@ describe("a machine's failed downloads", () => {
     expect(failedOnMachine([dl("a", "swap.safetensors", { seen: true })], "rp-1", "RTX 4090")).toBeNull();
   });
 });
+
+describe("the failed downloads of a single-machine setup's ComfyUI", () => {
+  const here = (id: string, file: string, over: Partial<Download> = {}) => dl(id, file, { machine: undefined, error: "Could not reach huggingface.co.", ...over });
+
+  it("make one banner too, its shared reason said once, not one sticky banner per file", () => {
+    const said = failedOnMachine([here("a", "unet.safetensors"), here("b", "clip.safetensors"), here("c", "vae.safetensors"), dl("d", "other.safetensors")], "", null)!;
+    expect(said.banner).toMatchObject({ id: "downloads:", tone: "bad", title: "3 downloads failed", text: "Could not reach huggingface.co: unet.safetensors, clip.safetensors, vae.safetensors", go: "Open the downloads" });
+    expect(said.banner.href).toMatch(/find=models\.downloads/);
+    expect(said.ids).toEqual(["a", "b", "c"]);
+  });
+
+  it("say each file's names first when their reasons differ", () => {
+    const said = failedOnMachine([here("a", "unet.safetensors"), here("b", "clip.safetensors", { error: "The disk is full." })], "", null)!;
+    expect(said.banner.text).toBe("unet.safetensors, clip.safetensors: Could not reach huggingface.co.");
+  });
+});

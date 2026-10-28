@@ -59,6 +59,8 @@ export interface FamilySlot {
   get?: { file: string; url: string };
   /** The recipes that alone use it: while every one of them is hidden, it is not offered. */
   onlyFor?: string[];
+  /** Another slot whose file makes this one unneeded (LTX 2.3: its one checkpoint, or its split files). */
+  unless?: string;
 }
 export interface RecipeStatus {
   id: string;
@@ -99,7 +101,9 @@ export interface Scan {
     | { online: false; url: string; error: string; locked?: boolean; planned?: true };
   families: Array<{ id: string; slots: Array<{ id: string; label: string; folder: string; file: string | null; choices: string[]; auto: string | null; chosen: boolean; optional: boolean; hint: string; get?: { file: string; url: string };
     /** Only hidden recipes use it: not shown in Settings › Models (the scan keeps it, for jobs). */
-    onlyHidden?: true }> }>;
+    onlyHidden?: true;
+    /** Another slot whose file makes this one unneeded (LTX 2.3: its one checkpoint, or its split files). */
+    unless?: string }> }>;
   recipes: RecipeStatus[];
   /** Where each file is across the machines (every machine together only; the server's filePlaces.ts). */
   places?: FilePlaces;

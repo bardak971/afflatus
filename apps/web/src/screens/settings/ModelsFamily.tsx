@@ -6,6 +6,7 @@ import { EITHER_PACKS, EXTRA_PACKS, folderOfFileInput, nodesOfPack, packOfNode }
 import { api, type RecipeInfo, type RecipeStatus, type Scan } from "../../api";
 import { useOfficialSizes, useSettings, useSetup } from "../../data";
 import { fileLabel, plural, problemSaid, size } from "../../format";
+import { firstOperation, forSaid, minimumSlots, otherWay, sizeSaid } from "../../familyMinimum";
 import { FileWhere } from "../../FileWhere";
 import { GetFile } from "../../GetFile";
 import { useDownloads } from "../../useGetFile";
@@ -40,6 +41,10 @@ export interface FileRow {
   optional: boolean;
   /** Its slot, for its picker when more than one file fits. */
   slot?: Slot;
+  /** The family's first operation cannot run without it: "Get the minimum" fetches it (familyMinimum.ts). */
+  minimum: boolean;
+  /** Of an optional file, what it is for in a few words ("for Face refine"), when its hint says it. */
+  forWhat?: string | null;
 }
 
 /** An optional file's hint was written for a line that said "optional" in front of it: its section says so. */
@@ -53,10 +58,17 @@ const broughtSaid = (hint: string) => hint.replace(/^optional[:,]\s*/i, "").repl
  */
 export function familyFiles(slots: readonly Slot[], recipes: readonly RecipeInfo[], statuses: readonly RecipeStatus[], lent: readonly Slot[] = []): { needed: FileRow[]; optional: FileRow[] } {
   const titles = recipes.map((r) => r.title);
-  const needers = (s: Slot) => (s.optional ? recipes.filter((r) => r.needs?.includes(s.id)).map((r) => r.title) : titles);
+  // the other way of having the model (LTX 2.3's split files, its checkpoint coming in one press) is said with the optional files
+  const needers = (s: Slot) => (otherWay(s, slots) ? [] : s.optional ? recipes.filter((r) => r.needs?.includes(s.id)).map((r) => r.title) : titles);
+  const least = new Set(minimumSlots(slots, firstOperation(recipes)).map((s) => s.id));
+  // what an optional file is for, unless its label says it already ("Face detector (Face refine)")
+  const forOf = (s: Slot) => { const said = forSaid(s.hint); return said && !s.label.toLowerCase().includes(said.replace(/^for /, "").toLowerCase()) ? said : null; };
   const ofSlot = (s: Slot, optional: boolean): FileRow => {
     const users = optional ? [] : needers(s);
-    return { key: `slot:${s.id}`, label: s.label, folder: s.folder, file: s.file, hint: optional ? broughtSaid(s.hint) : s.hint, get: s.get, users, every: !optional && users.length === recipes.length, optional, slot: s };
+    return {
+      key: `slot:${s.id}`, label: s.label, folder: s.folder, file: s.file, hint: optional ? broughtSaid(s.hint) : s.hint, get: s.get, users, every: !optional && users.length === recipes.length, optional, slot: s,
+      minimum: least.has(s.id), ...(optional ? { forWhat: forOf(s) } : {}),
+    };
   };
   const needed = slots.filter((s) => needers(s).length > 0).map((s) => ofSlot(s, false));
   // the files an operation names itself, missing: once each, with every operation that names it
@@ -64,16 +76,18 @@ export function familyFiles(slots: readonly Slot[], recipes: readonly RecipeInfo
   for (const r of recipes) {
     for (const m of statuses.find((x) => x.id === r.id)?.missing ?? []) {
       const key = `file:${m.folder ?? ""}/${m.file}`;
-      const row = named.get(key) ?? { key, label: fileLabel(m.file), folder: m.folder, file: null, hint: "", get: m.url ? { file: m.file, url: m.url } : { file: m.file }, users: [], every: false, optional: false };
+      const row = named.get(key) ?? { key, label: fileLabel(m.file), folder: m.folder, file: null, hint: "", get: m.url ? { file: m.file, url: m.url } : { file: m.file }, users: [], every: false, optional: false, minimum: false };
       if (!row.users.includes(r.title)) row.users.push(r.title);
       row.every = row.users.length === recipes.length;
+      // a file the first operation names itself (an imported workflow's) is part of its minimum too
+      row.minimum ||= r === firstOperation(recipes);
       named.set(key, row);
     }
   }
   const own = new Set(slots.map((s) => s.id));
   const optional = [
     // a file only hidden recipes use is left out: what it is for cannot be opened (Swap's files, in a release that hides it)
-    ...slots.filter((s) => s.optional && !s.onlyHidden && !needers(s).length && (s.file || s.get)),
+    ...slots.filter((s) => (s.optional || otherWay(s, slots)) && !s.onlyHidden && !needers(s).length && (s.file || s.get || otherWay(s, slots))),
     ...lent.filter((s, i) => !own.has(s.id) && lent.findIndex((x) => x.id === s.id) === i),
   ].map((s) => ofSlot(s, true));
   return { needed: [...needed, ...named.values()], optional };
@@ -99,34 +113,76 @@ export function needsSaid(s: RecipeStatus, rows: readonly FileRow[], extra: numb
   return parts.length ? `needs ${parts.join(" + ")}` : "not ready";
 }
 
-/** Which of the family's missing needed files can be downloaded now, and starting them all: "Download all" in its head. */
-export function useDownloadAll(family: string, recipes: readonly RecipeInfo[], machine?: string) {
+/**
+ * What a family's head offers to fetch (the owner's mock, 0.8.1 screen 2): the minimum, the files its first operation
+ * lacks, and everything its operations need (Swap's files too), each with what it weighs. One count throughout: the
+ * head's "needs 3 files" is the minimum's files not here and not coming, as its button says them. Only the families'
+ * official files (their `get`): downloaded on a press whatever the download settings (fetchFile.ts).
+ */
+export function useFamilyFetch(family: string, recipes: readonly RecipeInfo[], machine?: string) {
   const setup = useSetup(machine);
   const downloads = useDownloads(machine);
+  const sizes = useOfficialSizes();
   const client = useQueryClient();
   const failed = useSayFailed({ id: "models", href: "/settings/models", go: "Open Models" });
   const slots = setup.data?.families.find((f) => f.id === family)?.slots ?? [];
   const { needed } = familyFiles(slots, recipes, setup.data?.recipes ?? []);
   const coming = (r: FileRow) => (downloads.data?.items ?? []).some((d) => d.file === r.get?.file && d.folder === r.folder && (!machine || d.machine === machine) && d.status !== "error" && d.status !== "stopped");
-  // only the families' official files (their `get`): downloaded on this press whatever the download settings (fetchFile.ts)
-  const can = Boolean(downloads.data) && downloads.data?.via !== "none";
-  const files = can ? needed.filter((r) => !r.file && r.get?.url && r.folder && !coming(r)) : [];
+  // nothing can download here (no folder Afflatus can write, no node pack, no ComfyUI-Manager): the buttons stay, off
+  const noRoute = downloads.data?.via === "none";
+  const lacking = needed.filter((r) => !r.file && !coming(r));
+  const fetchable = (rows: FileRow[]) => rows.filter((r) => r.get?.url && r.folder);
+  const minimum = lacking.filter((r) => r.minimum);
+  const all = fetchable(lacking);
+  const least = fetchable(minimum);
   const start = useMutation({
-    mutationFn: () => Promise.all(files.map((r) => api.startDownload({ file: r.get!.file, folder: r.folder!, url: r.get!.url!, ...(machine ? { machine } : {}) }))),
+    mutationFn: (files: FileRow[]) => Promise.all(files.map((r) => api.startDownload({ file: r.get!.file, folder: r.folder!, url: r.get!.url!, ...(machine ? { machine } : {}) }))),
     onSettled: () => client.invalidateQueries({ queryKey: queryKeys.downloads() }),
     onError: failed("Could not start the downloads"),
   });
-  return { files, start };
+  const weight = (rows: FileRow[]) => sizeSaid(rows.map((r) => r.get?.url), sizes.data);
+  return {
+    first: firstOperation(recipes),
+    /** The minimum's files not here and not coming: what the head says the first operation needs. */
+    minimum,
+    /** Of them, those with a download: what "Get the minimum" starts. */
+    least,
+    /** Every needed file not here with a download: what "Everything" starts. */
+    all,
+    coming: needed.filter((r) => !r.file && coming(r)).length,
+    weight,
+    ready: Boolean(downloads.data),
+    noRoute,
+    start,
+  };
 }
 
-/** "Download all · 3 files" in a family's head: the needed files it lacks that have a download, each then with its own bar below. */
-export function DownloadAll({ family, recipes, machine }: { family: string; recipes: readonly RecipeInfo[]; machine?: string }) {
-  const { files, start } = useDownloadAll(family, recipes, machine);
-  if (!files.length) return null;
+/** Why a fetch button is off while nothing can download here: the line at the top of the card says it, with its two ways out. */
+const OFF_TIP = "Nothing can download into this ComfyUI yet: the line at the top of Models says why and what to do.";
+
+/**
+ * "Get the minimum · 3 files · 31.8 GB" in a family's head, the primary action, and "Everything · 6 · 44 GB" beside it,
+ * quiet, when the other operations need more. Each file then has its bar on its line below.
+ */
+export function FamilyFetch({ family, recipes, machine }: { family: string; recipes: readonly RecipeInfo[]; machine?: string }) {
+  const f = useFamilyFetch(family, recipes, machine);
+  if (!f.ready) return null;
+  const more = f.all.length > f.least.length;
+  const off = f.noRoute || f.start.isPending;
+  const said = (rows: FileRow[], words: boolean) => [words ? plural(rows.length, "file") : String(rows.length), f.weight(rows)].filter(Boolean).join(" · ");
   return (
-    <Button size="sm" tone="primary" className="h-7 shrink-0 gap-1.5" disabled={start.isPending} data-tip={files.map((r) => r.get!.file).join("\n")} onClick={() => start.mutate()}>
-      <DownloadIcon size={13} /> Download all · {plural(files.length, "file")}
-    </Button>
+    <>
+      {f.least.length > 0 && (
+        <Button size="sm" tone={f.noRoute ? "plain" : "primary"} className="h-7 shrink-0 gap-1.5" disabled={off} data-tip={f.noRoute ? OFF_TIP : `What ${f.first?.title ?? "its first operation"} needs:\n${f.least.map((r) => r.get!.file).join("\n")}`} onClick={() => f.start.mutate(f.least)}>
+          <DownloadIcon size={13} /> Get the minimum · {said(f.least, true)}
+        </Button>
+      )}
+      {more && (
+        <Button size="sm" className="h-7 shrink-0 gap-1.5 border-transparent text-ink-2" disabled={off} data-tip={f.noRoute ? OFF_TIP : `Every file its operations need, ${f.least.length ? "the minimum and " : ""}what only some of them use:\n${f.all.map((r) => r.get!.file).join("\n")}`} onClick={() => f.start.mutate(f.all)}>
+          {f.least.length ? "Everything" : <><DownloadIcon size={13} /> Everything</>} · {said(f.all, !f.least.length)}
+        </Button>
+      )}
+    </>
   );
 }
 
@@ -188,7 +244,10 @@ function FileLine({ row, family, name, imported, machine }: { row: FileRow; fami
         <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
           <span className={cx("font-semibold", coming ? "text-ink-2" : !row.file && !row.optional && "text-warn-ink")}>{row.label}</span>
           {coming && <span className="text-xs text-ink-3">not here{bytes ? ` · ${size(bytes)}` : ""}</span>}
-          {!row.optional && !row.every && row.users.length > 0 && <Chip size="xs" tone="accent" tip={`Only ${row.users.join(", ")} cannot run without it`}>{row.users.join(", ")} only</Chip>}
+          {/* the first operation's files, what "Get the minimum" fetches; the others say which operations alone need them */}
+          {row.minimum && !row.optional && <Chip size="xs" tone="accent" tip="The family's first operation cannot run without it: Get the minimum fetches it">minimum</Chip>}
+          {!row.optional && !row.every && !row.minimum && row.users.length > 0 && <Chip size="xs" tip={`Only ${row.users.join(", ")} cannot run without it`}>for {row.users.join(", ")} only</Chip>}
+          {row.optional && row.forWhat && <span className="text-xs text-ink-3">{row.forWhat}</span>}
         </span>
         {/* where to put a missing one, what an optional one brings */}
         {(!row.file || row.optional) && row.hint && <span className="text-xs text-ink-2">{row.hint}</span>}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import type { RecipeInfo, RecipeStatus } from "../../src/api";
-import { DownloadAll, FamilyBody, type Slot } from "../../src/screens/settings/ModelsFamily";
+import { FamilyBody, FamilyFetch, type Slot } from "../../src/screens/settings/ModelsFamily";
 import { fakeApi } from "./fakeApi";
 import { draw } from "./render";
 
@@ -32,7 +32,9 @@ describe("an opened family, each file once", () => {
     draw(<FamilyBody family="flux" name="FLUX.1" recipes={recipes} />);
     const files = within(await screen.findByRole("region", { name: "Files" }));
     for (const label of ["UNET", "CLIP", "T5", "VAE", "Kontext model"]) expect(files.getAllByText(label)).toHaveLength(1);
-    expect(files.getByText("Edit only")).toBeTruthy();
+    expect(files.getByText("for Edit only")).toBeTruthy();
+    // the four Text to picture cannot run without: the minimum
+    expect(files.getAllByText("minimum")).toHaveLength(4);
     // each has an official download: files to come, said in grey, not "missing" (where you render, card #20)
     expect(files.getByText("5 not here")).toBeTruthy();
     const ops = within(screen.getByRole("region", { name: "Operations" }));
@@ -92,17 +94,51 @@ describe("a file there, its picker", () => {
   });
 });
 
-describe("Download all", () => {
-  it("starts the needed files it lacks that have a download, not the optional ones nor one already coming", async () => {
-    const slots = [...BASE.map((id) => slot(id, id.toUpperCase())), slot("lora", "Turbo LoRA", { optional: true })];
-    serve(slots, recipes.map((r) => status(r.id, { missingSlots: BASE })), [{ id: "d1", file: "vae.safetensors", folder: "diffusion_models", status: "downloading", bytes: 1, total: 2 }]);
-    const asked: string[] = [];
+describe("Get the minimum, and Everything", () => {
+  /** H3 as the audit met it: four files every operation needs, and Swap's two, which only Swap needs. */
+  const H3 = ["unet", "clip", "videoVae", "audioVae"];
+  const h3 = [recipe("h3.video", "Video with audio"), recipe("h3.swap", "Swap character", { needs: ["swapUnet", "swapLora"] })];
+  const h3Slots = () => [...H3.map((id) => slot(id, id)), slot("swapUnet", "Reference model for Swap", { optional: true }), slot("swapLora", "Character-Swap LoRA", { optional: true, folder: "loras" }), slot("turbo", "Turbo LoRA", { optional: true, folder: "loras" })];
+  const sizes = Object.fromEntries([...H3, "swapUnet", "swapLora", "turbo"].map((id, i) => [`https://example.test/${id}.safetensors`, (i + 1) * 2 ** 30]));
+
+  function asked() {
+    const files: string[] = [];
     fakeApi.on("POST /downloads", ({ body }) => {
-      asked.push((body as { file: string }).file);
-      return { id: `d-${asked.length}`, status: "starting" };
+      files.push((body as { file: string }).file);
+      return { id: `d-${files.length}`, status: "starting" };
     });
-    const { user } = draw(<DownloadAll family="flux" recipes={recipes} />);
-    await user.click(await screen.findByRole("button", { name: /Download all · 3 files/ }));
-    await waitFor(() => expect(asked.sort()).toEqual(["clip.safetensors", "t5.safetensors", "unet.safetensors"]));
+    return files;
+  }
+
+  it("fetches the first operation's files only, never Swap's, and says what they weigh", async () => {
+    serve(h3Slots(), [status("h3.video", { missingSlots: H3 }), status("h3.swap", { missingSlots: [...H3, "swapUnet", "swapLora"] })]);
+    fakeApi.on("GET /official-sizes", { sizes, asking: false });
+    const files = asked();
+    const { user } = draw(<FamilyFetch family="flux" recipes={h3} />);
+    // 1 + 2 + 3 + 4 GB; with Swap's 5 and 6, and never the optional turbo
+    await user.click(await screen.findByRole("button", { name: "Get the minimum · 4 files · 10.0 GB" }));
+    await waitFor(() => expect(files.sort()).toEqual(H3.map((id) => `${id}.safetensors`).sort()));
+    expect(screen.getByRole("button", { name: "Everything · 6 · 21.0 GB" })).toBeTruthy();
+  });
+
+  it("is Everything alone once the minimum is here, and nothing already coming", async () => {
+    const slots = h3Slots().map((s) => (H3.includes(s.id) ? { ...s, file: `${s.id}.safetensors` } : s));
+    serve(slots, [status("h3.video", { ready: true }), status("h3.swap", { missingSlots: ["swapUnet", "swapLora"] })], [{ id: "d1", file: "swapLora.safetensors", folder: "loras", status: "downloading", bytes: 1, total: 2 }]);
+    fakeApi.on("GET /official-sizes", { sizes: {}, asking: false });
+    const files = asked();
+    const { user } = draw(<FamilyFetch family="flux" recipes={h3} />);
+    await user.click(await screen.findByRole("button", { name: "Everything · 1 file" }));
+    await waitFor(() => expect(files).toEqual(["swapUnet.safetensors"]));
+    expect(screen.queryByRole("button", { name: /Get the minimum/ })).toBeNull();
+  });
+
+  it("stays in sight but off while nothing can download here", async () => {
+    serve(h3Slots(), [status("h3.video", { missingSlots: H3 }), status("h3.swap", { missingSlots: [...H3, "swapUnet", "swapLora"] })]);
+    fakeApi.on("GET /downloads", { on: true, items: [], manager: { found: false }, via: "none" });
+    draw(<FamilyFetch family="flux" recipes={h3} />);
+    const least = await screen.findByRole("button", { name: /Get the minimum · 4 files/ });
+    expect((least as HTMLButtonElement).disabled).toBe(true);
+    expect(least.className).not.toMatch(/bg-accent/);
+    expect(least.getAttribute("data-tip")).toMatch(/line at the top of Models/);
   });
 });
