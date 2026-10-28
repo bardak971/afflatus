@@ -9,7 +9,7 @@ import { api, thumbUrl, type RecipeInfo, type RecipeStatus } from "./api";
 import { useQuery } from "@tanstack/react-query";
 import { useSettled } from "./hooks";
 import { queryKeys } from "./queryKeys";
-import { useModelSettings, useRecipes } from "./data";
+import { useModelSettings, useRecipes, useSetup } from "./data";
 import { Field, sameValue } from "./fields";
 import { changedIn, formDefaults, layoutOf, ownValues, matchesText, pinnable, pinSaid, sectionsOf, summariesOf, thumbsOf, tuckedOf, whyHidden } from "./form";
 import { InputsPart } from "./recipeForm/InputsPart";
@@ -25,6 +25,7 @@ import { useFormSearch } from "./recipeForm/useFormSearch";
 import { scrollInside } from "./scrollInside";
 import { plural } from "./format";
 import { isFamilyFile, withOfficial } from "./officialFiles";
+import { isOffered } from "./filePlaces";
 
 // what is said under a model ComfyUI does not have (with where a preset gets it): fetched the first time one is missing, not
 // with the form on every first paint
@@ -208,9 +209,13 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   // by its whole path, as the field and Generate match it: by its bare name, a preset's "SDXL/<official file>" that this
   // ComfyUI lacks passed here while neither of them said a thing
   const official = (file: string) => isFamilyFile(family, file);
+  // one a stopped pod holds or fetches (its volume, its set) says itself under its field too: "the job waits for that pod",
+  // and "ComfyUI does not have it" under it said the opposite (card #149)
+  const places = useSetup().data?.places;
+  const folderOf = (id: string) => { const i = recipe.inputs.find((x) => x.id === id); return i?.type === "model" ? i.folder : undefined; };
   // listed is matched as the server matches it when it builds the job (core sameFile): the same file in another sub-folder,
   // or with the other slash, is there. An imported workflow names its model as its author kept it, and the render finds it
-  const isMissingModel = (id: string) => typeof values[id] === "string" && values[id] !== "" && Array.isArray(status?.options[id]) && !sameFile(status!.options[id]!, String(values[id])) && !official(String(values[id]));
+  const isMissingModel = (id: string) => typeof values[id] === "string" && values[id] !== "" && Array.isArray(status?.options[id]) && !sameFile(status!.options[id]!, String(values[id])) && !official(String(values[id])) && !isOffered(places, folderOf(id), String(values[id]));
   const setPart = useParts((st) => st.set);
 
   // ---- the search: typed, only the settings whose name (or explanation) matches stay on the form

@@ -29,6 +29,9 @@ const DEPLOY_SLOW_MS = 12 * 60_000;
 /** After this long running without an answer, its card says so (it is billed meanwhile). */
 const BOOT_SLOW_MS = 2 * 60_000;
 
+/** How long a network volume's size, as RunPod says it, is kept before it is asked again (a volume is grown seldom). */
+const VOLUME_SIZE_MS = 10 * 60_000;
+
 /** What its card says of a pod whose ComfyUI died: why, as the pod or the queue said it, and where its last lines are. */
 const diedSaid = (s: Seen): string =>
   `${s.stoppedBy === "crash" ? "Terminated: " : ""}${s.comfyDied!.said}.${s.comfyDied!.render ? " Its render failed, not run again." : ""}${s.comfyDied!.from === "pod" ? " ComfyUI's last lines are in its log (Queue › Log)." : ""}`;
@@ -59,6 +62,26 @@ export class Rented extends RentedDeploy {
   /** The network volume RunPod last said its pod is on: a pod added by hand names none in its settings. Null: none, or not read. */
   volumeOf(machine: string): string | null {
     return this.seen.get(machine)?.pod?.volumeId ?? null;
+  }
+
+  /** Each network volume's size as RunPod last said it (GB), and when: read again every VOLUME_SIZE_MS at most. */
+  private readonly volumeSizes = new Map<string, { gb: number; at: number }>();
+
+  /**
+   * The bytes of the network volume a machine's pod runs on, as RunPod sizes it: its node pack reads the volume's disk as
+   * RunPod's whole shared storage (1663254.3/2190892.5 GB on its card, card #149). Null: on none, or RunPod not read.
+   */
+  async volumeBytes(machine: string): Promise<number | null> {
+    const s = await readSettings(this.db);
+    const volume = this.volumeOf(machine) ?? s.machines.find((m) => m.id === machine)?.rented?.volume ?? null;
+    if (!volume || !s.runpodKey) return null;
+    let kept = this.volumeSizes.get(volume);
+    if (!kept || this.now() - kept.at > VOLUME_SIZE_MS) {
+      const volumes = await this.client(s.runpodKey).volumes().catch(() => null);
+      for (const v of volumes ?? []) if (v.size > 0) this.volumeSizes.set(v.id, { gb: v.size, at: this.now() });
+      kept = this.volumeSizes.get(volume);
+    }
+    return kept ? kept.gb * 2 ** 30 : null;
   }
 
   /** Whether a machine's pod is down: not running, or being stopped. Null: up (or not a rented machine). Its files follow this. */

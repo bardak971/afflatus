@@ -347,12 +347,15 @@ export class Planner {
         if (lack || balance) lacks[lane.id] = { ...(lack ?? { off: false, files: [], sendable: false }), ...(balance ? { balance } : {}), ...(failed ? { failed } : {}) };
         else can.add(lane.id);
       }));
+      // pinned to a stopped pod, it waits for that pod whatever else is up (its row's Start): the machines that could run it
+      // are no matter, it goes nowhere else (a pinned job's row said "the pod is stopped" with no Start, card #149)
+      const pinStopped = pin && !offPods.has(r.id) && machines.get(pin)?.rented && this.d.unavailable(pin) === "stopped" ? pin : undefined;
       // no machine can run it now, and a pod not up holds what it asks for: it waits for that pod (its row's Start), not for
       // a Download on a machine of the user's own, and never goes there (card #139)
-      const startPod = !can.size && recipe && !offPods.has(r.id) && held.size ? podHolding(filesAsked(recipe, input).filter((f) => recipe.inputs.some((i) => i.id === f.input && (i.type === "model" || i.type === "loras"))), held, (f) => official.has(fileKey(f)) || scans.some(({ scan }) => {
+      const startPod = pinStopped ?? (!can.size && recipe && !offPods.has(r.id) && held.size ? podHolding(filesAsked(recipe, input).filter((f) => recipe.inputs.some((i) => i.id === f.input && (i.type === "model" || i.type === "loras"))), held, (f) => official.has(fileKey(f)) || scans.some(({ scan }) => {
         const list = scan?.comfy.online ? scan.recipes.find((x) => x.id === recipe.id)?.options[f.input] : undefined;
         return Boolean(list && sameFile(list, f.file));
-      }), (id) => !pin || pin === id) : undefined;
+      }), (id) => !pin || pin === id) : undefined);
       // one that would wait for a download goes to a machine that can run it now, when there is one (the files no time to
       // count: they come when the user says); else it waits there, on its machine, for its Download
       for (const [id, lack] of waitsHere) {

@@ -208,7 +208,7 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
             {noGpu && w.kind !== "export" && w.kind !== "cut" && <span className="shrink-0 text-xs text-attention-ink" data-tip="No ComfyUI of your own is added and no rented GPU is up: it starts once one is (Deploy a GPU, above).">waits for a GPU</span>}
             {ownWait(w) && <span className="shrink-0 text-xs text-ink-2">waits for {plural(ownWait(w)!.files.length, "file")} on {ownWait(w)!.name}</span>}
             {w.packs && <PacksNote wait={w.packs} machine={machines.length ? machineLabel(machines.find((m) => m.id === w.packs!.machine) ?? { name: w.packs.machine, url: "" }) : null} onPacks={onPacks && ((what, packs) => onPacks(w.id, what, packs))} />}
-            {machines.length > 0 && w.startPod && <StartPod pod={w.startPod} machines={machines} />}
+            {machines.length > 0 && w.startPod && <StartPod pod={w.startPod} pinned={w.pinned === w.startPod} machines={machines} />}
             {machines.length > 0 && !w.pinned && w.runsOn?.length === 0 && !w.startPod && (
               <Link href={settingHref("models.families")} className="shrink-0">
                 <Chip tone="warn" tip="No machine has its files, or its family is off on every one. Settings › Models says what each machine has; or pin it to one (Run on) to download what it lacks there.">no machine can run it</Chip>
@@ -238,7 +238,8 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
             <CloseButton size={24} label={`Remove ${w.label} from queue`} tip="Remove from queue" keys="Del" onClose={() => onRemove(w.id)} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100" />
           </div>
           <OwnDownloads w={w} />
-          {w.pinned && w.lacks?.[w.pinned] && !filesOf(w, i) && <PinnedLacks machine={machineLabel(machines.find((m) => m.id === w.pinned) ?? { name: w.pinned, url: "" })} id={w.pinned} lack={w.lacks[w.pinned]!} />}
+          {/* pinned to a stopped pod: its Start says it, not "the pod is stopped" a second time (card #149) */}
+          {w.pinned && w.lacks?.[w.pinned] && !filesOf(w, i) && w.startPod !== w.pinned && <PinnedLacks machine={machineLabel(machines.find((m) => m.id === w.pinned) ?? { name: w.pinned, url: "" })} id={w.pinned} lack={w.lacks[w.pinned]!} />}
         </Fragment>
       ))}
       <div className="flex items-center gap-1 px-3 pt-1 text-xs text-ink-3">
@@ -252,10 +253,11 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
 }
 
 /**
- * A render no machine can run now whose files a stopped pod holds (its volume, the set it was deployed with): it waits for
- * that pod, and Start starts it as the Rented GPUs page does, with its confirm (the rate, how it ends) and the server's caps.
+ * A render pinned to a stopped pod, or one no machine can run now whose files a stopped pod holds (its volume, the set it
+ * was deployed with): it waits for that pod, and Start starts it as the Rented GPUs page does, with its confirm (the rate,
+ * how it ends) and the server's caps.
  */
-function StartPod({ pod, machines }: { pod: string; machines: MachineState[] }) {
+function StartPod({ pod, pinned, machines }: { pod: string; pinned: boolean; machines: MachineState[] }) {
   const ops = useRentedOps();
   const m = machines.find((x) => x.id === pod);
   const r = m?.rented;
@@ -264,7 +266,7 @@ function StartPod({ pod, machines }: { pod: string; machines: MachineState[] }) 
   const can = r && (r.status === "EXITED" || r.status === "ERROR");
   return (
     <>
-      <span className="min-w-0 truncate text-xs text-attention-ink" data-tip={`No machine that runs now has its files: ${name} holds them (its volume, or the model set it was deployed with). It runs there once the pod is up.`}>
+      <span className="min-w-0 truncate text-xs text-attention-ink" data-tip={pinned ? `Pinned to ${name}, which is stopped: it runs there once the pod is up, never elsewhere. Run on in its menu moves it.` : `No machine that runs now has its files: ${name} holds them (its volume, or the model set it was deployed with). It runs there once the pod is up.`}>
         waits for pod {name}{r && !can ? ` · ${rentedSaid(r)}` : ""}
       </span>
       {m && can && (

@@ -121,6 +121,8 @@ export interface PodFilesDeps {
   makesRoom?(machine: string): Promise<boolean>;
   /** Whether the machine's pod runs on a network volume: its models are on the volume, whose room is then what is said full. */
   onVolume?(machine: string): Promise<boolean>;
+  /** The bytes of the network volume the pod runs on, as RunPod sizes it; null: on none, or not known. */
+  volumeBytes?(machine: string): Promise<number | null>;
   /** A stretch of installing node packs for its jobs is over (podPacks.ts packsTime): kept for Costs. */
   packsTime?(machine: string, from: number, to: number): void;
 }
@@ -158,6 +160,8 @@ const DISK_MARGIN = 2 * 2 ** 30;
 const NO_SOURCE = "no site is known for it, and this computer's ComfyUI has no copy to send";
 /** How often a pod's disk is read again (GET /afflatus/disk): its row says it, and a file is held against it before it starts. */
 const DISK_EVERY_MS = 15_000;
+/** How often what a pod's models hold on a network volume is listed again for its disk (a walk of the volume's models folder). */
+const VOLUME_LIST_MS = 60_000;
 const gbSaid = (bytes: number) => `${(bytes / 2 ** 30).toFixed(1)} GB`;
 const keyOf = (folder: string, file: string) => `${folder}|${fileName(file).toLowerCase()}`;
 
@@ -237,7 +241,8 @@ export class PodFiles {
         if (got === "absent") this.disks.set(machine, null);
         else if (got) {
           const was = this.disks.get(machine);
-          this.disks.set(machine, { free: got.free, total: got.total, at: Date.now() });
+          const own = await this.onVolumeDisk(machine, comfy!, got, fresh === 0);
+          this.disks.set(machine, { ...(own ?? { free: got.free, total: got.total }), at: Date.now() });
           if (!was || Math.abs(was.free - got.free) > 2 ** 28) this.d.changed?.();
         }
         return this.disks.get(machine) ?? null;
@@ -245,6 +250,26 @@ export class PodFiles {
       this.diskReads.set(machine, reading);
     }
     return reading;
+  }
+
+  /** What a pod's models on a network volume hold (bytes), and when it was listed: listed again every VOLUME_LIST_MS at most. */
+  private readonly volumeUsed = new Map<string, { bytes: number; at: number }>();
+
+  /**
+   * A pod's disk on a network volume, as the volume's own size and what its models hold: the pack reads a volume's disk as
+   * RunPod's whole shared storage (2 PB, its card said "1663254.3/2190892.5 GB" for a 15 GB volume, card #149), whose free
+   * bytes are not the volume's. Null when that is not the case (its reading within the volume's size, or no volume known).
+   */
+  private async onVolumeDisk(machine: string, comfy: Comfy, got: { free: number; total: number }, fresh: boolean): Promise<{ free: number; total: number } | null> {
+    const total = await this.d.volumeBytes?.(machine).catch(() => null);
+    if (!total || got.total <= total * 1.5) return null;
+    let used = this.volumeUsed.get(machine);
+    if (!used || fresh || Date.now() - used.at > VOLUME_LIST_MS) {
+      const files = await comfy.client.modelFiles().catch(() => null);
+      if (Array.isArray(files)) this.volumeUsed.set(machine, (used = { bytes: files.reduce((n, f) => n + f.bytes, 0), at: Date.now() }));
+    }
+    // its models not listed (an older pack): its size alone, with its free bytes no more than it
+    return { total, free: Math.max(0, Math.min(got.free, total - (used?.bytes ?? 0))) };
   }
 
   /** What the files under way on a pod still have to write: room its free bytes do not have for anything else. */
@@ -714,6 +739,7 @@ export class PodFiles {
     }
     this.pods.delete(machine);
     this.disks.delete(machine);
+    this.volumeUsed.delete(machine);
     this.packs.forget(machine);
     clearTimeout(this.landings.get(machine));
     this.landings.delete(machine);
