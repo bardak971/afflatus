@@ -56,7 +56,7 @@ async function call(t: Tool, raw: unknown, s: Services, token: McpToken, ip: str
       throw refusal(`${NEVER[subject.split(".")[0] as NeverSubject]} cannot be reached through MCP, whatever the token's scopes: do it in Afflatus itself.`);
     },
     mayRender: (count = 1) => s.mcp.tokens.mayRender(token, count),
-    maySpend: (usd) => s.mcp.tokens.maySpend(token, usd),
+    maySpend: (usd, said) => s.mcp.tokens.maySpend(token, usd, said),
   };
   let value: unknown;
   try {

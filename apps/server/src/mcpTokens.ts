@@ -325,12 +325,28 @@ export class McpTokens {
 
   /**
    * Whether this token may spend `usd` more on rented GPUs: Spend ticked, and this month's spend and that under its own cap.
-   * The app's own caps (rentCaps) still hold over every token; this is one more, of the token's.
+   * The app's own caps (rentCaps) still hold over every token; this is one more, of the token's. `said`: what `usd` is made
+   * of, named in the refusal, so that an agent (and the user reading the token's activity) sees the sum the cap was asked.
    */
-  async maySpend(t: McpToken, usd: number): Promise<void> {
+  async maySpend(t: McpToken, usd: number, said?: SpendSaid): Promise<void> {
     if (!t.scopes.includes("spend")) throw refusal("This token cannot spend on rented GPUs: tick Spend on it in Settings › Interface › Access.");
     const spent = await this.spentThisMonth(t.id);
     const cap = t.spendCapCents / 100;
-    if (spent + usd > cap) throw refusal(`This token's cap is ${dollars(cap)} a month on rented GPUs, and it has spent ${dollars(spent)}: raise it in Settings › Interface › Access.`);
+    if (spent + usd > cap) throw refusal(`This token's cap is ${dollars(cap)} a month on rented GPUs, and it has spent ${dollars(spent)} this month${said ? `. ${spendSaid(said)}: ${dollars(spent + usd)} in all, past the cap. Raise it` : ": raise it"} in Settings › Interface › Access.`);
   }
+}
+
+/** What a call asks of a spend cap, beside what was spent: the work and pods already counted, and what the call adds. */
+export interface SpendSaid {
+  /** Counted already: the work running and waiting, the next hour of the pods up (none: nothing committed). */
+  committed: ReadonlyArray<{ what: string; usd: number }>;
+  /** What this call adds. */
+  adds: { what: string; usd: number };
+}
+
+/** The parts of a spend in a line: "Committed: $0.25, the next hour of "A" (up). This call adds $0.90: …". */
+export function spendSaid(said: SpendSaid): string {
+  const committed = said.committed.filter((c) => c.usd > 0);
+  const ahead = committed.length ? `Committed: ${committed.map((c) => `${dollars(c.usd)}, ${c.what}`).join("; ")}` : "Nothing else committed";
+  return `${ahead}. This call adds ${dollars(said.adds.usd)}: ${said.adds.what}`;
 }

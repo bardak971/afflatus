@@ -1,6 +1,6 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { z } from "zod";
-import { cleanLine, type McpToken, type Scope } from "./mcpTokens";
+import { cleanLine, type McpToken, type Scope, type SpendSaid } from "./mcpTokens";
 import type { Services } from "./services";
 
 /**
@@ -51,8 +51,8 @@ export interface ToolCtx {
   never(subject: string): void;
   /** Refuses past the token's renders an hour (mcpTokens.ts mayRender). */
   mayRender(count?: number): Promise<void>;
-  /** Refuses without Spend, or past the token's spend cap this month (mcpTokens.ts maySpend). */
-  maySpend(usd: number): Promise<void>;
+  /** Refuses without Spend, or past the token's spend cap this month (mcpTokens.ts maySpend), naming `said`'s parts. */
+  maySpend(usd: number, said?: SpendSaid): Promise<void>;
 }
 
 /** A tool: its name, its scope, its words, its arguments, and what it does. */

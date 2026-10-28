@@ -142,6 +142,22 @@ describe("deploy_pod and start_pod: the pods already up", () => {
     await second.close();
   });
 
+  it("say the sum a cap was asked: spent, the pods up and their next hour, the new pod's first hour", async () => {
+    // the A40 with its disk bills about $0.456 an hour: one fits a $0.80 cap, a second beside the first's next hour does not
+    const c = await connect((await made("spend", { spendCapUsd: 0.8 })).token);
+    await ok(c, "deploy_pod", DEPLOY);
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]?.status === "RUNNING"));
+    await t.services.rented.poll();
+    await refusedWith(c, "deploy_pod", DEPLOY, /This token's cap is \$0\.80 a month on rented GPUs, and it has spent \$0\.0\d this month\. Committed: \$0\.46, the next hour of “.+”, up \(started by this token\)\. This call adds \$0\.46: the first hour of a new “A40”: \$0\.9\d in all, past the cap\./);
+    // the app's day cap: what is spent today, the pods up by name, and the sum
+    await updateSettings(t.db, () => ({ rentCaps: { day: 0.8, month: 0 } }));
+    const other = await connect((await made("spend", { spendCapUsd: 5 })).token);
+    await refusedWith(other, "deploy_pod", DEPLOY, /first hour \(\$0\.46, with the next hour of the pods up: \$0\.46\): today's cap is \$0\.80, \$0\.0\d is spent today, and \$0\.91 more makes \$0\.9\d\. Up: “.+” \$0\.46 an hour\./);
+    expect(creates()).toBe(1);
+    await c.close();
+    await other.close();
+  });
+
   it("start_pod refuses a pod set to never stop when idle, or without a watchdog", async () => {
     const { token } = await made("spend", { spendCapUsd: 5 });
     const c = await connect(token);

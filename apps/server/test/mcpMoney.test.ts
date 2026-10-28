@@ -152,6 +152,16 @@ describe("a token with Spend", () => {
     await c.close();
   });
 
+  it("is refused with the sum its cap was asked: spent, its work running and waiting, and what the call adds", async () => {
+    // as above: two takes waiting (about $0.82 with the pod's idle time after), two more about $0.70 and the idle time again
+    const { token } = await made("spend", { spendCapUsd: 1 });
+    const c = await connect(token);
+    await pause();
+    expect((await call(c, "render", { ...FORM, takes: 2 })).isError).toBeFalsy();
+    await refusedWith(c, "render", { ...FORM, takes: 2 }, /cap is \$1\.00 a month on rented GPUs, and it has spent \$0\.00 this month\. Committed: \$0\.8\d, its 2 jobs running and waiting on rented pods .*\. This call adds \$0\.8\d: 2 jobs on “.+”, with the pod's idle time after: \$1\.[67]\d in all, past the cap\. Raise it in Settings › Interface › Access\./);
+    await c.close();
+  });
+
   it("has its waiting jobs handed to a pod started later only while its cap has room, each held one saying why", async () => {
     // the pod stopped: four takes queued cost nothing then (no pod to land on), with the user's own machine paused
     const { token, id } = await made("spend", { spendCapUsd: 1 });
@@ -171,16 +181,19 @@ describe("a token with Spend", () => {
     await t.services.rented.poll();
     await until(() => a.prompts.size > 0);
     // a pass after the first went: the rows as the next plan says them
-    await until(async () => (await t.services.queue.status()).waiting.filter((w) => w.lacks?.[pod]?.why === CAP_FULL).length === 2, 10_000, 50);
+    await until(async () => (await t.services.queue.status()).waiting.filter((w) => w.lacks?.[pod]?.why?.startsWith(CAP_FULL)).length === 2, 10_000, 50);
     const rows = (await t.services.queue.status()).waiting;
     const why = (job: string) => rows.find((w) => w.id === job)?.lacks?.[pod]?.why;
     expect((await jobsOf(id)).filter((j) => j.status === "running").map((j) => j.machine_id)).toEqual([pod]);
     expect(why(jobs[1]!)).toBeUndefined();
-    expect(why(jobs[2]!)).toBe(CAP_FULL);
-    expect(why(jobs[3]!)).toBe(CAP_FULL);
+    expect(why(jobs[2]!)).toMatch(new RegExp(`^${CAP_FULL} `));
+    expect(why(jobs[3]!)).toMatch(new RegExp(`^${CAP_FULL} `));
+    // with the sum the cap was asked: the cap, the month's spend, the work ahead (the two on their way, about $0.70 and
+    // the pod's idle time after), this one (about $0.35)
+    expect(why(jobs[2]!)).toMatch(/\(\$1\.00 a month\): \$0\.\d\d spent this month, \$0\.[89]\d for its work running and waiting ahead, \$0\.3\d for this one, \$1\.1\d in all\. Raise the cap/);
     // the cap raised: from the next pass they may go
     expect((await t.app.inject({ method: "POST", url: `/api/mcp/tokens/${id}`, payload: { spendCapUsd: 5 } })).statusCode).toBe(200);
-    await until(async () => !(await t.services.queue.status()).waiting.some((w) => w.lacks?.[pod]?.why === CAP_FULL), 10_000, 50);
+    await until(async () => !(await t.services.queue.status()).waiting.some((w) => w.lacks?.[pod]?.why?.startsWith(CAP_FULL)), 10_000, 50);
     await c.close();
   });
 

@@ -410,8 +410,9 @@ export class RentedBilling extends RentedCore {
     const caps = (await readSettings(this.db)).rentCaps;
     if (caps.day <= 0 && caps.month <= 0) return null;
     const spent = await this.spent();
-    if (caps.day > 0 && spent.today + usd > caps.day) return `today's cap is ${dollars(caps.day)} and ${dollars(spent.today)} is spent: it has no room for ${dollars(usd)} more`;
-    if (caps.month > 0 && spent.month + usd > caps.month) return `this month's cap is ${dollars(caps.month)} and ${dollars(spent.month)} is spent: it has no room for ${dollars(usd)} more`;
+    // the sum it was asked, said whole: what is spent, what more, and where that comes to
+    if (caps.day > 0 && spent.today + usd > caps.day) return `today's cap is ${dollars(caps.day)}, ${dollars(spent.today)} is spent today, and ${dollars(usd)} more makes ${dollars(spent.today + usd)}`;
+    if (caps.month > 0 && spent.month + usd > caps.month) return `this month's cap is ${dollars(caps.month)}, ${dollars(spent.month)} is spent this month, and ${dollars(usd)} more makes ${dollars(spent.month + usd)}`;
     return null;
   }
 
