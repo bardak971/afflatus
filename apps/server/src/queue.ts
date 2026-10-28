@@ -17,11 +17,11 @@ import { machineSaid, type Say } from "./notifyWords";
 import type { PodFileView } from "./podFiles";
 import { plan, planTotal } from "./schedule";
 import { FIRST_MACHINE, readSettings, type Machine } from "./settings";
-import { reportsDeath } from "./runpod";
+import { isPodMachineId, reportsDeath } from "./runpod";
 import type { Storage } from "./storage";
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
-import { CAP_REACHED, DEFAULT_QUEUE_OPTIONS, Died, GPU_AT_WORK, overrunAllowed, readJson, SHUTDOWN, Stuck, STUCK_SAID, type JobRow, type QueueCore, type Lane, type QueueOptions, type Resume, type Running } from "./queueModel";
+import { CAP_REACHED, DEFAULT_QUEUE_OPTIONS, POD_GONE, Died, GPU_AT_WORK, overrunAllowed, readJson, SHUTDOWN, Stuck, STUCK_SAID, type JobRow, type QueueCore, type Lane, type QueueOptions, type Resume, type Running } from "./queueModel";
 import * as bulk from "./queueBulk";
 import { needsComfy, Offline } from "./queueOffline";
 import * as submitting from "./queueSubmit";
@@ -365,8 +365,10 @@ export class Queue {
   private pinnedAgainst: string | null = null;
 
   /**
-   * A machine taken out (a pod terminated, a machine removed in the settings, while this process ran or not): the jobs
-   * pinned to it go to any machine, instead of waiting for one that will not come back (and holding an update's wait).
+   * A machine of the user's own removed in the settings (while this process ran or not): the jobs pinned to it go to any
+   * machine, instead of waiting for one that will not come back. Not a pod's: a job pinned to a pod that went (its idle
+   * terminate, a Terminate) stays pinned and waits, its row saying why, until the user moves it. Freed, it went to this PC,
+   * which lacked the pod's model, and failed at its build (card #150). Neither holds an update's wait (takeable).
    * Checked once each time the machines change, not at every pass.
    */
   private async unpinGone(ids: string[]): Promise<void> {
@@ -374,7 +376,7 @@ export class Queue {
     if (!ids.length || key === this.pinnedAgainst) return;
     this.pinnedAgainst = key;
     const freed = await this.db.updateTable("jobs").set({ pin_machine: null, updated_at: now() })
-      .where("status", "=", "queued").where("pin_machine", "is not", null).where("pin_machine", "not in", ids).executeTakeFirst();
+      .where("status", "=", "queued").where("pin_machine", "is not", null).where("pin_machine", "not in", ids).where("pin_machine", "not like", "rp-%").executeTakeFirst();
     if (Number(freed.numUpdatedRows) > 0) this.events.emit("queue");
   }
 
@@ -540,6 +542,8 @@ export class Queue {
     // a pin to a machine no longer in the settings (a job done again after its pod was terminated) would wait for ever: no
     // machine takes it, and unpinGone frees pins only when the machines change
     const pin = opts.machine && (await this.machines()).some((m) => m.machine.id === opts.machine) ? opts.machine : null;
+    // a pod's, though: it would run where it was never asked to (this PC, which lacked the pod's model, card #150)
+    if (opts.machine && !pin && isPodMachineId(opts.machine)) throw httpError(POD_GONE, 409);
     // a file no machine has and none can get (its pod gone, card #139): refused now, not at its build with the job's turn come
     if (!opts.warm) await this.refuseNowhere(recipe, input);
     if (!opts.warm) {

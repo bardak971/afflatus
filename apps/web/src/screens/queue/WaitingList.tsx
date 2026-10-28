@@ -6,6 +6,7 @@ import { api, type Job, type MachineLack, type MachineState, type PackWait, type
 import { GetFile } from "../../GetFile";
 import { useRentedOps } from "../../rentedOps";
 import { busyOutside, machineLabel, rentedSaid, machineState, NO_ROOM, noGpuYet, OUTSIDE_TIP, rentedUp, volumeHref, volumeOf } from "../../machines";
+import { openDeploy } from "../../deploy";
 import { useSettings } from "../../data";
 import { JOB_DRAG } from "./MachineLanes";
 import { ContextMenu, groups, useMenu, type MenuItem } from "../../ContextMenu";
@@ -190,7 +191,16 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
             <span className="min-w-[8rem] grow basis-0 truncate font-semibold">{w.label}</span>
             <span className="max-w-[40%] shrink-0 truncate text-ink-2 @max-[480px]/waiting:hidden">{w.kind === "load" ? `load · ${modelOf(w)}` : modelOf(w)}</span>
             {loads[i] && !machines.length && <Chip tone="warn" tip={`ComfyUI loads ${modelOf(w)} before this one`}>loads {modelOf(w).split(" · ")[0]}</Chip>}
-            {machines.length > 0 && w.pinned && (
+            {/* pinned to a pod that went (its idle terminate, a Terminate): it waits, never sent elsewhere by itself (card #150) */}
+            {machines.length > 0 && w.pinned && !machines.some((m) => m.id === w.pinned) && (
+              <>
+                <Chip tone="warn" tip="It was pinned to a rented pod that is terminated now. It runs nowhere else by itself: deploy a pod, then move it there, or move it to another machine (drag it onto a lane, or Run on in its menu).">
+                  <Pin size={11} className="shrink-0" /> its pod was terminated
+                </Chip>
+                <button type="button" className="shrink-0 text-xs font-semibold text-accent hover:underline" onClick={() => openDeploy()}>Deploy a GPU…</button>
+              </>
+            )}
+            {machines.length > 0 && w.pinned && machines.some((m) => m.id === w.pinned) && (
               <Chip tip="Pinned to this machine: it runs there. Drag it onto another lane, or Run on in its menu, to move it.">
                 <Pin size={11} className="shrink-0" /> {machineLabel(machines.find((m) => m.id === w.pinned) ?? { name: w.pinned, url: "" })}
               </Chip>
@@ -271,7 +281,7 @@ function StartPod({ pod, pinned, machines }: { pod: string; pinned: boolean; mac
       </span>
       {m && can && (
         <button
-          type="button" disabled={r.capped || ops.start.isPending} onClick={() => void ops.askStart(m)}
+          type="button" disabled={r.capped || ops.start.isPending || ops.redeploy.isPending} onClick={() => void ops.askStart(m)}
           className="shrink-0 text-xs font-semibold text-accent hover:underline disabled:text-ink-3 disabled:no-underline"
           data-tip={r.capped ? "A spending cap is reached: no pod starts until it is raised (Settings › Rented GPUs)." : `Start ${name}: its rate is said before it starts.`}
         >

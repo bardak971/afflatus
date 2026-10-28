@@ -16,7 +16,7 @@ import { gb, minutesSaid, plural, usd } from "./format";
 import { useDebounced, useNow } from "./hooks";
 import { ceilingFor, firstPick } from "./huntSaid";
 import { Keys } from "./Keys";
-import { diskPerHour } from "./machines";
+import { diskPerHour, IDLE_MINUTES } from "./machines";
 import { queryKeys } from "./queryKeys";
 import { Select } from "./Select";
 import { useSayFailed } from "./sayFailed";
@@ -25,7 +25,7 @@ import { Button, Checkbox, Chip, cx, ErrorNote, Help, IconButton, SearchField, S
 
 /** What a first deploy opens with: Afflatus's image, Secure Cloud, no volume, terminated after 10 min idle. */
 const FIRST: Omit<DeployAsk, "gpu"> = { cloud: "SECURE", template: "afflatus", volume: "", disk: 120, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15, set: "", files: [], leaveOut: [], accept: [], again: false, makeRoom: true, cuda: "13.0", cudaOnce: false };
-const IDLE = [5, 10, 15, 30, 60, 120, 0];
+const IDLE = [...IDLE_MINUTES, 0];
 const WATCH = [5, 10, 15, 30, 60, 0];
 const DISKS = [60, 120, 200, 400];
 /** RunPod's stock of a GPU in a data center, in its words, and the highest first. */

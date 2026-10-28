@@ -92,6 +92,8 @@ export function podTime(value: unknown): number | null {
 
 /** A pod's machine id: "rp-" and its id, as a machine id may be written (lower-case letters, digits, dashes; 24 at most). */
 export const podMachineId = (pod: string) => `rp-${pod.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 21)}`;
+/** Whether a machine id is a pod's (podMachineId), whether or not that pod is still in the settings. */
+export const isPodMachineId = (id: string) => id.startsWith("rp-");
 
 /** The ComfyUI port a pod must expose over HTTP for Afflatus to reach it. */
 export const COMFY_PORT = 8188;

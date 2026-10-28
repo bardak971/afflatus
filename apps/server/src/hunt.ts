@@ -11,7 +11,7 @@ import { needsComfy } from "./queueOffline";
 import { refusalOf } from "./rentedDeploy";
 import { OUT_OF_MEMORY } from "./rendersRead";
 import { inUseSaid } from "./rentedVolumes";
-import type { GpuOffer, PodSpec } from "./runpod";
+import { isPodMachineId, type GpuOffer, type PodSpec } from "./runpod";
 import type { Services } from "./services";
 import { deploySchema, MAX_MACHINES, readSettings } from "./settings";
 
@@ -236,7 +236,8 @@ export class Hunt {
   private async held(): Promise<JobRow[]> {
     const rows = (await this.s.db.selectFrom("jobs").selectAll().where("status", "=", "queued").orderBy("priority").orderBy("created_at").execute()).filter(needsComfy);
     const machines = new Set((await readSettings(this.s.db)).machines.map((m) => m.id));
-    return rows.filter((r) => !r.pin_machine || !machines.has(r.pin_machine));
+    // one pinned to a pod that went waits for the user to move it, not for a hunted pod (card #150)
+    return rows.filter((r) => !r.pin_machine || (!machines.has(r.pin_machine) && !isPodMachineId(r.pin_machine)));
   }
 
   /** RunPod's GPUs on that cloud, read again unless a read is this recent. */

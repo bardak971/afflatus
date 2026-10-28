@@ -97,9 +97,20 @@ export interface SetFileExport {
 }
 
 /** Every set with the files it brings (left-out ones not), for what a volume holds of each (Settings › Rented GPUs). */
-export async function setsWithFiles(s: Services): Promise<Array<{ id: string; name: string; files: PresetFile[] }>> {
+export async function setsWithFiles(s: Pick<Services, "db" | "shippedPresets">): Promise<Array<{ id: string; name: string; files: PresetFile[] }>> {
   const [all, list] = await Promise.all([presetsWithFiles(s), s.db.selectFrom("model_sets").selectAll().where("owner_id", "=", OWNER).orderBy("name").execute()]);
   return list.map((r) => ({ id: r.id, name: r.name, files: filesOf(parseSetDef(r.def), all).filter((f) => !f.off) }));
+}
+
+/**
+ * Every file Afflatus knows an address for, as presets do: the presets' own, then each Model set's, then each deployed
+ * pod's list (its set's files, kept on the machine though the set be deleted since). A pod's fetch looks a file's address
+ * up there (podSources.ts), whichever pod it is: a set's file once known only to that set's deploys (card #150).
+ */
+export async function knownFiles(s: Pick<Services, "db" | "shippedPresets">): Promise<Array<{ files: PresetFile[] }>> {
+  const [presets, sets, settings] = await Promise.all([presetsWithFiles(s), setsWithFiles(s), readSettings(s.db)]);
+  const deployed = settings.machines.flatMap((m) => (m.rented?.files?.length ? [{ files: m.rented.files }] : []));
+  return [...presets, ...sets, ...deployed];
 }
 
 /**

@@ -208,6 +208,13 @@ if (pretendRunpod) {
   // and the balance going down by it: Queue › Costs and the caps work on it as on RunPod's
   pretendRunpod.autoBill = true;
   pretendRunpod.billLagMs = 5 * 60_000;
+  // DEMO_START_REFUSED=1: RunPod refuses comfy-5090's Start as it refused every one of the 0.8.1 re-check (no GPU free on
+  // its host), stopped from the start, for Deploy on its volume to be tried
+  if (process.env.DEMO_START_REFUSED === "1") {
+    pretendRunpod.pods[0]!.status = "EXITED";
+    pretendRunpod.failAction[pretendRunpod.pods[0]!.id] = 400;
+    pretendRunpod.failDetail = "There are not enough free GPUs on the host machine to start this pod.";
+  }
   process.env.RUNPOD_API_URL = pretendRunpod.url;
   process.env.RUNPOD_PROXY = "http://127.0.0.1:{id}";
 }

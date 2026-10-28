@@ -3,6 +3,8 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { compose, lookSchema, withMentions, type Look } from "./entities";
 import { httpError, notFound } from "./errors";
+import { POD_GONE } from "./queueModel";
+import { isPodMachineId } from "./runpod";
 import type { Services } from "./services";
 import { draftLabel, promptOf } from "./autoName";
 import { findDraft, writeDraft } from "./drafts";
@@ -57,8 +59,8 @@ async function mentioned(s: Services, recipe: Recipe<any>, input: Record<string,
  */
 export async function queueRender(s: Services, body: z.output<typeof jobBody>, by: { mcpToken?: string } = {}): Promise<string[]> {
   const recipe = s.registry.recipe(body.recipe);
-  // a job pinned to a machine there is not would wait for ever
-  if (body.machine && !(await s.machines()).some((m) => m.machine.id === body.machine)) throw httpError("there is no ComfyUI with that id");
+  // a job pinned to a machine there is not would wait for ever; to a pod that went, it is said so (card #150)
+  if (body.machine && !(await s.machines()).some((m) => m.machine.id === body.machine)) throw isPodMachineId(body.machine) ? httpError(POD_GONE, 409) : httpError("there is no ComfyUI with that id");
   const seed = typedSeed(body.input.seed);
   // sent from a blank draft: it is written now, so that what comes out is filed under it
   if (body.draft) await writeDraft(s.db, body.draft);

@@ -177,6 +177,26 @@ export function registerRented(app: FastifyInstance, s: Services): void {
   /** The user's Start: refused at a spending cap. Afflatus never starts a pod otherwise. */
   app.post("/api/machines/:id/start", async (req) => s.rented.start(params.parse(req.params).id));
 
+  /** What Deploy on its volume would make in place of a stopped pod RunPod will not start: its GPU or another, the rate. Read-only. */
+  app.get("/api/machines/:id/redeploy", async (req) => s.rented.redeployOffer(params.parse(req.params).id));
+
+  /**
+   * Deploy on its volume, the user's click after its confirm: billed from now, refused at a spending cap as any deploy. The
+   * jobs pinned to the stopped pod go to the new one (they waited for it): they never run anywhere else by themselves.
+   */
+  app.post("/api/machines/:id/redeploy", async (req) => {
+    const { id } = params.parse(req.params);
+    const { gpu } = z.strictObject({ gpu: z.string().min(1).max(120) }).parse(req.body);
+    if (s.hunt.deploying()) throw httpError("The GPU hunt is deploying a GPU now: wait for it to end.", 409);
+    const set = (await readSettings(s.db)).machines.find((m) => m.id === id)?.rented?.set ?? "";
+    // its set's files as the set is now (on its volume already, most of them: those are not fetched again)
+    const files = set ? await deployFiles(s, { set, files: [], accept: [], again: true }).catch(() => []) : [];
+    const made = await s.rented.redeploy(id, gpu, files);
+    const pinned = await s.db.selectFrom("jobs").select("id").where("status", "=", "queued").where("pin_machine", "=", id).execute();
+    for (const j of pinned) await s.queue.pin(j.id, made.id);
+    return made;
+  });
+
   /** The user's Stop (the disk goes on billing) or Terminate (nothing billed, the pod gone, and gone from Afflatus too). */
   app.post("/api/machines/:id/stop", async (req) => {
     const { how } = z.object({ how: z.enum(["stop", "terminate"]).default("stop") }).parse(req.body ?? {});

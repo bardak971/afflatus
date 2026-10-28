@@ -423,6 +423,33 @@ export interface RenderItem {
 /** How free a GPU is on RunPod, overall or in a data center. */
 export type Availability = "HIGH" | "MEDIUM" | "LOW" | "NONE";
 
+/** What Deploy on its volume would deploy in place of a stopped pod whose Start RunPod refused (the server's rented.ts RedeployOffer). */
+export interface RedeployOffer {
+  /** The stopped pod's name, as its card says it; and its GPU, by name. */
+  name: string;
+  was: string;
+  /** The GPU offered: its own when one is free where its volume is (`same`), else the cheapest free there with as much memory. */
+  gpu: { id: string; name: string; price: number };
+  same: boolean;
+  /** Its GPU's memory was known (RunPod lists that GPU now): the one offered has as much; else it is the cheapest free there. */
+  sized: boolean;
+  cloud: "SECURE" | "COMMUNITY";
+  template: "afflatus" | "runpod";
+  /** The Afflatus image's build: its own, or 12.8 on a GPU whose hosts lack CUDA 13 (`cudaChanged`); null for RunPod's image. */
+  cuda: "13.0" | "12.8" | null;
+  cudaChanged: boolean;
+  dataCenter: string | null;
+  /** Its network volume; null: none, its files are fetched again (`refetch`, as far as known). */
+  volume: { id: string; name: string } | null;
+  refetch: { files: number; bytes: number } | null;
+  /** Its container disk (GB), and the rate while it runs: the GPU and that disk. */
+  disk: number;
+  rate: number;
+  idleMinutes: number;
+  idleDo: "stop" | "terminate";
+  watchdogMinutes: number;
+}
+
 /** A GPU a pod can be deployed on now: its price an hour on the cloud asked, and where it is free. */
 export interface GpuOffer {
   id: string;

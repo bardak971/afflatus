@@ -255,6 +255,12 @@ export function rateParts(r: Pick<RentedState, "rate" | "gpuRate">): string | nu
 /** A rented pod's rate as Start says it: RunPod says it only once the pod has run (it says 0 while it is stopped). */
 export const rateSaid = (r: RentedState) => (r.rate ? `${usd(r.rate)} / h from now` : "rate known once it has run · billed from now");
 
+/**
+ * The minutes idle a pod can be set to stop after (Deploy, its card), 0 (never) apart: from 1, as the app's other idle
+ * limits; 2–3 is what a test pod uses (card #150: the lists started at 5, and a test's rule needed the API).
+ */
+export const IDLE_MINUTES = [1, 2, 3, 4, 5, 10, 15, 30, 60, 120];
+
 /** What a pod set never to stop when idle is said as (idleEndSaid), in its warning tone wherever it shows. */
 export const NEVER_IDLE = "never stops when idle";
 

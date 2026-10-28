@@ -1,6 +1,6 @@
 import { httpError } from "./errors";
-import { COMFY_PORT, HOURS_A_MONTH, STOPPED_DISK_PER_GB_MONTH } from "./runpod";
-import { stepSaid, volumePerMonth } from "@afflatus/core";
+import { COMFY_PORT, HOURS_A_MONTH, RUNNING_DISK_PER_GB_MONTH, STOPPED_DISK_PER_GB_MONTH, type GpuOffer } from "./runpod";
+import { shortGpu, stepSaid, volumePerMonth, type PresetFile } from "@afflatus/core";
 import { bootOf } from "./podBoot";
 import { buildOf } from "./podImage";
 import { dollars } from "./notifyWords";
@@ -31,6 +31,33 @@ const BOOT_SLOW_MS = 2 * 60_000;
 
 /** How long a network volume's size, as RunPod says it, is kept before it is asked again (a volume is grown seldom). */
 const VOLUME_SIZE_MS = 10 * 60_000;
+
+/** What Deploy on its volume would deploy in place of a stopped pod whose Start RunPod refused (Rented.redeployOffer). */
+export interface RedeployOffer {
+  /** The stopped pod's name, as its card says it; and its GPU, by name. */
+  name: string;
+  was: string;
+  /** The GPU offered: its own when one is free where its volume is (`same`), else the cheapest free there with as much memory. */
+  gpu: { id: string; name: string; price: number };
+  same: boolean;
+  /** Its GPU's memory was known (RunPod lists that GPU now): the one offered has as much; else it is the cheapest free there. */
+  sized: boolean;
+  cloud: "SECURE" | "COMMUNITY";
+  template: "afflatus" | "runpod";
+  /** The Afflatus image's build: its own, or 12.8 on a GPU whose hosts lack CUDA 13 (`cudaChanged`); null for RunPod's image. */
+  cuda: "13.0" | "12.8" | null;
+  cudaChanged: boolean;
+  dataCenter: string | null;
+  /** Its network volume, which the new pod mounts; null: none, its files are fetched again (`refetch`, as far as known). */
+  volume: { id: string; name: string } | null;
+  refetch: { files: number; bytes: number } | null;
+  /** Its container disk (GB), and the rate while it runs: the GPU and that disk, as RunPod bills them. */
+  disk: number;
+  rate: number;
+  idleMinutes: number;
+  idleDo: "stop" | "terminate";
+  watchdogMinutes: number;
+}
 
 /** What its card says of a pod whose ComfyUI died: why, as the pod or the queue said it, and where its last lines are. */
 const diedSaid = (s: Seen): string =>
@@ -263,15 +290,79 @@ export class Rented extends RentedDeploy {
       await updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id && x.rented?.deployedAt ? { ...x, rented: { ...x.rented, deployedAt: at } } : x)) }));
     }
     await this.act(m, "start", null).catch((err: Error & { statusCode?: number }) => {
-      // its GPU was taken while it was stopped: a stopped pod is bound to its host, and RunPod has none free there
+      // its GPU was taken while it was stopped: a stopped pod is bound to its host, and RunPod has none free there. Every
+      // Start of the 0.8.1 re-check met this (7 of 7, one 2 min after its stop): the page offers Deploy on its volume
+      // (redeployOffer), which `redeploy` marks
       if (/not enough free gpus|no longer available|no gpus? (are )?available|insufficient (gpu )?capacity/i.test(err.message)) {
-        throw httpError("Start refused: its GPU was taken while it was stopped (no free GPU on its host). Terminate it and deploy a new pod, or Start again later.", 409);
+        throw Object.assign(httpError("Start refused: its GPU was taken while it was stopped (no free GPU on its host). Deploy a new pod on its volume, or Start again later.", 409), { redeploy: true });
       }
       throw err;
     });
     // said on its card for the run: it may run open until it is up and locked
     this.seenOf(m.id).bootNote = unprepared;
     return this.view(m)!;
+  }
+
+  /**
+   * What Deploy on its volume would make in place of a stopped pod RunPod will not start (its host has no GPU free): a new
+   * pod of its GPU where its network volume is (its models are there), else the cheapest one free there with at least its
+   * GPU's memory (one with less may not run what it ran), said as another; with its idle stop, watchdog, image build, cloud
+   * and set. A pod with no network volume gets a new one anywhere, its files fetched again. Read-only: nothing is made.
+   */
+  async redeployOffer(machine: string): Promise<RedeployOffer> {
+    const s = await readSettings(this.db);
+    const m = s.machines.find((x) => x.id === machine);
+    if (!m?.rented) throw httpError("That machine is not a rented pod.", 404);
+    if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
+    const client = this.client(s.runpodKey);
+    const [pod, volumes] = await Promise.all([client.pod(m.rented.pod), client.volumes()]).catch((err: Error) => {
+      throw httpError(err.message, 502);
+    });
+    if (!pod) throw httpError("That pod is not on RunPod any more: deploy a new one (Deploy a GPU).", 409);
+    if (pod.status !== "EXITED" && pod.status !== "ERROR") throw httpError("That pod is not stopped: it needs no other.", 409);
+    const cloud = m.rented.cloud ?? "SECURE";
+    const offers = await this.gpus(cloud);
+    const volumeId = pod.volumeId || m.rented.volume;
+    const volume = volumeId ? volumes.find((v) => v.id === volumeId) ?? null : null;
+    if (volumeId && !volume) throw httpError("Its network volume is not on this account any more: deploy a new pod (Deploy a GPU).", 409);
+    const free = (g: GpuOffer) => (volume ? g.dataCenters.some((d) => d.id === volume.dataCenter && d.availability !== "NONE") : g.availability !== "NONE");
+    const was = offers.find((g) => g.id === pod.gpu) ?? null;
+    const gpu = (was && free(was) ? was : null) ?? offers.filter((g) => free(g) && (!was || g.memory >= was.memory)).sort((a, b) => a.price - b.price)[0];
+    const wasName = was?.name ?? (pod.gpu ? shortGpu(pod.gpu) : "its GPU");
+    if (!gpu) throw httpError(volume ? `No ${wasName} or larger GPU is free in ${volume.dataCenter}, where its volume "${volume.name}" is: Start again later.` : `No ${wasName} or larger GPU is free now: Start again later.`, 409);
+    // with a volume its container disk is 40 GB at most, as any deploy (rentedDeploy deployNow)
+    const disk = Math.max(20, volume ? Math.min(pod.containerGb || 40, 40) : pod.containerGb || 120);
+    // its own CUDA build where that GPU's hosts have it; the Afflatus image's 13.0 build on a GPU without, 12.8 for this once
+    // (said in the confirm): an image not Afflatus's has one build
+    const image = m.rented.image || pod.image || "";
+    const build = buildOf(image);
+    const cuda = build === "13.0" && !gpu.cuda13 ? "12.8" : build;
+    const refetch = volume ? null : { files: m.rented.setFiles.length, bytes: m.rented.setFiles.reduce((n, f) => n + (f.size ?? 0), 0) };
+    return {
+      name: m.name || pod.name, was: wasName, gpu: { id: gpu.id, name: gpu.name, price: gpu.price }, same: gpu.id === was?.id, sized: Boolean(was), cloud, template: image && !build ? "runpod" : "afflatus", cuda, cudaChanged: cuda !== build, dataCenter: volume?.dataCenter ?? null,
+      volume: volume ? { id: volume.id, name: volume.name } : null, disk, rate: gpu.price + (disk * RUNNING_DISK_PER_GB_MONTH) / HOURS_A_MONTH, refetch,
+      idleMinutes: m.rented.idleMinutes, idleDo: volume ? m.rented.idleDo : "terminate", watchdogMinutes: m.rented.watchdogMinutes,
+    };
+  }
+
+  /**
+   * Deploy on its volume, on the user's click after its confirm (the rate, its idle stop): a new pod of the GPU offered
+   * (redeployOffer), through the one deploy path, so refused at a spending cap as any. `files`: the ones its set brings
+   * (rented-api.ts). The stopped pod is left as it is. Answers the new machine's id.
+   */
+  async redeploy(machine: string, gpu: string, files: PresetFile[]): Promise<{ id: string; dataCenter: string | null }> {
+    const s = await readSettings(this.db);
+    const m = s.machines.find((x) => x.id === machine);
+    if (!m?.rented) throw httpError("That machine is not a rented pod.", 404);
+    const offer = await this.redeployOffer(machine);
+    // the GPU the confirm said, or what is free now said again: never another the user did not see
+    if (offer.gpu.id !== gpu) throw httpError(`${offer.gpu.name} is the one free there now, not the GPU you confirmed: ask again.`, 409);
+    return this.deploy({
+      gpu, cloud: offer.cloud, template: offer.template, volume: offer.volume?.id ?? "", disk: offer.disk,
+      idleMinutes: offer.idleMinutes, idleDo: offer.idleDo, watchdogMinutes: offer.watchdogMinutes, set: m.rented.set, files, leaveOut: [], accept: [], again: false,
+      // the build offered, for this once: the CUDA pick remembered for the next deploy stays as it was
+      makeRoom: m.rented.makeRoom, cuda: offer.cuda ?? "either", cudaOnce: true,
+    });
   }
 
   /** The user's Stop, or Terminate: then the machine goes from Afflatus too (nothing is left to do with it), and its secret. */
