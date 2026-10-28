@@ -31,8 +31,7 @@ export const SHARPEN_NODE = "ImageSharpenKJ";
  * doubled), with 10 GB free, chose ONE: every frame a pass of its own (the model set up again each time, a 5 s clip still
  * not done after 13 minutes) and no frame seeing its neighbours, which is what keeps a video steady. Measured 2026-10-08 on
  * a 12 GB card, 3B int8, a 141-frame clip doubled to 1152 × 1472: 9 frames 257 s, 13 frames 318 s, 21 frames ran out of video
- * memory (the card spilled into system memory at a third of its power). The tiled decode takes 16 frames at a time (64 ran out of
- * memory); the encode keeps 64 (at 16 the same clip took 18 minutes).
+ * memory (the card spilled into system memory at a third of its power).
  */
 const SEEDVR_CHUNK = 9;
 /** The frame size SEEDVR_CHUNK was measured at (576 × 736 doubled), in megapixels: larger frames take proportionally fewer. */
@@ -49,7 +48,7 @@ export function seedvrChunk(megapixels: number, asked = 0): number {
   if (asked > 0) return Math.max(1, Math.ceil((Math.round(asked) - 1) / 4 - 0.5) * 4 + 1);
   return fourN1(Math.min(SEEDVR_CHUNK, (SEEDVR_CHUNK * SEEDVR_CHUNK_AT_MPX) / Math.max(0.1, megapixels)));
 }
-export const SEEDVR_NODES = ["ResizeImageMaskNode", "SeedVR2Preprocess", "VAEEncodeTiled", "SeedVR2Conditioning", "KSampler", "SeedVR2TemporalChunk", "SeedVR2TemporalMerge", "VAEDecodeTiled", "SeedVR2PostProcessing", "UNETLoader", "VAELoader"];
+export const SEEDVR_NODES = ["ResizeImageMaskNode", "SeedVR2Preprocess", "VAEEncode", "SeedVR2Conditioning", "KSampler", "SeedVR2TemporalChunk", "SeedVR2TemporalMerge", "VAEDecode", "SeedVR2PostProcessing", "UNETLoader", "VAELoader"];
 /** What every video family (and the image tools) declare to hold SeedVR2's two files. */
 export const SEEDVR_SLOTS = [
   {
@@ -188,9 +187,17 @@ function rtxFallback(ctx: BuildContext, named: string): string | null {
 
 /**
  * SeedVR2, as ComfyUI's own template runs it: the frames enlarged (lanczos) to the size asked for, padded
- * for the model, encoded in tiles, sampled in ONE step in temporal chunks sized to the memory there is,
- * merged, decoded in tiles, then aligned and colour-matched to the enlarged originals. The model restores
- * as it goes: compression, noise and softness come out too. Images go through the same road (one frame).
+ * for the model, encoded, sampled in ONE step in temporal chunks sized to the memory there is, merged,
+ * decoded, then aligned and colour-matched to the enlarged originals. The model restores as it goes:
+ * compression, noise and softness come out too. Images go through the same road (one frame).
+ *
+ * The encode and decode are ComfyUI's plain ones, not the template's tiled nodes: its SeedVR2 VAE runs
+ * time in slices of its own (the tiled nodes' temporal sizes are ignored) and sizes the frame itself, from
+ * a fitted estimate of what a decode needs against the card's free memory: whole when it fits, else in
+ * the largest tiles that do. The template's fixed 512 px tiles with 128 of overlap encoded and decoded
+ * the frame about 1.7 times over, a pass each with its own temporal caches. On an A40, 124 frames doubled
+ * to 2048 × 1152 (card #137): 824 s with them, 491 s without (encode 200 → 114 s, decode 561 → 303 s),
+ * the same frames and colour; the model itself takes under 30 s either way, the rest is the VAE.
  */
 export function seedvrUpscale(g: GraphBuilder, images: Ref, input: { upscaleBy: number; upscaleColour?: string; seedvrFrames?: number }, ctx: BuildContext, size?: { width: number; height: number }): { images: Ref; loads: string[] } {
   const { slots } = ctx;
@@ -201,7 +208,7 @@ export function seedvrUpscale(g: GraphBuilder, images: Ref, input: { upscaleBy: 
   const padded = g.out("SeedVR2Preprocess", { resized_images: resized });
   const vae = g.out("VAELoader", { vae_name: slots.seedvrVae });
   const model = loadUnet(g, ctx, slots.seedvr);
-  const latent = g.out("VAEEncodeTiled", { pixels: padded, vae, tile_size: 512, overlap: 128, temporal_size: 64, temporal_overlap: 8 });
+  const latent = g.out("VAEEncode", { pixels: padded, vae });
   // a fixed number of frames together (see SEEDVR_CHUNK), no overlap (the template's); the merge is a plain join then
   const frames = seedvrChunk(size ? (size.width * size.height) / 1e6 : SEEDVR_CHUNK_AT_MPX, input.seedvrFrames ?? 0);
   const chunks = g.add("SeedVR2TemporalChunk", { latent, temporal_overlap: 0, chunking_mode: "manual", "chunking_mode.frames_per_chunk": frames });
@@ -209,7 +216,7 @@ export function seedvrUpscale(g: GraphBuilder, images: Ref, input: { upscaleBy: 
   g.phase("restoring");
   const sampled = g.out("KSampler", { model, positive: [cond, 0], negative: [cond, 1], latent_image: [chunks, 0], seed: ctx.seed, steps: 1, cfg: 1, sampler_name: "euler", scheduler: "simple", denoise: 1 });
   const merged = g.out("SeedVR2TemporalMerge", { latents: sampled, temporal_overlap: [chunks, 1] });
-  const decoded = g.out("VAEDecodeTiled", { samples: merged, vae, tile_size: 512, overlap: 128, temporal_size: 16, temporal_overlap: 4 });
+  const decoded = g.out("VAEDecode", { samples: merged, vae });
   const out = g.out("SeedVR2PostProcessing", { images: decoded, original_resized_images: resized, color_correction_method: input.upscaleColour ?? "lab" });
   return { images: out, loads: [`diffusion_models/${slots.seedvr}`, `vae/${slots.seedvrVae}`] };
 }
