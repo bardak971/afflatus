@@ -34,26 +34,31 @@ const noFold = (): Fold => ({ count: 0, labels: new Set(), exports: 0, last: nul
 const foldTitle = (f: Fold, word: string) => (f.count === 1 ? `${[...f.labels][0]} ${word}` : `${f.count} ${word}`);
 const foldText = (f: Fold) => (f.count > 1 && f.labels.size === 1 ? [...f.labels][0] : f.count > 1 ? `Last: ${f.last}` : undefined);
 
+/** The downloads asked without a machine (the one ComfyUI of a single-machine setup): grouped under this key. */
+const HERE = "";
+
 /**
- * A machine's failed downloads as one banner (`on`: its name as the user knows it): every failure there not read yet, the new
- * ones and those already said, so a second failure updates the banner instead of adding one; a want of room on its volume
- * (`volume`: the network volume it runs on, if any) has a banner of its own. Without a volume (a pod's own disk, a ComfyUI of
- * the user's own), a want of room is said here like any failure, or nothing said it. Null with none. `ids`: what dismissing
- * it marks read.
+ * A machine's failed downloads as one banner (`on`: its name as the user knows it; null for the ComfyUI downloads go to
+ * when none is named, `machine` HERE): every failure there not read yet, the new ones and those already said, so a second
+ * failure updates the banner instead of adding one; a want of room on its volume (`volume`: the network volume it runs on,
+ * if any) has a banner of its own. Without a volume (a pod's own disk, a ComfyUI of the user's own), a want of room is said
+ * here like any failure, or nothing said it. One reason shared by all (huggingface.co not answering) is said once. Null
+ * with none. `ids`: what dismissing it marks read.
  */
-export function failedOnMachine(list: readonly Download[], machine: string, on: string, volume: string | null = null): { banner: Omit<Banner, "onDismiss">; ids: string[] } | null {
-  const failed = list.filter((d) => d.machine === machine && d.status === "error" && !d.seen && !(volume && NO_ROOM.test(d.error ?? "")));
+export function failedOnMachine(list: readonly Download[], machine: string, on: string | null, volume: string | null = null): { banner: Omit<Banner, "onDismiss">; ids: string[] } | null {
+  const failed = list.filter((d) => (d.machine ?? HERE) === machine && d.status === "error" && !d.seen && !(volume && NO_ROOM.test(d.error ?? "")));
   if (!failed.length) return null;
   const names = failed.map((d) => d.file.split(/[\\/]/).pop() ?? d.file);
   const one = failed.length === 1;
+  const at = on ? ` on ${on}` : "";
+  const shared = new Set(failed.map((d) => d.error ?? "")).size === 1 ? failed[0]!.error?.replace(/\.$/, "") : undefined;
   return {
     banner: {
       id: `downloads:${machine}`,
       tone: "bad",
-      title: one ? `Download of ${names[0]} failed on ${on}` : `${plural(failed.length, "download")} failed on ${on}`,
-      text: one ? failed[0]!.error : `${names.join(", ")}: ${failed[0]!.error ?? ""}`,
-      href: `/settings?machine=${encodeURIComponent(machine)}`,
-      go: `Open ${on}`,
+      title: one ? `Download of ${names[0]} failed${at}` : `${plural(failed.length, "download")} failed${at}`,
+      text: one ? failed[0]!.error : shared ? `${shared}: ${names.join(", ")}` : `${names.join(", ")}: ${failed[0]!.error ?? ""}`,
+      ...(on ? { href: `/settings?machine=${encodeURIComponent(machine)}`, go: `Open ${on}` } : { href: settingHref("models.downloads"), go: "Open the downloads" }),
     },
     ids: failed.map((d) => d.id),
   };
@@ -170,16 +175,16 @@ export function Banners() {
       if (d.status === "done") push({ id: `download:${d.id}`, tone: "good", title: on ? `${name} on ${on}` : `${name} installed in ComfyUI`, ...(d.shown ? { text: `Here · ${d.shown}` } : {}), ...(on ? { href: `/settings?machine=${encodeURIComponent(d.machine!)}`, go: `Open ${on}` } : { href: settingHref("models.downloads"), go: "Open the downloads" }) });
       if (d.status === "error") {
         const volume = NO_ROOM.test(d.error ?? "") ? volumeOf(settingsNow.current?.machines, d.machine) : null;
-        if (!volume && d.machine) {
-          failedOn.add(d.machine);
+        // the ComfyUI of a single-machine setup too: its six failed files (huggingface.co not answering) were six sticky banners
+        if (!volume) {
+          failedOn.add(d.machine ?? HERE);
           continue;
         }
-        const where = volume ? { title: `${name} can't get onto ${on}`, text: `${(d.error ?? "").replace(/\.$/, "")}. Delete what you no longer use on its volume, and it is fetched again.`, href: volumeHref(volume, d.folder), go: "Open the volume" } : { title: `Download of ${name} failed`, text: d.error, href: "/settings", go: "Open settings" };
-        push({ id: `download:${d.id}`, tone: "bad", ...where, onDismiss: () => void api.downloadSeen(d.id).catch(() => {}) });
+        push({ id: `download:${d.id}`, tone: "bad", title: `${name} can't get onto ${on}`, text: `${(d.error ?? "").replace(/\.$/, "")}. Delete what you no longer use on its volume, and it is fetched again.`, href: volumeHref(volume, d.folder), go: "Open the volume", onDismiss: () => void api.downloadSeen(d.id).catch(() => {}) });
       }
     }
     for (const machine of failedOn) {
-      const said = failedOnMachine(list, machine, machineName(queueNow.current, machine) ?? machine, volumeOf(settingsNow.current?.machines, machine));
+      const said = machine === HERE ? failedOnMachine(list, HERE, null) : failedOnMachine(list, machine, machineName(queueNow.current, machine) ?? machine, volumeOf(settingsNow.current?.machines, machine));
       if (said) push({ ...said.banner, onDismiss: () => void Promise.all(said.ids.map((id) => api.downloadSeen(id).catch(() => {}))) });
     }
     seenDownloads.current = new Map(list.map((d) => [d.id, d.status]));

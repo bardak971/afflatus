@@ -2,8 +2,9 @@ import { useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "r
 import { Workflow } from "lucide-react";
 import type { Draft, RecipeInfo } from "../../api";
 import { useFamilies, useOfficialSizes, useRecipes, useSetup } from "../../data";
-import { formsCanQueue, notReady, plural, size, waitsForGpu } from "../../format";
+import { formsCanQueue, notReady, plural, waitsForGpu } from "../../format";
 import { lacksOnlyFiles, officialFiles } from "../../officialFiles";
+import { firstOperation, sizeSaid } from "../../familyMinimum";
 import { carryAcross, carryOver, modelGroups } from "../../picker";
 import { Select } from "../../Select";
 import { modelHelp } from "../../modelHelp";
@@ -42,7 +43,7 @@ export function useModelPick({ recipe, draft, onPick }: {
   const familyOf = (id: string) => recipes.data?.families.find((f) => f.id === id);
   const statusOf = (r: RecipeInfo) => setup.data?.recipes.find((x) => x.id === r.id);
   const why = (r: RecipeInfo) => (setup.isSuccess && !(comfyOnline && lacksOnlyFiles(statusOf(r), r, familyOf(r.family))) ? notReady(statusOf(r), comfyOnline) : null);
-  /** A model whose files are not here (their official downloads): "not here", with what they weigh when known. */
+  /** A model whose files are not here (their official downloads): "3 files not here", with what they weigh when known. */
   const notHere = (g: ModelGroup): string | null => {
     const r = g.recipes.find((x) => lacksOnlyFiles(statusOf(x), x, familyOf(x.family)));
     if (!r || waitsForGpu(setup.data?.comfy)) return null;
@@ -53,8 +54,23 @@ export function useModelPick({ recipe, draft, onPick }: {
       ...st.missingSlots.map((id) => family?.slots?.find((s) => s.id === id)?.get?.url),
       ...st.emptyInputs.flatMap((id) => { const i = r.inputs.find((x) => x.id === id); return i?.type === "model" ? officialFiles(family, i.folder, i.slot).slice(0, 1).map((o) => o.url) : []; }),
     ].filter((u): u is string => Boolean(u)));
-    const bytes = [...urls].reduce((n, u) => n + (sizes.data?.[u] ?? 0), 0);
-    return `not here${bytes ? ` · ${size(bytes)}` : ""}`;
+    const weight = sizeSaid([...urls], sizes.data);
+    return `${urls.size ? `${plural(urls.size, "file")} ` : ""}not here${weight ? ` · ${weight}` : ""}`;
+  };
+  /**
+   * A model none of whose operations can run, in a few words beside its "not ready" (the #143 audit: it said "not ready"
+   * and nothing of why): of its first operation, the nodes this ComfyUI lacks, or its files missing with what they weigh.
+   */
+  const notReadyWhy = (g: ModelGroup): string => {
+    const r = firstOperation(g.recipes);
+    const st = r && statusOf(r);
+    if (!r || !st || !comfyOnline) return "not ready";
+    if (st.missingNodes.length) return `not ready · ${plural(st.missingNodes.length, "node")} missing`;
+    const family = familyOf(r.family);
+    const files = [...st.missingSlots.map((id) => family?.slots?.find((x) => x.id === id)?.get?.url), ...st.missingFiles.map(() => undefined), ...st.emptyInputs.map(() => undefined)];
+    if (!files.length) return "not ready";
+    const weight = sizeSaid(files, sizes.data);
+    return `not ready · ${plural(files.length, "file")} missing${weight ? ` · ${weight}` : ""}`;
   };
   /** The operation last used with each model: going back to a model goes back to it. */
   const [lastIn, setLastIn] = useState<Record<string, string>>({});
@@ -80,7 +96,7 @@ export function useModelPick({ recipe, draft, onPick }: {
     pick((back ?? to.recipes.find((r) => !why(r)) ?? to.recipes[0]!).id);
   };
   const pickKind = (k: string) => pick(lastOf[k] ?? all.find((r) => r.output === k)!.id);
-  return { all, kinds, groups, group, why, notHere, pick, pickModel, pickKind };
+  return { all, kinds, groups, group, why, notHere, notReadyWhy, pick, pickModel, pickKind };
 }
 
 /** The radio buttons of a model's operations: one stop for Tab, the arrow keys go from one to the next (and pick it). */
@@ -145,7 +161,7 @@ export function ModelPicker({ pick, recipe, presets }: { pick: ReturnType<typeof
             onChange={pick.pickModel}
             options={groups.map((g) => ({
               value: g.key, label: g.name, group: g.builtIn ? "Models" : "Your workflows",
-              note: g.recipes.some((r) => !why(r)) ? (pick.notHere(g) ?? `${plural(g.recipes.length, "operation")}`) : "not ready",
+              note: g.recipes.some((r) => !why(r)) ? (pick.notHere(g) ?? `${plural(g.recipes.length, "operation")}`) : pick.notReadyWhy(g),
               detail: g.builtIn ? g.summary : g.recipes.map((r) => r.title).join(" · "), search: g.recipes.map((r) => r.title).join(" "),
               // what each model is for, to compare before picking
               tip: modelHelp(g), tipHead: g.name,

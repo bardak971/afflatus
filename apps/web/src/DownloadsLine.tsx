@@ -17,6 +17,9 @@ import { settingHref } from "./screens/settings/settingsIndex";
 import { CloseButton, cx } from "./ui";
 import { DownloadTo, useDownloads } from "./useGetFile";
 
+/** A download's note while it tries again after a failure (modelDownload.ts onRetry): said in the warning colour. */
+const RETRYING = /trying again|starting over|may fail/i;
+
 /**
  * The downloads manager (card #60, mock-downloads-queue.html): the line of files coming into each ComfyUI, in one place.
  * The status bar's chip opens it as a popover; Settings › Models has it as a card under Model sets, with what was done
@@ -115,6 +118,9 @@ export function LineList({ line, full, head }: { line: Line; full?: boolean; hea
             <div className="flex min-w-0 flex-col">
               <span className="truncate text-body" data-tip={d.file}>{nameOf(d)}</span>
               <span className="truncate text-xs text-ink-3">{[whatOf(d), d.status === "saving" ? "ComfyUI is listing it" : `into ${d.shown ?? d.folder}`].filter(Boolean).join(" · ")}</span>
+              {/* what goes wrong while it tries again ("Could not reach huggingface.co: trying again (2 of 5)"): it read
+                  "under way · 0 KB" with nothing said until it failed */}
+              {d.note && <span className={cx("truncate text-xs", RETRYING.test(d.note) ? "text-warn-ink" : "text-ink-3")} data-tip={d.note}>{d.note}</span>}
               <span className="mt-1 h-1 overflow-hidden rounded-key bg-line-strong"><span className="block h-full bg-accent" style={{ width: `${(d.status === "saving" ? 1 : part) * 100}%` }} /></span>
             </div>
             <span className="text-right font-mono text-xs whitespace-nowrap text-ink-2">
