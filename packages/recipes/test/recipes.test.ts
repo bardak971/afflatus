@@ -2339,7 +2339,11 @@ describe("the upscale routes of the video forms", () => {
     expect(node(sv, "SeedVR2TemporalChunk")[0]!.inputs).toMatchObject({ chunking_mode: "manual", "chunking_mode.frames_per_chunk": 9, temporal_overlap: 0 });
     expect(node(sv, "ResizeImageMaskNode")[0]!.inputs).toMatchObject({ resize_type: "scale by multiplier", "resize_type.multiplier": 2 });
     expect(node(sv, "SeedVR2PostProcessing")[0]!.inputs.color_correction_method).toBe("lab");
-    expect(sv.loads).toEqual(expect.arrayContaining(["diffusion_models/seedvr2_3b_int8_convrot.safetensors", "vae/seedvr2_ema_vae_fp16.safetensors"]));
+    // the plain encode and decode: ComfyUI's SeedVR2 VAE sizes its own tiles from the free memory, the template's fixed tiles took 12 minutes
+    expect(node(sv, "VAEEncodeTiled")).toHaveLength(0);
+    expect(node(sv, "VAEDecodeTiled")).toHaveLength(0);
+    const merge = Object.entries(sv.graph).find(([, n]) => n.class_type === "SeedVR2TemporalMerge")![0];
+    expect(node(sv, "VAEDecode").filter((n) => JSON.stringify(n.inputs.samples) === JSON.stringify([merge, 0]))).toHaveLength(1);    expect(sv.loads).toEqual(expect.arrayContaining(["diffusion_models/seedvr2_3b_int8_convrot.safetensors", "vae/seedvr2_ema_vae_fp16.safetensors"]));
     expect(() => wanOf({ upscale: "Video: SeedVR2 (restores)" })).toThrow(/SeedVR2 needs its two files/);
     const ltx = ltxVideo.build(parseInput(ltxVideo, { prompt: "a", upscale: "Pixel: upscale model", upscaleModel: "u.pth" }), dryContext({ slots: { checkpoint: "ltx-2.3-22b-distilled.safetensors", clip: "g.safetensors", upscaler: "up.safetensors" } }));
     expect(node(ltx, "ImageUpscaleWithModel")).toHaveLength(1);
