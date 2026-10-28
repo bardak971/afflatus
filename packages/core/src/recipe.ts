@@ -197,6 +197,12 @@ export interface BuildContext {
    * with other inputs; left out, or null for a node it lacks: not known, the build sends what the upstream pack takes.
    */
   inputs?(node: string): string[] | null;
+  /**
+   * The memory of the GPU the job runs on, in GiB, as ComfyUI reports it (/system_stats' vram_total): its whole memory, not
+   * what is free when the job is built (ComfyUI unloads the models kept from the last render for the next). Left out: not
+   * known. Read only where a size has to fit the card (SeedVR2's window), never said to the user.
+   */
+  vram?: number;
 }
 
 /**

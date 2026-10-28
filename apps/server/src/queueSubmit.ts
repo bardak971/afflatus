@@ -269,7 +269,9 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   // what the build reads of the media not chosen yet (a clip's frames, a sound's seconds), cut away with everything but the loaders
   const stood = bare ? standIns(recipe, input) : null;
   const options = asBuilt(catalog, facts, packsSaid(row));
-  const whole = recipe.build(chosen, { seed, slots: slotFiles, uploads: { ...uploads, ...stood?.uploads }, media: { ...media, ...stood?.media }, canvas: plan?.canvas, has: (cls) => cls in catalog, options: optionsIn(catalog), inputs: inputsIn(catalog), wants: options.wants });
+  // the card's memory, for what has to fit it (SeedVR2's window); a stand-in machine of the tests has none to say
+  const vram = await comfy.vram?.();
+  const whole = recipe.build(chosen, { seed, slots: slotFiles, uploads: { ...uploads, ...stood?.uploads }, media: { ...media, ...stood?.media }, canvas: plan?.canvas, has: (cls) => cls in catalog, options: optionsIn(catalog), inputs: inputsIn(catalog), wants: options.wants, ...(vram ? { vram } : {}) });
   const loaders = bare ? warmGraph({ ...whole, passes: [] }, { unread: [NO_MEDIA] }) : null;
   if (bare && !loaders) throw new Error("this loads no model: there is nothing to preload");
   const built: BuiltGraph = loaders ? { ...whole, graph: loaders.graph, phases: loaders.phases, passes: [], outputs: [] } : whole;

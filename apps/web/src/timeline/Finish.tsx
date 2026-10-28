@@ -114,11 +114,11 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
               <FieldRow label="Colour match" note="SeedVR2's restored frames matched in colour to the originals: lab is the most faithful, wavelet keeps the new fine detail, adain is a global tint">
                 <Segmented<(typeof COLOURS)[number]> label="Colour match" value={v.colour} onChange={(colour) => setV({ ...v, colour })} options={COLOURS.map((c) => ({ value: c, label: c }))} />
               </FieldRow>
-              <FieldRow label="Batch size" note="SeedVR2's batch size: how many frames it restores together. 0 is auto: by the frame's size (9 at ×2 of a 576p clip, fewer when larger). More is steadier but needs more video memory; past what the card holds it slows to a crawl" trail>
+              <FieldRow label="Batch size" note="SeedVR2's window: how many frames it restores together, each seeing the others. Wider is steadier from frame to frame and has fewer joins. 0 is auto: the 7B takes 49, with 2 latent frames crossfaded between passes, or the widest the card holds, never under 5; the 3B goes by the frame's size (5 at ×2 of a 576p clip, fewer when larger). More needs more video memory; past what the card holds it slows to a crawl" trail>
                 {/* 0 said as what it does, beside the box: a bare 0 read as off */}
                 <span className="flex items-center gap-2">
                   <NumberBox label="SeedVR2 batch size (0 is auto)" value={v.seedvrFrames ?? 0} min={0} max={49} step={1} onCommit={(n) => setV({ ...v, seedvrFrames: seedvrBatch(n) })} />
-                  <span className="text-xs text-ink-3">{v.seedvrFrames ? "frames" : "auto, by the frame's size"}</span>
+                  <span className="text-xs text-ink-3">{v.seedvrFrames ? "frames" : "auto: 49 on the 7B where it fits"}</span>
                 </span>
               </FieldRow>
             </>

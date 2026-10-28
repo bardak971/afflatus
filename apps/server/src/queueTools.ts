@@ -298,7 +298,9 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
     const parts = g.add("GetVideoComponents", { video: g.out("LoadVideo", { file }) });
     // RTX VSR done without where its pack is not there (not installable, or Run without): an upscale model instead, said on the job
     const options = asBuilt(catalog, (await core.packFacts?.().catch(() => null)) ?? ANY_PACKS, packsSaid(row));
-    const ctx: BuildContext = { seed: Math.floor(Math.random() * 2 ** 31), slots, uploads: {}, media: {}, has: (n: string) => n in catalog, options: optionsIn(catalog), inputs: inputsIn(catalog), wants: options.wants };
+    // the card's memory: SeedVR2's window is the widest it holds
+    const vram = await comfy.vram?.();
+    const ctx: BuildContext = { seed: Math.floor(Math.random() * 2 ** 31), slots, uploads: {}, media: {}, has: (n: string) => n in catalog, options: optionsIn(catalog), inputs: inputsIn(catalog), wants: options.wants, ...(vram ? { vram } : {}) };
     // a continuation's hidden run-up (hiddenRunUp) is not restored: its frames are enlarged plainly to the restored size and
     // put back in front, so that the file keeps every frame, its length and its joins' timing. Counted on the source's own frames
     const sourceFps = fromRaw ? rawFacts!.fps : video.fps ?? 24;
