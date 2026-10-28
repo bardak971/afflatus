@@ -1,3 +1,4 @@
+import { isPodMachineId } from "./runpod";
 import { createHash } from "node:crypto";
 import { SqliteAdapter, sql, type Expression } from "kysely";
 import { modelName, modelOf, type JoinKind, joinKindOf } from "@afflatus/core";
@@ -132,6 +133,8 @@ export async function status(
     /** The machine it runs or ran on, or for a waiting job the one it will probably run on; the one it was pinned to by hand (null: whichever the queue picks). */
     machine: r.machine_id ?? planned.get(r.id)?.lane ?? null,
     pinned: r.pin_machine ?? null,
+    /** Of a waiting job: pinned to a pod that went (its idle terminate, a Terminate); it waits for the user to move it (card #150). */
+    pinGone: r.status === "queued" && Boolean(r.pin_machine) && isPodMachineId(r.pin_machine!) && !machineIds.includes(r.pin_machine!),
     /** Of a waiting job: in about how long it starts, when that can be told. */
     startsInMs: r.status === "queued" ? finite(planned.get(r.id)?.startsInMs) : null,
     /** Of a waiting render, when not every machine can run it: the ones that have its files (empty: none). */

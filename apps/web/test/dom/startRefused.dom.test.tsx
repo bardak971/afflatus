@@ -86,9 +86,10 @@ describe("a Start RunPod refuses for want of a GPU on the pod's host", () => {
 });
 
 describe("a job pinned to a pod that went", () => {
-  it("says its pod was terminated, with Deploy a GPU, not the pod's bare id", async () => {
+  it("says its pod was terminated, with Deploy a GPU, not the pod's bare id, with one machine left too", async () => {
     fakeApi.on("GET /settings", { machines: [own] });
-    draw(<WaitingList waiting={[waiting({ pinned: "rp-gone", startPod: null, lacks: null })]} running={null} machines={states().slice(0, 1)} onOrder={() => {}} onRemove={() => {}} />);
+    // one machine left: the queue's single-machine layout hands the list no machines
+    draw(<WaitingList waiting={[waiting({ pinned: "rp-gone", pinGone: true, startPod: null, lacks: null })]} running={null} machines={[]} onOrder={() => {}} onRemove={() => {}} />);
     const chip = await screen.findByText("its pod was terminated");
     expect(chip.closest("[data-tip]")?.getAttribute("data-tip")).toMatch(/runs nowhere else by itself/);
     expect(screen.getByRole("button", { name: "Deploy a GPU…" })).toBeTruthy();

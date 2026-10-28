@@ -140,6 +140,8 @@ describe("a job pinned to a pod that went", () => {
     t.services.queue.nudge();
     await new Promise((r) => setTimeout(r, 400));
     expect(await status(jobId)).toEqual({ status: "queued", pin_machine: stopped });
+    // its row says so, whatever the layout
+    expect((await get(t.app, "/api/queue")).json().waiting.find((w: { id: string }) => w.id === jobId)).toMatchObject({ pinned: stopped, pinGone: true });
     expect(home.prompts.size).toBe(0);
     // queued again pinned to it (Again, a form's Render on kept): refused with why
     const again = await post(t.app, "/api/jobs", { ...job(), machine: stopped });

@@ -191,8 +191,9 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
             <span className="min-w-[8rem] grow basis-0 truncate font-semibold">{w.label}</span>
             <span className="max-w-[40%] shrink-0 truncate text-ink-2 @max-[480px]/waiting:hidden">{w.kind === "load" ? `load · ${modelOf(w)}` : modelOf(w)}</span>
             {loads[i] && !machines.length && <Chip tone="warn" tip={`ComfyUI loads ${modelOf(w)} before this one`}>loads {modelOf(w).split(" · ")[0]}</Chip>}
-            {/* pinned to a pod that went (its idle terminate, a Terminate): it waits, never sent elsewhere by itself (card #150) */}
-            {machines.length > 0 && w.pinned && !machines.some((m) => m.id === w.pinned) && (
+            {/* pinned to a pod that went (its idle terminate, a Terminate): it waits, never sent elsewhere by itself (card #150).
+                Said with one machine left too, whose layout says no machine notes: the row read as waiting for nothing */}
+            {w.pinGone && (
               <>
                 <Chip tone="warn" tip="It was pinned to a rented pod that is terminated now. It runs nowhere else by itself: deploy a pod, then move it there, or move it to another machine (drag it onto a lane, or Run on in its menu).">
                   <Pin size={11} className="shrink-0" /> its pod was terminated
@@ -200,7 +201,7 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
                 <button type="button" className="shrink-0 text-xs font-semibold text-accent hover:underline" onClick={() => openDeploy()}>Deploy a GPU…</button>
               </>
             )}
-            {machines.length > 0 && w.pinned && machines.some((m) => m.id === w.pinned) && (
+            {machines.length > 0 && w.pinned && !w.pinGone && (
               <Chip tip="Pinned to this machine: it runs there. Drag it onto another lane, or Run on in its menu, to move it.">
                 <Pin size={11} className="shrink-0" /> {machineLabel(machines.find((m) => m.id === w.pinned) ?? { name: w.pinned, url: "" })}
               </Chip>
