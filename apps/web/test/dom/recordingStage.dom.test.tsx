@@ -9,7 +9,8 @@ import { TimelineEditor } from "../../src/screens/TimelineEditor";
 import { useEditorPanels } from "../../src/timeline/useEditorPanels";
 import { recordingPlace } from "../../src/timeline/recordingPlace";
 import { Slide } from "../../src/timeline/inspector/parts";
-import type { Slot } from "../../src/timeline/model";
+import { PAD, type Slot } from "../../src/timeline/model";
+import { keepView } from "../../src/timeline/track/KeptZoom";
 import { fakeApi, later } from "./fakeApi";
 import { draw } from "./render";
 
@@ -92,6 +93,45 @@ describe("a recording on the timeline opened like the source (card #61)", () => 
     expect(await screen.findByText(/cuts its clips again:/)).toBeTruthy();
     expect(stage()).toBeNull();
     expect(panel()).toBeNull();
+  });
+
+  it("opens at the moment clicked anywhere on its lane, the track centred on it so the stage's view and playhead agree (card #140)", async () => {
+    // a 1000 px track, zoomed in when it was left (110 px a second), scrolled to its start: clip 4 is out of view
+    let left = 0;
+    const sets: number[] = [];
+    const wide = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1000);
+    const get = vi.spyOn(HTMLElement.prototype, "scrollLeft", "get").mockImplementation(() => left);
+    const set = vi.spyOn(HTMLElement.prototype, "scrollLeft", "set").mockImplementation(function (this: HTMLElement, v: number) {
+      left = v;
+      sets.push(v);
+      this.dispatchEvent(new Event("scroll"));
+    });
+    try {
+      keepView(timeline.id, { pps: 110, fromMs: 0, whole: false });
+      const { band } = await editor();
+      const lane = band.closest<HTMLElement>("[data-recording-band]")!;
+      // the band starts with clip 2, 5 s into the track
+      await waitFor(() => expect(lane.style.left).toBe(`${PAD + 5 * 110}px`));
+      // pressed 11 s after its start (16 s on the track, 0.8 s into clip 4), far from its name
+      click(lane, 11 * 110);
+      expect(stage()).toBeTruthy();
+      expect(within(stage() as HTMLElement).getByText(/^0:11\.0 of 15\.0 s · in clip 4$/)).toBeTruthy();
+      // the track brought 16 s to its middle, and the stage shows what the track shows: the playhead inside it
+      await waitFor(() => expect(sets.at(-1)).toBe(PAD + 16 * 110 - 500));
+      const head = stage()!.querySelector<HTMLElement>(".bg-ink-strong")!;
+      await waitFor(() => expect(parseFloat(head.style.left)).toBeGreaterThan(30));
+      expect(parseFloat(head.style.left)).toBeLessThan(70);
+      // pressed again, open: the playhead there, the track left where it is (the moment pressed is in view)
+      const before = sets.length;
+      click(lane, 6 * 110);
+      expect(within(stage() as HTMLElement).getByText(/^0:06\.0 of 15\.0 s · in clip 3$/)).toBeTruthy();
+      await new Promise((r) => setTimeout(r, 50));
+      expect(sets.length).toBe(before);
+    } finally {
+      wide.mockRestore();
+      get.mockRestore();
+      set.mockRestore();
+    }
   });
 
   it("closes the source when it opens, and is closed when the source opens", () => {

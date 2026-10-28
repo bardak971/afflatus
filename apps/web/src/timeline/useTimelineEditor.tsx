@@ -9,7 +9,7 @@ import { useQueueOf } from "../screens/studio/queueOf";
 import { useNewClock } from "./clock";
 import { rememberAspect } from "./EditorSkeleton";
 import type { ExportAsk } from "./ExportDialog";
-import { layout, moveAfter, otherShape, playOfTrack, ZOOM } from "./model";
+import { layout, moveAfter, otherShape, placeOf, playOfTrack, ZOOM } from "./model";
 import { madeFromSource, sourcePlace } from "./track/SourceLane";
 import { clipsOfRecording } from "./track/RecordingBand";
 import { recordingPlace, stageEnd } from "./recordingPlace";
@@ -542,6 +542,25 @@ export function useTimelineEditor(id: string) {
     if (plan && !fix.isPending && !render.isPending) fix.mutate(plan);
   };
   const exportNow = (t: Timeline, editor = false) => setExp({ for: editor ? "editor" : "video", scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), blend: true, match: true, fit: finishedSize ? "largest" : "timeline", web: 0, before: t.exported?.id ?? null, asked: Boolean(t.exporting) });
+  /**
+   * A recording opened on the stage (card #140): its playhead at the moment its band was clicked, else where the timeline's
+   * playhead stands, both in the track's own time; and the track, whose view the stage shows, centred on it as it opens.
+   * The stage opened at the recording's start while the track showed a minute later, and the two disagreed. Clicked again
+   * while open, the playhead goes there and the track stays put (the moment clicked is in view).
+   */
+  const openRecordingAt = (asset: string, atMs?: number) => {
+    // the clips' player says what plays: its moment drawn on the track (clips not rendered yet take room there)
+    const ms = atMs ?? cursor ?? (sourceOpen || recordingAt ? clock.get() : placeOf(slots, clock.get())?.layoutMs ?? 0);
+    if (recordingOpen === asset && recordingAt) {
+      player.current?.seek(ms);
+      setCursor(ms);
+      return;
+    }
+    openRecording(asset);
+    // read by the stage as it turns to the recording (its startAt), then said back by it as it stands
+    setCursor(ms);
+    requestAnimationFrame(() => trackKeys.current?.centre(ms));
+  };
   // the keys' and the command bar's actions that need the timeline read
   if (t && shown) {
     renderNow.current = () => {
@@ -553,7 +572,7 @@ export function useTimelineEditor(id: string) {
 
   return {
     id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, current,
-    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, recordingOpen, setRecordingOpen, openRecording, recordingAt, recordingCut, recordingShared, removeSource, makeSource, cutSource, sourceForm, recording, stretch, recordingTrim, splitSource, masks, setMasks, maskOfCurrent, place, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps, trackView,
+    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, recordingOpen, setRecordingOpen, openRecording, openRecordingAt, recordingAt, recordingCut, recordingShared, removeSource, makeSource, cutSource, sourceForm, recording, stretch, recordingTrim, splitSource, masks, setMasks, maskOfCurrent, place, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps, trackView,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, typeSource, sourceTyped, inputsOf, editInputs, formOf, ready, keptToClip, keepToClip, sayOf, say, m, range, setRange, loopRange, snapQuiet,

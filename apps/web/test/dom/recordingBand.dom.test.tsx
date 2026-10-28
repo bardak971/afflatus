@@ -124,6 +124,48 @@ describe("a recording on the Audio row", () => {
     expect(asked).toEqual(["2000–11200", "3000–12200"]);
   });
 
+  describe("a click anywhere on it (card #140)", () => {
+    const opened: Array<[string, number | undefined]> = [];
+    const menus: number[] = [];
+    const drawOpen = (passDrops = false) => {
+      opened.length = 0;
+      menus.length = 0;
+      return draw(<RecordingBands timeline={timeline} slots={layout(clips, 40, [model])} recipes={[model]} pps={40} onTrim={() => {}} onSelect={() => {}} onOpen={(a, at) => void opened.push([a, at])} onMenu={(_e, at) => void menus.push(at)} passDrops={passDrops} />);
+    };
+
+    it("opens the recording at the moment pressed, under any of its clips, not only on its name; a drag still slips it", () => {
+      const { container } = drawOpen();
+      const body = container.querySelector<HTMLElement>("[data-recording-band]")!;
+      // the band starts where its first clip does (10 px into the track, the track's own 0): 40 px a second, so 200 px
+      // in is 5 s, under the second clip, far from its name
+      fireEvent.pointerDown(body, { button: 0, clientX: 200 });
+      fireEvent.pointerUp(body, { clientX: 200 });
+      expect(opened).toEqual([[sound.id, 5000]]);
+      fireEvent.pointerDown(body, { button: 0, clientX: 300 });
+      fireEvent.pointerMove(body, { clientX: 260 });
+      fireEvent.pointerUp(body, { clientX: 260 });
+      expect(opened).toHaveLength(1);
+      // from the keyboard, on its name: where the playhead stands (no moment of its own)
+      fireEvent.keyDown(screen.getByRole("button", { name: /^Recording zz-test talk\.wav/ }), { key: "Enter" });
+      expect(opened.at(-1)).toEqual([sound.id, undefined]);
+    });
+
+    it("keeps its name in view at the track's left (sticky inside the band), and gives a right-click the moment under it", () => {
+      const { container } = drawOpen();
+      const name = screen.getByRole("button", { name: /^Recording zz-test talk\.wav/ });
+      expect(name.classList.contains("sticky")).toBe(true);
+      expect(name.classList.contains("left-3")).toBe(true);
+      expect(name.classList.contains("absolute")).toBe(false);
+      fireEvent.contextMenu(container.querySelector<HTMLElement>("[data-recording-band]")!, { clientX: 120 });
+      expect(menus).toEqual([3000]);
+    });
+
+    it("lets a drag from the library through to the clips' Audio cells under it", () => {
+      const { container } = drawOpen(true);
+      expect(container.querySelector<HTMLElement>("[data-recording-band]")!.classList.contains("pointer-events-none")).toBe(true);
+    });
+  });
+
   describe("its edges at their limits", () => {
     /** The system asking for less motion, or not: matchMedia as a browser answers it. */
     const motion = (reduced: boolean) => vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes(reduced ? "motion: reduce" : "no-preference"), media: query, addEventListener: () => {}, removeEventListener: () => {} }));

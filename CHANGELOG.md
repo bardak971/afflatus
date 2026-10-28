@@ -4,6 +4,10 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Changed
+- **The recording lane opens its stage where it is clicked.** A click anywhere on a recording's band on the Audio row opens it on the stage at that moment (only its name did, and at the track's start); a drag still slips it, and its name stays in view at the track's left while a long timeline is scrolled. The stage's playhead starts at the moment clicked, or at the timeline's playhead when opened from the keyboard, and the track, whose stretch the stage shows, is centred on it, so the stage's view and playhead agree. A clip is opened from the Video row; a right-click on the band gives the menu of the clip's audio under it, and a drag from the library goes through to the clips' Audio cells.
+- **The timeline's zoom and scroll are kept per timeline** in this browser and brought back on return; a timeline left fitted (Fit all) is fitted again, and one that changed length since is shown within its new end.
+
 ## [0.8.0] - 2026-10-28
 
 Afflatus from outside: an MCP server that lets Claude Code, Claude Desktop or any MCP client drive the whole studio with a token of its own (every form and setting, renders it can look at, timelines, the library, the Prompt kit, models, machines and rented GPUs), held to its scopes, its renders an hour and its spend cap, its changes shown live in the page you have open with Undo.
