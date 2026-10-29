@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { baseModels, checkGraph, choicesOf, clockFits, FRAME_SLACK_MS, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, onGrid, packOfNode, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
+import { baseModels, checkGraph, choicesOf, graphFiles, clockFits, FRAME_SLACK_MS, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, onGrid, packOfNode, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
 import { catalogKey, ComfyCancelled, ComfyError, ComfyUnreachable } from "@afflatus/comfy";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
@@ -22,6 +22,7 @@ import type { Placed } from "./timelineModel";
 type PlacedReader = (timelineId: string) => Promise<Placed[]>;
 import { draftOf, measuredFirst, renderedOf } from "./queueStore";
 import { refusedSaid, setFindings } from "./modelSetCheck";
+import { recordUses } from "./modelUses";
 
 /** A job on its way to ComfyUI: its form settled, its files uploaded, its graph built and checked, the prompt queued. */
 
@@ -351,6 +352,9 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   });
   // noted once ComfyUI took it: a prompt it refused loads nothing, and the next job must not think otherwise
   if (base.length && !built.light) await core.loaded(base.join("|"), mainModel(built));
+  // the files it loads, for Settings › Model files: a warm load is a use too, it read them from the disk
+  const folders = Object.fromEntries((core.registry.family(recipe.family)?.slots ?? []).map((x) => [x.id, x.folder]));
+  await recordUses(db, row, graphFiles(built.graph, slotFiles, folders));
   return resume;
 }
 

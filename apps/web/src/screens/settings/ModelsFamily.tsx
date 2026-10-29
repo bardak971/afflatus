@@ -432,6 +432,8 @@ export function FamilyBody({ family, name, help, recipes, machine, imported }: {
                   ? <span className="text-xs text-ink-3">{needed.filter((r) => !r.file).length} not here</span>
                   : <span className="text-xs text-warn-ink">{plural(needed.filter((r) => !r.file).length, "missing", "missing")}</span>)}
                 <Help title="Files" text="Each file the family needs, once, whatever needs it: an operation that lacks one says so in its line below. Where more than one file fits, its picker says which is used: left to itself, the first its patterns name." />
+                <span className="grow" />
+                <Link href={`/settings/model-files?family=${encodeURIComponent(family)}`} className="text-xs text-accent hover:underline">its files in Model files ›</Link>
               </span>
               {/* always in sight once the family is opened: what it runs with, and their pickers, are what one opens it for (the owner; they were folded) */}
               {needed.map(line)}

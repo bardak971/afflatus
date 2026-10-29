@@ -12,7 +12,7 @@ import { signedOut } from "./access/signedOut";
 import type { GoBackCheck, UpdatesView } from "./api/types/updates";
 import type { CostsView } from "./api/types/costs";
 import type { CommandEntry, CommandEstimate, CommandIndex, PromptHistoryItem } from "./api/types/bar";
-import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ComfyProbe, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, FileWhere, FilesWhere, FolderPlaces, HuggingFaceFind, CivitaiFind, DeployModels, ModelSet, SetFile, SetSearch, BrowseBases, BrowseCard, BrowseFile, BrowsePage, HashStatus } from "./api/types/models";
+import type { ModelDeleteDone, ModelLibrary, RecipeInfo, RecipeStatus, FamilyInfo, Scan, ComfyProbe, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, FileWhere, FilesWhere, FolderPlaces, HuggingFaceFind, CivitaiFind, DeployModels, ModelSet, SetFile, SetSearch, BrowseBases, BrowseCard, BrowseFile, BrowsePage, HashStatus } from "./api/types/models";
 
 /** Shapes of the server's answers. Kept next to the calls so a change on one side is noticed on the other. */
 export * from "./api/types/queue";
@@ -544,6 +544,17 @@ export const api = {
   /** What a pasted link leads to: its files, the folder it most likely belongs in, ComfyUI's folders, and what ComfyUI has already. */
   resolveLink: (link: string) => call<LinkFound>("POST", "/downloads/resolve", { link }),
   storage: (o?: Asked) => call<Storage>("GET", "/storage", undefined, o?.signal),
+  /** Settings › Model files: every model file of a machine (this PC's folders, or another machine's last scan), with its uses. */
+  modelFiles: (machine: string | undefined, o?: Asked) => call<ModelLibrary>("GET", `/model-files${machine ? `?machine=${encodeURIComponent(machine)}` : ""}`, undefined, o?.signal),
+  modelFileTakes: (f: { folder: string; file: string }, machine?: string, o?: Asked) => call<{ count: number; items: Array<{ id: string; kind: string }> }>("GET", `/model-files/takes?folder=${encodeURIComponent(f.folder)}&file=${encodeURIComponent(f.file)}${machine ? `&machine=${encodeURIComponent(machine)}` : ""}`, undefined, o?.signal),
+  /** Moved to the Recycle Bin (or the set-aside folder), never erased: `anyway` takes a preset's or a set's file too. */
+  deleteModelFiles: (body: { files: Array<{ folder: string; file: string }>; to: "bin" | "aside"; anyway?: boolean }) => call<ModelDeleteDone>("POST", "/model-files/delete", body),
+  putBackModelFiles: (body: { ids?: string[]; batch?: string }) => call<{ back: number; left: Array<{ file: string; why: string }> }>("POST", "/model-files/put-back", body),
+  /** What Delete moved, erased for good: the only erase there is. */
+  emptyModelFiles: () => call<{ erased: number; bytes: number }>("POST", "/model-files/empty"),
+  modelFileKind: (name: string, header: Record<string, unknown> | null) => call<{ folder: string | null }>("POST", "/model-files/kind", { name, header }),
+  /** A dropped model file, sent as it is into its folder: no upload limit (a model is often bigger than the library's). */
+  addModelFile: async (file: File, folder: string, signal?: AbortSignal) => answer<{ file: string; bytes: number }>(await send(`/api/model-files/add?folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(file.name)}`, { method: "PUT", headers: { "Content-Type": "application/x-afflatus-model" }, body: file, signal })),
   /** What a backup would hold: the files and bytes, whether the database comes with it (SQLite), and whether one with the keys may be made from here (this computer). */
   backupPlan: (o?: Asked) => call<{ available: boolean; files: number; bytes: number; database: boolean; withSecrets: boolean }>("GET", "/backup", undefined, o?.signal),
   binIdleTakes: () => call<{ moved: number }>("POST", "/storage/bin-idle-takes"),

@@ -427,6 +427,15 @@ export interface Tables {
   pod_measures: { id: string; kind: string; cloud: string | null; bytes: number; ms: number; at: string };
   /** Every model file of this computer hashed once, and the site version or file it is (modelHashes.ts). Sizes and times as numbers (bigint on Postgres: read through Number). */
   model_hashes: { folder: string; file: string; size: number | string; mtime: number | string; sha256: string; hashed_at: string; civitai_version: number | string | null; hf_url: string | null; matched_at: string | null; civitai_base?: string | null };
+  /** The model files each job's graph loaded (modelUses.ts, 0099): `exact` 0 for a helper file the backfill read from today's recipe. */
+  model_uses: { job_id: string; folder: string; file: string; name_key: string; sha256: string | null; generation_id: string | null; machine_id: string | null; exact: number; used_at: string };
+  /** Model files Delete moved (modelBin.ts, 0099): `place` bin or aside, where each is now, put back or emptied since. */
+  model_removed: {
+    id: string; batch: string; folder: string; file: string; path_was: string; size: number | string; sha256: string | null;
+    place: "bin" | "aside"; stored_path: string; info_path: string | null; removed_at: string; restored_at: string | null; emptied_at: string | null;
+  };
+  /** What Civitai says of a version a model file was matched to (modelLibrary.ts, 0099): names, base model, its first picture. */
+  model_civitai: { version_id: number | string; model_id: number | string | null; model_name: string | null; version_name: string | null; base: string | null; picture: string | null; read_at: string };
   /** What each network volume holds, as the last pod on it listed its folders (rentedVolumes.ts): file keys as JSON. */
   volume_files: {
     volume_id: string; files: string | null; seen_at: string | null; seen_by: string | null; used_at: string | null; noticed_at: string; fill_note: string | null;

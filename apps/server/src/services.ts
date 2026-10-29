@@ -8,6 +8,8 @@ import type { Db, DbKind } from "./db";
 import type { LibraryChange } from "./events";
 import { Downloads } from "./downloads";
 import { ModelHashes } from "./modelHashes";
+import { fillCivitai } from "./modelLibrary";
+import { backfillUses } from "./modelUses";
 import { PodFiles } from "./podFiles";
 import { keepPacksTime, PodOutside } from "./podOutside";
 import { knownFiles } from "./modelSets";
@@ -387,6 +389,14 @@ export async function createServices(
   services.hashes.runningOn = (id) => queue.busyOn(id);
   const firstHashes = setTimeout(() => void services.hashes.run(), 60_000);
   firstHashes.unref();
+  // Settings › Model files: the uses of the renders from before 0.8.2 read once (backfillUses), and what Civitai says of
+  // the versions the files were matched to (their names and pictures), a while after the start and every hour after
+  const library = () => {
+    void backfillUses(services).catch((err: Error) => console.warn("[model uses]", err.message));
+    void fillCivitai(services).catch((err: Error) => console.warn("[model files]", err.message));
+  };
+  const firstLibrary = setTimeout(library, 90_000);
+  firstLibrary.unref();
   // the daily check for newer model versions rides on the hourly sweep: it only runs when the user asked for it. What
   // goes wrong is logged and kept on the report (daily), never thrown at a timer
   const daily = () => void services.updates.daily().catch((err) => console.warn("[updates]", (err as Error).message));
@@ -395,6 +405,7 @@ export async function createServices(
   const checker = setInterval(() => {
     daily();
     void services.hashes.run();
+    library();
   }, 60 * 60_000);
   checker.unref();
   const firstCheck = setTimeout(daily, 30_000);
@@ -404,6 +415,7 @@ export async function createServices(
     clearInterval(checker);
     clearTimeout(firstCheck);
     clearTimeout(firstHashes);
+    clearTimeout(firstLibrary);
     await closeBefore();
   };
   return services;

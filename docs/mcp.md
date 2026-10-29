@@ -71,6 +71,7 @@ Whatever the scopes, these are refused with the reason, and stay in Afflatus its
 - approving a workflow an agent imported or changed (the user's check of what it runs and reaches);
 - installing a job's or a workflow's node packs (code on the machine, and a ComfyUI restart);
 - deleting files of a network volume, or a volume (erased for good, no bin);
+- deleting model files (Settings › Model files' Delete, Put back and Empty); `model_files` lists them with their use;
 - forgetting the render times (the estimates and the caps are worked out from them);
 - backups of the database;
 - sharing an item (it goes out to the notify channels);
@@ -102,7 +103,7 @@ Written from the tool registry by `scripts/mcp-docs.ts`; a check fails when this
 
 <!-- tools:start (written by scripts/mcp-docs.ts from the registry: edit the tools, not this list) -->
 
-122 tools in all.
+123 tools in all.
 
 ### Where the user is
 
@@ -237,6 +238,7 @@ Written from the tool registry by `scripts/mcp-docs.ts`; a check fails when this
 - `edit_model_set` · Manage. Make, change, duplicate or delete a Model set, as Settings › Models › Model sets does; or `get` its files a machine lacks onto it (a ComfyUI of the user's own through the downloads line, a pod through what it fetches: that needs Spend). A preset under a licence the user has not accepted is refused: the user accepts it in Afflatus.
 - `model_settings` · Look. The values saved with a model file (its sampler, steps, CFG, quality tags…: a family's inputs marked per model): the start whenever that file is picked in a form, a draft recording only what it changes on top. `family`, `file`: one family's or one file's.
 - `change_model_settings` · Manage. Save the values that travel with a model file, as the form's Save for this model does: only the family's inputs marked per model are kept (describe_form says which: perModel), the rest dropped. `values` null (or empty) forgets them: the form's own start again.
+- `model_files` · Look. Every model file in ComfyUI's model folders on this PC, as Settings › Model files lists it (in GB): its folder and kind, its name and base model where Civitai, Hugging Face or its header say them, how many Afflatus jobs loaded it and when last (renders made straight in ComfyUI are not seen: say "not used by Afflatus since", never "unused"), its takes, the presets and model sets that need it, and its extra copies (same sha256). `machine`: another machine's files, names only, from its last scan. `notUsedDays`: only those no Afflatus job loaded for that long. Biggest first. Deleting model files cannot be done through MCP: the user does it in Settings › Model files.
 
 ### Model pages and trigger words
 

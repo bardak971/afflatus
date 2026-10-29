@@ -37,6 +37,8 @@ export const NEVER = {
   // it goes out to the notify channels, beyond Afflatus
   share: "sharing an item",
   "link-folder": "linking or unlinking a folder of the disk",
+  // Settings › Model files' Delete and Empty: a model file erased is a download of many gigabytes again
+  "model-files": "deleting model files",
 } as const;
 export type NeverSubject = keyof typeof NEVER;
 

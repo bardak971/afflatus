@@ -12,6 +12,7 @@ import { settingHref } from "./settingsIndex";
 import { Button, buttonClass, Chip, CloseButton, cx, ErrorNote, Help, Toggle } from "../../ui";
 import { Block, Card } from "./Rows";
 import { FamilyBody, FamilyFetch, useFamilyFetch } from "./ModelsFamily";
+import { ModelFilesLine } from "./ModelFilesTab";
 import { modelHelp } from "../../modelHelp";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
@@ -166,9 +167,10 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
         <div className="flex min-h-[52px] items-center gap-3 pr-gutter hover:bg-hover">
           <button type="button" aria-expanded={open} onClick={() => setOpened({ ...opened, [f.id]: !open })} className="flex min-h-[52px] min-w-0 grow items-center gap-3 pl-gutter text-left">
             <ChevronDown size={14} className={cx("shrink-0 text-ink-3 transition-transform", !open && "-rotate-90")} />
-            <span className={cx("truncate font-semibold", !isOn && "text-ink-2")}>{name}</span>
+            {/* the name never gives way: beside Get the minimum, a truncated name took all the shrinking and the row showed no name (card #156) */}
+            <span className={cx("shrink-0 font-semibold", !isOn && "text-ink-2")}>{name}</span>
             {modelHelp(f) && <Help inside title={name} text={modelHelp(f)!} />}
-            <span className="shrink-0 text-xs text-ink-3">{plural(mine.length, imported ? "workflow" : "operation")}</span>
+            <span className="min-w-0 truncate text-xs text-ink-3">{plural(mine.length, imported ? "workflow" : "operation")}</span>
             <span className="grow" />
             {setup.data && (isOn ? (
               <span className="flex shrink-0 items-baseline gap-2 text-xs">
@@ -230,6 +232,7 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
         status={setup.isLoading ? <span className="text-xs text-ink-3">Asking ComfyUI…</span> : pod ? <span className="font-mono text-xs text-ink-2">{on.length} on · files fetched by the pod</span> : setup.data && listed.length ? <span className={cx("font-mono text-xs", ready === listed.length ? "text-good" : "text-warn-ink")}>{readySaid(on.length, ready, listed.length)}</span> : null}
       >
         {!machine && !settings.data.allFamilies && off.length > 0 && <AllOnHint off={off.length} />}
+        {!machine && <ModelFilesLine />}
         {setup.data && !pod && downloads.data?.via === "none" && <NoRouteLine where={where} />}
         {setup.isError && <Block><ErrorNote>{setup.error.message}</ErrorNote></Block>}
         {setup.data && !setup.data.comfy.online && where && <Block className="text-ink-2">{where} does not answer: what it has is not known now.</Block>}

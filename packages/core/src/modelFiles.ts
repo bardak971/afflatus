@@ -66,3 +66,12 @@ export const isOfficialName = (families: Downloads, file: string): boolean =>
  */
 export const isOfficialFile = (families: Downloads, want: { url?: string; file: string }): boolean =>
   Boolean(want.url) && families.some((f) => (f.slots ?? []).some((x) => x.get !== undefined && x.get.url === want.url && nameOf(x.get.file) === nameOf(want.file)));
+
+/** What each model folder holds, as Settings › Model files names its kind; a folder not named here is "Other". */
+const KINDS: Record<string, string> = {
+  checkpoints: "Checkpoint", diffusion_models: "Diffusion model", unet: "Diffusion model", loras: "LoRA", vae: "VAE", text_encoders: "Text encoder", clip: "Text encoder",
+  clip_vision: "CLIP vision", upscale_models: "Upscaler", latent_upscale_models: "Upscaler", controlnet: "ControlNet", audio_encoders: "Audio encoder",
+};
+
+/** A model folder's kind of file ("loras" is "LoRA"). */
+export const kindOfFolder = (folder: string) => KINDS[folder] ?? "Other";

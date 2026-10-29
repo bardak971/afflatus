@@ -1,4 +1,7 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -183,5 +186,23 @@ describe("Model sets and the values per file", () => {
     expect((await ok(c, "model_settings")).items).toEqual([]);
     expect(await refused(c, "change_model_settings", { family: "nope", file: "x", values: {} })).toMatch(/no model family called nope/);
     await c.close();
+  });
+});
+
+describe("the model files", () => {
+  it("are listed with their use, read only: no tool deletes one", async () => {
+    const home = mkdtempSync(join(tmpdir(), "afflatus-mcp-files-"));
+    try {
+      mkdirSync(join(home, "models", "loras"), { recursive: true });
+      writeFileSync(join(home, "models", "loras", "zz-test-lamp.safetensors"), Buffer.alloc(2 ** 20, 1));
+      await updateSettings(t.db, () => ({ comfyDir: home }));
+      const c = await connect(["look"]);
+      const r = await ok(c, "model_files", {});
+      expect(r).toMatchObject({ readOnly: false, count: 1, files: [{ folder: "loras", file: "zz-test-lamp.safetensors", kind: "LoRA", uses: 0, lastUsed: null }] });
+      expect((await c.listTools()).tools.map((x) => x.name).filter((n) => /model_file/.test(n))).toEqual(["model_files"]);
+      await c.close();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
