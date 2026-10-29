@@ -986,13 +986,14 @@ export class Timelines {
     // (ownsOf). One given a form of its own (card #42: a swap where the motion drifts) keeps what its form before kept its
     // own too: read from its form's list only, the Motion transfer description typed before it was a swap went
     const source = plan.recipe ? this.registry.recipe(plan.recipe) : undefined;
-    const carry = source?.traits?.windows?.carryOn ? this.registry.recipe(source.traits.windows.carryOn) : undefined;
+    // the other forms of the source's grid: a prompt typed on a window under one of them (a Motion transfer's description
+    // on a window of a swap) stays its own whatever form it has now
+    const mates = source ? this.registry.recipes().filter((x) => x.id !== source.id && sameWindowGrid(source, x)) : [];
     const owns = mine.filter((p) => drop.includes(p.clip.id)).map((p) => {
       const inputs = JSON.parse(p.clip.inputs) as Record<string, unknown>;
       const r = p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined;
       const opens = p.clip.joined !== "continue";
-      const given = Boolean(r && source && r.id !== (opens || !carry ? source : carry).id);
-      const keys = new Set((given ? [r, source, carry] : [r]).flatMap((x) => x?.traits?.windows?.own ?? []));
+      const keys = new Set((source ? [r, source, ...mates] : [r]).flatMap((x) => x?.traits?.windows?.own ?? []));
       const from = Number(inputs[w.start]) * 1000;
       const start = !opens && p !== mine[0] && r ? from + (carriedOf(r, inputs) * 1000) / fps : from;
       return { from, start, to: from + Number(inputs[w.seconds]) * 1000, recipe: r, own: Object.fromEntries([...keys].filter((k) => k in inputs && inputs[k] !== plan.inputs[k]).map((k) => [k, inputs[k]])) };

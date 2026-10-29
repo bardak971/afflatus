@@ -466,8 +466,9 @@ export const h3Swap = defineRecipe<H3Swap>({
   partsStartOn: SWAP_STARTED_ON,
   promptFromParts: (input) => swapFromParts(input, Math.max(1, input.references?.length ?? 0)),
   traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], faceRefine: "faceRefine",
-    // a window that carries on is Motion transfer, moved by its pose (card #42: H3 · Swap motion retired, which did this by itself)
-    windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED, runUp: SWAP_RUN_UP, own: SWAP_OWN, sourceDefault: true, carryOn: "h3.motion" },
+    // every window a swap, those that carry on too (the owner, 2026-10-30: Motion transfer after a swap was Swap motion's
+    // leftover); a window is given Motion transfer by hand where the swap drifts (card #42)
+    windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED, runUp: SWAP_RUN_UP, own: SWAP_OWN, sourceDefault: true },
   },
   inputs: swapInputs,
   guide: SWAP_GUIDE,

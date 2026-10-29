@@ -8,6 +8,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **Face refine model, per clip.** Every H3 form (Video with audio, Lip sync, Swap character, Motion transfer) and Finish choose the model the faces are redrawn with: the fused refdelta turbo, any H3 reference model or hybrid, or **Clip's own model**, which runs the pass on the clip's own loader, one model in memory (a Swap held its swap model and the turbo at once, and every job reloaded the other). Swap starts on its own model, the other forms on the fused turbo, or on the clip's own where that file is missing; a clip made by the frames model, which follows no picture, takes the fused turbo, and its job says so. Face refine steps follow the model (4 on a fused or distilled turbo, 10 on a full model) unless typed. A clip made before keeps the turbo.
 - **Upscale models, per clip.** H3's latent upscaler file (the re-sampling stays on the clip's own model) and SeedVR2's model (the 3B or the 7B, on every video form) are chosen in the forms and in Finish, as the pixel upscale model was. A model one setting brings in asks a pod for its file only while that setting is on.
 
+### Changed
+- **A source made with Swap character gives every window Swap character**, the windows that carry on too. They were made Motion transfer after the first one, a leftover of the retired Swap motion. A window can still be given Motion transfer on its own (its form menu), and then carries on from the swap before it as it did.
+
 ## [0.8.2] - 2026-10-29
 
 Agents (MCP) that run the whole studio: long calls in the background with MCP Tasks (Claude Code wakes once with the result), the queue, the GPU hunt, uploads, logs and most of what the web can do, every path that spends on a rented pod held to the token's cap; Settings › Model files, every model file on this PC with how Afflatus used it, and Delete to the Recycle Bin to free the space; Access in a tab of its own.
