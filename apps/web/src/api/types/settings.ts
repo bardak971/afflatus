@@ -413,8 +413,10 @@ export interface McpToken {
   revokedAt: string | null;
   lastUsedAt: string | null;
   lastIp: string | null;
-  /** The client's name from its MCP initialize ("Claude Code"). */
+  /** The client's name and version, from its handshake ("Claude Code 2.1.312"). */
   lastClient: string | null;
+  /** Whether its client follows MCP Tasks, from its last tools/call (null: no call yet). */
+  lastTasks: boolean | null;
   /** live: used in the last 5 minutes (its dot). */
   state: "live" | "idle" | "ended" | "revoked";
   rendersThisHour: number;

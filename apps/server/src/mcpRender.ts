@@ -282,7 +282,7 @@ const render = tool({
   name: "render",
   scope: "make",
   title: "Render",
-  description: "Render a draft as it stands (or a form with values): N takes, on a machine or wherever the queue would end it first. The same path as Create's Render, with the same refusals (an unfilled input, files that give black frames). The token's renders-an-hour limit holds; a rented pod needs Spend (a token without it never lands on one, picked or pinned) and stays within the token's spend cap, its waiting and running work counted. Answers the job ids (job, queue_status follow them; job with wait waits for the end) and what it may cost. Render a draft when the user should be able to open and change what made the take in Create (new_draft, edit_draft); a form with values leaves no draft. A video comes out on the model's own frame count, a little off the seconds asked (H3's 6 s: 5.875 s): not a failure.",
+  description: "Render a draft as it stands (or a form with values): N takes, on a machine or wherever the queue would end it first. The same path as Create's Render, with the same refusals (an unfilled input, files that give black frames). The token's renders-an-hour limit holds; a rented pod needs Spend (a token without it never lands on one, picked or pinned) and stays within the token's spend cap, its waiting and running work counted. Answers the job ids (job, queue_status follow them) and what it may cost; a client that follows MCP Tasks gets that answer as a task, with each job's end, and has nothing to wait for (job's wait is for the others). Render a draft when the user should be able to open and change what made the take in Create (new_draft, edit_draft); a form with values leaves no draft. A video comes out on the model's own frame count, a little off the seconds asked (H3's 6 s: 5.875 s): not a failure.",
   input: {
     ...formArgs,
     takes: z.number().int().min(1).max(8).optional().describe("How many takes (1–8); a draft's own batch when left out."),
@@ -411,7 +411,7 @@ const job = tool({
   name: "job",
   scope: "look",
   title: "Job",
-  description: "One job: waiting (when it starts, how long it takes), running (progress, time left, phase), or ended (done with the library items it made, which view_item shows; failed with why; cancelled). `wait` holds the answer until the job ends or that many seconds pass, rather than asking again and again; a job not ended says when to check again (`hint`), from the queue's forecast.",
+  description: "One job: waiting (when it starts, how long it takes), running (progress, time left, phase), or ended (done with the library items it made, which view_item shows; failed with why; cancelled). `wait` holds the answer until the job ends or that many seconds pass, rather than asking again and again: for a client that does not follow MCP Tasks (one that does gets the long calls answered as a task, and has nothing to wait for). A job not ended says when to check again (`hint`), from the queue's forecast.",
   input: {
     job: z.string().min(1),
     wait: z.number().int().min(0).max(JOB_WAIT_MOST_S).optional().describe(`Seconds to wait for the job to end before answering (at most ${JOB_WAIT_MOST_S}); left out, it answers at once. Ask again with wait if it is still going.`),

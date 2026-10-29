@@ -51,11 +51,13 @@ const answer = (r: { content?: unknown }) => JSON.parse((r.content as Array<{ te
 
 describe("a client that takes tasks", () => {
   it("gets a task for a render, follows it, and gets the call's answer with each job's end once they are done", async () => {
-    const { token: bearer } = await token();
+    const { token: bearer, id } = await token();
     const { client, session } = await tasksClient(await urlOf(t.app), bearer);
     expect(client.getServerCapabilities()?.extensions).toHaveProperty(["io.modelcontextprotocol/tasks"]);
     const ex = await session.callTool("render", { form: RECIPE, values: VALUES, takes: 1 });
     expect(ex.kind).toBe("task");
+    // Settings › Access says it: the client with its version, and that it follows Tasks (from the call's own capabilities)
+    expect(await t.db.selectFrom("mcp_tokens").select(["last_client", "last_tasks"]).where("id", "=", id).executeTakeFirstOrThrow()).toEqual({ last_client: "zz-test tasks client 1", last_tasks: 1 });
     const handle = ex.handle!;
     const snap = await session.task(handle.taskId).snapshot();
     expect(snap).toMatchObject({ status: "working" });
@@ -151,12 +153,14 @@ describe("a client that takes tasks", () => {
 
 describe("a client without tasks", () => {
   it.each(["legacy", "modern"] as const)("gets the answer as before (%s handshake)", async (era) => {
-    const { token: bearer } = await token();
+    const { token: bearer, id } = await token();
     const c = await plainClient(await urlOf(t.app), bearer, era);
     const r = await c.callTool({ name: "render", arguments: { form: RECIPE, values: VALUES } });
     expect(r.isError).toBeFalsy();
     expect(answer(r)).toMatchObject({ jobs: [expect.any(String)], takes: 1 });
     expect((await t.db.selectFrom("mcp_tasks").select("id").execute())).toHaveLength(0);
+    // its row says Tasks are off: a long render holds that client's session
+    expect(await t.db.selectFrom("mcp_tokens").select(["last_client", "last_tasks"]).where("id", "=", id).executeTakeFirstOrThrow()).toEqual({ last_client: "zz-test plain 1", last_tasks: 0 });
     await c.close();
   });
 });

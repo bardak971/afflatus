@@ -141,11 +141,11 @@ export function serverFor(s: Services, token: McpToken, ip: string, tools: reado
   return server;
 }
 
-const ClientInfo = z.object({ name: z.string(), title: z.string().optional() });
+const ClientInfo = z.object({ name: z.string(), title: z.string().optional(), version: z.string().optional() });
 
 /**
- * The client's name, what the token's last use names it by: from its initialize (2025-era), or from the envelope every
- * 2026-07-28 request carries in its `_meta`.
+ * The client's name and version ("Claude Code 2.1.312"), what the token's last use names it by: from its initialize
+ * (2025-era), or from the envelope every 2026-07-28 request carries in its `_meta`.
  */
 export function clientOf(body: unknown): string | undefined {
   const msgs = Array.isArray(body) ? body : [body];
@@ -154,9 +154,20 @@ export function clientOf(body: unknown): string | undefined {
       z.object({ method: z.literal("initialize"), params: z.object({ clientInfo: ClientInfo }) }).transform((m) => m.params.clientInfo),
       z.object({ params: z.object({ _meta: z.object({ "io.modelcontextprotocol/clientInfo": ClientInfo }) }) }).transform((m) => m.params._meta["io.modelcontextprotocol/clientInfo"]),
     ]).safeParse(m);
-    if (parsed.success) return parsed.data.title || parsed.data.name;
+    if (parsed.success) return [parsed.data.title || parsed.data.name, parsed.data.version].filter(Boolean).join(" ");
   }
   return undefined;
+}
+
+/**
+ * Whether the client follows MCP Tasks, from a tools/call in the body: the capabilities that call declares in its own
+ * envelope (a 2025-era call has none: no). Undefined without a tools/call, which says nothing of it. Settings › Access
+ * shows it on the token's row, since a client that does not follow them holds its session through a long render.
+ */
+export function tasksOf(body: unknown): boolean | undefined {
+  const calls = (Array.isArray(body) ? body : [body]).filter((m) => (m as { method?: unknown } | null)?.method === "tools/call");
+  if (!calls.length) return undefined;
+  return calls.some((m) => takesTasks((m as { params?: { _meta?: unknown } }).params?._meta));
 }
 
 /** Who a request to /mcp is from, handed to the server factory through the handler's auth info. */
@@ -201,7 +212,7 @@ export function registerMcp(app: FastifyInstance, s: Services): void {
   }, async (req, reply) => {
     const token = tokenOf.get(req)!;
     const ip = req.socket.remoteAddress ?? "";
-    await s.mcp.tokens.touch(token, ip, clientOf(req.body));
+    await s.mcp.tokens.touch(token, ip, clientOf(req.body), tasksOf(req.body));
     const caller: Caller = { token, ip, self: selfUrl(req) };
     try {
       const res = await handler.fetch(webRequest(req), { parsedBody: req.body, authInfo: { token: token.id, clientId: token.id, scopes: [...token.scopes], extra: { caller } } });
