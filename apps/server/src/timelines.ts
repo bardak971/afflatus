@@ -1,7 +1,7 @@
 import { chatJson } from "./llm";
 import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
-import { carriedOf, carryOver, joinFrames, joinWay, laysSound, madeAroundRecording, musicPlan, recordingSpecOf, sungHead, plural, recordingPart, recordingParts, sameWindowGrid, CUT_WINDOW, type ClipGrid, type CueValue, type CutMarks, trimIn, typedSeed, type ClipMusic, type SourceWindow, type InputSpec, type Recipe, type Transition } from "@afflatus/core";
+import { carriedOf, carryOver, joinFrames, joinWay, laysSound, madeAroundRecording, musicPlan, recordingSpecOf, sungHead, plural, recordingPart, recordingParts, sameWindowGrid, CUT_WINDOW, type ClipGrid, type CueValue, type CutMarks, type SourceMarks, trimIn, typedSeed, type ClipMusic, type SourceWindow, type InputSpec, type Recipe, type Transition } from "@afflatus/core";
 import { newId, now, OWNER, toRun, type Db } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError, notFound } from "./errors";
@@ -712,9 +712,11 @@ export class Timelines {
     const fps = this.registry.recipe(last.clip.recipe_id ?? "")?.traits?.fps ?? 24;
     const w = driving.window!;
     const inputs = JSON.parse(last.clip.inputs) as Record<string, unknown>;
-    // a part holds its frames and half a frame more (sourceWindows): it ends its whole frames after its start
-    const after = Math.round((Number(inputs[w.start]) + Math.floor(Number(inputs[w.seconds]) * fps + 1e-6) / fps) * 1000);
-    return { kept: mine.length, drop: [] as string[], after, index: all.findIndex((p) => p.clip.id === last.clip.id) + 1, form: JSON.parse(mine[0]!.clip.inputs) as Record<string, unknown> };
+    // a part holds its frames and half a frame more (sourceWindows): it ends its whole frames after its start, less what its
+    // take hides (one ended on a scene cut: the next window opens the new shot there)
+    const hides = plan.hidden?.[last.clip.id] ?? 0;
+    const after = Math.round((Number(inputs[w.start]) + Math.floor(Number(inputs[w.seconds]) * fps + 1e-6) / fps) * 1000) - hides;
+    return { kept: mine.length, drop: [] as string[], after, opens: hides > 0, index: all.findIndex((p) => p.clip.id === last.clip.id) + 1, form: JSON.parse(mine[0]!.clip.inputs) as Record<string, unknown> };
   }
 
   /**
@@ -734,9 +736,9 @@ export class Timelines {
    * user (`said`: rendered windows that never come back passed, the first time).
    */
   async trimSource(timelineId: string, to: { fromMs: number; toMs: number }): Promise<{ clips: string[]; toMs: number; said?: string }> {
-    // the source's scene cuts read before the timeline is held, as makeFromSource does (a moved start makes it anew in the turn)
+    // the source's marks read before the timeline is held, as makeFromSource does (a moved start makes it anew in the turn)
     const asked = sourceOfRow((await this.row(timelineId)).source);
-    if (asked?.snap) await this.media.scenes(asked.asset).catch(() => {});
+    if (asked && asked.withinMs > 0) await this.sourceMarksOf(asked.asset).catch(() => {});
     const out = await this.history.oneAtATime(timelineId, async () => {
       const t = await this.row(timelineId);
       const plan = sourceOfRow(t.source);
@@ -755,12 +757,14 @@ export class Timelines {
       const all = await this.placed(timelineId);
       const ofSource = clipsOfSource(plan, all.map((p) => p.clip), (r) => this.registry.recipe(r));
       const mine = all.filter((p) => ofSource.includes(p.clip.id));
-      // a window that carries on starts its part early by the frames it carries (its run-up): its own frames begin there
-      const part = (clip: { inputs?: unknown; joined?: unknown }, first: boolean) => {
+      // a window that carries on starts its part early by the frames it carries (its run-up): its own frames begin there; one
+      // ended on a scene cut stops there, its take hiding what its part runs past it (SourcePlan.hidden)
+      const part = (clip: { id?: unknown; inputs?: unknown; joined?: unknown }, first: boolean) => {
         const inputs = JSON.parse(String(clip.inputs)) as Record<string, unknown>;
         const from = Number(inputs[w.start]) * 1000;
         const own = clip.joined === "continue" && !first ? from + (carriedOf(recipe, inputs) * 1000) / fps : from;
-        return { from, start: own, end: from + Number(inputs[w.seconds]) * 1000, inputs };
+        const hides = plan.hidden?.[String(clip.id)] ?? 0;
+        return { from, start: own, end: from + Number(inputs[w.seconds]) * 1000 - hides, inputs };
       };
       let parked = [...(plan.parked ?? [])];
       let shortened = plan.shortened;
@@ -865,7 +869,7 @@ export class Timelines {
     const ofSource = clipsOfSource(plan, all.map((p) => p.clip), (r) => this.registry.recipe(r));
     if (!ofSource.length) throw httpError("The source has no clips to make anew: make them first.");
     if ((await this.busyOf(ofSource)).size) throw httpError("A clip of the source is rendering or in the queue: let it end, or stop it, to change the source's model.", 409);
-    return { kept: 0, drop: ofSource, after: undefined, index: all.findIndex((p) => p.clip.id === ofSource[0]), form: undefined };
+    return { kept: 0, drop: ofSource, after: undefined, opens: false, index: all.findIndex((p) => p.clip.id === ofSource[0]), form: undefined };
   }
 
   /**
@@ -970,8 +974,11 @@ export class Timelines {
     const fps = this.registry.recipe(mine[0]!.clip.recipe_id ?? "")?.traits?.fps ?? 24;
     const w = driving.window!;
     const lastInputs = last ? (JSON.parse(last.clip.inputs) as Record<string, unknown>) : null;
-    // a part holds its frames and half a frame more (sourceWindows): it ends its whole frames after its start
-    const after = lastInputs ? Math.round((Number(lastInputs[w.start]) + Math.floor(Number(lastInputs[w.seconds]) * fps + 1e-6) / fps) * 1000) : undefined;
+    // a part holds its frames and half a frame more (sourceWindows): it ends its whole frames after its start, less what its
+    // take hides (one ended on a scene cut: the next window opens the new shot there)
+    const hides = last ? (plan.hidden?.[last.clip.id] ?? 0) : 0;
+    const after = lastInputs ? Math.round((Number(lastInputs[w.start]) + Math.floor(Number(lastInputs[w.seconds]) * fps + 1e-6) / fps) * 1000) - hides : undefined;
+    const opens = hides > 0;
     // each window dropped, where its part lies (`from`, its own frames from `start`, past its run-up), its form and what it
     // keeps its own, as typed on it (what the source's form has is no window's own): the window made in its place takes it
     // (ownsOf). One given a form of its own (card #42: a swap where the motion drifts) keeps what its form before kept its
@@ -988,7 +995,7 @@ export class Timelines {
       const start = !opens && p !== mine[0] && r ? from + (carriedOf(r, inputs) * 1000) / fps : from;
       return { from, start, to: from + Number(inputs[w.seconds]) * 1000, recipe: r, own: Object.fromEntries([...keys].filter((k) => k in inputs && inputs[k] !== plan.inputs[k]).map((k) => [k, inputs[k]])) };
     });
-    return { kept: kept.length, drop, after, index: all.findIndex((p) => p.clip.id === drop[0]), form: JSON.parse(mine[0]!.clip.inputs) as Record<string, unknown>, owns };
+    return { kept: kept.length, drop, after, opens, index: all.findIndex((p) => p.clip.id === drop[0]), form: JSON.parse(mine[0]!.clip.inputs) as Record<string, unknown>, owns };
   }
 
   /** The click on the source's first frame (or none) given to the first clip made from it, the one whose window starts there. */
@@ -1055,9 +1062,9 @@ export class Timelines {
    * `remembered`: the step is the caller's, kept already in this turn (a trim out that adds windows: one step for Undo).
    */
   async makeFromSource(timelineId: string, opts: { again?: boolean; anew?: boolean; recipe?: string; append?: boolean; stretch?: { fromMs: number; toMs: number }; remembered?: boolean } = {}): Promise<string[]> {
-    // the source's scene cuts read before the timeline is held (the first time, ffmpeg reads every frame of it): inside, they are read back
+    // the source's marks read before the timeline is held (the first time, ffmpeg reads every frame of it): inside, they are read back
     const asked = sourceOfRow((await this.row(timelineId)).source);
-    if (asked?.snap) await this.media.scenes(asked.asset).catch(() => {});
+    if (asked && asked.withinMs > 0) await this.sourceMarksOf(asked.asset).catch(() => {});
     const ids = await this.history.oneAtATime(timelineId, async () => {
       const t = await this.row(timelineId);
       const read = sourceOfRow(t.source);
@@ -1106,7 +1113,7 @@ export class Timelines {
         ...piece.after.filter((part) => !part.rows.every(ofGrid)).map((part) => ({ aside: part, k, fromMs: spans.get(part)!.fromMs, toMs: spans.get(part)!.toMs })),
         { aside: null, k, fromMs: piece.fromMs, toMs: piece.toMs },
       ]);
-      const scenes = (id: string) => this.media.scenes(id);
+      const marks = (id: string) => this.sourceMarksOf(id);
       // planned in order: windows on the grid seldom end exactly where they are asked to (a step of 17 frames on H3), so a
       // part made anew starts where the windows before it end, and the piece after it where its own end: they meet. The
       // last window before a part kept as it was (its edge fixed) runs past its start to the grid's next count instead,
@@ -1120,15 +1127,19 @@ export class Timelines {
         const chained = reached !== undefined && (segment.aside || segments[g - 1]?.aside) ? reached : undefined;
         const fromMs = chained ?? segment.fromMs;
         const carries = segment.aside ? (fromMs > start + 50 ? fromMs : undefined) : segment.k === 0 && !pieces[0]!.after.length ? again?.after : undefined;
-        let made = await planWindows({ ...plan, fromMs, toMs: segment.toMs }, recipe, video, scenes, carries);
+        // after kept clips whose last ended on a scene cut, the first window opens the new shot there
+        const opensAfter = carries !== undefined && carries === again?.after && Boolean(again?.opens);
+        let made = await planWindows({ ...plan, fromMs, toMs: segment.toMs }, recipe, video, marks, carries, opensAfter);
         const next = segments[g + 1];
         const keptNext = !segment.aside && next && !next.aside ? pieces[next.k]!.after[0] : undefined;
         const span = keptNext ? spans.get(keptNext) : undefined;
         if (shape && span && made.length && made.at(-1)!.toMs < span.fromMs - 500 / shape.fps) {
-          made = (await windowsReaching(plan, recipe, video, scenes, { fromMs, edgeMs: span.fromMs, limitMs: span.toMs, after: carries })) ?? made;
+          made = (await windowsReaching(plan, recipe, video, marks, { fromMs, edgeMs: span.fromMs, limitMs: span.toMs, after: carries, opens: opensAfter })) ?? made;
           const over = made.at(-1)!.toMs - span.fromMs;
           if (over > 500 / shape.fps) hiddenAt.set(cutUp.flat().length + made.length - 1, Math.round(over));
         }
+        // a window ended on a scene cut hides what its part runs past it, so that it stops on the cut
+        for (const [k, w] of made.entries()) if (w.hideMs && !hiddenAt.has(cutUp.flat().length + k)) hiddenAt.set(cutUp.flat().length + k, w.hideMs);
         cutUp.push(made);
         reached = made.length ? made.at(-1)!.toMs : chained;
       }
@@ -1213,7 +1224,7 @@ export class Timelines {
         // the source's start sits where its stretch now plays from; the clip it was taken from is gone. Cut again, it stays where
         // it was, and the clips it no longer has keep nothing apart
         const apart = plan.apart ? Object.fromEntries(Object.entries(plan.apart).filter(([id]) => !again?.drop.includes(id))) : undefined;
-        const placedPlan = { ...(again ? { ...plan, clip: null, ...(apart ? { apart } : {}) } : { ...plan, atMs: startsAt - plan.fromMs, clip: null }), recipe: recipe.id, ...(anew ? { parked: [], shortened: undefined, removed: parts.length ? parts : undefined, hidden: Object.keys(hidden).length ? hidden : undefined } : {}) };
+        const placedPlan = { ...(again ? { ...plan, clip: null, ...(apart ? { apart } : {}) } : { ...plan, atMs: startsAt - plan.fromMs, clip: null }), recipe: recipe.id, hidden: Object.keys(hidden).length ? hidden : undefined, ...(anew ? { parked: [], shortened: undefined, removed: parts.length ? parts : undefined } : {}) };
         await tx.updateTable("timelines").set({ source: JSON.stringify(placedPlan), updated_at: now() }).where("id", "=", timelineId).execute();
         if (picture) await this.keep(picture, tx);
         return made.filter((id) => !aside.includes(id));
@@ -1300,6 +1311,25 @@ export class Timelines {
    * loudness (the voice band's, else the whole sound's), kept as its curve on the track is. A sound ffmpeg could not read
    * is said as such; its loudness not measured, a part with no pause or line in its window ends at the length asked.
    */
+  /**
+   * What a source is cut at besides its length (sourceWindows): its scene cuts, the pauses in its speech and its loudness
+   * (the voice band's, else the whole sound's), each kept beside it once read. A video without sound has none of the last two;
+   * one whose cuts could not be read is cut at the others (not kept: read again next time), not refused.
+   */
+  async sourceMarksOf(assetId: string): Promise<SourceMarks> {
+    const video = await this.assetRow(assetId);
+    if (!video) throw notFound("the source video");
+    const [{ cuts }, pauses, levels] = await Promise.all([
+      this.media.scenes(assetId).catch(() => ({ cuts: [] as number[] })),
+      this.media.pauses(assetId).then((p) => p.pauses, () => []),
+      this.media.motion(assetId, video).then((m) => {
+        const db = m.speech ?? m.sound;
+        return db?.length ? { rate: m.rate, db } : null;
+      }, () => null),
+    ]);
+    return { cutsMs: cuts, pauses, levels };
+  }
+
   private async cutMarksOf(sound: AssetRow): Promise<CutMarks> {
     const { pauses, lines } = await this.media.pauses(sound.id).catch((err: Error) => {
       throw err instanceof CutError ? httpError(`The recording's sound could not be read (${err.message}).`) : err;

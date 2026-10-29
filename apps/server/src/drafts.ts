@@ -334,7 +334,6 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
     if (!d) throw draftNotFound();
     return d;
   };
-  const pending = unwrittenOf(s.db);
 
   /** The drafts, with their covers and counts (draftsList). */
   app.get("/api/drafts", async (req) => {
@@ -382,10 +381,21 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
     return { changed };
   });
 
-  app.delete<{ Params: { id: string } }>("/api/drafts/:id", async (req) => oneAtATime(s.db, `draft:${req.params.id}`, async () => {
-    await get(req.params.id);
-    pending.delete(req.params.id);
-    await s.db.deleteFrom("drafts").where("id", "=", req.params.id).execute();
+  app.delete<{ Params: { id: string } }>("/api/drafts/:id", async (req) => {
+    await deleteDraft(s, req.params.id);
     return { ok: true };
-  }));
+  });
+}
+
+/**
+ * A draft deleted (DELETE /api/drafts/:id, MCP's delete_draft), in its own save's turn. `unlessMade`: refused when
+ * something was made from it and is still there (madeFrom), for an agent, which has no Undo for it.
+ */
+export function deleteDraft(s: Services, id: string, unlessMade = false): Promise<void> {
+  return oneAtATime(s.db, `draft:${id}`, async () => {
+    if (!(await findDraft(s.db, id))) throw draftNotFound();
+    if (unlessMade && (await madeFrom(s.db, [id])).has(id)) throw httpError("Something was made from this draft (in the library, the bin or the queue): only the user deletes it, in Studio.", 409);
+    unwrittenOf(s.db).delete(id);
+    await s.db.deleteFrom("drafts").where("id", "=", id).execute();
+  });
 }

@@ -11,7 +11,7 @@ import { needsComfy } from "./queueOffline";
 import { refusalOf } from "./rentedDeploy";
 import { OUT_OF_MEMORY } from "./rendersRead";
 import { inUseSaid } from "./rentedVolumes";
-import { isPodMachineId, type GpuOffer, type PodSpec } from "./runpod";
+import { isPodMachineId, runningRate, type GpuOffer, type PodSpec } from "./runpod";
 import type { Services } from "./services";
 import { deploySchema, MAX_MACHINES, readSettings } from "./settings";
 
@@ -44,7 +44,7 @@ const RANKED_RENDERS = 40;
 const ASIDE_MS = 5 * 60_000;
 
 const choicesSchema = deploySchema.omit({ gpu: true });
-const askSchema = z.strictObject({
+export const askSchema = z.strictObject({
   mode: z.enum(["value", "fast", "cheap"]).default("value"),
   ceiling: z.number().positive().max(1000),
   leftOut: z.array(z.string().max(120)).max(200).default([]),
@@ -56,14 +56,14 @@ const askSchema = z.strictObject({
 });
 // its own fields without the start's defaults: a field left out is kept as it is (with .partial() a default still filled
 // it in, and a change of the hold alone set the GPUs left out back to none)
-const changeSchema = z.strictObject({
+export const changeSchema = z.strictObject({
   mode: z.enum(["value", "fast", "cheap"]).optional(),
   ceiling: z.number().positive().max(1000).optional(),
   leftOut: z.array(z.string().max(120)).max(200).optional(),
   giveUpMinutes: z.number().int().min(10).max(24 * 60).optional(),
   hold: z.enum(["rest", "keep"]).optional(),
 });
-const rankSchema = z.strictObject({
+export const rankSchema = z.strictObject({
   mode: z.enum(["value", "fast", "cheap"]).default("value"),
   ceiling: z.number().positive().max(1000),
   leftOut: z.array(z.string().max(120)).max(200).default([]),
@@ -110,6 +110,11 @@ const stateSchema = z.object({
   /** The rented machines there were when the deploy under way began: after a restart, the one not among them is its pod. */
   before: z.array(z.string()).default([]),
   found: z.object({ gpu: z.string(), name: z.string(), price: z.number(), dataCenter: z.string().nullable(), at: z.string() }).nullable(),
+  /**
+   * The MCP token whose start_hunt began it (empty: the user's): its pod is that token's run (rentedSchema.mcpToken), and
+   * the deploy is asked of its cap first (mayDeploy). A change in Afflatus makes the hunt the user's.
+   */
+  mcpToken: z.string().default(""),
 });
 export type HuntState = z.infer<typeof stateSchema>;
 
@@ -150,6 +155,12 @@ export class Hunt {
   now: () => number = Date.now;
   /** Where the user is told (notify.ts; set by services.ts): a GPU found, the hunt given up. */
   tell: Say | null = null;
+  /**
+   * Whether an MCP token's hunt may deploy a pod that bills `hourUsd` an hour now (set by services.ts: mcpMachines.ts
+   * mayStart, its Spend, its cap and the app's caps as deploy_pod asks them); throws why not. Time passes between the
+   * start and the GPU found: the token may have spent, been revoked or lost Spend since. A money path.
+   */
+  mayDeploy: ((token: string, hourUsd: number, gpu: string) => Promise<void>) | null = null;
 
   constructor(private readonly s: Services) {}
 
@@ -353,7 +364,8 @@ export class Hunt {
 
   // ---------------------------------------------------------------- start, change, cancel
 
-  async start(asked: z.infer<typeof askSchema>) {
+  /** `mcpToken`: the MCP token whose start_hunt asked for it (its pod is then that token's run). */
+  async start(asked: z.infer<typeof askSchema>, mcpToken = "") {
     if (this.state) throw httpError("A GPU hunt is under way already: change it, or cancel it first.", 409);
     if (this.s.rented.busy) throw httpError("A deploy is under way: wait for it to end.", 409);
     const settings = await readSettings(this.s.db);
@@ -377,7 +389,7 @@ export class Hunt {
       mode: asked.mode, ceiling: asked.ceiling, leftOut: asked.leftOut, cloud: asked.deploy.cloud, dataCenter,
       deploy: { ...asked.deploy, files, again: false }, hold: asked.hold,
       startedAt: new Date(at).toISOString(), giveUpAt: new Date(at + asked.giveUpMinutes * 60_000).toISOString(),
-      status: "hunting", machine: null, pausedByHunt: [], asks: 0, fails: 0, lastError: null, deployingSince: null, before: [], found: null,
+      status: "hunting", machine: null, pausedByHunt: [], asks: 0, fails: 0, lastError: null, deployingSince: null, before: [], found: null, mcpToken,
     };
     this.state = st;
     this.ranking = null;
@@ -391,9 +403,12 @@ export class Hunt {
     return this.view();
   }
 
-  async change(asked: z.infer<typeof changeSchema>) {
+  /** `mcpToken`: the MCP token whose change_hunt asked it; left out (Afflatus's own page), the hunt becomes the user's. */
+  async change(asked: z.infer<typeof changeSchema>, mcpToken = "") {
     const st = this.state;
     if (!st) throw httpError("No GPU hunt is under way.", 404);
+    // the user's change in Afflatus makes the pod theirs, as their own Start of a token's pod does (rented.ts start)
+    st.mcpToken = mcpToken;
     if (asked.giveUpMinutes !== undefined) {
       const giveUpAt = Date.parse(st.startedAt) + asked.giveUpMinutes * 60_000;
       if (giveUpAt <= this.now()) throw httpError("That time is past already: give it longer, or cancel the hunt.");
@@ -538,6 +553,14 @@ export class Hunt {
     // while it ran): it is coming for these renders, and a second pod would be billed for the same ones. Asked again next round
     if (this.s.rented.busy || (await readSettings(this.s.db)).machines.some((m) => this.s.rented.firstStarting(m))) return this.save();
     if (this.state !== st) return;
+    // an MCP token's hunt asks its cap first, with the pod's price as deploy_pod counts it (its GPU and its container disk,
+    // kept small with a volume: rentedDeploy.ts): refused, it ends, as at the app's caps (each deploy would be refused alike)
+    if (st.mcpToken) {
+      const hour = runningRate(pick.price, st.deploy.volume ? Math.min(st.deploy.disk, 40) : st.deploy.disk, 0);
+      const refused = await (this.mayDeploy?.(st.mcpToken, hour, pick.name) ?? Promise.reject(new Error("no check of the MCP token's cap is set"))).then(() => null, (err: Error) => err);
+      if (this.state !== st) return;
+      if (refused) return this.end(`${pick.name} came free, and its deploy was refused for the MCP token that started the hunt: ${refused.message.replace(/\.$/, "")}`);
+    }
     st.status = "deploying";
     st.deployingSince = new Date(this.now()).toISOString();
     this.deployCall = true;
@@ -550,7 +573,7 @@ export class Hunt {
       made = await this.s.rented.deploy(async () => {
         const late = await this.lateFiles(st).catch(() => []);
         return { ...st.deploy, files: [...st.deploy.files, ...late], gpu: pick.id, again: false };
-      });
+      }, { mcpToken: st.mcpToken });
     } catch (err) {
       this.deployCall = false;
       st.deployingSince = null;

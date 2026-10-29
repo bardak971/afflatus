@@ -1,4 +1,4 @@
-import { gridAtOrBefore, sourceWindows, windowBounds, windowShapeOf, type Recipe, type SourceWindow } from "@afflatus/core";
+import { CUT_WINDOW, CUT_WINDOW_MOST, gridAtOrBefore, sourceWindows, windowBounds, windowShapeOf, type Recipe, type SourceMarks, type SourceWindow } from "@afflatus/core";
 import { z } from "zod";
 import { httpError } from "./errors";
 import type { AssetRow } from "./timelineModel";
@@ -20,8 +20,12 @@ export interface SourcePlan {
   recipe: string | null;
   windowMs: number;
   inputs: Record<string, unknown>;
-  /** Windows end at the source's scene cuts, the next one a new shot. */
-  snap: boolean;
+  /**
+   * ± of the window, in ms, as a recording's Lip sync clips are cut: a window ends within that much of `windowMs` at the best
+   * spot there (a scene cut, the next window a new shot; a pause in the speech; the quietest moment); 0: every window that
+   * long (sourceWindows). A source of before (2026-10-29) with its scene cuts on reads as CUT_WINDOW, off as 0.
+   */
+  withinMs: number;
   clip: string | null;
   /**
    * Who a swap replaces: the point clicked on the stretch's first frame (at `fromMs`), as shares of its width and height.
@@ -66,7 +70,7 @@ export const sourcePatch = z
     windowMs: z.number().min(500).max(60_000).optional(),
     /** The model's form every window is made with (what was touched). */
     inputs: z.record(z.string().max(64), z.unknown()).refine((x) => JSON.stringify(x).length < 64_000, "too large").optional(),
-    snap: z.boolean().optional(),
+    withinMs: z.number().min(0).max(CUT_WINDOW_MOST * 1000).optional(),
     clip: z.string().nullable().optional(),
     pick: z.strictObject({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) }).nullable().optional(),
   })
@@ -83,7 +87,7 @@ export function sourceOfRow(raw: string | null | undefined): SourcePlan | null {
     const older = { ...(x.picture ? { picture: x.picture } : {}), ...(x.prompt ? { prompt: x.prompt } : {}), ...(typeof x.seed === "number" ? { seed: x.seed } : {}) };
     return {
       asset: x.asset, atMs: Number(x.atMs) || 0, fromMs: Number(x.fromMs) || 0, toMs: Number(x.toMs) || 0, recipe: x.recipe ?? null,
-      windowMs: Number(x.windowMs) || 5000, inputs: { ...older, ...(x.inputs && typeof x.inputs === "object" ? x.inputs : {}) }, snap: Boolean(x.snap), clip: x.clip ?? null,
+      windowMs: Number(x.windowMs) || 5000, inputs: { ...older, ...(x.inputs && typeof x.inputs === "object" ? x.inputs : {}) }, withinMs: withinOf(x), clip: x.clip ?? null,
       ...(x.pick && typeof x.pick.x === "number" && typeof x.pick.y === "number" ? { pick: { x: x.pick.x, y: x.pick.y } } : {}),
       ...(x.apart && typeof x.apart === "object" ? { apart: Object.fromEntries(Object.entries(x.apart).filter(([, v]) => Array.isArray(v) && v.length).map(([k, v]) => [k, v.filter((i): i is string => typeof i === "string")])) } : {}),
       ...(Array.isArray(x.parked) && x.parked.length ? { parked: x.parked.filter((p) => p && typeof p.clip === "object" && Array.isArray(p.takes)) } : {}),
@@ -96,13 +100,23 @@ export function sourceOfRow(raw: string | null | undefined): SourcePlan | null {
   }
 }
 
+/** A source's ± as kept: its own, else from the scene cuts switch it had before (on: the recording's ±; off: none). */
+function withinOf(x: { withinMs?: unknown; snap?: unknown }): number {
+  const own = Number(x.withinMs);
+  if (x.withinMs !== undefined && Number.isFinite(own) && own >= 0) return own;
+  return x.snap ? CUT_WINDOW * 1000 : 0;
+}
+
+/** A new source's ±: the one a recording is cut with. */
+export const SOURCE_WITHIN_MS = CUT_WINDOW * 1000;
+
 /** A source after a patch: a new video starts whole, at `atMs`, with the form of the one before it kept. */
 export function patchedSource(before: SourcePlan | null, patch: NonNullable<SourcePatch>, video: Pick<AssetRow, "id" | "duration_ms"> | null, endMs: number): SourcePlan {
   const fresh = Boolean(patch.asset && patch.asset !== before?.asset);
   if (!before && !patch.asset) throw httpError("Drop a video on the Source lane first.");
   const length = video?.duration_ms ?? 0;
   const base: SourcePlan = fresh || !before
-    ? { asset: patch.asset!, atMs: endMs, fromMs: 0, toMs: length, recipe: before?.recipe ?? null, windowMs: before?.windowMs ?? 5000, inputs: before?.inputs ?? {}, snap: before?.snap ?? false, clip: null }
+    ? { asset: patch.asset!, atMs: endMs, fromMs: 0, toMs: length, recipe: before?.recipe ?? null, windowMs: before?.windowMs ?? 5000, inputs: before?.inputs ?? {}, withinMs: before?.withinMs ?? SOURCE_WITHIN_MS, clip: null }
     : before;
   const next: SourcePlan = {
     ...base,
@@ -180,15 +194,15 @@ export function windowRunUp(recipe: Recipe<any> | undefined, inputs: Record<stri
 const round4 = (s: number) => Math.round(s * 10_000) / 10_000;
 
 /**
- * The windows a source's stretch is made in, with the scene cuts asked for: the source's as kept beside it
- * (TimelineMedia.scenes, read with ffmpeg once), not read again on every Make.
+ * The windows a source's stretch is made in, about its window ± its `withinMs`, at the spots its `marks` say (its scene
+ * cuts, pauses and loudness, kept beside it once read: Timelines.sourceMarksOf), not read again on every Make. `after`:
+ * cut again after the clips kept, from where the last of them ends, carrying on from it unless it ended on a cut (`opens`).
  */
-export async function planWindows(plan: SourcePlan, recipe: Recipe<any>, video: AssetRow, scenes: (assetId: string) => Promise<{ cuts: number[] }>, after?: number): Promise<SourceWindow[]> {
+export async function planWindows(plan: SourcePlan, recipe: Recipe<any>, video: AssetRow, marks: (assetId: string) => Promise<SourceMarks>, after?: number, opens = false): Promise<SourceWindow[]> {
   const shape = windowsOf(recipe, plan.inputs);
   if (!shape) throw httpError(`${recipe.title} does not make a long video window by window.`);
-  const cutsMs = plan.snap ? (await scenes(video.id)).cuts : [];
-  // cut again after the clips kept: from where the last of them ends, carrying on from it
-  return sourceWindows({ fromMs: after ?? plan.fromMs, toMs: plan.toMs, windowMs: plan.windowMs, shape, cutsMs, ...(after !== undefined ? { continues: true } : {}) });
+  const read = plan.withinMs > 0 ? await marks(video.id) : {};
+  return sourceWindows({ fromMs: after ?? plan.fromMs, toMs: plan.toMs, windowMs: plan.windowMs, withinMs: plan.withinMs, shape, ...read, ...(after !== undefined && !opens ? { continues: true } : {}) });
 }
 
 /**
@@ -199,10 +213,10 @@ export async function planWindows(plan: SourcePlan, recipe: Recipe<any>, video: 
  * (within what one job takes, the nearest first), the plan whose last window runs least past the edge: that much is hidden on its take
  * (SourcePlan.hidden), rendered for nothing. Null when none reaches it.
  */
-export async function windowsReaching(plan: SourcePlan, recipe: Recipe<any>, video: AssetRow, scenes: (assetId: string) => Promise<{ cuts: number[] }>, o: { fromMs: number; edgeMs: number; limitMs: number; after?: number }): Promise<SourceWindow[] | null> {
+export async function windowsReaching(plan: SourcePlan, recipe: Recipe<any>, video: AssetRow, marks: (assetId: string) => Promise<SourceMarks>, o: { fromMs: number; edgeMs: number; limitMs: number; after?: number; opens?: boolean }): Promise<SourceWindow[] | null> {
   const shape = windowsOf(recipe, plan.inputs);
   if (!shape) return null;
-  const cutsMs = plan.snap ? (await scenes(video.id)).cuts : [];
+  const read = plan.withinMs > 0 ? await marks(video.id) : {};
   const frameMs = 1000 / shape.fps;
   const { leastMs, mostMs } = windowBounds(shape);
   // every length a window may be asked for, a frame apart, the one asked first, then the nearest to it
@@ -211,7 +225,7 @@ export async function windowsReaching(plan: SourcePlan, recipe: Recipe<any>, vid
   let best: { windows: SourceWindow[]; over: number } | null = null;
   for (const windowMs of lengths) {
     for (let more = 0; o.edgeMs + more * frameMs < o.limitMs; more++) {
-      const windows = sourceWindows({ fromMs: o.after ?? o.fromMs, toMs: o.edgeMs + more * frameMs, windowMs, shape, cutsMs, ...(o.after !== undefined ? { continues: true } : {}) });
+      const windows = sourceWindows({ fromMs: o.after ?? o.fromMs, toMs: o.edgeMs + more * frameMs, windowMs, withinMs: plan.withinMs, shape, ...read, ...(o.after !== undefined && !o.opens ? { continues: true } : {}) });
       const over = (windows.at(-1)?.toMs ?? -Infinity) - o.edgeMs;
       if (over < -frameMs / 2) continue;
       if (!best || over < best.over - 1) best = { windows, over };

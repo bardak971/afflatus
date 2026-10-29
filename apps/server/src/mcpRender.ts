@@ -110,10 +110,10 @@ function podsFor(j: { status: string; machine_id?: string | null; pin_machine?: 
 /**
  * What this token's work waiting or running now (renders and model loads) may still cost on rented pods (USD), the idle
  * time it leaves on a pod it did not start counted once: its work counted before it is billed. With how many jobs that is,
- * for a refusal to say.
+ * for a refusal to say. `except`: jobs left out, counted apart by the caller (run_on, use_only: where they are moved to).
  */
-export async function committedSpend(s: Services, machines: readonly Machine[], tokenId: string): Promise<{ usd: number; jobs: number }> {
-  const jobs = await activeJobs(s, tokenId);
+export async function committedSpend(s: Services, machines: readonly Machine[], tokenId: string, except: ReadonlySet<string> = new Set()): Promise<{ usd: number; jobs: number }> {
+  const jobs = (await activeJobs(s, tokenId)).filter((j) => !except.has(j.id));
   if (!jobs.length) return { usd: 0, jobs: 0 };
   const rates = podsOf(s, machines);
   const pods = machines.filter((m) => m.rented);
@@ -228,6 +228,44 @@ export async function mayQueueAll(s: Services, ctx: ToolCtx, at: Seen, jobs: Rea
   const adds = `${plural(takes, "job")} on ${may.length === 1 ? quoted(machineName(may[0]!)) : `the dearest of ${plural(may.length, "pod")} up`}${tail ? ", with the pod's idle time after" : ""}`;
   await ctx.maySpend(usd + work.usd, { committed: [workCommitted(work)], adds: { what: adds, usd } });
   return usd;
+}
+
+/**
+ * Whether this token may move these waiting jobs where they may then land on the rented pods `onto` (run_on, use_only),
+ * as render asks it of a render sent there: Spend, and its cap with the moved jobs counted on those pods (each at its
+ * forecast there, the idle time after once) beside its other work running and waiting. Without Spend, a job pinned onto a
+ * pod is refused, and so is a job of the user's that the move lets go onto one (`pinned` false: unpinned while pods are
+ * up); this token's own unpinned jobs never land on a pod anyway (queuePlan.ts offPods). A money path: what a token moves
+ * onto a pod is its to pay, so the user's jobs it moves are made its own (jobs.mcp_token_id): counted from then on as its
+ * own are (committedSpend, capHeld, spentThisMonth), never moved for nothing call after call. Answers those job ids, to
+ * be made its own by the caller in the same turn (`mcp-render:<token>`) as the move.
+ */
+export async function mayMove(s: Services, ctx: ToolCtx, rows: ReadonlyArray<Pick<Tables["jobs"], "id" | "recipe_id" | "inputs" | "warm" | "mcp_token_id" | "label">>, onto: readonly Machine[], o: { machines: readonly Machine[]; pinned: boolean; what: string }): Promise<string[]> {
+  const pods = onto.filter((m) => m.rented);
+  if (!pods.length || !rows.length) return [];
+  const users = rows.filter((r) => !r.mcp_token_id);
+  if (!spends(ctx)) {
+    if (o.pinned || users.length) throw refusal(`This token cannot spend on rented GPUs, and ${o.what} would send ${o.pinned ? plural(rows.length, "job") : `the user's ${plural(users.length, "job")}`} onto ${pods.length === 1 ? quoted(machineName(pods[0]!)) : `${plural(pods.length, "pod")} up`}: tick Spend on it in Settings › Interface › Access.`);
+    return [];
+  }
+  const rates = podsOf(s, o.machines);
+  let usd = 0;
+  for (const r of rows) usd += await mayCostEach(s, r.recipe_id, readJson(r.inputs, {}), pods, rates, Boolean(r.warm));
+  const tail = idleTail(pods, rates, ctx.token.id);
+  usd += tail;
+  const work = await committedSpend(s, o.machines, ctx.token.id, new Set(rows.map((r) => r.id)));
+  const adds = `${plural(rows.length, "job")} moved onto ${pods.length === 1 ? quoted(machineName(pods[0]!)) : `the dearest of ${plural(pods.length, "pod")} up`}${users.length ? ` (${users.length} of them the user's, this token's to pay from now)` : ""}${tail ? ", with the pod's idle time after" : ""}`;
+  await ctx.maySpend(usd + work.usd, { committed: [workCommitted(work)], adds: { what: adds, usd } });
+  return users.map((r) => r.id);
+}
+
+/**
+ * The user's waiting jobs a token moved onto a pod (mayMove), made that token's: still waiting, still nobody else's. Its
+ * Queue row then names the token.
+ */
+export async function madeOwn(s: Services, tokenId: string, ids: readonly string[]): Promise<void> {
+  if (!ids.length) return;
+  await s.db.updateTable("jobs").set({ mcp_token_id: tokenId, updated_at: new Date().toISOString() }).where("id", "in", [...ids]).where("status", "=", "queued").where("mcp_token_id", "is", null).execute();
 }
 
 /** A form as a render sends it: what it starts on, what the draft holds over it, refused as Render refuses an unfilled one. */
@@ -393,7 +431,7 @@ const job = tool({
  * A job this token may act on: its own, or one the user queued from the page. One another token queued is that token's
  * (or the user's in Afflatus) to stop or do again.
  */
-export async function mayTouch(s: Services, ctx: ToolCtx, row: Tables["jobs"]): Promise<void> {
+export async function mayTouch(s: Services, ctx: ToolCtx, row: Pick<Tables["jobs"], "mcp_token_id">): Promise<void> {
   if (!row.mcp_token_id || row.mcp_token_id === ctx.token.id) return;
   const other = await s.mcp.tokens.get(row.mcp_token_id);
   throw refusal(`This job was queued by another token (${other?.name ?? "one revoked since"}): stop it or do it again in Afflatus, or with that token.`);

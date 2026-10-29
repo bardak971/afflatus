@@ -1,4 +1,4 @@
-import { FRAME_SLACK_MS, plannedSeconds, REMOVED_RECIPES } from "@afflatus/core";
+import { FRAME_SLACK_MS, plannedSeconds, REMOVED_RECIPES, windowPlaysSeconds } from "@afflatus/core";
 import type { Asset, Clip, ClipPatch, RecipeInfo, Take } from "../api";
 import { clock } from "../format";
 
@@ -44,7 +44,8 @@ export interface Slot {
  * what its take will hide of its end (`hiddenMs`: a window run past a part kept removed).
  */
 function plannedMs(clip: Clip, recipe: RecipeInfo | undefined): number {
-  return Math.max(1000, ((recipe ? plannedSeconds(recipe.inputs, clip.inputs) : null) ?? 5) * 1000 - (clip.hiddenMs ?? 0));
+  // a window of a source plays what it shows of it, its carried frames not counted twice (windowPlaysSeconds)
+  return Math.max(1000, ((recipe ? windowPlaysSeconds(recipe, clip.inputs, clip.joined) ?? plannedSeconds(recipe.inputs, clip.inputs) : null) ?? 5) * 1000 - (clip.hiddenMs ?? 0));
 }
 
 /**

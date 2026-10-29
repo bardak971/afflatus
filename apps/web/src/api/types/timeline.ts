@@ -200,7 +200,8 @@ export interface TimelineSource {
   windowMs: number;
   /** The model's form every window is made with (what was touched): its picture, prompt and seed among it. */
   inputs: Record<string, unknown>;
-  snap: boolean;
+  /** ± of the window, in ms: a window ends within that much of it at a scene cut, a pause or the quietest moment (0: every window that long). */
+  withinMs: number;
   clip: string | null;
   /** Who a swap replaces: the point clicked on the stretch's first frame, as shares of its width and height; gone when the start moves. */
   pick?: { x: number; y: number } | null;

@@ -15,9 +15,10 @@ import { pinMenuItems, placeItems, type ClipMenuActions } from "./menus";
 import type { ContextMenu } from "../ContextMenu";
 import type { LoadedEditor } from "./useTimelineEditor";
 import { plural } from "../format";
-import { carriedOf, CUT_WINDOW, sameWindowGrid, windowBounds } from "@afflatus/core";
+import { carriedOf, CUT_WINDOW, sameWindowGrid, windowBounds, windowEndOn, windowPlaysSeconds } from "@afflatus/core";
 import { madeFromSource, sourceDropClip, windowed } from "./track/SourceLane";
-import type { ClipSource } from "./inspector/clipSource";
+import { SOURCE_LANDED, type ClipSource } from "./inspector/clipSource";
+import { landedSaid } from "./inspector/clipLength";
 import type { ClipRecording } from "./inspector/clipRecording";
 import type { RecordingPanelProps } from "./inspector/recording";
 import { clipsOfRecording, playsOver, recordingInput, voiceInput } from "./track/RecordingBand";
@@ -380,6 +381,25 @@ export function recordingPanelProps(e: LoadedEditor, place: NonNullable<LoadedEd
 }
 
 /** A clip made from the timeline's source, as its panel takes it: its Source chapter and where a change goes. */
+/**
+ * The windows a source made, said as the recording's clips are: each one's length (what it plays, its take's once rendered),
+ * and what each end but the last landed on (windowEndOn), counted. Null while the source's pauses are read.
+ */
+function sourceCutSaid(e: LoadedEditor, made: Clip[], source: NonNullable<LoadedEditor["t"]["source"]>, fps: number, step: number): { landed: string | null; lengths: number[] } {
+  const parts = made.map((c) => {
+    const recipe = e.videoRecipes.find((r) => r.id === c.recipe);
+    const inputs = e.inputsOf(c);
+    const w = windowed(recipe, inputs);
+    // where its own frames start: past the run-up of a window that carries on
+    const from = (w ? Number(inputs[w.start] ?? 0) * 1000 : 0) + (c.joined === "continue" && recipe ? (carriedOf(recipe, inputs) * 1000) / fps : 0);
+    const plays = c.lengthMs > 0 ? c.lengthMs : ((recipe ? windowPlaysSeconds(recipe, inputs, c.joined) : null) ?? 0) * 1000 - (c.hiddenMs ?? 0);
+    return { endMs: from + plays, plays };
+  });
+  const marks = source.withinMs > 0 ? e.sourceMarks : {};
+  const landed = marks ? landedSaid(parts.slice(0, -1).map((p, k) => windowEndOn(p.endMs, made[k + 1]!.joined === "cut", marks, source.withinMs, (step * 1000) / fps / 2)), SOURCE_LANDED) : null;
+  return { landed, lengths: parts.map((p) => p.plays / 1000) };
+}
+
 function clipSourceOf(e: LoadedEditor, current: Clip): ClipSource | undefined {
   const source = e.t.source;
   const made = source ? madeFromSource(e.t, e.videoRecipes) : [];
@@ -428,6 +448,7 @@ function clipSourceOf(e: LoadedEditor, current: Clip): ClipSource | undefined {
       return { leastMs, mostMs: Math.max(leastMs, Math.floor(b.mostMs / 100) * 100) };
     })(),
     onCut: e.cutSource.run,
+    ...sourceCutSaid(e, made, source, w?.shape.fps ?? 24, w?.shape.grid?.step ?? 4),
     mask: (() => {
       const asked = e.masks[current.id];
       const d = asked ? e.maskOfCurrent.data : undefined;
