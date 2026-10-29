@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AddressInfo } from "node:net";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { clientOf, serverFor } from "../src/mcp";

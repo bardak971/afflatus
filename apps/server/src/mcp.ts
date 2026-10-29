@@ -1,7 +1,5 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { CallToolRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { FastifyInstance } from "fastify";
+import { createMcpHandler, McpServer, type CallToolResult, type McpRequestContext } from "@modelcontextprotocol/server";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z, ZodError } from "zod";
 import { VERSION } from "./config";
 import { isNever, NEVER, quoted, Rich, type NeverSubject, type Tool, type ToolCtx } from "./mcpTool";
@@ -102,7 +100,7 @@ export function serverFor(s: Services, token: McpToken, ip: string, tools: reado
     server.registerTool(t.name, {
       title: t.title,
       description: t.scope === "look" ? t.description : `${t.description} Needs ${SCOPE_WORDS[t.scope]}.`,
-      inputSchema: t.input ?? {},
+      inputSchema: z.object(t.input ?? {}),
       annotations: { title: t.title, readOnlyHint: t.scope === "look", openWorldHint: false },
     }, (args: Record<string, unknown>) => call(t, args, s, token, ip, self));
   }
@@ -110,21 +108,42 @@ export function serverFor(s: Services, token: McpToken, ip: string, tools: reado
   // of ours runs: those refusals went unwritten in the activity, and a token without the scope was told its arguments were
   // wrong. The tool list (tools/list, with each one's schema) stays the SDK's
   const byName = new Map(tools.map((t) => [t.name, t]));
-  server.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.server.setRequestHandler("tools/call", async (request) => {
     const t = byName.get(request.params.name);
     return t ? call(t, request.params.arguments, s, token, ip, self) : unknownTool(request.params.name, s, token);
   });
   return server;
 }
 
-/** The client's name, when this request is its initialize: what the token's last use names it by. */
+const ClientInfo = z.object({ name: z.string(), title: z.string().optional() });
+
+/**
+ * The client's name, what the token's last use names it by: from its initialize (2025-era), or from the envelope every
+ * 2026-07-28 request carries in its `_meta`.
+ */
 export function clientOf(body: unknown): string | undefined {
   const msgs = Array.isArray(body) ? body : [body];
   for (const m of msgs) {
-    const parsed = z.object({ method: z.literal("initialize"), params: z.object({ clientInfo: z.object({ name: z.string(), title: z.string().optional() }) }) }).safeParse(m);
-    if (parsed.success) return parsed.data.params.clientInfo.title || parsed.data.params.clientInfo.name;
+    const parsed = z.union([
+      z.object({ method: z.literal("initialize"), params: z.object({ clientInfo: ClientInfo }) }).transform((m) => m.params.clientInfo),
+      z.object({ params: z.object({ _meta: z.object({ "io.modelcontextprotocol/clientInfo": ClientInfo }) }) }).transform((m) => m.params._meta["io.modelcontextprotocol/clientInfo"]),
+    ]).safeParse(m);
+    if (parsed.success) return parsed.data.title || parsed.data.name;
   }
   return undefined;
+}
+
+/** Who a request to /mcp is from, handed to the server factory through the handler's auth info. */
+interface Caller { token: McpToken; ip: string; self: string }
+
+/** Fastify's request as the web Request the SDK's handler takes; the body already parsed is handed over beside it. */
+function webRequest(req: FastifyRequest): Request {
+  const headers = new Headers();
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (Array.isArray(v)) for (const one of v) headers.append(k, one);
+    else if (v !== undefined) headers.set(k, String(v));
+  }
+  return new Request(new URL(req.url, "http://afflatus.local"), { method: req.method, headers, body: JSON.stringify(req.body ?? null) });
 }
 
 /**
@@ -135,6 +154,13 @@ const MCP_BODY_MOST = Math.ceil((UPLOAD_MOST * 4) / 3) + 2 ** 20;
 
 export function registerMcp(app: FastifyInstance, s: Services): void {
   const tokenOf = new WeakMap<object, McpToken>();
+  // one handler for every request: a fresh server per request (stateless), bound to the caller its auth info names. It
+  // answers 2026-07-28 clients (each request carrying its own envelope) and 2025-era ones (initialize, then calls) alike;
+  // JSON answers, never a stream: nothing is sent before a call's result
+  const handler = createMcpHandler((ctx: McpRequestContext) => {
+    const caller = ctx.authInfo?.extra?.caller as Caller;
+    return serverFor(s, caller.token, caller.ip, TOOLS, caller.self);
+  }, { responseMode: "json", maxRequestBodySize: MCP_BODY_MOST, onerror: (err) => console.warn("[mcp]", err.message) });
   app.post("/mcp", {
     bodyLimit: MCP_BODY_MOST,
     // the token checked before the body is read: a client without one is never given the room an upload has
@@ -150,20 +176,15 @@ export function registerMcp(app: FastifyInstance, s: Services): void {
     const token = tokenOf.get(req)!;
     const ip = req.socket.remoteAddress ?? "";
     await s.mcp.tokens.touch(token, ip, clientOf(req.body));
-    const server = serverFor(s, token, ip, TOOLS, selfUrl(req));
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-    // the transport writes the answer itself
-    reply.hijack();
-    reply.raw.on("close", () => {
-      void transport.close();
-      void server.close();
-    });
+    const caller: Caller = { token, ip, self: selfUrl(req) };
     try {
-      await server.connect(transport);
-      await transport.handleRequest(req.raw, reply.raw, req.body);
+      const res = await handler.fetch(webRequest(req), { parsedBody: req.body, authInfo: { token: token.id, clientId: token.id, scopes: [...token.scopes], extra: { caller } } });
+      reply.status(res.status);
+      res.headers.forEach((v, k) => void reply.header(k, v));
+      return reply.send(res.body ? Buffer.from(await res.arrayBuffer()) : undefined);
     } catch (err) {
       console.error("[mcp] request failed:", err);
-      if (!reply.raw.headersSent) reply.raw.writeHead(500, { "Content-Type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32603, message: "something went wrong on the server" }, id: null }));
+      return reply.status(500).send({ jsonrpc: "2.0", error: { code: -32603, message: "something went wrong on the server" }, id: null });
     }
   });
   // stateless: no stream to open, no session to end

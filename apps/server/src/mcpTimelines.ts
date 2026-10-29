@@ -1,5 +1,5 @@
 import { CUT_WINDOW_MOST, plural, recordingSpecOf, TRANSITION_KINDS, TRANSITION_MS, type InputSpec, type Recipe } from "@afflatus/core";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { httpError } from "./errors";
 import { oneAtATime } from "./keyedLock";

@@ -1,7 +1,6 @@
 import type { AddressInfo } from "node:net";
 import { crc32 } from "node:zlib";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { makePng, startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { wan } from "../../../packages/workflows/test/fixtures";

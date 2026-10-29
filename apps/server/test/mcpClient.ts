@@ -1,6 +1,4 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { Client, StreamableHTTPClientTransport, type CallToolResult } from "@modelcontextprotocol/client";
 
 /**
  * An MCP client of Afflatus's /mcp over HTTP, the token as a Bearer header, as Claude Code connects. Kept beside the server's

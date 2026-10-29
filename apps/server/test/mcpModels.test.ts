@@ -1,6 +1,5 @@
 import type { AddressInfo } from "node:net";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withoutPaths } from "../src/downloads";

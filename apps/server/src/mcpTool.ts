@@ -1,4 +1,4 @@
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { z } from "zod";
 import { cleanLine, type McpToken, type Scope, type SpendSaid } from "./mcpTokens";
 import type { Services } from "./services";
