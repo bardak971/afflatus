@@ -6,6 +6,7 @@ import { applyChange, readsTop } from "./assetCache";
 import { madeHere } from "./assetChange";
 import { endedSince, greetings, mergeProgress, notifyTag, systemAfter, throttle } from "./liveState";
 import { useAgentEdits, useKitEdits, useTimelineEdits, type DraftEdit, type KitEdit, type TimelineEdit } from "./agentEdits";
+import { useAgentShows, type ShowEvent } from "./agentShow";
 import { useBanners, useLive, useNotify, useSystem } from "./store";
 import { useBar } from "./bar/store";
 import { isUnder, libraryInPlace, libraryReads, queryKeys, RENDER_KEYS, type LibraryChange } from "./queryKeys";
@@ -63,7 +64,7 @@ const refetch = (client: QueryClient, keys: ReadonlyArray<readonly string[]>) =>
 };
 
 /** Every event the server sends (events.ts): what the tab with the connection listens for and passes on. */
-const EVENTS = ["hello", "ping", "system", "progress", "queue", "library", "models", "timeline", "entities", "downloads", "setup", "updates", "notice", "draft", "kit", "timelineEdit"] as const;
+const EVENTS = ["hello", "ping", "system", "progress", "queue", "library", "models", "timeline", "entities", "downloads", "setup", "updates", "notice", "draft", "kit", "timelineEdit", "show"] as const;
 /** The events after which the command bar's index is old. */
 const INDEXED = new Set(["library", "timeline", "queue", "entities", "models"]);
 /** The lock of the tab that holds the connection, and the channel it passes the events on over. */
@@ -211,6 +212,11 @@ export function useLiveEvents(): void {
       timelineEdit: (data) => {
         const e = parse(data) as TimelineEdit | null;
         if (typeof e?.id === "string" && Array.isArray(e.clips)) useTimelineEdits.getState().heard(e);
+      },
+      // an agent shows the user what it made: the tab in front goes there, or asks while they type (agentShow.ts)
+      show: (data) => {
+        const e = parse(data) as ShowEvent | null;
+        if (typeof e?.ask === "string" && e.to && typeof e.to === "object") useAgentShows.getState().heard(e);
       },
       // what the server tells of (notify.ts): a notification of this browser where its kind is ticked here, shown by one tab
       notice: (data) => {

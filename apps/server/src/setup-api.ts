@@ -215,30 +215,8 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
    */
   app.get("/api/comfy/logs", async (req) => {
     // `of`: whose log `since` is a stamp of (the pod's boot log's, or ComfyUI's): a stamp of the one never cuts the other's
-    const { since, of, machine } = z.object({ since: z.string().max(64).optional(), of: z.enum(["boot", "comfy"]).optional(), machine: z.string().max(40).optional() }).parse(req.query ?? {});
-    // a line whose stamp does not read is kept
-    const after = <L extends { t: string }>(lines: L[], source: "boot" | "comfy") => {
-      const from = since && (of ?? "comfy") === source ? Date.parse(since) : Number.NaN;
-      return Number.isNaN(from) ? lines : lines.filter((l) => !(Date.parse(l.t) < from));
-    };
-    const id = machine ?? (await s.machines())[0]?.machine.id ?? "";
-    // a rented pod whose ComfyUI is not up yet: its boot log (the Afflatus image's), which has ComfyUI's start in it too
-    const boot = async () => {
-      const got = await s.rented.bootLines(id);
-      return got ? { lines: after(got.lines, "boot"), source: "boot" as const } : null;
-    };
-    if (s.rented.comfyDown(id)) {
-      const got = await boot();
-      if (got) return got;
-    }
-    const comfy = await s.comfyOf(machine);
-    try {
-      return { lines: after(await comfy.client.logs(), "comfy"), source: "comfy" as const };
-    } catch (e) {
-      const got = await boot();
-      if (got) return got;
-      throw httpError(`it answered: ${e instanceof Error ? e.message : String(e)}`, 502);
-    }
+    const q = z.object({ since: z.string().max(64).optional(), of: z.enum(["boot", "comfy"]).optional(), machine: z.string().max(40).optional() }).parse(req.query ?? {});
+    return comfyLogs(s, q);
   });
 
   /**
@@ -283,27 +261,7 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
    */
   app.post("/api/form/prompt", async (req) => {
     const b = z.strictObject({ recipe: z.string().min(1).max(200), input: z.record(z.string(), z.unknown()) }).parse(req.body);
-    const recipe = s.registry.recipe(b.recipe);
-    if (!recipe?.partsInto || !recipe.promptFromParts) return { into: null, text: "" };
-    const input = (() => {
-      try {
-        // a form without its media yet (no source picked) is read with its settings' defaults, as the render will have them
-        return parseInput(recipe, withMedia(recipe, b.input));
-      } catch {
-        // a form that does not read (a setting out of range) still has its parts: read as they are (the rules take a part left out as empty)
-        return b.input;
-      }
-    })();
-    // a Prompt kit person named "@Nicolas" in a part: said in the prompt as the render will say them
-    const said = (await withMentions(s.db, recipe, input as Record<string, unknown>, null)).input;
-    // a model left on its family's file is the one this ComfyUI has, as the render takes it (a swap's fused turbo has
-    // sentences of its own)
-    const slotsHere = (await (await s.comfy()).scan().catch(() => null))?.families.find((f) => f.id === recipe.family)?.slots ?? [];
-    for (const spec of recipe.inputs as InputSpec[]) {
-      const file = spec.type === "model" && spec.slot && !said[spec.id] ? slotsHere.find((x) => x.id === spec.slot)?.file : null;
-      if (file) said[spec.id] = file;
-    }
-    return { into: recipe.partsInto, text: recipe.promptFromParts(said) };
+    return promptOfParts(s, b.recipe, b.input);
   });
 
   /**
@@ -324,4 +282,65 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
     const auto = "auto" in got ? got.auto : null;
     return { estimate: { text: said(got.forecast, got.shape).text, pace: got.forecast.pace, ms: got.forecast.ms, loadMs: got.forecast.loadMs, on, loadOn, auto } };
   });
+}
+
+/**
+ * ComfyUI's terminal log, the last few hundred lines (the Queue page's log tab, MCP's comfy_log). `since`: the stamp of the
+ * last line the asker has; only the lines from that moment on come back (that one again among them, as lines can share a
+ * stamp). `of`: whose log `since` is a stamp of. A rented pod whose ComfyUI is not up gives its boot log instead.
+ */
+export async function comfyLogs(s: Services, q: { since?: string; of?: "boot" | "comfy"; machine?: string }): Promise<{ lines: Array<{ t: string; m: string }>; source: "boot" | "comfy" }> {
+  const { since, of, machine } = q;
+  // a line whose stamp does not read is kept
+  const after = <L extends { t: string }>(lines: L[], source: "boot" | "comfy") => {
+    const from = since && (of ?? "comfy") === source ? Date.parse(since) : Number.NaN;
+    return Number.isNaN(from) ? lines : lines.filter((l) => !(Date.parse(l.t) < from));
+  };
+  const id = machine ?? (await s.machines())[0]?.machine.id ?? "";
+  // a rented pod whose ComfyUI is not up yet: its boot log (the Afflatus image's), which has ComfyUI's start in it too
+  const boot = async () => {
+    const got = await s.rented.bootLines(id);
+    return got ? { lines: after(got.lines, "boot"), source: "boot" as const } : null;
+  };
+  if (s.rented.comfyDown(id)) {
+    const got = await boot();
+    if (got) return got;
+  }
+  const comfy = await s.comfyOf(machine);
+  try {
+    return { lines: after(await comfy.client.logs(), "comfy"), source: "comfy" as const };
+  } catch (e) {
+    const got = await boot();
+    if (got) return got;
+    throw httpError(`it answered: ${e instanceof Error ? e.message : String(e)}`, 502);
+  }
+}
+
+/**
+ * The prompt as sent of a form written from parts (card #34): what goes while its prompt is left empty, for the form to
+ * show there (POST /api/form/prompt, MCP's prompt_from_parts). Written by the recipe's own rules (Recipe.promptFromParts), as
+ * the render will. `into`: the input it goes into; null for a form with no parts.
+ */
+export async function promptOfParts(s: Services, recipeId: string, raw: Record<string, unknown>): Promise<{ into: string | null; text: string }> {
+  const recipe = s.registry.recipe(recipeId);
+  if (!recipe?.partsInto || !recipe.promptFromParts) return { into: null, text: "" };
+  const input = (() => {
+    try {
+      // a form without its media yet (no source picked) is read with its settings' defaults, as the render will have them
+      return parseInput(recipe, withMedia(recipe, raw));
+    } catch {
+      // a form that does not read (a setting out of range) still has its parts: read as they are (the rules take a part left out as empty)
+      return raw;
+    }
+  })();
+  // a Prompt kit person named "@Nicolas" in a part: said in the prompt as the render will say them
+  const said = (await withMentions(s.db, recipe, input as Record<string, unknown>, null)).input;
+  // a model left on its family's file is the one this ComfyUI has, as the render takes it (a swap's fused turbo has
+  // sentences of its own)
+  const slotsHere = (await (await s.comfy()).scan().catch(() => null))?.families.find((f) => f.id === recipe.family)?.slots ?? [];
+  for (const spec of recipe.inputs as InputSpec[]) {
+    const file = spec.type === "model" && spec.slot && !said[spec.id] ? slotsHere.find((x) => x.id === spec.slot)?.file : null;
+    if (file) said[spec.id] = file;
+  }
+  return { into: recipe.partsInto, text: recipe.promptFromParts(said) };
 }

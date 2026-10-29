@@ -18,7 +18,11 @@ export interface WhereSaid {
   clip?: string | null;
 }
 
-interface Where extends WhereSaid { device: string; at: number }
+/** `browser`: the key the page sends of itself (whereReport.ts browserKey), which a "show" live event names it by. */
+interface Where extends WhereSaid { device: string; at: number; browser: string | null }
+
+/** What a page did with an agent's "show" (show_page): went there, or asked the user first (they were typing). */
+export type ShowDid = "moved" | "asked";
 
 /** What `whats_open` answers: the page in words, its address, the items open by id and name, the device and when. */
 export interface WhatsOpen {
@@ -53,15 +57,50 @@ export function pageOf(path: string): string {
 
 export class WhereNow {
   private readonly by = new Map<string, Where>();
+  /** The "show" asks waiting for a page's answer (show_page), by the ask's id. */
+  private readonly asks = new Map<string, (did: ShowDid) => void>();
+  /** How many pages hold the live events now (events.ts sets it): a browser's tabs share one. */
+  pagesOpen: () => number = () => 0;
 
   constructor(private readonly db: Db, private readonly now: () => number = Date.now) {}
 
   /** A page said where it is: `key` tells its browser from another (its session, else a key of its own), `ua` names the device. */
-  said(key: string, ua: string, where: WhereSaid): void {
+  said(key: string, ua: string, where: WhereSaid, browser: string | null = null): void {
     this.by.delete(key);
-    this.by.set(key, { ...where, device: deviceName(ua), at: this.now() });
+    this.by.set(key, { ...where, device: deviceName(ua), at: this.now(), browser });
     // the oldest let go: the map is in the order last said
     while (this.by.size > KEEP) this.by.delete(this.by.keys().next().value!);
+  }
+
+  /** The browser key of the device seen last (the one a "show" goes to); null when none said it. */
+  lastBrowser(): string | null {
+    return [...this.by.values()].at(-1)?.browser ?? null;
+  }
+
+  /**
+   * What a page answers to the "show" ask `id`, or null when none does within `ms` (no page in front: the live event reached
+   * only tabs in the background, which leave it).
+   */
+  answerOf(id: string, ms: number): Promise<ShowDid | null> {
+    return new Promise((done) => {
+      const timer = setTimeout(() => {
+        this.asks.delete(id);
+        done(null);
+      }, ms);
+      timer.unref?.();
+      this.asks.set(id, (did) => {
+        clearTimeout(timer);
+        this.asks.delete(id);
+        done(did);
+      });
+    });
+  }
+
+  /** A page's answer to a "show" ask; false when nobody waits for it (answered already, or too late). */
+  answered(id: string, did: ShowDid): boolean {
+    const waiting = this.asks.get(id);
+    waiting?.(did);
+    return Boolean(waiting);
   }
 
   /** The device seen last, with the names of what it has open; null when no page has said anything since the start. */

@@ -304,6 +304,8 @@ export const api = {
   mcpActivity: (id: string, refusedOnly: boolean) => call<{ lines: McpActivity[] }>("GET", `/mcp/tokens/${id}/activity${refusedOnly ? "?refused=1" : ""}`),
   /** Where this page is, for an agent's `whats_open` (App.tsx useWhereReport). */
   where: (body: { key: string; path: string; draft?: string | null; timeline?: string | null; clip?: string | null }) => call<{ ok: true }>("POST", "/where", body),
+  /** What this page did with an agent's "show" (agentShow.ts): went there, or asked the user first. */
+  whereShown: (ask: string, did: "moved" | "asked") => call<{ ok: boolean }>("POST", "/where/shown", { ask, did }),
   testNotify: (channel: "telegram" | "discord") => call<{ ok: true }>("POST", "/notify/test", { channel }),
   /** The chats that wrote to the saved bot lately (Telegram's getUpdates, read once). */
   /** A picture or a video sent as it is to the Telegram chat or Discord channel of the notifications. */

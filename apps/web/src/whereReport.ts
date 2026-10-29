@@ -11,7 +11,7 @@ import { useOpenDraft } from "./store";
  */
 
 /** A key of this browser's own, kept: what tells its reports from another browser's when there is no session. */
-function browserKey(): string {
+export function browserKey(): string {
   try {
     let key = localStorage.getItem("afflatus.where-key");
     if (!key) {

@@ -46,3 +46,17 @@ export function settingHelp(path: string): string | undefined {
   }
   return undefined;
 }
+
+/** The tabs of Settings, in the order the page shows them: the web's settingsIndex.ts and MCP's show_page read them. */
+export const SETTING_TABS = [
+  { id: "comfyui", label: "ComfyUI" },
+  { id: "rented", label: "Rented GPUs" },
+  { id: "models", label: "Models" },
+  { id: "designer", label: "Designer" },
+  { id: "prompts", label: "Prompts" },
+  { id: "interface", label: "Interface" },
+  { id: "bar", label: "Command bar" },
+  { id: "storage", label: "Storage" },
+  { id: "about", label: "About" },
+] as const;
+export type SettingTab = (typeof SETTING_TABS)[number]["id"];

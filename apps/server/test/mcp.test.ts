@@ -378,7 +378,7 @@ describe("the tools, through the SDK's client over HTTP", () => {
     const listed = (await client.listTools()).tools.map((x) => x.name);
     expect(listed).toEqual(TOOLS.map((x) => x.name));
     expect(new Set(listed).size).toBe(listed.length);
-    expect(listed.slice(0, 2)).toEqual(["whats_open", "overview"]);
+    expect(listed.slice(0, 2)).toEqual(["whats_open", "show_page"]);
     const r = await client.callTool({ name: "overview" });
     expect(r.isError).toBeFalsy();
     const o = JSON.parse(text(r)) as Record<string, any>;

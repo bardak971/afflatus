@@ -86,7 +86,13 @@ export function registerMcpTokens(app: FastifyInstance, s: Services): void {
    */
   app.post("/api/where", async (req) => {
     const b = whereBody.parse(req.body);
-    s.mcp.where.said(req.access.session ?? b.key, String(req.headers["user-agent"] ?? ""), { path: b.path, draft: b.draft ?? null, timeline: b.timeline ?? null, clip: b.clip ?? null });
+    s.mcp.where.said(req.access.session ?? b.key, String(req.headers["user-agent"] ?? ""), { path: b.path, draft: b.draft ?? null, timeline: b.timeline ?? null, clip: b.clip ?? null }, b.key);
     return { ok: true };
+  });
+
+  /** A page's answer to an agent's "show" live event (show_page): it went there, or asked the user first. */
+  app.post("/api/where/shown", async (req) => {
+    const b = z.strictObject({ ask: z.string().regex(/^[\w-]{8,64}$/), did: z.enum(["moved", "asked"]) }).parse(req.body);
+    return { ok: s.mcp.where.answered(b.ask, b.did) };
   });
 }

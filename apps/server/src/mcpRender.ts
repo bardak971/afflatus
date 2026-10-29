@@ -338,13 +338,33 @@ const loadModel = tool({
 });
 
 /** A job as the queue tools say it: its words, where it is, how far, how long left, what it made. */
+/** A while in words, as the queue says it: "45 s", "2 min 10 s", "1 h 5 min". */
+function whileSaid(ms: number): string {
+  const s = Math.max(1, Math.round(ms / 1000));
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return s % 60 ? `${m} min ${s % 60} s` : `${m} min`;
+  return m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 60)} h`;
+}
+
+/**
+ * When a job not ended is worth asking about again, in a line (owner, 2026-10-29): from the forecast the queue shows, so that
+ * an agent that can wait asks once rather than over and over. Null when nothing is forecast (a model never rendered here).
+ */
+export function checkAgain(j: { status: string; eta?: number; estimateMs?: number | null; startsInMs?: number | null }): string | null {
+  const left = j.status === "running" ? (j.eta ? j.eta * 1000 : null) : j.estimateMs ? (j.startsInMs ?? 0) + j.estimateMs : null;
+  if (!left) return null;
+  return `about ${whileSaid(left)} left${j.status === "running" ? "" : " (waiting, then rendering)"}: check again in ~${Math.max(1, Math.round(left / 1000))} s`;
+}
+
 function jobSaid(j: { id: string; label: string; recipe: string; status: string; machine?: string | null; by?: { name: string } | null; progress?: number; eta?: number; phase?: string; estimateMs?: number | null; startsInMs?: number | null; error?: string | null }, names: ReadonlyMap<string, string>) {
   return {
     job: j.id, label: j.label, form: j.recipe, status: j.status,
     ...(j.machine ? { machine: names.get(j.machine) ?? j.machine } : {}),
     ...(j.by ? { by: j.by.name } : {}),
     ...(typeof j.progress === "number" ? { progress: Math.round(j.progress * 100) / 100 } : {}),
-    ...(j.eta ? { leftMs: j.eta } : {}),
+    // the monitor's ETA is in seconds
+    ...(j.eta ? { leftMs: j.eta * 1000 } : {}),
     ...(j.phase ? { phase: j.phase } : {}),
     ...(j.estimateMs ? { takesMs: j.estimateMs } : {}),
     ...(j.startsInMs ? { startsInMs: j.startsInMs } : {}),
@@ -390,7 +410,7 @@ const job = tool({
   name: "job",
   scope: "look",
   title: "Job",
-  description: "One job: waiting (when it starts, how long it takes), running (progress, time left, phase), or ended (done with the library items it made, which view_item shows; failed with why; cancelled). `wait` holds the answer until the job ends or that many seconds pass, rather than asking again and again.",
+  description: "One job: waiting (when it starts, how long it takes), running (progress, time left, phase), or ended (done with the library items it made, which view_item shows; failed with why; cancelled). `wait` holds the answer until the job ends or that many seconds pass, rather than asking again and again; a job not ended says when to check again (`hint`), from the queue's forecast.",
   input: {
     job: z.string().min(1),
     wait: z.number().int().min(0).max(JOB_WAIT_MOST_S).optional().describe(`Seconds to wait for the job to end before answering (at most ${JOB_WAIT_MOST_S}); left out, it answers at once. Ask again with wait if it is still going.`),
@@ -408,7 +428,9 @@ const job = tool({
       const st = await s.queue.statusRecent();
       const live = st.machines.find((m) => m.running?.id === id)?.running ?? st.waiting.find((w) => w.id === id);
       ctx.said(`Followed the job ${quoted(row.label)}: ${row.status === "running" ? "running" : "waiting"}`);
-      return jobSaid({ ...(live as Parameters<typeof jobSaid>[0] | undefined ?? { id, label: row.label, recipe: row.recipe_id, status: row.status }), status: row.status === "running" ? "running" : "waiting", machine: row.machine_id ?? (live as { machine?: string | null } | undefined)?.machine }, names);
+      const j = { ...(live as Parameters<typeof jobSaid>[0] | undefined ?? { id, label: row.label, recipe: row.recipe_id, status: row.status }), status: row.status === "running" ? "running" : "waiting", machine: row.machine_id ?? (live as { machine?: string | null } | undefined)?.machine };
+      const hint = checkAgain(j);
+      return { ...jobSaid(j, names), hint: hint ?? "no forecast for it yet (its model was never rendered here): ask again with wait" };
     }
     const page = await s.queue.history({ ids: [id] });
     const h = page.items[0];

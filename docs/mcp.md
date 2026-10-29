@@ -108,11 +108,12 @@ Written from the tool registry by `scripts/mcp-docs.ts`; a check fails when this
 
 <!-- tools:start (written by scripts/mcp-docs.ts from the registry: edit the tools, not this list) -->
 
-110 tools in all.
+122 tools in all.
 
 ### Where the user is
 
 - `whats_open` · Look. Where the user is in Afflatus now: the page (Studio › Create, the timeline editor…), the draft, timeline or clip open there, by id and name, on the device used last. Work there first.
+- `show_page` · Make. Open something on the user's page, to show them what was made: a draft (in Studio › Create), a timeline in its editor (and a clip of it, selected), a library item (shown large in its folder), or a Settings tab. The page in front goes there at once, unless the user typed in the last few seconds: it then says "<token> wants to show you …" with Go, and leaves them be. The answer says which, or that no page of Afflatus is open in front. whats_open says where they are.
 - `overview` · Look. Afflatus as it stands: each machine (this PC's ComfyUIs and rented pods) with its state, model loaded and running job; the queue (running, waiting, when it is done); the rented GPUs' spend today and this month against the caps; this token's own limits and use; Afflatus's version.
 
 ### Forms
@@ -120,6 +121,12 @@ Written from the tool registry by `scripts/mcp-docs.ts`; a check fails when this
 - `list_forms` · Look. Every form the user can use in Studio › Create, by model family: its id (what the other tools take), its title, what it makes (image, video, audio) and whether its files are ready on a machine. Families switched off in Settings › Models are named apart.
 - `describe_form` · Look. One form in full, as Create shows it: each input (id, type, label, its "?" note, options, range, default, optional, advanced, chapter); its presets (the model's line presets by file name, and the Prompt kit's presets for it); the prompt guide Afflatus's designer writes this form's prompt by (the form's own, the recording guide, the family's, or the user's own from Settings); and the model files and LoRAs each machine has for it.
 - `estimate` · Look. What rendering a draft as it stands (or a form with values) would take, as Generate says it: the time from the user's own past renders on each machine this token may use (each take with the model load, which the batch pays once: loadMs), what it would cost on a rented pod, and the model set check (files that do not go together; a mix that gives black frames is refused at Render). Null times: nothing like it was rendered here yet.
+
+### Prompts
+
+- `prompt_history` · Look. The prompts that were rendered, each once, newest first, as the command bar's " finds them: its form, the draft it was sent from, a library item it made still there (view_item shows it), the timeline clip that item is a take of. `q`: those holding these words. Reads the newest 5000 renders.
+- `check_tags` · Look. The prompt's tags that are not Danbooru tags, as the form's tag check underlines them (for the anime checkpoints, Illustrious, NoobAI, Pony): each said an alias (another name of a real tag) or unknown, with the tag to write instead when there is one. Run on this computer: nothing leaves it. `ignore`: tags to let through.
+- `prompt_from_parts` · Look. The prompt a form written in parts (subject, action, place, look… as describe_form lists them) sends while its prompt is left empty: written by the form's own rules, the Prompt kit's @people said as the render says them, as the form shows it. `into`: the input it goes into; null for a form without parts.
 
 ### Drafts
 
@@ -134,7 +141,7 @@ Written from the tool registry by `scripts/mcp-docs.ts`; a check fails when this
 
 - `render` · Make. Render a draft as it stands (or a form with values): N takes, on a machine or wherever the queue would end it first. The same path as Create's Render, with the same refusals (an unfilled input, files that give black frames). The token's renders-an-hour limit holds; a rented pod needs Spend (a token without it never lands on one, picked or pinned) and stays within the token's spend cap, its waiting and running work counted. Answers the job ids (job, queue_status follow them; job with wait waits for the end) and what it may cost. Render a draft when the user should be able to open and change what made the take in Create (new_draft, edit_draft); a form with values leaves no draft. A video comes out on the model's own frame count, a little off the seconds asked (H3's 6 s: 5.875 s): not a failure.
 - `queue_status` · Look. The queue now: what each machine renders (progress, time left, phase), the jobs waiting in order (when each starts, how long it takes, who queued it), whether it is paused, and when it is all done.
-- `job` · Look. One job: waiting (when it starts, how long it takes), running (progress, time left, phase), or ended (done with the library items it made, which view_item shows; failed with why; cancelled). `wait` holds the answer until the job ends or that many seconds pass, rather than asking again and again.
+- `job` · Look. One job: waiting (when it starts, how long it takes), running (progress, time left, phase), or ended (done with the library items it made, which view_item shows; failed with why; cancelled). `wait` holds the answer until the job ends or that many seconds pass, rather than asking again and again; a job not ended says when to check again (`hint`), from the queue's forecast.
 - `cancel` · Make. Stop a job: waiting, it is taken out; running, its render is stopped on its machine. This token's own jobs and the ones the user queued; another token's are refused.
 - `retry` · Make. A finished, failed or cancelled job queued again as it was sent (a new seed when its seed was random), optionally with some inputs changed (`values`). The same limits as render: renders an hour, and Spend for a rented pod.
 - `pause_machine` · Make. Pause a machine (it ends what it renders and takes nothing new) or, with no machine, the whole queue. Nothing is lost: resume_machine goes on. Pausing a machine of the user's own while a rented pod is up needs Spend (its work would go to the pod).
@@ -237,6 +244,12 @@ Written from the tool registry by `scripts/mcp-docs.ts`; a check fails when this
 - `model_settings` · Look. The values saved with a model file (its sampler, steps, CFG, quality tags…: a family's inputs marked per model): the start whenever that file is picked in a form, a draft recording only what it changes on top. `family`, `file`: one family's or one file's.
 - `change_model_settings` · Manage. Save the values that travel with a model file, as the form's Save for this model does: only the family's inputs marked per model are kept (describe_form says which: perModel), the rest dropped. `values` null (or empty) forgets them: the form's own start again.
 
+### Model pages and trigger words
+
+- `model_page` · Look. What is known of a model file (a LoRA most often): what its header says (its title, base model, trained-on, its author's trigger words, the caption tags it was trained with, most used first), its page on Civitai or Hugging Face, and the words that call it up beyond the file: the user's own (which come first in Afflatus) and those Civitai gave. `find`: look its page and trigger words up on Civitai and Hugging Face now (Search Hugging Face and Civitai on in Settings › Models), as the page's Find does.
+- `set_model_words` · Manage. The user's own words for a model file (its trigger words as they want them), which come before the file's and Civitai's wherever Afflatus offers them (a LoRA added to a prompt, the command bar). Empty or null takes them away again. Kept by the file's name, whatever sub-folder it moves to.
+- `model_updates` · Look. Settings › Models › Your models online: how far the hashing of this PC's model files is and what the sites matched (Civitai, Hugging Face, neither), and the update check's last report: each file matched to its Civitai version, with the newer version and its page when there is one. Read only: the checks run in Afflatus (daily when ticked).
+
 ### Settings
 
 - `read_settings` · Look. Afflatus's settings as Settings shows them, each with its value, its "?" text, and whether it may be changed here (change_setting, Manage) or where it is changed. A secret (an API key, a token) is said set or not, never read back. The Access settings, where notices and reset codes go and Afflatus's updates are never reached through MCP. `key`: one setting (a dotted path reaches inside: "rentCaps.day"), with its shape and range as JSON Schema.
@@ -258,5 +271,13 @@ Written from the tool registry by `scripts/mcp-docs.ts`; a check fails when this
 - `start_hunt` · Spend. Start a GPU hunt, as Queue's Hunt a GPU does: RunPod's stock is asked every 30 s and the best-ranked usable GPU at or under the ceiling is deployed the moment one is free, once, while renders wait for it. hold rest pauses the user's own machines meanwhile (resumed when it ends); keep lets them render on. Deploy choices as deploy_pod (the last deploy's when left out; idle 3 min then terminate here). Refused when this token's cap or the app's caps have no room for a pod's first hour at the ceiling; once found, its deploy is asked of the caps again, and refused it ends the hunt. The pod's whole run then counts against this token's cap, and it stops once that is reached. It gives up at its time, at a cap, or after three refused deploys.
 - `change_hunt` · Spend. Change a hunt this token started: its mode, ceiling, GPUs left out, time (minutes from its start) or hold. A higher ceiling is asked of this token's cap and the app's caps as start_hunt asks it. A hunt the user or another token started is theirs to change.
 - `cancel_hunt` · Spend. Cancel the GPU hunt: the machines it paused go on. This token's hunt or the user's; another token's is refused. Refused while its GPU is being deployed (the pod is billed from its first second: stop it with stop_pod once it is up). A pod it deployed already is a machine like any.
+
+### Diagnostics
+
+- `comfy_log` · Look. ComfyUI's terminal log on a machine, as the Queue page's log tab shows it: its last lines, newest last (a Traceback, a node that failed, a model that did not load, out of memory). A rented pod whose ComfyUI is not up yet gives its boot log instead (`source`). Secrets and folders on a disk are taken out: a key shows as [hidden], a path as its file's name. `since`: a line's stamp, for what came after it.
+- `boot_log` · Look. A rented pod's boot (its image's pull, node packs, ComfyUI's start): `machine`, the boot log of a pod now, read from it; `run`, the boot log kept of a past run (Settings › Rented GPUs › Boot logs keeps them some days); neither, the runs whose boot log is kept, newest first. Secrets and folders on a disk are taken out.
+- `job_live` · Look. A running job as the Queue page shows it while it renders: its phase, step and time left, the pictures its workflow showed on the way (its Preview nodes, as `stages`), and its latest live preview as a picture. `stage`: that stage's picture instead. Only while it runs: job says the rest.
+- `render_stats` · Look. The Queue › Render times tab: over a period (day, week, month, all) or a window, the renders done, failed and cancelled, GPU time, loads, waits, each machine's renders and pace (1 the common pace, 2 half as fast) and each model's figures. `renders`: the renders themselves instead, newest first (each its model, machine, times and status), `trouble` for the failed and cancelled only. What a form will take is estimate's.
+- `network_volumes` · Look. The RunPod account's network volumes (Settings › Rented GPUs): each one's size, data center, monthly price, the pod running on it now if any, and each Model set as the volume held it the last time a pod ran there (all there, or what it lacks). Read only: a volume is made, grown or deleted in Afflatus.
 
 <!-- tools:end -->

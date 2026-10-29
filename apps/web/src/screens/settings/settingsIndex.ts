@@ -1,16 +1,8 @@
 /** The tabs of Settings and every setting by the words someone would look for: the screen's search and the command bar's `/` read them. */
 
-export const TABS = [
-  { id: "comfyui", label: "ComfyUI" },
-  { id: "rented", label: "Rented GPUs" },
-  { id: "models", label: "Models" },
-  { id: "designer", label: "Designer" },
-  { id: "prompts", label: "Prompts" },
-  { id: "interface", label: "Interface" },
-  { id: "bar", label: "Command bar" },
-  { id: "storage", label: "Storage" },
-  { id: "about", label: "About" },
-] as const;
+import { SETTING_TABS } from "@afflatus/core";
+
+export const TABS = SETTING_TABS;
 export type Tab = (typeof TABS)[number]["id"];
 
 /** Tabs that were merged into another: an old address (/settings/appearance) still opens the right one. */

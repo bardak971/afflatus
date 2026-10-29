@@ -4,12 +4,14 @@ import { DRAFT_TOOLS } from "./mcpDrafts";
 import { FORM_TOOLS } from "./mcpForms";
 import { KIT_TOOLS } from "./mcpKit";
 import { LIBRARY_TOOLS } from "./mcpLibrary";
+import { DIAGNOSTIC_TOOLS, MODEL_PAGE_TOOLS, PROMPT_TOOLS } from "./mcpLook";
 import { MACHINE_TOOLS } from "./mcpMachines";
 import { MODEL_TOOLS } from "./mcpModels";
 import { HUNT_TOOLS, QUEUE_TOOLS } from "./mcpQueue";
 import { RENDER_TOOLS } from "./mcpRender";
 import { SEE_TOOLS } from "./mcpSee";
 import { SETTING_TOOLS } from "./mcpSettings";
+import { SHOW_TOOLS } from "./mcpShow";
 import { STORAGE_TOOLS } from "./mcpStorage";
 import { TIMELINE_TOOLS } from "./mcpTimelines";
 import { tool, type Tool } from "./mcpTool";
@@ -25,7 +27,7 @@ import { readSettings } from "./settings";
 
 /** What runs on a machine now, in a few words. */
 const runningOf = (r: { id: string; label: string; recipe: string; kind: string; progress?: number; eta?: number; phase?: string } | null) =>
-  r ? { job: r.id, label: r.label, recipe: r.recipe, kind: r.kind, ...(typeof r.progress === "number" ? { progress: Math.round(r.progress * 100) / 100 } : {}), ...(r.eta ? { leftMs: r.eta } : {}), ...(r.phase ? { phase: r.phase } : {}) } : null;
+  r ? { job: r.id, label: r.label, recipe: r.recipe, kind: r.kind, ...(typeof r.progress === "number" ? { progress: Math.round(r.progress * 100) / 100 } : {}), ...(r.eta ? { leftMs: r.eta * 1000 } : {}), ...(r.phase ? { phase: r.phase } : {}) } : null;
 
 const overview = tool({
   name: "overview",
@@ -90,8 +92,9 @@ const whatsOpen = tool({
 
 /** The tools by group, in the order the client lists them: docs/mcp.md's list is written from this (scripts/mcp-docs.ts). */
 export const TOOL_GROUPS: ReadonlyArray<{ group: string; tools: readonly Tool[] }> = [
-  { group: "Where the user is", tools: [whatsOpen, overview] },
+  { group: "Where the user is", tools: [whatsOpen, ...SHOW_TOOLS, overview] },
   { group: "Forms", tools: FORM_TOOLS },
+  { group: "Prompts", tools: PROMPT_TOOLS },
   { group: "Drafts", tools: DRAFT_TOOLS },
   { group: "Render and the queue", tools: [...RENDER_TOOLS, ...QUEUE_TOOLS] },
   { group: "See", tools: SEE_TOOLS },
@@ -101,8 +104,10 @@ export const TOOL_GROUPS: ReadonlyArray<{ group: string; tools: readonly Tool[] 
   { group: "Timelines", tools: TIMELINE_TOOLS },
   { group: "Workflows", tools: WORKFLOW_TOOLS },
   { group: "Models", tools: MODEL_TOOLS },
+  { group: "Model pages and trigger words", tools: MODEL_PAGE_TOOLS },
   { group: "Settings", tools: SETTING_TOOLS },
   { group: "Machines and rented GPUs", tools: [...MACHINE_TOOLS, ...HUNT_TOOLS] },
+  { group: "Diagnostics", tools: DIAGNOSTIC_TOOLS },
 ] as ReadonlyArray<{ group: string; tools: readonly Tool[] }>;
 
 /** Every tool, in the order the client lists them. */
