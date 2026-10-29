@@ -485,3 +485,63 @@ export interface HashStatus {
   looked: boolean;
   error: string | null;
 }
+
+/** Something that needs a model file: a preset or a model set (Delete asks first), or a family whose slot uses it. */
+export interface ModelNeed {
+  kind: "preset" | "set" | "family";
+  id: string;
+  name: string;
+}
+
+/** A model file as Settings › Model files lists it (the server's modelLibrary.ts). */
+export interface ModelFile {
+  /** `folder|file`, or `removed:<id>` for one Delete moved and not put back or emptied yet. */
+  id: string;
+  folder: string;
+  file: string;
+  kind: string;
+  /** Null for another machine's file: its scan names it only. */
+  size: number | null;
+  mtime: number | null;
+  /** Null: not hashed yet. */
+  sha256: string | null;
+  name: string | null;
+  version: string | null;
+  base: string | null;
+  picture: string | null;
+  link: { site: string; url: string } | null;
+  match: "civitai" | "hf" | "none" | "pending";
+  uses: number;
+  last: string | null;
+  approx: boolean;
+  months: Record<string, number>;
+  takes: number;
+  copies: string[];
+  needs: ModelNeed[];
+  families: string[];
+  path: string | null;
+  removed: { id: string; place: "bin" | "aside"; at: string; batch: string } | null;
+}
+
+export interface ModelLibrary {
+  machine: string;
+  readOnly: boolean;
+  machines: Array<{ id: string; name: string }>;
+  files: ModelFile[];
+  /** The first use Afflatus kept: before it, nothing is known. */
+  since: string | null;
+  away: { bin: number; aside: number; files: number };
+  /** Delete may use the Recycle Bin (Windows). */
+  bin: boolean;
+  hashing: { files: number; hashed: number; running: boolean };
+  noFolder: boolean;
+}
+
+/** What one Delete did: what went, what went to the set-aside folder for want of room in the bin, what stayed and why. */
+export interface ModelDeleteDone {
+  batch: string;
+  moved: number;
+  bytes: number;
+  aside: Array<{ file: string; why: string }>;
+  left: Array<{ file: string; why: string }>;
+}

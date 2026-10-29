@@ -97,6 +97,7 @@ import m0095 from "./0095-mcp-pods";
 import m0096 from "./0096-workflow-pending";
 import m0097 from "./0097-mcp-tasks";
 import m0098 from "./0098-mcp-token-tasks";
+import m0099 from "./0099-model-files";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -202,4 +203,5 @@ export const migrations: Record<string, Migration> = {
   "0096_workflow_pending": m0096,
   "0097_mcp_tasks": m0097,
   "0098_mcp_token_tasks": m0098,
+  "0099_model_files": m0099,
 };

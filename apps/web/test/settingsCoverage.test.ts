@@ -76,6 +76,7 @@ const BROWSER: Record<string, string> = {
   "afflatus.bar.preview": "bar.preview",
   "afflatus.bar.rank": "bar.forget",
   "afflatus.allFamiliesHint": "internal: Settings › Models' hint to turn every family on, closed for good",
+  "afflatus.modelFilesLine": "internal: Settings › Models' line of the space not used for 90 days, closed until it grows by about 100 GB",
   "afflatus.theme.paint": "internal: the theme's colours, painted before the app loads",
   "afflatus.attention-kept": "internal: Needs a look items kept by hand, per timeline",
   "afflatus.cut.crf": "internal: Trim's last quality, remembered where it is set",

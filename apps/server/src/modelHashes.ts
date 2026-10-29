@@ -89,7 +89,7 @@ interface Found {
  * The model files under a folder's directories, sub-folders included, and whether every directory of it could be read: a
  * drive away or a folder refused lists nothing, which is not the same as its files being gone.
  */
-async function filesIn(dirs: string[], folder: string): Promise<{ files: Found[]; whole: boolean }> {
+export async function filesIn(dirs: string[], folder: string): Promise<{ files: Found[]; whole: boolean }> {
   const out: Found[] = [];
   let whole = true;
   const walk = async (root: string, dir: string, depth: number): Promise<void> => {

@@ -39,6 +39,7 @@ import { registerNodePack } from "./nodePack";
 import { registerNotify } from "./notify";
 import { registerModelSets } from "./modelSets";
 import { registerModelWhere } from "./modelWhere";
+import { registerModelLibrary } from "./modelLibrary-api";
 import { registerPresetFiles } from "./presetFiles";
 import { registerProjects } from "./projects";
 import { registerRenders } from "./renders-api";
@@ -170,6 +171,7 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
   registerPresetFiles(app, s);
   registerModelSets(app, s);
   registerModelWhere(app, s);
+  registerModelLibrary(app, s);
   registerNodePack(app, s);
   registerModelInfo(app, s);
   registerModelPages(app, s);

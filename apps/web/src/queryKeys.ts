@@ -156,6 +156,9 @@ export const queryKeys = {
   modelInfo: {
     all: () => ["model-info"] as const,
     of: (folder: string | undefined) => ["model-info", folder] as const,
+    /** Settings › Model files' list, of a machine: under model-info, so the server's "models" event reads it again. */
+    files: (machine: string | undefined) => ["model-info", "files", machine ?? ""] as const,
+    takes: (id: string) => ["model-info", "takes", id] as const,
   },
   modelPages: (folder: string) => ["model-pages", folder] as const,
   modelWords: (folder: string) => ["model-words", folder] as const,

@@ -1,0 +1,171 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
+import { now } from "../src/db";
+import { ASIDE_DIR, type BinFinder } from "../src/modelBin";
+import { deleteFiles, folderOfHeader, type Library } from "../src/modelLibrary";
+import { backfillUses, recordUses } from "../src/modelUses";
+import { writeSettings } from "../src/settings";
+import { CHECKPOINT, complete, get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
+
+/**
+ * Settings › Model files (modelLibrary.ts): every model file of ComfyUI's folders with its uses, what needs it, and Delete,
+ * Put back, Empty and the drop. Every file is in the test's own temporary folder; Delete goes to a stand-in bin or the
+ * set-aside folder, never to a real Recycle Bin.
+ */
+
+let t: TestApp;
+let comfy: FakeComfy;
+let home: string;
+let bin: string;
+const fake: BinFinder = async () => ({ dir: bin, room: 1e9 });
+const lib = async (q = "") => (await get(t.app, `/api/model-files${q}`)).json() as Library;
+const byFile = (l: Library, file: string) => l.files.find((f) => f.file === file && !f.removed);
+
+beforeEach(async () => {
+  home = mkdtempSync(join(tmpdir(), "afflatus-library-"));
+  bin = join(home, "bin");
+  mkdirSync(bin);
+  for (const f of ["checkpoints", "loras/style", "vae"]) mkdirSync(join(home, "models", f), { recursive: true });
+  writeFileSync(join(home, "models", "checkpoints", CHECKPOINT), Buffer.alloc(4000, 1));
+  writeFileSync(join(home, "models", "loras", "style", "zz-test-a.safetensors"), Buffer.alloc(300, 2));
+  writeFileSync(join(home, "models", "loras", "zz-test-copy.safetensors"), Buffer.alloc(300, 2));
+  writeFileSync(join(home, "models", "vae", "zz-test-vae.safetensors"), Buffer.alloc(200, 3));
+  comfy = await startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: [CHECKPOINT], upscale_models: [] } });
+  t = await makeApp({ comfyUrl: comfy.url });
+  await writeSettings(t.db, { comfyDir: home });
+});
+afterEach(async () => {
+  await t.close();
+  await comfy.close().catch(() => {});
+  rmSync(home, { recursive: true, force: true });
+});
+
+describe("the list", () => {
+  it("has every file with its kind, size and date; copies once hashed; uses by name until then, by hash after", async () => {
+    let l = await lib();
+    expect(l.readOnly).toBe(false);
+    expect(l.files.map((f) => `${f.kind}:${f.file}`).sort()).toEqual(["Checkpoint:illustrious.safetensors", "LoRA:style/zz-test-a.safetensors", "LoRA:zz-test-copy.safetensors", "VAE:zz-test-vae.safetensors"]);
+    expect(byFile(l, CHECKPOINT)).toMatchObject({ size: 4000, match: "pending", sha256: null, uses: 0, last: null, path: join(home, "models", "checkpoints", CHECKPOINT) });
+    await recordUses(t.db, { id: "job-1", machine_id: null }, [{ folder: "loras", file: "style/zz-test-a.safetensors", node: "1", classType: "LoraLoader", input: "lora_name" }]);
+    expect(byFile(await lib(), "style/zz-test-a.safetensors")).toMatchObject({ uses: 1, approx: false });
+    await t.services.hashes.run();
+    l = await lib();
+    const a = byFile(l, "style/zz-test-a.safetensors")!;
+    expect(a.sha256).toMatch(/^[0-9A-F]{64}$/);
+    expect(a.copies).toEqual(["loras|zz-test-copy.safetensors"]);
+    // the use was noted before the file was hashed: still its own by its name
+    expect(a.uses).toBe(1);
+    await recordUses(t.db, { id: "job-2", machine_id: null }, [{ folder: "loras", file: "style/zz-test-a.safetensors", node: "1", classType: "LoraLoader", input: "lora_name" }]);
+    // the same job twice (submitted again after a restart) is one use
+    await recordUses(t.db, { id: "job-2", machine_id: null }, [{ folder: "loras", file: "style/zz-test-a.safetensors", node: "1", classType: "LoraLoader", input: "lora_name" }]);
+    l = await lib();
+    expect(byFile(l, "style/zz-test-a.safetensors")!.uses).toBe(2);
+    // its copy, the same bytes elsewhere, has uses of its own only
+    expect(byFile(l, "zz-test-copy.safetensors")!.uses).toBe(0);
+    // renamed, the file keeps the uses noted with its hash (the one from before it was hashed knew only its name)
+    renameSync(join(home, "models", "loras", "style", "zz-test-a.safetensors"), join(home, "models", "loras", "style", "zz-test-renamed.safetensors"));
+    await t.services.hashes.run();
+    l = await lib();
+    expect(byFile(l, "style/zz-test-renamed.safetensors")!.uses + byFile(l, "zz-test-copy.safetensors")!.uses).toBe(1);
+  });
+
+  it("says what needs a file: a model set, and Delete leaves it unless told Delete all", async () => {
+    const set = (await post(t.app, "/api/model-sets", { name: "zz-test set", presets: [], files: [{ folder: "vae", file: "zz-test-vae.safetensors" }] })).json();
+    expect(byFile(await lib(), "zz-test-vae.safetensors")!.needs).toEqual([{ kind: "set", id: set.id, name: "zz-test set" }]);
+    const kept = await deleteFiles(t.services, { files: [{ folder: "vae", file: "zz-test-vae.safetensors" }], to: "aside" }, fake);
+    expect(kept).toMatchObject({ moved: 0, left: [{ file: "zz-test-vae.safetensors", why: "the model set zz-test set needs it" }] });
+    const gone = await deleteFiles(t.services, { files: [{ folder: "vae", file: "zz-test-vae.safetensors" }], to: "aside", anyway: true }, fake);
+    expect(gone).toMatchObject({ moved: 1, bytes: 200 });
+    expect(existsSync(join(home, "models", ASIDE_DIR, "vae", "zz-test-vae.safetensors"))).toBe(true);
+  });
+});
+
+describe("Delete, Put back and Empty", () => {
+  it("moves to the bin, lists the file greyed, puts a whole Delete back (Undo), and Empty erases what is away", async () => {
+    const done = await deleteFiles(t.services, { files: [{ folder: "checkpoints", file: CHECKPOINT }, { folder: "loras", file: "zz-test-copy.safetensors" }], to: "bin" }, fake);
+    expect(done).toMatchObject({ moved: 2, bytes: 4300, aside: [], left: [] });
+    expect(readdirSync(bin).filter((n) => n.startsWith("$R"))).toHaveLength(2);
+    let l = await lib();
+    expect(byFile(l, CHECKPOINT)).toBeUndefined();
+    expect(l.files.filter((f) => f.removed).map((f) => [f.file, f.removed!.place])).toEqual(expect.arrayContaining([[CHECKPOINT, "bin"], ["zz-test-copy.safetensors", "bin"]]));
+    expect(l.away).toEqual({ bin: 4300, aside: 0, files: 2 });
+    expect((await post(t.app, "/api/model-files/put-back", { batch: done.batch })).json()).toEqual({ back: 2, left: [] });
+    expect(readFileSync(join(home, "models", "checkpoints", CHECKPOINT))).toEqual(Buffer.alloc(4000, 1));
+    expect(readdirSync(bin)).toEqual([]);
+    // the set-aside folder now (the route's own: asked for it), then Empty
+    const aside = (await post(t.app, "/api/model-files/delete", { files: [{ folder: "loras", file: "style/zz-test-a.safetensors" }], to: "aside" })).json();
+    expect(aside).toMatchObject({ moved: 1 });
+    l = await lib();
+    expect(l.away).toEqual({ bin: 0, aside: 300, files: 1 });
+    expect((await post(t.app, "/api/model-files/empty", {})).json()).toEqual({ erased: 1, bytes: 300 });
+    expect(existsSync(join(home, "models", ASIDE_DIR))).toBe(false);
+    expect((await lib()).away).toEqual({ bin: 0, aside: 0, files: 0 });
+  });
+
+  it("takes a file found back in its place (Explorer's Restore) as put back, one gone from the bin as emptied", async () => {
+    const done = await deleteFiles(t.services, { files: [{ folder: "vae", file: "zz-test-vae.safetensors" }, { folder: "loras", file: "zz-test-copy.safetensors" }], to: "bin" }, fake);
+    const rows = await t.db.selectFrom("model_removed").selectAll().where("batch", "=", done.batch).execute();
+    const vae = rows.find((r) => r.folder === "vae")!;
+    const lora = rows.find((r) => r.folder === "loras")!;
+    // Explorer's Restore puts the file back itself; Windows' Empty erases the other
+    writeFileSync(vae.path_was, readFileSync(vae.stored_path));
+    rmSync(vae.stored_path);
+    rmSync(lora.stored_path);
+    expect((await lib()).away.files).toBe(0);
+    const after = await t.db.selectFrom("model_removed").selectAll().execute();
+    expect(after.find((r) => r.id === vae.id)!.restored_at).not.toBeNull();
+    expect(after.find((r) => r.id === lora.id)!.emptied_at).not.toBeNull();
+  });
+
+  it("is never offered on a file outside the folders, nor over one already there when a file is dropped", async () => {
+    const out = await deleteFiles(t.services, { files: [{ folder: "loras", file: "../checkpoints/illustrious.safetensors" }], to: "aside" }, fake);
+    expect(out).toMatchObject({ moved: 0, left: [{ why: expect.stringContaining("not in ComfyUI's folders") }] });
+    expect(existsSync(join(home, "models", "checkpoints", CHECKPOINT))).toBe(true);
+    const put = (name: string, body: string) => t.app.inject({ method: "PUT", url: `/api/model-files/add?folder=loras&name=${encodeURIComponent(name)}`, headers: { "content-type": "application/x-afflatus-model" }, payload: body });
+    const added = await put("zz-test-new.safetensors", "abc");
+    expect(added.json()).toEqual({ file: "zz-test-new.safetensors", bytes: 3 });
+    expect(readFileSync(join(home, "models", "loras", "zz-test-new.safetensors"), "utf8")).toBe("abc");
+    expect((await put("zz-test-new.safetensors", "def")).statusCode).toBe(409);
+    expect((await put("../zz-test-out.safetensors", "x")).json()).toEqual({ file: "zz-test-out.safetensors", bytes: 1 });
+    expect(existsSync(join(home, "models", "zz-test-out.safetensors"))).toBe(false);
+    expect((await put("notes.txt", "x")).statusCode).toBe(400);
+  });
+});
+
+describe("a dropped file's folder", () => {
+  const header = (names: string[]) => Object.fromEntries(names.map((n) => [n, { dtype: "F16", shape: [4, 4], data_offsets: [0, 32] }]));
+  it("is read from its header's tensors, null when they do not tell", () => {
+    expect(folderOfHeader(header(["lora_unet_down_blocks_0.lora_down.weight"]))).toBe("loras");
+    expect(folderOfHeader(header(["model.diffusion_model.input_blocks.0.0.weight", "first_stage_model.decoder.conv_in.weight"]))).toBe("checkpoints");
+    expect(folderOfHeader(header(["encoder.down.0.block.0.conv1.weight", "decoder.up.0.block.0.conv1.weight"]))).toBe("vae");
+    expect(folderOfHeader(header(["encoder.block.0.layer.0.SelfAttention.q.weight", "shared.weight"]))).toBe("text_encoders");
+    expect(folderOfHeader(header(["something.else"]))).toBeNull();
+    expect(folderOfHeader(null)).toBeNull();
+  });
+});
+
+describe("uses", () => {
+  it("are the files a job's graph loads, noted as it is sent, with the takes it made; the backfill counts the renders from before", async () => {
+    await t.services.queue.start();
+    await post(t.app, "/api/jobs", { recipe: "sdxl.text-to-picture", input: { prompt: "a pier in the fog", checkpoint: CHECKPOINT } });
+    await until(() => comfy.prompts.size === 1);
+    complete(comfy, [...comfy.prompts.keys()][0]!);
+    await until(async () => (await t.db.selectFrom("assets").select("id").execute()).length === 1);
+    const uses = await t.db.selectFrom("model_uses").selectAll().execute();
+    expect(uses).toEqual([expect.objectContaining({ folder: "checkpoints", file: CHECKPOINT, exact: 1, generation_id: expect.any(String) })]);
+    expect(byFile(await lib(), CHECKPOINT)).toMatchObject({ uses: 1, takes: 1, families: ["sdxl"] });
+    // a render from before 0.8.2: its generation is counted once by the backfill, its job's own row left alone
+    const g = (await t.db.selectFrom("generations").selectAll().execute())[0]!;
+    await t.db.insertInto("generations").values({ ...g, id: "gen-old", created_at: "2026-07-01T10:00:00.000Z" }).execute();
+    expect(await backfillUses(t.services)).toBe(1);
+    expect(await backfillUses(t.services)).toBe(0);
+    const old = await t.db.selectFrom("model_uses").selectAll().where("generation_id", "=", "gen-old").execute();
+    expect(old).toEqual([expect.objectContaining({ job_id: "gen:gen-old", file: CHECKPOINT, exact: 1, used_at: "2026-07-01T10:00:00.000Z" })]);
+    const l = await lib();
+    expect(byFile(l, CHECKPOINT)).toMatchObject({ uses: 2, months: { "2026-07": 1, [now().slice(0, 7)]: 1 } });
+    expect(l.since).toBe("2026-07-01T10:00:00.000Z");
+  });
+});

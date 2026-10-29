@@ -52,6 +52,7 @@ export const SETTING_TABS = [
   { id: "comfyui", label: "ComfyUI" },
   { id: "rented", label: "Rented GPUs" },
   { id: "models", label: "Models" },
+  { id: "model-files", label: "Model files" },
   { id: "designer", label: "Designer" },
   { id: "prompts", label: "Prompts" },
   { id: "interface", label: "Interface" },

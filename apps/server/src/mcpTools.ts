@@ -13,6 +13,7 @@ import { SEE_TOOLS } from "./mcpSee";
 import { SETTING_TOOLS } from "./mcpSettings";
 import { SHOW_TOOLS } from "./mcpShow";
 import { STORAGE_TOOLS } from "./mcpStorage";
+import { MODEL_FILE_TOOLS } from "./mcpModelFiles";
 import { TIMELINE_TOOLS } from "./mcpTimelines";
 import { tool, type Tool } from "./mcpTool";
 import { WORKFLOW_TOOLS } from "./mcpWorkflows";
@@ -103,7 +104,7 @@ export const TOOL_GROUPS: ReadonlyArray<{ group: string; tools: readonly Tool[] 
   { group: "Prompt kit", tools: KIT_TOOLS },
   { group: "Timelines", tools: TIMELINE_TOOLS },
   { group: "Workflows", tools: WORKFLOW_TOOLS },
-  { group: "Models", tools: MODEL_TOOLS },
+  { group: "Models", tools: [...MODEL_TOOLS, ...MODEL_FILE_TOOLS] },
   { group: "Model pages and trigger words", tools: MODEL_PAGE_TOOLS },
   { group: "Settings", tools: SETTING_TOOLS },
   { group: "Machines and rented GPUs", tools: [...MACHINE_TOOLS, ...HUNT_TOOLS] },

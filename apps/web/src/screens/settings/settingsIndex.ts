@@ -41,6 +41,7 @@ export const INDEX: SettingSpot[] = [
   { tab: "comfyui", label: "ComfyUI version and PyTorch", key: "comfy.version", near: "comfy.url", words: "update comfyui version too old core nodes git pull portable pytorch torch cuda cu130 cu128 int8 convrot nvfp4" },
   { tab: "comfyui", label: "Node pack", key: "comfy.pack", words: "custom_nodes afflatus-nodes minimax h3 latent install" },
   { tab: "comfyui", label: "Unload models after", key: "comfy.unload", words: "vram free idle minutes never" },
+  { tab: "model-files", label: "Model files", key: "modelFiles.list", words: "disk space free delete not used unused recycle bin set aside duplicates copies clean up checkpoint lora vae size drop add" },
   { tab: "models", label: "Models", key: "models.families", words: "models on or off in the lists families switch hide ready missing files nodes operations" },
   { tab: "models", label: "Files in use", key: "models.files", near: "models.families", words: "which file several fit checkpoint text encoder vae slot automatic pick choose" },
   { tab: "models", label: "Civitai API key", key: "models.civitaiKey", near: "server.civitaiLookups", words: "token" },

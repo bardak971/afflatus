@@ -28,6 +28,7 @@ import { queryKeys } from "../queryKeys";
 import { ModelSetsCard } from "./settings/ModelSetsCard";
 import { DownloadsCard } from "../DownloadsLine";
 import { ModelsOnlineCard } from "./settings/ModelsOnlineCard";
+import { ModelFilesTab, useModelFiles } from "./settings/ModelFilesTab";
 import { COLUMNS } from "./settings/wide";
 
 /** What each tab says at a glance, beside its name: ComfyUI answering, operations not ready, the disk used, the version. */
@@ -36,6 +37,7 @@ function useTabMarks(): Partial<Record<Tab, ReactNode>> {
   const recipes = useRecipes();
   const families = useFamilies();
   const storage = useStorage();
+  const modelFiles = useModelFiles();
   // the same query as About's: read once, kept
   const health = useQuery({ queryKey: queryKeys.health(), queryFn: () => api.health(), staleTime: Infinity });
   const comfy = setup.data?.comfy;
@@ -62,6 +64,7 @@ function useTabMarks(): Partial<Record<Tab, ReactNode>> {
       : unusedVolumes > 0 ? <Chip size="xs" tone="warn" className="font-mono">{plural(unusedVolumes, "volume")} unused</Chip>
       : podRunning && <span aria-label="a pod running" className="h-[7px] w-[7px] rounded-full bg-good" />,
     models: notReady > 0 && <Chip size="xs" tone="warn" className="font-mono">{notReady} not ready</Chip>,
+    "model-files": modelFiles.data && !modelFiles.data.readOnly && <SegmentCount>{size(modelFiles.data.files.reduce((n, f) => n + (f.removed ? 0 : (f.size ?? 0)), 0))}</SegmentCount>,
     storage: storage.data && <SegmentCount>{size(storage.data.total)}</SegmentCount>,
     about: health.data && <SegmentCount>{/^\d/.test(health.data.version) ? `v${health.data.version}` : health.data.version}</SegmentCount>,
   };
@@ -170,7 +173,7 @@ export function Setup() {
         titleYields
         after={(fold) => {
           // the plain figures only: a dot or a warning chip says something to act on
-          const shown = (id: Tab) => (fold >= 3 && (id === "storage" || id === "about") ? null : marks[id]);
+          const shown = (id: Tab) => (fold >= 3 && (id === "storage" || id === "model-files" || id === "about") ? null : marks[id]);
           return <Segmented<Tab> oneLine className="w-max" label="Settings" value={tab} options={tabs.map((t) => ({ value: t.id, label: shown(t.id) ? <span className="inline-flex items-center gap-1.5">{t.label}{shown(t.id)}</span> : t.label }))} onChange={open} />;
         }}
         actions={(fold) => fold >= 2 && !searching && !typed ? (
@@ -210,7 +213,8 @@ export function Setup() {
       {/* cards of settings, every setting one row: one column, and two side by side in a wide window on every tab (one
           column left the page's other half empty and its cards a long scroll) */}
       <div ref={scroller} className="min-h-0 grow overflow-y-auto px-8 pt-5 pb-10">
-        <div className="flex max-w-[860px] flex-col gap-4 min-[1600px]:max-w-[1736px]">
+        {/* Model files is a table of a dozen columns: the whole width, up to the wide window's */}
+        <div className={cx("flex flex-col gap-4", tab === "model-files" ? "max-w-[1736px]" : "max-w-[860px] min-[1600px]:max-w-[1736px]")}>
           {tab === "comfyui" && <ComfyCard />}
           {tab === "comfyui" && <ElectricityCard />}
           {tab === "rented" && <RentedTab />}
@@ -220,6 +224,7 @@ export function Setup() {
               right={(machine) => <><ModelsOnlineCard /><ModelSetsCard /><DownloadsCard machine={machine} /></>}
             />
           )}
+          {tab === "model-files" && <ModelFilesTab />}
           {tab === "designer" && <DesignerCard />}
           {/* the settings first: eleven guides above them pushed the tag check below the fold */}
           {tab === "prompts" && (
