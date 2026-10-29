@@ -6,6 +6,7 @@ import { KIT_TOOLS } from "./mcpKit";
 import { LIBRARY_TOOLS } from "./mcpLibrary";
 import { MACHINE_TOOLS } from "./mcpMachines";
 import { MODEL_TOOLS } from "./mcpModels";
+import { HUNT_TOOLS, QUEUE_TOOLS } from "./mcpQueue";
 import { RENDER_TOOLS } from "./mcpRender";
 import { SEE_TOOLS } from "./mcpSee";
 import { SETTING_TOOLS } from "./mcpSettings";
@@ -91,7 +92,7 @@ export const TOOL_GROUPS: ReadonlyArray<{ group: string; tools: readonly Tool[] 
   { group: "Where the user is", tools: [whatsOpen, overview] },
   { group: "Forms", tools: FORM_TOOLS },
   { group: "Drafts", tools: DRAFT_TOOLS },
-  { group: "Render and the queue", tools: RENDER_TOOLS },
+  { group: "Render and the queue", tools: [...RENDER_TOOLS, ...QUEUE_TOOLS] },
   { group: "See", tools: SEE_TOOLS },
   { group: "Library", tools: LIBRARY_TOOLS },
   { group: "Prompt kit", tools: KIT_TOOLS },
@@ -99,7 +100,7 @@ export const TOOL_GROUPS: ReadonlyArray<{ group: string; tools: readonly Tool[] 
   { group: "Workflows", tools: WORKFLOW_TOOLS },
   { group: "Models", tools: MODEL_TOOLS },
   { group: "Settings", tools: SETTING_TOOLS },
-  { group: "Machines and rented GPUs", tools: MACHINE_TOOLS },
+  { group: "Machines and rented GPUs", tools: [...MACHINE_TOOLS, ...HUNT_TOOLS] },
 ] as ReadonlyArray<{ group: string; tools: readonly Tool[] }>;
 
 /** Every tool, in the order the client lists them. */
