@@ -4,8 +4,12 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-10-29
+
+Agents (MCP) that run the whole studio: long calls in the background with MCP Tasks (Claude Code wakes once with the result), the queue, the GPU hunt, uploads, logs and most of what the web can do, every path that spends on a rented pod held to the token's cap; Settings › Model files, every model file on this PC with how Afflatus used it, and Delete to the Recycle Bin to free the space; Access in a tab of its own.
+
 ### Added
-- **Settings › Model files.** A tab of its own, after Models, with every model file of ComfyUI's folders on this PC (extra_model_paths.yaml's too): its name and picture where Civitai or Hugging Face match its hash, kind, base, size, date, how many Afflatus jobs loaded it and when last, what was made with it, what needs it (presets, model sets, families), its extra copies. On top: what Afflatus has not used for 90 days, the extra copies, the files with no match, and the space by last use; they follow a family filter. Sortable columns, search, kind chips, click and shift-click to select. Another machine's files are listed read-only.
+- **Settings › Model files.** A tab of its own, after Models, with every model file of ComfyUI's folders on this PC (extra_model_paths.yaml's too): its name and picture where Civitai or Hugging Face match its hash, kind, base, size, date, how many Afflatus jobs loaded it and when last, what was made with it, what needs it (presets, model sets, families), its extra copies. On top: the files Afflatus never used since its records start (once it has 90 days of them, those it has not used for 90 days), the extra copies, the files with no match, and the space by last use; they follow a family filter. Sortable columns, search, kind chips, click and shift-click to select. Another machine's files are listed read-only.
   - **Delete** moves to the Windows Recycle Bin, written by Afflatus itself (Explorer lists the file and its Restore works), or to a `.afflatus-set-aside` folder beside the model folders when the bin has no room or erases at once, and on Linux and Docker. Nothing is erased: **Put back**, Undo, and one **Empty** erases them for good. A file a preset or a model set needs is asked about first ("Keep that one, delete 11"), unless a copy of it stays. Never through MCP; the new `model_files` tool only lists.
   - **Drop model files** onto the tab: each goes into its kind's folder, read from its header (or picked on its line).
   - From now on each job keeps the files its graph loaded; renders from before are counted from what was kept of them (helper files approximately, ≈). Renders made straight in ComfyUI are not seen: the words are "not used by Afflatus since…".
@@ -40,6 +44,8 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **An agent could send your work onto a rented pod with no cap counting it.** With Spend, an MCP token could pause one of your machines, resume a pod or the whole queue, change what a machine takes, remove one of your machines, or start a GPU hunt that rests your machines, while a pod was up: your waiting work, and everything you queued after, went to that pod, billed to you (or to the token that started it) and counted against no cap. These are now refused while a pod of yours or another token's would take the work; onto a pod the token started itself (its whole run counted against its cap) they work as before. The agent sends its own jobs to a pod with `run_on` or `use_only`, counted.
 - Settings › Models: a family row with Get the minimum beside it (Image tools) could show no name in a narrow card.
 - **MCP's `job`, `queue_status` and `overview` said the time left in seconds as `leftMs`**, so an agent read 130 s as 0.13 s.
+- **A helper model slot could take the wrong file.** H3's RT-DETR slot (and SDPose, SAM 3, SeedVR2) picked a file of its folder by its weights, and could land on a video model kept there; these slots now take only a file their name says.
+- **A Civitai address in Download a model from a URL, or a pod's file from Civitai, was fetched without your Civitai key**, and Civitai answered 401 for most files. The key now goes with it, to Civitai alone (never to the storage it redirects to), as the Hugging Face token goes to Hugging Face.
 
 ## [0.8.1] - 2026-10-28
 
@@ -675,7 +681,8 @@ The 0.6.0 cycle: the timeline reworked around sources, recordings and joins, H3 
 
 The first release: the Studio and its library, a form per model family, timelines, the prompt kit, imported workflows, the queue, the node pack, the Docker image, the Helm chart and the desktop bundles.
 
-[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.8.2...HEAD
+[0.8.2]: https://github.com/bardak971/afflatus/releases/tag/v0.8.2
 [0.8.1]: https://github.com/bardak971/afflatus/releases/tag/v0.8.1
 [0.8.0]: https://github.com/bardak971/afflatus/releases/tag/v0.8.0
 [0.7.1]: https://github.com/bardak971/afflatus/releases/tag/v0.7.1
