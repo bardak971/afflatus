@@ -54,7 +54,7 @@ export async function recordUses(db: Db, job: { id: string; machine_id?: string 
 
 /** A job's uses told the generation it made: its takes are what was "made with" each of its files. */
 export async function linkUses(db: Db, jobId: string, generationId: string): Promise<void> {
-  await db.updateTable("model_uses").set({ generation_id: generationId }).where("job_id", "=", jobId).execute();
+  await db.updateTable("model_uses").set({ generation_id: generationId }).where("job_id", "=", jobId).execute().catch((err: Error) => console.warn("[model uses]", err.message));
 }
 
 /** The model files a form chose itself (its model and LoRA inputs): what a backfill knows exactly. */

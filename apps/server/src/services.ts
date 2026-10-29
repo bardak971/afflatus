@@ -8,7 +8,7 @@ import type { Db, DbKind } from "./db";
 import type { LibraryChange } from "./events";
 import { Downloads } from "./downloads";
 import { ModelHashes } from "./modelHashes";
-import { fillCivitai } from "./modelLibrary";
+import { fillCivitai, settleAway, settlePending } from "./modelLibrary";
 import { backfillUses } from "./modelUses";
 import { PodFiles } from "./podFiles";
 import { keepPacksTime, PodOutside } from "./podOutside";
@@ -394,7 +394,11 @@ export async function createServices(
   const library = () => {
     void backfillUses(services).catch((err: Error) => console.warn("[model uses]", err.message));
     void fillCivitai(services).catch((err: Error) => console.warn("[model files]", err.message));
+    // what Delete moved, as it is found now (put back by Explorer, emptied by Windows): written here, never on a read
+    void settleAway(services).catch((err: Error) => console.warn("[model files]", err.message));
   };
+  // a Delete cut short by a stop (its row written, its move not said done) settled before anything reads the list
+  await settlePending(services).catch((err: Error) => console.warn("[model files]", err.message));
   const firstLibrary = setTimeout(library, 90_000);
   firstLibrary.unref();
   // the daily check for newer model versions rides on the hourly sweep: it only runs when the user asked for it. What

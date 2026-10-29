@@ -416,8 +416,6 @@ async function writeRows(
       .execute();
     // the job names its generation from here on: found running again after a crash, it is not filed twice
     await tx.updateTable("jobs").set({ generation_id: g.id, updated_at: now() }).where("id", "=", row.id).execute();
-    // its files' uses name what it made (Settings › Model files' "Made with it"), past the job's own prune
-    await linkUses(tx, row.id, g.id);
     // a source erased while the render ran (a neighbour video or an opening frame chosen at submit) is left out of the
     // lineage: its row is gone, and naming it would fail the whole result on its foreign key, GPU time and files with it
     const ids = [...new Set(sources.map((s) => s.asset))];
@@ -431,4 +429,7 @@ async function writeRows(
     }
     for (const r of rows) await tx.insertInto("assets").values(r).execute();
   });
+  // its files' uses name what it made (Settings › Model files' "Made with it"), past the job's own prune: after the
+  // transaction and only a note, so that it never fails a result (a failed statement in a Postgres transaction ends it)
+  await linkUses(db, row.id, g.id);
 }

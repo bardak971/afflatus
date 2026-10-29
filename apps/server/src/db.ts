@@ -432,7 +432,7 @@ export interface Tables {
   /** Model files Delete moved (modelBin.ts, 0099): `place` bin or aside, where each is now, put back or emptied since. */
   model_removed: {
     id: string; batch: string; folder: string; file: string; path_was: string; size: number | string; sha256: string | null;
-    place: "bin" | "aside"; stored_path: string; info_path: string | null; removed_at: string; restored_at: string | null; emptied_at: string | null;
+    place: "bin" | "aside"; stored_path: string; info_path: string | null; removed_at: string; restored_at: string | null; emptied_at: string | null; pending: number;
   };
   /** What Civitai says of a version a model file was matched to (modelLibrary.ts, 0099): names, base model, its first picture. */
   model_civitai: { version_id: number | string; model_id: number | string | null; model_name: string | null; version_name: string | null; base: string | null; picture: string | null; read_at: string };

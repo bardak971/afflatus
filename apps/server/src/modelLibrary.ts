@@ -1,16 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { rename, stat, unlink } from "node:fs/promises";
-import { join } from "node:path";
+import { stat, unlink } from "node:fs/promises";
+import { dirname, join, parse, resolve } from "node:path";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import type { Selectable } from "kysely";
 import { tensorsOf, architectureOf } from "@afflatus/comfy";
 import { baseName, fileKey, isModelFile, kindOfFolder, type InputSpec } from "@afflatus/core";
 import { FAMILY_BASES } from "./browse";
 import { civitaiGet } from "./civitai";
-import { now } from "./db";
+import { now, type Tables } from "./db";
 import { httpError } from "./errors";
-import { asideRoot, erase, moveBack, moveOut, systemBin, type BinFinder, type Place } from "./modelBin";
+import { asideRoot, erase, moveBack, moveNoClobber, moveOut, systemBin, Taken, type BinFinder, type Place } from "./modelBin";
 import { filesIn, HASHED_FOLDERS } from "./modelHashes";
 import { insideDir, modelDirsSaid } from "./modelFiles";
 import { nameOf } from "./modelPages";
@@ -104,8 +105,12 @@ async function folderDirs(comfyDir: string): Promise<Map<string, string[]>> {
   return out;
 }
 
-/** A file of a folder on this computer: its path, refused when the name leads out of the folder or the file is not there. */
+/**
+ * A model file of a folder on this computer: its path, refused when the name leads out of the folder, is not a model
+ * file's (an extra_model_paths.yaml, a config's .json beside the models), or the file is not there.
+ */
 async function pathOf(dirs: Map<string, string[]>, folder: string, file: string): Promise<{ path: string; dir: string; size: number } | null> {
+  if (!isModelFile(file)) return null;
   for (const dir of dirs.get(folder) ?? []) {
     const path = insideDir(dir, file);
     const st = path ? await stat(path).catch(() => null) : null;
@@ -171,24 +176,65 @@ async function familyOfGenerations(s: Pick<Services, "db">): Promise<Map<string,
   return new Map(rows.map((r) => [r.id, r.family]));
 }
 
+const exists = (p: string) => stat(p).then(() => true, () => false);
+
+/** A row of a file Delete moved. */
+type Removed = Selectable<Tables["model_removed"]>;
+
 /**
- * The files Delete moved that are still away. One found gone from where it was put (Windows emptied its bin, or erased its
- * oldest items to make room) is taken as emptied; one found back where it was (Explorer's Restore) as put back.
+ * Where a file Delete moved stands now: still away; found back in its place (Explorer's Restore); gone from where it was
+ * put (the bin emptied, or Windows erasing its oldest items), said only when the folder it was put in is there; or not
+ * known (that folder is not there: a drive away for now), which is kept as away.
  */
-async function awayRows(s: Pick<Services, "db">) {
-  const rows = await s.db.selectFrom("model_removed").selectAll().where("restored_at", "is", null).where("emptied_at", "is", null).execute();
-  const out = [];
+async function stateOf(r: Removed): Promise<"away" | "back" | "gone" | "unknown"> {
+  if (await exists(r.stored_path)) return "away";
+  if (await exists(r.path_was)) return "back";
+  return (await exists(dirname(r.stored_path))) ? "gone" : "unknown";
+}
+
+/**
+ * The files Delete moved that are away, as the list shows them: read only, nothing written (a list read on the MCP or a
+ * page never changes what is kept). One back in its place or gone from where it was put is left out; settleAway writes so.
+ */
+async function awayRows(s: Pick<Services, "db">): Promise<Removed[]> {
+  const rows = await s.db.selectFrom("model_removed").selectAll().where("restored_at", "is", null).where("emptied_at", "is", null).where("pending", "=", 0).execute();
+  const out: Removed[] = [];
   for (const r of rows) {
-    if (await stat(r.stored_path).then(() => true, () => false)) {
-      out.push(r);
-      continue;
-    }
-    const back = await stat(r.path_was).then(() => true, () => false);
-    // Explorer's Restore leaves the bin's entry behind: gone with the rest
-    if (back && r.info_path) await unlink(r.info_path).catch(() => {});
-    await s.db.updateTable("model_removed").set(back ? { restored_at: now() } : { emptied_at: now() }).where("id", "=", r.id).execute();
+    const st = await stateOf(r);
+    if (st === "away" || st === "unknown") out.push(r);
   }
   return out;
+}
+
+/**
+ * What was found of the files Delete moved, written: one back in its place taken as put back (Explorer's Restore leaves the
+ * bin's entry behind: removed with it), one gone from a folder that is there taken as emptied. A drive away for now
+ * changes nothing. Run by the writes of Model files, and by the hourly pass (services.ts).
+ */
+export async function settleAway(s: Pick<Services, "db">): Promise<void> {
+  const rows = await s.db.selectFrom("model_removed").selectAll().where("restored_at", "is", null).where("emptied_at", "is", null).where("pending", "=", 0).execute();
+  for (const r of rows) {
+    const st = await stateOf(r);
+    if (st === "back" && r.info_path) await unlink(r.info_path).catch(() => {});
+    if (st === "back" || st === "gone") await s.db.updateTable("model_removed").set(st === "back" ? { restored_at: now() } : { emptied_at: now() }).where("id", "=", r.id).execute();
+  }
+}
+
+/**
+ * The moves cut short (Afflatus stopped between writing where a file was going and its move ending), settled at the start:
+ * a file found where it was going and gone from its place is away (its row kept, for Put back); one still in its place
+ * did not move (the bin entry made for it removed, the row with it). Neither: its drive is away, asked again next start.
+ */
+export async function settlePending(s: Pick<Services, "db">): Promise<void> {
+  const rows = await s.db.selectFrom("model_removed").selectAll().where("pending", "=", 1).execute();
+  for (const r of rows) {
+    if ((await exists(r.stored_path)) && !(await exists(r.path_was))) {
+      await s.db.updateTable("model_removed").set({ pending: 0 }).where("id", "=", r.id).execute();
+    } else if (await exists(r.path_was)) {
+      if (r.info_path && !(await exists(r.stored_path))) await unlink(r.info_path).catch(() => {});
+      await s.db.deleteFrom("model_removed").where("id", "=", r.id).execute();
+    }
+  }
 }
 
 /** The library of a machine: this computer's folders (`machine` left out or one of hereIds), else another machine's scan. */
@@ -278,10 +324,16 @@ export async function library(s: Lib, machine?: string): Promise<Library> {
   };
 }
 
-/** The files of the jobs waiting or running: never moved under them (a file a render is loading). */
-async function inUse(s: Lib): Promise<Set<string>> {
-  const jobs = await s.db.selectFrom("jobs").select(["recipe_id", "inputs"]).where("status", "in", ["queued", "running"]).execute();
-  const out = new Set<string>();
+/**
+ * The files of the jobs waiting or running: never moved under them (a file a render is loading). By the form's own files
+ * and its family's slots here (`names`, fileKey), and by what a running job's graph was noted loading (`used`, usedKey: the
+ * helper files a recipe reads that no form names).
+ */
+async function inUse(s: Lib): Promise<{ names: Set<string>; used: Set<string> }> {
+  const jobs = await s.db.selectFrom("jobs").select(["id", "recipe_id", "inputs"]).where("status", "in", ["queued", "running"]).execute();
+  const names = new Set<string>();
+  const used = new Set<string>();
+  if (!jobs.length) return { names, used };
   const scan = await (await s.comfy()).scanKept()?.catch(() => null);
   for (const j of jobs) {
     const recipe = s.registry.recipe(j.recipe_id);
@@ -292,10 +344,33 @@ async function inUse(s: Lib): Promise<Set<string>> {
     } catch {
       // an unreadable form names no file
     }
-    for (const f of chosenFiles(recipe.inputs as InputSpec[], input)) out.add(fileKey(f));
-    for (const slot of scan?.families.find((x) => x.id === recipe.family)?.slots ?? []) if (slot.file) out.add(fileKey({ folder: slot.folder, file: slot.file }));
+    for (const f of chosenFiles(recipe.inputs as InputSpec[], input)) names.add(fileKey(f));
+    for (const slot of scan?.families.find((x) => x.id === recipe.family)?.slots ?? []) if (slot.file) names.add(fileKey({ folder: slot.folder, file: slot.file }));
   }
-  return out;
+  for (let i = 0; i < jobs.length; i += 500) {
+    const rows = await s.db.selectFrom("model_uses").select("name_key").where("job_id", "in", jobs.slice(i, i + 500).map((j) => j.id)).execute();
+    for (const r of rows) used.add(r.name_key);
+  }
+  return { names, used };
+}
+
+/**
+ * A bin finder asked once per drive in one Delete (Windows' answer reads the registry and mountvol), its room taken down by
+ * what the Delete put in it already.
+ */
+function oncePerDrive(bin: BinFinder): { find: BinFinder; took(path: string, bytes: number): void } {
+  const spots = new Map<string, ReturnType<BinFinder>>();
+  const taken = new Map<string, number>();
+  const driveOf = (path: string) => parse(resolve(path)).root.toLowerCase();
+  return {
+    find: async (path) => {
+      const drive = driveOf(path);
+      if (!spots.has(drive)) spots.set(drive, bin(path));
+      const spot = await spots.get(drive)!;
+      return "none" in spot ? spot : { ...spot, room: spot.room - (taken.get(drive) ?? 0) };
+    },
+    took: (path, bytes) => void taken.set(driveOf(path), (taken.get(driveOf(path)) ?? 0) + bytes),
+  };
 }
 
 export interface DeleteAsk {
@@ -315,14 +390,19 @@ export interface DeleteDone {
   left: Array<{ file: string; why: string }>;
 }
 
-/** The Delete of Settings › Model files: each file moved (modelBin.moveOut), never erased; the bin by default. */
+/**
+ * The Delete of Settings › Model files: each file moved (modelBin.moveOut), never erased; the bin by default. Its row is
+ * written before it moves, with where it is going (pending), and completed once moved: a file is never away without a
+ * row to put it back by. A row that cannot be written stops the move; one that cannot be completed puts the file back.
+ */
 export async function deleteFiles(s: Lib, ask: DeleteAsk, bin: BinFinder = systemBin): Promise<DeleteDone> {
+  await settleAway(s);
   const settings = await readSettings(s.db);
   const dirs = await folderDirs(settings.comfyDir);
   const allDirs = [...dirs.values()].flat();
   const families = (await (await s.comfy()).scanKept()?.catch(() => null))?.families ?? [];
   const needs = await needsOf(s, families);
-  const busy = await inUse(s);
+  const bins = oncePerDrive(bin);
   // a preset or a set names a file by its name: a copy of it left in another sub-folder still has what it needs
   const asked = new Set(ask.files.map(usedKey));
   const staying = new Set<string>();
@@ -336,26 +416,49 @@ export async function deleteFiles(s: Lib, ask: DeleteAsk, bin: BinFinder = syste
       done.left.push({ file: name, why: `${blocking[0]!.kind === "preset" ? "the preset" : "the model set"} ${blocking[0]!.name} needs it` });
       continue;
     }
-    if (busy.has(fileKey(f))) {
+    const at = await pathOf(dirs, f.folder, f.file);
+    if (!at) {
+      done.left.push({ file: name, why: isModelFile(f.file) ? "it is not in ComfyUI's folders any more" : "it is not a model file" });
+      continue;
+    }
+    // asked again for each file, just before it moves: a job sent meanwhile counts
+    const busy = await inUse(s);
+    if (busy.names.has(fileKey(f)) || busy.used.has(usedKey(f))) {
       done.left.push({ file: name, why: "a job waiting or running uses it" });
       continue;
     }
-    const at = await pathOf(dirs, f.folder, f.file);
-    if (!at) {
-      done.left.push({ file: name, why: "it is not in ComfyUI's folders any more" });
-      continue;
-    }
     const sha = (await s.db.selectFrom("model_hashes").select("sha256").where("folder", "=", f.folder).where("file", "=", f.file.replace(/\\/g, "/")).executeTakeFirst())?.sha256 ?? null;
+    const id = randomUUID();
+    let written = false;
     try {
-      const m = await moveOut(at.path, { want: ask.to, size: at.size, folder: f.folder, file: f.file, aside: asideRoot(at.dir, allDirs), bin });
-      await s.db.insertInto("model_removed").values({
-        id: randomUUID(), batch, folder: f.folder, file: f.file.replace(/\\/g, "/"), path_was: at.path, size: at.size, sha256: sha,
-        place: m.place, stored_path: m.stored, info_path: m.info, removed_at: now(), restored_at: null, emptied_at: null,
-      }).execute();
+      const m = await moveOut(at.path, {
+        want: ask.to, size: at.size, folder: f.folder, file: f.file, aside: asideRoot(at.dir, allDirs), bin: bins.find,
+        // where it is going, kept before it goes (again with another name when the first was taken)
+        planned: async (p) => {
+          const row = { place: p.place, stored_path: p.stored, info_path: p.info };
+          if (written) await s.db.updateTable("model_removed").set(row).where("id", "=", id).execute();
+          else await s.db.insertInto("model_removed").values({
+            id, batch, folder: f.folder, file: f.file.replace(/\\/g, "/"), path_was: at.path, size: at.size, sha256: sha, ...row,
+            removed_at: now(), restored_at: null, emptied_at: null, pending: 1,
+          }).execute();
+          written = true;
+        },
+      });
+      try {
+        await s.db.updateTable("model_removed").set({ pending: 0 }).where("id", "=", id).execute();
+      } catch (err) {
+        // moved, but its row could not say so: back in its place, rather than away with nothing to put it back by
+        await moveBack({ stored: m.stored, info: m.info, was: at.path });
+        await s.db.deleteFrom("model_removed").where("id", "=", id).execute().catch(() => {});
+        throw err;
+      }
+      if (m.place === "bin") bins.took(at.path, at.size);
       done.moved++;
       done.bytes += at.size;
       if (m.why !== null) done.aside.push({ file: name, why: m.why });
     } catch (err) {
+      // not moved (the move refused, or its row not written): no row left behind for it
+      if (written && (await exists(at.path))) await s.db.deleteFrom("model_removed").where("id", "=", id).where("pending", "=", 1).execute().catch(() => {});
       done.left.push({ file: name, why: (err as Error).message });
     }
   }
@@ -373,7 +476,8 @@ async function changed(s: Lib): Promise<void> {
 
 /** Put back: the moved files (by their ids, or one Delete's batch) returned where they were. */
 export async function putBack(s: Lib, which: { ids?: string[]; batch?: string }): Promise<{ back: number; left: Array<{ file: string; why: string }> }> {
-  let q = s.db.selectFrom("model_removed").selectAll().where("restored_at", "is", null).where("emptied_at", "is", null);
+  await settleAway(s);
+  let q = s.db.selectFrom("model_removed").selectAll().where("restored_at", "is", null).where("emptied_at", "is", null).where("pending", "=", 0);
   if (which.batch) q = q.where("batch", "=", which.batch);
   else if (which.ids?.length) q = q.where("id", "in", which.ids);
   else throw httpError("Say which files to put back.", 400);
@@ -397,11 +501,16 @@ export async function putBack(s: Lib, which: { ids?: string[]; batch?: string })
   return out;
 }
 
-/** Empty: what Delete moved, erased for good (the bin's entries and the set-aside folder's files). The only erase there is. */
+/**
+ * Empty: what Delete moved, erased for good (the bin's entries and the set-aside folder's files). The only erase there is.
+ * A file whose drive is away now is left for a later Empty.
+ */
 export async function emptyAway(s: Pick<Services, "db">): Promise<{ erased: number; bytes: number }> {
+  await settleAway(s);
   let erased = 0;
   let bytes = 0;
   for (const r of await awayRows(s)) {
+    if (!(await exists(r.stored_path))) continue;
     await erase({ stored: r.stored_path, info: r.info_path });
     await s.db.updateTable("model_removed").set({ emptied_at: now() }).where("id", "=", r.id).execute();
     erased++;
@@ -432,27 +541,50 @@ export function folderOfHeader(header: Record<string, unknown> | null): string |
 }
 
 /**
+ * Why a dropped file's name is refused, or null: one Windows cannot hold, or holds as something else (a colon names an
+ * alternate stream of another file; CON, NUL, COM1… are devices; a trailing dot or space is dropped, so the file would not
+ * be found under its name), or one that does not end as a model file's.
+ */
+export function badName(name: string): string | null {
+  if (!name || name.startsWith(".")) return "a name is needed, not starting with a dot";
+  if (/[<>:"|?*\x00-\x1f]/.test(name)) return "it holds a character Windows does not take in a file name (< > : \" | ? *)";
+  if (/[. ]$/.test(name)) return "it ends with a dot or a space";
+  if (/^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?$/i.test(name)) return "it is a name Windows keeps for a device (CON, NUL, COM1…)";
+  if (!isModelFile(name)) return "it is not a model file (.safetensors, .gguf, .ckpt, .pt, .pth, .bin, .onnx)";
+  return null;
+}
+
+/**
  * A dropped file written into its folder on this computer (the folder's first directory), as it arrives: under a `.part`
- * name until its last byte, then renamed. Refused over a file of the same name.
+ * name of this request's own until its last byte, then put in place without ever replacing a file (one arriving under the
+ * same name meanwhile is kept, this one refused). Only this request's `.part` is ever removed.
  */
 export async function addFile(s: Lib, folder: string, name: string, body: Readable): Promise<{ file: string; bytes: number }> {
   if (!HASHED_FOLDERS.includes(folder)) throw httpError("there is no such model folder", 400);
   const clean = baseName(name.trim());
-  if (!isModelFile(clean) || clean.startsWith(".")) throw httpError("That is not a model file (.safetensors, .gguf, .ckpt, .pt, .pth, .bin, .onnx).", 400);
+  const bad = badName(clean);
+  if (bad) throw httpError(`${clean || "That file"} is refused: ${bad}.`, 400);
   const dir = (await modelDirsSaid((await readSettings(s.db)).comfyDir, folder)).dirs[0];
   if (!dir) throw httpError("ComfyUI's folder on this computer is not known (Settings › ComfyUI › Folder on this computer).", 409);
   const path = insideDir(dir, clean);
   if (!path) throw httpError("That name leads out of the folder.", 400);
-  if (await stat(path).then(() => true, () => false)) throw httpError(`${clean} is in ${folder} already.`, 409);
-  const part = join(dir, `${clean}.part`);
+  const already = () => httpError(`${clean} is in ${folder} already.`, 409);
+  if (await exists(path)) throw already();
+  const part = join(dir, `${clean}.${randomUUID().slice(0, 8)}.part`);
   let bytes = 0;
+  let mine = false;
   body.on("data", (b: Buffer) => (bytes += b.length));
   try {
-    await pipeline(body, createWriteStream(part, { flags: "wx" }));
-    await rename(part, path);
-  } catch (err) {
-    await unlink(part).catch(() => {});
-    throw err;
+    // made only where none is: the .part is this request's from its first byte
+    const out = createWriteStream(part, { flags: "wx" });
+    out.on("open", () => (mine = true));
+    await pipeline(body, out);
+    await moveNoClobber(part, path).catch((err: Error) => {
+      throw err instanceof Taken ? already() : err;
+    });
+    mine = false;
+  } finally {
+    if (mine) await unlink(part).catch(() => {});
   }
   await changed(s);
   return { file: clean, bytes };
