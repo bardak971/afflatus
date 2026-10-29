@@ -39,7 +39,7 @@ export const FACE_REFINE_INPUTS: InputSpec[] = [
     // the owner, 2026-10-29 (card #159): a swap's job held its swap model and the fused turbo at once, and every job reloaded
     // the other one. Left out (a clip made before), the fused turbo of Settings › Models, else the clip's own
     id: "faceRefineModel", type: "model", label: "Face refine model", folder: "diffusion_models", slot: "faceRefineUnet", match: [SWAP_MODELS, H3_HYBRIDS], own: true, showWhen: "faceRefine", section: "out",
-    note: `the model the faces are redrawn with. ${OWN_MODEL}: the one the clip is made with, so nothing more is loaded (a clip made by the frames model, which follows no picture, takes the fused turbo, else the reference model, and its job says so). Any other file is a second model to load beside the clip's: more RAM, and the time to load it. 4 steps on a fused or distilled turbo (its name says turbo or a step count), ${FACE_REFINE_FULL_STEPS} on a full model`,
+    note: `the model the faces are redrawn with. ${OWN_MODEL}: the clip's model, with its turbo when Turbo is on, so nothing more is loaded (a clip made by the frames model, which follows no picture, takes the fused turbo, else the reference model, and its job says so). Any other file is a second model to load beside the clip's: more RAM, and the time to load it. 4 steps on a fused or distilled turbo (its name says turbo or a step count) or the clip's model with its turbo, ${FACE_REFINE_FULL_STEPS} on a full model`,
   },
   {
     id: "faceRefineDenoise", type: "number", label: "Face refine denoise", min: 0.3, max: 0.6, step: 0.05, default: 0.45, showWhen: "faceRefine", advanced: true, section: "out",
@@ -106,7 +106,7 @@ export const openingPicture = (input: Pick<H3Video, "start" | "previous">, ctx: 
  * towards (a person reference; `picture`: the recipe's own picture stands in, as SCAIL's or the one a clip opens on), which the
  * pass leaves as it is (faceRefineSkipped): a machine without them was held for files it never loads.
  */
-export function faceRefineNeeds(input: Partial<Pick<H3Video, "faceRefine" | "references" | "faceRefineModel" | "faceRefineOnly">>, opts: { own?: boolean; picture?: boolean; clip?: Pick<ClipModel, "follows" | "slot"> } = {}): string[] {
+export function faceRefineNeeds(input: Partial<Pick<H3Video, "faceRefine" | "references" | "faceRefineModel" | "faceRefineOnly">>, opts: { own?: boolean; picture?: boolean; clip?: Pick<ClipModel, "follows" | "slot" | "turboSlot"> } = {}): string[] {
   if (!input.faceRefine || (!(input.references ?? []).some((r) => r.role === "person") && !opts.picture)) return [];
   return [...faceModelNeeds(input, opts.clip), "faceDetector", "faceSeg", "faceSam", ...(opts.own ? ["faceClip", "faceVideoVae", "faceAudioVae"] : [])];
 }
@@ -116,28 +116,40 @@ export function faceRefineNeeds(input: Partial<Pick<H3Video, "faceRefine" | "ref
  * its input (machineScans filesAsked); the clip's own model nothing more where the clip loads it, its slot where a Finish ›
  * Face refine samples nothing (referenceNeeds then asks for none), and the fused turbo where the clip's model follows no picture.
  */
-function faceModelNeeds(input: Partial<Pick<H3Video, "faceRefineModel" | "faceRefineOnly">>, clip: Pick<ClipModel, "follows" | "slot"> | undefined): string[] {
+function faceModelNeeds(input: Partial<Pick<H3Video, "faceRefineModel" | "faceRefineOnly">>, clip: Pick<ClipModel, "follows" | "slot" | "turboSlot"> | undefined): string[] {
   const asked = input.faceRefineModel;
   if (asked && asked !== OWN_MODEL) return [];
   if (asked !== OWN_MODEL || !clip?.follows) return ["faceRefineUnet"];
-  return input.faceRefineOnly && clip.slot ? [clip.slot] : [];
+  // (with Turbo on, its LoRA too: the pass runs the clip's model with its turbo)
+  return input.faceRefineOnly ? [...(clip.slot ? [clip.slot] : []), ...(clip.turboSlot ? [clip.turboSlot] : [])] : [];
 }
+
+const fileName = (file: string | undefined) => file?.split(/[\\/]/).pop() ?? "";
 
 /**
  * The model an H3 clip is made with, for Face refine to run on (OWN_MODEL): its file, the loader the clip's graph loads it
  * with (none in a build that samples nothing), whether it follows a picture (a reference model or a hybrid: the frames model
- * draws no <Picture 1>), and the family slot it is had from when no input names it.
+ * draws no <Picture 1>), the family slot it is had from when no input names it, and the turbo LoRA it runs with (Turbo on,
+ * on a model that is not distilled) and that LoRA's slot.
  */
-export interface ClipModel { file: string | undefined; loader?: Ref; follows: boolean; slot?: string }
+export interface ClipModel { file: string | undefined; loader?: Ref; follows: boolean; slot?: string; turbo?: string; turboSlot?: string }
 
-/** The model of an H3 clip as loadH3Model picks it, without loading it: the reference model for a clip made by it. */
-export function clipModelOf(input: H3Video, slots: Record<string, string> = {}, how: { reference: boolean } = uses(input)): ClipModel {
+/**
+ * The model of an H3 clip as loadH3Model picks it, without loading it: the reference model for a clip made by it, and its
+ * turbo LoRA as loadH3Model takes it (`turboPick`: a recipe's own, as the swap's reference one).
+ */
+export function clipModelOf(input: H3Video, slots: Record<string, string> = {}, how: { reference: boolean } = uses(input), turboPick?: string): ClipModel {
   const picked = modelOf(input, slots);
   const own = !how.reference || picked.hybrid;
-  return { file: own ? picked.file : slots.refUnet, follows: how.reference || picked.hybrid, slot: own ? (input.model ? undefined : "unet") : "refUnet" };
+  const file = own ? picked.file : slots.refUnet;
+  const distilled = own ? picked.turbo : namedFor.turbo.test(fileName(file));
+  const turboSlot = !own && slots.refTurbo ? "refTurbo" : "turbo";
+  const turbo = input.fast && !distilled ? turboPick ?? slots[turboSlot] : undefined;
+  return {
+    file, follows: how.reference || picked.hybrid, slot: own ? (input.model ? undefined : "unet") : "refUnet",
+    ...(turbo ? { turbo } : {}), ...(input.fast && !distilled ? { turboSlot } : {}),
+  };
 }
-
-const fileName = (file: string | undefined) => file?.split(/[\\/]/).pop() ?? "";
 
 /**
  * The model Face refine redraws with, its loader when it is the clip's own (one model in memory), its steps, and what its job
@@ -145,7 +157,7 @@ const fileName = (file: string | undefined) => file?.split(/[\\/]/).pop() ?? "";
  * unless it follows no picture, then the fused turbo, else the reference model. Steps: the form's when typed, else 4 on a
  * turbo (its name says so, as H3's distilled files are known) and FACE_REFINE_FULL_STEPS on a full model.
  */
-export function faceModelOf(input: Partial<Pick<H3Video, "faceRefineModel" | "faceRefineSteps">>, slots: Record<string, string>, clip?: ClipModel): { file: string | undefined; loader?: Ref; steps: number; said: string | null } {
+export function faceModelOf(input: Partial<Pick<H3Video, "faceRefineModel" | "faceRefineSteps">>, slots: Record<string, string>, clip?: ClipModel): { file: string | undefined; loader?: Ref; lora?: string; steps: number; said: string | null } {
   const asked = input.faceRefineModel;
   const turbo = slots.faceRefineUnet;
   let file = asked && asked !== OWN_MODEL ? asked : turbo;
@@ -159,9 +171,14 @@ export function faceModelOf(input: Partial<Pick<H3Video, "faceRefineModel" | "fa
     }
   }
   // the clip's own file, picked by name or as its own, is the clip's loader: nothing is loaded twice
-  const loader = clip?.loader && file && file === clip.file ? clip.loader : undefined;
+  const theClips = Boolean(file && file === clip?.file);
+  const loader = theClips ? clip?.loader : undefined;
+  // and with Turbo on, its turbo LoRA (the owner's swaps: MiniMax's reference model with it), at its turbo's 4 steps; the
+  // swap's LoRA and the user's stay out, made for the clip's own sampling
+  const lora = theClips ? clip?.turbo : undefined;
   const typed = (input.faceRefineSteps ?? 0) > 0 ? input.faceRefineSteps! : 0;
-  return { file, ...(loader ? { loader } : {}), steps: typed || (namedFor.turbo.test(fileName(file)) ? TURBO_STEPS : FACE_REFINE_FULL_STEPS), said };
+  const fast = Boolean(lora) || namedFor.turbo.test(fileName(file));
+  return { file, ...(loader ? { loader } : {}), ...(lora ? { lora } : {}), steps: typed || (fast ? TURBO_STEPS : FACE_REFINE_FULL_STEPS), said };
 }
 
 /**
@@ -249,6 +266,7 @@ export function faceRefined(
   const picked = faceModelOf(input, slots, at.model);
   let model = picked.loader ?? loadUnet(g, ctx, picked.file);
   if (input.quick) model = g.out("ModelAttentionBackend", { model, attention: "comfy kitchen attention" });
+  if (picked.lora) model = g.out("LoraLoaderModelOnly", { model, lora_name: picked.lora, strength_model: 1 });
   model = g.out("MiniMaxH3SigmaShift", { model, shift_video: 12, shift_audio: 3 });
   const subject = input.subject?.trim() ? `, ${input.subject.trim().replace(/[.\s]+$/, "")}` : "";
   const r2v = g.add("MiniMaxH3ReferenceToVideo", {
@@ -283,7 +301,7 @@ export function faceRefined(
     colour_match: 1, blend: 1, undetected_frames: "fade_out", feather_scales_with_crop: false, ...masked,
   });
   const loads = [
-    ...(picked.loader ? [] : [`diffusion_models/${picked.file}`]), `ultralytics/${slots.faceDetector}`, ...(slots.faceSeg ? [`ultralytics/${slots.faceSeg}`] : []), ...(sam ? [`sams/${slots.faceSam}`] : []),
+    ...(picked.loader ? [] : [`diffusion_models/${picked.file}`, ...(picked.lora ? [`loras/${picked.lora}`] : [])]), `ultralytics/${slots.faceDetector}`, ...(slots.faceSeg ? [`ultralytics/${slots.faceSeg}`] : []), ...(sam ? [`sams/${slots.faceSam}`] : []),
     ...(own ? [`text_encoders/${slots.faceClip}`, `vae/${slots.faceVideoVae}`, `vae/${slots.faceAudioVae}`] : []),
   ];
   const out: Ref = pad ? g.out("ImageFromBatch", { image: stitched, batch_index: 0, length: at.frames! }) : stitched;

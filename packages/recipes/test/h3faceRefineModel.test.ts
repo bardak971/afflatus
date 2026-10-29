@@ -37,8 +37,12 @@ function facePass(graph: Graph) {
   const sampler = of(graph, "SamplerCustomAdvanced").find((n) => node(graph, n.inputs.latent_image).class_type === "H3PerFrameDenoise")!;
   const denoise = node(graph, sampler.inputs.latent_image);
   let model = node(graph, denoise.inputs.model);
-  while (model.class_type !== "UNETLoader") model = node(graph, model.inputs.model);
-  return { steps: node(graph, sampler.inputs.sigmas).inputs.steps, loader: model };
+  const loras: unknown[] = [];
+  while (model.class_type !== "UNETLoader") {
+    if (model.class_type === "LoraLoaderModelOnly") loras.push(model.inputs.lora_name);
+    model = node(graph, model.inputs.model);
+  }
+  return { steps: node(graph, sampler.inputs.sigmas).inputs.steps, loader: model, loras };
 }
 
 describe("H3 · Face refine model (card #159)", () => {
@@ -127,6 +131,25 @@ describe("H3 · Face refine model (card #159)", () => {
     const fused = buildSwap({ faceRefineModel: OWN_MODEL, swapModel: TURBO });
     expect(facePass(fused.graph)).toMatchObject({ steps: 4, loader: { inputs: { unet_name: TURBO } } });
     expect(of(fused.graph, "UNETLoader")).toHaveLength(1);
+  });
+
+  it("keeps the clip's turbo LoRA on its own model with Turbo on, at 4 steps; the swap's LoRA and the user's stay out", () => {
+    const turbo = { refTurbo: "minimax_h3_ref2v_turbo_4step.safetensors" };
+    const on = buildSwap({ faceRefineModel: OWN_MODEL, fast: true, loras: [{ file: "zz-test-style.safetensors", weight: 0.5 }] }, { slots: { ...slots, swapLora: "swap.safetensors", swapUnet: REF, ...turbo } });
+    expect(of(on.graph, "UNETLoader").map((n) => n.inputs.unet_name)).toEqual([REF]);
+    expect(facePass(on.graph)).toMatchObject({ steps: 4, loras: [turbo.refTurbo] });
+    const off = buildSwap({ faceRefineModel: OWN_MODEL, fast: false }, { slots: { ...slots, swapLora: "swap.safetensors", swapUnet: REF, ...turbo } });
+    expect(facePass(off.graph)).toMatchObject({ steps: FACE_REFINE_FULL_STEPS, loras: [] });
+    // a clip of H3's own forms the same: its reference model with the turbo it ran with
+    const clip = build({ faceRefineModel: OWN_MODEL, fast: true }, { slots: { ...slots, ...turbo } });
+    expect(facePass(clip.graph)).toMatchObject({ steps: 4, loras: [turbo.refTurbo] });
+    // and a Finish › Face refine of such a clip, which samples nothing, loads that model and that LoRA, and asks for both
+    const finish = build({ faceRefineModel: OWN_MODEL, fast: true, faceRefineOnly: true }, { slots: { ...slots, ...turbo }, uploads: { ...uploads, "self.latent": "own.safetensors" } });
+    expect(facePass(finish.graph)).toMatchObject({ steps: 4, loras: [turbo.refTurbo], loader: { inputs: { unet_name: REF } } });
+    expect(finish.built.loads).toContain(`loras/${turbo.refTurbo}`);
+    expect(video.needsWith!(parseInput(video, { description: "a", faceRefine: true, references: person, faceRefineModel: OWN_MODEL, fast: true, faceRefineOnly: true }), { ...slots, ...turbo })).toEqual(expect.arrayContaining(["refUnet", "refTurbo"]));
+    // another file picked runs as it is: no LoRA of the clip's on it
+    expect(facePass(build({ fast: true }, { slots: { ...slots, ...turbo } }).graph)).toMatchObject({ steps: 4, loras: [], loader: { inputs: { unet_name: TURBO } } });
   });
 
   it("in a Finish › Face refine, which samples nothing, loads only the clip's own file", () => {
