@@ -29,12 +29,16 @@ export function latentUpscaleRounds(input: Pick<H3Video, "upscaleBy" | "upscaleT
  * plain one. Optional and asked by nobody, it was never fetched: Timeline 19's finishes on a pod fell back to a plain
  * resize, and came out blurred over the whole clip (2026-10-18).
  */
-export const latentUpscaleNeeds = (input: Pick<H3Video, "upscale" | "upscaleWith">): string[] => (input.upscale === UPSCALE.latent && input.upscaleWith !== "Plain resize" ? ["latentUpscaler"] : []);
+// (a file picked is asked by its own input)
+export const latentUpscaleNeeds = (input: Pick<H3Video, "upscale" | "upscaleWith"> & Partial<Pick<H3Video, "upscaleLatentModel">>): string[] => (input.upscale === UPSCALE.latent && input.upscaleWith !== "Plain resize" && !input.upscaleLatentModel ? ["latentUpscaler"] : []);
+
+/** The latent upscaler's file: the form's, else the family's. */
+const upscalerOf = (input: Partial<Pick<H3Video, "upscaleLatentModel">>, ctx: Pick<BuildContext, "slots">): string | undefined => input.upscaleLatentModel ?? ctx.slots.latentUpscaler;
 
 /** What a render enlarged by a plain resize where H3's latent upscaler was asked for says on its job; null otherwise. */
-export function plainResizeSaid(input: Pick<H3Video, "upscale" | "upscaleWith">, ctx: BuildContext): string | null {
-  if (!latentUpscaleNeeds(input).length || (ctx.slots.latentUpscaler && ctx.has("MMH3LatentUpscaleWithModelParams"))) return null;
-  return ctx.slots.latentUpscaler
+export function plainResizeSaid(input: Pick<H3Video, "upscale" | "upscaleWith"> & Partial<Pick<H3Video, "upscaleLatentModel">>, ctx: BuildContext): string | null {
+  if (input.upscale !== UPSCALE.latent || input.upscaleWith === "Plain resize" || (upscalerOf(input, ctx) && ctx.has("MMH3LatentUpscaleWithModelParams"))) return null;
+  return upscalerOf(input, ctx)
     ? "Enlarged by a plain resize: this ComfyUI's Afflatus node pack has no latent upscaler node."
     : "Enlarged by a plain resize: H3's latent upscaler is not on this ComfyUI (Settings › Models has it).";
 }
@@ -59,18 +63,18 @@ function fitted(ctx: BuildContext, node: string, ours: Record<string, unknown>, 
  * route picked, the latent as it is. `latent`: the sampled latent (a continuation's with the clip before's own tokens in its overlap).
  */
 export function latentUpscalePass(g: GraphBuilder, ctx: BuildContext, input: H3Video, pass: { model: Ref; positive: Ref; latent: Ref; turbo: boolean; width: number; height: number }): Ref {
-  const { slots } = ctx;
   const { model, positive, latent, turbo, width, height } = pass;
   if (input.upscale !== UPSCALE.latent) return latent;
   // the queue refuses up front on nodes(); this is for a build that reaches here with the pack gone
   if (H3_LATENT_UPSCALE_NODES.some((n) => !ctx.has(n))) throw new Error(NO_PACK);
   const big = latentUpscaleSize({ width, height }, input.upscaleBy);
   // H3's own upscaler while its file is there, else a plain resize, as the form's note says
-  const withModel = input.upscaleWith !== "Plain resize" && Boolean(slots.latentUpscaler) && ctx.has("MMH3LatentUpscaleWithModelParams");
+  const upscaler = upscalerOf(input, ctx);
+  const withModel = input.upscaleWith !== "Plain resize" && Boolean(upscaler) && ctx.has("MMH3LatentUpscaleWithModelParams");
   if (!withModel && !ctx.has("MMH3LatentUpscaleParams")) throw new Error(NO_PACK);
   g.phase("upscaling");
   const enlarge = withModel
-    ? g.out("MMH3LatentUpscaleWithModelParams", fitted(ctx, "MMH3LatentUpscaleWithModelParams", { model_name: slots.latentUpscaler, ...big, device: "cuda", precision: "fp16", offload_model: true }))
+    ? g.out("MMH3LatentUpscaleWithModelParams", fitted(ctx, "MMH3LatentUpscaleWithModelParams", { model_name: upscaler, ...big, device: "cuda", precision: "fp16", offload_model: true }))
     : g.out("MMH3LatentUpscaleParams", { method: "bicubic", ...big });
   // the fork steps every tile together through each step, one picture denoised (its default, and why it exists); its
   // token budget is read only by its "auto" tile size, never picked here, and is given at the fork's own default

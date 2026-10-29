@@ -101,7 +101,7 @@ export type H3Uses = ReturnType<typeof uses>;
  * the attention and precision patches, the turbo LoRA and the user's LoRAs, the sigma shift, and the
  * live preview. With it, what the chain is (turbo or not, with which LoRA) and how many steps it takes.
  */
-export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, picked: H3Model, how: H3Uses, audioVae: Ref, vedaFor?: "reference", turboPick?: string): { model: Ref; turbo: boolean; steps: number; lora: string | undefined; distilled: boolean; unet: string | undefined; vedaMissing: "reference" | "t2va" | null } {
+export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, picked: H3Model, how: H3Uses, audioVae: Ref, vedaFor?: "reference", turboPick?: string): { model: Ref; turbo: boolean; steps: number; lora: string | undefined; distilled: boolean; unet: string | undefined; loader?: Ref; vedaMissing: "reference" | "t2va" | null } {
   const { slots } = ctx;
   // references: a hybrid model follows them itself, any other hands those clips to MiniMax's reference model
   const own = !how.reference || picked.hybrid;
@@ -120,7 +120,8 @@ export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, 
   const turbo = distilled || Boolean(lora);
   // the steps and shifts are the form's, as it shows them: it starts them on what the LoRA in use was trained at (Turbo:
   // 12 / 3; a reference clip on MiniMax's 4-step reference LoRA: 4 steps at 6 / 3, see H3_STARTS)
-  let model = loadUnet(g, ctx, unet);
+  const loader = loadUnet(g, ctx, unet);
+  let model = loader;
   // the step cache is for full renders: with the turbo LoRA's 8 steps there is nothing to skip, and it hurts
   if (input.cache && !turbo && wanted(ctx, { input: "cache", nodes: ["MiniMaxH3Cache"], without: "H3's Cache" })) {
     model = g.out("MiniMaxH3Cache", { model, reuse_threshold: input.cacheThreshold, start_percent: Math.min(input.cacheStart, input.cacheEnd), end_percent: input.cacheEnd, max_steps: input.cacheSteps, device: "auto", verbose: false });
@@ -140,5 +141,5 @@ export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, 
   model = livePreview(g, ctx, model, input.livePreview, audioVae);
   // a turbo model with Fast off takes the steps typed (4 to 8 are what it is made for)
   const steps = lora || (distilled && input.fast) ? input.turboSteps : input.steps;
-  return { model, turbo, steps, lora, distilled, unet, vedaMissing: input.veda && !veda ? vedaKind : null };
+  return { model, turbo, steps, lora, distilled, unet, loader, vedaMissing: input.veda && !veda ? vedaKind : null };
 }

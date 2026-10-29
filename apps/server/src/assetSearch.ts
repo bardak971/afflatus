@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { sql, type Expression, type SqlBool } from "kysely";
 import { z } from "zod";
-import { describeRecipe, fuzzyFilter } from "@afflatus/core";
+import { describeRecipe, fuzzyFilter, pickedFiles } from "@afflatus/core";
 import { draftLabel, promptOf, recipeWords, shownNames } from "./autoName";
 import type { DbKind, Tables } from "./db";
 import { assetView, SPACE } from "./media";
@@ -190,7 +190,7 @@ class AssetSearch {
       .flat().filter((l) => l.weight !== 0).map((l) => l.file);
     const recipe = this.s.registry.recipe(g.recipe_id);
     const models = new Set(loads.filter((f) => /^(checkpoints|diffusion_models)\//.test(f)).map((f) => f.replace(/^[^/]+\//, "")));
-    for (const spec of recipe?.inputs ?? []) if (spec.type === "model" && typeof inputs[spec.id] === "string") models.add(inputs[spec.id] as string);
+    for (const m of pickedFiles(recipe?.inputs ?? [], inputs)) models.add(m.file);
     // an imported workflow names its model itself
     if (!models.size && recipe) for (const f of describeRecipe(recipe).models) models.add(f);
     const words = Object.values(inputs).filter((v): v is string => typeof v === "string").join(" ");

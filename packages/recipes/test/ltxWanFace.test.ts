@@ -41,9 +41,11 @@ describe("LTX 2.5 · Face refine", () => {
       const spec = (id: string) => recipe.inputs.find((i) => i.id === id);
       expect(spec("faceRefine")).toMatchObject({ type: "toggle", default: false, section: "out", label: "Face refine" });
       expect(spec("faceRefineDenoise")).toMatchObject({ default: 0.45 });
-      expect(spec("faceRefineSteps")).toMatchObject({ default: 4 });
-      // its finish redraws the take's frames: no "only" input
+      // by the model (4 on the fused turbo it runs on)
+      expect(spec("faceRefineSteps")).toMatchObject({ default: 0, auto: "by model" });
+      // its finish redraws the take's frames: no "only" input; and no H3 model of its own to redraw with (card #159)
       expect(spec("faceRefineOnly")).toBeUndefined();
+      expect(spec("faceRefineModel")).toBeUndefined();
       expect(recipe.traits?.faceRefine).toBe("faceRefine");
     }
     expect(ltxVideo.inputs.some((i) => i.id === "faceRefine")).toBe(false);

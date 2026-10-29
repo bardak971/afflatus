@@ -11,7 +11,7 @@ import { rifeNeeds } from "../shared/finish";
 import { partBounds } from "../motion/driving";
 import { asClip as swapClip, h3Swap, SWAP_FRAMES, SWAP_RUN_UP, type H3Swap } from "./swap";
 import { controlled, frameBefore, MOTION_CHAPTER, motionControlInputs, motionNeeds, motionNodes, poseVideo, POSE_SDPOSE, type H3Motion } from "./motion";
-import { FACE_REFINE_SLOTS, faceRefineNeeds } from "./faceRefine";
+import { clipModelOf, FACE_REFINE_SLOTS, faceRefineNeeds } from "./faceRefine";
 import { cueMixNodes } from "./cue";
 
 /**
@@ -290,7 +290,7 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
     if (afterSwap(input)) return [...(h3Swap.needsWith?.(asSwap(input), slots) ?? []).filter((n) => n !== "swapSam"), ...motionNeeds(input), ...(input.swapModel ? [] : ["swapUnet"])];
     const framesAlone = where.own && !slots.refUnet && !(input.references ?? []).length;
     const clip = framesAlone ? asClip(input, SWAP_FRAMES, input.previous ? MOTION_CARRIED : 0) : asWindow(input);
-    return [...turboNeeds(clip, slots), ...referenceNeeds(clip, slots), ...vedaNeeds(clip, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...motionNeeds(input), ...faceRefineNeeds(input, { picture: Boolean(input.picture && !input.previous) })];
+    return [...turboNeeds(clip, slots), ...referenceNeeds(clip, slots), ...vedaNeeds(clip, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...motionNeeds(input), ...faceRefineNeeds(input, { picture: Boolean(input.picture && !input.previous), clip: clipModelOf(clip, slots) })];
   },
   nodes: (input) => afterSwap(input) ? nodesAfterSwap(input) : [...new Set([
     // carrying on, the clip before's last frame is a picture of who moves: the reference route (with H3's reference model there)

@@ -435,7 +435,11 @@ async function toolLoadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id
     const toolsIn = (s: Scan | null) => s?.families.find((f) => f.id === TOOLS_FAMILY)?.slots ?? null;
     const slots = (core.registry.family(TOOLS_FAMILY)?.slots ?? []).filter((x) => x.id === "seedvr" || x.id === "seedvrVae");
     const named = podSlotFiles({ needs: ["seedvr", "seedvrVae"] }, {}, slots, on ? (toolsIn(on.scan) ?? []) : null, toolsIn(mineScan));
-    for (const x of slots) add(named[x.id]!, x.folder, x.id === "seedvr" ? "UNETLoader" : "VAELoader", x.id === "seedvr" ? "unet_name" : "vae_name", x.id);
+    // a model picked for the finish is sent as it is, the family's VAE beside it
+    for (const x of slots) {
+      if (x.id === "seedvr" && needs.seedvrModel) add(needs.seedvrModel, x.folder, "UNETLoader", "unet_name");
+      else add(named[x.id]!, x.folder, x.id === "seedvr" ? "UNETLoader" : "VAELoader", x.id === "seedvr" ? "unet_name" : "vae_name", x.id);
+    }
   }
   if (needs.upscaleModel !== null) {
     // none picked: whichever the machine has, else the first of this PC's, sent from here

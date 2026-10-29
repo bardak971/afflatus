@@ -66,6 +66,10 @@ export interface FinishSettings {
   sharpen?: number;
   /** Face refine with the latent re-sample, in the same job, on the clips whose model offers it. */
   face?: boolean;
+  /** The models it runs on (card #159), "" for each clip's own: Face refine's (a file, or the clip's own model), H3's latent upscaler, SeedVR2's. */
+  faceModel?: string;
+  latentModel?: string;
+  seedvrModel?: string;
 }
 /** A model the designer can write with, as Settings sends it back: its key only when one was typed (else the saved one is kept). */
 export type LlmPatch = Omit<LlmInfo, "hasApiKey"> & { apiKey?: string };

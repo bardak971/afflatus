@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { sameBase, sameFile } from "@afflatus/core";
+import { isShown, OWN_MODEL, sameBase, sameFile } from "@afflatus/core";
 import type { FamilyInfo, ModelInfo, RecipeInfo, RecipeStatus } from "../api";
 import { useModelInfo, useModelUpdates, useOfficialSizes, useSettings, useSetup } from "../data";
 import { fileLabel, size, waitsForGpu } from "../format";
@@ -27,7 +27,7 @@ export const FOLDER_OF: Record<string, string> = {
 
 
 /** A dropdown of model files, searched by what the files say about themselves when their folder is known. */
-export function FileSelect({ id, label, value, files, folder, placeholder, match, family, absent, absentGroup, onChange }: {
+export function FileSelect({ id, label, value, files, folder, placeholder, match, family, absent, absentGroup, lead, onChange }: {
   id: string;
   label: string;
   value: string;
@@ -42,6 +42,8 @@ export function FileSelect({ id, label, value, files, folder, placeholder, match
   absent?: Official[];
   /** Their section's title ("Not here · official files"). */
   absentGroup?: string;
+  /** Choices that are no file, before the files (Face refine's "Clip's own model"). */
+  lead?: Option[];
   onChange(value: string): void;
 }) {
   const known = useModelInfo(folder);
@@ -77,9 +79,9 @@ export function FileSelect({ id, label, value, files, folder, placeholder, match
     if (!made && podOnly) own.sort((a, b) => Number(a.group !== ownHead) - Number(b.group !== ownHead) || (a.group ?? "").localeCompare(b.group ?? ""));
     const notHere = absentGroup?.startsWith("Not here");
     const greyed = (absent ?? []).map((a): Option => ({ ...fileOption(a.file), note: a.bytes ? `${size(a.bytes)}${notHere ? " · not here" : ""}` : "not here", group: absentGroup ?? "Not here", muted: true }));
-    return [...own, ...offered, ...greyed];
+    return [...(lead ?? []), ...own, ...offered, ...greyed];
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the updates' list, not newerOf, which is new at every render and reads it
-  }, [files, info, match, folder, family, updates.data, absent, absentGroup, places]);
+  }, [files, info, match, folder, family, updates.data, absent, absentGroup, places, lead]);
   return <Select id={id} label={label} value={value} onChange={onChange} options={options} placeholder={placeholder} searchHint={info && options.length > 1 ? `Search ${options.length} by name or model` : undefined} />;
 }
 
@@ -96,6 +98,9 @@ export function useFilesWhere(): "here" | "pod" {
   return !own || waitsForGpu(setup.data?.comfy) ? "pod" : "here";
 }
 
+/** The clip's own model, as a model input offers it (ModelInput.own): nothing more loaded. */
+const OWN_LEAD: Option[] = [{ value: OWN_MODEL, label: OWN_MODEL, note: "the model the clip is made with" }];
+
 /**
  * A model input: the files the user has first, then a divider and the family's official files greyed with their size
  * (where you render, card #20). A greyed file is picked like any other: on this PC the line under the field offers its
@@ -103,7 +108,7 @@ export function useFilesWhere(): "here" | "pod" {
  */
 export function ModelField({ id, spec, value, options, family, onChange }: {
   id: string;
-  spec: { label: string; note?: string; folder: string; slot?: string; match?: string[] };
+  spec: { label: string; note?: string; folder: string; slot?: string; match?: string[]; own?: true };
   value: string;
   options: string[] | undefined;
   family: FamilyInfo | undefined;
@@ -113,7 +118,9 @@ export function ModelField({ id, spec, value, options, family, onChange }: {
   const where = useFilesWhere();
   const official = officialFiles(family, spec.folder, spec.slot, sizes.data);
   // with rented GPUs only, the setup's lists are the official files themselves (the server's plannedScan): none is here
-  const have = where === "pod" ? (options ?? []).filter((f) => !official.some((o) => o.file === f)) : (options ?? []);
+  // the clip's own model is no file: offered first, apart from the files
+  const files = (options ?? []).filter((f) => f !== OWN_MODEL);
+  const have = where === "pod" ? files.filter((f) => !official.some((o) => o.file === f)) : files;
   // an official file kept in a sub-folder of the user's own is here, as the server finds it when it builds the job (core sameFile)
   const absent = official.filter((o) => !sameFile(have, o.file));
   const picked = absent.find((o) => samePath(o.file, value));
@@ -131,7 +138,7 @@ export function ModelField({ id, spec, value, options, family, onChange }: {
       <Label htmlFor={id} note={spec.note} aside={counted || undefined}>{spec.label}</Label>
       <FileSelect
         id={id} label={spec.label} value={value} onChange={onChange} files={have} folder={spec.folder} match={spec.match} family={family?.name}
-        absent={absent} absentGroup={where === "pod" ? "Official files · fetched by the pod" : "Not here · official files"}
+        absent={absent} absentGroup={where === "pod" ? "Official files · fetched by the pod" : "Not here · official files"} lead={spec.own ? OWN_LEAD : undefined}
         placeholder={have.length || absent.length ? "Choose a model" : `Nothing found in models/${spec.folder}`}
       />
       {picked && where === "here" && (
@@ -159,8 +166,9 @@ export function useWaitsOn(recipe: RecipeInfo | undefined, status: RecipeStatus 
     if (!recipe) return null;
     if (waitsForGpu(setup.data?.comfy)) return "waits for a GPU";
     if (where !== "here" || !status) return null;
+    // a model input only another setting brings in (SeedVR2's, H3's latent upscaler) waits for nothing while that is off
     const picked = recipe.inputs.some((i) => {
-      if (i.type !== "model") return false;
+      if (i.type !== "model" || !isShown(i, whole, recipe.inputs)) return false;
       const value = String(whole[i.id] ?? "");
       return Boolean(value) && !sameFile(status.options[i.id] ?? [], value) && officialFiles(family, i.folder, i.slot, sizes.data).some((o) => samePath(o.file, value));
     });

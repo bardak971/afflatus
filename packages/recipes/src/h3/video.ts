@@ -1,5 +1,5 @@
 import { FACE_NODE } from "../shared/face";
-import { defineRecipe, GraphBuilder, latentUpscaleSize, type BuildContext, type BuiltGraph, type Ref, type Variant } from "@afflatus/core";
+import { defineRecipe, GraphBuilder, latentUpscaleSize, OWN_MODEL, type BuildContext, type BuiltGraph, type Ref, type Variant } from "@afflatus/core";
 import { H3_FPS, H3_GRID } from "./family";
 import { UPSCALE, UPSCALE_OPTIONAL, upscaleNeeds, upscaleNodes } from "../video/upscale";
 import { unetNodes } from "../shared/unet";
@@ -8,7 +8,7 @@ import { COLOUR_MATCH_NODES, rifeNeeds, rifeSkippedSaid } from "../shared/finish
 import { conditionFor, type MorePicture } from "./condition";
 import { cueMixNodes, cueNodes, cueOwnSoundSaid, cuesFor, guideCues, layCues, laysCues } from "./cue";
 import { finish, H3_SAVE_LATENT } from "./finish";
-import { FACE_REFINE_OPTIONAL, FACE_REFINE_PACK_NEEDED, FACE_REFINE_SLOTS, faceRefineNeeds, faceRefineSkipped, openingPicture } from "./faceRefine";
+import { FACE_REFINE_OPTIONAL, FACE_REFINE_PACK_NEEDED, FACE_REFINE_SLOTS, clipModelOf, faceRefineNeeds, faceRefineSkipped, openingPicture, type ClipModel } from "./faceRefine";
 import { h3Inputs, type H3Video } from "./inputs";
 import { recordingInputs, recordingNodes, recordingOnClip, type Recording } from "../shared/recording";
 import { isH3Layout } from "./prompt";
@@ -22,7 +22,7 @@ export type { H3Video } from "./inputs";
 export const h3Video = defineRecipe<H3Video & Partial<Recording>>({
   // Turbo's LoRA, the reference model for a clip with references, H3's latent upscaler for an upscale with it, RIFE with
   // "RIFE ×2" on, Face refine's files with it on
-  needsWith: (input, slots) => [...turboNeeds(input, slots), ...referenceNeeds(input, slots), ...vedaNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...faceRefineNeeds(input, { picture: Boolean(input.start && !input.previous) })],
+  needsWith: (input, slots) => [...turboNeeds(input, slots), ...referenceNeeds(input, slots), ...vedaNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...faceRefineNeeds(input, { picture: Boolean(input.start && !input.previous), clip: clipModelOf(input, slots) })],
   id: "h3.video",
   family: "h3",
   version: 2,
@@ -168,6 +168,14 @@ export const h3Video = defineRecipe<H3Video & Partial<Recording>>({
       { name: "pixel upscale with the other RTX node, NVIDIA's absent", input: { description: "a", upscale: UPSCALE.rtx, upscaleBy: 2 }, slots: all, has: (n: string) => n !== "RTXVideoSuperResolution" },
       { name: "SeedVR2 upscale", input: { description: "a", upscale: UPSCALE.seedvr, upscaleBy: 2, upscaleColour: "wavelet" }, slots: { ...all, seedvr: "seedvr2_3b_int8_convrot.safetensors", seedvrVae: "seedvr2_ema_vae_fp16.safetensors" } },
       {
+        // one loader: the face pass on the clip's own reference model (card #159)
+        name: "Face refine on the clip's own model",
+        input: { description: "a", faceRefine: true, faceRefineModel: OWN_MODEL, references: [{ asset: "r1", role: "person" }] },
+        slots: { ...all, ...faceSlots }, uploads: { "references.0": "r1.png" },
+      },
+      { name: "SeedVR2 upscale with the model picked", input: { description: "a", upscale: UPSCALE.seedvr, seedvrModel: "seedvr2_7b_int8_convrot.safetensors" }, slots: { ...all, seedvr: "seedvr2_3b_int8_convrot.safetensors", seedvrVae: "seedvr2_ema_vae_fp16.safetensors" } },
+      { name: "latent upscale, the upscaler picked", input: { description: "a", upscale: UPSCALE.latent, upscaleLatentModel: "minimax_h3_latent_upscaler_3d_v2.safetensors" }, slots: all },
+      {
         name: "Face refine, towards the cast person's picture",
         input: { description: "a", subject: "short dark hair, round glasses", faceRefine: true, references: [{ asset: "r1", role: "person" }, { asset: "r2", role: "place" }] },
         slots: { ...all, ...faceSlots }, uploads: { "references.0": "r1.png", "references.1": "r2.png" },
@@ -297,7 +305,12 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   const audioVae = g.out("VAELoader", { vae_name: slots.audioVae });
   const vae = g.out("VAELoader", { vae_name: slots.videoVae });
   // (the model is read below only where something is sampled: the clip, the latent re-sample)
-  const { model, turbo, steps, lora, unet, vedaMissing } = modelless ? NO_MODEL : loadH3Model(g, ctx, input, picked, how, audioVae, extra.vedaFor, extra.turbo);
+  const { model, turbo, steps, lora, unet, loader, vedaMissing } = modelless ? NO_MODEL : loadH3Model(g, ctx, input, picked, how, audioVae, extra.vedaFor, extra.turbo);
+  // the clip's model as Face refine may run on it (OWN_MODEL): its loader where the clip loads it, else its file alone (a
+  // Finish › Face refine, which samples nothing, loads only that)
+  // (and its turbo LoRA, the one the clip ran with, which Face refine keeps on it)
+  const asPicked = clipModelOf(input, slots, how, extra.turbo);
+  const clipModel: ClipModel = loader ? { follows: asPicked.follows, file: unet, loader, ...(lora ? { turbo: lora } : {}) } : asPicked;
   const { positive, latent, previous, plain, clip } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae }, extra.prompt, more);
 
   // a finish samples nothing: the patch (and the pose it reads) is left out of it
@@ -355,7 +368,7 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
       }
     : undefined;
   const frames = extra.frames ? (images: Ref) => extra.frames!(g, images, { width, height, frames: join.frames }) : undefined;
-  const made = finish(g, ctx, extra.faceLook === undefined ? input : { ...input, subject: extra.faceLook }, { finished, sampled, fine, vae, audioVae, clip, width, height, head: join.head, sound, frames });
+  const made = finish(g, ctx, extra.faceLook === undefined ? input : { ...input, subject: extra.faceLook }, { finished, sampled, fine, vae, audioVae, clip, model: clipModel, width, height, head: join.head, sound, frames });
 
   const { head, tail, latentJoin } = join;
   const ms = (n: number) => Math.round((n / H3_FPS) * 1000);
@@ -365,7 +378,7 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   // Veda asked for and its predictor not there: made with the full attention, and said (its node pack missing is said by the
   // queue, which knows why it is: ctx.wants)
   const vedaSaid = vedaMissing ? `Veda was on, but its predictor for ${vedaMissing === "reference" ? "the reference model" : "text and frames (T2VA)"} is not in ComfyUI's models/veda folder (Settings › Models has it): made with the full attention.` : null;
-  const skipped = faceRefineSkipped(input, ctx, { audio: true, picture: openingPicture(input, ctx) });
+  const skipped = faceRefineSkipped(input, ctx, { audio: true, picture: openingPicture(input, ctx), clip: clipModel });
   // a Finish › Face refine that refines nothing would be the take made again, named a face pass: it fails, with why
   if (modelless && input.faceRefine && !made.refine) throw new Error(skipped ?? FACE_REFINE_PACK_NEEDED);
   const said = [join.sizeSaid, cueSaid, fine ? plainResizeSaid(input, ctx) : null, rifeSkippedSaid(input.smooth, ctx), skipped, made.said, vedaSaid].filter((x): x is string => Boolean(x));

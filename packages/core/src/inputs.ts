@@ -82,6 +82,12 @@ interface ModelInput extends Base {
   match?: string[];
   /** The file to start on, when there is no slot: an imported workflow's own. Left out, it means this file. */
   default?: string;
+  /**
+   * The input offers OWN_MODEL first, before the files: no file of its own, the model the clip itself is made with (Face
+   * refine run on the clip's model, nothing more loaded). Its list is then every file of the folder, the family's other
+   * slots' included: each is a model the pass may run on.
+   */
+  own?: true;
 }
 interface LorasInput extends Base {
   type: "loras";
@@ -408,6 +414,11 @@ export interface SizeValue {
 /** -1 = draw a new seed for every render. */
 export const RANDOM_SEED = -1;
 
+/** A model input's value for "the clip's own model" (ModelInput.own): a choice, never a file to find, fetch or count. */
+export const OWN_MODEL = "Clip's own model";
+/** The file a model input's value names: none for an empty one or OWN_MODEL. */
+export const pickedFile = (value: unknown): string | null => (typeof value === "string" && value && value !== OWN_MODEL ? value : null);
+
 const multipleOf = (n: number, grid: number) => Math.round(n / grid) * grid;
 
 function schemaOf(spec: InputSpec): z.ZodType {
@@ -527,6 +538,17 @@ export function chosenDefaults(specs: readonly InputSpec[], values: Record<strin
   }
   const has = new Set(specs.map((s) => s.id));
   return Object.fromEntries(Object.entries(out).filter(([id]) => has.has(id)));
+}
+
+/**
+ * The files a form's model inputs pick, those in play only: a model input another one shows (Face refine's model, SeedVR2's)
+ * holds its file while that is off, and loads nothing then. Never OWN_MODEL, which names no file.
+ */
+export function pickedFiles(specs: readonly InputSpec[], values: Record<string, unknown>): Array<{ input: string; file: string; folder: string }> {
+  return specs.flatMap((spec) => {
+    const file = spec.type === "model" ? pickedFile(values[spec.id]) : null;
+    return spec.type === "model" && file && isShown(spec, values, specs) ? [{ input: spec.id, file, folder: spec.folder }] : [];
+  });
 }
 
 /**

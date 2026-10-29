@@ -131,7 +131,8 @@ describe("MiniMax H3 · Face refine", () => {
   it("is done without, and says why, with no picture, no model or no detector", () => {
     const cases: Array<[Record<string, unknown>, Partial<BuildContext>, RegExp]> = [
       [{ references: [] }, {}, /no person's picture/],
-      [{ references: people }, { slots: { ...slots, faceRefineUnet: undefined as never } }, /no fused reference turbo/],
+      // (with neither the fused turbo nor a model of the clip's that follows a picture)
+      [{ references: [], start: "s1" }, { slots: { ...slots, faceRefineUnet: undefined as never, refUnet: undefined as never }, uploads: { ...uploads, start: "s.png" } }, /no fused reference turbo/],
       [{ references: people }, { slots: { ...slots, faceDetector: undefined as never } }, /no face detector/],
     ];
     for (const [values, ctx, said] of cases) {
@@ -177,7 +178,7 @@ describe("MiniMax H3 · Face refine", () => {
 
   it("fails a Finish › Face refine that cannot refine, with why: the take made again was named a face pass", () => {
     const own = { "self.latent": "own.safetensors" };
-    expect(() => build({ faceRefine: true, faceRefineOnly: true, references: people }, { uploads: { ...uploads, ...own }, slots: { ...slots, faceRefineUnet: undefined as never } })).toThrow(/no fused reference turbo/);
+    expect(() => build({ faceRefine: true, faceRefineOnly: true, references: people }, { uploads: { ...uploads, ...own }, slots: { ...slots, faceRefineUnet: undefined as never, refUnet: undefined as never } })).toThrow(/no fused reference turbo/);
     expect(() => build({ faceRefine: true, faceRefineOnly: true, references: people }, { uploads: { ...uploads, ...own }, has: (cls) => cls !== "H3FaceStitch" })).toThrow(/comfyui-h3-facerefine/);
   });
 

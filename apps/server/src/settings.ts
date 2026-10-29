@@ -50,6 +50,10 @@ const finishSchema = z.object({
   seedvrFrames: z.number().int().min(0).max(49).default(0),
   /** RCAS after a pixel route (SeedVR2, RTX, a model), 0 to 1; 0 = off. */
   sharpen: z.number().min(0).max(1).default(0),
+  /** The models a finish runs on (card #159), "" for each clip's own: Face refine's (a file, or the clip's own model), H3's latent upscaler, SeedVR2's. */
+  faceModel: z.string().max(200).default(""),
+  latentModel: z.string().max(200).default(""),
+  seedvrModel: z.string().max(200).default(""),
 });
 
 /**

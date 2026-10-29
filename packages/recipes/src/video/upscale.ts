@@ -107,13 +107,16 @@ export const SEEDVR_COLOURS = ["lab", "wavelet", "adain", "none"];
  * SeedVR2's two files for a render that upscales with it (Recipe.needsWith): a pod is sent them for that job only. Not
  * asked, a fresh pod was given the job with the plain form's files, and its build refused it once boot and fetch were paid.
  */
-export const upscaleNeeds = (input: { upscale?: string }): string[] => (input.upscale === UPSCALE.seedvr ? SEEDVR_SLOTS.map((s) => s.id) : []);
+// (a SeedVR2 model picked is asked by its own input: only the VAE is the family's then)
+export const upscaleNeeds = (input: { upscale?: string; seedvrModel?: string }): string[] => (input.upscale === UPSCALE.seedvr ? SEEDVR_SLOTS.map((s) => s.id).filter((id) => id !== "seedvr" || !input.seedvrModel) : []);
 
 export interface UpscaleValues {
   upscale: string;
   upscaleBy: number;
   upscaleModel: string;
   upscaleColour?: string;
+  /** SeedVR2's model file; left out, the family's (Settings › Models). */
+  seedvrModel?: string;
   /** SeedVR2: frames restored together; 0 = the model's own (see seedvrWindow). */
   seedvrFrames?: number;
   /** RCAS after a pixel route, 0 to 1; 0 (the default) = off (see `sharpened`). */
@@ -131,6 +134,11 @@ export function upscaleInputs(opts: { latent?: boolean } = {}): InputSpec[] {
     {
       id: "upscaleColour", type: "choice", label: "SeedVR2 colour match", options: SEEDVR_COLOURS, default: "lab", section: "out", showWhen: { input: "upscale", in: [UPSCALE.seedvr] },
       note: "the restored frames matched in colour to the originals: lab (the most faithful), wavelet (keeps the new fine detail), adain (a global tint), none",
+    },
+    {
+      // the 3B or the 7B per clip (card #159), its VAE the same for both
+      id: "seedvrModel", type: "model", label: "SeedVR2 model", folder: "diffusion_models", slot: "seedvr", match: ["seedvr2"], section: "out", showWhen: { input: "upscale", in: [UPSCALE.seedvr] },
+      note: "the 3B (fast) or the 7B (sharper, slower, and steadier over its wider window); left as it is, the one of Settings › Models",
     },
     {
       id: "seedvrFrames", type: "number", label: "SeedVR2 frames together", min: 1, max: 49, step: 4, default: 0, auto: "auto", section: "out", advanced: true, showWhen: { input: "upscale", in: [UPSCALE.seedvr] },
@@ -238,18 +246,19 @@ function rtxFallback(ctx: BuildContext, named: string): string | null {
  * to 2048 × 1152 (card #137): 824 s with them, 491 s without (encode 200 → 114 s, decode 561 → 303 s),
  * the same frames and colour; the model itself takes under 30 s either way, the rest is the VAE.
  */
-export function seedvrUpscale(g: GraphBuilder, images: Ref, input: { upscaleBy: number; upscaleColour?: string; seedvrFrames?: number }, ctx: BuildContext, size?: { width: number; height: number }): { images: Ref; loads: string[] } {
+export function seedvrUpscale(g: GraphBuilder, images: Ref, input: { upscaleBy: number; upscaleColour?: string; seedvrFrames?: number; seedvrModel?: string }, ctx: BuildContext, size?: { width: number; height: number }): { images: Ref; loads: string[] } {
   const { slots } = ctx;
-  if (!slots.seedvr || !slots.seedvrVae) throw new Error("SeedVR2 needs its two files: a SeedVR2 model in ComfyUI's models/diffusion_models folder and its VAE in models/vae (both are one click in Settings → Models). Or pick another upscale route.");
+  const file = input.seedvrModel ?? slots.seedvr;
+  if (!file || !slots.seedvrVae) throw new Error("SeedVR2 needs its two files: a SeedVR2 model in ComfyUI's models/diffusion_models folder and its VAE in models/vae (both are one click in Settings → Models). Or pick another upscale route.");
   // (the picture tool calls this directly: its preparation and encode are the upscale, not a model load)
   g.phase("upscaling");
   const resized = g.out("ResizeImageMaskNode", { input: images, resize_type: "scale by multiplier", "resize_type.multiplier": input.upscaleBy, scale_method: "lanczos" });
   const padded = g.out("SeedVR2Preprocess", { resized_images: resized });
   const vae = g.out("VAELoader", { vae_name: slots.seedvrVae });
-  const model = loadUnet(g, ctx, slots.seedvr);
+  const model = loadUnet(g, ctx, file);
   const latent = g.out("VAEEncode", { pixels: padded, vae });
   // a fixed window (see seedvrWindow), counted in pixel frames; the overlap is in latent frames, crossfaded by the merge
-  const { frames, overlap } = seedvrWindow(size ? (size.width * size.height) / 1e6 : SEEDVR_CHUNK_AT_MPX, { asked: input.seedvrFrames ?? 0, big: isSeedvr7b(slots.seedvr), vram: ctx.vram });
+  const { frames, overlap } = seedvrWindow(size ? (size.width * size.height) / 1e6 : SEEDVR_CHUNK_AT_MPX, { asked: input.seedvrFrames ?? 0, big: isSeedvr7b(file), vram: ctx.vram });
   const chunks = g.add("SeedVR2TemporalChunk", { latent, temporal_overlap: overlap, chunking_mode: "manual", "chunking_mode.frames_per_chunk": frames });
   const cond = g.add("SeedVR2Conditioning", { model, vae_conditioning: [chunks, 0] });
   g.phase("restoring");
@@ -257,5 +266,5 @@ export function seedvrUpscale(g: GraphBuilder, images: Ref, input: { upscaleBy: 
   const merged = g.out("SeedVR2TemporalMerge", { latents: sampled, temporal_overlap: [chunks, 1] });
   const decoded = g.out("VAEDecode", { samples: merged, vae });
   const out = g.out("SeedVR2PostProcessing", { images: decoded, original_resized_images: resized, color_correction_method: input.upscaleColour ?? "lab" });
-  return { images: out, loads: [`diffusion_models/${slots.seedvr}`, `vae/${slots.seedvrVae}`] };
+  return { images: out, loads: [`diffusion_models/${file}`, `vae/${slots.seedvrVae}`] };
 }

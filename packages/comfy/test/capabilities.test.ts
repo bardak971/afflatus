@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { defineFamily, defineRecipe, GraphBuilder, type NodeCatalog } from "@afflatus/core";
+import { defineFamily, defineRecipe, GraphBuilder, OWN_MODEL, type NodeCatalog } from "@afflatus/core";
 import { ComfyClient, detect, filesIn, scan } from "../src";
 import { startFakeComfy, type FakeComfy } from "../src/testing";
 
@@ -105,6 +105,24 @@ describe("scan", () => {
     // Swap shown: nothing marked
     const shown = await scan(new ComfyClient(fake.url), [withSwap], [recipe, { ...swap, hidden: undefined }]);
     expect(shown.families[0]!.slots.find((x) => x.id === "swap")!.onlyHidden).toBeUndefined();
+  });
+
+  it("offers the clip's own model beside the files of an input that takes it, the family's other models among them (card #159)", async () => {
+    const withFace = defineFamily({ ...family, slots: [
+      ...family.slots,
+      { id: "ref", label: "Reference model", folder: "diffusion_models", detect: ["toy.*ref"], hint: "", optional: true },
+      { id: "face", label: "Face turbo", folder: "diffusion_models", detect: ["toy.*turbo"], hint: "", optional: true },
+    ] });
+    const face = defineRecipe<ToyInput>({ ...recipe, id: "toy.face", inputs: [...recipe.inputs, { id: "faceModel", type: "model", label: "Face refine model", folder: "diffusion_models", slot: "face", own: true }] });
+    const models = { vae: ["toy_vae.safetensors"], loras: [], checkpoints: ["m.safetensors"] };
+    fake = await startFakeComfy({ catalog, models: { ...models, diffusion_models: ["toy_ref.safetensors", "toy_turbo.safetensors"] } });
+    const s = await scan(new ComfyClient(fake.url), [withFace], [face]);
+    // the slot's file first, then the clip's own, then the rest: the reference model, another slot's file, stays a choice
+    expect(s.recipes[0]!.options.faceModel).toEqual(["toy_turbo.safetensors", OWN_MODEL, "toy_ref.safetensors"]);
+    await fake.close();
+    // without the slot's file, the clip's own comes first: the form starts on it
+    fake = await startFakeComfy({ catalog, models: { ...models, diffusion_models: ["toy_ref.safetensors"] } });
+    expect((await scan(new ComfyClient(fake.url), [withFace], [face])).recipes[0]!.options.faceModel).toEqual([OWN_MODEL, "toy_ref.safetensors"]);
   });
 
   it("says what is missing: a required file, a model to pick, a node", async () => {

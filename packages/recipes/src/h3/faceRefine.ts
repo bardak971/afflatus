@@ -1,6 +1,8 @@
-import { packOfNode, wanted, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
+import { OWN_MODEL, packOfNode, wanted, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
 import { loadUnet } from "../shared/unet";
+import { H3_HYBRIDS, SWAP_MODELS } from "./family";
 import type { H3Video } from "./inputs";
+import { modelOf, namedFor, uses } from "./model";
 
 /**
  * Face refine: after an H3 clip is decoded, each frame's face is found and followed (the person of the picture, by face
@@ -21,10 +23,23 @@ export const FACE_REFINE_PACK_NEEDED = "Not face-refined: Face refine's node pac
 /** The clip's sound held while the crops are redrawn (afflatus-nodes). */
 export const AUDIO_LOCK = "AfflatusH3AudioLock";
 
+/**
+ * Face refine's steps on a full model (not a turbo): provisional, to be measured (card #159, the owner's 8 to 12). The pass
+ * was tested at 4 on the fused turbo; a full model at 4 steps leaves the crop half drawn.
+ */
+export const FACE_REFINE_FULL_STEPS = 10;
+const TURBO_STEPS = 4;
+
 export const FACE_REFINE_INPUTS: InputSpec[] = [
   {
     id: "faceRefine", type: "toggle", label: "Face refine", default: false, section: "out",
     note: "after the render, the face is cropped, redrawn against the person's picture (the cast's, else a person reference picture, else the picture the clip opens on) and pasted back. The pose, light and expression stay the render's. Best on slow-moving shots: when the person moves a lot, the face follows the source's expression less, and arms over the head can be redrawn into the hair",
+  },
+  {
+    // the owner, 2026-10-29 (card #159): a swap's job held its swap model and the fused turbo at once, and every job reloaded
+    // the other one. Left out (a clip made before), the fused turbo of Settings › Models, else the clip's own
+    id: "faceRefineModel", type: "model", label: "Face refine model", folder: "diffusion_models", slot: "faceRefineUnet", match: [SWAP_MODELS, H3_HYBRIDS], own: true, showWhen: "faceRefine", section: "out",
+    note: `the model the faces are redrawn with. ${OWN_MODEL}: the clip's model, with its turbo when Turbo is on, so nothing more is loaded (a clip made by the frames model, which follows no picture, takes the fused turbo, else the reference model, and its job says so). Any other file is a second model to load beside the clip's: more RAM, and the time to load it. 4 steps on a fused or distilled turbo (its name says turbo or a step count) or the clip's model with its turbo, ${FACE_REFINE_FULL_STEPS} on a full model`,
   },
   {
     id: "faceRefineDenoise", type: "number", label: "Face refine denoise", min: 0.3, max: 0.6, step: 0.05, default: 0.45, showWhen: "faceRefine", advanced: true, section: "out",
@@ -33,7 +48,11 @@ export const FACE_REFINE_INPUTS: InputSpec[] = [
     // 0.63 on Timeline 6's clip 22); a real σ on a karras tail stopped it refining, and the owner preferred this by eye
     note: "ComfyUI's denoise at the model's shift, so the face is redrawn strongly: on H3 the whole range starts near 0.84–0.96 of real noise, and a step of 0.05 changes little (0.45 and 0.5 are the same). It applies in full to the smallest faces (30 px and under); a face of 120 px and more gets about a third of it, as it holds detail of its own. More is closer to the picture and further from the render",
   },
-  { id: "faceRefineSteps", type: "number", label: "Face refine steps", min: 2, max: 8, step: 1, default: 4, showWhen: "faceRefine", advanced: true, section: "out", note: "4 is what it was tested at; 8 kept less of the likeness" },
+  {
+    // 0 since card #159: by the model, as its sampling needs (a value typed stays the form's)
+    id: "faceRefineSteps", type: "number", label: "Face refine steps", min: 2, max: 16, step: 1, default: 0, auto: "by model", showWhen: "faceRefine", advanced: true, section: "out",
+    note: `by model (the left end): 4 on a fused or distilled turbo, as it was tested (8 kept less of the likeness), ${FACE_REFINE_FULL_STEPS} on a full model; the job says which ran`,
+  },
   // a finish of a kept take (Finish › Face refine): its own latent loaded, nothing sampled, only the faces redrawn
   { id: "faceRefineOnly", type: "toggle", label: "Face refine only", default: false, internal: true },
 ];
@@ -43,14 +62,15 @@ export const FACE_REFINE_INPUTS: InputSpec[] = [
  * it keeps no latent), and 0.35 to start on: on a SCAIL dance (Timeline 26, 2026-10-21) 0.45 stopped the mouth following
  * the source (r 0.60 to 0.15) and smeared a frame, where 0.35 kept 90 % of the likeness and the source's mouth, eyes and head.
  */
-export const FACE_REFINE_OTHER_INPUTS: InputSpec[] = FACE_REFINE_INPUTS.filter((spec) => spec.id !== "faceRefineOnly").map((spec) =>
+export const FACE_REFINE_OTHER_INPUTS: InputSpec[] = FACE_REFINE_INPUTS.filter((spec) => spec.id !== "faceRefineOnly" && spec.id !== "faceRefineModel").map((spec) =>
   spec.id === "faceRefineDenoise" && spec.type === "number" ? { ...spec, default: 0.35, note: `${spec.note}. 0.35 here: 0.45 stopped the mouth following the source` } : spec);
 
 /**
  * Face refine on a model that keeps no H3 latent for a finish to redraw from (LTX 2.5): H3's own settings, words and
  * defaults (every form alike), less the internal "only" a finish of a kept H3 latent sets. A finish redraws the take's frames.
  */
-export const FACE_REFINE_TAKE_INPUTS: InputSpec[] = FACE_REFINE_INPUTS.filter((spec) => spec.id !== "faceRefineOnly");
+// (the Face refine model is H3's choice: a clip of another model has no H3 model of its own to redraw with, card #159)
+export const FACE_REFINE_TAKE_INPUTS: InputSpec[] = FACE_REFINE_INPUTS.filter((spec) => spec.id !== "faceRefineOnly" && spec.id !== "faceRefineModel");
 
 /**
  * The H3 nodes Face refine runs on beside a model that is not H3's (the text encoder, VAEs, loader and scheduler are ComfyUI's
@@ -59,7 +79,7 @@ export const FACE_REFINE_TAKE_INPUTS: InputSpec[] = FACE_REFINE_INPUTS.filter((s
 export const FACE_REFINE_H3 = ["MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift", "ModelAttentionBackend", "SamplerCustomAdvanced", "RandomNoise", "BasicGuider"];
 
 /** What Face refine reads of a form: its own settings, and the person's words and pictures. */
-export type FaceRefineValues = Pick<H3Video, "faceRefine" | "faceRefineDenoise" | "faceRefineSteps" | "references" | "subject" | "quick">;
+export type FaceRefineValues = Pick<H3Video, "faceRefine" | "faceRefineDenoise" | "faceRefineSteps" | "references" | "subject" | "quick"> & Partial<Pick<H3Video, "faceRefineModel">>;
 
 /**
  * The person's picture the faces are drawn towards: the cast's (a "person" reference), else the one the recipe gives (the
@@ -86,9 +106,79 @@ export const openingPicture = (input: Pick<H3Video, "start" | "previous">, ctx: 
  * towards (a person reference; `picture`: the recipe's own picture stands in, as SCAIL's or the one a clip opens on), which the
  * pass leaves as it is (faceRefineSkipped): a machine without them was held for files it never loads.
  */
-export function faceRefineNeeds(input: Partial<Pick<H3Video, "faceRefine" | "references">>, opts: { own?: boolean; picture?: boolean } = {}): string[] {
+export function faceRefineNeeds(input: Partial<Pick<H3Video, "faceRefine" | "references" | "faceRefineModel" | "faceRefineOnly">>, opts: { own?: boolean; picture?: boolean; clip?: Pick<ClipModel, "follows" | "slot" | "turboSlot"> } = {}): string[] {
   if (!input.faceRefine || (!(input.references ?? []).some((r) => r.role === "person") && !opts.picture)) return [];
-  return ["faceRefineUnet", "faceDetector", "faceSeg", "faceSam", ...(opts.own ? ["faceClip", "faceVideoVae", "faceAudioVae"] : [])];
+  return [...faceModelNeeds(input, opts.clip), "faceDetector", "faceSeg", "faceSam", ...(opts.own ? ["faceClip", "faceVideoVae", "faceAudioVae"] : [])];
+}
+
+/**
+ * The family file Face refine's model is (faceRefineNeeds): the fused turbo's slot when left out; a file picked is asked by
+ * its input (machineScans filesAsked); the clip's own model nothing more where the clip loads it, its slot where a Finish ›
+ * Face refine samples nothing (referenceNeeds then asks for none), and the fused turbo where the clip's model follows no picture.
+ */
+function faceModelNeeds(input: Partial<Pick<H3Video, "faceRefineModel" | "faceRefineOnly">>, clip: Pick<ClipModel, "follows" | "slot" | "turboSlot"> | undefined): string[] {
+  const asked = input.faceRefineModel;
+  if (asked && asked !== OWN_MODEL) return [];
+  if (asked !== OWN_MODEL || !clip?.follows) return ["faceRefineUnet"];
+  // (with Turbo on, its LoRA too: the pass runs the clip's model with its turbo)
+  return input.faceRefineOnly ? [...(clip.slot ? [clip.slot] : []), ...(clip.turboSlot ? [clip.turboSlot] : [])] : [];
+}
+
+const fileName = (file: string | undefined) => file?.split(/[\\/]/).pop() ?? "";
+
+/**
+ * The model an H3 clip is made with, for Face refine to run on (OWN_MODEL): its file, the loader the clip's graph loads it
+ * with (none in a build that samples nothing), whether it follows a picture (a reference model or a hybrid: the frames model
+ * draws no <Picture 1>), the family slot it is had from when no input names it, and the turbo LoRA it runs with (Turbo on,
+ * on a model that is not distilled) and that LoRA's slot.
+ */
+export interface ClipModel { file: string | undefined; loader?: Ref; follows: boolean; slot?: string; turbo?: string; turboSlot?: string }
+
+/**
+ * The model of an H3 clip as loadH3Model picks it, without loading it: the reference model for a clip made by it, and its
+ * turbo LoRA as loadH3Model takes it (`turboPick`: a recipe's own, as the swap's reference one).
+ */
+export function clipModelOf(input: H3Video, slots: Record<string, string> = {}, how: { reference: boolean } = uses(input), turboPick?: string): ClipModel {
+  const picked = modelOf(input, slots);
+  const own = !how.reference || picked.hybrid;
+  const file = own ? picked.file : slots.refUnet;
+  const distilled = own ? picked.turbo : namedFor.turbo.test(fileName(file));
+  const turboSlot = !own && slots.refTurbo ? "refTurbo" : "turbo";
+  const turbo = input.fast && !distilled ? turboPick ?? slots[turboSlot] : undefined;
+  return {
+    file, follows: how.reference || picked.hybrid, slot: own ? (input.model ? undefined : "unet") : "refUnet",
+    ...(turbo ? { turbo } : {}), ...(input.fast && !distilled ? { turboSlot } : {}),
+  };
+}
+
+/**
+ * The model Face refine redraws with, its loader when it is the clip's own (one model in memory), its steps, and what its job
+ * says when it is not the one asked for. Asked for the clip's own (or left out with no fused turbo here): the clip's model,
+ * unless it follows no picture, then the fused turbo, else the reference model. Steps: the form's when typed, else 4 on a
+ * turbo (its name says so, as H3's distilled files are known) and FACE_REFINE_FULL_STEPS on a full model.
+ */
+export function faceModelOf(input: Partial<Pick<H3Video, "faceRefineModel" | "faceRefineSteps">>, slots: Record<string, string>, clip?: ClipModel): { file: string | undefined; loader?: Ref; lora?: string; steps: number; said: string | null } {
+  const asked = input.faceRefineModel;
+  const turbo = slots.faceRefineUnet;
+  let file = asked && asked !== OWN_MODEL ? asked : turbo;
+  let said: string | null = null;
+  // (a model that is not H3's has no clip model to fall back on: its pass runs on the fused turbo or is left out)
+  if (asked === OWN_MODEL || (!asked && !turbo && clip)) {
+    if (clip?.file && clip.follows) file = clip.file;
+    else {
+      file = turbo ?? slots.refUnet;
+      if (asked === OWN_MODEL && clip && file) said = `Face refine ran on ${fileName(file)}: the clip's own model follows no picture.`;
+    }
+  }
+  // the clip's own file, picked by name or as its own, is the clip's loader: nothing is loaded twice
+  const theClips = Boolean(file && file === clip?.file);
+  const loader = theClips ? clip?.loader : undefined;
+  // and with Turbo on, its turbo LoRA (the owner's swaps: MiniMax's reference model with it), at its turbo's 4 steps; the
+  // swap's LoRA and the user's stay out, made for the clip's own sampling
+  const lora = theClips ? clip?.turbo : undefined;
+  const typed = (input.faceRefineSteps ?? 0) > 0 ? input.faceRefineSteps! : 0;
+  const fast = Boolean(lora) || namedFor.turbo.test(fileName(file));
+  return { file, ...(loader ? { loader } : {}), ...(lora ? { lora } : {}), steps: typed || (fast ? TURBO_STEPS : FACE_REFINE_FULL_STEPS), said };
 }
 
 /**
@@ -96,11 +186,11 @@ export function faceRefineNeeds(input: Partial<Pick<H3Video, "faceRefine" | "ref
  * none of H3's text encoder and VAEs of its own (SCAIL), so the pass loads them from the family's Face refine slots.
  * `audio`: the clip's sound is held while the crops are redrawn, by the Afflatus node pack's audio lock.
  */
-export function faceRefineSkipped(input: Pick<H3Video, "faceRefine" | "references">, ctx: Pick<BuildContext, "uploads" | "slots"> & Partial<Pick<BuildContext, "has">>, opts: { picture?: string; own?: boolean; audio?: boolean } = {}): string | null {
+export function faceRefineSkipped(input: Pick<H3Video, "faceRefine" | "references"> & Partial<Pick<H3Video, "faceRefineModel">>, ctx: Pick<BuildContext, "uploads" | "slots"> & Partial<Pick<BuildContext, "has">>, opts: { picture?: string; own?: boolean; audio?: boolean; clip?: ClipModel } = {}): string | null {
   if (!input.faceRefine) return null;
   if (!facePicture(input, ctx, opts.picture)) return "Not face-refined: the clip has no person's picture (a cast person, a person reference picture, or a picture it opens on).";
   if (opts.own && !(ctx.slots.faceClip && ctx.slots.faceVideoVae && ctx.slots.faceAudioVae)) return "Not face-refined: MiniMax H3's text encoder and VAEs are not on this ComfyUI (Settings › Models has them, with the model's Face refine files).";
-  if (!ctx.slots.faceRefineUnet) return "Not face-refined: no fused reference turbo model on this ComfyUI (Settings › Models has it, under MiniMax H3).";
+  if (!faceModelOf(input, ctx.slots, opts.clip).file) return "Not face-refined: no fused reference turbo model on this ComfyUI (Settings › Models has it, under MiniMax H3).";
   if (!ctx.slots.faceDetector) return "Not face-refined: no face detector on this ComfyUI (face_yolov8m.pt in models/ultralytics/bbox; Settings › Models has it).";
   // an older pack (before 0.32.0) has no audio lock: the pass was left out without a word, and the take named a face pass
   if (opts.audio && ctx.has && !ctx.has(AUDIO_LOCK)) return "Not face-refined: this ComfyUI's Afflatus node pack has no H3 Audio Lock yet (0.32.0 on; ComfyUI loads a newer pack when it restarts).";
@@ -142,11 +232,11 @@ const onH3Grid = (frames: number) => (frames < 5 ? 5 : frames + ((17 - ((frames 
  */
 export function faceRefined(
   g: GraphBuilder, ctx: BuildContext, input: FaceRefineValues, images: Ref,
-  at: { audio?: Ref; vae?: Ref; audioVae?: Ref; clip?: Ref; picture?: string; frames?: number; only?: boolean },
+  at: { audio?: Ref; vae?: Ref; audioVae?: Ref; clip?: Ref; picture?: string; frames?: number; only?: boolean; model?: ClipModel },
 ): FaceRefined {
   const as: FaceRefined = { images, pass: null, loads: [], said: null };
   const own = !at.clip;
-  if (!input.faceRefine || faceRefineSkipped(input, ctx, { picture: at.picture, own, audio: Boolean(at.audio) })) return as;
+  if (!input.faceRefine || faceRefineSkipped(input, ctx, { picture: at.picture, own, audio: Boolean(at.audio), clip: at.model })) return as;
   // a Finish › Face refine is the pass alone: its pack is one it cannot run without, never an option to do without (its
   // Queue row offered Run without, and the finish then failed for want of the pass)
   if (at.only && !ctx.has(FACE_STITCH)) throw new Error(FACE_REFINE_PACK_NEEDED);
@@ -171,9 +261,12 @@ export function faceRefined(
     identity_threshold: 0.28, select: "largest_face", fallback_detector: slots.faceSeg ?? "none", fallback_head_frac: 0.5, select_index: 0,
     identity_model: "insightface", cut_detection: "none", cut_threshold: 3, absent_shots: "off", X: 0, Y: 0, frame_index: 0,
   });
-  // the fused reference turbo, as the pass was tested: the clip's own model may be one that follows no picture
-  let model = loadUnet(g, ctx, slots.faceRefineUnet);
+  // the fused reference turbo as the pass was tested, or the model picked: the clip's own is the clip's loader, one model in
+  // memory, with a fresh chain on it (none of the clip's LoRAs: the swap's and the turbo's are made for its own sampling)
+  const picked = faceModelOf(input, slots, at.model);
+  let model = picked.loader ?? loadUnet(g, ctx, picked.file);
   if (input.quick) model = g.out("ModelAttentionBackend", { model, attention: "comfy kitchen attention" });
+  if (picked.lora) model = g.out("LoraLoaderModelOnly", { model, lora_name: picked.lora, strength_model: 1 });
   model = g.out("MiniMaxH3SigmaShift", { model, shift_video: 12, shift_audio: 3 });
   const subject = input.subject?.trim() ? `, ${input.subject.trim().replace(/[.\s]+$/, "")}` : "";
   const r2v = g.add("MiniMaxH3ReferenceToVideo", {
@@ -193,7 +286,7 @@ export function faceRefined(
     noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
     guider: g.out("BasicGuider", { model: [scaled, 2], conditioning: [r2v, 0] }),
     sampler: g.out("KSamplerSelect", { sampler_name: "er_sde" }),
-    sigmas: g.out("BasicScheduler", { model: [scaled, 2], scheduler: "simple", steps: input.faceRefineSteps, denoise: input.faceRefineDenoise }),
+    sigmas: g.out("BasicScheduler", { model: [scaled, 2], scheduler: "simple", steps: picked.steps, denoise: input.faceRefineDenoise }),
     latent_image: [scaled, 0],
   });
   const redrawn = g.out("VAEDecode", { samples: [sampler, 0], vae });
@@ -208,11 +301,11 @@ export function faceRefined(
     colour_match: 1, blend: 1, undetected_frames: "fade_out", feather_scales_with_crop: false, ...masked,
   });
   const loads = [
-    `diffusion_models/${slots.faceRefineUnet}`, `ultralytics/${slots.faceDetector}`, ...(slots.faceSeg ? [`ultralytics/${slots.faceSeg}`] : []), ...(sam ? [`sams/${slots.faceSam}`] : []),
+    ...(picked.loader ? [] : [`diffusion_models/${picked.file}`, ...(picked.lora ? [`loras/${picked.lora}`] : [])]), `ultralytics/${slots.faceDetector}`, ...(slots.faceSeg ? [`ultralytics/${slots.faceSeg}`] : []), ...(sam ? [`sams/${slots.faceSam}`] : []),
     ...(own ? [`text_encoders/${slots.faceClip}`, `vae/${slots.faceVideoVae}`, `vae/${slots.faceAudioVae}`] : []),
   ];
   const out: Ref = pad ? g.out("ImageFromBatch", { image: stitched, batch_index: 0, length: at.frames! }) : stitched;
-  return { images: out, pass: { node: sampler, steps: input.faceRefineSteps }, loads, said: boxed };
+  return { images: out, pass: { node: sampler, steps: picked.steps }, loads, said: [picked.said, boxed].filter(Boolean).join(" ") || null };
 }
 
 /** Face refine's files, for the forms' sample builds (the graph checker's variants). */
