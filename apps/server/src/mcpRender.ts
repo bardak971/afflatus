@@ -547,26 +547,41 @@ const retry = tool({
 const pauseArgs = { machine: z.string().optional().describe("A machine's id or name (overview); left out, every machine.") };
 
 /**
- * Refused without Spend while a rented pod is up: what steers the queue's work there (a machine of the user's own paused,
- * a pod or the whole queue resumed, what a machine takes changed) spends on it as a render pinned there would. A money
- * path: the user's waiting jobs are not a token's to send onto a pod.
+ * The rented pods among these that are up and would take the queue's work after a change: those taking work now (not
+ * paused), or with `resumed`, those paused now that the change sets going.
  */
-export function mustSpendWhilePodUp(ctx: ToolCtx, machines: readonly Machine[], what: string): void {
-  if (spends(ctx)) return;
-  const up = podsUp(ctx.s, machines)[0];
-  if (up) throw refusal(`This token cannot spend on rented GPUs, and ${what} while ${machineName(up)} is up would send work onto it: tick Spend on it in Settings › Access.`);
+export async function podsTaking(s: Services, machines: readonly Machine[], resumed = false): Promise<Machine[]> {
+  const out: Machine[] = [];
+  for (const pod of podsUp(s, machines)) if ((await s.queue.pausedOn(pod.id)) === resumed) out.push(pod);
+  return out;
+}
+
+/**
+ * Refused while what a token does would steer the queue's work onto these pods (a machine of the user's own paused or
+ * removed, a pod or the whole queue resumed, what a machine takes changed): not only what waits but everything queued
+ * after goes there, which no cap can count beforehand. Without Spend, refused for any pod; with Spend, only onto pods
+ * whose run is this token's own (started by it: counted whole against its cap and stopped there). A pod of the user's or
+ * another token's would bill the user's work to the user, or to that token, counted by nobody: the user does it in
+ * Afflatus, and the token sends its own work there by run_on or use_only, counted. A money path.
+ */
+export function mustNotSteerOntoPods(ctx: ToolCtx, pods: readonly Machine[], what: string): void {
+  const up = pods[0];
+  if (!up) return;
+  if (!spends(ctx)) throw refusal(`This token cannot spend on rented GPUs, and ${what} while ${machineName(up)} is up would send work onto it: tick Spend on it in Settings › Access.`);
+  const theirs = pods.find((p) => p.rented?.mcpToken !== ctx.token.id);
+  if (theirs) throw refusal(`${what[0]!.toUpperCase()}${what.slice(1)} while ${quoted(machineName(theirs))} is up would send the user's work onto it, ${theirs.rented?.mcpToken ? "a pod another token started" : "the user's pod"}: what is queued after cannot be counted against this token's spend cap. The user does it in Afflatus; this token's own jobs go there by run_on or use_only, counted.`);
 }
 
 const pauseMachine = tool({
   name: "pause_machine",
   scope: "make",
   title: "Pause",
-  description: "Pause a machine (it ends what it renders and takes nothing new) or, with no machine, the whole queue. Nothing is lost: resume_machine goes on. Pausing a machine of the user's own while a rented pod is up needs Spend (its work would go to the pod).",
+  description: "Pause a machine (it ends what it renders and takes nothing new) or, with no machine, the whole queue. Nothing is lost: resume_machine goes on. Pausing a machine of the user's own while a rented pod takes work is refused unless that pod is one this token started (and then needs Spend): the user's work, and what they queue after, would go to the pod with no cap counting it.",
   input: pauseArgs,
   async run({ machine }, ctx) {
     const at = await seen(ctx.s);
     const m = machine ? machineOf(at, machine) : undefined;
-    if (m && !m.rented) mustSpendWhilePodUp(ctx, at.machines.map((x) => x.machine), `pausing ${machineName(m)}`);
+    if (m && !m.rented) mustNotSteerOntoPods(ctx, await podsTaking(ctx.s, at.machines.map((x) => x.machine)), `pausing ${machineName(m)}`);
     await ctx.s.queue.setPaused(true, m?.id);
     ctx.said(m ? `Paused ${quoted(machineName(m))}` : "Paused the queue");
     return { paused: m ? machineName(m) : "every machine" };
@@ -577,12 +592,12 @@ const resumeMachine = tool({
   name: "resume_machine",
   scope: "make",
   title: "Resume",
-  description: "Resume a paused machine or, with no machine, the whole queue. Resuming a rented pod, or the whole queue while a pod is up, needs Spend (the user's waiting work would go to the pod).",
+  description: "Resume a paused machine or, with no machine, the whole queue. Resuming a rented pod that is up, or the whole queue while one is paused, is refused unless the pod is one this token started (and then needs Spend): the user's waiting work, and what they queue after, would go to the pod with no cap counting it. A machine of the user's own is resumed freely.",
   input: pauseArgs,
   async run({ machine }, ctx) {
     const at = await seen(ctx.s);
     const m = machine ? machineOf(at, machine) : undefined;
-    if (!m || m.rented) mustSpendWhilePodUp(ctx, m ? [m] : at.machines.map((x) => x.machine), m ? `resuming ${machineName(m)}` : "resuming the queue");
+    if (!m || m.rented) mustNotSteerOntoPods(ctx, await podsTaking(ctx.s, m ? [m] : at.machines.map((x) => x.machine), true), m ? `resuming ${machineName(m)}` : "resuming the queue");
     await ctx.s.queue.setPaused(false, m?.id);
     ctx.said(m ? `Resumed ${quoted(machineName(m))}` : "Resumed the queue");
     return { resumed: m ? machineName(m) : "every machine" };

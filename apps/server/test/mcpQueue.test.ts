@@ -213,6 +213,28 @@ describe("use_only", () => {
   });
 });
 
+describe("start_hunt and change_hunt, hold rest", () => {
+  it("resting the user's machines is refused while the user's pod takes work (their work would go to it, counted by nobody); keep is not", async () => {
+    // the hunt's rounds not run here: only its start and its change are asked
+    t.services.hunt.stop();
+    // the queue going: one render of the user's on each machine (the pretend ComfyUIs never end them), one waiting for a GPU
+    await t.services.queue.setPaused(false);
+    await users(3);
+    await until(async () => (await t.db.selectFrom("jobs").select("id").where("status", "=", "running").execute()).length === 2);
+    const { token } = await made("spend", { spendCapUsd: 5 });
+    const c = await connect(token);
+    await refusedWith(c, "start_hunt", { ceiling: 0.5, hold: "rest" }, /A hunt resting the user's machines .* while “pod-a” is up would send the user's work onto it, the user's pod/);
+    await refusedWith(c, "start_hunt", { ceiling: 0.5 }, /resting the user's machines/);
+    expect(t.services.hunt.view().hunt).toBeNull();
+    await ok(c, "start_hunt", { ceiling: 0.5, hold: "keep" });
+    await refusedWith(c, "change_hunt", { hold: "rest" }, /resting the user's machines/);
+    expect(t.services.hunt.view().hunt!.hold).toBe("keep");
+    expect(await t.services.queue.pausedOn("m1")).toBe(false);
+    await ok(c, "cancel_hunt");
+    await c.close();
+  });
+});
+
 describe("cancel_waiting", () => {
   it("cancels this token's and the user's, never another token's; with mine, this token's only", async () => {
     const mine = await made("make");

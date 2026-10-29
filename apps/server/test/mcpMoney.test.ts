@@ -268,11 +268,34 @@ describe("what steers work onto a pod that is up", () => {
     expect((await call(c, "resume_machine", { machine: "m1" })).isError).toBeFalsy();
     const st = await t.services.queue.statusRecent();
     expect(st.machines.find((m) => m.id === pod)?.paused).toBe(true);
-    // with Spend, as before
+    // with Spend too: the pod is the user's, and what they queue after it is resumed no cap counts
     const spend = await connect((await made("spend")).token);
-    expect((await call(spend, "resume_machine", {})).isError).toBeFalsy();
+    await refusedWith(spend, "resume_machine", {}, /Resuming the queue while “pod-a” is up would send the user's work onto it, the user's pod: what is queued after cannot be counted against this token's spend cap/);
+    await refusedWith(spend, "resume_machine", { machine: pod }, /the user's pod/);
+    expect(await t.services.queue.pausedOn(pod)).toBe(true);
+    // the pod paused takes nothing: the user's own machine paused sends nothing there
     expect((await call(spend, "pause_machine", { machine: "m1" })).isError).toBeFalsy();
     await spend.close();
+    await c.close();
+  });
+
+  it("with Spend: refused onto a pod of the user's or another token's (nothing counts what the user queues after), allowed onto its own", async () => {
+    const { token, id } = await made("spend", { spendCapUsd: 5 });
+    const c = await connect(token);
+    // the user's pod taking work: pausing the user's own machine would feed it the user's work
+    await refusedWith(c, "pause_machine", { machine: "m1" }, /Pausing .* while “pod-a” is up would send the user's work onto it, the user's pod: what is queued after cannot be counted/);
+    expect(await t.services.queue.pausedOn("m1")).toBe(false);
+    const ownedBy = (token: string) => updateSettings(t.db, (x) => ({ machines: x.machines.map((m) => (m.id === pod && m.rented ? { ...m, rented: { ...m.rented, mcpToken: token } } : m)) }));
+    // another token's pod: that token pays its run, not for the user's work this one would send it
+    const other = await made("spend", { spendCapUsd: 5 });
+    await ownedBy(other.id);
+    await refusedWith(c, "pause_machine", { machine: "m1" }, /a pod another token started/);
+    // a pod this token started: its whole run counts against its cap (stopped there), so what goes to it is counted
+    await ownedBy(id);
+    expect((await call(c, "pause_machine", { machine: pod })).isError).toBeFalsy();
+    expect((await call(c, "resume_machine", { machine: pod })).isError).toBeFalsy();
+    expect((await call(c, "pause_machine", { machine: "m1" })).isError).toBeFalsy();
+    expect(await t.services.queue.pausedOn("m1")).toBe(true);
     await c.close();
   });
 
