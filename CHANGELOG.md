@@ -4,6 +4,17 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+- **MCP: what goes wrong, and where to look.** `comfy_log` reads a machine's ComfyUI log (a pod's boot log while its ComfyUI is not up), the last lines or those holding some words. `boot_log` reads a pod's boot now, or the boot logs Settings › Rented GPUs keeps. `job_live` gives a running job's phase, its Preview nodes' pictures and its live preview, as a picture. Secrets never reach the agent from a log: every key and token Afflatus keeps, and anything shaped like one (`token=`, a Bearer, `hf_…`, a password in an address), shows as `[hidden]`; a folder on the disk shows as its file's name. `render_stats` (the Render times tab), `network_volumes` and `model_updates` (hashes and newer versions) are read-only.
+- **MCP: a model's page and trigger words, and prompts.** `model_page` gives what a file's header says (its trigger words and training tags), its page, and the words that call it up, and looks them up on Civitai and Hugging Face when asked. `set_model_words` (Manage) sets your own words for a file. `prompt_history` lists the prompts rendered before, `check_tags` runs the Danbooru tag check, and `prompt_from_parts` gives the prompt a form writes from its parts.
+- **MCP: `show_page` opens what an agent made on your screen.** It can open a draft, a timeline with one of its clips selected, a library item in its folder, or a Settings row. The page in front goes there, unless you typed in the last 5 seconds: then a toast says "<token> wants to show you …" with **Go**, and nothing moves. The agent is told which happened, or that no page of Afflatus is open or in front.
+
+### Changed
+- **MCP's `job` says when to check again** on a job not done: "about 2 min 10 s left: check again in ~130 s", from the queue's forecast. An agent that can wait then checks once instead of polling.
+
+### Fixed
+- **MCP's `job`, `queue_status` and `overview` said the time left in seconds as `leftMs`**, so an agent read 130 s as 0.13 s.
+
 ## [0.8.1] - 2026-10-28
 
 The first hour made plainer (a ComfyUI too old said with what to do, each family's minimum with its size, Create open on a first landing, a timeline clip waiting for its files), H3's latent finish with its real noise level, SeedVR2 7B restoring 49 frames together, and rented pods: model lists that say where each file is, a stopped pod's Start, Deploy on its volume when RunPod refuses it, and cap refusals that say their sum.

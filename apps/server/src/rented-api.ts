@@ -55,19 +55,8 @@ export function registerRented(app: FastifyInstance, s: Services): void {
    */
   app.get("/api/rented/sessions/:id/boot-log", async (req, reply) => {
     const { id } = params.parse(req.params);
-    const row = await s.db.selectFrom("rent_sessions").select(["boot_log", "gpu", "started_at"]).where("id", "=", id).executeTakeFirst();
-    if (!row?.boot_log) throw httpError("No boot log is kept for that run.", 404);
-    const log = JSON.parse(row.boot_log) as { system?: Array<{ ts: string; line: string }>; pod?: Array<{ t: string; m: string }> };
-    const text = [
-      `${row.gpu ?? "Pod"}, deployed ${row.started_at}`,
-      "",
-      "RunPod's system log (the image's pull):",
-      ...(log.system ?? []).map((l) => `${l.ts}  ${l.line}`),
-      "",
-      "The pod's boot log:",
-      ...(log.pod ?? []).map((l) => `${l.t}  ${l.m}`),
-      "",
-    ].join("\n");
+    const text = await bootLogText(s, id);
+    if (text === null) throw httpError("No boot log is kept for that run.", 404);
     return reply.type("text/plain; charset=utf-8").header("Content-Disposition", `inline; filename="boot-log-${id.slice(0, 8)}.txt"`).send(text);
   });
 
@@ -78,14 +67,7 @@ export function registerRented(app: FastifyInstance, s: Services): void {
   });
 
   /** The account's network volumes, each with the pod running on it when one is; read-only. */
-  app.get("/api/runpod/volumes", async () => {
-    const [volumes, sets, kept] = await Promise.all([s.rented.volumes(), setsWithFiles(s), keptHoldings(s.db)]);
-    // each set as the volume held it last time a pod ran there: all there, or what it lacks
-    return { volumes: volumes.map((v) => {
-      const keys = kept.get(v.id)?.keys ?? null;
-      return { ...v, sets: keys ? sets.filter((x) => x.files.length).map((x) => ({ id: x.id, name: x.name, missing: missingOn(x.files, keys) })) : [] };
-    }) };
-  });
+  app.get("/api/runpod/volumes", async () => ({ volumes: await volumesOf(s) }));
 
   /** A network volume made (Make a volume…, its monthly price said on the button): billed every month from now. */
   app.post("/api/runpod/volumes", async (req) => {
@@ -209,5 +191,34 @@ export function registerRented(app: FastifyInstance, s: Services): void {
     // with a key and no pod, storage still bills (a volume left behind): read whenever there is a key
     if (!settings.runpodKey && !settings.machines.some((m) => m.rented)) return { spending: null };
     return { spending: await s.rented.spending() };
+  });
+}
+
+/**
+ * A run's boot log as kept (Settings › Rented GPUs › boot logs, rentedFollow keepBootLog), as plain text: RunPod's system log
+ * of its pull, then the pod's own boot log. Null when none is kept for it (not kept then, or dropped since).
+ */
+export async function bootLogText(s: Services, id: string): Promise<string | null> {
+  const row = await s.db.selectFrom("rent_sessions").select(["boot_log", "gpu", "started_at"]).where("id", "=", id).executeTakeFirst();
+  if (!row?.boot_log) return null;
+  const log = JSON.parse(row.boot_log) as { system?: Array<{ ts: string; line: string }>; pod?: Array<{ t: string; m: string }> };
+  return [
+    `${row.gpu ?? "Pod"}, deployed ${row.started_at}`,
+    "",
+    "RunPod's system log (the image's pull):",
+    ...(log.system ?? []).map((l) => `${l.ts}  ${l.line}`),
+    "",
+    "The pod's boot log:",
+    ...(log.pod ?? []).map((l) => `${l.t}  ${l.m}`),
+    "",
+  ].join("\n");
+}
+
+/** The account's network volumes, each with the pod running on it and the Model sets as the volume held them last time a pod ran there. */
+export async function volumesOf(s: Services) {
+  const [volumes, sets, kept] = await Promise.all([s.rented.volumes(), setsWithFiles(s), keptHoldings(s.db)]);
+  return volumes.map((v) => {
+    const keys = kept.get(v.id)?.keys ?? null;
+    return { ...v, sets: keys ? sets.filter((x) => x.files.length).map((x) => ({ id: x.id, name: x.name, missing: missingOn(x.files, keys) })) : [] };
   });
 }

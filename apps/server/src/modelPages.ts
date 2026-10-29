@@ -29,12 +29,13 @@ export interface PageCandidate extends ModelPage {
 }
 
 const FOLDER = /^[\w-]{1,64}$/;
-const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
+/** A file as its page and words are kept: its name alone, in lower case (moved to another sub-folder, it keeps them). */
+export const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
 /** A page's address: http or https only, since it becomes a link the browser opens (a javascript: one would run). */
 export const webUrl = z.string().max(2000).refine((u) => /^https?:\/\/[^\s]+$/i.test(u), "that is not a web address");
 
 /** A model folder's name, as a route is given it: a word, else a 400. */
-const folderOf = (folder: string) => {
+export const folderOf = (folder: string) => {
   if (!FOLDER.test(folder)) throw httpError("there is no such model folder");
   return folder;
 };
@@ -44,7 +45,7 @@ const folderOf = (folder: string) => {
  */
 const MISS_MS = 24 * 60 * 60_000;
 /** The file's page, when one is known (a row with an address: the others are misses). */
-const known = async (db: Db, folder: string, name: string): Promise<ModelPage | null> =>
+export const known = async (db: Db, folder: string, name: string): Promise<ModelPage | null> =>
   (await db.selectFrom("model_pages").select(["url", "title"]).where("folder", "=", folder).where("name", "=", name).where("url", "!=", "").executeTakeFirst()) ?? null;
 /** Whether the sites were asked for the file less than a day ago and had no page for it. */
 const missed = async (db: Db, folder: string, name: string): Promise<boolean> => {
@@ -151,75 +152,84 @@ export function registerModelPages(app: FastifyInstance, s: Services): void {
 
 // ---------------------------------------------------------------- the words that call a model up
 
-type Words = { own: string | null; found: string | null };
+export type Words = { own: string | null; found: string | null };
+
+/** The words known for files of a folder beyond what the files say, by file name (lower case, without its sub-folder); `names`: those files only. */
+export async function wordsOf(db: Db, folder: string, names?: string[]): Promise<Record<string, Words>> {
+  let q = db.selectFrom("model_words").select(["name", "own", "found"]).where("folder", "=", folder);
+  if (names) q = q.where("name", "in", names.length ? names : [""]);
+  return Object.fromEntries((await q.execute()).map((r) => [r.name, { own: r.own, found: r.found }]));
+}
+
+/** The user's own words for a file, which come before any others; null or empty takes them away again. */
+export async function setOwnWords(db: Db, folder: string, file: string, words: string | null): Promise<Record<string, Words>> {
+  const name = nameOf(file);
+  const own = words?.trim() || null;
+  await db
+    .insertInto("model_words")
+    .values({ folder, name, own, found: null, asked_at: null })
+    .onConflict((oc) => oc.columns(["folder", "name"]).doUpdateSet({ own }))
+    .execute();
+  return wordsOf(db, folder, [name]);
+}
+
+/**
+ * Ask Civitai for the trigger words of files that say none themselves, each by its fingerprint (never by its name), once:
+ * what it answers is kept, and so is the page it gave. Nothing is asked when looking things up is off in Settings, or for a
+ * file whose header was not read yet.
+ */
+export async function findWords(s: Services, folder: string, files: string[]): Promise<{ items: Record<string, Words>; lookups: boolean }> {
+  const settings = await readSettings(s.db);
+  const names = [...new Set(files.map(nameOf))];
+  if (!settings.civitaiLookups) return { items: await wordsOf(s.db, folder, names), lookups: false };
+  const asked = new Set((await s.db.selectFrom("model_words").select("name").where("folder", "=", folder).where("asked_at", "is not", null).execute()).map((r) => r.name));
+  const info = await s.db.selectFrom("model_info").select(["file", "info"]).where("folder", "=", folder).execute();
+  for (const file of files) {
+    const name = nameOf(file);
+    if (asked.has(name)) continue;
+    const row = info.find((r) => r.file === file) ?? info.find((r) => nameOf(r.file) === name);
+    // not read yet: its fingerprint is not known, it is asked the next time
+    if (!row) continue;
+    asked.add(name);
+    const print = (JSON.parse(row.info) as ModelInfo).fingerprint;
+    let found: string | null = null;
+    if (print) {
+      let v: { id: number; name?: string; modelId?: number; trainedWords?: string[]; model?: { name?: string } } | null;
+      try {
+        v = await civitaiGet(`/api/v1/model-versions/by-hash/${print}`, settings.civitaiKey);
+      } catch {
+        // Civitai is away: it is asked again another time
+        asked.delete(name);
+        continue;
+      }
+      if (v?.modelId) {
+        found = (v.trainedWords ?? []).map((w) => w.trim()).filter(Boolean).slice(0, 20).join(", ");
+        if (!(await known(s.db, folder, name))) await remember(s.db, folder, name, { url: `https://civitai.com/models/${v.modelId}?modelVersionId=${v.id}`, title: [v.model?.name, v.name].filter(Boolean).join(" · ") || "On Civitai" });
+      }
+    }
+    await s.db
+      .insertInto("model_words")
+      .values({ folder, name, own: null, found, asked_at: now() })
+      .onConflict((oc) => oc.columns(["folder", "name"]).doUpdateSet({ found, asked_at: now() }))
+      .execute();
+  }
+  return { items: await wordsOf(s.db, folder, names), lookups: true };
+}
 
 /** The words that call a model up, beyond what its file says: the user's own, and those Civitai gave. */
 function registerModelWords(app: FastifyInstance, s: Services): void {
-  const wordsOf = async (folder: string, names?: string[]): Promise<Record<string, Words>> => {
-    let q = s.db.selectFrom("model_words").select(["name", "own", "found"]).where("folder", "=", folder);
-    if (names) q = q.where("name", "in", names.length ? names : [""]);
-    return Object.fromEntries((await q.execute()).map((r) => [r.name, { own: r.own, found: r.found }]));
-  };
-
   /** The words known for the files of a folder beyond what the files say, by file name (lower case, without its sub-folder). */
-  app.get<{ Params: { folder: string } }>("/api/models/:folder/words", async (req) => ({ items: await wordsOf(folderOf(req.params.folder)) }));
+  app.get<{ Params: { folder: string } }>("/api/models/:folder/words", async (req) => ({ items: await wordsOf(s.db, folderOf(req.params.folder)) }));
 
   /** The user's own words for a file: they come before any others. Empty takes them away again. */
   app.put<{ Params: { folder: string } }>("/api/models/:folder/words", async (req) => {
-    const folder = folderOf(req.params.folder);
     const b = z.strictObject({ file: z.string().min(1).max(500), words: z.string().max(600).nullable() }).parse(req.body);
-    const name = nameOf(b.file);
-    const own = b.words?.trim() || null;
-    await s.db
-      .insertInto("model_words")
-      .values({ folder, name, own, found: null, asked_at: null })
-      .onConflict((oc) => oc.columns(["folder", "name"]).doUpdateSet({ own }))
-      .execute();
-    return { items: await wordsOf(folder, [name]) };
+    return { items: await setOwnWords(s.db, folderOf(req.params.folder), b.file, b.words) };
   });
 
-  /**
-   * Ask Civitai for the trigger words of files that say none themselves, each by its fingerprint (never by
-   * its name), once: what it answers is kept, and so is the page it gave. Nothing is asked when looking
-   * things up is off in Settings, or for a file whose header was not read yet.
-   */
+  /** Ask Civitai for the trigger words of files that say none themselves (findWords). */
   app.post<{ Params: { folder: string } }>("/api/models/:folder/words/find", async (req) => {
-    const folder = folderOf(req.params.folder);
     const { files } = z.strictObject({ files: z.array(z.string().min(1).max(500)).max(12) }).parse(req.body);
-    const settings = await readSettings(s.db);
-    const names = [...new Set(files.map(nameOf))];
-    if (!settings.civitaiLookups) return { items: await wordsOf(folder, names), lookups: false };
-    const asked = new Set((await s.db.selectFrom("model_words").select("name").where("folder", "=", folder).where("asked_at", "is not", null).execute()).map((r) => r.name));
-    const info = await s.db.selectFrom("model_info").select(["file", "info"]).where("folder", "=", folder).execute();
-    for (const file of files) {
-      const name = nameOf(file);
-      if (asked.has(name)) continue;
-      const row = info.find((r) => r.file === file) ?? info.find((r) => nameOf(r.file) === name);
-      // not read yet: its fingerprint is not known, it is asked the next time
-      if (!row) continue;
-      asked.add(name);
-      const print = (JSON.parse(row.info) as ModelInfo).fingerprint;
-      let found: string | null = null;
-      if (print) {
-        let v: { id: number; name?: string; modelId?: number; trainedWords?: string[]; model?: { name?: string } } | null;
-        try {
-          v = await civitaiGet(`/api/v1/model-versions/by-hash/${print}`, settings.civitaiKey);
-        } catch {
-          // Civitai is away: it is asked again another time
-          asked.delete(name);
-          continue;
-        }
-        if (v?.modelId) {
-          found = (v.trainedWords ?? []).map((w) => w.trim()).filter(Boolean).slice(0, 20).join(", ");
-          if (!(await known(s.db, folder, name))) await remember(s.db, folder, name, { url: `https://civitai.com/models/${v.modelId}?modelVersionId=${v.id}`, title: [v.model?.name, v.name].filter(Boolean).join(" · ") || "On Civitai" });
-        }
-      }
-      await s.db
-        .insertInto("model_words")
-        .values({ folder, name, own: null, found, asked_at: now() })
-        .onConflict((oc) => oc.columns(["folder", "name"]).doUpdateSet({ found, asked_at: now() }))
-        .execute();
-    }
-    return { items: await wordsOf(folder, names), lookups: true };
+    return findWords(s, folderOf(req.params.folder), files);
   });
 }

@@ -10,6 +10,7 @@ import { newAssetRow } from "../src/media";
 import type { TimelineEdit } from "../src/mcpTimelines";
 import { FFMPEG_TIMEOUT, ffmpegThere } from "./clipKit";
 import { timelineSteps, timelineSuite } from "./timelineKit";
+import { TOOLS } from "../src/mcpTools";
 
 /**
  * The timelines from outside (mcpTimelines.ts), through the SDK's own client over HTTP as Claude Code reaches /mcp, on a
@@ -91,7 +92,7 @@ describe.skipIf(!ffmpegThere)("the timelines from outside", { timeout: FFMPEG_TI
     const look = await connect("look");
     const names = (await look.listTools()).tools.map((x) => x.name);
     for (const n of ["list_timelines", "read_timeline", "view_timeline", "new_timeline", "edit_timeline", "edit_clip", "render_clips", "use_take", "finish", "export", "undo", "redo"]) expect(names).toContain(n);
-    expect(names).toHaveLength(82);
+    expect(names).toHaveLength(TOOLS.length);
     expect((await ok(look, "list_timelines")).map((x: { id: string }) => x.id)).toEqual([id]);
     const read = await ok(look, "read_timeline", { timeline: id });
     expect(read.clips).toHaveLength(3);

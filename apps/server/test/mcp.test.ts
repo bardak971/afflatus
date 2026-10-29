@@ -373,14 +373,15 @@ describe("the tools, through the SDK's client over HTTP", () => {
     const client = await connect(token);
     expect(client.getServerVersion()?.name).toBe("afflatus");
     expect((await client.listTools()).tools.map((x) => x.name)).toEqual([
-      "whats_open", "overview", "list_forms", "describe_form", "estimate", "list_drafts", "read_draft", "new_draft", "edit_draft", "apply_preset",
+      "whats_open", "show_page", "overview", "list_forms", "describe_form", "estimate", "prompt_history", "check_tags", "prompt_from_parts", "list_drafts", "read_draft", "new_draft", "edit_draft", "apply_preset",
       "render", "queue_status", "job", "cancel", "retry", "pause_machine", "resume_machine", "load_model", "view_item", "compare",
       "search_library", "keep", "unkeep", "bin", "restore", "move", "rename", "list_places", "new_folder", "edit_folder", "new_project", "rename_project",
       "import_from_url", "cut_range", "find_scenes", "extract_scenes", "save_frame", "list_kit", "read_kit_item", "new_kit_item", "edit_kit_item",
       "list_timelines", "read_timeline", "view_timeline", "new_timeline", "edit_timeline", "edit_clip", "render_clips", "use_take", "finish", "export", "undo", "redo",
       "timeline_range", "plan_clips", "mask_preview", "remove_take", "bin_unused_takes", "list_workflows", "import_workflow", "run_workflow",
-      "list_models", "find_models", "download", "downloads", "change_downloads", "model_sets", "edit_model_set", "model_settings", "change_model_settings",
+      "list_models", "find_models", "download", "downloads", "change_downloads", "model_sets", "edit_model_set", "model_settings", "change_model_settings", "model_page", "set_model_words", "model_updates",
       "read_settings", "change_setting", "list_machines", "edit_machine", "remove_machine", "reconnect", "pods", "deploy_pod", "start_pod", "stop_pod", "costs", "caps",
+      "comfy_log", "boot_log", "job_live", "render_stats", "network_volumes",
     ]);
     const r = await client.callTool({ name: "overview" });
     expect(r.isError).toBeFalsy();
