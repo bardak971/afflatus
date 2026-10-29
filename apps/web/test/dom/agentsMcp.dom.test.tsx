@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { AgentsBlock } from "../../src/screens/settings/AgentsBlock";
-import { claudeCodeCommand, claudeDesktopJson, mcpUrl, NO_TOKEN } from "../../src/screens/settings/mcpSnippets";
+import { claudeCodeCommand, mcpUrl, NO_TOKEN } from "../../src/screens/settings/mcpSnippets";
 import { whereOf } from "../../src/whereReport";
 import { fakeApi, jsonAnswer } from "./fakeApi";
 import { draw } from "./render";
@@ -15,8 +15,8 @@ import { draw } from "./render";
 const NOW = Date.now();
 const iso = (ago: number) => new Date(NOW - ago).toISOString();
 const token = (over: Record<string, unknown> = {}) => ({
-  id: "a".repeat(32), name: "Claude Desktop", scopes: ["look", "make"], rendersPerHour: 30, spendCapCents: 500, tail: "x9Ld",
-  createdAt: iso(86_400_000), expiresAt: null, revokedAt: null, lastUsedAt: iso(60_000), lastIp: "127.0.0.1", lastClient: "Claude Desktop",
+  id: "a".repeat(32), name: "Cursor", scopes: ["look", "make"], rendersPerHour: 30, spendCapCents: 500, tail: "x9Ld",
+  createdAt: iso(86_400_000), expiresAt: null, revokedAt: null, lastUsedAt: iso(60_000), lastIp: "127.0.0.1", lastClient: "Cursor",
   state: "live", rendersThisHour: 12, spentThisMonth: 1.2, working: 2, ...over,
 });
 
@@ -67,7 +67,7 @@ describe("Agents (MCP)", () => {
   it("folds revoked tokens under one line, shown on a click", async () => {
     fakeApi.on("GET /mcp/tokens", { tokens: [token(), token({ id: "c".repeat(32), name: "old pod check", state: "revoked", revokedAt: iso(3_600_000) })] });
     const { user } = draw(<AgentsBlock />);
-    await screen.findByRole("button", { name: /^Claude Desktop: open/ });
+    await screen.findByRole("button", { name: /^Cursor: open/ });
     expect(screen.queryByRole("button", { name: /^old pod check: open/ })).toBeNull();
     await user.click(screen.getByRole("button", { name: "1 revoked token: show" }));
     expect(screen.getByRole("button", { name: /^old pod check: open/ })).toBeTruthy();
@@ -76,7 +76,7 @@ describe("Agents (MCP)", () => {
   it("draws one line per token: its state, scopes as pills, both meters (a scope off greyed, not hidden), its last use", async () => {
     fakeApi.on("GET /mcp/tokens", { tokens: [token(), token({ id: "b".repeat(32), name: "laptop", scopes: ["look"], state: "idle", expiresAt: iso(-21 * 86_400_000 + 3_600_000), lastUsedAt: iso(26 * 3_600_000), lastIp: "192.168.1.20", working: 0, rendersThisHour: 0, spentThisMonth: 0 })] });
     draw(<AgentsBlock />);
-    const row = (await screen.findByRole("button", { name: /^Claude Desktop: open/ })).parentElement!;
+    const row = (await screen.findByRole("button", { name: /^Cursor: open/ })).parentElement!;
     expect(within(row).getByText("connected · 2 jobs in the queue")).toBeTruthy();
     expect(within(row).getByRole("button", { name: "Look" }).hasAttribute("disabled")).toBe(true);
     expect(within(row).getByRole("button", { name: "Make" }).getAttribute("aria-pressed")).toBe("true");
@@ -123,7 +123,7 @@ describe("Agents (MCP)", () => {
     }));
     fakeApi.on("POST /mcp/tokens/:id/revoke", { ok: true });
     const { user } = draw(<AgentsBlock />);
-    await user.click(await screen.findByRole("button", { name: /^Claude Desktop: open/ }));
+    await user.click(await screen.findByRole("button", { name: /^Cursor: open/ }));
     expect(await screen.findByText(/what is open: Studio › Create › “zz-test café”/)).toBeTruthy();
     expect(screen.getByText("whats_open")).toBeTruthy();
     expect(screen.getAllByText("Refused")).toHaveLength(1);
@@ -138,15 +138,11 @@ describe("Agents (MCP)", () => {
     await waitFor(() => expect(fakeApi.calls("POST", `/mcp/tokens/${"a".repeat(32)}/revoke`)).toHaveLength(1));
   });
 
-  it("copies the address, Claude Code's command and Claude Desktop's block", () => {
+  it("copies the address and Claude Code's command", () => {
     const url = mcpUrl("http://127.0.0.1:8721/");
     expect(url).toBe("http://127.0.0.1:8721/mcp");
     expect(claudeCodeCommand(url, "afl_mcp_x")).toBe('claude mcp add --transport http afflatus http://127.0.0.1:8721/mcp --header "Authorization: Bearer afl_mcp_x"');
     expect(claudeCodeCommand(url, null)).toContain(NO_TOKEN);
-    const desktop = JSON.parse(claudeDesktopJson(url, "afl_mcp_x")) as { mcpServers: { afflatus: { command: string; args: string[]; env: Record<string, string> } } };
-    expect(desktop.mcpServers.afflatus).toEqual({ command: "npx", args: ["-y", "mcp-remote", url, "--header", "Authorization:${AUTH_HEADER}"], env: { AUTH_HEADER: "Bearer afl_mcp_x" } });
-    // plain http from another machine: mcp-remote must be told
-    expect(claudeDesktopJson("http://192.168.1.10:8721/mcp", null)).toContain("--allow-http");
   });
 });
 

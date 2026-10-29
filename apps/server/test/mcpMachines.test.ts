@@ -1,10 +1,10 @@
 import type { AddressInfo } from "node:net";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readSettings, updateSettings } from "../src/settings";
 import { makeApp, makeFake, until, type TestApp } from "./helpers";
+import { tasksClient } from "./mcpTasksClient";
 
 /**
  * The machines and the rented GPUs through MCP (mcpMachines.ts), through the SDK's client against a pretend RunPod: every
@@ -156,6 +156,29 @@ describe("deploy_pod and start_pod: the pods already up", () => {
     expect(creates()).toBe(1);
     await c.close();
     await other.close();
+  });
+
+  it("answers a client that takes MCP Tasks with a task, ended once the pod's ComfyUI answers; its money rules the same", async () => {
+    const { token } = await made("spend", { spendCapUsd: 0.8 });
+    if (!t.app.server.listening) await t.app.listen({ port: 0, host: "127.0.0.1" });
+    const { client, session } = await tasksClient(`http://127.0.0.1:${(t.app.server.address() as AddressInfo).port}/mcp`, token);
+    const ex = await session.callTool("deploy_pod", DEPLOY);
+    expect(ex.kind).toBe("task");
+    const task = session.task(ex.handle!.taskId);
+    expect(await task.snapshot()).toMatchObject({ status: "working" });
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]?.status === "RUNNING"));
+    await until(async () => (await t.services.rented.poll(), (await task.snapshot()).status === "completed"));
+    const outcome = await task.result();
+    const said = JSON.parse((outcome as { result: { content: Array<{ text: string }> } }).result.content[0]!.text);
+    expect(said).toMatchObject({ gpu: expect.any(String), usdPerHour: expect.any(Number), ready: true, said: expect.stringMatching(/ComfyUI answers/) });
+    // the same cap as without a task: a second pod has no room
+    const again = await session.callTool("deploy_pod", DEPLOY);
+    expect(again.kind).toBe("immediate");
+    const refused = await again.result();
+    expect((refused as { result: { isError?: boolean; content: Array<{ text: string }> } }).result).toMatchObject({ isError: true, content: [{ text: expect.stringMatching(/This token's cap is \$0\.80/) }] });
+    expect(creates()).toBe(1);
+    await session.close();
+    await client.close();
   });
 
   it("start_pod refuses a pod set to never stop when idle, or without a watchdog", async () => {

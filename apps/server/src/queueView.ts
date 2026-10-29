@@ -124,7 +124,7 @@ export async function status(
   const plain = (r: JobRow) => ({
     id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, warning: r.warning ?? null, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id, join: joinOf(r),
     kind: kindOf(r),
-    /** The MCP token whose call queued it, by name, and how many renders of that token wait or run now (the status bar's "Claude Desktop rendering 2 takes"); null: the page queued it. */
+    /** The MCP token whose call queued it, by name, and how many renders of that token wait or run now (the status bar's "Claude Code rendering 2 takes"); null: the page queued it. */
     by: r.mcp_token_id ? by.get(r.mcp_token_id) ?? null : null,
     upscaler: upscalerOf(r),
     // what a failed job was asked: a retry can change it (a smaller size after running out of memory)

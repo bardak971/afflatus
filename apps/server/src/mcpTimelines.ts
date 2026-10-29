@@ -1,5 +1,5 @@
 import { CUT_WINDOW_MOST, plural, recordingSpecOf, TRANSITION_KINDS, TRANSITION_MS, type InputSpec, type Recipe } from "@afflatus/core";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { httpError } from "./errors";
 import { oneAtATime } from "./keyedLock";
@@ -697,6 +697,7 @@ const renderClipsTool = tool({
       };
     });
   },
+  task: (a: { jobs: string[] }) => ({ jobs: a.jobs }),
 });
 
 const useTake = tool({
@@ -756,6 +757,7 @@ const finish = tool({
       return { jobs: done.jobs, skipped: done.skipped.map((x) => `clip ${x.clip}: ${x.why}`), ...(usd ? { mayCostUsd: Math.round(usd * 100) / 100 } : {}) };
     }));
   },
+  task: (a: { jobs: string[] }) => ({ jobs: a.jobs }),
 });
 
 const exportTool = tool({
@@ -782,6 +784,7 @@ const exportTool = tool({
     ctx.said(`Exported “${view.name}”`);
     return { job: id, ...(view.exporting?.id === id ? { said: "an export of it was on its way already: this is that one" } : {}), ...(waiting ? { waitsFor: `${plural(waiting, "clip")} rendering or in the queue` } : {}) };
   },
+  task: (a: { job: string }) => ({ jobs: [a.job] }),
 });
 
 // ------------------------------------------------------------------------------------------------- In and Out, plans, masks, takes

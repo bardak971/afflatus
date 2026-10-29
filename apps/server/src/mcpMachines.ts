@@ -272,6 +272,8 @@ const deployPod = tool({
       };
     });
   },
+  // followed until its ComfyUI answers, or it stops before
+  task: (a: { machine: string }) => ({ pod: a.machine }),
 });
 
 /** A rented machine by id or name: refused for a ComfyUI of the user's own. */

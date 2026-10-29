@@ -1,5 +1,5 @@
 import { modelOf, plural, type InputSpec } from "@afflatus/core";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { assetDetail } from "./assets-api";
 import type { Tables } from "./db";

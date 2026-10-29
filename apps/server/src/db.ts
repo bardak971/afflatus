@@ -447,6 +447,8 @@ export interface Tables {
   };
   /** Each MCP call (mcp.ts): its token, its tool, what it touched in plain words, done (0), refused (1) or failed (2, the server's own failure) and why. Kept 30 days. */
   mcp_activity: { id: string; token_id: string; at: string; tool: string; said: string; refused: number; why: string | null };
+  /** The tasks a long MCP call answered with (mcpTasks.ts): `answer` the call's own (JSON), `follow` what it waits for (JSON), `status` working or how it ended, then its `result` (JSON). */
+  mcp_tasks: { id: string; token_id: string; tool: string; answer: string; follow: string; status: string; result: string | null; created_at: string; updated_at: string; expires_at: string };
   /** Named lists of model files (modelSets.ts): presets by reference and files of their own, as JSON in `def`. */
   model_sets: { id: string; owner_id: string; name: string; def: string; created_at: string; updated_at: string };
   /** Unfinished work, saved as it is typed. */

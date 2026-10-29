@@ -1,4 +1,4 @@
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { z } from "zod";
 import { cleanLine, type McpToken, type Scope, type SpendSaid } from "./mcpTokens";
 import type { Services } from "./services";
@@ -79,7 +79,16 @@ export interface Tool<S extends z.ZodRawShape = z.ZodRawShape> {
   touches?: readonly string[] | ((args: z.output<z.ZodObject<S>>) => readonly string[]);
   /** What it answers: anything JSON (sent as text), or a `Rich` answer (pictures, sound) as it is. */
   run(args: z.output<z.ZodObject<S>>, ctx: ToolCtx): Promise<unknown>;
+  /**
+   * For a tool that starts long work: what its answer leaves to wait for (its jobs, or a pod until its ComfyUI answers), or
+   * null when there is nothing (a cut by ffmpeg). A client that takes MCP Tasks then gets a task to follow rather than the
+   * answer (mcpTasks.ts), and its result once the work has ended.
+   */
+  task?(answer: any): Follow | null;
 }
+
+/** What a task waits for: jobs of the queue to end, or a pod (a machine id) until its ComfyUI answers. */
+export type Follow = { jobs: string[] } | { pod: string };
 
 /** A tool written with its arguments' types: `tool({ name, scope, …, run })`. */
 export const tool = <S extends z.ZodRawShape>(t: Tool<S>): Tool<S> => t;

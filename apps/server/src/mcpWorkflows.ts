@@ -231,6 +231,7 @@ const runWorkflow = tool({
     label: z.string().max(200).optional(),
   },
   run: (a, ctx) => renderForm({ form: workflowOf(ctx.s, a.workflow), values: a.values ?? {}, takes: a.takes, machine: a.machine, label: a.label }, ctx),
+  task: (a: { jobs: string[] }) => ({ jobs: a.jobs }),
 });
 
 const workflowArg = z.string().min(1).describe("The workflow's form id (list_workflows), its slug, or its title.");

@@ -290,6 +290,7 @@ const render = tool({
     label: z.string().max(200).optional(),
   },
   run: (args, ctx) => renderForm(args, ctx),
+  task: (a: { jobs: string[] }) => ({ jobs: a.jobs }),
 });
 
 /**
@@ -432,22 +433,27 @@ const job = tool({
       const hint = checkAgain(j);
       return { ...jobSaid(j, names), hint: hint ?? "no forecast for it yet (its model was never rendered here): ask again with wait" };
     }
-    const page = await s.queue.history({ ids: [id] });
-    const h = page.items[0];
-    const made = h?.made.map((a) => ({ item: a.id, kind: a.kind, width: a.width, height: a.height, durationMs: a.durationMs })) ?? [];
-    // an export makes no generation: its video is the timeline's export (the newest, the one this job made unless another came since)
-    if (row.status === "done" && row.recipe_id === EXPORT_JOB && row.timeline_id && !made.length) {
-      const exported = (await s.timelines.view(row.timeline_id).catch(() => null))?.exported;
-      if (exported) made.push({ item: exported.id, kind: exported.kind, width: exported.width, height: exported.height, durationMs: exported.durationMs });
-    }
     ctx.said(`Followed the job ${quoted(row.label)}: ${row.status}`);
-    return {
-      ...jobSaid({ id, label: row.label, recipe: row.recipe_id, status: row.status, machine: row.machine_id, error: row.error }, names),
-      ...(h ? { tookMs: h.tookMs, seed: h.seed } : {}),
-      ...(h || made.length ? { made } : {}),
-    };
+    return jobEnded(s, row, names);
   },
 });
+
+/** A job that has ended, as job says it: done with the library items it made, failed with why, or cancelled. MCP Tasks' results too. */
+export async function jobEnded(s: Services, row: Tables["jobs"], names?: ReadonlyMap<string, string>) {
+  const page = await s.queue.history({ ids: [row.id] });
+  const h = page.items[0];
+  const made = h?.made.map((a) => ({ item: a.id, kind: a.kind, width: a.width, height: a.height, durationMs: a.durationMs })) ?? [];
+  // an export makes no generation: its video is the timeline's export (the newest, the one this job made unless another came since)
+  if (row.status === "done" && row.recipe_id === EXPORT_JOB && row.timeline_id && !made.length) {
+    const exported = (await s.timelines.view(row.timeline_id).catch(() => null))?.exported;
+    if (exported) made.push({ item: exported.id, kind: exported.kind, width: exported.width, height: exported.height, durationMs: exported.durationMs });
+  }
+  return {
+    ...jobSaid({ id: row.id, label: row.label, recipe: row.recipe_id, status: row.status, machine: row.machine_id, error: row.error }, names ?? (await machineNames(s))),
+    ...(h ? { tookMs: h.tookMs, seed: h.seed } : {}),
+    ...(h || made.length ? { made } : {}),
+  };
+}
 
 /**
  * A job this token may act on: its own, or one the user queued from the page. One another token queued is that token's

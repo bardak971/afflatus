@@ -449,6 +449,8 @@ const cutRangeTool = tool({
     ctx.said(`${a.action === "copy" ? "Copied" : a.action === "split" ? "Split out" : "Removed"} ${span} of ${named(item)}`);
     return { job: job.id, ...(a.action !== "copy" ? { then: `${named(item)} goes to the bin once it is done; restore brings it back.` } : {}) };
   },
+  // a slow motion is followed (RIFE renders it, minutes); a copy, split or remove is ffmpeg's few seconds, answered at once
+  task: (a: { job: string; by?: string }) => (a.by ? { jobs: [a.job] } : null),
 });
 
 const findScenes = tool({

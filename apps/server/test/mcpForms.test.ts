@@ -1,7 +1,6 @@
 import type { AddressInfo } from "node:net";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { InMemoryTransport } from "@modelcontextprotocol/server";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -31,7 +30,7 @@ afterEach(async () => {
   await fake.close().catch(() => {});
 });
 
-async function made(start: "look" | "make" | "spend" | "all" = "make", name = "Claude Desktop"): Promise<{ token: string; id: string }> {
+async function made(start: "look" | "make" | "spend" | "all" = "make", name = "Cursor"): Promise<{ token: string; id: string }> {
   const res = await t.app.inject({ method: "POST", url: "/api/mcp/tokens", payload: { name, start } });
   return { token: res.json().token as string, id: res.json().view.id as string };
 }
@@ -118,7 +117,7 @@ describe("the drafts", () => {
     expect(row.forms[RECIPE]).toMatchObject({ prompt: "zz-test a lighthouse at dusk", steps: 24 });
     expect(row.count).toBe(3);
     expect(heard).toHaveLength(1);
-    expect(heard[0]).toMatchObject({ id: d.id, by: "Claude Desktop", count: { was: 1, now: 3 } });
+    expect(heard[0]).toMatchObject({ id: d.id, by: "Cursor", count: { was: 1, now: 3 } });
     expect(heard[0]!.fields).toEqual(expect.arrayContaining([
       { form: RECIPE, input: "prompt", had: true, was: "zz-test a lighthouse", now: "zz-test a lighthouse at dusk" },
       { form: RECIPE, input: "steps", had: false, now: 24 },
@@ -217,7 +216,7 @@ describe("render, follow and see", () => {
     expect(rows.every((x) => x.mcp_token_id === id && x.draft_id === d.id)).toBe(true);
     // the status bar's words: who queued it, and how many of its renders wait or run
     const st = (await t.app.inject({ method: "GET", url: "/api/queue" })).json();
-    expect([st.running, ...st.waiting].filter(Boolean)[0].by).toEqual({ name: "Claude Desktop", jobs: 2 });
+    expect([st.running, ...st.waiting].filter(Boolean)[0].by).toEqual({ name: "Cursor", jobs: 2 });
     await until(() => fake.prompts.size >= 1);
     // job's wait: still going after a second, it answers as it stands; it answers the end as soon as the job ends
     const t0 = Date.now();
