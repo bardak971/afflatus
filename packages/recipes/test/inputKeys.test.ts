@@ -14,7 +14,8 @@ describe("every built-in recipe's input", () => {
       for (const v of recipe.variants) {
         const parsed = parseInput(recipe, v.input) as Record<string, unknown>;
         for (const k of Object.keys(parsed)) expect(ids.has(k), `${v.name}: ${k}`).toBe(true);
-        for (const i of recipe.inputs) if ("default" in i && i.default !== undefined) expect(Object.hasOwn(parsed, i.id), `${v.name}: ${i.id}`).toBe(true);
+        // (a model input with a slot is left out for the slot's file, a clip made before it: its default is where the form starts)
+        for (const i of recipe.inputs) if ("default" in i && i.default !== undefined && !(i.type === "model" && i.slot)) expect(Object.hasOwn(parsed, i.id), `${v.name}: ${i.id}`).toBe(true);
         const read = new Set<string>();
         const watched = new Proxy(parsed, { get: (t, k) => (typeof k === "string" && read.add(k), Reflect.get(t, k)), has: (t, k) => (typeof k === "string" && read.add(k), Reflect.has(t, k)) });
         recipe.build(watched as never, dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {}, media: v.media ?? {}, ...(v.canvas ? { canvas: v.canvas } : {}), ...(v.has ? { has: v.has } : {}) }));

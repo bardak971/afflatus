@@ -1,4 +1,4 @@
-import { fileKey, graphFiles, parseInput, type GraphFile, type InputSpec, type LoraValue } from "@afflatus/core";
+import { fileKey, graphFiles, parseInput, pickedFiles, type GraphFile, type InputSpec, type LoraValue } from "@afflatus/core";
 import { now, type Db } from "./db";
 import type { Services } from "./services";
 
@@ -59,10 +59,10 @@ export async function linkUses(db: Db, jobId: string, generationId: string): Pro
 
 /** The model files a form chose itself (its model and LoRA inputs): what a backfill knows exactly. */
 export function chosenFiles(inputs: readonly InputSpec[], input: Record<string, unknown>): Array<{ folder: string; file: string }> {
-  const out: Array<{ folder: string; file: string }> = [];
+  // (the model inputs in play: one another input shows holds its file while it is off)
+  const out: Array<{ folder: string; file: string }> = pickedFiles(inputs, input).map(({ folder, file }) => ({ folder, file }));
   for (const spec of inputs) {
     const value = input[spec.id];
-    if (spec.type === "model" && typeof value === "string" && value) out.push({ folder: spec.folder, file: value });
     if (spec.type === "loras" && Array.isArray(value)) for (const l of value as LoraValue[]) if (l?.file) out.push({ folder: "loras", file: l.file });
   }
   return out;

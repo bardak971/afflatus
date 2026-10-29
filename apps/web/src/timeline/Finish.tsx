@@ -1,4 +1,4 @@
-import { resamplesLatent } from "@afflatus/core";
+import { OWN_MODEL, resamplesLatent } from "@afflatus/core";
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
@@ -27,10 +27,12 @@ const FALLBACK: FinishSettings = { route: "seedvr", factor: 2, colour: "lab", up
  * new take each, marked as the finished version of the draft (which stays). The settings start on the
  * user's defaults (Settings), and can be saved back as them.
  */
-export function FinishDialog({ timeline, clips, upscaleModels, attention, onClose, onQueued }: {
+export function FinishDialog({ timeline, clips, upscaleModels, models = { face: [], latent: [], seedvr: [] }, attention, onClose, onQueued }: {
   timeline: string;
   clips: Clip[];
   upscaleModels: string[];
+  /** The files offered for Face refine (with the clip's own model among them), H3's latent upscaler and SeedVR2 (card #159). */
+  models?: { face: string[]; latent: string[]; seedvr: string[] };
   /** What Needs attention lists, in one line with "Fix all first" (AttentionNote): a take with a broken join is finished as it is. */
   attention?: ReactNode;
   onClose(): void;
@@ -111,6 +113,9 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
           )}
           {(v.route === "seedvr" || (v.route === "latent" && resampled < videos.length)) && (
             <>
+              <FieldRow label="SeedVR2 model" note="The 3B (fast) or the 7B (sharper, slower, steadier over its wider window); its VAE is the same">
+                <Select label="SeedVR2 model" value={v.seedvrModel ?? ""} onChange={(seedvrModel) => setV({ ...v, seedvrModel })} options={[{ value: "", label: "Settings › Models' file" }, ...models.seedvr.map((m) => ({ value: m, label: fileLabel(m) }))]} />
+              </FieldRow>
               <FieldRow label="Colour match" note="SeedVR2's restored frames matched in colour to the originals: lab is the most faithful, wavelet keeps the new fine detail, adain is a global tint">
                 <Segmented<(typeof COLOURS)[number]> label="Colour match" value={v.colour} onChange={(colour) => setV({ ...v, colour })} options={COLOURS.map((c) => ({ value: c, label: c }))} />
               </FieldRow>
@@ -143,6 +148,16 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
           {v.route !== "face" && v.face && refined > 0 && (
             <FieldRow label="Face denoise" note="ComfyUI's denoise at the model's shift: on H3 it starts near 0.84–0.96 of real noise. In full on the smallest faces (30 px and under); a face of 120 px and more gets about a third of it" trail>
               <NumberBox label="Face refine denoise" value={v.faceDenoise ?? 0.45} min={0.3} max={0.6} step={0.05} onCommit={(faceDenoise) => setV({ ...v, faceDenoise })} />
+            </FieldRow>
+          )}
+          {(v.route === "face" || v.face) && refined > 0 && (
+            <FieldRow label="Face refine model" note={`The model the faces are redrawn with. As each clip's form: the Face refine model its form says (a Swap starts on its own model). ${OWN_MODEL}: the one the clip is made with, nothing more loaded. Any other file is a second model to load beside the clip's: more RAM, and the time to load it. 4 steps on a fused or distilled turbo, more on a full model. H3 clips; the others keep their own`}>
+              <Select label="Face refine model" value={v.faceModel ?? ""} onChange={(faceModel) => setV({ ...v, faceModel })} options={[{ value: "", label: "As each clip's form" }, ...(models.face.includes(OWN_MODEL) ? [{ value: OWN_MODEL, label: OWN_MODEL }] : []), ...models.face.filter((m) => m !== OWN_MODEL).map((m) => ({ value: m, label: fileLabel(m) }))]} />
+            </FieldRow>
+          )}
+          {v.route === "latent" && resampled > 0 && (
+            <FieldRow label="Latent upscaler" note="The file that enlarges the latent, from models/latent_upscale_models; the re-sampling after it runs on each clip's own model">
+              <Select label="Latent upscaler" value={v.latentModel ?? ""} onChange={(latentModel) => setV({ ...v, latentModel })} options={[{ value: "", label: "Settings › Models' file" }, ...models.latent.map((m) => ({ value: m, label: fileLabel(m) }))]} />
             </FieldRow>
           )}
           {v.route === "latent" && (

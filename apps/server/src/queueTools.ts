@@ -187,6 +187,8 @@ export interface ToolNeeds {
   rife: boolean;
   seedvr: boolean;
   upscaleModel: string | null;
+  /** SeedVR2's model picked for the finish (card #159), in place of the family's. */
+  seedvrModel?: string;
   /** The node classes it cannot run without; `anyNode`: one of these at least (RTX VSR: NVIDIA's pack or DaSiWa's). */
   nodes: string[];
   anyNode?: string[];
@@ -224,7 +226,7 @@ export async function toolNeeds(core: Pick<QueueCore, "db" | "storage">, row: Pi
   }
   const upscale = route === "rtx" ? UPSCALE.rtx : route === "model" ? UPSCALE.model : UPSCALE.seedvr;
   return {
-    rife, seedvr: route === "seedvr", upscaleModel: route === "model" ? opts.upscaleModel || "" : null,
+    rife, seedvr: route === "seedvr", upscaleModel: route === "model" ? opts.upscaleModel || "" : null, ...(route === "seedvr" && opts.seedvrModel ? { seedvrModel: opts.seedvrModel } : {}),
     nodes: ["LoadVideo", "GetVideoComponents", ...upscaleNodes({ upscale }), ...(rife ? RIFE_NODES : [])], ...(route === "rtx" ? { anyNode: RTX_NODES } : {}),
   };
 }
@@ -307,7 +309,7 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
     const skip = Math.max(0, Math.floor(((opts.hiddenMs ?? 0) * sourceFps) / 1000));
     const frames: Ref = [parts, 0];
     const restore: Ref = skip ? g.out("ImageFromBatch", { image: frames, batch_index: skip, length: 4096 }) : frames;
-    const done = pixelUpscale(g, restore, { upscale: route, upscaleBy: by, upscaleModel, upscaleColour: opts.colour, seedvrFrames: opts.seedvrFrames ?? 0 }, source, ctx);
+    const done = pixelUpscale(g, restore, { upscale: route, upscaleBy: by, upscaleModel, upscaleColour: opts.colour, seedvrFrames: opts.seedvrFrames ?? 0, ...(opts.seedvrModel ? { seedvrModel: opts.seedvrModel } : {}) }, source, ctx);
     for (const { w, why } of options.without) await warnJob(core.db, row.id, ranWithoutSaid(w, why));
     let restored: Ref = done.images;
     if (skip) {
@@ -325,7 +327,7 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
     // on the record as a tool of its own: the route, the factor, what it makes (the frames past the hidden run-up are what the route restores)
     const outFrames = Math.round((Math.max(0, (video.duration_ms ?? 0) - (opts.hiddenMs ?? 0)) / 1000) * (video.fps ?? 24));
     const routeKey = finishRoute(opts.route);
-    const note = await toolNote(core, row, `tool.finish.${routeKey}`, routeKey === "seedvr" ? slots.seedvr ?? "SeedVR2" : routeKey === "model" ? upscaleModel : "RTX VSR",
+    const note = await toolNote(core, row, `tool.finish.${routeKey}`, routeKey === "seedvr" ? opts.seedvrModel ?? slots.seedvr ?? "SeedVR2" : routeKey === "model" ? upscaleModel : "RTX VSR",
       `route=${routeKey};by=${opts.by ?? 2};frames=${opts.seedvrFrames ?? 0}`, Math.round(source.width * by) * Math.round(source.height * by) * Math.max(1, outFrames));
     const output = await followed(core, comfy, run, row, g, outNode, [...done.loads, ...(rife ? [`frame_interpolation/${rife}`] : [])], note);
     const bytes = await comfy.client.view(output);

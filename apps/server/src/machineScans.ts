@@ -1,5 +1,5 @@
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
-import { folderOfFileInput, sameFile, isMissingSlotFile, isShown, packOfNode, SOFT_SLOTS, TOOLS_FAMILY, type Family, type GraphFile, type LoraValue, type Recipe } from "@afflatus/core";
+import { folderOfFileInput, pickedFiles, sameFile, isMissingSlotFile, isShown, packOfNode, SOFT_SLOTS, TOOLS_FAMILY, type Family, type GraphFile, type LoraValue, type Recipe } from "@afflatus/core";
 import type { Loaded } from "./jobFiles";
 import type { Machine, Settings } from "./settings";
 
@@ -58,9 +58,11 @@ export function mergeScans(scans: Array<{ machine: Machine; scan: Scan }>, setti
  * own options (`extra`: "Latent", "Same as the first pass") name no file.
  */
 export function filesAsked(recipe: Pick<Recipe<any>, "inputs">, input: Record<string, unknown>): Array<{ input: string; file: string; folder: string }> {
+  // a model input asks for its file while it is in play (Face refine's model holds one with Face refine off)
+  const models = pickedFiles(recipe.inputs, input);
   return recipe.inputs.flatMap((i) => {
     const v = input[i.id];
-    if (i.type === "model" && typeof v === "string" && v) return [{ input: i.id, file: v, folder: i.folder }];
+    if (i.type === "model") return models.filter((m) => m.input === i.id);
     if (i.type === "loras" && Array.isArray(v)) return (v as LoraValue[]).filter((l) => l?.file).map((l) => ({ input: i.id, file: l.file, folder: "loras" }));
     if (i.type === "choice" && !Array.isArray(i.options) && typeof v === "string" && v && !i.extra?.includes(v) && isShown(i, input, recipe.inputs)) {
       const folder = folderOfFileInput(i.options.node, i.options.input);
@@ -77,7 +79,8 @@ export function filesAsked(recipe: Pick<Recipe<any>, "inputs">, input: Record<st
  */
 function pickedFor(recipe: Pick<Recipe<any>, "inputs" | "needs">, input: Record<string, unknown>, slot: { id: string; folder: string }, slots: Array<{ id: string; folder: string; optional?: boolean }>): boolean {
   const required = slots.filter((x) => x.folder === slot.folder && (!x.optional || recipe.needs?.includes(x.id)));
-  return recipe.inputs.some((i) => i.type === "model" && Boolean(input[i.id]) && (i.slot === slot.id || (!i.slot && i.folder === slot.folder && required.length === 1 && required[0]!.id === slot.id)));
+  const picked = new Set(pickedFiles(recipe.inputs, input).map((m) => m.input));
+  return recipe.inputs.some((i) => i.type === "model" && picked.has(i.id) && (i.slot === slot.id || (!i.slot && i.folder === slot.folder && required.length === 1 && required[0]!.id === slot.id)));
 }
 
 /** A family's files found on a machine, by slot: what a build reads for a model left out of the form. */

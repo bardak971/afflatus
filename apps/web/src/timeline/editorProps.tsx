@@ -691,6 +691,12 @@ export function finishProps(e: LoadedEditor): ComponentProps<typeof FinishDialog
     clips,
     // ComfyUI's upscale_models, as any recipe with an upscale model to pick lists them
     upscaleModels: e.setup.data?.recipes.find((r) => r.options.upscaleModel?.length)?.options.upscaleModel ?? [],
+    // and the files the H3 forms' Face refine and latent upscaler, and the SeedVR2 route, offer (card #159)
+    models: {
+      face: e.setup.data?.recipes.find((r) => r.id === "h3.video")?.options.faceRefineModel ?? [],
+      latent: e.setup.data?.recipes.find((r) => r.id === "h3.video")?.options.upscaleLatentModel ?? [],
+      seedvr: e.setup.data?.recipes.find((r) => r.options.seedvrModel?.length)?.options.seedvrModel ?? [],
+    },
     attention: <AttentionNote timeline={t} clips={clips} {...e.checks} onFixFirst={(plan) => e.fixFirst(plan, () => e.setFin(false))} />,
     onClose: () => e.setFin(false),
     onQueued: (r) => {

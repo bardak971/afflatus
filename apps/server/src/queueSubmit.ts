@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { baseModels, checkGraph, choicesOf, graphFiles, clockFits, FRAME_SLACK_MS, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, onGrid, packOfNode, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
+import { baseModels, checkGraph, choicesOf, graphFiles, clockFits, FRAME_SLACK_MS, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, onGrid, packOfNode, parseInput, pickChoice, pickedFiles, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
 import { catalogKey, ComfyCancelled, ComfyError, ComfyUnreachable } from "@afflatus/comfy";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
@@ -1131,6 +1131,6 @@ export async function isLoaded(core: QueueCore, recipeId: string, rawInput: unkn
   // on their own when the loaded one is NOT theirs, which is what the strip must not hide behind a green icon
   const recipe = core.registry.recipe(recipeId);
   const input = rawInput && typeof rawInput === "object" ? (rawInput as Record<string, unknown>) : {};
-  const chosen = (recipe?.inputs ?? []).filter((i) => i.type === "model" && typeof input[i.id] === "string" && input[i.id]).map((i) => modelFileName(input[i.id] as string));
+  const chosen = pickedFiles(recipe?.inputs ?? [], input).map((m) => modelFileName(m.file));
   return chosen.length && core.lastLoads !== null && !holding(core, chosen) ? false : null;
 }

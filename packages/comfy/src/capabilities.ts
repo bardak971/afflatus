@@ -1,4 +1,4 @@
-import { checkGraph, choicesOf, dryContext, slotsRead, folderOfFileInput, parseInput, sameBase, sameFile, versionOf, type Family, type ModelInfo, type NodeCatalog, type Recipe } from "@afflatus/core";
+import { checkGraph, choicesOf, dryContext, slotsRead, folderOfFileInput, OWN_MODEL, parseInput, sameBase, sameFile, versionOf, type Family, type ModelInfo, type NodeCatalog, type Recipe } from "@afflatus/core";
 import { catalogKey, ComfyLocked, type ComfyClient, type ComfyStatus } from "./client";
 
 /**
@@ -179,8 +179,9 @@ async function recipeChoices(
       const own = family?.slots.find((s) => s.id === input.slot);
       // (a slot that is only one more choice of this input's, choiceOf, is not another use)
       const choices = new Set(family?.slots.filter((s) => s.choiceOf === input.slot).map((s) => s.id));
-      const taken = input.slot && !own?.onlyFor ? slots.filter((s) => s.id !== input.slot && !choices.has(s.id) && s.folder === input.folder && s.file && s.file !== usual).map((s) => s.file) : [];
-      options[input.id] = [...new Set([...(usual ? [usual] : []), ...fits, ...all.filter((f) => !foreign.includes(f)), ...foreign])].filter((f) => !taken.includes(f));
+      // (an input that offers the clip's own model, Face refine's, runs on any of them: the reference model is one to pick)
+      const taken = input.slot && !own?.onlyFor && !input.own ? slots.filter((s) => s.id !== input.slot && !choices.has(s.id) && s.folder === input.folder && s.file && s.file !== usual).map((s) => s.file) : [];
+      options[input.id] = [...new Set([...(usual ? [usual] : []), ...(input.own ? [OWN_MODEL] : []), ...fits, ...all.filter((f) => !foreign.includes(f)), ...foreign])].filter((f) => !taken.includes(f));
       // with a slot, a missing file is the slot's to report; with a file of its own (an imported workflow's), the list is not needed
       if (!options[input.id]!.length && !input.slot && !input.default) emptyInputs.push(input.id);
     } else if (input.type === "loras") {
@@ -366,7 +367,7 @@ export async function plannedScan(families: Family[], recipes: Recipe<any>[], at
       // a model input offers its own family's files: the folder holds every family's (SDXL's checkpoints listed SAM 3's)
       if (input.type === "model") {
         const own = new Set((families.find((f) => f.id === r.family)?.slots ?? []).filter((s) => s.get && s.folder === input.folder && (!input.slot || s.id === input.slot)).map((s) => s.get!.file));
-        options[input.id] = (options[input.id] ?? []).filter((f) => own.has(f));
+        options[input.id] = (options[input.id] ?? []).filter((f) => own.has(f) || (input.own && f === OWN_MODEL));
         continue;
       }
       if (input.type !== "choice" || Array.isArray(input.options) || options[input.id]?.length) continue;

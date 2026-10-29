@@ -1,4 +1,4 @@
-import { CUT_WINDOW_MOST, plural, recordingSpecOf, TRANSITION_KINDS, TRANSITION_MS, type InputSpec, type Recipe } from "@afflatus/core";
+import { CUT_WINDOW_MOST, OWN_MODEL, plural, recordingSpecOf, TRANSITION_KINDS, TRANSITION_MS, type InputSpec, type Recipe } from "@afflatus/core";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { httpError } from "./errors";
@@ -740,6 +740,9 @@ const finish = tool({
     latentSteps: z.number().int().min(1).max(6).optional().describe("Steps of the latent re-sample (3 by default)."),
     face: z.boolean().optional().describe("Face refine first, where the model offers it."),
     faceDenoise: z.number().min(0.3).max(0.6).optional(),
+    faceModel: z.string().max(200).optional().describe(`Face refine's model (H3 clips), over each clip's own form's: a diffusion model file, or "${OWN_MODEL}" (the model the clip is made with: nothing more loaded); another file is a second model to load. Left out: as each clip's form says.`),
+    latentModel: z.string().max(200).optional().describe("H3's latent upscaler file (route latent); left out: the one of Settings › Models. The re-sampling runs on the clip's own model."),
+    seedvrModel: z.string().max(200).optional().describe("SeedVR2's model file, the 3B or the 7B (route seedvr); left out: the one of Settings › Models."),
   },
   async run({ timeline, ...args }, ctx) {
     const { s, token } = ctx;

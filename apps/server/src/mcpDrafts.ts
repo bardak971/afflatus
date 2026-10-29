@@ -1,4 +1,4 @@
-import { matchFiles, ownValues, plural, schemaFor, type InputSpec, type Recipe } from "@afflatus/core";
+import { matchFiles, ownValues, pickedFile, plural, schemaFor, type InputSpec, type Recipe } from "@afflatus/core";
 import { z } from "zod";
 import { createBody, createDraft, deleteDraft, draftsList, draftView, findDraft, saveDraft, type DraftView, type saveBody } from "./drafts";
 import { emptyLook, lookSchema, type Look } from "./entities";
@@ -121,7 +121,7 @@ export async function checkedValue(s: Services, at: Seen, recipe: Recipe<any>, i
   // what the machines offer, when they could be read: an empty list then means none of them has any
   const status = at.merged?.comfy.online ? statusOf(at, recipe.id) : undefined;
   const offered = status?.options[id] ?? [];
-  if (spec.type === "model" && typeof kept === "string" && offered.length) {
+  if (spec.type === "model" && typeof kept === "string" && pickedFile(kept) && offered.length) {
     const there = fileThere(offered, kept);
     if (!there) throw httpError(`${spec.label}: no machine has ${kept}. Its files are listed by describe_form (machines › models › ${id}).`);
     kept = there;

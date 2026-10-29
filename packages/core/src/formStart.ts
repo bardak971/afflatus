@@ -1,4 +1,4 @@
-import { chosenDefaults, pickChoice, RANDOM_SEED, ruledDefaults, withoutOldZeros, type InputSpec, type StartRule } from "./inputs";
+import { chosenDefaults, OWN_MODEL, pickChoice, RANDOM_SEED, ruledDefaults, withoutOldZeros, type InputSpec, type StartRule } from "./inputs";
 import { modelStart, type Preset } from "./recipe";
 
 /**
@@ -12,7 +12,14 @@ export function defaultOf(spec: InputSpec, options: string[] | undefined): unkno
   switch (spec.type) {
     // an example is shown, not filled in
     case "prompt": return spec.example ? "" : spec.default ?? "";
-    case "model": return spec.default ?? options?.[0] ?? "";
+    case "model": {
+      if (spec.default) return spec.default;
+      // a model one other setting brings in (SeedVR2's, Face refine's) starts on a file made for it or none (its slot's, when
+      // one comes): with none of its kind here, the first of the folder was some other model, sent as SeedVR2's
+      const first = options?.[0] ?? "";
+      const fits = !first || first === OWN_MODEL || !spec.slot || !spec.showWhen || !spec.match || spec.match.some((p) => new RegExp(p, "i").test(first));
+      return fits ? first : "";
+    }
     case "loras": return spec.default ?? [];
     case "size": {
       const s = spec.shapes.find((x) => x.id === spec.default) ?? spec.shapes[0]!;

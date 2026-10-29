@@ -1,4 +1,4 @@
-import { defineRecipe, gridAtOrBefore, typedInto, upstream, type BuildContext, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type StartRule, type Variant } from "@afflatus/core";
+import { defineRecipe, gridAtOrBefore, OWN_MODEL, typedInto, upstream, type BuildContext, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type StartRule, type Variant } from "@afflatus/core";
 import { H3_FPS, H3_GRID, H3_HYBRIDS, SWAP_MODELS } from "./family";
 import { modelOf, namedFor } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
@@ -180,6 +180,9 @@ export const swapInputs: InputSpec[] = [
     if (spec.id === "shiftVideo" && spec.type === "number") return [{ ...spec, default: 12, note: "12, the model's own, as the swaps were tested. Higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail)" }];
     if (spec.id === "shiftAudio" && spec.type === "number") return [{ ...spec, default: 3, note: "3, the model's own, as the swaps were tested" }];
     if (spec.id === "fast" && spec.type === "toggle") return [{ ...spec, note: "8 steps with the turbo LoRA: not tested with the swap LoRA, whose author ran full steps" }];
+    // the swap's own model (the owner, 2026-10-29, card #159): one model in memory, where the fused turbo beside it was a
+    // second one every job loaded again
+    if (spec.id === "faceRefineModel" && spec.type === "model") return [{ ...spec, default: OWN_MODEL }];
     // the window before, on a timeline's source lane: continued in its latent, its last frames (Frames from the clip before) the run-up
     if (spec.id === "previous" && spec.type === "clip") {
       return [{ ...spec, advanced: true, note: "on a timeline's source lane, the window before: its last frames and their sound start this one, so that the person does not jump at the join" }];
@@ -487,7 +490,8 @@ export const h3Swap = defineRecipe<H3Swap>({
     ...upscaleNeeds(input),
     ...rifeNeeds(input.smooth),
     // Face refine's files with it on: a pod was never sent them, and a Finish › Face refine there decoded the take as it was
-    ...faceRefineNeeds(input),
+    // (the swap's model, the clip's own Face refine runs on, is a need of every swap)
+    ...faceRefineNeeds(input, { clip: { follows: true } }),
     ...(input.fast && !modelOf({ ...input, model: input.swapModel ?? slots.swapUnet, turboIn: "From the name" }, slots).turbo && !slots.refTurbo && !slots.turbo ? ["refTurbo"] : []),
   ],
   // Show the mask runs the tracking and the masks alone (MASK_NODES, the preview node and the video out are optional)
@@ -587,6 +591,12 @@ export const h3Swap = defineRecipe<H3Swap>({
         name: "Face refine of the person swapped in (a Finish of it loads its own latent)",
         input: { who: "the man in the grey t-shirt", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], faceRefine: true },
         slots: { ...all, ...FACE_REFINE_SLOTS }, uploads: { source: "v.mp4", "references.0": "r1.png", "self.latent": "own.safetensors" }, media: { source: part },
+      },
+      {
+        // as the form starts (card #159): the face pass on the swap's own model, one loader
+        name: "Face refine on the swap's own model",
+        input: { who: "the man in the grey t-shirt", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], faceRefine: true, faceRefineModel: OWN_MODEL },
+        slots: { ...all, ...FACE_REFINE_SLOTS }, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: part },
       },
       {
         name: "a window of a long source, masked, carrying on from the window before",

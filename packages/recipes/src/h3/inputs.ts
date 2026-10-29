@@ -62,12 +62,15 @@ export interface H3Video extends ColourMatch {
   upscaleBy: number;
   upscaleModel: string;
   upscaleColour?: string;
+  seedvrModel?: string;
   upscaleNoise: number;
   upscaleSteps: number;
   upscaleTile: number;
   upscaleOverlap: number;
   upscaleChunk: number;
   upscaleWith: string;
+  /** H3's latent upscaler file; left out, the family's (Settings › Models). */
+  upscaleLatentModel?: string;
   cacheThreshold: number;
   cacheStart: number;
   cacheEnd: number;
@@ -77,6 +80,8 @@ export interface H3Video extends ColourMatch {
   faceRefine: boolean;
   faceRefineDenoise: number;
   faceRefineSteps: number;
+  /** The model the faces are redrawn with: a file, OWN_MODEL (the clip's), or left out (the fused turbo's slot). */
+  faceRefineModel?: string;
   /** A finish of a kept take that only refines its faces (Finish › Face refine): its own latent, nothing sampled. */
   faceRefineOnly: boolean;
   loras: LoraValue[];
@@ -195,6 +200,12 @@ export const h3Inputs: InputSpec[] = [
   {
     id: "upscaleWith", type: "choice", label: "Latent upscaler", options: ["H3's latent upscaler", "Plain resize"], renamed: { Auto: "H3's latent upscaler" }, default: "H3's latent upscaler", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
     note: "H3's own 3D upscaler model; while its file is not in ComfyUI, a plain resize is used instead: a bicubic resize of the latent, which is soft unless the re-sampling has steps and denoise to work with. The file is one click in Settings → Models, under MiniMax H3",
+  },
+  {
+    // the enlarging alone is a choice (the owner, 2026-10-29, card #159): the re-sampling stays on the clip's own model, its
+    // look and its joins
+    id: "upscaleLatentModel", type: "model", label: "Latent upscaler model", folder: "latent_upscale_models", slot: "latentUpscaler", match: ["minimax.?h3.?latent.?upscaler"], showWhen: { input: "upscaleWith", in: ["H3's latent upscaler"] }, advanced: true,
+    note: "the file that enlarges the latent, from models/latent_upscale_models; left as it is, the one of Settings › Models. The re-sampling after it runs on the clip's own model",
   },
   { id: "upscaleTile", type: "number", label: "Upscale tile size", min: 256, max: 1024, step: 32, default: 512, unit: " px", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "the frame is re-sampled one tile at a time: smaller tiles need less memory" },
   { id: "upscaleOverlap", type: "number", label: "Upscale tile overlap", min: 32, max: 256, step: 32, default: 128, unit: " px", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true },
