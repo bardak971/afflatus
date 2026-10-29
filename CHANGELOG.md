@@ -37,6 +37,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **Claude Desktop's setup.** Settings › Access › Agents (MCP) no longer offers "For Claude Desktop" (its `mcp-remote` block), and the docs no longer describe it. Claude Code and any Streamable HTTP client are set up as before.
 
 ### Fixed
+- **An agent could send your work onto a rented pod with no cap counting it.** With Spend, an MCP token could pause one of your machines, resume a pod or the whole queue, change what a machine takes, remove one of your machines, or start a GPU hunt that rests your machines, while a pod was up: your waiting work, and everything you queued after, went to that pod, billed to you (or to the token that started it) and counted against no cap. These are now refused while a pod of yours or another token's would take the work; onto a pod the token started itself (its whole run counted against its cap) they work as before. The agent sends its own jobs to a pod with `run_on` or `use_only`, counted.
 - Settings › Models: a family row with Get the minimum beside it (Image tools) could show no name in a narrow card.
 - **MCP's `job`, `queue_status` and `overview` said the time left in seconds as `leftMs`**, so an agent read 130 s as 0.13 s.
 

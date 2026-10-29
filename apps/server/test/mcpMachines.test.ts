@@ -342,12 +342,14 @@ describe("the machines", () => {
     const spend = await connect((await made("spend", { spendCapUsd: 5 })).token);
     await ok(spend, "deploy_pod", DEPLOY);
     const manage = await connect((await made("look", { scopes: ["look", "make", "manage"] })).token);
+    const all = await connect((await made("all", { spendCapUsd: 5 })).token);
     await refusedWith(manage, "edit_machine", { machine: "m1", takes: "image" }, /cannot spend on rented GPUs, and changing what .* takes while .* is up/);
     await refusedWith(manage, "edit_machine", { machine: "m1", families: { sdxl: false } }, /cannot spend on rented GPUs/);
     const other = await makeFake();
     try {
       await updateSettings(t.db, (x) => ({ machines: [...x.machines, { id: "m2", name: "zz-test second", url: other.url }] }));
       await refusedWith(manage, "remove_machine", { machine: "m2" }, /cannot spend on rented GPUs, and removing .* while .* is up/);
+      await refusedWith(all, "remove_machine", { machine: "m2" }, /Removing .* while .* is up would send the user's work onto it, a pod another token started/);
       expect((await readSettings(t.db)).machines.some((m) => m.id === "m2")).toBe(true);
     } finally {
       await other.close();
@@ -355,7 +357,11 @@ describe("the machines", () => {
     // a name is no steering
     expect((await ok(manage, "edit_machine", { machine: "m1", name: "zz-test home" })).name).toBe("zz-test home");
     expect((await readSettings(t.db)).machines.find((m) => m.id === "m1")!.takes).toBe("all");
+    // with Spend too: the pod is another token's, which pays its run, not for the user's work this one would send it
+    await refusedWith(all, "edit_machine", { machine: "m1", families: { sdxl: false } }, /Changing what .* takes while .* is up would send the user's work onto it, a pod another token started: what is queued after cannot be counted/);
+    expect((await readSettings(t.db)).machines.find((m) => m.id === "m1")!.families).not.toHaveProperty("sdxl");
     await spend.close();
+    await all.close();
     await manage.close();
   });
 });

@@ -5,7 +5,7 @@ import { deployFiles } from "./deployModels";
 import { httpError } from "./errors";
 import { oneAtATime } from "./keyedLock";
 import { machineName, machineOf, seen } from "./mcpForms";
-import { committedSpend, mustSpendWhilePodUp, podsUp, workCommitted } from "./mcpRender";
+import { committedSpend, mustNotSteerOntoPods, podsTaking, podsUp, workCommitted } from "./mcpRender";
 import { quoted, tool, type ToolCtx } from "./mcpTool";
 import { refusal, type McpToken } from "./mcpTokens";
 import { dollars } from "./notifyWords";
@@ -89,7 +89,7 @@ const editMachine = tool({
   name: "edit_machine",
   scope: "manage",
   title: "Change a machine",
-  description: "Change a machine as its card in Settings › ComfyUI does: its name, what it takes, its families switched on or off on it alone; a pod's idle minutes, what it does then (stop: its disk billed on; terminate: deleted on RunPod), its watchdog and Make room. A pod's idle rule and watchdog need Spend, and are never set to 0 (never) from here; what it takes and its families need Spend too while a rented pod is up (work would move onto it). A machine's address, adding a machine, node packs installed without asking, open ports and its folder on this computer are the user's, in Afflatus itself.",
+  description: "Change a machine as its card in Settings › ComfyUI does: its name, what it takes, its families switched on or off on it alone; a pod's idle minutes, what it does then (stop: its disk billed on; terminate: deleted on RunPod), its watchdog and Make room. A pod's idle rule and watchdog need Spend, and are never set to 0 (never) from here; what it takes and its families, while a rented pod takes work, are refused unless that pod is one this token started (and then need Spend): work would move onto it with no cap counting it. A machine's address, adding a machine, node packs installed without asking, open ports and its folder on this computer are the user's, in Afflatus itself.",
   input: {
     machine: z.string().min(1).describe("A machine's id or name (list_machines)."),
     name: z.string().trim().max(40).optional(),
@@ -110,7 +110,7 @@ const editMachine = tool({
     const podRule = a.idleMinutes !== undefined || a.idleDo !== undefined || a.watchdogMinutes !== undefined;
     if (podRule) mustSpend(ctx, `a pod's idle time, idle action and watchdog decide how long ${machineName(m)} bills`);
     // what a machine takes, and its families, steer the queue's work: onto a pod that is up, that is spending
-    if (a.takes !== undefined || a.families !== undefined) mustSpendWhilePodUp(ctx, settings.machines, `changing what ${machineName(m)} takes`);
+    if (a.takes !== undefined || a.families !== undefined) mustNotSteerOntoPods(ctx, await podsTaking(s, settings.machines), `changing what ${machineName(m)} takes`);
     const families = a.families ? Object.fromEntries(Object.entries({ ...m.families, ...a.families }).filter((e): e is [string, boolean] => e[1] !== null)) : m.families;
     // a rented machine's own fields the page would send: the server keeps the rest of it (settings.ts written, fromPage)
     const rented = m.rented ? { idleMinutes: a.idleMinutes ?? m.rented.idleMinutes, idleDo: a.idleDo ?? m.rented.idleDo, watchdogMinutes: a.watchdogMinutes ?? m.rented.watchdogMinutes, openPorts: m.rented.openPorts, makeRoom: a.makeRoom ?? m.rented.makeRoom } : undefined;
@@ -127,12 +127,12 @@ const removeMachine = tool({
   name: "remove_machine",
   scope: "manage",
   title: "Remove a machine",
-  description: "Take a machine out of Afflatus, as its card's Remove does: nothing more is sent there. A pod still billed on RunPod is refused (stop_pod first); a pod stopped is left on RunPod as it is. The last machine is refused. Removing a machine of the user's own while a rented pod is up needs Spend (its work would go to the pod). A machine taken out is added again by the user, in Afflatus.",
+  description: "Take a machine out of Afflatus, as its card's Remove does: nothing more is sent there. A pod still billed on RunPod is refused (stop_pod first); a pod stopped is left on RunPod as it is. The last machine is refused. Removing a machine of the user's own while a rented pod takes work is refused unless that pod is one this token started (and then needs Spend): its work would go to the pod with no cap counting it. A machine taken out is added again by the user, in Afflatus.",
   input: { machine: z.string().min(1).describe("A machine's id or name (list_machines).") },
   async run({ machine }, ctx) {
     const at = await seen(ctx.s);
     const m = machineOf(at, machine);
-    if (!m.rented) mustSpendWhilePodUp(ctx, at.machines.map((x) => x.machine), `removing ${machineName(m)}`);
+    if (!m.rented) mustNotSteerOntoPods(ctx, await podsTaking(ctx.s, at.machines.map((x) => x.machine)), `removing ${machineName(m)}`);
     await ctx.s.rented.remove(m.id);
     ctx.said(`Removed ${quoted(machineName(m))}`);
     return { removed: m.id, ...(m.rented ? { said: "Its pod is left on RunPod as it is: terminate it there, or add it again in Afflatus." } : {}) };

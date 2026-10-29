@@ -5,7 +5,7 @@ import { askSchema, changeSchema, rankSchema, type HuntState } from "./hunt";
 import { oneAtATime } from "./keyedLock";
 import { machineName, machineOf, seen, spends } from "./mcpForms";
 import { mayStart } from "./mcpMachines";
-import { jobRow, madeOwn, mayMove, mayTouch, mayUnload, podsUp } from "./mcpRender";
+import { jobRow, madeOwn, mayMove, mayTouch, mayUnload, mustNotSteerOntoPods, podsTaking, podsUp } from "./mcpRender";
 import { quoted, tool, type ToolCtx } from "./mcpTool";
 import { refusal } from "./mcpTokens";
 import { dollars } from "./notifyWords";
@@ -242,7 +242,7 @@ const startHunt = tool({
   name: "start_hunt",
   scope: "spend",
   title: "Hunt a GPU",
-  description: "Start a GPU hunt, as Queue's Hunt a GPU does: RunPod's stock is asked every 30 s and the best-ranked usable GPU at or under the ceiling is deployed the moment one is free, once, while renders wait for it. hold rest pauses the user's own machines meanwhile (resumed when it ends); keep lets them render on. Deploy choices as deploy_pod (the last deploy's when left out; idle 3 min then terminate here). Refused when this token's cap or the app's caps have no room for a pod's first hour at the ceiling; once found, its deploy is asked of the caps again, and refused it ends the hunt. The pod's whole run then counts against this token's cap, and it stops once that is reached. It gives up at its time, at a cap, or after three refused deploys.",
+  description: "Start a GPU hunt, as Queue's Hunt a GPU does: RunPod's stock is asked every 30 s and the best-ranked usable GPU at or under the ceiling is deployed the moment one is free, once, while renders wait for it. hold rest pauses the user's own machines meanwhile (resumed when it ends), refused while a pod this token did not start takes work (the user's work would go to it, counted by nobody); keep lets them render on. Deploy choices as deploy_pod (the last deploy's when left out; idle 3 min then terminate here). Refused when this token's cap or the app's caps have no room for a pod's first hour at the ceiling; once found, its deploy is asked of the caps again, and refused it ends the hunt. The pod's whole run then counts against this token's cap, and it stops once that is reached. It gives up at its time, at a cap, or after three refused deploys.",
   input: {
     ceiling: ceilingArg,
     mode: modeArg.optional(),
@@ -273,6 +273,8 @@ const startHunt = tool({
     const asked = askSchema.parse({ mode: a.mode, ceiling: a.ceiling, leftOut: a.leftOut, giveUpMinutes: a.giveUpMinutes, hold: a.hold, deploy });
     const hour = hourOf(a.ceiling, deploy);
     return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
+      // hold rest pauses the user's own machines: their work would go to a pod up meanwhile, as pause_machine would send it
+      if (asked.hold === "rest") mustNotSteerOntoPods(ctx, await podsTaking(s, (await readSettings(s.db)).machines), "a hunt resting the user's machines (hold rest; keep lets them render on)");
       await mayStart(s, token, hour, `a hunt deploys a GPU of up to ${dollars(hour)} an hour`, `a pod found by the hunt, at its ceiling`);
       const view = await s.hunt.start(asked, token.id);
       ctx.said(`Started a GPU hunt (${asked.mode}, at most ${dollars(asked.ceiling)}/h, ${asked.hold === "rest" ? "the user's machines resting" : "the user's machines rendering on"})`);
@@ -296,6 +298,7 @@ const changeHunt = tool({
     const asked = changeSchema.parse(a);
     return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
       const st = await ownHunt(s, ctx, "change", false);
+      if (asked.hold === "rest" && st.hold !== "rest") mustNotSteerOntoPods(ctx, await podsTaking(s, (await readSettings(s.db)).machines), "a hunt resting the user's machines (hold rest; keep lets them render on)");
       if (asked.ceiling !== undefined && asked.ceiling > st.ceiling) {
         const hour = hourOf(asked.ceiling, st.deploy);
         await mayStart(s, token, hour, `a hunt deploys a GPU of up to ${dollars(hour)} an hour`, "a pod found by the hunt, at its new ceiling");
