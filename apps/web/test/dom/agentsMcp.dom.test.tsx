@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { AgentsBlock } from "../../src/screens/settings/AgentsBlock";
-import { claudeCodeCommand, mcpUrl, NO_TOKEN } from "../../src/screens/settings/mcpSnippets";
+import { CLAUDE_TASKS_SETTING, claudeCodeCommand, mcpUrl, NO_TOKEN } from "../../src/screens/settings/mcpSnippets";
 import { whereOf } from "../../src/whereReport";
 import { fakeApi, jsonAnswer } from "./fakeApi";
 import { draw } from "./render";
@@ -76,7 +76,7 @@ describe("Agents (MCP)", () => {
   it("draws one line per token: its state, scopes as pills, both meters (a scope off greyed, not hidden), its last use", async () => {
     fakeApi.on("GET /mcp/tokens", { tokens: [token(), token({ id: "b".repeat(32), name: "laptop", scopes: ["look"], state: "idle", expiresAt: iso(-21 * 86_400_000 + 3_600_000), lastUsedAt: iso(26 * 3_600_000), lastIp: "192.168.1.20", working: 0, rendersThisHour: 0, spentThisMonth: 0 })] });
     draw(<AgentsBlock />);
-    const row = (await screen.findByRole("button", { name: /^Cursor: open/ })).parentElement!;
+    const row = (await screen.findByRole("button", { name: /^Cursor: open/ })).parentElement!.parentElement!;
     expect(within(row).getByText("connected · 2 jobs in the queue")).toBeTruthy();
     expect(within(row).getByRole("button", { name: "Look" }).hasAttribute("disabled")).toBe(true);
     expect(within(row).getByRole("button", { name: "Make" }).getAttribute("aria-pressed")).toBe("true");
@@ -84,7 +84,7 @@ describe("Agents (MCP)", () => {
     expect(within(row).getByText("12 / 30")).toBeTruthy();
     expect(within(row).getByRole("meter", { name: "spent this month" })).toBeTruthy();
     expect(within(row).getByText("spent this month").parentElement!.getAttribute("data-tip")).toMatch(/its scope is not ticked/);
-    const laptop = screen.getByRole("button", { name: /^laptop: open/ }).parentElement!;
+    const laptop = screen.getByRole("button", { name: /^laptop: open/ }).parentElement!.parentElement!;
     expect(within(laptop).getByText("ends in 21 days")).toBeTruthy();
     expect(within(laptop).getByText("192.168.1.20")).toBeTruthy();
   });
@@ -136,6 +136,29 @@ describe("Agents (MCP)", () => {
     expect(fakeApi.calls("POST", `/mcp/tokens/${"a".repeat(32)}/revoke`)).toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "Revoke" }));
     await waitFor(() => expect(fakeApi.calls("POST", `/mcp/tokens/${"a".repeat(32)}/revoke`)).toHaveLength(1));
+  });
+
+  it("says each token's client and whether it follows MCP Tasks; a Claude Code without them links to the setting, which copies", async () => {
+    fakeApi.on("GET /mcp/tokens", { tokens: [
+      token({ name: "Sillage", lastClient: "Claude Code 2.1.312", lastTasks: true }),
+      token({ id: "b".repeat(32), name: "script", lastClient: "Claude Code 2.1.312", lastTasks: false }),
+      token({ id: "c".repeat(32), name: "editor", lastClient: "Cursor 1.2", lastTasks: false }),
+      token({ id: "d".repeat(32), name: "fresh", lastClient: "Claude Code 2.1.312", lastTasks: null }),
+    ] });
+    draw(<AgentsBlock />);
+    expect(await screen.findByText("Claude Code 2.1.312 · follows Tasks")).toBeTruthy();
+    // the warning goes across the row; for Claude Code it points at the setting's line, which lights up
+    const links = screen.getAllByRole("link", { name: /^Tasks off: long renders hold the session/ });
+    expect(links).toHaveLength(1);
+    expect(links[0]!.getAttribute("href")).toBe("#mcp-tasks-setting");
+    expect(screen.getAllByText(/^Tasks off: long renders hold the session/)).toHaveLength(2);
+    links[0]!.click();
+    await waitFor(() => expect(document.getElementById("mcp-tasks-setting")!.className).toContain("bg-attention-wash"));
+    // no tools/call yet: nothing said of Tasks
+    const fresh = screen.getByRole("button", { name: /^fresh: open/ }).parentElement!.parentElement!.parentElement!;
+    expect(within(fresh).queryByText(/Tasks/)).toBeNull();
+    expect(screen.getByText(CLAUDE_TASKS_SETTING)).toBeTruthy();
+    expect(CLAUDE_TASKS_SETTING).toBe('"env": { "CLAUDE_AUTO_BACKGROUND_TASKS": "1" }');
   });
 
   it("copies the address and Claude Code's command", () => {

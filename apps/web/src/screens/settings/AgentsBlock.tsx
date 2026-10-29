@@ -5,11 +5,12 @@ import { api, ApiError, type McpScope, type McpStart, type McpToken } from "../.
 import { ContextMenu, useMenu } from "../../ContextMenu";
 import { saveFromServer } from "../../download";
 import { dayMonth, hourMinute, plural, shortDate, usd, when } from "../../format";
-import { useCopied } from "../../hooks";
+import { useCopied, useFlash } from "../../hooks";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
 import { Button, cx, fieldClass, Help, NumberBox, Segmented, TwoStep } from "../../ui";
-import { claudeCodeCommand, mcpUrl } from "./mcpSnippets";
+import { motionAllowed } from "../../useFlip";
+import { CLAUDE_TASKS_SETTING, claudeCodeCommand, mcpUrl } from "./mcpSnippets";
 import { PasswordAsk } from "./PasswordAsk";
 
 /**
@@ -17,7 +18,8 @@ import { PasswordAsk } from "./PasswordAsk";
  * token made on one line and shown once in its row, then one line per token (its dot, name and state, its scopes as pills
  * clicked in place, two thin meters, its last use) that opens in place on its limits, end and name, its activity, and
  * Revoke. A change of scopes, limits or end, a new token and a revoke ask for the password past a sign-in of 10 minutes
- * (mcp-api.ts), as the Access settings do.
+ * (mcp-api.ts), as the Access settings do. Under the address, the line of Claude Code's settings that sends its long calls to
+ * the background (MCP Tasks); each row says its client, and whether that client follows them.
  */
 
 const HELP = "An MCP client (Claude Code, Cursor, any that speaks Streamable HTTP) drives Afflatus at /mcp with a token, as far as its scopes go: Look (read everything, see the takes), Make (forms, renders on your machines, timelines, library, Prompt kit), Spend (rented GPUs), Manage (settings, downloads, machines, caps). Never through MCP, whatever the scopes: the password, tokens, Lock, sign-outs, where codes go, Show in folder, Get ffmpeg, updates. A token works on /mcp only, never on the API nor as a sign-in. Click a scope to change it; a token's limits, activity and Revoke open under it.";
@@ -48,6 +50,10 @@ type Ask =
 
 const DAY = 86_400_000;
 
+const TASKS_HELP = "MCP Tasks: a long call (render, render_clips, finish, export, run_workflow, a slow cut_range, deploy_pod) is answered with a task Claude Code follows on its own, in the background: the session stays free, and is woken once with the result. Needed when Claude Code runs through the Agent SDK (Sillage, scripts): without it, it declares no Tasks, and a long render holds its session. Probably not needed in a terminal claude, where long calls go to the background by default; a one-shot claude -p \"…\" never gets Tasks. Tested with Claude Code 2.1.312 through the Agent SDK (a render followed to its end, one wake); not tested in a terminal claude. A client without Tasks follows its jobs with job's wait.";
+/** Where the row of a token whose client does not follow Tasks sends the user. */
+const TASKS_LINE = "mcp-tasks-setting";
+
 /** A token's state under its name: connected, its end, its last use. */
 function stateOf(t: McpToken, now = Date.now()): string {
   if (t.state === "revoked") return "revoked";
@@ -56,7 +62,52 @@ function stateOf(t: McpToken, now = Date.now()): string {
   if (t.state === "live") parts.push(t.working ? `connected · ${plural(t.working, "job")} in the queue` : "connected");
   else if (!t.lastUsedAt) parts.push(now - Date.parse(t.createdAt) < 60_000 ? "made just now · never used" : "never used");
   if (t.expiresAt) parts.push(`ends in ${plural(Math.max(1, Math.ceil((Date.parse(t.expiresAt) - now) / DAY)), "day")}`);
-  return parts.join(" · ") || (t.lastClient ?? "");
+  return parts.join(" · ");
+}
+
+/** A token's client, under its state: its name and version from the handshake, and "follows Tasks" when its last call did. */
+function ClientLine({ t }: { t: McpToken }) {
+  if (!t.lastClient || t.state === "revoked") return null;
+  return <span className="truncate text-meta text-ink-3">{t.lastClient}{t.lastTasks && " · follows Tasks"}</span>;
+}
+
+/**
+ * Under a token whose client's last call declared no MCP Tasks, across the row: what that costs, and for Claude Code a
+ * link to the setting that turns them on. Nothing before its first call, nor once it is revoked or ended.
+ */
+function TasksOff({ t, showSetting }: { t: McpToken; showSetting(): void }) {
+  if (t.lastTasks !== false || t.state === "revoked" || t.state === "ended") return null;
+  const said = "Tasks off: long renders hold the session";
+  return (
+    <div className="-mt-1.5 px-3 pb-2.5 pl-9 text-meta text-attention-ink">
+      {t.lastClient?.startsWith("Claude Code") ? (
+        <a
+          href={`#${TASKS_LINE}`}
+          onClick={(e) => {
+            e.preventDefault();
+            showSetting();
+          }}
+          className="underline decoration-attention/50 underline-offset-2 hover:decoration-attention"
+        >
+          {said}: the setting above turns them on
+        </a>
+      ) : said}
+    </div>
+  );
+}
+
+/** The line of Claude Code's settings that has it follow MCP Tasks, with its Copy; `lit` while a row's link points at it. */
+function TasksSetting({ lit }: { lit: boolean }) {
+  const { copied, copy } = useCopied();
+  return (
+    <div id={TASKS_LINE} className={cx("mx-gutter mb-2.5 flex flex-wrap items-center gap-2 rounded-control px-2 py-1.5 text-xs text-ink-3 motion-safe:transition-colors", lit && "bg-attention-wash")}>
+      <span>Claude Code, long calls in the background:</span>
+      <code className="font-mono text-ink">{CLAUDE_TASKS_SETTING}</code>
+      <span>in ~/.claude/settings.json</span>
+      <Help text={TASKS_HELP} title="Long calls in the background" />
+      <Button size="sm" onClick={() => copy(CLAUDE_TASKS_SETTING)}>{copied ? "Copied" : "Copy"}</Button>
+    </div>
+  );
 }
 
 /** A thin meter: what was used of a limit. `money`: amber. `off`: greyed (its scope is not ticked), never hidden. */
@@ -226,26 +277,29 @@ function Detail({ t, busy, ask }: { t: McpToken; busy: boolean; ask(a: Ask): voi
 }
 
 /** One token: one line, opened in place. */
-function TokenRow({ t, open, toggle, fresh, busy, ask }: { t: McpToken; open: boolean; toggle(): void; fresh: string | null; busy: boolean; ask(a: Ask): void }) {
+function TokenRow({ t, open, toggle, fresh, busy, ask, showSetting }: { t: McpToken; open: boolean; toggle(): void; fresh: string | null; busy: boolean; ask(a: Ask): void; showSetting(): void }) {
   const gone = t.state === "revoked" || t.state === "ended";
   return (
     <div className={cx("mx-gutter mb-2 rounded-control border", open ? "border-line-strong bg-hover/40" : "border-line", t.state === "revoked" && "opacity-60")}>
       {/* the whole line opens it to the mouse; to the keyboard and a screen reader, the name is the button (the pills are buttons of their own) */}
       <div onClick={toggle} className="grid cursor-pointer grid-cols-[10px_minmax(0,1fr)_auto] items-center gap-3.5 px-3 py-2.5 md:grid-cols-[10px_minmax(140px,1fr)_auto_196px_110px_14px]">
         <span className={cx("size-2 rounded-full", t.state === "live" ? "bg-good shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-good)_20%,transparent)]" : "bg-ink-3/60")} data-tip={t.state === "live" ? "Used in the last 5 minutes" : undefined} />
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-label={`${t.name}: ${open ? "close" : "open"} its limits and activity`}
-          onClick={(e) => {
-            e.stopPropagation();
-            toggle();
-          }}
-          className="flex min-w-0 flex-col rounded-md text-left"
-        >
-          <span className="truncate text-body font-semibold text-ink-strong">{t.name} <span className="font-mono text-micro font-normal text-ink-3">…{t.tail}</span></span>
-          <span className={cx("truncate text-meta", gone ? "text-warn-ink" : "text-ink-3")}>{stateOf(t)}</span>
-        </button>
+        <span className="flex min-w-0 flex-col">
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-label={`${t.name}: ${open ? "close" : "open"} its limits and activity`}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggle();
+            }}
+            className="flex min-w-0 flex-col rounded-md text-left"
+          >
+            <span className="truncate text-body font-semibold text-ink-strong">{t.name} <span className="font-mono text-micro font-normal text-ink-3">…{t.tail}</span></span>
+            {stateOf(t) && <span className={cx("truncate text-meta", gone ? "text-warn-ink" : "text-ink-3")}>{stateOf(t)}</span>}
+          </button>
+          <ClientLine t={t} />
+        </span>
         <Scopes t={t} busy={busy} onChange={(scopes) => ask({ kind: "change", id: t.id, patch: { scopes } })} />
         <span className="hidden flex-col gap-1.5 md:flex">
           <Meter label="renders this hour" value={t.rendersThisHour} max={t.rendersPerHour} said={`${t.rendersThisHour} / ${t.rendersPerHour}`} off={!t.scopes.includes("make")} />
@@ -256,6 +310,7 @@ function TokenRow({ t, open, toggle, fresh, busy, ask }: { t: McpToken; open: bo
         </span>
         <ChevronRight size={13} aria-hidden className={cx("hidden text-ink-3 motion-safe:transition-transform md:block", open && "rotate-90")} />
       </div>
+      <TasksOff t={t} showSetting={showSetting} />
       {fresh && <ShownOnce token={fresh} />}
       {open && <Detail t={t} busy={busy} ask={ask} />}
     </div>
@@ -276,6 +331,12 @@ export function AgentsBlock() {
   const copyMenu = useMenu<true>();
   const { copy } = useCopied();
   const snips = useSnippets(fresh?.token ?? null);
+  // a row's "Tasks off" link brings the setting's line into view, lit for a moment
+  const [settingLit, lightSetting] = useFlash(false, 2400);
+  const showSetting = () => {
+    document.getElementById(TASKS_LINE)?.scrollIntoView({ block: "center", behavior: motionAllowed() ? "smooth" : "auto" });
+    lightSetting(true);
+  };
   const run = useMutation({
     mutationFn: async ({ ask, password }: { ask: Ask; password?: string }) => {
       if (ask.kind === "make") {
@@ -330,6 +391,7 @@ export function AgentsBlock() {
           />
         )}
       </div>
+      <TasksSetting lit={settingLit} />
       <form onSubmit={make} className="mx-gutter mb-2.5 flex flex-wrap items-center gap-2 rounded-control border border-dashed border-line-strong p-2">
         <input aria-label="New token's name" placeholder="New token's name (Claude Code, laptop…), optional" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} className="min-w-[120px] grow bg-transparent px-1 text-body text-ink outline-none placeholder:text-ink-3" />
         <Segmented<McpStart> size="sm" label="Its scopes to start with" value={start} options={STARTS} onChange={setStart} />
@@ -338,7 +400,7 @@ export function AgentsBlock() {
       {asking && <PasswordAsk said={asking.said} busy={run.isPending} onConfirm={(password) => run.mutate({ ask: asking.ask, password })} onCancel={() => setAsking(null)} />}
       {all.length === revoked.length && !showRevoked && !tokens.isLoading && <span className="mx-gutter mb-3.5 text-xs text-ink-3">No token yet: /mcp refuses every client until you make one.</span>}
       {list.map((t) => (
-        <TokenRow key={t.id} t={t} open={opened === t.id} toggle={() => setOpened(opened === t.id ? null : t.id)} fresh={fresh?.id === t.id ? fresh.token : null} busy={run.isPending} ask={ask} />
+        <TokenRow key={t.id} t={t} open={opened === t.id} toggle={() => setOpened(opened === t.id ? null : t.id)} fresh={fresh?.id === t.id ? fresh.token : null} busy={run.isPending} ask={ask} showSetting={showSetting} />
       ))}
       {revoked.length > 0 && (
         <button type="button" onClick={() => setShowRevoked(!showRevoked)} className="mx-gutter mb-2 self-start text-xs text-ink-3 underline decoration-line-strong underline-offset-2 hover:text-ink-2">

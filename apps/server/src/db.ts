@@ -439,11 +439,13 @@ export interface Tables {
   devices: { id: string; first_seen_at: string; name: string };
   /**
    * The personal tokens MCP clients use (mcpTokens.ts): `hash` the SHA-256 of the token, `scopes` comma-separated, the spend
-   * cap in cents; `expires_at` null: never; `revoked_at` set: refused, kept for its activity.
+   * cap in cents; `expires_at` null: never; `revoked_at` set: refused, kept for its activity; `last_tasks` 1 when its client
+   * declared MCP Tasks on its last tools/call, 0 when not, null before any.
    */
   mcp_tokens: {
     id: string; owner_id: string; hash: string; tail: string; name: string; scopes: string; renders_per_hour: number; spend_cap_cents: number;
     created_at: string; expires_at: string | null; revoked_at: string | null; last_used_at: string | null; last_ip: string | null; last_client: string | null;
+    last_tasks: number | null;
   };
   /** Each MCP call (mcp.ts): its token, its tool, what it touched in plain words, done (0), refused (1) or failed (2, the server's own failure) and why. Kept 30 days. */
   mcp_activity: { id: string; token_id: string; at: string; tool: string; said: string; refused: number; why: string | null };

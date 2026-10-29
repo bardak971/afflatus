@@ -4,7 +4,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { clientOf, serverFor } from "../src/mcp";
+import { clientOf, serverFor, tasksOf } from "../src/mcp";
 import { isNever, quoted, tool, type Tool } from "../src/mcpTool";
 import { McpTokens, type McpToken } from "../src/mcpTokens";
 import { TOOLS } from "../src/mcpTools";
@@ -137,15 +137,27 @@ describe("/mcp's way in", () => {
     expect(get.headers.allow).toBe("POST");
   });
 
-  it("writes the last use: when, from where, and the client's name from its initialize", async () => {
+  it("writes the last use: when, from where, and the client's name and version from its initialize", async () => {
     const { token, id } = await made("look");
     await rpc({ token, from: LAN });
     const row = await t.db.selectFrom("mcp_tokens").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
     expect(row.last_ip).toBe(LAN);
-    expect(row.last_client).toBe("claude-code");
+    expect(row.last_client).toBe("claude-code 2.0.0");
+    // no tools/call yet: whether it follows MCP Tasks is not known
+    expect(row.last_tasks).toBeNull();
     expect(row.last_used_at).not.toBeNull();
     expect(clientOf([{ jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "cursor", title: "Cursor" } } }])).toBe("Cursor");
     expect(clientOf({ jsonrpc: "2.0", id: 2, method: "tools/list" })).toBeUndefined();
+    expect(clientOf({ jsonrpc: "2.0", id: 3, method: "tools/list", params: { _meta: { "io.modelcontextprotocol/clientInfo": { name: "claude-code", title: "Claude Code", version: "2.1.312" } } } })).toBe("Claude Code 2.1.312");
+  });
+
+  it("reads whether the client follows MCP Tasks from a tools/call's own capabilities only", () => {
+    const call = (caps?: unknown) => ({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "render", arguments: {}, ...(caps ? { _meta: { "io.modelcontextprotocol/clientCapabilities": caps } } : {}) } });
+    expect(tasksOf(call({ extensions: { "io.modelcontextprotocol/tasks": {} } }))).toBe(true);
+    expect(tasksOf(call({ roots: { listChanged: true }, elicitation: {} }))).toBe(false);
+    // a 2025-era call carries no capabilities: no Tasks
+    expect(tasksOf(call())).toBe(false);
+    expect(tasksOf({ jsonrpc: "2.0", id: 2, method: "tools/list", params: { _meta: { "io.modelcontextprotocol/clientCapabilities": { extensions: { "io.modelcontextprotocol/tasks": {} } } } } })).toBeUndefined();
   });
 });
 

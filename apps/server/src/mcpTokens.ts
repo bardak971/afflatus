@@ -62,6 +62,8 @@ export interface McpToken {
   lastUsedAt: string | null;
   lastIp: string | null;
   lastClient: string | null;
+  /** Whether its client follows MCP Tasks, from its last tools/call (null: no call yet). */
+  lastTasks: boolean | null;
 }
 
 /** A token as Settings › Access lists it: with its state and its two meters. */
@@ -95,6 +97,7 @@ export const refusal = (message: string): Error => httpError(message, 403);
 const viewOf = (r: Row): McpToken => ({
   id: r.id, name: r.name, scopes: scopesOf(r.scopes), rendersPerHour: r.renders_per_hour, spendCapCents: r.spend_cap_cents, tail: r.tail,
   createdAt: r.created_at, expiresAt: r.expires_at, revokedAt: r.revoked_at, lastUsedAt: r.last_used_at, lastIp: r.last_ip, lastClient: r.last_client,
+  lastTasks: r.last_tasks === null ? null : Boolean(r.last_tasks),
 });
 
 /**
@@ -133,7 +136,7 @@ export class McpTokens {
     await this.db.insertInto("mcp_tokens").values({
       id, owner_id: OWNER, hash: sha256(token), tail: token.slice(-4), name, scopes: scopesOf(o.scopes).join(","),
       renders_per_hour: o.rendersPerHour ?? DEFAULT_RENDERS_PER_HOUR, spend_cap_cents: o.spendCapCents ?? DEFAULT_SPEND_CAP_CENTS,
-      created_at: this.iso(), expires_at: this.endOf(o.endsDays ?? null), revoked_at: null, last_used_at: null, last_ip: null, last_client: null,
+      created_at: this.iso(), expires_at: this.endOf(o.endsDays ?? null), revoked_at: null, last_used_at: null, last_ip: null, last_client: null, last_tasks: null,
     }).execute();
     return { token, view: (await this.view(id))! };
   }
@@ -202,12 +205,19 @@ export class McpTokens {
     return viewOf(row);
   }
 
-  /** A call made with it: its last use, at most once a minute unless the address or the client is new. */
-  async touch(t: McpToken, ip: string, client?: string): Promise<void> {
+  /**
+   * A call made with it: its last use, at most once a minute unless the address, the client or whether it follows MCP
+   * Tasks (`tasks`, from a tools/call) is new.
+   */
+  async touch(t: McpToken, ip: string, client?: string, tasks?: boolean): Promise<void> {
     const name = client === undefined ? undefined : cleanName(client) || null;
-    const same = t.lastIp === ip && (name === undefined || name === t.lastClient);
+    const same = t.lastIp === ip && (name === undefined || name === t.lastClient) && (tasks === undefined || tasks === t.lastTasks);
     if (same && t.lastUsedAt && this.now() - Date.parse(t.lastUsedAt) < TOUCH_MS) return;
-    await this.db.updateTable("mcp_tokens").set({ last_used_at: this.iso(), last_ip: ip, ...(name !== undefined ? { last_client: name } : {}) }).where("id", "=", t.id).execute();
+    await this.db.updateTable("mcp_tokens").set({
+      last_used_at: this.iso(), last_ip: ip,
+      ...(name !== undefined ? { last_client: name } : {}),
+      ...(tasks !== undefined ? { last_tasks: tasks ? 1 : 0 } : {}),
+    }).where("id", "=", t.id).execute();
   }
 
   // ---------------------------------------------------------------- the activity
