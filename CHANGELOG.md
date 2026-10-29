@@ -4,6 +4,10 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+- **The queue's controls through MCP.** An agent can now put waiting jobs in order (`order_queue`), move one to a machine or back to any (`run_on`), use only one machine (`use_only`), cancel everything waiting (`cancel_waiting`: its own jobs and yours, never another token's) and unload the models (`unload_models`). Moving work onto a rented pod needs Spend and room in the token's spend cap with the moved jobs counted, and a job of yours moved onto a pod becomes the token's: its Queue row names the token and its time there counts against that token's cap. Unloading a pod's models needs Spend too, since its next render loads them again on the clock.
+- **Hunt a GPU through MCP.** `hunt` reads the hunt and ranks the GPUs for the renders waiting; `start_hunt`, `change_hunt` and `cancel_hunt` need Spend. A hunt a token starts must fit its spend cap and the app's caps for a pod at its ceiling, and is checked again when a GPU comes free: a token that spent meanwhile, lost Spend or was revoked deploys nothing, and the hunt ends saying why. The pod it deploys is the token's, counted whole and stopped at its cap. A token changes only a hunt it started, and cancels its own or yours; changing a token's hunt in Afflatus makes it yours.
+
 ## [0.8.1] - 2026-10-28
 
 The first hour made plainer (a ComfyUI too old said with what to do, each family's minimum with its size, Create open on a first landing, a timeline clip waiting for its files), H3's latent finish with its real noise level, SeedVR2 7B restoring 49 frames together, and rented pods: model lists that say where each file is, a stopped pod's Start, Deploy on its volume when RunPod refuses it, and cap refusals that say their sum.
