@@ -211,7 +211,7 @@ export async function mayStart(s: Services, token: McpToken, hour: number, what:
     }
   }
   const work = await committedSpend(s, machines, ctx.token.id);
-  await s.mcp.tokens.maySpend(token, hour + mine + work.usd, { committed: [workCommitted(work), ...minePods], adds: { what: `the first hour of ${pod}`, usd: hour } });
+  await s.mcp.tokens.maySpend(token, hour + mine + work.usd, { committed: [...workCommitted(work), ...minePods], adds: { what: `the first hour of ${pod}`, usd: hour } });
   const why = await s.rented.noRoomFor(hour + all);
   if (why) throw refusal(`The rented GPUs' spending cap has no room for this pod's first hour (${dollars(hour)}${all ? `, with the next hour of the pods up: ${dollars(all)}` : ""}): ${why}.${allPods.length ? ` Up: ${allPods.join(", ")} an hour.` : ""} The user raises it in Settings › Rented GPUs.`);
 }

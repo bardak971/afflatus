@@ -4,6 +4,7 @@ import { fileKey, firstFree, forCuda, plural, rankGpus, type CudaPick, type Hunt
 import { deployOverhead, type DeployOverhead } from "./costs";
 import { deployFiles, deployModels, waitingFiles } from "./deployModels";
 import { httpError } from "./errors";
+import { oneAtATime } from "./keyedLock";
 import { gpuPaces, rentedLoadMs } from "./forecast";
 import { dollars, took, type Say } from "./notifyWords";
 import { readJson, type JobRow } from "./queueModel";
@@ -149,6 +150,8 @@ export class Hunt {
   private readonly aside = new Map<string, number>();
   /** Whether this hunt's deploy call is under way: "deploying" without it is a deploy that never began or never said how it ended. */
   private deployCall = false;
+  /** The pod an MCP token's hunt is deploying, its first hour (deployingFor): set with deployCall, for that call only. */
+  private deployHour: { token: string; gpu: string; usd: number } | null = null;
   everyMs = EVERY_MS;
   /** How recent a read of RunPod's GPUs is taken again (0 in the tests, which change the stock between rounds). */
   freshMs = FRESH_MS;
@@ -362,6 +365,15 @@ export class Hunt {
     return this.state?.status === "deploying" && this.deployCall;
   }
 
+  /**
+   * The pod this MCP token's hunt is deploying now, and its first hour (USD): billed from its first second and not a machine
+   * yet, it is counted among the token's work (mcpRender.ts committedSpend, capHeld) until it is up. Null otherwise.
+   */
+  deployingFor(token: string): { gpu: string; usd: number } | null {
+    const d = this.deployHour;
+    return d && d.token === token && this.deploying() ? { gpu: d.gpu, usd: d.usd } : null;
+  }
+
   // ---------------------------------------------------------------- start, change, cancel
 
   /** `mcpToken`: the MCP token whose start_hunt asked for it (its pod is then that token's run). */
@@ -554,16 +566,26 @@ export class Hunt {
     if (this.s.rented.busy || (await readSettings(this.s.db)).machines.some((m) => this.s.rented.firstStarting(m))) return this.save();
     if (this.state !== st) return;
     // an MCP token's hunt asks its cap first, with the pod's price as deploy_pod counts it (its GPU and its container disk,
-    // kept small with a volume: rentedDeploy.ts): refused, it ends, as at the app's caps (each deploy would be refused alike)
-    if (st.mcpToken) {
-      const hour = runningRate(pick.price, st.deploy.volume ? Math.min(st.deploy.disk, 40) : st.deploy.disk, 0);
-      const refused = await (this.mayDeploy?.(st.mcpToken, hour, pick.name) ?? Promise.reject(new Error("no check of the MCP token's cap is set"))).then(() => null, (err: Error) => err);
-      if (this.state !== st) return;
-      if (refused) return this.end(`${pick.name} came free, and its deploy was refused for the MCP token that started the hunt: ${refused.message.replace(/\.$/, "")}`);
-    }
-    st.status = "deploying";
-    st.deployingSince = new Date(this.now()).toISOString();
-    this.deployCall = true;
+    // kept small with a volume: rentedDeploy.ts): refused, it ends, as at the app's caps (each deploy would be refused alike).
+    // The check and the switch to deploying in that token's turn (`mcp-render:<token>`, mcpRender.ts), its renders' and
+    // moves': one it sends meanwhile is checked after, with this pod's first hour among its work (deployingFor), never
+    // passed beside it without it. A money path.
+    const claim = async (): Promise<Error | "gone" | null> => {
+      if (st.mcpToken) {
+        const hour = runningRate(pick.price, st.deploy.volume ? Math.min(st.deploy.disk, 40) : st.deploy.disk, 0);
+        const refused = await (this.mayDeploy?.(st.mcpToken, hour, pick.name) ?? Promise.reject(new Error("no check of the MCP token's cap is set"))).then(() => null, (err: Error) => err);
+        if (this.state !== st) return "gone";
+        if (refused) return refused;
+        this.deployHour = { token: st.mcpToken, gpu: pick.name, usd: hour };
+      } else if (this.state !== st) return "gone";
+      st.status = "deploying";
+      st.deployingSince = new Date(this.now()).toISOString();
+      this.deployCall = true;
+      return null;
+    };
+    const refused = st.mcpToken ? await oneAtATime(this.s.db, `mcp-render:${st.mcpToken}`, claim) : await claim();
+    if (refused === "gone") return;
+    if (refused) return this.end(`${pick.name} came free, and its deploy was refused for the MCP token that started the hunt: ${refused.message.replace(/\.$/, "")}`);
     let made: { id: string; dataCenter: string | null };
     try {
       // the reads and the write before the deploy inside the try: one failing goes back to hunting, never "deploying" for good
@@ -576,11 +598,13 @@ export class Hunt {
       }, { mcpToken: st.mcpToken });
     } catch (err) {
       this.deployCall = false;
+      this.deployHour = null;
       st.deployingSince = null;
       if (refusalOf(err as Error) === "noGpu") this.aside.set(asideKey(st, pick.id), this.now() + ASIDE_MS);
       return this.refused(st, err as Error);
     }
     this.deployCall = false;
+    this.deployHour = null;
     this.aside.delete(asideKey(st, pick.id));
     Object.assign(st, { status: "up", deployingSince: null, machine: made.id, fails: 0, lastError: null, found: { gpu: pick.id, name: pick.name, price: pick.price, dataCenter: made.dataCenter, at: new Date(this.now()).toISOString() } });
     await this.save();
