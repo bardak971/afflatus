@@ -14,7 +14,7 @@ import { Button, Checkbox, Chip, CloseButton, cx, ErrorNote, Help, SearchField, 
 import { ModelFileDetail, Picture } from "./ModelFileDetail";
 import { DeleteDialog } from "./ModelFilesDelete";
 import { AddingStrip, useDropFiles } from "./ModelFilesDrop";
-import { BANDS, figures, idleDays, KIND_PLURAL, KINDS, lastSaid, nameOf, NO_FILTER, shown, type Filters, type SortKey } from "./modelFilesView";
+import { BANDS, figures, idleFiles, KIND_PLURAL, KINDS, lastSaid, nameOf, NO_FILTER, shown, type Filters, type SortKey } from "./modelFilesView";
 
 /** The list of a machine, read again on the server's "models" event (a file hashed, matched, added or moved). */
 export const useModelFiles = (machine?: string) => useQuery({ queryKey: queryKeys.modelInfo.files(machine), queryFn: ({ signal }) => api.modelFiles(machine, { signal }), staleTime: 30_000 });
@@ -117,8 +117,8 @@ export function ModelFilesTab() {
         {!ro && (
           <div className="grid grid-cols-4 gap-4 border-b border-line px-[18px] py-4 @max-[1000px]:grid-cols-2">
             <Figure big={size(figs.total.bytes)} said={`in ${plural(figs.total.files, "file")}${familyName ? ` of ${familyName}` : ""}`} />
-            <Figure big={size(figs.idle.bytes)} tone="attention" said={<>not used by Afflatus for 90 days · {plural(figs.idle.files.length, "file")} <Help text={`Files no Afflatus job has loaded for 90 days or more${l.since ? ` (counted from ${day(l.since)} at most: Afflatus keeps each job's files since then)` : ""}. Renders made straight in ComfyUI are not seen, so check before deleting one you use there.`} /></>}
-              acts={[{ label: "Select them", on: () => setSel(new Set(figs.idle.files.map((x) => x.id))), off: !figs.idle.files.length }, { label: "Show them", on: () => set({ idle: "90" }) }]} />
+            <Figure big={size(figs.idle.bytes)} tone="attention" said={<>{idleWords(figs.idle.never, l.since, day)} · {plural(figs.idle.files.length, "file")} <Help text={idleHelp(figs.idle.never, l.since, day)} /></>}
+              acts={[{ label: "Select them", on: () => setSel(new Set(figs.idle.files.map((x) => x.id))), off: !figs.idle.files.length }, { label: "Show them", on: () => set({ idle: figs.idle.filter }) }]} />
             <Figure big={size(figs.extra.bytes)} said={<>in {plural(figs.extra.files.length, "extra copy", "extra copies")} of the same file <Help text="The same sha256 in two places: the same file twice. Select the copies keeps the one Afflatus used most and selects the others." /></>}
               acts={[{ label: "Select the copies", on: () => setSel(new Set(figs.extra.files.map((x) => x.id))), off: !figs.extra.files.length }, { label: "Show them", on: () => set({ copies: true }) }]} />
             <Figure big={plural(figs.noMatch, "file")} said={<>with no match on Civitai or Hugging Face <Help text="Matched by sha256 on Civitai, by name and hash on Hugging Face. No match: trained or merged here, renamed and re-saved, or taken down." /></>}
@@ -142,16 +142,17 @@ export function ModelFilesTab() {
           {f.noMatch && <Chip size="sm" onRemove={() => set({ noMatch: false })} removeLabel="Every file again">No match</Chip>}
           <div className="w-64 @max-[1000px]:w-44"><SearchField size={32} value={f.q} onChange={(q) => set({ q })} label="Search the model files" placeholder="Search by name, file, base model" /></div>
           <div className="flex flex-wrap gap-1">
-            <Chip size="sm" onClick={() => set({ kind: "all" })} className={cx(f.kind === "all" && "border-accent text-ink")}>All <span className="font-mono text-ink-3">{figs.total.files}</span></Chip>
-            {KINDS.filter((k) => counts[k]).map((k) => <Chip key={k} size="sm" onClick={() => set({ kind: f.kind === k ? "all" : k })} className={cx(f.kind === k && "border-accent text-ink")}>{KIND_PLURAL[k] ?? k} <span className="font-mono text-ink-3">{counts[k]}</span></Chip>)}
+            <Chip size="sm" tone={f.kind === "all" ? "accent" : "neutral"} onClick={() => set({ kind: "all" })}>All <span className="font-mono text-ink-3">{figs.total.files}</span></Chip>
+            {KINDS.filter((k) => counts[k]).map((k) => <Chip key={k} size="sm" tone={f.kind === k ? "accent" : "neutral"} onClick={() => set({ kind: f.kind === k ? "all" : k })}>{KIND_PLURAL[k] ?? k} <span className="font-mono text-ink-3">{counts[k]}</span></Chip>)}
           </div>
           <span className="grow" />
           {!ro && (
             <span className="flex items-center gap-2 text-xs text-ink-3">Not used for
-              <Segmented size="sm" label="Not used by Afflatus for" value={f.idle === "idle" ? "90" : ["any", "30", "90"].includes(f.idle) ? f.idle : "any"} options={[{ value: "any", label: "any time" }, { value: "30", label: "30+ days" }, { value: "90", label: "90+ days" }]} onChange={(idle) => set({ idle: idle as Filters["idle"] })} />
+              <Help text={`Days since an Afflatus job last loaded the file (since it is here, or since ${l.since ? day(l.since) : "Afflatus began keeping each job's files"}, for one never used). Never used: no Afflatus job has loaded it since ${l.since ? day(l.since) : "then"}. Renders made straight in ComfyUI are not seen.`} />
+              <Segmented size="sm" label="Not used by Afflatus for" value={f.idle === "idle" ? "90" : ["any", "30", "90", "never"].includes(f.idle) ? f.idle : "any"} options={[{ value: "any", label: "any time" }, { value: "30", label: "30+ days" }, { value: "90", label: "90+ days" }, { value: "never", label: "never used" }]} onChange={(idle) => set({ idle: idle as Filters["idle"] })} />
             </span>
           )}
-          {!ro && <Chip size="sm" onClick={() => set({ copies: !f.copies })} className={cx(f.copies && "border-accent text-ink")} tip="The files kept twice or more (same sha256)">Copies</Chip>}
+          {!ro && <Chip size="sm" tone={f.copies ? "accent" : "neutral"} onClick={() => set({ copies: !f.copies })} tip="The files kept twice or more (same sha256)">Copies</Chip>}
         </div>
         <div className={cx("flex min-h-[44px] items-center gap-3 border-b border-line px-[18px] py-1.5", picked.length > 0 && "bg-accent-wash/40")}>
           <Checkbox checked={allOn ? true : live.some((x) => sel.has(x.id)) ? "some" : false} disabled={ro} label={`Select the ${plural(live.length, "file")} shown`} onChange={() => setSel(allOn ? new Set() : new Set(live.map((x) => x.id)))} />
@@ -256,14 +257,17 @@ function Figure({ big, said, acts = [], tone }: { big: string; said: ReactNode; 
 
 /** The space by last use in Afflatus: a band clicked shows only its files, again for all. */
 function SpaceBar({ bands, idle, onBand }: { bands: ReturnType<typeof figures>["bands"]; idle: Filters["idle"]; onBand(b: (typeof BANDS)[number]["id"]): void }) {
-  const dim = (id: string) => idle !== "any" && idle !== id && !(idle === "90" && id === "idle") && !(idle === "30" && (id === "quarter" || id === "idle"));
+  // "30+" and "90+" take in the never-used files here that long: their band stays lit with them
+  const lit: Record<string, string[]> = { 30: ["quarter", "idle", "never"], 90: ["idle", "never"] };
+  const dim = (id: string) => idle !== "any" && idle !== id && !lit[idle]?.includes(id);
   return (
     <div className="col-span-4 flex flex-col gap-2 @max-[1000px]:col-span-2">
       <div className="flex h-2.5 overflow-hidden rounded-full bg-line">
         {bands.map((b) => b.bytes > 0 && <button key={b.id} type="button" aria-label={b.label} data-tip-head={b.label} data-tip={`${size(b.bytes)} · ${plural(b.files, "file")} · click to show only these`} onClick={() => onBand(b.id)} className={cx(b.tone, dim(b.id) && "opacity-30")} style={{ flex: b.bytes }} />)}
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-        {bands.map((b) => (
+        {/* an empty band is left out (31–90 days cannot fill before the records are that old), unless it is the one shown */}
+        {bands.filter((b) => b.bytes > 0 || idle === b.id).map((b) => (
           <button key={b.id} type="button" onClick={() => onBand(b.id)} className={cx("flex items-center gap-1.5 text-ink-2 hover:text-ink", idle === b.id && "font-semibold text-ink")}>
             <i className={cx("size-2.5 rounded-sm", b.tone)} />{b.short} <span className="font-mono">{size(b.bytes)}</span>
           </button>
@@ -288,11 +292,21 @@ export function NeedChips({ f, most = 2 }: { f: ModelFile; most?: number }) {
   );
 }
 
-/** For other parts of Settings: the files not used by Afflatus for 90 days on this PC, and whether Afflatus has kept uses long enough to say so. */
-export function idleSummary(l: ModelLibrary | undefined, now = Date.now()): { bytes: number; files: number; old: boolean } | null {
-  if (!l || l.readOnly) return null;
-  const idle = l.files.filter((f) => !f.removed && idleDays(f, l.since, now) > 90);
-  return { bytes: idle.reduce((n, f) => n + (f.size ?? 0), 0), files: idle.length, old: Boolean(l.since && now - Date.parse(l.since) > 90 * 86_400_000) };
+/** The first figure's words: "never used by Afflatus · since 1 Oct" while the records are under 90 days old. */
+export const idleWords = (never: boolean, since: string | null, day: (iso: string) => string) =>
+  never ? `never used by Afflatus${since ? ` · since ${day(since)}` : ""}` : "not used by Afflatus for 90 days";
+
+const idleHelp = (never: boolean, since: string | null, day: (iso: string) => string) =>
+  (never
+    ? `Files no Afflatus job has loaded since ${since ? day(since) : "Afflatus began keeping each job's files"}, when Afflatus began keeping each job's files: "not used for 90 days" can be said once that is 90 days ago.`
+    : `Files no Afflatus job has loaded for 90 days or more, the ones never used by Afflatus here that long among them${since ? ` (Afflatus keeps each job's files since ${day(since)})` : ""}.`)
+  + " Renders made straight in ComfyUI are not seen, so check before deleting one you use there.";
+
+/** For other parts of Settings: the files of this PC the first figure of Model files counts (see idleFiles). */
+export function idleSummary(l: ModelLibrary | undefined, now = Date.now()): { bytes: number; files: number; never: boolean; since: string | null } | null {
+  if (!l || l.readOnly || !l.since) return null;
+  const idle = idleFiles(l.files.filter((f) => !f.removed), l.since, now);
+  return { bytes: idle.files.reduce((n, f) => n + (f.size ?? 0), 0), files: idle.files.length, never: idle.never, since: l.since };
 }
 
 
@@ -301,22 +315,23 @@ const LINE_CLOSED = "afflatus.modelFilesLine";
 const RISE = 100 * 2 ** 30;
 
 /**
- * Settings › Models' one line on an install that has kept its jobs' files long enough to say (90 days): the space no
- * Afflatus job has used for 90 days, and the way to Model files. Closed, it comes back only once that space grew by about
- * another 100 GB. A new install has no line.
+ * Settings › Models' one line, as Model files' first figure: the space never used by Afflatus since it began keeping
+ * each job's files (under 90 days ago), else the space no Afflatus job has used for 90 days; and the way to Model files.
+ * Closed, it comes back only once that space grew by about another 100 GB. An install that has kept no job's files has
+ * no line.
  */
 export function ModelFilesLine() {
   const lib = useModelFiles();
   const [closedAt, setClosedAt] = useState(() => Number(localStorage.getItem(LINE_CLOSED) ?? "NaN"));
   const idle = idleSummary(lib.data);
-  if (!idle?.old || !idle.files || (Number.isFinite(closedAt) && idle.bytes < closedAt + RISE)) return null;
+  if (!idle?.files || (Number.isFinite(closedAt) && idle.bytes < closedAt + RISE)) return null;
   const close = () => {
     localStorage.setItem(LINE_CLOSED, String(idle.bytes));
     setClosedAt(idle.bytes);
   };
   return (
     <div className="flex items-center gap-3 border-b border-line/60 px-[18px] py-2 text-body">
-      <span className="grow"><b className="font-semibold text-attention-ink">{size(idle.bytes)}</b> not used by Afflatus for 90 days · {plural(idle.files, "file")}</span>
+      <span className="grow"><b className="font-semibold text-attention-ink">{size(idle.bytes)}</b> {idleWords(idle.never, idle.since, (iso) => dayOf(iso))} · {plural(idle.files, "file")}</span>
       <Link href="/settings/model-files" className="shrink-0 text-accent hover:underline">Model files ›</Link>
       <CloseButton size={28} label="Close this line" onClose={close} />
     </div>
