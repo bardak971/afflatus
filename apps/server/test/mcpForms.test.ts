@@ -138,6 +138,9 @@ describe("the drafts", () => {
       expect(textOf(r)).toMatch(said);
     };
     await refused({ set: { nonsense: 1 } }, /has no input nonsense: its inputs are .*prompt/);
+    // every value refused is said at once, and none of the others is kept
+    await refused({ set: { prompt: "zz-test kept?", steps: -5, nonsense: 1, checkpoint: "zz-test-missing.safetensors" } }, /^3 values refused, nothing changed:\n- .*steps.*\n- .*has no input nonsense.*\n- .*no machine has zz-test-missing/s);
+    expect(json(await call(c, "read_draft", { draft: d.id })).values.prompt).toBeUndefined();
     await refused({ set: { steps: 100_000 } }, /steps/i);
     await refused({ set: { checkpoint: "zz-test-missing.safetensors" } }, /no machine has zz-test-missing/);
     await refused({ loras: [{ file: "zz-test-nowhere.safetensors", weight: 0.8 }] }, /no machine has the LoRA/);
@@ -174,9 +177,25 @@ describe("the drafts", () => {
     await c.close();
   });
 
+  it("deletes a draft nothing was made from, and refuses one something was made from", async () => {
+    const c = await connect((await made("make")).token);
+    const d = json(await call(c, "new_draft", { form: RECIPE, name: "zz-test a try", values: { prompt: "zz-test a try" } }));
+    expect(json(await call(c, "delete_draft", { draft: d.id }))).toEqual({ deleted: d.id, name: "zz-test a try" });
+    expect(textOf(await call(c, "read_draft", { draft: d.id }))).toMatch(/no such draft/);
+    const used = json(await call(c, "new_draft", { form: RECIPE, values: { prompt: "zz-test a door", checkpoint: CHECKPOINT } }));
+    const job = json(await call(c, "render", { draft: used.id })).jobs[0];
+    const r = await call(c, "delete_draft", { draft: used.id });
+    expect(r.isError).toBe(true);
+    expect(textOf(r)).toMatch(/Something was made from this draft/);
+    expect(json(await call(c, "read_draft", { draft: used.id })).id).toBe(used.id);
+    json(await call(c, "cancel", { job }));
+    await t.services.queue.idle();
+    await c.close();
+  });
+
   it("refuses a look token everything that changes a draft", async () => {
     const c = await connect((await made("look")).token);
-    for (const name of ["new_draft", "edit_draft", "apply_preset", "render", "cancel", "retry", "load_model", "pause_machine"]) {
+    for (const name of ["new_draft", "edit_draft", "apply_preset", "delete_draft", "render", "cancel", "retry", "load_model", "pause_machine"]) {
       const r = await call(c, name, { form: RECIPE, draft: "x", preset: "x", job: "x" });
       expect(r.isError, name).toBe(true);
       expect(textOf(r), name).toMatch(/needs Make/);

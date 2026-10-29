@@ -100,7 +100,7 @@ Written from the tool registry by `scripts/mcp-docs.ts`; a check fails when this
 
 <!-- tools:start (written by scripts/mcp-docs.ts from the registry: edit the tools, not this list) -->
 
-91 tools in all.
+92 tools in all.
 
 ### Where the user is
 
@@ -111,7 +111,7 @@ Written from the tool registry by `scripts/mcp-docs.ts`; a check fails when this
 
 - `list_forms` · Look. Every form the user can use in Studio › Create, by model family: its id (what the other tools take), its title, what it makes (image, video, audio) and whether its files are ready on a machine. Families switched off in Settings › Models are named apart.
 - `describe_form` · Look. One form in full, as Create shows it: each input (id, type, label, its "?" note, options, range, default, optional, advanced, chapter); its presets (the model's line presets by file name, and the Prompt kit's presets for it); the prompt guide Afflatus's designer writes this form's prompt by (the form's own, the recording guide, the family's, or the user's own from Settings); and the model files and LoRAs each machine has for it.
-- `estimate` · Look. What rendering a draft as it stands (or a form with values) would take, as Generate says it: the time from the user's own past renders on each machine this token may use, what it would cost on a rented pod, and the model set check (files that do not go together; a mix that gives black frames is refused at Render). Null times: nothing like it was rendered here yet.
+- `estimate` · Look. What rendering a draft as it stands (or a form with values) would take, as Generate says it: the time from the user's own past renders on each machine this token may use (each take with the model load, which the batch pays once: loadMs), what it would cost on a rented pod, and the model set check (files that do not go together; a mix that gives black frames is refused at Render). Null times: nothing like it was rendered here yet.
 
 ### Drafts
 
@@ -120,6 +120,7 @@ Written from the tool registry by `scripts/mcp-docs.ts`; a check fails when this
 - `new_draft` · Make. A new draft on a form, optionally with a Prompt kit preset applied and values set (validated as the form does). It is not opened on the user's screen: say its id, or let the user open it from Studio.
 - `edit_draft` · Make. Change a draft as the form would: any input by id (`set`, null to take it out so it follows the form's start again), LoRAs, reference pictures, media slots by library item id, the cast by Prompt kit names ("@Name" in a prompt casts that person at render too), the batch, the name, or another form. Each value is checked as the form checks it. Saved through the drafts' autosave path; a page with the draft open shows the change at once, the fields ringed with this token's name, with Undo.
 - `apply_preset` · Make. A Prompt kit preset (the user's own or a shipped one) laid over a draft, as Create's preset menu does it: its form when it names one, the values it sets (the rest of the form kept), and its cast when it has one. Shows in an open page with Undo, as edit_draft does.
+- `delete_draft` · Make. Delete a draft that nothing was made from (made: 0 in list_drafts, nothing queued): a try that led nowhere, or one made to test. It is gone for good (drafts have no bin): a draft something was made from is refused, the user deletes it in Studio.
 
 ### Render and the queue
 

@@ -1,5 +1,6 @@
 import { Crosshair, Eye } from "lucide-react";
-import { Slide } from "./parts";
+import type { WindowOn } from "@afflatus/core";
+import { ClipLength } from "./clipLength";
 import type { RecipeInfo, Timeline } from "../../api";
 import { clock as mmss, plural } from "../../format";
 import type { LeadPart } from "../../RecipeForm";
@@ -23,9 +24,12 @@ export type ClipSource = {
   picking: boolean;
   onPicking(on: boolean): void;
   onClearPick(): void;
-  /** The window lengths the model takes, and the change of one or of the scene cuts: the source cut again (its rendered clips kept). */
+  /** The window lengths the model takes, and the change of one or of its ±: the source cut again (its rendered clips kept). */
   windows: { leastMs: number; mostMs: number };
-  onCut(change: { windowMs?: number; snap?: boolean; inputs?: Record<string, unknown> }): void;
+  onCut(change: { windowMs?: number; withinMs?: number; inputs?: Record<string, unknown> }): void;
+  /** What its windows' ends landed on, said (null while the source's pauses are read), and each one's length in seconds. */
+  landed: string | null;
+  lengths: number[];
   cutting: boolean;
   /**
    * Show the mask (the owner's mock, 2026-10-18): asked for this clip's window, where it stands, and whether its video is
@@ -57,6 +61,9 @@ export type ClipSource = {
   onToAll(): void;
 };
 
+/** How a source is cut into windows, as its "?" says it (the recording's Clips "?" says its own). */
+export const SOURCE_CUT_HELP = "Each clip ends within ± that many seconds of Clip length, at the best spot there: a scene cut in the video (the next clip opens the new shot there: no frames carried over, no join to see), else a pause in the speech, else its quietest moment. A cut further away is carried through, as the video plays it. ± 0: every clip that length. Always within what one clip of the model takes (H3: 3.75 to 5.9 s opening a shot, 4.25 to 5.0 s carrying on), on its frame steps: a clip ending on a cut renders on to its next step, and its take stops on the cut.";
+
 /** The Source chapter of a clip made from the source: its stretch, its part of it, who is replaced. */
 export function sourceLead(s: ClipSource, clip: { inputs: Record<string, unknown> }, recipe: RecipeInfo): LeadPart {
   const driving = recipe.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window);
@@ -67,7 +74,7 @@ export function sourceLead(s: ClipSource, clip: { inputs: Record<string, unknown
   return {
     id: "source",
     title: "Source",
-    help: "The video this clip is a part of, shared by every clip the source made, and how it is cut into windows. Changed, the source is cut again after its rendered clips.",
+    help: `The video this clip is a part of, shared by every clip the source made, and how it is cut into windows. ${SOURCE_CUT_HELP} Changed, the source is cut again after its rendered clips.`,
     summary: `${s.source.video.name} · ${stretch}`,
     node: (
       <div className="flex flex-col gap-3">
@@ -120,8 +127,16 @@ export function sourceLead(s: ClipSource, clip: { inputs: Record<string, unknown
           <NumberBox label="Out (s of the source)" value={s.source.toMs / 1000} min={s.source.fromMs / 1000 + 1} max={(s.source.video.durationMs ?? s.source.toMs) / 1000} step={0.1} unit=" s" onCommit={(v) => s.onUses(s.source.fromMs, Math.round(v * 1000))} />
         </div>
         {s.trimming && <span className="text-xs text-ink-2">Trimming the source…</span>}
-        <Slide label="Window" value={Math.min(Math.max(s.source.windowMs, s.windows.leastMs), s.windows.mostMs)} min={s.windows.leastMs} max={s.windows.mostMs} step={100} show={(ms) => `${(ms / 1000).toFixed(1)} s`} onCommit={(windowMs) => s.onCut({ windowMs })} />
-        <Toggle on={s.source.snap} disabled={s.cutting} onChange={(snap) => s.onCut({ snap })} label="Cut at scene changes" note={s.source.snap ? "a window ends at a cut in the source; the next one opens a new shot" : "windows of the same length, end to end"} />
+        <ClipLength
+          seconds={s.source.windowMs / 1000}
+          within={s.source.withinMs / 1000}
+          leastMs={s.windows.leastMs}
+          mostMs={s.windows.mostMs}
+          pending={s.cutting}
+          onCut={(seconds, within) => s.onCut({ windowMs: Math.round(seconds * 1000), withinMs: Math.round(within * 1000) })}
+          landed={s.landed}
+          lengths={s.lengths}
+        />
         {s.runUp && (
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-semibold">Frames from the clip before</span>
@@ -254,3 +269,6 @@ export function ShareFoot({ s, recipe }: { s: ClipSource; recipe: RecipeInfo }) 
     </div>
   );
 }
+
+/** What each kind of window end is said as, in the order the cut looks for them. */
+export const SOURCE_LANDED: Array<[WindowOn, string]> = [["cut", "on a scene cut"], ["pause", "on a pause"], ["quiet", "on the quietest moment"], ["length", "at the length"]];

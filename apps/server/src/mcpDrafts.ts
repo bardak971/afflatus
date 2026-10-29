@@ -1,6 +1,6 @@
 import { matchFiles, ownValues, plural, schemaFor, type InputSpec, type Recipe } from "@afflatus/core";
 import { z } from "zod";
-import { createBody, createDraft, draftsList, draftView, findDraft, saveDraft, type DraftView, type saveBody } from "./drafts";
+import { createBody, createDraft, deleteDraft, draftsList, draftView, findDraft, saveDraft, type DraftView, type saveBody } from "./drafts";
 import { emptyLook, lookSchema, type Look } from "./entities";
 import { httpError } from "./errors";
 import { formOf, kitPresets, seen, shownInputs, statusOf, wholeOf, type Seen } from "./mcpForms";
@@ -139,6 +139,28 @@ export async function checkedValue(s: Services, at: Seen, recipe: Recipe<any>, i
   return kept;
 }
 
+/**
+ * Several values checked at once (checkedValue each; null: the input taken out, so only its id is checked): every one that
+ * is refused is said in one refusal, so that an agent mends them all in one go rather than one per call.
+ */
+export async function checkedValues(s: Services, at: Seen, recipe: Recipe<any>, values: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const kept: Record<string, unknown> = {};
+  const refused: string[] = [];
+  for (const [id, v] of Object.entries(values)) {
+    try {
+      if (v !== null) kept[id] = await checkedValue(s, at, recipe, id, v);
+      else if (!(recipe.inputs as InputSpec[]).some((i) => i.id === id)) throw httpError(`${recipe.title} has no input ${id}.`);
+      else kept[id] = null;
+    } catch (e) {
+      if ((e as { statusCode?: number }).statusCode === undefined) throw e;
+      refused.push((e as Error).message);
+    }
+  }
+  if (refused.length > 1) throw httpError(`${plural(refused.length, "value")} refused, nothing changed:\n- ${refused.join("\n- ")}`);
+  if (refused.length) throw httpError(refused[0]!);
+  return kept;
+}
+
 /** The cast asked by names ("@Nicolas", "Nicolas") or Prompt kit ids: the people of the kit, refused for a name that is no one's. */
 export async function castOf(s: Services, asked: string[]): Promise<Look["cast"]> {
   const people = await s.db.selectFrom("entities").select(["id", "name"]).where("kind", "=", "person").execute();
@@ -229,8 +251,7 @@ const newDraft = tool({
     const { s } = ctx;
     const recipe = formOf(s, args.form);
     const at = await seen(s);
-    const values: Record<string, unknown> = {};
-    for (const [id, v] of Object.entries(args.values ?? {})) values[id] = await checkedValue(s, at, recipe, id, v);
+    const values = await checkedValues(s, at, recipe, args.values ?? {});
     let d = await createDraft(s, createBody.parse({ recipe: recipe.id, forms: { [recipe.id]: values }, name: args.name, project: args.project }));
     if (args.preset) d = (await presetOnto(s, ctx, at, d.id, args.preset)).draft;
     s.queue.events.emit("draft", { id: d.id, by: ctx.token.name, token: ctx.token.id, at: new Date().toISOString(), fields: [], made: true } satisfies DraftEdit);
@@ -271,15 +292,8 @@ const editDraft = tool({
         if (!id) throw httpError(`${recipe.title} takes no ${key === "loras" ? "LoRAs" : "reference pictures"}.`);
         set[id] = args[key];
       }
-      const checked: Record<string, unknown> = {};
-      const out: string[] = [];
-      for (const [id, v] of Object.entries(set)) {
-        if (v === null) {
-          if (!shownInputs(recipe).some((i) => i.id === id)) throw httpError(`${recipe.title} has no input ${id}.`);
-          out.push(id);
-        } else checked[id] = await checkedValue(s, at, recipe, id, v);
-      }
-      const form = Object.fromEntries(Object.entries({ ...d.forms[recipe.id], ...checked }).filter(([id]) => !out.includes(id)));
+      const checked = await checkedValues(s, at, recipe, set);
+      const form = Object.fromEntries(Object.entries({ ...d.forms[recipe.id], ...checked }).filter(([, v]) => v !== null));
       return {
         forms: { ...d.forms, [recipe.id]: form },
         ...(args.form ? { recipe: recipe.id } : {}),
@@ -326,4 +340,18 @@ const applyPreset = tool({
   },
 });
 
-export const DRAFT_TOOLS = [listDrafts, readDraft, newDraft, editDraft, applyPreset];
+const removeDraft = tool({
+  name: "delete_draft",
+  scope: "make",
+  title: "Delete a draft",
+  description: "Delete a draft that nothing was made from (made: 0 in list_drafts, nothing queued): a try that led nowhere, or one made to test. It is gone for good (drafts have no bin): a draft something was made from is refused, the user deletes it in Studio.",
+  input: { draft: z.string().min(1) },
+  async run({ draft }, ctx) {
+    const d = draftView(await draftOf(ctx.s, draft));
+    await deleteDraft(ctx.s, d.id, true);
+    ctx.said(`Deleted the draft ${nameOf(d)}`);
+    return { deleted: d.id, name: d.name || d.title || "Untitled draft" };
+  },
+});
+
+export const DRAFT_TOOLS = [listDrafts, readDraft, newDraft, editDraft, applyPreset, removeDraft];

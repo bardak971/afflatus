@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CUT_WINDOW_MOST, cutOn, type CutOn } from "@afflatus/core";
+import { cutOn, type CutOn } from "@afflatus/core";
 import { api, type Asset, type Clip } from "../../api";
 import { timelineKey } from "../../draftMachine";
 import { clock as mmss, plural } from "../../format";
@@ -13,7 +13,8 @@ import { AutoText, Button, cx, fieldClass, Help, NumberBox, Segmented } from "..
 import { useClock, type Clock } from "../clock";
 import { ColumnEdge, FoldButton, useColumnWidth } from "../column";
 import type { RecordingPlace } from "../recordingPlace";
-import { CloseButton, Slide } from "./parts";
+import { ClipLength, landedSaid } from "./clipLength";
+import { CloseButton } from "./parts";
 
 /** A recording open in the column, as the editor hands it over (editorProps' recordingPanelProps). */
 export type RecordingPanelProps = {
@@ -76,7 +77,7 @@ export function RecordingPanel(p: RecordingPanelProps) {
   const usesMs = place.toMs - place.fromMs;
   const leastMs = Math.ceil(cut.leastMs / 100) * 100;
   const mostMs = Math.max(leastMs, Math.floor(cut.mostMs / 100) * 100);
-  const lengths = place.parts.map((x) => ((x.endMs - x.startMs) / 1000).toFixed(1));
+  const lengths = place.parts.map((x) => (x.endMs - x.startMs) / 1000);
   const landed = useLanded(recording.id, place, cut.within, cut.stepMs);
   // how many it plays over (another form than Lip sync), said beside how many follow it with the mouth
   const over = place.parts.filter((x) => x.over).length;
@@ -127,16 +128,7 @@ export function RecordingPanel(p: RecordingPanelProps) {
               keep={cut.ask.keep}
             />
           )}
-          <div className="flex items-end gap-2">
-            <div className="min-w-0 grow">
-              <Slide label="Clip length" value={Math.min(Math.max(cut.seconds * 1000, leastMs), mostMs)} min={leastMs} max={mostMs} step={100} show={(ms) => `${(ms / 1000).toFixed(1)} s`} onCommit={(ms) => cut.run(ms / 1000, cut.within)} disabled={cut.pending} />
-            </div>
-            <span className="flex shrink-0 items-center gap-1 text-ink-2">
-              ±
-              <NumberBox label="Window (± s of Clip length)" value={cut.within} min={0} max={CUT_WINDOW_MOST} step={0.1} unit=" s" onCommit={(v) => !cut.pending && v !== cut.within && cut.run(cut.seconds, v)} />
-            </span>
-          </div>
-          <span className="text-xs text-ink-2">{landed ? `${landed} · ` : ""}{lengths.join(", ")} s</span>
+          <ClipLength seconds={cut.seconds} within={cut.within} leastMs={leastMs} mostMs={mostMs} pending={cut.pending} onCut={cut.run} landed={landed} lengths={lengths} />
           {cut.pending && <span className="text-xs text-ink-2">Cutting the recording again…</span>}
         </Section>
 
@@ -197,8 +189,7 @@ function useLanded(asset: string, place: RecordingPlace, within: number, stepMs:
   const marks = useQuery({ queryKey: queryKeys.pauses(asset), queryFn: () => api.pauses(asset), staleTime: Infinity, retry: 0 });
   if (!marks.data || place.parts.length < 2) return null;
   const near = stepMs ? stepMs / 2000 : undefined;
-  const on = place.parts.slice(0, -1).map((x) => cutOn(x.endMs / 1000, marks.data, within, near));
-  return LANDED.map(([kind, said]) => [on.filter((k) => k === kind).length, said] as const).filter(([n]) => n > 0).map(([n, said], i) => `${i === 0 ? plural(n, "clip") : n} ${said}`).join(", ");
+  return landedSaid(place.parts.slice(0, -1).map((x) => cutOn(x.endMs / 1000, marks.data, within, near)), LANDED);
 }
 
 function Section({ title, note, help, children }: { title: string; note?: string; help?: string; children: React.ReactNode }) {
