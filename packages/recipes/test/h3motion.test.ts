@@ -28,9 +28,9 @@ const carryOn = (over: Record<string, unknown> = {}, frames = 22) => {
 };
 
 describe("MiniMax H3 · Motion transfer after a swap (H3 · Swap motion retired, card #42)", () => {
-  it("is what Swap character's windows that carry on are made with, cut alike; Swap motion is gone", () => {
+  it("is given by hand to a window after a swap, cut alike (a swap's windows are all swaps); Swap motion is gone", () => {
     expect(recipeById("h3.swapMotion")).toBeUndefined();
-    expect(h3Swap.traits!.windows!.carryOn).toBe("h3.motion");
+    expect(h3Swap.traits!.windows!.carryOn).toBeUndefined();
     expect(sameWindowGrid(h3Swap, h3MotionTransfer)).toBe(true);
     // the two read their part of the source by the same inputs
     const window = (r: { inputs: readonly { type: string; id: string }[] }) => r.inputs.find((i) => i.type === "clip" && (i as { role?: string }).role === "source");

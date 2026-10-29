@@ -4,6 +4,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Changed
+- **A source made with Swap character gives every window Swap character**, the windows that carry on too. They were made Motion transfer after the first one, a leftover of the retired Swap motion. A window can still be given Motion transfer on its own (its form menu), and then carries on from the swap before it as it did.
+
 ## [0.8.2] - 2026-10-29
 
 Agents (MCP) that run the whole studio: long calls in the background with MCP Tasks (Claude Code wakes once with the result), the queue, the GPU hunt, uploads, logs and most of what the web can do, every path that spends on a rented pod held to the token's cap; Settings › Model files, every model file on this PC with how Afflatus used it, and Delete to the Recycle Bin to free the space; Access in a tab of its own.

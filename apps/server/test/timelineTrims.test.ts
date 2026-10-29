@@ -225,10 +225,13 @@ describe("a source's windows trimmed", () => {
 });
 
 describe("a source cut again (card #42's forms per window)", () => {
-  /** Every window with a prompt of its own; window 3 given Swap character by itself, with its own `who`. */
+  /** Every window with a prompt of its own, those after the first given Motion transfer; window 3 then given Swap character by itself, with its own `who`. */
   async function owned() {
     const tl = await madeSwap(28000);
     let v = await view(tl);
+    // Motion transfer given by hand to the windows after the first (a swap's windows are all swaps)
+    for (const c of v.clips.slice(1)) await call("POST", `/api/timelines/${tl}/source/window`, { clip: c.id, recipe: "h3.motion" });
+    v = await view(tl);
     for (const [k, c] of v.clips.entries()) await call("PATCH", `/api/clips/${c.id}`, { inputs: { ...c.inputs, happens: `H${k} window ${k}.`, ...(k ? { description: `D${k} window ${k}.` } : {}) } });
     v = await view(tl);
     await call("POST", `/api/timelines/${tl}/source/window`, { clip: v.clips[3].id, recipe: "h3.swap" });

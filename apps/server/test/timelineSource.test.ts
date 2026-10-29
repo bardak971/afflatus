@@ -77,7 +77,7 @@ describe("a timeline's source lane", () => {
     expect((await view(tl.id)).clips).toHaveLength(0);
   });
 
-  it("makes a swap's windows on H3's grid, each carrying on from the one before: a swap where a shot opens, Motion transfer after it", async () => {
+  it("makes a swap's windows on H3's grid, each carrying on from the one before: every window a swap", async () => {
     const tl = await call("POST", "/api/timelines", { name: "zz-test swap source" });
     const meme = await asset("video");
     const photo = await asset("image");
@@ -88,15 +88,11 @@ describe("a timeline's source lane", () => {
     expect(made.clips).toHaveLength(5);
     const v = await view(tl.id);
     expect(v.clips.map((c: { joined: string }) => c.joined)).toEqual(["cut", "continue", "continue", "continue", "continue"]);
-    // the person replaced is never in a window that carries on (card #42: what H3 · Swap motion did by itself)
-    expect(v.clips.map((c: { recipe: string }) => c.recipe)).toEqual(["h3.swap", "h3.motion", "h3.motion", "h3.motion", "h3.motion"]);
+    // every window Swap character, those that carry on too (the owner, 2026-10-30: no Motion transfer after a swap by itself)
+    expect(v.clips.map((c: { recipe: string }) => c.recipe)).toEqual(["h3.swap", "h3.swap", "h3.swap", "h3.swap", "h3.swap"]);
     for (const c of v.clips) expect(c.inputs).toMatchObject({ source: { asset: meme.id }, references: [{ asset: photo.id, role: "person" }] });
     expect(v.clips[0].inputs.who).toBe("the man in the grey t-shirt");
-    // a motion window after a swap: no Picture of its own, the swap's shifts (it runs on the swap's model)
-    for (const c of v.clips.slice(1)) {
-      expect(c.inputs.picture).toBeUndefined();
-      expect(c.inputs).toMatchObject({ afterSwap: true, shiftVideo: 12, shiftAudio: 3 });
-    }
+    for (const c of v.clips.slice(1)) expect(c.inputs.afterSwap).toBeUndefined();
     expect(v.clips[0].inputs.sourceStart).toBe(3);
     expect(v.clips[0].inputs.sourceSeconds).toBeCloseTo(107.5 / 24, 3);
     // the next part starts the 22 carried frames before where the first one's stretch stops
@@ -274,6 +270,8 @@ describe("a timeline's source lane", () => {
       await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id } });
       await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, recipe: "h3.swap", inputs: { who: WHO, references: [{ asset: photo.id, role: "person" }] } } });
       await call("POST", `/api/timelines/${tl.id}/source/make`);
+      // Motion transfer given by hand to every window after the first (a swap's windows are all swaps)
+      for (const c of (await view(tl.id)).clips.slice(1)) await call("POST", `/api/timelines/${tl.id}/source/window`, { clip: c.id, recipe: "h3.motion" });
       return { tl, meme, photo, v: await view(tl.id) };
     };
     const recipes = (v: { clips: Array<{ recipe: string }> }) => v.clips.map((c) => c.recipe);
@@ -350,8 +348,7 @@ describe("a timeline's source lane", () => {
       await call("POST", `/api/timelines/${tl.id}/source/make`);
       const v = await view(tl.id);
       expect(v.clips.map((c: { id: string }) => c.id)).not.toContain(emptyId);
-      expect(recipes(v)[0]).toBe("h3.swap");
-      expect(recipes(v).slice(1).every((r: string) => r === "h3.motion")).toBe(true);
+      expect(recipes(v).every((r: string) => r === "h3.swap")).toBe(true);
     });
 
     it("is made again with Swap character after Motion transfer: the openings swaps, the rest Motion transfer", async () => {
@@ -609,7 +606,7 @@ describe("a timeline's source lane", () => {
     it("cut again, each empty window's own prompt goes to the window made where it lay", async () => {
       const { tl, v } = await madeSwap();
       const words = ["", "He walks to the door.", "He opens it and looks out.", "He turns back.", "He sits down."];
-      for (const [k, c] of v.clips.entries()) if (k > 0) await call("PATCH", `/api/clips/${c.id}`, { inputs: { ...c.inputs, description: words[k] ?? `Part ${k}.` } });
+      for (const [k, c] of v.clips.entries()) if (k > 0) await call("PATCH", `/api/clips/${c.id}`, { inputs: { ...c.inputs, happens: words[k] ?? `Part ${k}.` } });
       const was = (await view(tl.id)).clips as Array<{ inputs: Record<string, number | string> }>;
       await call("PATCH", `/api/timelines/${tl.id}`, { source: { windowMs: 3800 } });
       await call("POST", `/api/timelines/${tl.id}/source/make`, { again: true });
@@ -619,25 +616,25 @@ describe("a timeline's source lane", () => {
       for (const c of out.slice(1)) {
         const mid = Number(c.inputs.sourceStart) + Number(c.inputs.sourceSeconds) / 2;
         const there = was.find((p) => mid >= Number(p.inputs.sourceStart) && mid < Number(p.inputs.sourceStart) + Number(p.inputs.sourceSeconds));
-        expect(c.recipe).toBe("h3.motion");
-        if (there && there !== was[0]) expect(String(c.inputs.description).startsWith(String(there.inputs.description))).toBe(true);
+        expect(c.recipe).toBe("h3.swap");
+        if (there && there !== was[0]) expect(String(c.inputs.happens).startsWith(String(there.inputs.happens))).toBe(true);
       }
-      expect(new Set(out.slice(1).map((c) => c.inputs.description)).size).toBeGreaterThan(1);
+      expect(new Set(out.slice(1).map((c) => c.inputs.happens)).size).toBeGreaterThan(1);
       // a window none of the new ones has its middle in gives its prompt to the nearest, after what that one has: none lost
-      for (const said of words.slice(1, was.length)) expect(out.some((c) => String(c.inputs.description).includes(said))).toBe(true);
+      for (const said of words.slice(1, was.length)) expect(out.some((c) => String(c.inputs.happens).includes(said))).toBe(true);
     });
 
     it("gives another form of the grid to every window but one that renders, which keeps the form its render was sent with", async () => {
       const { tl, v } = await madeSwap();
       const ids = v.clips.map((c: { id: string }) => c.id);
       await queued(ids[2], "running");
-      const r = await call("POST", `/api/timelines/${tl.id}/source/form`, { recipe: "h3.swap" });
+      const r = await call("POST", `/api/timelines/${tl.id}/source/form`, { recipe: "h3.motion" });
       expect(r.switched).toBe(true);
       const out = await view(tl.id);
       expect(out.clips.map((c: { id: string }) => c.id)).toEqual(ids);
-      expect(out.clips.map((c: { recipe: string }) => c.recipe)).toEqual(ids.map((_: string, k: number) => (k === 2 ? "h3.motion" : "h3.swap")));
+      expect(out.clips.map((c: { recipe: string }) => c.recipe)).toEqual(ids.map((_: string, k: number) => (k === 2 ? "h3.swap" : "h3.motion")));
       expect(out.clips[2].inputs).toEqual(v.clips[2].inputs);
-      expect(out.source.recipe).toBe("h3.swap");
+      expect(out.source.recipe).toBe("h3.motion");
     });
 
     it("keeps the first window whatever the end asks: an empty one as long as a window can be, a rendered one whole", async () => {

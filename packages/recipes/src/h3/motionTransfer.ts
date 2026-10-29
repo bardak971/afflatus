@@ -254,12 +254,12 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
   partsInto: "description",
   // (the form's placeholder is read without the clip before: a window after a swap carries on by what it is)
   promptFromParts: (input) => (input.afterSwap ? motionFromParts(input) : motionTransferFromParts(input)),
-  // a window given this form alone, from a form whose windows that carry on are this one (Swap character's), carries on from
-  // a swap, on its model: the sampling it has not set stays the swap's own (its shifts, 12 / 3). Every window given it (the
-  // source's form changed): each a Motion transfer of its own
+  // a window given this form alone, from Swap character, carries on from a swap, on its model: the sampling it has not set
+  // stays the swap's own (its shifts, 12 / 3). Every window given it (the source's form changed): each a Motion transfer of
+  // its own
   windowFrom: (from, inputs, alone) => {
     if (!alone) return { ...inputs, afterSwap: false };
-    if (from.traits?.windows?.carryOn !== "h3.motion") return inputs;
+    if (from.id !== "h3.swap") return inputs;
     const theirs = Object.fromEntries(from.inputs.filter((i) => SAMPLING.has(i.id) && "default" in i && !(i.id in inputs)).map((i) => [i.id, (i as { default: unknown }).default]));
     return { ...theirs, ...inputs, afterSwap: true };
   },
