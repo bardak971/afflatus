@@ -1,6 +1,6 @@
 import { plural } from "@afflatus/core";
 import { z } from "zod";
-import { kitBody, kitDefs, kitEdit, kitList, kitNew, type EntityKind, type KitItem } from "./entities";
+import { kitBody, kitDefs, kitDelete, kitEdit, kitList, kitNew, type EntityKind, type KitItem } from "./entities";
 import { httpError } from "./errors";
 import { tool, type ToolCtx } from "./mcpTool";
 import { refusal } from "./mcpTokens";
@@ -211,4 +211,20 @@ const editKitItem = tool({
   },
 });
 
-export const KIT_TOOLS = [listKit, readKitItem, newKitItem, editKitItem];
+const deleteKitItem = tool({
+  name: "delete_kit_item",
+  scope: "make",
+  title: "Delete a kit item",
+  description: "Delete an item of the Prompt kit, as its page's Delete does: the pictures and voice uploaded for it go to the bin (restore brings them back), those picked from the library stay where they are; the drafts, timelines and clips that cast it let go of it, said in the answer. The item itself does not come back: new_kit_item with its def (read_kit_item) makes it again. A shipped preset cannot be deleted.",
+  input: { item: z.string().min(1).describe("Its id, its name, or a person's @Name.") },
+  async run(a, ctx) {
+    const found = await kitItem(ctx.s, a.item);
+    if (found.source === "shipped" || found.id.startsWith(SHIPPED)) throw refusal(`${found.name} ships with Afflatus and cannot be deleted.`);
+    const gone = await kitDelete(ctx.s, found.id);
+    const letGo = [gone.drafts && plural(gone.drafts, "draft"), gone.timelines && plural(gone.timelines, "timeline")].filter(Boolean).join(" and ");
+    ctx.said(`Deleted the ${gone.kind} “${gone.name}”${letGo ? `, let go by ${letGo}` : ""}`);
+    return { deleted: found.id, kind: gone.kind, name: gone.name, ...(gone.drafts ? { draftsLetGo: gone.drafts } : {}), ...(gone.timelines ? { timelinesLetGo: gone.timelines } : {}) };
+  },
+});
+
+export const KIT_TOOLS = [listKit, readKitItem, newKitItem, editKitItem, deleteKitItem];

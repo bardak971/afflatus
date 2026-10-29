@@ -1783,6 +1783,53 @@ export class Timelines {
     this.changed();
   }
 
+  /**
+   * A copy of the timeline beside it (its project and folder), named `name` or "<its name> copy": its clips, their forms
+   * and their takes (the same videos of the library, which both play), its music, source and recordings, the clips a trim
+   * set aside with them. Not its Undo history, its jobs or its last export. Every id of the copy is new, and every
+   * reference between its parts (a clip's take, a take carried on from or finished from, the music's first clip, the
+   * source's and recordings' clips) is moved over to the copy's own. Read in the timeline's turn, so that no change is
+   * half in it.
+   */
+  async duplicate(id: string, name?: string) {
+    const copy = newId();
+    await this.history.oneAtATime(id, async () => {
+      const timeline = await this.row(id);
+      const clips = await this.db.selectFrom("clips").selectAll().where("timeline_id", "=", id).execute();
+      const takes = clips.length ? await this.db.selectFrom("takes").selectAll().where("clip_id", "in", clips.map((c) => c.id)).execute() : [];
+      // every id of the timeline's own parts, the clips and takes a trim set aside (in its source and recordings) with them:
+      // given new ones wherever they are written, ids of anything else (the library's items, the kit's people) left as they are
+      const own = new Map<string, string>([[id, copy], ...[...clips, ...takes].map((r) => [r.id, newId()] as [string, string])]);
+      const parked = (v: unknown): void => {
+        if (Array.isArray(v)) return v.forEach(parked);
+        if (!v || typeof v !== "object") return;
+        const o = v as { clip?: { id?: unknown }; takes?: unknown };
+        if (o.clip && typeof o.clip.id === "string" && Array.isArray(o.takes)) {
+          for (const r of [o.clip, ...(o.takes as Array<{ id?: unknown }>)]) if (typeof r?.id === "string" && !own.has(r.id)) own.set(r.id, newId());
+        }
+        Object.values(o).forEach(parked);
+      };
+      for (const text of [timeline.source, timeline.recordings]) {
+        try {
+          if (text) parked(JSON.parse(text));
+        } catch {
+          // a source or recordings not read as JSON is copied as it is
+        }
+      }
+      const moved = <T>(row: T): T => JSON.parse(JSON.stringify(row).replace(/[0-9a-f]{32}/g, (x) => own.get(x) ?? x)) as T;
+      const at = now();
+      await this.db.transaction().execute(async (tx) => {
+        await tx.insertInto("timelines").values({
+          ...moved(timeline), name: (name?.trim() || `${timeline.name} copy`).slice(0, 200), export_asset_id: null, created_at: at, updated_at: at,
+        }).execute();
+        for (const c of clips) await tx.insertInto("clips").values({ ...moved(clipColumns(c)), created_at: at, updated_at: at }).execute();
+        for (const t of takes) await tx.insertInto("takes").values(moved(takeColumns(t))).execute();
+      });
+    });
+    this.changed();
+    return this.view(copy);
+  }
+
   private async touch(timelineId: string) {
     await this.db.updateTable("timelines").set({ updated_at: now() }).where("id", "=", timelineId).execute();
     this.changed();

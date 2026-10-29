@@ -6,7 +6,7 @@ import { oneAtATime } from "./keyedLock";
 import { castOf, checkedValue } from "./mcpDrafts";
 import { formOf, machineName, machineOf, seen, spends, wholeOf, type Seen } from "./mcpForms";
 import { mayQueueAll } from "./mcpRender";
-import { Rich, tool, type ToolCtx } from "./mcpTool";
+import { quoted, Rich, tool, type ToolCtx } from "./mcpTool";
 import { rootFolderOf } from "./projects";
 import type { Services } from "./services";
 import { contactSheet } from "./thumbs";
@@ -1009,6 +1009,39 @@ const binUnusedTakes = tool({
   },
 });
 
+const duplicateTimeline = tool({
+  name: "duplicate_timeline",
+  scope: "make",
+  title: "Duplicate a timeline",
+  description: "A copy of a timeline beside it (its project and folder), as its menu's Duplicate does: its clips with their forms, joins and transitions, their takes (the same videos of the library, playing in both), its music, source and recordings. Not its Undo history, its jobs or its last export. To try a change on the copy and keep the original as it is. Answers the copy's id and name.",
+  input: { timeline: z.string().min(1), name: z.string().trim().max(200).optional().describe("The copy's name; left out: \"<its name> copy\".") },
+  async run(a, ctx) {
+    const { s } = ctx;
+    const view = await viewOf(s, a.timeline);
+    const made = await s.timelines.duplicate(view.id, a.name);
+    ctx.said(`Duplicated “${view.name}” as “${made.name}”`);
+    return { id: made.id, name: made.name, project: made.projectId, clips: made.clips.length };
+  },
+});
+
+const deleteTimeline = tool({
+  name: "delete_timeline",
+  scope: "make",
+  title: "Delete a timeline",
+  description: "Delete a timeline, as its menu's Delete does: the sequence goes with its Undo history; the videos of its takes stay in the library. It does not come back (no bin, no undo): duplicate_timeline first to keep a copy. Refused while a clip of it is in the queue. `name` is the timeline's name as read_timeline gives it, to be sure of which one goes.",
+  input: { timeline: z.string().min(1), name: z.string().min(1).max(200).describe("Its name, exactly: a check that this is the one meant.") },
+  async run(a, ctx) {
+    const { s } = ctx;
+    const view = await viewOf(s, a.timeline);
+    if (a.name.trim() !== view.name.trim()) throw httpError(`Timeline ${view.id} is ${quoted(view.name)}, not ${quoted(a.name)}: nothing was deleted.`);
+    const busy = await s.db.selectFrom("jobs").select("id").where("timeline_id", "=", view.id).where("status", "in", ["queued", "running"]).executeTakeFirst();
+    if (busy) throw httpError(`A clip of ${quoted(view.name)} is in the queue: cancel it or wait for it, then delete.`, 409);
+    await s.timelines.remove(view.id);
+    ctx.said(`Deleted the timeline ${quoted(view.name)}`);
+    return { deleted: view.id, name: view.name, said: "Its takes' videos stay in the library." };
+  },
+});
+
 // ------------------------------------------------------------------------------------------------- seeing, undoing
 
 type Content = CallToolResult["content"];
@@ -1099,4 +1132,4 @@ const redo = tool({
   },
 });
 
-export const TIMELINE_TOOLS = [listTimelines, readTimeline, viewTimeline, newTimeline, editTimeline, editClip, renderClipsTool, useTake, finish, exportTool, undo, redo, timelineRange, planClips, maskPreviewTool, removeTake, binUnusedTakes];
+export const TIMELINE_TOOLS = [listTimelines, readTimeline, viewTimeline, newTimeline, editTimeline, editClip, renderClipsTool, useTake, finish, exportTool, undo, redo, timelineRange, planClips, maskPreviewTool, removeTake, binUnusedTakes, duplicateTimeline, deleteTimeline];

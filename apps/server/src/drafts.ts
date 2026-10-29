@@ -183,6 +183,13 @@ export async function unusedDrafts(db: Db, project?: string, keep?: string): Pro
   return bare.filter((d) => !made.has(d.id));
 }
 
+/** The unused drafts of a project deleted, but `keep` (POST /api/drafts/clear-unused, MCP's clear_unused_drafts): how many went. */
+export async function clearUnused(db: Db, project?: string, keep?: string): Promise<number> {
+  const gone = (await unusedDrafts(db, project, keep)).map((d) => d.id);
+  if (gone.length) await db.deleteFrom("drafts").where("id", "in", gone).execute();
+  return gone.length;
+}
+
 const brief = (d: Tables["drafts"]) => ({ id: d.id, recipe: d.recipe_id, title: d.title, name: d.name, createdAt: d.created_at, updatedAt: d.updated_at, empty: holdsNothing(d), projectId: d.project_id });
 const full = (d: Tables["drafts"]) => ({
   ...brief(d), forms: JSON.parse(d.forms) as Record<string, Record<string, unknown>>, count: d.count, look: d.look ? (JSON.parse(d.look) as Look) : null,
@@ -338,9 +345,7 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
   /** The unused drafts deleted (see unusedDrafts) of a project ("none": the Inbox; left out: all), but the one open (`keep`). */
   app.post("/api/drafts/clear-unused", async (req) => {
     const { project, keep } = z.strictObject({ project: z.string().optional(), keep: z.string().optional() }).parse(req.body ?? {});
-    const gone = (await unusedDrafts(s.db, project, keep)).map((d) => d.id);
-    if (gone.length) await s.db.deleteFrom("drafts").where("id", "in", gone).execute();
-    return { deleted: gone.length };
+    return { deleted: await clearUnused(s.db, project, keep) };
   });
 
   app.post("/api/drafts", async (req) => createDraft(s, createBody.parse(req.body)));

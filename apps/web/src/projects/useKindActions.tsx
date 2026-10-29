@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Folder, FolderKanban, Inbox } from "lucide-react";
+import { api } from "../api";
 import { askText } from "../Confirm";
 import type { MenuItem } from "../ContextMenu";
 import { useFolders, useProjects } from "../data";
@@ -129,6 +130,8 @@ export function useKindActions({ importInto }: { importInto?(t: Target): void } 
           export: inEditor(t.id, { timeline: t.id, do: "export" }),
           "fix-all": inEditor(t.id, { timeline: t.id, do: "fix-all" }),
           rename: rename(rows[0]!),
+          // the copy opens at once, as a duplicated draft does
+          duplicate: () => void api.duplicateTimeline(t.id).then((made) => { void client.invalidateQueries({ queryKey: queryKeys.timelines.all() }); go(`/timelines/${made.id}`); }, failed("Could not duplicate the timeline")),
           "bin-unused": () => void tree.binUnused(rows[0]!),
           delete: () => after(p, tree.remove(rows)),
         },

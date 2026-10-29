@@ -5,6 +5,7 @@ import { makePng } from "@afflatus/comfy/testing";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KitEdit } from "../src/mcpKit";
 import { importLimits } from "../src/mcpLibrary";
+import { TOOLS } from "../src/mcpTools";
 import { FFMPEG_TIMEOUT, ffmpegThere, patternClip } from "./clipKit";
 import { get, makeApp, post, until, type TestApp } from "./helpers";
 
@@ -94,7 +95,7 @@ describe("the library", () => {
     const look = await connect("look");
     const names = (await look.listTools()).tools.map((x) => x.name);
     for (const n of ["search_library", "keep", "unkeep", "bin", "restore", "move", "rename", "list_places", "new_folder", "edit_folder", "new_project", "rename_project", "import_from_url", "cut_range", "find_scenes", "extract_scenes", "save_frame", "list_kit", "read_kit_item", "new_kit_item", "edit_kit_item"]) expect(names).toContain(n);
-    expect(names).toHaveLength(82);
+    expect(names).toHaveLength(TOOLS.length);
     const up = await upload("zz-test lamp");
     expect((await ok(look, "search_library", {})).items.map((i: { item: string }) => i.item)).toEqual([up.id]);
     await refused(look, "bin", { items: [up.id] }, /needs Make/);

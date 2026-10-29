@@ -342,7 +342,7 @@ const queueStatus = tool({
 /** The longest `job` waits for a job to end: under the minute a client's call is given. */
 const JOB_WAIT_MOST_S = 50;
 
-async function jobRow(s: Services, id: string): Promise<Tables["jobs"]> {
+export async function jobRow(s: Services, id: string): Promise<Tables["jobs"]> {
   const row = await s.db.selectFrom("jobs").selectAll().where("id", "=", id).executeTakeFirst();
   if (!row) throw httpError("There is no such job: queue_status and render give the ids.", 404);
   return row;
@@ -393,7 +393,7 @@ const job = tool({
  * A job this token may act on: its own, or one the user queued from the page. One another token queued is that token's
  * (or the user's in Afflatus) to stop or do again.
  */
-async function mayTouch(s: Services, ctx: ToolCtx, row: Tables["jobs"]): Promise<void> {
+export async function mayTouch(s: Services, ctx: ToolCtx, row: Tables["jobs"]): Promise<void> {
   if (!row.mcp_token_id || row.mcp_token_id === ctx.token.id) return;
   const other = await s.mcp.tokens.get(row.mcp_token_id);
   throw refusal(`This job was queued by another token (${other?.name ?? "one revoked since"}): stop it or do it again in Afflatus, or with that token.`);

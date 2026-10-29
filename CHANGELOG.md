@@ -4,6 +4,18 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+- **MCP: an agent uploads a file.** `upload` takes a picture, a video or a sound as base64 (a `data:` address too) through the web upload's own path: read from its bytes, the real containers only (a playlist or a manifest naming other files is refused). It goes into a folder or a project, and its id then goes where library items go (a draft's references, a kit item's pictures). One file at a time per token (an import from an address counts), at most 16 MB each and 1 GB a token a day. `/mcp` takes a call that large only once its token is known.
+- **MCP: what the web did that an agent could not.**
+  - Library: `extract_sound`, `remove_sound`, `mirror`.
+  - Places: `delete_folder` (its items move up; a linked folder stays linked), `archive_project`, `delete_project` (what it holds goes to the Inbox), and `look_again` on a linked folder.
+  - Prompt kit: `delete_kit_item`.
+  - Timelines: `duplicate_timeline`, and `delete_timeline`, which takes the timeline's name back as a check and is refused while a clip of it is in the queue.
+  - Workflows: `read_workflow`, `edit_workflow` and `delete_workflow`. A workflow whose mapping an agent changed waits for your Approve again, even one you imported.
+  - Storage and tidying: `storage`, `bin_idle_takes` across every timeline, `clear_unused_drafts` (the draft open stays), `dismiss` for a finished job.
+  - docs/mcp.md's never-list now also names approving a workflow, installing node packs, deleting network volume files, forgetting render times, backups, sharing an item and linking a folder.
+- **Duplicate a timeline.** The timeline's menu (Projects panel, command bar) has **Duplicate**: a copy beside it with its clips, forms and takes (the same videos play in both), its music, source and recordings. Its Undo history, jobs and last export are not copied. The copy opens at once.
+
 ## [0.8.1] - 2026-10-28
 
 The first hour made plainer (a ComfyUI too old said with what to do, each family's minimum with its size, Create open on a first landing, a timeline clip waiting for its files), H3's latent finish with its real noise level, SeedVR2 7B restoring 49 frames together, and rented pods: model lists that say where each file is, a stopped pod's Start, Deploy on its volume when RunPod refuses it, and cap refusals that say their sum.

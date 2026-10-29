@@ -107,6 +107,31 @@ export const folderEdit = (s: Services, id: string, body: z.output<typeof editBo
   return { ok: true };
 });
 
+/**
+ * A folder deleted (DELETE /api/folders/:id, MCP's delete_folder), in the tree's turn. What is in it is never deleted: its
+ * items and subfolders move up one level. A linked folder is unlinked (nothing on the disk is touched), unless `unlink` is
+ * false: MCP's, as linking a directory of the disk stays the user's, so does letting one go.
+ */
+export const folderDelete = (s: Services, id: string, o: { unlink?: boolean } = {}) => inTurn(s, async () => {
+  const folder = await mustExist(s, id);
+  if (folder.path) {
+    // a linked folder is unlinked: nothing on the disk is touched. One of its sub-directories is not deleted from here.
+    if (folder.parent_id && (await mustExist(s, folder.parent_id)).path) throw httpError("This folder is a directory of your disk: delete it there, then press Look again.");
+    if (o.unlink === false) throw httpError("This folder is linked to a directory of the user's disk: unlinking it stays in Afflatus (the Projects panel's Unlink).");
+    await s.linked.unlink(folder.id);
+    return folder;
+  }
+  await s.db.transaction().execute(async (tx) => {
+    await tx.updateTable("assets").set({ folder_id: folder.parent_id }).where("folder_id", "=", folder.id).execute();
+    await tx.updateTable("folders").set({ parent_id: folder.parent_id }).where("parent_id", "=", folder.id).execute();
+    // a project's root folder: the project keeps its things, without a root folder (they land at the top, in it)
+    await tx.updateTable("projects").set({ folder_id: null }).where("folder_id", "=", folder.id).execute();
+    await tx.deleteFrom("folders").where("id", "=", folder.id).execute();
+  });
+  s.queue.events.emit("library", { change: "moved", folders: [folder.id, folder.parent_id] } satisfies LibraryChange);
+  return folder;
+});
+
 /** Items filed in a folder, or taken out of any (POST /api/assets/move, MCP's move). Filing something keeps it. */
 export async function itemsMove(s: Services, body: z.output<typeof moveBody>) {
   const target = body.folderId ? await mustExist(s, body.folderId) : null;
@@ -172,25 +197,10 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
 
   app.patch<{ Params: { id: string } }>("/api/folders/:id", async (req) => folderEdit(s, req.params.id, editBody.parse(req.body)));
 
-  /** Deleting a folder never deletes what is in it: its items and subfolders move up one level. */
-  app.delete<{ Params: { id: string } }>("/api/folders/:id", async (req) => inTurn(s, async () => {
-    const folder = await mustExist(s, req.params.id);
-    if (folder.path) {
-      // a linked folder is unlinked: nothing on the disk is touched. One of its sub-directories is not deleted from here.
-      if (folder.parent_id && (await mustExist(s, folder.parent_id)).path) throw httpError("This folder is a directory of your disk: delete it there, then press Look again.");
-      await s.linked.unlink(folder.id);
-      return { ok: true };
-    }
-    await s.db.transaction().execute(async (tx) => {
-      await tx.updateTable("assets").set({ folder_id: folder.parent_id }).where("folder_id", "=", folder.id).execute();
-      await tx.updateTable("folders").set({ parent_id: folder.parent_id }).where("parent_id", "=", folder.id).execute();
-      // a project's root folder: the project keeps its things, without a root folder (they land at the top, in it)
-      await tx.updateTable("projects").set({ folder_id: null }).where("folder_id", "=", folder.id).execute();
-      await tx.deleteFrom("folders").where("id", "=", folder.id).execute();
-    });
-    s.queue.events.emit("library", { change: "moved", folders: [folder.id, folder.parent_id] } satisfies LibraryChange);
+  app.delete<{ Params: { id: string } }>("/api/folders/:id", async (req) => {
+    await folderDelete(s, req.params.id);
     return { ok: true };
-  }));
+  });
 
   /** File items in a folder, or take them out of any (folderId null). Filing something keeps it. */
   app.post("/api/assets/move", async (req) => itemsMove(s, moveBody.parse(req.body)));
