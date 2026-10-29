@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AppWindow, ChevronDown, ChevronRight, Download, Link2, Terminal } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Link2, Terminal } from "lucide-react";
 import { api, ApiError, type McpScope, type McpStart, type McpToken } from "../../api";
 import { ContextMenu, useMenu } from "../../ContextMenu";
 import { saveFromServer } from "../../download";
@@ -9,7 +9,7 @@ import { useCopied } from "../../hooks";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
 import { Button, cx, fieldClass, Help, NumberBox, Segmented, TwoStep } from "../../ui";
-import { claudeCodeCommand, claudeDesktopJson, mcpUrl } from "./mcpSnippets";
+import { claudeCodeCommand, mcpUrl } from "./mcpSnippets";
 import { PasswordAsk } from "./PasswordAsk";
 
 /**
@@ -20,7 +20,7 @@ import { PasswordAsk } from "./PasswordAsk";
  * (mcp-api.ts), as the Access settings do.
  */
 
-const HELP = "An MCP client (Claude Desktop, Claude Code, Cursor…) drives Afflatus at /mcp with a token, as far as its scopes go: Look (read everything, see the takes), Make (forms, renders on your machines, timelines, library, Prompt kit), Spend (rented GPUs), Manage (settings, downloads, machines, caps). Never through MCP, whatever the scopes: the password, tokens, Lock, sign-outs, where codes go, Show in folder, Get ffmpeg, updates. A token works on /mcp only, never on the API nor as a sign-in. Click a scope to change it; a token's limits, activity and Revoke open under it.";
+const HELP = "An MCP client (Claude Code, Cursor, any that speaks Streamable HTTP) drives Afflatus at /mcp with a token, as far as its scopes go: Look (read everything, see the takes), Make (forms, renders on your machines, timelines, library, Prompt kit), Spend (rented GPUs), Manage (settings, downloads, machines, caps). Never through MCP, whatever the scopes: the password, tokens, Lock, sign-outs, where codes go, Show in folder, Get ffmpeg, updates. A token works on /mcp only, never on the API nor as a sign-in. Click a scope to change it; a token's limits, activity and Revoke open under it.";
 const SCOPE_HELP: Record<McpScope, string> = {
   look: "Look: reads everything (machines, queue, library, forms, settings) and sees the takes. Always on.",
   make: "Make: fills forms, renders on your own machines, edits timelines, the library and the Prompt kit.",
@@ -111,10 +111,10 @@ function Scopes({ t, busy, onChange }: { t: McpToken; busy: boolean; onChange(sc
 /** The copies of a token just made, or of the address with a stand-in for the token. */
 function useSnippets(token: string | null) {
   const url = mcpUrl(location.origin);
-  return { url, code: claudeCodeCommand(url, token), desktop: claudeDesktopJson(url, token) };
+  return { url, code: claudeCodeCommand(url, token) };
 }
 
-/** The token shown once, in its row: copied as it is, or in Claude Code's command or Claude Desktop's block. */
+/** The token shown once, in its row: copied as it is, or in Claude Code's command. */
 function ShownOnce({ token }: { token: string }) {
   const { copied, copy } = useCopied();
   const [which, setWhich] = useState<string | null>(null);
@@ -131,7 +131,6 @@ function ShownOnce({ token }: { token: string }) {
       <span className="grow" />
       <Button size="sm" onClick={() => go("token", token)}>{said("token", "Copy")}</Button>
       <Button size="sm" onClick={() => go("code", snips.code)}>{said("code", "For Claude Code")}</Button>
-      <Button size="sm" onClick={() => go("desktop", snips.desktop)}>{said("desktop", "For Claude Desktop")}</Button>
     </div>
   );
 }
@@ -317,7 +316,7 @@ export function AgentsBlock() {
         <span className="grow" />
         <span className="inline-flex items-stretch overflow-hidden rounded-control border border-line-strong">
           <code className="bg-ground px-2.5 py-1.5 font-mono text-xs text-ink">{location.host}/mcp</code>
-          <button type="button" aria-label="Copy the address, Claude Code's command or Claude Desktop's block" onClick={(e) => copyMenu.open(e, true)} className="flex items-center gap-1.5 border-l border-line-strong bg-raised px-2.5 text-xs hover:bg-hover">
+          <button type="button" aria-label="Copy the address or Claude Code's command" onClick={(e) => copyMenu.open(e, true)} className="flex items-center gap-1.5 border-l border-line-strong bg-raised px-2.5 text-xs hover:bg-hover">
             Copy <ChevronDown size={12} />
           </button>
         </span>
@@ -327,13 +326,12 @@ export function AgentsBlock() {
             items={[
               { label: "Address", note: snips.url, icon: <Link2 size={14} />, run: () => copy(snips.url) },
               { label: "For Claude Code", note: "claude mcp add …", icon: <Terminal size={14} />, run: () => copy(snips.code) },
-              { label: "For Claude Desktop", note: "{ \"mcpServers\": … }", icon: <AppWindow size={14} />, run: () => copy(snips.desktop) },
             ]}
           />
         )}
       </div>
       <form onSubmit={make} className="mx-gutter mb-2.5 flex flex-wrap items-center gap-2 rounded-control border border-dashed border-line-strong p-2">
-        <input aria-label="New token's name" placeholder="New token's name (Claude Desktop, laptop…), optional" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} className="min-w-[120px] grow bg-transparent px-1 text-body text-ink outline-none placeholder:text-ink-3" />
+        <input aria-label="New token's name" placeholder="New token's name (Claude Code, laptop…), optional" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} className="min-w-[120px] grow bg-transparent px-1 text-body text-ink outline-none placeholder:text-ink-3" />
         <Segmented<McpStart> size="sm" label="Its scopes to start with" value={start} options={STARTS} onChange={setStart} />
         <Button size="sm" tone="primary" type="submit" disabled={run.isPending}>Create token</Button>
       </form>

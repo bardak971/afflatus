@@ -192,7 +192,7 @@ function Running({ run }: { run: RunningJob }) {
         data-tip={`${run.progress > 0 ? `${pct} % of this render` : "No step count from this phase yet"}${run.eta ? ` · ${timeLeft(run.eta)}` : ""} · running for ${ran}`}
       >
         <Spinner size={12} />
-        {/* a job an MCP token queued says whose it is: "Claude Desktop rendering 2 takes" */}
+        {/* a job an MCP token queued says whose it is: "Claude Code rendering 2 takes" */}
         {run.by && <span className="shrink-0 font-semibold whitespace-nowrap text-picture">{run.by.name} rendering {plural(run.by.jobs, "take")}</span>}
         {run.by && <Sep />}
         <span className="min-w-16 truncate font-semibold">{what}</span>

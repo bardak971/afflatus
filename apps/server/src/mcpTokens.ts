@@ -127,7 +127,7 @@ export class McpTokens {
   /** A new token: the token itself (its only showing) and the token as listed. */
   async make(o: { name: string; scopes: readonly Scope[]; endsDays?: Ends; rendersPerHour?: number; spendCapCents?: number }): Promise<{ token: string; view: McpTokenView }> {
     const name = cleanName(o.name);
-    if (!name) throw httpError("Name the token: the client it is for (Claude Desktop, laptop…).");
+    if (!name) throw httpError("Name the token: the client it is for (Claude Code, laptop…).");
     const token = `${TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
     const id = newId();
     await this.db.insertInto("mcp_tokens").values({

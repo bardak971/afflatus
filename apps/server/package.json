@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.4.0",
+    "@modelcontextprotocol/ext-tasks": "0.2.2",
     "@types/pg": "^8.11.10"
   }
 }

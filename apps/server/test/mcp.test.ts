@@ -34,7 +34,7 @@ afterEach(async () => {
 });
 
 /** A token made through the page's route (this computer, no password: no question asked). */
-async function made(start: "look" | "make" | "spend" | "all" = "make", name = "Claude Desktop"): Promise<{ token: string; id: string }> {
+async function made(start: "look" | "make" | "spend" | "all" = "make", name = "Cursor"): Promise<{ token: string; id: string }> {
   const res = await t.app.inject({ method: "POST", url: "/api/mcp/tokens", payload: { name, start } });
   expect(res.statusCode).toBe(200);
   const body = res.json() as { token: string; view: { id: string } };
@@ -60,7 +60,7 @@ describe("the tokens", () => {
     expect(row.scopes).toBe("look,make");
     const list = (await t.app.inject({ method: "GET", url: "/api/mcp/tokens" })).json() as { tokens: Array<Record<string, unknown>> };
     expect(JSON.stringify(list)).not.toContain(token.slice(8, 30));
-    expect(list.tokens[0]).toMatchObject({ id, name: "Claude Desktop", scopes: ["look", "make"], rendersPerHour: 30, spendCapCents: 500, state: "idle", rendersThisHour: 0, spentThisMonth: 0 });
+    expect(list.tokens[0]).toMatchObject({ id, name: "Cursor", scopes: ["look", "make"], rendersPerHour: 30, spendCapCents: 500, state: "idle", rendersThisHour: 0, spentThisMonth: 0 });
   });
 
   it("end on their day, and are refused once revoked", async () => {

@@ -6,11 +6,12 @@ import { isNever, NEVER, quoted, Rich, type NeverSubject, type Tool, type ToolCt
 import { selfUrl } from "./fetchFile";
 import { refusal, SCOPE_WORDS, type McpToken } from "./mcpTokens";
 import { UPLOAD_MOST } from "./mcpLibrary";
+import { cancelTask, getTask, takesTasks, taskOf, TASKS_EXTENSION } from "./mcpTasks";
 import { TOOLS } from "./mcpTools";
 import type { Services } from "./services";
 
 /**
- * Afflatus from outside: /mcp, on the same port as the app, where an MCP client (Claude Desktop, Claude Code, Cursor…)
+ * Afflatus from outside: /mcp, on the same port as the app, where an MCP client (Claude Code, Cursor…)
  * drives Afflatus with a personal token (mcpTokens.ts) as far as its scopes go. Streamable HTTP through the official SDK,
  * stateless: each POST is answered on its own (JSON), so that nothing is held between calls and a restart loses nothing.
  *
@@ -43,20 +44,28 @@ function resultOf(value: unknown): CallToolResult {
   return { content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] };
 }
 
-/** One call of a tool, checked, run and written down. */
-async function call(t: Tool, raw: unknown, s: Services, token: McpToken, ip: string, self: string): Promise<CallToolResult> {
-  let said = t.title;
-  const ctx: ToolCtx = {
+/** What a tool's run is given, for this token and request. `said` is where the call's activity line is gathered. */
+function ctxOf(s: Services, token: McpToken, ip: string, self: string, saidTo: (text: string) => void): ToolCtx {
+  return {
     s, token, ip, self,
-    said: (text) => void (said = text),
+    said: saidTo,
     never: (subject) => {
       if (!isNever(subject)) return;
-      said = `${NEVER[subject.split(".")[0] as NeverSubject]}: never through MCP`;
+      saidTo(`${NEVER[subject.split(".")[0] as NeverSubject]}: never through MCP`);
       throw refusal(`${NEVER[subject.split(".")[0] as NeverSubject]} cannot be reached through MCP, whatever the token's scopes: do it in Afflatus itself.`);
     },
     mayRender: (count = 1) => s.mcp.tokens.mayRender(token, count),
     maySpend: (usd, said) => s.mcp.tokens.maySpend(token, usd, said),
   };
+}
+
+/**
+ * One call of a tool, checked, run and written down. `asTask`: the client takes MCP Tasks, and a tool that leaves work to
+ * wait for answers with a task to follow (mcpTasks.ts) rather than its answer; the call is the same call.
+ */
+async function call(t: Tool, raw: unknown, s: Services, token: McpToken, ip: string, self: string, asTask = false): Promise<CallToolResult | Awaited<ReturnType<typeof taskOf>>> {
+  let said = t.title;
+  const ctx = ctxOf(s, token, ip, self, (text) => void (said = text));
   let value: unknown;
   try {
     // the scope first: a token that may not use the tool is told what to tick, not that its arguments are wrong
@@ -80,6 +89,11 @@ async function call(t: Tool, raw: unknown, s: Services, token: McpToken, ip: str
   }
   // done: a line that cannot be written must not say a done action failed (the agent would do it again: a render, a pod)
   await s.mcp.tokens.record({ tokenId: token.id, tool: t.name, said, refused: false }).catch((e) => console.warn("[mcp] activity not written:", (e as Error).message));
+  if (asTask && t.task && !(value instanceof Rich)) {
+    // the work is queued whatever happens here: a task that cannot be kept is answered as before, never as a failure
+    const task = await taskOf(s, t, token, value).catch((e) => void console.warn("[mcp] task not kept:", (e as Error).message));
+    if (task) return task;
+  }
   return resultOf(value);
 }
 
@@ -94,6 +108,8 @@ async function unknownTool(name: string, s: Services, token: McpToken): Promise<
 /** `self`: the address the request reached Afflatus at (fetchFile.ts selfUrl). */
 export function serverFor(s: Services, token: McpToken, ip: string, tools: readonly Tool[] = TOOLS, self = "http://127.0.0.1"): McpServer {
   const server = new McpServer({ name: "afflatus", title: "Afflatus", version: VERSION }, {
+    // MCP Tasks (mcpTasks.ts): a long call answered with a task to a client that declares the extension
+    capabilities: { extensions: { [TASKS_EXTENSION]: {} } },
     instructions: "Afflatus is a self-hosted studio in front of ComfyUI. Start with whats_open (where the user is) and overview (machines, queue, caps). A tool this token's scopes do not cover is refused with what to tick.",
   });
   for (const t of tools) {
@@ -102,16 +118,26 @@ export function serverFor(s: Services, token: McpToken, ip: string, tools: reado
       description: t.scope === "look" ? t.description : `${t.description} Needs ${SCOPE_WORDS[t.scope]}.`,
       inputSchema: z.object(t.input ?? {}),
       annotations: { title: t.title, readOnlyHint: t.scope === "look", openWorldHint: false },
-    }, (args: Record<string, unknown>) => call(t, args, s, token, ip, self));
+    }, async (args: Record<string, unknown>) => (await call(t, args, s, token, ip, self)) as CallToolResult);
   }
   // tools/call answered here rather than by the SDK, which checks the arguments (and refuses an unknown tool) before any
   // of ours runs: those refusals went unwritten in the activity, and a token without the scope was told its arguments were
   // wrong. The tool list (tools/list, with each one's schema) stays the SDK's
   const byName = new Map(tools.map((t) => [t.name, t]));
-  server.server.setRequestHandler("tools/call", async (request) => {
+  server.server.setRequestHandler("tools/call", async (request, hctx) => {
     const t = byName.get(request.params.name);
-    return t ? call(t, request.params.arguments, s, token, ip, self) : unknownTool(request.params.name, s, token);
+    // a task's result type is the extension's, beyond the SDK's own types for tools/call
+    return (t ? await call(t, request.params.arguments, s, token, ip, self, takesTasks(hctx.mcpReq.envelope)) : await unknownTool(request.params.name, s, token)) as CallToolResult;
   });
+  // the extension's methods: a task of this token's, followed (no scope: it only reads what the call answered) or cancelled
+  const taskId = z.object({ taskId: z.string().min(1).max(64) });
+  server.server.setRequestHandler("tasks/get", { params: taskId }, ({ taskId: id }) => getTask(s, token, id));
+  server.server.setRequestHandler("tasks/cancel", { params: taskId }, async ({ taskId: id }) => {
+    await cancelTask(s, ctxOf(s, token, ip, self, () => {}), id);
+    return {};
+  });
+  // a task here never asks for input: an answer to none is acknowledged, as the extension says
+  server.server.setRequestHandler("tasks/update", { params: taskId.extend({ inputResponses: z.record(z.string(), z.unknown()) }) }, async () => ({}));
   return server;
 }
 

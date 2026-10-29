@@ -63,7 +63,7 @@ export function editOf(before: DraftView, after: DraftView, ctx: Pick<ToolCtx, "
   };
 }
 
-/** How many things an edit changed, as the page's toast counts them ("Claude Desktop changed 3 fields"). */
+/** How many things an edit changed, as the page's toast counts them ("Claude Code changed 3 fields"). */
 export const changedCount = (e: DraftEdit) => e.fields.length + (e.recipe ? 1 : 0) + (e.look ? 1 : 0) + (e.count ? 1 : 0) + (e.name ? 1 : 0);
 
 /** A draft's name as the lists say it. */

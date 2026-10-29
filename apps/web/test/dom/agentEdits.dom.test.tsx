@@ -22,7 +22,7 @@ const draft = (id: string, forms: Draft["forms"] = { [FORM]: { prompt: "as saved
 });
 
 const edit = (over: Partial<DraftEdit> = {}): DraftEdit => ({
-  id: "zz-test-d1", by: "Claude Desktop", token: "t1", at: "2026-10-27T12:00:00Z",
+  id: "zz-test-d1", by: "Cursor", token: "t1", at: "2026-10-27T12:00:00Z",
   fields: [
     { form: FORM, input: "prompt", had: true, was: "as saved", now: "a lighthouse at dusk" },
     { form: FORM, input: "cfg", had: false, now: 6 },
@@ -62,8 +62,8 @@ describe("an MCP token's edit of the open draft", () => {
     // already saved on the server: the page sends nothing for it
     await act(() => new Promise((go) => setTimeout(go, 700)));
     expect(fakeApi.calls("PUT", "/drafts/zz-test-d1")).toHaveLength(0);
-    expect(newest()).toMatchObject({ title: "Claude Desktop changed 3 fields", action: { label: "Undo", undo: true } });
-    expect(useAgentEdits.getState().rings["zz-test-d1"]).toEqual({ [fieldKey(FORM, "prompt")]: "Claude Desktop", [fieldKey(FORM, "cfg")]: "Claude Desktop" });
+    expect(newest()).toMatchObject({ title: "Cursor changed 3 fields", action: { label: "Undo", undo: true } });
+    expect(useAgentEdits.getState().rings["zz-test-d1"]).toEqual({ [fieldKey(FORM, "prompt")]: "Cursor", [fieldKey(FORM, "cfg")]: "Cursor" });
     act(() => newest()!.action!.run());
     expect(d().draft!.forms[FORM]).toEqual({ prompt: "as saved", steps: 20 });
     expect(d().draft!.count).toBe(1);
@@ -134,13 +134,13 @@ describe("the ring of a field an MCP token changed", () => {
       expect(r).not.toBeNull();
       return r!;
     });
-    expect(row.dataset.agent).toBe("Claude Desktop");
+    expect(row.dataset.agent).toBe("Cursor");
     expect(row.className).toMatch(/ring-picture/);
-    expect(row.textContent).toContain("· Claude Desktop");
+    expect(row.textContent).toContain("· Cursor");
     expect(document.querySelector('[data-input-id="steps"]')!.getAttribute("data-agent")).toBeNull();
     screen.getByRole("slider", { name: "CFG scale" }).focus();
     await user.keyboard("{ArrowRight}");
     await waitFor(() => expect(document.querySelector('[data-input-id="cfg"]')!.getAttribute("data-agent")).toBeNull());
-    expect(document.querySelector('[data-input-id="cfg"]')!.textContent).not.toContain("Claude Desktop");
+    expect(document.querySelector('[data-input-id="cfg"]')!.textContent).not.toContain("Cursor");
   });
 });

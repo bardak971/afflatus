@@ -21,7 +21,7 @@ const person = (over: Partial<{ name: string; tags: string; sentence: string }> 
 });
 
 const edit = (over: Partial<KitEdit> = {}): KitEdit => ({
-  id: "zz-test-p1", kind: "person", by: "Claude Desktop", token: "t1", at: "2026-10-27T12:00:00Z",
+  id: "zz-test-p1", kind: "person", by: "Cursor", token: "t1", at: "2026-10-27T12:00:00Z",
   fields: [{ key: "sentence", had: true, was: "a woman", now: "a woman in a red coat" }],
   name: { was: "zz-test Ann", now: "zz-test Ann B" },
   ...over,
@@ -56,7 +56,7 @@ describe("an MCP token's edit of the kit item open", () => {
     await waitFor(() => expect(d().edit?.id).toBe("zz-test-p1"));
     act(() => useKitEdits.getState().heard(edit()));
     expect(d().edit).toMatchObject({ name: "zz-test Ann B", def: { sentence: "a woman in a red coat" } });
-    expect(newest()).toMatchObject({ title: "Claude Desktop changed 2 fields", action: { label: "Undo" } });
+    expect(newest()).toMatchObject({ title: "Cursor changed 2 fields", action: { label: "Undo" } });
     // nothing is saved for the agent's change: the server has it already
     expect(saved).toEqual([]);
     act(() => newest()!.action!.run());
@@ -74,7 +74,7 @@ describe("an MCP token's edit of the kit item open", () => {
     act(() => d().change(person({ tags: "short hair" })));
     act(() => useKitEdits.getState().heard(edit({ fields: [{ key: "sentence", had: true, was: "a woman", now: "a woman in a red coat" }, { key: "tags", had: true, was: "", now: "1girl" }] })));
     expect(d().edit!.def).toMatchObject({ tags: "short hair", sentence: "a woman in a red coat" });
-    expect(useKitEdits.getState().rings["zz-test-p1"]).toMatchObject({ sentence: "Claude Desktop", name: "Claude Desktop" });
+    expect(useKitEdits.getState().rings["zz-test-p1"]).toMatchObject({ sentence: "Cursor", name: "Cursor" });
     act(() => d().change({ ...d().edit!, def: { ...(d().edit!.def as object), sentence: "a woman, typed" } } as Entity));
     expect(useKitEdits.getState().rings["zz-test-p1"]!.sentence).toBeUndefined();
     // the user's change and the agent's other parts go out together
@@ -93,8 +93,8 @@ describe("an MCP token's edit of the kit item open", () => {
 
 describe("a card an MCP token changed", () => {
   it("is ringed with the token's name after its title", () => {
-    draw(<Card dense title="Prompt text" by="Claude Desktop">x</Card>);
-    expect(screen.getByText("· Claude Desktop")).toBeTruthy();
-    expect(document.querySelector("[data-agent='Claude Desktop']")).toBeTruthy();
+    draw(<Card dense title="Prompt text" by="Cursor">x</Card>);
+    expect(screen.getByText("· Cursor")).toBeTruthy();
+    expect(document.querySelector("[data-agent='Cursor']")).toBeTruthy();
   });
 });

@@ -1,12 +1,12 @@
 # Afflatus from outside (MCP)
 
-Afflatus answers the [Model Context Protocol](https://modelcontextprotocol.io) at `/mcp`, on the same port as the app. An MCP client (Claude Code, Claude Desktop, Cursor, any agent that speaks Streamable HTTP) drives the whole studio through it: it sees where you are, reads and fills any form, renders, looks at the takes, edits timelines, files the library, edits the Prompt kit, finds and downloads models, changes settings, manages machines and rented GPUs. Each tool goes through the same code as the page, with the same checks and the same refusals, and each call is written to the token's activity. What it changes in the page you have open shows there at once, with Undo.
+Afflatus answers the [Model Context Protocol](https://modelcontextprotocol.io) at `/mcp`, on the same port as the app. An MCP client (Claude Code, Cursor, any agent that speaks Streamable HTTP) drives the whole studio through it: it sees where you are, reads and fills any form, renders, looks at the takes, edits timelines, files the library, edits the Prompt kit, finds and downloads models, changes settings, manages machines and rented GPUs. Each tool goes through the same code as the page, with the same checks and the same refusals, and each call is written to the token's activity. What it changes in the page you have open shows there at once, with Undo.
 
 ## Plugging it in
 
-Make a token in **Settings › Access › Agents (MCP)**: name it after the client, tick its scopes, and copy it. It is shown once; Afflatus keeps only its SHA-256. The **Copy ▾** menu beside it gives the address, the Claude Code command and the Claude Desktop block, with the token filled in.
+Make a token in **Settings › Access › Agents (MCP)**: name it after the client, tick its scopes, and copy it. It is shown once; Afflatus keeps only its SHA-256. The **Copy ▾** menu beside it gives the address and the Claude Code command, with the token filled in.
 
-The server is Streamable HTTP, stateless: every call is a `POST /mcp` answered on its own in JSON, with `Authorization: Bearer afl_mcp_…`. `GET` and `DELETE` answer 405, and a missing, wrong, revoked or ended token gets 401.
+The server is Streamable HTTP, stateless: every call is a `POST /mcp` answered on its own in JSON, with `Authorization: Bearer afl_mcp_…`. It speaks protocol 2026-07-28 (each request carrying its own envelope) and the 2025 handshake (`initialize` first) alike. `GET` and `DELETE` answer 405, and a missing, wrong, revoked or ended token gets 401.
 
 ### Claude Code
 
@@ -18,27 +18,13 @@ claude mcp add --transport http afflatus http://127.0.0.1:8721/mcp --header "Aut
 
 Add `--scope project` to keep it in a project's `.mcp.json` instead (it then holds the token: keep that file out of Git), or `--scope user` for every project.
 
-### Claude Desktop
-
-Claude Desktop starts its MCP servers as programs on its own computer, so a server reached by its address goes through [`mcp-remote`](https://www.npmjs.com/package/mcp-remote), which needs Node.js on that computer (`npx` fetches it on first use). In `claude_desktop_config.json` (Settings › Developer › Edit Config):
-
-```json
-{
-  "mcpServers": {
-    "afflatus": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "http://127.0.0.1:8721/mcp", "--header", "Authorization:${AUTH_HEADER}"],
-      "env": { "AUTH_HEADER": "Bearer afl_mcp_…" }
-    }
-  }
-}
-```
-
-The header goes through an environment variable because Windows splits an argument at its space. `mcp-remote` takes plain `http://` only to this computer: for another address add `"--allow-http"` to `args`, or better, put HTTPS in front (below). Restart Claude Desktop after saving.
-
 ### Any other client
 
-Any client that speaks Streamable HTTP and sends a header: the address is `http(s)://<where Afflatus is>/mcp`, the header `Authorization: Bearer <token>`. Clients that only start local programs (stdio) take the `mcp-remote` line above.
+Any client that speaks Streamable HTTP and sends a header: the address is `http(s)://<where Afflatus is>/mcp`, the header `Authorization: Bearer <token>`.
+
+### Long calls as tasks
+
+A client that takes MCP Tasks (the `io.modelcontextprotocol/tasks` extension of protocol 2026-07-28, which it declares in each request) gets a task rather than an answer from the calls that start long work: `render`, `render_clips`, `finish`, `export`, `run_workflow`, a slow motion of `cut_range`, and `deploy_pod` until the pod's ComfyUI answers. The client follows the task on its own (`tasks/get`, at the interval the task gives, from the queue's forecast) and hands the agent the result once the work has ended: the call's own answer, with each job's end as `job` says it (what it made, or why it failed), or whether the pod's ComfyUI answers. Nothing is sent while it runs: no progress, no calls from the agent. `tasks/cancel` cancels the task's jobs still waiting or running, as `cancel` does; a pod's task only stops being followed (the pod stays up until its idle stop, or `stop_pod`). The call is the same call: the same scopes, limits, spend caps and activity line; a refusal comes back as a refusal, at once. A task is its token's alone, survives a restart of Afflatus, and is forgotten a day after it was made. A client that does not declare the extension gets the answer as before, and follows the jobs with `job`.
 
 ## Scopes and limits
 

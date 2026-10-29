@@ -90,6 +90,9 @@ importers:
       '@modelcontextprotocol/client':
         specifier: 2.4.0
         version: 2.4.0
+      '@modelcontextprotocol/ext-tasks':
+        specifier: 0.2.2
+        version: 0.2.2(@modelcontextprotocol/client@2.4.0)
       '@types/pg':
         specifier: ^8.11.10
         version: 8.23.1
@@ -584,6 +587,14 @@ packages:
   '@modelcontextprotocol/core@2.4.0':
     resolution: {integrity: sha512-z8QBKqdfXLPzkLQuG4xp8hrVEMm1PZ1IgxMN2sMbJiFiAKOWXnAzogXn2W4aqIBlP1ea6U5yiqVquvUNM1Cj6Q==}
     engines: {node: '>=20'}
+
+  '@modelcontextprotocol/ext-tasks@0.2.2':
+    resolution: {integrity: sha512-qpyxUGaameAdtFF09NVPhe82xo70kkED7Kel5c+jAfPTUAh/V5xzWjd9iRBIZFNhK+r9egGIFglDZh0kPbXeoA==}
+    peerDependencies:
+      '@modelcontextprotocol/client': ^2.0.0
+    peerDependenciesMeta:
+      '@modelcontextprotocol/client':
+        optional: true
 
   '@modelcontextprotocol/server@2.4.0':
     resolution: {integrity: sha512-rgR9yxSaAJ+bcsi/XroT/S2AfPiIWloXAnrdfYSCms9ivVju0ishu/wW0J21Ho6+ZOR1r7RyeRbjiRuF87ix5Q==}
@@ -2241,6 +2252,12 @@ snapshots:
   '@modelcontextprotocol/core@2.4.0':
     dependencies:
       zod: 4.6.5
+
+  '@modelcontextprotocol/ext-tasks@0.2.2(@modelcontextprotocol/client@2.4.0)':
+    dependencies:
+      zod: 4.6.5
+    optionalDependencies:
+      '@modelcontextprotocol/client': 2.4.0
 
   '@modelcontextprotocol/server@2.4.0':
     dependencies:
