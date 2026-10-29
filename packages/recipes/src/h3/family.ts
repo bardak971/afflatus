@@ -65,6 +65,9 @@ export const h3 = defineFamily({
       get: { file: "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors", url: `${HF}/loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors` },
     },
     {
+      // MiniMax's own reference model stays the swap's: on the owner's cheese clip (2026-10-29) its 20 steps made the take
+      // he found best (and one in the photo's room), where DaSiWa's hybrid turbo kept the video in 2 takes of 2 at half the
+      // time and the fused refdelta turbo in 2 of 4. DaSiWa's file is a choice, with its own start (SWAP_PRESETS)
       id: "swapUnet", label: "Reference model for Swap (ref2va)", folder: "diffusion_models", detect: ["minimax_h3.*ref2va", SWAP_MODELS], optional: true, onlyFor: ["h3.swap", "h3.motion"],
       hint: "For Swap character (and the Motion transfer windows that carry on from a swap): MiniMax's own reference model, the one the Character-Swap LoRA was trained on (a hybrid fine-tune redrew the room), in ComfyUI's models/diffusion_models folder.",
       get: { file: "minimax_h3_ref2va_pruned_int8_convrot.safetensors", url: `${HF}/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors` },
@@ -77,7 +80,7 @@ export const h3 = defineFamily({
       get: { file: "h3_character_swap_v1.5.safetensors", url: "https://huggingface.co/akatz-ai/MiniMax-H3-Character-Swap-LoRA/resolve/main/h3_character_swap_v1.5.safetensors" },
     },
     {
-      id: "swapSam", label: "SAM 3 for Swap (finds the person)", folder: "checkpoints", detect: ["sam3"], optional: true, onlyFor: ["h3.swap"],
+      id: "swapSam", label: "SAM 3 for Swap (finds the person)", folder: "checkpoints", detect: ["sam3"], byName: true, optional: true, onlyFor: ["h3.swap"],
       hint: "For Swap character: SAM 3.1 tracks the person to replace, so that only they are redrawn and the rest of the video is kept. Put sam3.1_multiplex_fp16.safetensors in ComfyUI's models/checkpoints folder.",
       get: { file: "sam3.1_multiplex_fp16.safetensors", url: "https://huggingface.co/Comfy-Org/sam3.1/resolve/main/checkpoints/sam3.1_multiplex_fp16.safetensors" },
     },
@@ -100,12 +103,12 @@ export const h3 = defineFamily({
       get: { file: "minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot.safetensors", url: `${HF}/model_patches/minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot.safetensors` },
     },
     {
-      id: "sdpose", label: "SDPose (motion, Pose from SDPose)", folder: "checkpoints", detect: ["sdpose"], optional: true, onlyFor: ["h3.motion"],
+      id: "sdpose", label: "SDPose (motion, Pose from SDPose)", folder: "checkpoints", detect: ["sdpose"], byName: true, optional: true, onlyFor: ["h3.motion"],
       hint: "Optional, for Pose from SDPose: ComfyUI's own whole-body pose model. Put sdpose_wholebody_fp16.safetensors in ComfyUI's models/checkpoints folder.",
       get: { file: "sdpose_wholebody_fp16.safetensors", url: "https://huggingface.co/Comfy-Org/SDPose/resolve/main/checkpoints/sdpose_wholebody_fp16.safetensors" },
     },
     {
-      id: "rtdetr", label: "RT-DETR (motion, finds the people for SDPose)", folder: "diffusion_models", detect: ["rt.?detr"], optional: true, onlyFor: ["h3.motion"],
+      id: "rtdetr", label: "RT-DETR (motion, finds the people for SDPose)", folder: "diffusion_models", detect: ["rt.?detr"], byName: true, optional: true, onlyFor: ["h3.motion"],
       hint: "Optional, for Pose from SDPose: RT-DETR finds the people SDPose draws. Put rt_detr_v4-x-hgnet_fp16.safetensors in ComfyUI's models/diffusion_models folder.",
       get: { file: "rt_detr_v4-x-hgnet_fp16.safetensors", url: "https://huggingface.co/Comfy-Org/SDPose/resolve/main/diffusion_models/rt_detr_v4-x-hgnet_fp16.safetensors" },
     },

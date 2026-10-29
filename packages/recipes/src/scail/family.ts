@@ -47,7 +47,7 @@ export const scail = defineFamily({
       get: { file: "clip_vision_h.safetensors", url: "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/clip_vision/clip_vision_h.safetensors" },
     },
     {
-      id: "sam", label: "SAM 3 (finds the people)", folder: "checkpoints", detect: ["sam3"],
+      id: "sam", label: "SAM 3 (finds the people)", folder: "checkpoints", detect: ["sam3"], byName: true,
       hint: "Put sam3.1_multiplex_fp16.safetensors in ComfyUI's models/checkpoints folder.",
       get: { file: "sam3.1_multiplex_fp16.safetensors", url: "https://huggingface.co/Comfy-Org/sam3.1/resolve/main/checkpoints/sam3.1_multiplex_fp16.safetensors" },
     },

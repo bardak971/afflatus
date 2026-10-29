@@ -556,7 +556,8 @@ describe("who downloads", () => {
     await done(d.id);
     expect(await item(d.id)).toMatchObject({ status: "done", via: "pack" });
     expect(readFileSync(join(disk, "nowhere", "signed.safetensors")).equals(FILE)).toBe(true);
-    expect(signedFor).toEqual([{ source: `${siteUrl}/files/plain.safetensors`, headers: {} }]);
+    // the site is Civitai here (CIVITAI_URL): its file is asked with the user's Civitai key, as Civitai's files need (keyFor)
+    expect(signedFor).toEqual([{ source: `${siteUrl}/files/plain.safetensors`, headers: { Authorization: "Bearer k-123" } }]);
     // the pack fetched the signed link, never Afflatus's one-time address; Afflatus never fetched the file itself
     expect(fake.packFetched).toEqual([`${siteUrl}/signed/ok?sig=1`]);
     expect(asked.filter((a) => a.url === "/files/plain.safetensors")).toEqual([]);

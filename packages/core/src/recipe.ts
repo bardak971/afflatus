@@ -33,6 +33,12 @@ interface ModelSlot {
    * showed Swap's two files, the reference model twice, for a recipe nobody could open).
    */
   onlyFor?: string[];
+  /**
+   * Only a file its name says (`detect`) fills it, never one whose weights say they are the family's model: a helper kept
+   * in the model's own folder (RT-DETR in diffusion_models, SAM 3 in checkpoints). By its weights, H3's RT-DETR slot took
+   * DaSiWa's video model when RT-DETR was not there (2026-10-29).
+   */
+  byName?: boolean;
 }
 
 /** One model architecture: what its files are and how its prompts are written. */

@@ -170,6 +170,10 @@ describe("scan", () => {
     fake = await startFakeComfy({ catalog, models: { vae: [], loras: [], checkpoints: [], diffusion_models: ["nameless_v3.safetensors", "mystery.safetensors"] } });
     const t = await scan(new ComfyClient(fake.url), [big], [make], {}, (_f, file) => known[file]);
     expect(t.families[0]!.slots[0]!.file).toBe("nameless_v3.safetensors");
+    // a helper kept in the model's folder (RT-DETR) takes only a file its name says: never the family's model by its weights
+    const helped = defineFamily({ ...big, slots: [...big.slots, { id: "detr", label: "RT-DETR", folder: "diffusion_models", detect: ["rt.?detr"], hint: "", optional: true, byName: true }] });
+    const u = await scan(new ComfyClient(fake.url), [helped], [make], {}, (_f, file) => known[file]);
+    expect(u.families[0]!.slots[1]).toMatchObject({ file: null, choices: [] });
   });
 
   it("only reads", async () => {

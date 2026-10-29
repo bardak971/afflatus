@@ -1,5 +1,5 @@
 import { fileName } from "./media";
-import { civitaiVersion } from "./civitai";
+import { civitaiVersion, keyFor } from "./civitai";
 import type { Comfy } from "./comfy";
 import { filesIn } from "@afflatus/comfy";
 import { isOfficialFile, type PresetFile } from "@afflatus/core";
@@ -907,8 +907,8 @@ export class PodFiles {
         total = Math.round((found.file.sizeKB ?? 0) * 1024) || total;
       } else {
         source = src.url;
-        // a gated model's file is signed only for an account that accepted its terms: the user's token, to Hugging Face alone
-        if (settings.huggingFaceToken && /^https:\/\/(huggingface\.co|hf\.co)\//i.test(source)) headers = { Authorization: `Bearer ${settings.huggingFaceToken}` };
+        // the user's own account for the site the file is on, to that site alone (keyFor)
+        headers = keyFor(source, settings);
       }
       // its clock starts as it is asked for: a pod's two at a time start at once, and a fast file is done before the next look
       e.flowingAt = Date.now();

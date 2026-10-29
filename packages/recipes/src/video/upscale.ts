@@ -91,7 +91,7 @@ export const SEEDVR_NODES = ["ResizeImageMaskNode", "SeedVR2Preprocess", "VAEEnc
 /** What every video family (and the image tools) declare to hold SeedVR2's two files. */
 export const SEEDVR_SLOTS = [
   {
-    id: "seedvr", label: "SeedVR2 model (video upscale)", folder: "diffusion_models", detect: ["seedvr2.*3b", "seedvr2"], optional: true,
+    id: "seedvr", label: "SeedVR2 model (video upscale)", folder: "diffusion_models", detect: ["seedvr2.*3b", "seedvr2"], byName: true, optional: true,
     hint: "Optional, 3.4 GB: with a SeedVR2 model in ComfyUI's models/diffusion_models folder, the \"Video: SeedVR2\" upscale route restores and enlarges clips with the whole clip in view (no flicker). The 3B model; the 7B one (8 GB) is sharper and slower.",
     get: { file: "seedvr2_3b_int8_convrot.safetensors", url: "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_3b_int8_convrot.safetensors" },
   },

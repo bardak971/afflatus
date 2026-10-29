@@ -349,6 +349,8 @@ export const SWAP_PRESETS = [
   // refdelta model; with the caption alone it took a cartoon on a TV for the person for 3 s, §9.10). Written into the
   // prompt as sent, the preset hid what the parts write (card #49)
   { match: "refdelta", values: { fast: true, turboSteps: 4, sampler: "er_sde", scheduler: "beta", shiftVideo: 12, shiftAudio: 3 }, note: "a fused reference turbo: Turbo, 4 steps, er_sde / beta, as its swap workflow runs it" },
+  // DaSiWa's hybrid turbo as it swapped and kept the video in 2 takes of 2, where the fused turbo did in 2 of 4 (the owner's cheese clip, 2026-10-29)
+  { match: "dasiwa.*hybrid.*turbo", values: { fast: true, turboSteps: 8, sampler: "euler", scheduler: "simple", shiftVideo: 8, shiftAudio: 4 }, note: "DaSiWa's hybrid turbo: Turbo, 8 steps, euler / simple, shift 8 / 4, as its swaps were tested" },
   ...(h3Video.presets ?? []),
 ];
 

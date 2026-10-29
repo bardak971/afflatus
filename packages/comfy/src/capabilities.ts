@@ -123,7 +123,7 @@ async function slotFiles(families: Family[], files: Files, overrides: SlotOverri
           const versionIs = (x: string) => (f.line ? versionOf(f.line, x, undefined, infoOf(s.folder, x)) : null);
           const list = f.line ? all.filter((x) => { const v = versionIs(x); return !v || v === f.line!.own; }) : all;
           // a file whose weights say they are this family's fits the slot whatever it is called (only the main model's folders: a VAE or a text encoder says nothing of a family)
-          const byWeights = s.folder === "diffusion_models" || s.folder === "checkpoints" ? list.filter((x) => sameBase(infoOf(s.folder, x)?.base, f.name)) : [];
+          const byWeights = !s.byName && (s.folder === "diffusion_models" || s.folder === "checkpoints") ? list.filter((x) => sameBase(infoOf(s.folder, x)?.base, f.name)) : [];
           // weights say only the model ("LTX", for each of its versions): in a family whose versions do not mix, they pick the
           // slot's file only when the version is told as well (a fine-tune's trained-on model, its Civitai base); the others
           // stay choices, picked by hand

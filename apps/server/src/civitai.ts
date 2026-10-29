@@ -19,6 +19,17 @@ export const pretendSites = envSaid.pretendSites;
 
 /** The sites to ask, in order. CIVITAI_URL replaces them (the tests and the demo point it at a pretend one). */
 export const civitaiSites = () => { const own = envSaid.civitaiUrl(); return own ? [own.replace(/\/+$/, "")] : ["https://civitai.com", "https://civitai.red"]; };
+/**
+ * The account a model file's address is fetched with: the user's Hugging Face token to Hugging Face alone (a gated model's
+ * file is signed only for an account that accepted its terms), their Civitai key to Civitai alone (most of its files answer
+ * 401 without one, H3's DaSiWa among them). Nothing to anyone else.
+ */
+export function keyFor(url: string, keys: { huggingFaceToken?: string | null; civitaiKey?: string | null }): Record<string, string> | undefined {
+  if (keys.huggingFaceToken && /^https:\/\/(huggingface\.co|hf\.co)\//i.test(url)) return { Authorization: `Bearer ${keys.huggingFaceToken}` };
+  const civitai = civitaiSites().some((site) => url.toLowerCase().startsWith(`${site.toLowerCase()}/`));
+  return keys.civitaiKey && civitai ? { Authorization: `Bearer ${keys.civitaiKey}` } : undefined;
+}
+
 const hostOf = (site: string) => {
   try {
     return new URL(site).host.replace(/^www\./, "");
