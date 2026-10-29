@@ -1,5 +1,5 @@
 import type { EventEmitter } from "node:events";
-import { chunkAtOrAfter, clipMusicOf, follows, joinFade as fadeOf, landsOn, LATENT_FPS, latentClockOf, plannedSeconds, transitionOf, type ClipMusic, type JoinTake, type Recipe, type Transition } from "@afflatus/core";
+import { chunkAtOrAfter, clipMusicOf, follows, joinFade as fadeOf, landsOn, LATENT_FPS, latentClockOf, plannedSeconds, transitionOf, windowPlaysSeconds, type ClipMusic, type JoinTake, type Recipe, type Transition } from "@afflatus/core";
 import type { Db, Tables } from "./db";
 import type { Registry } from "./registry";
 import type { Storage } from "./storage";
@@ -196,7 +196,9 @@ export const plannedLengthOf = (p: Placed, recipe: Recipe<any> | undefined, hidd
   const plays = lengthOf(p);
   if (plays > 0) return plays;
   // `hiddenMs`: what its take will hide of its end (a window run past a part kept removed: SourcePlan.hidden)
-  return Math.max(1000, ((recipe ? plannedSeconds(recipe.inputs, JSON.parse(p.clip.inputs) as Record<string, unknown>) : null) ?? 5) * 1000 - hiddenMs);
+  // a window of a source plays what it shows of it, its carried frames not counted twice (windowPlaysSeconds)
+  const inputs = JSON.parse(p.clip.inputs) as Record<string, unknown>;
+  return Math.max(1000, ((recipe ? windowPlaysSeconds(recipe, inputs, p.clip.joined) ?? plannedSeconds(recipe.inputs, inputs) : null) ?? 5) * 1000 - hiddenMs);
 };
 
 /**

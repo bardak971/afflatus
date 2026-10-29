@@ -23,7 +23,7 @@ const model = {
 
 const timeline = {
   id: "zz-test-timeline", name: "zz-test timeline", clips: [], look: null, mood: null, folderId: null,
-  source: { asset: "zz-test-video", video: { id: "zz-test-video", name: "zz-test.mp4" }, atMs: 0, fromMs: 0, toMs: 10_000, recipe: model.id, windowMs: 5000, inputs: { picture: "zz-test-picture", prompt: "as saved" }, snap: false, clip: null },
+  source: { asset: "zz-test-video", video: { id: "zz-test-video", name: "zz-test.mp4" }, atMs: 0, fromMs: 0, toMs: 10_000, recipe: model.id, windowMs: 5000, inputs: { picture: "zz-test-picture", prompt: "as saved" }, withinMs: 0, clip: null },
 } as unknown as Timeline;
 
 const none = { data: undefined, isSuccess: false } as never;
@@ -116,7 +116,8 @@ describe("a swap's source, drawn (the owner, 2026-10-18: no source form, the cli
         picking={false} onPicking={() => {}}
       />,
     );
-    expect(screen.queryAllByRole("textbox")).toEqual([]);
+    // no field of a form: the ± of Clip length is the source's own, as a recording's
+    expect(screen.queryAllByRole("textbox").filter((x) => x.getAttribute("aria-label") !== "Window (± s of Clip length)")).toEqual([]);
     expect(screen.getByText(/settings are in the clips' form once they are made/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Make 2 clips" }));
     expect(made).toEqual([false]);

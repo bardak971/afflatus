@@ -3,7 +3,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { httpError } from "./errors";
 import { oneAtATime } from "./keyedLock";
-import { castOf, checkedValue } from "./mcpDrafts";
+import { castOf, checkedValues } from "./mcpDrafts";
 import { formOf, machineName, machineOf, seen, spends, wholeOf, type Seen } from "./mcpForms";
 import { mayQueueAll } from "./mcpRender";
 import { Rich, tool, type ToolCtx } from "./mcpTool";
@@ -148,11 +148,21 @@ async function needsALook(s: Services, at: Seen, view: View) {
   if (ready.length) rows.push({ clips: ready.map(n), what: `${plural(ready.length, "clip")} with nothing rendered yet`, mend: "render_clips (all)" });
   for (const w of waiting) rows.push({ clips: [n(w.c)], what: `clip ${n(w.c)} cannot be rendered yet: ${w.why}`, mend: "edit_clip" });
   if (voiceless.length) rows.push({ clips: voiceless.map(n), what: `${plural(voiceless.length, "Lip sync clip")} waiting for a voice recording`, mend: "edit_clip (its recording), or edit_timeline recording" });
-  // a clip that carries on from one with no take and none coming: its render is refused (card #128)
+  // a clip that carries on from one with no take and none coming: its render is refused (card #128). A chain of them (a
+  // source cut into windows, none rendered yet) is said once, from its first clip to its last, not once a join.
+  const chains: number[][] = [];
   for (const [i, c] of view.clips.entries()) {
     const before = view.clips[i - 1];
     if (!before || c.kind !== "video" || c.joined !== "continue" || before.kind === "still" || before.take || before.job) continue;
-    rows.push({ clips: [i, i + 1], what: `clip ${i + 1} carries on from clip ${i}, which has no take: its render is refused until clip ${i} has one`, mend: `render_clips with both (clip ${i} first: they are queued in order), or make their join a cut (edit_timeline join)` });
+    const last = chains.at(-1);
+    if (last?.at(-1) === i) last.push(i + 1);
+    else chains.push([i, i + 1]);
+  }
+  for (const chain of chains) {
+    const [a, b] = [chain[0]!, chain.at(-1)!];
+    rows.push(chain.length === 2
+      ? { clips: chain, what: `clip ${b} carries on from clip ${a}, which has no take: its render is refused until clip ${a} has one`, mend: `render_clips with both (clip ${a} first: they are queued in order), or make their join a cut (edit_timeline join)` }
+      : { clips: chain, what: `clips ${a + 1}–${b} each carry on from the clip before, which has no take: each one's render is refused until the clip before has one`, mend: `render_clips with clips ${a}–${b} (they are queued in order), or make a join a cut (edit_timeline join)` });
   }
   const stale = view.clips.filter((c) => c.join === "stale");
   if (stale.length) rows.push({ clips: stale.map(n), what: `${plural(stale.length, "join")} no longer follow on: the clip before changed after ${stale.length > 1 ? "they were" : "it was"} rendered`, mend: "render_clips them again" });
@@ -233,7 +243,7 @@ async function timelineSaid(s: Services, view: View) {
       })),
       source: view.source ? {
         video: view.source.video.id, name: view.source.video.name, durationMs: view.source.video.durationMs,
-        atMs: view.source.atMs, fromMs: view.source.fromMs, toMs: view.source.toMs, form: view.source.recipe, windowMs: view.source.windowMs, sceneCuts: view.source.snap, values: view.source.inputs,
+        atMs: view.source.atMs, fromMs: view.source.fromMs, toMs: view.source.toMs, form: view.source.recipe, windowMs: view.source.windowMs, within: view.source.withinMs / 1000, values: view.source.inputs,
         removed: view.source.removed.map((p) => ({ beforeClip: number(p.before), fromMs: p.fromMs, toMs: p.toMs, clips: p.clips, takes: p.takes })),
       } : null,
       music: view.music ? {
@@ -324,7 +334,7 @@ const action = z.discriminatedUnion("do", [
   z.strictObject({ do: z.literal("recording"), item: z.string().describe("A voice recording (a sound, or a video with sound) made into Lip sync clips cut at its pauses."), clip: clipRef.optional().describe("An empty clip it goes in place of; left out: after the last clip."), seconds: z.number().min(1).max(60).optional().describe("Clip length (5 by default)."), window: z.number().min(0).max(CUT_WINDOW_MOST).optional().describe("± this many seconds around the clip length, where a pause, a line's end or the quietest moment is looked for.") }),
   z.strictObject({ do: z.literal("recut_recording"), item: z.string(), seconds: z.number().min(1).max(60), window: z.number().min(0).max(CUT_WINDOW_MOST) }),
   z.strictObject({ do: z.literal("trim_recording"), item: z.string(), fromMs: z.number().min(0), toMs: z.number().min(0) }),
-  z.strictObject({ do: z.literal("source"), item: z.string().nullable().optional().describe("A long video of the library on the Source lane; null takes the source away."), atMs: z.number().optional().describe("Where its start sits on the timeline."), fromMs: z.number().min(0).optional(), toMs: z.number().min(0).optional().describe("The stretch of it made into clips."), form: z.string().optional().describe("The windowed form its windows are made with (Motion transfer, Swap character…)."), windowMs: z.number().min(500).max(60_000).optional(), sceneCuts: z.boolean().optional().describe("Windows end at the video's scene cuts."), values: z.record(z.string(), z.unknown()).optional().describe("The form's inputs every window is made with (run-up, prompt, references…), checked as the form checks them.") }),
+  z.strictObject({ do: z.literal("source"), item: z.string().nullable().optional().describe("A long video of the library on the Source lane; null takes the source away."), atMs: z.number().optional().describe("Where its start sits on the timeline."), fromMs: z.number().min(0).optional(), toMs: z.number().min(0).optional().describe("The stretch of it made into clips."), form: z.string().optional().describe("The windowed form its windows are made with (Motion transfer, Swap character…)."), windowMs: z.number().min(500).max(60_000).optional().describe("Clip length: how long each window is asked to be."), within: z.number().min(0).max(CUT_WINDOW_MOST).optional().describe("± seconds of windowMs a window may end at a better spot: a scene cut (the next window opens the new shot), else a pause in the speech, else the quietest moment. 0: every window windowMs long."), values: z.record(z.string(), z.unknown()).optional().describe("The form's inputs every window is made with (run-up, prompt, references…), checked as the form checks them.") }),
   z.strictObject({ do: z.literal("make_source"), again: z.boolean().optional().describe("Cut again into the clips it made (the rendered ones kept).") }),
   z.strictObject({ do: z.literal("split_source"), atMs: z.number().min(0) }),
   z.strictObject({ do: z.literal("trim_source"), fromMs: z.number().min(0), toMs: z.number().min(0) }),
@@ -455,11 +465,12 @@ async function runAction(s: Services, ctx: ToolCtx, id: string, a: Action): Prom
         if (!form) throw httpError("Give the source a form first (form), then its values.");
         const recipe = formOf(s, form);
         const at = await seen(s);
-        inputs = { ...(view.source?.inputs ?? {}) };
-        for (const [k, v] of Object.entries(a.values)) inputs[k] = await checkedValue(s, at, recipe, k, v);
+        // null takes an input out, as edit_clip's does
+        const checked = await checkedValues(s, at, recipe, a.values);
+        inputs = Object.fromEntries(Object.entries({ ...(view.source?.inputs ?? {}), ...checked }).filter(([, v]) => v !== null));
       }
       if (a.form) formOf(s, a.form);
-      const patch = { asset: a.item, atMs: a.atMs, fromMs: a.fromMs, toMs: a.toMs, recipe: a.form, windowMs: a.windowMs, snap: a.sceneCuts, inputs };
+      const patch = { asset: a.item, atMs: a.atMs, fromMs: a.fromMs, toMs: a.toMs, recipe: a.form, windowMs: a.windowMs, withinMs: a.within === undefined ? undefined : Math.round(a.within * 1000), inputs };
       await t.edit(id, { source: Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) });
       return `the source lane changed${view.clips.length && view.source ? "" : ": make_source cuts it into clips"}`;
     }
@@ -601,11 +612,9 @@ const editClip = tool({
       const recipe = formOf(s, args.form ?? c.recipe ?? "");
       const inputs: Record<string, unknown> = { ...c.inputs };
       const changed: string[] = [];
-      for (const [k, v] of Object.entries(args.set ?? {})) {
-        if (v === null) {
-          if (!(recipe.inputs as InputSpec[]).some((x) => x.id === k)) throw httpError(`${recipe.title} has no input ${k}.`);
-          delete inputs[k];
-        } else inputs[k] = await checkedValue(s, at, recipe, k, v);
+      for (const [k, v] of Object.entries(await checkedValues(s, at, recipe, args.set ?? {}))) {
+        if (v === null) delete inputs[k];
+        else inputs[k] = v;
         changed.push(k);
       }
       const patch: ClipPatch = {
@@ -889,7 +898,7 @@ const planClips = tool({
     const recipe = formOf(s, args.form);
     const at = await seen(s);
     // each text checked as the form checks it, before anything is made: a wrong id is refused with the form's inputs
-    for (const texts of args.clips) for (const [k, v] of Object.entries(texts)) await checkedValue(s, at, recipe, k, v);
+    for (const texts of args.clips) await checkedValues(s, at, recipe, texts);
     let said = "";
     const { made, numbers } = await agentChange(s, ctx, view.id, async () => {
       const made = await s.timelines.planner.planClips(view.id, recipe.id, args.clips);

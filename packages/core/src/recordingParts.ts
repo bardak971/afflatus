@@ -168,7 +168,7 @@ const QUIET_DB = 3;
  * `near` itself when its own sample is one of them (a level stretch is cut at the length asked, not a sample off it); null
  * with no loudness there.
  */
-function quietest(levels: Loudness | null | undefined, lo: number, hi: number, near: number): number | null {
+export function quietest(levels: Loudness | null | undefined, lo: number, hi: number, near: number): number | null {
   if (!levels?.db.length || !(levels.rate > 0)) return null;
   const samples: Array<{ i: number; t: number; db: number }> = [];
   for (let i = Math.max(0, Math.ceil(lo * levels.rate - 0.5)); i < levels.db.length; i++) {

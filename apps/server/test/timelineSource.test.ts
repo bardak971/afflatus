@@ -785,18 +785,36 @@ describe("a timeline's source lane", () => {
     await expect(call("POST", `/api/timelines/${tl.id}/source/split`, { atMs: 27900 })).rejects.toThrow(/stretch/);
   });
 
-  it("snaps its windows to the scene cuts kept beside the source, not read again on each Make", async () => {
+  it("ends a window exactly on a scene cut within ± of its length, kept beside the source, its take hiding the overshoot", async () => {
     const tl = await call("POST", "/api/timelines", { name: "zz-test source" });
     const meme = await asset("video");
-    // the cuts as the editor read them once (TimelineMedia.scenes): the file itself is never read here
-    await t.services.storage.put(`scenes/${meme.id.slice(0, 2)}/${meme.id}.json`, new TextEncoder().encode(JSON.stringify({ cuts: [11000] })));
-    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id, fromMs: 3000, snap: true, recipe: "scail.motion", inputs: { prompt: "A man raps." } } });
+    // the cuts, pauses and loudness as the editor read them once (TimelineMedia): the file itself is never read here
+    const put = (key: string, v: unknown) => t.services.storage.put(`${key}/${meme.id.slice(0, 2)}/${meme.id}.json`, new TextEncoder().encode(JSON.stringify(v)));
+    await put("scenes", { cuts: [11000] });
+    await put("pauses", { pauses: [], lines: [] });
+    await put("motion", { rate: 10, values: [], sound: null, speech: null });
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id, fromMs: 3000, windowMs: 8000, withinMs: 1500, recipe: "scail.motion", inputs: { prompt: "A man raps." } } });
     await call("POST", `/api/timelines/${tl.id}/source/make`);
     const v = await view(tl.id);
-    // a window ends on the cut, and the one after it opens a new shot
-    const at = v.clips.findIndex((c: { joined: string }, i: number) => i > 0 && c.joined === "cut");
-    expect(at).toBeGreaterThan(0);
-    expect(Math.abs(v.clips[at].inputs.drivingStart - 11)).toBeLessThan(0.3);
+    // the window after the cut opens the new shot exactly there; the one before runs to its next frame count and hides the rest
+    expect(v.clips[1].joined).toBe("cut");
+    expect(v.clips[1].inputs.drivingStart).toBeCloseTo(11, 3);
+    expect(v.clips[0].hiddenMs).toBeGreaterThan(0);
+    expect(v.clips[0].hiddenMs).toBeLessThan((4 / 16) * 1000);
+    expect(v.clips[0].inputs.drivingStart + v.clips[0].inputs.drivingSeconds - v.clips[0].hiddenMs / 1000).toBeCloseTo(11 + 0.5 / 16, 1);
+    // at ± 0 the cut is carried through: every window that long
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { withinMs: 0 } });
+    await call("POST", `/api/timelines/${tl.id}/source/make`, { again: true });
+    const again = await view(tl.id);
+    expect(again.clips.slice(1).every((c: { joined: string }) => c.joined === "continue")).toBe(true);
+    expect(again.clips.every((c: { hiddenMs?: number }) => !c.hiddenMs)).toBe(true);
+  });
+
+  it("reads a source of before with its scene cuts on as cut within the recording's ±, off as ± 0", async () => {
+    const { sourceOfRow } = await import("../src/timelineSource");
+    expect(sourceOfRow(JSON.stringify({ asset: "a", snap: true }))!.withinMs).toBe(1500);
+    expect(sourceOfRow(JSON.stringify({ asset: "a", snap: false }))!.withinMs).toBe(0);
+    expect(sourceOfRow(JSON.stringify({ asset: "a", withinMs: 800 }))!.withinMs).toBe(800);
   });
 
   it("is refused without a model that makes a source window by window, or without a source", async () => {

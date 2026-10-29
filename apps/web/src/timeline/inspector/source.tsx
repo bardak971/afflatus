@@ -13,12 +13,14 @@ import { appendTo } from "../../promptText";
 import { Form, mainTextOf } from "../../RecipeForm";
 import { CardPrompt } from "../../recipeForm/Part";
 import { Select } from "../../Select";
-import { Button, cx, Toggle } from "../../ui";
+import { Button, cx } from "../../ui";
 import { WritingHelp } from "../../WritingHelp";
 import { useClockAs, type Clock } from "../clock";
 import { ColumnEdge, FoldButton, useColumnWidth } from "../column";
 import { windowed, type SourcePlace } from "../track/SourceLane";
-import { CloseButton, Slide } from "./parts";
+import { ClipLength, landedSaid } from "./clipLength";
+import { SOURCE_LANDED } from "./clipSource";
+import { CloseButton } from "./parts";
 
 const Designer = lazy(() => import("../../Designer").then((m) => ({ default: m.Designer })));
 
@@ -165,12 +167,20 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
             )}
           </div>
         )}
-        <Slide label="Window" value={windowMs} min={leastMs} max={mostMs} step={100} show={(ms) => `${(ms / 1000).toFixed(1)} s`} onCommit={(windowMs) => onEdit({ windowMs })} />
-        <Toggle on={source.snap} onChange={(snap) => onEdit({ snap })} label="Cut at scene changes" note={source.snap ? "a window ends at a cut in the source; the next one opens a new shot" : "windows of the same length, end to end"} />
+        <ClipLength
+          seconds={windowMs / 1000}
+          within={source.withinMs / 1000}
+          leastMs={leastMs}
+          mostMs={mostMs}
+          pending={false}
+          onCut={(seconds, within) => onEdit({ windowMs: Math.round(seconds * 1000), withinMs: Math.round(within * 1000) })}
+          landed={place?.made ? null : landedSaid(windows.slice(0, -1).map((x) => x.on ?? "length"), SOURCE_LANDED)}
+          lengths={place?.made ? [] : windows.map((x) => (x.toMs - x.fromMs) / 1000)}
+        />
         <span className="text-xs text-ink-2">
           {place?.made
             ? "Made: the clips above carry its parts (outlined on the lane)."
-            : `${windows.map((x, k) => `${k + 1}: ${mmss(x.fromMs, { decimals: 1 })}–${mmss(x.toMs, { decimals: 1 })}`).join(" · ")}. Each carries on from the one before (its last frames), with this form and one seed; ${place?.replaces ? "they take the place of the clip the stretch was taken from" : "they go after the last clip"}, dashed on the track.`}
+            : `${windows.map((x, k) => `${k + 1}: ${mmss(x.fromMs, { decimals: 1 })}–${mmss(x.toMs, { decimals: 1 })}`).join(" · ")}. Each carries on from the one before (its last frames), or opens the new shot after a scene cut, with this form and one seed; ${place?.replaces ? "they take the place of the clip the stretch was taken from" : "they go after the last clip"}, dashed on the track.`}
         </span>
       </div>
     ),
