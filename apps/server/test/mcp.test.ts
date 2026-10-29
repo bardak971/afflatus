@@ -8,6 +8,7 @@ import { z } from "zod";
 import { clientOf, serverFor } from "../src/mcp";
 import { isNever, quoted, tool, type Tool } from "../src/mcpTool";
 import { McpTokens, type McpToken } from "../src/mcpTokens";
+import { TOOLS } from "../src/mcpTools";
 import { unwrittenOf } from "../src/unwrittenDrafts";
 import { pageOf } from "../src/whatsOpen";
 import { makeApp, type TestApp } from "./helpers";
@@ -372,17 +373,12 @@ describe("the tools, through the SDK's client over HTTP", () => {
     const { token, id } = await made("make", "Claude Code");
     const client = await connect(token);
     expect(client.getServerVersion()?.name).toBe("afflatus");
-    expect((await client.listTools()).tools.map((x) => x.name)).toEqual([
-      "whats_open", "show_page", "overview", "list_forms", "describe_form", "estimate", "prompt_history", "check_tags", "prompt_from_parts", "list_drafts", "read_draft", "new_draft", "edit_draft", "apply_preset", "delete_draft",
-      "render", "queue_status", "job", "cancel", "retry", "pause_machine", "resume_machine", "load_model", "view_item", "compare",
-      "search_library", "keep", "unkeep", "bin", "restore", "move", "rename", "list_places", "new_folder", "edit_folder", "new_project", "rename_project",
-      "import_from_url", "cut_range", "find_scenes", "extract_scenes", "save_frame", "list_kit", "read_kit_item", "new_kit_item", "edit_kit_item",
-      "list_timelines", "read_timeline", "view_timeline", "new_timeline", "edit_timeline", "edit_clip", "render_clips", "use_take", "finish", "export", "undo", "redo",
-      "timeline_range", "plan_clips", "mask_preview", "remove_take", "bin_unused_takes", "list_workflows", "import_workflow", "run_workflow",
-      "list_models", "find_models", "download", "downloads", "change_downloads", "model_sets", "edit_model_set", "model_settings", "change_model_settings", "model_page", "set_model_words", "model_updates",
-      "read_settings", "change_setting", "list_machines", "edit_machine", "remove_machine", "reconnect", "pods", "deploy_pod", "start_pod", "stop_pod", "costs", "caps",
-      "comfy_log", "boot_log", "job_live", "render_stats", "network_volumes",
-    ]);
+    // every tool of the registry, in its order, each once: the list itself is the registry's (mcpTools.ts TOOL_GROUPS), and
+    // docs/mcp.md is written from it (mcpDocs.test.ts holds the two together)
+    const listed = (await client.listTools()).tools.map((x) => x.name);
+    expect(listed).toEqual(TOOLS.map((x) => x.name));
+    expect(new Set(listed).size).toBe(listed.length);
+    expect(listed.slice(0, 2)).toEqual(["whats_open", "show_page"]);
     const r = await client.callTool({ name: "overview" });
     expect(r.isError).toBeFalsy();
     const o = JSON.parse(text(r)) as Record<string, any>;

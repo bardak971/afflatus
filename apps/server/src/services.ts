@@ -34,6 +34,7 @@ import { Precompute, type PrecomputeOptions } from "./precompute";
 import { Notify } from "./notify";
 import { Access } from "./access";
 import { capHeld } from "./mcpRender";
+import { huntMayDeploy } from "./mcpMachines";
 import { downPodFiles } from "./filePlaces";
 import { McpTokens } from "./mcpTokens";
 import { WhereNow } from "./whatsOpen";
@@ -376,6 +377,8 @@ export async function createServices(
   // a hunt kept from before carries on; its notices go where the others do, its summary with the queue's status
   services.hunt = new Hunt(services);
   services.hunt.tell = (kind, notice) => notify.say(kind, notice);
+  // a hunt an MCP token started deploys only within that token's cap and the app's, asked again when its GPU is found
+  services.hunt.mayDeploy = (token, hour, gpu) => huntMayDeploy(services, token, hour, gpu);
   queue.huntOf = (held) => services.hunt.summary(held);
   await services.hunt.run();
   // every model file hashed once, a minute after the start (and on "Hash now"), waiting while this computer renders

@@ -7,6 +7,7 @@ import { VERSION } from "./config";
 import { isNever, NEVER, quoted, Rich, type NeverSubject, type Tool, type ToolCtx } from "./mcpTool";
 import { selfUrl } from "./fetchFile";
 import { refusal, SCOPE_WORDS, type McpToken } from "./mcpTokens";
+import { UPLOAD_MOST } from "./mcpLibrary";
 import { TOOLS } from "./mcpTools";
 import type { Services } from "./services";
 
@@ -126,13 +127,27 @@ export function clientOf(body: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * The most a call to /mcp may weigh: an upload's file as base64 (UPLOAD_MOST, a third more) with room for the rest of the
+ * call. Above the app's 8 MB for every other route, so read only once its token is known (onRequest, before the body).
+ */
+const MCP_BODY_MOST = Math.ceil((UPLOAD_MOST * 4) / 3) + 2 ** 20;
+
 export function registerMcp(app: FastifyInstance, s: Services): void {
-  app.post("/mcp", async (req, reply) => {
-    const token = await s.mcp.tokens.byBearer(req.headers.authorization);
-    if (!token) {
-      return reply.status(401).header("WWW-Authenticate", 'Bearer realm="afflatus"').header("Cache-Control", "no-store")
-        .send({ error: "/mcp needs a token of Settings › Interface › Access as a Bearer token: none was sent, or it is wrong, revoked or ended." });
-    }
+  const tokenOf = new WeakMap<object, McpToken>();
+  app.post("/mcp", {
+    bodyLimit: MCP_BODY_MOST,
+    // the token checked before the body is read: a client without one is never given the room an upload has
+    onRequest: async (req, reply) => {
+      const token = await s.mcp.tokens.byBearer(req.headers.authorization);
+      if (!token) {
+        return reply.status(401).header("WWW-Authenticate", 'Bearer realm="afflatus"').header("Cache-Control", "no-store")
+          .send({ error: "/mcp needs a token of Settings › Interface › Access as a Bearer token: none was sent, or it is wrong, revoked or ended." });
+      }
+      tokenOf.set(req, token);
+    },
+  }, async (req, reply) => {
+    const token = tokenOf.get(req)!;
     const ip = req.socket.remoteAddress ?? "";
     await s.mcp.tokens.touch(token, ip, clientOf(req.body));
     const server = serverFor(s, token, ip, TOOLS, selfUrl(req));

@@ -205,6 +205,21 @@ export async function projectEdit(s: Services, id: string, body: { name?: string
   return view(s, await mustExist(s, p.id));
 }
 
+/** The project goes; its drafts, timelines and folders go to the Inbox. Nothing is removed (DELETE /api/projects/:id, MCP's delete_project). */
+export async function projectDelete(s: Services, id: string) {
+  const p = await mustExist(s, id);
+  await s.db.transaction().execute(async (tx) => {
+    await tx.updateTable("folders").set({ project_id: null }).where("project_id", "=", p.id).execute();
+    await tx.updateTable("drafts").set({ project_id: null }).where("project_id", "=", p.id).execute();
+    await tx.updateTable("timelines").set({ project_id: null }).where("project_id", "=", p.id).execute();
+    await tx.deleteFrom("projects").where("id", "=", p.id).execute();
+  });
+  await unpin(s.db, p.id);
+  // its folders go to the Inbox, and every item in them changes project: every list is read
+  s.queue.events.emit("library");
+  return p;
+}
+
 export function registerProjects(app: FastifyInstance, s: Services): void {
   app.get("/api/projects", async () => projectsList(s));
 
@@ -242,18 +257,8 @@ export function registerProjects(app: FastifyInstance, s: Services): void {
   /** Rename it (its root folder follows), or archive / unarchive it. */
   app.patch<{ Params: { id: string } }>("/api/projects/:id", async (req) => projectEdit(s, req.params.id, z.strictObject({ name: name.optional(), archived: z.boolean().optional() }).parse(req.body)));
 
-  /** The project goes; its drafts, timelines and folders go to the Inbox. Nothing is removed. */
   app.delete<{ Params: { id: string } }>("/api/projects/:id", async (req) => {
-    const p = await mustExist(s, req.params.id);
-    await s.db.transaction().execute(async (tx) => {
-      await tx.updateTable("folders").set({ project_id: null }).where("project_id", "=", p.id).execute();
-      await tx.updateTable("drafts").set({ project_id: null }).where("project_id", "=", p.id).execute();
-      await tx.updateTable("timelines").set({ project_id: null }).where("project_id", "=", p.id).execute();
-      await tx.deleteFrom("projects").where("id", "=", p.id).execute();
-    });
-    await unpin(s.db, p.id);
-    // its folders go to the Inbox, and every item in them changes project: every list is read
-    s.queue.events.emit("library");
+    await projectDelete(s, req.params.id);
     return { ok: true };
   });
 }

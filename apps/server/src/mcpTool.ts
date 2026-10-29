@@ -25,6 +25,18 @@ export const NEVER = {
   "show-in-folder": "Show in folder",
   "get-ffmpeg": "Get ffmpeg",
   updates: "Afflatus's updates",
+  // the user's check of what an agent's workflow runs and reaches (#133's W1): an agent approving it would check itself
+  "approve-workflow": "approving a workflow",
+  // code put on a machine, then a ComfyUI restart
+  "node-packs": "installing node packs",
+  // a network volume's files have no bin: deleted there, they are gone
+  "volume-files": "deleting a network volume or its files",
+  // the estimates and every cap are worked out from them
+  "render-times": "forgetting the render times",
+  backups: "backups of the database",
+  // it goes out to the notify channels, beyond Afflatus
+  share: "sharing an item",
+  "link-folder": "linking or unlinking a folder of the disk",
 } as const;
 export type NeverSubject = keyof typeof NEVER;
 

@@ -487,10 +487,24 @@ export const kitEdit = (s: Services, id: string, change: (row: KitItem) => z.out
   return { before: view(row), after: view({ ...row, ...next }) };
 });
 
-export function registerEntities(app: FastifyInstance, s: Services): void {
-  const missing = () => httpError("this was not found", 404);
-  const changed = () => s.queue.events.emit("entities");
+/**
+ * An item of the kit deleted (DELETE /api/entities/:id, MCP's delete_kit_item): the pictures uploaded for it (not those
+ * picked from the library), wanted by no one else, to the bin; the casts of the timelines and clips that named it let go
+ * of it, and so do the drafts. Answers what it was and how many drafts and timelines let go of it.
+ */
+export const kitDelete = (s: Services, id: string) => inTurn(s, async () => {
+  if (id.startsWith(SHIPPED)) throw builtIn();
+  const row = await s.db.selectFrom("entities").select(["def", "kind", "name"]).where("id", "=", id).executeTakeFirst();
+  const r = await s.db.deleteFrom("entities").where("id", "=", id).executeTakeFirst();
+  if (!row || !Number(r.numDeletedRows)) throw httpError("this was not found", 404);
+  await binUnwantedKit(s.db, filesOf(row.def));
+  const cut = await dropFromLooks(s.db, id);
+  s.queue.events.emit("entities");
+  if (cut.timelines) s.queue.events.emit("timeline");
+  return { kind: row.kind, name: row.name, ...cut };
+});
 
+export function registerEntities(app: FastifyInstance, s: Services): void {
   app.get("/api/entities", async (req) => {
     const { kind } = z.object({ kind: z.enum(Object.keys(defs) as [EntityKind, ...EntityKind[]]).optional() }).parse(req.query);
     return { items: await kitList(s, kind) };
@@ -503,18 +517,10 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
     return (await kitEdit(s, req.params.id, () => b)).after;
   });
 
-  app.delete<{ Params: { id: string } }>("/api/entities/:id", async (req) => inTurn(s, async () => {
-    if (req.params.id.startsWith(SHIPPED)) throw builtIn();
-    const row = await s.db.selectFrom("entities").select("def").where("id", "=", req.params.id).executeTakeFirst();
-    const r = await s.db.deleteFrom("entities").where("id", "=", req.params.id).executeTakeFirst();
-    if (!Number(r.numDeletedRows)) throw missing();
-    // the pictures uploaded for them (not those picked from the library), wanted by no one else: to the bin
-    if (row) await binUnwantedKit(s.db, filesOf(row.def));
-    const cut = await dropFromLooks(s.db, req.params.id);
-    changed();
-    if (cut.timelines) s.queue.events.emit("timeline");
+  app.delete<{ Params: { id: string } }>("/api/entities/:id", async (req) => {
+    await kitDelete(s, req.params.id);
     return { ok: true };
-  }));
+  });
 
   /** What a form becomes once its cast and style are worked in: shown before it is sent. Nothing is queued. */
   app.post("/api/compose", async (req) => {

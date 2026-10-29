@@ -19,7 +19,7 @@ describe("the list of a timeline, a draft, a folder and a project", () => {
     expect(menuOf({ kind: "timeline", clips: 9, toRender: 3, exported: true, unused: { takes: 4, bytes: 1.2e9 } })).toEqual([
       "Open", "Show in Projects", "—",
       "Render all · 3 clips", "Finish…", "Export… · exported before", "Fix all · what Needs a look lists", "—",
-      "Rename…", "Put in a folder · renders land there", "Move to · another project", "—",
+      "Rename…", "Duplicate · its takes too", "Put in a folder · renders land there", "Move to · another project", "—",
       expect.stringMatching(/^Bin unused takes… · 4 · /), "Delete… · videos stay",
     ]);
   });
@@ -114,7 +114,7 @@ describe("the list in the command bar", () => {
   it("makes a submenu a row per target that takes it, named after the action", () => {
     const rows = toBar(kindActions({ kind: "timeline", clips: 2, unused: null }, runs, subs)).map((r) => r.label);
     expect(rows).toEqual([
-      "Open", "Show in Projects", "Render all", "Finish…", "Export…", "Fix all", "Rename…",
+      "Open", "Show in Projects", "Render all", "Finish…", "Export…", "Fix all", "Rename…", "Duplicate",
       "Put in B-roll", "Put in the project's root", "Move to Client work", "Move to the Inbox",
       "Delete…",
     ]);

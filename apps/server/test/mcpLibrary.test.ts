@@ -5,9 +5,9 @@ import { makePng } from "@afflatus/comfy/testing";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KitEdit } from "../src/mcpKit";
 import { importLimits } from "../src/mcpLibrary";
+import { TOOLS } from "../src/mcpTools";
 import { FFMPEG_TIMEOUT, ffmpegThere, patternClip } from "./clipKit";
 import { get, makeApp, post, until, type TestApp } from "./helpers";
-import { TOOLS } from "../src/mcpTools";
 
 /**
  * The library and the Prompt kit from outside (mcpLibrary.ts, mcpKit.ts), through the SDK's own client over HTTP as Claude

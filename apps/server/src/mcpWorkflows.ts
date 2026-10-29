@@ -12,7 +12,7 @@ import { assertPublicUrl, fetchPublic } from "./outbound";
 import { waitingWords } from "./registry";
 import type { Services } from "./services";
 import { reachOf } from "./workflowReach";
-import { createWorkflow, inspectWorkflow, listed } from "./workflows";
+import { createWorkflow, inspectWorkflow, listed, saveWorkflow } from "./workflows";
 
 /**
  * Imported ComfyUI workflows, from outside (MCP): listed, imported, run. An import goes through the web's own two steps
@@ -201,11 +201,17 @@ const importWorkflow = tool({
   },
 });
 
-/** A saved workflow by its form id, its slug or its title. */
-function workflowOf(s: Services, asked: string): string {
+/** A saved workflow by its form id, its slug or its title, whatever its state. */
+function savedWorkflow(s: Services, asked: string) {
   const all = s.registry.workflows();
   const d = all.find((w) => w.id === asked) ?? all.find((w) => w.id === `workflow.${asked}`) ?? all.find((w) => w.title.toLowerCase() === asked.trim().toLowerCase());
   if (!d) throw httpError(`There is no workflow called ${asked}: list_workflows gives the ids.`, 404);
+  return d;
+}
+
+/** A saved workflow to run, by its form id, its slug or its title: refused when it cannot be built, or waits for the user's approval. */
+function workflowOf(s: Services, asked: string): string {
+  const d = savedWorkflow(s, asked);
   const problem = s.registry.problem(d.id);
   if (problem) throw httpError(`“${d.title}” cannot be run as it is: ${problem}`);
   if (s.registry.pending(d.id)) throw refusal(waitingWords(d.title));
@@ -227,4 +233,73 @@ const runWorkflow = tool({
   run: (a, ctx) => renderForm({ form: workflowOf(ctx.s, a.workflow), values: a.values ?? {}, takes: a.takes, machine: a.machine, label: a.label }, ctx),
 });
 
-export const WORKFLOW_TOOLS = [listWorkflows, importWorkflow, runWorkflow];
+const workflowArg = z.string().min(1).describe("The workflow's form id (list_workflows), its slug, or its title.");
+
+const readWorkflow = tool({
+  name: "read_workflow",
+  scope: "look",
+  title: "Read a workflow's mapping",
+  description: "A saved workflow's mapping, as Studio › Workflows › Edit shows it: which node and input the prompt, negative, seeds, size, length, opening and ending pictures, LoRAs, switches (toggles), controls and result are, what is left out (skip), how the form is laid out (sections); with its nodes by id, each one's type and title, and what it reaches (its nodes that read or write a path or fetch an address). edit_workflow changes the mapping.",
+  input: { workflow: workflowArg },
+  async run(a, ctx) {
+    const d = savedWorkflow(ctx.s, a.workflow);
+    const waits = ctx.s.registry.pending(d.id);
+    ctx.said(`Read the mapping of “${d.title}”`);
+    return {
+      form: d.id, title: d.title, model: d.model, bindings: d.bindings, reaches: reachOf(d),
+      nodes: Object.fromEntries(Object.entries(d.graph).map(([id, n]) => [id, { type: n.class_type, ...(typeof (n._meta as { title?: unknown } | undefined)?.title === "string" ? { title: (n._meta as { title: string }).title } : {}) }])),
+      ...(waits ? { waiting: `imported by ${waits.name}: it renders once the user approves it in Afflatus` } : {}),
+    };
+  },
+});
+
+const editWorkflow = tool({
+  name: "edit_workflow",
+  scope: "make",
+  title: "Edit a workflow's mapping",
+  description: "Change a saved workflow's mapping (read_workflow gives it), as Studio › Workflows › Edit saves it: each key of `bindings` given replaces that part whole (prompt, negative, seeds, size, length, startImage, endImage, loras, toggles, controls, result, skip, sections), null leaves it out; its title and model too. Checked as the page checks it (every node and input named is in the workflow, ids unique) and built once before it is kept; its graph stays as it is. What a form sets is part of what a workflow reaches: once an agent changed it, it waits for the user's approval again (Studio › Workflows › Approve, in Afflatus) before it renders, even one the user imported. Approving stays the user's.",
+  input: {
+    workflow: workflowArg,
+    bindings: z.record(z.string(), z.unknown()).optional().describe("Parts of the mapping by key, each replacing that part whole; null leaves it out."),
+    title: z.string().trim().min(1).max(120).optional().describe("Its name in Create. Its form id stays."),
+    model: z.string().trim().min(1).max(60).optional().describe("The model it runs, which groups it with its family in Create."),
+  },
+  async run(a, ctx) {
+    const { s } = ctx;
+    const d = savedWorkflow(s, a.workflow);
+    if (!a.bindings && a.title === undefined && a.model === undefined) throw httpError("Say what to change: bindings, title or model.");
+    const bindings = { ...d.bindings } as Bindings & Record<string, unknown>;
+    for (const [key, value] of Object.entries(a.bindings ?? {})) {
+      if (value === null) delete bindings[key];
+      else bindings[key] = value;
+    }
+    const saved = await saveWorkflow(s, d.id, { title: a.title ?? d.title, model: a.model ?? d.model, source: d.source, graph: d.graph, wiring: d.wiring, editor: d.editor, bindings }, { token: ctx.token.id, name: ctx.token.name });
+    s.queue.events.emit("setup");
+    const recipe: Recipe<any> | undefined = s.registry.recipe(saved.id);
+    ctx.said(`Changed the mapping of “${saved.title}”${a.bindings ? `: ${Object.keys(a.bindings).join(", ")}` : ""}`);
+    return {
+      form: saved.id, title: saved.title, model: saved.model,
+      waitsForApproval: "The user approves it again in Afflatus (Studio › Workflows › Approve) before it renders: run_workflow and render refuse it until then.",
+      reaches: reachOf(s.registry.workflow(saved.id)!),
+      inputs: recipe ? shownInputs(recipe).map(inputBrief) : [],
+    };
+  },
+});
+
+const deleteWorkflow = tool({
+  name: "delete_workflow",
+  scope: "make",
+  title: "Delete a workflow",
+  description: "Delete a saved workflow, as Studio › Workflows' Delete does: its form goes from Create. What was made with it stays in the library; drafts on it stay too, and say it is gone. It does not come back but by importing it again.",
+  input: { workflow: workflowArg },
+  async run(a, ctx) {
+    const { s } = ctx;
+    const d = savedWorkflow(s, a.workflow);
+    if (!(await s.registry.remove(d.id))) throw httpError("this workflow was not found", 404);
+    s.queue.events.emit("setup");
+    ctx.said(`Deleted the workflow “${d.title}”`);
+    return { deleted: d.id, title: d.title };
+  },
+});
+
+export const WORKFLOW_TOOLS = [listWorkflows, importWorkflow, runWorkflow, readWorkflow, editWorkflow, deleteWorkflow];

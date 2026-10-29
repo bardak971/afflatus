@@ -1,18 +1,18 @@
 import { createWriteStream } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { plural, UPLOAD_MAX_BYTES } from "@afflatus/core";
 import { z } from "zod";
-import { assetLookup, renameItem } from "./assets-api";
+import { assetLookup, mirrorItem, renameItem, silentItem, soundItem } from "./assets-api";
 import { binItem, bulkItems, keepItem, restoreItem, type BulkDone } from "./assetsBin";
 import { searchOf } from "./assetSearch";
 import { takeIn } from "./assetUpload";
 import type { Db, Tables } from "./db";
 import { httpError } from "./errors";
-import { createBody, editBody, folderEdit, folderNew, foldersList, itemsMove } from "./folders";
+import { createBody, editBody, folderDelete, folderEdit, folderNew, foldersList, itemsMove } from "./folders";
 import { oneAtATime } from "./keyedLock";
 import { NOT_IN_LIBRARY } from "./library";
 import { seen, spends } from "./mcpForms";
@@ -20,7 +20,7 @@ import { mayQueueAll } from "./mcpRender";
 import { tool, type ToolCtx } from "./mcpTool";
 import { refusal } from "./mcpTokens";
 import { assertPublicUrl, fetchPublic } from "./outbound";
-import { projectEdit, projectNew, projectsList, rootFolderOf } from "./projects";
+import { projectDelete, projectEdit, projectNew, projectsList, rootFolderOf } from "./projects";
 import type { Services } from "./services";
 import { clockOf, CUT_JOB } from "./timelineModel";
 import { cutRange, rangeBody } from "./timelines-api";
@@ -278,18 +278,18 @@ const nameOfUrl = (url: URL) => decodeURIComponent(url.pathname.split("/").filte
  */
 export const importLimits = { file: 2 ** 30, day: 8 * 2 ** 30 };
 const DAY_MS = 24 * 3600_000;
-interface Imports { busy: Set<string>; fetched: Map<string, Array<{ at: number; bytes: number }>> }
+interface Imports { busy: Set<string>; fetched: Map<string, Array<{ at: number; bytes: number }>>; sent: Map<string, Array<{ at: number; bytes: number }>> }
 /** Each database's own (tests run several apps at once). */
 const importsOf = new WeakMap<Db, Imports>();
 function imports(db: Db): Imports {
   let i = importsOf.get(db);
-  if (!i) importsOf.set(db, (i = { busy: new Set(), fetched: new Map() }));
+  if (!i) importsOf.set(db, (i = { busy: new Set(), fetched: new Map(), sent: new Map() }));
   return i;
 }
-/** What a token fetched over the last 24 hours, the older entries let go. */
-function fetchedToday(i: Imports, token: string, at = Date.now()): number {
-  const kept = (i.fetched.get(token) ?? []).filter((x) => at - x.at < DAY_MS);
-  i.fetched.set(token, kept);
+/** What a token fetched (or sent, `of` "sent") over the last 24 hours, the older entries let go. */
+function fetchedToday(i: Imports, token: string, at = Date.now(), of: "fetched" | "sent" = "fetched"): number {
+  const kept = (i[of].get(token) ?? []).filter((x) => at - x.at < DAY_MS);
+  i[of].set(token, kept);
   return kept.reduce((n, x) => n + x.bytes, 0);
 }
 const gb = (bytes: number) => `${(bytes / 2 ** 30).toFixed(1).replace(/\.0$/, "")} GB`;
@@ -350,6 +350,57 @@ const importFromUrl = tool({
     } finally {
       mine.busy.delete(token.id);
       if (bytes) mine.fetched.get(token.id)!.push({ at: Date.now(), bytes });
+    }
+  },
+});
+
+/**
+ * What an agent may send as a file's bytes (upload): one file at a time per token (an import from an address counts too),
+ * each at most `file` bytes, and at most `day` bytes a token over the last 24 hours. A file sent whole in one call as
+ * base64 is held in memory as it is read, a third larger: /mcp takes a call that large only once its token is known
+ * (mcp.ts). Kept in memory, as importLimits.
+ */
+export const uploadLimits = { file: 16 * 2 ** 20, day: 2 ** 30 };
+/** The most a file sent to upload weighs, as /mcp makes room for it. */
+export const UPLOAD_MOST = uploadLimits.file;
+/** A size as these tools say it: in MB, or in kB under one. */
+const sized = (bytes: number) => (bytes < 2 ** 20 ? `${Math.ceil(bytes / 1024)} kB` : `${Math.round(bytes / 2 ** 20)} MB`);
+
+const upload = tool({
+  name: "upload",
+  scope: "make",
+  title: "Upload a file",
+  description: `A picture, a video or a sound sent as its bytes (base64; a data: address is taken too) brought into the library, as an upload from the computer is: what it is read from its bytes (PNG, JPEG, WebP; the video and sound containers ffmpeg reads, never a playlist or a manifest that names other files), kept, in a folder or a project's root folder when one is named. Then its id goes where library items go: edit_draft's references and pictures, edit_kit_item's pictures and voice, a timeline's clips. One at a time per token, each at most ${sized(UPLOAD_MOST)}, and at most ${gb(uploadLimits.day)} a token over 24 hours: a larger file, import_from_url from an address, or the user uploads it in Afflatus.`,
+  input: {
+    data: z.string().min(1).max(Math.ceil((UPLOAD_MOST * 4) / 3) + 200).describe("The file's bytes as base64."),
+    name: z.string().trim().max(200).optional().describe("Its name in the library; left out, worked out from how it is used."),
+    folder: z.string().optional().describe("A folder's id (list_places)."),
+    project: z.string().optional().describe("A project's id: into its root folder."),
+  },
+  async run(a, ctx) {
+    const { s, token } = ctx;
+    const text = a.data.replace(/^data:[\w.+-]+\/[\w.+-]+(;[\w=.+-]+)*;base64,/i, "").replace(/\s+/g, "");
+    if (!/^[A-Za-z0-9+/_-]*={0,2}$/.test(text)) throw httpError("data is not base64: send the file's bytes as base64, nothing around them.");
+    const bytes = Buffer.from(text, "base64");
+    if (!bytes.length) throw httpError("data holds no bytes.");
+    const mine = imports(s.db);
+    if (mine.busy.has(token.id)) throw refusal("This token is already bringing a file in: one at a time. Wait for it to end, then send the next.");
+    if (bytes.length > uploadLimits.file) throw httpError(`This file is ${sized(bytes.length)}: an agent uploads at most ${sized(uploadLimits.file)} a file. A larger one, import_from_url from an address, or the user uploads it in Afflatus.`, 413);
+    const left = uploadLimits.day - fetchedToday(mine, token.id, Date.now(), "sent");
+    if (bytes.length > left) throw refusal(`This file goes past what this token may still upload today (${sized(Math.max(0, left))} of ${gb(uploadLimits.day)} a day): upload it later, or the user uploads it in Afflatus.`);
+    mine.busy.add(token.id);
+    // counted as it is taken: what was sent was sent, taken in or refused
+    mine.sent.get(token.id)!.push({ at: Date.now(), bytes: bytes.length });
+    const dir = await mkdtemp(join(tmpdir(), "afflatus-upload-"));
+    try {
+      const path = join(dir, "file");
+      await writeFile(path, bytes);
+      const view = await takeIn(s, assetLookup(s), { path, dir, bytes: bytes.length }, { name: a.name, folder: a.folder, project: a.project });
+      ctx.said(`Uploaded ${view.name ? `“${view.name}”` : `a ${view.kind === "image" ? "picture" : view.kind === "audio" ? "sound" : "video"}`} (${sized(bytes.length)})`);
+      return itemSaid(view);
+    } finally {
+      mine.busy.delete(token.id);
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
     }
   },
 });
@@ -450,4 +501,104 @@ const saveFrame = tool({
   },
 });
 
-export const LIBRARY_TOOLS = [searchLibrary, keep, unkeep, bin, restore, move, rename, listPlaces, newFolder, editFolder, newProject, renameProject, importFromUrl, cutRangeTool, findScenes, extractScenes, saveFrame];
+const extractSound = tool({
+  name: "extract_sound",
+  scope: "make",
+  title: "The sound of a video",
+  description: "A video's sound as a sound of its own in the library, beside it in its folder, kept (for a clip's sound, the music, a voice), as the library's Extract audio does. The video stays as it is. ffmpeg on this computer, no GPU.",
+  input: { item: z.string().min(1) },
+  async run({ item }, ctx) {
+    const a = await timed(ctx.s, item, true);
+    const made = await soundItem(ctx.s, assetLookup(ctx.s), a.id);
+    ctx.said(`Took the sound of ${named(a)} out as a sound of its own`);
+    return itemSaid(made);
+  },
+});
+
+const removeSound = tool({
+  name: "remove_sound",
+  scope: "make",
+  title: "A video without its sound",
+  description: "A copy of a video without its sound, beside it in its folder, kept, as the library's Remove audio does: the same frames. The video itself stays as it is. ffmpeg on this computer, no GPU.",
+  input: { item: z.string().min(1) },
+  async run({ item }, ctx) {
+    const a = await timed(ctx.s, item, true);
+    const made = await silentItem(ctx.s, assetLookup(ctx.s), a.id);
+    ctx.said(`Made ${named(a)} without its sound`);
+    return itemSaid(made);
+  },
+});
+
+const mirror = tool({
+  name: "mirror",
+  scope: "make",
+  title: "Mirror a picture",
+  description: "A picture mirrored left and right (horizontal) or top and bottom (vertical), as a new picture beside it in its folder, kept, as the library's Mirror does. The picture itself stays as it is. Say for a keyframe that faces the wrong way for the shot before it. No GPU.",
+  input: { item: z.string().min(1), axis: z.enum(["horizontal", "vertical"]).optional().describe("horizontal (left and right; the default) or vertical (top and bottom).") },
+  async run({ item, axis }, ctx) {
+    const a = await libraryItem(ctx.s, item);
+    if (a.kind !== "image") throw httpError(`${named(a)} is a ${a.kind === "video" ? "video" : "sound"}: only a picture is mirrored.`);
+    const made = await mirrorItem(ctx.s, assetLookup(ctx.s), a.id, axis ?? "horizontal");
+    ctx.said(`Mirrored ${named(a)} ${axis === "vertical" ? "top and bottom" : "left and right"}`);
+    return itemSaid(made);
+  },
+});
+
+const deleteFolder = tool({
+  name: "delete_folder",
+  scope: "make",
+  title: "Delete a folder",
+  description: "Delete a folder, as the Projects panel's Delete does: nothing in it is deleted. Its items and its folders move up one level (to the folder above it, or the top of its project); a project's root folder leaves the project with none. A folder linked to a directory of the user's disk is refused: unlinking stays in Afflatus.",
+  input: { folder: z.string().min(1) },
+  async run({ folder }, ctx) {
+    const f = await folderDelete(ctx.s, folder, { unlink: false });
+    ctx.said(`Deleted the folder “${f.name}”: what it held moved up`);
+    return { deleted: f.id, name: f.name, movedTo: f.parent_id ?? (f.project_id ? "the top of its project" : "the top of the Inbox") };
+  },
+});
+
+const archiveProject = tool({
+  name: "archive_project",
+  scope: "make",
+  title: "Archive a project",
+  description: "Archive a project, or bring it back (archived false), as the Projects panel's Archive does: an archived project leaves the rail and the lists, its pin goes; nothing in it moves or goes.",
+  input: { project: z.string().min(1), archived: z.boolean().optional().describe("false: back from the archive; true when left out.") },
+  async run({ project, archived }, ctx) {
+    const p = await projectEdit(ctx.s, project, { archived: archived ?? true });
+    ctx.said(`${archived === false ? "Brought back" : "Archived"} the project “${p.name}”`);
+    return { id: p.id, name: p.name, archived: Boolean(p.archivedAt) };
+  },
+});
+
+const deleteProject = tool({
+  name: "delete_project",
+  scope: "make",
+  title: "Delete a project",
+  description: "Delete a project, as the Projects panel's Delete does: its drafts, timelines and folders (with their items) go to the Inbox; nothing is removed. archive_project hides one instead.",
+  input: { project: z.string().min(1) },
+  async run({ project }, ctx) {
+    const p = await projectDelete(ctx.s, project);
+    ctx.said(`Deleted the project “${p.name}”: what it held is in the Inbox`);
+    return { deleted: p.id, name: p.name, said: "Its drafts, timelines and folders are in the Inbox now." };
+  },
+});
+
+const lookAgain = tool({
+  name: "look_again",
+  scope: "make",
+  title: "Look again",
+  description: "Read a linked folder's directory again, as its Look again does: files added, changed or gone on the disk since show in the library as they are. Reads the disk only; linking a directory stays in Afflatus.",
+  input: { folder: z.string().min(1).describe("A linked folder's id (list_places: linked), or one of its folders.") },
+  async run({ folder }, ctx) {
+    const f = await ctx.s.db.selectFrom("folders").select(["id", "name"]).where("id", "=", folder).executeTakeFirst();
+    if (!f) throw httpError("There is no such folder: list_places gives the ids.", 404);
+    const read = await ctx.s.linked.scan(f.id);
+    ctx.said(`Looked again at “${f.name}”: ${plural(read.files, "file")}`);
+    return { folder: f.id, ...read };
+  },
+});
+
+export const LIBRARY_TOOLS = [
+  searchLibrary, keep, unkeep, bin, restore, move, rename, listPlaces, newFolder, editFolder, deleteFolder, newProject, renameProject, archiveProject, deleteProject, lookAgain,
+  importFromUrl, upload, cutRangeTool, findScenes, extractScenes, saveFrame, extractSound, removeSound, mirror,
+];

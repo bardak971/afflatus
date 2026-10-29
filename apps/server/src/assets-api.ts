@@ -155,9 +155,57 @@ export async function renameItem(s: Services, { asset }: AssetLookup, id: string
   return assetView(await asset(id));
 }
 
+/**
+ * A picture mirrored, left and right or top and bottom: a new picture beside it in the same folder, kept, its source
+ * remembered. No GPU: done here with the image library. A keyframe that faces the wrong way for the clip before is
+ * the usual reason (the rider travelling right to left when the shot before goes left to right). POST
+ * /api/assets/:id/mirror, MCP's mirror.
+ */
+export async function mirrorItem(s: Services, { asset, addBeside }: AssetLookup, id: string, axis: "horizontal" | "vertical") {
+  const a = await asset(id);
+  if (a.kind !== "image") throw httpError("only a picture can be mirrored");
+  const bytes = await mirrorPicture(await s.storage.get(a.file_key), axis);
+  if (!bytes) throw httpError("this picture could not be mirrored: it could not be read, or the image library did not load on this machine");
+  // its size read from what was made: a picture taken sideways was turned upright first
+  const size = await readPicture(bytes);
+  const source = await nameOf(s.db, a);
+  return addBeside(a, { bytes, ext: "png", thumb: await makeThumb(bytes) }, {
+    kind: "image", origin: "edited", name: source ? fromName(source, ", mirrored") : "", mime: "image/png",
+    width: size?.width ?? a.width, height: size?.height ?? a.height, duration_ms: null, fps: null, has_sound: 0,
+  });
+}
+
+/** The sound of a video, as a sound of its own in the library (for a clip's sound, the music, a voice). POST /api/assets/:id/sound, MCP's extract_sound. */
+export async function soundItem(s: Services, { asset, addBeside }: AssetLookup, id: string) {
+  const video = await asset(id);
+  if (video.kind !== "video" || !video.has_sound) throw httpError("This video has no audio to extract.");
+  // "Big Air · c2 · t5 · audio": after the name the video goes by (worked out from where it came from when it has none)
+  const source = await nameOf(s.db, video);
+  // read where it lies and stored from where ffmpeg wrote it: handed the whole video, a 2-minute 1080p one held 967 MB
+  return soundOf(await sourceOf(s.storage, video.file_key), extOf(video.mime), video.duration_ms, (path) => addBeside(video, { path, ext: "m4a", thumb: null }, {
+    kind: "audio", origin: "imported", name: source ? soundName(source) : "Audio extracted from a video", mime: "audio/mp4",
+    width: null, height: null, duration_ms: video.duration_ms, fps: null, has_sound: 1,
+  }));
+}
+
+/** A video without its sound: a new video beside it in the same folder, kept, its source untouched. POST /api/assets/:id/silent, MCP's remove_sound. */
+export async function silentItem(s: Services, { asset, addBeside }: AssetLookup, id: string) {
+  const video = await asset(id);
+  if (video.kind !== "video" || !video.has_sound) throw httpError("This video has no sound to remove.");
+  const ext = extOf(video.mime);
+  // the same frames: the source's thumbnail serves the copy too
+  const thumb = video.thumb_key ? await s.storage.get(video.thumb_key).catch(() => null) : null;
+  const source = await nameOf(s.db, video);
+  // as the sound: read where it lies, stored from where ffmpeg wrote it
+  return silentOf(await sourceOf(s.storage, video.file_key), ext, video.duration_ms, (path) => addBeside(video, { path, ext, thumb }, {
+    kind: "video", origin: "edited", name: source ? fromName(source, ", no sound") : "Video without its sound", mime: video.mime,
+    width: video.width, height: video.height, duration_ms: video.duration_ms, fps: video.fps, has_sound: 0,
+  }));
+}
+
 export function registerAssets(app: FastifyInstance, s: Services): void {
   const lookup = assetLookup(s);
-  const { asset, addBeside } = lookup;
+  const { asset } = lookup;
   registerAssetSearch(app, s);
   registerAssetUpload(app, s, lookup);
   registerAssetsBin(app, s, lookup);
@@ -168,25 +216,7 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     return renameItem(s, lookup, req.params.id, name);
   });
 
-  /**
-   * A picture mirrored, left and right or top and bottom: a new picture beside it in the same folder, kept, its source
-   * remembered. No GPU: done here with the image library. A keyframe that faces the wrong way for the clip before is
-   * the usual reason (the rider travelling right to left when the shot before goes left to right).
-   */
-  app.post<{ Params: { id: string } }>("/api/assets/:id/mirror", async (req) => {
-    const { axis } = z.strictObject({ axis: z.enum(["horizontal", "vertical"]) }).parse(req.body ?? {});
-    const a = await asset(req.params.id);
-    if (a.kind !== "image") throw httpError("only a picture can be mirrored");
-    const bytes = await mirrorPicture(await s.storage.get(a.file_key), axis);
-    if (!bytes) throw httpError("this picture could not be mirrored: it could not be read, or the image library did not load on this machine");
-    // its size read from what was made: a picture taken sideways was turned upright first
-    const size = await readPicture(bytes);
-    const source = await nameOf(s.db, a);
-    return addBeside(a, { bytes, ext: "png", thumb: await makeThumb(bytes) }, {
-      kind: "image", origin: "edited", name: source ? fromName(source, ", mirrored") : "", mime: "image/png",
-      width: size?.width ?? a.width, height: size?.height ?? a.height, duration_ms: null, fps: null, has_sound: 0,
-    });
-  });
+  app.post<{ Params: { id: string } }>("/api/assets/:id/mirror", async (req) => mirrorItem(s, lookup, req.params.id, z.strictObject({ axis: z.enum(["horizontal", "vertical"]) }).parse(req.body ?? {}).axis));
 
   /**
    * Show how a result was made in ComfyUI's editor: its graph built again from its generation parameters
@@ -331,31 +361,7 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     return reply.header("Content-Type", "image/webp").send((await s.storage.open(key)).stream);
   });
 
-  /** The sound of a video, as a sound of its own in the library (for a clip's sound, the music, a voice). */
-  app.post<{ Params: { id: string } }>("/api/assets/:id/sound", async (req) => {
-    const video = await asset(req.params.id);
-    if (video.kind !== "video" || !video.has_sound) throw httpError("This video has no audio to extract.");
-    // "Big Air · c2 · t5 · audio": after the name the video goes by (worked out from where it came from when it has none)
-    const source = await nameOf(s.db, video);
-    // read where it lies and stored from where ffmpeg wrote it: handed the whole video, a 2-minute 1080p one held 967 MB
-    return soundOf(await sourceOf(s.storage, video.file_key), extOf(video.mime), video.duration_ms, (path) => addBeside(video, { path, ext: "m4a", thumb: null }, {
-      kind: "audio", origin: "imported", name: source ? soundName(source) : "Audio extracted from a video", mime: "audio/mp4",
-      width: null, height: null, duration_ms: video.duration_ms, fps: null, has_sound: 1,
-    }));
-  });
+  app.post<{ Params: { id: string } }>("/api/assets/:id/sound", async (req) => soundItem(s, lookup, req.params.id));
 
-  /** A video without its sound: a new video beside it in the same folder, kept, its source untouched. */
-  app.post<{ Params: { id: string } }>("/api/assets/:id/silent", async (req) => {
-    const video = await asset(req.params.id);
-    if (video.kind !== "video" || !video.has_sound) throw httpError("This video has no sound to remove.");
-    const ext = extOf(video.mime);
-    // the same frames: the source's thumbnail serves the copy too
-    const thumb = video.thumb_key ? await s.storage.get(video.thumb_key).catch(() => null) : null;
-    const source = await nameOf(s.db, video);
-    // as the sound: read where it lies, stored from where ffmpeg wrote it
-    return silentOf(await sourceOf(s.storage, video.file_key), ext, video.duration_ms, (path) => addBeside(video, { path, ext, thumb }, {
-      kind: "video", origin: "edited", name: source ? fromName(source, ", no sound") : "Video without its sound", mime: video.mime,
-      width: video.width, height: video.height, duration_ms: video.duration_ms, fps: video.fps, has_sound: 0,
-    }));
-  });
+  app.post<{ Params: { id: string } }>("/api/assets/:id/silent", async (req) => silentItem(s, lookup, req.params.id));
 }

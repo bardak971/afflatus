@@ -8,9 +8,9 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { describe, expect, it, vi } from "vitest";
 import { newAssetRow } from "../src/media";
 import type { TimelineEdit } from "../src/mcpTimelines";
+import { TOOLS } from "../src/mcpTools";
 import { FFMPEG_TIMEOUT, ffmpegThere } from "./clipKit";
 import { timelineSteps, timelineSuite } from "./timelineKit";
-import { TOOLS } from "../src/mcpTools";
 
 /**
  * The timelines from outside (mcpTimelines.ts), through the SDK's own client over HTTP as Claude Code reaches /mcp, on a

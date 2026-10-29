@@ -7,7 +7,7 @@ import { oneAtATime } from "./keyedLock";
 import { machineName, machineOf, seen } from "./mcpForms";
 import { committedSpend, mustSpendWhilePodUp, podsUp, workCommitted } from "./mcpRender";
 import { quoted, tool, type ToolCtx } from "./mcpTool";
-import { refusal } from "./mcpTokens";
+import { refusal, type McpToken } from "./mcpTokens";
 import { dollars } from "./notifyWords";
 import { runningRate } from "./runpod";
 import type { Services } from "./services";
@@ -35,7 +35,7 @@ import { machinesNow, saveSettings, setupOf } from "./setup-api";
  */
 
 /** Whether this token has Spend: what starts a rented GPU, lengthens its run or stops it needs it. */
-function mustSpend(ctx: ToolCtx, what: string): void {
+function mustSpend(ctx: Pick<ToolCtx, "token">, what: string): void {
   if (!ctx.token.scopes.includes("spend")) throw refusal(`This token cannot spend on rented GPUs, and ${what}: tick Spend on it in Settings › Interface › Access.`);
 }
 
@@ -186,9 +186,13 @@ const pods = tool({
  * Whether this token may start a pod that bills `hour` USD an hour: Spend, its own cap with room for that first hour and
  * the next hour of each pod it started that is up (its work waiting and running counted, as render counts it), and the
  * app's caps with room for that first hour and the next hour of every pod up. A pod up whose price is not known yet cannot
- * be counted: refused. A money path. `what` says the bill to a token without Spend, `pod` names it in a cap's refusal.
+ * be counted: refused. A money path. `what` says the bill to a token without Spend, `pod` names it in a cap's refusal. The
+ * GPU hunt asks it too (start_hunt at its ceiling, and again at its deploy, hunt.ts mayDeploy, with the token as read then).
  */
-async function mayStart(s: Services, ctx: ToolCtx, hour: number, what: string, pod: string): Promise<void> {
+export async function mayStart(s: Services, token: McpToken, hour: number, what: string, pod: string): Promise<void> {
+  // a token revoked or ended since (a hunt it started deploys later) spends nothing more: as /mcp refuses it (mcpTokens.ts byBearer)
+  if (token.revokedAt || (token.expiresAt && Date.parse(token.expiresAt) <= Date.now())) throw refusal(`The MCP token ${quoted(token.name)} is ${token.revokedAt ? "revoked" : "ended"}: it spends nothing more.`);
+  const ctx = { token };
   mustSpend(ctx, what);
   const machines = (await readSettings(s.db)).machines;
   let mine = 0;
@@ -207,9 +211,19 @@ async function mayStart(s: Services, ctx: ToolCtx, hour: number, what: string, p
     }
   }
   const work = await committedSpend(s, machines, ctx.token.id);
-  await ctx.maySpend(hour + mine + work.usd, { committed: [workCommitted(work), ...minePods], adds: { what: `the first hour of ${pod}`, usd: hour } });
+  await s.mcp.tokens.maySpend(token, hour + mine + work.usd, { committed: [workCommitted(work), ...minePods], adds: { what: `the first hour of ${pod}`, usd: hour } });
   const why = await s.rented.noRoomFor(hour + all);
   if (why) throw refusal(`The rented GPUs' spending cap has no room for this pod's first hour (${dollars(hour)}${all ? `, with the next hour of the pods up: ${dollars(all)}` : ""}): ${why}.${allPods.length ? ` Up: ${allPods.join(", ")} an hour.` : ""} The user raises it in Settings › Rented GPUs.`);
+}
+
+/**
+ * The GPU hunt's check before it deploys for an MCP token (hunt.ts mayDeploy): mayStart with the token as it is now, the
+ * pod's price as the hunt found it. A token gone is refused: nothing is billed for a token nobody can see.
+ */
+export async function huntMayDeploy(s: Services, tokenId: string, hour: number, gpu: string): Promise<void> {
+  const token = await s.mcp.tokens.get(tokenId);
+  if (!token) throw refusal("The MCP token that started the hunt is gone: it spends nothing more.");
+  await mayStart(s, token, hour, `deploying ${gpu} bills ${dollars(hour)} an hour`, `a new ${quoted(gpu)}`);
 }
 
 const deployPod = tool({
@@ -249,7 +263,7 @@ const deployPod = tool({
     // what it bills an hour while it runs: its GPU and its container disk (with a volume, the disk is kept small: rentedDeploy.ts)
     const hour = runningRate(offer.price, ask.volume ? Math.min(ask.disk, 40) : ask.disk, 0);
     return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
-      await mayStart(s, ctx, hour, `deploying ${offer.name} bills ${dollars(hour)} an hour`, `a new ${quoted(offer.name)}`);
+      await mayStart(s, token, hour, `deploying ${offer.name} bills ${dollars(hour)} an hour`, `a new ${quoted(offer.name)}`);
       const made = await s.rented.deploy(async () => ({ ...ask, files: await deployFiles(s, ask) }), { mcpToken: token.id });
       ctx.said(`Deployed ${quoted(offer.name)} (${dollars(hour)}/h, idle ${ask.idleMinutes} min then ${ask.idleDo})`);
       return {
@@ -283,7 +297,7 @@ const startPod = tool({
     if (v?.rate === null || v?.rate === undefined) throw refusal(`${machineName(m)}'s price is not known yet, so this token's spend cap cannot be held: the user starts it in Afflatus.`);
     const rate = v.rate;
     return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
-      await mayStart(s, ctx, rate, `starting ${machineName(m)} bills ${dollars(rate)} an hour`, quoted(machineName(m)));
+      await mayStart(s, token, rate, `starting ${machineName(m)} bills ${dollars(rate)} an hour`, quoted(machineName(m)));
       const view = await s.rented.start(m.id, token.id);
       ctx.said(`Started ${quoted(machineName(m))} (${dollars(rate)}/h)`);
       return { started: m.id, status: view.status, usdPerHour: rate, idleMinutes: m.rented!.idleMinutes, idleDo: m.rented!.idleDo, said: "Billed from now; its run counts against this token's cap." };
