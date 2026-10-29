@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdir, open, readdir, rename, rmdir, stat, statfs, unlink, writeFile } from "node:fs/promises";
+import { link, mkdir, open, readdir, rename, rmdir, stat, statfs, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, parse, relative, resolve, sep } from "node:path";
 import { envSaid } from "./config";
 
@@ -106,7 +106,7 @@ export const windowsBin: BinFinder = async (path) => {
 };
 
 /** No bin at all: Linux, a Docker install, a Mac. Everything goes to the set-aside folder. */
-export const noBin: BinFinder = async () => ({ none: "" });
+export const noBin: BinFinder = async () => ({ none: "this system has no Recycle Bin Afflatus writes to" });
 
 /** The bin of this system: Windows' own, else none. */
 export const systemBin: BinFinder = process.platform === "win32" ? windowsBin : noBin;
@@ -136,73 +136,125 @@ const within = (dir: string, p: string) => {
 /**
  * The set-aside folder for a file of a model folder's directory `dir`: beside that directory (`models/.afflatus-set-aside`),
  * or higher up while that place is itself inside a model directory (`modelDirs`, every folder's): ComfyUI would list it.
+ * Null when there is no such place: a model folder that is a drive's root, or inside one that is.
  */
-export function asideRoot(dir: string, modelDirs: readonly string[]): string {
+export function asideRoot(dir: string, modelDirs: readonly string[]): string | null {
   let up = dirname(resolve(dir));
   while (modelDirs.some((d) => within(d, up)) && dirname(up) !== up) up = dirname(up);
-  return join(up, ASIDE_DIR);
+  return modelDirs.some((d) => within(d, up)) ? null : join(up, ASIDE_DIR);
+}
+
+/** A file in the way of a move: nothing is replaced, the caller picks another name or says so. */
+export class Taken extends Error {}
+
+const exists = (p: string) => stat(p).then(() => true, () => false);
+
+/**
+ * A file moved where nothing is, never over a file that is there, even one arriving meanwhile: a hard link made (it refuses
+ * a name taken), then the old name removed; a rename, which replaces what it lands on, only where a link cannot be made
+ * (a FAT drive) and nothing was there a moment before. Same drive only (EXDEV otherwise). Throws Taken when the name is
+ * taken; a file held open where Windows will not let it go (a model ComfyUI is loading) stays where it was.
+ */
+export async function moveNoClobber(from: string, to: string): Promise<void> {
+  try {
+    await link(from, to);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EEXIST") throw new Taken(to);
+    if (code === "EXDEV" || code === "ENOENT") throw err;
+    if (await exists(to)) throw new Taken(to);
+    await rename(from, to);
+    return;
+  }
+  try {
+    await unlink(from);
+  } catch (err) {
+    await unlink(to).catch(() => {});
+    throw err;
+  }
 }
 
 /** A path not taken yet: `x.safetensors`, else `x (2).safetensors`, and on. */
-async function free(path: string): Promise<string> {
+async function free(path: string, from = 1): Promise<string> {
   const ext = extname(path);
-  for (let n = 1; ; n++) {
+  for (let n = from; ; n++) {
     const p = n === 1 ? path : `${path.slice(0, path.length - ext.length)} (${n})${ext}`;
-    if (!(await stat(p).then(() => true, () => false))) return p;
+    if (!(await exists(p))) return p;
   }
 }
+
+/** Where a file is about to go, said before it moves (the caller records it, so a move cut short can be found again). */
+export type Planned = Omit<Moved, "why">;
 
 /**
  * A file moved out of its model folder: to the bin when asked and the bin takes it whole, else to the set-aside folder
- * (`aside`, under its model folder's name and its sub-folder, so it keeps its place). Throws when neither move can be made
- * (the set-aside folder on another drive than the file: a copy is not made of a file of many gigabytes).
+ * (`aside`, under its model folder's name and its sub-folder, so it keeps its place). `planned` is told where it goes
+ * before each try (again when a name turned out taken); what it throws stops the move before anything moved. Throws when
+ * neither move can be made (no set-aside folder, or one on another drive: a copy is not made of a file of many gigabytes).
  */
-export async function moveOut(path: string, o: { want: Place; size: number; folder: string; file: string; aside: string; bin: BinFinder; at?: number }): Promise<Moved> {
+export async function moveOut(path: string, o: { want: Place; size: number; folder: string; file: string; aside: string | null; bin: BinFinder; at?: number; planned?(p: Planned): Promise<void>; /** The bin entry's letters (the tests'). */ names?(): string }): Promise<Moved> {
+  const planned = o.planned ?? (async () => {});
   let why: string | null = null;
   if (o.want === "bin") {
     const spot = await o.bin(path).catch((err: Error) => ({ none: err.message }));
-    if ("none" in spot) why = spot.none || null;
+    if ("none" in spot) why = spot.none;
     else if (o.size > spot.room) why = "the Recycle Bin has no room for it (Windows would erase its oldest items)";
     else {
-      const id = binName();
       const ext = extname(path);
-      const stored = join(spot.dir, `$R${id}${ext}`);
-      const info = join(spot.dir, `$I${id}${ext}`);
-      try {
-        await rename(path, stored);
-      } catch (err) {
-        // another drive mounted in a folder of this one: its bin is not this one's
-        if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
-        why = "it is on a drive mounted in a folder";
-      }
-      if (!why) {
+      for (let tries = 0; tries < 5 && !why; tries++) {
+        const id = (o.names ?? binName)();
+        const stored = join(spot.dir, `$R${id}${ext}`);
+        const info = join(spot.dir, `$I${id}${ext}`);
+        if (await exists(stored)) continue;
+        await planned({ place: "bin", stored, info });
+        // the entry first, made only where none is: a pair Windows made under the same letters is never written over
         try {
-          await writeFile(info, binEntry(resolve(path), o.size, o.at));
+          await writeFile(info, binEntry(resolve(path), o.size, o.at), { flag: "wx" });
         } catch (err) {
-          // no entry, no file in the bin Explorer would list: back where it was
-          await rename(stored, path).catch(() => {});
+          if ((err as NodeJS.ErrnoException).code === "EEXIST") continue;
           throw err;
         }
-        return { place: "bin", stored, info, why: null };
+        try {
+          await moveNoClobber(path, stored);
+          return { place: "bin", stored, info, why: null };
+        } catch (err) {
+          await unlink(info).catch(() => {});
+          if (err instanceof Taken) continue;
+          // another drive mounted in a folder of this one: its bin is not this one's
+          if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
+          why = "it is on a drive mounted in a folder";
+        }
       }
+      why ??= "no free name in the Recycle Bin";
     }
   }
-  const target = await free(join(o.aside, o.folder, ...o.file.split(/[\\/]/)));
-  await mkdir(dirname(target), { recursive: true });
-  try {
-    await rename(path, target);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "EXDEV") throw new Error(`${basename(path)} was left in place: the set-aside folder (${o.aside}) is on another drive.`);
-    throw err;
+  if (!o.aside) throw new Error(`${basename(path)} was left in place: its model folder is a drive's root, with no folder beside it to set it aside in${why ? ` (and ${why})` : ""}.`);
+  const wanted = join(o.aside, o.folder, ...o.file.split(/[\\/]/));
+  for (let n = 1; ; n++) {
+    const target = await free(wanted, n);
+    await planned({ place: "aside", stored: target, info: null });
+    await mkdir(dirname(target), { recursive: true });
+    try {
+      await moveNoClobber(path, target);
+    } catch (err) {
+      if (err instanceof Taken) continue;
+      await dropEmpty(dirname(target));
+      if ((err as NodeJS.ErrnoException).code === "EXDEV") throw new Error(`${basename(path)} was left in place: the set-aside folder (${o.aside}) is on another drive.`);
+      throw err;
+    }
+    return { place: "aside", stored: target, info: null, why: o.want === "bin" ? why ?? "" : null };
   }
-  return { place: "aside", stored: target, info: null, why: o.want === "bin" ? why ?? "" : null };
 }
 
-/** A file put back where it was: a move again. Refused when a file is there again. */
+/** A file put back where it was: a move again, never over a file there again (even one arriving meanwhile). */
 export async function moveBack(r: { stored: string; info: string | null; was: string }): Promise<void> {
-  if (await stat(r.was).then(() => true, () => false)) throw new Error(`a file is at ${r.was} again: put back nothing over it`);
   await mkdir(dirname(r.was), { recursive: true });
-  await rename(r.stored, r.was);
+  try {
+    await moveNoClobber(r.stored, r.was);
+  } catch (err) {
+    if (err instanceof Taken) throw new Error(`a file is at ${r.was} again: nothing is put back over it`);
+    throw err;
+  }
   if (r.info) await unlink(r.info).catch(() => {});
   await dropEmpty(dirname(r.stored));
 }

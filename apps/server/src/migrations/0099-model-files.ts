@@ -11,7 +11,9 @@ import type { Migration } from "kysely/migration";
  *
  * `model_removed`: each file Delete moved, to the Recycle Bin (`place` bin, its `$I` entry in `info_path`) or the set-aside
  * folder (aside), `stored_path` where it is now; put back (`restored_at`), or erased by Empty (`emptied_at`). `batch`: one
- * Delete's files, put back together by Undo. Sizes in bigint, as model_hashes'.
+ * Delete's files, put back together by Undo. `pending` 1: written before its move, with where it is going, and made 0 once
+ * moved: a move cut short (a crash between the two) is settled at the next start (modelLibrary.ts settlePending). Sizes
+ * in bigint, as model_hashes'.
  *
  * `model_civitai`: what Civitai says of a version a file was matched to (model_hashes.civitai_version): its model's name,
  * the version's, its base model, its page's first picture. Asked once per version, in the background.
@@ -48,6 +50,7 @@ const migration: Migration = {
       .addColumn("removed_at", "text", (c) => c.notNull())
       .addColumn("restored_at", "text")
       .addColumn("emptied_at", "text")
+      .addColumn("pending", "integer", (c) => c.notNull().defaultTo(0))
       .execute();
     await db.schema
       .createTable("model_civitai")

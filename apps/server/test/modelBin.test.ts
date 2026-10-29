@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ASIDE_DIR, asideRoot, binEntry, binHolds, erase, moveBack, moveOut, type BinFinder } from "../src/modelBin";
+import { ASIDE_DIR, asideRoot, binEntry, binHolds, erase, moveBack, moveNoClobber, moveOut, noBin, Taken, type BinFinder } from "../src/modelBin";
 
 /**
  * Where Delete puts a model file (modelBin.ts): moved, never erased. A stand-in bin folder here: no test writes into a real
@@ -93,4 +93,56 @@ describe("a model file deleted", () => {
     const e = binEntry("C:\\é\\x.safetensors", 5);
     expect(e.length).toBe(28 + 2 * "C:\\é\\x.safetensors\0".length);
   });
+
+  it("never writes over a bin entry of the same letters: another name is taken, the other pair left as it was", async () => {
+    const theirs = join(bin, "$IAAAAAA.safetensors");
+    writeFileSync(theirs, "theirs");
+    writeFileSync(join(bin, "$RBBBBBB.safetensors"), "theirs too");
+    const letters = ["AAAAAA", "BBBBBB", "CCCCCC"];
+    const m = await moveOut(file, { want: "bin", size: 1000, folder: "loras", file: "x.safetensors", aside: aside(), bin: roomy, names: () => letters.shift()! });
+    expect(m).toMatchObject({ place: "bin", stored: join(bin, "$RCCCCCC.safetensors"), info: join(bin, "$ICCCCCC.safetensors") });
+    expect(readFileSync(theirs, "utf8")).toBe("theirs");
+    expect(readFileSync(join(bin, "$RBBBBBB.safetensors"), "utf8")).toBe("theirs too");
+    // no entry of ours left beside theirs
+    expect(readdirSync(bin).sort()).toEqual(["$IAAAAAA.safetensors", "$ICCCCCC.safetensors", "$RBBBBBB.safetensors", "$RCCCCCC.safetensors"]);
+  });
+
+  it("is not moved when where it goes cannot be kept first, and leaves no bin entry", async () => {
+    await expect(out("bin", roomy).then(() => null)).resolves.toBeNull();
+    await moveBack({ stored: readdirSync(bin).filter((n) => n.startsWith("$R")).map((n) => join(bin, n))[0]!, info: readdirSync(bin).filter((n) => n.startsWith("$I")).map((n) => join(bin, n))[0]!, was: file });
+    await expect(moveOut(file, { want: "bin", size: 1000, folder: "loras", file: "x.safetensors", aside: aside(), bin: roomy, planned: async () => { throw new Error("the database refused"); } })).rejects.toThrow("the database refused");
+    expect(existsSync(file)).toBe(true);
+    expect(readdirSync(bin)).toEqual([]);
+  });
+
+  it("moves without ever replacing a file: one there already, or arriving, is kept", async () => {
+    const to = join(home, "models", "loras", "taken.safetensors");
+    writeFileSync(to, "theirs");
+    await expect(moveNoClobber(file, to)).rejects.toBeInstanceOf(Taken);
+    expect(readFileSync(to, "utf8")).toBe("theirs");
+    expect(existsSync(file)).toBe(true);
+    // Put back over a file that came back meanwhile: refused, both kept
+    const m = await out("aside");
+    writeFileSync(file, "new one");
+    await expect(moveBack({ stored: m.stored, info: null, was: file })).rejects.toThrow(/nothing is put back over it/);
+    expect(readFileSync(file, "utf8")).toBe("new one");
+    expect(existsSync(m.stored)).toBe(true);
+  });
+
+  it("has no set-aside folder for a model folder that is a drive's root, and leaves the file in place", async () => {
+    const root = join(home, "drive");
+    mkdirSync(root);
+    expect(asideRoot(root, [root])).not.toBeNull();
+    // the drive itself
+    const drive = process.platform === "win32" ? "C:\\" : "/";
+    expect(asideRoot(drive, [drive])).toBeNull();
+    await expect(moveOut(file, { want: "aside", size: 1000, folder: "loras", file: "x.safetensors", aside: null, bin: roomy })).rejects.toThrow(/drive's root/);
+    expect(existsSync(file)).toBe(true);
+  });
+
+  it("says why on a system with no bin (Linux, Docker): the set-aside folder, with the reason", async () => {
+    const m = await out("bin", noBin);
+    expect(m).toMatchObject({ place: "aside", why: "this system has no Recycle Bin Afflatus writes to" });
+  });
 });
+

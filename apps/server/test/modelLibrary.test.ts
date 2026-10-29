@@ -1,11 +1,13 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { PassThrough } from "node:stream";
+import { sql } from "kysely";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { now } from "../src/db";
 import { ASIDE_DIR, type BinFinder } from "../src/modelBin";
-import { deleteFiles, folderOfHeader, type Library } from "../src/modelLibrary";
+import { addFile, badName, deleteFiles, folderOfHeader, settleAway, settlePending, type Library } from "../src/modelLibrary";
 import { backfillUses, recordUses } from "../src/modelUses";
 import { writeSettings } from "../src/settings";
 import { CHECKPOINT, complete, get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
@@ -115,6 +117,8 @@ describe("Delete, Put back and Empty", () => {
     rmSync(vae.stored_path);
     rmSync(lora.stored_path);
     expect((await lib()).away.files).toBe(0);
+    // the list only reads: a write (here the hourly pass) says so
+    await settleAway(t.services);
     const after = await t.db.selectFrom("model_removed").selectAll().execute();
     expect(after.find((r) => r.id === vae.id)!.restored_at).not.toBeNull();
     expect(after.find((r) => r.id === lora.id)!.emptied_at).not.toBeNull();
@@ -167,5 +171,90 @@ describe("uses", () => {
     const l = await lib();
     expect(byFile(l, CHECKPOINT)).toMatchObject({ uses: 2, months: { "2026-07": 1, [now().slice(0, 7)]: 1 } });
     expect(l.since).toBe("2026-07-01T10:00:00.000Z");
+  });
+});
+
+describe("what the review asked to hold (card #155)", () => {
+  const vae = () => join(home, "models", "vae", "zz-test-vae.safetensors");
+
+  it("never replaces a file arriving under the same name while a drop is sent, nor removes another drop's .part", async () => {
+    const first = new PassThrough();
+    const second = new PassThrough();
+    const a = addFile(t.services, "loras", "zz-test-same.safetensors", first).then(() => "added", (err: Error) => err.message);
+    first.write("first ");
+    await until(() => readdirSync(join(home, "models", "loras")).some((n) => n.endsWith(".part")));
+    // a second drop of the same name, done first: the first one's .part is left alone
+    const b = addFile(t.services, "loras", "zz-test-same.safetensors", second).then(() => "added", (err: Error) => err.message);
+    second.end("second");
+    expect(await b).toBe("added");
+    expect(readdirSync(join(home, "models", "loras")).filter((n) => n.endsWith(".part"))).toHaveLength(1);
+    first.end("half");
+    expect(await a).toMatch(/already/);
+    expect(readFileSync(join(home, "models", "loras", "zz-test-same.safetensors"), "utf8")).toBe("second");
+    expect(readdirSync(join(home, "models", "loras")).filter((n) => n.endsWith(".part"))).toEqual([]);
+  });
+
+  it("refuses names Windows cannot hold or holds as something else", async () => {
+    for (const name of ["CON.safetensors", "nul.safetensors", "a:b.safetensors", "x.safetensors.", "x.safetensors ", "lpt1.pt"]) expect(badName(name), name).not.toBeNull();
+    expect(badName("zz-test ok.safetensors")).toBeNull();
+    const put = (name: string) => t.app.inject({ method: "PUT", url: `/api/model-files/add?folder=loras&name=${encodeURIComponent(name)}`, headers: { "content-type": "application/x-afflatus-model" }, payload: "x" });
+    expect((await put("CON.safetensors")).statusCode).toBe(400);
+    expect((await put("a:b.safetensors")).statusCode).toBe(400);
+    expect(readdirSync(join(home, "models", "loras")).filter((n) => /^(CON|a)/.test(n))).toEqual([]);
+  });
+
+  it("deletes model files only: a .json or .yaml beside them stays", async () => {
+    writeFileSync(join(home, "models", "loras", "config.json"), "{}");
+    const out = await deleteFiles(t.services, { files: [{ folder: "loras", file: "config.json" }], to: "aside" }, fake);
+    expect(out).toMatchObject({ moved: 0, left: [{ why: "it is not a model file" }] });
+    expect(existsSync(join(home, "models", "loras", "config.json"))).toBe(true);
+  });
+
+  it("puts a file back when its row cannot say it moved, and settles a move cut short at the next start", async () => {
+    await sql`CREATE TRIGGER zz_refuse BEFORE UPDATE OF pending ON model_removed BEGIN SELECT RAISE(ABORT, 'zz-test refused'); END`.execute(t.db);
+    const out = await deleteFiles(t.services, { files: [{ folder: "vae", file: "zz-test-vae.safetensors" }], to: "bin" }, fake);
+    expect(out).toMatchObject({ moved: 0, left: [{ why: expect.stringContaining("zz-test refused") }] });
+    expect(readFileSync(vae())).toEqual(Buffer.alloc(200, 3));
+    expect(readdirSync(bin)).toEqual([]);
+    expect(await t.db.selectFrom("model_removed").selectAll().execute()).toEqual([]);
+    await sql`DROP TRIGGER zz_refuse`.execute(t.db);
+    // a stop between the row and its end: the file where it was going, the row still pending
+    const stored = join(bin, "$RZZZZZZ.safetensors");
+    const row = { batch: "b", folder: "vae", file: "zz-test-vae.safetensors", path_was: vae(), size: 200, sha256: null, place: "bin" as const, info_path: null, removed_at: now(), restored_at: null, emptied_at: null, pending: 1 };
+    await t.db.insertInto("model_removed").values({ ...row, id: "moved", stored_path: stored }).execute();
+    renameSync(vae(), stored);
+    await t.db.insertInto("model_removed").values({ ...row, id: "never", stored_path: join(bin, "$RYYYYYY.safetensors"), path_was: join(home, "models", "checkpoints", CHECKPOINT) }).execute();
+    await settlePending(t.services);
+    const rows = await t.db.selectFrom("model_removed").select(["id", "pending"]).execute();
+    expect(rows).toEqual([{ id: "moved", pending: 0 }]);
+    expect((await post(t.app, "/api/model-files/put-back", { ids: ["moved"] })).json()).toEqual({ back: 1, left: [] });
+    expect(existsSync(vae())).toBe(true);
+  });
+
+  it("keeps a file whose drive is away as away; reading the list writes nothing", async () => {
+    const done = await deleteFiles(t.services, { files: [{ folder: "vae", file: "zz-test-vae.safetensors" }], to: "aside" }, fake);
+    expect(done.moved).toBe(1);
+    // its set-aside folder gone for now (an unplugged drive): neither emptied nor put back
+    const aside = join(home, "models", ASIDE_DIR);
+    renameSync(aside, join(home, "unplugged"));
+    expect((await lib()).away.files).toBe(1);
+    await settleAway(t.services);
+    expect((await t.db.selectFrom("model_removed").select(["emptied_at", "restored_at"]).executeTakeFirst())).toEqual({ emptied_at: null, restored_at: null });
+    expect((await post(t.app, "/api/model-files/empty", {})).json()).toEqual({ erased: 0, bytes: 0 });
+    renameSync(join(home, "unplugged"), aside);
+    // put back by hand: the list leaves it out, and only a write says so
+    renameSync(join(aside, "vae", "zz-test-vae.safetensors"), vae());
+    expect((await lib()).away.files).toBe(0);
+    expect((await t.db.selectFrom("model_removed").select("restored_at").executeTakeFirst())!.restored_at).toBeNull();
+    await settleAway(t.services);
+    expect((await t.db.selectFrom("model_removed").select("restored_at").executeTakeFirst())!.restored_at).not.toBeNull();
+  });
+
+  it("leaves a helper file a running job's graph loads, though no form names it", async () => {
+    await t.db.insertInto("jobs").values({ id: "zz-running", owner_id: "local", recipe_id: "sdxl.text-to-picture", label: "zz-test", inputs: "{}", status: "running", priority: 0, created_at: now(), updated_at: now() } as never).execute();
+    await recordUses(t.db, { id: "zz-running" }, [{ folder: "vae", file: "zz-test-vae.safetensors", node: "1", classType: "VAELoader", input: "vae_name" }]);
+    const out = await deleteFiles(t.services, { files: [{ folder: "vae", file: "zz-test-vae.safetensors" }], to: "aside" }, fake);
+    expect(out).toMatchObject({ moved: 0, left: [{ why: "a job waiting or running uses it" }] });
+    expect(existsSync(vae())).toBe(true);
   });
 });
