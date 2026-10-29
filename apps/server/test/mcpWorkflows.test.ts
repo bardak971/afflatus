@@ -275,4 +275,35 @@ describe("running a workflow where money is at stake", () => {
     await t.services.queue.cancel(r.jobs[0]);
     await c.close();
   });
+
+  it("reads and changes a workflow's mapping, which then waits for the user's approval again, even the user's own, and deletes one", async () => {
+    const c = await connect((await made("make")).token);
+    // the user's own import: approved from the start
+    const inspected = (await post(t.app, "/api/workflows/inspect", wan)).json();
+    const mine = (await post(t.app, "/api/workflows", { title: "zz-test mine", model: "Wan 2.2", graph: inspected.graph, bindings: inspected.suggested })).json();
+    const read = await ok(c, "read_workflow", { workflow: mine.id });
+    expect(read).toMatchObject({ form: mine.id, title: "zz-test mine", bindings: inspected.suggested, reaches: [] });
+    expect(read.waiting).toBeUndefined();
+    expect(Object.keys(read.nodes)).toHaveLength(12);
+    await refused(c, "edit_workflow", { workflow: mine.id, bindings: { prompt: { node: "6", input: "nope" } } }, /not in the workflow/);
+    expect(t.services.registry.pending(mine.id)).toBeUndefined();
+    const edited = await ok(c, "edit_workflow", { workflow: mine.id, bindings: { negative: null }, title: "zz-test mine, no negative" });
+    expect(edited).toMatchObject({ form: mine.id, title: "zz-test mine, no negative" });
+    expect(edited.waitsForApproval).toMatch(/Approve/);
+    expect(edited.inputs.map((i: { id: string }) => i.id)).not.toContain("negative");
+    expect((await get(t.app, `/api/workflows/${mine.id}`)).json().bindings.negative ?? null).toBeNull();
+    expect((await ok(c, "list_workflows")).workflows[0].waiting).toMatchObject({ by: "zz-test make" });
+    await refused(c, "run_workflow", { workflow: mine.id, values: { prompt: "zz-test" } }, /waits for the user's approval/);
+    // approving stays the user's: no tool does it
+    expect((await c.listTools()).tools.map((x) => x.name).filter((n) => /approve/.test(n))).toEqual([]);
+    await refused(c, "edit_workflow", { workflow: mine.id }, /Say what to change/);
+    expect(await ok(c, "delete_workflow", { workflow: "zz-test mine, no negative" })).toMatchObject({ deleted: mine.id });
+    expect((await get(t.app, "/api/workflows")).json().items).toEqual([]);
+    await refused(c, "delete_workflow", { workflow: mine.id }, /no workflow called/);
+    const look = await connect((await made("look")).token);
+    await refused(look, "edit_workflow", { workflow: "x", title: "y" }, /needs Make/);
+    await refused(look, "delete_workflow", { workflow: "x" }, /needs Make/);
+    await look.close();
+    await c.close();
+  });
 });

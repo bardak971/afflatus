@@ -7,6 +7,16 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 ### Added
 - **The queue's controls through MCP.** An agent can now put waiting jobs in order (`order_queue`), move one to a machine or back to any (`run_on`), use only one machine (`use_only`), cancel everything waiting (`cancel_waiting`: its own jobs and yours, never another token's) and unload the models (`unload_models`). Moving work onto a rented pod needs Spend and room in the token's spend cap with the moved jobs counted, and a job of yours moved onto a pod becomes the token's: its Queue row names the token and its time there counts against that token's cap. Unloading a pod's models needs Spend too, since its next render loads them again on the clock.
 - **Hunt a GPU through MCP.** `hunt` reads the hunt and ranks the GPUs for the renders waiting; `start_hunt`, `change_hunt` and `cancel_hunt` need Spend. A hunt a token starts must fit its spend cap and the app's caps for a pod at its ceiling, and is checked again when a GPU comes free: a token that spent meanwhile, lost Spend or was revoked deploys nothing, and the hunt ends saying why. The pod it deploys is the token's, counted whole and stopped at its cap. A token changes only a hunt it started, and cancels its own or yours; changing a token's hunt in Afflatus makes it yours.
+- **MCP: an agent uploads a file.** `upload` takes a picture, a video or a sound as base64 (a `data:` address too) through the web upload's own path: read from its bytes, the real containers only (a playlist or a manifest naming other files is refused). It goes into a folder or a project, and its id then goes where library items go (a draft's references, a kit item's pictures). One file at a time per token (an import from an address counts), at most 16 MB each and 1 GB a token a day. `/mcp` takes a call that large only once its token is known.
+- **MCP: what the web did that an agent could not.**
+  - Library: `extract_sound`, `remove_sound`, `mirror`.
+  - Places: `delete_folder` (its items move up; a linked folder stays linked), `archive_project`, `delete_project` (what it holds goes to the Inbox), and `look_again` on a linked folder.
+  - Prompt kit: `delete_kit_item`.
+  - Timelines: `duplicate_timeline`, and `delete_timeline`, which takes the timeline's name back as a check and is refused while a clip of it is in the queue.
+  - Workflows: `read_workflow`, `edit_workflow` and `delete_workflow`. A workflow whose mapping an agent changed waits for your Approve again, even one you imported.
+  - Storage and tidying: `storage`, `bin_idle_takes` across every timeline, `clear_unused_drafts` (the draft open stays), `dismiss` for a finished job.
+  - docs/mcp.md's never-list now also names approving a workflow, installing node packs, deleting network volume files, forgetting render times, backups, sharing an item and linking a folder.
+- **Duplicate a timeline.** The timeline's menu (Projects panel, command bar) has **Duplicate**: a copy beside it with its clips, forms and takes (the same videos play in both), its music, source and recordings. Its Undo history, jobs and last export are not copied. The copy opens at once.
 
 ## [0.8.1] - 2026-10-28
 

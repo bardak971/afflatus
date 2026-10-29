@@ -10,6 +10,7 @@ import { HUNT_TOOLS, QUEUE_TOOLS } from "./mcpQueue";
 import { RENDER_TOOLS } from "./mcpRender";
 import { SEE_TOOLS } from "./mcpSee";
 import { SETTING_TOOLS } from "./mcpSettings";
+import { STORAGE_TOOLS } from "./mcpStorage";
 import { TIMELINE_TOOLS } from "./mcpTimelines";
 import { tool, type Tool } from "./mcpTool";
 import { WORKFLOW_TOOLS } from "./mcpWorkflows";
@@ -95,6 +96,7 @@ export const TOOL_GROUPS: ReadonlyArray<{ group: string; tools: readonly Tool[] 
   { group: "Render and the queue", tools: [...RENDER_TOOLS, ...QUEUE_TOOLS] },
   { group: "See", tools: SEE_TOOLS },
   { group: "Library", tools: LIBRARY_TOOLS },
+  { group: "Storage and tidying", tools: STORAGE_TOOLS },
   { group: "Prompt kit", tools: KIT_TOOLS },
   { group: "Timelines", tools: TIMELINE_TOOLS },
   { group: "Workflows", tools: WORKFLOW_TOOLS },

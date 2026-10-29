@@ -53,6 +53,7 @@ describe("a timeline card's menu (the kind's one list), drawn", () => {
       "Export…",
       "Fix allwhat Needs a look lists",
       "Rename…F2",
+      "Duplicateits takes too",
       "Put in a folderno folder in its project (off)",
       "Move tono project yet (off)",
       "Delete…videos stayDel",

@@ -373,8 +373,12 @@ describe("the tools, through the SDK's client over HTTP", () => {
     const { token, id } = await made("make", "Claude Code");
     const client = await connect(token);
     expect(client.getServerVersion()?.name).toBe("afflatus");
-    // every tool of the registry, in its order: the list itself is checked by the docs (check:mcp-docs)
-    expect((await client.listTools()).tools.map((x) => x.name)).toEqual(TOOLS.map((x) => x.name));
+    // every tool of the registry, in its order, each once: the list itself is the registry's (mcpTools.ts TOOL_GROUPS), and
+    // docs/mcp.md is written from it (mcpDocs.test.ts holds the two together)
+    const listed = (await client.listTools()).tools.map((x) => x.name);
+    expect(listed).toEqual(TOOLS.map((x) => x.name));
+    expect(new Set(listed).size).toBe(listed.length);
+    expect(listed.slice(0, 2)).toEqual(["whats_open", "overview"]);
     const r = await client.callTool({ name: "overview" });
     expect(r.isError).toBeFalsy();
     const o = JSON.parse(text(r)) as Record<string, any>;

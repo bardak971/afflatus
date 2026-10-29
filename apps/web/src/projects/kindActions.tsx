@@ -63,6 +63,7 @@ export const MENUS: Record<MenuKind, ReadonlyArray<Spec | "—">> = {
     { id: "fix-all", label: "Fix all", icon: Wand2, note: "what Needs a look lists", tip: "What the editor's Needs a look lists, mended as its Fix all does." },
     "—",
     RENAME,
+    { id: "duplicate", label: "Duplicate", icon: Layers, note: "its takes too", tip: "A copy beside it: its clips, forms and takes, the same videos playing in both. Not its Undo history." },
     { id: "put", label: "Put in a folder", icon: Folder, note: "renders land there", tip: "Listed in a folder of its project; what it renders lands there.", many: true, flat: "Put in" },
     MOVE,
     "—",

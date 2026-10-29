@@ -349,6 +349,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     await t.remove(req.params.id);
     return { ok: true };
   });
+  /** A copy of the timeline beside it, its clips and takes with it (Timelines.duplicate): the copy as GET answers it. */
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/duplicate", async (req) => sent(await t.duplicate(req.params.id, z.strictObject({ name: z.string().trim().max(200).optional() }).parse(req.body ?? {}).name)));
   /**
    * Take the last change to the timeline back. Answers with what was undone, in a few words, and what to tell of the takes
    * rendered since that do not fit their clips at that step (`said`). Refused (409) over a clip in the queue.

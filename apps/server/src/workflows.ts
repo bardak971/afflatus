@@ -171,6 +171,22 @@ export async function createWorkflow(s: Services, raw: unknown, by?: Pending) {
   return brief(def);
 }
 
+/**
+ * A workflow kept again as mapped (the web's Save of an edit, PUT /api/workflows/:id; MCP's edit_workflow): checked and
+ * built once, its id kept. `by`: the MCP token changing it, which leaves it waiting for the user's approval again (what a
+ * form control sets is part of what it reaches).
+ */
+export async function saveWorkflow(s: Services, id: string, raw: unknown, by?: Pending) {
+  const current = s.registry.workflow(id);
+  if (!current) throw httpError("this workflow was not found", 404);
+  const body = saveBody.parse(raw);
+  checkBindings(body.graph as Graph, body.bindings);
+  const def = workflowDef.parse({ id: current.id, ...body });
+  mustBuild(def);
+  await s.registry.save(def, by);
+  return brief(def);
+}
+
 export function registerWorkflows(app: FastifyInstance, s: Services): void {
   app.post("/api/workflows/inspect", async (req) => inspectWorkflow(s, req.body));
 
@@ -214,16 +230,7 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
 
   app.post("/api/workflows", async (req) => createWorkflow(s, req.body));
 
-  app.put<{ Params: { id: string } }>("/api/workflows/:id", async (req) => {
-    const current = s.registry.workflow(req.params.id);
-    if (!current) throw httpError("this workflow was not found", 404);
-    const body = saveBody.parse(req.body);
-    checkBindings(body.graph as Graph, body.bindings);
-    const def = workflowDef.parse({ id: current.id, ...body });
-    mustBuild(def);
-    await s.registry.save(def);
-    return brief(def);
-  });
+  app.put<{ Params: { id: string } }>("/api/workflows/:id", async (req) => saveWorkflow(s, req.params.id, req.body));
 
   /**
    * Show the workflow in ComfyUI's editor (see comfyOpen.ts for how): the editor's own file when the

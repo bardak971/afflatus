@@ -725,6 +725,7 @@ export const api = {
   /** A copy of the clip right after it, with its takes. */
   duplicateClip: (id: string) => call<{ clip: string }>("POST", `/clips/${id}/duplicate`),
   deleteTimeline: (id: string) => call<{ ok: true }>("DELETE", `/timelines/${id}`),
+  duplicateTimeline: (id: string) => call<Sent>("POST", `/timelines/${id}/duplicate`, {}).then(withTakes),
   /** The timeline's takes no clip plays and nothing else needs go, their videos to the bin. */
   binUnusedTakes: (id: string) => call<{ binned: number; bytes: number }>("POST", `/timelines/${id}/unused-takes/bin`),
   /** A new clip: empty, or from a video or a picture of the library. After `after`, first when null, last when left out. */
