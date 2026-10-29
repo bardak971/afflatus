@@ -2,14 +2,17 @@ import type { AddressInfo } from "node:net";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { startFakeRunpod, type FakeComfy, type FakeGpu, type FakeRunpod } from "@afflatus/comfy/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { oneAtATime } from "../src/keyedLock";
 import { readSettings } from "../src/settings";
 import { job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /**
  * Hunt a GPU from MCP (mcpQueue.ts start_hunt, hunt.ts mayDeploy), against a pretend RunPod: Spend and room in the token's
  * cap and the app's for a pod at the ceiling; the pod it deploys is the token's run; its deploy asked of the caps again
- * once a GPU is found (a token whose cap was lowered, or revoked, meanwhile deploys nothing and the hunt ends); a hunt is
- * changed only by the token that started it, cancelled by it or for the user's; a change in Afflatus makes it the user's.
+ * once a GPU is found (a token whose cap was lowered, revoked, or that lost Spend meanwhile deploys nothing and the hunt
+ * ends), in the token's turn with its renders, the pod being deployed counted among its work; a hunt is changed only by
+ * the token that started it, cancelled by it or for the user's (not while its GPU is being deployed); a change in Afflatus
+ * makes it the user's.
  */
 
 const KEY = "rpa_test_key_0123456789";
@@ -130,12 +133,13 @@ describe("start_hunt", () => {
     await c.close();
   });
 
-  it("deploys nothing when the token's cap has no room any more once the GPU is found, or it was revoked: the hunt ends", async () => {
-    for (const how of ["cap", "revoke"] as const) {
+  it("deploys nothing when the token's cap has no room any more once the GPU is found, it was revoked or lost Spend: the hunt ends", async () => {
+    for (const how of ["cap", "revoke", "spend"] as const) {
       const { token, id } = await made("spend", { spendCapUsd: 5 });
       const c = await connect(token);
       await ok(c, "start_hunt", HUNT);
       if (how === "cap") await capOf(id, 0.3);
+      else if (how === "spend") expect((await t.app.inject({ method: "POST", url: `/api/mcp/tokens/${id}`, payload: { scopes: ["look", "make"] } })).statusCode).toBe(200);
       else expect((await t.app.inject({ method: "POST", url: `/api/mcp/tokens/${id}/revoke`, payload: {} })).statusCode).toBe(200);
       free();
       await t.services.hunt.tick();
@@ -145,9 +149,55 @@ describe("start_hunt", () => {
       await c.close();
     }
   });
+
+  it("asks its cap and turns to deploying in the token's turn, the pod being deployed then counted among the token's work", async () => {
+    const { token, id } = await made("spend", { spendCapUsd: 1 });
+    const c = await connect(token);
+    await ok(c, "start_hunt", HUNT);
+    free();
+    // the deploy call held open: the pod is being made
+    let go!: () => void;
+    const gate = new Promise<void>((r) => (go = r));
+    const deploy = t.services.rented.deploy.bind(t.services.rented);
+    vi.spyOn(t.services.rented, "deploy").mockImplementation(async (...a) => (await gate, deploy(...a)));
+    // a call of the token's under way (its turn held): the hunt waits for it before it asks the cap and deploys
+    let release!: () => void;
+    const held = oneAtATime(t.db, `mcp-render:${id}`, () => new Promise<void>((r) => (release = r)));
+    const round = t.services.hunt.tick();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(t.services.hunt.view().hunt!.status).toBe("hunting");
+    expect(t.services.hunt.deployingFor(id)).toBeNull();
+    release();
+    await held;
+    await until(() => t.services.hunt.deploying());
+    expect(t.services.hunt.deployingFor(id)).toMatchObject({ gpu: "A40", usd: expect.any(Number) });
+    // the next call sees the pod's first hour committed: a higher ceiling (about $0.61) beside it (about $0.45) passes the $1 cap
+    await refusedWith(c, "change_hunt", { ceiling: 0.6 }, /Committed: \$0\.4\d, the first hour of “A40”, which its GPU hunt is deploying\. This call adds \$0\.6\d/);
+    // and it cannot be cancelled while its pod is being made (billed from its first second)
+    await refusedWith(c, "cancel_hunt", {}, /being deployed for this hunt/);
+    go();
+    await round;
+    expect(t.services.hunt.view().hunt!.status).toBe("up");
+    expect(t.services.hunt.deployingFor(id)).toBeNull();
+    await c.close();
+  });
 });
 
 describe("change_hunt and cancel_hunt", () => {
+  it("cancel_hunt once its pod is up ends the hunt; the pod stays a machine like any", async () => {
+    const c = await connect((await made("spend", { spendCapUsd: 5 })).token);
+    await ok(c, "start_hunt", HUNT);
+    free();
+    await t.services.hunt.tick();
+    const st = t.services.hunt.view().hunt!;
+    expect(st.status).toBe("up");
+    expect(await ok(c, "cancel_hunt")).toMatchObject({ cancelled: true });
+    expect(t.services.hunt.view().hunt).toBeNull();
+    expect((await readSettings(t.db)).machines.some((m) => m.id === st.machine)).toBe(true);
+    expect(runpod.pods.find((p) => p.status !== "TERMINATED")).toBeTruthy();
+    await c.close();
+  });
+
   it("change only the token's own hunt, a higher ceiling asked of its cap; another token's is refused", async () => {
     const mine = await made("spend", { spendCapUsd: 1 });
     const c = await connect(mine.token);

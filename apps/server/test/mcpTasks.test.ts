@@ -104,6 +104,26 @@ describe("a client that takes tasks", () => {
     await Promise.all([client.close(), other.client.close()]);
   });
 
+  it("refuses to cancel a task whose job is another token's now: nothing cancelled, the task goes on, the refusal written", async () => {
+    await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: {} });
+    const { token: bearer } = await token();
+    const other = await token();
+    const { client, session } = await tasksClient(await urlOf(t.app), bearer);
+    const ex = await session.callTool("render", { form: RECIPE, values: VALUES, takes: 2 });
+    expect(ex.kind).toBe("task");
+    const id = ex.handle!.taskId;
+    const jobs = JSON.parse((await t.db.selectFrom("mcp_tasks").select("follow").where("id", "=", id).executeTakeFirstOrThrow()).follow).jobs as string[];
+    // one of its jobs another token's (as a job a token moves becomes its own): not this token's to stop
+    await t.db.updateTable("jobs").set({ mcp_token_id: other.id }).where("id", "=", jobs[1]!).execute();
+    await expect(session.cancelTask(id)).rejects.toThrow(/queued by another token/);
+    const rows = await t.db.selectFrom("jobs").select(["id", "status"]).where("id", "in", jobs).execute();
+    expect(rows.map((r) => r.status)).toEqual(["queued", "queued"]);
+    expect(await session.task(id).snapshot()).toMatchObject({ status: "working" });
+    expect(await t.db.selectFrom("mcp_activity").select(["said", "refused"]).where("tool", "=", "tasks/cancel").executeTakeFirstOrThrow()).toMatchObject({ refused: 1, said: expect.stringMatching(/: refused$/) });
+    await session.close();
+    await client.close();
+  });
+
   it("is followed again after a restart of Afflatus, from the jobs", async () => {
     await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: {} });
     const { token: bearer } = await token();

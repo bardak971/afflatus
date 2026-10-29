@@ -5,7 +5,7 @@ import { askSchema, changeSchema, rankSchema, type HuntState } from "./hunt";
 import { oneAtATime } from "./keyedLock";
 import { machineName, machineOf, seen, spends } from "./mcpForms";
 import { mayStart } from "./mcpMachines";
-import { jobRow, madeOwn, mayMove, mayTouch, podsUp } from "./mcpRender";
+import { jobRow, madeOwn, mayMove, mayTouch, mayUnload, podsUp } from "./mcpRender";
 import { quoted, tool, type ToolCtx } from "./mcpTool";
 import { refusal } from "./mcpTokens";
 import { dollars } from "./notifyWords";
@@ -22,7 +22,9 @@ import { deploySchema, readSettings } from "./settings";
  * A money path (memory money-paths-critical). What sends waiting work onto a rented pod (run_on, use_only, run_on "any"
  * while pods are up) needs Spend and room in the token's cap with the moved jobs counted (mcpRender.ts mayMove); the
  * user's jobs a token moves there become its own, counted as its own from then on. Unloading a pod's models makes its next
- * render load them again, billed: Spend. A hunt deploys a pod by itself: start_hunt needs Spend and room in the token's
+ * render load them again, billed: Spend and room in the token's cap for that load, and on a pod it did not start, nobody
+ * else's renders waiting there. Use only onto a pod pins the jobs it counts there and pauses nothing (what the user
+ * queues afterwards is not sent there uncounted). A hunt deploys a pod by itself: start_hunt needs Spend and room in the token's
  * cap and the app's for a pod at its ceiling; its pod is then the token's run (counted whole, stopped at its cap) and its
  * deploy is asked of the caps again once a GPU is found (hunt.ts mayDeploy). A token cancels its own jobs and the user's,
  * never another token's; it changes only a hunt it started, and cancels its own or the user's. The checks and the moves
@@ -61,18 +63,20 @@ const runOn = tool({
   },
   async run({ job: id, machine }, ctx) {
     const { s, token } = ctx;
-    const row = await jobRow(s, id);
-    await mayTouch(s, ctx, row);
-    if (row.status !== "queued") throw httpError(`${quoted(row.label)} is not waiting (${row.status === "running" ? "it runs" : `it ended: ${row.status}`}): only a waiting job is moved.`);
     const at = await seen(s);
     const machines = at.machines.map((m) => m.machine);
     const to = machine.toLowerCase() === "any" ? null : machineOf(at, machine);
     return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
+      // read in the turn: a job another token took meanwhile (its use_only, its run_on) is that token's, and it would pay
+      const row = await jobRow(s, id);
+      await mayTouch(s, ctx, row);
+      if (row.status !== "queued") throw httpError(`${quoted(row.label)} is not waiting (${row.status === "running" ? "it runs" : `it ended: ${row.status}`}): only a waiting job is moved.`);
       // pinned to a pod: it goes there; let go: to any pod up the queue may pick
       const onto = to ? (to.rented ? [to] : []) : podsUp(s, machines);
       const own = await mayMove(s, ctx, [row], onto, { machines, pinned: Boolean(to), what: to ? `running ${quoted(row.label)} on ${quoted(machineName(to))}` : `letting ${quoted(row.label)} go to any machine` });
       await madeOwn(s, token.id, own);
-      if (!(await s.queue.pin(id, to?.id ?? null))) throw httpError(`${quoted(row.label)} is not waiting any more: only a waiting job is moved.`);
+      // moved only while it is still the user's or this token's: another token's turn is not this one's
+      if (!(await s.queue.pin(id, to?.id ?? null, token.id))) throw httpError(`${quoted(row.label)} is not waiting any more, or another token took it: queue_status says where it is.`);
       ctx.said(to ? `Moved ${quoted(row.label)} to ${quoted(machineName(to))}` : `Let ${quoted(row.label)} go to any machine`);
       return { job: id, on: to ? machineName(to) : "whichever the queue picks", ...(own.length ? { said: "It was the user's: it is this token's from now, its time on the pod counted against this token's spend cap." } : {}) };
     });
@@ -83,7 +87,7 @@ const useOnly = tool({
   name: "use_only",
   scope: "make",
   title: "Use only",
-  description: "Every other machine paused and this one going, as Queue's \"Use only\" does: everything waiting goes to it (a render under way elsewhere ends first). resume_machine undoes it. Onto a rented pod it needs Spend and room in this token's spend cap with every waiting job that would go there counted; the user's among them become this token's (its spend, their Queue rows). Another token's jobs keep their own rules.",
+  description: "Every other machine paused and this one going, as Queue's \"Use only\" does: everything waiting goes to it (a render under way elsewhere ends first). resume_machine undoes it. Onto a rented pod it pauses nothing: every waiting job that would go there (this token's and the user's, not pinned elsewhere) is pinned to the pod, as run_on does, and what the user queues afterwards goes where the queue picks. That needs Spend and room in this token's spend cap with those jobs counted; the user's among them become this token's (its spend, their Queue rows). Another token's jobs keep their own rules.",
   input: { machine: z.string().min(1).describe("A machine's id or name (overview).") },
   async run({ machine }, ctx) {
     const { s, token } = ctx;
@@ -91,18 +95,32 @@ const useOnly = tool({
     const machines = at.machines.map((m) => m.machine);
     const to = machineOf(at, machine);
     return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
-      let own: string[] = [];
       if (to.rented) {
-        // every machine of the user's own paused: what waits, and what the user queues next, goes to the pod
+        // Onto a pod, the jobs counted are pinned there and nothing is paused. Pausing the user's own machines would send
+        // there what the user queues afterwards too, counted by nobody (billed to the user, or to the token that started
+        // the pod), and a pod always fed never reaches its idle stop. Pinned, they are run_on's moves, all at once.
         if (!spends(ctx)) throw refusal(`This token cannot spend on rented GPUs, and using only ${quoted(machineName(to))} would send the queue's work onto it: tick Spend on it in Settings › Access.`);
         // what would go there: waiting work for a ComfyUI, not pinned elsewhere, this token's or the user's
         const rows = (await waitingRows(s)).filter((r) => needsComfy(r) && (!r.pin_machine || r.pin_machine === to.id) && (!r.mcp_token_id || r.mcp_token_id === token.id));
-        own = await mayMove(s, ctx, rows, [to], { machines, pinned: true, what: `using only ${quoted(machineName(to))}` });
+        const own = await mayMove(s, ctx, rows, [to], { machines, pinned: true, what: `using only ${quoted(machineName(to))}` });
         await madeOwn(s, token.id, own);
+        // each moved only while it is still the user's or this token's (queue.ts pin): another token's turn is not this one's
+        const pinned: string[] = [];
+        for (const r of rows) if (await s.queue.pin(r.id, to.id, token.id)) pinned.push(r.id);
+        const paused = await s.queue.pausedOn(to.id);
+        ctx.said(`Sent ${plural(pinned.length, "waiting job")} to ${quoted(machineName(to))}`);
+        return {
+          using: machineName(to), pinned,
+          said: [
+            "Onto a rented pod nothing is paused: the waiting jobs are pinned to it, and what is queued afterwards goes where the queue picks.",
+            ...(own.length ? [`${plural(own.length, "job")} of the user's are this token's from now, their time on the pod counted against its spend cap.`] : []),
+            ...(paused ? [`${machineName(to)} is paused: they wait until it is resumed (resume_machine).`] : []),
+          ].join(" "),
+        };
       }
       await s.queue.useOnly(to.id);
       ctx.said(`Used only ${quoted(machineName(to))}`);
-      return { using: machineName(to), paused: machines.filter((m) => m.id !== to.id).map(machineName), ...(own.length ? { said: `${plural(own.length, "job")} of the user's are this token's from now, their time on the pod counted against its spend cap.` } : {}) };
+      return { using: machineName(to), paused: machines.filter((m) => m.id !== to.id).map(machineName) };
     });
   },
 });
@@ -128,17 +146,22 @@ const unloadModels = tool({
   name: "unload_models",
   scope: "make",
   title: "Unload the models",
-  description: "Unload the models now, as Queue's Unload does (the GPU's memory is wanted for something else): on a machine, or on every one that is not rendering. Refused where a render is under way. The next render loads what it needs again: on a rented pod that load is billed, so a pod needs Spend.",
+  description: "Unload the models now, as Queue's Unload does (the GPU's memory is wanted for something else): on a machine, or on every one that is not rendering. Refused where a render is under way. The next render loads what it needs again: on a rented pod that load is billed, so a pod needs Spend and room in this token's spend cap for one load there (the first render waiting for it, else the queue's floor), its work running and waiting counted; on a pod this token did not start it is refused while renders of the user's or another token's wait for it.",
   input: { machine: z.string().optional().describe("A machine's id or name (overview); left out, every machine not rendering.") },
   async run({ machine }, ctx) {
-    const { s } = ctx;
+    const { s, token } = ctx;
     const at = await seen(s);
+    const machines = at.machines.map((x) => x.machine);
     const m = machine ? machineOf(at, machine) : undefined;
-    const up = podsUp(s, m ? [m] : at.machines.map((x) => x.machine))[0];
-    if (up && !spends(ctx)) throw refusal(`This token cannot spend on rented GPUs, and unloading the models on ${quoted(machineName(up))} makes its next render load them again, billed: tick Spend on it in Settings › Access${m ? "" : ", or name a machine of the user's own"}.`);
-    await s.queue.freeMemory(m?.id);
-    ctx.said(m ? `Unloaded the models on ${quoted(machineName(m))}` : "Unloaded the models");
-    return { unloaded: m ? machineName(m) : "every machine not rendering" };
+    // in the token's turn, as its renders are: a reload counted beside them, never two calls passing a cap that holds one
+    return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
+      const pods = podsUp(s, m ? [m] : machines);
+      if (pods[0] && !spends(ctx)) throw refusal(`This token cannot spend on rented GPUs, and unloading the models on ${quoted(machineName(pods[0]))} makes its next render load them again, billed: tick Spend on it in Settings › Access${m ? "" : ", or name a machine of the user's own"}.`);
+      await mayUnload(s, ctx, pods, machines);
+      await s.queue.freeMemory(m?.id);
+      ctx.said(m ? `Unloaded the models on ${quoted(machineName(m))}` : "Unloaded the models");
+      return { unloaded: m ? machineName(m) : "every machine not rendering" };
+    });
   },
 });
 

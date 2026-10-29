@@ -7,6 +7,7 @@ import { httpError } from "./errors";
 import { jobBody, queueRender } from "./jobs-api";
 import { oneAtATime } from "./keyedLock";
 import { readJson } from "./queueModel";
+import { needsComfy } from "./queueOffline";
 import { formArgs, formAsked, machineName, machineOf, seen, spends, wholeOf, type Seen } from "./mcpForms";
 import { quoted, tool, type ToolCtx } from "./mcpTool";
 import { refusal } from "./mcpTokens";
@@ -61,9 +62,10 @@ const unpriced = (pod: Machine) => `${machineName(pod)}'s price is not known yet
  * for a render with no forecast (rentedBilling.ts runwayNeed), at the dearest of those pods' rates. 0 when it can land on
  * none (pinned to a machine of the user's own, or no pod). `warm`: a model load alone (load_model), its load time only.
  */
-async function mayCostEach(s: Services, recipe: string, input: unknown, pods: readonly Machine[], rates: ReadonlyMap<string, { rate: number | null }>, warm = false): Promise<number> {
+async function mayCostEach(s: Services, recipe: string | null, input: unknown, pods: readonly Machine[], rates: ReadonlyMap<string, { rate: number | null }>, warm = false): Promise<number> {
   if (!pods.length) return 0;
-  const got = await s.queue.forecast(recipe, input).catch(() => null);
+  // no form (unload_models with nothing waiting): the queue's floor
+  const got = recipe ? await s.queue.forecast(recipe, input).catch(() => null) : null;
   let most = 0;
   for (const pod of pods) {
     const f = got?.on?.[pod.id] ?? got?.forecast;
@@ -107,14 +109,25 @@ function podsFor(j: { status: string; machine_id?: string | null; pin_machine?: 
   return on ? pods.filter((p) => p.id === on) : pods.filter((p) => rates.get(p.id)?.up);
 }
 
+/** What a token's work running and waiting may still cost (committedSpend), and its parts for a refusal to name. */
+export interface Committed {
+  usd: number;
+  jobs: number;
+  /** The pod its GPU hunt is deploying now, its first hour (hunt.ts deployingFor): billed from its first second. */
+  hunt: { gpu: string; usd: number } | null;
+}
+
 /**
  * What this token's work waiting or running now (renders and model loads) may still cost on rented pods (USD), the idle
- * time it leaves on a pod it did not start counted once: its work counted before it is billed. With how many jobs that is,
- * for a refusal to say. `except`: jobs left out, counted apart by the caller (run_on, use_only: where they are moved to).
+ * time it leaves on a pod it did not start counted once, and the first hour of a pod its GPU hunt is deploying (not a
+ * machine yet, so counted by nothing else until it is up): its work counted before it is billed. With how many jobs that
+ * is, for a refusal to say. `except`: jobs left out, counted apart by the caller (run_on, use_only: where they are moved to).
  */
-export async function committedSpend(s: Services, machines: readonly Machine[], tokenId: string, except: ReadonlySet<string> = new Set()): Promise<{ usd: number; jobs: number }> {
+export async function committedSpend(s: Services, machines: readonly Machine[], tokenId: string, except: ReadonlySet<string> = new Set()): Promise<Committed> {
+  // services.hunt is set once the queue is made (services.ts): a pass before it counts no hunt
+  const hunt = s.hunt?.deployingFor(tokenId) ?? null;
   const jobs = (await activeJobs(s, tokenId)).filter((j) => !except.has(j.id));
-  if (!jobs.length) return { usd: 0, jobs: 0 };
+  if (!jobs.length) return { usd: hunt?.usd ?? 0, jobs: 0, hunt };
   const rates = podsOf(s, machines);
   const pods = machines.filter((m) => m.rented);
   let sum = 0;
@@ -124,11 +137,14 @@ export async function committedSpend(s: Services, machines: readonly Machine[], 
     for (const p of may) landing.add(p);
     sum += await mayCostEach(s, j.recipe_id, readJson(j.inputs, {}), may, rates, Boolean(j.warm));
   }
-  return { usd: sum + idleTail([...landing], rates, tokenId), jobs: jobs.length };
+  return { usd: sum + idleTail([...landing], rates, tokenId) + (hunt?.usd ?? 0), jobs: jobs.length, hunt };
 }
 
-/** The work a token has running and waiting, as a cap refusal names it (mcpTokens.ts SpendSaid). */
-export const workCommitted = (work: { usd: number; jobs: number }) => ({ what: `its ${plural(work.jobs, "job")} running and waiting on rented pods (idle time after included)`, usd: work.usd });
+/** The work a token has running and waiting, and the pod its hunt is deploying, as a cap refusal names them (mcpTokens.ts SpendSaid). */
+export const workCommitted = (work: Committed) => [
+  { what: `its ${plural(work.jobs, "job")} running and waiting on rented pods (idle time after included)`, usd: work.usd - (work.hunt?.usd ?? 0) },
+  ...(work.hunt ? [{ what: `the first hour of ${quoted(work.hunt.gpu)}, which its GPU hunt is deploying`, usd: work.hunt.usd }] : []),
+];
 
 /** Why a Spend token's job waits for its cap (its Queue row says it, capFull with the figures). */
 export const CAP_FULL = "its MCP token's spend cap has no room for it on a rented pod";
@@ -162,7 +178,8 @@ export async function capHeld(s: Services, rows: ReadonlyArray<{ id: string; mcp
     if (!token) continue;
     const cap = token.spendCapCents / 100;
     const spent = await s.mcp.tokens.spentThisMonth(id);
-    let total = spent;
+    // the pod its hunt is deploying, billed from its first second: counted before its jobs, as committedSpend counts it
+    let total = spent + (s.hunt?.deployingFor(id)?.usd ?? 0);
     // the idle time its work leaves on a pod it did not start, counted once, with its first job there
     let tail = 0;
     const tailMore = (may: readonly Machine[]) => Math.max(0, idleTail(may, rates, id) - tail);
@@ -226,7 +243,7 @@ export async function mayQueueAll(s: Services, ctx: ToolCtx, at: Seen, jobs: Rea
   const work = await committedSpend(s, at.machines.map((m) => m.machine), ctx.token.id);
   const takes = jobs.reduce((n, j) => n + j.takes, 0);
   const adds = `${plural(takes, "job")} on ${may.length === 1 ? quoted(machineName(may[0]!)) : `the dearest of ${plural(may.length, "pod")} up`}${tail ? ", with the pod's idle time after" : ""}`;
-  await ctx.maySpend(usd + work.usd, { committed: [workCommitted(work)], adds: { what: adds, usd } });
+  await ctx.maySpend(usd + work.usd, { committed: workCommitted(work), adds: { what: adds, usd } });
   return usd;
 }
 
@@ -255,8 +272,31 @@ export async function mayMove(s: Services, ctx: ToolCtx, rows: ReadonlyArray<Pic
   usd += tail;
   const work = await committedSpend(s, o.machines, ctx.token.id, new Set(rows.map((r) => r.id)));
   const adds = `${plural(rows.length, "job")} moved onto ${pods.length === 1 ? quoted(machineName(pods[0]!)) : `the dearest of ${plural(pods.length, "pod")} up`}${users.length ? ` (${users.length} of them the user's, this token's to pay from now)` : ""}${tail ? ", with the pod's idle time after" : ""}`;
-  await ctx.maySpend(usd + work.usd, { committed: [workCommitted(work)], adds: { what: adds, usd } });
+  await ctx.maySpend(usd + work.usd, { committed: workCommitted(work), adds: { what: adds, usd } });
   return users.map((r) => r.id);
+}
+
+/**
+ * Whether this token may unload the models of these rented pods (unload_models): the next render there loads them again,
+ * billed. Each pod's reload is counted against the token's cap as load_model counts one (the load time of the first render
+ * waiting that may go there, else the queue's floor, at the pod's rate), with its work running and waiting. On a pod this
+ * token did not start, refused while renders of the user's or another token's wait that may go there: their reload would
+ * be billed to the user or to that token, counted by nobody. A money path.
+ */
+export async function mayUnload(s: Services, ctx: ToolCtx, pods: readonly Machine[], machines: readonly Machine[]): Promise<void> {
+  if (!pods.length) return;
+  const rates = podsOf(s, machines);
+  const waiting = (await s.db.selectFrom("jobs").selectAll().where("status", "=", "queued").orderBy("priority").orderBy("created_at").execute()).filter(needsComfy);
+  let usd = 0;
+  for (const pod of pods) {
+    const there = waiting.filter((j) => !j.pin_machine || j.pin_machine === pod.id);
+    const others = there.filter((j) => j.mcp_token_id !== ctx.token.id);
+    if (pod.rented?.mcpToken !== ctx.token.id && others.length) throw refusal(`${plural(others.length, "render")} of the user's or another token's ${others.length === 1 ? "waits" : "wait"} for ${quoted(machineName(pod))}, a pod this token did not start: unloading its models now makes them load again, billed to whoever pays for them. Unload in Afflatus, or once they have run.`);
+    const next = there[0];
+    usd += await mayCostEach(s, next?.recipe_id ?? null, next ? readJson(next.inputs, {}) : {}, [pod], rates, true);
+  }
+  const work = await committedSpend(s, machines, ctx.token.id);
+  await ctx.maySpend(usd + work.usd, { committed: workCommitted(work), adds: { what: `the models loaded again on ${pods.length === 1 ? quoted(machineName(pods[0]!)) : plural(pods.length, "pod")}`, usd } });
 }
 
 /**

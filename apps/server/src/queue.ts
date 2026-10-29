@@ -728,10 +728,16 @@ export class Queue {
     this.events.emit("queue");
   }
 
-  /** A waiting job pinned to a machine (dragged onto its lane, "Run on"), or back to whichever the queue picks (null). */
-  async pin(id: string, machine: string | null): Promise<boolean> {
+  /**
+   * A waiting job pinned to a machine (dragged onto its lane, "Run on"), or back to whichever the queue picks (null). False
+   * when it no longer waits. `mcpToken`: moved by that MCP token (mcpQueue.ts), only while the job is the user's or that
+   * token's: one another token took in the meantime is not this one's to move (a money path: it would be billed to that one).
+   */
+  async pin(id: string, machine: string | null, mcpToken?: string): Promise<boolean> {
     if (machine !== null && !(await this.machines()).some((m) => m.machine.id === machine)) throw httpError("there is no ComfyUI with that id");
-    const done = await this.db.updateTable("jobs").set({ pin_machine: machine, updated_at: now() }).where("id", "=", id).where("status", "=", "queued").executeTakeFirst();
+    let pin = this.db.updateTable("jobs").set({ pin_machine: machine, updated_at: now() }).where("id", "=", id).where("status", "=", "queued");
+    if (mcpToken !== undefined) pin = pin.where((w) => w.or([w("mcp_token_id", "is", null), w("mcp_token_id", "=", mcpToken)]));
+    const done = await pin.executeTakeFirst();
     if (Number(done.numUpdatedRows) === 0) return false;
     this.events.emit("queue");
     void this.pump();
