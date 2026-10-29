@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Eye, SlidersHorizontal, Split, Trash2 } from "lucide-react";
-import { carriedOf, sourceWindows, trimIn, windowShapeOf, type ClipValue, type SourceWindow } from "@afflatus/core";
+import { carriedOf, sourceWindows, trimIn, windowShapeOf, type ClipValue, type SourceMarks, type SourceWindow } from "@afflatus/core";
 import { ContextMenu, groups, headLine, useMenu } from "../../ContextMenu";
 import { STRIP_FRAMES, stripUrl, type Asset, type Clip, type RecipeInfo, type Timeline } from "../../api";
 import { cx } from "../../ui";
@@ -23,10 +23,14 @@ export function windowed(recipe: RecipeInfo | undefined, inputs?: Record<string,
   return recipe && shape && driving?.type === "clip" && driving.window ? { shape, driving: driving.id, start: driving.window.start, seconds: driving.window.seconds, ...(runUp ? { runUp } : {}) } : null;
 }
 
-/** The windows a source's stretch would be made in now (before Make: the clips to come, drawn on the track; scene cuts are read by the server). */
-export function plannedWindows(source: NonNullable<Timeline["source"]>, recipe: RecipeInfo | undefined) {
+/**
+ * The windows a source's stretch would be made in now (before Make: the clips to come, drawn on the track), at the spots
+ * its `marks` say within its ± (its scene cuts, pauses and loudness, as the server reads them: useSourceMarks); without
+ * them yet, at the length.
+ */
+export function plannedWindows(source: NonNullable<Timeline["source"]>, recipe: RecipeInfo | undefined, marks?: SourceMarks) {
   const w = windowed(recipe, source.inputs);
-  return w ? sourceWindows({ fromMs: source.fromMs, toMs: source.toMs, windowMs: source.windowMs, shape: w.shape }) : [];
+  return w ? sourceWindows({ fromMs: source.fromMs, toMs: source.toMs, windowMs: source.windowMs, ...(marks ? { withinMs: source.withinMs, ...marks } : {}), shape: w.shape }) : [];
 }
 
 /** The clips made from a timeline's source: those of a window-by-window model driven by its video. */
@@ -82,7 +86,7 @@ export type SourcePlace ={ atMs: number; lengthMs: number; made: boolean; window
  * under the clips: before Make, its stretch starts where the made clips will go (in place of the clip it was taken from, or
  * after the last clip), the clips to come as `windows`; once made, where it was laid then. Null without a source.
  */
-export function sourcePlace(t: Timeline, slots: Slot[], recipes: RecipeInfo[]): SourcePlace | null {
+export function sourcePlace(t: Timeline, slots: Slot[], recipes: RecipeInfo[], marks?: SourceMarks): SourcePlace | null {
   const source = t.source;
   if (!source) return null;
   const made = !source.clip && madeFromSource(t, recipes).length > 0;
@@ -93,7 +97,7 @@ export function sourcePlace(t: Timeline, slots: Slot[], recipes: RecipeInfo[]): 
     atMs: made ? source.atMs : anchor - source.fromMs,
     lengthMs: source.video.durationMs ?? source.toMs,
     made,
-    windows: made ? [] : plannedWindows(source, recipes.find((r) => r.id === source.recipe)),
+    windows: made ? [] : plannedWindows(source, recipes.find((r) => r.id === source.recipe), marks),
     replaces: replaced ? replaced.clip.id : null,
   };
 }

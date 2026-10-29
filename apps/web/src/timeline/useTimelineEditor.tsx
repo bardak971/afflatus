@@ -11,6 +11,7 @@ import { rememberAspect } from "./EditorSkeleton";
 import type { ExportAsk } from "./ExportDialog";
 import { layout, moveAfter, otherShape, placeOf, playOfTrack, ZOOM } from "./model";
 import { madeFromSource, sourcePlace } from "./track/SourceLane";
+import { useSourceMarks } from "./sourceMarks";
 import { clipsOfRecording } from "./track/RecordingBand";
 import { recordingPlace, stageEnd } from "./recordingPlace";
 import { sameWindowGrid } from "@afflatus/core";
@@ -42,7 +43,7 @@ const NONE: RecipeInfo[] = [];
  * editorProps.tsx hands each of its parts what it needs from here.
  */
 /** A change to the source that cuts it again (its window, scene cuts, run-up, or a window's form): useTimelineEditor's cutSource. */
-type SourceCut = { windowMs?: number; snap?: boolean; inputs?: Record<string, unknown>; recipe?: string; clip?: string };
+type SourceCut = { windowMs?: number; withinMs?: number; inputs?: Record<string, unknown>; recipe?: string; clip?: string };
 
 export function useTimelineEditor(id: string) {
   const timeline = useTimeline(id);
@@ -138,7 +139,8 @@ export function useTimelineEditor(id: string) {
   const liveShown = renderingAt >= 0 && (clips[renderingAt]!.id === selected || !clips.some((c) => c.take || c.still)) ? { clipId: running!, clip: renderingAt + 1 } : null;
   const slots = useMemo(() => layout(clips, pps, videoRecipes), [clips, pps, videoRecipes]);
   /** Where the source lies on the track (the track's own time), the clips Make will add, whether they are made. */
-  const place = useMemo(() => (t ? sourcePlace(t, slots, videoRecipes) : null), [t, slots, videoRecipes]);
+  const sourceMarks = useSourceMarks(t?.source);
+  const place = useMemo(() => (t ? sourcePlace(t, slots, videoRecipes, sourceMarks) : null), [t, slots, videoRecipes, sourceMarks]);
   const total = slots.length ? slots.at(-1)!.startMs + slots.at(-1)!.lengthMs : 0;
   /** The recording open on the stage: its clips' parts, and where each moment of it plays on the track. */
   const openedRecording = t?.recordings?.find((r) => r.asset.id === recordingOpen) ?? null;
@@ -247,7 +249,7 @@ export function useTimelineEditor(id: string) {
     run: (andRender = true) => makeSourceMut.mutate(undefined, { onSuccess: (r) => setToRender({ ids: r.clips, render: andRender }) }),
   };
   /**
-   * The source's window, scene cuts or run-up changed (a swap clip's Source chapter): the change saved, then the source cut again,
+   * The source's clip length, its ± or run-up changed (a swap clip's Source chapter): the change saved, then the source cut again,
    * its rendered clips at the start kept and the first new one opened. Nothing renders. What is set aside past its end goes
    * (the windows a trim set aside, a part removed kept with one of them: droppedRemovedTakes): asked first when that holds
    * rendered takes (`ask`: Change or Keep, card #114).
@@ -572,7 +574,7 @@ export function useTimelineEditor(id: string) {
 
   return {
     id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, current,
-    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, recordingOpen, setRecordingOpen, openRecording, openRecordingAt, recordingAt, recordingCut, recordingShared, removeSource, makeSource, cutSource, sourceForm, recording, stretch, recordingTrim, splitSource, masks, setMasks, maskOfCurrent, place, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps, trackView,
+    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, recordingOpen, setRecordingOpen, openRecording, openRecordingAt, recordingAt, recordingCut, recordingShared, removeSource, makeSource, cutSource, sourceForm, recording, stretch, recordingTrim, splitSource, masks, setMasks, maskOfCurrent, place, sourceMarks, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps, trackView,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, typeSource, sourceTyped, inputsOf, editInputs, formOf, ready, keptToClip, keepToClip, sayOf, say, m, range, setRange, loopRange, snapQuiet,

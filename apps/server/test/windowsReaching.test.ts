@@ -11,9 +11,9 @@ afterEach(async () => {
   await t.close();
 });
 
-const plan = (windowMs: number): SourcePlan => ({ asset: "zz-v", atMs: 0, fromMs: 0, toMs: 20000, recipe: "h3.swap", windowMs, inputs: {}, snap: false, clip: null });
+const plan = (windowMs: number): SourcePlan => ({ asset: "zz-v", atMs: 0, fromMs: 0, toMs: 20000, recipe: "h3.swap", windowMs, inputs: {}, withinMs: 0, clip: null });
 const video = { id: "zz-v" } as AssetRow;
-const scenes = async () => ({ cuts: [] });
+const scenes = async () => ({});
 const frame = 1000 / 24;
 
 describe("the windows that must reach a part kept removed (card #114)", () => {

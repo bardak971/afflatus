@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { gridAtOrBefore } from "../src/frameGrid";
-import { sourceWindows, windowBounds, type WindowShape } from "../src/sourceWindows";
+import type { InputSpec } from "../src/inputs";
+import { sourceWindows, windowBounds, windowPlaysSeconds, type WindowShape } from "../src/sourceWindows";
 
 /** A long source made window by window: SCAIL-2's shape (16 fps, 321 frames a job, 5 carried) and a model's whose job is short (24 fps, 81, 1). */
 const SCAIL = { fps: 16, most: 321, least: 9, carried: 5 };
@@ -72,12 +73,36 @@ describe("a source's windows", () => {
     expect(Math.round(w[0]!.seconds * 24 - 0.5)).toBe(81);
     expect(w[1]!.toMs - w[1]!.fromMs).toBe(Math.round((80 / 24) * 1000));
   });
-  it("end a window at a scene cut, the next one a new shot", () => {
-    const w = sourceWindows({ fromMs: 0, toMs: 20000, windowMs: 5000, shape: SCAIL, cutsMs: [7300] });
-    const at = w.findIndex((x) => x.toMs >= 7000 && x.toMs <= 7300);
-    expect(at).toBeGreaterThanOrEqual(0);
-    expect(w[at + 1]!.opens).toBe(true);
-    expect(w[at + 1]!.start * 1000).toBeCloseTo(w[at + 1]!.fromMs, -1);
+  it("end a window exactly on a scene cut within ± of the length, its overshoot hidden, the next one opening the new shot there", () => {
+    const w = sourceWindows({ fromMs: 0, toMs: 20000, windowMs: 5000, withinMs: 1500, shape: SWAP, cutsMs: [4657, 9957] });
+    expect(w[0]).toMatchObject({ toMs: 4657, on: "cut" });
+    // its part runs to H3's next count past the cut (17k + 5), the take hiding the rest
+    const frames = Math.round(w[0]!.seconds * 24 - 0.5);
+    expect((frames - 5) % 17).toBe(0);
+    expect(w[0]!.hideMs).toBe(Math.round((frames * 1000) / 24 - 4657));
+    expect(w[1]).toMatchObject({ opens: true, fromMs: 4657, toMs: 9957, on: "cut" });
+    expect(w[1]!.start * 1000).toBeCloseTo(4657, 0);
+  });
+  it("carry through a scene cut further than ± from the length, and through every cut at ± 0", () => {
+    // 2.5 s in: under 5 - 1.5 s, carried through
+    const near = sourceWindows({ fromMs: 0, toMs: 20000, windowMs: 5000, withinMs: 1500, shape: SWAP, cutsMs: [2500] });
+    expect(near.every((x, k) => k === 0 || !x.opens)).toBe(true);
+    expect(near[0]!.on).toBe("length");
+    const exact = sourceWindows({ fromMs: 0, toMs: 20000, windowMs: 5000, withinMs: 0, shape: SWAP, cutsMs: [4657, 9957] });
+    expect(exact).toEqual(sourceWindows({ fromMs: 0, toMs: 20000, windowMs: 5000, shape: SWAP }));
+    expect(exact.slice(1).every((x) => !x.opens && x.hideMs === undefined)).toBe(true);
+  });
+  it("end a window that carries on at a pause in the speech, else at its quietest moment, on the model's frame count nearest it", () => {
+    const paused = sourceWindows({ fromMs: 0, toMs: 20000, windowMs: 5000, withinMs: 1500, shape: SCAIL, pauses: [{ start: 4.1, end: 4.3 }] });
+    expect(paused[0]!.on).toBe("pause");
+    expect(Math.abs(paused[0]!.toMs - 4200)).toBeLessThanOrEqual((4 / 16) * 1000);
+    // loud but for a dip at 5.8 s
+    const db = Array.from({ length: 200 }, (_, i) => (i === 58 ? -50 : -10));
+    const quiet = sourceWindows({ fromMs: 0, toMs: 20000, windowMs: 5000, withinMs: 1500, shape: SCAIL, levels: { rate: 10, db } });
+    expect(quiet[0]!.on).toBe("quiet");
+    expect(Math.abs(quiet[0]!.toMs - 5850)).toBeLessThanOrEqual((4 / 16) * 1000);
+    // the last window ends where the stretch does: at none of them
+    expect(quiet.at(-1)!.on).toBeUndefined();
   });
   it("leave out a last stretch too short for a job, and give none for a stretch too short", () => {
     expect(sourceWindows({ fromMs: 0, toMs: 300, windowMs: 5000, shape: SCAIL })).toEqual([]);
@@ -104,5 +129,24 @@ describe("the window lengths a source takes", () => {
     const swap = windowBounds({ fps: 24, most: 141, least: 90, carried: 5, grid: { step: 17, offset: 5 } });
     expect(swap.leastMs).toBeCloseTo((102 / 24) * 1000, 3);
     expect(swap.mostMs).toBeCloseTo((136 / 24) * 1000, 3);
+  });
+});
+
+describe("windowPlaysSeconds", () => {
+  // H3's swap with its Normal run-up: 22 frames carried, its part of the source given as start and seconds
+  const recipe = {
+    traits: { fps: 24, frameGrid: { step: 17, offset: 5 }, windows: { most: 141, least: 90, carried: 22 } },
+    inputs: [{ id: "source", type: "clip", role: "source", label: "Source", window: { start: "sourceStart", seconds: "sourceSeconds" } }] as unknown as InputSpec[],
+  };
+
+  it("plays what each window shows: the planned windows of a source add up to the source, not the carried frames twice", () => {
+    const windows = sourceWindows({ fromMs: 0, toMs: 110_759, windowMs: 5000, shape: { fps: 24, most: 141, least: 90, carried: 22, grid: { step: 17, offset: 5 } } });
+    const plays = windows.map((w) => windowPlaysSeconds(recipe, { sourceStart: w.start, sourceSeconds: w.seconds }, w.opens ? "cut" : "continue")!);
+    windows.forEach((w, k) => expect(plays[k]! * 1000).toBeCloseTo(w.toMs - w.fromMs, -1));
+    expect(plays.reduce((a, b) => a + b, 0) * 1000).toBeCloseTo(windows.at(-1)!.toMs - windows[0]!.fromMs, -2);
+  });
+
+  it("is null for a clip not made window by window", () => {
+    expect(windowPlaysSeconds({ traits: null, inputs: [] }, { seconds: 5 }, "continue")).toBeNull();
   });
 });

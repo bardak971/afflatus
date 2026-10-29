@@ -91,7 +91,7 @@ describe.skipIf(!ffmpegThere)("the timelines from outside", { timeout: FFMPEG_TI
     const look = await connect("look");
     const names = (await look.listTools()).tools.map((x) => x.name);
     for (const n of ["list_timelines", "read_timeline", "view_timeline", "new_timeline", "edit_timeline", "edit_clip", "render_clips", "use_take", "finish", "export", "undo", "redo"]) expect(names).toContain(n);
-    expect(names).toHaveLength(82);
+    expect(names).toHaveLength(83);
     expect((await ok(look, "list_timelines")).map((x: { id: string }) => x.id)).toEqual([id]);
     const read = await ok(look, "read_timeline", { timeline: id });
     expect(read.clips).toHaveLength(3);
@@ -184,7 +184,9 @@ describe.skipIf(!ffmpegThere)("the timelines from outside", { timeout: FFMPEG_TI
     // card #128: clip 2 carries on from clip 1, which has no take and none coming
     await refused(c, "render_clips", { timeline: id, clips: [2] }, /Clip 2 carries on from clip 1, which has no take/);
     const read = await ok(c, "read_timeline", { timeline: id });
-    expect(read.needsALook.some((r: { what: string }) => /clip 2 carries on from clip 1, which has no take/.test(r.what))).toBe(true);
+    // the chain of three said once, not once a join
+    const chained = read.needsALook.filter((r: { what: string }) => /carr(y|ies) on from/.test(r.what));
+    expect(chained).toEqual([{ clips: [1, 2, 3], what: expect.stringMatching(/^clips 2–3 each carry on from the clip before, which has no take/), mend: expect.stringMatching(/render_clips with clips 1–3/) }]);
     expect(await s.t.db.selectFrom("jobs").select("id").execute()).toEqual([]);
     // an empty prompt: Render is refused for that clip, as its button is greyed
     await ok(c, "edit_clip", { timeline: id, clip: 1, set: { description: null } });

@@ -37,7 +37,7 @@ const clip = {
 } as unknown as Clip;
 const timeline = {
   id: "zz-test-timeline", name: "zz-test timeline", clips: [clip], look: null, mood: null, folderId: null, music: null, durationMs: 5000,
-  source: { asset: "zz-test-video", video: { id: "zz-test-video", name: "zz-test.mp4" }, atMs: 0, fromMs: 2000, toMs: 8000, recipe: model.id, windowMs: 5000, inputs: {}, snap: false, clip: null },
+  source: { asset: "zz-test-video", video: { id: "zz-test-video", name: "zz-test.mp4" }, atMs: 0, fromMs: 2000, toMs: 8000, recipe: model.id, windowMs: 5000, inputs: {}, withinMs: 0, clip: null },
 } as unknown as Timeline;
 const none = { data: undefined, isSuccess: false } as never;
 const refused = (error: string, status = 409) => jsonAnswer({ error }, status);

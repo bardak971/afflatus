@@ -181,7 +181,8 @@ export async function estimateOf(s: Services, seen: Seen, ctx: ToolCtx, recipe: 
   const findings = await s.queue.setCheck(recipe.id, input).catch(() => []);
   return {
     takes,
-    time: total !== null ? { totalMs: Math.round(total), eachMs: soonest!.msEach, on: soonest!.name, from: `${plural(got?.forecast.samples ?? 0, "render")} like it here` } : null,
+    // eachMs is a take with the model loaded first; loadMs, part of it, is paid once for the batch: so totalMs is less than takes × eachMs
+    time: total !== null ? { totalMs: Math.round(total), eachMs: soonest!.msEach, loadMs: Math.round(loadMs), on: soonest!.name, from: `${plural(got?.forecast.samples ?? 0, "render")} like it here` } : null,
     machines: onEach,
     rentedCost: onEach.some((m) => m.rented) ? onEach.filter((m) => m.rented).map((m) => ({ machine: m.name, usd: "usdEach" in m && m.usdEach != null ? dollars(m.usdEach * takes) : "not known yet" })) : null,
     modelSet: findings.length ? findings : "the files go together",
@@ -268,7 +269,7 @@ const estimate = tool({
   name: "estimate",
   scope: "look",
   title: "Estimate",
-  description: "What rendering a draft as it stands (or a form with values) would take, as Generate says it: the time from the user's own past renders on each machine this token may use, what it would cost on a rented pod, and the model set check (files that do not go together; a mix that gives black frames is refused at Render). Null times: nothing like it was rendered here yet.",
+  description: "What rendering a draft as it stands (or a form with values) would take, as Generate says it: the time from the user's own past renders on each machine this token may use (each take with the model load, which the batch pays once: loadMs), what it would cost on a rented pod, and the model set check (files that do not go together; a mix that gives black frames is refused at Render). Null times: nothing like it was rendered here yet.",
   input: { ...formArgs, takes: z.number().int().min(1).max(8).optional().describe("How many takes (1–8); a draft's own batch when left out."), machine: z.string().optional().describe("A machine's id (overview); left out, the queue picks.") },
   async run(args, ctx) {
     const { s } = ctx;
