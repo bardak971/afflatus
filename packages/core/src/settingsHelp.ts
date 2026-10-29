@@ -55,6 +55,7 @@ export const SETTING_TABS = [
   { id: "designer", label: "Designer" },
   { id: "prompts", label: "Prompts" },
   { id: "interface", label: "Interface" },
+  { id: "access", label: "Access" },
   { id: "bar", label: "Command bar" },
   { id: "storage", label: "Storage" },
   { id: "about", label: "About" },

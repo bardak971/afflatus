@@ -138,7 +138,7 @@ export const CAP_FULL = "its MCP token's spend cap has no room for it on a rente
  * this job, and this job, so that the row says why it waits and not only that it does.
  */
 const capFull = (cap: number, spent: number, ahead: number, cost: number) =>
-  `${CAP_FULL} (${dollars(cap)} a month): ${dollars(spent)} spent this month, ${dollars(ahead)} for its work running and waiting ahead, ${dollars(cost)} for this one, ${dollars(spent + ahead + cost)} in all. Raise the cap in Settings › Interface › Access, or it runs on a machine of the user's own`;
+  `${CAP_FULL} (${dollars(cap)} a month): ${dollars(spent)} spent this month, ${dollars(ahead)} for its work running and waiting ahead, ${dollars(cost)} for this one, ${dollars(spent + ahead + cost)} in all. Raise the cap in Settings › Access, or it runs on a machine of the user's own`;
 
 /**
  * The jobs among these, queued by MCP tokens with Spend, that no rented pod takes this pass, each with why (the planner,
@@ -212,8 +212,8 @@ export async function mayQueueAll(s: Services, ctx: ToolCtx, at: Seen, jobs: Rea
   // the pods the queue may send it to: those up now (a stopped pod takes nothing until it is started)
   const pods = at.machines.map((m) => m.machine).filter((m) => m.rented && rates.get(m.id)?.up);
   if (!spends(ctx)) {
-    if (o.machine?.rented) throw refusal(`This token cannot spend on rented GPUs, and ${machineName(o.machine)} is one: tick Spend on it in Settings › Interface › Access, or render on a machine of the user's own.`);
-    if (!o.machine && !at.machines.some((m) => !m.machine.rented)) throw refusal("This token cannot spend on rented GPUs, and the user has no machine of their own to render on: tick Spend on it in Settings › Interface › Access.");
+    if (o.machine?.rented) throw refusal(`This token cannot spend on rented GPUs, and ${machineName(o.machine)} is one: tick Spend on it in Settings › Access, or render on a machine of the user's own.`);
+    if (!o.machine && !at.machines.some((m) => !m.machine.rented)) throw refusal("This token cannot spend on rented GPUs, and the user has no machine of their own to render on: tick Spend on it in Settings › Access.");
     return 0;
   }
   const may = o.machine ? (o.machine.rented ? [o.machine] : []) : pods;
@@ -245,7 +245,7 @@ export async function mayMove(s: Services, ctx: ToolCtx, rows: ReadonlyArray<Pic
   if (!pods.length || !rows.length) return [];
   const users = rows.filter((r) => !r.mcp_token_id);
   if (!spends(ctx)) {
-    if (o.pinned || users.length) throw refusal(`This token cannot spend on rented GPUs, and ${o.what} would send ${o.pinned ? plural(rows.length, "job") : `the user's ${plural(users.length, "job")}`} onto ${pods.length === 1 ? quoted(machineName(pods[0]!)) : `${plural(pods.length, "pod")} up`}: tick Spend on it in Settings › Interface › Access.`);
+    if (o.pinned || users.length) throw refusal(`This token cannot spend on rented GPUs, and ${o.what} would send ${o.pinned ? plural(rows.length, "job") : `the user's ${plural(users.length, "job")}`} onto ${pods.length === 1 ? quoted(machineName(pods[0]!)) : `${plural(pods.length, "pod")} up`}: tick Spend on it in Settings › Access.`);
     return [];
   }
   const rates = podsOf(s, o.machines);
@@ -508,7 +508,7 @@ const pauseArgs = { machine: z.string().optional().describe("A machine's id or n
 export function mustSpendWhilePodUp(ctx: ToolCtx, machines: readonly Machine[], what: string): void {
   if (spends(ctx)) return;
   const up = podsUp(ctx.s, machines)[0];
-  if (up) throw refusal(`This token cannot spend on rented GPUs, and ${what} while ${machineName(up)} is up would send work onto it: tick Spend on it in Settings › Interface › Access.`);
+  if (up) throw refusal(`This token cannot spend on rented GPUs, and ${what} while ${machineName(up)} is up would send work onto it: tick Spend on it in Settings › Access.`);
 }
 
 const pauseMachine = tool({

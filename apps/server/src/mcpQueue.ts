@@ -94,7 +94,7 @@ const useOnly = tool({
       let own: string[] = [];
       if (to.rented) {
         // every machine of the user's own paused: what waits, and what the user queues next, goes to the pod
-        if (!spends(ctx)) throw refusal(`This token cannot spend on rented GPUs, and using only ${quoted(machineName(to))} would send the queue's work onto it: tick Spend on it in Settings › Interface › Access.`);
+        if (!spends(ctx)) throw refusal(`This token cannot spend on rented GPUs, and using only ${quoted(machineName(to))} would send the queue's work onto it: tick Spend on it in Settings › Access.`);
         // what would go there: waiting work for a ComfyUI, not pinned elsewhere, this token's or the user's
         const rows = (await waitingRows(s)).filter((r) => needsComfy(r) && (!r.pin_machine || r.pin_machine === to.id) && (!r.mcp_token_id || r.mcp_token_id === token.id));
         own = await mayMove(s, ctx, rows, [to], { machines, pinned: true, what: `using only ${quoted(machineName(to))}` });
@@ -135,7 +135,7 @@ const unloadModels = tool({
     const at = await seen(s);
     const m = machine ? machineOf(at, machine) : undefined;
     const up = podsUp(s, m ? [m] : at.machines.map((x) => x.machine))[0];
-    if (up && !spends(ctx)) throw refusal(`This token cannot spend on rented GPUs, and unloading the models on ${quoted(machineName(up))} makes its next render load them again, billed: tick Spend on it in Settings › Interface › Access${m ? "" : ", or name a machine of the user's own"}.`);
+    if (up && !spends(ctx)) throw refusal(`This token cannot spend on rented GPUs, and unloading the models on ${quoted(machineName(up))} makes its next render load them again, billed: tick Spend on it in Settings › Access${m ? "" : ", or name a machine of the user's own"}.`);
     await s.queue.freeMemory(m?.id);
     ctx.said(m ? `Unloaded the models on ${quoted(machineName(m))}` : "Unloaded the models");
     return { unloaded: m ? machineName(m) : "every machine not rendering" };

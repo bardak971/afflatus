@@ -63,7 +63,7 @@ export interface CommandCtx {
   /** The files picked in Find models or the bar (`> picked`), and the open form's missing ones (`> get missing files`). */
   picked?: { count: number; bytes: number };
   missing?: { recipe: string; files: number } | null;
-  /** The sign-in (Settings › Interface › Access): a password set, and whether this browser holds a session to end. */
+  /** The sign-in (Settings › Access): a password set, and whether this browser holds a session to end. */
   access?: { locked: boolean; session: boolean } | null;
 }
 

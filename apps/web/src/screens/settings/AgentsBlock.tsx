@@ -13,7 +13,7 @@ import { claudeCodeCommand, claudeDesktopJson, mcpUrl } from "./mcpSnippets";
 import { PasswordAsk } from "./PasswordAsk";
 
 /**
- * Settings › Interface › Access › Agents (MCP), as the owner's mock v2 (2026-10-27): /mcp's address with one Copy, a new
+ * Settings › Access › Agents (MCP), as the owner's mock v2 (2026-10-27): /mcp's address with one Copy, a new
  * token made on one line and shown once in its row, then one line per token (its dot, name and state, its scopes as pills
  * clicked in place, two thin meters, its last use) that opens in place on its limits, end and name, its activity, and
  * Revoke. A change of scopes, limits or end, a new token and a revoke ask for the password past a sign-in of 10 minutes
@@ -139,7 +139,7 @@ function ShownOnce({ token }: { token: string }) {
 /** A token's activity, the newest first: in plain words, the tool in small type, what was refused in amber with why. */
 function Activity({ t }: { t: McpToken }) {
   const [refusedOnly, setRefusedOnly] = useState(false);
-  const failed = useSayFailed({ href: "/settings/interface", go: "Open Settings › Interface" });
+  const failed = useSayFailed({ href: "/settings/access", go: "Open Settings › Access" });
   const lines = useQuery({ queryKey: queryKeys.mcpActivity(t.id, refusedOnly), queryFn: () => api.mcpActivity(t.id, refusedOnly), refetchInterval: 15_000 });
   const list = lines.data?.lines ?? [];
   const today = new Date().toDateString();
@@ -266,7 +266,7 @@ function TokenRow({ t, open, toggle, fresh, busy, ask }: { t: McpToken; open: bo
 export function AgentsBlock() {
   const client = useQueryClient();
   const tokens = useQuery({ queryKey: queryKeys.mcpTokens(), queryFn: () => api.mcpTokens(), refetchInterval: 15_000 });
-  const sayFailed = useSayFailed({ href: "/settings/interface", go: "Open Settings › Interface" });
+  const sayFailed = useSayFailed({ href: "/settings/access", go: "Open Settings › Access" });
   const [name, setName] = useState("");
   const [start, setStart] = useState<McpStart>("make");
   const [opened, setOpened] = useState<string | null>(null);

@@ -5,7 +5,7 @@ import { SCOPES, STARTS } from "./mcpTokens";
 import type { Services } from "./services";
 
 /**
- * Settings › Interface › Access › Agents (MCP): the tokens made, changed, revoked and listed, each one's activity (and as
+ * Settings › Access › Agents (MCP): the tokens made, changed, revoked and listed, each one's activity (and as
  * CSV), and where each page is (whatsOpen.ts). Behind the lock as every API route: an MCP token is never taken here.
  *
  * Making a token, and changing its scopes, limits or end or revoking it, loosen or tighten what an agent may do: each needs

@@ -243,7 +243,7 @@ export async function resetPasswordCommand(config: Config, log: Pick<Console, "l
   try {
     await migrate(db);
     await resetAccess(db, log);
-    log.log(`Done, in ${config.databaseUrl ? "the Postgres library" : config.dataDir}. Start Afflatus and set a new password in Settings › Interface › Access.`);
+    log.log(`Done, in ${config.databaseUrl ? "the Postgres library" : config.dataDir}. Start Afflatus and set a new password in Settings › Access.`);
     return 0;
   } finally {
     await db.destroy();

@@ -17,6 +17,7 @@ import { DesignerCard } from "./settings/DesignerCard";
 import { LinkCard } from "./settings/LinkCard";
 import { ModelsByMachine } from "./settings/ModelsMachines";
 import { InterfaceTab } from "./settings/InterfaceTab";
+import { AccessCard } from "./settings/AccessCard";
 import { PromptsCard, WritingCard } from "./settings/PromptsCard";
 import { StorageCard } from "./settings/StorageCard";
 import { UpdatesCard } from "./settings/UpdatesCard";
@@ -88,13 +89,14 @@ function useFind(box: RefObject<HTMLElement | null>, tab: Tab) {
       setRow(null);
       return;
     }
-    if (done.current === find || !box.current) return;
+    // looked for once on each tab: a key asked on a tab that sent it on (Setup's `elsewhere`) is looked for again on the next
+    if (done.current === `${tab} ${find}` || !box.current) return;
     const at = (key: string) => box.current!.querySelector<HTMLElement>(`[data-setting~="${CSS.escape(key)}"]`);
     let found = at(find);
     if (!found && client.isFetching() > 0) return;
     const near = spotOf(find)?.near;
     if (!found && near) found = at(near);
-    done.current = find;
+    done.current = `${tab} ${find}`;
     setRow(found);
   }, [find, tab, fetching, box, client]);
   useEffect(() => {
@@ -119,10 +121,16 @@ export function Setup() {
   const [, go] = useLocation();
   const moved = params.tab ? MOVED[params.tab] : undefined;
   const tab: Tab = moved ?? (TABS.some((t) => t.id === params.tab) ? (params.tab as Tab) : "comfyui");
+  // a setting asked for on a tab it is no longer on (the Access card left Interface for a tab of its own): an old link,
+  // /settings/interface?find=access.mcp or /settings/interface#access, is sent on to the tab that has it
+  const asked = new URLSearchParams(useSearch()).get("find") ?? window.location.hash.slice(1);
+  const spot = asked ? spotOf(asked) : undefined;
+  const elsewhere = spot && spot.tab !== tab ? settingHref(spot.key) : null;
   // an old address (/settings/appearance) is put right, so that what is bookmarked next is the new one
   useEffect(() => {
-    if (moved) go(`/settings/${moved}`, { replace: true });
-  }, [moved, go]);
+    if (elsewhere) go(elsewhere, { replace: true });
+    else if (moved) go(`/settings/${moved}`, { replace: true });
+  }, [elsewhere, moved, go]);
   const marks = useTabMarks();
   // Rented GPUs once there is a RunPod key (its address opens it all the same, to type one)
   const hasKey = Boolean(useSettings().data?.hasRunpodKey);
@@ -221,6 +229,7 @@ export function Setup() {
             </div>
           )}
           {tab === "interface" && <InterfaceTab />}
+          {tab === "access" && <AccessCard />}
           {tab === "bar" && <BarCard />}
           {tab === "storage" && <StorageCard />}
           {tab === "about" && <AboutCard />}

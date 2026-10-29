@@ -11,7 +11,7 @@ import { readSettings, updateSettings, type AccessSettings } from "./settings";
 import { renameOver } from "./storage";
 
 /**
- * The optional password (Settings › Interface › Access). Off by default: Afflatus is open to whoever reaches its port,
+ * The optional password (Settings › Access). Off by default: Afflatus is open to whoever reaches its port,
  * as it always was. Set, every API route but a few (access-api.ts) needs a signed-in device, except a request from this
  * computer itself when "From this computer" is on (hostCheck.ts fromThisComputer). What it protects is the network side:
  * the library, the renders, the GPUs and pods, the keys Afflatus holds; not the files on the disk, which are the
@@ -479,7 +479,7 @@ export class Access extends EventEmitter {
     const known = await this.db.selectFrom("devices").select("id").where("id", "=", deviceId).executeTakeFirst();
     if (!known) {
       await this.db.insertInto("devices").values({ id: deviceId, first_seen_at: new Date(t).toISOString(), name }).onConflict((oc) => oc.column("id").doNothing()).execute();
-      if (opts.tell) this.notify?.say("newDevice", { title: "New device signed in", body: `${name} from ${opts.ip}. Not you? Settings › Interface › Access: Sign out everywhere, and change the password.`, key: deviceId });
+      if (opts.tell) this.notify?.say("newDevice", { title: "New device signed in", body: `${name} from ${opts.ip}. Not you? Settings › Access: Sign out everywhere, and change the password.`, key: deviceId });
     }
     const token = randomBytes(32).toString("base64url");
     const lifeMs = opts.remember ? stayDays * 86_400_000 : IDLE_MS;
@@ -817,6 +817,6 @@ export async function resetAccess(db: Db, log: Pick<Console, "log" | "warn"> = c
   if (had) await updateSettings(db, (s) => ({ access: { ...s.access, password: null } }));
   const ended = await db.deleteFrom("sessions").executeTakeFirst();
   const n = Number(ended.numDeletedRows ?? 0);
-  log.warn(`[access] ${had ? "THE PASSWORD WAS REMOVED" : "there was no password"}${n ? `; ${plural(n, "device")} signed out` : ""}. Afflatus is open to whoever reaches it: set a new password in Settings › Interface › Access.`);
+  log.warn(`[access] ${had ? "THE PASSWORD WAS REMOVED" : "there was no password"}${n ? `; ${plural(n, "device")} signed out` : ""}. Afflatus is open to whoever reaches it: set a new password in Settings › Access.`);
   return had;
 }

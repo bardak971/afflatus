@@ -8,7 +8,7 @@ import type { Services } from "./services";
 
 /**
  * The lock and its routes (access.ts): who a request is, the 401 for an API route without a session when a password is
- * set, and the sign-in, the reset codes, the password itself and the devices signed in (Settings › Interface › Access).
+ * set, and the sign-in, the reset codes, the password itself and the devices signed in (Settings › Access).
  */
 
 declare module "fastify" {
@@ -168,7 +168,7 @@ export function registerAccessHook(app: FastifyInstance, access: Access): void {
     }
     if (metrics) {
       if (bypass || session || (await access.metricsTokenOk(req.headers.authorization))) return;
-      return reply.status(401).header("WWW-Authenticate", "Bearer").type("text/plain").send("Afflatus has a password: /metrics needs the metrics token (Settings › Interface › Access) as a Bearer token.\n");
+      return reply.status(401).header("WWW-Authenticate", "Bearer").type("text/plain").send("Afflatus has a password: /metrics needs the metrics token (Settings › Access) as a Bearer token.\n");
     }
     if (!api || bypass || session || open) return;
     // the page reads this header (api.ts) to show the sign-in again: a 401 of its own (a wrong password) is not this

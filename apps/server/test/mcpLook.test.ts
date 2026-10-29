@@ -281,6 +281,9 @@ describe("show_page", () => {
     expect(await ok(c, "show_page", { settings: "rented", setting: "rented.bootlogs" })).toMatchObject({ shown: true });
     expect(heard[1]!.to).toEqual({ settings: "rented", setting: "rented.bootlogs" });
     expect(heard[1]!.said).toBe("Settings › Rented GPUs");
+    // the Access rows left Interface for a tab of their own: an agent naming the old tab is sent there
+    expect(await ok(c, "show_page", { settings: "interface", setting: "access.mcp" })).toMatchObject({ shown: true });
+    expect(heard[2]).toMatchObject({ said: "Settings › Access", to: { settings: "access", setting: "access.mcp" } });
     await c.close();
   });
 

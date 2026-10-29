@@ -185,7 +185,7 @@ function mayRaiseCaps(ctx: ToolCtx, was: Settings["rentCaps"], sent: unknown): v
     const now = next[k] === undefined ? was[k] : next[k];
     if (typeof now !== "number") continue;
     const raised = was[k] > 0 && (now <= 0 || now > was[k]);
-    if (raised) throw refusal(`This token cannot spend on rented GPUs, and ${now <= 0 ? "taking off" : "raising"} the app's ${k === "day" ? "daily" : "monthly"} cap lets more be spent on them: tick Spend on it in Settings › Interface › Access, or the user changes it in Settings › Rented GPUs. Lowering a cap needs Manage only.`);
+    if (raised) throw refusal(`This token cannot spend on rented GPUs, and ${now <= 0 ? "taking off" : "raising"} the app's ${k === "day" ? "daily" : "monthly"} cap lets more be spent on them: tick Spend on it in Settings › Access, or the user changes it in Settings › Rented GPUs. Lowering a cap needs Manage only.`);
   }
 }
 

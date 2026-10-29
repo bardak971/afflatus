@@ -172,7 +172,7 @@ async function targetOf(s: Services, asked: string | undefined): Promise<Machine
 /** Whether this token may have files fetched onto a rented pod: Spend, and room left under its cap. A pod fetching is busy, billed. */
 async function mayFetchOnto(ctx: ToolCtx, m: Machine | undefined): Promise<void> {
   if (!m?.rented) return;
-  if (!ctx.token.scopes.includes("spend")) throw refusal(`This token cannot spend on rented GPUs, and ${machineName(m)} is one: a pod fetching files is busy, billed. Tick Spend on it in Settings › Interface › Access, or fetch onto a machine of the user's own.`);
+  if (!ctx.token.scopes.includes("spend")) throw refusal(`This token cannot spend on rented GPUs, and ${machineName(m)} is one: a pod fetching files is busy, billed. Tick Spend on it in Settings › Access, or fetch onto a machine of the user's own.`);
   await ctx.maySpend(0);
 }
 

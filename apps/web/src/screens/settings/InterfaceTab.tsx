@@ -4,13 +4,12 @@ import { useForgetPinnedFields } from "../../recipeForm/pinned";
 import { ProgressPicker } from "../../progress/ProgressPicker";
 import { ThemeMode, ThemePickers } from "../../theme/Appearance";
 import { Button, Help, Toggle } from "../../ui";
-import { AccessCard } from "./AccessCard";
 import { WhatCard, WhereCard } from "./NotifyCards";
 import { Block, Card, Row } from "./Rows";
 import { COLUMNS } from "./wide";
 import { SETTING_HELP } from "@afflatus/core";
 
-/** Settings › Interface: how Afflatus looks and behaves in this browser, who may open it (Access), and what it tells you about. */
+/** Settings › Interface: how Afflatus looks and behaves in this browser, and what it tells you about. Who may open it is Settings › Access. */
 export function InterfaceTab() {
   const explain = useExplain();
   const hover = useHoverPlay();
@@ -50,7 +49,6 @@ export function InterfaceTab() {
         </Card>
       </div>
       <div className="flex flex-col gap-4">
-        <AccessCard />
         <Card title="Notifications">
           <Row setting="notify.banner" label="Banner when renders finish" help="A banner over the screen when renders finish while another screen is open (the library and the Queue show them anyway). Off: finished renders are not announced in the app; a failure always is.">
             <Toggle bare on={notify.banner} onChange={(banner) => notify.set({ banner })} label="Banner when renders finish" />
