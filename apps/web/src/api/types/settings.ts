@@ -103,7 +103,7 @@ export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiK
 };
 /** What Afflatus tells about (the server's notify.ts); `newDevice`: a sign-in from a device never seen (access.ts). */
 export type NotifyKind = "renderDone" | "renderFailed" | "queueEmpty" | "renderStuck" | "podStopped" | "capReached" | "balanceLow" | "comfyGone" | "gpuFound" | "huntGaveUp" | "newDevice";
-/** The optional password's settings (Settings › Interface › Access). The password itself never comes back: only whether there is one. */
+/** The optional password's settings (Settings › Access). The password itself never comes back: only whether there is one. */
 export interface AccessSettings {
   hasPassword: boolean;
   /** When it was set (ISO); null without one. */

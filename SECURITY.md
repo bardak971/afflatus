@@ -2,7 +2,7 @@
 
 ## One optional password, no accounts
 
-Afflatus is made for one person on their own machine or home network. It has no accounts. Until you set a password (Settings › Interface › Access), **whoever can reach its port can use it**: your library, your settings, your linked folders and your GPU, through your ComfyUI.
+Afflatus is made for one person on their own machine or home network. It has no accounts. Until you set a password (Settings › Access), **whoever can reach its port can use it**: your library, your settings, your linked folders and your GPU, through your ComfyUI.
 
 With a password set:
 
@@ -35,7 +35,7 @@ What it does to keep that boundary where you put it:
 
 Agents (MCP), at `/mcp` (see [docs/mcp.md](docs/mcp.md)):
 
-- A client signs in with a personal token made in Settings › Interface › Access › Agents (MCP), shown once and kept as its SHA-256, with or without a password set: `/mcp` without a valid token answers 401. A token works on `/mcp` only, never on the API, `/metrics` or as a page's sign-in, and a page's session never works on `/mcp`. The host check and the refusal of other sites' pages apply to `/mcp` as to the rest.
+- A client signs in with a personal token made in Settings › Access › Agents (MCP), shown once and kept as its SHA-256, with or without a password set: `/mcp` without a valid token answers 401. A token works on `/mcp` only, never on the API, `/metrics` or as a page's sign-in, and a page's session never works on `/mcp`. The host check and the refusal of other sites' pages apply to `/mcp` as to the rest.
 - Each token has its scopes (Look; Make; Spend on rented GPUs, off unless ticked; Manage), renders an hour, a spend cap a month on top of the app's caps, an end, and an activity list of every call, refused ones included (kept 30 days). Making a token and changing its scopes, limits or end, or revoking it, need a sign-in of the last 10 minutes or the password.
 - Never reached through MCP, whatever the scopes: the password, tokens, Lock, sign-outs, the Access settings, where codes go, adding a machine or changing a machine's address, secrets (said set or not, never read nor written), folders on the disk, Show in folder, erasing for good, Get ffmpeg, updates, ComfyUI restarts, and accepting a licence. No answer carries a path on the disk.
 - An agent reads what it is shown and can be misled by it (a page, a model's description, a prompt in a picture). A workflow it imports waits for your Approve in Studio › Workflows, which names the nodes that read or write a path or fetch an address; a file it brings from an address is fetched as downloads are (the internet only), read only as a real picture, video or sound, one at a time and within a size and a daily budget.

@@ -14,7 +14,7 @@ import { PasswordAsk } from "./PasswordAsk";
 import { Block, Card, Row } from "./Rows";
 
 /**
- * Settings › Interface › Access: the optional password (access.ts). Where Afflatus listens, the password itself (set,
+ * Settings › Access: the optional password (access.ts). Where Afflatus listens, the password itself (set,
  * change, turn off: each asks for the current one), whether this computer needs it, how long a device stays signed in,
  * where reset codes go, and the devices signed in now.
  */
@@ -115,7 +115,7 @@ export function AccessCard() {
   const devices = useQuery({ queryKey: queryKeys.signedDevices(), queryFn: () => api.signedDevices() });
   const session = useQuery({ queryKey: queryKeys.session(), queryFn: () => api.session(), staleTime: Infinity });
   const [form, setForm] = useState<"set" | "change" | "off" | null>(null);
-  const sayFailed = useSayFailed({ href: "/settings/interface", go: "Open Settings › Interface" });
+  const sayFailed = useSayFailed({ href: "/settings/access", go: "Open Settings › Access" });
   const readAgain = () => {
     void client.invalidateQueries({ queryKey: queryKeys.settings() });
     void client.invalidateQueries({ queryKey: queryKeys.session() });

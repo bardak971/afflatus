@@ -7,7 +7,7 @@ import { httpError, notFound } from "./errors";
 import { dollars } from "./notifyWords";
 
 /**
- * The personal tokens an MCP client drives Afflatus with (/mcp, mcp.ts), made in Settings › Interface › Access and shown
+ * The personal tokens an MCP client drives Afflatus with (/mcp, mcp.ts), made in Settings › Access and shown
  * once: the database keeps their SHA-256, as it does a session's (access.ts) and the metrics token's. A token is good on
  * /mcp only, never on the API nor as a page's session. Each has its scopes, its own limits on top of the app's caps (renders
  * an hour, a spend cap a month), an end, its last use, and the list of what its calls did (kept 30 days).
@@ -319,7 +319,7 @@ export class McpTokens {
   async mayRender(t: McpToken, count = 1): Promise<void> {
     const sent = await this.rendersThisHour(t.id);
     if (sent + count > t.rendersPerHour) {
-      throw refusal(`This token's limit is ${plural(t.rendersPerHour, "render")} an hour, and ${sent} went in the last hour: raise it in Settings › Interface › Access, or wait.`);
+      throw refusal(`This token's limit is ${plural(t.rendersPerHour, "render")} an hour, and ${sent} went in the last hour: raise it in Settings › Access, or wait.`);
     }
   }
 
@@ -329,10 +329,10 @@ export class McpTokens {
    * of, named in the refusal, so that an agent (and the user reading the token's activity) sees the sum the cap was asked.
    */
   async maySpend(t: McpToken, usd: number, said?: SpendSaid): Promise<void> {
-    if (!t.scopes.includes("spend")) throw refusal("This token cannot spend on rented GPUs: tick Spend on it in Settings › Interface › Access.");
+    if (!t.scopes.includes("spend")) throw refusal("This token cannot spend on rented GPUs: tick Spend on it in Settings › Access.");
     const spent = await this.spentThisMonth(t.id);
     const cap = t.spendCapCents / 100;
-    if (spent + usd > cap) throw refusal(`This token's cap is ${dollars(cap)} a month on rented GPUs, and it has spent ${dollars(spent)} this month${said ? `. ${spendSaid(said)}: ${dollars(spent + usd)} in all, past the cap. Raise it` : ": raise it"} in Settings › Interface › Access.`);
+    if (spent + usd > cap) throw refusal(`This token's cap is ${dollars(cap)} a month on rented GPUs, and it has spent ${dollars(spent)} this month${said ? `. ${spendSaid(said)}: ${dollars(spent + usd)} in all, past the cap. Raise it` : ": raise it"} in Settings › Access.`);
   }
 }
 

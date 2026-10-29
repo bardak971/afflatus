@@ -22,6 +22,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **MCP: `show_page` opens what an agent made on your screen.** It can open a draft, a timeline with one of its clips selected, a library item in its folder, or a Settings row. The page in front goes there, unless you typed in the last 5 seconds: then a toast says "<token> wants to show you …" with **Go**, and nothing moves. The agent is told which happened, or that no page of Afflatus is open or in front.
 
 ### Changed
+- **Access has its own tab in Settings.** The password, the devices signed in, the metrics token and Agents (MCP) moved from Interface to **Settings › Access**, after Interface, which keeps the look and the notifications. Old links and Find a setting land on the new tab, and every message and doc now says Settings › Access.
 - **MCP's `job` says when to check again** on a job not done: "about 2 min 10 s left: check again in ~130 s", from the queue's forecast. An agent that can wait then checks once instead of polling.
 
 ### Fixed

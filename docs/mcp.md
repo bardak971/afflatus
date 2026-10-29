@@ -4,7 +4,7 @@ Afflatus answers the [Model Context Protocol](https://modelcontextprotocol.io) a
 
 ## Plugging it in
 
-Make a token in **Settings › Interface › Access › Agents (MCP)**: name it after the client, tick its scopes, and copy it. It is shown once; Afflatus keeps only its SHA-256. The **Copy ▾** menu beside it gives the address, the Claude Code command and the Claude Desktop block, with the token filled in.
+Make a token in **Settings › Access › Agents (MCP)**: name it after the client, tick its scopes, and copy it. It is shown once; Afflatus keeps only its SHA-256. The **Copy ▾** menu beside it gives the address, the Claude Code command and the Claude Desktop block, with the token filled in.
 
 The server is Streamable HTTP, stateless: every call is a `POST /mcp` answered on its own in JSON, with `Authorization: Bearer afl_mcp_…`. `GET` and `DELETE` answer 405, and a missing, wrong, revoked or ended token gets 401.
 

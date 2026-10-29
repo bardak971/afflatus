@@ -36,7 +36,7 @@ import { machinesNow, saveSettings, setupOf } from "./setup-api";
 
 /** Whether this token has Spend: what starts a rented GPU, lengthens its run or stops it needs it. */
 function mustSpend(ctx: Pick<ToolCtx, "token">, what: string): void {
-  if (!ctx.token.scopes.includes("spend")) throw refusal(`This token cannot spend on rented GPUs, and ${what}: tick Spend on it in Settings › Interface › Access.`);
+  if (!ctx.token.scopes.includes("spend")) throw refusal(`This token cannot spend on rented GPUs, and ${what}: tick Spend on it in Settings › Access.`);
 }
 
 /** A machine as the tools say it: never its token, its folder on this computer, nor figures of its card's memory. */

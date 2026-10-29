@@ -66,7 +66,10 @@ async function targetOf(ctx: ToolCtx, a: { draft?: string; timeline?: string; cl
     if (!it) throw notFound("that item");
     return { to: { item: it.id, folder: it.folder_id, project: it.project_id ?? null, inBin: it.deleted_at !== null }, said: `${it.kind === "image" ? "the picture" : it.kind === "video" ? "the video" : "the sound"} ${quoted(it.name || it.id)}${it.deleted_at ? " (in the bin)" : ""}` };
   }
-  const tab = SETTING_TABS.find((t) => t.id === a.settings)!;
+  // the Access rows ("access", "access.mcp"…) left Interface for a tab of their own: an agent naming the old tab lands there,
+  // as the page does
+  const id = a.settings === "interface" && /^access(\.|$)/.test(a.setting ?? "") ? "access" : a.settings;
+  const tab = SETTING_TABS.find((t) => t.id === id)!;
   return { to: { settings: tab.id, ...(a.setting ? { setting: a.setting } : {}) }, said: `Settings › ${tab.label}` };
 }
 
