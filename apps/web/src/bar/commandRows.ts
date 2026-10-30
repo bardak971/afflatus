@@ -80,7 +80,7 @@ export const billing = (r: RentedState | null | undefined) => Boolean(r && (r.st
 function cutSaid(c: CommandCtx["selectedClip"]): string {
   if (!c) return "No clip selected in an open timeline";
   if (c.cutIn === "none") return `Clip ${c.number} is the first: no cut before it`;
-  if (c.cutIn === "extends") return `Clip ${c.number} extends clip ${c.number - 1}: a transition goes on a cut`;
+  if (c.cutIn === "extends") return `Clip ${c.number} extends clip ${c.number - 1}: a transition goes on a hard cut`;
   return `${c.timelineName} · the cut from clip ${c.number - 1}${c.transition ? `, now ${TRANSITIONS[c.transition].label.toLowerCase()}` : ""}`;
 }
 

@@ -114,6 +114,8 @@ export interface Clip {
   transition: Transition | null;
   /** Whether it still follows the clip before: null when there is nothing to compare yet. */
   join: "fresh" | "stale" | "cut" | null;
+  /** A hard cut: its `join` as it would be made seamless again (fresh: its take still carries on from the clip before's, no render needed). */
+  joinIfSeamless?: "fresh" | "stale" | "cut" | null;
   recipe: string | null;
   inputs: Record<string, unknown>;
   /** A source window run past a part kept removed: what its take will hide of its end, so it meets that part (card #114). */

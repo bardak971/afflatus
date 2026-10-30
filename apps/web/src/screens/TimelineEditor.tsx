@@ -173,6 +173,7 @@ function Editor({ id }: { id: string }) {
             before={clips[clips.indexOf(current) - 1]!}
             recipes={e.videoRecipes}
             onPatch={(p) => e.patch.mutate({ clip: current.id, patch: p })}
+            retake={current.kind === "video" ? { run: () => e.render.mutate({ clips: [current], takes: 1 }), why: current.job ? "A render of this clip is on its way" : e.render.isPending ? "Sending…" : e.ready(current).why ?? null } : undefined}
             onClose={() => e.select(null)}
             onSelectClip={e.select}
           />

@@ -191,7 +191,7 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onInsert, o
             : over.kind === "voice"
             ? `Drop to make it the voice of clip ${n(over.clip)}.`
             : over.kind === "join"
-            ? `Drop to put it on the cut between clip ${n(over.clip) - 1} and clip ${n(over.clip)}${clips[n(over.clip) - 1]?.joined === "continue" ? " (it becomes a cut)" : ""}.`
+            ? `Drop to put it on the join between clip ${n(over.clip) - 1} and clip ${n(over.clip)}${clips[n(over.clip) - 1]?.joined === "continue" ? " (it becomes a hard cut)" : ""}.`
             : "Drop to play it under the whole video.";
   // nothing dragged and clips on the track: the line is drawn as keys and their words (the LEGEND)
   const legend = !dragging && clips.length > 0;

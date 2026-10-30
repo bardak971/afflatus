@@ -129,6 +129,18 @@ async function formSent(s: Services, at: Seen, recipe: Recipe<any>, own: Record<
   return input;
 }
 
+/**
+ * What switching a rendered clip's join would do to the take that plays, as the editor's join panel says it: a take always
+ * plays from after its run-up, so a hard cut keeps it (no render), and back to seamless it carries on as it was made when it
+ * still follows the clip before's take (joinIfSeamless), else it needs a new take.
+ */
+const switchedWords = (c: ClipView) =>
+  c.joined === "continue"
+    ? "hard cut: the take stays and plays from its own first frame, no render"
+    : c.joinIfSeamless === "fresh"
+      ? "seamless: the take carries on from the clip before's as it was made, no render"
+      : "seamless: the take does not carry on from the clip before's take that plays, render a new one";
+
 /** What is left to render, as Render all reads it: video clips with no take, a stale join or another Mirror, not in the queue. */
 const toRender = (c: ClipView) => c.kind === "video" && !c.job && (!c.take || c.join === "stale" || c.mirrorChanged);
 
@@ -163,8 +175,8 @@ async function needsALook(s: Services, at: Seen, view: View) {
   for (const chain of chains) {
     const [a, b] = [chain[0]!, chain.at(-1)!];
     rows.push(chain.length === 2
-      ? { clips: chain, what: `clip ${b} carries on from clip ${a}, which has no take: its render is refused until clip ${a} has one`, mend: `render_clips with both (clip ${a} first: they are queued in order), or make their join a cut (edit_timeline join)` }
-      : { clips: chain, what: `clips ${a + 1}–${b} each carry on from the clip before, which has no take: each one's render is refused until the clip before has one`, mend: `render_clips with clips ${a}–${b} (they are queued in order), or make a join a cut (edit_timeline join)` });
+      ? { clips: chain, what: `clip ${b} carries on from clip ${a}, which has no take: its render is refused until clip ${a} has one`, mend: `render_clips with both (clip ${a} first: they are queued in order), or make their join a hard cut (edit_timeline join)` }
+      : { clips: chain, what: `clips ${a + 1}–${b} each carry on from the clip before, which has no take: each one's render is refused until the clip before has one`, mend: `render_clips with clips ${a}–${b} (they are queued in order), or make a join a hard cut (edit_timeline join)` });
   }
   // a seamless join whose take cut to another shot where its run-up ends: a new take mends it (card #161)
   for (const c of view.clips) {
@@ -212,8 +224,10 @@ async function timelineSaid(s: Services, view: View) {
       ...(c.kind === "still" ? { picture: c.still?.id ?? null } : { form: c.recipe, formTitle: recipe?.title ?? null }),
       atMs: c.atMs, lengthMs: c.lengthMs, ...(c.take || c.kind === "still" ? {} : { plannedMs: planned.get(c.id) ?? null }),
       join: i === 0 ? null : {
-        with: `clip ${i}`, joined: c.joined === "continue" ? "seamless" : "cut",
-        state: c.join === "fresh" ? "follows on" : c.join === "stale" ? "stale: the clip before changed since it was rendered" : c.join === "cut" ? "a cut" : "not rendered yet",
+        with: `clip ${i}`, joined: c.joined === "continue" ? "seamless" : "hard cut",
+        state: c.join === "fresh" ? "follows on" : c.join === "stale" ? "stale: the clip before changed since it was rendered" : c.join === "cut" ? "a hard cut" : "not rendered yet",
+        // what the join panel's other card says, before the switch: a take always plays from after its run-up (timelineModel plays())
+        ...(c.take && c.kind === "video" ? { ifSwitched: switchedWords(c) } : {}),
         ...(c.transition ? { transition: c.transition } : {}),
         ...(c.joined === "continue" && c.join === "fresh" && cutsAtJoin(c.take) ? { cutsHere: `${cutAtJoinFigure(c.take!.measure!)}: the take that plays cut to another shot after its run-up` } : {}),
       },
@@ -281,7 +295,7 @@ const readTimeline = tool({
   name: "read_timeline",
   scope: "look",
   title: "Read a timeline",
-  description: "One timeline whole: its clips in order (each one's form and values, where it starts and how long it plays or is planned to, the take that plays and the other takes, its join with the clip before: cut or seamless, follows on or stale, its transition), its lanes (the recordings under Lip sync clips with the parts removed from them, the source video cut into windows, the music), what needs a look (clips to render, forms to fill, a continuation with nothing to carry on from, stale joins, failures, model set problems, clips of another shape), its planned and rendered length, what Undo and Redo would do, and its export. A clip's values are its form's, for its next render (seed -1: a new one each time); the seed a take was made with is that take's own (view_item › made with).",
+  description: "One timeline whole: its clips in order (each one's form and values, where it starts and how long it plays or is planned to, the take that plays and the other takes, its join with the clip before: hard cut or seamless, follows on or stale, what switching it does to its take, its transition), its lanes (the recordings under Lip sync clips with the parts removed from them, the source video cut into windows, the music), what needs a look (clips to render, forms to fill, a continuation with nothing to carry on from, stale joins, failures, model set problems, clips of another shape), its planned and rendered length, what Undo and Redo would do, and its export. A clip's values are its form's, for its next render (seed -1: a new one each time); the seed a take was made with is that take's own (view_item › made with).",
   input: { timeline: z.string().min(1).describe("A timeline's id (list_timelines, whats_open).") },
   async run({ timeline }, ctx) {
     const view = await viewOf(ctx.s, timeline);
@@ -334,7 +348,7 @@ const action = z.discriminatedUnion("do", [
   z.strictObject({ do: z.literal("remove"), clips: z.array(clipRef).min(1).max(200) }),
   z.strictObject({ do: z.literal("bring_back"), before: clipRef.describe("The clip a removed part of a recording or of the source is kept with (read_timeline › lanes › removed › beforeClip).") }),
   z.strictObject({ do: z.literal("duplicate"), clip: clipRef }),
-  z.strictObject({ do: z.literal("join"), clip: clipRef.describe("The later clip of the join."), join: z.enum(["cut", "seamless", "landing"]).optional().describe("cut: it starts on its own; seamless: it carries on from the clip before; landing: seamless, and the clip before is rendered to end where this one begins (this one rendered first)."), transition: transition.nullable().optional().describe("A cut's transition into it (makes the join a cut); null: a plain cut.") }),
+  z.strictObject({ do: z.literal("join"), clip: clipRef.describe("The later clip of the join."), join: z.enum(["hard cut", "seamless", "landing", "cut"]).optional().describe("hard cut (cut: the same): it starts on its own, its take kept and played from its own first frame (no render); seamless: it carries on from the clip before (no render when its take was made from that clip's take); landing: seamless, and the clip before is rendered to end where this one begins (this one rendered first)."), transition: transition.nullable().optional().describe("A hard cut's transition into it (makes the join a hard cut); null: none, a plain hard cut.") }),
   z.strictObject({ do: z.literal("still"), clip: clipRef, ms: z.number().min(500).max(60_000).describe("How long a still is held.") }),
   z.strictObject({ do: z.literal("sound"), clip: clipRef, heard: z.enum(["own", "muted", "file"]).optional(), item: z.string().nullable().optional().describe("With heard: file, the sound (a library item) heard instead."), volume: z.number().min(0).max(100).optional() }),
   z.strictObject({ do: z.literal("music"), item: z.string().nullable().optional().describe("A sound (or a video with sound) of the library; null takes the music away."), volume: z.number().min(0).max(100).optional(), fadeInMs: z.number().min(0).optional(), fadeOutMs: z.number().min(0).optional(), duck: z.boolean().optional(), duckDb: z.number().min(3).max(30).optional(), fromMs: z.number().min(0).optional().describe("Where in the song it plays from."), startClip: clipRef.nullable().optional().describe("The clip it starts with; null: the first.") }),
@@ -414,17 +428,23 @@ async function runAction(s: Services, ctx: ToolCtx, id: string, a: Action): Prom
     case "join": {
       const { clip: c, i } = clip(a.clip);
       if (!i) throw httpError("Clip 1 has no clip before it: a join is said on the later clip.");
-      if (a.join === undefined && a.transition === undefined) throw httpError("Say the join (cut, seamless, landing) or a transition.");
-      if (a.transition && a.join && a.join !== "cut") throw httpError("A transition goes on a cut: say join cut, or leave join out.");
+      if (a.join === undefined && a.transition === undefined) throw httpError("Say the join (hard cut, seamless, landing) or a transition.");
+      const hardCut = a.join === "hard cut" || a.join === "cut";
+      if (a.transition && a.join && !hardCut) throw httpError("A transition goes on a hard cut: say join hard cut, or leave join out.");
       const before = view.clips[i - 1]!;
       if (a.join === "landing") {
         if (!c.take) throw httpError(`Clip ${i + 1} has no take yet: a landing ends clip ${i} where clip ${i + 1} begins, so clip ${i + 1} is rendered first.`);
         if (before.kind !== "video") throw httpError(`Clip ${i} is a still: it lands on nothing.`);
       }
-      await edit(c, { ...(a.join ? { joined: a.join === "cut" ? "cut" : "continue" } : {}), ...(a.transition !== undefined ? { transition: a.transition } : {}) });
+      await edit(c, { ...(a.join ? { joined: hardCut ? "cut" : "continue" } : {}), ...(a.transition !== undefined ? { transition: a.transition } : {}) });
       if (a.join === "landing" && !before.fitNext) await edit(before, { fitNext: true });
       if (a.join === "landing") return `clip ${i + 1} carries on from clip ${i}, and clip ${i} is to land on it: render clip ${i} (again) to make it end where clip ${i + 1} begins`;
-      return a.transition ? `a ${a.transition.kind} of ${a.transition.ms} ms into clip ${i + 1}` : a.transition === null ? `a plain cut into clip ${i + 1}` : `the join into clip ${i + 1} is ${a.join === "cut" ? "a cut" : "seamless"}${c.take ? ": render it again to make the join follow on" : ""}`;
+      if (a.transition) return `a ${a.transition.kind} of ${a.transition.ms} ms into clip ${i + 1}`;
+      if (a.transition === null) return `a plain hard cut into clip ${i + 1}`;
+      if (hardCut) return `the join into clip ${i + 1} is a hard cut${c.take ? ": its take stays and plays from its own first frame, no render" : ""}`;
+      // back to seamless: no render while its take still carries on from the clip before's (as the join panel says it)
+      const follows = c.joined === "continue" ? c.join === "fresh" : c.joinIfSeamless === "fresh";
+      return `the join into clip ${i + 1} is seamless${c.take ? (follows ? ": its take carries on as it was made, no render" : ": render it again to make the join follow on") : ""}`;
     }
     case "still": {
       const { clip: c, i } = clip(a.clip);
@@ -565,7 +585,7 @@ const editTimeline = tool({
   description: [
     "Change a timeline as its editor does, one action or a short list run in order (each one a step of the timeline's own Undo; a refused action stops the list there, the ones before it done). Clips are named by id or by number (1 = first), as the timeline stands when the action runs.",
     "Actions (`do`): add (a form's clip to render, or a library video or picture); move; trim (what is seen, in the take's own time); split (refused on a recording's clip or a window of the source: remove it, or cut again); remove (the editor's ripple cut, asked nothing: the result says what went, undo brings it back; a recording's or the source's clip has its part cut out, bring_back puts a part from the middle back); bring_back; duplicate;",
-    "join (cut, seamless, landing; or a transition on a cut, centred on it: it plays over the end of the clip before and the start of this one, and the timeline keeps its length); still (how long a picture is held); sound (a clip's own, muted, or a file); music (the music lane: song, volume, fades, ducking, where it plays from and the clip it starts with);",
+    "join (hard cut, seamless, landing; or a transition on a hard cut, centred on it: it plays over the end of the clip before and the start of this one, and the timeline keeps its length); still (how long a picture is held); sound (a clip's own, muted, or a file); music (the music lane: song, volume, fades, ducking, where it plays from and the clip it starts with);",
     "recording (a voice recording made into Lip sync clips cut at its pauses, Clip length ± window); recut_recording; trim_recording; source (a long video on the Source lane: its stretch, windowed form, window length, scene cuts, the form's values such as the run-up); make_source; split_source; trim_source; settings (name, mood, frame, cast).",
     "Nothing renders here: render_clips does. An editor open on the timeline shows the change at once, with a toast whose Undo takes it back.",
   ].join(" "),
@@ -1078,7 +1098,7 @@ const viewTimeline = tool({
   name: "view_timeline",
   scope: "look",
   title: "View a timeline",
-  description: "A timeline as a contact sheet you can see: one frame of each clip (the middle of what plays, labelled with its number), or with `joins` the last frame before each join and the first after it (labelled 2→3), with each join's facts (cut or seamless, follows on or stale, its transition). Clips with nothing rendered show no frame. Up to 24 clips at a time: `from` starts further on.",
+  description: "A timeline as a contact sheet you can see: one frame of each clip (the middle of what plays, labelled with its number), or with `joins` the last frame before each join and the first after it (labelled 2→3), with each join's facts (hard cut or seamless, follows on or stale, its transition). Clips with nothing rendered show no frame. Up to 24 clips at a time: `from` starts further on.",
   input: {
     timeline: z.string().min(1),
     joins: z.boolean().optional().describe("Frames around each join, rather than one per clip."),
@@ -1108,13 +1128,13 @@ const viewTimeline = tool({
         const [a, b] = await Promise.all([frameOf(before, "end"), frameOf(c, "start")]);
         if (a) cells.push({ bytes: a, label: `${i}→` });
         if (b) cells.push({ bytes: b, label: `→${i + 1}` });
-        facts.push({ join: `${i}→${i + 1}`, joined: c.joined === "continue" ? "seamless" : "cut", state: c.join ?? "not rendered yet", ...(c.transition ? { transition: c.transition } : {}), frames: a && b ? "both" : a ? `clip ${i + 1} has no frame yet` : b ? `clip ${i} has no frame yet` : "neither has a frame yet" });
+        facts.push({ join: `${i}→${i + 1}`, joined: c.joined === "continue" ? "seamless" : "hard cut", state: c.join ?? "not rendered yet", ...(c.transition ? { transition: c.transition } : {}), frames: a && b ? "both" : a ? `clip ${i + 1} has no frame yet` : b ? `clip ${i} has no frame yet` : "neither has a frame yet" });
       }
     } else {
       for (const [k, c] of shown.entries()) {
         const bytes = await frameOf(c, "middle");
         if (bytes) cells.push({ bytes, label: String(start + k + 1) });
-        facts.push({ clip: start + k + 1, kind: c.kind, lengthMs: c.lengthMs, ...(bytes ? {} : { frame: c.job ? "rendering" : "nothing rendered yet" }), ...(k || start ? { join: c.joined === "continue" ? `seamless, ${c.join ?? "not rendered yet"}` : c.transition ? `cut, ${c.transition.kind}` : "cut" } : {}) });
+        facts.push({ clip: start + k + 1, kind: c.kind, lengthMs: c.lengthMs, ...(bytes ? {} : { frame: c.job ? "rendering" : "nothing rendered yet" }), ...(k || start ? { join: c.joined === "continue" ? `seamless, ${c.join ?? "not rendered yet"}` : c.transition ? `hard cut, ${c.transition.kind}` : "hard cut" } : {}) });
       }
     }
     const sheet = await contactSheet(cells, { height: SHEET_HEIGHT, perRow: args.joins ? 2 * Math.floor(PER_ROW / 2) : PER_ROW });

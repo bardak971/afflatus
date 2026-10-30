@@ -238,7 +238,7 @@ describe.skipIf(!ffmpegThere)("a timeline", { timeout: FFMPEG_TIMEOUT }, () => {
     await render(id, [{ id: b }]);
     await finish(three!, 3);
     const playing = (await view(id)).clips[1].take.id;
-    expect((await call("POST", `/api/timelines/${id}/undo`)).undone).toBe("the cut");
+    expect((await call("POST", `/api/timelines/${id}/undo`)).undone).toBe("the hard cut");
     v = await view(id);
     expect(v.clips[1]).toMatchObject({ joined: "continue", take: { id: playing } });
     expect(v.clips[1].takes).toHaveLength(2);

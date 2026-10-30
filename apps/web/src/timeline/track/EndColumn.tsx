@@ -26,11 +26,11 @@ export function endColumnAt(end: number, pad: number, view: { left: number; widt
 const WORDS = {
   video: "New clip",
   audio: "Drop a voice recording: Lip sync, clip by clip",
-  source: "Drop a long video: Motion transfer, window by window",
+  source: "Drop a long video: Swap character or Motion transfer, window by window",
 };
 const LABELS = {
   audio: "Voice recording: drop one here for Lip sync clips after the last clip, or click for its menu",
-  source: "Source: drop a long video here for Motion transfer clips after the last clip, or click for its menu",
+  source: "Source: drop a long video here for Swap character or Motion transfer clips after the last clip, or click for its menu",
 };
 
 type Props = {

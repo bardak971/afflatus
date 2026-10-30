@@ -81,7 +81,7 @@ describe("Esc on the track (card #77)", () => {
 
   it("leaves the join's dot as well once it was pressed", () => {
     rig("zz-b");
-    const dot = screen.getByRole("button", { name: "The join before clip 2: a cut" });
+    const dot = screen.getByRole("button", { name: "The join before clip 2: a hard cut" });
     act(() => dot.focus());
     fireEvent.keyDown(dot, { key: "Escape" });
     expect(onTrack()).toBe(true);

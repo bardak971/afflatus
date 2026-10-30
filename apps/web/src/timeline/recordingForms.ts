@@ -5,7 +5,7 @@ import type { Option } from "../Select";
 import { recordingInput } from "./track/RecordingBand";
 
 /** How a model would meet the clip before, as the model list says it beside each (the join rule, joinWay). */
-export const JOIN_WORDS = { seamless: "seamless", frames: "carries on", cut: "a cut" } as const;
+export const JOIN_WORDS = { seamless: "seamless", frames: "carries on", cut: "a hard cut" } as const;
 
 /** What the recording does on a clip in this form (card #72): the mouth follows it (Lip sync), or it plays over the clip. */
 export const recordingDoes = (recipe: RecipeInfo) => (madeAroundRecording(recipe.inputs) ? "the mouth follows its part" : "plays over");

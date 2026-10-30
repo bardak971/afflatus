@@ -301,12 +301,16 @@ export class Timelines {
       .map((i) => ({ input: i.id, role: (i as { role?: string }).role ?? "image", id: inputs[i.id] as string }));
   }
 
-  /** Whether the clip at `i` still follows the one before it: "fresh", "stale", "cut" (it never did), or null (nothing to compare yet). */
-  private joinState(all: Placed[], i: number): "fresh" | "stale" | "cut" | null {
+  /**
+   * Whether the clip at `i` still follows the one before it: "fresh", "stale", "cut" (it never did), or null (nothing to
+   * compare yet). `asSeamless`: as it would be made seamless again, its hard cut set aside: what the join panel says a
+   * switch back does (fresh: no render, the take carries on as it was made; stale: it needs a new take).
+   */
+  private joinState(all: Placed[], i: number, asSeamless = false): "fresh" | "stale" | "cut" | null {
     if (i === 0) return null;
     const a = all[i - 1]!;
     const b = all[i]!;
-    if (b.clip.joined === "cut" || b.clip.kind === "still") return "cut";
+    if ((b.clip.joined === "cut" && !asSeamless) || b.clip.kind === "still") return "cut";
     if (!b.active) return null;
     // after a picture: the clip follows it when it was made to open on that picture
     if (a.clip.kind === "still") return a.still && b.active.take.prev_take_id === stillRef(a.still.id) && b.active.take.trim_start_ms === 0 ? "fresh" : "stale";
@@ -440,6 +444,8 @@ export class Timelines {
       const ended = last.get(p.clip.id);
       const view = {
         id: p.clip.id, kind: p.clip.kind, joined: p.clip.joined, join: this.joinState(all, i), recipe: p.clip.recipe_id,
+        /** A hard cut: how its join would be made seamless again (fresh: its take still carries on from the clip before's, no render). */
+        ...(p.clip.joined === "cut" && i > 0 ? { joinIfSeamless: this.joinState(all, i, true) } : {}),
         inputs: JSON.parse(p.clip.inputs) as Record<string, unknown>,
         /** What its take will hide of its end (a window run past a part kept removed): drawn that much shorter until it plays. */
         ...(hidden?.[p.clip.id] ? { hiddenMs: hidden[p.clip.id] } : {}),
@@ -2459,7 +2465,7 @@ export class Timelines {
     const coming = await this.db.selectFrom("jobs").select("id").where("clip_id", "=", prior.clip.id).where(toRun).orderBy("created_at", "desc").executeTakeFirst();
     if (coming) return coming.id;
     if (prior.active) return undefined;
-    throw httpError(`Clip ${i + 1} carries on from clip ${i}, which has no take: render clip ${i} first, or make their join a cut.`);
+    throw httpError(`Clip ${i + 1} carries on from clip ${i}, which has no take: render clip ${i} first, or make their join a hard cut.`);
   }
   /** A clip's job is done: its video becomes a take, and plays (TimelineTakes.finished). */
   finished(...args: Parameters<TimelineTakes["finished"]>): Promise<void> { return this.takes.finished(...args); }
@@ -2551,7 +2557,7 @@ function labelOf(patch: ClipPatch): string {
     : patch.take !== undefined ? "the other take"
     : [patch.trimStartMs, patch.trimEndMs, patch.shownFromMs, patch.shownToMs, patch.stillMs].some((v) => v !== undefined) ? "the new duration"
     : patch.transition !== undefined ? (patch.transition ? "the transition" : "the transition removed")
-    : patch.joined !== undefined ? (patch.joined === "cut" ? "the cut" : "the join")
+    : patch.joined !== undefined ? (patch.joined === "cut" ? "the hard cut" : "the seamless join")
     : patch.animate ? "the image animated (i2v)"
     : patch.sound !== undefined || patch.soundAsset !== undefined || patch.volume !== undefined ? "the audio change"
     : patch.music !== undefined ? "the music under the clip"

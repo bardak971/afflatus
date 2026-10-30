@@ -170,13 +170,19 @@ describe.skipIf(!ffmpegThere)("the timelines from outside", { timeout: FFMPEG_TI
     // a transition goes on a cut: the join into clip 3 is made one, and undo takes it back
     expect((await ok(c, "edit_timeline", { timeline: id, actions: [{ do: "join", clip: 3, transition: { kind: "dissolve", ms: 500 } }] })).done[0]).toMatch(/dissolve of 500 ms into clip 3/);
     read = await ok(c, "read_timeline", { timeline: id });
-    expect(read.clips[2].join).toMatchObject({ joined: "cut", transition: { kind: "dissolve", ms: 500 } });
+    expect(read.clips[2].join).toMatchObject({ joined: "hard cut", transition: { kind: "dissolve", ms: 500 } });
     expect(await ok(c, "undo", { timeline: id })).toMatchObject({ undone: expect.any(String) });
     read = await ok(c, "read_timeline", { timeline: id });
     expect(read.clips[2].join.joined).toBe("seamless");
     expect(read.clips[2].join.transition).toBeUndefined();
     await ok(c, "redo", { timeline: id });
     expect((await ok(c, "read_timeline", { timeline: id })).clips[2].join.transition).toMatchObject({ kind: "dissolve" });
+
+    // the join panel's words (card #174): a hard cut keeps the take, said before the switch and after it; "cut" still taken
+    expect((await ok(c, "read_timeline", { timeline: id })).clips[1].join).toMatchObject({ joined: "seamless", ifSwitched: "hard cut: the take stays and plays from its own first frame, no render" });
+    expect((await ok(c, "edit_timeline", { timeline: id, actions: [{ do: "join", clip: 2, join: "cut" }] })).done[0]).toBe("the join into clip 2 is a hard cut: its take stays and plays from its own first frame, no render");
+    expect((await ok(c, "read_timeline", { timeline: id })).clips[1].join).toMatchObject({ joined: "hard cut", state: "a hard cut", ifSwitched: "seamless: the take carries on from the clip before's as it was made, no render" });
+    await ok(c, "undo", { timeline: id });
 
     // a finish through the Finish dialog's route: its jobs carry the token, so that one without Spend stays off rented pods
     const fin = await ok(c, "finish", { timeline: id, route: "seedvr", factor: 2, clips: [1] });

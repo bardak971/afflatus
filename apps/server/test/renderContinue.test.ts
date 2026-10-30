@@ -33,7 +33,7 @@ describe("Render of a clip that carries on, the clip before with no take", () =>
     const { id, clips } = await chain(2);
     const res = await ask(id, [clips[1]!]);
     expect(res.statusCode).toBe(400);
-    expect(res.body).toContain("Clip 2 carries on from clip 1, which has no take: render clip 1 first, or make their join a cut.");
+    expect(res.body).toContain("Clip 2 carries on from clip 1, which has no take: render clip 1 first, or make their join a hard cut.");
     expect(await queued()).toBe(0);
   });
 
@@ -43,7 +43,7 @@ describe("Render of a clip that carries on, the clip before with no take", () =>
     // the first clip could go alone; the third carries on from the second, not asked and never rendered
     const res = await ask(id, [clips[0]!, clips[2]!]);
     expect(res.statusCode).toBe(400);
-    expect(res.body).toContain("Clip 3 carries on from clip 2, which has no take: render clip 2 first, or make their join a cut.");
+    expect(res.body).toContain("Clip 3 carries on from clip 2, which has no take: render clip 2 first, or make their join a hard cut.");
     expect(await queued()).toBe(0);
   });
 
