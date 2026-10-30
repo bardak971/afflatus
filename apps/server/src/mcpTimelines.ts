@@ -86,7 +86,7 @@ function takeSaid(x: TakeView, takes: TakeView[]) {
     ...(x.finishedFrom ? { finishOf: draft ? `take ${draft}` : "a take removed since" } : {}),
     ...(x.joinKind ? { joinsBefore: x.joinKind } : {}),
     // a seamless take that cut to another shot where its run-up ends (card #161)
-    ...(cutsAtJoin(x.measure) ? { cutAtJoin: `${cutAtJoinFigure(x.measure!)}: ${cutAtJoinSaid(x.measure!)}` } : {}),
+    ...(cutsAtJoin(x) ? { cutAtJoin: `${cutAtJoinFigure(x.measure!)}: ${cutAtJoinSaid(x.measure!)}` } : {}),
     ...(x.facePass ? { facePass: true } : {}),
   };
 }
@@ -168,7 +168,7 @@ async function needsALook(s: Services, at: Seen, view: View) {
   }
   // a seamless join whose take cut to another shot where its run-up ends: a new take mends it (card #161)
   for (const c of view.clips) {
-    if (c.joined === "continue" && c.join === "fresh" && cutsAtJoin(c.take?.measure)) rows.push({ clips: [n(c)], what: `clip ${n(c)}: ${cutAtJoinSaid(c.take!.measure!)}`, mend: "render_clips it again (a new take), then use_take the one that carries on" });
+    if (c.joined === "continue" && c.join === "fresh" && cutsAtJoin(c.take)) rows.push({ clips: [n(c)], what: `clip ${n(c)}: ${cutAtJoinSaid(c.take!.measure!)}`, mend: "render_clips it again (a new take), then use_take the one that carries on" });
   }
   const stale = view.clips.filter((c) => c.join === "stale");
   if (stale.length) rows.push({ clips: stale.map(n), what: `${plural(stale.length, "join")} no longer follow on: the clip before changed after ${stale.length > 1 ? "they were" : "it was"} rendered`, mend: "render_clips them again" });
@@ -215,7 +215,7 @@ async function timelineSaid(s: Services, view: View) {
         with: `clip ${i}`, joined: c.joined === "continue" ? "seamless" : "cut",
         state: c.join === "fresh" ? "follows on" : c.join === "stale" ? "stale: the clip before changed since it was rendered" : c.join === "cut" ? "a cut" : "not rendered yet",
         ...(c.transition ? { transition: c.transition } : {}),
-        ...(c.joined === "continue" && c.join === "fresh" && cutsAtJoin(c.take?.measure) ? { cutsHere: `${cutAtJoinFigure(c.take!.measure!)}: the take that plays cut to another shot after its run-up` } : {}),
+        ...(c.joined === "continue" && c.join === "fresh" && cutsAtJoin(c.take) ? { cutsHere: `${cutAtJoinFigure(c.take!.measure!)}: the take that plays cut to another shot after its run-up` } : {}),
       },
       // rendered to end where the next clip begins: a landing, when that one carries on from it
       ...(c.fitNext && view.clips[i + 1]?.joined === "continue" ? { landsOnNext: true } : {}),

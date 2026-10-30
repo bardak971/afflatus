@@ -4,7 +4,7 @@ import type { Clip, Take } from "../src/api";
 import { joinMarkOf } from "../src/timeline/track/joinMark";
 import { clipFacts } from "../src/timeline/track/peek";
 
-const take = (handover?: number, runUpCut?: { atMs: number; db: number } | null): Take => ({ id: "t", startMs: 0, endMs: 3000, headMs: 917, trimStartMs: 0, trimEndMs: 0, asset: { id: "v" }, measure: handover === undefined ? null : { handover, ...(runUpCut !== undefined ? { runUpCut } : {}) }, joinKind: "seamless", seamless: true }) as unknown as Take;
+const take = (handover?: number, runUpCut?: { atMs: number; db: number } | null, recipe = "h3.video"): Take => ({ id: "t", recipe, startMs: 0, endMs: 3000, headMs: 917, trimStartMs: 0, trimEndMs: 0, asset: { id: "v" }, measure: handover === undefined ? null : { handover, ...(runUpCut !== undefined ? { runUpCut } : {}) }, joinKind: "seamless", seamless: true }) as unknown as Take;
 const clip = (over: Partial<Clip>): Clip => ({ id: "c", kind: "video", recipe: "h3.video", inputs: {}, takes: [], joined: "continue", join: "fresh", take: null, job: null, failed: null, lengthMs: 3000, ...over }) as unknown as Clip;
 
 // card #161: Timeline 17's circle between clips 1 and 2 said seamless while clip 2's take cut to a shed (run-up end ×20)
@@ -20,6 +20,18 @@ describe("the circle between two clips", () => {
     expect(joinMarkOf(clip({ take: take(0.5, null) }), true)).toBe("fresh");
   });
 
+  it("says a cut at the join of H3's takes alone: another family's run-up end stays a figure (0.8.3 review)", () => {
+    // a Wan take (16 frames a second, which the run-up's steps at 24 read twice): its ×5 is no cut said
+    const wan = clip({ recipe: "wan.video", take: take(5, null, "wan.video") });
+    expect(joinMarkOf(wan, true)).toBe("fresh");
+    expect(cutsAtJoin(wan.take)).toBe(false);
+    expect(clipFacts(wan, 1, [clip({ id: "a" }), wan], null).chips.some((x) => x.text.startsWith("cut at the join"))).toBe(false);
+    expect(joinMarkOf(clip({ take: take(0.5, { atMs: 417, db: 13.6 }, "ltx.video") }), true)).toBe("fresh");
+    // a take not rendered here (imported): nothing said
+    expect(cutsAtJoin({ recipe: null, measure: { handover: 20 } })).toBe(false);
+    expect(joinMarkOf(clip({ take: take(5) }), true)).toBe("cuts");
+  });
+
   it("keeps the other states: stale first, a cut, a seamless join still to render", () => {
     expect(joinMarkOf(clip({ join: "stale", take: take(20) }), true)).toBe("stale");
     expect(joinMarkOf(clip({ joined: "cut", join: "cut", take: take(20) }), false)).toBe("cut");
@@ -27,8 +39,8 @@ describe("the circle between two clips", () => {
   });
 
   it("says the figure and what it measured, and the hover card carries it as an attention chip", () => {
-    expect(cutsAtJoin({ handover: 20 })).toBe(true);
-    expect(cutsAtJoin({ handover: 3 })).toBe(false);
+    expect(cutsAtJoin({ recipe: "h3.video", measure: { handover: 20 } })).toBe(true);
+    expect(cutsAtJoin({ recipe: "h3.video", measure: { handover: 3 } })).toBe(false);
     expect(cutsAtJoin(null)).toBe(false);
     expect(cutAtJoinSaid({ handover: 20 })).toBe("the take cuts at the join: where its run-up ends the picture jumps ×20.0 against its own motion (×3 and under carries on). The model left the clip before there: render a new take");
     expect(cutAtJoinSaid({ handover: 0.5, runUpCut: { atMs: 417, db: 13.6 } })).toBe("the take cuts to another shot 0.42 s after its run-up (two frames 13.6 dB apart, at least 6 dB further apart than the frames around them). The model left the clip before there: render a new take");

@@ -40,6 +40,13 @@ describe("the rows of Needs a look", () => {
     const measuring = read([rendered("a", ["t"]), clip({ id: "b", takes: [take("u", 5)], take: take("u", 5) })]);
     expect(measuring.map((r) => [r.kind, r.figure, r.act])).toEqual([["join", 5, undefined]]);
   });
+  it("lists a cut a few frames after the run-up for H3's takes alone (0.8.3 review)", () => {
+    const cutTake = (recipe: string) => ({ ...take("u"), recipe, measure: { handover: 0.5, runUpCut: { atMs: 417, db: 13.6 } } }) as unknown as Take;
+    const of = (recipe: string) => read([rendered("a", ["t"]), clip({ id: "b", recipe, takes: [cutTake(recipe)], take: cutTake(recipe) })], { b: [{ take: "u", in: 1, out: null }] });
+    expect(of("h3.video").map((r) => r.kind)).toEqual(["join"]);
+    // a Wan take's, measured at 24 a second on its 16 frames: none
+    expect(of("wan.video")).toEqual([]);
+  });
   it("leaves out joins that hold, cuts and the first clip", () => {
     const rows = read([rendered("a", ["t"]), rendered("b", ["u"]), rendered("c", ["w"], { joined: "cut" })], { a: [{ take: "t", in: 9, out: null }], b: [{ take: "u", in: 3, out: null }], c: [{ take: "w", in: 9, out: null }] });
     expect(rows).toEqual([]);

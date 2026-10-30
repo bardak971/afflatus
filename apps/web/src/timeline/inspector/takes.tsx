@@ -221,7 +221,7 @@ export function TakeList({ clip, take, joinOf, smoothest, form, onPreview, onPat
                   {smoothest === t.id && clip.takes.length > 1 && <Chip size="xs" tip="The smoothest joins of the takes">smoothest</Chip>}
                   {closest === t.id && <Chip size="xs" tip="The face closest to its person's picture, of the takes measured">closest face</Chip>}
                   {formOf(t) && <Chip size="xs" tip="The form it was rendered with: this clip's takes come from more than one">{formOf(t)}</Chip>}
-                  {cutsAtJoin(t.measure) && <Chip size="xs" tone="attention" tip={`Seamless, but ${cutAtJoinSaid(t.measure!)}.`}>cut at the join · {cutAtJoinFigure(t.measure!)}</Chip>}
+                  {cutsAtJoin(t) && <Chip size="xs" tone="attention" tip={`Seamless, but ${cutAtJoinSaid(t.measure!)}.`}>cut at the join · {cutAtJoinFigure(t.measure!)}</Chip>}
                 </span>
                 {/* the figures, a step under the name: how long it plays (a trimmed take says so), its joins, its face */}
                 <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 font-mono text-meta text-ink-3">
@@ -243,7 +243,7 @@ export function TakeList({ clip, take, joinOf, smoothest, form, onPreview, onPat
                 {t.made && <MadeLine made={t.made} recipe={form?.recipes.find((r) => r.id === t.made!.recipe)} diff={takeDiff(t, form)} />}
               </span>
             </button>
-            {on && onRetake && cutsAtJoin(t.measure) && <Button size="sm" className="mr-1 shrink-0" data-tip="Render a new take of this clip, carrying on from the same take of the clip before: the model makes it anew, and most takes carry on" onClick={onRetake}>New take</Button>}
+            {on && onRetake && cutsAtJoin(t) && <Button size="sm" className="mr-1 shrink-0" data-tip="Render a new take of this clip, carrying on from the same take of the clip before: the model makes it anew, and most takes carry on" onClick={onRetake}>New take</Button>}
             <IconButton size={28} label={`Take ${i + 1}: more`} tip="Face refine, Download, Keep, Compare, Remove…" aria-haspopup="menu" onClick={(e) => menu.open(e, t.asset)} className="mr-1 opacity-60 group-hover/take:opacity-100 focus-visible:opacity-100">
               <MoreHorizontal size={15} />
             </IconButton>

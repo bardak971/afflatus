@@ -12,5 +12,5 @@ export function joinMarkOf(c: Pick<Clip, "join" | "take">, carries: boolean): Jo
   if (c.join === "stale") return "stale";
   if (!carries) return "cut";
   if (c.join !== "fresh") return "planned";
-  return cutsAtJoin(c.take?.measure) ? "cuts" : "fresh";
+  return cutsAtJoin(c.take) ? "cuts" : "fresh";
 }

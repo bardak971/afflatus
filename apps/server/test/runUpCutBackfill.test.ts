@@ -54,9 +54,9 @@ describe.skipIf(!ffmpegThere)("a cut after the run-up, measured and backfilled",
     await s.t.db.updateTable("generations").set({ measure: JSON.stringify({ ...before, handover: 1, runUpCut: { atMs: 125, db: 12.3 } }) }).where("id", "=", take.generation!).execute();
     const played = (await steps.view(tl)).clips.find((c: { id: string }) => c.id === b);
     expect(played.take.measure).not.toHaveProperty("runUpCut");
-    expect(cutsAtJoin(played.take.measure)).toBe(false);
+    expect(cutsAtJoin(played.take)).toBe(false);
     // the same kept for an H3 take is said
     await s.t.db.updateTable("generations").set({ recipe_id: "h3.video" }).where("id", "=", take.generation!).execute();
-    expect(cutsAtJoin((await steps.view(tl)).clips.find((c: { id: string }) => c.id === b).take.measure)).toBe(true);
+    expect(cutsAtJoin((await steps.view(tl)).clips.find((c: { id: string }) => c.id === b).take)).toBe(true);
   });
 });

@@ -166,7 +166,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
   const badJoin = (c: Clip) => {
     const figure = joinsOf.get(c.id);
     const carry = carryOf(c);
-    return (figure !== undefined && figure !== null && figure > SHOWS) || (carry !== null && carry > SHOWS) || cutsAtJoin(c.take?.measure);
+    return (figure !== undefined && figure !== null && figure > SHOWS) || (carry !== null && carry > SHOWS) || cutsAtJoin(c.take);
   };
   const figured = joined.filter((c) => typeof joinsOf.get(c.id) === "number");
   const loading = joined.some((c) => joinsOf.get(c.id) === undefined);

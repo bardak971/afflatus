@@ -22,7 +22,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
   - **When:** a hard cut within a second after the run-up (two frames under 17 dB apart, 6 dB more than the frames around them), or the run-up's end jumping past ×3 against the take's own motion. Timeline 17's read ×20 while its circle said seamless; two of Oct 27 cut 10 and 13 frames on, where the step at the join read ×0.5. On 8721's joins it found the 11 cuts seen in their frames and nothing else.
   - **Through MCP:** `read_timeline` says it on the join, the take and Needs a look.
   - **Takes already made:** the takes that carry on are looked at once in the background, at the backfill's slow pace.
-  - **H3 only:** the cut after the run-up is looked for in H3's takes alone, at its 24 frames a second, where it was tuned; on Wan's 16 it read quick moves as cuts.
+  - **H3 only:** a cut at the join is said for H3's takes alone, measured at its 24 frames a second where it was tuned; on Wan's 16 it read quick moves as cuts. Other families' run-up end figure shows in Look as before.
 - **"ComfyUI is offline" no longer comes for an answer missed.** It was said, on Telegram too, the moment ComfyUI missed one 5-second status poll while it rendered, which a ComfyUI loading a model or on a PC short of memory does and renders on. It is now said once ComfyUI has stayed silent for 30 s in a row while it renders. A render that loses ComfyUI is still said at once.
 
 ## [0.8.2] - 2026-10-29

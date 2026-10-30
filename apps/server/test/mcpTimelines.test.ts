@@ -132,7 +132,14 @@ describe.skipIf(!ffmpegThere)("the timelines from outside", { timeout: FFMPEG_TI
     expect(cuts.clips[1].take.cutAtJoin).toMatch(/^×20\.0: the take cuts at the join/);
     expect(cuts.clips[2].join.cutsHere).toBeUndefined();
     expect(cuts.needsALook).toContainEqual({ clips: [2], what: expect.stringMatching(/^clip 2: the take cuts at the join: where its run-up ends the picture jumps ×20\.0/), mend: expect.stringMatching(/render_clips it again/) });
-    await s.t.db.updateTable("generations").set({ measure: measured.measure }).where("id", "=", made.generation_id!).execute();
+    // the same ×5 on a Wan take (16 frames a second, which the run-up's steps at 24 read twice) is no cut said (0.8.3 review)
+    const recipe = (await s.t.db.selectFrom("generations").select("recipe_id").where("id", "=", made.generation_id!).executeTakeFirstOrThrow()).recipe_id;
+    await s.t.db.updateTable("generations").set({ recipe_id: "wan.video", measure: JSON.stringify({ luma: 100, sharp: 10, handover: 5 }) }).where("id", "=", made.generation_id!).execute();
+    const wan = await ok(c, "read_timeline", { timeline: id });
+    expect(wan.clips[1].join.cutsHere).toBeUndefined();
+    expect(wan.clips[1].take.cutAtJoin).toBeUndefined();
+    expect(JSON.stringify(wan.needsALook ?? [])).not.toMatch(/cuts at the join/);
+    await s.t.db.updateTable("generations").set({ recipe_id: recipe, measure: measured.measure }).where("id", "=", made.generation_id!).execute();
 
     // the contact sheet: a frame each, and the frames around each join
     const sheet = await c.callTool({ name: "view_timeline", arguments: { timeline: id } });
