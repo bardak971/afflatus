@@ -1,4 +1,5 @@
 import { Link } from "wouter";
+import { settingHref } from "../screens/settings/settingsIndex";
 import { Eye } from "lucide-react";
 import type { DesignerSession, Settings } from "../api";
 import { Select } from "../Select";
@@ -24,7 +25,7 @@ export function SessionBar({ settings, using, choose, showingSystem, onShowSyste
         value={using.llm ?? ""}
         onChange={(id) => choose({ llm: id })}
         options={llms.map((l) => ({ value: l.id, label: l.name || l.model, detail: `${l.name ? `${l.model} · ` : ""}${l.vision ? "vision · " : ""}${Math.round(l.contextSize / 1000)}k context` }))}
-        footer={() => <Link href="/settings/designer" className="text-xs text-ink-2 underline">Add or edit LLMs in Settings</Link>}
+        footer={() => <Link href={settingHref("designer.llms")} className="text-xs text-ink-2 underline">Add or edit LLMs in Settings</Link>}
       />
       <Select
         size="sm"
@@ -34,7 +35,7 @@ export function SessionBar({ settings, using, choose, showingSystem, onShowSyste
         value={using.instruction || "none"}
         onChange={(id) => choose({ instruction: id === "none" ? "" : id })}
         options={[{ value: "none", label: "No system prompt", detail: "The designer writes its usual way." }, ...instructions.map((i) => ({ value: i.id, label: i.name, detail: i.text.replace(/\s+/g, " ").slice(0, 160) }))]}
-        footer={() => <Link href="/settings/designer" className="text-xs text-ink-2 underline">Write your own system prompts in Settings</Link>}
+        footer={() => <Link href={settingHref("designer.llms")} className="text-xs text-ink-2 underline">Write your own system prompts in Settings</Link>}
       />
       <IconButton
         pressed={showingSystem}

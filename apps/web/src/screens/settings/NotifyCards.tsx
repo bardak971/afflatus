@@ -10,9 +10,10 @@ import { Block, Card, Row, Status } from "./Rows";
 import { PasswordAsk } from "./PasswordAsk";
 import { SecretField } from "./SecretField";
 import { SETTING_HELP } from "@afflatus/core";
+import { COLUMNS } from "./wide";
 
 /**
- * Settings › Interface › Notifications: where the notices go (this browser, a Telegram bot, a Discord webhook) and which
+ * Settings › Notifications: the in-app banner, where the notices go (this browser, a Telegram bot, a Discord webhook) and which
  * kinds go where. The browser's ticks are kept in this browser; Telegram's and Discord's on the server, which sends them.
  */
 
@@ -47,8 +48,8 @@ const GROUPS: Array<{ title: string; kinds: Array<{ kind: NotifyKind; label: str
     kinds: [{ kind: "comfyGone", label: "ComfyUI offline mid-render", help: "A machine's ComfyUI stopped answering while it rendered: crashed, closed, or its computer asleep." }],
   },
   {
-    title: "Access",
-    kinds: [{ kind: "newDevice", label: "New device signed in", help: "A sign-in with the password from a device never seen before: its browser and address (Access). A reset code and \"Password changed\" go to Telegram whatever this says." }],
+    title: "Sign-in",
+    kinds: [{ kind: "newDevice", label: "New device signed in", help: "A sign-in with the password from a device never seen before: its browser and address (Settings › Sign-in, which says where it goes). Changing where it goes asks for the password unless you signed in within 10 minutes. A reset code and \"Password changed\" go to Telegram whatever this says." }],
   },
 ];
 
@@ -60,7 +61,7 @@ const permission = () => (typeof Notification === "undefined" ? "none" : Notific
 /** The settings' save for these cards: the answer written in at once, a failure said. */
 function useSaveNotify() {
   const client = useQueryClient();
-  const sayFailed = useSayFailed({ href: "/settings/interface", go: "Open Settings › Interface" });
+  const sayFailed = useSayFailed({ href: "/settings/notifications", go: "Open Settings › Notifications" });
   return useMutation({
     mutationFn: (notify: NonNullable<SettingsPatch["notify"]>) => api.saveSettings({ notify }),
     onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved),
@@ -165,7 +166,24 @@ export function WhatCard() {
   const n = useSettings().data?.notify;
   const browser = useNotify();
   const save = useSaveNotify();
+  const client = useQueryClient();
+  const sayFailed = useSayFailed({ href: "/settings/notifications", go: "Open Settings › Notifications" });
   const [refused, setRefused] = useState(false);
+  // New device signed in is the one place it is set (card #168): with a password set, a change asks for it again unless the
+  // sign-in is recent (access.ts mayChange), as Where's Telegram does; the change waits under the card while it is typed
+  const [asking, setAsking] = useState<{ notify: NotifyPatch; said: string | null } | null>(null);
+  const guarded = useMutation({
+    mutationFn: ({ notify, password }: { notify: NotifyPatch; password?: string }) => (password ? api.saveSettingsWith({ notify }, password) : api.saveSettings({ notify })),
+    onSuccess: (saved) => {
+      setAsking(null);
+      client.setQueryData(queryKeys.settings(), saved);
+    },
+    onError: (err, { notify, password }) => {
+      if (err instanceof ApiError && (err.said.needPassword || (password && err.status === 403) || err.status === 429)) setAsking({ notify, said: password || err.status === 429 ? err.message : null });
+      else sayFailed("The notifications were not saved")(err);
+    },
+  });
+  const put = (kind: NotifyKind, notify: NotifyPatch) => (kind === "newDevice" ? guarded.mutate({ notify }) : save.mutate(notify));
   if (!n) return null;
   // ticked, the browser's box asks for the right first (as the Queue's switch does)
   const tickBrowser = async (kind: NotifyKind, on: boolean) => {
@@ -189,12 +207,13 @@ export function WhatCard() {
             <div key={kind} data-setting={`notify.${kind}`} className="flex min-h-[38px] items-center gap-2 px-gutter">
               <span className="flex min-w-0 grow items-center gap-1.5 text-body">{label}<Help title={label} text={help} /></span>
               <span className="flex w-[76px] shrink-0 justify-center"><Checkbox checked={Boolean(browser.browser[kind])} onChange={(on) => void tickBrowser(kind, on)} label={`${label}: browser`} /></span>
-              <span className="flex w-[76px] shrink-0 justify-center"><Checkbox checked={n.events[kind].telegram} onChange={(telegram) => save.mutate({ events: { [kind]: { telegram } } })} label={`${label}: Telegram`} /></span>
-              <span className="flex w-[76px] shrink-0 justify-center"><Checkbox checked={n.events[kind].discord} onChange={(discord) => save.mutate({ events: { [kind]: { discord } } })} label={`${label}: Discord`} /></span>
+              <span className="flex w-[76px] shrink-0 justify-center"><Checkbox checked={n.events[kind].telegram} onChange={(telegram) => put(kind, { events: { [kind]: { telegram } } })} label={`${label}: Telegram`} /></span>
+              <span className="flex w-[76px] shrink-0 justify-center"><Checkbox checked={n.events[kind].discord} onChange={(discord) => put(kind, { events: { [kind]: { discord } } })} label={`${label}: Discord`} /></span>
             </div>
           ))}
         </div>
       ))}
+      {asking && <PasswordAsk said={asking.said} busy={guarded.isPending} onConfirm={(password) => guarded.mutate({ notify: asking.notify, password })} onCancel={() => setAsking(null)} />}
       {refused && (
         <Row tone="warn" label="Blocked by the browser" help="Allow notifications for this page in the browser's site settings, next to the address, then tick again.">
           <span className="text-xs text-warn-ink">allow them next to the address</span>
@@ -204,5 +223,28 @@ export function WhatCard() {
         <Toggle bare on={n.picture} onChange={(picture) => save.mutate({ picture })} label="With a small picture of what it made" />
       </Row>
     </Card>
+  );
+}
+
+/**
+ * Settings › Notifications (card #168: it was the right half of Interface): the banner in the app and where the notices go
+ * on the left, which kinds go where on the right. Each kind is set here only; Sign-in says where New device signed in goes.
+ */
+export function NotificationsTab() {
+  const notify = useNotify();
+  return (
+    <div className={COLUMNS}>
+      <div className="flex min-w-0 flex-col gap-4">
+        <Card title="In the app">
+          <Row setting="notify.banner" label="Banner when renders finish" help="A banner over the screen when renders finish while another screen is open (the library and the Queue show them anyway). Off: finished renders are not announced in the app; a failure always is.">
+            <Toggle bare on={notify.banner} onChange={(banner) => notify.set({ banner })} label="Banner when renders finish" />
+          </Row>
+        </Card>
+        <WhereCard />
+      </div>
+      <div className="flex min-w-0 flex-col gap-4">
+        <WhatCard />
+      </div>
+    </div>
   );
 }

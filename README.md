@@ -26,7 +26,7 @@ It is one small server and a folder of data, on your PC or in a container.
 ## What's new in 0.8
 
 - **Afflatus from outside (MCP):** Claude Code or any MCP client drives the studio at `/mcp` with a token of its own: where you are, every form and setting, renders it can look at and improve, timelines, the library, the Prompt kit, models, machines and rented GPUs.
-- **Tokens with scopes and limits:** Look, Make, Spend (rented GPUs, off unless ticked), Manage; renders an hour, a spend cap a month, and each token's activity, in Settings › Access.
+- **Tokens with scopes and limits:** Look, Make, Spend (rented GPUs, off unless ticked), Manage; renders an hour, a spend cap a month, and each token's activity, in Settings › Agents (MCP).
 - **Its changes in the page you have open:** the fields it touched ringed with its name, Undo in the toast, never over what you typed since.
 - **A workflow an agent brings waits for your Approve.**
 - **A recording cut on its lyric lines**, and the song under Lip sync clips played as one track (since 0.7.1).
@@ -187,7 +187,7 @@ Each comes with a form on its authors' own settings; presets for the official re
 
 - **Your data** is one folder: the library, settings and timelines (linked folders stay where they are). A backup is one zip from Settings → Storage, without your keys unless you ask for them on the computer it runs on.
 - **Nothing leaves your computer** but the daily update check, until you turn something on: model lookups and downloads, Find models, notifications, a hosted language model for the designer, rented GPUs, each with your own key. Keys stay on the server.
-- **A password, when you want one.** Off by default, since Afflatus listens on your own machine only. Turn it on in Settings › Access before you open it to your network: each device signs in once and stays signed in for as long as you say, you see every device and can sign any of them out, a new one is announced on Telegram, and a forgotten password is reset with a code sent to your Telegram or written to the server's log. The ComfyUIs it drives can be locked to it with a token, and the pods it deploys on Afflatus's image are locked from their first second. Put HTTPS in front before reaching it from outside your home. See [SECURITY.md](SECURITY.md).
+- **A password, when you want one.** Off by default, since Afflatus listens on your own machine only. Turn it on in Settings › Sign-in before you open it to your network: each device signs in once and stays signed in for as long as you say, you see every device and can sign any of them out, a new one is announced on Telegram, and a forgotten password is reset with a code sent to your Telegram or written to the server's log. The ComfyUIs it drives can be locked to it with a token, and the pods it deploys on Afflatus's image are locked from their first second. Put HTTPS in front before reaching it from outside your home. See [SECURITY.md](SECURITY.md).
 - **It updates itself.** A dot on Settings says a new version is out; the bundles update in one click, signed and checked, with a way back.
 
 ## Status

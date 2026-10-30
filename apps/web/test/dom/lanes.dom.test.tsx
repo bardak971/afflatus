@@ -73,7 +73,7 @@ describe("the end column (the lanes mock, 2026-10-22)", () => {
       expect(px(c, "width")).toBe(NEW_CLIP);
     }
     expect(cells[1]!.textContent).toBe("Drop a voice recording: Lip sync, clip by clip");
-    expect(cells[2]!.textContent).toBe("Drop a long video: Motion transfer, window by window");
+    expect(cells[2]!.textContent).toBe("Drop a long video: Swap character or Motion transfer, window by window");
     // no clip's own Audio cell reaches under the recording's drop, and the empty Source lane no longer starts at 0:00
     for (const n of [1, 2]) {
       const own = screen.getByRole("button", { name: new RegExp(`^Audio of clip ${n}:`) });
@@ -125,7 +125,7 @@ describe("the end column (the lanes mock, 2026-10-22)", () => {
       expect(px(strip, "left")).toBe(400 - STRIP);
       expect(px(strip, "width")).toBe(STRIP);
       const cells = ["video", "audio", "source"].map((k) => strip.querySelector<HTMLElement>(`[data-end-column="${k}"]`)!);
-      expect(cells.map((c) => c.dataset.tip)).toEqual(["New clip", "Drop a voice recording: Lip sync, clip by clip", "Drop a long video: Motion transfer, window by window"]);
+      expect(cells.map((c) => c.dataset.tip)).toEqual(["New clip", "Drop a voice recording: Lip sync, clip by clip", "Drop a long video: Swap character or Motion transfer, window by window"]);
       for (const c of cells) {
         expect(c.textContent).toBe("");
         expect(px(c, "width")).toBeGreaterThanOrEqual(24);

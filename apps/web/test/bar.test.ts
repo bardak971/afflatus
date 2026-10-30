@@ -112,7 +112,7 @@ describe("a setting picked in the bar", () => {
       const each = SETTINGS.find((s) => s.id === "notify.renderDone")!;
       await each.set!({ server: undefined, save: async () => {} }, true);
       expect(useNotify.getState().browser.renderDone).toBeFalsy();
-      expect(useBanners.getState().items.find((b) => b.id === "bar:notify")).toMatchObject({ tone: "bad", href: "/settings/interface?find=notify.renderDone" });
+      expect(useBanners.getState().items.find((b) => b.id === "bar:notify")).toMatchObject({ tone: "bad", href: "/settings/notifications?find=notify.renderDone" });
     } finally {
       (globalThis as { Notification?: unknown }).Notification = was;
     }

@@ -56,7 +56,7 @@ describe("a client that takes tasks", () => {
     expect(client.getServerCapabilities()?.extensions).toHaveProperty(["io.modelcontextprotocol/tasks"]);
     const ex = await session.callTool("render", { form: RECIPE, values: VALUES, takes: 1 });
     expect(ex.kind).toBe("task");
-    // Settings › Access says it: the client with its version, and that it follows Tasks (from the call's own capabilities)
+    // Settings › Agents (MCP) says it: the client with its version, and that it follows Tasks (from the call's own capabilities)
     expect(await t.db.selectFrom("mcp_tokens").select(["last_client", "last_tasks"]).where("id", "=", id).executeTakeFirstOrThrow()).toEqual({ last_client: "zz-test tasks client 1", last_tasks: 1 });
     const handle = ex.handle!;
     const snap = await session.task(handle.taskId).snapshot();

@@ -81,7 +81,7 @@ function Pill({ locked, children }: { locked: boolean; children: string }) {
 }
 
 /**
- * A machine's Access line (Settings › ComfyUI): locking it to Afflatus (the node pack's lock), a token to paste when it is
+ * A machine's ComfyUI token line (Settings › ComfyUI): locking it to Afflatus (the node pack's lock), a token to paste when it is
  * locked with another, and once locked only "No token needed from this PC" (the lock itself is said in the card's facts,
  * its token's actions are in the card's menu); under it, ComfyUI-Manager when it is too old. Nothing while it does not
  * answer and is not locked.
@@ -175,7 +175,7 @@ export function AccessRow({ id, label, probe, url, rented = false, compact = fal
 
   return (
     <>
-      {line && <Row setting="comfy.access" label="Access" help={WHY_LOCK} start={checked}>{line}</Row>}
+      {line && <Row setting="comfy.access" label="ComfyUI token" help={WHY_LOCK} start={checked}>{line}</Row>}
       {/* locked: its one setting, as a switch (a lock set by the environment, a pod's, has none) */}
       {access.state === "locked" && !checked && !access.fixed && (
           <Row setting="comfy.access" label="No token needed from this PC" help={`${WHY_LOCAL} ${WHY_LOCK}`}>

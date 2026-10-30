@@ -679,6 +679,10 @@ export function exportProps(e: LoadedEditor, exp: NonNullable<LoadedEditor["exp"
     exporting: e.exportIt.isPending,
     attention: <AttentionNote timeline={t} clips={clips} {...e.checks} onFixFirst={(plan) => e.fixFirst(plan, () => e.setExp(null))} />,
     onExport: (v) => e.exportIt.mutate(v),
+    onFinishFirst: () => {
+      e.setExp(null);
+      e.setFin(true);
+    },
     onOpen: e.setOpened,
     onClose: () => e.setExp(null),
   };

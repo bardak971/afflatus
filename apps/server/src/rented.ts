@@ -278,7 +278,7 @@ export class Rented extends RentedDeploy {
     const m = s.machines.find((x) => x.id === machine);
     if (!m?.rented) throw httpError("That machine is not a rented pod.", 404);
     if (capReached(s.rentCaps, await this.spent())) {
-      throw httpError("A spending cap is reached: raise it in Settings › Rented GPUs to start it.", 409);
+      throw httpError("A spending cap is reached: raise it in Settings › Costs to start it.", 409);
     }
     // one running pod per volume, as for a deploy: a stopped pod's volume may have gone to another pod meanwhile
     if (s.runpodKey) await this.volumeFree(m, s);

@@ -15,7 +15,6 @@ import { Button, buttonClass, cx, ErrorNote, Toggle } from "../../ui";
 import { refusal } from "./reservedKeys";
 import { Block, Card, Fact, Row } from "./Rows";
 import { queryKeys } from "../../queryKeys";
-import { COLUMNS } from "./wide";
 import { SETTING_HELP } from "@afflatus/core";
 
 const DEFAULT: BarSettings = { shortcut: "Ctrl+K", snippets: false, cast: false };
@@ -62,7 +61,7 @@ function ShortcutRecorder({ value, onChange }: { value: string; onChange(shortcu
 }
 
 /**
- * Settings › Command bar: the shortcut, what the bar learns in this browser, and its optional parts. The
+ * Settings › Interface › Command bar: the shortcut, what the bar learns in this browser, and its optional parts. The
  * snippets are the Prompt kit's: here only the switch that makes them typeable by name, and a new one from
  * the open draft's prompt.
  */
@@ -95,58 +94,54 @@ export function BarCard() {
   const [adding, setAdding] = useState(false);
 
   return (
-    // two columns in a wide window, as the other tabs: the bar on the left, its optional parts on the right
-    <div className={COLUMNS}>
-      <div className="flex flex-col gap-4">
-        <Card title="The bar" label="The bar">
-          <Row setting="bar.shortcut" label="Shortcut" help={SETTING_HELP["bar.shortcut"]}>
-            {bar.shortcut !== DEFAULT.shortcut && <Button size="sm" tone="quiet" onClick={() => saveBar({ shortcut: DEFAULT.shortcut })}>Back to Ctrl+K</Button>}
-            <ShortcutRecorder value={bar.shortcut || DEFAULT.shortcut} onChange={(shortcut) => saveBar({ shortcut })} />
+    // one column, Settings › Interface's second (card #168: the bar is how the app behaves in this browser too)
+    <div className="flex min-w-0 flex-col gap-4">
+      <Card title="Command bar" label="Command bar">
+        <Row setting="bar.shortcut" label="Shortcut" help={SETTING_HELP["bar.shortcut"]}>
+          {bar.shortcut !== DEFAULT.shortcut && <Button size="sm" tone="quiet" onClick={() => saveBar({ shortcut: DEFAULT.shortcut })}>Back to Ctrl+K</Button>}
+          <ShortcutRecorder value={bar.shortcut || DEFAULT.shortcut} onChange={(shortcut) => saveBar({ shortcut })} />
+        </Row>
+        <Row setting="bar.learn" label="Learn what I use" help="What you open often and lately comes first. Kept in this browser.">
+          <Toggle bare on={learn} onChange={setLearn} label="Learn what I use" />
+        </Row>
+        <Row setting="bar.preview" label="Preview" help="The selected result shown beside the list; Shift shows or hides it. Kept in this browser.">
+          <Toggle bare on={preview} onChange={setPreview} label="Preview" />
+        </Row>
+        <Row setting="bar.forget" label="Forget what I used" sub={forgot ? "Forgotten: recents and ranking start over." : undefined} help="Recents and ranking start over.">
+          <Button size="sm" disabled={forgot} onClick={() => { saveRanks({}); setForgot(true); }}>Forget</Button>
+        </Row>
+      </Card>
+      <Card title="Command bar: optional parts" label="Command bar: optional parts" status={<span className="text-xs text-ink-3">off until you turn them on</span>}>
+        <Row setting="bar.snippets" label="Prompt snippets" help={SETTING_HELP["bar.snippets"]}>
+          <Toggle bare on={bar.snippets} onChange={(snippets) => saveBar({ snippets })} label="Prompt snippets" />
+        </Row>
+        {bar.snippets && (
+          <Row
+            label="Your snippets"
+            sub={!draftId && !adding ? "No draft is open: a new snippet starts empty." : undefined}
+            help="Your snippets live in the Prompt kit › Snippets. Each is typed as ; and its name, lower case, with dashes for spaces. A new one here starts from the prompt of the draft open in the Studio."
+          >
+            <Fact tip="How a snippet is typed">{snippets.length ? `;${slugOf(snippets[0]!.name)}` : ";cine-look"}</Fact>
+            <Link href="/kit#snippets" className={buttonClass({ size: "sm" })}>Prompt kit › Snippets</Link>
+            {!adding && (
+              <Button size="sm" onClick={() => setAdding(true)}>
+                <Plus size={13} /> Snippet from the open prompt
+              </Button>
+            )}
           </Row>
-          <Row setting="bar.learn" label="Learn what I use" help="What you open often and lately comes first. Kept in this browser.">
-            <Toggle bare on={learn} onChange={setLearn} label="Learn what I use" />
-          </Row>
-          <Row setting="bar.preview" label="Preview" help="The selected result shown beside the list; Shift shows or hides it. Kept in this browser.">
-            <Toggle bare on={preview} onChange={setPreview} label="Preview" />
-          </Row>
-          <Row setting="bar.forget" label="Forget what I used" sub={forgot ? "Forgotten: recents and ranking start over." : undefined} help="Recents and ranking start over.">
-            <Button size="sm" disabled={forgot} onClick={() => { saveRanks({}); setForgot(true); }}>Forget</Button>
-          </Row>
-        </Card>
-      </div>
-      <div className="flex flex-col gap-4">
-        <Card title="Optional parts" label="Optional parts" status={<span className="text-xs text-ink-3">off until you turn them on</span>}>
-          <Row setting="bar.snippets" label="Prompt snippets" help={SETTING_HELP["bar.snippets"]}>
-            <Toggle bare on={bar.snippets} onChange={(snippets) => saveBar({ snippets })} label="Prompt snippets" />
-          </Row>
-          {bar.snippets && (
-            <Row
-              label="Your snippets"
-              sub={!draftId && !adding ? "No draft is open: a new snippet starts empty." : undefined}
-              help="Your snippets live in the Prompt kit › Snippets. Each is typed as ; and its name, lower case, with dashes for spaces. A new one here starts from the prompt of the draft open in the Studio."
-            >
-              <Fact tip="How a snippet is typed">{snippets.length ? `;${slugOf(snippets[0]!.name)}` : ";cine-look"}</Fact>
-              <Link href="/kit#snippets" className={buttonClass({ size: "sm" })}>Prompt kit › Snippets</Link>
-              {!adding && (
-                <Button size="sm" onClick={() => setAdding(true)}>
-                  <Plus size={13} /> Snippet from the open prompt
-                </Button>
-              )}
-            </Row>
-          )}
-          {bar.snippets && adding && (
-            <Block>
-              <div className="overflow-hidden rounded-lg border border-line">
-                <NewSnippet style={style} categories={categories} first={openPrompt} onDone={() => setAdding(false)} onCancel={() => setAdding(false)} />
-              </div>
-            </Block>
-          )}
-          <Row setting="bar.cast" label="Cast with @" help={SETTING_HELP["bar.cast"]}>
-            <Toggle bare on={bar.cast} onChange={(cast) => saveBar({ cast })} label="Cast with @" />
-          </Row>
-          {error && <Block><ErrorNote>{error}</ErrorNote></Block>}
-        </Card>
-      </div>
+        )}
+        {bar.snippets && adding && (
+          <Block>
+            <div className="overflow-hidden rounded-lg border border-line">
+              <NewSnippet style={style} categories={categories} first={openPrompt} onDone={() => setAdding(false)} onCancel={() => setAdding(false)} />
+            </div>
+          </Block>
+        )}
+        <Row setting="bar.cast" label="Cast with @" help={SETTING_HELP["bar.cast"]}>
+          <Toggle bare on={bar.cast} onChange={(cast) => saveBar({ cast })} label="Cast with @" />
+        </Row>
+        {error && <Block><ErrorNote>{error}</ErrorNote></Block>}
+      </Card>
     </div>
   );
 }

@@ -84,7 +84,7 @@ describe("read_settings", () => {
     const one = await ok(c, "read_settings", { key: "rentCaps.day" });
     expect(one).toMatchObject({ key: "rentCaps.day", value: 0, help: SETTING_HELP.rentCaps });
     expect(one.schema).toMatchObject({ type: "object", properties: { day: { type: "number", minimum: 0 } } });
-    expect(await refused(c, "read_settings", { key: "access.stayDays" })).toMatch(/the Access settings cannot be reached through MCP/);
+    expect(await refused(c, "read_settings", { key: "access.stayDays" })).toMatch(/the Sign-in settings cannot be reached through MCP/);
     expect(await refused(c, "read_settings", { key: "notify.telegramToken" })).toMatch(/cannot be reached through MCP/);
     await c.close();
   });

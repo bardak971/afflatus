@@ -448,8 +448,8 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
         const hint = c.join === "stale"
           ? `Clip ${s.index + 1} no longer follows clip ${s.index}`
           : carries
-            ? `${c.join === "fresh" ? "Extends" : "Will extend"} clip ${s.index}${cutSaid ? `, but ${cutSaid}` : differ ? ": two models, the face may change here" : ""}${opens ? ". Click: open the join" : toggles ? ". Click: make it a cut" : ""}`
-            : `A cut${t ? ` with ${words}` : ""}${opens ? ". Click: open the join" : toggles ? `. Click: extend clip ${s.index}` : recipe && c.kind === "video" ? ": this model cannot extend a clip" : ""}`;
+            ? `${c.join === "fresh" ? "Extends" : "Will extend"} clip ${s.index}${cutSaid ? `, but ${cutSaid}` : differ ? ": two models, the face may change here" : ""}${opens ? ". Click: open the join" : toggles ? ". Click: make it a hard cut" : ""}`
+            : `A hard cut${t ? ` with ${words}` : ""}${opens ? ". Click: open the join" : toggles ? `. Click: extend clip ${s.index}` : recipe && c.kind === "video" ? ": this model cannot extend a clip" : ""}`;
         return (
           <>
             {t && pillW > 0 && (
@@ -477,7 +477,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
               onClick={() => (opens ? a().onOpenJoin?.(c) : toggles ? a().onJoin?.(c, c.joined === "continue" ? "cut" : "continue") : a().onSelect(c.id))}
               onDragOver={(e) => a().overJoin(e, s)}
               data-hint={hint}
-              aria-label={c.join === "stale" ? `The join before clip ${s.index + 1} no longer holds` : carries ? `The join before clip ${s.index + 1}: it extends clip ${s.index}${cutSaid ? `, but the take cuts at the join (${cutAtJoinFigure(c.take!.measure!)})` : differ ? ", across two models" : ""}` : `The join before clip ${s.index + 1}: a cut${t ? `, ${words}` : ""}`}
+              aria-label={c.join === "stale" ? `The join before clip ${s.index + 1} no longer holds` : carries ? `The join before clip ${s.index + 1}: it extends clip ${s.index}${cutSaid ? `, but the take cuts at the join (${cutAtJoinFigure(c.take!.measure!)})` : differ ? ", across two models" : ""}` : `The join before clip ${s.index + 1}: a hard cut${t ? `, ${words}` : ""}`}
               style={{ left: s.left - 12, top: ROW.top + ROW.height / 2 - 12 }}
               className={cx(
                 "absolute z-10 flex h-6 w-6 items-center justify-center rounded-full border",

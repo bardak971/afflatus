@@ -183,9 +183,10 @@ describe("pinned fields", () => {
 
   it("are forgotten from Settings › Interface", async () => {
     settingsWith({ sdxl: ["cfg", "steps"], h3: ["shot"] });
-    const { user } = draw(<InterfaceTab />);
+    const { user, container } = draw(<InterfaceTab />);
     expect(await screen.findByText("3 fields pinned, over 2 model families")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Forget" }));
+    // the pins' own Forget: the command bar's card, beside it since card #168, has one for what it learned
+    await user.click(within(container.querySelector<HTMLElement>('[data-setting="interface.pins"]')!).getByRole("button", { name: "Forget" }));
     await waitFor(() => expect(saved().at(-1)).toEqual({}));
     expect(await screen.findByText("None pinned")).toBeTruthy();
   });

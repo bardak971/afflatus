@@ -6,7 +6,7 @@ import { Keys } from "../Keys";
 const FOOTER_MODES: Array<[string, string]> = [[">", "commands"], ['"', "prompt:"], ["#", "in:"], ["/", "settings"], ["=", "calc"], ["!", "queue"], ["?", "keys"]];
 /**
  * The parts of the bar that are off until turned on, listed dimmed in the footer while they are off: a power user finds
- * the `@` mode (and `;` snippets in prompt boxes) there, and a click opens their row in Settings › Command bar.
+ * the `@` mode (and `;` snippets in prompt boxes) there, and a click opens their row in Settings › Interface › Command bar.
  */
 const OFF_PARTS: Array<["cast" | "snippets", string, string]> = [["cast", "@", "cast"], ["snippets", ";", "snippets"]];
 
@@ -49,7 +49,7 @@ export function BarFooter({ verb, off, second, acting, preview, flash, bar, onMo
           {bar && OFF_PARTS.filter(([k]) => !bar[k]).map(([k, c, w]) => (
             <button
               key={k} type="button" tabIndex={-1}
-              data-tip="Off. Click to turn it on in Settings › Command bar."
+              data-tip="Off. Click to turn it on in Settings › Interface › Command bar."
               onClick={() => onTurnOn(k)}
               className="flex items-center gap-1 opacity-55 hover:text-ink hover:opacity-100"
             >

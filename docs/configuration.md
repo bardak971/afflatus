@@ -9,7 +9,7 @@ Set them before starting: in the console on Windows (`set PORT=8730` in cmd, `$e
 | Variable | Default | Meaning |
 |---|---|---|
 | `PORT` | `8720` | The port to listen on |
-| `HOST` | `127.0.0.1` | The address to listen on. `0.0.0.0` opens it to your network; the Docker image listens on all. Set a password (Settings › Access) first: see [Security](../SECURITY.md). Listening on loopback only, the password's "From this computer" exemption cannot be turned on |
+| `HOST` | `127.0.0.1` | The address to listen on. `0.0.0.0` opens it to your network; the Docker image listens on all. Set a password (Settings › Sign-in) first: see [Security](../SECURITY.md). Listening on loopback only, the password's "From this computer" exemption cannot be turned on |
 | `DATA_DIR` | `./data` (`/data` in the image) | Where the database and the files live |
 | `PUBLIC_URL` | empty | The address other machines reach Afflatus at (`http://192.168.x.y:8720`). Needed when ComfyUI runs on another machine, so Afflatus's node pack (or ComfyUI-Manager) can fetch downloads through Afflatus. Its host is also answered to |
 | `ALLOWED_HOSTS` | empty | Host names Afflatus answers to, comma-separated, besides `localhost`, `127.0.0.1`, `HOST` and the host of `PUBLIC_URL`: the machine's LAN name or address, a reverse proxy's name. A request for any other name gets a 403 (this stops DNS rebinding). A reverse proxy must send `X-Forwarded-For`: Update and Go back are refused through it, and taken only at `localhost` or `127.0.0.1` on the machine itself |
@@ -27,7 +27,7 @@ Set them before starting: in the console on Windows (`set PORT=8730` in cmd, `$e
 | `MODEL_LIST_URL` | ComfyUI-Manager's `model-list.json` on GitHub | The list of standard model files a missing file is looked up in |
 | `UPDATES_URL` | GitHub's latest release of Afflatus | Where the daily check asks for the latest release, in the shape of GitHub's `releases/latest` answer: a mirror, or a stand-in for tests. Its downloads are fetched from it too. An update is still taken only when its `SHA256SUMS.txt` is signed by the release key built into Afflatus |
 | `AFFLATUS_INSTALL` | set by the launcher (`bundle`) and the image (`docker`) | How Afflatus was installed, which decides what Settings → About offers: `bundle` updates itself, `docker` and anything else (the sources) get the notice and the command. Not to be set by hand |
-| `AFFLATUS_RESET_PASSWORD` | empty | `1`: the password and every signed-in device are removed at this start, said loudly in the log (Settings › Access). For an owner who lost the password and every way to a reset code; take it out once in. The same without a start: `reset-password` (`Afflatus.bat reset-password`, `./afflatus.sh reset-password`, `pnpm start reset-password`) with Afflatus stopped |
+| `AFFLATUS_RESET_PASSWORD` | empty | `1`: the password and every signed-in device are removed at this start, said loudly in the log (Settings › Sign-in). For an owner who lost the password and every way to a reset code; take it out once in. The same without a start: `reset-password` (`Afflatus.bat reset-password`, `./afflatus.sh reset-password`, `pnpm start reset-password`) with Afflatus stopped |
 | `AFFLATUS_NO_BROWSER` | empty | `1`: a bundle's launcher opens no browser tab when Afflatus starts |
 | `AFFLATUS_PRETEND_SITES` | empty | `1`: the sites are pretend ones on this machine (the tests, the demo). Plain-http downloads are then allowed, and no real site is asked for what no stand-in covers (Hugging Face, Manager's model list). Never set it on a real install |
 
@@ -35,14 +35,18 @@ Set them before starting: in the console on Windows (`set PORT=8730` in cmd, `$e
 
 Everything else is in **Settings**, saved as you change it:
 
-- **ComfyUI:** its address, its folder when it runs on this machine (for the node pack and to read model files), when to unload models.
-- **Models:** which families are on, what each has ready or missing, downloads into ComfyUI's model folders, a Civitai API key for files that need an account, newer versions of your models.
-- **Designer:** an optional OpenAI-style language model that writes prompts (LM Studio, Ollama, llama.cpp or a service), its system prompts and context size.
-- **Prompts:** the prompting guide per model family that the designer follows, and the Danbooru tag check.
-- **Interface:** theme and accent colour, explanations under every setting or behind the `?`, playing videos and sound on hover; browser notifications when the queue empties or after each render.
-- **Command bar:** its shortcut, whether it learns what you use, its preview, and its optional parts (prompt snippets, `@` cast).
+- **ComfyUI:** its address, its folder when it runs on this machine (for the node pack and to read model files), its ComfyUI token, the Afflatus node pack and the missing node packs renders need, when to unload models, the machines added.
+- **Rented GPUs:** the RunPod API key, your pods on RunPod, network volumes and the S3 API key that reads them, the next deploy's choices, unused volumes, boot logs.
+- **Costs:** the price of a kWh for this PC's electricity, the costs so far, the spending caps on rented GPUs (a day and a month).
+- **Models:** which families are on, what each has ready or missing, the files in use, downloads into ComfyUI's model folders, a Civitai API key for files that need an account, a Hugging Face token, searching Hugging Face and Civitai.
+- **Model files:** every model file on this PC with its use (Delete, Put back, Empty), your models online, newer versions of your models on Civitai, model sets.
+- **Prompts:** an optional OpenAI-style language model that writes prompts (LM Studio, Ollama, llama.cpp or a service), its system prompts, context size and conversations; the prompting guide per model family that the designer follows, wildcards and weights, and the Danbooru tag check.
+- **Interface:** theme and accent colour, the progress bar, explanations under every setting or behind the `?`, playing videos and sound on hover, pinned fields; the command bar: its shortcut, whether it learns what you use, its preview, and its optional parts (prompt snippets, `@` cast).
+- **Notifications:** the banner when renders finish, where notices go (the browser, Telegram, Discord), and what each one is told (a grid: render done or failed, queue empty, a pod stopped, a cap reached, a new device signed in…).
+- **Sign-in:** the password, where Afflatus is reachable from, "From this computer", how long a device stays signed in, where reset codes go, the devices signed in, the metrics token. See [Security](../SECURITY.md).
+- **Agents (MCP):** the tokens an AI client drives Afflatus with, each with its scopes, its renders an hour and its spend cap: see [agents (MCP)](mcp.md).
 - **Storage:** disk usage, the bin, takes that never play, how long render times are kept, backups.
-- **About:** the version and its updates (a new version's notes, Update and Go back on a bundle, the command for Docker and the sources), "Check for new versions" (once a day, on by default: one request to GitHub, nothing about you in it), and the start-up checks (ffmpeg, ffprobe, Node, the data folder).
+- **About:** the version and its updates (a new version's notes, Update and Go back on a bundle, the command for Docker and the sources), "Check for new versions" (once a day, on by default: one request to GitHub, nothing about you in it), the start-up checks (ffmpeg, ffprobe, Node, the data folder), and the first launch, to show again.
 
 Nothing leaves your machine unless you turn on a download or a lookup; each such switch is off until you turn it on.
 

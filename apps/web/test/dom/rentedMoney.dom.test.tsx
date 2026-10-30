@@ -5,7 +5,7 @@ import { ConfirmHost } from "../../src/Confirm";
 import { loadConfirmDialog } from "../../src/lazyParts";
 import { MachineMenuBody } from "../../src/MachineMenu";
 import { MachineCard, SetAsideNote } from "../../src/screens/settings/MachinesCard";
-import { RentedTab } from "../../src/screens/settings/RentedCard";
+import { CapsCard } from "../../src/screens/settings/RentedCard";
 import { useRentedOps } from "../../src/rentedOps";
 import { useBanners } from "../../src/store";
 import { fakeApi, jsonAnswer } from "./fakeApi";
@@ -45,7 +45,7 @@ describe("the spending caps' boxes", () => {
   it("reads 1,000 as a thousand dollars, never as $1", async () => {
     fakeApi.on("GET /settings", settings);
     fakeApi.on("PUT /settings", ({ body }) => ({ ...settings, ...(body as object) }));
-    const { user } = draw(<RentedTab />);
+    const { user } = draw(<CapsCard />);
     const month = await screen.findByLabelText("Cap a month");
     await user.type(month, "1,000");
     await user.tab();
@@ -56,7 +56,7 @@ describe("the spending caps' boxes", () => {
   it("shows the cap as saved again when its save failed, and says which cap was not saved", async () => {
     fakeApi.on("GET /settings", settings);
     fakeApi.on("PUT /settings", () => jsonAnswer({ error: "the settings could not be written" }, 500));
-    const { user } = draw(<RentedTab />);
+    const { user } = draw(<CapsCard />);
     const day = await screen.findByLabelText("Cap a day");
     await user.type(day, "5");
     await user.tab();

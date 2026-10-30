@@ -28,9 +28,10 @@ export function LookupsOff({ why }: { why: string }) {
 /**
  * Missing models (whether Afflatus may download into ComfyUI, and how), then Civitai & Hugging Face: the one switch for
  * what Afflatus asks those sites on its own, and the key and token, always shown (card #166: they were hidden behind the
- * switch, where someone come to paste a key never found them). Both on for a new install.
+ * switch, where someone come to paste a key never found them). Both on for a new install. Settings › Models lays them in
+ * its two columns (card #168): `part` is the one card drawn.
  */
-export function CivitaiCard() {
+export function CivitaiCard({ part }: { part: "missing" | "sites" }) {
   const settings = useSettings();
   const client = useQueryClient();
   const [key, setKey] = useState("");
@@ -52,7 +53,7 @@ export function CivitaiCard() {
   const via = fetching ? downloads.data?.via : undefined;
   return (
     <>
-      <Card title="Missing models">
+      {part === "missing" && <Card title="Missing models">
         <Row
           setting="server.downloadModels"
           label="Download missing models"
@@ -71,8 +72,9 @@ export function CivitaiCard() {
             <Link href="/settings" className={buttonClass({ tone: "danger", size: "sm" })}>Test again in ComfyUI</Link>
           </Row>
         )}
-      </Card>
-      <Card title="Civitai & Hugging Face">
+        {save.isError && <Block><Failed what="Not saved" error={save.error} /></Block>}
+      </Card>}
+      {part === "sites" && <Card title="Civitai & Hugging Face">
         <Row
           setting="server.civitaiLookups"
           label="Search Hugging Face and Civitai"
@@ -93,7 +95,7 @@ export function CivitaiCard() {
           {settings.data?.hasHuggingFaceToken && <Button onClick={() => save.mutate({ huggingFaceToken: "" })} disabled={save.isPending}>Remove token</Button>}
         </Row>
         {save.isError && <Block><Failed what="Not saved" error={save.error} /></Block>}
-      </Card>
+      </Card>}
     </>
   );
 }

@@ -12,11 +12,11 @@ import type { Services } from "./services";
  * What is never reachable through MCP, whatever the token's scopes (owner, 2026-10-27): the account's own security, what
  * acts on this computer's desktop or installs, and Afflatus's own updates. A tool says what it touches (`touches`, or
  * `ctx.never` as it runs); a subject on this list refuses the call. Later tools generated from the settings map their keys
- * here (an Access setting is "access", Telegram's bot and chat "notify-channels").
+ * here (a Sign-in setting is "access", Telegram's bot and chat "notify-channels").
  */
 export const NEVER = {
   password: "the password",
-  access: "the Access settings",
+  access: "the Sign-in settings",
   tokens: "tokens (MCP, metrics, a ComfyUI's)",
   lock: "Lock",
   "sign-out": "signing devices out",

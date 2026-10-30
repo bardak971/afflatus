@@ -16,7 +16,7 @@ export interface Config {
 
 export function loadConfig(env: NodeJS.ProcessEnv = environment()): Config {
   return {
-    // localhost only by default: listening on the network is a choice. Without a password (Settings › Access,
+    // localhost only by default: listening on the network is a choice. Without a password (Settings › Sign-in,
     // access.ts) anyone who reaches the port can use it, so HOST is opened only to a trusted network or with one set
     host: env.HOST?.trim() || "127.0.0.1",
     port: Number(env.PORT) || 8720,

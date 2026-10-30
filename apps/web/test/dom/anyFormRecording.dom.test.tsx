@@ -111,9 +111,9 @@ describe("a recording's clips in any H3 form (card #72)", () => {
     const forms = await screen.findByRole("listbox", { name: "Clip 3's form" });
     expect(within(forms).getAllByRole("option").map((o) => o.textContent)).toEqual([
       expect.stringContaining("the mouth follows its part · seamless"),
-      expect.stringContaining("the mouth follows its part · a cut"),
+      expect.stringContaining("the mouth follows its part · a hard cut"),
       expect.stringContaining("plays over · seamless"),
-      expect.stringContaining("plays over · a cut"),
+      expect.stringContaining("plays over · a hard cut"),
     ]);
   });
 

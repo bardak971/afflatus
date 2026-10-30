@@ -177,7 +177,7 @@ async function targetOf(s: Services, asked: string | undefined): Promise<Machine
  */
 async function mayFetchOnto(ctx: ToolCtx, m: Machine | undefined): Promise<void> {
   if (!m?.rented) return;
-  if (!ctx.token.scopes.includes("spend")) throw refusal(`This token cannot spend on rented GPUs, and ${machineName(m)} is one: a pod fetching files is busy, billed. Tick Spend on it in Settings › Access, or fetch onto a machine of the user's own.`);
+  if (!ctx.token.scopes.includes("spend")) throw refusal(`This token cannot spend on rented GPUs, and ${machineName(m)} is one: a pod fetching files is busy, billed. Tick Spend on it in Settings › Agents (MCP), or fetch onto a machine of the user's own.`);
   if (m.rented.mcpToken !== ctx.token.id) throw refusal(`${quoted(machineName(m))} is ${m.rented.mcpToken ? "a pod another token started" : "the user's pod"}: a pod fetching files is busy, billed, and its bill is not counted against this token's cap. Fetch onto a pod this token started, or the user fetches onto it in Afflatus.`);
   const rate = ctx.s.rented.view(m)?.rate;
   if (rate === null || rate === undefined) throw refusal(`${machineName(m)}'s price is not known yet, so this token's spend cap cannot be held: wait until it answers.`);
@@ -313,7 +313,7 @@ const editModelSet = tool({
   name: "edit_model_set",
   scope: "manage",
   title: "Change a Model set",
-  description: "Make, change, duplicate or delete a Model set, as Settings › Models › Model sets does; or `get` its files a machine lacks onto it (a ComfyUI of the user's own through the downloads line, a pod through what it fetches: that needs Spend and a pod this token started, with room under its cap for its next hour). A preset under a licence the user has not accepted is refused: the user accepts it in Afflatus.",
+  description: "Make, change, duplicate or delete a Model set, as Settings › Model files › Model sets does; or `get` its files a machine lacks onto it (a ComfyUI of the user's own through the downloads line, a pod through what it fetches: that needs Spend and a pod this token started, with room under its cap for its next hour). A preset under a licence the user has not accepted is refused: the user accepts it in Afflatus.",
   input: {
     action: z.enum(["new", "edit", "duplicate", "delete", "get"]),
     set: z.string().max(80).optional().describe("The set's id (not for new)."),

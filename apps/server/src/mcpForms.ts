@@ -251,7 +251,7 @@ const describeForm = tool({
       },
       prompt: {
         guide: guideOf(recipe, guided, madeAroundRecording(recipe.inputs as InputSpec[]) ? "lipSync" : undefined),
-        from: recipe.guide ? "the form's own guide" : own ? "the user's own guide (Settings › Designer)" : family?.guide ? "the family's guide" : "the generic guide",
+        from: recipe.guide ? "the form's own guide" : own ? "the user's own guide (Settings › Prompts)" : family?.guide ? "the family's guide" : "the generic guide",
         ...(family?.recordingGuide ? { underRecording: { lipSync: family.recordingGuide.lipSync, over: family.recordingGuide.over } } : {}),
         ...(own && family ? { builtIn: builtInGuide(family) } : {}),
       },

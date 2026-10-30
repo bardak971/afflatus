@@ -22,8 +22,8 @@ const families = [{ id: "zz-h3", name: "MiniMax H3" }, { id: "zz-wan", name: "Wa
 describe("the model list under a recording", () => {
   it("lists Wan as a form the recording plays over, carrying on after a Wan clip and a cut after an H3 one", () => {
     const after = (prior: RecipeInfo | undefined) => recordingFormOptions([wan, lipSync], families, prior).map((o) => [o.label, o.note]);
-    expect(after(wan)).toEqual([["MiniMax H3 · Lip sync", "the mouth follows its part · a cut"], ["Wan 2.2 · Video", "plays over · carries on"]]);
-    expect(after(lipSync)).toEqual([["MiniMax H3 · Lip sync", "the mouth follows its part · seamless"], ["Wan 2.2 · Video", "plays over · a cut"]]);
+    expect(after(wan)).toEqual([["MiniMax H3 · Lip sync", "the mouth follows its part · a hard cut"], ["Wan 2.2 · Video", "plays over · carries on"]]);
+    expect(after(lipSync)).toEqual([["MiniMax H3 · Lip sync", "the mouth follows its part · seamless"], ["Wan 2.2 · Video", "plays over · a hard cut"]]);
     expect(after(undefined)[1]).toEqual(["Wan 2.2 · Video", "plays over"]);
   });
 });

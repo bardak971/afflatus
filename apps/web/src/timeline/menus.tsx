@@ -102,7 +102,7 @@ export const clipMenuItems = (c: Clip, act: ClipMenuActions): MenuItem[] => {
   // the press there (the edges first, so that a trim is never a join's click)
   const joins: MenuItem[] = [
     ...(canCarry ? [c.joined === "continue"
-      ? { label: "Make it a cut", icon: <Scissors size={14} />, note: `from clip ${index}`, run: () => act.patch(c.id, { joined: "cut" }) }
+      ? { label: "Make it a hard cut", icon: <Scissors size={14} />, note: `from clip ${index}`, run: () => act.patch(c.id, { joined: "cut" }) }
       : { label: `Extend clip ${index}`, icon: <Link2 size={14} />, note: "carries its motion on", run: () => act.patch(c.id, { joined: "continue" }) }]
       // said rather than hidden: an imported workflow with no first-frame or previous-clip input cannot extend
       : c.kind === "video" && recipe && index > 0 ? [{ label: `Extend clip ${index}`, icon: <Link2 size={14} />, note: "this model cannot extend a clip", disabled: true }] : []),

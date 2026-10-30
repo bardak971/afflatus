@@ -116,7 +116,7 @@ export function driftOf(clips: Array<Pick<Clip, "joined" | "take">>, index: numb
 /** The header's warning: "darker, softer than clip 1"; against the run's start first, else against the clip before. Null when nothing is past. */
 export function driftWords(d: Drift | null): string | null {
   if (!d) return null;
-  const words = (a: Against) => [past("luma", a.luma) && "darker", past("sharp", a.sharp) && "softer", past("grain", a.grain) && "grainier", past("face", a.face) && "less alike", past("pace", a.pace) && "slower", past("colour", a.colour) && "tinted"].filter(Boolean).join(", ");
+  const words = (a: Against) => [past("luma", a.luma) && "darker", past("sharp", a.sharp) && "softer", past("grain", a.grain) && "grainier", past("face", a.face) && "less alike", past("pace", a.pace) && "slower", past("colour", a.colour) && "more tinted"].filter(Boolean).join(", ");
   const whole = words(d.whole);
   if (whole) return `${whole} than clip ${d.start + 1}`;
   const hop = words(d.hop);

@@ -172,7 +172,7 @@ export class RentedDeploy extends RentedFollow {
     if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
     // a pod made that cannot be kept as a machine would have to be terminated at once, its first seconds billed
     if (s.machines.length >= MAX_MACHINES) throw httpError(`Afflatus keeps ${MAX_MACHINES} ComfyUIs at most: remove one to deploy.`, 409);
-    if (await this.capped()) throw refused("A spending cap is reached: raise it in Settings › Rented GPUs to deploy.", "cap");
+    if (await this.capped()) throw refused("A spending cap is reached: raise it in Settings › Costs to deploy.", "cap");
     // an image RunPod could not pull would leave a pod provisioning, billed, until its boot limit: asked of its registry first
     const client = this.client(s.runpodKey);
     const [offers, volumes, pods] = await Promise.all([client.gpus(ask.cloud), ask.volume ? client.volumes() : Promise.resolve([]), ask.volume ? client.pods() : Promise.resolve([])]).catch((err: Error) => {

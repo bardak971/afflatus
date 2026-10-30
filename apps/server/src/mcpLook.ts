@@ -193,7 +193,7 @@ const modelUpdates = tool({
   name: "model_updates",
   scope: "look",
   title: "Model hashes and updates",
-  description: "Settings › Models › Your models online: how far the hashing of this PC's model files is and what the sites matched (Civitai, Hugging Face, neither), and the update check's last report: each file matched to its Civitai version, with the newer version and its page when there is one. Read only: the checks run in Afflatus (daily when ticked).",
+  description: "Settings › Model files › Your models online: how far the hashing of this PC's model files is and what the sites matched (Civitai, Hugging Face, neither), and the update check's last report: each file matched to its Civitai version, with the newer version and its page when there is one. Read only: the checks run in Afflatus (daily when ticked).",
   async run(_a, ctx) {
     const { s } = ctx;
     const [hashes, report] = await Promise.all([s.hashes.status(), s.updates.report()]);

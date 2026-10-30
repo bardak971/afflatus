@@ -7,7 +7,7 @@ import { fakeApi, jsonAnswer } from "./fakeApi";
 import { draw } from "./render";
 
 /**
- * Settings › Access › Agents (MCP), mock v2 (card #23): the address with one Copy, the new-token line, one line per token
+ * Settings › Agents (MCP), mock v2 (card #23): the address with one Copy, the new-token line, one line per token
  * with its scopes clicked in place and its meters (a scope off greys its meter, never hides it), the token shown once in its
  * row, the row opened on its limits and activity, Revoke asking first, and a change the server holds behind the password.
  */

@@ -99,7 +99,7 @@ const useOnly = tool({
         // Onto a pod, the jobs counted are pinned there and nothing is paused. Pausing the user's own machines would send
         // there what the user queues afterwards too, counted by nobody (billed to the user, or to the token that started
         // the pod), and a pod always fed never reaches its idle stop. Pinned, they are run_on's moves, all at once.
-        if (!spends(ctx)) throw refusal(`This token cannot spend on rented GPUs, and using only ${quoted(machineName(to))} would send the queue's work onto it: tick Spend on it in Settings › Access.`);
+        if (!spends(ctx)) throw refusal(`This token cannot spend on rented GPUs, and using only ${quoted(machineName(to))} would send the queue's work onto it: tick Spend on it in Settings › Agents (MCP).`);
         // what would go there: waiting work for a ComfyUI, not pinned elsewhere, this token's or the user's
         const rows = (await waitingRows(s)).filter((r) => needsComfy(r) && (!r.pin_machine || r.pin_machine === to.id) && (!r.mcp_token_id || r.mcp_token_id === token.id));
         const own = await mayMove(s, ctx, rows, [to], { machines, pinned: true, what: `using only ${quoted(machineName(to))}` });
@@ -157,7 +157,7 @@ const unloadModels = tool({
     // in the token's turn, as its renders are: a reload counted beside them, never two calls passing a cap that holds one
     return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
       const pods = podsUp(s, m ? [m] : machines);
-      if (pods[0] && !spends(ctx)) throw refusal(`This token cannot spend on rented GPUs, and unloading the models on ${quoted(machineName(pods[0]))} makes its next render load them again, billed: tick Spend on it in Settings › Access${m ? "" : ", or name a machine of the user's own"}.`);
+      if (pods[0] && !spends(ctx)) throw refusal(`This token cannot spend on rented GPUs, and unloading the models on ${quoted(machineName(pods[0]))} makes its next render load them again, billed: tick Spend on it in Settings › Agents (MCP)${m ? "" : ", or name a machine of the user's own"}.`);
       await mayUnload(s, ctx, pods, machines);
       await s.queue.freeMemory(m?.id);
       ctx.said(m ? `Unloaded the models on ${quoted(machineName(m))}` : "Unloaded the models");

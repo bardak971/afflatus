@@ -79,7 +79,7 @@ export function NoComfyCard() {
   );
 }
 
-/** The first launch's page brought back (it is shown once): it opens in the Studio's place. */
+/** The first launch's page brought back (it is shown once), from Settings › About: it opens in the Studio's place. */
 export function FirstLaunchCard() {
   const client = useQueryClient();
   const [, go] = useLocation();
@@ -92,7 +92,7 @@ export function FirstLaunchCard() {
   });
   return (
     <Card title="First launch">
-      <Row label="Where you render" help="The page a new install opens on: your ComfyUI, rented GPUs, or both. Everything it asks is here and in Rented GPUs too.">
+      <Row setting="about.firstLaunch" label="Where you render" help="The page a new install opens on: your ComfyUI, rented GPUs, or both. Everything it asks is in Settings › ComfyUI and Rented GPUs too.">
         <span className="grow" />
         <Button size="sm" onClick={() => again.mutate()} disabled={again.isPending}>Show it again</Button>
       </Row>

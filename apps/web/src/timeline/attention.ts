@@ -8,6 +8,8 @@ import { cutsAtJoin } from "@afflatus/core";
 
 /** Past ×3 a join shows: its figure as it plays, or the run-up's end (the model stepped away from its guide). */
 export const SHOWS = 3;
+/** What a join's figure measures (its unit), behind the ? of the Overview's Worst join and the join panel's Join. */
+export const JOIN_HELP = `How much the picture jumps across the join, against the clip's own motion from one frame to the next. ×1 moves as much as within the clip; past ×${SHOWS} it shows.`;
 
 /** How each take of a clip meets the clip before (`in`) and after (`out`), as the server measures it. */
 export type JoinFigures = Array<{ take: string; in: number | null; out: number | null }>;

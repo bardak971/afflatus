@@ -18,7 +18,7 @@ export type ExportOptions = { scale: 1 | 1.5 | 2; music: boolean; smooth: boolea
  * Export video: its options, then where it stands (queued, exporting, done with its file to download). For a video editor:
  * the range and the music only, and a zip downloaded at once (nothing goes through the queue, nothing is rendered again).
  */
-export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, range, emptyRange, finishedSize, misfits, exporting, attention, onExport, onOpen, onClose }: {
+export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, range, emptyRange, finishedSize, misfits, exporting, attention, onExport, onFinishFirst, onOpen, onClose }: {
   timeline: Timeline;
   clips: Clip[];
   ask: ExportAsk;
@@ -34,6 +34,8 @@ export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, r
   /** What Needs attention lists, in one line with "Fix all first" (AttentionNote); shown while the export is still to ask. */
   attention?: ReactNode;
   onExport(opts: ExportOptions): void;
+  /** Closes the export onto the Finish dialog: "Finish first", said with the clips that play a draft. */
+  onFinishFirst?(): void;
   /** The exported video, in the viewer. */
   onOpen(asset: Asset): void;
   onClose(): void;
@@ -43,6 +45,8 @@ export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, r
   const exportSize = (scale: number) => (t.width && t.height ? `${Math.round((t.width * scale) / 2) * 2} × ${Math.round((t.height * scale) / 2) * 2}` : "");
   const playable = clips.filter((c) => c.lengthMs > 0).length;
   const busy = !editor && Boolean(t.exporting || exporting);
+  // the clips that play a draft, not a finished take: the video comes out at draft quality there (Finish's own count)
+  const drafts = clips.filter((c) => c.kind === "video" && c.take && !c.job && !c.take.finishedFrom).length;
   // the size it comes out at: the timeline's frame by the scale (not said at the finished size)
   const size = exp.web ? webSize(t, exp.web) : exp.fit === "largest" && finishedSize ? "" : exportSize(exp.scale);
   return (
@@ -69,6 +73,12 @@ export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, r
           <>
             {!editor && exp.asked && t.exportFailed && <ErrorNote>The export failed: {t.exportFailed}</ErrorNote>}
             {attention}
+            {!editor && drafts > 0 && onFinishFirst && (
+              <span className="text-xs text-ink-2">
+                {plural(drafts, "clip")} not finished ·{" "}
+                <button type="button" className="font-semibold text-accent hover:underline" onClick={onFinishFirst}>Finish first</button>
+              </span>
+            )}
             <div className="flex flex-col">
               <FieldRow label="For" trail note="A video editor: DaVinci Resolve, Premiere Pro or Kdenlive. A zip of every clip's whole file (the frames around each cut kept), its sound, the music as heard in Afflatus, and the project files the editor rebuilds the timeline from. Nothing is rendered again; colour matching, interpolation and upscaling stay with the video export.">
                 <Segmented<"video" | "editor"> label="Export for" value={exp.for} onChange={(v) => setExp({ ...exp, for: v })} options={[{ value: "video", label: "Video file" }, { value: "editor", label: "A video editor" }]} oneLine className="w-fit" />
